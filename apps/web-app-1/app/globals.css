@@ -1,0 +1,27 @@
+@import "@repo/ui/styles.css";
+
+@layer base {
+  :root {
+    --color-background: #ffffff;
+    --color-foreground: #171717;
+    --font-sans: var(--font-geist-sans);
+    --font-mono: var(--font-geist-mono);
+    --background: var(--color-background);
+    --foreground: var(--color-foreground);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-background: #0a0a0a;
+      --color-foreground: #ededed;
+      --background: var(--color-background);
+      --foreground: var(--color-foreground);
+    }
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: Arial, Helvetica, sans-serif;
+  }
+}
