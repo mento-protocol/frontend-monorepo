@@ -184,14 +184,47 @@ The repository is set up with GitHub Actions for CI/CD:
 
 ### Turborepo Remote Caching
 
-The CI/CD pipeline is configured to use Turborepo's remote caching with Vercel for faster builds.
+This repo utilizes [Turborepo's Remote Caching](https://turbo.build/repo/docs/core-concepts/remote-caching), to speed up local development and CI/CD runs. It works by storing the outputs (build artifacts, logs) of tasks (like `build`, `test`, `lint`) in a shared remote cache on Vercel. Before running a task, Turborepo calculates a hash based on the input files, environment variables, and dependencies. If that hash exists in the remote cache, Turborepo downloads the stored output and logs instead of executing the task locally, saving a lot of time.
 
-To enable remote caching locally:
+#### Local Development Setup
 
-```bash
-pnpm dlx turbo login
-pnpm dlx turbo link
-```
+To connect your local machine to the remote cache:
+
+1. **Login to Vercel via Turbo CLI:**
+
+    ```bash
+    pnpm dlx turbo login
+    ```
+
+    Follow the prompts to authenticate with your Vercel account.
+
+2. **Link the Repository:**
+
+    ```bash
+    pnpm dlx turbo link
+    ```
+
+    This connects the local repository instance to your Vercel account/team's remote cache storage.
+
+Once linked, `turbo` commands (like `pnpm build`, `pnpm test`) will automatically attempt to use the remote cache. You generally don't need to set `TURBO_TOKEN` or `TURBO_TEAM` locally after linking, as `turbo` stores the necessary credentials automatically.
+
+#### CI/CD (GitHub Actions) Setup
+
+The `.github/workflows/ci.yml` workflow is configured to automatically leverage remote caching:
+
+- It uses the `TURBO_TOKEN` (a Vercel Access Token) and `TURBO_TEAM` (your Vercel team slug/ID) environment variables.
+- These variables **must** be configured in the GitHub repository settings under **Settings > Secrets and variables > Actions**:
+  - `TURBO_TOKEN`: As a Repository Secret.
+  - `TURBO_TEAM`: As a Repository Variable.
+- With these variables set, the CI runner can authenticate with Vercel to read from and write to the remote cache.
+
+#### Signed Remote Caching
+
+This repository has Signed Remote Caching enabled (`"signature": true` in `turbo.json`) for enhanced security. This prevents cache poisoning by ensuring only trusted sources can write to the cache.
+
+- **How it works:** Artifacts uploaded to the cache are signed using a secret key. Artifacts downloaded are verified against this signature.
+- **CI Requirement:** The signing key must be provided to the CI environment via the `TURBO_REMOTE_CACHE_SIGNATURE_KEY` environment variable. This should be configured as a Repository Secret in GitHub Actions settings.
+- **Local Requirement:** If you need to *write* to the cache locally (i.e., upload artifacts that weren't already there) with signing enabled, you would also need to set the `TURBO_REMOTE_CACHE_SIGNATURE_KEY` environment variable in your local shell. Reading from the cache generally doesn't require the key.
 
 ## Troubleshooting
 
