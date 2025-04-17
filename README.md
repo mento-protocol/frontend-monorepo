@@ -192,19 +192,19 @@ To connect your local machine to the remote cache:
 
 1. **Login to Vercel via Turbo CLI:**
 
-    ```bash
-    pnpm dlx turbo login
-    ```
+   ```bash
+   pnpm dlx turbo login
+   ```
 
-    Follow the prompts to authenticate with your Vercel account.
+   Follow the prompts to authenticate with your Vercel account.
 
 2. **Link the Repository:**
 
-    ```bash
-    pnpm dlx turbo link
-    ```
+   ```bash
+   pnpm dlx turbo link
+   ```
 
-    This connects the local repository instance to your Vercel account/team's remote cache storage.
+   This connects the local repository instance to your Vercel account/team's remote cache storage.
 
 Once linked, `turbo` commands (like `pnpm build`, `pnpm test`) will automatically attempt to use the remote cache. You generally don't need to set `TURBO_TOKEN` or `TURBO_TEAM` locally after linking, as `turbo` stores the necessary credentials automatically.
 
@@ -224,7 +224,7 @@ This repository has Signed Remote Caching enabled (`"signature": true` in `turbo
 
 - **How it works:** Artifacts uploaded to the cache are signed using a secret key. Artifacts downloaded are verified against this signature.
 - **CI Requirement:** The signing key must be provided to the CI environment via the `TURBO_REMOTE_CACHE_SIGNATURE_KEY` environment variable. This should be configured as a Repository Secret in GitHub Actions settings.
-- **Local Requirement:** If you need to *write* to the cache locally (i.e., upload artifacts that weren't already there) with signing enabled, you would also need to set the `TURBO_REMOTE_CACHE_SIGNATURE_KEY` environment variable in your local shell. Reading from the cache generally doesn't require the key.
+- **Local Requirement:** If you need to _write_ to the cache locally (i.e., upload artifacts that weren't already there) with signing enabled, you would also need to set the `TURBO_REMOTE_CACHE_SIGNATURE_KEY` environment variable in your local shell. Reading from the cache generally doesn't require the key.
 
 ## Troubleshooting
 
