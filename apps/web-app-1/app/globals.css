@@ -1,4 +1,4 @@
-@import "@repo/ui/styles.css";
+@import "@repo/ui/globals.css";
 
 @layer base {
   :root {
@@ -10,13 +10,11 @@
     --foreground: var(--color-foreground);
   }
 
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --color-background: #0a0a0a;
-      --color-foreground: #ededed;
-      --background: var(--color-background);
-      --foreground: var(--color-foreground);
-    }
+  .dark:root {
+    --color-background: #0a0a0a;
+    --color-foreground: #ededed;
+    --background: var(--color-background);
+    --foreground: var(--color-foreground);
   }
 
   body {

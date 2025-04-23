@@ -141,8 +141,8 @@ The UI package is located in `packages/ui/` and contains reusable components bui
 Import components in your application:
 
 ```tsx
+import "@repo/ui/globals.css"; // Import once in your app
 import { Button } from "@repo/ui/button";
-import "@repo/ui/styles.css"; // Import once in your app
 ```
 
 ### Versioning and Publishing

@@ -6,7 +6,7 @@ async function getData() {
   await new Promise((resolve) => setTimeout(resolve, 100));
 
   return {
-    title: "Welcome to the App",
+    title: "Welcome to the Mento UI Library",
     description: "This content was rendered on the server.",
   };
 }
