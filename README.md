@@ -1,28 +1,37 @@
 # Frontend Monorepo
 
-This is a monorepo for frontend applications, designed to facilitate sharing code like components, styles, utils, and configs between different applications.
+A monorepo for all our frontend apps, designed to simplify sharing of code like components, styles, utils, and configs between different applications.
 
 ## Technology Stack
 
-- **Turborepo**: For monorepo management and build tooling
-- **Tailwind CSS**: For styling with shadcn/ui components
-- **Changesets**: For managing versions and generating changelogs
-- **GitHub Actions**: For CI/CD (with Turborepo caching via Vercel)
-- **Vercel**: As the deployment target
-- **TypeScript**: As the main language with shared, extendable config
-- **PNPM**: As the package manager
-- **Husky & Commitlint**: For Git hooks and conventional commits
+- **[Turborepo](https://turborepo.com/)**: For monorepo management and build tooling
+- **[PNPM](https://pnpm.io/)**: Our package manager
+- **[TypeScript](https://www.typescriptlang.org/)**: Our main language with shared, extendable config
+- **[NextJS](https://nextjs.org/)**: The framework for all our frontend apps
+- **[Tailwind CSS](https://tailwindcss.com/)**: For styling
+- **[shadcn/ui](https://ui.shadcn.com/)**: Our UI component base library to extend from
+- **[Changesets](https://github.com/changesets/changesets)**: For managing versions and generating changelogs
+- **[Vercel](https://vercel.com/)**: For deployments and turborepo build remote caching
+- **[GitHub Actions](https://github.com/features/actions)**: For CI/CD (with Turborepo caching for builds via Vercel)
+- **[Husky](https://typicode.github.io/husky/)** / **[lint-staged](https://www.npmjs.com/package/lint-staged)** / **[Commitlint](https://commitlint.js.org/)**: For Git hooks and clean commits
 
-## Repository Structure
+## Repo Structure
 
 ```txt
 frontend-monorepo/
 ├── apps/                     # Frontend applications
-│   ├── app.mento.org/        # Example Next.js application
+│   ├── app.mento.org/        # Mento Exchange UI
+│   ├── governance.mento.org/ # Governance UI
+│   ├── minipay.mento.org/    # MiniPay DApp
+│   ├── reserve.mento.org/    # Reserve UI
+│   └── ui.mento.org/         # Component Library Showcase
+│
 ├── packages/                 # Shared packages
 │   ├── eslint-config/        # Shared ESLint configuration
 │   ├── typescript-config/    # Shared TypeScript configuration
-│   └── ui/                   # Shared UI library with tailwind styles and shadcn/ui components
+│   ├── ui/                   # Shared UI library with tailwind styles and shadcn/ui components
+│   └── web3/                 # Shared library with web3-specific components and hooks
+│
 ├── .changeset/               # Changesets for versioning
 ├── .github/                  # GitHub workflows
 │   └── workflows/            # CI/CD workflows
@@ -42,8 +51,7 @@ frontend-monorepo/
 1. Clone the repository:
 
    ```bash
-   git clone <repository-url>
-   cd frontend-monorepo
+   git clone https://github.com/mento-protocol/frontend-monorepo && cd frontend-monorepo
    ```
 
 2. Install dependencies:
@@ -55,16 +63,69 @@ frontend-monorepo/
 3. Build all packages:
 
    ```bash
-   pnpm build
+   turbo build
    ```
 
 4. Start the development server for all applications:
 
    ```bash
-   pnpm dev
+   turbo dev
    ```
 
 ## Development Workflow
+
+### Running a Single Application
+
+To run a specific application:
+
+```bash
+cd apps/<app-name>
+pnpm dev
+```
+
+Or from the root directory:
+
+```bash
+pnpm dev --filter <app-name>
+# i.e. pnpm dev --filter ui.mento.org
+```
+
+### Building a Single Application
+
+To build a specific application:
+
+```bash
+pnpm build --filter <app-name>
+```
+
+### Working with Shared UI Components
+
+The UI package is located in `packages/ui/` and contains reusable components built with shadcn/ui.
+
+#### Adding a New Component via shadcn/ui
+
+shadcn/ui is our component base layer we extend from.
+
+1. Install the shadcn/ui component you need: `pnpm dlx shadcn@latest add button`
+1. Customize it to your needs by simply editing `./packages/ui/src/components/ui/button.tsx`
+1. Export the new component from the main barrel file `./packages/ui/src/index.ts`
+1. Build the UI package: `pnpm build --filter @repo/ui`
+
+#### Adding a New Custom Component (without shadcn/ui)
+
+1. Create a new component in `packages/ui/src/components`
+1. Export it from `packages/ui/src/index.ts`
+1. Build the UI package: `pnpm build --filter @repo/ui`
+
+#### Using UI Components in Applications
+
+Import components into an application:
+
+```tsx
+// layout.tsx
+import "@repo/ui/globals.css"; // Import once at the top of the app
+import { Button } from "@repo/ui";
+```
 
 ### Commit Convention
 
@@ -98,52 +159,6 @@ feat(ui): add new button component
 ```
 
 The pre-commit hook will run linters and type checking, while the commit-msg hook will validate your commit message format.
-
-### Running a Single Application
-
-To run a specific application:
-
-```bash
-cd apps/<app-name>
-pnpm dev
-```
-
-Or from the root directory:
-
-```bash
-pnpm --filter <app-name> dev
-```
-
-### Building a Single Application
-
-To build a specific application:
-
-```bash
-pnpm --filter <app-name> build
-```
-
-### Working with Shared UI Components
-
-The UI package is located in `packages/ui/` and contains reusable components built with shadcn/ui.
-
-#### Adding a New Component
-
-1. Create a new component in `packages/ui/src/`
-2. Export it from `packages/ui/src/index.ts`
-3. Build the UI package:
-
-   ```bash
-   pnpm --filter @repo/ui build
-   ```
-
-#### Using UI Components in Applications
-
-Import components in your application:
-
-```tsx
-import "@repo/ui/globals.css"; // Import once in your app
-import { Button } from "@repo/ui/button";
-```
 
 ### Versioning and Publishing
 
@@ -186,7 +201,7 @@ The repository is set up with GitHub Actions for CI/CD:
 
 This repo utilizes [Turborepo's Remote Caching](https://turbo.build/repo/docs/core-concepts/remote-caching), to speed up local development and CI/CD runs. It works by storing the outputs (build artifacts, logs) of tasks (like `build`, `test`, `lint`) in a shared remote cache on Vercel. Before running a task, Turborepo calculates a hash based on the input files, environment variables, and dependencies. If that hash exists in the remote cache, Turborepo downloads the stored output and logs instead of executing the task locally, saving a lot of time.
 
-#### Local Development Setup
+#### Local Development Remote Caching Setup
 
 To connect your local machine to the remote cache:
 
@@ -226,23 +241,8 @@ This repository has Signed Remote Caching enabled (`"signature": true` in `turbo
 - **CI Requirement:** The signing key must be provided to the CI environment via the `TURBO_REMOTE_CACHE_SIGNATURE_KEY` environment variable. This should be configured as a Repository Secret in GitHub Actions settings.
 - **Local Requirement:** If you need to _write_ to the cache locally (i.e., upload artifacts that weren't already there) with signing enabled, you would also need to set the `TURBO_REMOTE_CACHE_SIGNATURE_KEY` environment variable in your local shell. Reading from the cache generally doesn't require the key.
 
-## Troubleshooting
+## Potential Future Improvements
 
-### Common Issues
-
-- **Typescript Errors**: Make sure all dependencies are installed and you've built the packages:
-
-  ```bash
-  pnpm install
-  pnpm build
-  ```
-
-- **Component not found**: Ensure the UI package is built and exported correctly:
-
-  ```bash
-  pnpm --filter @repo/ui build
-  ```
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+- [ ] Add [syncpack](https://www.npmjs.com/package/syncpack) for consistent dependency versions across all monorepo packages
+- [ ] Finetune builds. There's probably ways to make the builds of both packages and apps smaller and/or more performant.
+- [ ] Make VS Code's "Go To Definition" on a component jump to the actual TypeScript source file instead of the compiled JS file in ./dist

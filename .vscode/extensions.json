@@ -5,6 +5,7 @@
     "bradlc.vscode-tailwindcss",
     "github.vscode-github-actions",
     "streetsidesoftware.code-spell-checker",
-    "yoavbls.pretty-ts-errors"
+    "yoavbls.pretty-ts-errors",
+    "vercel.turbo-vsc"
   ]
 }

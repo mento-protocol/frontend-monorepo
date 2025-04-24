@@ -39,7 +39,7 @@ importers:
         specifier: ^5.8.3
         version: 5.8.3
 
-  apps/web-app-1:
+  apps/ui.mento.org:
     dependencies:
       '@repo/ui':
         specifier: workspace:*
@@ -95,6 +95,10 @@ importers:
         version: 5.8.3
 
   packages/eslint-config:
+    dependencies:
+      eslint-config-turbo:
+        specifier: ^2.5.1
+        version: 2.5.1(eslint@9.24.0(jiti@2.4.2))(turbo@2.5.0)
     devDependencies:
       '@eslint/js':
         specifier: ^9.24.0
@@ -117,9 +121,6 @@ importers:
       eslint-plugin-react-hooks:
         specifier: ^5.2.0
         version: 5.2.0(eslint@9.24.0(jiti@2.4.2))
-      eslint-plugin-turbo:
-        specifier: ^2.5.0
-        version: 2.5.0(eslint@9.24.0(jiti@2.4.2))(turbo@2.5.0)
       globals:
         specifier: ^16.0.0
         version: 16.0.0
@@ -2088,6 +2089,12 @@ packages:
     peerDependencies:
       eslint: '>=7.0.0'
 
+  eslint-config-turbo@2.5.1:
+    resolution: {integrity: sha512-p1K3KxDMdkhcbVsvFvWoB7WK8oFaR0+Bf1eTmT+B1rQp4b2GmRk48r2w2HHhtbmmpfUsXFRpBZV5ZvGtE8+jmQ==}
+    peerDependencies:
+      eslint: '>6.6.0'
+      turbo: '>2.0.0'
+
   eslint-plugin-only-warn@1.1.0:
     resolution: {integrity: sha512-2tktqUAT+Q3hCAU0iSf4xAN1k9zOpjK5WO8104mB0rT/dGhOa09582HN5HlbxNbPRZ0THV7nLGvzugcNOSjzfA==}
     engines: {node: '>=6'}
@@ -2104,8 +2111,8 @@ packages:
     peerDependencies:
       eslint: ^3 || ^4 || ^5 || ^6 || ^7 || ^8 || ^9.7
 
-  eslint-plugin-turbo@2.5.0:
-    resolution: {integrity: sha512-qQk54MrUZv0gnpxV23sccTc+FL3UJ8q7vG7HmXuS2RP8gdjWDwI1CCJTJD8EdRIDjsMxF0xi0AKcMY0CwIlXVg==}
+  eslint-plugin-turbo@2.5.1:
+    resolution: {integrity: sha512-liyy40BXnlQP37EX9Z03gqUeH8X8GetqDcOG6EhNqnFktJT3fq+XTLvWzhU+s62JFS5/Njcpm3QTOY9VjD4yAQ==}
     peerDependencies:
       eslint: '>6.6.0'
       turbo: '>2.0.0'
@@ -6026,6 +6033,12 @@ snapshots:
     dependencies:
       eslint: 9.24.0(jiti@2.4.2)
 
+  eslint-config-turbo@2.5.1(eslint@9.24.0(jiti@2.4.2))(turbo@2.5.0):
+    dependencies:
+      eslint: 9.24.0(jiti@2.4.2)
+      eslint-plugin-turbo: 2.5.1(eslint@9.24.0(jiti@2.4.2))(turbo@2.5.0)
+      turbo: 2.5.0
+
   eslint-plugin-only-warn@1.1.0: {}
 
   eslint-plugin-react-hooks@5.2.0(eslint@9.24.0(jiti@2.4.2)):
@@ -6054,7 +6067,7 @@ snapshots:
       string.prototype.matchall: 4.0.12
       string.prototype.repeat: 1.0.0
 
-  eslint-plugin-turbo@2.5.0(eslint@9.24.0(jiti@2.4.2))(turbo@2.5.0):
+  eslint-plugin-turbo@2.5.1(eslint@9.24.0(jiti@2.4.2))(turbo@2.5.0):
     dependencies:
       dotenv: 16.0.3
       eslint: 9.24.0(jiti@2.4.2)
