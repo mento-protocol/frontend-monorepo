@@ -1,0 +1,55 @@
+{
+  "eslint.workingDirectories": [
+    {
+      "mode": "auto"
+    }
+  ],
+  // By default VS Code will not trigger tailwind class completions when editing "string" content, for example within JSX attribute values. This setting will enable that.
+  "editor.quickSuggestions": {
+    "strings": "on"
+  },
+  // Tell VS Code to always open .css files in Tailwind CSS mode.
+  "files.associations": {
+    "*.css": "tailwindcss"
+  },
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "eslint.validate": [
+    "javascript",
+    "javascriptreact",
+    "typescript",
+    "typescriptreact"
+  ],
+  "prettier.documentSelectors": ["**/*.{js,jsx,ts,tsx,json,css,md,mdx}"],
+  "tailwindCSS.includeLanguages": {
+    "typescript": "javascript",
+    "typescriptreact": "javascript"
+  },
+  "typescript.preferences.importModuleSpecifier": "shortest",
+  "javascript.preferences.importModuleSpecifier": "shortest",
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/.next": true,
+    "**/.turbo": true
+  },
+  "files.exclude": {
+    "**/.git": true,
+    "**/.DS_Store": true
+  },
+  "cSpell.words": [
+    "commitlint",
+    "exof",
+    "fullwidth",
+    "healthcheck",
+    "mento",
+    "shadcn",
+    "turbopack",
+    "Turborepo"
+  ]
+}

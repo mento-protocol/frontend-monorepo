@@ -1,0 +1,6 @@
+echo "Running pre-push health checks..."
+
+# Execute the main healthcheck script
+sh ./scripts/healthcheck.sh
+
+# The exit code from healthcheck.sh will determine if the push is allowed. 
