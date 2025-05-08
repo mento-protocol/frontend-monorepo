@@ -156,6 +156,100 @@ export function ClientComponents() {
           </CardFooter>
         </Card>
       </div>
+
+      <div className="flex flex-wrap gap-6">
+        <Card className="flex h-full flex-grow flex-col">
+          <CardContent className="flex flex-grow gap-6">
+            <Button clipped="default">Swap to cUSD</Button>
+            <Button disabled clipped="default">
+              Swap to cUSD
+            </Button>
+          </CardContent>
+
+          <CardContent className="flex flex-grow gap-6">
+            <Button clipped="default" size="sm">
+              Swap to cUSD
+            </Button>
+            <Button disabled clipped="default" size="sm">
+              Swap to cUSD
+            </Button>
+          </CardContent>
+
+          <CardContent className="flex flex-grow gap-6">
+            <Button clipped="lg" size="lg">
+              Swap to cUSD
+            </Button>
+            <Button disabled clipped="lg" size="lg">
+              Swap to cUSD
+            </Button>
+          </CardContent>
+
+          <CardContent className="flex flex-grow gap-6">
+            <Button variant="secondary" clipped="default">
+              Swap to cUSD
+            </Button>
+            <Button variant="secondary" disabled clipped="default">
+              Swap to cUSD
+            </Button>
+          </CardContent>
+
+          <CardContent className="flex flex-grow gap-6">
+            <Button variant="secondary" clipped="default" size="sm">
+              Swap to cUSD
+            </Button>
+            <Button variant="secondary" disabled clipped="default" size="sm">
+              Swap to cUSD
+            </Button>
+          </CardContent>
+
+          <CardContent className="flex flex-grow gap-6">
+            <Button variant="secondary" clipped="lg" size="lg">
+              Swap to cUSD
+            </Button>
+            <Button variant="secondary" disabled clipped="lg" size="lg">
+              Swap to cUSD
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="flex h-full flex-grow flex-col">
+          <CardContent className="flex flex-grow gap-6">
+            <Button clipped="default" variant="approve">
+              Approve Proposal
+            </Button>
+            <Button clipped="default" variant="abstain">
+              Abstain
+            </Button>
+            <Button clipped="default" variant="reject">
+              Reject Proposal
+            </Button>
+          </CardContent>
+
+          <CardContent className="flex flex-grow gap-6">
+            <Button clipped="default" variant="approve" size="sm">
+              Approve Proposal
+            </Button>
+            <Button clipped="default" variant="abstain" size="sm">
+              Abstain
+            </Button>
+            <Button clipped="default" variant="reject" size="sm">
+              Reject Proposal
+            </Button>
+          </CardContent>
+
+          <CardContent className="flex flex-grow gap-6">
+            <Button clipped="default" variant="approve" size="lg">
+              Approve Proposal
+            </Button>
+            <Button clipped="default" variant="abstain" size="lg">
+              Abstain
+            </Button>
+            <Button clipped="default" variant="reject" size="lg">
+              Reject Proposal
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
