@@ -238,13 +238,13 @@ export function ClientComponents() {
           </CardContent>
 
           <CardContent className="flex flex-grow gap-6">
-            <Button clipped="default" variant="approve" size="lg">
+            <Button clipped="lg" variant="approve" size="lg">
               Approve Proposal
             </Button>
-            <Button clipped="default" variant="abstain" size="lg">
+            <Button clipped="lg" variant="abstain" size="lg">
               Abstain
             </Button>
-            <Button clipped="default" variant="reject" size="lg">
+            <Button clipped="lg" variant="reject" size="lg">
               Reject Proposal
             </Button>
           </CardContent>

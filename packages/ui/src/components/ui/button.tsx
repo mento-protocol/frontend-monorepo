@@ -20,9 +20,9 @@ const buttonVariants = cva(
         ghost:
           "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
         link: "text-primary underline-offset-4 hover:underline",
-        approve: "bg-[#1CB06B] text-white",
-        abstain: "bg-[#6F667A] text-white",
-        reject: "bg-[#C92C2C] text-white",
+        approve: "bg-[#1CB06B] text-white hover:bg-[#1CB06B]/90",
+        abstain: "bg-[#6F667A] text-white hover:bg-[#6F667A]/90",
+        reject: "bg-[#C92C2C] text-white hover:bg-[#C92C2C]/90",
       },
       size: {
         default: "h-8 px-8 py-2 has-[>svg]:px-3",
