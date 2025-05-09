@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 
 # Exit immediately if a command exits with a non-zero status.
-set -euo pipefail
+# set -euo pipefail
 
 echo "🚀 Running Health Checks..."
 

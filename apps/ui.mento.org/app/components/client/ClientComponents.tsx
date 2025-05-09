@@ -8,11 +8,25 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
+  CoinCard,
+  CoinCardHeader,
+  CoinCardHeaderGroup,
+  CoinCardSymbol,
+  CoinCardName,
+  CoinCardLogo,
+  CoinCardFooter,
+  CoinCardOriginFlag,
+  CoinCardOriginText,
+  CoinCardOrigin,
+  CoinCardSupply,
 } from "@repo/ui";
+
+import Image from "next/image";
+import USFlag from "./icons/us";
 
 export function ClientComponents() {
   return (
-    <div className="w-full space-y-8">
+    <div className="flex w-full flex-col gap-6">
       <div className="flex flex-wrap gap-6">
         {/* Card Component */}
         <Card className="flex h-full w-[300px] flex-col">
@@ -249,6 +263,35 @@ export function ClientComponents() {
             </Button>
           </CardContent>
         </Card>
+      </div>
+
+      <div className="flex flex-wrap gap-6">
+        <CoinCard>
+          <CoinCardHeader>
+            <CoinCardHeaderGroup>
+              <CoinCardSymbol>cUSD</CoinCardSymbol>
+              <CoinCardName>Celo Dollar</CoinCardName>
+            </CoinCardHeaderGroup>
+            <CoinCardLogo>
+              <Image
+                src="/celoDollar.png"
+                alt="Celo Dollar"
+                width={56}
+                height={56}
+                className="h-14 w-14"
+              />
+            </CoinCardLogo>
+          </CoinCardHeader>
+          <CoinCardFooter>
+            <CoinCardOrigin>
+              <CoinCardOriginFlag>
+                <USFlag className="h-4 w-4" />
+              </CoinCardOriginFlag>
+              <CoinCardOriginText>United States</CoinCardOriginText>
+            </CoinCardOrigin>
+            <CoinCardSupply>$464,278</CoinCardSupply>
+          </CoinCardFooter>
+        </CoinCard>
       </div>
     </div>
   );
