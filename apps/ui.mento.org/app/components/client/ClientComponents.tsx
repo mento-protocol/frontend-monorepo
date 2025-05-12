@@ -24,19 +24,7 @@ import {
 import Image from "next/image";
 import USFlag from "./icons/us";
 
-import GeneralIcons from "../../../../../packages/ui/src/assets/general-icons.svg";
-
-type IconProps = React.SVGProps<SVGSVGElement> & {
-  name: string; // The ID of the symbol in the sprite
-};
-
-export function Icon({ name, ...props }: IconProps) {
-  return (
-    <svg {...props}>
-      <use href={`${GeneralIcons}#${name}`} />
-    </svg>
-  );
-}
+import ArrowDoubleRightIcon from "./icons/arrow-double-right";
 
 export function ClientComponents() {
   return (
@@ -188,35 +176,36 @@ export function ClientComponents() {
       <div className="flex flex-wrap gap-6">
         <Card className="flex h-full flex-grow flex-col">
           <CardContent className="flex flex-grow gap-6">
-            <Button clipped="default">Swap to cUSD</Button>
+            <Button clipped="default">
+              Swap to cUSD
+              <ArrowDoubleRightIcon className="h-5 w-5" color="white" />
+            </Button>
             <Button disabled clipped="default">
               Swap to cUSD
+              <ArrowDoubleRightIcon className="h-5 w-5" color="white" />
             </Button>
           </CardContent>
           <CardContent className="flex flex-grow gap-6">
             <Button clipped="default" size="sm">
               Swap to cUSD
+              <ArrowDoubleRightIcon className="h-5 w-5" color="white" />
             </Button>
             <Button disabled clipped="default" size="sm">
               Swap to cUSD
+              <ArrowDoubleRightIcon className="h-5 w-5" color="white" />
             </Button>
           </CardContent>
 
           <CardContent className="flex flex-grow gap-6">
             <Button clipped="lg" size="lg">
               Swap to cUSD
+              <ArrowDoubleRightIcon className="h-5 w-5" color="white" />
             </Button>
             <Button disabled clipped="lg" size="lg">
               Swap to cUSD
+              <ArrowDoubleRightIcon className="h-5 w-5" color="white" />
             </Button>
           </CardContent>
-
-          <Icon
-            name="arrow-double-right"
-            width="24"
-            height="24"
-            fill="currentColor"
-          />
 
           <CardContent className="flex flex-grow gap-6">
             <Button variant="secondary" clipped="default">
