@@ -24,6 +24,20 @@ import {
 import Image from "next/image";
 import USFlag from "./icons/us";
 
+import GeneralIcons from "../../../../../packages/ui/src/assets/general-icons.svg";
+
+type IconProps = React.SVGProps<SVGSVGElement> & {
+  name: string; // The ID of the symbol in the sprite
+};
+
+export function Icon({ name, ...props }: IconProps) {
+  return (
+    <svg {...props}>
+      <use href={`${GeneralIcons}#${name}`} />
+    </svg>
+  );
+}
+
 export function ClientComponents() {
   return (
     <div className="flex w-full flex-col gap-6">
@@ -179,7 +193,6 @@ export function ClientComponents() {
               Swap to cUSD
             </Button>
           </CardContent>
-
           <CardContent className="flex flex-grow gap-6">
             <Button clipped="default" size="sm">
               Swap to cUSD
@@ -197,6 +210,13 @@ export function ClientComponents() {
               Swap to cUSD
             </Button>
           </CardContent>
+
+          <Icon
+            name="arrow-double-right"
+            width="24"
+            height="24"
+            fill="currentColor"
+          />
 
           <CardContent className="flex flex-grow gap-6">
             <Button variant="secondary" clipped="default">
