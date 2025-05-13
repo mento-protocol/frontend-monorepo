@@ -8,11 +8,27 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
+  CoinCard,
+  CoinCardHeader,
+  CoinCardHeaderGroup,
+  CoinCardSymbol,
+  CoinCardName,
+  CoinCardLogo,
+  CoinCardFooter,
+  CoinCardOriginFlag,
+  CoinCardOriginText,
+  CoinCardOrigin,
+  CoinCardSupply,
 } from "@repo/ui";
+
+import Image from "next/image";
+import USFlag from "./icons/us";
+
+import ArrowDoubleRightIcon from "./icons/arrow-double-right";
 
 export function ClientComponents() {
   return (
-    <div className="w-full space-y-8">
+    <div className="flex w-full flex-col gap-6">
       <div className="flex flex-wrap gap-6">
         {/* Card Component */}
         <Card className="flex h-full w-[300px] flex-col">
@@ -155,6 +171,136 @@ export function ClientComponents() {
             <Button size="sm">View Docs</Button>
           </CardFooter>
         </Card>
+      </div>
+
+      <div className="flex flex-wrap gap-6">
+        <Card className="flex h-full flex-grow flex-col">
+          <CardContent className="flex flex-grow gap-6">
+            <Button clipped="default">
+              Swap to cUSD
+              <ArrowDoubleRightIcon className="h-5 w-5" color="white" />
+            </Button>
+            <Button disabled clipped="default">
+              Swap to cUSD
+              <ArrowDoubleRightIcon className="h-5 w-5" color="white" />
+            </Button>
+          </CardContent>
+          <CardContent className="flex flex-grow gap-6">
+            <Button clipped="default" size="sm">
+              Swap to cUSD
+              <ArrowDoubleRightIcon className="h-5 w-5" color="white" />
+            </Button>
+            <Button disabled clipped="default" size="sm">
+              Swap to cUSD
+              <ArrowDoubleRightIcon className="h-5 w-5" color="white" />
+            </Button>
+          </CardContent>
+
+          <CardContent className="flex flex-grow gap-6">
+            <Button clipped="lg" size="lg">
+              Swap to cUSD
+              <ArrowDoubleRightIcon className="h-5 w-5" color="white" />
+            </Button>
+            <Button disabled clipped="lg" size="lg">
+              Swap to cUSD
+              <ArrowDoubleRightIcon className="h-5 w-5" color="white" />
+            </Button>
+          </CardContent>
+
+          <CardContent className="flex flex-grow gap-6">
+            <Button variant="secondary" clipped="default">
+              Swap to cUSD
+            </Button>
+            <Button variant="secondary" disabled clipped="default">
+              Swap to cUSD
+            </Button>
+          </CardContent>
+
+          <CardContent className="flex flex-grow gap-6">
+            <Button variant="secondary" clipped="default" size="sm">
+              Swap to cUSD
+            </Button>
+            <Button variant="secondary" disabled clipped="default" size="sm">
+              Swap to cUSD
+            </Button>
+          </CardContent>
+
+          <CardContent className="flex flex-grow gap-6">
+            <Button variant="secondary" clipped="lg" size="lg">
+              Swap to cUSD
+            </Button>
+            <Button variant="secondary" disabled clipped="lg" size="lg">
+              Swap to cUSD
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="flex h-full flex-grow flex-col">
+          <CardContent className="flex flex-grow gap-6">
+            <Button clipped="default" variant="approve">
+              Approve Proposal
+            </Button>
+            <Button clipped="default" variant="abstain">
+              Abstain
+            </Button>
+            <Button clipped="default" variant="reject">
+              Reject Proposal
+            </Button>
+          </CardContent>
+
+          <CardContent className="flex flex-grow gap-6">
+            <Button clipped="default" variant="approve" size="sm">
+              Approve Proposal
+            </Button>
+            <Button clipped="default" variant="abstain" size="sm">
+              Abstain
+            </Button>
+            <Button clipped="default" variant="reject" size="sm">
+              Reject Proposal
+            </Button>
+          </CardContent>
+
+          <CardContent className="flex flex-grow gap-6">
+            <Button clipped="lg" variant="approve" size="lg">
+              Approve Proposal
+            </Button>
+            <Button clipped="lg" variant="abstain" size="lg">
+              Abstain
+            </Button>
+            <Button clipped="lg" variant="reject" size="lg">
+              Reject Proposal
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="flex flex-wrap gap-6">
+        <CoinCard>
+          <CoinCardHeader>
+            <CoinCardHeaderGroup>
+              <CoinCardSymbol>cUSD</CoinCardSymbol>
+              <CoinCardName>Celo Dollar</CoinCardName>
+            </CoinCardHeaderGroup>
+            <CoinCardLogo>
+              <Image
+                src="/celoDollar.png"
+                alt="Celo Dollar"
+                width={56}
+                height={56}
+                className="h-14 w-14"
+              />
+            </CoinCardLogo>
+          </CoinCardHeader>
+          <CoinCardFooter>
+            <CoinCardOrigin>
+              <CoinCardOriginFlag>
+                <USFlag className="h-4 w-4" />
+              </CoinCardOriginFlag>
+              <CoinCardOriginText>United States</CoinCardOriginText>
+            </CoinCardOrigin>
+            <CoinCardSupply>$464,278</CoinCardSupply>
+          </CoinCardFooter>
+        </CoinCard>
       </div>
     </div>
   );
