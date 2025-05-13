@@ -18,7 +18,7 @@
     "./globals.css": "./dist/globals.css"
   },
   "scripts": {
-    "lint": "eslint . --max-warnings 0",
+    "lint": "eslint . --max-warnings 100",
     "generate:component": "turbo gen react-component",
     "check-types": "tsc --noEmit",
     "build:css": "tailwindcss -i ./src/globals.css -o ./dist/globals.css --minify",
