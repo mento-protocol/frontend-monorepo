@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: "123456789123456789"
+      NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_PROJECT_ID }}
 
     steps:
       - name: Check out code
@@ -57,9 +57,8 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      # TODO: uncomment when env variables added to github secrets
-      # - name: Build
-      #   run: pnpm build
+      - name: Build
+        run: pnpm build
 
       - name: Type check
         run: pnpm check-types
