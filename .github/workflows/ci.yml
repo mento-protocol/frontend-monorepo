@@ -57,8 +57,9 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      - name: Build
-        run: pnpm build
+      # TODO: uncomment when env variables added to github secrets
+      # - name: Build
+      #   run: pnpm build
 
       - name: Type check
         run: pnpm check-types
