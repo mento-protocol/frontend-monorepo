@@ -10,7 +10,7 @@ interface Config {
 const isDevMode = process.env.NODE_ENV === "development";
 const version = process.env.NEXT_PUBLIC_VERSION ?? null;
 const walletConnectProjectId = process.env
-  .NEXT_PUBLIC_WALLET_CONNECT_ID as string;
+  .NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID as string;
 
 export const config: Config = Object.freeze({
   debug: isDevMode,
