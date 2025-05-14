@@ -17,6 +17,9 @@ jobs:
     timeout-minutes: 15
     runs-on: ubuntu-latest
 
+    env:
+      NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: "123456789123456789"
+
     steps:
       - name: Check out code
         uses: actions/checkout@v4
