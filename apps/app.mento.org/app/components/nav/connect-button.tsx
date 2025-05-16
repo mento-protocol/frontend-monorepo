@@ -10,7 +10,7 @@ import {
 import { useState } from "react";
 import { toast } from "react-toastify";
 import { Identicon } from "@/components/identicon";
-import { SolidButton } from "@/components/buttons/solid-button";
+// import { SolidButton } from "@/components/buttons/solid-button";
 import { BalancesSummary } from "@/components/nav/balances-summary";
 import { NetworkModal } from "@/components/nav/network-modal";
 import { cleanupStaleWalletSessions } from "@/lib/config/wallets";
@@ -18,6 +18,8 @@ import { DropdownModal } from "@/components/layout/dropdown";
 import { shortenAddress } from "@/lib/utils/addresses";
 import { tryClipboardSet } from "@/lib/utils/clipboard";
 import { useAccount, useDisconnect } from "wagmi";
+
+import { Button } from "@repo/ui";
 
 export function ConnectButton() {
   const { address, isConnected } = useAccount();
@@ -103,20 +105,23 @@ export function ConnectButton() {
           modalClasses="right-px min-w-[272px] border border-solid border-black dark:border-[#333336] text-sm !rounded-[16px] !shadow-lg2 dark:bg-[#1D1D20]/[1]"
         />
       ) : (
-        <SolidButton
-          color="black"
-          classes={styles.walletButtonDefault}
-          icon={
-            <Wallet
-              size={iconSize}
-              strokeWidth={iconStrokeWidth}
-              className="mr-3 text-black dark:text-white"
-            />
-          }
-          onClick={onClickConnect}
-        >
-          <div className="hidden sm:block">Connect</div>
-        </SolidButton>
+        <>
+          <Button clipped="sm">Connect</Button>
+        </>
+        // <SolidButton
+        //   color="black"
+        //   classes={styles.walletButtonDefault}
+        //   icon={
+        //     <Wallet
+        //       size={iconSize}
+        //       strokeWidth={iconStrokeWidth}
+        //       className="mr-3 text-black dark:text-white"
+        //     />
+        //   }
+        //   onClick={onClickConnect}
+        // >
+        //   <div className="hidden sm:block">Connect</div>
+        // </SolidButton>
       )}
       {showNetworkModal && (
         <NetworkModal
