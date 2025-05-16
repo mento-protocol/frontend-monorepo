@@ -1,5 +1,8 @@
 "use client";
 
+import * as React from "react";
+import { ThemeProvider as NextThemesProvider } from "next-themes";
+
 import type { PropsWithChildren } from "react";
 import { usePathname } from "next/navigation";
 
@@ -13,11 +16,11 @@ import "@/lib/vendor/inpage-metamask";
 
 import { Alfajores, Baklava, Celo } from "@celo/rainbowkit-celo/chains";
 import {
-  RainbowKitProvider,
+  // RainbowKitProvider,
   connectorsForWallets,
-  lightTheme,
+  // lightTheme,
 } from "@rainbow-me/rainbowkit";
-import "@rainbow-me/rainbowkit/styles.css";
+// import "@rainbow-me/rainbowkit/styles.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Analytics } from "@vercel/analytics/react";
 import { ToastContainer, Zoom, toast } from "react-toastify";
@@ -57,30 +60,37 @@ function SafeHydrate({ children }: PropsWithChildren<unknown>) {
   return <>{children}</>;
 }
 
-export function ClientProviders({ children }: PropsWithChildren) {
+export function ClientProviders({ children, ...props }: PropsWithChildren) {
   const pathName = usePathname();
 
   return (
     <ErrorBoundary>
       <SafeHydrate>
         <QueryClientProvider client={reactQueryClient}>
-          <WagmiConfig client={wagmiClient}>
-            <RainbowKitProvider
-              chains={chains}
-              theme={lightTheme({
-                accentColor: Color.primary,
-                borderRadius: "none",
-                fontStack: "system",
-              })}
-            >
+          <NextThemesProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            // disableTransitionOnChange
+          >
+            <WagmiConfig client={wagmiClient}>
+              {/* <RainbowKitProvider
+                chains={chains}
+                theme={lightTheme({
+                  accentColor: Color.primary,
+                  borderRadius: "none",
+                  fontStack: "system",
+                })}
+              > */}
               <AppLayout pathName={pathName}>{children}</AppLayout>
               <ToastContainer
                 transition={Zoom}
                 position={toast.POSITION.BOTTOM_RIGHT}
                 limit={2}
               />
-            </RainbowKitProvider>
-          </WagmiConfig>
+              {/* </RainbowKitProvider> */}
+            </WagmiConfig>
+          </NextThemesProvider>
         </QueryClientProvider>
       </SafeHydrate>
       <Analytics />
