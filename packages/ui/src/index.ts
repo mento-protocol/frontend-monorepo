@@ -9,3 +9,7 @@ export * from "./components/ui/sidebar.js";
 
 // Also export any utility functions or types that might be needed
 export * from "./lib/index.js";
+
+export { default as IconBrandDiscord } from "./components/icons/icon_brand_discord.js";
+export { default as IconBrandGithub } from "./components/icons/icon_brand_github.js";
+export { default as IconBrandX } from "./components/icons/icon_brand_x.js";

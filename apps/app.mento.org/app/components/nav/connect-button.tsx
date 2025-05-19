@@ -10,7 +10,7 @@ import {
 import { useState } from "react";
 import { toast } from "react-toastify";
 import { Identicon } from "@/components/identicon";
-// import { SolidButton } from "@/components/buttons/solid-button";
+import { SolidButton } from "@/components/buttons/solid-button";
 import { BalancesSummary } from "@/components/nav/balances-summary";
 import { NetworkModal } from "@/components/nav/network-modal";
 import { cleanupStaleWalletSessions } from "@/lib/config/wallets";
@@ -106,22 +106,24 @@ export function ConnectButton() {
         />
       ) : (
         <>
-          <Button clipped="sm">Connect</Button>
+          <Button clipped="sm" onClick={onClickConnect}>
+            Connect Wallet
+          </Button>
+          {/* <SolidButton
+            color="black"
+            classes={styles.walletButtonDefault}
+            icon={
+              <Wallet
+                size={iconSize}
+                strokeWidth={iconStrokeWidth}
+                className="mr-3 text-black dark:text-white"
+              />
+            }
+            onClick={onClickConnect}
+          >
+            <div className="hidden sm:block">Connect</div>
+          </SolidButton> */}
         </>
-        // <SolidButton
-        //   color="black"
-        //   classes={styles.walletButtonDefault}
-        //   icon={
-        //     <Wallet
-        //       size={iconSize}
-        //       strokeWidth={iconStrokeWidth}
-        //       className="mr-3 text-black dark:text-white"
-        //     />
-        //   }
-        //   onClick={onClickConnect}
-        // >
-        //   <div className="hidden sm:block">Connect</div>
-        // </SolidButton>
       )}
       {showNetworkModal && (
         <NetworkModal
