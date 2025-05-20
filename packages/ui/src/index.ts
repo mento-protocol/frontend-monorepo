@@ -13,6 +13,8 @@ export * from "./components/theme-provider.js";
 export * from "./components/logo.js";
 export * from "./components/navigation.js";
 
+export * from "./components/ui/coinSelect.js";
+
 // Also export any utility functions or types that might be needed
 export * from "./lib/index.js";
 
