@@ -19,7 +19,7 @@ export default function SwapPage() {
 
   return (
     <div className="flex h-full w-full flex-wrap items-center justify-center">
-      <div className="mb-6 w-full max-w-md">
+      <div className="mb-6 w-full max-w-lg">
         {!formValues || !confirmView ? (
           <SwapFormCard />
         ) : (

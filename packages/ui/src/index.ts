@@ -7,6 +7,8 @@ export * from "./components/ui/card.js";
 export * from "./components/ui/coinCard.js";
 export * from "./components/ui/sidebar.js";
 
+export * from "./components/ui/coinSelect.js";
+
 // Also export any utility functions or types that might be needed
 export * from "./lib/index.js";
 
