@@ -9,7 +9,6 @@ import { cn } from "@/lib/utils.js";
 function CoinSelect({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Root>) {
-  console.log("CoinSelect Props", props);
   return <SelectPrimitive.Root data-slot="select" {...props} />;
 }
 

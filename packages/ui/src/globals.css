@@ -7,7 +7,7 @@
 @import "tw-animate-css";
 @import "./theme.css";
 
-/* @custom-variant dark (&:is(.dark *)); */
+@custom-variant dark (&:is(.dark, .dark *));
 
 .clip-btn-default {
   clip-path: polygon(
@@ -34,9 +34,12 @@
   );
 }
 
-/* .bg-card {
-  background-color: var(--background);
-} */
+.bg-card {
+  background-color: var(--card);
+}
+.bg-incard {
+  background-color: var(--incard);
+}
 
 :root {
   --radius: 0;

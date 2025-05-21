@@ -4,7 +4,7 @@ export * from "./components/mode-toggle.js";
 
 export * from "./components/ui/button.js";
 export * from "./components/ui/card.js";
-export * from "./components/ui/coinCard.js";
+export * from "./components/ui/coin-card.js";
 export * from "./components/ui/sidebar.js";
 export * from "./components/ui/tabs.js";
 export * from "./components/ui/reserve-chart.js";
@@ -13,7 +13,13 @@ export * from "./components/theme-provider.js";
 export * from "./components/logo.js";
 export * from "./components/navigation.js";
 
-export * from "./components/ui/coinSelect.js";
+export * from "./components/ui/form.js";
+export * from "./components/ui/coin-input.js";
+export * from "./components/ui/input.js";
+export * from "./components/ui/label.js";
+
+export * from "./components/ui/coin-select.js";
+export * from "./components/ui/select.js";
 
 // Also export any utility functions or types that might be needed
 export * from "./lib/index.js";
