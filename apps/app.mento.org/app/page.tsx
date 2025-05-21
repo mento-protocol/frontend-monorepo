@@ -12,6 +12,8 @@ import { SwapFormCard } from "./features/swap/swap-form";
 import { config } from "./lib/config/config";
 import { TokenId } from "./lib/config/tokens";
 
+import { NewSwapFormCard } from "./components/new/swap/NewSwapFormCard";
+
 export default function SwapPage() {
   const formValues = useAtomValue(formValuesAtom);
   const showChart = useAtomValue(showChartAtom);
@@ -21,7 +23,10 @@ export default function SwapPage() {
     <div className="flex h-full w-full flex-wrap items-center justify-center">
       <div className="mb-6 w-full max-w-lg">
         {!formValues || !confirmView ? (
-          <SwapFormCard />
+          <>
+            {/* <SwapFormCard /> */}
+            <NewSwapFormCard />
+          </>
         ) : (
           <SwapConfirmCard formValues={formValues} />
         )}

@@ -5,6 +5,8 @@ import { Select } from "@/components/input/select";
 import { type TokenId, getTokenById } from "@/lib/config/tokens";
 import { TokenIcon } from "@/lib/images/tokens/token-icon";
 
+import { CoinSelect } from "@repo/ui";
+
 // RHF field props that will be passed by the Controller
 interface RHFFieldProps {
   name: string; // RHF's name for the field
@@ -40,15 +42,18 @@ export function TokenSelectField({
   };
 
   return (
-    <Select
-      value={value} // Use RHF's value
-      optionValues={tokenOptions}
-      onChange={handleChange} // Use our wrapper that calls RHF's onChange
-      button={TokenButton}
-      option={Option}
-      buttonLabel={label}
-      // name={name} // The 'Select' component itself might not need 'name' if RHF Controller handles it
-    />
+    <>
+      <Select
+        value={value} // Use RHF's value
+        optionValues={tokenOptions}
+        onChange={handleChange} // Use our wrapper that calls RHF's onChange
+        button={TokenButton}
+        option={Option}
+        buttonLabel={label}
+        // name={name} // The 'Select' component itself might not need 'name' if RHF Controller handles it
+      />
+      <CoinSelect />
+    </>
   );
 }
 
