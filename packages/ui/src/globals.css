@@ -34,9 +34,6 @@
   );
 }
 
-.bg-card {
-  background-color: var(--card);
-}
 .bg-incard {
   background-color: var(--incard);
 }
