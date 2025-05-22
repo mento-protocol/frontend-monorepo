@@ -1,12 +1,9 @@
 "use client";
 
-import { Pie, PieChart, Cell } from "recharts";
-import {
-  type ChartConfig,
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from "./chart.js";
+import { Pie, PieChart, Cell, Sector } from "recharts";
+import { type ChartConfig, ChartContainer } from "./chart.js";
+import { useEffect, useState } from "react";
+import { PieSectorDataItem } from "recharts/types/polar/Pie.js";
 
 export interface ChartSegment {
   name: string;
@@ -55,6 +52,19 @@ export function ReserveChart({
   activeSegment,
   onActiveChanged,
 }: ReserveChartProps) {
+  const [activeSegmentInternal, setActiveSegmentInternal] = useState<
+    string | undefined
+  >(activeSegment);
+
+  useEffect(() => {
+    setActiveSegmentInternal(activeSegment);
+  }, [activeSegment]);
+
+  const handleActiveChanged = (name: string | undefined) => {
+    setActiveSegmentInternal(name);
+    onActiveChanged?.(name);
+  };
+
   if (!data || data.length === 0) {
     return (
       <div
@@ -74,10 +84,10 @@ export function ReserveChart({
   }, {} as ChartConfig);
   chartConfig.value = {};
 
+  const value = data.filter((d) => d.name === activeSegmentInternal)[0]?.value;
+
   return (
-    <div
-      className={`relative ${className || "mx-auto aspect-square max-h-[250px]"}`}
-    >
+    <div className={`relative ${className || "mx-auto aspect-square h-full"}`}>
       <div className="bg-card pointer-events-none absolute left-1/2 top-1/2 z-0 h-fit w-fit -translate-x-1/2 -translate-y-1/2 rounded-full p-8">
         <svg
           width="45"
@@ -95,20 +105,6 @@ export function ReserveChart({
       </div>
       <ChartContainer config={chartConfig} className="h-full w-full">
         <PieChart>
-          <ChartTooltip
-            cursor={false}
-            active={activeSegment !== undefined}
-            content={
-              <ChartTooltipContent
-                hideLabel={false}
-                className="w-fit text-xs"
-                formatter={(value, name) => [
-                  `${typeof value === "number" ? value.toFixed(2) : value}%`,
-                ]}
-              />
-            }
-          />
-          {/* Outer Ring (Solid) */}
           <Pie
             data={data}
             dataKey="value"
@@ -117,14 +113,31 @@ export function ReserveChart({
             outerRadius="95%"
             strokeWidth={0} // stroke="var(--background)"
             onMouseEnter={(_, index) =>
-              data[index] && onActiveChanged?.(data[index].name)
+              data[index] && handleActiveChanged(data[index].name)
             }
-            onMouseLeave={() => onActiveChanged?.(undefined)}
+            onMouseLeave={() => handleActiveChanged(undefined)}
             activeIndex={
-              activeSegment
-                ? data.findIndex((d) => d.name === activeSegment)
+              activeSegmentInternal
+                ? data.findIndex((d) => d.name === activeSegmentInternal)
                 : undefined
             }
+            activeShape={({ outerRadius = 0, ...props }: PieSectorDataItem) => {
+              return (
+                <g>
+                  <Sector
+                    {...props}
+                    outerRadius={outerRadius + 10}
+                    fill={props.payload.payload.color}
+                  />
+                  <Sector
+                    {...props}
+                    outerRadius={outerRadius + 15}
+                    innerRadius={outerRadius + 9}
+                    fill={props.payload.payload.color}
+                  />
+                </g>
+              );
+            }}
           >
             {data.map((entry) => (
               <Cell key={`cell-outer-${entry.name}`} fill={entry.color} />
@@ -139,12 +152,12 @@ export function ReserveChart({
             outerRadius="60%" // Ends where the outer ring begins
             strokeWidth={0}
             onMouseEnter={(_, index) =>
-              data[index] && onActiveChanged?.(data[index].name)
+              data[index] && handleActiveChanged(data[index].name)
             }
-            onMouseLeave={() => onActiveChanged?.(undefined)}
+            onMouseLeave={() => handleActiveChanged(undefined)}
             activeIndex={
-              activeSegment
-                ? data.findIndex((d) => d.name === activeSegment)
+              activeSegmentInternal
+                ? data.findIndex((d) => d.name === activeSegmentInternal)
                 : undefined
             }
           >
@@ -157,6 +170,12 @@ export function ReserveChart({
           </Pie>
         </PieChart>
       </ChartContainer>
+
+      {value && (
+        <div className="text-muted-foreground bg-muted mx-auto w-fit p-2">
+          {value.toFixed(2)}%
+        </div>
+      )}
     </div>
   );
 }

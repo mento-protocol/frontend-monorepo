@@ -26,6 +26,7 @@ import type {
 } from "../lib/types";
 import { useState } from "react";
 import { env } from "@/env.mjs";
+import { Navigation } from "@repo/ui";
 
 interface ContentProps {
   stableCoinStats: StableValueTokensAPI;
@@ -144,6 +145,7 @@ export function Content({
                 const celoComp = reserveComposition.find(
                   (c) => c.token === celoDetails.token,
                 );
+
                 // TODO: Confirm CELO icon path or make it dynamic if possible
                 const celoIcon = "/icons/celo.svg"; // Placeholder icon path
 

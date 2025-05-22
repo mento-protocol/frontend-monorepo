@@ -180,7 +180,7 @@ async function getReserveHoldings(): Promise<HoldingsApi> {
         units: Number(asset.totalBalance),
         value: asset.usdValue,
         updated: Date.now(),
-        // iconUrl would need to be sourced if required, not present in ExternalAnalyticsApiResponse
+        iconUrl: asset.iconUrl,
       })),
   };
 

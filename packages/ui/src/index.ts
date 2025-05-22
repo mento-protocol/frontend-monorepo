@@ -10,6 +10,8 @@ export * from "./components/ui/tabs.js";
 export * from "./components/ui/reserve-chart.js";
 export * from "./components/ui/community-card.js";
 export * from "./components/theme-provider.js";
+export * from "./components/logo.js";
+export * from "./components/navigation.js";
 
 // Also export any utility functions or types that might be needed
 export * from "./lib/index.js";

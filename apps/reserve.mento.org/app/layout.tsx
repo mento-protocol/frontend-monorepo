@@ -1,6 +1,6 @@
 import "@repo/ui/globals.css";
-import "./globals.css";
 import localFont from "next/font/local";
+import "./globals.css";
 
 import { Analytics } from "@vercel/analytics/react";
 import type { Metadata } from "next";
@@ -35,7 +35,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${aspekta.className} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${aspekta.className} dark antialiased`}
       >
         <Providers>{children}</Providers>
         <Analytics />

@@ -72,7 +72,7 @@ export interface ExternalReserveAsset {
   symbol: string;
   totalBalance: string; // Will be converted to number
   usdValue: number;
-  // icon_url might be available directly or via a mapping service if needed later
+  iconUrl?: string;
 }
 
 export interface ExternalAnalyticsApiResponse {
