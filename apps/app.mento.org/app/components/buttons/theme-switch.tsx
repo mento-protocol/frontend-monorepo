@@ -13,7 +13,7 @@ export function ThemeSwitch() {
     <>
       <div>
         <Button
-          className={`gap-0 after:absolute after:top-[2px] after:z-0 after:h-[30px] after:w-[30px] after:transition-all after:duration-300 ${theme === "light" ? "after:left-[2px] after:bg-white" : "after:left-[34px] after:bg-[#6F667A]"}`}
+          // className={`gap-0 after:absolute after:top-[2px] after:z-0 after:h-[30px] after:w-[30px] after:transition-all after:duration-300 ${theme === "light" ? "after:left-[2px] after:bg-white" : "after:left-[34px] after:bg-[#6F667A]"}`}
           variant="switch"
           size="switch"
           onClick={() => setTheme(theme === "light" ? "dark" : "light")}

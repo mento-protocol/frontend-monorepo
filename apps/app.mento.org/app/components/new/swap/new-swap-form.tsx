@@ -58,7 +58,7 @@ export default function NewSwapForm() {
     <Form {...form}>
       <form
         onSubmit={form.handleSubmit(onSubmit)}
-        className="mx-auto max-w-3xl space-y-8"
+        className="mx-auto max-w-3xl space-y-6"
       >
         <div className="bg-incard grid grid-cols-12 gap-4 p-4">
           <div className="col-span-6">
@@ -169,6 +169,19 @@ export default function NewSwapForm() {
             />
           </div>
         </div>
+
+        <div className="flex w-full flex-col items-start justify-start space-y-2">
+          <div className="flex w-full flex-row items-center justify-between">
+            <span className="text-muted-foreground">Quote</span>
+            <span>1 CELO = 0.35 cUSD</span>
+          </div>
+
+          <div className="flex w-full flex-row items-center justify-between">
+            <span className="text-muted-foreground">Transaction cost</span>
+            <span>$0.90</span>
+          </div>
+        </div>
+
         <Button clipped="lg" size="lg" className="w-full" type="submit">
           Submit
         </Button>

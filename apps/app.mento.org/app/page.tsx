@@ -12,7 +12,7 @@ import { SwapFormCard } from "./features/swap/swap-form";
 import { config } from "./lib/config/config";
 import { TokenId } from "./lib/config/tokens";
 
-import { NewSwapFormCard } from "./components/new/swap/NewSwapFormCard";
+import { NewSwapFormCard } from "./components/new/swap/new-swap-form-card";
 
 export default function SwapPage() {
   const formValues = useAtomValue(formValuesAtom);

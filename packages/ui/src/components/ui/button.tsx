@@ -24,7 +24,7 @@ const buttonVariants = cva(
         abstain: "bg-[#6F667A] text-white hover:bg-[#6F667A]/90",
         reject: "bg-[#C92C2C] text-white hover:bg-[#C92C2C]/90",
         switch:
-          "bg-transparent text-[#6F667A] dark:bg-[#3B3347] dark:text-[#8E8B92] border-solid border border-[#ADAAB2] dark:border-[#272130] relative gap-0",
+          "bg-card text-[#6F667A] dark:text-[#8E8B92] border-solid border border-[#ADAAB2] dark:border-[#272130] relative gap-0",
       },
       size: {
         default: "h-8 px-8 py-2 has-[>svg]:px-3",
@@ -58,6 +58,12 @@ function Button({
     asChild?: boolean;
   }) {
   const Comp = asChild ? Slot : "button";
+
+  console.log(
+    "variants: ",
+    cn(buttonVariants({ variant, size, clipped, className })),
+    variant,
+  );
 
   return (
     <Comp
