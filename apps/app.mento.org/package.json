@@ -14,6 +14,7 @@
     "@ethersproject/address": "^5.8.0",
     "@ethersproject/units": "^5.8.0",
     "@headlessui/react": "^1.7.13",
+    "@hookform/resolvers": "^5.0.1",
     "@mento-protocol/mento-sdk": "^1.0.8",
     "@metamask/jazzicon": "https://github.com/jmrossy/jazzicon#7a8df28",
     "@metamask/post-message-stream": "6.1.2",
@@ -38,9 +39,11 @@
     "react-hook-form": "^7.51.5",
     "react-toastify": "^9.1.3",
     "sharp": "^0.33.0",
+    "sonner": "^2.0.3",
     "toformat": "^2.0.0",
     "viem": "2.29.1",
-    "wagmi": "0.12.18"
+    "wagmi": "0.12.18",
+    "zod": "^3.25.20"
   },
   "devDependencies": {
     "@repo/eslint-config": "workspace:*",

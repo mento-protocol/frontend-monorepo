@@ -19,6 +19,8 @@ import { shortenAddress } from "@/lib/utils/addresses";
 import { tryClipboardSet } from "@/lib/utils/clipboard";
 import { useAccount, useDisconnect } from "wagmi";
 
+import { Button } from "@repo/ui";
+
 export function ConnectButton() {
   const { address, isConnected } = useAccount();
   const { openConnectModal } = useConnectModal();
@@ -103,20 +105,25 @@ export function ConnectButton() {
           modalClasses="right-px min-w-[272px] border border-solid border-black dark:border-[#333336] text-sm !rounded-[16px] !shadow-lg2 dark:bg-[#1D1D20]/[1]"
         />
       ) : (
-        <SolidButton
-          color="black"
-          classes={styles.walletButtonDefault}
-          icon={
-            <Wallet
-              size={iconSize}
-              strokeWidth={iconStrokeWidth}
-              className="mr-3 text-black dark:text-white"
-            />
-          }
-          onClick={onClickConnect}
-        >
-          <div className="hidden sm:block">Connect</div>
-        </SolidButton>
+        <>
+          <Button clipped="sm" onClick={onClickConnect}>
+            Connect Wallet
+          </Button>
+          {/* <SolidButton
+            color="black"
+            classes={styles.walletButtonDefault}
+            icon={
+              <Wallet
+                size={iconSize}
+                strokeWidth={iconStrokeWidth}
+                className="mr-3 text-black dark:text-white"
+              />
+            }
+            onClick={onClickConnect}
+          >
+            <div className="hidden sm:block">Connect</div>
+          </SolidButton> */}
+        </>
       )}
       {showNetworkModal && (
         <NetworkModal

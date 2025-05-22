@@ -3,17 +3,21 @@
 import Link from "next/link";
 import { ConnectButton } from "@/components/nav/connect-button";
 
+import { ThemeSwitch } from "@/components/buttons/theme-switch";
+
+import Logo from "@/components/logo";
+
 export function Header() {
   return (
-    <header className="relative z-30 w-screen px-3 pb-5 pt-4 sm:pl-5 sm:pr-6">
-      <div className="flex items-center justify-between text-white">
+    <header className="relative z-10">
+      <div className="flex h-20 flex-row items-center justify-between gap-6">
         <Link href="/" className="flex items-center sm:hidden">
-          Mento
+          <Logo />
         </Link>
-        <Link href="/" className="hidden items-center sm:flex">
-          Mento
-        </Link>
-        <ConnectButton />
+        <div className="flex flex-row items-center justify-between gap-2 px-6">
+          <ThemeSwitch />
+          <ConnectButton />
+        </div>
       </div>
     </header>
   );
