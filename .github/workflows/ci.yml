@@ -19,6 +19,7 @@ jobs:
 
     env:
       NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_PROJECT_ID }}
+      NEXT_PUBLIC_STORAGE_URL: ${{ secrets.STORAGE_URL }}
 
     steps:
       - name: Check out code
