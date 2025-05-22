@@ -1,4 +1,5 @@
 @theme {
+  --font-sans: "AspektaVF", "Geist Sans", sans-serif;
   --color-primary: #4d62f0;
   --color-primary-light: #4d62f0;
   --color-primary-dark: #2a326a;

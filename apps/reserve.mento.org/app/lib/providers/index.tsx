@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import type React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Navigation, ThemeProvider } from "@repo/ui";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -20,5 +21,10 @@ function QueryProvider({ children }: { children: React.ReactNode }) {
 }
 
 export default function Providers({ children }: { children: ReactNode }) {
-  return <QueryProvider>{children}</QueryProvider>;
+  return (
+    <QueryProvider>
+      <Navigation />
+      {children}
+    </QueryProvider>
+  );
 }
