@@ -3,9 +3,9 @@ import { ethers } from "ethers";
 import { useEffect } from "react";
 import { toast } from "react-toastify";
 import { SWAP_QUOTE_REFETCH_INTERVAL } from "@/lib/config/consts";
-import { TokenId, Tokens, getTokenAddress } from "@/lib/config/tokens";
+import { type TokenId, Tokens, getTokenAddress } from "@/lib/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
-import { SwapDirection } from "@/features/swap/types";
+import type { SwapDirection } from "@/features/swap/types";
 import {
   calcExchangeRate,
   invertExchangeRate,
@@ -116,19 +116,15 @@ function getToastErrorMessage(
   { fromTokenSymbol, toTokenSymbol }: IGetToastErrorOptions = {},
 ): string {
   switch (true) {
-    case swapErrorMessage.includes(`overflow x1y1`):
+    case swapErrorMessage.includes("overflow x1y1"):
       return "Amount in is too large";
-    case swapErrorMessage.includes(`can't create fixidity number larger than`):
+    case swapErrorMessage.includes("can't create fixidity number larger than"):
       return "Amount out is too large";
-    case swapErrorMessage.includes(`no valid median`):
+    case swapErrorMessage.includes("no valid median"):
     case swapErrorMessage.includes(
-      `Trading is suspended for this reference rate`,
+      "Trading is suspended for this reference rate",
     ):
-      return (
-        "Trading temporarily paused.  " +
-        `Unable to determine accurate ${fromTokenSymbol} to ${toTokenSymbol} exchange rate now. ` +
-        "Please try again later."
-      );
+      return `Trading temporarily paused.  Unable to determine accurate ${fromTokenSymbol} to ${toTokenSymbol} exchange rate now. Please try again later.`;
     default:
       return "Unable to fetch swap amount";
   }

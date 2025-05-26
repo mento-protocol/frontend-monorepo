@@ -14,6 +14,8 @@ import { resetLatestBlockAtom } from "@/features/blocks/block-atoms";
 import { resetTokenPricesAtom } from "@/features/chart/token-price-atoms";
 import type { FieldErrors as RHFFieldErrors } from "react-hook-form";
 
+import { Button } from "@repo/ui";
+
 interface ISubmitButtonProps {
   isWalletConnected: boolean | undefined;
   isBalanceLoaded: boolean | undefined;
@@ -133,7 +135,7 @@ export function SubmitButton({
   }, [isWalletConnected, hasError, buttonText, values.quote, isSubmitting]);
 
   return (
-    <div className="flex w-full flex-col items-center justify-center">
+    <div className="">
       <Button3D
         isDisabled={isDisabled}
         isError={hasError}
@@ -145,6 +147,7 @@ export function SubmitButton({
       >
         {buttonText}
       </Button3D>
+      <Button clipped="sm">{buttonText}</Button>
     </div>
   );
 }
