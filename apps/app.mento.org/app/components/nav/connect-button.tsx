@@ -1,16 +1,10 @@
 "use client";
 
 import { useConnectModal } from "@rainbow-me/rainbowkit";
-import {
-  ClipboardCopy,
-  LogOut,
-  Network as NetworkIcon,
-  Wallet,
-} from "lucide-react";
+import { ClipboardCopy, LogOut, Network as NetworkIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "react-toastify";
 import { Identicon } from "@/components/identicon";
-import { SolidButton } from "@/components/buttons/solid-button";
 import { BalancesSummary } from "@/components/nav/balances-summary";
 import { NetworkModal } from "@/components/nav/network-modal";
 import { cleanupStaleWalletSessions } from "@/lib/config/wallets";
@@ -21,7 +15,7 @@ import { useAccount, useDisconnect } from "wagmi";
 
 import { Button } from "@repo/ui";
 
-export function ConnectButton() {
+export function ConnectButton({ size = "sm" }: { size?: "sm" | "lg" }) {
   const { address, isConnected } = useAccount();
   const { openConnectModal } = useConnectModal();
   const { disconnect } = useDisconnect();
@@ -50,7 +44,7 @@ export function ConnectButton() {
   const iconStrokeWidth = 1.5;
 
   return (
-    <div className="relative mb-1 flex justify-end opacity-90">
+    <div className="relative mb-1 flex w-full justify-end opacity-90">
       {address && isConnected ? (
         <DropdownModal
           placement="bottom-end"
@@ -105,25 +99,15 @@ export function ConnectButton() {
           modalClasses="right-px min-w-[272px] border border-solid border-black dark:border-[#333336] text-sm !rounded-[16px] !shadow-lg2 dark:bg-[#1D1D20]/[1]"
         />
       ) : (
-        <>
-          <Button clipped="sm" onClick={onClickConnect}>
-            Connect Wallet
-          </Button>
-          {/* <SolidButton
-            color="black"
-            classes={styles.walletButtonDefault}
-            icon={
-              <Wallet
-                size={iconSize}
-                strokeWidth={iconStrokeWidth}
-                className="mr-3 text-black dark:text-white"
-              />
-            }
-            onClick={onClickConnect}
-          >
-            <div className="hidden sm:block">Connect</div>
-          </SolidButton> */}
-        </>
+        <Button
+          size={size === "lg" ? "lg" : "xs"}
+          clipped={size}
+          onClick={onClickConnect}
+          className="w-full"
+          type="button"
+        >
+          Connect Wallet
+        </Button>
       )}
       {showNetworkModal && (
         <NetworkModal

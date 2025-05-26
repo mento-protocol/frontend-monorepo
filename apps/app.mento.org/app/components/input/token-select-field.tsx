@@ -3,8 +3,7 @@
 import { ChevronIcon } from "@/components/chevron";
 import { Select } from "@/components/input/select";
 import { type TokenId, getTokenById } from "@/lib/config/tokens";
-import { TokenIcon } from "@/lib/images/tokens/token-icon";
-
+import { TokenIcon } from "@repo/ui";
 import { CoinSelect } from "@repo/ui";
 
 // RHF field props that will be passed by the Controller

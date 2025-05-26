@@ -1,25 +1,14 @@
 "use client";
-import { useState } from "react";
 import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { cn } from "@/lib/utils";
 import { Button } from "@repo/ui";
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@repo/ui";
-import { RadioGroupButtons, RadioGroupButtonsItem } from "@repo/ui";
+import { Form, FormControl, FormField, FormItem, FormMessage } from "@repo/ui";
 import { Input } from "@repo/ui";
 
 const formSchema = z.object({
-  name_8351465968: z.string(),
+  slippage: z.string(),
 });
 
 export default function MyForm() {
@@ -31,7 +20,7 @@ export default function MyForm() {
     try {
       console.log(values);
       toast(
-        <pre className="mt-2 w-[340px] rounded-md bg-slate-950 p-4">
+        <pre className="bg-muted mt-2 w-[340px] rounded-md p-4">
           <code className="text-white">{JSON.stringify(values, null, 2)}</code>
         </pre>,
       );
@@ -57,11 +46,11 @@ export default function MyForm() {
           <div className="col-span-3">
             <FormField
               control={form.control}
-              name="name_8351465968"
+              name="slippage"
               render={({ field }) => (
                 <FormItem>
                   <FormControl>
-                    <Input placeholder="Custopm" type="" {...field} />
+                    <Input placeholder="Custom" className="h-8" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -70,7 +59,7 @@ export default function MyForm() {
           </div>
         </div>
         <Button clipped="lg" size="lg" className="w-full" type="submit">
-          Swap
+          Confirm
         </Button>
       </form>
     </Form>

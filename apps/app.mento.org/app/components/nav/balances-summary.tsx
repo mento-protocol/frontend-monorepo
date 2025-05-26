@@ -3,7 +3,7 @@
 import { type TokenId, Tokens } from "@/lib/config/tokens";
 import { useAccountBalances } from "@/features/accounts/use-account-balances";
 import { useAccount, useChainId } from "wagmi";
-import { TokenIcon } from "@/lib/images/tokens/token-icon";
+import { TokenIcon } from "@repo/ui";
 import { fromWeiRounded } from "@/lib/utils/amount";
 
 export function BalancesSummary() {

@@ -23,6 +23,7 @@ export * from "./components/ui/dialog.js";
 export * from "./components/ui/radio-group-buttons.js";
 export * from "./components/ui/radio-group.js";
 export * from "./components/ui/sonner.js";
+export * from "./components/token-icon.js";
 
 // Also export any utility functions or types that might be needed
 export * from "./lib/index.js";

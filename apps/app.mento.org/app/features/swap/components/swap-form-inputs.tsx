@@ -15,7 +15,7 @@ import { toSignificant } from "@/lib/utils/amount"; // For formatting quote disp
 import { useSwapQuote } from "../hooks/use-swap-quote";
 import { useTokenBalance } from "../hooks/use-token-balance";
 import { useTokenOptions } from "../hooks/use-token-options";
-import type { SwapFormValues, SwapDirection } from "../types";
+import type { SwapFormValues } from "../types";
 
 import { AmountField } from "./amount-field";
 import { ReverseTokenButton } from "./reverse-token-button";

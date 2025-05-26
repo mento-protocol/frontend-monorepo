@@ -8,7 +8,6 @@ import {
   confirmViewAtom,
 } from "./features/swap/swap-atoms";
 import { SwapConfirmCard } from "./features/swap/swap-confirm";
-import { SwapFormCard } from "./features/swap/swap-form";
 import { config } from "./lib/config/config";
 import { TokenId } from "./lib/config/tokens";
 
