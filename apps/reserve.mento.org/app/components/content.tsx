@@ -129,17 +129,17 @@ export function Content({
           </div>
         </TabsContent>
         <TabsContent value="reserve-holdings">
-          <div className="flex flex-col gap-2 md:mt-12 md:flex-row">
-            <div className="bg-card mb-2 flex h-full flex-1 flex-col p-6 md:mb-0">
+          <div className="flex flex-col gap-2 md:mt-12 md:grid md:grid-cols-12">
+            <div className="bg-card mb-2 flex h-full flex-1 flex-col p-6 md:col-span-4 md:mb-0">
               <h2 className="text-2xl font-medium">Reserve Holdings</h2>
               <ReserveChart
                 data={chartData}
                 centerText={centerChartText}
                 activeSegment={active}
-                className="mx-auto my-auto mb-4 h-[288px]"
+                className="my-auto h-[288px] justify-center self-center"
               />
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 md:col-span-8">
               {(() => {
                 const celoDetails = reserveHoldings.celo.unfrozen;
                 const celoComp = reserveComposition.find(
