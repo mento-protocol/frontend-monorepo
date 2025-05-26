@@ -23,10 +23,14 @@ const buttonVariants = cva(
         approve: "bg-[#1CB06B] text-white hover:bg-[#1CB06B]/90",
         abstain: "bg-[#6F667A] text-white hover:bg-[#6F667A]/90",
         reject: "bg-[#C92C2C] text-white hover:bg-[#C92C2C]/90",
+        switch:
+          "bg-card text-[#6F667A] dark:text-[#8E8B92] border-solid border border-[#ADAAB2] dark:border-[#272130] relative gap-0",
       },
       size: {
         default: "h-8 px-8 py-2 has-[>svg]:px-3",
-        sm: "h-10 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
+        switch: "p-[1px]",
+        xs: "h-8 px-4 py-2",
+        sm: "h-10 rounded-md gap-1.5 px-8 has-[>svg]:px-2.5",
         lg: "h-12 rounded-md px-8 has-[>svg]:px-4",
         icon: "size-9",
       },

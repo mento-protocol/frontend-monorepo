@@ -8,9 +8,10 @@ import {
   confirmViewAtom,
 } from "./features/swap/swap-atoms";
 import { SwapConfirmCard } from "./features/swap/swap-confirm";
-import { SwapFormCard } from "./features/swap/swap-form";
 import { config } from "./lib/config/config";
 import { TokenId } from "./lib/config/tokens";
+
+import { NewSwapFormCard } from "./components/new/swap/new-swap-form-card";
 
 export default function SwapPage() {
   const formValues = useAtomValue(formValuesAtom);
@@ -19,9 +20,12 @@ export default function SwapPage() {
 
   return (
     <div className="flex h-full w-full flex-wrap items-center justify-center">
-      <div className="mb-6 w-full max-w-md">
+      <div className="mb-6 w-full max-w-lg">
         {!formValues || !confirmView ? (
-          <SwapFormCard />
+          <>
+            {/* <SwapFormCard /> */}
+            <NewSwapFormCard />
+          </>
         ) : (
           <SwapConfirmCard formValues={formValues} />
         )}
