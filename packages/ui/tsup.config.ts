@@ -13,7 +13,8 @@ export default defineConfig({
   splitting: true,
   external: ["react", "react-dom"],
   treeshake: true,
-  outExtension: ({ format }) => ({
-    js: format === "esm" ? ".js" : ".cjs",
-  }),
+  target: "esnext",
+  banner: {
+    js: '"use client";',
+  },
 });

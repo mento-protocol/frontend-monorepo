@@ -58,3 +58,8 @@ export enum Network {
   CELO = "celo",
   BTC = "btc",
 }
+
+export interface StableValueTokensAPI {
+  totalStableValueInUSD: number;
+  tokens: TokenModel[];
+}

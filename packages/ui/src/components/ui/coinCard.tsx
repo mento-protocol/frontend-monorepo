@@ -1,15 +1,33 @@
-import * as React from "react";
+"use client";
+import type * as React from "react";
 
 import { cn } from "@/lib/utils.js";
+import { cva, type VariantProps } from "class-variance-authority";
 
-function CoinCard({ className, ...props }: React.ComponentProps<"div">) {
+const cardVariants = cva(
+  "bg-card text-card-foreground flex flex-col w-full gap-6 py-4",
+  {
+    variants: {
+      variant: {
+        default: "md:max-w-xs",
+        horizontal:
+          "md:flex-row justify-between hover:bg-muted transition-colors",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+    },
+  },
+);
+
+function CoinCard({
+  className,
+  ...props
+}: React.ComponentProps<"div"> & VariantProps<typeof cardVariants>) {
   return (
     <div
       data-slot="coin-card"
-      className={cn(
-        "bg-card text-card-foreground flex flex-col gap-6 py-4",
-        className,
-      )}
+      className={cn(cardVariants(props), className)}
       {...props}
     />
   );
@@ -19,10 +37,7 @@ function CoinCardHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="coin-card-header"
-      className={cn(
-        "flex flex-row items-start justify-between gap-6 px-4",
-        className,
-      )}
+      className={cn("flex flex-row items-start gap-6 px-4", className)}
       {...props}
     />
   );
@@ -45,7 +60,7 @@ function CoinCardSymbol({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-symbol"
-      className={cn("text-2xl font-medium", className)}
+      className={cn("text-xl font-medium", className)}
       {...props}
     />
   );
@@ -65,7 +80,7 @@ function CoinCardLogo({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-logo"
-      className={cn("h-14 w-14", className)}
+      className={cn("bg-background h-14 w-14 p-4", className)}
       {...props}
     />
   );
@@ -76,7 +91,7 @@ function CoinCardFooter({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="card-footer"
       className={cn(
-        "flex flex-row items-center justify-between gap-6 px-4",
+        "flex flex-row items-center gap-2 px-4 md:gap-6",
         className,
       )}
       {...props}
@@ -127,7 +142,9 @@ function CoinCardSupply({ className, ...props }: React.ComponentProps<"div">) {
       className={cn("flex flex-col gap-2", className)}
     >
       <span className="text-muted-foreground text-sm">Supply:</span>
-      <span className="leading-none">{props.children}</span>
+      <span className="text-sm leading-none md:text-base">
+        {props.children}
+      </span>
     </div>
   );
 }

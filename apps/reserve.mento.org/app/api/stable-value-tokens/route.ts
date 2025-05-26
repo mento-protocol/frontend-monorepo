@@ -1,15 +1,10 @@
 import * as Sentry from "@sentry/nextjs";
 import { NextResponse } from "next/server";
 import { getAnalyticsUrl } from "@/app/lib/config/endpoints";
-import type { TokenModel, Tokens } from "@/app/lib/types";
+import type { Tokens, StableValueTokensAPI } from "@/app/lib/types";
 
 // Opt out of caching for this dynamic route
 export const dynamic = "force-dynamic";
-
-interface StableValueTokensAPI {
-  totalStableValueInUSD: number;
-  tokens: TokenModel[];
-}
 
 export async function GET() {
   const start = Date.now();
