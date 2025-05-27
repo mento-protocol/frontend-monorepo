@@ -1,7 +1,6 @@
+import "./globals.css";
 import "@repo/ui/globals.css";
 import localFont from "next/font/local";
-import "./globals.css";
-
 import { Analytics } from "@vercel/analytics/react";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
