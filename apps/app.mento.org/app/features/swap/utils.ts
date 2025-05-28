@@ -1,7 +1,11 @@
 import BigNumber from "bignumber.js";
 import { ethers } from "ethers";
-import { TokenId, Tokens } from "@/lib/config/tokens";
-import { NumberT, parseAmountWithDefault, toWei } from "@/lib/utils/amount";
+import { type TokenId, Tokens } from "@/lib/config/tokens";
+import {
+  type NumberT,
+  parseAmountWithDefault,
+  toWei,
+} from "@/lib/utils/amount";
 import { logger } from "@/lib/utils/logger";
 
 export function parseInputExchangeAmount(
@@ -41,7 +45,7 @@ export function calcExchangeRate(
       ethers.utils.formatUnits(fromAmountWei.toString(), fromDecimals),
     ).dividedBy(ethers.utils.formatUnits(toAmountWei.toString(), toDecimals));
     if (rate.isFinite()) return rate.toFixed(4, BigNumber.ROUND_DOWN);
-    else return "0";
+    return "0";
   } catch (error) {
     logger.warn("Error computing exchange values", error);
     return "0";
@@ -52,7 +56,7 @@ export function invertExchangeRate(rate: NumberT) {
   try {
     const inverted = new BigNumber(1).dividedBy(rate);
     if (inverted.isFinite()) return inverted.toFixed(4, BigNumber.ROUND_DOWN);
-    else return "0";
+    return "0";
   } catch (error) {
     logger.warn("Error inverting exchange values", error);
     return "0";

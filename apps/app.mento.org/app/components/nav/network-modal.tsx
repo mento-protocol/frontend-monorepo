@@ -65,7 +65,7 @@ export function NetworkModal({ isOpen, close }: Props) {
         </DialogHeader>
 
         <div className="inline-flex w-full items-end justify-between">
-          <div className="font-inter bg-muted inline-flex w-full flex-col items-center justify-start gap-4 rounded-xl border py-3 sm:py-4">
+          <div className="font-inter inline-flex w-full flex-col items-center justify-start gap-4 rounded-xl border py-3 sm:py-4">
             <div className="inline-flex w-full items-end justify-between px-3 sm:px-4">
               <div className="text-muted-foreground text-[14px] font-normal leading-tight sm:text-[15px]">
                 Connected to:

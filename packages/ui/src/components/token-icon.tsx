@@ -12,9 +12,10 @@ interface Token {
 interface Props {
   token?: Token | null;
   className?: string;
+  size?: number;
 }
 
-function TokenIconBase({ token, className }: Props) {
+function TokenIconBase({ token, className, size = 20 }: Props) {
   const [imgError, setImgError] = useState(false);
 
   const symbol = useMemo(() => {
@@ -31,7 +32,7 @@ function TokenIconBase({ token, className }: Props) {
 
   if (!token) {
     return (
-      <div className="bg-background flex h-10 w-10 items-center justify-center" />
+      <div className="dark:bg-background flex h-10 w-10 items-center justify-center bg-white" />
     );
   }
 
@@ -41,15 +42,15 @@ function TokenIconBase({ token, className }: Props) {
     return (
       <div
         className={cn(
-          "bg-background flex h-10 w-10 items-center justify-center p-2.5",
+          "dark:bg-background flex h-10 w-10 items-center justify-center bg-white p-2.5",
           className,
         )}
       >
         <img
           src={imgSrc}
           alt=""
-          width={20}
-          height={20}
+          width={size}
+          height={size}
           onError={() => setImgError(true)}
         />
       </div>
@@ -57,7 +58,7 @@ function TokenIconBase({ token, className }: Props) {
   }
 
   return (
-    <div className="bg-background flex h-10 w-10 items-center justify-center">
+    <div className="dark:bg-background flex h-10 w-10 items-center justify-center bg-white">
       <div className="font-semibold text-white">{symbol}</div>
     </div>
   );

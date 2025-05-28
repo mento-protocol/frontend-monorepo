@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { env } from "./env.mjs";
 
 const nextConfig: NextConfig = {
   // TODO: Remove once stable
@@ -7,6 +8,18 @@ const nextConfig: NextConfig = {
   },
   eslint: {
     ignoreDuringBuilds: true,
+  },
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: env.NEXT_PUBLIC_STORAGE_URL.replace(
+          /^https?:\/\/([^/]+)\/?.*$/,
+          "$1",
+        ),
+        pathname: "/app/*",
+      },
+    ],
   },
 };
 

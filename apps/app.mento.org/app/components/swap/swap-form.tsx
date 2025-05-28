@@ -1,13 +1,13 @@
 "use client";
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
-import { useForm, useWatch, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
 import { cn } from "@repo/ui";
+import { Controller, useForm, useWatch } from "react-hook-form";
+import * as z from "zod";
 
-import { Button } from "@repo/ui";
 import {
+  Button,
   Form,
   FormControl,
   FormDescription,
@@ -19,14 +19,17 @@ import {
 
 import { CoinInput } from "@repo/ui";
 
-import { useSwapQuote } from "@/features/swap/hooks/use-swap-quote";
-import { ArrowUpDown, ChevronDown } from "lucide-react";
-import TokenDialog from "./token-dialog";
-import { useAccount, useChainId } from "wagmi";
-import { useAccountBalances } from "@/features/accounts/use-account-balances";
 import { ConnectButton } from "@/components/nav/connect-button";
-import { fromWeiRounded } from "@/lib/utils/amount";
+import { useAccountBalances } from "@/features/accounts/use-account-balances";
+import { useSwapQuote } from "@/features/swap/hooks/use-swap-quote";
+import { confirmViewAtom, formValuesAtom } from "@/features/swap/swap-atoms";
 import { type TokenId, Tokens } from "@/lib/config/tokens";
+import { fromWeiRounded } from "@/lib/utils/amount";
+import { useAtom } from "jotai";
+import { ArrowUpDown, ChevronDown } from "lucide-react";
+import { useAccount, useChainId } from "wagmi";
+import TokenDialog from "./token-dialog";
+import type { SwapFormValues } from "@/features/swap/types";
 
 type SwapDirection = "in" | "out";
 
@@ -45,14 +48,14 @@ type FormValues = z.infer<typeof formSchema>;
 const defaultEmptyBalances = {};
 
 export default function SwapForm() {
-  // Get user account and chain info
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
+  const [, setConfirmView] = useAtom(confirmViewAtom);
 
-  // Get account balances
   const { data: balancesFromHook } = useAccountBalances({ address, chainId });
 
-  // TODO: In a production app, we would use these balances to display accurate token balances
+  const [, setFormValues] = useAtom(formValuesAtom);
+
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -67,19 +70,28 @@ export default function SwapForm() {
 
   function onSubmit(values: z.infer<typeof formSchema>) {
     try {
-      console.log(values);
-      // toast(
-      //   <pre className="mt-2 w-[340px] rounded-md bg-slate-950 p-4">
-      //     <code className="text-white">{JSON.stringify(values, null, 2)}</code>
-      //   </pre>,
-      // );
+      setFormValues(values as SwapFormValues);
+      setConfirmView(true);
     } catch (error) {
       console.error("Form submission error", error);
       // toast.error("Failed to submit the form. Please try again.");
     }
   }
 
-  // Use useWatch to reactively get form values
+  // Utility function to format numbers with max 6 decimals
+  const formatWithMaxDecimals = (value: string, maxDecimals = 6): string => {
+    if (!value || value === "0") return "0";
+    const num = Number.parseFloat(value);
+    if (Number.isNaN(num)) return "0";
+
+    // If the number has more decimals than allowed, truncate it
+    const factor = 10 ** maxDecimals;
+    const truncated = Math.floor(num * factor) / factor;
+
+    // Remove trailing zeros and return
+    return truncated.toString();
+  };
+
   const fromTokenId = useWatch({ control: form.control, name: "fromTokenId" });
   const toTokenId = useWatch({ control: form.control, name: "toTokenId" });
   const amount = useWatch({ control: form.control, name: "amount" });
@@ -94,7 +106,7 @@ export default function SwapForm() {
       balanceValue,
       Tokens[fromTokenId as keyof typeof Tokens].decimals,
     );
-    return balance || "0.00";
+    return formatWithMaxDecimals(balance || "0.00");
   }, [balances, fromTokenId]);
   const toTokenBalance = useMemo(() => {
     const balanceValue = balances[toTokenId as keyof typeof balances];
@@ -102,7 +114,7 @@ export default function SwapForm() {
       balanceValue,
       Tokens[toTokenId as keyof typeof Tokens].decimals,
     );
-    return balance || "0.00";
+    return formatWithMaxDecimals(balance || "0.00");
   }, [balances, toTokenId]);
 
   // Check if amount exceeds balance
@@ -133,13 +145,50 @@ export default function SwapForm() {
     form.setValue("quote", "");
   };
 
-  // Function to use max balance
   const handleUseMaxBalance = () => {
-    // Use the actual balance from the hook
-    const maxAmount = balances[fromTokenId as keyof typeof balances] || "0";
-    form.setValue("amount", maxAmount.toString().replace(/,/g, ""));
+    const maxAmountWei = balances[fromTokenId as keyof typeof balances] || "0";
+    const formattedAmount = fromWeiRounded(
+      maxAmountWei,
+      Tokens[fromTokenId as keyof typeof Tokens].decimals,
+    );
+    form.setValue("amount", formatWithMaxDecimals(formattedAmount));
     form.setValue("direction", "in");
   };
+
+  // Function to calculate approximate USD value for a token amount
+  const calculateUSDValue = useCallback(
+    (amount: string, tokenId: string): string => {
+      if (!amount || amount === "0" || !tokenId) return "0.00";
+
+      const numericAmount = Number.parseFloat(amount);
+      if (Number.isNaN(numericAmount) || numericAmount <= 0) return "0.00";
+
+      // For USD-pegged stablecoins, use 1:1 conversion
+      if (
+        tokenId === "cUSD" ||
+        tokenId === "USDC" ||
+        tokenId === "USDT" ||
+        tokenId === "axlUSDC"
+      ) {
+        return numericAmount.toFixed(2);
+      }
+
+      // For EUR-pegged tokens, approximate conversion (EUR is typically ~1.1 USD)
+      if (tokenId === "cEUR") {
+        return (numericAmount * 1.1).toFixed(2);
+      }
+
+      // For REAL-pegged tokens, approximate conversion (BRL is typically ~0.2 USD)
+      if (tokenId === "cREAL") {
+        return (numericAmount * 0.2).toFixed(2);
+      }
+
+      // For other tokens (like CELO), we'd need actual price data
+      // For now, return a placeholder since we don't have price feeds
+      return "0.00";
+    },
+    [],
+  );
 
   // Type assertion is needed because the form values are strings
   // but the hook expects specific types
@@ -160,6 +209,13 @@ export default function SwapForm() {
     }
   }, [quote, formQuote, form]);
 
+  // Calculate USD value for the receive amount
+  const receiveUSDValue = useMemo(() => {
+    const receiveAmount = formDirection === "out" ? amount : formQuote;
+    const receiveTokenId = toTokenId;
+    return calculateUSDValue(receiveAmount, receiveTokenId);
+  }, [formDirection, amount, formQuote, toTokenId, calculateUSDValue]);
+
   // We'll use the direction to determine which field is active directly in the render function
 
   return (
@@ -169,7 +225,7 @@ export default function SwapForm() {
         className="mx-auto max-w-3xl space-y-6"
       >
         <div className="flex flex-col gap-0">
-          <div className="bg-incard border-border grid grid-cols-12 gap-4 border p-4">
+          <div className="bg-incard dark:border-input border-border grid grid-cols-12 gap-4 border p-4">
             <div className="col-span-6">
               <Controller
                 control={form.control}
@@ -180,22 +236,20 @@ export default function SwapForm() {
                     <FormControl>
                       <CoinInput
                         placeholder="0.00"
-                        type=""
-                        value={formDirection === "in" ? field.value : formQuote}
+                        value={formatWithMaxDecimals(
+                          formDirection === "in" ? field.value : formQuote,
+                        )}
                         onChange={(e) => {
                           // Handle both string and event inputs
                           const val =
                             typeof e === "string" ? e : e.target.value;
                           field.onChange(val);
                         }}
-                        onFocus={() =>
-                          form.setValue("direction", "in", {
-                            shouldValidate: true,
-                          })
-                        }
                       />
                     </FormControl>
-                    <FormDescription>~$0</FormDescription>
+                    <FormDescription>
+                      ~${formatWithMaxDecimals(receiveUSDValue)}
+                    </FormDescription>
                   </FormItem>
                 )}
               />
@@ -212,10 +266,11 @@ export default function SwapForm() {
                         value={field.value}
                         onValueChange={field.onChange}
                         title="Select asset to deposit"
+                        excludeTokenId={toTokenId}
                         trigger={
                           <button
                             type="button"
-                            className="border-input ring-offset-background placeholder:text-muted-foreground focus:ring-ring mt-[22px] flex h-10 w-full max-w-28 items-center justify-between rounded-md border bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="border-input ring-offset-background placeholder:text-muted-foreground focus:ring-ring dark:bg-muted border-border mt-[22px] flex h-10 w-full max-w-28 items-center justify-between rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <span>{field.value || "Select token"}</span>
                             <ChevronDown className="h-4 w-4 opacity-50" />
@@ -224,7 +279,7 @@ export default function SwapForm() {
                       />
                     </FormControl>
                     <FormDescription>
-                      Balance: {fromTokenBalance}{" "}
+                      Balance: {formatWithMaxDecimals(fromTokenBalance)}{" "}
                       <button
                         type="button"
                         className="cursor-pointer border-none bg-transparent p-0 text-inherit underline"
@@ -240,12 +295,13 @@ export default function SwapForm() {
             </div>
           </div>
 
-          <div className="border-border flex w-full items-center justify-center border-x">
+          <div className="dark:border-input border-border flex w-full items-center justify-center border-x">
             <Button
               variant="outline"
               onClick={handleReverseTokens}
               size="icon"
               className="!border-y-0"
+              type="button"
             >
               <ArrowUpDown
                 className={cn(
@@ -256,7 +312,7 @@ export default function SwapForm() {
             </Button>
           </div>
 
-          <div className="bg-incard border-border grid grid-cols-12 gap-4 border p-4">
+          <div className="bg-incard dark:border-input border-border grid grid-cols-12 gap-4 border p-4">
             <div className="col-span-6">
               <Controller
                 control={form.control}
@@ -267,8 +323,9 @@ export default function SwapForm() {
                     <FormControl>
                       <CoinInput
                         placeholder="0.00"
-                        type=""
-                        value={formDirection === "out" ? amount : formQuote}
+                        value={formatWithMaxDecimals(
+                          formDirection === "out" ? amount : formQuote,
+                        )}
                         onChange={(e) => {
                           // Handle both string and event inputs
                           const val =
@@ -283,18 +340,11 @@ export default function SwapForm() {
                             });
                           }
                         }}
-                        onFocus={() => {
-                          form.setValue("direction", "out", {
-                            shouldValidate: true,
-                          });
-                          // When focusing, ensure amount reflects this value
-                          form.setValue("amount", field.value || "", {
-                            shouldValidate: true,
-                          });
-                        }}
                       />
                     </FormControl>
-                    <FormDescription>~$0</FormDescription>
+                    <FormDescription>
+                      ~${formatWithMaxDecimals(receiveUSDValue)}
+                    </FormDescription>
                     <FormMessage>{fieldState.error?.message}</FormMessage>
                   </FormItem>
                 )}
@@ -312,6 +362,7 @@ export default function SwapForm() {
                         value={field.value}
                         onValueChange={field.onChange}
                         title="Select asset to receive"
+                        excludeTokenId={fromTokenId}
                         trigger={
                           <button
                             type="button"
@@ -323,7 +374,9 @@ export default function SwapForm() {
                         }
                       />
                     </FormControl>
-                    <FormDescription>Balance: {toTokenBalance}</FormDescription>
+                    <FormDescription>
+                      Balance: {formatWithMaxDecimals(toTokenBalance)}
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -332,14 +385,14 @@ export default function SwapForm() {
           </div>
         </div>
 
-        <div className="flex w-full flex-col items-start justify-start space-y-2">
-          <div className="flex w-full flex-row items-center justify-between">
-            <span className="text-muted-foreground">Quote</span>
-            <span>
-              {rate ? `1 ${fromTokenId} = ${rate} ${toTokenId}` : "Loading..."}
-            </span>
+        {rate && (
+          <div className="flex w-full flex-col items-start justify-start space-y-2">
+            <div className="flex w-full flex-row items-center justify-between">
+              <span className="text-muted-foreground">Quote</span>
+              <span>{`1 ${fromTokenId} = ${rate} ${toTokenId}`}</span>
+            </div>
           </div>
-        </div>
+        )}
 
         {isConnected ? (
           <Button
