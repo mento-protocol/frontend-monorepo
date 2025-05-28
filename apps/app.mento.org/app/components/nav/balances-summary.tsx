@@ -22,16 +22,16 @@ export function BalancesSummary() {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col pl-5">
-        <p className="dark:text-white">Loading balances...</p>
+      <div className="flex flex-col space-y-2">
+        <p className="text-muted-foreground text-sm">Loading balances...</p>
       </div>
     );
   }
 
   if (isError) {
     return (
-      <div className="flex flex-col pl-5">
-        <p className="text-red-500">Error fetching balances.</p>
+      <div className="flex flex-col space-y-2">
+        <p className="text-destructive text-sm">Error fetching balances.</p>
       </div>
     );
   }
@@ -42,38 +42,31 @@ export function BalancesSummary() {
     tokenIds.every((id) => balances[id] === "0")
   ) {
     return (
-      <div className="flex flex-col pl-5">
-        {/* Optionally, show a message if all balances are zero or no balances found */}
-        {/* <p className="dark:text-gray-500">No token balances to display.</p> */}
-        {/* Or render nothing for a cleaner UI when balances are zero */}
+      <div className="flex flex-col space-y-2">
+        <p className="text-muted-foreground text-sm">No balances to display</p>
       </div>
     );
   }
 
   return (
-    <>
-      <div className="flex flex-col pl-5">
-        {tokenIds.map((id) => {
-          const balanceValue = balances[id];
-          const balance = fromWeiRounded(balanceValue, Tokens[id].decimals);
-          if (balance !== "0") {
-            const token = Tokens[id];
-            // TODO: @bayo Either revert this !== 0 check or add some animation for when balances are loading
-            return (
-              <div
-                style={{ minWidth: "35%" }}
-                className="flex pb-4 dark:text-white"
-                key={id}
-              >
-                <TokenIcon token={token} size="xs" />
-                <div className="ml-3">{balance}</div>
-              </div>
-            );
-          }
-          return null;
-        })}
-      </div>
-      <hr className="dark:border-[#333336]" />
-    </>
+    <div className="space-y-3">
+      {tokenIds.map((id) => {
+        const balanceValue = balances[id];
+        const balance = fromWeiRounded(balanceValue, Tokens[id].decimals);
+        if (balance !== "0") {
+          const token = Tokens[id];
+          return (
+            <div
+              key={id}
+              className="text-foreground flex min-w-0 items-center gap-3 text-sm font-medium"
+            >
+              <TokenIcon token={token} />
+              <span className="truncate">{balance}</span>
+            </div>
+          );
+        }
+        return null;
+      })}
+    </div>
   );
 }

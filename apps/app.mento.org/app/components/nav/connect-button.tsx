@@ -1,24 +1,43 @@
 "use client";
 
-import { useConnectModal } from "@rainbow-me/rainbowkit";
-import { ClipboardCopy, LogOut, Network as NetworkIcon } from "lucide-react";
-import { useState } from "react";
-import { toast } from "react-toastify";
 import { Identicon } from "@/components/identicon";
 import { BalancesSummary } from "@/components/nav/balances-summary";
 import { NetworkModal } from "@/components/nav/network-modal";
 import { cleanupStaleWalletSessions } from "@/lib/config/wallets";
-import { DropdownModal } from "@/components/layout/dropdown";
 import { shortenAddress } from "@/lib/utils/addresses";
 import { tryClipboardSet } from "@/lib/utils/clipboard";
+import { useConnectModal } from "@rainbow-me/rainbowkit";
+import {
+  ChevronDown,
+  ClipboardCopy,
+  LogOut,
+  Network as NetworkIcon,
+} from "lucide-react";
+import { useState } from "react";
+import { toast } from "react-toastify";
 import { useAccount, useDisconnect } from "wagmi";
 
-import { Button } from "@repo/ui";
+import {
+  Button,
+  cn,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@repo/ui";
 
-export function ConnectButton({ size = "sm" }: { size?: "sm" | "lg" }) {
+export function ConnectButton({
+  size = "sm",
+  text = "Connect Wallet",
+}: {
+  size?: "sm" | "lg";
+  text?: string;
+}) {
   const { address, isConnected } = useAccount();
   const { openConnectModal } = useConnectModal();
   const { disconnect } = useDisconnect();
+  const [showNetworkModal, setShowNetworkModal] = useState(false);
 
   const onClickConnect = () => {
     cleanupStaleWalletSessions();
@@ -31,7 +50,6 @@ export function ConnectButton({ size = "sm" }: { size?: "sm" | "lg" }) {
     toast.success("Address copied to clipboard", { autoClose: 1200 });
   };
 
-  const [showNetworkModal, setShowNetworkModal] = useState(false);
   const onClickChangeNetwork = () => {
     setShowNetworkModal(true);
   };
@@ -44,69 +62,80 @@ export function ConnectButton({ size = "sm" }: { size?: "sm" | "lg" }) {
   const iconStrokeWidth = 1.5;
 
   return (
-    <div className="relative mb-1 flex w-full justify-end opacity-90">
+    <div className="relative flex w-full justify-end">
       {address && isConnected ? (
-        <DropdownModal
-          placement="bottom-end"
-          buttonContent={() => (
-            <div className="flex items-center">
-              <Identicon address={address} size={26} />
-              <div className="ml-[12px] hidden sm:block">
-                {shortenAddress(address)}
-              </div>
-            </div>
-          )}
-          buttonClasses={
-            styles.walletButtonConnected + " " + styles.walletButtonDefault
-          }
-          modalContent={() => (
-            <div className="py-5 font-medium leading-5">
-              <BalancesSummary />
-
-              <div className={styles.menuOption} onClick={onClickCopy}>
-                <ClipboardCopy
-                  size={iconSize}
-                  strokeWidth={iconStrokeWidth}
-                  className="mr-3 text-black dark:text-white"
-                />
-                <div className="transition-colors duration-200 hover:text-gray-500 active:text-gray-200">
-                  Copy Address
-                </div>
-              </div>
-              <div className={styles.menuOption} onClick={onClickChangeNetwork}>
-                <NetworkIcon
-                  size={iconSize}
-                  strokeWidth={iconStrokeWidth}
-                  className="mr-3 text-black dark:text-white"
-                />
-                <div className="transition-colors duration-200 hover:text-gray-500 active:text-gray-200">
-                  Change Network
-                </div>
-              </div>
-              <hr className="mx-5 mt-4 dark:border-[#333336]" />
-              <div className={styles.menuOption} onClick={onClickDisconnect}>
-                <LogOut
-                  size={iconSize}
-                  strokeWidth={iconStrokeWidth}
-                  className="dark:text-primary-blush dark:group-hover:text-primary-blush mr-3 text-black group-hover:text-gray-500"
-                />
-                <div className="dark:text-primary-blush transition-colors duration-200 hover:text-gray-500 active:text-gray-200">
-                  Disconnect
-                </div>
-              </div>
-            </div>
-          )}
-          modalClasses="right-px min-w-[272px] border border-solid border-black dark:border-[#333336] text-sm !rounded-[16px] !shadow-lg2 dark:bg-[#1D1D20]/[1]"
-        />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className={cn(
+                "h-9 w-full justify-start gap-2 p-2 font-medium",
+                "bg-accent text-accent-foreground",
+              )}
+            >
+              <Identicon address={address} size={20} />
+              <span className="truncate">{shortenAddress(address)}</span>
+              <ChevronDown size={20} />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-64">
+            <BalancesSummary />
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={onClickCopy}
+              className={cn(
+                "cursor-pointer gap-3 py-3",
+                "focus:bg-accent focus:text-accent-foreground",
+              )}
+            >
+              <ClipboardCopy
+                size={iconSize}
+                strokeWidth={iconStrokeWidth}
+                className="text-muted-foreground"
+              />
+              <span>Copy Address</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={onClickChangeNetwork}
+              className={cn(
+                "cursor-pointer gap-3 py-3",
+                "focus:bg-accent focus:text-accent-foreground",
+              )}
+            >
+              <NetworkIcon
+                size={iconSize}
+                strokeWidth={iconStrokeWidth}
+                className="text-muted-foreground"
+              />
+              <span>Change Network</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={onClickDisconnect}
+              className={cn(
+                "cursor-pointer gap-3 py-3",
+                "focus:bg-destructive focus:text-destructive-foreground",
+                "text-destructive",
+              )}
+            >
+              <LogOut
+                size={iconSize}
+                strokeWidth={iconStrokeWidth}
+                className="text-destructive"
+              />
+              <span>Disconnect</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       ) : (
         <Button
-          size={size === "lg" ? "lg" : "xs"}
-          clipped={size}
+          size={size === "lg" ? "lg" : "sm"}
           onClick={onClickConnect}
           className="w-full"
           type="button"
         >
-          Connect Wallet
+          {text}
         </Button>
       )}
       {showNetworkModal && (
@@ -118,12 +147,3 @@ export function ConnectButton({ size = "sm" }: { size?: "sm" | "lg" }) {
     </div>
   );
 }
-
-const styles = {
-  walletButtonDefault:
-    "shadow-md h-[52px] min-w-[137px] py-[16px] !pl-[20px] !pr-[24px] sm:px-4 rounded-lg border border-solid border-black dark:border-white font-medium leading-5 dark:text-white bg-neutral-800 flex items-center justify-center",
-  walletButtonConnected:
-    "flex items-center justify-center bg-neutral-800 text-black rounded-full shadow-md transition-all duration-300",
-  menuOption:
-    "group flex items-center cursor-pointer rounded px-5 pt-4 dark:text-white",
-};

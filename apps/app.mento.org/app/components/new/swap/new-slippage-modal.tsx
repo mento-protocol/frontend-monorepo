@@ -1,29 +1,29 @@
-import { Copy } from "lucide-react";
-
-import { Button } from "@repo/ui";
 import {
+  Button,
   Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@repo/ui";
-import { Input } from "@repo/ui";
-import { Label } from "@repo/ui";
 
 import { SlidersHorizontal } from "lucide-react";
 import NewSlippageForm from "./new-slippage-form";
+import { useState } from "react";
+import { useAtomValue } from "jotai";
+import { slippageAtom } from "@/features/swap/swap-atoms";
 
-export function NewSlippageModal() {
+export function SlippageModal() {
+  const [open, setOpen] = useState(false);
+  const slippage = useAtomValue(slippageAtom);
+
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
           <SlidersHorizontal />
-          0.25%
+          {slippage}%
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
@@ -34,7 +34,7 @@ export function NewSlippageModal() {
             swap is executed. It’s set as a percentage of the total swap value.
           </DialogDescription>
         </DialogHeader>
-        <NewSlippageForm />
+        <NewSlippageForm onSubmit={() => setOpen(false)} />
       </DialogContent>
     </Dialog>
   );

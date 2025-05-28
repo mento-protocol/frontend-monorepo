@@ -1,4 +1,4 @@
-import { TokenId } from "@/lib/config/tokens";
+import type { TokenId } from "@/lib/config/tokens";
 
 export enum ForeignQuoteCurrency {
   BTC = "BTC",

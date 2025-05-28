@@ -1,31 +1,10 @@
 "use client";
-import { useState } from "react";
 
-import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
 import * as z from "zod";
-import { cn } from "@repo/ui";
 
-import { Button } from "@repo/ui";
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@repo/ui";
-
-import { CoinInput } from "@repo/ui";
-
-import {
-  CoinSelect,
-  CoinSelectContent,
-  CoinSelectItem,
-  CoinSelectTrigger,
-  CoinSelectValue,
-} from "@repo/ui";
+import { Button, Form } from "@repo/ui";
 
 const formSchema = z.object({
   name_1200955998: z.string().min(1),
@@ -35,7 +14,7 @@ const formSchema = z.object({
   name_7702026821: z.string(),
 });
 
-export default function NewSwapConfirmCard() {
+export function SwapConfirmCard() {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
   });
@@ -65,7 +44,6 @@ export default function NewSwapConfirmCard() {
             <strong className="text-3xl">2,000.00</strong>
             <span className="text-muted-foreground">~$2.000</span>
           </div>
-          <div></div>
           <div className="bg-incard flex aspect-square h-52 flex-col items-center justify-center gap-2">
             <strong className="text-3xl">700.00</strong>
             <span className="text-muted-foreground">~$700</span>

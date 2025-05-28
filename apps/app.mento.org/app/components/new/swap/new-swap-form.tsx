@@ -1,5 +1,5 @@
 "use client";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 
 import { useForm, useWatch, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -20,19 +20,15 @@ import {
 import { CoinInput } from "@repo/ui";
 
 import { useSwapQuote } from "@/features/swap/hooks/use-swap-quote";
-import { ArrowDown, ChevronDown } from "lucide-react";
+import { ArrowUpDown, ChevronDown } from "lucide-react";
 import TokenDialog from "./token-dialog";
 import { useAccount, useChainId } from "wagmi";
 import { useAccountBalances } from "@/features/accounts/use-account-balances";
 import { ConnectButton } from "@/components/nav/connect-button";
-// Using a simple arrow character instead of importing an icon
-// If you need icons, make sure to install the proper package
+import { fromWeiRounded } from "@/lib/utils/amount";
+import { type TokenId, Tokens } from "@/lib/config/tokens";
 
-// Define types for our form
-
-// Define types for our form
 type SwapDirection = "in" | "out";
-type TokenId = string; // Simplified for this component
 
 const formSchema = z.object({
   amount: z.string().min(1, { message: "Amount is required" }),
@@ -48,7 +44,7 @@ type FormValues = z.infer<typeof formSchema>;
 // Default empty balances object
 const defaultEmptyBalances = {};
 
-export default function NewSwapForm() {
+export default function SwapForm() {
   // Get user account and chain info
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
@@ -90,39 +86,58 @@ export default function NewSwapForm() {
   const formDirection = useWatch({ control: form.control, name: "direction" });
   const formQuote = useWatch({ control: form.control, name: "quote" });
 
-  // Mock balances - in a real app, these would come from a hook
-  const fromTokenBalance = "3,000.00";
-  const toTokenBalance = "1,000.00";
+  // Get token balances from the hook
+  const balances = balancesFromHook || defaultEmptyBalances;
+  const fromTokenBalance = useMemo(() => {
+    const balanceValue = balances[fromTokenId as keyof typeof balances];
+    const balance = fromWeiRounded(
+      balanceValue,
+      Tokens[fromTokenId as keyof typeof Tokens].decimals,
+    );
+    return balance || "0.00";
+  }, [balances, fromTokenId]);
+  const toTokenBalance = useMemo(() => {
+    const balanceValue = balances[toTokenId as keyof typeof balances];
+    const balance = fromWeiRounded(
+      balanceValue,
+      Tokens[toTokenId as keyof typeof Tokens].decimals,
+    );
+    return balance || "0.00";
+  }, [balances, toTokenId]);
+
+  // Check if amount exceeds balance
+  const amountExceedsBalance = useMemo(() => {
+    if (!amount || !fromTokenBalance || formDirection !== "in") return false;
+    const numericAmount = Number.parseFloat(amount.replace(/,/g, ""));
+    const numericBalance = Number.parseFloat(
+      fromTokenBalance.replace(/,/g, ""),
+    );
+    return numericAmount > numericBalance;
+  }, [amount, fromTokenBalance, formDirection]);
 
   // Function to handle token swap
   const handleReverseTokens = () => {
     const currentFromTokenId = form.getValues("fromTokenId");
     const currentToTokenId = form.getValues("toTokenId");
-    const currentDirection = form.getValues("direction");
     const currentAmount = form.getValues("amount");
-    const currentQuote = form.getValues("quote");
 
     // Swap token IDs
     form.setValue("fromTokenId", currentToTokenId);
     form.setValue("toTokenId", currentFromTokenId);
 
-    // Invert direction
-    form.setValue("direction", currentDirection === "in" ? "out" : "in");
+    // Keep the current amount value and direction as "in" (top field)
+    form.setValue("amount", currentAmount);
+    form.setValue("direction", "in");
 
-    // Swap amount and quote
-    if (currentDirection === "in") {
-      form.setValue("amount", currentQuote);
-      form.setValue("quote", currentAmount);
-    } else {
-      form.setValue("amount", currentQuote);
-      form.setValue("quote", currentAmount);
-    }
+    // Clear the quote to trigger recalculation
+    form.setValue("quote", "");
   };
 
   // Function to use max balance
   const handleUseMaxBalance = () => {
-    // In a real app, this would use the actual balance
-    form.setValue("amount", "3000");
+    // Use the actual balance from the hook
+    const maxAmount = balances[fromTokenId as keyof typeof balances] || "0";
+    form.setValue("amount", maxAmount.toString().replace(/,/g, ""));
     form.setValue("direction", "in");
   };
 
@@ -131,8 +146,8 @@ export default function NewSwapForm() {
   const { isLoading, quote, rate } = useSwapQuote(
     amount,
     formDirection as SwapDirection,
-    fromTokenId as any, // Using any to bypass type checking for this demo
-    toTokenId as any, // In a real app, we would properly type these
+    fromTokenId as TokenId,
+    toTokenId as TokenId,
   );
 
   // Update the quote field when the calculated quote changes
@@ -181,7 +196,6 @@ export default function NewSwapForm() {
                       />
                     </FormControl>
                     <FormDescription>~$0</FormDescription>
-                    <FormMessage>{fieldState.error?.message}</FormMessage>
                   </FormItem>
                 )}
               />
@@ -233,7 +247,7 @@ export default function NewSwapForm() {
               size="icon"
               className="!border-y-0"
             >
-              <ArrowDown
+              <ArrowUpDown
                 className={cn(
                   "rotate-180 transition-transform",
                   formDirection === "in" ? "rotate-0" : "rotate-180",
@@ -325,11 +339,6 @@ export default function NewSwapForm() {
               {rate ? `1 ${fromTokenId} = ${rate} ${toTokenId}` : "Loading..."}
             </span>
           </div>
-
-          <div className="flex w-full flex-row items-center justify-between">
-            <span className="text-muted-foreground">Transaction cost</span>
-            <span>$0.90</span>
-          </div>
         </div>
 
         {isConnected ? (
@@ -338,12 +347,13 @@ export default function NewSwapForm() {
             size="lg"
             className="w-full"
             type="submit"
-            disabled={isLoading || !amount || !quote}
+            variant={amountExceedsBalance ? "destructive" : "default"}
+            disabled={isLoading || !amount || !quote || amountExceedsBalance}
           >
-            Swap
+            {amountExceedsBalance ? "Insufficient Balance" : "Swap"}
           </Button>
         ) : (
-          <ConnectButton size="lg" />
+          <ConnectButton size="lg" text="Connect" />
         )}
       </form>
     </Form>
