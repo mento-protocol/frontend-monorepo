@@ -13,6 +13,7 @@ export const toCeloRatesAtom = atom<ToCeloRates>(initialToCeloRates);
 export const showSlippageAtom = atom<boolean>(initialShowSlippage);
 export const showChartAtom = atom<boolean>(initialShowChart);
 export const confirmViewAtom = atom<boolean>(initialConfirmView);
+export const slippageAtom = atom<string>("0.25");
 
 // A write-only atom to reset all swap-related UI atoms
 export const resetSwapUiAtomsAtom = atom(
@@ -23,5 +24,6 @@ export const resetSwapUiAtomsAtom = atom(
     set(showSlippageAtom, initialShowSlippage);
     set(showChartAtom, initialShowChart);
     set(confirmViewAtom, initialConfirmView);
+    set(slippageAtom, "0.25");
   },
 );

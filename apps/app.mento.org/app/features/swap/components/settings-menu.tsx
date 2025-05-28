@@ -5,7 +5,13 @@ import { config } from "@/lib/config/config";
 import { useAtom } from "jotai/react";
 import { showSlippageAtom, showChartAtom } from "../swap-atoms";
 import { Cog } from "lucide-react";
-import { DropdownModal } from "@/components/layout/dropdown";
+import {
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@repo/ui";
 
 export function SettingsMenu() {
   const [showSlippage, setShowSlippage] = useAtom(showSlippageAtom);
@@ -20,44 +26,40 @@ export function SettingsMenu() {
   };
 
   return (
-    <DropdownModal
-      placement="left"
-      placementOffset={8}
-      buttonContent={(open) => (
-        <span
-          className={`${
-            open
-              ? "bg-primary-dark border dark:border-[#545457] dark:bg-transparent"
-              : "dark:border-none dark:bg-[#545457]"
-          } border-primary-dark item-center flex h-9 w-9 justify-center rounded-full border`}
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size="icon"
+          className="border-border bg-background hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground h-9 w-9 rounded-full"
+          aria-label="Settings"
         >
-          <Cog
-            className={`${open ? "block" : "hidden"} m-0 dark:block`}
-            size={18}
-          />
-          <Cog
-            className={`${open ? "hidden" : ""} m-0 dark:hidden`}
-            size={18}
-          />
-        </span>
-      )}
-      buttonTitle="Settings"
-      buttonClasses="p-1 flex items-center justify-center "
-      modalContent={() => (
-        <div className="p-3">
-          <div className="flex items-center justify-between gap-3 text-sm">
-            <div className="whitespace-nowrap">Show Slippage</div>
-            <SwitchButton checked={showSlippage} onChange={onToggleSlippage} />
-          </div>
-          {config.showPriceChart && (
-            <div className="mt-4 flex items-center justify-between text-sm">
-              <div>Toggle Chart</div>
-              <SwitchButton checked={showChart} onChange={onToggleChart} />
-            </div>
-          )}
-        </div>
-      )}
-      modalClasses="rounded-xl border border-primary-dark dark:border-none dark:bg-[#404043] dark:text-white"
-    />
+          <Cog size={18} className="text-muted-foreground" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        side="left"
+        sideOffset={8}
+        className="w-56"
+      >
+        <DropdownMenuItem
+          className="flex cursor-default items-center justify-between gap-3 py-3"
+          onSelect={(e) => e.preventDefault()}
+        >
+          <span className="text-sm font-medium">Show Slippage</span>
+          <SwitchButton checked={showSlippage} onChange={onToggleSlippage} />
+        </DropdownMenuItem>
+        {config.showPriceChart && (
+          <DropdownMenuItem
+            className="flex cursor-default items-center justify-between gap-3 py-3"
+            onSelect={(e) => e.preventDefault()}
+          >
+            <span className="text-sm font-medium">Toggle Chart</span>
+            <SwitchButton checked={showChart} onChange={onToggleChart} />
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

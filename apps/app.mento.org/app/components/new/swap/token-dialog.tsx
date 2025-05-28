@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { ArrowLeft, ChevronLeft, ChevronsRight, Search } from "lucide-react";
 import { useAccount, useChainId } from "wagmi";
 import { useAccountBalances } from "@/features/accounts/use-account-balances";
 import { cn, DialogClose, TokenIcon } from "@repo/ui";
-
+import { ScrollArea } from "@repo/ui";
 import {
   Dialog,
   DialogContent,
@@ -15,74 +15,24 @@ import {
 } from "@repo/ui";
 
 import { Input } from "@repo/ui";
-
-interface TokenOption {
-  id: string;
-  name: string;
-  symbol: string;
-  balance?: string;
-  color?: string;
-  decimals?: number;
-}
+import { useTokenOptions } from "@/features/swap/hooks/use-token-options";
+import type { TokenId } from "@/features/swap/types";
+import { fromWeiRounded } from "@/lib/utils/amount";
 
 interface TokenDialogProps {
   value: string;
   onValueChange: (value: string) => void;
   trigger: React.ReactNode;
   title?: string;
-  tokenOptions?: TokenOption[];
+  fromTokenId?: TokenId;
 }
-
-// Mock token options
-const mockTokenOptions: TokenOption[] = [
-  {
-    id: "CELO" as TokenId,
-    name: "Celo Token",
-    symbol: "CELO",
-    balance: "4007.12",
-    color: "#FBCC5C",
-    decimals: 18,
-  },
-  {
-    id: "cUSD" as TokenId,
-    name: "Celo USD",
-    symbol: "cUSD",
-    balance: "1000.00",
-    color: "#35D07F",
-    decimals: 18,
-  },
-  {
-    id: "cEUR" as TokenId,
-    name: "Celo Euro",
-    symbol: "cEUR",
-    balance: "607.25",
-    color: "#8A2BE2",
-    decimals: 18,
-  },
-  {
-    id: "cREAL" as TokenId,
-    name: "Celo Real",
-    symbol: "cREAL",
-    balance: "560.90",
-    color: "#16A75C",
-    decimals: 18,
-  },
-  {
-    id: "USDC" as TokenId,
-    name: "USD Coin",
-    symbol: "USDC",
-    balance: "2030.00",
-    color: "#2775CA",
-    decimals: 6,
-  },
-];
 
 export default function TokenDialog({
   value,
   onValueChange,
   trigger,
   title = "Select asset to deposit",
-  tokenOptions = mockTokenOptions,
+  fromTokenId,
 }: TokenDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -90,23 +40,38 @@ export default function TokenDialog({
   const { address } = useAccount();
   const chainId = useChainId();
 
-  // Use the account balances hook to get real balances
-  // In a real implementation, we would use these balances to update the token options
   const { data: balancesFromHook } = useAccountBalances({ address, chainId });
-
-  // TODO: Update token balances with real data from balancesFromHook
+  const { tokenOptions, allTokenOptions } = useTokenOptions(
+    fromTokenId,
+    balancesFromHook,
+  );
 
   // Filter tokens based on search input
-  const filteredTokens = tokenOptions.filter(
-    (token) =>
-      token.symbol.toLowerCase().includes(search.toLowerCase()) ||
-      token.name.toLowerCase().includes(search.toLowerCase()),
-  );
+  const filteredTokens = (fromTokenId ? tokenOptions : allTokenOptions)
+    .filter(
+      (token) =>
+        token.symbol.toLowerCase().includes(search.toLowerCase()) ||
+        token.name.toLowerCase().includes(search.toLowerCase()),
+    )
+    .map((token) => {
+      const balanceValue = balancesFromHook?.[token.id];
+      const balance = fromWeiRounded(balanceValue, token.decimals);
+
+      return {
+        ...token,
+        balance,
+      };
+    });
+
+  const handleTokenSelect = (tokenId: TokenId) => {
+    onValueChange(tokenId);
+    setIsOpen(false);
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="!pb-0 sm:max-w-md">
         <DialogHeader>
           <DialogClose>
             <DialogTitle className="flex items-center gap-2 text-lg font-normal">
@@ -127,21 +92,20 @@ export default function TokenDialog({
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div>
+        <ScrollArea className="h-[calc(100vh-20rem)]">
           {filteredTokens.map((token, index) => (
-            <>
+            <Fragment key={token.id}>
               <div
-                key={token.id}
                 className={cn(
                   "hover:bg-input group flex w-full items-center justify-between p-2 text-left hover:cursor-pointer",
                   value === token.id && "bg-input",
                 )}
                 onClick={() => {
-                  onValueChange(token.id);
+                  handleTokenSelect(token.id);
                 }}
                 onKeyUp={(e) => {
                   if (e.key === "Enter") {
-                    onValueChange(token.id);
+                    handleTokenSelect(token.id);
                   }
                 }}
               >
@@ -168,16 +132,16 @@ export default function TokenDialog({
                     </div>
                   </div>
                 </div>
-                {token.balance && (
+                {token.balance && token.balance !== "0" && (
                   <div className="text-sm">
                     {token.balance} {token.symbol}
                   </div>
                 )}
               </div>
               {index < filteredTokens.length - 1 && <hr />}
-            </>
+            </Fragment>
           ))}
-        </div>
+        </ScrollArea>
       </DialogContent>
     </Dialog>
   );

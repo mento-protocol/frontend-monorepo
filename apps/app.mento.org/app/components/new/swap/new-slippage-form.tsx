@@ -1,67 +1,81 @@
 "use client";
-import { toast } from "sonner";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
-import { Button } from "@repo/ui";
-import { Form, FormControl, FormField, FormItem, FormMessage } from "@repo/ui";
+import { useState } from "react";
+import { Button, cn } from "@repo/ui";
 import { Input } from "@repo/ui";
+import { useAtom } from "jotai";
+import { slippageAtom } from "@/features/swap/swap-atoms";
 
-const formSchema = z.object({
-  slippage: z.string(),
-});
+const slippageOptions = [
+  { value: "0.25", label: "0.25%" },
+  { value: "0.5", label: "0.5%" },
+  { value: "1", label: "1%" },
+];
 
-export default function MyForm() {
-  const form = useForm<z.infer<typeof formSchema>>({
-    resolver: zodResolver(formSchema),
-  });
+export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
+  const [slippage, setSlippage] = useAtom(slippageAtom);
+  const [customSlippage, setCustomSlippage] = useState("");
 
-  function onSubmit(values: z.infer<typeof formSchema>) {
-    try {
-      console.log(values);
-      toast(
-        <pre className="bg-muted mt-2 w-[340px] rounded-md p-4">
-          <code className="text-white">{JSON.stringify(values, null, 2)}</code>
-        </pre>,
-      );
-    } catch (error) {
-      console.error("Form submission error", error);
-      toast.error("Failed to submit the form. Please try again.");
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const finalSlippage = customSlippage || slippage;
+    setSlippage(finalSlippage);
+    onSubmit();
+  };
+
+  const handleCustomSlippageChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const value = e.target.value;
+    if (
+      value === "" ||
+      Number.parseFloat(value) <= 2 ||
+      Number.parseFloat(value) >= 0
+    ) {
+      setCustomSlippage(value);
     }
-  }
+  };
+
+  const handlePresetSlippage = (value: string) => {
+    setSlippage(value);
+    setCustomSlippage("");
+  };
 
   return (
-    <Form {...form}>
-      <form
-        onSubmit={form.handleSubmit(onSubmit)}
-        className="mx-auto max-w-3xl space-y-8 py-10"
-      >
-        <div className="grid grid-cols-12 gap-4">
-          <div className="col-span-9 flex flex-row items-center justify-between gap-4">
-            <Button variant="outline">0.25%</Button>
-            <Button variant="outline">0.5%</Button>
-            <Button variant="outline">1%</Button>
-          </div>
-
-          <div className="col-span-3">
-            <FormField
-              control={form.control}
-              name="slippage"
-              render={({ field }) => (
-                <FormItem>
-                  <FormControl>
-                    <Input placeholder="Custom" className="h-8" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
+    <form onSubmit={handleSubmit} className="mx-auto max-w-3xl space-y-8 py-10">
+      <div className="grid grid-cols-12 gap-4">
+        <div className="col-span-9 flex flex-row items-center justify-between gap-4">
+          {slippageOptions.map((option) => (
+            <Button
+              key={option.value}
+              variant="outline"
+              className={cn(
+                slippage === option.value &&
+                  customSlippage === "" &&
+                  "!border-[var(--primary)]",
               )}
-            />
-          </div>
+              onClick={() => handlePresetSlippage(option.value)}
+              type="button"
+            >
+              {option.label}
+            </Button>
+          ))}
         </div>
-        <Button clipped="lg" size="lg" className="w-full" type="submit">
-          Confirm
-        </Button>
-      </form>
-    </Form>
+
+        <div className="col-span-3">
+          <Input
+            placeholder="Custom"
+            className="h-8"
+            value={customSlippage}
+            onChange={handleCustomSlippageChange}
+            type="number"
+            min={0}
+            max={2}
+          />
+        </div>
+      </div>
+      <Button clipped="lg" size="lg" className="w-full" type="submit">
+        Confirm
+      </Button>
+    </form>
   );
 }
