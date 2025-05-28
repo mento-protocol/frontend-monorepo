@@ -226,12 +226,12 @@ export default async function Home() {
             </span>
             <span>{collateralizationRatio.toFixed(2)}</span>
           </div>
-          <hr className="bg-border my-2.5 h-px" />
+          <hr className="my-2.5 h-px border-[var(--border)]" />
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">Total Supply</span>
             <span>${totalSupply.toLocaleString()}</span>
           </div>
-          <hr className="bg-border my-2.5 h-px" />
+          <hr className="my-2.5 h-px border-[var(--border)]" />
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">Reserve Holdings</span>
             <span>${reserveHoldingsValue.toLocaleString()}</span>
