@@ -206,15 +206,15 @@ export default async function Home() {
         height={168}
         className="w-full md:hidden"
       />
-      {/* <Image
+      <Image
         src={`${env.NEXT_PUBLIC_STORAGE_URL}/hero-c7xKGtRaVn3xkLRWh1ErDf3brBXZWG.png`}
         alt="Mento Reserve"
         width={1280}
         height={640}
-        className="absolute left-0 top-0 -z-10 hidden max-h-[660px] w-full object-cover md:block"
-      /> */}
-      <section className="mb-20 max-w-xl px-4 md:p-20">
-        <h1 className="text-3xl font-medium md:text-5xl">Mento Reserve</h1>
+        className="absolute -bottom-[50px] -top-20 left-1/3 right-0 -z-10 hidden h-[660px] w-auto object-cover md:block 2xl:left-auto 2xl:right-0"
+      />
+      <section className="xl:px-22 max-w-xl px-4 md:p-20">
+        <h1 className="text-4xl font-medium md:text-5xl">Mento Reserve</h1>
         <p className="text-muted-foreground mt-2">
           A diversified portfolio of crypto assets supporting the ability of the
           Mento Platform to expand and contract the supply of Mento stablecoins.
@@ -238,7 +238,7 @@ export default async function Home() {
           </div>
         </div>
       </section>
-      <section className="bg-background px-4 md:px-20">
+      <section className="px-4 md:px-20">
         <Content
           stableCoinStats={stableCoinStats}
           reserveComposition={reserveComposition}

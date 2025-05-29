@@ -11,7 +11,7 @@ export function Navigation() {
   const [isOpen, setIsOpen] = useState<boolean>(false);
 
   return (
-    <nav className="relative flex h-12 w-full items-center justify-between md:h-20">
+    <nav className="bg-background/30 relative flex h-12 w-full items-center justify-between backdrop-blur-lg md:h-20">
       <a href="https://app.mento.org">
         <div className="relative z-20 h-12 w-12 md:h-20 md:w-20">
           <Logo className="block h-full w-full" />

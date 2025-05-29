@@ -28,7 +28,7 @@ function CommunityCard({
     <div
       data-slot="community-card"
       className={cn(
-        "bg-card text-card-foreground relative flex w-full flex-col gap-4 overflow-hidden p-6 md:h-[320px] md:justify-center md:p-8",
+        "bg-card text-card-foreground xl:after:bg-card relative flex w-full flex-col gap-4 p-6 md:h-[320px] md:justify-center md:p-8 xl:relative xl:mt-40 xl:after:absolute xl:after:-left-20 xl:after:-top-20 xl:after:block xl:after:h-20 xl:after:w-20",
         className,
       )}
       {...props}
