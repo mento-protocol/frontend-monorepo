@@ -4,6 +4,9 @@
 */
 
 @import "tailwindcss";
+@source "../../../apps/";
+/* @source "../../"; */
+
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark, .dark *));
@@ -39,6 +42,7 @@
   --foreground: oklch(0.223 0.0218 301);
   --card: oklch(100% 0 0);
   --incard: oklch(97.5% 0.00539 298);
+  --outlier: oklch(100% 0 0);
   --border-darker: oklch(74.2% 0.0116 298);
   --card-foreground: oklch(0.147 0.004 49.25);
   --popover: oklch(1 0 0);
@@ -83,13 +87,14 @@
   --secondary-foreground: oklch(0.51 0.2893 289.05);
   --muted: oklch(0.268 0.007 34.298);
   --muted-foreground: oklch(0.709 0.01 56.259);
-  --accent: oklch(0.268 0.007 34.298);
+  --accent: oklch(26.1% 0.0288 303);
   --accent-foreground: oklch(0.985 0.001 106.423);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(0.2613 0.0288 302.75);
   --border-darker: oklch(33.8% 0.036 303);
   --input: oklch(33.8% 0.036 303);
   --incard: oklch(26.1% 0.0288 303);
+  --outlier: oklch(33.8% 0.036 303);
   --ring: oklch(0.553 0.013 58.071);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
@@ -147,6 +152,7 @@
 
   --background-color-incard: var(--incard);
 
+  --color-outlier: var(--outlier);
   --color-border-darker: var(--border-darker);
 }
 
@@ -181,8 +187,3 @@
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
 }
-
-@source inline('{sm:,md:,lg:,xl:,}grid-cols-{1,2,3,4,5,6,7,8,9,10,11,12}');
-@source inline('{sm:,md:,lg:,xl:,}grid');
-@source inline('bg-incard');
-@source inline('border-border-darker');

@@ -270,7 +270,7 @@ export default function SwapForm() {
                         trigger={
                           <button
                             type="button"
-                            className="border-input ring-offset-background placeholder:text-muted-foreground focus:ring-ring dark:bg-muted border-border mt-[22px] flex h-10 w-full max-w-28 items-center justify-between rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="ring-offset-background placeholder:text-muted-foreground focus:ring-ring bg-outlier mt-[22px] flex h-10 w-full max-w-28 items-center justify-between rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <span>{field.value || "Select token"}</span>
                             <ChevronDown className="h-4 w-4 opacity-50" />
@@ -366,7 +366,7 @@ export default function SwapForm() {
                         trigger={
                           <button
                             type="button"
-                            className="border-input ring-offset-background placeholder:text-muted-foreground focus:ring-ring mt-[22px] flex h-10 w-full max-w-28 items-center justify-between rounded-md border bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="border-input ring-offset-background placeholder:text-muted-foreground focus:ring-ring bg-outlier mt-[22px] flex h-10 w-full max-w-28 items-center justify-between rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <span>{field.value || "Select token"}</span>
                             <ChevronDown className="h-4 w-4 opacity-50" />

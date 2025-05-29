@@ -269,30 +269,33 @@ export function SwapConfirm() {
   return (
     <div className="space-y-6">
       <div className="flex w-full flex-row items-center justify-between">
-        <div className="bg-muted flex aspect-square h-52 flex-col items-center justify-center gap-2">
+        <div className="bg-muted flex aspect-square h-32 flex-col items-center justify-center gap-2 md:h-52">
           <TokenIcon
             token={fromToken}
-            className="h-14 w-14 bg-transparent"
+            className="h-10 w-10 bg-transparent md:h-14 md:w-14"
             size={56}
           />
-          <span className="text-3xl font-medium">
+          <span
+            className="text-xl font-medium md:text-3xl"
+            data-testid="truncatedAmount"
+          >
             {fromAmount} {fromToken.symbol}
           </span>
-          <span className="text-muted-foreground">
+          <span className="text-muted-foreground text-sm md:text-base">
             ~$
             {fromWeiRounded(fromAmountWei, fromToken.decimals)}
           </span>
         </div>
-        <div className="bg-muted text-muted-foreground flex h-10 w-10 items-center justify-center p-3">
+        <div className="bg-muted text-muted-foreground hidden h-10 w-10 items-center justify-center p-3 md:flex">
           <ArrowRight size={24} className="shrink-0" />
         </div>
-        <div className="bg-muted flex aspect-square h-52 flex-col items-center justify-center gap-2">
+        <div className="bg-muted flex aspect-square h-32 flex-col items-center justify-center gap-2 md:h-52">
           <TokenIcon
             token={toToken}
-            className="h-14 w-14 bg-transparent"
+            className="h-10 w-10 bg-transparent md:h-14 md:w-14"
             size={56}
           />
-          <span className="text-3xl font-medium">
+          <span className="text-xl font-medium md:text-3xl">
             {toAmount} {toToken.symbol}
           </span>
           <span className="text-muted-foreground">

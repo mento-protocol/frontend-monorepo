@@ -20,7 +20,7 @@ export default function SwapPage() {
       <div className="mb-6 w-full max-w-xl">
         <div className="bg-card flex flex-col space-y-6 p-6">
           <div className="flex flex-row items-center justify-between gap-6">
-            <h2 className="flex items-center gap-2 text-lg font-medium">
+            <h2 className="flex items-center gap-2 text-base font-medium md:text-lg">
               {confirmView ? (
                 <Button
                   variant="ghost"

@@ -100,8 +100,8 @@ export default function TokenDialog({
             <Fragment key={token.id}>
               <div
                 className={cn(
-                  "hover:bg-input group flex w-full items-center justify-between p-2 text-left hover:cursor-pointer",
-                  value === token.id && "bg-input",
+                  "hover:bg-accent group flex w-full items-center justify-between p-2 text-left hover:cursor-pointer",
+                  value === token.id && "bg-accent",
                 )}
                 onClick={() => {
                   handleTokenSelect(token.id);
@@ -124,7 +124,7 @@ export default function TokenDialog({
                       }}
                       className="absolute transition-opacity group-hover:opacity-0"
                     />
-                    <div className="bg-primary absolute grid h-10 w-10 place-items-center opacity-0 transition-opacity group-hover:opacity-100">
+                    <div className="bg-primary text-primary-foreground absolute grid h-10 w-10 place-items-center opacity-0 transition-opacity group-hover:opacity-100">
                       <ChevronsRight />
                     </div>
                   </div>
