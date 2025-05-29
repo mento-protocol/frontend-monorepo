@@ -1,16 +1,14 @@
 "use client";
 
-import { useEffect, useCallback } from "react";
-import { toast } from "react-toastify";
-import { STATUS_POLLER_DELAY } from "@/lib/config/consts";
-import { useQueryClient } from "@tanstack/react-query";
+import { latestBlockAtom } from "@/features/blocks/block-atoms";
+import type { BlockStub } from "@/features/blocks/types";
+import { getProvider } from "@/features/providers";
 import { logger } from "@/lib/utils/logger";
 import { useInterval } from "@/lib/utils/timeout";
-import { useAccount, useChainId } from "wagmi";
+import { useQueryClient } from "@tanstack/react-query";
 import { useSetAtom } from "jotai";
-import { getProvider } from "@/features/providers";
-import type { BlockStub } from "@/features/blocks/types";
-import { latestBlockAtom } from "@/features/blocks/block-atoms";
+import { useCallback, useEffect } from "react";
+import { useAccount, useChainId } from "wagmi";
 
 const FAST_INTERVAL = 15_000; // 15 seconds, block time
 

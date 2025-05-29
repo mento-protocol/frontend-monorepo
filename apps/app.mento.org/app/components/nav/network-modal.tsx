@@ -30,8 +30,9 @@ interface Props {
   close: () => void;
 }
 
+const baseLocator = "networkModal";
+
 export function NetworkModal({ isOpen, close }: Props) {
-  const baseLocator = "networkModal";
   const latestBlock = useAtomValue(latestBlockAtom);
   const chainId = useChainId();
   const currentChain = chainIdToChain[chainId];
@@ -65,18 +66,24 @@ export function NetworkModal({ isOpen, close }: Props) {
         </DialogHeader>
 
         <div className="inline-flex w-full items-end justify-between">
-          <div className="font-inter bg-muted inline-flex w-full flex-col items-center justify-start gap-4 rounded-xl border py-3 sm:py-4">
+          <div className="font-inter inline-flex w-full flex-col items-center justify-start gap-4 rounded-xl border py-3 sm:py-4">
             <div className="inline-flex w-full items-end justify-between px-3 sm:px-4">
               <div className="text-muted-foreground text-[14px] font-normal leading-tight sm:text-[15px]">
                 Connected to:
               </div>
-              <div className="text-foreground text-right text-[15px] font-medium leading-tight opacity-90">
+              <div
+                className="text-foreground text-right text-[15px] font-medium leading-tight opacity-90"
+                data-testid={`${baseLocator}_currentNetwork`}
+              >
                 {currentChain?.name || "Unknown"}
               </div>
             </div>
             <div className="border-border h-[0px] w-full border-t" />
             <div className="inline-flex w-full items-end justify-between px-3 sm:px-4">
-              <div className="text-muted-foreground text-[14px] font-normal leading-tight sm:text-[15px]">
+              <div
+                className="text-muted-foreground text-[14px] font-normal leading-tight sm:text-[15px]"
+                data-testid={`${baseLocator}_currentBlockNumber`}
+              >
                 Block Number:
               </div>
               <div className="text-foreground text-right text-[14px] font-medium leading-tight opacity-90 sm:text-[15px]">
@@ -88,7 +95,10 @@ export function NetworkModal({ isOpen, close }: Props) {
               <div className="text-muted-foreground text-[14px] font-normal leading-tight sm:text-[15px]">
                 Node Rpc Url:
               </div>
-              <div className="text-foreground text-right text-[14px] font-medium leading-tight opacity-90 sm:text-[15px]">
+              <div
+                className="text-foreground text-right text-[14px] font-medium leading-tight opacity-90 sm:text-[15px]"
+                data-testid={`${baseLocator}_currentNodeRpcUrl`}
+              >
                 {shortenUrl(currentChain?.rpcUrl) || "Unknown"}
               </div>
             </div>

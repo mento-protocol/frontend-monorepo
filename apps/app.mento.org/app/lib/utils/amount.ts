@@ -40,7 +40,7 @@ export function fromWeiRounded(
   // If amount is less than min value
   if (amount.lt(MIN_ROUNDED_VALUE)) {
     if (roundDownIfSmall) return "0";
-    else return MIN_ROUNDED_VALUE.toString();
+    return MIN_ROUNDED_VALUE.toString();
   }
 
   return amount.toFixed(DISPLAY_DECIMALS).toString();
@@ -55,14 +55,14 @@ export function toWei(
   const components = valueString.split(".");
   if (components.length === 1) {
     return new BigNumber(parseUnits(valueString, decimals).toString());
-  } else if (components.length === 2) {
+  }
+  if (components.length === 2) {
     const trimmedFraction = components[1].substring(0, decimals);
     return new BigNumber(
       parseUnits(`${components[0]}.${trimmedFraction}`, decimals).toString(),
     );
-  } else {
-    throw new Error(`Cannot convert ${valueString} to wei`);
   }
+  throw new Error(`Cannot convert ${valueString} to wei`);
 }
 
 export function parseAmount(
@@ -72,7 +72,7 @@ export function parseAmount(
     if (!value) return null;
     const parsed = new BigNumber(value);
     if (!parsed || parsed.isNaN() || !parsed.isFinite()) return null;
-    else return parsed;
+    return parsed;
   } catch (error) {
     logger.warn("Error parsing amount", value);
     return null;
@@ -106,10 +106,9 @@ export function getAdjustedAmount(
   const maxAmount = new BigNumber(_maxAmount);
   if (areAmountsNearlyEqual(amountInWei, maxAmount)) {
     return maxAmount;
-  } else {
-    // Just the amount entered, no adjustment needed
-    return amountInWei;
   }
+  // Just the amount entered, no adjustment needed
+  return amountInWei;
 }
 
 export const fixed1 = new BigNumber("1000000000000000000000000");

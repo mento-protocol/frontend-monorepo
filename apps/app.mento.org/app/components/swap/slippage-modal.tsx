@@ -9,21 +9,24 @@ import {
 } from "@repo/ui";
 
 import { SlidersHorizontal } from "lucide-react";
-import NewSlippageForm from "./new-slippage-form";
+import NewSlippageForm from "./slippage-form";
 import { useState } from "react";
 import { useAtomValue } from "jotai";
-import { slippageAtom } from "@/features/swap/swap-atoms";
+import { formValuesAtom } from "@/features/swap/swap-atoms";
 
 export function SlippageModal() {
   const [open, setOpen] = useState(false);
-  const slippage = useAtomValue(slippageAtom);
+  const formValues = useAtomValue(formValuesAtom);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          <SlidersHorizontal />
-          {slippage}%
+        <Button variant="outline" size="sm" className="h-8 p-2">
+          <SlidersHorizontal
+            className="text-muted-foreground h-5 w-5"
+            size={20}
+          />
+          {formValues?.slippage}%
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">

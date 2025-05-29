@@ -71,7 +71,7 @@ export function ConnectButton({
               size="sm"
               className={cn(
                 "h-9 w-full justify-start gap-2 p-2 font-medium",
-                "bg-accent text-accent-foreground",
+                "text-accent-foreground w-42 border-border-darker",
               )}
             >
               <Identicon address={address} size={20} />
@@ -79,7 +79,7 @@ export function ConnectButton({
               <ChevronDown size={20} />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-64">
+          <DropdownMenuContent align="end" className="w-42">
             <BalancesSummary />
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -134,6 +134,7 @@ export function ConnectButton({
           onClick={onClickConnect}
           className="w-full"
           type="button"
+          clipped={size === "lg" ? "lg" : "sm"}
         >
           {text}
         </Button>

@@ -11,10 +11,10 @@ export function Header() {
   return (
     <header className="relative z-10">
       <div className="flex h-20 flex-row items-center justify-between gap-6">
-        <Link href="/" className="flex items-center sm:hidden">
+        <Link href="/" className="flex items-center">
           <Logo />
         </Link>
-        <div className="flex flex-row items-center justify-between gap-2 px-6">
+        <div className="flex flex-row items-center justify-between gap-2 px-4 md:px-6">
           <ThemeSwitch />
           <ConnectButton />
         </div>
