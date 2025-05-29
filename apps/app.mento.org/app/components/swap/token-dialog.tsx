@@ -32,7 +32,7 @@ export default function TokenDialog({
   value,
   onValueChange,
   trigger,
-  title = "Select asset to deposit",
+  title = "Select asset to sell",
   fromTokenId,
   excludeTokenId,
 }: TokenDialogProps) {

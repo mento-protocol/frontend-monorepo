@@ -28,8 +28,14 @@ import { fromWeiRounded } from "@/lib/utils/amount";
 import { useAtom } from "jotai";
 import { ArrowUpDown, ChevronDown } from "lucide-react";
 import { useAccount, useChainId } from "wagmi";
+import { useQuery } from "@tanstack/react-query";
 import TokenDialog from "./token-dialog";
 import type { SwapFormValues } from "@/features/swap/types";
+import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
+import { parseInputExchangeAmount } from "@/features/swap/utils";
+import { getTokenAddress } from "@/lib/config/tokens";
+import { createPublicClient, http, formatUnits } from "viem";
+import { celo } from "viem/chains";
 
 type SwapDirection = "in" | "out";
 
@@ -147,10 +153,15 @@ export default function SwapForm() {
 
   const handleUseMaxBalance = () => {
     const maxAmountWei = balances[fromTokenId as keyof typeof balances] || "0";
-    const formattedAmount = fromWeiRounded(
-      maxAmountWei,
-      Tokens[fromTokenId as keyof typeof Tokens].decimals,
-    );
+
+    // Use a very conservative approach: only use 95% of the balance to prevent any gas estimation issues
+    const maxAmountBigInt = BigInt(maxAmountWei);
+    const decimals = Tokens[fromTokenId as keyof typeof Tokens].decimals;
+
+    // Use 95% of the balance to leave plenty of room for gas and rounding issues
+    const adjustedMaxWei = (maxAmountBigInt * BigInt(95)) / BigInt(100);
+
+    const formattedAmount = fromWeiRounded(adjustedMaxWei.toString(), decimals);
     form.setValue("amount", formatWithMaxDecimals(formattedAmount));
     form.setValue("direction", "in");
   };
@@ -199,6 +210,227 @@ export default function SwapForm() {
     toTokenId as TokenId,
   );
 
+  // Gas fee estimation
+  const getPublicClient = (chainId: number) => {
+    // Define chain configurations
+    const alfajores = {
+      id: 44787,
+      name: "Alfajores",
+      network: "alfajores",
+      nativeCurrency: {
+        decimals: 18,
+        name: "Celo",
+        symbol: "CELO",
+      },
+      rpcUrls: {
+        default: {
+          http: ["https://alfajores-forno.celo-testnet.org"],
+        },
+        public: {
+          http: ["https://alfajores-forno.celo-testnet.org"],
+        },
+      },
+      blockExplorers: {
+        default: { name: "CeloScan", url: "https://alfajores.celoscan.io" },
+      },
+      testnet: true,
+    };
+
+    const baklava = {
+      id: 62320,
+      name: "Baklava",
+      network: "baklava",
+      nativeCurrency: {
+        decimals: 18,
+        name: "Celo",
+        symbol: "CELO",
+      },
+      rpcUrls: {
+        default: {
+          http: ["https://baklava-forno.celo-testnet.org"],
+        },
+        public: {
+          http: ["https://baklava-forno.celo-testnet.org"],
+        },
+      },
+      blockExplorers: {
+        default: { name: "CeloScan", url: "https://baklava.celoscan.io" },
+      },
+      testnet: true,
+    };
+
+    const chainMap = {
+      42220: celo,
+      44787: alfajores,
+      62320: baklava,
+    };
+
+    const chain = chainMap[chainId as keyof typeof chainMap] || celo;
+
+    return createPublicClient({
+      chain,
+      transport: http(),
+    });
+  };
+
+  const {
+    data: gasEstimate,
+    isLoading: isGasEstimating,
+    error: gasEstimateError,
+  } = useQuery<{
+    gasEstimate: bigint;
+    feeData: {
+      maxFeePerGas?: bigint;
+      gasPrice?: bigint;
+    };
+    totalFeeWei: bigint;
+    totalFeeFormatted: string;
+  } | null>({
+    queryKey: [
+      "gas-estimate",
+      amount,
+      fromTokenId,
+      toTokenId,
+      formDirection,
+      address,
+      quote,
+    ],
+    queryFn: async () => {
+      if (
+        !address ||
+        !amount ||
+        !quote ||
+        !fromTokenId ||
+        !toTokenId ||
+        Number.parseFloat(amount) <= 0 ||
+        Number.parseFloat(quote) <= 0
+      ) {
+        return null;
+      }
+
+      try {
+        const publicClient = getPublicClient(chainId);
+        const sdk = await getMentoSdk(chainId);
+        const fromTokenAddr = getTokenAddress(fromTokenId as TokenId, chainId);
+        const toTokenAddr = getTokenAddress(toTokenId as TokenId, chainId);
+        const tradablePair = await getTradablePairForTokens(
+          chainId,
+          fromTokenId as TokenId,
+          toTokenId as TokenId,
+        );
+
+        const isSwapIn = formDirection === "in";
+        const amountInWei = parseInputExchangeAmount(
+          amount,
+          fromTokenId as TokenId,
+        );
+        const quoteInWei = parseInputExchangeAmount(
+          quote,
+          toTokenId as TokenId,
+        );
+
+        // Apply slippage tolerance to prevent reverts on larger trades
+        const slippageBps = Number(form.getValues("slippage") ?? "0.5") * 100;
+
+        let thresholdAmountInWei: bigint;
+        if (isSwapIn) {
+          // For swapIn, reduce the minimum amount out by slippage
+          thresholdAmountInWei = BigInt(
+            (BigInt(quoteInWei) * BigInt(10000 - slippageBps)) / BigInt(10000),
+          );
+        } else {
+          // For swapOut, increase the maximum amount in by slippage
+          thresholdAmountInWei = BigInt(
+            (BigInt(quoteInWei) * BigInt(10000 + slippageBps)) / BigInt(10000),
+          );
+        }
+
+        const swapFn = isSwapIn ? sdk.swapIn.bind(sdk) : sdk.swapOut.bind(sdk);
+        const txRequest = await swapFn(
+          fromTokenAddr,
+          toTokenAddr,
+          amountInWei,
+          thresholdAmountInWei,
+          tradablePair,
+        );
+
+        console.log("Transaction request prepared:", {
+          to: txRequest.to,
+          gasLimit: txRequest.gasLimit?.toString(),
+          value: txRequest.value?.toString(),
+          fromToken: fromTokenId,
+          toToken: toTokenId,
+          amount: amount,
+          quote: quote,
+          slippageBps: slippageBps.toString(),
+          thresholdAmount: thresholdAmountInWei.toString(),
+        });
+
+        if (!txRequest.to) {
+          console.error("Transaction request missing 'to' address");
+          return null;
+        }
+
+        // Use the gas limit from the SDK if available, otherwise estimate
+        let estimatedGas: bigint;
+        if (txRequest.gasLimit) {
+          // Prefer SDK's gas limit as it's more reliable
+          estimatedGas = BigInt(txRequest.gasLimit.toString());
+        } else {
+          try {
+            estimatedGas = await publicClient.estimateGas({
+              account: address,
+              to: txRequest.to as `0x${string}`,
+              data: txRequest.data as `0x${string}`,
+              value: txRequest.value
+                ? BigInt(txRequest.value.toString())
+                : undefined,
+            });
+          } catch (gasError) {
+            console.warn(
+              "Gas estimation failed after successful simulation:",
+              gasError,
+            );
+            // Use a reasonable fallback gas limit for swaps (typically 200k-300k gas)
+            estimatedGas = BigInt(250000);
+          }
+        }
+
+        // Get current gas price info
+        const feeData = await publicClient.estimateFeesPerGas();
+
+        // Calculate total fee using gas estimate + max fee per gas
+        const totalFeeWei =
+          estimatedGas *
+          (feeData.maxFeePerGas || feeData.gasPrice || BigInt(0));
+
+        // Convert to readable format (ETH/CELO)
+        const totalFeeFormatted = formatUnits(totalFeeWei, 18);
+
+        return {
+          gasEstimate: estimatedGas,
+          feeData,
+          totalFeeWei,
+          totalFeeFormatted,
+        };
+      } catch (error) {
+        console.error("Gas estimation failed:", error);
+        // Return null instead of throwing to prevent query from failing
+        return null;
+      }
+    },
+    enabled:
+      !!address &&
+      !!amount &&
+      !!quote &&
+      !!fromTokenId &&
+      !!toTokenId &&
+      Number.parseFloat(amount) > 0 &&
+      Number.parseFloat(quote) > 0,
+    refetchInterval: 10000, // Refetch every 10 seconds to keep gas prices current
+    retry: 1, // Limit retries for failed gas estimations
+  });
+
   // Update the quote field when the calculated quote changes
   useEffect(() => {
     if (quote !== undefined && formQuote !== quote) {
@@ -216,29 +448,25 @@ export default function SwapForm() {
     return calculateUSDValue(receiveAmount, receiveTokenId);
   }, [formDirection, amount, formQuote, toTokenId, calculateUSDValue]);
 
-  // We'll use the direction to determine which field is active directly in the render function
-
   return (
     <Form {...form}>
       <form
         onSubmit={form.handleSubmit(onSubmit)}
-        className="mx-auto max-w-3xl space-y-6"
+        className="max-w-3xl space-y-6"
       >
         <div className="flex flex-col gap-0">
           <div className="bg-incard dark:border-input border-border grid grid-cols-12 gap-4 border p-4">
-            <div className="col-span-6">
+            <div className="col-span-8">
               <Controller
                 control={form.control}
                 name="amount"
-                render={({ field, fieldState }) => (
+                render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Deposit</FormLabel>
+                    <FormLabel>Sell</FormLabel>
                     <FormControl>
                       <CoinInput
                         placeholder="0.00"
-                        value={formatWithMaxDecimals(
-                          formDirection === "in" ? field.value : formQuote,
-                        )}
+                        value={formDirection === "in" ? field.value : formQuote}
                         onChange={(e) => {
                           // Handle both string and event inputs
                           const val =
@@ -255,7 +483,7 @@ export default function SwapForm() {
               />
             </div>
 
-            <div className="col-span-6 flex flex-row items-center justify-end">
+            <div className="col-span-4 flex flex-row items-center justify-end">
               <FormField
                 control={form.control}
                 name="fromTokenId"
@@ -265,7 +493,7 @@ export default function SwapForm() {
                       <TokenDialog
                         value={field.value}
                         onValueChange={field.onChange}
-                        title="Select asset to deposit"
+                        title="Select asset to sell"
                         excludeTokenId={toTokenId}
                         trigger={
                           <button
@@ -313,19 +541,17 @@ export default function SwapForm() {
           </div>
 
           <div className="bg-incard dark:border-input border-border grid grid-cols-12 gap-4 border p-4">
-            <div className="col-span-6">
+            <div className="col-span-8">
               <Controller
                 control={form.control}
                 name="quote"
                 render={({ field, fieldState }) => (
                   <FormItem>
-                    <FormLabel>Receive</FormLabel>
+                    <FormLabel>Buy</FormLabel>
                     <FormControl>
                       <CoinInput
                         placeholder="0.00"
-                        value={formatWithMaxDecimals(
-                          formDirection === "out" ? amount : formQuote,
-                        )}
+                        value={formDirection === "out" ? amount : formQuote}
                         onChange={(e) => {
                           // Handle both string and event inputs
                           const val =
@@ -351,7 +577,7 @@ export default function SwapForm() {
               />
             </div>
 
-            <div className="col-span-6 flex flex-row items-center justify-end">
+            <div className="col-span-4 flex flex-row items-center justify-end">
               <FormField
                 control={form.control}
                 name="toTokenId"
@@ -361,7 +587,7 @@ export default function SwapForm() {
                       <TokenDialog
                         value={field.value}
                         onValueChange={field.onChange}
-                        title="Select asset to receive"
+                        title="Select asset to buy"
                         excludeTokenId={fromTokenId}
                         trigger={
                           <button
@@ -385,14 +611,37 @@ export default function SwapForm() {
           </div>
         </div>
 
-        {rate && (
-          <div className="flex w-full flex-col items-start justify-start space-y-2">
-            <div className="flex w-full flex-row items-center justify-between">
-              <span className="text-muted-foreground">Quote</span>
-              <span>{`1 ${fromTokenId} = ${rate} ${toTokenId}`}</span>
+        <div className="flex flex-col gap-2">
+          {rate && !isGasEstimating && !gasEstimateError && (
+            <div className="flex w-full flex-col items-start justify-start space-y-2">
+              <div className="flex w-full flex-row items-center justify-between">
+                <span className="text-muted-foreground">Quote</span>
+                <span>{`1 ${fromTokenId} = ${rate} ${toTokenId}`}</span>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+          {rate && gasEstimate && !isGasEstimating && !gasEstimateError && (
+            <div className="flex w-full flex-col items-start justify-start space-y-2">
+              <div className="flex w-full flex-row items-center justify-between">
+                <span className="text-muted-foreground">Fee</span>
+                <span>
+                  {gasEstimate.totalFeeFormatted
+                    ? formatWithMaxDecimals(gasEstimate.totalFeeFormatted)
+                    : "0"}{" "}
+                  CELO
+                </span>
+              </div>
+            </div>
+          )}
+          {gasEstimateError !== null && (
+            <div className="flex w-full flex-col items-start justify-start space-y-2">
+              <div className="flex w-full flex-row items-center justify-between">
+                <span className="text-muted-foreground">Fee</span>
+                <span>Error estimating gas</span>
+              </div>
+            </div>
+          )}
+        </div>
 
         {isConnected ? (
           <Button
@@ -401,9 +650,21 @@ export default function SwapForm() {
             className="w-full"
             type="submit"
             variant={amountExceedsBalance ? "destructive" : "default"}
-            disabled={isLoading || !amount || !quote || amountExceedsBalance}
+            disabled={
+              isLoading ||
+              !amount ||
+              !quote ||
+              amountExceedsBalance ||
+              isGasEstimating
+            }
           >
-            {amountExceedsBalance ? "Insufficient Balance" : "Swap"}
+            {rate && isGasEstimating
+              ? "Calculating transaction costs..."
+              : isLoading
+                ? "Loading..."
+                : amountExceedsBalance
+                  ? "Insufficient Balance"
+                  : "Swap"}
           </Button>
         ) : (
           <ConnectButton size="lg" text="Connect" />
