@@ -87,6 +87,8 @@ export function Content({
     centerChartText = `${largestComponent.value.toFixed(2)}%`;
   }
 
+  console.log("DATA: ", stableCoinStats);
+
   return (
     <>
       <Tabs defaultValue="stablecoin-supply" className="mb-8 w-full gap-0">
@@ -183,23 +185,25 @@ export function Content({
                       </CoinCardHeaderGroup>
                     </CoinCardHeader>
                     <CoinCardFooter>
-                      <span>
-                        {celoDetails.units.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </span>
-                      <span className="font-medium">
-                        {celoDetails.value.toLocaleString("en-US", {
-                          style: "currency",
-                          currency: "USD",
-                        })}
-                      </span>
-                      {celoComp && (
-                        <div className="text-muted-foreground text-sm">
-                          {celoComp.percent.toFixed(2)}%
-                        </div>
-                      )}
+                      <div className="grid w-full grid-cols-3 gap-4 xl:w-auto">
+                        <span>
+                          {celoDetails.units.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </span>
+                        <span className="font-medium">
+                          {celoDetails.value.toLocaleString("en-US", {
+                            style: "currency",
+                            currency: "USD",
+                          })}
+                        </span>
+                        {celoComp && (
+                          <div className="text-muted-foreground text-sm">
+                            {celoComp.percent.toFixed(2)}%
+                          </div>
+                        )}
+                      </div>
                     </CoinCardFooter>
                   </CoinCard>
                 );
@@ -238,23 +242,25 @@ export function Content({
                       </CoinCardHeaderGroup>
                     </CoinCardHeader>
                     <CoinCardFooter className="flex w-full md:justify-between">
-                      <span>
-                        {asset.units.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </span>
-                      <span className="text-muted-foreground font-medium">
-                        {asset.value.toLocaleString("en-US", {
-                          style: "currency",
-                          currency: "USD",
-                        })}
-                      </span>
-                      {assetComp && (
-                        <div className="text-muted-foreground">
-                          {assetComp.percent.toFixed(2)}%
-                        </div>
-                      )}
+                      <div className="grid w-full grid-cols-3 gap-4 xl:w-auto">
+                        <span>
+                          {asset.units.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </span>
+                        <span className="text-muted-foreground font-medium">
+                          {asset.value.toLocaleString("en-US", {
+                            style: "currency",
+                            currency: "USD",
+                          })}
+                        </span>
+                        {assetComp && (
+                          <div className="text-muted-foreground text-right xl:text-left">
+                            {assetComp.percent.toFixed(2)}%
+                          </div>
+                        )}
+                      </div>
                     </CoinCardFooter>
                   </CoinCard>
                 );

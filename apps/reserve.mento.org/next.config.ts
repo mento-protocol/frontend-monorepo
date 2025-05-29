@@ -19,6 +19,11 @@ const nextConfig: NextConfig = {
         ),
         pathname: "/reserve/*",
       },
+      {
+        protocol: "https",
+        hostname: "raw.githubusercontent.com",
+        pathname: "/*",
+      },
     ],
   },
 };

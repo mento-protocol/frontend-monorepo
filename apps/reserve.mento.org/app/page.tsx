@@ -219,7 +219,7 @@ export default async function Home() {
           A diversified portfolio of crypto assets supporting the ability of the
           Mento Platform to expand and contract the supply of Mento stablecoins.
         </p>
-        <div className="mt-16">
+        <div className="mb-16 mt-16 xl:mb-0">
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">
               Collateralization ratio
