@@ -186,3 +186,13 @@
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
 }
+
+.toast {
+  @apply bg-card! rounded-none! border-none! items-start!;
+  .description {
+    @apply text-muted-foreground!;
+    a {
+      @apply text-muted-foreground! font-normal! underline!;
+    }
+  }
+}
