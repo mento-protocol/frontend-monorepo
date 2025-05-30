@@ -136,7 +136,7 @@ export function ClientComponents() {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex-grow">
-            <div className="mb-4 flex h-[100px] items-center justify-center rounded-md bg-gray-100 dark:bg-gray-800">
+            <div className="mb-4 flex h-[100px] items-center justify-center rounded-none bg-gray-100 dark:bg-gray-800">
               <span className="text-sm text-gray-500 dark:text-gray-400">
                 Feature Preview
               </span>

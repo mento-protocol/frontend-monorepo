@@ -37,3 +37,4 @@ export type {
 export { default as IconBrandDiscord } from "./components/icons/icon_brand_discord.js";
 export { default as IconBrandGithub } from "./components/icons/icon_brand_github.js";
 export { default as IconBrandX } from "./components/icons/icon_brand_x.js";
+export { default as IconCheck } from "./components/icons/icon_check.js";
