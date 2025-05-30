@@ -87,18 +87,23 @@ export function Content({
     centerChartText = `${largestComponent.value.toFixed(2)}%`;
   }
 
+  console.log("DATA: ", stableCoinStats);
+
   return (
     <>
-      <Tabs defaultValue="stablecoin-supply" className="mb-8 w-full md:mt-20">
+      <Tabs defaultValue="stablecoin-supply" className="mb-8 w-full gap-0">
         <TabsList>
           <TabsTrigger value="stablecoin-supply">Stablecoin Supply</TabsTrigger>
           <TabsTrigger value="reserve-holdings">Reserve Holdings</TabsTrigger>
         </TabsList>
-        <TabsContent value="stablecoin-supply">
-          <h2 className="my-6 text-2xl font-medium md:mb-8 md:mt-12">
+        <TabsContent
+          value="stablecoin-supply"
+          className="relative before:absolute before:left-1/2 before:top-0 before:z-0 before:h-20 before:w-screen before:-translate-x-1/2 before:bg-gradient-to-b before:from-[#15111B] before:to-[#070010]"
+        >
+          <h2 className="relative z-10 my-6 text-2xl font-medium md:mb-8 md:mt-12">
             Stablecoin Supply
           </h2>
-          <div className="flex h-full flex-wrap gap-2 md:gap-4">
+          <div className="relative z-10 flex h-full flex-wrap gap-2 md:gap-4">
             {stableCoinStats.tokens.map((token) => (
               <CoinCard key={token.token}>
                 <CoinCardHeader className="justify-between">
@@ -128,10 +133,15 @@ export function Content({
             ))}
           </div>
         </TabsContent>
-        <TabsContent value="reserve-holdings">
-          <div className="flex flex-col gap-2 md:mt-12 md:grid md:grid-cols-12">
+        <TabsContent
+          value="reserve-holdings"
+          className="relative before:absolute before:left-1/2 before:top-0 before:z-0 before:h-20 before:w-screen before:-translate-x-1/2 before:bg-gradient-to-b before:from-[#15111B] before:to-[#070010]"
+        >
+          <div className="relative z-10 flex flex-col gap-2 md:mt-12 md:grid md:grid-cols-12">
             <div className="bg-card mb-2 flex h-full flex-1 flex-col p-6 md:col-span-4 md:mb-0">
-              <h2 className="text-2xl font-medium">Reserve Holdings</h2>
+              <h2 className="relative z-10 text-2xl font-medium">
+                Reserve Holdings
+              </h2>
               <ReserveChart
                 data={chartData}
                 centerText={centerChartText}
@@ -175,23 +185,25 @@ export function Content({
                       </CoinCardHeaderGroup>
                     </CoinCardHeader>
                     <CoinCardFooter>
-                      <span>
-                        {celoDetails.units.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </span>
-                      <span className="font-medium">
-                        {celoDetails.value.toLocaleString("en-US", {
-                          style: "currency",
-                          currency: "USD",
-                        })}
-                      </span>
-                      {celoComp && (
-                        <div className="text-muted-foreground text-sm">
-                          {celoComp.percent.toFixed(2)}%
-                        </div>
-                      )}
+                      <div className="grid w-full grid-cols-3 gap-4 xl:w-auto">
+                        <span>
+                          {celoDetails.units.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </span>
+                        <span className="font-medium">
+                          {celoDetails.value.toLocaleString("en-US", {
+                            style: "currency",
+                            currency: "USD",
+                          })}
+                        </span>
+                        {celoComp && (
+                          <div className="text-muted-foreground text-sm">
+                            {celoComp.percent.toFixed(2)}%
+                          </div>
+                        )}
+                      </div>
                     </CoinCardFooter>
                   </CoinCard>
                 );
@@ -230,23 +242,25 @@ export function Content({
                       </CoinCardHeaderGroup>
                     </CoinCardHeader>
                     <CoinCardFooter className="flex w-full md:justify-between">
-                      <span>
-                        {asset.units.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </span>
-                      <span className="text-muted-foreground font-medium">
-                        {asset.value.toLocaleString("en-US", {
-                          style: "currency",
-                          currency: "USD",
-                        })}
-                      </span>
-                      {assetComp && (
-                        <div className="text-muted-foreground">
-                          {assetComp.percent.toFixed(2)}%
-                        </div>
-                      )}
+                      <div className="grid w-full grid-cols-3 gap-4 xl:w-auto">
+                        <span>
+                          {asset.units.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </span>
+                        <span className="text-muted-foreground font-medium">
+                          {asset.value.toLocaleString("en-US", {
+                            style: "currency",
+                            currency: "USD",
+                          })}
+                        </span>
+                        {assetComp && (
+                          <div className="text-muted-foreground text-right xl:text-left">
+                            {assetComp.percent.toFixed(2)}%
+                          </div>
+                        )}
+                      </div>
                     </CoinCardFooter>
                   </CoinCard>
                 );
