@@ -32,7 +32,7 @@ function TokenIconBase({ token, className, size = 20 }: Props) {
 
   if (!token) {
     return (
-      <div className="dark:bg-background flex h-10 w-10 items-center justify-center bg-white" />
+      <div className="bg-background flex h-10 w-10 items-center justify-center" />
     );
   }
 
@@ -40,26 +40,19 @@ function TokenIconBase({ token, className, size = 20 }: Props) {
 
   if (imgSrc && !imgError) {
     return (
-      <div
-        className={cn(
-          "dark:bg-background flex h-10 w-10 items-center justify-center bg-white p-2.5",
-          className,
-        )}
-      >
-        <img
-          src={imgSrc}
-          alt=""
-          width={size}
-          height={size}
-          onError={() => setImgError(true)}
-        />
-      </div>
+      <img
+        src={imgSrc}
+        alt=""
+        width={size}
+        height={size}
+        onError={() => setImgError(true)}
+      />
     );
   }
 
   return (
-    <div className="dark:bg-background flex h-10 w-10 items-center justify-center bg-white">
-      <div className="font-semibold text-white">{symbol}</div>
+    <div className="bg-background flex h-10 w-10 items-center justify-center">
+      <div className="text-foreground font-semibold">{symbol}</div>
     </div>
   );
 }

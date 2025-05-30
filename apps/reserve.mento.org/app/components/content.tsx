@@ -40,7 +40,7 @@ export function Content({
   reserveHoldings,
 }: ContentProps) {
   const [active, setActive] = useState<string>();
-
+  console.log("reserveHoldings: ", reserveHoldings);
   const TOKEN_COLORS: { [key: string]: string } = {
     CELO: "#7006FC",
     CUSD: "#9A4EFD", // cUSD
@@ -115,9 +115,9 @@ export function Content({
                     <Image
                       src={token.iconUrl || ""}
                       alt={token.token}
-                      width={24}
-                      height={24}
-                      className="h-6 w-6"
+                      width={32}
+                      height={32}
+                      className="h-8 w-8"
                     />
                   </CoinCardLogo>
                 </CoinCardHeader>
@@ -157,7 +157,7 @@ export function Content({
                 );
 
                 // TODO: Confirm CELO icon path or make it dynamic if possible
-                const celoIcon = "/icons/celo.svg"; // Placeholder icon path
+                const celoIcon = "/tokens/CELO.svg"; // Placeholder icon path
 
                 return (
                   <>
@@ -171,15 +171,13 @@ export function Content({
                       onMouseLeave={() => setActive(undefined)}
                     >
                       <div className="col-span-2 flex flex-row items-center justify-start gap-2 text-xl font-medium xl:col-span-3">
-                        {celoDetails.iconUrl && (
-                          <Image
-                            src={celoDetails.iconUrl}
-                            alt={celoDetails.token}
-                            width={24}
-                            height={24}
-                            className="h-12 w-12"
-                          />
-                        )}
+                        <Image
+                          src={celoIcon}
+                          alt={celoDetails.token}
+                          width={24}
+                          height={24}
+                          className="h-9 w-9"
+                        />
 
                         {celoDetails.token}
                       </div>
@@ -208,6 +206,8 @@ export function Content({
                   (c) => c.token === asset.token,
                 );
 
+                const iconPath = `/tokens/${asset.token}.svg`;
+
                 return (
                   <div
                     key={asset.token}
@@ -219,15 +219,16 @@ export function Content({
                     onMouseLeave={() => setActive(undefined)}
                   >
                     <div className="col-span-2 flex flex-row items-center justify-start gap-2 text-xl font-medium xl:col-span-3">
-                      {asset.iconUrl && (
-                        <Image
-                          src={asset.iconUrl}
-                          alt={asset.token}
-                          width={24}
-                          height={24}
-                          className="h-12 w-12"
-                        />
-                      )}
+                      <Image
+                        src={iconPath}
+                        alt={asset.token}
+                        width={24}
+                        height={24}
+                        className="h-9 w-9"
+                        onError={(e) => {
+                          e.currentTarget.src = "/tokens/CELO.svg";
+                        }}
+                      />
 
                       {asset.token}
                     </div>
@@ -258,6 +259,7 @@ export function Content({
           mobile: `${env.NEXT_PUBLIC_STORAGE_URL}/cta-join-community-mobile-fiA6uAlKQFhFo6jXvHhxKQ3L74bn8v.png`,
           desktop: `${env.NEXT_PUBLIC_STORAGE_URL}/cta-join-community-ahNprbnDlm9FaDQ48D6eW7THpdoWdx.png`,
         }}
+        buttonHref="https://discord.com/invite/Zszgng9NdF"
       />
     </>
   );
