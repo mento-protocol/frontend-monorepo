@@ -138,7 +138,7 @@ export function Content({
           className="relative before:absolute before:left-1/2 before:top-0 before:z-0 before:h-20 before:w-screen before:-translate-x-1/2 before:bg-gradient-to-b before:from-[#15111B] before:to-[#070010]"
         >
           <div className="relative z-10 flex flex-col gap-2 md:mt-12 md:grid md:grid-cols-12">
-            <div className="bg-card mb-2 flex h-full flex-1 flex-col p-6 md:col-span-4 md:mb-0">
+            <div className="bg-card mb-2 flex h-full flex-1 flex-col p-6 md:col-span-6 md:mb-0">
               <h2 className="relative z-10 text-2xl font-medium">
                 Reserve Holdings
               </h2>
@@ -149,7 +149,7 @@ export function Content({
                 className="my-auto h-[288px] justify-center self-center"
               />
             </div>
-            <div className="flex flex-wrap gap-2 md:col-span-8">
+            <div className="flex flex-wrap gap-2 md:col-span-6">
               {(() => {
                 const celoDetails = reserveHoldings.celo.unfrozen;
                 const celoComp = reserveComposition.find(
@@ -160,52 +160,46 @@ export function Content({
                 const celoIcon = "/icons/celo.svg"; // Placeholder icon path
 
                 return (
-                  <CoinCard
-                    key={`${celoDetails.token}-unfrozen`}
-                    variant="horizontal"
-                    className="border-l-2"
-                    style={{
-                      borderLeftColor: getTokenColor(celoDetails.token),
-                    }}
-                    onMouseEnter={() => setActive(celoDetails.token)}
-                    onMouseLeave={() => setActive(undefined)}
-                  >
-                    <CoinCardHeader className="items-center md:justify-between md:gap-4">
-                      <CoinCardLogo className="h-12 w-12">
-                        <Image
-                          src={celoIcon} // Replace with actual CELO icon path or dynamic URL
-                          alt={celoDetails.token}
-                          width={24}
-                          height={24}
-                          className="h-6 w-6"
-                        />
-                      </CoinCardLogo>
-                      <CoinCardHeaderGroup>
-                        <CoinCardSymbol>{celoDetails.token}</CoinCardSymbol>
-                      </CoinCardHeaderGroup>
-                    </CoinCardHeader>
-                    <CoinCardFooter>
-                      <div className="grid w-full grid-cols-3 gap-4 xl:w-auto">
-                        <span>
-                          {celoDetails.units.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
-                        </span>
-                        <span className="font-medium">
-                          {celoDetails.value.toLocaleString("en-US", {
-                            style: "currency",
-                            currency: "USD",
-                          })}
-                        </span>
-                        {celoComp && (
-                          <div className="text-muted-foreground text-sm">
-                            {celoComp.percent.toFixed(2)}%
-                          </div>
+                  <>
+                    <div
+                      key={`${celoDetails.token}-unfrozen`}
+                      className="bg-card hover:bg-accent grid w-full grid-cols-2 gap-4 border-l-2 p-4"
+                      style={{
+                        borderLeftColor: getTokenColor(celoDetails.token),
+                      }}
+                      onMouseEnter={() => setActive(celoDetails.token)}
+                      onMouseLeave={() => setActive(undefined)}
+                    >
+                      <div className="col-span-2 flex flex-row items-center justify-start gap-2 text-xl font-medium">
+                        {celoDetails.iconUrl && (
+                          <Image
+                            src={celoDetails.iconUrl}
+                            alt={celoDetails.token}
+                            width={24}
+                            height={24}
+                            className="h-12 w-12"
+                          />
                         )}
+
+                        {celoDetails.token}
                       </div>
-                    </CoinCardFooter>
-                  </CoinCard>
+                      <div className="col-span-1 text-sm text-white">
+                        {celoDetails.units.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </div>
+                      <div className="text-muted-foreground col-span-1 text-sm">
+                        {celoDetails.value.toLocaleString("en-US", {
+                          style: "currency",
+                          currency: "USD",
+                        })}
+                      </div>
+                      <div className="text-muted-foreground col-span-2 text-sm">
+                        {celoComp && <>{celoComp.percent.toFixed(2)}%</>}
+                      </div>
+                    </div>
+                  </>
                 );
               })()}
 
@@ -215,54 +209,44 @@ export function Content({
                 );
 
                 return (
-                  <CoinCard
+                  <div
                     key={asset.token}
-                    variant="horizontal"
-                    className="border-l-2"
+                    className="bg-card hover:bg-accent grid w-full grid-cols-2 gap-4 border-l-2 p-4"
                     style={{
                       borderLeftColor: getTokenColor(asset.token),
                     }}
                     onMouseEnter={() => setActive(asset.token)}
                     onMouseLeave={() => setActive(undefined)}
                   >
-                    <CoinCardHeader className="md:justify-between md:gap-4">
+                    <div className="col-span-2 flex flex-row items-center justify-start gap-2 text-xl font-medium">
                       {asset.iconUrl && (
-                        <CoinCardLogo className="h-12 w-12">
-                          <Image
-                            src={asset.iconUrl}
-                            alt={asset.token}
-                            width={24}
-                            height={24}
-                            className="h-6 w-6"
-                          />
-                        </CoinCardLogo>
+                        <Image
+                          src={asset.iconUrl}
+                          alt={asset.token}
+                          width={24}
+                          height={24}
+                          className="h-12 w-12"
+                        />
                       )}
-                      <CoinCardHeaderGroup>
-                        <CoinCardSymbol>{asset.token}</CoinCardSymbol>
-                      </CoinCardHeaderGroup>
-                    </CoinCardHeader>
-                    <CoinCardFooter className="flex w-full md:justify-between">
-                      <div className="grid w-full grid-cols-3 gap-4 xl:w-auto">
-                        <span>
-                          {asset.units.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
-                        </span>
-                        <span className="text-muted-foreground font-medium">
-                          {asset.value.toLocaleString("en-US", {
-                            style: "currency",
-                            currency: "USD",
-                          })}
-                        </span>
-                        {assetComp && (
-                          <div className="text-muted-foreground text-right xl:text-left">
-                            {assetComp.percent.toFixed(2)}%
-                          </div>
-                        )}
-                      </div>
-                    </CoinCardFooter>
-                  </CoinCard>
+
+                      {asset.token}
+                    </div>
+                    <div className="col-span-1 text-sm text-white">
+                      {asset.units.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </div>
+                    <div className="text-muted-foreground col-span-1 text-sm">
+                      {asset.value.toLocaleString("en-US", {
+                        style: "currency",
+                        currency: "USD",
+                      })}
+                    </div>
+                    <div className="text-muted-foreground col-span-2 text-sm">
+                      {assetComp.percent.toFixed(2)}%
+                    </div>
+                  </div>
                 );
               })}
             </div>
