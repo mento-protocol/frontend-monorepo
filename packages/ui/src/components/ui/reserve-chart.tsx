@@ -110,7 +110,7 @@ export function ReserveChart({
             dataKey="value"
             nameKey="name"
             innerRadius="60%" // Adjusted for inner ring space
-            outerRadius="95%"
+            outerRadius="90%"
             strokeWidth={0} // stroke="var(--background)"
             onMouseEnter={(_, index) =>
               data[index] && handleActiveChanged(data[index].name)

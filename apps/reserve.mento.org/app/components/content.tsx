@@ -138,7 +138,7 @@ export function Content({
           className="relative before:absolute before:left-1/2 before:top-0 before:z-0 before:h-20 before:w-screen before:-translate-x-1/2 before:bg-gradient-to-b before:from-[#15111B] before:to-[#070010]"
         >
           <div className="relative z-10 flex flex-col gap-2 md:mt-12 md:grid md:grid-cols-12">
-            <div className="bg-card mb-2 flex h-full flex-1 flex-col p-6 md:col-span-6 md:mb-0">
+            <div className="bg-card mb-2 flex h-full flex-1 flex-col p-6 md:col-span-6 md:mb-0 xl:col-span-4">
               <h2 className="relative z-10 text-2xl font-medium">
                 Reserve Holdings
               </h2>
@@ -149,7 +149,7 @@ export function Content({
                 className="my-auto h-[288px] justify-center self-center"
               />
             </div>
-            <div className="flex flex-wrap gap-2 md:col-span-6">
+            <div className="flex flex-wrap gap-2 md:col-span-6 xl:col-span-8">
               {(() => {
                 const celoDetails = reserveHoldings.celo.unfrozen;
                 const celoComp = reserveComposition.find(
@@ -163,14 +163,14 @@ export function Content({
                   <>
                     <div
                       key={`${celoDetails.token}-unfrozen`}
-                      className="bg-card hover:bg-accent grid w-full grid-cols-2 gap-4 border-l-2 p-4"
+                      className="bg-card hover:bg-accent grid w-full grid-cols-2 gap-4 border-l-2 p-4 xl:grid-cols-12"
                       style={{
                         borderLeftColor: getTokenColor(celoDetails.token),
                       }}
                       onMouseEnter={() => setActive(celoDetails.token)}
                       onMouseLeave={() => setActive(undefined)}
                     >
-                      <div className="col-span-2 flex flex-row items-center justify-start gap-2 text-xl font-medium">
+                      <div className="col-span-2 flex flex-row items-center justify-start gap-2 text-xl font-medium xl:col-span-3">
                         {celoDetails.iconUrl && (
                           <Image
                             src={celoDetails.iconUrl}
@@ -183,19 +183,19 @@ export function Content({
 
                         {celoDetails.token}
                       </div>
-                      <div className="col-span-1 text-sm text-white">
+                      <div className="col-span-1 flex flex-row items-center justify-start gap-2 text-sm text-white xl:col-span-3">
                         {celoDetails.units.toLocaleString(undefined, {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
                         })}
                       </div>
-                      <div className="text-muted-foreground col-span-1 text-sm">
+                      <div className="text-muted-foreground col-span-1 flex flex-row items-center justify-start gap-2 text-sm xl:col-span-3">
                         {celoDetails.value.toLocaleString("en-US", {
                           style: "currency",
                           currency: "USD",
                         })}
                       </div>
-                      <div className="text-muted-foreground col-span-2 text-sm">
+                      <div className="text-muted-foreground col-span-2 flex flex-row items-center justify-start gap-2 text-sm xl:col-span-3">
                         {celoComp && <>{celoComp.percent.toFixed(2)}%</>}
                       </div>
                     </div>
@@ -211,14 +211,14 @@ export function Content({
                 return (
                   <div
                     key={asset.token}
-                    className="bg-card hover:bg-accent grid w-full grid-cols-2 gap-4 border-l-2 p-4"
+                    className="bg-card hover:bg-accent grid w-full grid-cols-2 gap-4 border-l-2 p-4 xl:grid-cols-12"
                     style={{
                       borderLeftColor: getTokenColor(asset.token),
                     }}
                     onMouseEnter={() => setActive(asset.token)}
                     onMouseLeave={() => setActive(undefined)}
                   >
-                    <div className="col-span-2 flex flex-row items-center justify-start gap-2 text-xl font-medium">
+                    <div className="col-span-2 flex flex-row items-center justify-start gap-2 text-xl font-medium xl:col-span-3">
                       {asset.iconUrl && (
                         <Image
                           src={asset.iconUrl}
@@ -231,20 +231,20 @@ export function Content({
 
                       {asset.token}
                     </div>
-                    <div className="col-span-1 text-sm text-white">
+                    <div className="col-span-1 flex flex-row items-center justify-start gap-2 text-sm text-white xl:col-span-3">
                       {asset.units.toLocaleString(undefined, {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2,
                       })}
                     </div>
-                    <div className="text-muted-foreground col-span-1 text-sm">
+                    <div className="text-muted-foreground col-span-1 flex flex-row items-center justify-start gap-2 text-sm xl:col-span-3">
                       {asset.value.toLocaleString("en-US", {
                         style: "currency",
                         currency: "USD",
                       })}
                     </div>
-                    <div className="text-muted-foreground col-span-2 text-sm">
-                      {assetComp.percent.toFixed(2)}%
+                    <div className="text-muted-foreground col-span-2 flex flex-row items-center justify-start gap-2 text-sm xl:col-span-3">
+                      {assetComp && <>{assetComp.percent.toFixed(2)}%</>}
                     </div>
                   </div>
                 );
