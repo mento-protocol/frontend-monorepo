@@ -78,11 +78,7 @@ function CoinCardName({ className, ...props }: React.ComponentProps<"div">) {
 
 function CoinCardLogo({ className, ...props }: React.ComponentProps<"div">) {
   return (
-    <div
-      data-slot="card-logo"
-      className={cn("bg-background h-14 w-14 p-4", className)}
-      {...props}
-    />
+    <div data-slot="card-logo" className={cn("p-2", className)} {...props} />
   );
 }
 

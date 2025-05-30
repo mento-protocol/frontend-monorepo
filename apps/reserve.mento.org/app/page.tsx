@@ -207,7 +207,7 @@ export default async function Home() {
         className="w-full md:hidden"
       />
       <Image
-        src={`${env.NEXT_PUBLIC_STORAGE_URL}/hero-c7xKGtRaVn3xkLRWh1ErDf3brBXZWG.png`}
+        src={`${env.NEXT_PUBLIC_STORAGE_URL}/hero-yK9EATxAalqBP4Sj6TrjtovwiEKJF6.png`}
         alt="Mento Reserve"
         width={1280}
         height={640}

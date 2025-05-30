@@ -3,6 +3,7 @@ import type * as React from "react";
 import { cn } from "@/lib/utils.js";
 import { ChevronsRight, Search } from "lucide-react";
 import { Button } from "./button.js";
+import IconBrandDiscord from "../icons/icon_brand_discord.js";
 
 interface CommunityCardProps extends React.ComponentProps<"div"> {
   title?: string;
@@ -28,7 +29,7 @@ function CommunityCard({
     <div
       data-slot="community-card"
       className={cn(
-        "bg-card text-card-foreground xl:after:bg-card relative flex w-full flex-col gap-4 p-6 md:h-[320px] md:justify-center md:p-8 xl:relative xl:mt-40 xl:after:absolute xl:after:-left-20 xl:after:-top-20 xl:after:block xl:after:h-20 xl:after:w-20",
+        "bg-card text-card-foreground xl:after:bg-card relative flex w-full flex-col gap-4 p-6 md:h-[320px] md:justify-center md:p-8 xl:relative xl:mt-32 xl:after:absolute xl:after:-left-20 xl:after:-top-20 xl:after:block xl:after:h-20 xl:after:w-20",
         className,
       )}
       {...props}
@@ -51,7 +52,7 @@ function CommunityCard({
         </p>
         <a href={buttonHref}>
           <Button className="w-fit" size="lg" clipped="default">
-            <Search size={20} />
+            <IconBrandDiscord />
             {buttonText}
             <ChevronsRight size={20} />
           </Button>
