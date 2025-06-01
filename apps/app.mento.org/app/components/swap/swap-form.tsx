@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo } from "react";
-
+import { toast } from "sonner";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { cn } from "@repo/ui";
 import { Controller, useForm, useWatch } from "react-hook-form";
@@ -26,7 +26,12 @@ import { confirmViewAtom, formValuesAtom } from "@/features/swap/swap-atoms";
 import { type TokenId, Tokens } from "@/lib/config/tokens";
 import { fromWeiRounded } from "@/lib/utils/amount";
 import { useAtom } from "jotai";
-import { ArrowUpDown, ChevronDown } from "lucide-react";
+import {
+  ArrowUpDown,
+  ChevronDown,
+  MessageSquareWarning,
+  OctagonAlert,
+} from "lucide-react";
 import { useAccount, useChainId } from "wagmi";
 import { useQuery } from "@tanstack/react-query";
 import TokenDialog from "./token-dialog";
@@ -154,21 +159,30 @@ export default function SwapForm() {
   const handleUseMaxBalance = () => {
     const maxAmountWei = balances[fromTokenId as keyof typeof balances] || "0";
 
-    // Use a very conservative approach: only use 95% of the balance to prevent any gas estimation issues
+    // Use the full balance amount
     const maxAmountBigInt = BigInt(maxAmountWei);
     const decimals = Tokens[fromTokenId as keyof typeof Tokens].decimals;
 
-    // Use 95% of the balance to leave plenty of room for gas and rounding issues
-    const adjustedMaxWei = (maxAmountBigInt * BigInt(95)) / BigInt(100);
-
-    const formattedAmount = fromWeiRounded(adjustedMaxWei.toString(), decimals);
+    const formattedAmount = fromWeiRounded(
+      maxAmountBigInt.toString(),
+      decimals,
+    );
     form.setValue("amount", formatWithMaxDecimals(formattedAmount));
     form.setValue("direction", "in");
+
+    // Show warning toast specifically for CELO token
+    if (fromTokenId === "CELO") {
+      toast.success("Max balance used", {
+        duration: 5000,
+        description: () => <>Consider keeping some CELO for transaction fees</>,
+        icon: <OctagonAlert strokeWidth={1.5} size={18} className="mt-0.5" />,
+      });
+    }
   };
 
   // Function to calculate approximate USD value for a token amount
   const calculateUSDValue = useCallback(
-    (amount: string, tokenId: string): string => {
+    (amount: string, tokenId: string, currentRate?: string): string => {
       if (!amount || amount === "0" || !tokenId) return "0.00";
 
       const numericAmount = Number.parseFloat(amount);
@@ -194,11 +208,31 @@ export default function SwapForm() {
         return (numericAmount * 0.2).toFixed(2);
       }
 
-      // For other tokens (like CELO), we'd need actual price data
-      // For now, return a placeholder since we don't have price feeds
+      // For CELO and other tokens, use the rate if available
+      // If we're calculating CELO value and we have a rate to cUSD
+      if (
+        tokenId === "CELO" &&
+        currentRate &&
+        (toTokenId === "cUSD" || fromTokenId === "cUSD")
+      ) {
+        // If CELO is fromToken and cUSD is toToken, rate is CELO/cUSD
+        // So 1 CELO = (1/rate) cUSD
+        if (fromTokenId === "CELO" && toTokenId === "cUSD") {
+          const celoToCusdRate = currentRate ? 1 / Number(currentRate) : 0;
+          return (numericAmount * celoToCusdRate).toFixed(2);
+        }
+        // If cUSD is fromToken and CELO is toToken, rate is cUSD/CELO
+        // So 1 CELO = rate cUSD
+        if (fromTokenId === "cUSD" && toTokenId === "CELO") {
+          const celoToCusdRate = Number(currentRate);
+          return (numericAmount * celoToCusdRate).toFixed(2);
+        }
+      }
+
+      // For other tokens without direct rate to cUSD, return 0
       return "0.00";
     },
-    [],
+    [fromTokenId, toTokenId],
   );
 
   // Type assertion is needed because the form values are strings
@@ -209,6 +243,20 @@ export default function SwapForm() {
     fromTokenId as TokenId,
     toTokenId as TokenId,
   );
+
+  // Calculate USD value for the receive amount
+  const receiveUSDValue = useMemo(() => {
+    const receiveAmount = formDirection === "out" ? amount : formQuote;
+    const receiveTokenId = toTokenId;
+    return calculateUSDValue(receiveAmount, receiveTokenId, rate);
+  }, [formDirection, amount, formQuote, toTokenId, calculateUSDValue, rate]);
+
+  // Calculate USD value for the sell amount
+  const sellUSDValue = useMemo(() => {
+    const sellAmount = formDirection === "in" ? amount : formQuote;
+    const sellTokenId = fromTokenId;
+    return calculateUSDValue(sellAmount, sellTokenId, rate);
+  }, [formDirection, amount, formQuote, fromTokenId, calculateUSDValue, rate]);
 
   // Gas fee estimation
   const getPublicClient = (chainId: number) => {
@@ -426,7 +474,8 @@ export default function SwapForm() {
       !!fromTokenId &&
       !!toTokenId &&
       Number.parseFloat(amount) > 0 &&
-      Number.parseFloat(quote) > 0,
+      Number.parseFloat(quote) > 0 &&
+      !amountExceedsBalance, // Don't calculate gas if amount exceeds balance
     refetchInterval: 10000, // Refetch every 10 seconds to keep gas prices current
     retry: 1, // Limit retries for failed gas estimations
   });
@@ -441,18 +490,11 @@ export default function SwapForm() {
     }
   }, [quote, formQuote, form]);
 
-  // Calculate USD value for the receive amount
-  const receiveUSDValue = useMemo(() => {
-    const receiveAmount = formDirection === "out" ? amount : formQuote;
-    const receiveTokenId = toTokenId;
-    return calculateUSDValue(receiveAmount, receiveTokenId);
-  }, [formDirection, amount, formQuote, toTokenId, calculateUSDValue]);
-
   return (
     <Form {...form}>
       <form
         onSubmit={form.handleSubmit(onSubmit)}
-        className="max-w-3xl space-y-6"
+        className="flex h-full max-w-3xl flex-col gap-6"
       >
         <div className="flex flex-col gap-0">
           <div className="bg-incard dark:border-input border-border grid grid-cols-12 gap-4 border p-4">
@@ -472,11 +514,17 @@ export default function SwapForm() {
                           const val =
                             typeof e === "string" ? e : e.target.value;
                           field.onChange(val);
+                          // When changing the sell field, ensure direction is set to "in"
+                          if (formDirection !== "in") {
+                            form.setValue("direction", "in", {
+                              shouldValidate: true,
+                            });
+                          }
                         }}
                       />
                     </FormControl>
                     <FormDescription>
-                      ~${formatWithMaxDecimals(receiveUSDValue)}
+                      ~${formatWithMaxDecimals(sellUSDValue)}
                     </FormDescription>
                   </FormItem>
                 )}
@@ -506,7 +554,7 @@ export default function SwapForm() {
                         }
                       />
                     </FormControl>
-                    <FormDescription>
+                    <FormDescription className="w-[132px]">
                       Balance: {formatWithMaxDecimals(fromTokenBalance)}{" "}
                       <button
                         type="button"
@@ -612,28 +660,34 @@ export default function SwapForm() {
         </div>
 
         <div className="flex flex-col gap-2">
-          {rate && !isGasEstimating && !gasEstimateError && (
-            <div className="flex w-full flex-col items-start justify-start space-y-2">
-              <div className="flex w-full flex-row items-center justify-between">
-                <span className="text-muted-foreground">Quote</span>
-                <span>{`1 ${fromTokenId} = ${rate} ${toTokenId}`}</span>
+          {rate &&
+            (!isGasEstimating || amountExceedsBalance) &&
+            !gasEstimateError && (
+              <div className="flex w-full flex-col items-start justify-start space-y-2">
+                <div className="flex w-full flex-row items-center justify-between">
+                  <span className="text-muted-foreground">Quote</span>
+                  <span>{`${rate && Number(rate) > 0 ? Number(rate).toFixed(4) : "0"} ${fromTokenId} ~ 1 ${toTokenId}`}</span>
+                </div>
               </div>
-            </div>
-          )}
-          {rate && gasEstimate && !isGasEstimating && !gasEstimateError && (
-            <div className="flex w-full flex-col items-start justify-start space-y-2">
-              <div className="flex w-full flex-row items-center justify-between">
-                <span className="text-muted-foreground">Fee</span>
-                <span>
-                  {gasEstimate.totalFeeFormatted
-                    ? formatWithMaxDecimals(gasEstimate.totalFeeFormatted)
-                    : "0"}{" "}
-                  CELO
-                </span>
+            )}
+          {rate &&
+            gasEstimate &&
+            !isGasEstimating &&
+            !gasEstimateError &&
+            !amountExceedsBalance && (
+              <div className="flex w-full flex-col items-start justify-start space-y-2">
+                <div className="flex w-full flex-row items-center justify-between">
+                  <span className="text-muted-foreground">Fee</span>
+                  <span>
+                    {gasEstimate.totalFeeFormatted
+                      ? formatWithMaxDecimals(gasEstimate.totalFeeFormatted)
+                      : "0"}{" "}
+                    CELO
+                  </span>
+                </div>
               </div>
-            </div>
-          )}
-          {gasEstimateError !== null && (
+            )}
+          {gasEstimateError !== null && !amountExceedsBalance && (
             <div className="flex w-full flex-col items-start justify-start space-y-2">
               <div className="flex w-full flex-row items-center justify-between">
                 <span className="text-muted-foreground">Fee</span>
@@ -647,7 +701,7 @@ export default function SwapForm() {
           <Button
             clipped="lg"
             size="lg"
-            className="w-full"
+            className="mt-auto w-full"
             type="submit"
             variant={amountExceedsBalance ? "destructive" : "default"}
             disabled={
@@ -658,12 +712,12 @@ export default function SwapForm() {
               isGasEstimating
             }
           >
-            {rate && isGasEstimating
-              ? "Calculating transaction costs..."
-              : isLoading
-                ? "Loading..."
-                : amountExceedsBalance
-                  ? "Insufficient Balance"
+            {amountExceedsBalance
+              ? "Insufficient Balance"
+              : rate && isGasEstimating
+                ? "Calculating transaction costs..."
+                : isLoading
+                  ? "Loading..."
                   : "Swap"}
           </Button>
         ) : (

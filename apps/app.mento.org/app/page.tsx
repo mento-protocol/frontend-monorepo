@@ -11,7 +11,7 @@ import { TokenId } from "./lib/config/tokens";
 import { Button } from "@repo/ui";
 import { ArrowLeft } from "lucide-react";
 
-import { Toaster, toast } from "@repo/ui";
+import { Toaster } from "@repo/ui";
 import { IconCheck } from "@repo/ui";
 
 export default function SwapPage() {
@@ -55,7 +55,7 @@ export default function SwapPage() {
         Show Toast
       </Button> */}
       <div className="mb-6 w-full max-w-xl">
-        <div className="bg-card flex flex-col space-y-6 p-6">
+        <div className="bg-card flex h-[540px] flex-col space-y-6 p-6">
           <div className="flex flex-row items-center justify-between gap-6">
             <h2 className="flex items-center gap-2 text-base font-medium md:text-lg">
               {confirmView ? (
@@ -75,7 +75,7 @@ export default function SwapPage() {
         </div>
       </div>
       {config.showPriceChart && showChart && (
-        <div className="mb-6 md:ml-10">
+        <div className="mb-6 h-[265px] md:ml-10">
           <PriceChartCelo stableTokenId={TokenId.cUSD} height={265} />
         </div>
       )}

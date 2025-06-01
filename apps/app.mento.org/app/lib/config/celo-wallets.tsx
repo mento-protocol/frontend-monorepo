@@ -3,7 +3,7 @@
 import { Alfajores, Baklava, Celo } from "@celo/rainbowkit-celo/chains";
 import type { Chain, Wallet } from "@rainbow-me/rainbowkit";
 import { getWalletConnectConnector } from "@rainbow-me/rainbowkit";
-import { toast } from "react-toastify";
+import { toast } from "@repo/ui";
 import { tryClipboardSet } from "@/lib/utils/clipboard";
 import { WalletConnectConnector } from "wagmi/dist/connectors/walletConnect";
 

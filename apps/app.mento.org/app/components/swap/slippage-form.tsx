@@ -2,6 +2,7 @@
 import { formValuesAtom } from "@/features/swap/swap-atoms";
 import { Button, cn, Input } from "@repo/ui";
 import { useAtom } from "jotai";
+import { useState, useEffect } from "react";
 
 const slippageOptions = [
   { value: "0.5", label: "0.5%" },
@@ -11,67 +12,66 @@ const slippageOptions = [
 
 export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
   const [formValues, setFormValues] = useAtom(formValuesAtom);
+  const [localSlippage, setLocalSlippage] = useState<string>("");
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSubmit();
-  };
+  // Initialize local state with current slippage value
+  useEffect(() => {
+    setLocalSlippage(formValues?.slippage || "0.5");
+  }, [formValues?.slippage]);
 
   const handleSlippageSelect = (value: string) => {
-    setFormValues({
-      ...(formValues ?? {}),
-      slippage: value,
-    });
+    setLocalSlippage(value);
   };
 
   const handleCustomSlippageChange = (
     e: React.ChangeEvent<HTMLInputElement>,
   ) => {
     const value = e.target.value;
-    if (!formValues) return;
 
     if (
       value === "" ||
       (Number.parseFloat(value) <= 5 && Number.parseFloat(value) >= 0)
     ) {
-      setFormValues({
-        ...formValues,
-        slippage: value,
-      });
+      setLocalSlippage(value);
     }
   };
 
-  const currentSlippage = formValues?.slippage;
+  const handleConfirm = () => {
+    setFormValues({
+      ...(formValues ?? {}),
+      slippage: localSlippage,
+    });
+    onSubmit();
+  };
+
   const isPresetSelected = slippageOptions.some(
-    (option) => option.value === currentSlippage,
+    (option) => option.value === localSlippage,
   );
 
   return (
-    <div className="mx-auto max-w-3xl space-y-8 py-10">
-      <div className="grid grid-cols-12 gap-4">
-        <div className="col-span-9 flex flex-row items-center justify-between gap-4">
-          {slippageOptions.map((option) => (
-            <Button
-              key={option.value}
-              variant="outline"
-              className={cn(
-                currentSlippage === option.value &&
-                  isPresetSelected &&
-                  "!border-[var(--primary)]",
-              )}
-              onClick={() => handleSlippageSelect(option.value)}
-              type="button"
-            >
-              {option.label}
-            </Button>
-          ))}
-        </div>
-
-        <div className="col-span-3">
+    <div className="mx-auto max-w-4xl space-y-8 pt-10">
+      <div className="flex flex-1 flex-row flex-wrap items-center gap-4">
+        {slippageOptions.map((option) => (
+          <Button
+            key={option.value}
+            variant="outline"
+            className={cn(
+              localSlippage === option.value &&
+                isPresetSelected &&
+                "!border-[var(--primary)]",
+              "min-w-28",
+            )}
+            onClick={() => handleSlippageSelect(option.value)}
+            type="button"
+          >
+            {option.label}
+          </Button>
+        ))}
+        <div className="flex-shrink-0">
           <Input
             placeholder="Custom"
-            className="h-8"
-            value={isPresetSelected ? "" : currentSlippage || ""}
+            className="h-8 min-w-28"
+            value={isPresetSelected ? "" : localSlippage || ""}
             onChange={handleCustomSlippageChange}
             type="number"
             min={0}
@@ -79,7 +79,7 @@ export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
           />
         </div>
       </div>
-      <Button clipped="lg" size="lg" className="w-full" onClick={onSubmit}>
+      <Button clipped="lg" size="lg" className="w-full" onClick={handleConfirm}>
         Confirm
       </Button>
     </div>

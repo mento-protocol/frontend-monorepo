@@ -1,6 +1,5 @@
 "use client";
 
-import { toast } from "react-toastify";
 import {
   type ChainMetadata,
   allChains,
@@ -13,6 +12,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  toast,
 } from "@repo/ui";
 import { logger } from "@/lib/utils/logger";
 import { useChainId, useSwitchNetwork } from "wagmi";

@@ -21,8 +21,6 @@ import {
 } from "@rainbow-me/rainbowkit";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Analytics } from "@vercel/analytics/react";
-import { ToastContainer, Zoom, toast } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
 import { WagmiConfig, configureChains, createClient } from "wagmi";
 import { jsonRpcProvider } from "wagmi/providers/jsonRpc";
 
@@ -78,11 +76,6 @@ export function ClientProviders({ children }: PropsWithChildren) {
                 })}
               >
                 <AppLayout>{children}</AppLayout>
-                <ToastContainer
-                  transition={Zoom}
-                  position={toast.POSITION.BOTTOM_RIGHT}
-                  limit={2}
-                />
               </RainbowKitProvider>
             </WagmiConfig>
           </NextThemesProvider>

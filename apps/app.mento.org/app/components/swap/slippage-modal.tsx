@@ -29,7 +29,7 @@ export function SlippageModal() {
           {formValues?.slippage}%
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="!max-w-xl">
         <DialogHeader>
           <DialogTitle>Slippage Tolerance</DialogTitle>
           <DialogDescription>

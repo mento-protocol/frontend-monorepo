@@ -14,7 +14,7 @@ import {
   Network as NetworkIcon,
 } from "lucide-react";
 import { useState } from "react";
-import { toast } from "react-toastify";
+import { toast } from "@repo/ui";
 import { useAccount, useDisconnect } from "wagmi";
 
 import {
