@@ -39,7 +39,6 @@ export function Content({
   reserveHoldings,
 }: ContentProps) {
   const [active, setActive] = useState<string>();
-  console.log("reserveHoldings: ", reserveHoldings);
   const TOKEN_COLORS: { [key: string]: string } = {
     CELO: "#7006FC",
     CUSD: "#9A4EFD", // cUSD
@@ -85,8 +84,6 @@ export function Content({
     );
     centerChartText = `${largestComponent.value.toFixed(2)}%`;
   }
-
-  console.log("DATA: ", stableCoinStats);
 
   return (
     <>
