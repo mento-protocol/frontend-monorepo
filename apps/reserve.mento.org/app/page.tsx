@@ -281,7 +281,7 @@ export default async function Home() {
           </div>
         </div>
       </section>
-      <section className="w-full px-4 md:px-20">
+      <section className="relative z-0 w-full px-4 md:px-20">
         <Content
           stableCoinStats={stableCoinStats}
           reserveComposition={reserveComposition}
