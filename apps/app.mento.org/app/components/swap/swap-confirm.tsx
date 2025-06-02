@@ -267,7 +267,7 @@ export function SwapConfirm() {
   const toToken = Tokens[formValues?.toTokenId as keyof typeof Tokens];
 
   return (
-    <div className="space-y-6">
+    <div className="flex h-full flex-col gap-6">
       <div className="flex w-full flex-row items-center justify-between">
         <div className="bg-incard flex aspect-square h-32 flex-col items-center justify-center gap-2 md:h-52">
           <TokenIcon
@@ -342,7 +342,7 @@ export function SwapConfirm() {
       <Button
         clipped="lg"
         size="lg"
-        className="w-full"
+        className="mt-auto w-full"
         onClick={onSubmit}
         disabled={isLoading}
       >

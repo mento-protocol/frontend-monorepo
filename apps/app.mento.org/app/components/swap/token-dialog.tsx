@@ -113,7 +113,7 @@ export default function TokenDialog({
                 }}
               >
                 <div className="flex items-center gap-2">
-                  <div className="relative h-10 w-10">
+                  <div className="group relative grid h-10 w-10 place-content-center">
                     <TokenIcon
                       token={{
                         id: token.id,
@@ -123,6 +123,7 @@ export default function TokenDialog({
                         decimals: token.decimals || 18,
                       }}
                       className="absolute transition-opacity group-hover:opacity-0"
+                      size={24}
                     />
                     <div className="bg-primary text-primary-foreground absolute grid h-10 w-10 place-items-center opacity-0 transition-opacity group-hover:opacity-100">
                       <ChevronsRight />

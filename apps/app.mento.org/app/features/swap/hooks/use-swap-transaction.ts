@@ -5,7 +5,7 @@ import { logger } from "@/lib/utils/logger";
 import { useMutation } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
 import { useSetAtom } from "jotai";
-import { toast } from "react-toastify";
+import { toast } from "@repo/ui";
 import type { Address } from "wagmi";
 import { sendTransaction } from "wagmi/actions";
 import { confirmViewAtom, formValuesAtom } from "../swap-atoms";

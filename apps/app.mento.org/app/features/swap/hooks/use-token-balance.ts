@@ -1,4 +1,4 @@
-import { toast } from "react-toastify";
+import { toast } from "@repo/ui";
 import { TokenId, Tokens } from "@/lib/config/tokens";
 import type { AccountBalances } from "@/features/accounts/use-account-balances";
 import { fromWei, fromWeiRounded } from "@/lib/utils/amount";

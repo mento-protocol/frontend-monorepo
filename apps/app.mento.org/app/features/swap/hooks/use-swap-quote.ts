@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { ethers } from "ethers";
 import { useEffect } from "react";
-import { toast } from "react-toastify";
+import { toast } from "@repo/ui";
 import { SWAP_QUOTE_REFETCH_INTERVAL } from "@/lib/config/consts";
 import { type TokenId, Tokens, getTokenAddress } from "@/lib/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
