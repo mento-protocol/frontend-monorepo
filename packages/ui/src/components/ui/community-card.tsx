@@ -1,9 +1,9 @@
 "use client";
-import type * as React from "react";
 import { cn } from "@/lib/utils.js";
-import { ChevronsRight, Search } from "lucide-react";
-import { Button } from "./button.js";
+import { ChevronsRight } from "lucide-react";
+import type * as React from "react";
 import IconBrandDiscord from "../icons/icon_brand_discord.js";
+import { Button } from "./button.js";
 
 interface CommunityCardProps extends React.ComponentProps<"div"> {
   title?: string;

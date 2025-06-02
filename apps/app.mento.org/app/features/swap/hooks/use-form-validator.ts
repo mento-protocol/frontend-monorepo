@@ -1,14 +1,13 @@
-import { useCallback } from "react";
 import { MIN_ROUNDED_VALUE } from "@/lib/config/consts";
+import { useCallback } from "react";
 // Tokens and getTokenByAddress are used as values, AppTokenId as type
-import { Tokens, getTokenByAddress } from "@/lib/config/tokens";
-import type { TokenId as AppTokenId } from "@/lib/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
+import type { TokenId as AppTokenId } from "@/lib/config/tokens";
+import { Tokens, getTokenByAddress } from "@/lib/config/tokens";
 // These are all types
 import type {
   IUseFormValidatorProps,
   SwapFormValues,
-  TokenId,
 } from "@/features/swap/types";
 import { parseAmount, toWei } from "@/lib/utils/amount";
 import { logger } from "@/lib/utils/logger";

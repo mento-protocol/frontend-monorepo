@@ -1,5 +1,6 @@
 "use client";
 
+import { env } from "@/env.mjs";
 import type { ChartSegment } from "@repo/ui";
 import {
   CoinCard,
@@ -18,15 +19,13 @@ import {
   TabsTrigger,
 } from "@repo/ui";
 import Image from "next/image";
+import { useState } from "react";
 import type {
   HoldingsApi,
   ReserveCompositionAPI,
   ReserveCompositionEntry,
   StableValueTokensAPI,
 } from "../lib/types";
-import { useState } from "react";
-import { env } from "@/env.mjs";
-import { Navigation } from "@repo/ui";
 
 interface ContentProps {
   stableCoinStats: StableValueTokensAPI;

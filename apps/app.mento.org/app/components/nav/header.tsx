@@ -3,9 +3,42 @@
 import Link from "next/link";
 import { ConnectButton } from "@/components/nav/connect-button";
 
-import { ThemeSwitch } from "@/components/buttons/theme-switch";
+import { useTheme } from "next-themes";
+import { Button, cn, Logo } from "@repo/ui";
+import { Moon, Sun } from "lucide-react";
 
-import Logo from "@/components/logo";
+function ThemeSwitch() {
+  const { theme, setTheme } = useTheme();
+
+  return (
+    <Button
+      variant="switch"
+      size="switch"
+      onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+    >
+      <div
+        className={cn(
+          "relative z-10 flex h-[28px] w-[28px] flex-row items-center justify-center",
+          theme === "light"
+            ? "bg-card text-foreground"
+            : "text-muted-foreground",
+        )}
+      >
+        <Sun className="transition-all" />
+      </div>
+      <div
+        className={cn(
+          "relative z-10 flex h-[28px] w-[28px] flex-row items-center justify-center",
+          theme === "light"
+            ? "text-muted-foreground"
+            : "bg-card text-foreground",
+        )}
+      >
+        <Moon className="transition-all" />
+      </div>
+    </Button>
+  );
+}
 
 export function Header() {
   return (

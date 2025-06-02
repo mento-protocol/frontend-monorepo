@@ -1,11 +1,17 @@
 "use client";
 
 import {
+  latestBlockAtom,
+  resetLatestBlockAtom,
+} from "@/features/blocks/block-atoms";
+import { resetSwapUiAtomsAtom } from "@/features/swap/swap-atoms";
+import {
   type ChainMetadata,
   allChains,
   chainIdToChain,
 } from "@/lib/config/chains";
 import { cleanupStaleWalletSessions } from "@/lib/config/wallets";
+import { logger } from "@/lib/utils/logger";
 import {
   Button,
   Dialog,
@@ -14,16 +20,9 @@ import {
   DialogTitle,
   toast,
 } from "@repo/ui";
-import { logger } from "@/lib/utils/logger";
-import { useChainId, useSwitchNetwork } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";
-import { useSetAtom, useAtomValue } from "jotai";
-import { resetSwapUiAtomsAtom } from "@/features/swap/swap-atoms";
-import {
-  latestBlockAtom,
-  resetLatestBlockAtom,
-} from "@/features/blocks/block-atoms";
-import { resetTokenPricesAtom } from "@/features/chart/token-price-atoms";
+import { useAtomValue, useSetAtom } from "jotai";
+import { useChainId, useSwitchNetwork } from "wagmi";
 
 interface Props {
   isOpen: boolean;
@@ -32,7 +31,7 @@ interface Props {
 
 const baseLocator = "networkModal";
 
-export function NetworkModal({ isOpen, close }: Props) {
+export function NetworkDialog({ isOpen, close }: Props) {
   const latestBlock = useAtomValue(latestBlockAtom);
   const chainId = useChainId();
   const currentChain = chainIdToChain[chainId];
@@ -40,7 +39,6 @@ export function NetworkModal({ isOpen, close }: Props) {
   const queryClient = useQueryClient();
   const resetJotaiSwapState = useSetAtom(resetSwapUiAtomsAtom);
   const setResetLatestBlock = useSetAtom(resetLatestBlockAtom);
-  const setResetTokenPrices = useSetAtom(resetTokenPricesAtom);
 
   const switchToNetwork = async (c: ChainMetadata) => {
     try {
@@ -51,7 +49,6 @@ export function NetworkModal({ isOpen, close }: Props) {
       setResetLatestBlock();
       queryClient.resetQueries({ queryKey: ["accountBalances"] });
       resetJotaiSwapState();
-      setResetTokenPrices();
     } catch (error) {
       logger.error("Error updating network", error);
       toast.error("Could not switch network, does wallet support switching?");

@@ -8,13 +8,13 @@ import {
   DialogTrigger,
 } from "@repo/ui";
 
-import { SlidersHorizontal } from "lucide-react";
-import NewSlippageForm from "./slippage-form";
-import { useState } from "react";
-import { useAtomValue } from "jotai";
 import { formValuesAtom } from "@/features/swap/swap-atoms";
+import { useAtomValue } from "jotai";
+import { SlidersHorizontal } from "lucide-react";
+import { useState } from "react";
+import NewSlippageForm from "./slippage-form";
 
-export function SlippageModal() {
+export function SlippageDialog() {
   const [open, setOpen] = useState(false);
   const formValues = useAtomValue(formValuesAtom);
 
@@ -33,8 +33,9 @@ export function SlippageModal() {
         <DialogHeader>
           <DialogTitle>Slippage Tolerance</DialogTitle>
           <DialogDescription>
-            Defines the maximum price difference you're willing to accept when a
-            swap is executed. It’s set as a percentage of the total swap value.
+            Defines the maximum price difference you&apos;re willing to accept
+            when a swap is executed. It&apos;s set as a percentage of the total
+            swap value.
           </DialogDescription>
         </DialogHeader>
         <NewSlippageForm onSubmit={() => setOpen(false)} />

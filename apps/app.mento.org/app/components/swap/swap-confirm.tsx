@@ -1,29 +1,28 @@
 "use client";
 
-import { Button, TokenIcon } from "@repo/ui";
-import { useAtom, useSetAtom } from "jotai";
-import { useEffect, useState, useMemo } from "react";
-import { useAccount, useChainId } from "wagmi";
-import { waitForTransaction } from "wagmi/actions";
-import { formValuesAtom, confirmViewAtom } from "@/features/swap/swap-atoms";
-import { fromWeiRounded, getAdjustedAmount } from "@/lib/utils/amount";
-import { Tokens, TokenId } from "@/lib/config/tokens";
-import { logger } from "@/lib/utils/logger";
-import { toastToYourSuccess } from "@/components/tx-success-toast";
 import { useAccountBalances } from "@/features/accounts/use-account-balances";
 import { useApproveTransaction } from "@/features/swap/hooks/use-approve-transaction";
 import { useSwapAllowance } from "@/features/swap/hooks/use-swap-allowance";
 import { useSwapQuote } from "@/features/swap/hooks/use-swap-quote";
 import { useSwapTransaction } from "@/features/swap/hooks/use-swap-transaction";
+import { confirmViewAtom, formValuesAtom } from "@/features/swap/swap-atoms";
 import { getMaxSellAmount, getMinBuyAmount } from "@/features/swap/utils";
+import { chainIdToChain } from "@/lib/config/chains";
+import { TokenId, Tokens } from "@/lib/config/tokens";
+import { fromWeiRounded, getAdjustedAmount } from "@/lib/utils/amount";
+import { logger } from "@/lib/utils/logger";
+import { Button, toast, TokenIcon } from "@repo/ui";
+import { useAtom, useSetAtom } from "jotai";
 import { ArrowRight } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useAccount, useChainId } from "wagmi";
+import { waitForTransaction } from "wagmi/actions";
 
 export function SwapConfirm() {
   const [formValues] = useAtom(formValuesAtom);
   const setJotaiConfirmView = useSetAtom(confirmViewAtom);
 
-  // Loading modal state
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isApproveConfirmed, setApproveConfirmed] = useState(false);
 
   const { address, isConnected } = useAccount();
@@ -179,12 +178,15 @@ export function SwapConfirm() {
       skipApprove,
     });
 
-    setIsModalOpen(true);
+    setIsDialogOpen(true);
 
     try {
+      const explorerUrl = chainIdToChain[chainId].explorerUrl;
+
       if (skipApprove) {
         // Skip approval and go directly to swap
         logger.info("Skipping approve, sending swap tx directly");
+
         if (sendSwapTx) {
           await sendSwapTx();
           if (swapTxResult?.hash) {
@@ -196,11 +198,22 @@ export function SwapConfirm() {
             logger.info(
               `Tx receipt received for swap: ${swapReceipt?.transactionHash}`,
             );
-            toastToYourSuccess(
-              "Swap Complete!",
-              swapReceipt?.transactionHash,
-              chainId,
-            );
+
+            toast.success("Swap Complete!", {
+              duration: 5000,
+              description: () => (
+                <>
+                  Completed swap transaction
+                  <br />
+                  <a
+                    className="underline"
+                    href={`${explorerUrl}/tx/${swapReceipt?.transactionHash}`}
+                  >
+                    See Details
+                  </a>
+                </>
+              ),
+            });
             // Reset form and go back to swap form
             setJotaiConfirmView(false);
           } else {
@@ -218,11 +231,20 @@ export function SwapConfirm() {
         const approveResult = await sendApproveTx();
         const approveReceipt = await approveResult.wait(1);
 
-        toastToYourSuccess(
-          "Approve complete! Proceeding to swap...",
-          approveReceipt.transactionHash,
-          chainId,
-        );
+        toast.success("Approve complete!", {
+          duration: 5000,
+          description: () => (
+            <>
+              Proceeding to swap... <br />
+              <a
+                className="underline"
+                href={`${explorerUrl}/tx/${approveReceipt?.transactionHash}`}
+              >
+                See Details
+              </a>
+            </>
+          ),
+        });
 
         logger.info(
           `Tx receipt received for approve: ${approveReceipt.transactionHash}`,
@@ -243,12 +265,21 @@ export function SwapConfirm() {
               confirmations: 1,
               chainId,
             });
-            toastToYourSuccess(
-              "Swap Complete!",
-              swapReceipt?.transactionHash,
-              chainId,
-            );
-            // Reset form and go back to swap form
+            toast.success("Swap Complete!", {
+              duration: 5000,
+              description: () => (
+                <>
+                  Completed swap transaction
+                  <br />
+                  <a
+                    className="underline"
+                    href={`${explorerUrl}/tx/${swapReceipt?.transactionHash}`}
+                  >
+                    See Details
+                  </a>
+                </>
+              ),
+            });
             setJotaiConfirmView(false);
           }
         }
@@ -256,11 +287,11 @@ export function SwapConfirm() {
     } catch (error) {
       logger.error("Failed to execute transaction", error);
     } finally {
-      setIsModalOpen(false);
+      setIsDialogOpen(false);
     }
   }
 
-  const isLoading = isApproveTxLoading || isSwapTxLoading || isModalOpen;
+  const isLoading = isApproveTxLoading || isSwapTxLoading || isDialogOpen;
   const buttonText = skipApprove ? "Confirm Swap" : "Approve & Swap";
 
   const fromToken = Tokens[formValues?.fromTokenId as keyof typeof Tokens];
