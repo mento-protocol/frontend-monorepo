@@ -54,7 +54,8 @@ export default function SwapPage() {
       >
         Show Toast
       </Button> */}
-      <div className="mb-6 w-full max-w-xl">
+      <div className="relative mb-6 w-full max-w-xl">
+        <div className="top-decorations before:bg-primary after:bg-card after:-top-15 before:absolute before:-left-5 before:-top-5 before:block before:h-5 before:w-5 after:absolute after:left-0 after:block after:h-10 after:w-10"></div>
         <div className="bg-card flex h-[540px] flex-col space-y-6 p-6">
           <div className="flex flex-row items-center justify-between gap-6">
             <h2 className="flex items-center gap-2 text-base font-medium md:text-lg">
@@ -73,6 +74,7 @@ export default function SwapPage() {
           </div>
           {confirmView ? <SwapConfirm /> : <SwapForm />}
         </div>
+        <div className="bottom-decorations before:bg-card after:bg-card after:-bottom-15 before:absolute before:-bottom-5 before:-right-5 before:block before:h-5 before:w-5 before:invert after:absolute after:right-0 after:block after:h-10 after:w-10"></div>
       </div>
       {config.showPriceChart && showChart && (
         <div className="mb-6 h-[265px] md:ml-10">

@@ -12,6 +12,9 @@ import type {
 import Image from "next/image";
 import { env } from "@/env.mjs";
 
+import { IconInfo } from "./components/icon-info";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./components/tooltip";
+
 // Define a more specific type for the items in result.stablecoins
 interface ExternalStablecoin {
   symbol: string;
@@ -221,19 +224,59 @@ export default async function Home() {
         </p>
         <div className="mb-16 mt-16 xl:mb-0">
           <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">
+            <span className="text-muted-foreground flex flex-row items-center justify-start gap-2">
               Collateralization ratio
+              <Tooltip>
+                <TooltipTrigger>
+                  <IconInfo />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  <p>
+                    The ratio between the total value of assets held in the
+                    Reserve and the total value of Mento stablecoins in
+                    circulation. A ratio above means all stablecoins are fully
+                    overcollateralized by Reserve assets.
+                  </p>
+                </TooltipContent>
+              </Tooltip>
             </span>
             <span>{collateralizationRatio.toFixed(2)}</span>
           </div>
           <hr className="my-2.5 h-px border-[var(--border)]" />
           <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Total Supply</span>
+            <span className="text-muted-foreground flex flex-row items-center justify-start gap-2">
+              Total Supply
+              <Tooltip>
+                <TooltipTrigger>
+                  <IconInfo />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  <p>
+                    The total amount of Mento stablecoins currently in
+                    circulation across all supported currencies.
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </span>
             <span>${totalSupply.toLocaleString()}</span>
           </div>
           <hr className="my-2.5 h-px border-[var(--border)]" />
           <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Reserve Holdings</span>
+            <span className="text-muted-foreground flex flex-row items-center justify-start gap-2">
+              Reserve Holdings
+              <Tooltip>
+                <TooltipTrigger>
+                  <IconInfo />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  <p>
+                    The total value of assets held in the Mento Reserve. These
+                    assets back the stablecoins launched on the platform and are
+                    publicly verifiable at any time.
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </span>
             <span>${reserveHoldingsValue.toLocaleString()}</span>
           </div>
         </div>
