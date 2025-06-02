@@ -10,8 +10,13 @@ const linkClassName = "text-muted-foreground text-base md:text-sm";
 export function Navigation() {
   const [isOpen, setIsOpen] = useState<boolean>(false);
 
+  const handleToggle = () => {
+    setIsOpen(!isOpen);
+    document.body.classList.toggle("overflow-hidden", !isOpen);
+  };
+
   return (
-    <nav className="bg-background/30 backdrop-blur-xs relative flex h-12 w-full items-center justify-between md:h-20">
+    <nav className="bg-background/30 backdrop-blur-xs relative z-10 flex h-12 w-full items-center justify-between md:h-20">
       <a href="https://app.mento.org">
         <div className="relative z-20 h-12 w-12 md:h-20 md:w-20">
           <Logo className="block h-full w-full" />
@@ -19,7 +24,7 @@ export function Navigation() {
       </a>
       <Button
         variant="ghost"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => handleToggle()}
         className="xs:block relative z-20 mr-4 md:hidden"
       >
         {isOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
