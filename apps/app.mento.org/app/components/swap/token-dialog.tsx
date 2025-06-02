@@ -142,7 +142,9 @@ export default function TokenDialog({
                   </div>
                 )}
               </div>
-              {index < filteredTokens.length - 1 && <hr />}
+              {index < filteredTokens.length - 1 && (
+                <hr className="border-[var(--border)]" />
+              )}
             </Fragment>
           ))}
         </ScrollArea>
