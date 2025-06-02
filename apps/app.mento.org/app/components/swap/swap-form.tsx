@@ -1,9 +1,9 @@
 "use client";
-import { useCallback, useEffect, useMemo } from "react";
-import { toast } from "sonner";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { cn } from "@repo/ui";
+import { useCallback, useEffect, useMemo } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
+import { toast } from "sonner";
 import * as z from "zod";
 
 import {
@@ -21,26 +21,20 @@ import { CoinInput } from "@repo/ui";
 
 import { ConnectButton } from "@/components/nav/connect-button";
 import { useAccountBalances } from "@/features/accounts/use-account-balances";
+import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { useSwapQuote } from "@/features/swap/hooks/use-swap-quote";
 import { confirmViewAtom, formValuesAtom } from "@/features/swap/swap-atoms";
-import { type TokenId, Tokens } from "@/lib/config/tokens";
-import { fromWeiRounded } from "@/lib/utils/amount";
-import { useAtom } from "jotai";
-import {
-  ArrowUpDown,
-  ChevronDown,
-  MessageSquareWarning,
-  OctagonAlert,
-} from "lucide-react";
-import { useAccount, useChainId } from "wagmi";
-import { useQuery } from "@tanstack/react-query";
-import TokenDialog from "./token-dialog";
 import type { SwapFormValues } from "@/features/swap/types";
-import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { parseInputExchangeAmount } from "@/features/swap/utils";
-import { getTokenAddress } from "@/lib/config/tokens";
-import { createPublicClient, http, formatUnits } from "viem";
+import { getTokenAddress, type TokenId, Tokens } from "@/lib/config/tokens";
+import { fromWeiRounded } from "@/lib/utils/amount";
+import { useQuery } from "@tanstack/react-query";
+import { useAtom } from "jotai";
+import { ArrowUpDown, ChevronDown, OctagonAlert } from "lucide-react";
+import { createPublicClient, formatUnits, http } from "viem";
 import { celo } from "viem/chains";
+import { useAccount, useChainId } from "wagmi";
+import TokenDialog from "./token-dialog";
 
 type SwapDirection = "in" | "out";
 

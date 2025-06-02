@@ -1,9 +1,9 @@
 "use client";
 
-import type { ReactNode } from "react";
-import type React from "react";
+import { Navigation } from "@repo/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Navigation, ThemeProvider } from "@repo/ui";
+import type React from "react";
+import type { ReactNode } from "react";
 
 const queryClient = new QueryClient({
   defaultOptions: {

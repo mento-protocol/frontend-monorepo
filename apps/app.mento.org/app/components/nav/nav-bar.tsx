@@ -1,7 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { navLinks } from "@/components/nav/nav-links";
+
+export const navLinks = [
+  { label: "Swap", to: "/" },
+  { label: "About", to: "/about" },
+];
 
 export function NavBar({ pathName }: { pathName: string }) {
   return (

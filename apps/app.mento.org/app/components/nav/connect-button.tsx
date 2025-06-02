@@ -2,7 +2,7 @@
 
 import { Identicon } from "@/components/identicon";
 import { BalancesSummary } from "@/components/nav/balances-summary";
-import { NetworkModal } from "@/components/nav/network-modal";
+import { NetworkDialog } from "@/components/nav/network-dialog";
 import { cleanupStaleWalletSessions } from "@/lib/config/wallets";
 import { shortenAddress } from "@/lib/utils/addresses";
 import { tryClipboardSet } from "@/lib/utils/clipboard";
@@ -37,7 +37,7 @@ export function ConnectButton({
   const { address, isConnected } = useAccount();
   const { openConnectModal } = useConnectModal();
   const { disconnect } = useDisconnect();
-  const [showNetworkModal, setShowNetworkModal] = useState(false);
+  const [showNetworkDialog, setShowNetworkDialog] = useState(false);
 
   const onClickConnect = () => {
     cleanupStaleWalletSessions();
@@ -47,11 +47,11 @@ export function ConnectButton({
   const onClickCopy = async () => {
     if (!address) return;
     await tryClipboardSet(address);
-    toast.success("Address copied to clipboard", { autoClose: 1200 });
+    toast.success("Address copied to clipboard", { duration: 2000 });
   };
 
   const onClickChangeNetwork = () => {
-    setShowNetworkModal(true);
+    setShowNetworkDialog(true);
   };
 
   const onClickDisconnect = () => {
@@ -139,10 +139,10 @@ export function ConnectButton({
           {text}
         </Button>
       )}
-      {showNetworkModal && (
-        <NetworkModal
-          isOpen={showNetworkModal}
-          close={() => setShowNetworkModal(false)}
+      {showNetworkDialog && (
+        <NetworkDialog
+          isOpen={showNetworkDialog}
+          close={() => setShowNetworkDialog(false)}
         />
       )}
     </div>

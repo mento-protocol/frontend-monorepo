@@ -1,5 +1,4 @@
 import { memo, useMemo, useState } from "react";
-import { cn } from "@/lib/utils.js";
 
 interface Token {
   id: string;

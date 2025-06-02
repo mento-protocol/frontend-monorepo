@@ -79,3 +79,5 @@ export interface ExternalAnalyticsApiResponse {
   total_holdings_usd: number;
   assets: ExternalReserveAsset[];
 }
+
+export type Network = "string";

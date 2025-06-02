@@ -11,7 +11,7 @@ interface ReserveTotalsResponse {
 // Opt out of caching for this dynamic route
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
+export async function GET() {
   const start = Date.now();
   try {
     const analyticsUrl = getAnalyticsUrl("reserveStats");

@@ -1,7 +1,8 @@
 "use client";
+
 import React from "react";
 
-const IconInfo: React.FC<React.SVGProps<SVGSVGElement>> = (props) => {
+const IconInfo: React.FC<React.SVGProps<SVGSVGElement>> = () => {
   return (
     <svg
       width="16"

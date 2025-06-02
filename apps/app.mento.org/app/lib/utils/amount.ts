@@ -73,7 +73,7 @@ export function parseAmount(
     const parsed = new BigNumber(value);
     if (!parsed || parsed.isNaN() || !parsed.isFinite()) return null;
     return parsed;
-  } catch (error) {
+  } catch {
     logger.warn("Error parsing amount", value);
     return null;
   }

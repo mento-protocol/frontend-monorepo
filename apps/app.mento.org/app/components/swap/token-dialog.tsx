@@ -1,23 +1,25 @@
 "use client";
 
-import { Fragment, useState } from "react";
-import { ArrowLeft, ChevronLeft, ChevronsRight, Search } from "lucide-react";
-import { useAccount, useChainId } from "wagmi";
 import { useAccountBalances } from "@/features/accounts/use-account-balances";
-import { cn, DialogClose, TokenIcon } from "@repo/ui";
-import { ScrollArea } from "@repo/ui";
 import {
+  cn,
   Dialog,
+  DialogClose,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  ScrollArea,
+  TokenIcon,
 } from "@repo/ui";
+import { ChevronLeft, ChevronsRight, Search } from "lucide-react";
+import { Fragment, useState } from "react";
+import { useAccount, useChainId } from "wagmi";
 
-import { Input } from "@repo/ui";
 import { useTokenOptions } from "@/features/swap/hooks/use-token-options";
 import type { TokenId } from "@/features/swap/types";
 import { fromWeiRounded } from "@/lib/utils/amount";
+import { Input } from "@repo/ui";
 
 interface TokenDialogProps {
   value: string;
