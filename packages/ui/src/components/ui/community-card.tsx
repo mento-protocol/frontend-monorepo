@@ -47,9 +47,7 @@ function CommunityCard({
 
       <div className="relative z-10 ml-auto max-w-md pt-64 md:pt-0">
         <h3 className="mb-2 text-3xl font-medium">{title}</h3>
-        <p className="text-muted-foreground mb-10 text-sm leading-6">
-          {description}
-        </p>
+        <p className="text-muted-foreground mb-10">{description}</p>
         <a href={buttonHref}>
           <Button className="w-fit" size="lg" clipped="default">
             <IconBrandDiscord />

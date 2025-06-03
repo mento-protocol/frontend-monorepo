@@ -17,7 +17,7 @@ export function Navigation() {
 
   return (
     <nav className="bg-background/30 backdrop-blur-xs relative z-10 flex h-12 w-full items-center justify-between md:h-20">
-      <a href="https://app.mento.org">
+      <a href="https://mento.org">
         <div className="relative z-20 h-12 w-12 md:h-20 md:w-20">
           <Logo className="block h-full w-full" />
         </div>
@@ -25,9 +25,9 @@ export function Navigation() {
       <Button
         variant="ghost"
         onClick={() => handleToggle()}
-        className="xs:block relative z-20 mr-4 md:hidden"
+        className="xs:block relative z-20 mr-3 !p-0 md:hidden"
       >
-        {isOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+        {isOpen ? <X className="size-6" /> : <Menu className="size-6" />}
       </Button>
       <div
         className={`${isOpen ? "translate-0" : "md:translate-0 -translate-x-full"} bg-background pt-18 absolute inset-0 z-10 flex h-[100dvh] flex-col items-start gap-8 p-6 transition-all duration-300 ease-in-out md:static md:h-20 md:flex-row md:items-center md:bg-transparent md:px-6 md:py-4 md:pt-4 md:transition-none`}
@@ -40,21 +40,13 @@ export function Navigation() {
         >
           Governance
         </a>
-        {/* <a
-          href="https://mento.org/about"
-          className={linkClassName}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          About
-        </a> */}
         <a
           href="https://app.mento.org"
           target="_blank"
           rel="noopener noreferrer"
           className="mt-auto w-full md:mt-0"
         >
-          <Button clipped="sm" size="sm" className="w-full">
+          <Button clipped="sm" size="sm" className="px-4">
             Launch App
           </Button>
         </a>
