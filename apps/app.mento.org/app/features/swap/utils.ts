@@ -62,3 +62,19 @@ export function invertExchangeRate(rate: NumberT) {
     return "0";
   }
 }
+
+export const formatWithMaxDecimals = (
+  value: string,
+  maxDecimals = 6,
+): string => {
+  if (!value || value === "0") return "0";
+  const num = Number.parseFloat(value);
+  if (Number.isNaN(num)) return "0";
+
+  // If the number has more decimals than allowed, truncate it
+  const factor = 10 ** maxDecimals;
+  const truncated = Math.floor(num * factor) / factor;
+
+  // Remove trailing zeros and return
+  return truncated.toString();
+};

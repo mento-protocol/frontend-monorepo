@@ -71,7 +71,7 @@ export function ConnectButton({
               size="sm"
               className={cn(
                 "h-9 w-full justify-start gap-2 p-2 font-medium",
-                "text-accent-foreground w-42 border-border-darker",
+                "text-accent-foreground w-42 border-border-secondary",
               )}
             >
               <Identicon address={address} size={20} />

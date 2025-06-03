@@ -375,3 +375,5 @@ export function getTokenByAddress(address: Address): Token {
   }
   throw new Error(`No token found for address ${address}`);
 }
+
+export const NativeTokenId = TokenId.CELO;
