@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@repo/ui";
+import { Button, toast } from "@repo/ui";
 import { useAtom } from "jotai";
 import { ArrowLeft } from "lucide-react";
 import { SlippageDialog } from "./components/swap/slippage-dialog";
@@ -17,8 +17,9 @@ export default function SwapPage() {
     <div className="flex h-full w-full flex-wrap items-center justify-center">
       <Toaster
         position="top-right"
+        duration={30000}
         icons={{
-          success: <IconCheck />,
+          success: <IconCheck fill="currentColor" />,
         }}
         toastOptions={{
           classNames: {
