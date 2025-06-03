@@ -12,6 +12,8 @@ export interface SwapFormValues {
   quote: number | string;
   direction: SwapDirection;
   slippage: string;
+  buyUSDValue?: string;
+  sellUSDValue?: string;
 }
 
 export type ToCeloRates = Partial<Record<TokenId, ExchangeRate>>;

@@ -35,7 +35,7 @@ export default function SwapPage() {
       />
       <div className="relative mb-6 w-full max-w-[568px]">
         <div className="top-decorations before:bg-primary after:bg-card after:-top-15 before:absolute before:-left-5 before:-top-5 before:block before:h-5 before:w-5 after:absolute after:left-0 after:block after:h-10 after:w-10"></div>
-        <div className="bg-card flex h-[540px] flex-col space-y-6 p-6">
+        <div className="bg-card flex h-[510px] flex-col space-y-6 p-6">
           <div className="flex flex-row items-center justify-between gap-6">
             <h2 className="flex items-center gap-2 text-base font-medium md:text-lg">
               {confirmView ? (

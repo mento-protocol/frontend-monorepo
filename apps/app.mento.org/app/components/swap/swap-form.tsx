@@ -1,7 +1,7 @@
 "use client";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { cn } from "@repo/ui";
-import { useCallback, useEffect, useMemo } from "react";
+import { cn, TokenIcon } from "@repo/ui";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import * as z from "zod";
@@ -21,20 +21,21 @@ import { CoinInput } from "@repo/ui";
 
 import { ConnectButton } from "@/components/nav/connect-button";
 import { useAccountBalances } from "@/features/accounts/use-account-balances";
-import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
+import { useApproveTransaction } from "@/features/swap/hooks/use-approve-transaction";
+import { useSwapAllowance } from "@/features/swap/hooks/use-swap-allowance";
 import { useSwapQuote } from "@/features/swap/hooks/use-swap-quote";
 import { confirmViewAtom, formValuesAtom } from "@/features/swap/swap-atoms";
 import type { SwapFormValues } from "@/features/swap/types";
-import { parseInputExchangeAmount } from "@/features/swap/utils";
-import { getTokenAddress, type TokenId, Tokens } from "@/lib/config/tokens";
-import { fromWeiRounded } from "@/lib/utils/amount";
-import { useQuery } from "@tanstack/react-query";
+import { type TokenId, Tokens } from "@/lib/config/tokens";
+import { fromWeiRounded, toWei } from "@/lib/utils/amount";
+import { logger } from "@/lib/utils/logger";
 import { useAtom } from "jotai";
 import { ArrowUpDown, ChevronDown, OctagonAlert } from "lucide-react";
-import { createPublicClient, formatUnits, http } from "viem";
-import { celo } from "viem/chains";
 import { useAccount, useChainId } from "wagmi";
+import { waitForTransaction } from "wagmi/actions";
 import TokenDialog from "./token-dialog";
+import { formatWithMaxDecimals } from "@/features/swap/utils";
+import { useTokenOptions } from "@/features/swap/hooks/use-token-options";
 
 type SwapDirection = "in" | "out";
 
@@ -52,14 +53,19 @@ type FormValues = z.infer<typeof formSchema>;
 // Default empty balances object
 const defaultEmptyBalances = {};
 
+const tokenButtonClassName =
+  "ring-offset-background placeholder:text-muted-foreground focus:ring-ring bg-outlier hover:border-border-secondary mt-[22px] flex h-10 w-full max-w-32 items-center justify-between gap-2 rounded-none border px-3 py-2 text-sm transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50";
+
 export default function SwapForm() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
+  const [, setFormValues] = useAtom(formValuesAtom);
   const [, setConfirmView] = useAtom(confirmViewAtom);
+  const [isApprovalProcessing, setIsApprovalProcessing] = useState(false);
 
   const { data: balancesFromHook } = useAccountBalances({ address, chainId });
 
-  const [, setFormValues] = useAtom(formValuesAtom);
+  const { allTokenOptions } = useTokenOptions(undefined, balancesFromHook);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -72,30 +78,6 @@ export default function SwapForm() {
       slippage: "0.5",
     },
   });
-
-  function onSubmit(values: z.infer<typeof formSchema>) {
-    try {
-      setFormValues(values as SwapFormValues);
-      setConfirmView(true);
-    } catch (error) {
-      console.error("Form submission error", error);
-      // toast.error("Failed to submit the form. Please try again.");
-    }
-  }
-
-  // Utility function to format numbers with max 6 decimals
-  const formatWithMaxDecimals = (value: string, maxDecimals = 6): string => {
-    if (!value || value === "0") return "0";
-    const num = Number.parseFloat(value);
-    if (Number.isNaN(num)) return "0";
-
-    // If the number has more decimals than allowed, truncate it
-    const factor = 10 ** maxDecimals;
-    const truncated = Math.floor(num * factor) / factor;
-
-    // Remove trailing zeros and return
-    return truncated.toString();
-  };
 
   const fromTokenId = useWatch({ control: form.control, name: "fromTokenId" });
   const toTokenId = useWatch({ control: form.control, name: "toTokenId" });
@@ -174,61 +156,6 @@ export default function SwapForm() {
     }
   };
 
-  // Function to calculate approximate USD value for a token amount
-  const calculateUSDValue = useCallback(
-    (amount: string, tokenId: string, currentRate?: string): string => {
-      if (!amount || amount === "0" || !tokenId) return "0.00";
-
-      const numericAmount = Number.parseFloat(amount);
-      if (Number.isNaN(numericAmount) || numericAmount <= 0) return "0.00";
-
-      // For USD-pegged stablecoins, use 1:1 conversion
-      if (
-        tokenId === "cUSD" ||
-        tokenId === "USDC" ||
-        tokenId === "USDT" ||
-        tokenId === "axlUSDC"
-      ) {
-        return numericAmount.toFixed(2);
-      }
-
-      // For EUR-pegged tokens, approximate conversion (EUR is typically ~1.1 USD)
-      if (tokenId === "cEUR") {
-        return (numericAmount * 1.1).toFixed(2);
-      }
-
-      // For REAL-pegged tokens, approximate conversion (BRL is typically ~0.2 USD)
-      if (tokenId === "cREAL") {
-        return (numericAmount * 0.2).toFixed(2);
-      }
-
-      // For CELO and other tokens, use the rate if available
-      // If we're calculating CELO value and we have a rate to cUSD
-      if (
-        tokenId === "CELO" &&
-        currentRate &&
-        (toTokenId === "cUSD" || fromTokenId === "cUSD")
-      ) {
-        // If CELO is fromToken and cUSD is toToken, rate is CELO/cUSD
-        // So 1 CELO = (1/rate) cUSD
-        if (fromTokenId === "CELO" && toTokenId === "cUSD") {
-          const celoToCusdRate = currentRate ? 1 / Number(currentRate) : 0;
-          return (numericAmount * celoToCusdRate).toFixed(2);
-        }
-        // If cUSD is fromToken and CELO is toToken, rate is cUSD/CELO
-        // So 1 CELO = rate cUSD
-        if (fromTokenId === "cUSD" && toTokenId === "CELO") {
-          const celoToCusdRate = Number(currentRate);
-          return (numericAmount * celoToCusdRate).toFixed(2);
-        }
-      }
-
-      // For other tokens without direct rate to cUSD, return 0
-      return "0.00";
-    },
-    [fromTokenId, toTokenId],
-  );
-
   // Type assertion is needed because the form values are strings
   // but the hook expects specific types
   const { isLoading, quote, rate } = useSwapQuote(
@@ -238,251 +165,136 @@ export default function SwapForm() {
     toTokenId as TokenId,
   );
 
-  // Calculate USD value for the receive amount
-  const receiveUSDValue = useMemo(() => {
-    const receiveAmount = formDirection === "out" ? amount : formQuote;
-    const receiveTokenId = toTokenId;
-    return calculateUSDValue(receiveAmount, receiveTokenId, rate);
-  }, [formDirection, amount, formQuote, toTokenId, calculateUSDValue, rate]);
+  // Get rate from fromToken to cUSD for USD value calculation
+  const { quote: fromTokenUSDValue } = useSwapQuote(
+    fromTokenId === "cUSD" ? "0" : amount || "0",
+    "in" as SwapDirection,
+    fromTokenId as TokenId,
+    "cUSD" as TokenId,
+  );
 
-  // Calculate USD value for the sell amount
+  // Get rate from toToken to cUSD for USD value calculation
+  const { quote: toTokenUSDValue } = useSwapQuote(
+    toTokenId === "cUSD" ? "0" : quote || "0",
+    "in" as SwapDirection,
+    toTokenId as TokenId,
+    "cUSD" as TokenId,
+  );
+
+  // Determine which USD value to show based on swap direction
   const sellUSDValue = useMemo(() => {
-    const sellAmount = formDirection === "in" ? amount : formQuote;
-    const sellTokenId = fromTokenId;
-    return calculateUSDValue(sellAmount, sellTokenId, rate);
-  }, [formDirection, amount, formQuote, fromTokenId, calculateUSDValue, rate]);
+    if (formDirection === "in") {
+      // Selling fromToken
+      return fromTokenId === "cUSD" ? amount || "0" : fromTokenUSDValue || "0";
+    } else {
+      // Selling toToken (when direction is "out")
+      return toTokenId === "cUSD" ? formQuote || "0" : toTokenUSDValue || "0";
+    }
+  }, [
+    formDirection,
+    fromTokenId,
+    toTokenId,
+    amount,
+    formQuote,
+    fromTokenUSDValue,
+    toTokenUSDValue,
+  ]);
 
-  // Gas fee estimation
-  const getPublicClient = (chainId: number) => {
-    // Define chain configurations
-    const alfajores = {
-      id: 44787,
-      name: "Alfajores",
-      network: "alfajores",
-      nativeCurrency: {
-        decimals: 18,
-        name: "Celo",
-        symbol: "CELO",
-      },
-      rpcUrls: {
-        default: {
-          http: ["https://alfajores-forno.celo-testnet.org"],
-        },
-        public: {
-          http: ["https://alfajores-forno.celo-testnet.org"],
-        },
-      },
-      blockExplorers: {
-        default: { name: "CeloScan", url: "https://alfajores.celoscan.io" },
-      },
-      testnet: true,
-    };
+  const buyUSDValue = useMemo(() => {
+    if (formDirection === "in") {
+      // Buying toToken
+      return toTokenId === "cUSD" ? formQuote || "0" : toTokenUSDValue || "0";
+    } else {
+      // Buying fromToken (when direction is "out")
+      return fromTokenId === "cUSD" ? amount || "0" : fromTokenUSDValue || "0";
+    }
+  }, [
+    formDirection,
+    fromTokenId,
+    toTokenId,
+    amount,
+    formQuote,
+    fromTokenUSDValue,
+    toTokenUSDValue,
+  ]);
 
-    const baklava = {
-      id: 62320,
-      name: "Baklava",
-      network: "baklava",
-      nativeCurrency: {
-        decimals: 18,
-        name: "Celo",
-        symbol: "CELO",
-      },
-      rpcUrls: {
-        default: {
-          http: ["https://baklava-forno.celo-testnet.org"],
-        },
-        public: {
-          http: ["https://baklava-forno.celo-testnet.org"],
-        },
-      },
-      blockExplorers: {
-        default: { name: "CeloScan", url: "https://baklava.celoscan.io" },
-      },
-      testnet: true,
-    };
+  // Calculate amount in wei for approval
+  const amountWei =
+    amount && fromTokenId
+      ? toWei(amount, Tokens[fromTokenId as TokenId].decimals).toString()
+      : "0";
 
-    const chainMap = {
-      42220: celo,
-      44787: alfajores,
-      62320: baklava,
-    };
-
-    const chain = chainMap[chainId as keyof typeof chainMap] || celo;
-
-    return createPublicClient({
-      chain,
-      transport: http(),
-    });
-  };
-
-  const {
-    data: gasEstimate,
-    isLoading: isGasEstimating,
-    error: gasEstimateError,
-  } = useQuery<{
-    gasEstimate: bigint;
-    feeData: {
-      maxFeePerGas?: bigint;
-      gasPrice?: bigint;
-    };
-    totalFeeWei: bigint;
-    totalFeeFormatted: string;
-  } | null>({
-    queryKey: [
-      "gas-estimate",
-      amount,
-      fromTokenId,
-      toTokenId,
-      formDirection,
-      address,
-      quote,
-    ],
-    queryFn: async () => {
-      if (
-        !address ||
-        !amount ||
-        !quote ||
-        !fromTokenId ||
-        !toTokenId ||
-        Number.parseFloat(amount) <= 0 ||
-        Number.parseFloat(quote) <= 0
-      ) {
-        return null;
-      }
-
-      try {
-        const publicClient = getPublicClient(chainId);
-        const sdk = await getMentoSdk(chainId);
-        const fromTokenAddr = getTokenAddress(fromTokenId as TokenId, chainId);
-        const toTokenAddr = getTokenAddress(toTokenId as TokenId, chainId);
-        const tradablePair = await getTradablePairForTokens(
-          chainId,
-          fromTokenId as TokenId,
-          toTokenId as TokenId,
-        );
-
-        const isSwapIn = formDirection === "in";
-        const amountInWei = parseInputExchangeAmount(
-          amount,
-          fromTokenId as TokenId,
-        );
-        const quoteInWei = parseInputExchangeAmount(
-          quote,
-          toTokenId as TokenId,
-        );
-
-        // Apply slippage tolerance to prevent reverts on larger trades
-        const slippageBps = Number(form.getValues("slippage") ?? "0.5") * 100;
-
-        let thresholdAmountInWei: bigint;
-        if (isSwapIn) {
-          // For swapIn, reduce the minimum amount out by slippage
-          thresholdAmountInWei = BigInt(
-            (BigInt(quoteInWei) * BigInt(10000 - slippageBps)) / BigInt(10000),
-          );
-        } else {
-          // For swapOut, increase the maximum amount in by slippage
-          thresholdAmountInWei = BigInt(
-            (BigInt(quoteInWei) * BigInt(10000 + slippageBps)) / BigInt(10000),
-          );
-        }
-
-        const swapFn = isSwapIn ? sdk.swapIn.bind(sdk) : sdk.swapOut.bind(sdk);
-        const txRequest = await swapFn(
-          fromTokenAddr,
-          toTokenAddr,
-          amountInWei,
-          thresholdAmountInWei,
-          tradablePair,
-        );
-
-        console.log("Transaction request prepared:", {
-          to: txRequest.to,
-          gasLimit: txRequest.gasLimit?.toString(),
-          value: txRequest.value?.toString(),
-          fromToken: fromTokenId,
-          toToken: toTokenId,
-          amount: amount,
-          quote: quote,
-          slippageBps: slippageBps.toString(),
-          thresholdAmount: thresholdAmountInWei.toString(),
-        });
-
-        if (!txRequest.to) {
-          console.error("Transaction request missing 'to' address");
-          return null;
-        }
-
-        // Use the gas limit from the SDK if available, otherwise estimate
-        let estimatedGas: bigint;
-        if (txRequest.gasLimit) {
-          // Prefer SDK's gas limit as it's more reliable
-          estimatedGas = BigInt(txRequest.gasLimit.toString());
-        } else {
-          try {
-            estimatedGas = await publicClient.estimateGas({
-              account: address,
-              to: txRequest.to as `0x${string}`,
-              data: txRequest.data as `0x${string}`,
-              value: txRequest.value
-                ? BigInt(txRequest.value.toString())
-                : undefined,
-            });
-          } catch (gasError) {
-            console.warn(
-              "Gas estimation failed after successful simulation:",
-              gasError,
-            );
-            // Use a reasonable fallback gas limit for swaps (typically 200k-300k gas)
-            estimatedGas = BigInt(250000);
-          }
-        }
-
-        // Get current gas price info
-        const feeData = await publicClient.estimateFeesPerGas();
-
-        // Calculate total fee using gas estimate + max fee per gas
-        const totalFeeWei =
-          estimatedGas *
-          (feeData.maxFeePerGas || feeData.gasPrice || BigInt(0));
-
-        // Convert to readable format (ETH/CELO)
-        const totalFeeFormatted = formatUnits(totalFeeWei, 18);
-
-        return {
-          gasEstimate: estimatedGas,
-          feeData,
-          totalFeeWei,
-          totalFeeFormatted,
-        };
-      } catch (error) {
-        console.error("Gas estimation failed:", error);
-        // Return null instead of throwing to prevent query from failing
-        return null;
-      }
-    },
-    enabled:
-      !!address &&
-      !!amount &&
-      !!quote &&
-      !!fromTokenId &&
-      !!toTokenId &&
-      Number.parseFloat(amount) > 0 &&
-      Number.parseFloat(quote) > 0 &&
-      !amountExceedsBalance, // Don't calculate gas if amount exceeds balance
-    refetchInterval: 10000, // Refetch every 10 seconds to keep gas prices current
-    retry: 1, // Limit retries for failed gas estimations
+  // Check if approval is needed
+  const { skipApprove } = useSwapAllowance({
+    chainId,
+    fromTokenId: fromTokenId as TokenId,
+    toTokenId: toTokenId as TokenId,
+    approveAmount: amountWei,
+    address,
   });
+
+  // Approval transaction hook
+  const { sendApproveTx, isApproveTxLoading } = useApproveTransaction(
+    chainId,
+    fromTokenId as TokenId,
+    toTokenId as TokenId,
+    amountWei,
+    address,
+  );
 
   // Update the quote field when the calculated quote changes
   useEffect(() => {
     if (quote !== undefined && formQuote !== quote) {
       form.setValue("quote", quote, {
-        shouldValidate: false,
-        shouldDirty: false,
+        shouldValidate: true,
       });
     }
-  }, [quote, formQuote, form]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quote]);
+
+  const onSubmit = async (values: z.infer<typeof formSchema>) => {
+    try {
+      // If approval is needed, do it first
+      if (!skipApprove && sendApproveTx) {
+        setIsApprovalProcessing(true);
+        logger.info("Approval needed, sending approve transaction");
+        const approveTx = await sendApproveTx();
+
+        if (!approveTx?.hash) {
+          setIsApprovalProcessing(false);
+          throw new Error("Approval transaction failed");
+        }
+
+        logger.info("Waiting for approval transaction", {
+          hash: approveTx.hash,
+        });
+        await waitForTransaction({ hash: approveTx.hash });
+        logger.info("Approval transaction confirmed");
+        setIsApprovalProcessing(false);
+      }
+
+      // Set form values and navigate to confirmation
+      const formData: SwapFormValues = {
+        ...values,
+        fromTokenId: fromTokenId as TokenId,
+        toTokenId: toTokenId as TokenId,
+        slippage: values.slippage || "0.5",
+        buyUSDValue,
+        sellUSDValue,
+      };
+
+      setFormValues(formData);
+      setConfirmView(true);
+    } catch (error) {
+      logger.error("Error in swap form submission", error);
+      setIsApprovalProcessing(false);
+      // You might want to show a toast here
+      toast.error("Transaction failed", {
+        description:
+          error instanceof Error ? error.message : "Unknown error occurred",
+      });
+    }
+  };
 
   return (
     <Form {...form}>
@@ -491,7 +303,7 @@ export default function SwapForm() {
         className="flex h-full max-w-3xl flex-col gap-6"
       >
         <div className="flex flex-col gap-0">
-          <div className="bg-incard dark:border-input border-border grid grid-cols-12 gap-4 border p-4">
+          <div className="bg-incard border-border dark:border-input maybe-hover:border-border-secondary focus-within:!border-primary dark:focus-within:!border-primary grid grid-cols-12 gap-4 border p-4 transition-colors">
             <div className="col-span-8">
               <Controller
                 control={form.control}
@@ -540,15 +352,23 @@ export default function SwapForm() {
                         trigger={
                           <button
                             type="button"
-                            className="ring-offset-background placeholder:text-muted-foreground focus:ring-ring bg-outlier mt-[22px] flex h-10 w-full max-w-28 items-center justify-between rounded-none px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                            className={tokenButtonClassName}
                           >
+                            <TokenIcon
+                              token={allTokenOptions.find(
+                                (token) => token.id === field.value,
+                              )}
+                              className="mr-2"
+                              size={20}
+                            />
+
                             <span>{field.value || "Select token"}</span>
                             <ChevronDown className="h-4 w-4 opacity-50" />
                           </button>
                         }
                       />
                     </FormControl>
-                    <FormDescription className="w-[132px]">
+                    <FormDescription className="w-fit whitespace-nowrap">
                       Balance: {formatWithMaxDecimals(fromTokenBalance)}{" "}
                       <button
                         type="button"
@@ -582,12 +402,12 @@ export default function SwapForm() {
             </Button>
           </div>
 
-          <div className="bg-incard dark:border-input border-border grid grid-cols-12 gap-4 border p-4">
+          <div className="bg-incard border-border dark:border-input grid grid-cols-12 gap-4 border p-4 transition-colors">
             <div className="col-span-8">
               <Controller
                 control={form.control}
                 name="quote"
-                render={({ field, fieldState }) => (
+                render={({ fieldState }) => (
                   <FormItem>
                     <FormLabel>Buy</FormLabel>
                     <FormControl>
@@ -608,10 +428,12 @@ export default function SwapForm() {
                             });
                           }
                         }}
+                        disabled
+                        readOnly
                       />
                     </FormControl>
                     <FormDescription>
-                      ~${formatWithMaxDecimals(receiveUSDValue)}
+                      ~${formatWithMaxDecimals(buyUSDValue)}
                     </FormDescription>
                     <FormMessage>{fieldState.error?.message}</FormMessage>
                   </FormItem>
@@ -634,8 +456,15 @@ export default function SwapForm() {
                         trigger={
                           <button
                             type="button"
-                            className="border-input ring-offset-background placeholder:text-muted-foreground focus:ring-ring bg-outlier mt-[22px] flex h-10 w-full max-w-28 items-center justify-between rounded-none px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                            className={tokenButtonClassName}
                           >
+                            <TokenIcon
+                              token={allTokenOptions.find(
+                                (token) => token.id === field.value,
+                              )}
+                              className="mr-2"
+                              size={20}
+                            />
                             <span>{field.value || "Select token"}</span>
                             <ChevronDown className="h-4 w-4 opacity-50" />
                           </button>
@@ -654,38 +483,11 @@ export default function SwapForm() {
         </div>
 
         <div className="flex flex-col gap-2">
-          {rate &&
-            (!isGasEstimating || amountExceedsBalance) &&
-            !gasEstimateError && (
-              <div className="flex w-full flex-col items-start justify-start space-y-2">
-                <div className="flex w-full flex-row items-center justify-between">
-                  <span className="text-muted-foreground">Quote</span>
-                  <span>{`${rate && Number(rate) > 0 ? Number(rate).toFixed(4) : "0"} ${fromTokenId} ~ 1 ${toTokenId}`}</span>
-                </div>
-              </div>
-            )}
-          {rate &&
-            gasEstimate &&
-            !isGasEstimating &&
-            !gasEstimateError &&
-            !amountExceedsBalance && (
-              <div className="flex w-full flex-col items-start justify-start space-y-2">
-                <div className="flex w-full flex-row items-center justify-between">
-                  <span className="text-muted-foreground">Fee</span>
-                  <span>
-                    {gasEstimate.totalFeeFormatted
-                      ? formatWithMaxDecimals(gasEstimate.totalFeeFormatted)
-                      : "0"}{" "}
-                    CELO
-                  </span>
-                </div>
-              </div>
-            )}
-          {gasEstimateError !== null && !amountExceedsBalance && (
+          {rate && (
             <div className="flex w-full flex-col items-start justify-start space-y-2">
               <div className="flex w-full flex-row items-center justify-between">
-                <span className="text-muted-foreground">Fee</span>
-                <span>Error estimating gas</span>
+                <span className="text-muted-foreground">Quote</span>
+                <span>{`${rate && Number(rate) > 0 ? Number(rate).toFixed(4) : "0"} ${fromTokenId} ~ 1 ${toTokenId}`}</span>
               </div>
             </div>
           )}
@@ -693,26 +495,28 @@ export default function SwapForm() {
 
         {isConnected ? (
           <Button
-            clipped="lg"
-            size="lg"
             className="mt-auto w-full"
+            size="lg"
+            clipped="lg"
             type="submit"
-            variant={amountExceedsBalance ? "destructive" : "default"}
             disabled={
               isLoading ||
               !amount ||
               !quote ||
               amountExceedsBalance ||
-              isGasEstimating
+              isApproveTxLoading ||
+              isApprovalProcessing
             }
           >
             {amountExceedsBalance
               ? "Insufficient Balance"
-              : rate && isGasEstimating
-                ? "Calculating transaction costs..."
+              : isApproveTxLoading || isApprovalProcessing
+                ? "Approving..."
                 : isLoading
                   ? "Loading..."
-                  : "Swap"}
+                  : !skipApprove
+                    ? "Confirm"
+                    : "Swap"}
           </Button>
         ) : (
           <ConnectButton size="lg" text="Connect" />

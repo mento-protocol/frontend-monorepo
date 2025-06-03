@@ -1,29 +1,33 @@
 "use client";
 
 import { useAccountBalances } from "@/features/accounts/use-account-balances";
-import { useApproveTransaction } from "@/features/swap/hooks/use-approve-transaction";
-import { useSwapAllowance } from "@/features/swap/hooks/use-swap-allowance";
+import { useGasEstimation } from "@/features/swap/hooks/use-gas-estimation";
 import { useSwapQuote } from "@/features/swap/hooks/use-swap-quote";
 import { useSwapTransaction } from "@/features/swap/hooks/use-swap-transaction";
 import { confirmViewAtom, formValuesAtom } from "@/features/swap/swap-atoms";
-import { getMaxSellAmount, getMinBuyAmount } from "@/features/swap/utils";
-import { chainIdToChain } from "@/lib/config/chains";
+import { SwapDirection } from "@/features/swap/types";
+import {
+  formatWithMaxDecimals,
+  getMaxSellAmount,
+  getMinBuyAmount,
+} from "@/features/swap/utils";
 import { TokenId, Tokens } from "@/lib/config/tokens";
-import { fromWeiRounded, getAdjustedAmount } from "@/lib/utils/amount";
+import { getAdjustedAmount } from "@/lib/utils/amount";
 import { logger } from "@/lib/utils/logger";
-import { Button, toast, TokenIcon } from "@repo/ui";
+import { Button, TokenIcon } from "@repo/ui";
 import { useAtom, useSetAtom } from "jotai";
-import { ArrowRight } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ArrowRight, OctagonAlert } from "lucide-react";
+import { useMemo, useState, useEffect } from "react";
+import { toast } from "sonner";
 import { useAccount, useChainId } from "wagmi";
 import { waitForTransaction } from "wagmi/actions";
 
 export function SwapConfirm() {
-  const [formValues] = useAtom(formValuesAtom);
+  const [formValues, setFormValues] = useAtom(formValuesAtom);
   const setJotaiConfirmView = useSetAtom(confirmViewAtom);
 
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isApproveConfirmed, setApproveConfirmed] = useState(false);
+  const [isApproveConfirmed, setApproveConfirmed] = useState(true);
+  const [swapLoading, setSwapLoading] = useState(false);
 
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
@@ -33,36 +37,33 @@ export function SwapConfirm() {
     chainId,
   });
 
-  // Extract form values with defaults to avoid conditional hook calls
-  const amount = formValues?.amount || "";
-  const direction = formValues?.direction || "in";
+  const amount = String(formValues?.amount || "");
+  const direction = (formValues?.direction || "in") as SwapDirection;
   const fromTokenId = formValues?.fromTokenId || TokenId.cUSD;
   const toTokenId = formValues?.toTokenId || TokenId.CELO;
-  const slippage = formValues?.slippage || "0.5";
+  const slippage = String(formValues?.slippage || "0.5");
+  const buyUSDValue = formValues?.buyUSDValue || "0";
+  const sellUSDValue = formValues?.sellUSDValue || "0";
 
   const { amountWei, quote, quoteWei, rate } = useSwapQuote(
     amount,
     direction,
     fromTokenId,
     toTokenId,
+    address,
   );
 
-  // Assemble values based on swap direction
   const swapValues = useMemo(() => {
     let computedFromAmountWei = amountWei;
-    let computedApproveAmount = amountWei;
     let computedThresholdAmountWei: string;
 
     if (direction === "in") {
-      // Check if amount is almost equal to balance max, in which case use max
       if (balances?.[fromTokenId]) {
         computedFromAmountWei = getAdjustedAmount(
           amountWei,
           balances[fromTokenId],
         ).toFixed(0);
-        computedApproveAmount = computedFromAmountWei;
       }
-      // Compute min buy amount based on slippage
       computedThresholdAmountWei = getMinBuyAmount(quoteWei, slippage).toFixed(
         0,
       );
@@ -73,17 +74,13 @@ export function SwapConfirm() {
         toAmount: Number(quote).toFixed(2),
         toAmountWei: quoteWei,
         thresholdAmountWei: computedThresholdAmountWei,
-        approveAmount: computedApproveAmount,
       };
     }
 
-    // direction === "out"
     computedFromAmountWei = quoteWei;
-    // Compute max sell amount based on slippage
     computedThresholdAmountWei = getMaxSellAmount(quoteWei, slippage).toFixed(
       0,
     );
-    computedApproveAmount = computedThresholdAmountWei;
 
     return {
       fromAmount: quote,
@@ -91,7 +88,6 @@ export function SwapConfirm() {
       toAmount: amount.toString(),
       toAmountWei: amountWei,
       thresholdAmountWei: computedThresholdAmountWei,
-      approveAmount: computedApproveAmount,
     };
   }, [
     direction,
@@ -110,192 +106,72 @@ export function SwapConfirm() {
     toAmount,
     toAmountWei,
     thresholdAmountWei,
-    approveAmount,
   } = swapValues;
 
-  const { sendApproveTx, isApproveTxLoading } = useApproveTransaction(
+  const { sendSwapTx, isSwapTxLoading } = useSwapTransaction(
     chainId,
     fromTokenId,
     toTokenId,
-    approveAmount,
-    address,
-  );
-
-  const { skipApprove } = useSwapAllowance({
-    chainId,
-    fromTokenId,
-    toTokenId,
-    approveAmount,
-    address,
-  });
-
-  useEffect(() => {
-    logger.info("useEffect skipApprove changed:", { skipApprove });
-    if (skipApprove) {
-      // Enables swap transaction preparation when approval isn't needed
-      setApproveConfirmed(true);
-      logger.info("Set isApproveConfirmed to true because skipApprove is true");
-    } else {
-      // Reset approval confirmation when approval is needed
-      setApproveConfirmed(false);
-      logger.info(
-        "Set isApproveConfirmed to false because skipApprove is false",
-      );
-    }
-  }, [skipApprove]);
-
-  const { sendSwapTx, isSwapTxLoading, swapTxResult } = useSwapTransaction(
-    chainId,
-    fromTokenId,
-    toTokenId,
-    amountWei,
+    fromAmountWei,
     thresholdAmountWei,
     direction,
     address,
     isApproveConfirmed,
   );
 
-  // Early return after all hooks are called
-  if (!formValues || !address || !isConnected || !balances) {
-    return (
-      <div className="mx-auto max-w-3xl space-y-6">
-        <div className="flex h-64 items-center justify-center">
-          <div>Loading...</div>
-        </div>
-      </div>
-    );
-  }
+  const { data: gasEstimate, isLoading: isGasEstimating } = useGasEstimation({
+    amount,
+    quote: String(quote),
+    fromTokenId,
+    toTokenId,
+    direction,
+    address,
+    chainId,
+    slippage,
+    skipApprove: true,
+    enabled: isConnected && !!amount && !!quote,
+  });
+
+  useEffect(() => {
+    logger.info("useEffect skipApprove changed:", { skipApprove: true });
+    setApproveConfirmed(true);
+  }, []);
 
   async function onSubmit() {
     if (!rate || !amountWei || !address || !isConnected) return;
 
-    // Debug logging to understand the issue
-    logger.info("onSubmit called with:", {
-      address,
-      isApproveConfirmed,
-      amountWei,
-      thresholdAmountWei,
-      skipApprove,
-    });
-
-    setIsDialogOpen(true);
-
     try {
-      const explorerUrl = chainIdToChain[chainId].explorerUrl;
+      setSwapLoading(true);
 
-      if (skipApprove) {
-        // Skip approval and go directly to swap
-        logger.info("Skipping approve, sending swap tx directly");
+      const swapTx = await sendSwapTx();
 
-        if (sendSwapTx) {
-          await sendSwapTx();
-          if (swapTxResult?.hash) {
-            const swapReceipt = await waitForTransaction({
-              hash: swapTxResult.hash,
-              confirmations: 1,
-              chainId,
-            });
-            logger.info(
-              `Tx receipt received for swap: ${swapReceipt?.transactionHash}`,
-            );
+      if (!swapTx?.hash) {
+        throw new Error("Swap transaction failed");
+      }
 
-            toast.success("Swap Complete!", {
-              duration: 5000,
-              description: () => (
-                <>
-                  Completed swap transaction
-                  <br />
-                  <a
-                    className="underline"
-                    href={`${explorerUrl}/tx/${swapReceipt?.transactionHash}`}
-                  >
-                    See Details
-                  </a>
-                </>
-              ),
-            });
-            // Reset form and go back to swap form
-            setJotaiConfirmView(false);
-          } else {
-            logger.info("Swap submitted, waiting for confirmation");
-          }
-        }
+      const receipt = await waitForTransaction({ hash: swapTx.hash });
+
+      if (receipt.status === 1) {
+        toast.success("Swap successful!");
+        setFormValues(null);
+        setJotaiConfirmView(false);
       } else {
-        // Need approval first
-        if (!sendApproveTx) {
-          logger.error("Approve transaction function not available");
-          return;
-        }
-
-        logger.info("Sending approve tx");
-        const approveResult = await sendApproveTx();
-        const approveReceipt = await approveResult.wait(1);
-
-        toast.success("Approve complete!", {
-          duration: 5000,
-          description: () => (
-            <>
-              Proceeding to swap... <br />
-              <a
-                className="underline"
-                href={`${explorerUrl}/tx/${approveReceipt?.transactionHash}`}
-              >
-                See Details
-              </a>
-            </>
-          ),
-        });
-
-        logger.info(
-          `Tx receipt received for approve: ${approveReceipt.transactionHash}`,
-        );
-
-        // Set approval confirmed and wait a bit for state to update
-        setApproveConfirmed(true);
-
-        // Small delay to ensure state is updated
-        await new Promise((resolve) => setTimeout(resolve, 100));
-
-        if (sendSwapTx) {
-          logger.info("Approval successful, sending swap transaction");
-          await sendSwapTx();
-          if (swapTxResult?.hash) {
-            const swapReceipt = await waitForTransaction({
-              hash: swapTxResult.hash,
-              confirmations: 1,
-              chainId,
-            });
-            toast.success("Swap Complete!", {
-              duration: 5000,
-              description: () => (
-                <>
-                  Completed swap transaction
-                  <br />
-                  <a
-                    className="underline"
-                    href={`${explorerUrl}/tx/${swapReceipt?.transactionHash}`}
-                  >
-                    See Details
-                  </a>
-                </>
-              ),
-            });
-            setJotaiConfirmView(false);
-          }
-        }
+        throw new Error("Swap transaction failed");
       }
     } catch (error) {
-      logger.error("Failed to execute transaction", error);
+      logger.error("Swap error:", error);
+      toast.error(error instanceof Error ? error.message : "Swap failed");
     } finally {
-      setIsDialogOpen(false);
+      setSwapLoading(false);
     }
   }
 
-  const isLoading = isApproveTxLoading || isSwapTxLoading || isDialogOpen;
-  const buttonText = skipApprove ? "Confirm Swap" : "Approve & Swap";
-
   const fromToken = Tokens[formValues?.fromTokenId as keyof typeof Tokens];
   const toToken = Tokens[formValues?.toTokenId as keyof typeof Tokens];
+
+  if (!formValues) {
+    return null;
+  }
 
   return (
     <div className="flex h-full flex-col gap-6">
@@ -314,7 +190,9 @@ export function SwapConfirm() {
           </span>
           <span className="text-muted-foreground text-sm md:text-base">
             ~$
-            {fromWeiRounded(fromAmountWei, fromToken.decimals)}
+            {direction === "in"
+              ? formatWithMaxDecimals(sellUSDValue)
+              : formatWithMaxDecimals(buyUSDValue)}
           </span>
         </div>
         <div className="text-muted-foreground md:w-30 relative hidden h-full items-center justify-center p-0 md:flex">
@@ -340,7 +218,9 @@ export function SwapConfirm() {
           </span>
           <span className="text-muted-foreground">
             ~$
-            {fromWeiRounded(toAmountWei, toToken.decimals)}
+            {direction === "in"
+              ? formatWithMaxDecimals(buyUSDValue)
+              : formatWithMaxDecimals(sellUSDValue)}
           </span>
         </div>
       </div>
@@ -349,44 +229,56 @@ export function SwapConfirm() {
         <div className="flex w-full flex-row items-center justify-between">
           <span className="text-muted-foreground">Quote</span>
           <span>
-            1 {fromToken.symbol} = {rate} {toToken.symbol}
-          </span>
-        </div>
-
-        {/* <div className="flex w-full flex-row items-center justify-between">
-          <span className="text-muted-foreground">Fee</span>
-          <span>
-            {fromWeiRounded(
-              "0", // Fee calculation would need to be implemented
-              Tokens[formValues?.fromTokenId as keyof typeof Tokens].decimals,
-            )}
+            1 {toToken.symbol} = {rate} {fromToken.symbol}
           </span>
         </div>
 
         <div className="flex w-full flex-row items-center justify-between">
-          <span className="text-muted-foreground">Gas Price</span>
-          <span>
-            {fromWeiRounded(
-              "0", // Gas price calculation would need to be implemented
-              18, // ETH decimals for gas
-            )}
-          </span>
-        </div> */}
+          <span className="text-muted-foreground">Gas Fees</span>
+          {isGasEstimating ? (
+            <span className="text-muted-foreground">Calculating...</span>
+          ) : gasEstimate ? (
+            <span>
+              ~{formatWithMaxDecimals(gasEstimate.totalFeeFormatted)} CELO
+              {gasEstimate.totalFeeUSD && (
+                <span className="text-muted-foreground ml-1">
+                  (${formatWithMaxDecimals(gasEstimate.totalFeeUSD)})
+                </span>
+              )}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">Unable to estimate</span>
+          )}
+        </div>
 
         <div className="flex w-full flex-row items-center justify-between">
           <span className="text-muted-foreground">Slippage</span>
-          <span>{formValues?.slippage}%</span>
+          <span>{slippage}%</span>
         </div>
       </div>
 
       <Button
-        clipped="lg"
-        size="lg"
-        className="mt-auto w-full"
         onClick={onSubmit}
-        disabled={isLoading}
+        className="mt-auto w-full"
+        size="lg"
+        clipped="lg"
+        disabled={
+          isSwapTxLoading ||
+          swapLoading ||
+          !rate ||
+          !amountWei ||
+          !address ||
+          !isConnected
+        }
       >
-        {isLoading ? "Processing..." : buttonText}
+        {isSwapTxLoading || swapLoading ? (
+          <div className="flex items-center gap-2">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            Processing...
+          </div>
+        ) : (
+          "Swap"
+        )}
       </Button>
     </div>
   );
