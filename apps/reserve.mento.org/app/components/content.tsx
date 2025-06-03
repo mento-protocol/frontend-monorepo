@@ -41,20 +41,20 @@ export function Content({
   const [active, setActive] = useState<string>();
   const TOKEN_COLORS: { [key: string]: string } = {
     CELO: "#7006FC",
-    CUSD: "#9A4EFD", // cUSD
-    CEUR: "#C69BFF", // cEUR
-    CREAL: "#3D42CD", // cREAL
+    CUSD: "#9A4EFD",
+    CEUR: "#C69BFF",
+    CREAL: "#3D42CD",
     EXOF: "#7579FF",
-    BTC: "#F7F6FA",
+    BTC: "#FFFFFF",
     ETH: "#66FFB8",
-    SDAI: "#18A061",
-    USDC: "#082831",
+    SDAI: "#99FFCF",
+    USDC: "#C69BFF",
     USDT: "#0A452A",
     WBTC: "#F7F6FA",
-    STEUR: "#C69BFF",
+    STEUR: "#18A061",
     USDGLO: "#082831",
-    EURC: "#082831",
-    STETH: "#66FFB8",
+    EURC: "#3D42CD",
+    STETH: "#7579FF",
   };
 
   const getTokenColor = (tokenSymbol: string): string => {
@@ -96,7 +96,7 @@ export function Content({
           value="stablecoin-supply"
           className="relative before:absolute before:left-1/2 before:top-0 before:z-0 before:h-20 before:w-screen before:-translate-x-1/2 before:bg-gradient-to-b before:from-[#15111B] before:to-[#070010]"
         >
-          <h2 className="relative z-10 my-6 text-2xl font-medium md:mb-8 md:mt-12">
+          <h2 className="relative z-10 my-6 hidden text-2xl font-medium md:mb-8 md:mt-12 md:block">
             Stablecoin Supply
           </h2>
           <div className="relative z-10 flex h-full flex-wrap gap-2 md:gap-4">
@@ -135,7 +135,7 @@ export function Content({
         >
           <div className="relative z-10 flex flex-col gap-2 md:mt-12 md:grid md:grid-cols-12">
             <div className="bg-card mb-2 flex h-full flex-1 flex-col p-6 md:col-span-6 md:mb-0 xl:col-span-4">
-              <h2 className="relative z-10 text-2xl font-medium">
+              <h2 className="relative z-10 hidden text-2xl font-medium md:block">
                 Reserve Holdings
               </h2>
               <ReserveChart
@@ -159,7 +159,7 @@ export function Content({
                   <>
                     <div
                       key={`${celoDetails.token}-unfrozen`}
-                      className="bg-card hover:bg-accent grid w-full grid-cols-2 gap-4 border-l-2 p-4 xl:grid-cols-12"
+                      className="bg-card hover:bg-accent grid w-full grid-cols-2 gap-4 border-l-4 p-4 xl:grid-cols-12"
                       style={{
                         borderLeftColor: getTokenColor(celoDetails.token),
                       }}
@@ -207,7 +207,7 @@ export function Content({
                 return (
                   <div
                     key={asset.token}
-                    className="bg-card hover:bg-accent grid w-full grid-cols-2 gap-4 border-l-2 p-4 xl:grid-cols-12"
+                    className="bg-card hover:bg-accent grid w-full grid-cols-2 gap-4 border-l-4 p-4 xl:grid-cols-12"
                     style={{
                       borderLeftColor: getTokenColor(asset.token),
                     }}
@@ -255,7 +255,7 @@ export function Content({
           mobile: `${env.NEXT_PUBLIC_STORAGE_URL}/cta-join-community-mobile-fiA6uAlKQFhFo6jXvHhxKQ3L74bn8v.png`,
           desktop: `${env.NEXT_PUBLIC_STORAGE_URL}/cta-join-community-ahNprbnDlm9FaDQ48D6eW7THpdoWdx.png`,
         }}
-        buttonHref="https://discord.com/invite/Zszgng9NdF"
+        buttonHref="http://discord.mento.org"
       />
     </>
   );

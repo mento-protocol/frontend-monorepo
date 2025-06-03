@@ -43,6 +43,7 @@ function TabsTrigger({
       data-slot="tabs-trigger"
       className={cn(
         "inline-flex items-center justify-center whitespace-nowrap px-0 py-3 font-medium",
+        "cursor-pointer text-sm md:text-base",
         "ring-offset-background transition-colors",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2",
         "disabled:pointer-events-none disabled:opacity-50",
