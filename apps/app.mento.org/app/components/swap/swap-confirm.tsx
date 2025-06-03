@@ -156,15 +156,15 @@ export function SwapConfirm() {
   );
 
   // Early return after all hooks are called
-  if (!formValues || !address || !isConnected || !balances) {
-    return (
-      <div className="mx-auto max-w-3xl space-y-6">
-        <div className="flex h-64 items-center justify-center">
-          <div>Loading...</div>
-        </div>
-      </div>
-    );
-  }
+  // if (!formValues || !address || !isConnected || !balances) {
+  //   return (
+  //     <div className="mx-auto max-w-3xl space-y-6">
+  //       <div className="flex h-64 items-center justify-center">
+  //         <div>Loading...</div>
+  //       </div>
+  //     </div>
+  //   );
+  // }
 
   async function onSubmit() {
     if (!rate || !amountWei || !address || !isConnected) return;
@@ -299,8 +299,8 @@ export function SwapConfirm() {
 
   return (
     <div className="flex h-full flex-col gap-6">
-      <div className="flex w-full flex-row items-center justify-between">
-        <div className="bg-incard flex aspect-square h-32 flex-col items-center justify-center gap-2 md:h-52">
+      <div className="flex w-full flex-row items-center justify-between md:w-[520px]">
+        <div className="bg-incard md:h-50 md:w-50 flex aspect-square h-32 flex-col items-center justify-center gap-2 md:aspect-auto">
           <TokenIcon
             token={fromToken}
             className="h-10 w-10 bg-transparent md:h-14 md:w-14"
@@ -317,10 +317,19 @@ export function SwapConfirm() {
             {fromWeiRounded(fromAmountWei, fromToken.decimals)}
           </span>
         </div>
-        <div className="bg-incard text-muted-foreground hidden h-10 w-10 items-center justify-center p-3 md:flex">
-          <ArrowRight size={24} className="shrink-0" />
+        <div className="text-muted-foreground md:w-30 relative hidden h-full items-center justify-center p-0 md:flex">
+          <div className="swap-deco-1 bg-incard absolute left-0 top-0 block h-10 w-10"></div>
+          <div className="swap-deco-2 bg-incard left-15 absolute top-5 block h-5 w-5"></div>
+          <div className="swap-deco-3 bg-primary absolute left-10 top-10 block h-5 w-5"></div>
+          <div className="swap-deco-4 bg-incard top-15 absolute left-5 block h-5 w-5"></div>
+          <div className="swap-deco-5 bg-incard absolute left-10 top-20 flex h-10 w-10 flex-row items-center justify-center">
+            <ArrowRight size={24} className="shrink-0" />
+          </div>
+          <div className="swap-deco-6 bg-incard top-35 absolute right-10 block h-5 w-5"></div>
+          <div className="swap-deco-7 bg-primary absolute right-0 top-40 block h-10 w-10"></div>
+          <div className="swap-deco-8 bg-incard right-15 absolute top-40 block h-5 w-5"></div>
         </div>
-        <div className="bg-incard flex aspect-square h-32 flex-col items-center justify-center gap-2 md:h-52">
+        <div className="bg-incard md:h-50 md:w-50 flex aspect-square h-32 flex-col items-center justify-center gap-2 md:aspect-auto">
           <TokenIcon
             token={toToken}
             className="h-10 w-10 bg-transparent md:h-14 md:w-14"
