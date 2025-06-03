@@ -156,15 +156,15 @@ export function SwapConfirm() {
   );
 
   // Early return after all hooks are called
-  // if (!formValues || !address || !isConnected || !balances) {
-  //   return (
-  //     <div className="mx-auto max-w-3xl space-y-6">
-  //       <div className="flex h-64 items-center justify-center">
-  //         <div>Loading...</div>
-  //       </div>
-  //     </div>
-  //   );
-  // }
+  if (!formValues || !address || !isConnected || !balances) {
+    return (
+      <div className="mx-auto max-w-3xl space-y-6">
+        <div className="flex h-64 items-center justify-center">
+          <div>Loading...</div>
+        </div>
+      </div>
+    );
+  }
 
   async function onSubmit() {
     if (!rate || !amountWei || !address || !isConnected) return;
