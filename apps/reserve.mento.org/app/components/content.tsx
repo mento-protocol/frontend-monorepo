@@ -142,7 +142,7 @@ export function Content({
                 data={chartData}
                 centerText={centerChartText}
                 activeSegment={active}
-                className="my-auto h-[288px] justify-center self-center"
+                className="my-auto h-[288px] justify-center self-center lg:h-[320px] xl:h-[360px]"
               />
             </div>
             <div className="flex flex-wrap gap-2 md:col-span-6 xl:col-span-8">

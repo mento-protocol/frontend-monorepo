@@ -35,6 +35,11 @@
   );
 }
 
+html,
+body {
+  @apply max-w-screen overflow-x-hidden;
+}
+
 :root {
   --radius: 0;
   --background: oklch(90.7% 0.00705 304);
