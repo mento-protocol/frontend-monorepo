@@ -31,7 +31,7 @@ function ThemeSwitch() {
           "relative z-10 flex h-[28px] w-[28px] flex-row items-center justify-center",
           theme === "light"
             ? "text-muted-foreground"
-            : "bg-card text-foreground",
+            : "text-foreground bg-[#6F667A]",
         )}
       >
         <Moon className="transition-all" />
