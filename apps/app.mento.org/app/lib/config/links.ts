@@ -1,7 +1,7 @@
 export const links = {
   blockscoutUrl: "https://explorer.celo.org",
-  discord: "https://discord.gg/7CXxS5ub96",
-  github: "https://github.com/mento-protocol/mento-web",
+  discord: "http://discord.mento.org",
+  github: "https://github.com/mento-protocol",
   docs: "https://docs.mento.org",
   x: "https://x.com/MentoLabs",
 };

@@ -70,7 +70,7 @@ export function ConnectButton({
               variant="outline"
               size="sm"
               className={cn(
-                "h-9 w-full justify-start gap-2 p-2 font-medium",
+                "h-9 w-full justify-start gap-2 px-4 py-2 font-medium",
                 "text-accent-foreground w-42 border-border-secondary",
               )}
             >

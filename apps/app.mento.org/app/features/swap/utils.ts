@@ -75,6 +75,9 @@ export const formatWithMaxDecimals = (
   const factor = 10 ** maxDecimals;
   const truncated = Math.floor(num * factor) / factor;
 
-  // Remove trailing zeros and return
-  return truncated.toString();
+  // Format with thousand separators and remove trailing zeros
+  return truncated.toLocaleString("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: maxDecimals,
+  });
 };

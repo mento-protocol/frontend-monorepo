@@ -18,23 +18,23 @@ function ThemeSwitch() {
     >
       <div
         className={cn(
-          "relative z-10 flex h-[28px] w-[28px] flex-row items-center justify-center",
+          "relative z-10 flex h-[30px] w-[30px] flex-row items-center justify-center",
           theme === "light"
             ? "bg-card text-foreground"
             : "text-muted-foreground",
         )}
       >
-        <Sun className="transition-all" />
+        <Sun className="size-4 transition-all" />
       </div>
       <div
         className={cn(
-          "relative z-10 flex h-[28px] w-[28px] flex-row items-center justify-center",
+          "relative z-10 flex h-[30px] w-[30px] flex-row items-center justify-center",
           theme === "light"
             ? "text-muted-foreground"
             : "text-foreground bg-[#6F667A]",
         )}
       >
-        <Moon className="transition-all" />
+        <Moon className="size-4 transition-all" />
       </div>
     </Button>
   );

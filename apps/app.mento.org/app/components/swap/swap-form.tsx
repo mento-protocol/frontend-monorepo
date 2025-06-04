@@ -1,7 +1,7 @@
 "use client";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { cn, TokenIcon } from "@repo/ui";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import * as z from "zod";
@@ -24,8 +24,10 @@ import { useAccountBalances } from "@/features/accounts/use-account-balances";
 import { useApproveTransaction } from "@/features/swap/hooks/use-approve-transaction";
 import { useSwapAllowance } from "@/features/swap/hooks/use-swap-allowance";
 import { useSwapQuote } from "@/features/swap/hooks/use-swap-quote";
+import { useTokenOptions } from "@/features/swap/hooks/use-token-options";
 import { confirmViewAtom, formValuesAtom } from "@/features/swap/swap-atoms";
 import type { SwapFormValues } from "@/features/swap/types";
+import { formatWithMaxDecimals } from "@/features/swap/utils";
 import { type TokenId, Tokens } from "@/lib/config/tokens";
 import { fromWeiRounded, toWei } from "@/lib/utils/amount";
 import { logger } from "@/lib/utils/logger";
@@ -34,8 +36,6 @@ import { ArrowUpDown, ChevronDown, OctagonAlert } from "lucide-react";
 import { useAccount, useChainId } from "wagmi";
 import { waitForTransaction } from "wagmi/actions";
 import TokenDialog from "./token-dialog";
-import { formatWithMaxDecimals } from "@/features/swap/utils";
-import { useTokenOptions } from "@/features/swap/hooks/use-token-options";
 
 type SwapDirection = "in" | "out";
 
@@ -54,7 +54,7 @@ type FormValues = z.infer<typeof formSchema>;
 const defaultEmptyBalances = {};
 
 const tokenButtonClassName =
-  "ring-offset-background placeholder:text-muted-foreground focus:ring-ring bg-outlier hover:border-border-secondary mt-[22px] flex h-10 w-full max-w-32 items-center justify-between gap-2 rounded-none border px-3 py-2 text-sm transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50";
+  "ring-offset-background placeholder:text-muted-foreground focus:ring-ring bg-outlier hover:border-border-secondary mt-[22px] flex h-10 w-full max-w-32 min-w-[116px] items-center justify-between gap-2 rounded-none border px-3 py-2 text-sm transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50";
 
 export default function SwapForm() {
   const { address, isConnected } = useAccount();
@@ -413,7 +413,11 @@ export default function SwapForm() {
                     <FormControl>
                       <CoinInput
                         placeholder="0.00"
-                        value={formDirection === "out" ? amount : formQuote}
+                        value={
+                          formDirection === "out"
+                            ? Number(amount).toFixed(4)
+                            : Number(formQuote).toFixed(4)
+                        }
                         onChange={(e) => {
                           // Handle both string and event inputs
                           const val =
@@ -514,9 +518,7 @@ export default function SwapForm() {
                 ? "Approving..."
                 : isLoading
                   ? "Loading..."
-                  : !skipApprove
-                    ? "Confirm"
-                    : "Swap"}
+                  : "Swap"}
           </Button>
         ) : (
           <ConnectButton size="lg" text="Connect" />
