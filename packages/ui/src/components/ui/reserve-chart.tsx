@@ -19,7 +19,6 @@ export interface ReserveChartProps {
   innerRingOpacity?: number; // Opacity for the inner ring, e.g., 0.5
   activeSegment?: string; // Active segment name
   onActiveChanged?: (name: string | undefined) => void; // Event handler for active segment changes
-  onSegmentClick?: (segment: ChartSegment) => void;
 }
 
 // Helper function to convert hex to rgba
@@ -52,7 +51,6 @@ export function ReserveChart({
   innerRingOpacity = 0.8, // Default opacity for the inner ring
   activeSegment,
   onActiveChanged,
-  onSegmentClick,
 }: ReserveChartProps) {
   const [activeSegmentInternal, setActiveSegmentInternal] = useState<
     string | undefined
@@ -90,12 +88,6 @@ export function ReserveChart({
   const tokenName = data.filter((d) => d.name === activeSegmentInternal)[0]
     ?.name;
 
-  const handleEvt = (_: any, index: number | undefined) => {
-    if (typeof index === "number" && onSegmentClick && data[index]) {
-      onSegmentClick(data[index]);
-    }
-  };
-
   return (
     <div className={`relative ${className || "mx-auto aspect-square h-full"}`}>
       <div className="bg-card pointer-events-none absolute left-1/2 top-1/2 z-0 h-fit w-fit -translate-x-1/2 -translate-y-1/2 rounded-full p-8">
@@ -124,11 +116,10 @@ export function ReserveChart({
             strokeWidth={0} // stroke="var(--background)"
             onMouseEnter={(_, index) => {
               data[index] && handleActiveChanged(data[index].name);
-              handleEvt(_, index);
             }}
-            onClick={handleEvt}
             onMouseLeave={() => {
               handleActiveChanged(undefined);
+              console.log("Mouse leave, active segment cleared");
             }}
             activeIndex={
               activeSegmentInternal
@@ -167,11 +158,10 @@ export function ReserveChart({
             strokeWidth={0}
             onMouseEnter={(_, index) => {
               data[index] && handleActiveChanged(data[index].name);
-              handleEvt(_, index);
             }}
-            onClick={handleEvt}
             onMouseLeave={() => {
               handleActiveChanged(undefined);
+              console.log("Mouse leave, active segment cleared");
             }}
             activeIndex={
               activeSegmentInternal

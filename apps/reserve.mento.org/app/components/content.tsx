@@ -143,7 +143,9 @@ export function Content({
                 centerText={centerChartText}
                 activeSegment={active}
                 className="my-auto mb-16 h-[288px] justify-center self-center lg:h-[320px] xl:h-[360px]"
-                onSegmentClick={(segment) => setActive(segment.name)}
+                onActiveChanged={(name) => {
+                  setActive(name);
+                }}
               />
             </div>
             <div className="flex flex-wrap gap-2 md:col-span-6 xl:col-span-8">
