@@ -87,9 +87,11 @@ export function ReserveChart({
   chartConfig.value = {};
 
   const value = data.filter((d) => d.name === activeSegmentInternal)[0]?.value;
+  const tokenName = data.filter((d) => d.name === activeSegmentInternal)[0]
+    ?.name;
 
-  const handleClick = (_: any, index: number) => {
-    if (onSegmentClick && data[index]) {
+  const handleEvt = (_: any, index: number | undefined) => {
+    if (typeof index === "number" && onSegmentClick && data[index]) {
       onSegmentClick(data[index]);
     }
   };
@@ -120,11 +122,14 @@ export function ReserveChart({
             innerRadius="60%" // Adjusted for inner ring space
             outerRadius="90%"
             strokeWidth={0} // stroke="var(--background)"
-            onMouseEnter={(_, index) =>
-              data[index] && handleActiveChanged(data[index].name)
-            }
-            onClick={handleClick}
-            onMouseLeave={() => handleActiveChanged(undefined)}
+            onMouseEnter={(_, index) => {
+              data[index] && handleActiveChanged(data[index].name);
+              handleEvt(_, index);
+            }}
+            onClick={handleEvt}
+            onMouseLeave={() => {
+              handleActiveChanged(undefined);
+            }}
             activeIndex={
               activeSegmentInternal
                 ? data.findIndex((d) => d.name === activeSegmentInternal)
@@ -160,11 +165,14 @@ export function ReserveChart({
             innerRadius="55%"
             outerRadius="60%" // Ends where the outer ring begins
             strokeWidth={0}
-            onMouseEnter={(_, index) =>
-              data[index] && handleActiveChanged(data[index].name)
-            }
-            onClick={handleClick}
-            onMouseLeave={() => handleActiveChanged(undefined)}
+            onMouseEnter={(_, index) => {
+              data[index] && handleActiveChanged(data[index].name);
+              handleEvt(_, index);
+            }}
+            onClick={handleEvt}
+            onMouseLeave={() => {
+              handleActiveChanged(undefined);
+            }}
             activeIndex={
               activeSegmentInternal
                 ? data.findIndex((d) => d.name === activeSegmentInternal)
@@ -182,8 +190,15 @@ export function ReserveChart({
       </ChartContainer>
 
       {value && (
-        <div className="text-muted-foreground bg-muted mx-auto w-fit p-2">
-          {value.toFixed(2)}%
+        <div className="mx-auto flex w-fit flex-row items-center justify-start gap-2 bg-[var(--new-muted-color)] p-2 text-white">
+          <img
+            src={`/tokens/${tokenName}.svg`}
+            alt={tokenName}
+            className="inline-block h-8 w-8"
+            width={32}
+            height={32}
+          />
+          <span>{value.toFixed(2)}%</span>
         </div>
       )}
     </div>
