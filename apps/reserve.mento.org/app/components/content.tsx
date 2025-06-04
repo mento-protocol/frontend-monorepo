@@ -142,7 +142,10 @@ export function Content({
                 data={chartData}
                 centerText={centerChartText}
                 activeSegment={active}
-                className="my-auto h-[288px] justify-center self-center"
+                className="my-auto mb-16 h-[288px] justify-center self-center lg:h-[320px] xl:h-[360px]"
+                onActiveChanged={(name) => {
+                  setActive(name);
+                }}
               />
             </div>
             <div className="flex flex-wrap gap-2 md:col-span-6 xl:col-span-8">
@@ -159,7 +162,7 @@ export function Content({
                   <>
                     <div
                       key={`${celoDetails.token}-unfrozen`}
-                      className="bg-card hover:bg-accent grid w-full grid-cols-2 gap-4 border-l-4 p-4 xl:grid-cols-12"
+                      className={`${celoDetails.token === active ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} grid w-full grid-cols-2 gap-4 border-l-2 p-4 xl:grid-cols-12`}
                       style={{
                         borderLeftColor: getTokenColor(celoDetails.token),
                       }}
@@ -207,7 +210,7 @@ export function Content({
                 return (
                   <div
                     key={asset.token}
-                    className="bg-card hover:bg-accent grid w-full grid-cols-2 gap-4 border-l-4 p-4 xl:grid-cols-12"
+                    className={`${asset.token === active ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} grid w-full grid-cols-2 gap-4 border-l-2 p-4 xl:grid-cols-12`}
                     style={{
                       borderLeftColor: getTokenColor(asset.token),
                     }}
