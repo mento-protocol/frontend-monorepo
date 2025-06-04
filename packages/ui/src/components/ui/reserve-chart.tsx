@@ -180,7 +180,7 @@ export function ReserveChart({
       </ChartContainer>
 
       {value && (
-        <div className="mx-auto flex w-fit flex-row items-center justify-start gap-2 bg-[var(--new-muted-color)] p-2 text-white">
+        <div className="mx-auto mt-4 flex w-fit flex-row items-center justify-start gap-2 bg-[var(--new-muted-color)] p-2 text-white">
           <img
             src={`/tokens/${tokenName}.svg`}
             alt={tokenName}

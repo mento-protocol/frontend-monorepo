@@ -21,7 +21,7 @@ export function SlippageDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="h-8 p-2">
+        <Button variant="outline" size="sm" className="h-8 p-2 text-base">
           <SlidersHorizontal
             className="text-muted-foreground h-5 w-5"
             size={20}
