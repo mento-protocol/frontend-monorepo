@@ -241,14 +241,14 @@ export default async function Home() {
                 </TooltipContent>
               </Tooltip>
             </span>
-            <span>
+            <span className="leading-0 text-lg">
               $
               {totalSupply.toLocaleString(undefined, {
                 maximumFractionDigits: 0,
               })}
             </span>
           </div>
-          <hr className="my-2.5 h-px border-[var(--border)]" />
+          <hr className="my-3 border-[var(--border)] lg:my-4" />
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground flex flex-row items-center justify-start gap-2">
               Reserve Holdings
@@ -265,14 +265,14 @@ export default async function Home() {
                 </TooltipContent>
               </Tooltip>
             </span>
-            <span>
+            <span className="leading-0 text-lg">
               $
               {reserveHoldingsValue.toLocaleString(undefined, {
                 maximumFractionDigits: 0,
               })}
             </span>
           </div>
-          <hr className="my-2.5 h-px border-[var(--border)]" />
+          <hr className="my-3 border-[var(--border)] lg:my-4" />
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground flex flex-row items-center justify-start gap-2">
               Collateralization ratio
@@ -290,7 +290,9 @@ export default async function Home() {
                 </TooltipContent>
               </Tooltip>
             </span>
-            <span>{collateralizationRatio.toFixed(2)}</span>
+            <span className="leading-0 text-lg">
+              {collateralizationRatio.toFixed(2)}
+            </span>
           </div>
         </div>
       </section>
