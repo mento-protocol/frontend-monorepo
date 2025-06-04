@@ -30,11 +30,11 @@ const buttonVariants = cva(
           "text-muted border border-border-secondary dark:border-[var(--border)] relative gap-0",
       },
       size: {
-        default: "h-8 px-4 py-2 has-[>svg]:px-3",
+        default: "h-8 px-4 py-2 has-[>svg]:px-3 text-base",
         switch: "p-[3px]",
         xs: "h-8 px-4 py-2",
-        sm: "h-9 rounded-none gap-1.5 px-4 has-[>svg]:px-2.5",
-        lg: "h-12 rounded-none px-4 has-[>svg]:px-4",
+        sm: "h-9 rounded-none gap-1.5 px-4 has-[>svg]:px-2.5 text-base",
+        lg: "h-12 rounded-none px-4 has-[>svg]:px-4 text-base",
         icon: "size-9",
       },
       clipped: {

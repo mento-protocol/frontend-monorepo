@@ -65,7 +65,7 @@ export function invertExchangeRate(rate: NumberT) {
 
 export const formatWithMaxDecimals = (
   value: string,
-  maxDecimals = 6,
+  maxDecimals = 4,
 ): string => {
   if (!value || value === "0") return "0";
   const num = Number.parseFloat(value);
