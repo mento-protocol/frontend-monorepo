@@ -87,7 +87,10 @@ async function getStableCoinStats(): Promise<StableValueTokensAPI> {
     })),
   };
 
-  return convertedResult;
+  return {
+    ...convertedResult,
+    tokens: convertedResult.tokens.sort((a, b) => b.value - a.value),
+  };
 }
 
 async function getReserveComposition(): Promise<ReserveCompositionAPI> {
@@ -207,7 +210,7 @@ export default async function Home() {
         alt="Mento Reserve"
         width={320}
         height={168}
-        className="w-full md:hidden"
+        className="my-8 w-full md:hidden"
       />
       <Image
         src={`${env.NEXT_PUBLIC_STORAGE_URL}/hero-yK9EATxAalqBP4Sj6TrjtovwiEKJF6.png`}
@@ -216,33 +219,13 @@ export default async function Home() {
         height={640}
         className="absolute -bottom-[50px] -top-20 left-1/3 right-0 -z-10 hidden h-[660px] w-auto object-cover md:block 2xl:left-auto 2xl:right-0"
       />
-      <section className="xl:px-22 max-w-xl px-4 md:p-20">
-        <h1 className="text-4xl font-medium md:text-5xl">Mento Reserve</h1>
-        <p className="text-muted-foreground mt-2">
+      <section className="xl:px-22 max-w-2xl px-4 md:p-20">
+        <h1 className="text-4xl font-medium md:text-6xl">Mento Reserve</h1>
+        <p className="text-muted-foreground mt-2 max-w-[440px]">
           A diversified portfolio of crypto assets supporting the ability of the
           Mento Platform to expand and contract the supply of Mento stablecoins.
         </p>
         <div className="mb-16 mt-16 xl:mb-0">
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground flex flex-row items-center justify-start gap-2">
-              Collateralization ratio
-              <Tooltip>
-                <TooltipTrigger>
-                  <IconInfo />
-                </TooltipTrigger>
-                <TooltipContent className="max-w-xs">
-                  <p>
-                    The ratio between the total value of assets held in the
-                    Reserve and the total value of Mento stablecoins in
-                    circulation. A ratio above means all stablecoins are fully
-                    overcollateralized by Reserve assets.
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            </span>
-            <span>{collateralizationRatio.toFixed(2)}</span>
-          </div>
-          <hr className="my-2.5 h-px border-[var(--border)]" />
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground flex flex-row items-center justify-start gap-2">
               Total Supply
@@ -258,7 +241,12 @@ export default async function Home() {
                 </TooltipContent>
               </Tooltip>
             </span>
-            <span>${totalSupply.toLocaleString()}</span>
+            <span>
+              $
+              {totalSupply.toLocaleString(undefined, {
+                maximumFractionDigits: 0,
+              })}
+            </span>
           </div>
           <hr className="my-2.5 h-px border-[var(--border)]" />
           <div className="flex items-center justify-between">
@@ -277,7 +265,32 @@ export default async function Home() {
                 </TooltipContent>
               </Tooltip>
             </span>
-            <span>${reserveHoldingsValue.toLocaleString()}</span>
+            <span>
+              $
+              {reserveHoldingsValue.toLocaleString(undefined, {
+                maximumFractionDigits: 0,
+              })}
+            </span>
+          </div>
+          <hr className="my-2.5 h-px border-[var(--border)]" />
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground flex flex-row items-center justify-start gap-2">
+              Collateralization ratio
+              <Tooltip>
+                <TooltipTrigger>
+                  <IconInfo />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  <p>
+                    The ratio between the total value of assets held in the
+                    Reserve and the total value of Mento stablecoins in
+                    circulation. A ratio above means all stablecoins are fully
+                    overcollateralized by Reserve assets.
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </span>
+            <span>{collateralizationRatio.toFixed(2)}</span>
           </div>
         </div>
       </section>
