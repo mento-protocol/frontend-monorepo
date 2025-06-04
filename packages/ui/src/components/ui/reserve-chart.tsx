@@ -19,6 +19,7 @@ export interface ReserveChartProps {
   innerRingOpacity?: number; // Opacity for the inner ring, e.g., 0.5
   activeSegment?: string; // Active segment name
   onActiveChanged?: (name: string | undefined) => void; // Event handler for active segment changes
+  onSegmentClick?: (segment: ChartSegment) => void;
 }
 
 // Helper function to convert hex to rgba
@@ -51,6 +52,7 @@ export function ReserveChart({
   innerRingOpacity = 0.8, // Default opacity for the inner ring
   activeSegment,
   onActiveChanged,
+  onSegmentClick,
 }: ReserveChartProps) {
   const [activeSegmentInternal, setActiveSegmentInternal] = useState<
     string | undefined
@@ -86,6 +88,12 @@ export function ReserveChart({
 
   const value = data.filter((d) => d.name === activeSegmentInternal)[0]?.value;
 
+  const handleClick = (_: any, index: number) => {
+    if (onSegmentClick && data[index]) {
+      onSegmentClick(data[index]);
+    }
+  };
+
   return (
     <div className={`relative ${className || "mx-auto aspect-square h-full"}`}>
       <div className="bg-card pointer-events-none absolute left-1/2 top-1/2 z-0 h-fit w-fit -translate-x-1/2 -translate-y-1/2 rounded-full p-8">
@@ -115,6 +123,7 @@ export function ReserveChart({
             onMouseEnter={(_, index) =>
               data[index] && handleActiveChanged(data[index].name)
             }
+            onClick={handleClick}
             onMouseLeave={() => handleActiveChanged(undefined)}
             activeIndex={
               activeSegmentInternal
@@ -154,6 +163,7 @@ export function ReserveChart({
             onMouseEnter={(_, index) =>
               data[index] && handleActiveChanged(data[index].name)
             }
+            onClick={handleClick}
             onMouseLeave={() => handleActiveChanged(undefined)}
             activeIndex={
               activeSegmentInternal
