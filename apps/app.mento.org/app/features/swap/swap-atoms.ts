@@ -1,12 +1,7 @@
 import { atom } from "jotai";
-import type { SwapFormValues, ToCeloRates, TokenId } from "./types";
+import type { SwapFormValues, ToCeloRates } from "./types";
 
 const initialFormValues: SwapFormValues | null = {
-  amount: "1",
-  direction: "in",
-  fromTokenId: "CELO" as TokenId,
-  quote: "0.367552450768393127",
-  toTokenId: "cUSD" as TokenId,
   slippage: "0.5",
 };
 

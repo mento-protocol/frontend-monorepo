@@ -16,15 +16,15 @@ import { getAdjustedAmount } from "@/lib/utils/amount";
 import { logger } from "@/lib/utils/logger";
 import { Button, TokenIcon } from "@repo/ui";
 import { useAtom, useSetAtom } from "jotai";
-import { ArrowRight, OctagonAlert } from "lucide-react";
-import { useMemo, useState, useEffect } from "react";
+import { ArrowRight } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAccount, useChainId } from "wagmi";
 import { waitForTransaction } from "wagmi/actions";
 
 export function SwapConfirm() {
   const [formValues, setFormValues] = useAtom(formValuesAtom);
-  const setJotaiConfirmView = useSetAtom(confirmViewAtom);
+  const setConfirmView = useSetAtom(confirmViewAtom);
 
   const [isApproveConfirmed, setApproveConfirmed] = useState(true);
   const [swapLoading, setSwapLoading] = useState(false);
@@ -153,8 +153,10 @@ export function SwapConfirm() {
 
       if (receipt.status === 1) {
         toast.success("Swap successful!");
-        setFormValues(null);
-        setJotaiConfirmView(false);
+        setFormValues({
+          slippage: formValues?.slippage || "0.5",
+        });
+        setConfirmView(false);
       } else {
         throw new Error("Swap transaction failed");
       }

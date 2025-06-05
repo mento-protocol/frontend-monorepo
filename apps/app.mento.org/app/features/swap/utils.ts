@@ -66,6 +66,7 @@ export function invertExchangeRate(rate: NumberT) {
 export const formatWithMaxDecimals = (
   value: string,
   maxDecimals = 4,
+  useThousandSeparators = true,
 ): string => {
   if (!value || value === "0") return "0";
   const num = Number.parseFloat(value);
@@ -75,9 +76,14 @@ export const formatWithMaxDecimals = (
   const factor = 10 ** maxDecimals;
   const truncated = Math.floor(num * factor) / factor;
 
-  // Format with thousand separators and remove trailing zeros
-  return truncated.toLocaleString("en-US", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: maxDecimals,
-  });
+  // Format with or without thousand separators based on the parameter
+  if (useThousandSeparators) {
+    return truncated.toLocaleString("en-US", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: maxDecimals,
+    });
+  } else {
+    // Return plain number string without thousand separators for form inputs
+    return truncated.toFixed(maxDecimals).replace(/\.?0+$/, "");
+  }
 };
