@@ -5,6 +5,7 @@ import { useAccountBalances } from "@/features/accounts/use-account-balances";
 import { useAccount, useChainId } from "wagmi";
 import { TokenIcon } from "@repo/ui";
 import { fromWeiRounded } from "@/lib/utils/amount";
+import { formatWithMaxDecimals } from "@/features/swap/utils";
 
 export function BalancesSummary() {
   const { address } = useAccount();
@@ -58,11 +59,11 @@ export function BalancesSummary() {
           return (
             <div
               key={id}
-              className="text-foreground flex min-w-0 items-center gap-3 px-2 text-sm font-medium"
+              className="text-foreground flex min-w-0 items-center gap-3 px-2 text-sm font-medium last:pb-2"
               data-testid={`walletSettings_${token.id}_balance`}
             >
               <TokenIcon token={token} className="h-6 w-6 p-1" />
-              <span className="truncate">{balance}</span>
+              <span className="truncate">{formatWithMaxDecimals(balance)}</span>
             </div>
           );
         }

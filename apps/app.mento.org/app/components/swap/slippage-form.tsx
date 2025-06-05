@@ -29,7 +29,7 @@ export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
 
     if (
       value === "" ||
-      (Number.parseFloat(value) <= 5 && Number.parseFloat(value) >= 0)
+      (Number.parseFloat(value) <= 49 && Number.parseFloat(value) >= 0)
     ) {
       setLocalSlippage(value);
     }
@@ -48,17 +48,17 @@ export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
   );
 
   return (
-    <div className="mx-auto max-w-4xl space-y-8 pt-10">
+    <div className="mx-auto max-w-4xl space-y-6 pt-6">
       <div className="flex flex-1 flex-row flex-wrap items-center gap-4">
         {slippageOptions.map((option) => (
           <Button
             key={option.value}
             variant="outline"
             className={cn(
-              localSlippage === option.value &&
-                isPresetSelected &&
-                "!border-[var(--primary)]",
-              "min-w-28",
+              "border-input h-10 min-w-28",
+              localSlippage === option.value && isPresetSelected
+                ? "border-primary"
+                : "!bg-transparent",
             )}
             onClick={() => handleSlippageSelect(option.value)}
             type="button"
@@ -69,12 +69,12 @@ export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
         <div className="flex-shrink-0">
           <Input
             placeholder="Custom"
-            className="h-8 min-w-28"
+            className="hover:!border-primary h-10 min-w-28 transition-colors"
             value={isPresetSelected ? "" : localSlippage || ""}
             onChange={handleCustomSlippageChange}
             type="number"
             min={0}
-            max={5}
+            max={49}
           />
         </div>
       </div>

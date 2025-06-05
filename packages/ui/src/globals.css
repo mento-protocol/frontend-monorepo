@@ -6,6 +6,7 @@
 @import "./theme.css";
 @import "tailwindcss";
 @source "../../../apps/";
+@source "./";
 
 @import "tw-animate-css";
 
@@ -34,6 +35,14 @@
     calc(100% - 12px) 100%,
     0 100%
   );
+}
+
+.border-primary {
+  @apply !border-primary !border;
+}
+
+.border-input {
+  @apply !border-input !border;
 }
 
 html,

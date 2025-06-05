@@ -1,10 +1,10 @@
 import React from "react";
 
-interface IconCheckProps extends React.SVGProps<SVGSVGElement> {
+interface CheckProps extends React.SVGProps<SVGSVGElement> {
   fill?: string;
 }
 
-const IconCheck: React.FC<IconCheckProps> = ({ fill = "black", ...props }) => {
+const Check: React.FC<CheckProps> = ({ fill = "black", ...props }) => {
   return (
     <svg
       width="24"
@@ -22,4 +22,4 @@ const IconCheck: React.FC<IconCheckProps> = ({ fill = "black", ...props }) => {
   );
 };
 
-export default IconCheck;
+export default Check;

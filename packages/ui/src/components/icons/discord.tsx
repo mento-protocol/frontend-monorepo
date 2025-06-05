@@ -1,12 +1,12 @@
 import React from "react";
 
-interface IconBrandDiscordProps extends React.SVGProps<SVGSVGElement> {
+interface DiscordProps extends React.SVGProps<SVGSVGElement> {
   width?: string | number;
   height?: string | number;
   color?: string;
 }
 
-const IconBrandDiscord: React.FC<IconBrandDiscordProps> = ({
+const Discord: React.FC<DiscordProps> = ({
   width = 24,
   height = 24,
   color = "currentColor",
@@ -24,4 +24,4 @@ const IconBrandDiscord: React.FC<IconBrandDiscordProps> = ({
   </svg>
 );
 
-export default IconBrandDiscord;
+export default Discord;
