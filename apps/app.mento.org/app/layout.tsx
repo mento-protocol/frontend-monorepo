@@ -33,7 +33,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${aspekta.className} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${aspekta.className} min-h-screen antialiased`}
       >
         <ClientProviders>{children}</ClientProviders>
       </body>
