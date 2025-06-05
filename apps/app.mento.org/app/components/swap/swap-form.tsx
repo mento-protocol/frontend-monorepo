@@ -30,6 +30,7 @@ import type { SwapFormValues } from "@/features/swap/types";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
 import { type TokenId, Tokens } from "@/lib/config/tokens";
 import { fromWeiRounded, toWei } from "@/lib/utils/amount";
+import { useDebounce } from "@/lib/utils/debounce";
 import { logger } from "@/lib/utils/logger";
 import { useAtom } from "jotai";
 import { ArrowUpDown, ChevronDown, OctagonAlert } from "lucide-react";
@@ -59,7 +60,7 @@ const tokenButtonClassName =
 export default function SwapForm() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
-  const [, setFormValues] = useAtom(formValuesAtom);
+  const [formValues, setFormValues] = useAtom(formValuesAtom);
   const [, setConfirmView] = useAtom(confirmViewAtom);
   const [isApprovalProcessing, setIsApprovalProcessing] = useState(false);
 
@@ -70,12 +71,12 @@ export default function SwapForm() {
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      direction: "in" as SwapDirection,
-      amount: "",
-      quote: "",
-      fromTokenId: "CELO",
-      toTokenId: "cUSD",
-      slippage: "0.5",
+      direction: formValues?.direction || "in",
+      amount: formValues?.amount || "",
+      quote: formValues?.quote || "",
+      fromTokenId: formValues?.fromTokenId || "CELO",
+      toTokenId: formValues?.toTokenId || "cUSD",
+      slippage: formValues?.slippage || "0.5",
     },
   });
 
@@ -134,7 +135,7 @@ export default function SwapForm() {
 
   const handleUseMaxBalance = () => {
     const maxAmountWei = balances[fromTokenId as keyof typeof balances] || "0";
-
+    console.log("maxAmountWei", maxAmountWei);
     // Use the full balance amount
     const maxAmountBigInt = BigInt(maxAmountWei);
     const decimals = Tokens[fromTokenId as keyof typeof Tokens].decimals;
@@ -143,7 +144,8 @@ export default function SwapForm() {
       maxAmountBigInt.toString(),
       decimals,
     );
-    form.setValue("amount", formatWithMaxDecimals(formattedAmount));
+    // Use formatWithMaxDecimals without thousand separators for form input
+    form.setValue("amount", formatWithMaxDecimals(formattedAmount, 4, false));
     form.setValue("direction", "in");
 
     // Show warning toast specifically for CELO token
@@ -221,7 +223,7 @@ export default function SwapForm() {
   // Calculate amount in wei for approval
   const amountWei =
     amount && fromTokenId
-      ? toWei(amount, Tokens[fromTokenId as TokenId].decimals).toString()
+      ? toWei(amount, Tokens[fromTokenId as TokenId].decimals).toFixed(0)
       : "0";
 
   // Check if approval is needed
@@ -296,6 +298,8 @@ export default function SwapForm() {
     }
   };
 
+  const debouncedAmount = useDebounce(amount, 350);
+
   return (
     <Form {...form}>
       <form
@@ -313,7 +317,7 @@ export default function SwapForm() {
                     <FormLabel>Sell</FormLabel>
                     <FormControl>
                       <CoinInput
-                        placeholder="0.00"
+                        placeholder="0"
                         value={formDirection === "in" ? field.value : formQuote}
                         onChange={(e) => {
                           // Handle both string and event inputs
@@ -369,7 +373,7 @@ export default function SwapForm() {
                       />
                     </FormControl>
                     <FormDescription className="w-fit whitespace-nowrap">
-                      Balance: {formatWithMaxDecimals(fromTokenBalance)}{" "}
+                      Balance: {fromTokenBalance}{" "}
                       <button
                         type="button"
                         className="cursor-pointer border-none bg-transparent p-0 text-inherit underline"
@@ -412,7 +416,7 @@ export default function SwapForm() {
                     <FormLabel>Buy</FormLabel>
                     <FormControl>
                       <CoinInput
-                        placeholder="0.00"
+                        placeholder="0"
                         value={
                           formDirection === "out"
                             ? Number(amount).toFixed(4)
@@ -475,9 +479,7 @@ export default function SwapForm() {
                         }
                       />
                     </FormControl>
-                    <FormDescription>
-                      Balance: {formatWithMaxDecimals(toTokenBalance)}
-                    </FormDescription>
+                    <FormDescription>Balance: {toTokenBalance}</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -504,19 +506,20 @@ export default function SwapForm() {
             clipped="lg"
             type="submit"
             disabled={
-              isLoading ||
               !amount ||
+              isLoading ||
               !quote ||
               amountExceedsBalance ||
               isApproveTxLoading ||
-              isApprovalProcessing
+              isApprovalProcessing ||
+              debouncedAmount !== amount
             }
           >
             {amountExceedsBalance
               ? "Insufficient Balance"
               : isApproveTxLoading || isApprovalProcessing
                 ? "Approving..."
-                : isLoading
+                : isLoading || (amount && !quote) || debouncedAmount !== amount
                   ? "Loading..."
                   : "Swap"}
           </Button>

@@ -20,6 +20,7 @@ import { useTokenOptions } from "@/features/swap/hooks/use-token-options";
 import type { TokenId } from "@/features/swap/types";
 import { fromWeiRounded } from "@/lib/utils/amount";
 import { Input } from "@repo/ui";
+import { formatWithMaxDecimals } from "@/features/swap/utils";
 
 interface TokenDialogProps {
   value: string;
@@ -64,7 +65,7 @@ export default function TokenDialog({
 
       return {
         ...token,
-        balance,
+        balance: formatWithMaxDecimals(balance),
       };
     });
 

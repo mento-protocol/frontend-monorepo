@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, toast } from "@repo/ui";
+import { Button } from "@repo/ui";
 import { useAtom } from "jotai";
 import { ArrowLeft } from "lucide-react";
 import { SlippageDialog } from "./components/swap/slippage-dialog";

@@ -6,11 +6,11 @@ export type TokenId = ImportedTokenId;
 export type SwapDirection = "in" | "out";
 
 export interface SwapFormValues {
-  fromTokenId: TokenId;
-  toTokenId: TokenId;
-  amount: number | string;
-  quote: number | string;
-  direction: SwapDirection;
+  fromTokenId?: TokenId;
+  toTokenId?: TokenId;
+  amount?: string;
+  quote?: string;
+  direction?: SwapDirection;
   slippage: string;
   buyUSDValue?: string;
   sellUSDValue?: string;

@@ -12,9 +12,8 @@ const slippageOptions = [
 
 export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
   const [formValues, setFormValues] = useAtom(formValuesAtom);
-  const [localSlippage, setLocalSlippage] = useState<string>("");
+  const [localSlippage, setLocalSlippage] = useState<string>("0.5");
 
-  // Initialize local state with current slippage value
   useEffect(() => {
     setLocalSlippage(formValues?.slippage || "0.5");
   }, [formValues?.slippage]);
