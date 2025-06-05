@@ -168,7 +168,7 @@ export function SwapConfirm() {
             className="text-center text-xl font-medium md:text-3xl"
             data-testid="truncatedAmount"
           >
-            {formatWithMaxDecimals(fromAmount)} {fromToken.symbol}
+            {formatWithMaxDecimals(fromAmount)}
           </span>
           <span className="text-muted-foreground text-sm md:text-base">
             ~$
@@ -196,7 +196,7 @@ export function SwapConfirm() {
             size={56}
           />
           <span className="text-center text-xl font-medium md:text-3xl">
-            {formatWithMaxDecimals(toAmount)} {toToken.symbol}
+            {formatWithMaxDecimals(toAmount)}
           </span>
           <span className="text-muted-foreground">
             ~$
