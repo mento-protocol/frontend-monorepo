@@ -58,7 +58,7 @@ export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
               localSlippage === option.value &&
                 isPresetSelected &&
                 "!border-1 !border-[var(--primary)]",
-              "min-w-28",
+              "hover:border-1 min-w-28 hover:!border-[var(--primary-hover)]",
             )}
             onClick={() => handleSlippageSelect(option.value)}
             type="button"
