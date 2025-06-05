@@ -2,7 +2,7 @@
 import { cn } from "@/lib/utils.js";
 import { ChevronsRight } from "lucide-react";
 import type * as React from "react";
-import IconBrandDiscord from "../icons/icon_brand_discord.js";
+import IconBrandDiscord from "../icons/discord.js";
 import { Button } from "./button.js";
 
 interface CommunityCardProps extends React.ComponentProps<"div"> {

@@ -1,6 +1,6 @@
 import { links } from "@/lib/config/links";
 
-import { IconBrandDiscord, IconBrandGithub, IconBrandX } from "@repo/ui";
+import { IconDiscord, IconGithub, IconX } from "@repo/ui";
 
 export function Footer() {
   return (
@@ -11,7 +11,7 @@ export function Footer() {
         rel="noopener noreferrer"
         aria-label="X"
       >
-        <IconBrandX />
+        <IconX />
       </a>
       <a
         href={links.github}
@@ -19,7 +19,7 @@ export function Footer() {
         rel="noopener noreferrer"
         aria-label="Github"
       >
-        <IconBrandGithub />
+        <IconGithub />
       </a>
       <a
         href={links.discord}
@@ -27,7 +27,7 @@ export function Footer() {
         rel="noopener noreferrer"
         aria-label="Discord"
       >
-        <IconBrandDiscord />
+        <IconDiscord />
       </a>
     </div>
   );

@@ -123,5 +123,6 @@
   --background-color-incard: var(--incard);
 
   --color-outlier: var(--outlier);
+  --color-border-primary: var(--primary);
   --color-border-secondary: var(--border-secondary);
 }

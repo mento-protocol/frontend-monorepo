@@ -23,7 +23,7 @@ export function useSwapAllowance(options: ISwapAllowanceOptions) {
   );
 
   const needsApproval =
-    !isAllowanceLoading && new BigNumber(allowance).lte(approveAmount);
+    !isAllowanceLoading && new BigNumber(allowance).lt(approveAmount);
   const skipApprove = !isAllowanceLoading && !needsApproval;
 
   // Log only when values change

@@ -27,11 +27,47 @@ export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
   ) => {
     const value = e.target.value;
 
-    if (
-      value === "" ||
-      (Number.parseFloat(value) <= 5 && Number.parseFloat(value) >= 0)
-    ) {
+    // Allow only digits and decimal point pattern
+    if (!/^[0-9]*\.?[0-9]*$/.test(value)) {
+      return;
+    }
+
+    // Prevent just a decimal point at the start
+    if (value === ".") {
+      return;
+    }
+
+    // Allow empty input for clearing
+    if (value === "") {
+      setLocalSlippage("");
+      return;
+    }
+
+    // Validate numeric range
+    const numValue = Number.parseFloat(value);
+    if (numValue <= 49 && numValue >= 0) {
       setLocalSlippage(value);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Prevent invalid characters from being typed
+    const invalidChars = ["e", "E", "-", "+", ","];
+    if (invalidChars.includes(e.key)) {
+      e.preventDefault();
+      return;
+    }
+
+    // Allow only one decimal point
+    if (e.key === "." && localSlippage.includes(".")) {
+      e.preventDefault();
+      return;
+    }
+
+    // Prevent decimal point at the start
+    if (e.key === "." && localSlippage === "") {
+      e.preventDefault();
+      return;
     }
   };
 
@@ -47,18 +83,26 @@ export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
     (option) => option.value === localSlippage,
   );
 
+  const isValidSlippage = () => {
+    if (!localSlippage || localSlippage === "") {
+      return false;
+    }
+    const numValue = Number.parseFloat(localSlippage);
+    return !Number.isNaN(numValue) && numValue >= 0 && numValue <= 49;
+  };
+
   return (
-    <div className="mx-auto max-w-4xl space-y-8 pt-10">
+    <div className="mx-auto max-w-4xl space-y-6 pt-6">
       <div className="flex flex-1 flex-row flex-wrap items-center gap-4">
         {slippageOptions.map((option) => (
           <Button
             key={option.value}
             variant="outline"
             className={cn(
-              localSlippage === option.value &&
-                isPresetSelected &&
-                "!border-[var(--primary)]",
-              "min-w-28",
+              "border-input h-10 min-w-28",
+              localSlippage === option.value && isPresetSelected
+                ? "border-primary"
+                : "!bg-transparent",
             )}
             onClick={() => handleSlippageSelect(option.value)}
             type="button"
@@ -69,16 +113,23 @@ export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
         <div className="flex-shrink-0">
           <Input
             placeholder="Custom"
-            className="h-8 min-w-28"
+            className="hover:!border-primary h-10 min-w-28 transition-colors"
             value={isPresetSelected ? "" : localSlippage || ""}
             onChange={handleCustomSlippageChange}
+            onKeyDown={handleKeyDown}
             type="number"
             min={0}
-            max={5}
+            max={49}
           />
         </div>
       </div>
-      <Button clipped="lg" size="lg" className="w-full" onClick={handleConfirm}>
+      <Button
+        clipped="lg"
+        size="lg"
+        className="w-full"
+        onClick={handleConfirm}
+        disabled={!isValidSlippage()}
+      >
         Confirm
       </Button>
     </div>

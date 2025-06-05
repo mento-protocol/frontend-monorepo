@@ -1,13 +1,15 @@
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { SwapDirection } from "@/features/swap/types";
-import { TokenId, getTokenAddress } from "@/lib/config/tokens";
+import { formatWithMaxDecimals } from "@/features/swap/utils";
+import { chainIdToChain } from "@/lib/config/chains";
+import { TokenId, getTokenAddress, Tokens } from "@/lib/config/tokens";
 import { logger } from "@/lib/utils/logger";
 import { useMutation } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
-import { useSetAtom } from "jotai";
+import { useAtom, useSetAtom } from "jotai";
 import { toast } from "@repo/ui";
 import type { Address } from "wagmi";
-import { sendTransaction } from "wagmi/actions";
+import { sendTransaction, waitForTransaction } from "wagmi/actions";
 import { confirmViewAtom, formValuesAtom } from "../swap-atoms";
 
 export function useSwapTransaction(
@@ -19,8 +21,12 @@ export function useSwapTransaction(
   direction: SwapDirection,
   accountAddress?: Address,
   isApproveConfirmed?: boolean,
+  swapValues?: {
+    fromAmount: string;
+    toAmount: string;
+  },
 ) {
-  const setFormValues = useSetAtom(formValuesAtom);
+  const [formValues, setFormValues] = useAtom(formValuesAtom);
   const setConfirmView = useSetAtom(confirmViewAtom);
 
   const mutation = useMutation(
@@ -60,7 +66,7 @@ export function useSwapTransaction(
       }
 
       logger.debug("Sending swap transaction...", { txRequest });
-      return sendTransaction({
+      const txHash = await sendTransaction({
         chainId,
         mode: "recklesslyUnprepared",
         request: {
@@ -74,13 +80,76 @@ export function useSwapTransaction(
             : undefined,
         },
       });
+
+      logger.debug("Transaction sent, waiting for confirmation...", {
+        hash: txHash.hash,
+      });
+
+      // Wait for transaction confirmation
+      const receipt = await waitForTransaction({ hash: txHash.hash });
+
+      if (receipt.status !== 1) {
+        throw new Error("Transaction failed");
+      }
+
+      logger.info("Swap transaction confirmed successfully", {
+        hash: txHash.hash,
+        blockNumber: receipt.blockNumber,
+      });
+
+      return { hash: txHash.hash, receipt };
     },
     {
       onSuccess: (data) => {
-        logger.info("Swap transaction successful (useMutation)", {
+        logger.info("Swap transaction successful", {
           hash: data.hash,
         });
-        setFormValues(null);
+
+        // Show success toast with transaction details
+        if (swapValues) {
+          const chain = chainIdToChain[chainId];
+          const explorerUrl = chain?.explorerUrl;
+          const fromTokenObj = Tokens[fromToken];
+          const toTokenObj = Tokens[toToken];
+          const fromTokenSymbol = fromTokenObj?.symbol || "Token";
+          const toTokenSymbol = toTokenObj?.symbol || "Token";
+
+          // Format amounts for display
+          const fromAmountFormatted = formatWithMaxDecimals(
+            swapValues.fromAmount,
+            4,
+          );
+          const toAmountFormatted = formatWithMaxDecimals(
+            swapValues.toAmount,
+            4,
+          );
+
+          const successMessage = `You've swapped ${fromAmountFormatted} ${fromTokenSymbol} for ${toAmountFormatted} ${toTokenSymbol}.`;
+
+          toast.success(
+            <>
+              <h4>Swap Successful</h4>
+              <span className="text-muted-foreground mt-2 block">
+                {successMessage}
+              </span>
+              {explorerUrl && (
+                <a
+                  href={`${explorerUrl}/tx/${data.hash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-muted-foreground underline"
+                >
+                  View Transaction on CeloScan
+                </a>
+              )}
+            </>,
+          );
+        }
+
+        // Reset form and close confirm view only after successful confirmation
+        setFormValues({
+          slippage: formValues?.slippage || "0.5",
+        });
         setConfirmView(false);
       },
       onError: (error: Error) => {
@@ -90,10 +159,7 @@ export function useSwapTransaction(
         }
         const toastError = getToastErrorMessage(error.message);
         toast.error(toastError);
-        logger.error(
-          `Swap transaction failed (useMutation): ${error.message}`,
-          error,
-        );
+        logger.error(`Swap transaction failed: ${error.message}`, error);
       },
     },
   );
@@ -121,6 +187,8 @@ function getToastErrorMessage(errorMessage: string): string {
       return "Transaction signature denied in MetaMask.";
     case errorMessage.includes("insufficient funds"):
       return "Insufficient funds for transaction.";
+    case errorMessage.includes("Transaction failed"):
+      return "Transaction failed on blockchain.";
     default:
       logger.warn(`Unhandled swap error for toast: ${errorMessage}`);
       return "Unable to complete swap transaction";

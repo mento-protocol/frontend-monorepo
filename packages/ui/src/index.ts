@@ -35,8 +35,9 @@ export type {
   ChartSegment,
   ReserveChartProps,
 } from "./components/ui/reserve-chart.js";
-export { default as IconBrandDiscord } from "./components/icons/icon_brand_discord.js";
-export { default as IconBrandGithub } from "./components/icons/icon_brand_github.js";
-export { default as IconBrandX } from "./components/icons/icon_brand_x.js";
-export { default as IconCheck } from "./components/icons/icon_check.js";
-export { default as IconInfo } from "./components/icons/icon_info.js";
+export { default as IconDiscord } from "./components/icons/discord.js";
+export { default as IconGithub } from "./components/icons/github.js";
+export { default as IconX } from "./components/icons/x.js";
+export { default as IconCheck } from "./components/icons/check.js";
+export { default as IconInfo } from "./components/icons/info.js";
+export { default as IconLoading } from "./components/icons/loading.js";

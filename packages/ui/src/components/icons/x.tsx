@@ -1,12 +1,12 @@
 import React from "react";
 
-interface IconBrandXProps extends React.SVGProps<SVGSVGElement> {
+interface XProps extends React.SVGProps<SVGSVGElement> {
   width?: string | number;
   height?: string | number;
   color?: string;
 }
 
-const IconBrandX: React.FC<IconBrandXProps> = ({
+const X: React.FC<XProps> = ({
   width = 24,
   height = 24,
   color = "currentColor",
@@ -24,4 +24,4 @@ const IconBrandX: React.FC<IconBrandXProps> = ({
   </svg>
 );
 
-export default IconBrandX;
+export default X;
