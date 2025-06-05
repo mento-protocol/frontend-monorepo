@@ -134,7 +134,7 @@ export function Content({
           className="relative before:absolute before:left-1/2 before:top-0 before:z-0 before:h-20 before:w-screen before:-translate-x-1/2 before:bg-gradient-to-b before:from-[#15111B] before:to-[#070010]"
         >
           <div className="relative z-10 flex flex-col gap-2 md:mt-12 md:grid md:grid-cols-12">
-            <div className="bg-card mb-2 flex h-full flex-1 flex-col p-6 md:col-span-6 md:mb-0 xl:col-span-4">
+            <div className="bg-card mb-2 flex h-full flex-1 flex-col p-6 pb-20 md:col-span-6 md:mb-0 xl:col-span-4">
               <h2 className="relative z-10 hidden text-2xl font-medium md:block">
                 Reserve Holdings
               </h2>
@@ -142,7 +142,7 @@ export function Content({
                 data={chartData}
                 centerText={centerChartText}
                 activeSegment={active}
-                className="my-auto mb-16 h-[288px] justify-center self-center lg:mb-auto lg:h-[320px] xl:h-[360px]"
+                className="my-auto h-[288px] justify-center self-center lg:h-[320px] xl:h-[360px]"
                 onActiveChanged={(name) => {
                   setActive(name);
                 }}
@@ -169,7 +169,7 @@ export function Content({
                       onMouseEnter={() => setActive(celoDetails.token)}
                       onMouseLeave={() => setActive(undefined)}
                     >
-                      <div className="col-span-2 flex flex-row items-center justify-start gap-2 text-xl font-medium xl:col-span-3">
+                      <div className="col-span-2 flex flex-row items-center justify-start gap-4 text-xl font-medium xl:col-span-3">
                         <Image
                           src={celoIcon}
                           alt={celoDetails.token}
@@ -180,7 +180,7 @@ export function Content({
 
                         {celoDetails.token}
                       </div>
-                      <div className="col-span-1 flex flex-row items-center justify-start gap-2 text-sm text-white xl:col-span-3">
+                      <div className="col-span-1 flex flex-row items-center justify-start gap-2 text-sm text-white xl:col-span-4">
                         {celoDetails.units.toLocaleString(undefined, {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
@@ -192,7 +192,7 @@ export function Content({
                           currency: "USD",
                         })}
                       </div>
-                      <div className="text-muted-foreground col-span-2 flex flex-row items-center justify-start gap-2 text-sm xl:col-span-3">
+                      <div className="text-muted-foreground col-span-2 flex flex-row items-center justify-start gap-2 text-sm lg:justify-end lg:pr-4 xl:col-span-2">
                         {celoComp && <>{celoComp.percent.toFixed(2)}%</>}
                       </div>
                     </div>
@@ -217,7 +217,7 @@ export function Content({
                     onMouseEnter={() => setActive(asset.token)}
                     onMouseLeave={() => setActive(undefined)}
                   >
-                    <div className="col-span-2 flex flex-row items-center justify-start gap-2 text-xl font-medium xl:col-span-3">
+                    <div className="col-span-2 flex flex-row items-center justify-start gap-4 text-xl font-medium xl:col-span-3">
                       <Image
                         src={iconPath}
                         alt={asset.token}
@@ -231,7 +231,7 @@ export function Content({
 
                       {asset.token}
                     </div>
-                    <div className="col-span-1 flex flex-row items-center justify-start gap-2 text-sm text-white xl:col-span-3">
+                    <div className="col-span-1 flex flex-row items-center justify-start gap-2 text-sm text-white xl:col-span-4">
                       {asset.units.toLocaleString(undefined, {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2,
@@ -243,7 +243,7 @@ export function Content({
                         currency: "USD",
                       })}
                     </div>
-                    <div className="text-muted-foreground col-span-2 flex flex-row items-center justify-start gap-2 text-sm xl:col-span-3">
+                    <div className="text-muted-foreground col-span-2 flex flex-row items-center justify-start gap-2 text-sm lg:justify-end lg:pr-4 xl:col-span-2">
                       {assetComp && <>{assetComp.percent.toFixed(2)}%</>}
                     </div>
                   </div>
