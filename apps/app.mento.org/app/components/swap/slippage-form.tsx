@@ -57,7 +57,7 @@ export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
             className={cn(
               localSlippage === option.value &&
                 isPresetSelected &&
-                "!border-[var(--primary)]",
+                "!border-1 !border-[var(--primary)]",
               "min-w-28",
             )}
             onClick={() => handleSlippageSelect(option.value)}
