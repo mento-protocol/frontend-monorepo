@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@repo/ui";
+import { Button, toast } from "@repo/ui";
 import { useAtom } from "jotai";
 import { ArrowLeft } from "lucide-react";
 import { SlippageDialog } from "./components/swap/slippage-dialog";
@@ -9,6 +9,7 @@ import SwapForm from "./components/swap/swap-form";
 import { confirmViewAtom } from "./features/swap/swap-atoms";
 
 import { IconCheck, Toaster } from "@repo/ui";
+import { useEffect } from "react";
 
 export default function SwapPage() {
   const [confirmView, setConfirmView] = useAtom(confirmViewAtom);
@@ -17,10 +18,11 @@ export default function SwapPage() {
     <div className="flex h-full w-full flex-wrap items-center justify-center">
       <Toaster
         position="top-right"
-        duration={30000}
+        duration={50000}
         icons={{
           success: <IconCheck fill="currentColor" />,
         }}
+        closeButton
         toastOptions={{
           classNames: {
             toast: "toast",
