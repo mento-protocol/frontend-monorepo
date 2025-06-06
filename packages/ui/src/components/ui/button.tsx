@@ -27,7 +27,7 @@ const buttonVariants = cva(
         reject:
           "bg-[#C92C2C] text-white hover:bg-[#C92C2C]/90 active:bg-white/10",
         switch:
-          "text-muted border dark:bg-incard border-border-secondary dark:border-input relative gap-0 dark:hover:border-[var(--new-muted-color)]",
+          "text-muted border dark:bg-incard border-border-secondary dark:border-input relative gap-0 hover:border-[var(--new-muted-color)] dark:hover:border-[var(--new-muted-color)]",
       },
       size: {
         default: "h-8 px-4 py-2 has-[>svg]:px-3 text-base",
