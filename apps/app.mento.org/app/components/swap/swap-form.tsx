@@ -278,9 +278,9 @@ export default function SwapForm() {
       // Set form values and navigate to confirmation
       const formData: SwapFormValues = {
         ...values,
+        slippage: formValues?.slippage || "0.5",
         fromTokenId: fromTokenId as TokenId,
         toTokenId: toTokenId as TokenId,
-        slippage: values.slippage || "0.5",
         buyUSDValue,
         sellUSDValue,
       };
