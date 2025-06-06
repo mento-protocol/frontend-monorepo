@@ -10,11 +10,11 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground shadow-xs hover:bg-[#7D1CFC] active:bg-[var(--primary-active)]",
+          "bg-primary text-primary-foreground shadow-xs hover:bg-[var(--primary-hover)] active:bg-[var(--primary-active)]",
         destructive:
           "bg-destructive text-white shadow-xs hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
         outline:
-          "border-[var(--border)] shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-[var(--border)] dark:hover:bg-input/50",
+          "border-[var(--border)] dark:hover:border-[var(--new-muted-color)] shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-[var(--border)] dark:hover:bg-input/50",
         secondary:
           "bg-secondary text-primary shadow-xs hover:bg-secondary-foreground active:bg-[var(--secondary-active)]",
         ghost:
@@ -27,7 +27,7 @@ const buttonVariants = cva(
         reject:
           "bg-[#C92C2C] text-white hover:bg-[#C92C2C]/90 active:bg-white/10",
         switch:
-          "text-muted border dark:bg-incard border-border-secondary dark:border-input relative gap-0",
+          "text-muted border dark:bg-incard border-border-secondary dark:border-input relative gap-0 dark:hover:border-[var(--new-muted-color)]",
       },
       size: {
         default: "h-8 px-4 py-2 has-[>svg]:px-3 text-base",
