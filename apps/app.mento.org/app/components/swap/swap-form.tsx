@@ -1,6 +1,6 @@
 "use client";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { cn, TokenIcon } from "@repo/ui";
+import { cn, TokenIcon, IconLoading } from "@repo/ui";
 import { useEffect, useMemo, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
@@ -419,8 +419,12 @@ export default function SwapForm() {
                         placeholder="0"
                         value={
                           formDirection === "out"
-                            ? Number(amount).toFixed(4)
-                            : Number(formQuote).toFixed(4)
+                            ? amount === "0"
+                              ? "0"
+                              : Number(amount).toFixed(4)
+                            : formQuote === "0"
+                              ? "0"
+                              : Number(formQuote).toFixed(4)
                         }
                         onChange={(e) => {
                           // Handle both string and event inputs
@@ -515,13 +519,23 @@ export default function SwapForm() {
               debouncedAmount !== amount
             }
           >
-            {amountExceedsBalance
-              ? "Insufficient Balance"
-              : isApproveTxLoading || isApprovalProcessing
-                ? "Approving..."
-                : isLoading || (amount && !quote) || debouncedAmount !== amount
-                  ? "Loading..."
-                  : "Swap"}
+            {amountExceedsBalance ? (
+              "Insufficient Balance"
+            ) : isApproveTxLoading || isApprovalProcessing ? (
+              <IconLoading />
+            ) : !skipApprove &&
+              amount &&
+              quote &&
+              !isLoading &&
+              debouncedAmount === amount ? (
+              `Approve ${Tokens[fromTokenId as TokenId]?.symbol || fromTokenId}`
+            ) : isLoading ||
+              (amount && !quote) ||
+              debouncedAmount !== amount ? (
+              <IconLoading />
+            ) : (
+              "Swap"
+            )}
           </Button>
         ) : (
           <ConnectButton size="lg" text="Connect" />

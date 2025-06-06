@@ -4,7 +4,7 @@ import { useAccountBalances } from "@/features/accounts/use-account-balances";
 import { useGasEstimation } from "@/features/swap/hooks/use-gas-estimation";
 import { useSwapQuote } from "@/features/swap/hooks/use-swap-quote";
 import { useSwapTransaction } from "@/features/swap/hooks/use-swap-transaction";
-import { confirmViewAtom, formValuesAtom } from "@/features/swap/swap-atoms";
+import { formValuesAtom } from "@/features/swap/swap-atoms";
 import { SwapDirection } from "@/features/swap/types";
 import {
   formatWithMaxDecimals,
@@ -14,20 +14,16 @@ import {
 import { TokenId, Tokens } from "@/lib/config/tokens";
 import { getAdjustedAmount } from "@/lib/utils/amount";
 import { logger } from "@/lib/utils/logger";
-import { Button, TokenIcon } from "@repo/ui";
-import { useAtom, useSetAtom } from "jotai";
+import { Button, IconLoading, TokenIcon } from "@repo/ui";
+import { useAtom } from "jotai";
 import { ArrowRight } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
 import { useAccount, useChainId } from "wagmi";
-import { waitForTransaction } from "wagmi/actions";
 
 export function SwapConfirm() {
-  const [formValues, setFormValues] = useAtom(formValuesAtom);
-  const setConfirmView = useSetAtom(confirmViewAtom);
+  const [formValues] = useAtom(formValuesAtom);
 
   const [isApproveConfirmed, setApproveConfirmed] = useState(true);
-  const [swapLoading, setSwapLoading] = useState(false);
 
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
@@ -117,6 +113,10 @@ export function SwapConfirm() {
     direction,
     address,
     isApproveConfirmed,
+    {
+      fromAmount,
+      toAmount,
+    },
   );
 
   const { data: gasEstimate, isLoading: isGasEstimating } = useGasEstimation({
@@ -141,30 +141,10 @@ export function SwapConfirm() {
     if (!rate || !amountWei || !address || !isConnected) return;
 
     try {
-      setSwapLoading(true);
-
-      const swapTx = await sendSwapTx();
-
-      if (!swapTx?.hash) {
-        throw new Error("Swap transaction failed");
-      }
-
-      const receipt = await waitForTransaction({ hash: swapTx.hash });
-
-      if (receipt.status === 1) {
-        toast.success("Swap successful!");
-        setFormValues({
-          slippage: formValues?.slippage || "0.5",
-        });
-        setConfirmView(false);
-      } else {
-        throw new Error("Swap transaction failed");
-      }
+      await sendSwapTx();
     } catch (error) {
-      logger.error("Swap error:", error);
-      toast.error(error instanceof Error ? error.message : "Swap failed");
-    } finally {
-      setSwapLoading(false);
+      // Error handling is done in the hook
+      logger.error("Swap submission error:", error);
     }
   }
 
@@ -188,7 +168,7 @@ export function SwapConfirm() {
             className="text-center text-xl font-medium md:text-3xl"
             data-testid="truncatedAmount"
           >
-            {fromAmount} {fromToken.symbol}
+            {formatWithMaxDecimals(fromAmount)}
           </span>
           <span className="text-muted-foreground text-sm md:text-base">
             ~$
@@ -216,7 +196,7 @@ export function SwapConfirm() {
             size={56}
           />
           <span className="text-center text-xl font-medium md:text-3xl">
-            {toAmount} {toToken.symbol}
+            {formatWithMaxDecimals(toAmount)}
           </span>
           <span className="text-muted-foreground">
             ~$
@@ -265,22 +245,10 @@ export function SwapConfirm() {
         size="lg"
         clipped="lg"
         disabled={
-          isSwapTxLoading ||
-          swapLoading ||
-          !rate ||
-          !amountWei ||
-          !address ||
-          !isConnected
+          isSwapTxLoading || !rate || !amountWei || !address || !isConnected
         }
       >
-        {isSwapTxLoading || swapLoading ? (
-          <div className="flex items-center gap-2">
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            Processing...
-          </div>
-        ) : (
-          "Swap"
-        )}
+        {isSwapTxLoading ? <IconLoading /> : "Swap"}
       </Button>
     </div>
   );

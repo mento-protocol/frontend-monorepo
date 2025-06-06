@@ -43,6 +43,7 @@ export default function SwapPage() {
                 <Button
                   variant="ghost"
                   size="icon"
+                  className="h-8 w-8"
                   onClick={() => setConfirmView(false)}
                 >
                   <ArrowLeft />
