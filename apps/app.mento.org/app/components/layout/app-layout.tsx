@@ -16,7 +16,7 @@ export function AppLayout({ children }: PropsWithChildren) {
   return (
     <>
       <Header />
-      <main className="relative z-20 pt-20 md:p-4">{children}</main>
+      <main className="relative z-20 my-auto pt-20 md:p-4">{children}</main>
       <Footer />
       {theme === "dark" ? (
         <Image

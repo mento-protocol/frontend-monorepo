@@ -12,6 +12,10 @@
 
 @custom-variant dark (&:is(.dark, .dark *));
 
+body > [data-rk] {
+  @apply flex min-h-screen flex-col;
+}
+
 .clip-btn-default {
   clip-path: polygon(
     0 6px,

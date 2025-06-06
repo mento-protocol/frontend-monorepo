@@ -4,7 +4,7 @@ import { IconDiscord, IconGithub, IconX } from "@repo/ui";
 
 export function Footer() {
   return (
-    <div className="fixed bottom-0 z-20 flex w-full flex-row items-center justify-center gap-4 p-4">
+    <div className="mb-8 mt-auto flex w-full flex-row items-center justify-center gap-4 p-4">
       <a
         href={links.x}
         target="_blank"
