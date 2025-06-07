@@ -290,10 +290,25 @@ export default function SwapForm() {
     } catch (error) {
       logger.error("Error in swap form submission", error);
       setIsApprovalProcessing(false);
-      // You might want to show a toast here
-      toast.error("Transaction failed", {
-        description:
-          error instanceof Error ? error.message : "Unknown error occurred",
+
+      // Check if user rejected the transaction
+      const errorMessage = error instanceof Error ? error.message : "";
+      const isUserRejection =
+        errorMessage.includes("User rejected request") ||
+        errorMessage.includes("User denied transaction signature") ||
+        errorMessage.includes("user rejected transaction");
+
+      const toastTitle = isUserRejection
+        ? "User rejected transaction"
+        : "Transaction failed";
+      const toastDescription = isUserRejection
+        ? "Transaction was cancelled by user"
+        : error instanceof Error
+          ? error.message
+          : "Unknown error occurred";
+
+      toast.error(toastTitle, {
+        description: toastDescription,
       });
     }
   };
@@ -496,7 +511,7 @@ export default function SwapForm() {
           {rate && (
             <div className="flex w-full flex-col items-start justify-start space-y-2">
               <div className="flex w-full flex-row items-center justify-between">
-                <span className="text-muted-foreground">Quote</span>
+                <span className="text-muted-foreground">Rate</span>
                 <span>{`${rate && Number(rate) > 0 ? Number(rate).toFixed(4) : "0"} ${fromTokenId} ~ 1 ${toTokenId}`}</span>
               </div>
             </div>

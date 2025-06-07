@@ -5,8 +5,33 @@ import { cn } from "@/lib/utils.js";
 function CoinInput({
   className,
   type = "text",
+  onChange,
   ...props
 }: React.ComponentProps<"input">) {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+
+    // Allow empty string
+    if (value === "") {
+      onChange?.(e);
+      return;
+    }
+
+    // Only allow numbers and one decimal point
+    const numericRegex = /^[0-9]*\.?[0-9]*$/;
+
+    // Check if the value matches the pattern and doesn't have multiple dots
+    if (numericRegex.test(value) && (value.match(/\./g) || []).length <= 1) {
+      // Prevent multiple leading zeros (except for 0.xxx)
+      if (value.length > 1 && value[0] === "0" && value[1] !== ".") {
+        return;
+      }
+
+      onChange?.(e);
+    }
+    // If invalid input, don't call onChange - this prevents the crash
+  };
+
   return (
     <input
       type={type}
@@ -21,6 +46,7 @@ function CoinInput({
         "px-0 py-1",
         className,
       )}
+      onChange={handleChange}
       {...props}
     />
   );

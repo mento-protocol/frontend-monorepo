@@ -1,6 +1,5 @@
 "use client";
 
-import { Button, toast } from "@repo/ui";
 import { useAtom } from "jotai";
 import { ArrowLeft } from "lucide-react";
 import { SlippageDialog } from "./components/swap/slippage-dialog";
@@ -8,8 +7,7 @@ import { SwapConfirm } from "./components/swap/swap-confirm";
 import SwapForm from "./components/swap/swap-form";
 import { confirmViewAtom } from "./features/swap/swap-atoms";
 
-import { IconCheck, Toaster } from "@repo/ui";
-import { useEffect } from "react";
+import { Button, IconCheck, Toaster } from "@repo/ui";
 
 export default function SwapPage() {
   const [confirmView, setConfirmView] = useAtom(confirmViewAtom);
