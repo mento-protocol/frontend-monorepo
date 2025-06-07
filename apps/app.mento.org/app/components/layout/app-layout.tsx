@@ -16,7 +16,9 @@ export function AppLayout({ children }: PropsWithChildren) {
   return (
     <>
       <Header />
-      <main className="relative z-20 my-auto pt-20 md:p-4">{children}</main>
+      <main className="relative z-20 my-auto overflow-hidden pt-20 md:h-[calc(100vh-80px-100px)] md:p-4">
+        {children}
+      </main>
       <Footer />
       {theme === "dark" ? (
         <Image
