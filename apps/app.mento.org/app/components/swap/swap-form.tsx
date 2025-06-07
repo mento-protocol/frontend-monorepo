@@ -107,13 +107,28 @@ export default function SwapForm() {
 
   // Check if amount exceeds balance
   const amountExceedsBalance = useMemo(() => {
-    if (!amount || !fromTokenBalance || formDirection !== "in") return false;
-    const numericAmount = Number.parseFloat(amount.replace(/,/g, ""));
-    const numericBalance = Number.parseFloat(
-      fromTokenBalance.replace(/,/g, ""),
-    );
-    return numericAmount > numericBalance;
-  }, [amount, fromTokenBalance, formDirection]);
+    if (!amount || !fromTokenBalance) return false;
+
+    // When direction is "in", we're selling the fromToken
+    if (formDirection === "in") {
+      const numericAmount = Number.parseFloat(amount.replace(/,/g, ""));
+      const numericBalance = Number.parseFloat(
+        fromTokenBalance.replace(/,/g, ""),
+      );
+      return numericAmount > numericBalance;
+    }
+
+    // When direction is "out", we need to check if the calculated quote exceeds the fromToken balance
+    if (formDirection === "out" && formQuote) {
+      const numericQuote = Number.parseFloat(formQuote.replace(/,/g, ""));
+      const numericBalance = Number.parseFloat(
+        fromTokenBalance.replace(/,/g, ""),
+      );
+      return numericQuote > numericBalance;
+    }
+
+    return false;
+  }, [amount, fromTokenBalance, formDirection, formQuote]);
 
   // Function to handle token swap
   const handleReverseTokens = () => {
@@ -169,7 +184,11 @@ export default function SwapForm() {
 
   // Get rate from fromToken to cUSD for USD value calculation
   const { quote: fromTokenUSDValue } = useSwapQuote(
-    fromTokenId === "cUSD" ? "0" : amount || "0",
+    fromTokenId === "cUSD"
+      ? "0"
+      : formDirection === "in"
+        ? amount || "0"
+        : formQuote || "0",
     "in" as SwapDirection,
     fromTokenId as TokenId,
     "cUSD" as TokenId,
@@ -177,7 +196,11 @@ export default function SwapForm() {
 
   // Get rate from toToken to cUSD for USD value calculation
   const { quote: toTokenUSDValue } = useSwapQuote(
-    toTokenId === "cUSD" ? "0" : quote || "0",
+    toTokenId === "cUSD"
+      ? "0"
+      : formDirection === "out"
+        ? amount || "0"
+        : formQuote || "0",
     "in" as SwapDirection,
     toTokenId as TokenId,
     "cUSD" as TokenId,
@@ -421,7 +444,7 @@ export default function SwapForm() {
             </Button>
           </div>
 
-          <div className="bg-incard border-border dark:border-input grid grid-cols-12 gap-4 border p-4 transition-colors">
+          <div className="bg-incard border-border dark:border-input maybe-hover:border-border-secondary focus-within:!border-primary dark:focus-within:!border-primary grid grid-cols-12 gap-4 border p-4 transition-colors">
             <div className="col-span-8">
               <Controller
                 control={form.control}
@@ -432,15 +455,7 @@ export default function SwapForm() {
                     <FormControl>
                       <CoinInput
                         placeholder="0"
-                        value={
-                          formDirection === "out"
-                            ? amount === "0"
-                              ? "0"
-                              : Number(amount).toFixed(4)
-                            : formQuote === "0"
-                              ? "0"
-                              : Number(formQuote).toFixed(4)
-                        }
+                        value={formDirection === "out" ? amount : formQuote}
                         onChange={(e) => {
                           // Handle both string and event inputs
                           const val =
@@ -455,8 +470,6 @@ export default function SwapForm() {
                             });
                           }
                         }}
-                        disabled
-                        readOnly
                       />
                     </FormControl>
                     <FormDescription>
