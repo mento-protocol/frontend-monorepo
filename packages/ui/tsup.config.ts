@@ -1,20 +1,24 @@
 import { defineConfig } from "tsup";
+import { preserveDirectivesPlugin } from "esbuild-plugin-preserve-directives";
 
 export default defineConfig({
   entry: ["src/index.ts"],
   format: ["esm", "cjs"],
   dts: true,
-  sourcemap: true,
-  // When setting this to true, there is a race condition with the css build
-  // so we need to set it to false. If the css build finishes first, the tsup
-  // clean step will delete the css file again and the build will fail.
-  clean: false,
+  splitting: false, // keeps everything in one JS file
   minify: true,
-  splitting: true,
-  external: ["react", "react-dom"],
-  treeshake: true,
+  sourcemap: true,
   target: "esnext",
-  banner: {
-    js: '"use client";',
+  external: ["react", "react-dom"],
+  esbuildOptions(options) {
+    // ✅ give the plugin the metafile
+    options.metafile = true;
   },
+  esbuildPlugins: [
+    preserveDirectivesPlugin({
+      directives: ["use client"],
+      include: /\.(js|ts|jsx|tsx)$/,
+      exclude: /node_modules/,
+    }),
+  ],
 });
