@@ -65,9 +65,9 @@ export function SwapConfirm() {
       );
 
       return {
-        fromAmount: Number(amount).toFixed(2),
+        fromAmount: amount,
         fromAmountWei: computedFromAmountWei,
-        toAmount: Number(quote).toFixed(2),
+        toAmount: quote,
         toAmountWei: quoteWei,
         thresholdAmountWei: computedThresholdAmountWei,
       };

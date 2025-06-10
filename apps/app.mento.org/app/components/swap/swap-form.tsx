@@ -92,7 +92,7 @@ export default function SwapForm() {
     const balanceValue = balances[fromTokenId as keyof typeof balances];
     const balance = fromWeiRounded(
       balanceValue,
-      Tokens[fromTokenId as keyof typeof Tokens].decimals,
+      Tokens[fromTokenId as TokenId]?.decimals,
     );
     return formatWithMaxDecimals(balance || "0.00");
   }, [balances, fromTokenId]);
@@ -100,7 +100,7 @@ export default function SwapForm() {
     const balanceValue = balances[toTokenId as keyof typeof balances];
     const balance = fromWeiRounded(
       balanceValue,
-      Tokens[toTokenId as keyof typeof Tokens].decimals,
+      Tokens[toTokenId as TokenId]?.decimals,
     );
     return formatWithMaxDecimals(balance || "0.00");
   }, [balances, toTokenId]);
@@ -132,6 +132,73 @@ export default function SwapForm() {
     return false;
   }, [amount, hasAmount, fromTokenBalance, formDirection, formQuote]);
 
+  // Check if we should skip quote requests due to balance issues
+  const shouldSkipQuoteRequest = useMemo(() => {
+    if (!hasAmount) return true;
+
+    // For "out" direction (buying), estimate if the required sell amount would exceed balance
+    if (formDirection === "out") {
+      const numericBuyAmount = Number.parseFloat(amount.replace(/,/g, ""));
+      const numericBalance = Number.parseFloat(
+        fromTokenBalance.replace(/,/g, ""),
+      );
+
+      // If buy amount is significantly higher than available balance, skip quote request
+      // This prevents the infinite loop when user enters unrealistic buy amounts
+      if (numericBuyAmount > numericBalance * 10) {
+        return true;
+      }
+    }
+
+    // For "in" direction, check if sell amount exceeds balance
+    if (formDirection === "in") {
+      const numericAmount = Number.parseFloat(amount.replace(/,/g, ""));
+      const numericBalance = Number.parseFloat(
+        fromTokenBalance.replace(/,/g, ""),
+      );
+      if (numericAmount > numericBalance) {
+        return true;
+      }
+    }
+
+    return false;
+  }, [hasAmount, formDirection, amount, fromTokenBalance]);
+
+  const debouncedAmount = useDebounce(amount, 350);
+
+  // Show toast error when balance is exceeded
+  useEffect(() => {
+    if (shouldSkipQuoteRequest && hasAmount && debouncedAmount === amount) {
+      const sellTokenSymbol =
+        Tokens[fromTokenId as TokenId]?.symbol || fromTokenId;
+      const buyTokenSymbol = Tokens[toTokenId as TokenId]?.symbol || toTokenId;
+
+      let errorMessage = "";
+      if (formDirection === "in") {
+        errorMessage = `Not enough ${sellTokenSymbol} to sell ${formatWithMaxDecimals(amount)}`;
+      } else {
+        errorMessage = `Not enough ${sellTokenSymbol} to buy ${formatWithMaxDecimals(amount)} ${buyTokenSymbol}`;
+      }
+
+      toast.error(errorMessage);
+    }
+  }, [
+    shouldSkipQuoteRequest,
+    hasAmount,
+    formDirection,
+    fromTokenId,
+    toTokenId,
+    amount,
+    debouncedAmount,
+  ]);
+
+  // Get insufficient balance message
+  const insufficientBalanceMessage = useMemo(() => {
+    if (!amountExceedsBalance && !shouldSkipQuoteRequest) return null;
+
+    return "Insufficient Balance";
+  }, [amountExceedsBalance, shouldSkipQuoteRequest]);
+
   // Function to handle token swap
   const handleReverseTokens = () => {
     const currentFromTokenId = form.getValues("fromTokenId");
@@ -155,7 +222,7 @@ export default function SwapForm() {
     console.log("maxAmountWei", maxAmountWei);
     // Use the full balance amount
     const maxAmountBigInt = BigInt(maxAmountWei);
-    const decimals = Tokens[fromTokenId as keyof typeof Tokens].decimals;
+    const decimals = Tokens[fromTokenId as TokenId]?.decimals;
 
     const formattedAmount = fromWeiRounded(
       maxAmountBigInt.toString(),
@@ -175,35 +242,10 @@ export default function SwapForm() {
     }
   };
 
-  const handleUseMaxBalanceBuy = () => {
-    const maxAmountWei = balances[toTokenId as keyof typeof balances] || "0";
-    console.log("maxAmountWei for buy", maxAmountWei);
-    // Use the full balance amount
-    const maxAmountBigInt = BigInt(maxAmountWei);
-    const decimals = Tokens[toTokenId as keyof typeof Tokens].decimals;
-
-    const formattedAmount = fromWeiRounded(
-      maxAmountBigInt.toString(),
-      decimals,
-    );
-    // Use formatWithMaxDecimals without thousand separators for form input
-    form.setValue("amount", formatWithMaxDecimals(formattedAmount, 4, false));
-    form.setValue("direction", "out");
-
-    // Show warning toast specifically for CELO token
-    if (toTokenId === "CELO") {
-      toast.success("Max balance used", {
-        duration: 5000,
-        description: () => <>Consider keeping some CELO for transaction fees</>,
-        icon: <OctagonAlert strokeWidth={1.5} size={18} className="mt-0.5" />,
-      });
-    }
-  };
-
   // Type assertion is needed because the form values are strings
   // but the hook expects specific types
-  const { isLoading, quote, rate } = useSwapQuote(
-    amount,
+  const { isLoading, quote, rate, isError } = useSwapQuote(
+    shouldSkipQuoteRequest ? "" : amount,
     formDirection as SwapDirection,
     fromTokenId as TokenId,
     toTokenId as TokenId,
@@ -273,7 +315,7 @@ export default function SwapForm() {
   // Calculate amount in wei for approval
   const amountWei =
     amount && fromTokenId
-      ? toWei(amount, Tokens[fromTokenId as TokenId].decimals).toFixed(0)
+      ? toWei(amount, Tokens[fromTokenId as TokenId]?.decimals).toFixed(0)
       : "0";
 
   // Check if approval is needed
@@ -362,8 +404,6 @@ export default function SwapForm() {
       });
     }
   };
-
-  const debouncedAmount = useDebounce(amount, 350);
 
   return (
     <Form {...form}>
@@ -539,16 +579,7 @@ export default function SwapForm() {
                       />
                     </FormControl>
                     <FormDescription className="w-fit whitespace-nowrap">
-                      Balance: {toTokenBalance}{" "}
-                      {toTokenBalance !== "0" && (
-                        <button
-                          type="button"
-                          className="cursor-pointer border-none bg-transparent p-0 text-inherit underline"
-                          onClick={handleUseMaxBalanceBuy}
-                        >
-                          MAX
-                        </button>
-                      )}
+                      Balance: {toTokenBalance}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -578,19 +609,22 @@ export default function SwapForm() {
             disabled={
               !hasAmount ||
               isLoading ||
-              !quote ||
+              (!quote && !shouldSkipQuoteRequest) ||
               amountExceedsBalance ||
+              shouldSkipQuoteRequest ||
               isApproveTxLoading ||
               isApprovalProcessing ||
               debouncedAmount !== amount
             }
           >
             {isLoading ||
-            (hasAmount && !quote) ||
+            (hasAmount && !quote && !shouldSkipQuoteRequest) ||
             debouncedAmount !== amount ? (
               <IconLoading />
-            ) : amountExceedsBalance ? (
-              "Insufficient Balance"
+            ) : amountExceedsBalance || shouldSkipQuoteRequest ? (
+              insufficientBalanceMessage || "Insufficient Balance"
+            ) : isError && hasAmount ? (
+              "Unable to fetch quote"
             ) : isApproveTxLoading || isApprovalProcessing ? (
               <IconLoading />
             ) : !skipApprove &&
