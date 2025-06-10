@@ -9,27 +9,48 @@ function CoinInput({
   ...props
 }: React.ComponentProps<"input">) {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
+    let currentValue = e.target.value;
 
     // Allow empty string
-    if (value === "") {
+    if (currentValue === "") {
       onChange?.(e);
       return;
     }
 
-    // Only allow numbers and one decimal point
+    let eventForCallback = e; // By default, pass the original event
+
+    // If input starts with '.', prepend '0'
+    if (currentValue.startsWith(".")) {
+      currentValue = "0" + currentValue;
+      // Prepare a new event object for the callback with the modified value
+      eventForCallback = {
+        ...e,
+        target: { ...e.target, value: currentValue },
+        currentTarget: { ...e.currentTarget, value: currentValue },
+      };
+    }
+
+    // Only allow numbers and one decimal point using the (potentially modified) currentValue
     const numericRegex = /^[0-9]*\.?[0-9]*$/;
 
-    // Check if the value matches the pattern and doesn't have multiple dots
-    if (numericRegex.test(value) && (value.match(/\./g) || []).length <= 1) {
+    // Check if the currentValue matches the pattern and doesn't have multiple dots
+    if (
+      numericRegex.test(currentValue) &&
+      (currentValue.match(/\./g) || []).length <= 1
+    ) {
       // Prevent multiple leading zeros (except for 0.xxx)
-      if (value.length > 1 && value[0] === "0" && value[1] !== ".") {
-        return;
+      // e.g., "00" or "01" should be prevented. "0.1" is allowed.
+      if (
+        currentValue.length > 1 &&
+        currentValue[0] === "0" &&
+        currentValue[1] !== "."
+      ) {
+        return; // Invalid input, do not call onChange
       }
 
-      onChange?.(e);
+      onChange?.(eventForCallback); // Pass the appropriate event object
     }
-    // If invalid input, don't call onChange - this prevents the crash
+    // If invalid input (regex fails or too many dots), don't call onChange.
   };
 
   return (
