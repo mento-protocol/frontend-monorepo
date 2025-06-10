@@ -105,9 +105,11 @@ export default function SwapForm() {
     return formatWithMaxDecimals(balance || "0.00");
   }, [balances, toTokenId]);
 
+  const hasAmount = amount && amount !== "" && amount !== "0";
+
   // Check if amount exceeds balance
   const amountExceedsBalance = useMemo(() => {
-    if (!amount || !fromTokenBalance) return false;
+    if (!hasAmount || !fromTokenBalance) return false;
 
     // When direction is "in", we're selling the fromToken
     if (formDirection === "in") {
@@ -128,7 +130,7 @@ export default function SwapForm() {
     }
 
     return false;
-  }, [amount, fromTokenBalance, formDirection, formQuote]);
+  }, [amount, hasAmount, fromTokenBalance, formDirection, formQuote]);
 
   // Function to handle token swap
   const handleReverseTokens = () => {
@@ -165,6 +167,31 @@ export default function SwapForm() {
 
     // Show warning toast specifically for CELO token
     if (fromTokenId === "CELO") {
+      toast.success("Max balance used", {
+        duration: 5000,
+        description: () => <>Consider keeping some CELO for transaction fees</>,
+        icon: <OctagonAlert strokeWidth={1.5} size={18} className="mt-0.5" />,
+      });
+    }
+  };
+
+  const handleUseMaxBalanceBuy = () => {
+    const maxAmountWei = balances[toTokenId as keyof typeof balances] || "0";
+    console.log("maxAmountWei for buy", maxAmountWei);
+    // Use the full balance amount
+    const maxAmountBigInt = BigInt(maxAmountWei);
+    const decimals = Tokens[toTokenId as keyof typeof Tokens].decimals;
+
+    const formattedAmount = fromWeiRounded(
+      maxAmountBigInt.toString(),
+      decimals,
+    );
+    // Use formatWithMaxDecimals without thousand separators for form input
+    form.setValue("amount", formatWithMaxDecimals(formattedAmount, 4, false));
+    form.setValue("direction", "out");
+
+    // Show warning toast specifically for CELO token
+    if (toTokenId === "CELO") {
       toast.success("Max balance used", {
         duration: 5000,
         description: () => <>Consider keeping some CELO for transaction fees</>,
@@ -511,7 +538,18 @@ export default function SwapForm() {
                         }
                       />
                     </FormControl>
-                    <FormDescription>Balance: {toTokenBalance}</FormDescription>
+                    <FormDescription className="w-fit whitespace-nowrap">
+                      Balance: {toTokenBalance}{" "}
+                      {toTokenBalance !== "0" && (
+                        <button
+                          type="button"
+                          className="cursor-pointer border-none bg-transparent p-0 text-inherit underline"
+                          onClick={handleUseMaxBalanceBuy}
+                        >
+                          MAX
+                        </button>
+                      )}
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -538,7 +576,7 @@ export default function SwapForm() {
             clipped="lg"
             type="submit"
             disabled={
-              !amount ||
+              !hasAmount ||
               isLoading ||
               !quote ||
               amountExceedsBalance ||
@@ -547,20 +585,20 @@ export default function SwapForm() {
               debouncedAmount !== amount
             }
           >
-            {amountExceedsBalance ? (
+            {isLoading ||
+            (hasAmount && !quote) ||
+            debouncedAmount !== amount ? (
+              <IconLoading />
+            ) : amountExceedsBalance ? (
               "Insufficient Balance"
             ) : isApproveTxLoading || isApprovalProcessing ? (
               <IconLoading />
             ) : !skipApprove &&
-              amount &&
+              hasAmount &&
               quote &&
               !isLoading &&
               debouncedAmount === amount ? (
               `Approve ${Tokens[fromTokenId as TokenId]?.symbol || fromTokenId}`
-            ) : isLoading ||
-              (amount && !quote) ||
-              debouncedAmount !== amount ? (
-              <IconLoading />
             ) : (
               "Swap"
             )}

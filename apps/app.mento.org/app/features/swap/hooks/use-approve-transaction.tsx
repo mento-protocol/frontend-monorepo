@@ -3,9 +3,15 @@ import BigNumber from "bignumber.js";
 import { useEffect } from "react";
 import { toast } from "@repo/ui";
 import { type TokenId, getTokenAddress } from "@/lib/config/tokens";
+import { chainIdToChain } from "@/lib/config/chains";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { logger } from "@/lib/utils/logger";
-import { usePrepareSendTransaction, useSendTransaction } from "wagmi";
+import {
+  type Address,
+  usePrepareSendTransaction,
+  useSendTransaction,
+  useNetwork,
+} from "wagmi";
 
 export function useApproveTransaction(
   chainId: number,
@@ -60,10 +66,41 @@ export function useApproveTransaction(
       toast.error("Unable to prepare approval transaction");
       logger.error(txPrepError || sendPrepError?.message);
     } else if (txSendError) {
-      toast.error("Unable to execute approval transaction");
+      if (txSendError.message.includes("User rejected request")) {
+        toast.error("Approval transaction rejected by user");
+      } else {
+        toast.error("Approval transaction failed");
+      }
       logger.error(txSendError);
+    } else if (isSuccess && txResult && txResult.hash) {
+      logger.info(`Approval successful: ${txResult.hash}`);
+      const currentChainConfig = chainIdToChain[chainId];
+      const explorerBaseUrl = currentChainConfig?.explorerUrl;
+      const explorerTxUrl = explorerBaseUrl
+        ? `${explorerBaseUrl}/tx/${txResult.hash}`
+        : null;
+
+      const message = "Approve complete! Sending swap tx.";
+      const detailsElement = explorerTxUrl ? (
+        <a
+          href={explorerTxUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ textDecoration: "underline", color: "inherit" }}
+        >
+          See Details
+        </a>
+      ) : (
+        <span>See Details</span>
+      );
+
+      toast.success(
+        <>
+          {message} <br /> {detailsElement}
+        </>,
+      );
     }
-  }, [txPrepError, sendPrepError, txSendError]);
+  }, [txPrepError, sendPrepError, txSendError, isSuccess, txResult, chainId]);
 
   return {
     sendApproveTx: sendTransactionAsync,

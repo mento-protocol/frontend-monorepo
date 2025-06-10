@@ -12,14 +12,21 @@ const slippageOptions = [
 
 export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
   const [formValues, setFormValues] = useAtom(formValuesAtom);
-  const [localSlippage, setLocalSlippage] = useState<string>("0.5");
+  const [slippage, setSlippage] = useState<string>("");
+  const [customSlippage, setCustomSlippage] = useState<string>("");
 
   useEffect(() => {
-    setLocalSlippage(formValues?.slippage || "0.5");
+    const initialSlippage = formValues?.slippage || "0.5";
+    setSlippage(initialSlippage);
+
+    if (!slippageOptions.some((option) => option.value === initialSlippage)) {
+      setCustomSlippage(initialSlippage);
+    }
   }, [formValues?.slippage]);
 
   const handleSlippageSelect = (value: string) => {
-    setLocalSlippage(value);
+    setSlippage(value);
+    setCustomSlippage("");
   };
 
   const handleCustomSlippageChange = (
@@ -27,26 +34,22 @@ export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
   ) => {
     const value = e.target.value;
 
-    // Allow only digits and decimal point pattern
-    if (!/^[0-9]*\.?[0-9]*$/.test(value)) {
+    if (!/^[0-9]*\.?[0-9]*$/.test(value) || value === ".") {
       return;
     }
 
-    // Prevent just a decimal point at the start
-    if (value === ".") {
-      return;
-    }
+    setCustomSlippage(value);
 
-    // Allow empty input for clearing
     if (value === "") {
-      setLocalSlippage("");
+      setSlippage("");
       return;
     }
 
-    // Validate numeric range
     const numValue = Number.parseFloat(value);
-    if (numValue <= 49 && numValue >= 0) {
-      setLocalSlippage(value);
+    if (numValue >= 0 && numValue <= 49) {
+      setSlippage(value);
+    } else {
+      setSlippage("");
     }
   };
 
@@ -59,13 +62,13 @@ export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
     }
 
     // Allow only one decimal point
-    if (e.key === "." && localSlippage.includes(".")) {
+    if (e.key === "." && customSlippage.includes(".")) {
       e.preventDefault();
       return;
     }
 
     // Prevent decimal point at the start
-    if (e.key === "." && localSlippage === "") {
+    if (e.key === "." && customSlippage === "") {
       e.preventDefault();
       return;
     }
@@ -74,21 +77,19 @@ export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
   const handleConfirm = () => {
     setFormValues({
       ...(formValues ?? {}),
-      slippage: localSlippage,
+      slippage: slippage,
     });
     onSubmit();
   };
 
-  const isPresetSelected = slippageOptions.some(
-    (option) => option.value === localSlippage,
-  );
+  const isPresetSelected = customSlippage === "";
 
   const isValidSlippage = () => {
-    if (!localSlippage || localSlippage === "") {
+    if (!slippage) {
       return false;
     }
-    const numValue = Number.parseFloat(localSlippage);
-    return !Number.isNaN(numValue) && numValue >= 0 && numValue <= 49;
+    const numValue = Number.parseFloat(slippage);
+    return !Number.isNaN(numValue) && numValue >= 0;
   };
 
   return (
@@ -99,7 +100,7 @@ export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
             key={option.value}
             variant="outline"
             className={cn(
-              localSlippage === option.value &&
+              slippage === option.value &&
                 isPresetSelected &&
                 "!border-1 !border-[var(--primary)]",
               "hover:border-1 min-w-28 hover:!border-[var(--primary-hover)]",
@@ -114,7 +115,7 @@ export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
           <Input
             placeholder="Custom"
             className="hover:!border-primary h-10 min-w-28 transition-colors"
-            value={isPresetSelected ? "" : localSlippage || ""}
+            value={customSlippage}
             onChange={handleCustomSlippageChange}
             onKeyDown={handleKeyDown}
             type="number"

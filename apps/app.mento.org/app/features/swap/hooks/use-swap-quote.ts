@@ -113,7 +113,7 @@ export function useSwapQuote(
 
 function getToastErrorMessage(
   swapErrorMessage: string,
-  { fromTokenSymbol, toTokenSymbol }: IGetToastErrorOptions = {},
+  { fromTokenSymbol, toTokenSymbol, type }: IGetToastErrorOptions = {},
 ): string {
   switch (true) {
     case swapErrorMessage.includes("overflow x1y1"):
@@ -133,6 +133,7 @@ function getToastErrorMessage(
 interface IGetToastErrorOptions {
   fromTokenSymbol?: string;
   toTokenSymbol?: string;
+  type?: "quote" | "swap";
 }
 
 interface ISwapError {

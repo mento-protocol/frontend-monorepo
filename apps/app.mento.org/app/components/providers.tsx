@@ -12,12 +12,10 @@ import { getWalletConnectors } from "@/lib/config/wallets";
 import { useIsSsr } from "@/lib/utils/ssr";
 import "@/lib/vendor/inpage-metamask";
 
-import { Color } from "@/lib/styles/color";
 import { Alfajores, Baklava, Celo } from "@celo/rainbowkit-celo/chains";
 import {
   RainbowKitProvider,
   connectorsForWallets,
-  darkTheme,
 } from "@rainbow-me/rainbowkit";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Analytics } from "@vercel/analytics/react";

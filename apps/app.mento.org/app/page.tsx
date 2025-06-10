@@ -16,9 +16,9 @@ export default function SwapPage() {
     <div className="flex h-full w-full flex-wrap items-center justify-center">
       <Toaster
         position="top-right"
-        duration={50000}
+        duration={5000}
         icons={{
-          success: <IconCheck fill="currentColor" />,
+          success: <IconCheck fill="text-success" />,
         }}
         closeButton
         toastOptions={{
