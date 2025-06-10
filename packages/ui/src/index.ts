@@ -1,3 +1,5 @@
+"use client";
+
 // Export all components from a single file for easier imports
 export * from "./components/dropdown-menu.js";
 export * from "./components/mode-toggle.js";
@@ -26,6 +28,8 @@ export * from "./components/ui/sonner.js";
 export * from "./components/token-icon.js";
 export * from "./components/ui/scroll-area.js";
 export * from "./components/ui/tooltip.js";
+export * from "./components/ui/collapsible.js";
+export * from "./components/ui/accordion.js";
 
 // Also export any utility functions or types that might be needed
 export * from "./lib/index.js";
