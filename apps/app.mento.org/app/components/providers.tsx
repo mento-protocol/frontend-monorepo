@@ -12,7 +12,7 @@ import { getWalletConnectors } from "@/lib/config/wallets";
 import { useIsSsr } from "@/lib/utils/ssr";
 import "@/lib/vendor/inpage-metamask";
 
-import { Alfajores, Baklava, Celo } from "@celo/rainbowkit-celo/chains";
+import { Alfajores, Celo } from "@celo/rainbowkit-celo/chains";
 import {
   RainbowKitProvider,
   connectorsForWallets,
@@ -25,7 +25,7 @@ import { jsonRpcProvider } from "wagmi/providers/jsonRpc";
 const reactQueryClient = new QueryClient({});
 
 const { chains, provider } = configureChains(
-  [Celo, Alfajores, Baklava],
+  [Celo, Alfajores],
   [
     jsonRpcProvider({
       rpc: (chain) => ({ http: chain.rpcUrls.default.http[0] }),

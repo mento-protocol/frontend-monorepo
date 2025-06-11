@@ -104,7 +104,7 @@ export function NetworkDialog({ isOpen, close }: Props) {
 
         <div className="border-border h-[0px] w-full border-t" />
 
-        <div className="font-inter inline-flex w-full items-start justify-start gap-2">
+        <div className="font-inter inline-flex w-full items-start justify-center gap-2">
           {allChains.map((c) => (
             <Button
               type="button"

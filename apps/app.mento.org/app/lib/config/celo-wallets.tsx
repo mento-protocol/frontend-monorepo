@@ -1,10 +1,10 @@
 // Copied from https://github.com/celo-org/rainbowkit-celo/blob/a1b547840cedb48839fd8d0d72c81d9763c1f84c/packages/rainbowkit-celo/wallets/*
 // and modified to fix support for WalletConnect v2
-import { Alfajores, Baklava, Celo } from "@celo/rainbowkit-celo/chains";
+import { tryClipboardSet } from "@/lib/utils/clipboard";
+import { Alfajores, Celo } from "@celo/rainbowkit-celo/chains";
 import type { Chain, Wallet } from "@rainbow-me/rainbowkit";
 import { getWalletConnectConnector } from "@rainbow-me/rainbowkit";
 import { toast } from "@repo/ui";
-import { tryClipboardSet } from "@/lib/utils/clipboard";
 import { WalletConnectConnector } from "wagmi/dist/connectors/walletConnect";
 
 async function getWalletConnectUri(
@@ -27,7 +27,7 @@ interface WalletOptions {
 }
 
 export const Valora = ({
-  chains = [Alfajores, Baklava, Celo],
+  chains = [Alfajores, Celo],
   projectId,
 }: WalletOptions): Wallet => ({
   id: "valora",
@@ -81,7 +81,7 @@ export const Valora = ({
 });
 
 export const CeloTerminal = ({
-  chains = [Alfajores, Baklava, Celo],
+  chains = [Alfajores, Celo],
   projectId,
 }: WalletOptions): Wallet => ({
   id: "celo-terminal",
@@ -109,7 +109,7 @@ export const CeloTerminal = ({
 });
 
 export const CeloWallet = ({
-  chains = [Alfajores, Baklava, Celo],
+  chains = [Alfajores, Celo],
   projectId,
 }: WalletOptions): Wallet => ({
   id: "celo-wallet",
