@@ -45,9 +45,15 @@ export function Header() {
   return (
     <header className="relative z-10">
       <div className="flex h-20 flex-row items-center justify-between gap-6">
-        <Link href="/" className="flex items-center">
+        <a
+          href="https://www.mento.org"
+          className="flex items-center"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Mento.org"
+        >
           <Logo />
-        </Link>
+        </a>
         <div className="flex flex-row items-center justify-between gap-2 px-4 md:px-6">
           <ThemeSwitch />
           <ConnectButton />
