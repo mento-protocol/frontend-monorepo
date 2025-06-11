@@ -312,11 +312,21 @@ export default function SwapForm() {
     toTokenUSDValue,
   ]);
 
-  // Calculate amount in wei for approval
-  const amountWei =
-    amount && fromTokenId
-      ? toWei(amount, Tokens[fromTokenId as TokenId]?.decimals).toFixed(0)
+  const amountWei = useMemo(() => {
+    if (!fromTokenId) return "0";
+
+    // When direction is "in", we're selling the exact amount entered
+    if (formDirection === "in") {
+      return amount
+        ? toWei(amount, Tokens[fromTokenId as TokenId]?.decimals).toFixed(0)
+        : "0";
+    }
+
+    // When direction is "out", we're selling the calculated quote amount
+    return formQuote
+      ? toWei(formQuote, Tokens[fromTokenId as TokenId]?.decimals).toFixed(0)
       : "0";
+  }, [amount, formQuote, formDirection, fromTokenId]);
 
   // Check if approval is needed
   const { skipApprove } = useSwapAllowance({
