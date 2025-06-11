@@ -216,9 +216,9 @@ export function SwapConfirm() {
 
       <div className="flex w-full flex-col items-start justify-start space-y-2">
         <div className="flex w-full flex-row items-center justify-between">
-          <span className="text-muted-foreground">Quote</span>
+          <span className="text-muted-foreground">Rate</span>
           <span>
-            1 {toToken.symbol} = {rate} {fromToken.symbol}
+            1 {fromToken.symbol} = {rate} {toToken.symbol}
           </span>
         </div>
 
