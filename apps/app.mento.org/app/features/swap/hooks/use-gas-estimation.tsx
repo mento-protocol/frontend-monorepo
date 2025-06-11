@@ -47,6 +47,11 @@ export function useGasEstimation({
 }: GasEstimationParams) {
   const provider = useProvider({ chainId });
 
+  const exactBuyAmountBN = parseInputExchangeAmount(
+    amount, // amount the user wants to BUY
+    toTokenId, // use *to* token’s decimals
+  );
+
   return useQuery<GasEstimationResult | null>(
     [
       "gas-estimate",
@@ -145,8 +150,8 @@ export function useGasEstimation({
         const txRequest = await swapFn(
           fromTokenAddr,
           toTokenAddr,
-          isSwapIn ? amountWeiBN : thresholdAmountBN,
-          isSwapIn ? thresholdAmountBN : amountWeiBN,
+          exactBuyAmountBN,
+          thresholdAmountBN,
           tradablePair,
         );
 

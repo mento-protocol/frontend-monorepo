@@ -275,42 +275,26 @@ export default function SwapForm() {
     "cUSD" as TokenId,
   );
 
-  // Determine which USD value to show based on swap direction
   const sellUSDValue = useMemo(() => {
     if (formDirection === "in") {
-      // Selling fromToken
+      // selling from-token
       return fromTokenId === "cUSD" ? amount || "0" : fromTokenUSDValue || "0";
     } else {
-      // Selling toToken (when direction is "out")
-      return toTokenId === "cUSD" ? formQuote || "0" : toTokenUSDValue || "0";
+      // still selling from-token (but user typed in Buy first)
+      return fromTokenId === "cUSD"
+        ? formQuote || "0"
+        : fromTokenUSDValue || "0";
     }
-  }, [
-    formDirection,
-    fromTokenId,
-    toTokenId,
-    amount,
-    formQuote,
-    fromTokenUSDValue,
-    toTokenUSDValue,
-  ]);
+  }, [formDirection, fromTokenId, amount, formQuote, fromTokenUSDValue]);
 
   const buyUSDValue = useMemo(() => {
     if (formDirection === "in") {
-      // Buying toToken
       return toTokenId === "cUSD" ? formQuote || "0" : toTokenUSDValue || "0";
     } else {
-      // Buying fromToken (when direction is "out")
-      return fromTokenId === "cUSD" ? amount || "0" : fromTokenUSDValue || "0";
+      // we're buying the to-token
+      return toTokenId === "cUSD" ? amount || "0" : toTokenUSDValue || "0";
     }
-  }, [
-    formDirection,
-    fromTokenId,
-    toTokenId,
-    amount,
-    formQuote,
-    fromTokenUSDValue,
-    toTokenUSDValue,
-  ]);
+  }, [formDirection, toTokenId, amount, formQuote, toTokenUSDValue]);
 
   const amountWei = useMemo(() => {
     if (!fromTokenId) return "0";

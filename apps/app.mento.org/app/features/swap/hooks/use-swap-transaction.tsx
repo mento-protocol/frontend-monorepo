@@ -24,6 +24,7 @@ export function useSwapTransaction(
   swapValues?: {
     fromAmount: string;
     toAmount: string;
+    toAmountWei?: string; // Add this to receive the exact buy amount for swapOut
   },
 ) {
   const [formValues, setFormValues] = useAtom(formValuesAtom);
@@ -49,19 +50,39 @@ export function useSwapTransaction(
         fromToken,
         toToken,
       );
-      const swapFn =
-        direction === "in" ? sdk.swapIn.bind(sdk) : sdk.swapOut.bind(sdk);
-      const txRequest = await swapFn(
-        fromTokenAddr,
-        toTokenAddr,
-        amountInWei,
-        thresholdAmountInWei,
-        tradablePair,
-      );
 
-      if (!txRequest.to) {
-        throw new Error(
-          "Swap transaction 'to' address is undefined after SDK preparation",
+      let txRequest;
+      if (direction === "in") {
+        // swapIn: sell exact amount of fromToken, receive at least minAmountOut of toToken
+        txRequest = await sdk.swapIn(
+          fromTokenAddr,
+          toTokenAddr,
+          amountInWei, // exact amount of fromToken to sell
+          thresholdAmountInWei, // minimum amount of toToken to receive
+          tradablePair,
+        );
+      } else {
+        // swapOut: buy exact amount of toToken, sell at most maxAmountIn of fromToken
+        // CRITICAL: For swapOut, the parameter order is different!
+        // We need the exact buy amount from swapValues
+        const exactBuyAmount = swapValues?.toAmountWei;
+        if (!exactBuyAmount) {
+          throw new Error("Missing toAmountWei for swapOut");
+        }
+
+        logger.debug("SwapOut parameters:", {
+          fromToken: fromTokenAddr,
+          toToken: toTokenAddr,
+          exactBuyAmount, // This should be 4.55 cKES in wei
+          maxSellAmount: thresholdAmountInWei, // This should be 149.964 cCOP + slippage in wei
+        });
+
+        txRequest = await sdk.swapOut(
+          fromTokenAddr,
+          toTokenAddr,
+          exactBuyAmount, // exact amount of toToken to buy
+          thresholdAmountInWei, // maximum amount of fromToken to sell
+          tradablePair,
         );
       }
 

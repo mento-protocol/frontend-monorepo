@@ -54,7 +54,7 @@ export function SwapConfirm() {
     let computedThresholdAmountWei: string;
 
     if (direction === "in") {
-      // Selling exact amount of fromToken
+      // Selling exact amount of fromToken (swapIn)
       if (balances?.[fromTokenId]) {
         computedFromAmountWei = getAdjustedAmount(
           amountWei,
@@ -75,17 +75,20 @@ export function SwapConfirm() {
       };
     }
 
-    // Direction "out" - Buying exact amount of toToken
-    // quoteWei is the estimated amount of fromToken needed
-    computedFromAmountWei = getMaxSellAmount(quoteWei, slippage).toFixed(0);
-    // For swapOut, threshold is the exact amount of toToken we want to receive
-    computedThresholdAmountWei = amountWei;
+    // Direction "out" - Buying exact amount of toToken (swapOut)
+    // For swapOut: we specify exact amount to buy and max amount to sell
+    // fromAmountWei is what we expect to sell (quote)
+    // thresholdAmountWei is the MAXIMUM we're willing to sell (quote + slippage)
+    computedFromAmountWei = quoteWei; // Expected sell amount
+    computedThresholdAmountWei = getMaxSellAmount(quoteWei, slippage).toFixed(
+      0,
+    ); // Max sell amount
 
     return {
       fromAmount: quote,
       fromAmountWei: computedFromAmountWei,
       toAmount: amount.toString(),
-      toAmountWei: amountWei,
+      toAmountWei: amountWei, // Exact amount we want to buy
       thresholdAmountWei: computedThresholdAmountWei,
     };
   }, [
@@ -119,6 +122,7 @@ export function SwapConfirm() {
     {
       fromAmount,
       toAmount,
+      toAmountWei,
     },
   );
 
