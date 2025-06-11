@@ -75,7 +75,7 @@ export function ConnectButton({
               )}
             >
               <Identicon address={address} size={20} />
-              <span className="truncate">{shortenAddress(address)}</span>
+              <span>{shortenAddress(address)}</span>
               <ChevronDown size={20} />
             </Button>
           </DropdownMenuTrigger>
@@ -115,15 +115,11 @@ export function ConnectButton({
               onClick={onClickDisconnect}
               className={cn(
                 "cursor-pointer gap-3 py-3",
-                "focus:bg-destructive focus:text-destructive-foreground",
                 "text-destructive",
+                "focus:bg-destructive focus:text-destructive-foreground",
               )}
             >
-              <LogOut
-                size={iconSize}
-                strokeWidth={iconStrokeWidth}
-                className="text-destructive"
-              />
+              <LogOut size={iconSize} strokeWidth={iconStrokeWidth} />
               <span>Disconnect</span>
             </DropdownMenuItem>
           </DropdownMenuContent>

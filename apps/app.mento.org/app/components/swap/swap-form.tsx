@@ -462,6 +462,7 @@ export default function SwapForm() {
                           <button
                             type="button"
                             className={tokenButtonClassName}
+                            data-testid="selectSellTokenButton"
                           >
                             <TokenIcon
                               token={allTokenOptions.find(
@@ -522,7 +523,15 @@ export default function SwapForm() {
                     <FormControl>
                       <CoinInput
                         placeholder="0"
-                        value={formDirection === "out" ? amount : formQuote}
+                        value={
+                          formDirection === "out"
+                            ? amount
+                            : formQuote &&
+                                formQuote !== "0" &&
+                                formQuote !== "0.00"
+                              ? formQuote
+                              : ""
+                        }
                         onChange={(e) => {
                           // Handle both string and event inputs
                           const val =
@@ -564,6 +573,7 @@ export default function SwapForm() {
                           <button
                             type="button"
                             className={tokenButtonClassName}
+                            data-testid="selectBuyTokenButton"
                           >
                             <TokenIcon
                               token={allTokenOptions.find(
@@ -621,7 +631,8 @@ export default function SwapForm() {
             (hasAmount && !quote && !shouldSkipQuoteRequest) ||
             debouncedAmount !== amount ? (
               <IconLoading />
-            ) : amountExceedsBalance || shouldSkipQuoteRequest ? (
+            ) : hasAmount &&
+              (amountExceedsBalance || shouldSkipQuoteRequest) ? (
               insufficientBalanceMessage || "Insufficient Balance"
             ) : isError && hasAmount ? (
               "Unable to fetch quote"

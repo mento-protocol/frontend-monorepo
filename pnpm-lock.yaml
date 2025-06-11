@@ -57,7 +57,7 @@ importers:
         specifier: ^5.0.1
         version: 5.1.1(react-hook-form@7.57.0)
       '@mento-protocol/mento-sdk':
-        specifier: ^1.0.8
+        specifier: ^1.0.9
         version: 1.0.9(ethers@5.8.0)
       '@metamask/jazzicon':
         specifier: https://github.com/jmrossy/jazzicon#7a8df28
