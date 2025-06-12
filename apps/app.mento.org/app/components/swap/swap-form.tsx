@@ -398,6 +398,12 @@ export default function SwapForm() {
       });
     }
   };
+  const shouldApprove =
+    debouncedAmount === amount &&
+    !skipApprove &&
+    hasAmount &&
+    quote &&
+    !isLoading;
 
   return (
     <Form {...form}>
@@ -416,6 +422,7 @@ export default function SwapForm() {
                     <FormLabel>Sell</FormLabel>
                     <FormControl>
                       <CoinInput
+                        data-testid="sellAmountInput"
                         placeholder="0"
                         value={formDirection === "in" ? field.value : formQuote}
                         onChange={(e) => {
@@ -491,6 +498,7 @@ export default function SwapForm() {
 
           <div className="dark:border-input border-border flex w-full items-center justify-center border-x">
             <Button
+              data-testid="swapInputsButton"
               variant="outline"
               onClick={handleReverseTokens}
               size="icon"
@@ -516,6 +524,7 @@ export default function SwapForm() {
                     <FormLabel>Buy</FormLabel>
                     <FormControl>
                       <CoinInput
+                        data-testid="buyAmountInput"
                         placeholder="0"
                         value={
                           formDirection === "out"
@@ -598,7 +607,7 @@ export default function SwapForm() {
             <div className="flex w-full flex-col items-start justify-start space-y-2">
               <div className="flex w-full flex-row items-center justify-between">
                 <span className="text-muted-foreground">Rate</span>
-                <span>{`${rate && Number(rate) > 0 ? Number(rate).toFixed(4) : "0"} ${fromTokenId} ~ 1 ${toTokenId}`}</span>
+                <span data-testid="rateLabel">{`${rate && Number(rate) > 0 ? Number(rate).toFixed(4) : "0"} ${fromTokenId} ~ 1 ${toTokenId}`}</span>
               </div>
             </div>
           )}
@@ -606,6 +615,7 @@ export default function SwapForm() {
 
         {isConnected ? (
           <Button
+            data-testid={shouldApprove ? "approveButton" : "swapButton"}
             className="mt-auto w-full"
             size="lg"
             clipped="lg"
@@ -632,11 +642,7 @@ export default function SwapForm() {
               "Unable to fetch quote"
             ) : isApproveTxLoading || isApprovalProcessing ? (
               <IconLoading />
-            ) : !skipApprove &&
-              hasAmount &&
-              quote &&
-              !isLoading &&
-              debouncedAmount === amount ? (
+            ) : shouldApprove ? (
               `Approve ${Tokens[fromTokenId as TokenId]?.symbol || fromTokenId}`
             ) : (
               "Swap"

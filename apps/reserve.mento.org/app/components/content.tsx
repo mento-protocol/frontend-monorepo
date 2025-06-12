@@ -162,7 +162,7 @@ export function Content({
                   <>
                     <div
                       key={`${celoDetails.token}-unfrozen`}
-                      className={`${celoDetails.token === active ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} grid w-full grid-cols-2 gap-4 border-l-2 p-4 xl:grid-cols-12`}
+                      className={`${celoDetails.token === active ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} grid w-full grid-cols-2 gap-4 border-l-4 p-4 xl:grid-cols-12`}
                       style={{
                         borderLeftColor: getTokenColor(celoDetails.token),
                       }}
@@ -210,7 +210,7 @@ export function Content({
                 return (
                   <div
                     key={asset.token}
-                    className={`${asset.token === active ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} grid w-full grid-cols-2 gap-4 border-l-2 p-4 xl:grid-cols-12`}
+                    className={`${asset.token === active ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} grid w-full grid-cols-2 gap-4 border-l-4 p-4 xl:grid-cols-12`}
                     style={{
                       borderLeftColor: getTokenColor(asset.token),
                     }}
