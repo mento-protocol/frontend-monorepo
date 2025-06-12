@@ -46,6 +46,7 @@ export default function TokenDialog({
   const chainId = useChainId();
 
   const { data: balancesFromHook } = useAccountBalances({ address, chainId });
+  console.log("balancesFromHook", balancesFromHook);
   const { tokenOptions, allTokenOptions } = useTokenOptions(
     fromTokenId,
     balancesFromHook,
