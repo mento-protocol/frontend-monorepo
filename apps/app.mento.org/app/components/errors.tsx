@@ -1,6 +1,6 @@
 "use client";
 
-import { links } from "@/lib/config/links";
+import { links } from "@repo/ui";
 import { logger } from "@/lib/utils/logger";
 import { Frown } from "lucide-react";
 import { Component } from "react";

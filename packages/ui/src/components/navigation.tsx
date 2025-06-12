@@ -1,21 +1,8 @@
 "use client";
-import { useState } from "react";
 import { Logo } from "./logo.js";
 import { Button } from "./ui/button.js";
 
-import { Menu, X } from "lucide-react";
-import { cn } from "@/lib/utils.js";
-
-const linkClassName = "text-muted-foreground text-base md:text-sm";
-
 export function Navigation() {
-  const [isOpen, setIsOpen] = useState<boolean>(false);
-
-  const handleToggle = () => {
-    setIsOpen(!isOpen);
-    document.body.classList.toggle("overflow-hidden", !isOpen);
-  };
-
   return (
     <nav className="bg-background/30 backdrop-blur-xs relative z-10 flex h-20 w-full items-center justify-between">
       <a href="https://mento.org">

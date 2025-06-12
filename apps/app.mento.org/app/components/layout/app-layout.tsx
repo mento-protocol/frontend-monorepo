@@ -1,6 +1,6 @@
 "use client";
 
-import { Footer } from "@/components/nav/footer";
+import { Footer } from "@repo/ui";
 import { Header } from "@/components/nav/header";
 import { PollingWorker } from "@/features/polling/polling-worker";
 import type { PropsWithChildren } from "react";
@@ -16,7 +16,7 @@ export function AppLayout({ children }: PropsWithChildren) {
   return (
     <>
       <Header />
-      <main className="relative z-20 my-auto overflow-hidden pt-20 md:h-[calc(100vh-80px-100px)] md:p-4">
+      <main className="relative z-20 my-auto h-full overflow-hidden pt-20 md:h-screen md:p-4 xl:h-[calc(100vh-80px)]">
         {children}
       </main>
       <Footer />
