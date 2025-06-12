@@ -4,6 +4,7 @@ import { Logo } from "./logo.js";
 import { Button } from "./ui/button.js";
 
 import { Menu, X } from "lucide-react";
+import { cn } from "@/lib/utils.js";
 
 const linkClassName = "text-muted-foreground text-base md:text-sm";
 
@@ -16,30 +17,21 @@ export function Navigation() {
   };
 
   return (
-    <nav className="bg-background/30 backdrop-blur-xs relative z-10 flex h-12 w-full items-center justify-between md:h-20">
+    <nav className="bg-background/30 backdrop-blur-xs relative z-10 flex h-20 w-full items-center justify-between">
       <a href="https://mento.org">
-        <div className="relative z-20 h-12 w-12 md:h-20 md:w-20">
+        <div className="relative z-20 h-20 w-20">
           <Logo className="block h-full w-full" />
         </div>
       </a>
-      <Button
-        variant="ghost"
-        onClick={() => handleToggle()}
-        className="xs:block relative z-20 mr-3 !p-0 md:hidden"
-      >
-        {isOpen ? <X className="size-6" /> : <Menu className="size-6" />}
-      </Button>
-      <div
-        className={`${isOpen ? "translate-0" : "md:translate-0 -translate-x-full"} bg-background pt-18 absolute inset-0 z-10 flex h-[100dvh] flex-col items-start gap-8 p-6 transition-all duration-300 ease-in-out md:static md:h-20 md:flex-row md:items-center md:bg-transparent md:px-6 md:py-4 md:pt-4 md:transition-none`}
-      >
-        <a
+      <div className="flex items-center gap-8 pr-4 pt-4">
+        {/* <a
           href="https://governance.mento.org"
-          className={linkClassName}
+          className={cn(linkClassName, "hidden md:block")}
           target="_blank"
           rel="noopener noreferrer"
         >
           Governance
-        </a>
+        </a> */}
         <a
           href="https://app.mento.org"
           target="_blank"
