@@ -30,6 +30,7 @@ export * from "./components/ui/scroll-area.js";
 export * from "./components/ui/tooltip.js";
 export * from "./components/ui/collapsible.js";
 export * from "./components/ui/accordion.js";
+export * from "./components/ui/popover.js";
 
 // Also export any utility functions or types that might be needed
 export * from "./lib/index.js";
