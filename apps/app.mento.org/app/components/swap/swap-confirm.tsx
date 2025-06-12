@@ -199,7 +199,7 @@ export function SwapConfirm() {
         <div className="bg-incard md:h-50 md:w-50 flex aspect-square h-32 flex-col items-center justify-center gap-2 md:aspect-auto">
           <TokenIcon
             token={toToken}
-            className="h-10 w-10 bg-transparent md:h-14 md:w-14"
+            className="size-10 bg-transparent md:size-14"
             size={56}
           />
           <span className="text-center text-xl font-medium md:text-3xl">
