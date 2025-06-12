@@ -142,7 +142,7 @@ export function Content({
                 data={chartData}
                 centerText={centerChartText}
                 activeSegment={active}
-                className="my-auto h-[288px] justify-center self-center lg:h-[320px] xl:h-[360px]"
+                className="my-auto h-[288px] justify-center self-center lg:h-[320px] xl:h-[360px] 2xl:h-[480px] min-[2500px]:!h-[640px]"
                 onActiveChanged={(name) => {
                   setActive(name);
                 }}
