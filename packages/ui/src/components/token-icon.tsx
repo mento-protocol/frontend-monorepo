@@ -45,6 +45,7 @@ function TokenIconBase({ token, className, size = 20 }: Props) {
         width={size}
         height={size}
         onError={() => setImgError(true)}
+        className={className}
       />
     );
   }

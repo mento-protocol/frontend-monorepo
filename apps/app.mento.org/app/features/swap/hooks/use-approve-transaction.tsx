@@ -1,16 +1,16 @@
+import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
+import { chainIdToChain } from "@/lib/config/chains";
+import { type TokenId, getTokenAddress } from "@/lib/config/tokens";
+import { logger } from "@/lib/utils/logger";
+import { toast } from "@repo/ui";
 import { useQuery } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
 import { useEffect } from "react";
-import { toast } from "@repo/ui";
-import { type TokenId, getTokenAddress } from "@/lib/config/tokens";
-import { chainIdToChain } from "@/lib/config/chains";
-import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
-import { logger } from "@/lib/utils/logger";
 import {
   type Address,
   usePrepareSendTransaction,
   useSendTransaction,
-  useNetwork,
+  useWaitForTransaction,
 } from "wagmi";
 
 export function useApproveTransaction(
@@ -61,6 +61,12 @@ export function useApproveTransaction(
     sendTransactionAsync,
   } = useSendTransaction(config);
 
+  // Wait for transaction confirmation
+  const { data: txReceipt, isSuccess: isConfirmed } = useWaitForTransaction({
+    hash: txResult?.hash,
+    enabled: !!txResult?.hash,
+  });
+
   useEffect(() => {
     if (txPrepError || sendPrepError?.message) {
       toast.error("Unable to prepare approval transaction");
@@ -72,8 +78,8 @@ export function useApproveTransaction(
         toast.error("Approval transaction failed");
       }
       logger.error(txSendError);
-    } else if (isSuccess && txResult && txResult.hash) {
-      logger.info(`Approval successful: ${txResult.hash}`);
+    } else if (isConfirmed && txReceipt && txResult?.hash) {
+      logger.info(`Approval confirmed: ${txResult.hash}`);
       const currentChainConfig = chainIdToChain[chainId];
       const explorerBaseUrl = currentChainConfig?.explorerUrl;
       const explorerTxUrl = explorerBaseUrl
@@ -100,12 +106,21 @@ export function useApproveTransaction(
         </>,
       );
     }
-  }, [txPrepError, sendPrepError, txSendError, isSuccess, txResult, chainId]);
+  }, [
+    txPrepError,
+    sendPrepError,
+    txSendError,
+    isConfirmed,
+    txReceipt,
+    txResult,
+    chainId,
+  ]);
 
   return {
     sendApproveTx: sendTransactionAsync,
     approveTxResult: txResult,
     isApproveTxLoading: isLoading,
     isApproveTxSuccess: isSuccess,
+    isApproveTxConfirmed: isConfirmed,
   };
 }
