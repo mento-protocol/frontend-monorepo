@@ -77,13 +77,13 @@ export function NetworkDialog({ isOpen, close }: Props) {
             </div>
             <div className="border-border h-[0px] w-full border-t" />
             <div className="inline-flex w-full items-end justify-between px-3 sm:px-4">
-              <div
-                className="text-muted-foreground text-[14px] font-normal leading-tight sm:text-[15px]"
-                data-testid={`${baseLocator}_currentBlockNumber`}
-              >
+              <div className="text-muted-foreground text-[14px] font-normal leading-tight sm:text-[15px]">
                 Block Number:
               </div>
-              <div className="text-foreground text-right text-[14px] font-medium leading-tight opacity-90 sm:text-[15px]">
+              <div
+                className="text-foreground text-right text-[14px] font-medium leading-tight opacity-90 sm:text-[15px]"
+                data-testid={`${baseLocator}_currentBlockNumber`}
+              >
                 {latestBlock?.number || "Unknown"}
               </div>
             </div>

@@ -41,6 +41,7 @@ export default function SwapPage() {
             <h2 className="flex items-center gap-2 font-medium md:text-2xl">
               {confirmView ? (
                 <Button
+                  data-testid="backButton"
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8"
