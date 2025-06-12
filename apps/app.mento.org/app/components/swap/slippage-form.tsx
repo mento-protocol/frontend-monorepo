@@ -97,6 +97,7 @@ export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
       <div className="flex flex-1 flex-row flex-wrap items-center gap-4">
         {slippageOptions.map((option) => (
           <Button
+            data-testid={`slippageOption_${option.value}`}
             key={option.value}
             variant="outline"
             className={cn(
@@ -113,6 +114,7 @@ export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
         ))}
         <div className="flex-shrink-0">
           <Input
+            data-testid="customSlippageInput"
             placeholder="Custom"
             className="hover:!border-primary h-10 min-w-28 transition-colors"
             value={customSlippage}

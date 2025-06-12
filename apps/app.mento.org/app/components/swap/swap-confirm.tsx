@@ -216,9 +216,9 @@ export function SwapConfirm() {
 
       <div className="flex w-full flex-col items-start justify-start space-y-2">
         <div className="flex w-full flex-row items-center justify-between">
-          <span className="text-muted-foreground">Quote</span>
-          <span>
-            1 {toToken.symbol} = {rate} {fromToken.symbol}
+          <span className="text-muted-foreground">Rate</span>
+          <span data-testid="rateLabel">
+            1 {fromToken.symbol} = {rate} {toToken.symbol}
           </span>
         </div>
 
@@ -227,7 +227,7 @@ export function SwapConfirm() {
           {isGasEstimating ? (
             <span className="text-muted-foreground">Calculating...</span>
           ) : gasEstimate ? (
-            <span>
+            <span data-testid="gasFeesLabel">
               ~{formatWithMaxDecimals(gasEstimate.totalFeeFormatted)} CELO
               {gasEstimate.totalFeeUSD && (
                 <span className="text-muted-foreground ml-1">
@@ -242,11 +242,12 @@ export function SwapConfirm() {
 
         <div className="flex w-full flex-row items-center justify-between">
           <span className="text-muted-foreground">Slippage</span>
-          <span>{slippage}%</span>
+          <span data-testid="slippageLabel">{slippage}%</span>
         </div>
       </div>
 
       <Button
+        data-testid={isSwapTxLoading ? "loadingLabel" : "swapButton"}
         onClick={onSubmit}
         className="mt-auto w-full"
         size="lg"
