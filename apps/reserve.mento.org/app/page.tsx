@@ -15,6 +15,8 @@ import { env } from "@/env.mjs";
 import { IconInfo } from "./components/icon-info";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./components/tooltip";
 
+import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui";
+
 // Define a more specific type for the items in result.stablecoins
 interface ExternalStablecoin {
   symbol: string;
@@ -229,17 +231,17 @@ export default async function Home() {
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground flex flex-row items-center justify-start gap-2">
               Total Supply
-              <Tooltip>
-                <TooltipTrigger>
+              <Popover>
+                <PopoverTrigger>
                   <IconInfo />
-                </TooltipTrigger>
-                <TooltipContent className="max-w-xs">
+                </PopoverTrigger>
+                <PopoverContent className="max-w-xs">
                   <p>
                     The total amount of Mento stablecoins currently in
                     circulation across all supported currencies.
                   </p>
-                </TooltipContent>
-              </Tooltip>
+                </PopoverContent>
+              </Popover>
             </span>
             <span className="leading-0 text-lg">
               $
@@ -252,18 +254,18 @@ export default async function Home() {
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground flex flex-row items-center justify-start gap-2">
               Reserve Holdings
-              <Tooltip>
-                <TooltipTrigger>
+              <Popover>
+                <PopoverTrigger>
                   <IconInfo />
-                </TooltipTrigger>
-                <TooltipContent className="max-w-xs">
+                </PopoverTrigger>
+                <PopoverContent className="max-w-xs">
                   <p>
                     The total value of assets held in the Mento Reserve. These
                     assets back the stablecoins launched on the platform and are
                     publicly verifiable at any time.
                   </p>
-                </TooltipContent>
-              </Tooltip>
+                </PopoverContent>
+              </Popover>
             </span>
             <span className="leading-0 text-lg">
               $
@@ -276,19 +278,19 @@ export default async function Home() {
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground flex flex-row items-center justify-start gap-2">
               Collateralization ratio
-              <Tooltip>
-                <TooltipTrigger>
+              <Popover>
+                <PopoverTrigger>
                   <IconInfo />
-                </TooltipTrigger>
-                <TooltipContent className="max-w-xs">
+                </PopoverTrigger>
+                <PopoverContent className="max-w-xs">
                   <p>
                     The ratio between the total value of assets held in the
                     Reserve and the total value of Mento stablecoins in
                     circulation. A ratio above means all stablecoins are fully
                     overcollateralized by Reserve assets.
                   </p>
-                </TooltipContent>
-              </Tooltip>
+                </PopoverContent>
+              </Popover>
             </span>
             <span className="leading-0 text-lg">
               {collateralizationRatio.toFixed(2)}
