@@ -230,9 +230,9 @@ export default async function Home() {
         <div className="mb-8 mt-8 lg:mb-16 lg:mt-16 xl:mb-0">
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground flex flex-row items-center justify-start gap-2">
-              Total Supply
               <Popover>
-                <PopoverTrigger>
+                <PopoverTrigger className="flex flex-row items-center justify-start gap-2">
+                  Total Supply
                   <IconInfo />
                 </PopoverTrigger>
                 <PopoverContent className="max-w-xs">
@@ -253,9 +253,9 @@ export default async function Home() {
           <hr className="my-3 border-[var(--border)] lg:my-4" />
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground flex flex-row items-center justify-start gap-2">
-              Reserve Holdings
               <Popover>
-                <PopoverTrigger>
+                <PopoverTrigger className="flex flex-row items-center justify-start gap-2">
+                  Reserve Holdings
                   <IconInfo />
                 </PopoverTrigger>
                 <PopoverContent className="max-w-xs">
@@ -277,9 +277,9 @@ export default async function Home() {
           <hr className="my-3 border-[var(--border)] lg:my-4" />
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground flex flex-row items-center justify-start gap-2">
-              Collateralization ratio
               <Popover>
-                <PopoverTrigger>
+                <PopoverTrigger className="flex flex-row items-center justify-start gap-2">
+                  Collateralization ratio
                   <IconInfo />
                 </PopoverTrigger>
                 <PopoverContent className="max-w-xs">

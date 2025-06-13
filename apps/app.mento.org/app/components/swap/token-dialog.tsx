@@ -127,7 +127,7 @@ export default function TokenDialog({
                         color: token.color || "#000000",
                         decimals: token.decimals || 18,
                       }}
-                      className="absolute transition-opacity group-hover:opacity-0"
+                      className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 transition-opacity group-hover:opacity-0"
                       size={24}
                     />
                     <div className="bg-primary text-primary-foreground absolute grid h-10 w-10 place-items-center opacity-0 transition-opacity group-hover:opacity-100">

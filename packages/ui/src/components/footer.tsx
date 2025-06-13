@@ -4,11 +4,12 @@ import IconDiscord from "./icons/discord.js";
 import IconGithub from "./icons/github.js";
 import IconX from "./icons/x.js";
 
-const linkClassName = "text-muted-foreground text-base md:text-sm shrink-0";
+const linkClassName =
+  "text-muted-foreground text-base md:text-sm shrink-0 hover:text-white";
 
 export function Footer() {
   return (
-    <footer className="border-border relative z-40 flex flex-col items-center justify-center gap-6 border-t p-4 md:flex-row md:justify-between">
+    <footer className="border-border relative z-40 flex flex-col items-center justify-center gap-6 border-t p-4 md:!flex-row md:!justify-between">
       <span className="text-muted-foreground shrink-0 text-xs md:text-sm">
         ©2025 Mento Labs. All rights reserved.
       </span>
