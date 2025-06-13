@@ -13,7 +13,7 @@ import {
   TokenIcon,
 } from "@repo/ui";
 import { ChevronLeft, ChevronsRight, Search } from "lucide-react";
-import { Fragment, useState } from "react";
+import { Fragment, useState, useRef, useEffect } from "react";
 import { useAccount, useChainId } from "wagmi";
 
 import { useTokenOptions } from "@/features/swap/hooks/use-token-options";
@@ -29,6 +29,7 @@ interface TokenDialogProps {
   title?: string;
   fromTokenId?: TokenId;
   excludeTokenId?: string;
+  onClose?: () => void;
 }
 
 export default function TokenDialog({
@@ -38,9 +39,9 @@ export default function TokenDialog({
   title = "Select asset to sell",
   fromTokenId,
   excludeTokenId,
+  onClose,
 }: TokenDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
-
   const [search, setSearch] = useState("");
   const { address } = useAccount();
   const chainId = useChainId();
@@ -76,9 +77,18 @@ export default function TokenDialog({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        setIsOpen(open);
+        if (!open && onClose) onClose();
+      }}
+    >
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="!pb-0 sm:max-w-md">
+      <DialogContent
+        className="!pb-0 sm:max-w-md"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
         <DialogHeader>
           <DialogClose>
             <DialogTitle className="flex items-center gap-2 text-lg font-normal">
@@ -93,6 +103,8 @@ export default function TokenDialog({
             size={24}
           />
           <Input
+            name="search"
+            autoFocus
             placeholder="Search..."
             className="h-12 !pl-12"
             value={search}

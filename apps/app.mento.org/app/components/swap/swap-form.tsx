@@ -412,7 +412,12 @@ export default function SwapForm() {
         className="flex h-full max-w-3xl flex-col gap-6"
       >
         <div className="flex flex-col gap-0">
-          <div className="bg-incard border-border dark:border-input maybe-hover:border-border-secondary focus-within:!border-primary dark:focus-within:!border-primary grid grid-cols-12 gap-4 border p-4 transition-colors">
+          <div
+            className="bg-incard border-border dark:border-input maybe-hover:border-border-secondary focus-within:!border-primary dark:focus-within:!border-primary grid grid-cols-12 gap-4 border p-4 transition-colors"
+            onClick={() => {
+              form.setFocus("amount");
+            }}
+          >
             <div className="col-span-8">
               <Controller
                 control={form.control}
@@ -422,6 +427,7 @@ export default function SwapForm() {
                     <FormLabel>Sell</FormLabel>
                     <FormControl>
                       <CoinInput
+                        {...form.register("amount")}
                         data-testid="sellAmountInput"
                         placeholder="0"
                         value={formDirection === "in" ? field.value : formQuote}
@@ -459,6 +465,11 @@ export default function SwapForm() {
                         onValueChange={field.onChange}
                         title="Select asset to sell"
                         excludeTokenId={toTokenId}
+                        onClose={() => {
+                          setTimeout(() => {
+                            form.setFocus("amount");
+                          }, 500);
+                        }}
                         trigger={
                           <button
                             type="button"
@@ -514,7 +525,12 @@ export default function SwapForm() {
             </Button>
           </div>
 
-          <div className="bg-incard border-border dark:border-input maybe-hover:border-border-secondary focus-within:!border-primary dark:focus-within:!border-primary grid grid-cols-12 gap-4 border p-4 transition-colors">
+          <div
+            className="bg-incard border-border dark:border-input maybe-hover:border-border-secondary focus-within:!border-primary dark:focus-within:!border-primary grid grid-cols-12 gap-4 border p-4 transition-colors"
+            onClick={() => {
+              form.setFocus("quote");
+            }}
+          >
             <div className="col-span-8">
               <Controller
                 control={form.control}
@@ -524,6 +540,7 @@ export default function SwapForm() {
                     <FormLabel>Buy</FormLabel>
                     <FormControl>
                       <CoinInput
+                        {...form.register("quote")}
                         data-testid="buyAmountInput"
                         placeholder="0"
                         value={
@@ -572,6 +589,11 @@ export default function SwapForm() {
                         onValueChange={field.onChange}
                         title="Select asset to buy"
                         excludeTokenId={fromTokenId}
+                        onClose={() => {
+                          setTimeout(() => {
+                            form.setFocus("quote");
+                          }, 500);
+                        }}
                         trigger={
                           <button
                             type="button"
