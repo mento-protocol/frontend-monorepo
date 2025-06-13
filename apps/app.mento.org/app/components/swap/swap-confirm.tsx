@@ -102,12 +102,14 @@ export function SwapConfirm() {
     },
   );
 
-  const { gasEstimate, isGasEstimating } = useGasEstimation({
+  const { data: gasEstimate, isLoading: isGasEstimating } = useGasEstimation({
     amount,
     quote,
     fromTokenId,
     toTokenId,
     direction,
+    address: address || "",
+    chainId,
     slippage,
     skipApprove: true,
   });
@@ -275,9 +277,6 @@ export function SwapConfirm() {
                 <span className="text-muted-foreground ml-1">
                   (${formatWithMaxDecimals(gasEstimate.totalFeeUSD)})
                 </span>
-              )}
-              {gasEstimate.warning && (
-                <span className="text-muted-foreground ml-1 text-xs">*</span>
               )}
             </span>
           ) : (
