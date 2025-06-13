@@ -1,6 +1,5 @@
 "use client";
 
-import { useAccountBalances } from "@/features/accounts/use-account-balances";
 import { useGasEstimation } from "@/features/swap/hooks/use-gas-estimation";
 import { useSwapQuote } from "@/features/swap/hooks/use-swap-quote";
 import { useSwapTransaction } from "@/features/swap/hooks/use-swap-transaction";
@@ -12,41 +11,31 @@ import {
   getMinBuyAmount,
 } from "@/features/swap/utils";
 import { TokenId, Tokens } from "@/lib/config/tokens";
-import { getAdjustedAmount } from "@/lib/utils/amount";
 import { logger } from "@/lib/utils/logger";
 import { Button, IconLoading, TokenIcon } from "@repo/ui";
+import { useAccount } from "wagmi";
+import { useChainId } from "wagmi";
 import { useAtom } from "jotai";
 import { ArrowRight } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { useAccount, useChainId } from "wagmi";
+import { useMemo } from "react";
 
 export function SwapConfirm() {
   const [formValues] = useAtom(formValuesAtom);
 
-  const [isApproveConfirmed, setApproveConfirmed] = useState(true);
-
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
-
-  const { data: balances } = useAccountBalances({
-    address,
-    chainId,
-  });
 
   const amount = String(formValues?.amount || "");
   const direction = (formValues?.direction || "in") as SwapDirection;
   const fromTokenId = formValues?.fromTokenId || TokenId.cUSD;
   const toTokenId = formValues?.toTokenId || TokenId.CELO;
   const slippage = String(formValues?.slippage || "0.5");
-  const buyUSDValue = formValues?.buyUSDValue || "0";
-  const sellUSDValue = formValues?.sellUSDValue || "0";
 
   const { amountWei, quote, quoteWei, rate } = useSwapQuote(
     amount,
     direction,
     fromTokenId,
     toTokenId,
-    address,
   );
 
   const swapValues = useMemo(() => {
@@ -55,12 +44,8 @@ export function SwapConfirm() {
 
     if (direction === "in") {
       // Selling exact amount of fromToken (swapIn)
-      if (balances?.[fromTokenId]) {
-        computedFromAmountWei = getAdjustedAmount(
-          amountWei,
-          balances[fromTokenId],
-        ).toFixed(0);
-      }
+      // Don't adjust the amount - use what the user entered
+      computedFromAmountWei = amountWei;
       // Minimum amount of toToken we're willing to receive
       computedThresholdAmountWei = getMinBuyAmount(quoteWei, slippage).toFixed(
         0,
@@ -71,7 +56,7 @@ export function SwapConfirm() {
         fromAmountWei: computedFromAmountWei,
         toAmount: quote,
         toAmountWei: quoteWei,
-        thresholdAmountWei: computedThresholdAmountWei,
+        thresholdAmountInWei: computedThresholdAmountWei,
       };
     }
 
@@ -89,25 +74,16 @@ export function SwapConfirm() {
       fromAmountWei: computedFromAmountWei,
       toAmount: amount.toString(),
       toAmountWei: amountWei, // Exact amount we want to buy
-      thresholdAmountWei: computedThresholdAmountWei,
+      thresholdAmountInWei: computedThresholdAmountWei,
     };
-  }, [
-    direction,
-    amount,
-    amountWei,
-    quote,
-    quoteWei,
-    slippage,
-    balances,
-    fromTokenId,
-  ]);
+  }, [amount, amountWei, quote, quoteWei, direction, slippage]);
 
   const {
     fromAmount,
     fromAmountWei,
     toAmount,
     toAmountWei,
-    thresholdAmountWei,
+    thresholdAmountInWei,
   } = swapValues;
 
   const { sendSwapTx, isSwapTxLoading } = useSwapTransaction(
@@ -115,10 +91,10 @@ export function SwapConfirm() {
     fromTokenId,
     toTokenId,
     fromAmountWei,
-    thresholdAmountWei,
+    thresholdAmountInWei,
     direction,
     address,
-    isApproveConfirmed,
+    true,
     {
       fromAmount,
       toAmount,
@@ -126,23 +102,89 @@ export function SwapConfirm() {
     },
   );
 
-  const { data: gasEstimate, isLoading: isGasEstimating } = useGasEstimation({
+  const { gasEstimate, isGasEstimating } = useGasEstimation({
     amount,
-    quote: String(quote),
+    quote,
     fromTokenId,
     toTokenId,
     direction,
-    address,
-    chainId,
     slippage,
     skipApprove: true,
-    enabled: isConnected && !!amount && !!quote,
   });
 
-  useEffect(() => {
-    logger.info("useEffect skipApprove changed:", { skipApprove: true });
-    setApproveConfirmed(true);
-  }, []);
+  // Fetch USD values if they're missing or 0
+  // Get rate from fromToken to cUSD for USD value calculation
+  const { quote: fromTokenUSDValue } = useSwapQuote(
+    fromTokenId === "cUSD"
+      ? "0"
+      : direction === "in"
+        ? amount || "0"
+        : quote || "0",
+    "in" as SwapDirection,
+    fromTokenId,
+    "cUSD" as TokenId,
+  );
+
+  // Get rate from toToken to cUSD for USD value calculation
+  const { quote: toTokenUSDValue } = useSwapQuote(
+    toTokenId === "cUSD"
+      ? "0"
+      : direction === "out"
+        ? amount || "0"
+        : quote || "0",
+    "in" as SwapDirection,
+    toTokenId,
+    "cUSD" as TokenId,
+  );
+
+  // Calculate sell USD value with fallback
+  const sellUSDValue = useMemo(() => {
+    // First check if we have a value from formValues
+    const passedValue = formValues?.sellUSDValue;
+    if (passedValue && passedValue !== "0") {
+      return passedValue;
+    }
+
+    // Fallback to calculating it ourselves
+    if (direction === "in") {
+      // selling from-token
+      return fromTokenId === "cUSD" ? amount || "0" : fromTokenUSDValue || "0";
+    } else {
+      // still selling from-token (but user typed in Buy first)
+      return fromTokenId === "cUSD" ? quote || "0" : fromTokenUSDValue || "0";
+    }
+  }, [
+    formValues?.sellUSDValue,
+    direction,
+    fromTokenId,
+    amount,
+    quote,
+    fromTokenUSDValue,
+  ]);
+
+  // Calculate buy USD value with fallback
+  const buyUSDValue = useMemo(() => {
+    // First check if we have a value from formValues
+    const passedValue = formValues?.buyUSDValue;
+    if (passedValue && passedValue !== "0") {
+      return passedValue;
+    }
+
+    // Fallback to calculating it ourselves
+    if (direction === "in") {
+      return toTokenId === "cUSD" ? quote || "0" : toTokenUSDValue || "0";
+    } else {
+      // we're buying the to-token
+      return toTokenId === "cUSD" ? amount || "0" : toTokenUSDValue || "0";
+    }
+  }, [
+    formValues?.buyUSDValue,
+    direction,
+    toTokenId,
+    amount,
+    quote,
+    toTokenUSDValue,
+  ]);
 
   async function onSubmit() {
     if (!rate || !amountWei || !address || !isConnected) return;
@@ -234,9 +276,12 @@ export function SwapConfirm() {
                   (${formatWithMaxDecimals(gasEstimate.totalFeeUSD)})
                 </span>
               )}
+              {gasEstimate.warning && (
+                <span className="text-muted-foreground ml-1 text-xs">*</span>
+              )}
             </span>
           ) : (
-            <span className="text-muted-foreground">Unable to estimate</span>
+            <span className="text-muted-foreground">-</span>
           )}
         </div>
 
