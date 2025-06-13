@@ -70,7 +70,7 @@ body {
   .description {
     @apply text-muted-foreground!;
     a {
-      @apply text-muted-foreground! font-normal! underline!;
+      @apply text-muted-foreground! underline! !font-normal;
     }
   }
 }
