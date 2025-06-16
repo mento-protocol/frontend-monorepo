@@ -30,6 +30,8 @@ export const metadata: Metadata = {
     images: [
       {
         url: `${env.NEXT_PUBLIC_STORAGE_URL}/reserve/og-general-SosfjsEgr1wfQHzK7jeamtkmEflbPT.png`,
+        width: 1200,
+        height: 630,
       },
     ],
   },
