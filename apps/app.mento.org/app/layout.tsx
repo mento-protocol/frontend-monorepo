@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import type { Metadata } from "next";
 import { ClientProviders } from "./components/providers";
 import localFont from "next/font/local";
+import { env } from "../env.mjs";
 
 const aspekta = localFont({
   src: "./fonts/AspektaVF.ttf",
@@ -23,6 +24,15 @@ export const metadata: Metadata = {
   title: "Mento App",
   description:
     "Mento Protocol application for swapping and managing Celo assets.",
+  openGraph: {
+    images: [
+      {
+        url: `${env.NEXT_PUBLIC_STORAGE_URL}/app/og-general-8dXPy5tESVY2v45WUX8mP2CVbJfceA.png`,
+        width: 1200,
+        height: 630,
+      },
+    ],
+  },
 };
 
 export default function RootLayout({

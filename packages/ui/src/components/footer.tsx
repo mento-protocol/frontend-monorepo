@@ -7,7 +7,11 @@ import IconX from "./icons/x.js";
 const linkClassName =
   "text-muted-foreground text-base md:text-sm shrink-0 hover:text-white";
 
-export function Footer() {
+export interface FooterProps {
+  type?: "swap" | "reserve" | "governance";
+}
+
+export function Footer({ type = "swap" }: FooterProps) {
   return (
     <footer className="border-border relative z-40 flex flex-col items-center justify-center gap-6 border-t p-4 md:!flex-row md:!justify-between">
       <span className="text-muted-foreground shrink-0 text-xs md:text-sm">
@@ -48,24 +52,28 @@ export function Footer() {
         >
           Mento.org
         </a>
-        <a
-          href="https://reserve.mento.org"
-          className={cn(linkClassName)}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Reserve
-        </a>
-        {/* <a
-          href="https://governance.mento.org"
-          className={cn(linkClassName, )}
-          target="_blank"
-          rel="noopener noreferrer"
+        {(type === "governance" || type === "swap") && (
+          <a
+            href="https://reserve.mento.org"
+            className={cn(linkClassName)}
+            target="_blank"
+            rel="noopener noreferrer"
           >
-          Governance
-          </a> */}
+            Reserve
+          </a>
+        )}
+        {(type === "reserve" || type === "swap") && (
+          <a
+            href="https://governance.mento.org"
+            className={cn(linkClassName)}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Governance
+          </a>
+        )}
         <a
-          href="https://mento.org/privacy-policy"
+          href="https://mento.org/privacy"
           className={cn(linkClassName)}
           target="_blank"
           rel="noopener noreferrer"
