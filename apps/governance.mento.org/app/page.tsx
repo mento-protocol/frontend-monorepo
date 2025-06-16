@@ -20,6 +20,15 @@ import {
   ProposalCardHeader,
   ProposalCardBody,
   ProposalCardFooter,
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+  ProposalList,
+  ProposalListItem,
 } from "@repo/ui";
 
 export default async function Home() {
@@ -120,21 +129,51 @@ export default async function Home() {
       </section>
       <section className="xl:px-22 flex flex-col items-start justify-start gap-12 px-4 lg:flex-row lg:gap-20">
         <div className="flex-grow">
-          <ProposalCard className="w-full">
-            <ProposalCardHeader>
+          <ProposalCard>
+            <ProposalCardHeader variant="highlighted">
               <h2 className="text-2xl font-semibold">Proposals</h2>
               <Button clipped="lg" size="md">
                 Create New Proposal <IconChevron />
               </Button>
             </ProposalCardHeader>
-            <ProposalCardBody></ProposalCardBody>
-            <ProposalCardFooter></ProposalCardFooter>
+            <ProposalCardBody>
+              <ProposalList>
+                <ProposalListItem></ProposalListItem>
+              </ProposalList>
+            </ProposalCardBody>
+            <ProposalCardFooter>
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious href="#" />
+                  </PaginationItem>
+                  <PaginationItem>
+                    <PaginationLink href="#">1</PaginationLink>
+                  </PaginationItem>
+                  <PaginationItem>
+                    <PaginationLink href="#">2</PaginationLink>
+                  </PaginationItem>
+                  <PaginationItem>
+                    <PaginationLink href="#">3</PaginationLink>
+                  </PaginationItem>
+                  <PaginationItem>
+                    <PaginationEllipsis />
+                  </PaginationItem>
+                  <PaginationItem>
+                    <PaginationLink href="#">79</PaginationLink>
+                  </PaginationItem>
+                  <PaginationItem>
+                    <PaginationNext href="#" />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </ProposalCardFooter>
           </ProposalCard>
         </div>
         <div className="w-full max-w-xs">
           <div className="bg-card md:max-w-xs">
             <h3 className="bg-incard flex items-center gap-2 px-6 py-5 text-2xl">
-              <Zap className="h-6 w-6 fill-current" /> Voting Power
+              <Zap /> Voting Power
             </h3>
             <div className="flex flex-col gap-4 px-6 pt-6 text-sm">
               <div className="flex items-center justify-between">
@@ -164,7 +203,7 @@ export default async function Home() {
               <Zap className="h-6 w-6 fill-current" /> $MENTO
             </h3>
             <div className="flex flex-col gap-4 px-6 pt-6 text-sm">
-              <Accordion type="single" collapsible className="w-full">
+              {/* <Accordion type="single" collapsible className="w-full">
                 <AccordionItem value="item-1">
                   <AccordionTrigger>General</AccordionTrigger>
                   <AccordionContent>
@@ -189,7 +228,7 @@ export default async function Home() {
                   <AccordionTrigger>Contract Addresses</AccordionTrigger>
                   <AccordionContent></AccordionContent>
                 </AccordionItem>
-              </Accordion>
+              </Accordion> */}
             </div>
             <div className="p-6">
               <Button className="h-10 w-full" clipped="sm">
