@@ -28,6 +28,7 @@ import { useTokenOptions } from "@/features/swap/hooks/use-token-options";
 import { confirmViewAtom, formValuesAtom } from "@/features/swap/swap-atoms";
 import type { SwapFormValues } from "@/features/swap/types";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
+import { checkTradingLimits } from "@/features/swap/utils/check-trading-limits";
 import { type TokenId, Tokens } from "@/lib/config/tokens";
 import { fromWeiRounded, toWei } from "@/lib/utils/amount";
 import { useDebounce } from "@/lib/utils/debounce";
@@ -63,6 +64,10 @@ export default function SwapForm() {
   const [formValues, setFormValues] = useAtom(formValuesAtom);
   const [, setConfirmView] = useAtom(confirmViewAtom);
   const [isApprovalProcessing, setIsApprovalProcessing] = useState(false);
+  const [tradingLimitError, setTradingLimitError] = useState<{
+    exceeds: boolean;
+    errorMsg: string;
+  } | null>(null);
 
   const { data: balancesFromHook } = useAccountBalances({ address, chainId });
 
@@ -168,6 +173,66 @@ export default function SwapForm() {
   }, [hasAmount, formDirection, amount, fromTokenBalance]);
 
   const debouncedAmount = useDebounce(amount, 350);
+
+  // Check trading limits when relevant values change
+  useEffect(() => {
+    const checkLimits = async () => {
+      // Only check if we have all required values and user is connected
+      if (
+        !isConnected ||
+        !balancesFromHook ||
+        !amount ||
+        !fromTokenId ||
+        !toTokenId
+      ) {
+        setTradingLimitError(null);
+        return;
+      }
+
+      try {
+        const result = await checkTradingLimits(
+          {
+            amount,
+            fromTokenId: fromTokenId as TokenId,
+            toTokenId: toTokenId as TokenId,
+            direction: formDirection,
+            quote: formQuote,
+            slippage: formValues?.slippage || "0.5",
+          },
+          chainId,
+        );
+
+        setTradingLimitError(result);
+
+        // Show toast if there's an error
+        if (result.exceeds && result.errorMsg) {
+          toast.error("Swap exceeds trading limits", {
+            description: result.errorMsg,
+            duration: 10000, // Show for 10 seconds since it's important
+          });
+        }
+      } catch (error) {
+        console.error("Error checking trading limits:", error);
+        setTradingLimitError(null);
+      }
+    };
+
+    // Only check when amount is stable (debounced)
+    if (debouncedAmount === amount) {
+      checkLimits();
+    }
+  }, [
+    amount,
+    debouncedAmount,
+    fromTokenId,
+    toTokenId,
+    formDirection,
+    formQuote,
+    chainId,
+    isConnected,
+    balancesFromHook,
+    formValues?.slippage,
+  ]);
 
   // Show toast error when balance is exceeded
   useEffect(() => {
@@ -407,6 +472,9 @@ export default function SwapForm() {
     hasAmount &&
     quote &&
     !isLoading;
+
+  // Check if there's a trading limit error
+  const hasTradingLimitError = tradingLimitError?.exceeds || false;
 
   return (
     <Form {...form}>
@@ -653,13 +721,16 @@ export default function SwapForm() {
               shouldSkipQuoteRequest ||
               isApproveTxLoading ||
               isApprovalProcessing ||
-              debouncedAmount !== amount
+              debouncedAmount !== amount ||
+              hasTradingLimitError
             }
           >
             {isLoading ||
             (hasAmount && !quote && !shouldSkipQuoteRequest) ||
             debouncedAmount !== amount ? (
               <IconLoading />
+            ) : hasTradingLimitError ? (
+              "Swap exceeds trading limits"
             ) : hasAmount &&
               (amountExceedsBalance || shouldSkipQuoteRequest) ? (
               insufficientBalanceMessage || "Insufficient Balance"
