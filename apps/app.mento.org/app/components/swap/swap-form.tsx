@@ -64,6 +64,7 @@ export default function SwapForm() {
   const [formValues, setFormValues] = useAtom(formValuesAtom);
   const [, setConfirmView] = useAtom(confirmViewAtom);
   const [isApprovalProcessing, setIsApprovalProcessing] = useState(false);
+  const [isCheckingTradingLimits, setIsCheckingTradingLimits] = useState(false);
   const [tradingLimitError, setTradingLimitError] = useState<{
     exceeds: boolean;
     errorMsg: string;
@@ -186,10 +187,12 @@ export default function SwapForm() {
         !toTokenId
       ) {
         setTradingLimitError(null);
+        setIsCheckingTradingLimits(false);
         return;
       }
 
       try {
+        setIsCheckingTradingLimits(true);
         const result = await checkTradingLimits(
           {
             amount,
@@ -214,6 +217,8 @@ export default function SwapForm() {
       } catch (error) {
         console.error("Error checking trading limits:", error);
         setTradingLimitError(null);
+      } finally {
+        setIsCheckingTradingLimits(false);
       }
     };
 
@@ -476,6 +481,53 @@ export default function SwapForm() {
   // Check if there's a trading limit error
   const hasTradingLimitError = tradingLimitError?.exceeds || false;
 
+  // Determine if button should be disabled
+  const isButtonDisabled =
+    !hasAmount ||
+    isLoading ||
+    (!quote && !shouldSkipQuoteRequest) ||
+    amountExceedsBalance ||
+    shouldSkipQuoteRequest ||
+    isApproveTxLoading ||
+    isApprovalProcessing ||
+    debouncedAmount !== amount ||
+    isCheckingTradingLimits ||
+    hasTradingLimitError;
+
+  // Determine button text
+  const getButtonText = () => {
+    if (
+      isLoading ||
+      (hasAmount && !quote && !shouldSkipQuoteRequest) ||
+      debouncedAmount !== amount ||
+      isCheckingTradingLimits
+    ) {
+      return <IconLoading />;
+    }
+
+    if (hasTradingLimitError) {
+      return "Swap exceeds trading limits";
+    }
+
+    if (hasAmount && (amountExceedsBalance || shouldSkipQuoteRequest)) {
+      return insufficientBalanceMessage || "Insufficient Balance";
+    }
+
+    if (isError && hasAmount) {
+      return "Unable to fetch quote";
+    }
+
+    if (isApproveTxLoading || isApprovalProcessing) {
+      return <IconLoading />;
+    }
+
+    if (shouldApprove) {
+      return `Approve ${Tokens[fromTokenId as TokenId]?.symbol || fromTokenId}`;
+    }
+
+    return "Swap";
+  };
+
   return (
     <Form {...form}>
       <form
@@ -713,36 +765,9 @@ export default function SwapForm() {
             size="lg"
             clipped="lg"
             type="submit"
-            disabled={
-              !hasAmount ||
-              isLoading ||
-              (!quote && !shouldSkipQuoteRequest) ||
-              amountExceedsBalance ||
-              shouldSkipQuoteRequest ||
-              isApproveTxLoading ||
-              isApprovalProcessing ||
-              debouncedAmount !== amount ||
-              hasTradingLimitError
-            }
+            disabled={isButtonDisabled}
           >
-            {isLoading ||
-            (hasAmount && !quote && !shouldSkipQuoteRequest) ||
-            debouncedAmount !== amount ? (
-              <IconLoading />
-            ) : hasTradingLimitError ? (
-              "Swap exceeds trading limits"
-            ) : hasAmount &&
-              (amountExceedsBalance || shouldSkipQuoteRequest) ? (
-              insufficientBalanceMessage || "Insufficient Balance"
-            ) : isError && hasAmount ? (
-              "Unable to fetch quote"
-            ) : isApproveTxLoading || isApprovalProcessing ? (
-              <IconLoading />
-            ) : shouldApprove ? (
-              `Approve ${Tokens[fromTokenId as TokenId]?.symbol || fromTokenId}`
-            ) : (
-              "Swap"
-            )}
+            {getButtonText()}
           </Button>
         ) : (
           <ConnectButton size="lg" text="Connect" />
