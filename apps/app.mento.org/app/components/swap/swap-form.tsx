@@ -1,7 +1,7 @@
 "use client";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { cn, TokenIcon, IconLoading } from "@repo/ui";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import * as z from "zod";
@@ -67,6 +67,9 @@ export default function SwapForm() {
   const { data: balancesFromHook } = useAccountBalances({ address, chainId });
 
   const { allTokenOptions } = useTokenOptions(undefined, balancesFromHook);
+
+  const amountRef = useRef<HTMLInputElement>(null);
+  const quoteRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -415,7 +418,7 @@ export default function SwapForm() {
           <div
             className="bg-incard border-border dark:border-input maybe-hover:border-border-secondary focus-within:!border-primary dark:focus-within:!border-primary grid grid-cols-12 gap-4 border p-4 transition-colors"
             onClick={() => {
-              form.setFocus("amount");
+              amountRef.current?.focus();
             }}
           >
             <div className="col-span-8">
@@ -427,7 +430,7 @@ export default function SwapForm() {
                     <FormLabel>Sell</FormLabel>
                     <FormControl>
                       <CoinInput
-                        {...form.register("amount")}
+                        ref={amountRef}
                         data-testid="sellAmountInput"
                         placeholder="0"
                         value={formDirection === "in" ? field.value : formQuote}
@@ -467,7 +470,7 @@ export default function SwapForm() {
                         excludeTokenId={toTokenId}
                         onClose={() => {
                           setTimeout(() => {
-                            form.setFocus("amount");
+                            amountRef.current?.focus();
                           }, 500);
                         }}
                         trigger={
@@ -528,7 +531,7 @@ export default function SwapForm() {
           <div
             className="bg-incard border-border dark:border-input maybe-hover:border-border-secondary focus-within:!border-primary dark:focus-within:!border-primary grid grid-cols-12 gap-4 border p-4 transition-colors"
             onClick={() => {
-              form.setFocus("quote");
+              quoteRef.current?.focus();
             }}
           >
             <div className="col-span-8">
@@ -540,7 +543,7 @@ export default function SwapForm() {
                     <FormLabel>Buy</FormLabel>
                     <FormControl>
                       <CoinInput
-                        {...form.register("quote")}
+                        ref={quoteRef}
                         data-testid="buyAmountInput"
                         placeholder="0"
                         value={
@@ -591,7 +594,7 @@ export default function SwapForm() {
                         excludeTokenId={fromTokenId}
                         onClose={() => {
                           setTimeout(() => {
-                            form.setFocus("quote");
+                            quoteRef.current?.focus();
                           }, 500);
                         }}
                         trigger={
