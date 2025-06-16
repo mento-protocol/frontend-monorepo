@@ -9,6 +9,7 @@ export async function checkTradingLimits(
 ): Promise<{ exceeds: boolean; errorMsg: string }> {
   const mento = await getMentoSdk(chainId);
 
+  console.log("DEBUG: Checking trading limits for:", values);
   // Ensure fromTokenId and toTokenId are valid before proceeding
   if (!values.fromTokenId || !values.toTokenId) {
     logger.warn("checkTradingLimits called with missing token IDs");

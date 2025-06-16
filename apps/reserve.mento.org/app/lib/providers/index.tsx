@@ -25,7 +25,7 @@ export default function Providers({ children }: { children: ReactNode }) {
     <QueryProvider>
       <Navigation />
       {children}
-      <Footer />
+      <Footer type="reserve" />
     </QueryProvider>
   );
 }

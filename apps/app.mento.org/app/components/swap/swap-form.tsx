@@ -64,7 +64,7 @@ export default function SwapForm() {
   const [formValues, setFormValues] = useAtom(formValuesAtom);
   const [, setConfirmView] = useAtom(confirmViewAtom);
   const [isApprovalProcessing, setIsApprovalProcessing] = useState(false);
-  const [isCheckingTradingLimits, setIsCheckingTradingLimits] = useState(false);
+  const [isCheckingTradingLimits, setIsCheckingTradingLimits] = useState(true);
   const [tradingLimitError, setTradingLimitError] = useState<{
     exceeds: boolean;
     errorMsg: string;
@@ -178,16 +178,19 @@ export default function SwapForm() {
   // Check trading limits when relevant values change
   useEffect(() => {
     const checkLimits = async () => {
-      // Only check if we have all required values and user is connected
+      // If we have an amount but missing other required values, keep checking state true
+      // This prevents flicker while values are loading
       if (
         !isConnected ||
-        !balancesFromHook ||
-        !amount ||
         !fromTokenId ||
-        !toTokenId
+        !toTokenId ||
+        !amount ||
+        amount === "0" ||
+        !formQuote ||
+        formQuote === "0"
       ) {
-        setTradingLimitError(null);
-        setIsCheckingTradingLimits(false);
+        // Don't reset isCheckingTradingLimits here - keep it true
+        // This prevents the button from flickering while we wait for values
         return;
       }
 
@@ -204,7 +207,7 @@ export default function SwapForm() {
           },
           chainId,
         );
-
+        console.log("DEBUG: Trading limit result:", result);
         setTradingLimitError(result);
 
         // Show toast if there's an error
