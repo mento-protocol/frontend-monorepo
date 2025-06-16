@@ -69,6 +69,8 @@ export default function SwapForm() {
     exceeds: boolean;
     errorMsg: string;
   } | null>(null);
+  const [isQuoteStale, setIsQuoteStale] = useState(false);
+  const [lastCheckedAmount, setLastCheckedAmount] = useState("");
 
   const { data: balancesFromHook } = useAccountBalances({ address, chainId });
 
@@ -175,11 +177,36 @@ export default function SwapForm() {
 
   const debouncedAmount = useDebounce(amount, 350);
 
-  // Check trading limits when relevant values change
+  // Type assertion is needed because the form values are strings
+  // but the hook expects specific types
+  const { isLoading, quote, rate, isError } = useSwapQuote(
+    shouldSkipQuoteRequest ? "" : amount,
+    formDirection as SwapDirection,
+    fromTokenId as TokenId,
+    toTokenId as TokenId,
+  );
+
+  useEffect(() => {
+    if (quote !== undefined && formQuote !== quote) {
+      form.setValue("quote", quote, {
+        shouldValidate: true,
+      });
+      // Mark quote as fresh when it updates
+      setIsQuoteStale(false);
+    }
+  }, [quote]);
+
+  // Mark quote as stale when amount changes
+  useEffect(() => {
+    if (amount !== lastCheckedAmount && amount !== "") {
+      setIsQuoteStale(true);
+      setLastCheckedAmount(amount);
+    }
+  }, [amount, lastCheckedAmount]);
+
   useEffect(() => {
     const checkLimits = async () => {
-      // If we have an amount but missing other required values, keep checking state true
-      // This prevents flicker while values are loading
+      // Skip if no amount or missing required values
       if (
         !isConnected ||
         !fromTokenId ||
@@ -189,8 +216,22 @@ export default function SwapForm() {
         !formQuote ||
         formQuote === "0"
       ) {
-        // Don't reset isCheckingTradingLimits here - keep it true
-        // This prevents the button from flickering while we wait for values
+        return;
+      }
+
+      // IMPORTANT: Skip if quote is stale (waiting for new quote)
+      if (isQuoteStale && !isLoading) {
+        // If we're not loading and quote is stale, it means we're waiting for debounce
+        return;
+      }
+
+      // Skip if we're currently loading a quote
+      if (isLoading) {
+        return;
+      }
+
+      // Skip if amount doesn't match debounced amount (still typing)
+      if (debouncedAmount !== amount) {
         return;
       }
 
@@ -214,7 +255,7 @@ export default function SwapForm() {
         if (result.exceeds && result.errorMsg) {
           toast.error("Swap exceeds trading limits", {
             description: result.errorMsg,
-            duration: 10000, // Show for 10 seconds since it's important
+            duration: 10000,
           });
         }
       } catch (error) {
@@ -225,8 +266,8 @@ export default function SwapForm() {
       }
     };
 
-    // Only check when amount is stable (debounced)
-    if (debouncedAmount === amount) {
+    // Only check when we have a fresh quote for the current amount
+    if (!isQuoteStale || formQuote === "0") {
       checkLimits();
     }
   }, [
@@ -240,6 +281,8 @@ export default function SwapForm() {
     isConnected,
     balancesFromHook,
     formValues?.slippage,
+    isQuoteStale,
+    isLoading,
   ]);
 
   // Show toast error when balance is exceeded
@@ -317,15 +360,6 @@ export default function SwapForm() {
       });
     }
   };
-
-  // Type assertion is needed because the form values are strings
-  // but the hook expects specific types
-  const { isLoading, quote, rate, isError } = useSwapQuote(
-    shouldSkipQuoteRequest ? "" : amount,
-    formDirection as SwapDirection,
-    fromTokenId as TokenId,
-    toTokenId as TokenId,
-  );
 
   // Get rate from fromToken to cUSD for USD value calculation
   const { quote: fromTokenUSDValue } = useSwapQuote(
