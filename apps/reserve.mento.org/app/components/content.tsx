@@ -20,6 +20,7 @@ import {
 } from "@repo/ui";
 import Image from "next/image";
 import { useState } from "react";
+import { ChainId, getTokenAddress } from "../lib/config/tokenConfig";
 import type {
   HoldingsApi,
   ReserveCompositionAPI,
@@ -104,12 +105,32 @@ export function Content({
               <CoinCard key={token.token}>
                 <CoinCardHeader className="justify-between">
                   <CoinCardHeaderGroup>
-                    <CoinCardSymbol>{token.token}</CoinCardSymbol>
+                    <CoinCardSymbol>
+                      {(() => {
+                        const chainId = ChainId.Celo;
+                        const tokenAddress = getTokenAddress(
+                          token.token,
+                          chainId,
+                        );
+
+                        return tokenAddress ? (
+                          <a
+                            href={`https://celoscan.io/token/${tokenAddress}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            {token.token}
+                          </a>
+                        ) : (
+                          token.token
+                        );
+                      })()}
+                    </CoinCardSymbol>
                     <CoinCardName>{token.name}</CoinCardName>
                   </CoinCardHeaderGroup>
                   <CoinCardLogo>
                     <Image
-                      src={token.iconUrl || ""}
+                      src={`/tokens/${token.token}.svg`}
                       alt={token.token}
                       width={32}
                       height={32}
@@ -155,8 +176,7 @@ export function Content({
                   (c) => c.token === celoDetails.token,
                 );
 
-                // TODO: Confirm CELO icon path or make it dynamic if possible
-                const celoIcon = "/tokens/CELO.svg"; // Placeholder icon path
+                const celoIcon = "/tokens/CELO.svg";
 
                 return (
                   <>
