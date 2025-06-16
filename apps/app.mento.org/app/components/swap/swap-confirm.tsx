@@ -261,9 +261,7 @@ export function SwapConfirm() {
       <div className="flex w-full flex-col items-start justify-start space-y-2">
         <div className="flex w-full flex-row items-center justify-between">
           <span className="text-muted-foreground">Rate</span>
-          <span data-testid="rateLabel">
-            1 {fromToken.symbol} = {rate} {toToken.symbol}
-          </span>
+          <span data-testid="rateLabel">{`${rate && Number(rate) > 0 ? Number(rate).toFixed(4) : "0"} ${fromTokenId} ~ 1 ${toTokenId}`}</span>
         </div>
 
         <div className="flex w-full flex-row items-center justify-between">
