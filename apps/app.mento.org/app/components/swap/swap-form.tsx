@@ -23,7 +23,7 @@ import { ConnectButton } from "@/components/nav/connect-button";
 import { useAccountBalances } from "@/features/accounts/use-account-balances";
 import { useApproveTransaction } from "@/features/swap/hooks/use-approve-transaction";
 import { useSwapAllowance } from "@/features/swap/hooks/use-swap-allowance";
-import { useSwapQuote } from "@/features/swap/hooks/use-swap-quote";
+import { useOptimizedSwapQuote } from "@/features/swap/hooks/use-swap-quote";
 import { useTokenOptions } from "@/features/swap/hooks/use-token-options";
 import { confirmViewAtom, formValuesAtom } from "@/features/swap/swap-atoms";
 import type { SwapFormValues } from "@/features/swap/types";
@@ -247,35 +247,18 @@ export default function SwapForm() {
 
   // Type assertion is needed because the form values are strings
   // but the hook expects specific types
-  const { isLoading, quote, rate, isError } = useSwapQuote(
+  const {
+    isLoading,
+    quote,
+    rate,
+    isError,
+    fromTokenUSDValue,
+    toTokenUSDValue,
+  } = useOptimizedSwapQuote(
     shouldSkipQuoteRequest ? "" : amount,
     formDirection as SwapDirection,
     fromTokenId as TokenId,
     toTokenId as TokenId,
-  );
-
-  // Get rate from fromToken to cUSD for USD value calculation
-  const { quote: fromTokenUSDValue } = useSwapQuote(
-    fromTokenId === "cUSD"
-      ? "0"
-      : formDirection === "in"
-        ? amount || "0"
-        : formQuote || "0",
-    "in" as SwapDirection,
-    fromTokenId as TokenId,
-    "cUSD" as TokenId,
-  );
-
-  // Get rate from toToken to cUSD for USD value calculation
-  const { quote: toTokenUSDValue } = useSwapQuote(
-    toTokenId === "cUSD"
-      ? "0"
-      : formDirection === "out"
-        ? amount || "0"
-        : formQuote || "0",
-    "in" as SwapDirection,
-    toTokenId as TokenId,
-    "cUSD" as TokenId,
   );
 
   const sellUSDValue = useMemo(() => {

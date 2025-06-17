@@ -1,9 +1,16 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ethers } from "ethers";
-import { useEffect } from "react";
+import { useEffect, useMemo, useCallback } from "react";
 import { toast } from "@repo/ui";
+import { useChainId } from "wagmi";
+
 import { SWAP_QUOTE_REFETCH_INTERVAL } from "@/lib/config/consts";
-import { type TokenId, Tokens, getTokenAddress } from "@/lib/config/tokens";
+import {
+  type TokenId,
+  TokenId as TokenIdEnum,
+  Tokens,
+  getTokenAddress,
+} from "@/lib/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import type { SwapDirection } from "@/features/swap/types";
 import {
@@ -11,130 +18,14 @@ import {
   invertExchangeRate,
   parseInputExchangeAmount,
 } from "@/features/swap/utils";
+import { buildSwapRoute } from "@/features/swap/utils/build-swap-route";
+import {
+  getToastErrorMessage,
+  shouldRetrySwapError,
+} from "@/features/swap/utils/error-handlers";
 import { fromWei } from "@/lib/utils/amount";
 import { useDebounce } from "@/lib/utils/debounce";
 import { logger } from "@/lib/utils/logger";
-import { useChainId } from "wagmi";
-
-export function useSwapQuote(
-  amount: string | number,
-  direction: SwapDirection,
-  fromTokenId: TokenId,
-  toTokenId: TokenId,
-) {
-  const chainId = useChainId();
-  const fromToken = Tokens[fromTokenId];
-  const toToken = Tokens[toTokenId];
-  const debouncedAmount = useDebounce(amount, 350);
-
-  const { isLoading, isError, error, data, refetch } = useQuery<
-    ISwapData | null,
-    ISwapError
-  >(
-    ["use-swap-quote", debouncedAmount, fromTokenId, toTokenId, direction],
-    async () => {
-      const fromTokenAddr = getTokenAddress(fromTokenId, chainId);
-      const toTokenAddr = getTokenAddress(toTokenId, chainId);
-      const isSwapIn = direction === "in";
-      const amountWei = parseInputExchangeAmount(
-        amount,
-        isSwapIn ? fromTokenId : toTokenId,
-      );
-      const amountWeiBN = ethers.BigNumber.from(amountWei);
-      const amountDecimals = isSwapIn ? fromToken.decimals : toToken.decimals;
-      const quoteDecimals = isSwapIn ? toToken.decimals : fromToken.decimals;
-      if (amountWeiBN.lte(0) || !fromToken || !toToken) return null;
-      const mento = await getMentoSdk(chainId);
-      const tradablePair = await getTradablePairForTokens(
-        chainId,
-        fromTokenId,
-        toTokenId,
-      );
-
-      const quoteWei = (
-        isSwapIn
-          ? await mento.getAmountOut(
-              fromTokenAddr,
-              toTokenAddr,
-              amountWeiBN,
-              tradablePair,
-            )
-          : await mento.getAmountIn(
-              fromTokenAddr,
-              toTokenAddr,
-              amountWeiBN,
-              tradablePair,
-            )
-      ).toString();
-
-      const quote = fromWei(quoteWei, quoteDecimals);
-      const rateIn = calcExchangeRate(
-        amountWei,
-        amountDecimals,
-        quoteWei,
-        quoteDecimals,
-      );
-      const rate = isSwapIn ? rateIn : invertExchangeRate(rateIn);
-
-      return {
-        amountWei,
-        quoteWei,
-        quote,
-        rate,
-      };
-    },
-    {
-      staleTime: SWAP_QUOTE_REFETCH_INTERVAL,
-      refetchInterval: SWAP_QUOTE_REFETCH_INTERVAL,
-    },
-  );
-
-  useEffect(() => {
-    if (error) {
-      const toastError = getToastErrorMessage(error.message, {
-        fromTokenSymbol: fromToken.symbol,
-        toTokenSymbol: toToken.symbol,
-      });
-      toast.error(toastError);
-      logger.error(error);
-    }
-  }, [error, fromToken.symbol, toToken.symbol]);
-
-  return {
-    isLoading,
-    isError,
-    amountWei: data?.amountWei || "0",
-    quoteWei: data?.quoteWei || "0",
-    quote: data?.quote || "0",
-    rate: data?.rate,
-    refetch,
-  };
-}
-
-function getToastErrorMessage(
-  swapErrorMessage: string,
-  { fromTokenSymbol, toTokenSymbol, type }: IGetToastErrorOptions = {},
-): string {
-  switch (true) {
-    case swapErrorMessage.includes("overflow x1y1"):
-      return "Amount in is too large";
-    case swapErrorMessage.includes("can't create fixidity number larger than"):
-      return "Amount out is too large";
-    case swapErrorMessage.includes("no valid median"):
-    case swapErrorMessage.includes(
-      "Trading is suspended for this reference rate",
-    ):
-      return `Trading temporarily paused.  Unable to determine accurate ${fromTokenSymbol} to ${toTokenSymbol} exchange rate now. Please try again later.`;
-    default:
-      return "Unable to fetch swap amount";
-  }
-}
-
-interface IGetToastErrorOptions {
-  fromTokenSymbol?: string;
-  toTokenSymbol?: string;
-  type?: "quote" | "swap";
-}
 
 interface ISwapError {
   message: string;
@@ -145,4 +36,277 @@ interface ISwapData {
   quoteWei: string;
   quote: string;
   rate: string;
+}
+
+interface UseSwapQuoteOptions {
+  skipDebugLogs?: boolean;
+  debounceMs?: number;
+}
+
+/**
+ * Core hook for fetching swap quotes between two tokens
+ */
+export function useSwapQuote(
+  amount: string | number,
+  direction: SwapDirection,
+  fromTokenId: TokenId,
+  toTokenId: TokenId,
+  options: UseSwapQuoteOptions = {},
+) {
+  const { skipDebugLogs = false, debounceMs = 350 } = options;
+  const chainId = useChainId();
+  const queryClient = useQueryClient();
+  const debouncedAmount = useDebounce(amount, debounceMs);
+
+  // Memoize token objects to prevent unnecessary re-renders
+  const { fromToken, toToken } = useMemo(
+    () => ({
+      fromToken: Tokens[fromTokenId],
+      toToken: Tokens[toTokenId],
+    }),
+    [fromTokenId, toTokenId],
+  );
+
+  // Memoize validation checks
+  const validation = useMemo(() => {
+    const isValidAmount =
+      debouncedAmount != null &&
+      debouncedAmount !== "" &&
+      Number(debouncedAmount) > 0;
+    const isValidTokenPair = fromTokenId !== toTokenId;
+    const isQueryEnabled = isValidAmount && isValidTokenPair;
+
+    return { isValidAmount, isValidTokenPair, isQueryEnabled };
+  }, [debouncedAmount, fromTokenId, toTokenId]);
+
+  // Memoize query key to improve cache efficiency
+  const queryKey = useMemo(
+    () => [
+      "swap-quote",
+      debouncedAmount,
+      fromTokenId,
+      toTokenId,
+      direction,
+      chainId,
+    ],
+    [debouncedAmount, fromTokenId, toTokenId, direction, chainId],
+  );
+
+  // Memoize swap intent for logging
+  // Memoize the quote fetcher function
+  const fetchQuote = useCallback(async (): Promise<ISwapData | null> => {
+    if (!validation.isQueryEnabled) return null;
+
+    if (!skipDebugLogs) {
+      const swapIntent =
+        direction === "in"
+          ? `${debouncedAmount} ${fromTokenId} to ${toTokenId}`
+          : `${fromTokenId} to ${debouncedAmount} ${toTokenId}`;
+
+      // Check if this is a refetch by looking for existing data
+      const existingData = queryClient.getQueryData(queryKey);
+      const isRefetch = !!existingData;
+
+      console.log(
+        `${isRefetch ? "🔄 Refetching" : "🆕 Fetching"} quote for: ${swapIntent}`,
+      );
+    }
+
+    const fromTokenAddr = getTokenAddress(fromTokenId, chainId);
+    const toTokenAddr = getTokenAddress(toTokenId, chainId);
+    const isSwapIn = direction === "in";
+
+    const amountWei = parseInputExchangeAmount(
+      amount,
+      isSwapIn ? fromTokenId : toTokenId,
+    );
+
+    const amountWeiBN = ethers.BigNumber.from(amountWei);
+    const amountDecimals = isSwapIn ? fromToken.decimals : toToken.decimals;
+    const quoteDecimals = isSwapIn ? toToken.decimals : fromToken.decimals;
+
+    if (amountWeiBN.lte(0)) return null;
+
+    const [mento, tradablePair] = await Promise.all([
+      getMentoSdk(chainId),
+      getTradablePairForTokens(chainId, fromTokenId, toTokenId),
+    ]);
+
+    // Debug output for swap route (skip for refetches)
+    if (!skipDebugLogs) {
+      const existingData = queryClient.getQueryData(queryKey);
+      const isRefetch = !!existingData;
+
+      if (!isRefetch) {
+        const route = buildSwapRoute(tradablePair, fromTokenAddr, toTokenAddr);
+        console.log(`Swap route: ${route}`);
+      }
+    }
+
+    const quoteWei = (
+      isSwapIn
+        ? await mento.getAmountOut(
+            fromTokenAddr,
+            toTokenAddr,
+            amountWeiBN,
+            tradablePair,
+          )
+        : await mento.getAmountIn(
+            fromTokenAddr,
+            toTokenAddr,
+            amountWeiBN,
+            tradablePair,
+          )
+    ).toString();
+
+    const quote = fromWei(quoteWei, quoteDecimals);
+    const rateIn = calcExchangeRate(
+      amountWei,
+      amountDecimals,
+      quoteWei,
+      quoteDecimals,
+    );
+    const rate = isSwapIn ? rateIn : invertExchangeRate(rateIn);
+
+    if (!skipDebugLogs) {
+      const quoteLog =
+        direction === "in"
+          ? `${debouncedAmount} ${fromTokenId} => ${quote} ${toTokenId}`
+          : `${quote} ${fromTokenId} => ${debouncedAmount} ${toTokenId}`;
+
+      // Check if this is a refetch for the result log too
+      const existingData = queryClient.getQueryData(queryKey);
+      const isRefetch = !!existingData;
+
+      console.log(
+        `✅ ${isRefetch ? "Refetched" : "Fetched"} quote for: ${quoteLog}`,
+      );
+    }
+
+    return {
+      amountWei,
+      quoteWei,
+      quote,
+      rate,
+    };
+  }, [
+    validation.isQueryEnabled,
+    skipDebugLogs,
+    fromTokenId,
+    toTokenId,
+    chainId,
+    direction,
+    amount,
+    fromToken.decimals,
+    toToken.decimals,
+    debouncedAmount,
+    queryClient,
+    queryKey,
+  ]);
+
+  const { isLoading, isError, error, data, refetch } = useQuery<
+    ISwapData | null,
+    ISwapError
+  >(queryKey, fetchQuote, {
+    enabled: validation.isQueryEnabled,
+    staleTime: SWAP_QUOTE_REFETCH_INTERVAL,
+    refetchInterval: SWAP_QUOTE_REFETCH_INTERVAL,
+    retry: shouldRetrySwapError,
+  });
+
+  // Memoize error handling to prevent unnecessary effect runs
+  const errorMessage = useMemo(() => {
+    if (!error) return null;
+    return getToastErrorMessage(error.message, {
+      fromTokenSymbol: fromToken.symbol,
+      toTokenSymbol: toToken.symbol,
+    });
+  }, [error, fromToken.symbol, toToken.symbol]);
+
+  useEffect(() => {
+    if (errorMessage) {
+      toast.error(errorMessage);
+      logger.error(error);
+    }
+  }, [errorMessage, error]);
+
+  return useMemo(
+    () => ({
+      isLoading,
+      isError,
+      amountWei: data?.amountWei || "0",
+      quoteWei: data?.quoteWei || "0",
+      quote: data?.quote || "0",
+      rate: data?.rate,
+      refetch,
+    }),
+    [isLoading, isError, data, refetch],
+  );
+}
+
+/**
+ * Hook to calculate USD value for a token amount
+ * Fixed to comply with React's Rules of Hooks
+ */
+export function useTokenUSDValue(tokenId: TokenId, amount: string | number) {
+  const isStablecoin = useMemo(() => tokenId === "cUSD", [tokenId]);
+  const hasValidAmount = useMemo(
+    () => amount && amount !== "" && Number(amount) > 0,
+    [amount],
+  );
+
+  // Always call useSwapQuote, but disable it when not needed
+  const { quote } = useSwapQuote(
+    hasValidAmount ? amount : "",
+    "in",
+    tokenId,
+    TokenIdEnum.cUSD,
+    {
+      skipDebugLogs: true,
+    },
+  );
+
+  return useMemo(() => {
+    if (isStablecoin && hasValidAmount) {
+      return amount.toString();
+    }
+    if (hasValidAmount && !isStablecoin) {
+      return quote;
+    }
+    return "0";
+  }, [isStablecoin, hasValidAmount, amount, quote]);
+}
+
+/**
+ * Hook that optimizes swap quotes and USD value calculations
+ * Reduces the number of useSwapQuote calls from 3 to 1 when possible
+ */
+export function useOptimizedSwapQuote(
+  amount: string | number,
+  direction: SwapDirection,
+  fromTokenId: TokenId,
+  toTokenId: TokenId,
+) {
+  const mainQuote = useSwapQuote(amount, direction, fromTokenId, toTokenId);
+
+  // Calculate USD values more efficiently
+  const { fromAmount, toAmount } = useMemo(
+    () => ({
+      fromAmount: direction === "in" ? amount : mainQuote.quote,
+      toAmount: direction === "in" ? mainQuote.quote : amount,
+    }),
+    [direction, amount, mainQuote.quote],
+  );
+
+  const fromTokenUSDValue = useTokenUSDValue(fromTokenId, fromAmount);
+  const toTokenUSDValue = useTokenUSDValue(toTokenId, toAmount);
+
+  return useMemo(
+    () => ({
+      ...mainQuote,
+      fromTokenUSDValue,
+      toTokenUSDValue,
+    }),
+    [mainQuote, fromTokenUSDValue, toTokenUSDValue],
+  );
 }

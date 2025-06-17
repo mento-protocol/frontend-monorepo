@@ -1,7 +1,7 @@
 "use client";
 
 import { useGasEstimation } from "@/features/swap/hooks/use-gas-estimation";
-import { useSwapQuote } from "@/features/swap/hooks/use-swap-quote";
+import { useOptimizedSwapQuote } from "@/features/swap/hooks/use-swap-quote";
 import { useSwapTransaction } from "@/features/swap/hooks/use-swap-transaction";
 import { formValuesAtom } from "@/features/swap/swap-atoms";
 import { SwapDirection } from "@/features/swap/types";
@@ -31,12 +31,14 @@ export function SwapConfirm() {
   const toTokenId = formValues?.toTokenId || TokenId.CELO;
   const slippage = String(formValues?.slippage || "0.5");
 
-  const { amountWei, quote, quoteWei, rate } = useSwapQuote(
-    amount,
-    direction,
-    fromTokenId,
-    toTokenId,
-  );
+  const {
+    amountWei,
+    quote,
+    quoteWei,
+    rate,
+    fromTokenUSDValue,
+    toTokenUSDValue,
+  } = useOptimizedSwapQuote(amount, direction, fromTokenId, toTokenId);
 
   const swapValues = useMemo(() => {
     let computedFromAmountWei = amountWei;
@@ -114,30 +116,7 @@ export function SwapConfirm() {
     skipApprove: true,
   });
 
-  // Fetch USD values if they're missing or 0
-  // Get rate from fromToken to cUSD for USD value calculation
-  const { quote: fromTokenUSDValue } = useSwapQuote(
-    fromTokenId === "cUSD"
-      ? "0"
-      : direction === "in"
-        ? amount || "0"
-        : quote || "0",
-    "in" as SwapDirection,
-    fromTokenId,
-    "cUSD" as TokenId,
-  );
-
-  // Get rate from toToken to cUSD for USD value calculation
-  const { quote: toTokenUSDValue } = useSwapQuote(
-    toTokenId === "cUSD"
-      ? "0"
-      : direction === "out"
-        ? amount || "0"
-        : quote || "0",
-    "in" as SwapDirection,
-    toTokenId,
-    "cUSD" as TokenId,
-  );
+  // USD values are now calculated by useOptimizedSwapQuote hook
 
   // Calculate sell USD value with fallback
   const sellUSDValue = useMemo(() => {
