@@ -56,7 +56,7 @@ function ProposalCardBody({
   return (
     <div
       data-slot="proposal-card-body"
-      className={cn("flex", className)}
+      className={cn("flex w-full", className)}
       {...props}
     />
   );

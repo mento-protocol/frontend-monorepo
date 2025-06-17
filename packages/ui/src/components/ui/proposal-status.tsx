@@ -5,14 +5,14 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils.js";
 
 const proposalStatusVariants = cva(
-  "w-[72px] h-8 flex flex-row items-center justify-center gap-0 text-sm capitalize",
+  "w-[72px] h-8 flex flex-row items-center justify-center gap-0 text-sm capitalize shrink-0",
   {
     variants: {
       variant: {
         default: "bg-[var(--expired)] text-[var(--expired-text)]", // EXPIRED
         active: "bg-[var(--active)]",
         pending: "bg-[var(--pending)]",
-        executed: "bg-[var(--executed)]",
+        executed: "bg-[var(--executed)] text-black",
         queued: "bg-[var(--queued)]",
         defeated: "bg-[var(--defeated)]",
       },
