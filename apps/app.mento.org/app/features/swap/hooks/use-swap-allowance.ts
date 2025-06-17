@@ -1,8 +1,5 @@
 import BigNumber from "bignumber.js";
-import { useEffect } from "react";
 import type { TokenId } from "@/lib/config/tokens";
-import { logger } from "@/lib/utils/logger";
-
 import { useAllowance } from "./use-allowance";
 
 interface ISwapAllowanceOptions {
@@ -26,15 +23,15 @@ export function useSwapAllowance(options: ISwapAllowanceOptions) {
     !isAllowanceLoading && new BigNumber(allowance).lt(approveAmount);
   const skipApprove = !isAllowanceLoading && !needsApproval;
 
-  // Log only when values change
-  useEffect(() => {
-    logger.info("Allowance status:", {
-      isLoading: isAllowanceLoading,
-      needsApproval,
-      allowance,
-      approveAmount,
-    });
-  }, [isAllowanceLoading, needsApproval, allowance, approveAmount]);
+  // Debug log when values change
+  // useEffect(() => {
+  //   logger.info("Allowance status:", {
+  //     isLoading: isAllowanceLoading,
+  //     needsApproval,
+  //     allowance,
+  //     approveAmount,
+  //   });
+  // }, [isAllowanceLoading, needsApproval, allowance, approveAmount]);
 
   return {
     allowance,

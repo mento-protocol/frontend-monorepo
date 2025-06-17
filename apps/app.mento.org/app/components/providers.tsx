@@ -65,14 +65,7 @@ export function ClientProviders({ children }: PropsWithChildren) {
             enableSystem
           >
             <WagmiConfig client={wagmiClient}>
-              <RainbowKitProvider
-                chains={chains}
-                // theme={darkTheme({
-                //   accentColor: Color.primary,
-                //   borderRadius: "none",
-                //   fontStack: "system",
-                // })}
-              >
+              <RainbowKitProvider chains={chains}>
                 <AppLayout>{children}</AppLayout>
               </RainbowKitProvider>
             </WagmiConfig>
