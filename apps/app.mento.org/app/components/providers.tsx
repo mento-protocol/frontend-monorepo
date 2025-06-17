@@ -18,7 +18,6 @@ import {
   connectorsForWallets,
 } from "@rainbow-me/rainbowkit";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Analytics } from "@vercel/analytics/react";
 import { WagmiConfig, configureChains, createClient } from "wagmi";
 import { jsonRpcProvider } from "wagmi/providers/jsonRpc";
 
@@ -79,7 +78,6 @@ export function ClientProviders({ children }: PropsWithChildren) {
           </NextThemesProvider>
         </QueryClientProvider>
       </SafeHydrate>
-      <Analytics />
     </ErrorBoundary>
   );
 }

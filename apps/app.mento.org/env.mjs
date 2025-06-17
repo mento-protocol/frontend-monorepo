@@ -6,7 +6,10 @@ export const env = createEnv({
    * Serverside Environment variables, not available on the client.
    * Will throw if you access these variables on the client.
    */
-  server: {},
+  server: {
+    SENTRY_AUTH_TOKEN: z.string(),
+    SENTRY_DSN: z.string(),
+  },
   /*
    * Environment variables available on the client (and server).
    *
@@ -23,5 +26,7 @@ export const env = createEnv({
    */
   runtimeEnv: {
     NEXT_PUBLIC_STORAGE_URL: process.env.NEXT_PUBLIC_STORAGE_URL,
+    SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
+    SENTRY_DSN: process.env.SENTRY_DSN,
   },
 });
