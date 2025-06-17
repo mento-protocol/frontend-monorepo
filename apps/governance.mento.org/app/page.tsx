@@ -29,6 +29,7 @@ import {
   PaginationPrevious,
   ProposalList,
   ProposalListItem,
+  ProposalStatus,
 } from "@repo/ui";
 
 export default async function Home() {
@@ -138,7 +139,36 @@ export default async function Home() {
             </ProposalCardHeader>
             <ProposalCardBody>
               <ProposalList>
-                <ProposalListItem></ProposalListItem>
+                <ProposalListItem>
+                  <ProposalStatus variant="active" />
+                </ProposalListItem>
+                <ProposalListItem>
+                  <ProposalStatus variant="pending" />
+                </ProposalListItem>
+                <ProposalListItem>
+                  <ProposalStatus variant="executed" />
+                </ProposalListItem>
+                <ProposalListItem>
+                  <ProposalStatus variant="queued" />
+                </ProposalListItem>
+                <ProposalListItem>
+                  <ProposalStatus variant="defeated" />
+                </ProposalListItem>
+                <ProposalListItem>
+                  <ProposalStatus />
+                </ProposalListItem>
+                <ProposalListItem>
+                  <ProposalStatus variant="defeated" />
+                </ProposalListItem>
+                <ProposalListItem>
+                  <ProposalStatus variant="defeated" />
+                </ProposalListItem>
+                <ProposalListItem>
+                  <ProposalStatus variant="defeated" />
+                </ProposalListItem>
+                <ProposalListItem>
+                  <ProposalStatus variant="defeated" />
+                </ProposalListItem>
               </ProposalList>
             </ProposalCardBody>
             <ProposalCardFooter>

@@ -35,6 +35,7 @@ export * from "./components/footer.js";
 export * from "./components/ui/proposal-card.js";
 export * from "./components/ui/pagination.js";
 export * from "./components/ui/proposal-list.js";
+export * from "./components/ui/proposal-status.js";
 
 // Also export any utility functions or types that might be needed
 export * from "./lib/index.js";
