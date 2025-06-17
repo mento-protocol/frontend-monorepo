@@ -1,20 +1,20 @@
-"use client";
-import type * as React from "react";
-
-import { cn } from "@/lib/utils.js";
+import * as React from "react";
+import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 
+import { cn } from "@/lib/utils.js";
+
 const proposalStatusVariants = cva(
-  "flex flex-col items-start justify-start gap-0",
+  "w-[72px] h-8 flex flex-row items-center justify-center gap-0 text-sm capitalize",
   {
     variants: {
       variant: {
-        default: "bg-transparent", // EXPIRED
-        defeated: "bg-[var(--dark-background)]",
-        queued: "",
-        executed: "",
-        pending: "",
-        active: "",
+        default: "bg-[var(--expired)] text-[var(--expired-text)]", // EXPIRED
+        active: "bg-[var(--active)]",
+        pending: "bg-[var(--pending)]",
+        executed: "bg-[var(--executed)]",
+        queued: "bg-[var(--queued)]",
+        defeated: "bg-[var(--defeated)]",
       },
     },
     defaultVariants: {
@@ -23,14 +23,30 @@ const proposalStatusVariants = cva(
   },
 );
 
-function ProposalStatus({ className, ...props }: React.ComponentProps<"div">) {
+function ProposalStatus({
+  className,
+  variant,
+  asChild = false,
+  ...props
+}: React.ComponentProps<"div"> &
+  VariantProps<typeof proposalStatusVariants> & {
+    asChild?: boolean;
+  }) {
+  const Comp = asChild ? Slot : "div";
+
+  console.log("VARIANT: ", variant);
+
   return (
-    <div
-      data-slot="proposal-status"
-      className={cn("flex flex-col items-start justify-start gap-0", className)}
+    <Comp
+      data-slot="div"
+      className={cn(proposalStatusVariants({ variant, className }))}
       {...props}
-    />
+    >
+      {variant === "default" || variant === null || variant === undefined
+        ? "Expired"
+        : variant}
+    </Comp>
   );
 }
 
-export { ProposalStatus };
+export { ProposalStatus, proposalStatusVariants };

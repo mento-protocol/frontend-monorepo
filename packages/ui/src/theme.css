@@ -41,6 +41,13 @@
   --sidebar-border: oklch(0.923 0.003 48.717);
   --sidebar-ring: oklch(0.709 0.01 56.259);
   --success: oklch(73.5% 0.245 142);
+  --active: oklch(0.5641 0.1342 155.52);
+  --pending: oklch(0.5717 0.099255 211.0725);
+  --executed: oklch(0.8649 0.1299 208.05);
+  --queued: oklch(0.5717 0.099255 211.0725);
+  --defeated: oklch(0.476 0.216863 330.1079);
+  --expired: oklch(0.2613 0.0288 302.75);
+  --expired-text: oklch(0.7429 0.0118 303.05);
 }
 
 .dark {
@@ -85,6 +92,13 @@
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.553 0.013 58.071);
   --success: oklch(73.5% 0.245 142);
+  --active: oklch(0.5641 0.1342 155.52);
+  --pending: oklch(0.5717 0.099255 211.0725);
+  --executed: oklch(0.8649 0.1299 208.05);
+  --queued: oklch(0.5717 0.099255 211.0725);
+  --defeated: oklch(0.476 0.216863 330.1079);
+  --expired: oklch(0.2613 0.0288 302.75);
+  --expired-text: oklch(0.7429 0.0118 303.05);
 }
 
 @theme inline {
