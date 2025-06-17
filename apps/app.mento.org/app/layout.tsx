@@ -5,6 +5,7 @@ import type { Metadata } from "next";
 import { ClientProviders } from "./components/providers";
 import localFont from "next/font/local";
 import { env } from "../env.mjs";
+import { Analytics } from "@vercel/analytics/react";
 
 const aspekta = localFont({
   src: "./fonts/AspektaVF.ttf",
@@ -46,6 +47,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} ${aspekta.className} min-h-screen antialiased`}
       >
         <ClientProviders>{children}</ClientProviders>
+        <Analytics />
       </body>
     </html>
   );

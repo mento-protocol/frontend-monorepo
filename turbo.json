@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/turbo/schema.json",
   "globalDependencies": ["**/.env.*local"],
-  "globalEnv": ["NODE_ENV"],
+  "globalEnv": ["NODE_ENV", "SENTRY_AUTH_TOKEN", "SENTRY_DSN"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -22,6 +22,6 @@
     }
   },
   "remoteCache": {
-    "signature": true
+    "signature": false
   }
 }
