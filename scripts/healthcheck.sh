@@ -24,4 +24,4 @@ pnpm check-types
 echo "\n🧱 Building..."
 pnpm build
 
-echo "\n✅ All Health Checks Passed!" 
+echo "\n✅ All Health Checks Passed!"
