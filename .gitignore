@@ -37,4 +37,10 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
-.trunk
+
+# Trunk
+.trunk/*out/
+.trunk/*logs/
+.trunk/*notifications/
+.trunk/*actions/
+.trunk/*tools/
