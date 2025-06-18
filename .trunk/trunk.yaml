@@ -26,17 +26,17 @@ lint:
         - "**/dist/**"
         - "**/build/**"
         - "**/.turbo/**"
-        - "pnpm-lock.yaml" # Skip OSV scanner on lock file for now
+        - pnpm-lock.yaml # Skip OSV scanner on lock file for now
         - "**/*.svg" # Skip SVG optimization in development
         - "**/*.png" # Skip PNG optimization in development
         - "**/*.jpg" # Skip JPG optimization in development
         - "**/*.jpeg" # Skip JPEG optimization in development
     - linters: [checkov]
       paths:
-        - ".github/workflows/**" # Skip GitHub Actions security checks for now
+        - .github/workflows/** # Skip GitHub Actions security checks for now
     - linters: [trufflehog]
       paths:
-        - "packages/ui/src/assets/**" # Skip secret scanning on asset files
+        - packages/ui/src/assets/** # Skip secret scanning on asset files
   enabled:
     - actionlint@1.7.7
     - eslint@9.29.0
