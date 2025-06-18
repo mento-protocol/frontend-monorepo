@@ -1,14 +1,14 @@
 {
   "name": "ui.mento.org",
   "version": "0.1.0",
-  "type": "module",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "next dev --turbopack --port 3003",
     "build": "next build",
-    "start": "next start",
+    "check-types": "tsc --noEmit",
+    "dev": "next dev --turbopack --port 3003",
     "lint": "trunk check .",
-    "check-types": "tsc --noEmit"
+    "start": "next start"
   },
   "dependencies": {
     "@repo/ui": "workspace:*",

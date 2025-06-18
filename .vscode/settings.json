@@ -1,19 +1,14 @@
 {
-  // By default VS Code will not trigger tailwind class completions when editing "string" content, for example within JSX attribute values. This setting will enable that.
-  "editor.quickSuggestions": {
-    "strings": "on"
-  },
-  // Tell VS Code to always open .css files in Tailwind CSS mode.
-  "files.associations": {
-    "*.css": "tailwindcss"
-  },
+  /******************************/
+  /* General Editor Settings */
+  /******************************/
+
   "editor.formatOnSave": true,
   "editor.codeActionsOnSave": {
     "trunk.check": "explicit"
   },
-  // Disable ESLint extension in favor of Trunk
-  "eslint.enable": false,
-  // Configure Trunk as an additional formatter alongside Prettier
+
+  // Configure formatters by language
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "[typescript]": {
     "editor.defaultFormatter": "trunk.io"
@@ -27,32 +22,86 @@
   "[javascriptreact]": {
     "editor.defaultFormatter": "trunk.io"
   },
+  "[json]": {
+    "editor.defaultFormatter": "trunk.io"
+  },
+  "[markdown]": {
+    "editor.defaultFormatter": "trunk.io"
+  },
+  "[yaml]": {
+    "editor.defaultFormatter": "trunk.io"
+  },
+
+  /******************************/
+  /* TypeScript Configuration */
+  /******************************/
+
   "typescript.tsdk": "node_modules/typescript/lib",
   "typescript.enablePromptUseWorkspaceTsdk": true,
-
-  "prettier.documentSelectors": ["**/*.{js,jsx,ts,tsx,json,css,md,mdx}"],
-  "tailwindCSS.includeLanguages": {
-    "typescript": "javascript",
-    "typescriptreact": "javascript"
-  },
   "typescript.preferences.importModuleSpecifier": "shortest",
   "javascript.preferences.importModuleSpecifier": "shortest",
-  // Trunk specific settings
-  "trunk.trunkPath": "trunk",
-  "trunk.enableLinting": true,
-  "trunk.enableFormatting": true,
+
+  /******************************/
+  /* Prettier Configuration */
+  /******************************/
+
+  "prettier.documentSelectors": ["**/*.{js,jsx,ts,tsx,json,css,md,mdx}"],
+
+  /******************************/
+  /* File Management */
+  /******************************/
+
+  "files.exclude": {
+    "**/.git": true,
+    "**/.DS_Store": true
+  },
+
   "search.exclude": {
     "**/node_modules": true,
     "**/dist": true,
     "**/.next": true,
     "**/.turbo": true,
     "**/.trunk/out": true,
-    "**/.trunk/logs": true
+    "**/.trunk/logs": true,
+    "**/pnpm-lock.yaml": true
   },
-  "files.exclude": {
-    "**/.git": true,
-    "**/.DS_Store": true
+
+  /******************************/
+  /* Tailwind CSS Settings */
+  /******************************/
+
+  // Enable Tailwind class completions in string content (JSX attributes)
+  "editor.quickSuggestions": {
+    "strings": "on"
   },
+
+  // Always open .css files in Tailwind CSS mode
+  "files.associations": {
+    "*.css": "tailwindcss"
+  },
+
+  "tailwindCSS.includeLanguages": {
+    "typescript": "javascript",
+    "typescriptreact": "javascript"
+  },
+
+  /******************************/
+  /* ESLint Configuration */
+  /******************************/
+
+  // Disable ESLint extension in favor of Trunk
+  "eslint.enable": false,
+
+  /******************************/
+  /* Trunk Configuration */
+  /******************************/
+
+  "trunk.trunkPath": "trunk",
+
+  /******************************/
+  /* Spell Checker Configuration */
+  /******************************/
+
   "cSpell.words": [
     "commitlint",
     "ethersproject",
@@ -67,6 +116,7 @@
     "toformat",
     "turbopack",
     "Turborepo",
-    "viem"
+    "viem",
+    "Vulns"
   ]
 }

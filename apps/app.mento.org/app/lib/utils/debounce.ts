@@ -17,7 +17,7 @@ export function useDebounce<T>(value: T, delayMs = 500): T {
   return debouncedValue;
 }
 
-export function debounce<T extends (...args: any[]) => any>(
+export function debounce<T extends (...args: unknown[]) => unknown>(
   func: T,
   wait: number,
 ): (...args: Parameters<T>) => Promise<ReturnType<T>> {
@@ -27,7 +27,7 @@ export function debounce<T extends (...args: any[]) => any>(
     return new Promise((resolve) => {
       if (timeout) clearTimeout(timeout);
       timeout = setTimeout(() => {
-        resolve(func(...args));
+        resolve(func(...args) as ReturnType<T>);
       }, wait);
     });
   };

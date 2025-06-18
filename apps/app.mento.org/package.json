@@ -1,13 +1,13 @@
 {
   "name": "app.mento.org",
   "version": "0.0.0",
-  "type": "module",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "next dev --turbopack --port 3000",
     "build": "next build",
-    "start": "next start",
-    "lint": "trunk check ."
+    "dev": "next dev --turbopack --port 3000",
+    "lint": "trunk check .",
+    "start": "next start"
   },
   "dependencies": {
     "@celo/rainbowkit-celo": "^0.11.0",
@@ -51,22 +51,15 @@
     "@repo/typescript-config": "workspace:*",
     "@tailwindcss/postcss": "^4.1.4",
     "@types/big.js": "^6.2.0",
-    "@types/jest": "^29.5.2",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "autoprefixer": "^10.4.14",
-    "eslint": "^9.24.0",
-    "jest": "^29.5.0",
+    "eslint": "^9.29.0",
     "postcss": "^8.5.3",
     "tailwindcss": "^4.1.4",
-    "ts-jest": "^29.1.0",
     "ts-node": "^10.9.1",
     "typescript": "^5.8.3"
-  },
-  "resolutions": {
-    "bignumber.js": "9.1.1",
-    "@types/react": "18.0.34"
   },
   "volta": {
     "node": "18.20.7"

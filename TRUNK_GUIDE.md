@@ -1,30 +1,22 @@
 # Trunk CLI Developer Guide
 
+[Trunk CLI](https://trunk.io/) is a metalinter that combines multiple linters and formatters into a single, fast, and consistent experience. It replaces the need for separate ESLint, Prettier, and other tool configurations while preserving all your existing rules.
+
 This guide provides detailed information about how Trunk CLI is configured and used in this monorepo.
 
-## Team Onboarding: VS Code Setup
+## VS Code & Cursor Setup
 
-**🚨 Important**: We use **Trunk extension** instead of the ESLint extension for better monorepo support.
+**🚨 Important**: We use the **[Trunk extension](https://marketplace.cursorapi.com/items?itemName=trunk.io)** instead of the ESLint extension for better monorepo support and consistent error detection between CLI and editor.
 
-### Required Setup (All Team Members)
+### Required Setup
 
 1. **Open workspace in VS Code/Cursor**
 2. **Install recommended extensions** (VS Code will prompt automatically):
 
-   - ✅ **Trunk.io** - Our main linter/formatter
+   - ✅ **[Trunk](https://marketplace.cursorapi.com/items?itemName=trunk.io)** - Our main linter/formatter
    - ✅ **Prettier** - Code formatting (integrated with Trunk)
    - ✅ **Tailwind CSS** - Tailwind utilities
-   - 🚫 **DO NOT install ESLint extension** (actively discouraged)
-
-3. **If you already have ESLint extension installed**:
-
-   - It's automatically disabled in workspace settings
-   - Consider uninstalling it project-wide for consistency
-
-4. **Verify setup**:
-   - Open `apps/ui.mento.org/next.config.ts`
-   - You should see red error on line 16: `NODE_ENV is not listed...`
-   - This confirms Trunk is working correctly
+   - 🚫 **Disable the ESLint extension for this workspace**
 
 ### What This Gives You
 
@@ -33,10 +25,6 @@ This guide provides detailed information about how Trunk CLI is configured and u
 - ✅ **Monorepo-aware** - Understands workspace structure
 - ✅ **Consistent team experience** - Everyone sees the same errors
 
-## Overview
-
-[Trunk CLI](https://trunk.io/) is our universal code quality tool that combines multiple linters and formatters into a single, fast, and consistent experience. It replaces the need for separate ESLint, Prettier, and other tool configurations while preserving all your existing rules.
-
 ## What Trunk Does
 
 ### 🔍 **Linting & Formatting**
@@ -44,9 +32,22 @@ This guide provides detailed information about how Trunk CLI is configured and u
 - **ESLint**: Uses your existing configurations (`packages/eslint-config/`)
 - **Prettier**: Formats with Tailwind CSS class sorting
 - **TypeScript**: Type-aware linting via typescript-eslint
-- **Markdown**: Documentation linting (markdownlint)
+- **Markdown**: Documentation linting (markdownlint + link checking)
 - **YAML**: Configuration file formatting (yamllint)
 - **Shell Scripts**: shellcheck + shfmt formatting
+- **Package.json**: Automatic sorting (sort-package-json)
+
+### 🔒 **Security & Quality**
+
+- **Security Scanning**: Checkov for infrastructure security
+- **Secret Detection**: Gitleaks and TruffleHog for credential scanning
+- **Vulnerability Scanning**: OSV-scanner for dependency vulnerabilities
+- **Git Integrity**: Git diff validation and pre-commit hooks
+
+### 🎨 **Asset Optimization**
+
+- **Image Optimization**: oxipng for PNG compression, svgo for SVG optimization
+- **Dependency Management**: dustilock for dependency integrity
 
 ### ⚡ **Performance**
 
@@ -59,59 +60,68 @@ This guide provides detailed information about how Trunk CLI is configured and u
 
 - **Pre-commit**: Auto-formats staged files
 - **Pre-push**: Comprehensive checks before pushing
+- **Commit linting**: Conventional commit validation
 - **VS Code**: Real-time feedback and auto-fixing
 
 ## Configuration
 
-### Main Configuration: `.trunk/trunk.yaml`
+### Config Reference
 
-```yaml
-# Core linters enabled for development
-lint:
-  enabled:
-    - actionlint@1.7.7      # GitHub Actions workflow linting
-    - eslint@9.29.0         # JavaScript/TypeScript linting
-    - git-diff-check        # Git diff validation
-    - markdownlint@0.45.0   # Markdown documentation
-    - prettier@3.5.3        # Code formatting
-    - shellcheck@0.10.0     # Shell script linting
-    - shfmt@3.6.0          # Shell script formatting
-    - yamllint@1.37.1      # YAML configuration files
+- Trunk: [`.trunk/trunk.yaml`](.trunk/trunk.yaml)
+- VS Code: [`.vscode/settings.json`](.vscode/settings.json)
+- CI: [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+- ESLint: [`packages/eslint-config/`](packages/eslint-config/)
+- Prettier: [`.prettierrc`](.prettierrc)
 
-# Performance optimizations
-lint:
-  ignore:
-    - linters: [ALL]
-      paths:
-        - "**/node_modules/**"
-        - "**/.next/**"
-        - "**/dist/**"
-        - "**/.turbo/**"
-```
+### [Trunk Configuration](.trunk/trunk.yaml)
+
+The configuration is heavily commented to explain what each tool does.
+It includes:
+
+#### Core Development Tools
+
+- ESLint (uses existing monorepo configs)
+- Prettier (with Tailwind CSS class sorting)
+- TypeScript checking via ESLint
+
+#### Security & Quality
+
+- Multiple secret scanners (Gitleaks, TruffleHog)
+- Vulnerability scanning (OSV-Scanner)
+- Infrastructure security (Checkov)
+- Git integrity validation
+
+#### Asset Optimization
+
+- PNG compression (oxipng)
+- SVG optimization (svgo)
+- Package.json sorting
+
+#### Documentation & Config
+
+- Markdown linting with link validation
+- YAML file validation
+- Shell script linting and formatting
+
+#### Git Integration
+
+- Pre-commit formatting hooks
+- Pre-push comprehensive checks
+- Conventional commit validation
 
 ### ESLint Integration
 
-Trunk uses your existing ESLint configurations without modification:
+Trunk uses the existing ESLint configurations without modification:
 
 - **Root**: `eslint.config.mjs` → `@repo/eslint-config/base`
 - **Apps**: Each app uses `@repo/eslint-config/next-js`
 - **Packages**: Use `@repo/eslint-config/react-internal`
 
-**All your existing ESLint rules continue to work exactly as before.**
+**All existing ESLint rules continue to work exactly as before.**
 
 ### Prettier Integration
 
-Trunk respects your existing `.prettierrc` configuration:
-
-```json
-{
-  "plugins": ["prettier-plugin-tailwindcss"],
-  "tailwindStylesheet": "./packages/ui/src/theme.css",
-  "tailwindFunctions": ["clsx", "tw"]
-}
-```
-
-This ensures Tailwind classes are properly sorted according to your custom configuration.
+Trunk respects the existing `.prettierrc` configuration
 
 ## Usage
 
@@ -157,71 +167,27 @@ trunk check --all
 # Show detailed progress
 trunk check --verbose
 
-# Sample a few files for quick feedback
-trunk check --sample=5
+# Check only specific linters
+trunk check --filter=eslint,gitleaks
 
 # Exclude specific linters
-trunk check --filter=-markdownlint
-
-# Check only security-related linters
-trunk check --scope=security
+trunk check --exclude=-markdownlint
 ```
-
-## VS Code Integration
-
-### Auto-formatting Setup
-
-The workspace is configured in `.vscode/settings.json`:
-
-```json
-{
-  "editor.formatOnSave": true,
-  "editor.codeActionsOnSave": {
-    "source.fixAll.eslint": "explicit",
-    "trunk.check": "explicit"
-  },
-  "[typescript]": {
-    "editor.defaultFormatter": "trunk.io"
-  },
-  "[typescriptreact]": {
-    "editor.defaultFormatter": "trunk.io"
-  }
-}
-```
-
-### Required Extension
-
-Install the [Trunk VS Code extension](https://marketplace.visualstudio.com/items?itemName=Trunk.io) for:
-
-- Real-time linting feedback
-- Auto-formatting on save
-- Quick fix suggestions
-- Inline error/warning displays
 
 ## CI/CD Integration
 
 ### GitHub Actions
 
-The CI workflow (`.github/workflows/ci.yml`) uses the official Trunk action:
+The CI workflow ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) uses the official Trunk action:
 
 ```yaml
-- name: Install Trunk
+- name: Trunk Code Quality
   uses: trunk-io/trunk-action@v1
   with:
-    check-mode: fix
-
-- name: Lint with Trunk
-  run: pnpm lint
+    check-mode: all
 ```
 
 This ensures the same linting rules run in CI as in local development.
-
-### Performance in CI
-
-- **Parallel execution**: Multiple linters run simultaneously
-- **Incremental checking**: Only changed files are checked by default
-- **Cached results**: Repeated runs are faster
-- **Fail fast**: Issues are caught early in the pipeline
 
 ## Troubleshooting
 
@@ -244,24 +210,11 @@ curl https://get.trunk.io -fsSL | bash
 trunk check --verbose  # Shows configuration loading
 ```
 
-#### 3. "Plugin not found" errors
-
-```bash
-# Update Trunk to latest version
-trunk upgrade
-
-# Check plugin status
-trunk check --verbose
-```
-
-#### 4. Performance issues
+#### 3. Performance issues
 
 ```bash
 # Check what's taking time
 trunk check --verbose
-
-# Reduce scope for development
-trunk check --sample=10
 ```
 
 ### Debug Mode
@@ -277,54 +230,16 @@ trunk check --print-failures
 trunk check --filter=eslint --verbose
 ```
 
-## Migration from Previous Setup
-
-### What Changed
-
-**Before (Next.js lint):**
-
-- Each app ran `next lint` independently
-- Prettier run separately
-- Manual coordination between tools
-- Inconsistent configurations
-
-**After (Trunk):**
-
-- Single `trunk check` command
-- All linters run together
-- Consistent rules across monorepo
-- Auto-fixing capabilities
-- Better performance
-
-### What Stayed the Same
-
-- ✅ All ESLint rules preserved
-- ✅ Prettier configuration unchanged
-- ✅ TypeScript checking unchanged
-- ✅ Git hooks still work
-- ✅ CI/CD integration maintained
-
-### Commands Mapping
-
-| Old Command        | New Command     | Notes                             |
-| ------------------ | --------------- | --------------------------------- |
-| `next lint`        | `pnpm lint`     | Now runs Trunk with ESLint + more |
-| `prettier --write` | `pnpm format`   | Uses Trunk formatting             |
-| `eslint --fix`     | `pnpm lint:fix` | Auto-fixes all supported issues   |
-
 ## Advanced Configuration
 
 ### Adding New Linters
 
-To enable additional linters (e.g., for production CI):
+Here are [all linters supported by trunk](https://docs.trunk.io/code-quality/linters/supported)
 
-```yaml
-# .trunk/trunk.yaml
-lint:
-  enabled:
-    - checkov@3.2.442 # Security scanning
-    - osv-scanner@2.0.3 # Vulnerability scanning
-    - oxipng@9.1.5 # Image optimization
+To add a new linter, run:
+
+```sh
+trunk check enable <linter>
 ```
 
 ### Custom Ignore Patterns
@@ -339,6 +254,9 @@ lint:
     - linters: [eslint]
       paths:
         - "generated/**"
+    - linters: [gitleaks, trufflehog]
+      paths:
+        - "test-fixtures/**"
 ```
 
 ### App-Specific Configuration
@@ -346,67 +264,11 @@ lint:
 Create `.trunk/trunk.yaml` in specific apps for custom rules:
 
 ```yaml
-# apps/special-app/.trunk/trunk.yaml
+# apps/specific-app/.trunk/trunk.yaml
 lint:
   ignore:
     - linters: [markdownlint]
       paths: ["**/*.md"]
+    - linters: [checkov]
+      paths: ["**/*"] # Disable security scanning for this app
 ```
-
-## Best Practices
-
-### 1. **Commit Workflow**
-
-```bash
-# Make changes
-git add .
-
-# Pre-commit hook automatically formats
-git commit -m "feat: add new feature"
-
-# Pre-push hook runs comprehensive checks
-git push
-```
-
-### 2. **Development Workflow**
-
-```bash
-# Start development
-pnpm dev
-
-# Quick check during development
-trunk check --sample=5
-
-# Before committing
-pnpm lint:fix
-```
-
-### 3. **Performance Tips**
-
-- Use `--sample` for quick feedback during development
-- Let pre-commit hooks handle formatting automatically
-- Run full checks (`pnpm lint`) before creating PRs
-
-### 4. **Team Collaboration**
-
-- Trunk configuration is committed to git
-- All team members get consistent results
-- VS Code extension provides immediate feedback
-- CI enforces the same rules
-
-## Support & Resources
-
-- **Trunk Documentation**: <https://docs.trunk.io>
-- **VS Code Extension**: <https://marketplace.visualstudio.com/items?itemName=Trunk.io>
-- **GitHub Action**: <https://github.com/trunk-io/trunk-action>
-- **Community Slack**: <https://slack.trunk.io>
-
-## Configuration Reference
-
-For the complete, up-to-date configuration, see:
-
-- Main config: `.trunk/trunk.yaml`
-- VS Code: `.vscode/settings.json`
-- CI: `.github/workflows/ci.yml`
-- ESLint: `packages/eslint-config/`
-- Prettier: `.prettierrc`

@@ -3,59 +3,77 @@
 version: 0.1
 cli:
   version: 1.24.0
+
 # Trunk provides extensibility via plugins. (https://docs.trunk.io/plugins)
 plugins:
   sources:
     - id: trunk
       ref: v1.7.0
       uri: https://github.com/trunk-io/plugins
+
 # Many linters and tools depend on runtimes - configure them here. (https://docs.trunk.io/runtimes)
 runtimes:
   enabled:
-    - go@1.21.0
-    - node@22.16.0
-    - python@3.10.8
+    - go@1.21.0 # Required for various Go-based security and linting tools
+    - node@22.16.0 # Node.js runtime for ESLint, Prettier, and other JS tools
+    - python@3.10.8 # Python runtime for security scanners and other tools
+
 # This is the section where you manage your linters. (https://docs.trunk.io/check/configuration)
 lint:
-  # Global ignore patterns for better performance
+  # Global ignore patterns for better performance and relevance
   ignore:
     - linters: [ALL]
       paths:
-        - "**/node_modules/**"
-        - "**/.next/**"
-        - "**/dist/**"
-        - "**/build/**"
-        - "**/.turbo/**"
-        - pnpm-lock.yaml # Skip OSV scanner on lock file for now
-        - "**/*.svg" # Skip SVG optimization in development
-        - "**/*.png" # Skip PNG optimization in development
-        - "**/*.jpg" # Skip JPG optimization in development
-        - "**/*.jpeg" # Skip JPEG optimization in development
-    - linters: [checkov]
-      paths:
-        - .github/workflows/** # Skip GitHub Actions security checks for now
+        - "**/node_modules/**" # Skip all dependency directories
+        - "**/.next/**" # Skip Next.js build output
+        - "**/dist/**" # Skip build/distribution directories
+        - "**/build/**" # Skip build directories
+        - "**/.turbo/**" # Skip Turborepo cache
     - linters: [trufflehog]
       paths:
-        - packages/ui/src/assets/** # Skip secret scanning on asset files
+        - packages/**/assets/** # Skip secret scanning on asset files (icons, etc.)
+
+  # All enabled linters - organized by category for clarity
   enabled:
-    - actionlint@1.7.7
-    - eslint@9.30.1
-    - git-diff-check
-    - markdownlint@0.45.0
-    - prettier@3.6.2
-    - shellcheck@0.10.0
-    - shfmt@3.6.0
-    - yamllint@1.37.1
-    # Security and optimization tools (disabled for development speed)
-    # Re-enable these for production CI:
-    # - checkov@3.2.442
-    # - osv-scanner@2.0.3
-    # - oxipng@9.1.5
-    # - svgo@3.3.2
-    # - trufflehog@3.89.2
+    # === CORE DEVELOPMENT LINTERS ===
+    - eslint@9.30.1 # JavaScript/TypeScript linting (uses our existing configs)
+    - prettier@3.6.2 # Code formatting with Tailwind CSS class sorting
+    - git-diff-check # Validates git diffs for common issues
+
+    # === CONFIGURATION & DOCUMENTATION ===
+    - yamllint@1.37.1 # YAML configuration file linting
+    - markdownlint@0.45.0 # Markdown documentation linting
+    - markdown-link-check@3.13.7 # Validates that markdown links are not broken
+    - dotenv-linter@3.3.0 # Environment file validation (.env files)
+
+    # === SHELL SCRIPTING ===
+    - shellcheck@0.10.0 # Shell script linting (catches common bash/sh errors)
+    - shfmt@3.6.0 # Shell script formatting
+
+    # === SECURITY SCANNING ===
+    - checkov@3.2.442 # Infrastructure as Code security scanning
+    - gitleaks@8.27.2 # Detects secrets in git history and commits
+    - trufflehog@3.89.2 # Advanced secret detection with high accuracy
+    - osv-scanner@2.0.3 # Vulnerability scanning for dependencies
+
+    # === GITHUB ACTIONS ===
+    - actionlint@1.7.7 # GitHub Actions workflow linting
+
+    # === ASSET OPTIMIZATION ===
+    - oxipng@9.1.5 # PNG image optimization (lossless compression)
+    - svgo@3.3.2 # SVG optimization and cleanup
+
+    # === CODE QUALITY & ORGANIZATION ===
+    - sort-package-json@3.2.1 # Automatically sorts package.json files
+    - pre-commit-hooks@4.6.0 # Standard pre-commit validations (trailing whitespace, etc.)
+    - dustilock@1.2.0 # Dependency integrity checking
+
+# Git hooks and automated actions
 actions:
   enabled:
-    - trunk-announce
-    - trunk-check-pre-push
-    - trunk-fmt-pre-commit
-    - trunk-upgrade-available
+    - trunk-fmt-pre-commit # Auto-format files when committing
+    - trunk-check-pre-push # Run linting checks before pushing
+    - trunk-check-pre-push-always # Always run pre-push checks (even on clean repo)
+    - trunk-announce # Show announcements for new features
+    - trunk-upgrade-available # Notify when Trunk updates are available
+    - commitlint # Validate commit messages follow conventional format

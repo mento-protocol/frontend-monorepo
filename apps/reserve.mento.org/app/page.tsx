@@ -11,10 +11,7 @@ import type {
 } from "@/app/lib/types";
 import Image from "next/image";
 import { env } from "@/env.mjs";
-
 import { IconInfo } from "./components/icon-info";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./components/tooltip";
-
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui";
 
 // Define a more specific type for the items in result.stablecoins

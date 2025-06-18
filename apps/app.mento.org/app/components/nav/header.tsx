@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { ConnectButton } from "@/components/nav/connect-button";
 
 import { useTheme } from "next-themes";
