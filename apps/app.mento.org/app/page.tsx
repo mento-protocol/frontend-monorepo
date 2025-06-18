@@ -19,7 +19,7 @@ export default function SwapPage() {
           position="top-right"
           duration={5000}
           icons={{
-            success: <IconCheck fill="text-success" />,
+            success: <IconCheck className="text-success" />,
           }}
           closeButton
           toastOptions={{
@@ -30,6 +30,7 @@ export default function SwapPage() {
               actionButton: "action-button",
               cancelButton: "cancel-button",
               closeButton: "close-button",
+              icon: "icon",
             },
           }}
           offset={{ top: "80px" }}
