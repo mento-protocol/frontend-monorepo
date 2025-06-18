@@ -14,9 +14,23 @@
   },
   "editor.formatOnSave": true,
   "editor.codeActionsOnSave": {
-    "source.fixAll.eslint": "explicit"
+    "source.fixAll.eslint": "explicit",
+    "trunk.check": "explicit"
   },
+  // Configure Trunk as an additional formatter alongside Prettier
   "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "[typescript]": {
+    "editor.defaultFormatter": "trunk.io"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "trunk.io"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "trunk.io"
+  },
+  "[javascriptreact]": {
+    "editor.defaultFormatter": "trunk.io"
+  },
   "typescript.tsdk": "node_modules/typescript/lib",
   "typescript.enablePromptUseWorkspaceTsdk": true,
   "eslint.validate": [
@@ -32,11 +46,15 @@
   },
   "typescript.preferences.importModuleSpecifier": "shortest",
   "javascript.preferences.importModuleSpecifier": "shortest",
+  // Trunk specific settings
+  "trunk.trunkPath": "trunk",
   "search.exclude": {
     "**/node_modules": true,
     "**/dist": true,
     "**/.next": true,
-    "**/.turbo": true
+    "**/.turbo": true,
+    "**/.trunk/out": true,
+    "**/.trunk/logs": true
   },
   "files.exclude": {
     "**/.git": true,
