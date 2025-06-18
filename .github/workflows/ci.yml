@@ -58,7 +58,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Lint
+      - name: Install Trunk
+        uses: trunk-io/trunk-action@v1
+        with:
+          check-mode: fix
+
+      - name: Lint with Trunk
         run: pnpm lint
 
       - name: Build

@@ -7,7 +7,7 @@
     "dev": "next dev --turbopack --port 3002",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "trunk check ."
   },
   "dependencies": {
     "@celo/contractkit": "^9.2.1",
