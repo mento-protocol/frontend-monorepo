@@ -5,7 +5,6 @@ import { ERC20_ABI } from "@/lib/config/consts";
 import { TokenId, getTokenAddress } from "@/lib/config/tokens";
 import { getProvider } from "@/features/providers";
 import { getTradablePairForTokens } from "@/features/sdk";
-import { logger } from "@/lib/utils/logger";
 
 async function fetchAllowance(
   fromTokenId: TokenId,

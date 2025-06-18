@@ -10,11 +10,10 @@ A monorepo for all our frontend apps, designed to simplify sharing of code like 
 - **[NextJS](https://nextjs.org/)**: The framework for all our frontend apps
 - **[Tailwind CSS](https://tailwindcss.com/)**: For styling
 - **[shadcn/ui](https://ui.shadcn.com/)**: Our UI component base library to extend from
-- **[Trunk CLI](https://trunk.io/)**: Universal linter and formatter (ESLint, Prettier, Markdown, YAML, Shell)
+- **[Trunk CLI](https://trunk.io/)**: Metalinter and formatter (ESLint, Prettier, Markdown, YAML, Shell, Commitlint)
 - **[Changesets](https://github.com/changesets/changesets)**: For managing versions and generating changelogs
 - **[Vercel](https://vercel.com/)**: For deployments and turborepo build remote caching
 - **[GitHub Actions](https://github.com/features/actions)**: For CI/CD (with Turborepo caching for builds via Vercel)
-- **[Husky](https://typicode.github.io/husky/)** / **[lint-staged](https://www.npmjs.com/package/lint-staged)** / **[Commitlint](https://commitlint.js.org/)**: For Git hooks and clean commits
 
 ## Repo Structure
 

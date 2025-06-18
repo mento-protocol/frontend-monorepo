@@ -115,11 +115,10 @@ export function ReserveChart({
             outerRadius="90%"
             strokeWidth={0} // stroke="var(--background)"
             onMouseEnter={(_, index) => {
-              data[index] && handleActiveChanged(data[index].name);
+              if (data[index]) handleActiveChanged(data[index].name);
             }}
             onMouseLeave={() => {
               handleActiveChanged(undefined);
-              console.log("Mouse leave, active segment cleared");
             }}
             activeIndex={
               activeSegmentInternal
@@ -157,11 +156,10 @@ export function ReserveChart({
             outerRadius="60%" // Ends where the outer ring begins
             strokeWidth={0}
             onMouseEnter={(_, index) => {
-              data[index] && handleActiveChanged(data[index].name);
+              if (data[index]) handleActiveChanged(data[index].name);
             }}
             onMouseLeave={() => {
               handleActiveChanged(undefined);
-              console.log("Mouse leave, active segment cleared");
             }}
             activeIndex={
               activeSegmentInternal

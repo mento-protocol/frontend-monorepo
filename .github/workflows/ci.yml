@@ -2,9 +2,11 @@ name: CI/CD
 
 on:
   push:
-    branches: ["main"]
+    branches: [main]
   pull_request:
     types: [opened, synchronize]
+
+permissions: read-all
 
 env:
   TURBO_TEAM: ${{ vars.TURBO_TEAM }}
@@ -16,6 +18,9 @@ jobs:
     name: Build and Test
     timeout-minutes: 15
     runs-on: ubuntu-latest
+    permissions:
+      checks: write # For trunk to post annotations
+      contents: read # For repo checkout
 
     env:
       NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_PROJECT_ID }}
@@ -40,7 +45,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: "pnpm"
+          cache: pnpm
 
       - name: Get pnpm store directory
         shell: bash
@@ -58,13 +63,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Install Trunk
+      - name: Trunk Code Quality
         uses: trunk-io/trunk-action@v1
         with:
-          check-mode: fix
-
-      - name: Lint with Trunk
-        run: pnpm lint
+          check-mode: all
 
       - name: Build
         run: pnpm build

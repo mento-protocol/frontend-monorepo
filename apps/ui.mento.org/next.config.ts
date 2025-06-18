@@ -16,7 +16,7 @@ const nextConfig: NextConfig = {
     removeConsole: process.env.NODE_ENV === "production",
   },
 
-  // Transpile monorepo packages used by this appo
+  // Transpile monorepo packages used by this app
   // https://nextjs.org/docs/architecture/nextjs-compiler#module-transpilation
   transpilePackages: ["@repo/ui"],
 };

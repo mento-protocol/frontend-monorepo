@@ -4,7 +4,7 @@ export function isStale(lastUpdated: number | null, staleTime: number) {
   return !lastUpdated || Date.now() - lastUpdated > staleTime;
 }
 
-export function areRatesStale(rates: Record<any, { lastUpdated: number }>) {
+export function areRatesStale(rates: Record<string, { lastUpdated: number }>) {
   return (
     !rates ||
     !Object.keys(rates).length ||

@@ -13,7 +13,7 @@ import {
   TokenIcon,
 } from "@repo/ui";
 import { ChevronLeft, ChevronsRight, Search } from "lucide-react";
-import { Fragment, useState, useRef, useEffect } from "react";
+import { Fragment, useState } from "react";
 import { useAccount, useChainId } from "wagmi";
 
 import { useTokenOptions } from "@/features/swap/hooks/use-token-options";
