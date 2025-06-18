@@ -24,7 +24,7 @@
     "lint-staged": "^15.5.1",
     "prettier": "^3.5.3",
     "prettier-plugin-tailwindcss": "^0.6.11",
-    "turbo": "^2.5.0",
+    "turbo": "^2.5.4",
     "typescript": "^5.8.3"
   },
   "packageManager": "pnpm@10.11.0",
@@ -34,6 +34,23 @@
   "pnpm": {
     "overrides": {
       "esbuild": "0.21.5"
-    }
+    },
+    "onlyBuiltDependencies": [
+      "@parcel/watcher",
+      "@sentry/cli",
+      "@tailwindcss/oxide",
+      "bufferutil",
+      "core-js",
+      "core-js-pure",
+      "es5-ext",
+      "esbuild",
+      "keccak",
+      "secp256k1",
+      "sharp",
+      "utf-8-validate",
+      "web3",
+      "web3-bzz",
+      "web3-shh"
+    ]
   }
 }

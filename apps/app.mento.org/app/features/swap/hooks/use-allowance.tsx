@@ -22,7 +22,8 @@ async function fetchAllowance(
   const routerAddress = getAddress("MentoRouter", chainId);
   const tokenAddr = getTokenAddress(fromTokenId, chainId);
 
-  logger.info(`Fetching allowance for token ${tokenAddr} on chain ${chainId}`);
+  // For Debugging
+  // logger.info(`Fetching allowance for token ${tokenAddr} on chain ${chainId}`);
   const provider = getProvider(chainId);
   const contract = new Contract(tokenAddr, ERC20_ABI, provider);
 
@@ -37,7 +38,8 @@ async function fetchAllowance(
     accountAddress,
     allowedContractAddr,
   );
-  logger.info(`Allowance: ${allowance.toString()}`);
+  // For Debugging
+  // logger.info(`Allowance: ${allowance.toString()}`);
   return allowance.toString();
 }
 
