@@ -2,6 +2,37 @@
 
 This guide provides detailed information about how Trunk CLI is configured and used in this monorepo.
 
+## Team Onboarding: VS Code Setup
+
+**🚨 Important**: We use **Trunk extension** instead of the ESLint extension for better monorepo support.
+
+### Required Setup (All Team Members)
+
+1. **Open workspace in VS Code/Cursor**
+2. **Install recommended extensions** (VS Code will prompt automatically):
+
+   - ✅ **Trunk.io** - Our main linter/formatter
+   - ✅ **Prettier** - Code formatting (integrated with Trunk)
+   - ✅ **Tailwind CSS** - Tailwind utilities
+   - 🚫 **DO NOT install ESLint extension** (actively discouraged)
+
+3. **If you already have ESLint extension installed**:
+
+   - It's automatically disabled in workspace settings
+   - Consider uninstalling it project-wide for consistency
+
+4. **Verify setup**:
+   - Open `apps/ui.mento.org/next.config.ts`
+   - You should see red error on line 16: `NODE_ENV is not listed...`
+   - This confirms Trunk is working correctly
+
+### What This Gives You
+
+- ✅ **Real-time linting** - Same errors as `trunk check --all`
+- ✅ **Auto-formatting** - Format on save with all Trunk rules
+- ✅ **Monorepo-aware** - Understands workspace structure
+- ✅ **Consistent team experience** - Everyone sees the same errors
+
 ## Overview
 
 [Trunk CLI](https://trunk.io/) is our universal code quality tool that combines multiple linters and formatters into a single, fast, and consistent experience. It replaces the need for separate ESLint, Prettier, and other tool configurations while preserving all your existing rules.
@@ -196,7 +227,7 @@ This ensures the same linting rules run in CI as in local development.
 
 ### Common Issues
 
-**1. "Command not found: trunk"**
+#### 1. "Command not found: trunk"
 
 ```bash
 # Install Trunk CLI
@@ -205,7 +236,7 @@ curl https://get.trunk.io -fsSL | bash
 # Or use the VS Code extension
 ```
 
-**2. "ESLint configuration not found"**
+#### 2. "ESLint configuration not found"
 
 ```bash
 # Trunk automatically detects ESLint configs
@@ -213,7 +244,7 @@ curl https://get.trunk.io -fsSL | bash
 trunk check --verbose  # Shows configuration loading
 ```
 
-**3. "Plugin not found" errors**
+#### 3. "Plugin not found" errors
 
 ```bash
 # Update Trunk to latest version
@@ -223,7 +254,7 @@ trunk upgrade
 trunk check --verbose
 ```
 
-**4. Performance issues**
+#### 4. Performance issues
 
 ```bash
 # Check what's taking time

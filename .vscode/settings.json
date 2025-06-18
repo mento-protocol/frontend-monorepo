@@ -1,9 +1,4 @@
 {
-  "eslint.workingDirectories": [
-    {
-      "mode": "auto"
-    }
-  ],
   // By default VS Code will not trigger tailwind class completions when editing "string" content, for example within JSX attribute values. This setting will enable that.
   "editor.quickSuggestions": {
     "strings": "on"
@@ -14,9 +9,10 @@
   },
   "editor.formatOnSave": true,
   "editor.codeActionsOnSave": {
-    "source.fixAll.eslint": "explicit",
     "trunk.check": "explicit"
   },
+  // Disable ESLint extension in favor of Trunk
+  "eslint.enable": false,
   // Configure Trunk as an additional formatter alongside Prettier
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "[typescript]": {
@@ -33,12 +29,7 @@
   },
   "typescript.tsdk": "node_modules/typescript/lib",
   "typescript.enablePromptUseWorkspaceTsdk": true,
-  "eslint.validate": [
-    "javascript",
-    "javascriptreact",
-    "typescript",
-    "typescriptreact"
-  ],
+
   "prettier.documentSelectors": ["**/*.{js,jsx,ts,tsx,json,css,md,mdx}"],
   "tailwindCSS.includeLanguages": {
     "typescript": "javascript",
@@ -48,6 +39,8 @@
   "javascript.preferences.importModuleSpecifier": "shortest",
   // Trunk specific settings
   "trunk.trunkPath": "trunk",
+  "trunk.enableLinting": true,
+  "trunk.enableFormatting": true,
   "search.exclude": {
     "**/node_modules": true,
     "**/dist": true,
