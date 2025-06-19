@@ -115,7 +115,6 @@ export default function TokenDialog({
           {filteredTokens.map((token, index) => (
             <Fragment key={token.id}>
               <div
-                data-testid={`tokenOption_${token.id}`}
                 className={cn(
                   "hover:bg-accent group flex w-full items-center justify-between p-2 text-left hover:cursor-pointer",
                   value === token.id && "bg-accent",
@@ -147,7 +146,12 @@ export default function TokenDialog({
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="font-medium">{token.symbol}</div>
+                    <div
+                      className="font-medium"
+                      data-testid={`tokenOption_${token.id}`}
+                    >
+                      {token.symbol}
+                    </div>
                     <div className="text-muted-foreground text-xs">
                       {token.name}
                     </div>

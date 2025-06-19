@@ -185,6 +185,8 @@ export function SwapConfirm() {
     return null;
   }
 
+  const isSell = direction === "in";
+
   return (
     <div className="flex h-full flex-col gap-6">
       <div className="flex w-full flex-row items-center justify-between md:w-[520px]">
@@ -196,13 +198,16 @@ export function SwapConfirm() {
           />
           <span
             className="text-center text-xl font-medium md:text-3xl"
-            data-testid="truncatedAmount"
+            data-testid="sellAmountLabel"
           >
             {formatWithMaxDecimals(fromAmount)}
           </span>
-          <span className="text-muted-foreground text-sm md:text-base">
+          <span
+            className="text-muted-foreground text-sm md:text-base"
+            data-testid="sellUsdAmountLabel"
+          >
             ~$
-            {direction === "in"
+            {isSell
               ? formatWithMaxDecimals(sellUSDValue)
               : formatWithMaxDecimals(buyUSDValue)}
           </span>
@@ -225,12 +230,18 @@ export function SwapConfirm() {
             className="size-10 bg-transparent md:size-14"
             size={56}
           />
-          <span className="text-center text-xl font-medium md:text-3xl">
+          <span
+            className="text-center text-xl font-medium md:text-3xl"
+            data-testid="buyAmountLabel"
+          >
             {formatWithMaxDecimals(toAmount)}
           </span>
-          <span className="text-muted-foreground">
+          <span
+            className="text-muted-foreground"
+            data-testid="buyUsdAmountLabel"
+          >
             ~$
-            {direction === "in"
+            {isSell
               ? formatWithMaxDecimals(buyUSDValue)
               : formatWithMaxDecimals(sellUSDValue)}
           </span>

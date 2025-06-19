@@ -66,12 +66,15 @@ body {
 }
 
 .toast {
-  @apply bg-card! rounded-none! border-none! items-start! !z-50;
+  @apply bg-card! rounded-none! border-none!;
   .description {
     @apply text-muted-foreground!;
     a {
       @apply text-muted-foreground! underline! !font-normal;
     }
+  }
+  .icon svg {
+    @apply fill-current!;
   }
 }
 

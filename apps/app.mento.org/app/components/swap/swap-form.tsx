@@ -430,7 +430,7 @@ export default function SwapForm() {
                         }}
                       />
                     </FormControl>
-                    <FormDescription>
+                    <FormDescription data-testid="sellUsdAmountLabel">
                       ~${formatWithMaxDecimals(sellUSDValue)}
                     </FormDescription>
                   </FormItem>
@@ -553,7 +553,7 @@ export default function SwapForm() {
                         }}
                       />
                     </FormControl>
-                    <FormDescription>
+                    <FormDescription data-testid="buyUsdAmountLabel">
                       ~${formatWithMaxDecimals(buyUSDValue)}
                     </FormDescription>
                     <FormMessage>{fieldState.error?.message}</FormMessage>

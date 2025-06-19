@@ -4,7 +4,7 @@ interface CheckProps extends React.SVGProps<SVGSVGElement> {
   fill?: string;
 }
 
-const Check: React.FC<CheckProps> = ({ fill = "black", ...props }) => {
+const Check: React.FC<CheckProps> = ({ fill = "currentColor", ...props }) => {
   return (
     <svg
       width="24"
