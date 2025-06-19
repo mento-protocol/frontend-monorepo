@@ -10,10 +10,10 @@ A monorepo for all our frontend apps, designed to simplify sharing of code like 
 - **[NextJS](https://nextjs.org/)**: The framework for all our frontend apps
 - **[Tailwind CSS](https://tailwindcss.com/)**: For styling
 - **[shadcn/ui](https://ui.shadcn.com/)**: Our UI component base library to extend from
+- **[Trunk CLI](https://trunk.io/)**: Metalinter and formatter (ESLint, Prettier, Markdown, YAML, Shell, Commitlint)
 - **[Changesets](https://github.com/changesets/changesets)**: For managing versions and generating changelogs
 - **[Vercel](https://vercel.com/)**: For deployments and turborepo build remote caching
 - **[GitHub Actions](https://github.com/features/actions)**: For CI/CD (with Turborepo caching for builds via Vercel)
-- **[Husky](https://typicode.github.io/husky/)** / **[lint-staged](https://www.npmjs.com/package/lint-staged)** / **[Commitlint](https://commitlint.js.org/)**: For Git hooks and clean commits
 
 ## Repo Structure
 
@@ -35,6 +35,7 @@ frontend-monorepo/
 ├── .changeset/               # Changesets for versioning
 ├── .github/                  # GitHub workflows
 │   └── workflows/            # CI/CD workflows
+├── .trunk/                   # Trunk CLI configuration and cache
 ├── turbo.json                # Turborepo configuration
 └── pnpm-workspace.yaml       # PNPM workspace configuration
 ```
@@ -45,6 +46,7 @@ frontend-monorepo/
 
 - Node.js (v22 or later)
 - PNPM (v10 or later)
+- [Trunk CLI](https://trunk.io/) (automatically installed during development)
 
 ### Installation
 
@@ -73,6 +75,58 @@ frontend-monorepo/
    ```
 
 ## Development Workflow
+
+### Code Quality & Formatting
+
+We use **[Trunk CLI](https://trunk.io/)** as our universal linter and formatter. It combines ESLint, Prettier, Markdown linting, YAML linting, and more into a single, fast tool.
+
+#### Available Commands
+
+```bash
+# Lint all files (comprehensive check)
+pnpm lint
+
+# Lint with auto-fix
+pnpm lint:fix
+
+# Format all files
+pnpm format
+
+# Check formatting without making changes
+pnpm format:check
+```
+
+#### App-Specific Linting
+
+To lint a specific application:
+
+```bash
+cd apps/<app-name>
+pnpm lint                    # Lints only this app
+```
+
+Or from the root directory:
+
+```bash
+trunk check apps/<app-name>  # Direct Trunk usage
+```
+
+#### What Trunk Checks
+
+- **JavaScript/TypeScript**: ESLint with your existing rules
+- **Code Formatting**: Prettier (including Tailwind CSS class sorting)
+- **Markdown**: Documentation formatting and best practices
+- **YAML**: Configuration file formatting
+- **Shell Scripts**: shellcheck and shfmt
+- **Git**: Pre-commit and pre-push hooks
+
+#### VS Code Integration
+
+The workspace is configured to use Trunk for:
+
+- **Auto-formatting on save** for JS/TS files
+- **Lint-on-type** feedback
+- **Code actions** for quick fixes
 
 ### Running a Single Application
 
@@ -158,7 +212,11 @@ Example:
 feat(ui): add new button component
 ```
 
-The pre-commit hook will run linters and type checking, while the commit-msg hook will validate your commit message format.
+**Git Hooks**: Trunk automatically manages git hooks that will:
+
+- **Pre-commit**: Format and lint staged files
+- **Pre-push**: Run comprehensive checks before pushing
+- **Commit-msg**: Validate commit message format
 
 ### Versioning and Publishing
 
@@ -194,8 +252,16 @@ pnpm release
 
 The repository is set up with GitHub Actions for CI/CD:
 
-- **CI**: On every PR, it runs linting, type checking, and builds all packages
+- **CI**: On every PR, it runs linting (via Trunk), type checking, and builds all packages
 - **CD**: On merges to main, it deploys applications to Vercel
+
+### Trunk in CI
+
+The CI pipeline uses the [Trunk GitHub Action](https://github.com/trunk-io/trunk-action) to:
+
+- Install Trunk CLI in the CI environment
+- Run the same linting and formatting checks as local development
+- Ensure consistent code quality across all environments
 
 ### Turborepo Remote Caching
 
@@ -246,3 +312,4 @@ This repository has Signed Remote Caching enabled (`"signature": true` in `turbo
 - [ ] Add [syncpack](https://www.npmjs.com/package/syncpack) for consistent dependency versions across all monorepo packages
 - [ ] Finetune builds. There's probably ways to make the builds of both packages and apps smaller and/or more performant.
 - [ ] Make VS Code's "Go To Definition" on a component jump to the actual TypeScript source file instead of the compiled JS file in ./dist
+- [ ] Enable additional Trunk linters for production CI (security scanning, image optimization)

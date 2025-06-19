@@ -323,8 +323,7 @@ export default function SwapForm() {
         shouldValidate: true,
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quote]);
+  }, [quote, formQuote, form]);
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     try {
