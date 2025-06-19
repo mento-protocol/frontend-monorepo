@@ -195,7 +195,6 @@ export default function SwapForm() {
     debouncedAmount,
   ]);
 
-  // Get insufficient balance message
   const insufficientBalanceMessage = useMemo(() => {
     if (!amountExceedsBalance && !shouldSkipQuoteRequest) return null;
 
@@ -222,7 +221,7 @@ export default function SwapForm() {
 
   const handleUseMaxBalance = () => {
     const maxAmountWei = balances[fromTokenId as keyof typeof balances] || "0";
-    console.log("maxAmountWei", maxAmountWei);
+
     // Use the full balance amount
     const maxAmountBigInt = BigInt(maxAmountWei);
     const decimals = Tokens[fromTokenId as TokenId]?.decimals;
@@ -325,6 +324,8 @@ export default function SwapForm() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quote]);
+
+  // Button loading state is now handled in the button render logic
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     try {
@@ -451,6 +452,7 @@ export default function SwapForm() {
                         onValueChange={field.onChange}
                         title="Select asset to sell"
                         excludeTokenId={toTokenId}
+                        filterByTokenId={toTokenId as TokenId}
                         onClose={() => {
                           setTimeout(() => {
                             amountRef.current?.focus();
@@ -575,6 +577,7 @@ export default function SwapForm() {
                         onValueChange={field.onChange}
                         title="Select asset to buy"
                         excludeTokenId={fromTokenId}
+                        filterByTokenId={fromTokenId as TokenId}
                         onClose={() => {
                           setTimeout(() => {
                             quoteRef.current?.focus();
@@ -621,6 +624,7 @@ export default function SwapForm() {
           )}
         </div>
 
+        {/* Button state is logged via useEffect */}
         {isConnected ? (
           <Button
             data-testid={shouldApprove ? "approveButton" : "swapButton"}
@@ -639,9 +643,13 @@ export default function SwapForm() {
               debouncedAmount !== amount
             }
           >
-            {isLoading ||
-            (hasAmount && !quote && !shouldSkipQuoteRequest) ||
-            debouncedAmount !== amount ? (
+            {/* Only show loading when we actually have an amount and should be fetching */}
+            {(isLoading && hasAmount && !shouldSkipQuoteRequest) ||
+            (hasAmount &&
+              !quote &&
+              !shouldSkipQuoteRequest &&
+              debouncedAmount === amount) ||
+            (hasAmount && debouncedAmount !== amount) ? (
               <IconLoading />
             ) : hasAmount &&
               (amountExceedsBalance || shouldSkipQuoteRequest) ? (
