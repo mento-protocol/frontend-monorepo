@@ -1,7 +1,8 @@
 "use client";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { cn, TokenIcon, IconLoading } from "@repo/ui";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { cn, IconLoading, TokenIcon } from "@repo/ui";
+import { useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import * as z from "zod";
@@ -21,6 +22,7 @@ import { CoinInput } from "@repo/ui";
 
 import { ConnectButton } from "@/components/nav/connect-button";
 import { useAccountBalances } from "@/features/accounts/use-account-balances";
+import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { useApproveTransaction } from "@/features/swap/hooks/use-approve-transaction";
 import { useSwapAllowance } from "@/features/swap/hooks/use-swap-allowance";
 import { useOptimizedSwapQuote } from "@/features/swap/hooks/use-swap-quote";
@@ -28,9 +30,9 @@ import { useTokenOptions } from "@/features/swap/hooks/use-token-options";
 import { confirmViewAtom, formValuesAtom } from "@/features/swap/swap-atoms";
 import type { SwapFormValues } from "@/features/swap/types";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
-import { type TokenId, Tokens } from "@/lib/config/tokens";
-import { fromWeiRounded, toWei } from "@/lib/utils/amount";
-import { useDebounce } from "@/lib/utils/debounce";
+import { MIN_ROUNDED_VALUE } from "@/lib/config/consts";
+import { getTokenByAddress, type TokenId, Tokens } from "@/lib/config/tokens";
+import { fromWeiRounded, parseAmount, toWei } from "@/lib/utils/amount";
 import { logger } from "@/lib/utils/logger";
 import { useAtom } from "jotai";
 import { ArrowUpDown, ChevronDown, OctagonAlert } from "lucide-react";
@@ -40,8 +42,17 @@ import TokenDialog from "./token-dialog";
 
 type SwapDirection = "in" | "out";
 
+// Layer 1: Keep Zod for static checks only
 const formSchema = z.object({
-  amount: z.string().min(1, { message: "Amount is required" }),
+  amount: z
+    .string()
+    .min(1, { message: "Amount is required" })
+    .refine((v) => {
+      // Allow "0." as valid input (user is typing)
+      if (v === "0." || v === "0") return true;
+      const parsed = parseAmount(v);
+      return parsed !== null && parsed.gt(0);
+    }),
   direction: z.enum(["in", "out"]),
   fromTokenId: z.string().min(1, { message: "From token is required" }),
   quote: z.string(),
@@ -50,6 +61,70 @@ const formSchema = z.object({
 });
 
 type FormValues = z.infer<typeof formSchema>;
+
+// Custom hook for trading limits
+function useTradingLimits(
+  fromTokenId: string,
+  toTokenId: string,
+  chainId: number,
+) {
+  return useQuery({
+    queryKey: ["trading-limits", fromTokenId, toTokenId, chainId],
+    queryFn: async () => {
+      if (!fromTokenId || !toTokenId) return null;
+
+      const mento = await getMentoSdk(chainId);
+      const tradablePair = await getTradablePairForTokens(
+        chainId,
+        fromTokenId as TokenId,
+        toTokenId as TokenId,
+      );
+
+      if (
+        !tradablePair ||
+        !tradablePair.path ||
+        tradablePair.path.length === 0
+      ) {
+        return null;
+      }
+
+      const exchangeId = tradablePair.path[0].id;
+      const tradingLimits = await mento.getTradingLimits(exchangeId);
+
+      let minMaxIn = Infinity;
+      let minMaxOut = Infinity;
+      let timestampIn = 0;
+      let timestampOut = 0;
+
+      for (const limit of tradingLimits) {
+        if (limit.maxIn < minMaxIn) {
+          minMaxIn = limit.maxIn;
+          timestampIn = limit.until;
+        }
+        if (limit.maxOut < minMaxOut) {
+          minMaxOut = limit.maxOut;
+          timestampOut = limit.until;
+        }
+      }
+
+      const limitAsset = tradingLimits[0]?.asset;
+      const tokenToCheck = limitAsset
+        ? getTokenByAddress(limitAsset as TokenId).symbol
+        : null;
+
+      return {
+        minMaxIn,
+        minMaxOut,
+        timestampIn,
+        timestampOut,
+        tokenToCheck,
+        asset: limitAsset,
+      };
+    },
+    staleTime: 60_000, // Cache for 1 minute
+    enabled: !!fromTokenId && !!toTokenId,
+  });
+}
 
 // Default empty balances object
 const defaultEmptyBalances = {};
@@ -65,6 +140,7 @@ export default function SwapForm() {
   const [isApprovalProcessing, setIsApprovalProcessing] = useState(false);
 
   const { data: balancesFromHook } = useAccountBalances({ address, chainId });
+  const balances = balancesFromHook || defaultEmptyBalances;
 
   const { allTokenOptions } = useTokenOptions(undefined, balancesFromHook);
 
@@ -81,6 +157,7 @@ export default function SwapForm() {
       toTokenId: formValues?.toTokenId || "cUSD",
       slippage: formValues?.slippage || "0.5",
     },
+    mode: "onChange", // Important for field-level validation
   });
 
   const fromTokenId = useWatch({ control: form.control, name: "fromTokenId" });
@@ -89,8 +166,7 @@ export default function SwapForm() {
   const formDirection = useWatch({ control: form.control, name: "direction" });
   const formQuote = useWatch({ control: form.control, name: "quote" });
 
-  // Get token balances from the hook
-  const balances = balancesFromHook || defaultEmptyBalances;
+  // Get token balances
   const fromTokenBalance = useMemo(() => {
     const balanceValue = balances[fromTokenId as keyof typeof balances];
     const balance = fromWeiRounded(
@@ -99,6 +175,7 @@ export default function SwapForm() {
     );
     return formatWithMaxDecimals(balance || "0.00");
   }, [balances, fromTokenId]);
+
   const toTokenBalance = useMemo(() => {
     const balanceValue = balances[toTokenId as keyof typeof balances];
     const balance = fromWeiRounded(
@@ -108,99 +185,122 @@ export default function SwapForm() {
     return formatWithMaxDecimals(balance || "0.00");
   }, [balances, toTokenId]);
 
-  const hasAmount = amount && amount !== "" && amount !== "0";
-
-  // Check if amount exceeds balance
-  const amountExceedsBalance = useMemo(() => {
-    if (!hasAmount || !fromTokenBalance) return false;
-
-    // When direction is "in", we're selling the fromToken
-    if (formDirection === "in") {
-      const numericAmount = Number.parseFloat(amount.replace(/,/g, ""));
-      const numericBalance = Number.parseFloat(
-        fromTokenBalance.replace(/,/g, ""),
-      );
-      return numericAmount > numericBalance;
-    }
-
-    // When direction is "out", we need to check if the calculated quote exceeds the fromToken balance
-    if (formDirection === "out" && formQuote) {
-      const numericQuote = Number.parseFloat(formQuote.replace(/,/g, ""));
-      const numericBalance = Number.parseFloat(
-        fromTokenBalance.replace(/,/g, ""),
-      );
-      return numericQuote > numericBalance;
-    }
-
-    return false;
-  }, [amount, hasAmount, fromTokenBalance, formDirection, formQuote]);
-
-  // Check if we should skip quote requests due to balance issues
-  const shouldSkipQuoteRequest = useMemo(() => {
-    if (!hasAmount) return true;
-
-    // For "out" direction (buying), estimate if the required sell amount would exceed balance
-    if (formDirection === "out") {
-      const numericBuyAmount = Number.parseFloat(amount.replace(/,/g, ""));
-      const numericBalance = Number.parseFloat(
-        fromTokenBalance.replace(/,/g, ""),
-      );
-
-      // If buy amount is significantly higher than available balance, skip quote request
-      // This prevents the infinite loop when user enters unrealistic buy amounts
-      if (numericBuyAmount > numericBalance * 10) {
-        return true;
-      }
-    }
-
-    // For "in" direction, check if sell amount exceeds balance
-    if (formDirection === "in") {
-      const numericAmount = Number.parseFloat(amount.replace(/,/g, ""));
-      const numericBalance = Number.parseFloat(
-        fromTokenBalance.replace(/,/g, ""),
-      );
-      if (numericAmount > numericBalance) {
-        return true;
-      }
-    }
-
-    return false;
-  }, [hasAmount, formDirection, amount, fromTokenBalance]);
-
-  const debouncedAmount = useDebounce(amount, 350);
-
-  // Show toast error when balance is exceeded
-  useEffect(() => {
-    if (shouldSkipQuoteRequest && hasAmount && debouncedAmount === amount) {
-      const sellTokenSymbol =
-        Tokens[fromTokenId as TokenId]?.symbol || fromTokenId;
-      const buyTokenSymbol = Tokens[toTokenId as TokenId]?.symbol || toTokenId;
-
-      let errorMessage = "";
-      if (formDirection === "in") {
-        errorMessage = `Not enough ${sellTokenSymbol} to sell ${formatWithMaxDecimals(amount)}`;
-      } else {
-        errorMessage = `Not enough ${sellTokenSymbol} to buy ${formatWithMaxDecimals(amount)} ${buyTokenSymbol}`;
-      }
-
-      toast.error(errorMessage);
-    }
-  }, [
-    shouldSkipQuoteRequest,
-    hasAmount,
-    formDirection,
+  // Get trading limits
+  const { data: limits, isLoading: limitsLoading } = useTradingLimits(
     fromTokenId,
     toTokenId,
-    amount,
-    debouncedAmount,
-  ]);
+    chainId,
+  );
 
-  // Get insufficient balance message
-  const insufficientBalanceMessage = useMemo(() => {
-    if (!amountExceedsBalance && !shouldSkipQuoteRequest) return null;
+  // Layer 2: Field-level sync validation (balance)
+  const validateBalance = useCallback(
+    (value: string, direction: "in" | "out") => {
+      if (!value || !fromTokenId) return true;
 
-    return "Insufficient Balance";
-  }, [amountExceedsBalance, shouldSkipQuoteRequest]);
+      // Allow "0." as user is typing
+      if (value === "0." || value === "0") return true;
+
+      const parsedAmount = parseAmount(value);
+      if (!parsedAmount) return true;
+
+      // Check minimum amount
+      if (parsedAmount.lt(MIN_ROUNDED_VALUE) && !parsedAmount.isZero()) {
+        return "Amount too small";
+      }
+
+      const tokenInfo = Tokens[fromTokenId as TokenId];
+      if (!tokenInfo) return "Invalid token";
+
+      const tokenBalance = balances[fromTokenId as keyof typeof balances];
+      if (typeof tokenBalance === "undefined") return "Balance unavailable";
+
+      // For "in" direction, check the amount directly
+      if (direction === "in") {
+        const amountInWei = toWei(parsedAmount, tokenInfo.decimals);
+        if (amountInWei.gt(tokenBalance)) {
+          return "Insufficient balance";
+        }
+      }
+
+      // For "out" direction, we need the quote to check balance
+      // This will be handled by the quote validation
+      return true;
+    },
+    [balances, fromTokenId],
+  );
+
+  // Layer 3: Field-level async validation (trading limits)
+  const validateLimits = useCallback(
+    async (value: string) => {
+      if (!value || limitsLoading || !limits || !limits.tokenToCheck)
+        return true;
+
+      // Allow "0." as user is typing
+      if (value === "0." || value === "0") return true;
+
+      const parsedAmount = parseAmount(value);
+      if (!parsedAmount) return true;
+
+      const numericAmount = Number(parsedAmount.toString());
+      const numericQuote = Number(formQuote);
+
+      const { minMaxIn, minMaxOut, timestampIn, timestampOut, tokenToCheck } =
+        limits;
+
+      let amountToCheck: number;
+      let exceeds = false;
+      let limit = 0;
+      let timestamp = 0;
+
+      if (tokenToCheck === fromTokenId) {
+        amountToCheck = formDirection === "in" ? numericAmount : numericQuote;
+        if (amountToCheck > minMaxIn) {
+          exceeds = true;
+          limit = minMaxIn;
+          timestamp = timestampIn;
+        }
+      } else {
+        amountToCheck = formDirection === "in" ? numericQuote : numericAmount;
+        if (amountToCheck > minMaxOut) {
+          exceeds = true;
+          limit = minMaxOut;
+          timestamp = timestampOut;
+        }
+      }
+
+      if (exceeds) {
+        const date = new Date(timestamp * 1000).toLocaleString();
+        return `Exceeds trading limit of ${limit} ${tokenToCheck} until ${date}`;
+      }
+
+      return true;
+    },
+    [limits, limitsLoading, formDirection, formQuote, fromTokenId],
+  );
+
+  // Combined validation for amount field
+  const validateAmount = useCallback(
+    async (value: string) => {
+      const balanceCheck = validateBalance(value, formDirection);
+      if (balanceCheck !== true) return balanceCheck;
+
+      const limitsCheck = await validateLimits(value);
+      if (limitsCheck !== true) return limitsCheck;
+
+      return true;
+    },
+    [validateBalance, validateLimits, formDirection],
+  );
+
+  // Validation for quote field when direction is "out"
+  const validateQuoteBalance = useCallback(
+    (value: string) => {
+      if (formDirection !== "out" || !value || !fromTokenId) return true;
+
+      return validateBalance(value, "out");
+    },
+    [validateBalance, formDirection, fromTokenId],
+  );
 
   // Function to handle token swap
   const handleReverseTokens = () => {
@@ -208,22 +308,15 @@ export default function SwapForm() {
     const currentToTokenId = form.getValues("toTokenId");
     const currentAmount = form.getValues("amount");
 
-    // Swap token IDs
     form.setValue("fromTokenId", currentToTokenId);
     form.setValue("toTokenId", currentFromTokenId);
-
-    // Keep the current amount value and direction as "in" (top field)
     form.setValue("amount", currentAmount);
     form.setValue("direction", "in");
-
-    // Clear the quote to trigger recalculation
     form.setValue("quote", "");
   };
 
   const handleUseMaxBalance = () => {
     const maxAmountWei = balances[fromTokenId as keyof typeof balances] || "0";
-    console.log("maxAmountWei", maxAmountWei);
-    // Use the full balance amount
     const maxAmountBigInt = BigInt(maxAmountWei);
     const decimals = Tokens[fromTokenId as TokenId]?.decimals;
 
@@ -231,11 +324,9 @@ export default function SwapForm() {
       maxAmountBigInt.toString(),
       decimals,
     );
-    // Use formatWithMaxDecimals without thousand separators for form input
     form.setValue("amount", formatWithMaxDecimals(formattedAmount, 4, false));
     form.setValue("direction", "in");
 
-    // Show warning toast specifically for CELO token
     if (fromTokenId === "CELO") {
       toast.success("Max balance used", {
         duration: 5000,
@@ -245,28 +336,173 @@ export default function SwapForm() {
     }
   };
 
-  // Type assertion is needed because the form values are strings
-  // but the hook expects specific types
+  // Get form state
+  const { errors } = form.formState;
+  const hasAmount =
+    amount && amount !== "" && amount !== "0" && amount !== "0.";
+
+  // Check if we have a trading limit error
+  const [tradingLimitError, setTradingLimitError] = useState<string | null>(
+    null,
+  );
+
+  // Check for balance error
+  const [balanceError, setBalanceError] = useState<string | null>(null);
+
+  // Track last checked values to prevent redundant limit checks
+  const lastLimitCheckRef = useRef<{
+    amount: string;
+    fromTokenId: string;
+    toTokenId: string;
+    formDirection: string;
+    formQuote: string;
+  } | null>(null);
+
+  // Check balance in real-time
+  useEffect(() => {
+    const checkBalance = async () => {
+      if (!hasAmount || !fromTokenId) {
+        setBalanceError(null);
+        return;
+      }
+
+      const balanceCheck = validateBalance(amount, formDirection);
+      if (balanceCheck !== true) {
+        setBalanceError(balanceCheck);
+      } else {
+        setBalanceError(null);
+      }
+    };
+
+    checkBalance();
+  }, [amount, hasAmount, fromTokenId, formDirection, validateBalance]);
+
+  // Check trading limits in real-time
+  useEffect(() => {
+    const checkLimits = async () => {
+      if (
+        !hasAmount ||
+        !limits ||
+        limitsLoading ||
+        !fromTokenId ||
+        !toTokenId
+      ) {
+        setTradingLimitError(null);
+        return;
+      }
+
+      // Check if we've already validated these exact values
+      const currentCheck = {
+        amount,
+        fromTokenId,
+        toTokenId,
+        formDirection,
+        formQuote,
+      };
+
+      if (
+        lastLimitCheckRef.current &&
+        lastLimitCheckRef.current.amount === currentCheck.amount &&
+        lastLimitCheckRef.current.fromTokenId === currentCheck.fromTokenId &&
+        lastLimitCheckRef.current.toTokenId === currentCheck.toTokenId &&
+        lastLimitCheckRef.current.formDirection ===
+          currentCheck.formDirection &&
+        lastLimitCheckRef.current.formQuote === currentCheck.formQuote
+      ) {
+        // Skip check if values haven't changed
+        return;
+      }
+
+      // Update last checked values
+      lastLimitCheckRef.current = currentCheck;
+
+      // Call validateLimits inline to avoid dependency issues
+      if (!limits || !limits.tokenToCheck) {
+        setTradingLimitError(null);
+        return;
+      }
+
+      const parsedAmount = parseAmount(amount);
+      if (!parsedAmount) {
+        setTradingLimitError(null);
+        return;
+      }
+
+      const numericAmount = Number(parsedAmount.toString());
+      const numericQuote = Number(formQuote);
+
+      const { minMaxIn, minMaxOut, timestampIn, timestampOut, tokenToCheck } =
+        limits;
+
+      let amountToCheck: number;
+      let exceeds = false;
+      let limit = 0;
+      let timestamp = 0;
+
+      if (tokenToCheck === fromTokenId) {
+        amountToCheck = formDirection === "in" ? numericAmount : numericQuote;
+        if (amountToCheck > minMaxIn) {
+          exceeds = true;
+          limit = minMaxIn;
+          timestamp = timestampIn;
+        }
+      } else {
+        amountToCheck = formDirection === "in" ? numericQuote : numericAmount;
+        if (amountToCheck > minMaxOut) {
+          exceeds = true;
+          limit = minMaxOut;
+          timestamp = timestampOut;
+        }
+      }
+
+      if (exceeds) {
+        const date = new Date(timestamp * 1000).toLocaleString();
+        setTradingLimitError(
+          `Exceeds trading limit of ${limit} ${tokenToCheck} until ${date}`,
+        );
+      } else {
+        setTradingLimitError(null);
+      }
+    };
+
+    checkLimits();
+  }, [
+    amount,
+    hasAmount,
+    limits,
+    limitsLoading,
+    fromTokenId,
+    toTokenId,
+    formDirection,
+    formQuote,
+  ]);
+
+  // Only prevent quote if there's an actual error, not during validation
+  const canQuote =
+    !!hasAmount && !errors.amount && !limitsLoading && !tradingLimitError;
+
   const {
-    isLoading,
+    isLoading: quoteLoading,
     quote,
     rate,
     isError,
     fromTokenUSDValue,
     toTokenUSDValue,
   } = useOptimizedSwapQuote(
-    shouldSkipQuoteRequest ? "" : amount,
+    canQuote ? amount : "",
     formDirection as SwapDirection,
     fromTokenId as TokenId,
     toTokenId as TokenId,
   );
 
+  // Override loading state when we have validation errors
+  const isLoading =
+    quoteLoading && canQuote && !tradingLimitError && !limitsLoading;
+
   const sellUSDValue = useMemo(() => {
     if (formDirection === "in") {
-      // selling from-token
       return fromTokenId === "cUSD" ? amount || "0" : fromTokenUSDValue || "0";
     } else {
-      // still selling from-token (but user typed in Buy first)
       return fromTokenId === "cUSD"
         ? formQuote || "0"
         : fromTokenUSDValue || "0";
@@ -277,7 +513,6 @@ export default function SwapForm() {
     if (formDirection === "in") {
       return toTokenId === "cUSD" ? formQuote || "0" : toTokenUSDValue || "0";
     } else {
-      // we're buying the to-token
       return toTokenId === "cUSD" ? amount || "0" : toTokenUSDValue || "0";
     }
   }, [formDirection, toTokenId, amount, formQuote, toTokenUSDValue]);
@@ -285,14 +520,12 @@ export default function SwapForm() {
   const amountWei = useMemo(() => {
     if (!fromTokenId) return "0";
 
-    // When direction is "in", we're selling the exact amount entered
     if (formDirection === "in") {
       return amount
         ? toWei(amount, Tokens[fromTokenId as TokenId]?.decimals).toFixed(0)
         : "0";
     }
 
-    // When direction is "out", we're selling the calculated quote amount
     return formQuote
       ? toWei(formQuote, Tokens[fromTokenId as TokenId]?.decimals).toFixed(0)
       : "0";
@@ -323,12 +556,18 @@ export default function SwapForm() {
         shouldValidate: true,
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quote]);
+  }, [quote, form, formQuote]);
+
+  // Show error toasts based on form errors
+  useEffect(() => {
+    // Don't show toast for "0." input
+    if (errors.amount?.message && hasAmount && amount !== "0.") {
+      toast.error(errors.amount.message);
+    }
+  }, [errors.amount, hasAmount, amount]);
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     try {
-      // If approval is needed, do it first
       if (!skipApprove && sendApproveTx) {
         setIsApprovalProcessing(true);
         logger.info("Approval needed, sending approve transaction");
@@ -347,7 +586,6 @@ export default function SwapForm() {
         setIsApprovalProcessing(false);
       }
 
-      // Set form values and navigate to confirmation
       const formData: SwapFormValues = {
         ...values,
         slippage: formValues?.slippage || "0.5",
@@ -363,7 +601,6 @@ export default function SwapForm() {
       logger.error("Error in swap form submission", error);
       setIsApprovalProcessing(false);
 
-      // Check if user rejected the transaction
       const errorMessage = error instanceof Error ? error.message : "";
       const isUserRejection =
         errorMessage.includes("User rejected request") ||
@@ -384,12 +621,8 @@ export default function SwapForm() {
       });
     }
   };
-  const shouldApprove =
-    debouncedAmount === amount &&
-    !skipApprove &&
-    hasAmount &&
-    quote &&
-    !isLoading;
+
+  const shouldApprove = !skipApprove && hasAmount && quote && !isLoading;
 
   return (
     <Form {...form}>
@@ -408,6 +641,9 @@ export default function SwapForm() {
               <Controller
                 control={form.control}
                 name="amount"
+                rules={{
+                  validate: formDirection === "in" ? validateAmount : undefined,
+                }}
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Sell</FormLabel>
@@ -418,17 +654,16 @@ export default function SwapForm() {
                         placeholder="0"
                         value={formDirection === "in" ? field.value : formQuote}
                         onChange={(e) => {
-                          // Handle both string and event inputs
                           const val =
                             typeof e === "string" ? e : e.target.value;
                           field.onChange(val);
-                          // When changing the sell field, ensure direction is set to "in"
                           if (formDirection !== "in") {
                             form.setValue("direction", "in", {
                               shouldValidate: true,
                             });
                           }
                         }}
+                        onBlur={field.onBlur}
                       />
                     </FormControl>
                     <FormDescription data-testid="sellUsdAmountLabel">
@@ -521,7 +756,17 @@ export default function SwapForm() {
               <Controller
                 control={form.control}
                 name="quote"
-                render={({ fieldState }) => (
+                rules={{
+                  validate: {
+                    ...(formDirection === "out"
+                      ? {
+                          amount: validateAmount,
+                          balance: validateQuoteBalance,
+                        }
+                      : {}),
+                  },
+                }}
+                render={({ field, fieldState }) => (
                   <FormItem>
                     <FormLabel>Buy</FormLabel>
                     <FormControl>
@@ -539,10 +784,8 @@ export default function SwapForm() {
                               : ""
                         }
                         onChange={(e) => {
-                          // Handle both string and event inputs
                           const val =
                             typeof e === "string" ? e : e.target.value;
-                          // When changing this field, update amount and direction
                           form.setValue("amount", val, {
                             shouldValidate: true,
                           });
@@ -552,6 +795,7 @@ export default function SwapForm() {
                             });
                           }
                         }}
+                        onBlur={field.onBlur}
                       />
                     </FormControl>
                     <FormDescription data-testid="buyUsdAmountLabel">
@@ -630,24 +874,26 @@ export default function SwapForm() {
             type="submit"
             disabled={
               !hasAmount ||
-              isLoading ||
-              (!quote && !shouldSkipQuoteRequest) ||
-              amountExceedsBalance ||
-              shouldSkipQuoteRequest ||
+              !quote || // Require quote to be fetched
+              (isLoading && hasAmount) || // Only consider loading if there's an amount
               isApproveTxLoading ||
               isApprovalProcessing ||
-              debouncedAmount !== amount
+              !!tradingLimitError ||
+              !!balanceError ||
+              (isError && hasAmount && canQuote) // Disable when unable to fetch quote
             }
           >
-            {isLoading ||
-            (hasAmount && !quote && !shouldSkipQuoteRequest) ||
-            debouncedAmount !== amount ? (
+            {isLoading && hasAmount ? ( // Only show loading if there's an amount
               <IconLoading />
-            ) : hasAmount &&
-              (amountExceedsBalance || shouldSkipQuoteRequest) ? (
-              insufficientBalanceMessage || "Insufficient Balance"
-            ) : isError && hasAmount ? (
+            ) : tradingLimitError ? (
+              "Swap exceeds trading limits"
+            ) : balanceError ? (
+              "Insufficient balance"
+            ) : isError && hasAmount && canQuote ? (
               "Unable to fetch quote"
+            ) : errors.amount?.message ||
+              (formDirection === "out" && errors.quote?.message) ? (
+              errors.amount?.message || errors.quote?.message
             ) : isApproveTxLoading || isApprovalProcessing ? (
               <IconLoading />
             ) : shouldApprove ? (
