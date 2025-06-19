@@ -72,8 +72,7 @@ lint:
 actions:
   enabled:
     - trunk-fmt-pre-commit # Auto-format files when committing
-    - trunk-check-pre-push # Run linting checks before pushing
-    - trunk-check-pre-push-always # Always run pre-push checks (even on clean repo)
+    - trunk-check-pre-push # Run checks before pushing
     - trunk-announce # Show announcements for new features
     - trunk-upgrade-available # Notify when Trunk updates are available
     - commitlint # Validate commit messages follow conventional format
