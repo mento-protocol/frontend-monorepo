@@ -522,6 +522,8 @@ export default function SwapForm() {
     }
   }, [errors.amount, hasAmount, amount]);
 
+  // Button loading state is now handled in the button render logic
+
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     try {
       if (!skipApprove && sendApproveTx) {
@@ -642,6 +644,7 @@ export default function SwapForm() {
                         onValueChange={field.onChange}
                         title="Select asset to sell"
                         excludeTokenId={toTokenId}
+                        filterByTokenId={toTokenId as TokenId}
                         onClose={() => {
                           setTimeout(() => {
                             amountRef.current?.focus();
@@ -775,6 +778,7 @@ export default function SwapForm() {
                         onValueChange={field.onChange}
                         title="Select asset to buy"
                         excludeTokenId={fromTokenId}
+                        filterByTokenId={fromTokenId as TokenId}
                         onClose={() => {
                           setTimeout(() => {
                             quoteRef.current?.focus();
@@ -821,6 +825,7 @@ export default function SwapForm() {
           )}
         </div>
 
+        {/* Button state is logged via useEffect */}
         {isConnected ? (
           <Button
             data-testid={
