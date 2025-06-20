@@ -44,7 +44,6 @@ import { ArrowUpDown, ChevronDown, OctagonAlert } from "lucide-react";
 import { useAccount, useChainId } from "wagmi";
 import { waitForTransaction } from "wagmi/actions";
 import TokenDialog from "./token-dialog";
-import { errors } from "ethers";
 
 type SwapDirection = "in" | "out";
 
@@ -539,10 +538,13 @@ export default function SwapForm() {
 
   // Update the quote field when the calculated quote changes
   useEffect(() => {
-    if (quote !== undefined && formQuote !== quote) {
-      form.setValue("quote", quote, {
-        shouldValidate: true,
-      });
+    if (quote !== undefined) {
+      const formattedQuote = formatWithMaxDecimals(quote, 4, false);
+      if (formQuote !== formattedQuote) {
+        form.setValue("quote", formattedQuote, {
+          shouldValidate: true,
+        });
+      }
     }
   }, [quote, form, formQuote]);
 
