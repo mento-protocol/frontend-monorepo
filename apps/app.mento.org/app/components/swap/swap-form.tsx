@@ -267,7 +267,8 @@ export default function SwapForm() {
           timestamp = timestampOut;
         }
       }
-
+      console.log("Amount to check", amountToCheck);
+      console.log("Limit", limits);
       if (exceeds) {
         const date = new Date(timestamp * 1000).toLocaleString();
         return `Exceeds trading limit of ${limit} ${tokenToCheck} until ${date}`;
@@ -349,15 +350,6 @@ export default function SwapForm() {
   // Check for balance error
   const [balanceError, setBalanceError] = useState<string | null>(null);
 
-  // Track last checked values to prevent redundant limit checks
-  const lastLimitCheckRef = useRef<{
-    amount: string;
-    fromTokenId: string;
-    toTokenId: string;
-    formDirection: string;
-    formQuote: string;
-  } | null>(null);
-
   // Check balance in real-time
   useEffect(() => {
     const checkBalance = async () => {
@@ -391,31 +383,6 @@ export default function SwapForm() {
         return;
       }
 
-      // Check if we've already validated these exact values
-      const currentCheck = {
-        amount,
-        fromTokenId,
-        toTokenId,
-        formDirection,
-        formQuote,
-      };
-
-      if (
-        lastLimitCheckRef.current &&
-        lastLimitCheckRef.current.amount === currentCheck.amount &&
-        lastLimitCheckRef.current.fromTokenId === currentCheck.fromTokenId &&
-        lastLimitCheckRef.current.toTokenId === currentCheck.toTokenId &&
-        lastLimitCheckRef.current.formDirection ===
-          currentCheck.formDirection &&
-        lastLimitCheckRef.current.formQuote === currentCheck.formQuote
-      ) {
-        // Skip check if values haven't changed
-        return;
-      }
-
-      // Update last checked values
-      lastLimitCheckRef.current = currentCheck;
-
       // Call validateLimits inline to avoid dependency issues
       if (!limits || !limits.tokenToCheck) {
         setTradingLimitError(null);
@@ -434,25 +401,17 @@ export default function SwapForm() {
       const { minMaxIn, minMaxOut, timestampIn, timestampOut, tokenToCheck } =
         limits;
 
-      let amountToCheck: number;
       let exceeds = false;
       let limit = 0;
       let timestamp = 0;
 
-      if (tokenToCheck === fromTokenId) {
-        amountToCheck = formDirection === "in" ? numericAmount : numericQuote;
-        if (amountToCheck > minMaxIn) {
-          exceeds = true;
-          limit = minMaxIn;
-          timestamp = timestampIn;
-        }
-      } else {
-        amountToCheck = formDirection === "in" ? numericQuote : numericAmount;
-        if (amountToCheck > minMaxOut) {
-          exceeds = true;
-          limit = minMaxOut;
-          timestamp = timestampOut;
-        }
+      const amountToCheck =
+        formDirection === "in" ? numericAmount : numericQuote;
+
+      if (amountToCheck > minMaxIn) {
+        exceeds = true;
+        limit = minMaxIn;
+        timestamp = timestampIn;
       }
 
       if (exceeds) {
@@ -474,7 +433,6 @@ export default function SwapForm() {
     fromTokenId,
     toTokenId,
     formDirection,
-    formQuote,
   ]);
 
   // Only prevent quote if there's an actual error, not during validation
