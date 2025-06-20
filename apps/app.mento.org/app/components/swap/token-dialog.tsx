@@ -11,12 +11,14 @@ import {
   DialogTrigger,
   ScrollArea,
   TokenIcon,
+  IconLoading,
 } from "@repo/ui";
 import { ChevronLeft, ChevronsRight, Search } from "lucide-react";
-import { Fragment, useState, useRef, useEffect } from "react";
+import { Fragment, useState } from "react";
 import { useAccount, useChainId } from "wagmi";
 
 import { useTokenOptions } from "@/features/swap/hooks/use-token-options";
+import { useTradablePairs } from "@/features/swap/hooks/use-tradable-pairs";
 import type { TokenId } from "@/features/swap/types";
 import { fromWeiRounded } from "@/lib/utils/amount";
 import { Input } from "@repo/ui";
@@ -29,6 +31,7 @@ interface TokenDialogProps {
   title?: string;
   fromTokenId?: TokenId;
   excludeTokenId?: string;
+  filterByTokenId?: TokenId;
   onClose?: () => void;
 }
 
@@ -39,6 +42,7 @@ export default function TokenDialog({
   title = "Select asset to sell",
   fromTokenId,
   excludeTokenId,
+  filterByTokenId,
   onClose,
 }: TokenDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -53,8 +57,18 @@ export default function TokenDialog({
     balancesFromHook,
   );
 
-  // Filter tokens based on search input
+  // Get tradable pairs if filterByTokenId is provided
+  const { data: tradableTokenIds, isLoading: isLoadingTradablePairs } =
+    useTradablePairs(filterByTokenId);
+  // Filter tokens based on search input and tradability
   const filteredTokens = (fromTokenId ? tokenOptions : allTokenOptions)
+    .filter((token) => {
+      // If we're filtering by tradable pairs and data is loaded, only show tradable tokens
+      if (filterByTokenId && tradableTokenIds) {
+        return tradableTokenIds.includes(token.id as TokenId);
+      }
+      return true;
+    })
     .filter(
       (token) =>
         token.symbol.toLowerCase().includes(search.toLowerCase()) ||
@@ -98,10 +112,7 @@ export default function TokenDialog({
           </DialogClose>
         </DialogHeader>
         <div className="relative">
-          <Search
-            className="text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2"
-            size={24}
-          />
+          <Search className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
           <Input
             name="search"
             autoFocus
@@ -111,64 +122,67 @@ export default function TokenDialog({
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <ScrollArea className="h-[calc(100vh-20rem)]">
-          {filteredTokens.map((token, index) => (
-            <Fragment key={token.id}>
-              <div
-                className={cn(
-                  "hover:bg-accent group flex w-full items-center justify-between p-2 text-left hover:cursor-pointer",
-                  value === token.id && "bg-accent",
-                )}
-                onClick={() => {
-                  handleTokenSelect(token.id);
-                }}
-                onKeyUp={(e) => {
-                  if (e.key === "Enter") {
+
+        {isLoadingTradablePairs && filterByTokenId ? (
+          <div className="flex items-center justify-center py-8">
+            <IconLoading />
+          </div>
+        ) : (
+          <ScrollArea className="h-[calc(100vh-20rem)] pr-3">
+            {filteredTokens.map((token, index) => (
+              <Fragment key={token.id}>
+                <div
+                  data-testid={`tokenOption_${token.id}`}
+                  className={cn(
+                    "hover:bg-accent group flex w-full items-center justify-between p-2 text-left hover:cursor-pointer",
+                    value === token.id && "bg-accent",
+                  )}
+                  onClick={() => {
                     handleTokenSelect(token.id);
-                  }
-                }}
-              >
-                <div className="flex items-center gap-2">
-                  <div className="group relative grid h-10 w-10 place-content-center">
-                    <TokenIcon
-                      token={{
-                        id: token.id,
-                        symbol: token.symbol,
-                        name: token.name,
-                        color: token.color || "#000000",
-                        decimals: token.decimals || 18,
-                      }}
-                      className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 group-hover:opacity-0"
-                      size={24}
-                    />
-                    <div className="bg-primary text-primary-foreground absolute grid h-10 w-10 place-items-center opacity-0 group-hover:opacity-100">
-                      <ChevronsRight />
-                    </div>
-                  </div>
+                  }}
+                  onKeyUp={(e) => {
+                    if (e.key === "Enter") {
+                      handleTokenSelect(token.id);
+                    }
+                  }}
+                >
                   <div className="flex items-center gap-2">
-                    <div
-                      className="font-medium"
-                      data-testid={`tokenOption_${token.id}`}
-                    >
-                      {token.symbol}
+                    <div className="group relative grid h-10 w-10 place-content-center">
+                      <TokenIcon
+                        token={{
+                          id: token.id,
+                          symbol: token.symbol,
+                          name: token.name,
+                          color: token.color || "#000000",
+                          decimals: token.decimals || 18,
+                        }}
+                        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 group-hover:opacity-0"
+                        size={24}
+                      />
+                      <div className="bg-primary text-primary-foreground absolute grid h-10 w-10 place-items-center opacity-0 group-hover:opacity-100">
+                        <ChevronsRight />
+                      </div>
                     </div>
-                    <div className="text-muted-foreground text-xs">
-                      {token.name}
+                    <div className="flex items-center gap-2">
+                      <div className="font-medium">{token.symbol}</div>
+                      <div className="text-muted-foreground text-xs">
+                        {token.name}
+                      </div>
                     </div>
                   </div>
+                  {token.balance && token.balance !== "0" && (
+                    <div className="text-sm">
+                      {token.balance} {token.symbol}
+                    </div>
+                  )}
                 </div>
-                {token.balance && token.balance !== "0" && (
-                  <div className="text-sm">
-                    {token.balance} {token.symbol}
-                  </div>
+                {index < filteredTokens.length - 1 && (
+                  <hr className="border-[var(--border)]" />
                 )}
-              </div>
-              {index < filteredTokens.length - 1 && (
-                <hr className="border-[var(--border)]" />
-              )}
-            </Fragment>
-          ))}
-        </ScrollArea>
+              </Fragment>
+            ))}
+          </ScrollArea>
+        )}
       </DialogContent>
     </Dialog>
   );
