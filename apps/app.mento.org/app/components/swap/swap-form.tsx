@@ -31,7 +31,12 @@ import { confirmViewAtom, formValuesAtom } from "@/features/swap/swap-atoms";
 import type { SwapFormValues } from "@/features/swap/types";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
 import { MIN_ROUNDED_VALUE } from "@/lib/config/consts";
-import { getTokenByAddress, type TokenId, Tokens } from "@/lib/config/tokens";
+import {
+  getTokenAddress,
+  getTokenByAddress,
+  type TokenId,
+  Tokens,
+} from "@/lib/config/tokens";
 import { fromWeiRounded, parseAmount, toWei } from "@/lib/utils/amount";
 import { logger } from "@/lib/utils/logger";
 import { useAtom } from "jotai";
@@ -72,7 +77,8 @@ function useTradingLimits(
     queryKey: ["trading-limits", fromTokenId, toTokenId, chainId],
     queryFn: async () => {
       if (!fromTokenId || !toTokenId) return null;
-
+      console.log("fromTokenId", fromTokenId);
+      console.log("toTokenId", toTokenId);
       const mento = await getMentoSdk(chainId);
       const tradablePair = await getTradablePairForTokens(
         chainId,
@@ -90,13 +96,18 @@ function useTradingLimits(
 
       const exchangeId = tradablePair.path[0].id;
       const tradingLimits = await mento.getTradingLimits(exchangeId);
+      const filteredTradingLimits = tradingLimits.filter(
+        (limit) =>
+          limit.asset === getTokenAddress(fromTokenId as TokenId, chainId),
+      );
+      console.log("filteredTradingLimits", filteredTradingLimits);
 
       let minMaxIn = Infinity;
       let minMaxOut = Infinity;
       let timestampIn = 0;
       let timestampOut = 0;
 
-      for (const limit of tradingLimits) {
+      for (const limit of filteredTradingLimits) {
         if (limit.maxIn < minMaxIn) {
           minMaxIn = limit.maxIn;
           timestampIn = limit.until;
@@ -107,7 +118,7 @@ function useTradingLimits(
         }
       }
 
-      const limitAsset = tradingLimits[0]?.asset;
+      const limitAsset = filteredTradingLimits[0]?.asset;
       const tokenToCheck = limitAsset
         ? getTokenByAddress(limitAsset as TokenId).symbol
         : null;
@@ -121,7 +132,6 @@ function useTradingLimits(
         asset: limitAsset,
       };
     },
-    staleTime: 60_000, // Cache for 1 minute
     enabled: !!fromTokenId && !!toTokenId,
   });
 }
@@ -405,13 +415,20 @@ export default function SwapForm() {
       let limit = 0;
       let timestamp = 0;
 
-      const amountToCheck =
-        formDirection === "in" ? numericAmount : numericQuote;
-
-      if (amountToCheck > minMaxIn) {
-        exceeds = true;
-        limit = minMaxIn;
-        timestamp = timestampIn;
+      if (formDirection === "in") {
+        const amountToCheck = numericAmount;
+        if (amountToCheck > minMaxIn) {
+          exceeds = true;
+          limit = minMaxIn;
+          timestamp = timestampIn;
+        }
+      } else {
+        const amountToCheck = numericQuote;
+        if (amountToCheck > minMaxOut) {
+          exceeds = true;
+          limit = minMaxOut;
+          timestamp = timestampOut;
+        }
       }
 
       if (exceeds) {
@@ -434,6 +451,14 @@ export default function SwapForm() {
     toTokenId,
     formDirection,
   ]);
+
+  useEffect(() => {
+    if (tradingLimitError) {
+      toast.error(tradingLimitError, {
+        duration: 20000,
+      });
+    }
+  }, [tradingLimitError]);
 
   // Only prevent quote if there's an actual error, not during validation
   const canQuote =
