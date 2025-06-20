@@ -44,6 +44,7 @@ import { ArrowUpDown, ChevronDown, OctagonAlert } from "lucide-react";
 import { useAccount, useChainId } from "wagmi";
 import { waitForTransaction } from "wagmi/actions";
 import TokenDialog from "./token-dialog";
+import { errors } from "ethers";
 
 type SwapDirection = "in" | "out";
 
@@ -350,7 +351,11 @@ export default function SwapForm() {
   // Get form state
   const { errors } = form.formState;
   const hasAmount =
-    amount && amount !== "" && amount !== "0" && amount !== "0.";
+    amount &&
+    amount !== "" &&
+    amount !== "0" &&
+    amount !== "0." &&
+    Number(amount) > 0;
 
   // Check if we have a trading limit error
   const [tradingLimitError, setTradingLimitError] = useState<string | null>(
@@ -544,7 +549,12 @@ export default function SwapForm() {
   // Show error toasts based on form errors
   useEffect(() => {
     // Don't show toast for "0." input
-    if (errors.amount?.message && hasAmount && amount !== "0.") {
+    if (
+      errors.amount?.message &&
+      errors.amount.message !== "Invalid input" &&
+      errors.amount.message !== "Amount is required" &&
+      hasAmount
+    ) {
       toast.error(errors.amount.message);
     }
   }, [errors.amount, hasAmount, amount]);
@@ -858,6 +868,8 @@ export default function SwapForm() {
             disabled={
               !hasAmount ||
               !quote || // Require quote to be fetched
+              (errors.amount &&
+                errors.amount.message !== "Amount is required") ||
               (isLoading && hasAmount) || // Only consider loading if there's an amount
               isApproveTxLoading ||
               isApprovalProcessing ||
@@ -874,7 +886,8 @@ export default function SwapForm() {
               "Insufficient balance"
             ) : isError && hasAmount && canQuote ? (
               "Unable to fetch quote"
-            ) : errors.amount?.message ||
+            ) : (errors.amount?.message &&
+                errors.amount?.message !== "Amount is required") ||
               (formDirection === "out" && errors.quote?.message) ? (
               errors.amount?.message || errors.quote?.message
             ) : isApproveTxLoading || isApprovalProcessing ? (
