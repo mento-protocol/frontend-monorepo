@@ -8,7 +8,10 @@ function ProposalList({ className, ...props }: React.ComponentProps<"ul">) {
   return (
     <ul
       data-slot="proposal-list"
-      className={cn("flex flex-col items-start justify-start gap-0", className)}
+      className={cn(
+        "flex w-full flex-col items-start justify-start gap-0",
+        className,
+      )}
       {...props}
     />
   );
@@ -17,11 +20,59 @@ function ProposalList({ className, ...props }: React.ComponentProps<"ul">) {
 function ProposalListItem({ className, ...props }: React.ComponentProps<"li">) {
   return (
     <li
-      data-slot="proposal-list-item flex flex-col items-start justify-start p-3 lg:p-8 lg:flex-row lg:items-center lg:justify-between"
-      className={cn("flex", className)}
+      data-slot="proposal-list-item"
+      className={cn(
+        "flex w-full flex-row items-center justify-start border-b",
+        className,
+      )}
       {...props}
     />
   );
 }
 
-export { ProposalList, ProposalListItem };
+interface ProposalListItemIndexProps extends React.ComponentProps<"div"> {
+  index?: string | number;
+}
+
+function ProposalListItemIndex({
+  index,
+  className,
+  ...props
+}: ProposalListItemIndexProps) {
+  return (
+    <div
+      data-slot="proposal-list-item-index"
+      className={cn(
+        "flex h-full w-10 shrink-0 flex-col items-center justify-center bg-[var(--dark-background)] text-sm text-[var(--index)] lg:w-12",
+        className,
+      )}
+      {...props}
+    >
+      {index !== undefined && index}
+    </div>
+  );
+}
+
+function ProposalListItemBody({
+  className,
+  ...props
+}: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="proposal-list-item-body"
+      className={cn(
+        "flex flex-col items-start justify-start gap-2 p-3 xl:flex-row xl:items-center xl:gap-8 xl:p-8",
+        className,
+      )}
+    >
+      {props.children}
+    </div>
+  );
+}
+
+export {
+  ProposalList,
+  ProposalListItem,
+  ProposalListItemIndex,
+  ProposalListItemBody,
+};

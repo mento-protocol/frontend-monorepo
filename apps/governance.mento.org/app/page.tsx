@@ -29,6 +29,8 @@ import {
   PaginationPrevious,
   ProposalList,
   ProposalListItem,
+  ProposalListItemIndex,
+  ProposalListItemBody,
   ProposalStatus,
 } from "@repo/ui";
 
@@ -129,7 +131,7 @@ export default async function Home() {
         </div>
       </section>
       <section className="xl:px-22 flex flex-col items-start justify-start gap-12 px-4 lg:flex-row lg:gap-20">
-        <div className="flex-grow">
+        <div className="w-full flex-grow">
           <ProposalCard>
             <ProposalCardHeader variant="highlighted">
               <h2 className="text-2xl font-semibold">Proposals</h2>
@@ -140,34 +142,254 @@ export default async function Home() {
             <ProposalCardBody>
               <ProposalList>
                 <ProposalListItem>
-                  <ProposalStatus variant="active" />
+                  <ProposalListItemIndex index="1" />
+                  <ProposalListItemBody>
+                    <ProposalStatus variant="active" />
+                    <h3 className="text-xl text-white xl:text-lg">
+                      MGP-5: Update voting period ahead of L2 transition
+                    </h3>
+                    <div className="w-full xl:max-w-[192px]">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--approved)]"></span>
+                          1.2M
+                        </div>
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--rejected)]"></span>
+                          320K
+                        </div>
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--abstained)]"></span>
+                          0
+                        </div>
+                      </div>
+                    </div>
+                  </ProposalListItemBody>
                 </ProposalListItem>
                 <ProposalListItem>
-                  <ProposalStatus variant="pending" />
+                  <ProposalListItemIndex index="2" />
+                  <ProposalListItemBody>
+                    <ProposalStatus variant="pending" />
+                    <h3 className="text-xl text-white xl:text-lg">
+                      MGP-5: Update voting period ahead of L2 transition
+                    </h3>
+                    <div className="w-full xl:max-w-[192px]">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--approved)]"></span>
+                          1.2M
+                        </div>
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--rejected)]"></span>
+                          320K
+                        </div>
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--abstained)]"></span>
+                          0
+                        </div>
+                      </div>
+                    </div>
+                  </ProposalListItemBody>
                 </ProposalListItem>
                 <ProposalListItem>
-                  <ProposalStatus variant="executed" />
+                  <ProposalListItemIndex index="3" />
+                  <ProposalListItemBody>
+                    <ProposalStatus variant="executed" />
+                    <h3 className="text-xl text-white xl:text-lg">
+                      MGP-5: Update voting period ahead of L2 transition
+                    </h3>
+                    <div className="w-full xl:max-w-[192px]">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--approved)]"></span>
+                          1.2M
+                        </div>
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--rejected)]"></span>
+                          320K
+                        </div>
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--abstained)]"></span>
+                          0
+                        </div>
+                      </div>
+                    </div>
+                  </ProposalListItemBody>
                 </ProposalListItem>
                 <ProposalListItem>
-                  <ProposalStatus variant="queued" />
+                  <ProposalListItemIndex index="4" />
+                  <ProposalListItemBody>
+                    <ProposalStatus variant="queued" />
+                    <h3 className="text-xl text-white xl:text-lg">
+                      MGP-5: Update voting period ahead of L2 transition
+                    </h3>
+                    <div className="w-full xl:max-w-[192px]">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--approved)]"></span>
+                          1.2M
+                        </div>
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--rejected)]"></span>
+                          320K
+                        </div>
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--abstained)]"></span>
+                          0
+                        </div>
+                      </div>
+                    </div>
+                  </ProposalListItemBody>
                 </ProposalListItem>
                 <ProposalListItem>
-                  <ProposalStatus variant="defeated" />
+                  <ProposalListItemIndex index="5" />
+                  <ProposalListItemBody>
+                    <ProposalStatus variant="defeated" />
+                    <h3 className="text-xl text-white xl:text-lg">
+                      MGP-5: Update voting period ahead of L2 transition
+                    </h3>
+                    <div className="w-full xl:max-w-[192px]">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--approved)]"></span>
+                          1.2M
+                        </div>
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--rejected)]"></span>
+                          320K
+                        </div>
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--abstained)]"></span>
+                          0
+                        </div>
+                      </div>
+                    </div>
+                  </ProposalListItemBody>
                 </ProposalListItem>
                 <ProposalListItem>
-                  <ProposalStatus />
+                  <ProposalListItemIndex index="6" />
+                  <ProposalListItemBody>
+                    <ProposalStatus />
+                    <h3 className="text-xl text-white xl:text-lg">
+                      MGP-5: Update voting period ahead of L2 transition
+                    </h3>
+                    <div className="w-full xl:max-w-[192px]">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--approved)]"></span>
+                          1.2M
+                        </div>
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--rejected)]"></span>
+                          320K
+                        </div>
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--abstained)]"></span>
+                          0
+                        </div>
+                      </div>
+                    </div>
+                  </ProposalListItemBody>
                 </ProposalListItem>
                 <ProposalListItem>
-                  <ProposalStatus variant="defeated" />
+                  <ProposalListItemIndex index="7" />
+                  <ProposalListItemBody>
+                    <ProposalStatus variant="defeated" />
+                    <h3 className="text-xl text-white xl:text-lg">
+                      MGP-5: Update voting period ahead of L2 transition
+                    </h3>
+                    <div className="w-full xl:max-w-[192px]">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--approved)]"></span>
+                          1.2M
+                        </div>
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--rejected)]"></span>
+                          320K
+                        </div>
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--abstained)]"></span>
+                          0
+                        </div>
+                      </div>
+                    </div>
+                  </ProposalListItemBody>
                 </ProposalListItem>
                 <ProposalListItem>
-                  <ProposalStatus variant="defeated" />
+                  <ProposalListItemIndex index="8" />
+                  <ProposalListItemBody>
+                    <ProposalStatus variant="defeated" />
+                    <h3 className="text-xl text-white xl:text-lg">
+                      MGP-5: Update voting period ahead of L2 transition
+                    </h3>
+                    <div className="w-full xl:max-w-[192px]">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--approved)]"></span>
+                          1.2M
+                        </div>
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--rejected)]"></span>
+                          320K
+                        </div>
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--abstained)]"></span>
+                          0
+                        </div>
+                      </div>
+                    </div>
+                  </ProposalListItemBody>
                 </ProposalListItem>
                 <ProposalListItem>
-                  <ProposalStatus variant="defeated" />
+                  <ProposalListItemIndex index="9" />
+                  <ProposalListItemBody>
+                    <ProposalStatus variant="defeated" />
+                    <h3 className="text-xl text-white xl:text-lg">
+                      MGP-5: Update voting period ahead of L2 transition
+                    </h3>
+                    <div className="w-full xl:max-w-[192px]">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--approved)]"></span>
+                          1.2M
+                        </div>
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--rejected)]"></span>
+                          320K
+                        </div>
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--abstained)]"></span>
+                          0
+                        </div>
+                      </div>
+                    </div>
+                  </ProposalListItemBody>
                 </ProposalListItem>
                 <ProposalListItem>
-                  <ProposalStatus variant="defeated" />
+                  <ProposalListItemIndex index="10" />
+                  <ProposalListItemBody>
+                    <ProposalStatus variant="defeated" />
+                    <h3 className="text-xl text-white xl:text-lg">
+                      MGP-5: Update voting period ahead of L2 transition
+                    </h3>
+                    <div className="w-full xl:max-w-[192px]">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--approved)]"></span>
+                          1.2M
+                        </div>
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--rejected)]"></span>
+                          320K
+                        </div>
+                        <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                          <span className="block h-1 w-1 bg-[var(--abstained)]"></span>
+                          0
+                        </div>
+                      </div>
+                    </div>
+                  </ProposalListItemBody>
                 </ProposalListItem>
               </ProposalList>
             </ProposalCardBody>
@@ -179,12 +401,6 @@ export default async function Home() {
                   </PaginationItem>
                   <PaginationItem>
                     <PaginationLink href="#">1</PaginationLink>
-                  </PaginationItem>
-                  <PaginationItem>
-                    <PaginationLink href="#">2</PaginationLink>
-                  </PaginationItem>
-                  <PaginationItem>
-                    <PaginationLink href="#">3</PaginationLink>
                   </PaginationItem>
                   <PaginationItem>
                     <PaginationEllipsis />
