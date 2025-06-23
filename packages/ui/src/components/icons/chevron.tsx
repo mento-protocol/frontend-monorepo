@@ -1,0 +1,25 @@
+import React from "react";
+
+interface CheckProps extends React.SVGProps<SVGSVGElement> {
+  fill?: string;
+}
+
+const Chevron: React.FC<CheckProps> = ({ fill = "white", ...props }) => {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <path
+        d="M4 12.667H2.66699V11.333H4V12.667ZM9.33301 12.667H8V11.333H9.33301V12.667ZM5.33301 11.333H4V10H5.33301V11.333ZM10.667 11.333H9.33301V10H10.667V11.333ZM6.66699 10H5.33301V8.66699H6.66699V10ZM12 10H10.667V8.66699H12V10ZM8 8.66699H6.66699V7.33301H8V8.66699ZM13.333 8.66699H12V7.33301H13.333V8.66699ZM6.66699 7.33301H5.33301V6H6.66699V7.33301ZM12 7.33301H10.667V6H12V7.33301ZM5.33301 6H4V4.66699H5.33301V6ZM10.667 6H9.33301V4.66699H10.667V6ZM4 4.66699H2.66699V3.33301H4V4.66699ZM9.33301 4.66699H8V3.33301H9.33301V4.66699Z"
+        fill={fill}
+      />
+    </svg>
+  );
+};
+
+export default Chevron;

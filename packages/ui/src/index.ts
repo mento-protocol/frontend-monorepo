@@ -32,6 +32,10 @@ export * from "./components/ui/collapsible.js";
 export * from "./components/ui/accordion.js";
 export * from "./components/ui/popover.js";
 export * from "./components/footer.js";
+export * from "./components/ui/proposal-card.js";
+export * from "./components/ui/pagination.js";
+export * from "./components/ui/proposal-list.js";
+export * from "./components/ui/proposal-status.js";
 
 // Also export any utility functions or types that might be needed
 export * from "./lib/index.js";
@@ -47,5 +51,6 @@ export { default as IconX } from "./components/icons/x.js";
 export { default as IconCheck } from "./components/icons/check.js";
 export { default as IconInfo } from "./components/icons/info.js";
 export { default as IconLoading } from "./components/icons/loading.js";
+export { default as IconChevron } from "./components/icons/chevron.js";
 
 export * as links from "./lib/links.js";
