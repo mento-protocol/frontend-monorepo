@@ -1,6 +1,6 @@
 "use client";
 
-import { Navigation } from "@repo/ui";
+import { Footer, Navigation } from "@repo/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type React from "react";
 import type { ReactNode } from "react";
@@ -25,6 +25,7 @@ export default function Providers({ children }: { children: ReactNode }) {
     <QueryProvider>
       <Navigation />
       {children}
+      <Footer type="governance" />
     </QueryProvider>
   );
 }
