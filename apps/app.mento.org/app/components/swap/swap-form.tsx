@@ -26,6 +26,7 @@ import { useSwapAllowance } from "@/features/swap/hooks/use-swap-allowance";
 import { useOptimizedSwapQuote } from "@/features/swap/hooks/use-swap-quote";
 import { useTokenOptions } from "@/features/swap/hooks/use-token-options";
 import { useTradingLimits } from "@/features/swap/hooks/use-trading-limits";
+import { useTradablePairs } from "@/features/swap/hooks/use-tradable-pairs";
 import { confirmViewAtom, formValuesAtom } from "@/features/swap/swap-atoms";
 import type { SwapFormValues } from "@/features/swap/types";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
@@ -581,7 +582,69 @@ export default function SwapForm() {
   };
 
   const shouldApprove = !skipApprove && hasAmount && quote && !isLoading;
-  console.log("errors.quote", errors.quote);
+
+  // Get tradable pairs for both tokens
+  const { data: fromTokenTradablePairs } = useTradablePairs(
+    fromTokenId as TokenId,
+  );
+  const { data: toTokenTradablePairs } = useTradablePairs(toTokenId as TokenId);
+
+  // Reset toTokenId when fromTokenId changes and the pair becomes invalid
+  useEffect(() => {
+    // Skip if no tokens or no tradable pairs data
+    if (!fromTokenId || !toTokenId || !fromTokenTradablePairs) {
+      console.log("Skipping fromToken validation:", {
+        fromTokenId,
+        toTokenId,
+        fromTokenTradablePairs,
+      });
+      return;
+    }
+
+    // Check if current toTokenId is in the list of tradable pairs for fromTokenId
+    const isValidPair = fromTokenTradablePairs.includes(toTokenId as TokenId);
+    console.log("FromToken validation:", {
+      fromTokenId,
+      toTokenId,
+      fromTokenTradablePairs,
+      isValidPair,
+    });
+
+    if (!isValidPair) {
+      console.log("Resetting toTokenId because pair is invalid");
+      // Reset only the toTokenId (the other token)
+      form.setValue("toTokenId", "", { shouldValidate: false });
+    }
+  }, [fromTokenId, fromTokenTradablePairs, toTokenId, form]);
+
+  // Reset fromTokenId when toTokenId changes and the pair becomes invalid
+  useEffect(() => {
+    // Skip if no tokens or no tradable pairs data
+    if (!fromTokenId || !toTokenId || !toTokenTradablePairs) {
+      console.log("Skipping toToken validation:", {
+        fromTokenId,
+        toTokenId,
+        toTokenTradablePairs,
+      });
+      return;
+    }
+
+    // Check if current fromTokenId is in the list of tradable pairs for toTokenId
+    const isValidPair = toTokenTradablePairs.includes(fromTokenId as TokenId);
+    console.log("ToToken validation:", {
+      fromTokenId,
+      toTokenId,
+      toTokenTradablePairs,
+      isValidPair,
+    });
+
+    if (!isValidPair) {
+      console.log("Resetting fromTokenId because pair is invalid");
+      // Reset only the fromTokenId (the other token)
+      form.setValue("fromTokenId", "", { shouldValidate: false });
+    }
+  }, [toTokenId, toTokenTradablePairs, fromTokenId, form]);
+
   return (
     <Form {...form}>
       <form
@@ -641,10 +704,11 @@ export default function SwapForm() {
                     <FormControl>
                       <TokenDialog
                         value={field.value}
-                        onValueChange={field.onChange}
+                        onValueChange={(value) => {
+                          field.onChange(value);
+                        }}
                         title="Select asset to sell"
                         excludeTokenId={toTokenId}
-                        filterByTokenId={toTokenId as TokenId}
                         onClose={() => {
                           setTimeout(() => {
                             amountRef.current?.focus();
@@ -664,7 +728,7 @@ export default function SwapForm() {
                               size={20}
                             />
 
-                            <span>{field.value || "Select token"}</span>
+                            <span>{field.value || "Select"}</span>
                             <ChevronDown className="h-4 w-4 opacity-50" />
                           </button>
                         }
@@ -775,7 +839,9 @@ export default function SwapForm() {
                     <FormControl>
                       <TokenDialog
                         value={field.value}
-                        onValueChange={field.onChange}
+                        onValueChange={(value) => {
+                          field.onChange(value);
+                        }}
                         title="Select asset to buy"
                         excludeTokenId={fromTokenId}
                         filterByTokenId={fromTokenId as TokenId}
@@ -797,7 +863,7 @@ export default function SwapForm() {
                               className="mr-2"
                               size={20}
                             />
-                            <span>{field.value || "Select token"}</span>
+                            <span>{field.value || "Select"}</span>
                             <ChevronDown className="h-4 w-4 opacity-50" />
                           </button>
                         }
