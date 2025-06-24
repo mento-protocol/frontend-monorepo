@@ -53,7 +53,7 @@ function ThemeSwitch() {
 
 const v3NavItems = [
   { href: "/v3/dashboard", icon: LayoutGrid, label: "Dashboard" },
-  { href: "#", icon: DollarSign, label: "Trove" },
+  { href: "/v3/trove", icon: DollarSign, label: "Troves" },
   { href: "#", icon: Repeat, label: "Redeem" },
   { href: "#", icon: Droplets, label: "Pools" },
 ];
@@ -73,7 +73,12 @@ export function Header() {
                 <Link
                   key={item.label}
                   href={item.href}
-                  className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900"
+                  className={cn(
+                    "flex items-center gap-2 text-sm transition-colors hover:text-slate-900",
+                    pathname === item.href
+                      ? "font-medium text-slate-900"
+                      : "text-slate-600",
+                  )}
                 >
                   <item.icon className="h-4 w-4" />
                   <span>{item.label}</span>

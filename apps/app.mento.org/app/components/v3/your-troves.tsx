@@ -53,7 +53,7 @@ export function YourTroves() {
         Your Troves
       </h2>
       {yourTrovesData.length > 0 ? (
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2">
           {yourTrovesData.map((trove) => (
             <TroveCard key={trove.name} trove={trove} />
           ))}

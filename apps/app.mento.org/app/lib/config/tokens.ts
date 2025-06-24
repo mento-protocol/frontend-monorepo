@@ -36,6 +36,8 @@ export enum TokenId {
   cCHF = "cCHF",
   cJPY = "cJPY",
   cNGN = "cNGN",
+  USDm = "USD.m",
+  EURm = "EUR.m",
 }
 
 export const NativeStableTokenIds = [TokenId.cUSD, TokenId.cEUR, TokenId.cREAL];
@@ -194,6 +196,22 @@ export const cNGN: Token = Object.freeze({
   decimals: 18,
 });
 
+export const USDm: Token = Object.freeze({
+  id: TokenId.USDm,
+  symbol: TokenId.USDm,
+  name: "Mento Dollar",
+  color: "#000000",
+  decimals: 18,
+});
+
+export const EURm: Token = Object.freeze({
+  id: TokenId.EURm,
+  symbol: TokenId.EURm,
+  name: "Mento Euro",
+  color: "#4F46E5",
+  decimals: 18,
+});
+
 export const Tokens: Record<TokenId, Token> = {
   CELO,
   cUSD,
@@ -215,6 +233,8 @@ export const Tokens: Record<TokenId, Token> = {
   cCHF,
   cJPY,
   cNGN,
+  USDm,
+  EURm,
 };
 
 export const TokenAddresses: Record<
@@ -242,6 +262,8 @@ export const TokenAddresses: Record<
     [TokenId.cCHF]: "0xADC57C2C34aD021Df4421230a6532F4e2E1dCE4F",
     [TokenId.cJPY]: "0x2E51F41238cA36a421C9B8b3e189e8Cc7653FE67",
     [TokenId.cNGN]: "0x4a5b03B8b16122D330306c65e4CA4BC5Dd6511d0",
+    [TokenId.USDm]: "0x0000000000000000000000000000000000000001",
+    [TokenId.EURm]: "0x0000000000000000000000000000000000000002",
   },
   [ChainId.Celo]: {
     [TokenId.CELO]: "0x471EcE3750Da237f93B8E339c536989b8978a438",
@@ -264,6 +286,8 @@ export const TokenAddresses: Record<
     [TokenId.cCHF]: "0xb55a79F398E759E43C95b979163f30eC87Ee131D",
     [TokenId.cJPY]: "0xc45eCF20f3CD864B32D9794d6f76814aE8892e20",
     [TokenId.cNGN]: "0xE2702Bd97ee33c88c8f6f92DA3B733608aa76F71",
+    [TokenId.USDm]: "0x0000000000000000000000000000000000000001",
+    [TokenId.EURm]: "0x0000000000000000000000000000000000000002",
   },
 });
 
