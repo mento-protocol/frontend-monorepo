@@ -485,16 +485,6 @@ export default async function Home() {
           </div>
         </div>
       </section>
-
-      <section className="xl:px-22 w-full px-4 md:px-20">
-        <CommunityCard
-          images={{
-            mobile: `${env.NEXT_PUBLIC_STORAGE_URL}/Join Community CTA Mobile-Ry6dyO5vexptUPwsgDaemmhrMO0u8d.png`,
-            desktop: `${env.NEXT_PUBLIC_STORAGE_URL}/Join Community CTA-nvhdeikuseiFmjssXcpQhq3aKFq4Ht.png`,
-          }}
-          buttonHref="http://discord.mento.org"
-        />
-      </section>
     </main>
   );
 }
