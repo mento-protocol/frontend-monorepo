@@ -295,7 +295,7 @@ export default function SwapForm() {
         } else {
           const date = new Date(timestamp * 1000).toLocaleString();
           const timeframe = exceededTier === "L0" ? "5min" : "1d";
-          return `The ${tokenToCheck} amount exceeds the current trading limit of ${limit.toLocaleString()} ${tokenToCheck} to ${toTokenSymbol} within ${timeframe}. It will be reset to again at ${date}.`;
+          return `The ${tokenToCheck} amount exceeds the current trading limit of ${limit.toLocaleString()} ${tokenToCheck} to ${toTokenSymbol} within ${timeframe}. It will be reset again at ${date}.`;
         }
       }
 
@@ -435,6 +435,7 @@ export default function SwapForm() {
     checkBalance();
   }, [amount, hasAmount, fromTokenId, formDirection, validateBalance]);
 
+  console.log("formQuote", formQuote);
   // Check trading limits in real-time
   useEffect(() => {
     const checkLimits = async () => {
@@ -448,6 +449,8 @@ export default function SwapForm() {
         setTradingLimitError(null);
         return;
       }
+
+      const formQuote = form.getValues("quote");
 
       const parsedAmount = parseAmount(amount);
       if (!parsedAmount) {
@@ -483,8 +486,8 @@ export default function SwapForm() {
     fromTokenId,
     toTokenId,
     formDirection,
-    formQuote,
     checkTradingLimitViolation,
+    form,
   ]);
 
   useEffect(() => {
