@@ -16,7 +16,7 @@ export function AppLayout({ children }: PropsWithChildren) {
   return (
     <>
       <Header />
-      <main className="relative z-20 my-auto h-full overflow-hidden pt-20 md:h-screen md:p-4 xl:h-[calc(100vh-80px)]">
+      <main className="relative z-20 min-h-screen pt-20 md:p-4">
         {children}
       </main>
       <Footer />

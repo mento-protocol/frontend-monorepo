@@ -2,7 +2,6 @@
 
 import { BalancesSummary } from "@/components/nav/balances-summary";
 import { ConnectButton } from "@/components/nav/connect-button";
-import { NetworkDialog } from "@/components/nav/network-dialog";
 import { Button, Logo } from "@repo/ui";
 import {
   DollarSign,
@@ -62,20 +61,12 @@ const v3NavItems = [
 export function Header() {
   const pathname = usePathname();
   const isV3 = pathname.startsWith("/v3");
-  const { isConnected } = useAccount();
 
   return (
     <header className="bg-background/80 sticky top-0 z-50 border-b backdrop-blur-md">
-      <div className="flex h-16 items-center justify-between px-4 md:px-8">
+      <div className="flex h-16 items-center justify-between px-0 md:px-0">
         <div className="flex items-center gap-8">
-          {isV3 ? (
-            <Link href="/v3/dashboard" className="flex items-center gap-2">
-              <Logo />
-              <span className="text-lg font-bold text-slate-800">Mento V3</span>
-            </Link>
-          ) : (
-            <Logo />
-          )}
+          <Logo />
           {isV3 ? (
             <div className="hidden items-center gap-6 md:flex">
               {v3NavItems.map((item) => (
@@ -91,24 +82,9 @@ export function Header() {
             </div>
           ) : null}
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-row items-center justify-between gap-2 px-4 md:px-6">
           <ThemeSwitch />
-          {isV3 ? (
-            <>
-              <Button variant="ghost" size="icon">
-                <RefreshCw className="h-4 w-4" />
-              </Button>
-              <ConnectButton />
-            </>
-          ) : (
-            <>
-              {isConnected && <BalancesSummary />}
-              {/* The NetworkDialog component seems to require props that I cannot determine.
-                  I've left it here but commented out to avoid errors. We can fix it together. */}
-              {/* {isConnected && <NetworkDialog />} */}
-              <ConnectButton />
-            </>
-          )}
+          <ConnectButton />
         </div>
       </div>
     </header>

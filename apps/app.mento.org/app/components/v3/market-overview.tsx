@@ -1,42 +1,46 @@
 import { Card, TokenIcon } from "@repo/ui";
 
 const marketOverviewData = [
-  { token: "CELO", price: "$1.45" },
-  { token: "cUSD", price: "$1.01" },
-  { token: "cEUR", price: "$1.06" },
-  { token: "USDC", price: "$0.97" },
+  {
+    id: "USD.m",
+    symbol: "USD.m",
+    name: "Mento Dollar",
+    color: "#000000",
+    decimals: 18,
+    price: "$1.01",
+  },
 ];
+
+interface Token {
+  id: string;
+  symbol: string;
+  name: string;
+  color: string;
+  decimals: number;
+}
 
 export function MarketOverview() {
   return (
     <section>
-      <h2 className="mb-4 flex items-center gap-2 text-2xl font-bold text-slate-800">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="h-6 w-6"
-        >
-          <path d="M3 3v18h18" />
-          <path d="m19 9-5 5-4-4-3 3" />
-        </svg>
+      <h2 className="mb-4 text-2xl font-semibold text-slate-800">
         Market Overview
       </h2>
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-4 gap-2 md:grid-cols-4">
         {marketOverviewData.map((item) => (
           <Card
-            key={item.token}
-            className="flex items-center justify-between p-4"
+            key={item.id}
+            className="relative rounded-lg bg-gray-900 p-4 text-white shadow-lg"
           >
-            <div className="flex items-center gap-3">
-              <TokenIcon symbol={item.token as any} className="h-8 w-8" />
-              <span className="font-semibold">{item.token}</span>
+            <TokenIcon
+              token={item as Token}
+              className="absolute right-4 top-4 h-8 w-8 opacity-90"
+            />
+            <h3 className="text-xl font-semibold">{item.symbol}</h3>
+            <p className="text-xs text-gray-400">{item.name}</p>
+            <div className="mt-0">
+              <p className="text-xs text-gray-400">Price</p>
+              <p className="font-mono text-xl">{item.price}</p>
             </div>
-            <span className="font-mono text-lg">{item.price}</span>
           </Card>
         ))}
       </div>

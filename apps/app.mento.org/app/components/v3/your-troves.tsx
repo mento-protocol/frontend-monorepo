@@ -1,9 +1,32 @@
 import { TroveCard } from "./trove-card";
 
+// Placeholder data until we have a real token data source.
+const CELO = {
+  id: "CELO",
+  symbol: "CELO",
+  name: "Celo",
+  color: "#35D07F",
+  decimals: 18,
+};
+const cUSD = {
+  id: "cUSD",
+  symbol: "cUSD",
+  name: "Celo Dollar",
+  color: "#47A14A",
+  decimals: 18,
+};
+const cEUR = {
+  id: "cEUR",
+  symbol: "cEUR",
+  name: "Celo Euro",
+  color: "#68B4F1",
+  decimals: 18,
+};
+
 const yourTrovesData = [
   {
     name: "Trove trove-1...",
-    pair: { collateral: "CELO", debt: "cUSD" },
+    pair: { collateral: CELO, debt: cUSD },
     collateral: "1,000 CELO",
     debt: "750 cUSD",
     interestRate: "2.50%",
@@ -13,7 +36,7 @@ const yourTrovesData = [
   },
   {
     name: "Trove trove-2...",
-    pair: { collateral: "CELO", debt: "cEUR" },
+    pair: { collateral: CELO, debt: cEUR },
     collateral: "500 CELO",
     debt: "300 cEUR",
     interestRate: "2.00%",
@@ -26,9 +49,11 @@ const yourTrovesData = [
 export function YourTroves() {
   return (
     <section>
-      <h2 className="mb-4 text-2xl font-bold text-slate-800">Your Troves</h2>
+      <h2 className="mb-4 text-2xl font-semibold text-slate-800">
+        Your Troves
+      </h2>
       {yourTrovesData.length > 0 ? (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {yourTrovesData.map((trove) => (
             <TroveCard key={trove.name} trove={trove} />
           ))}

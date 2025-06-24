@@ -3,16 +3,16 @@ import { PlusCircle, Repeat } from "lucide-react";
 
 export function WelcomeBanner() {
   return (
-    <div className="rounded-lg bg-gradient-to-r from-purple-500 to-fuchsia-500 p-8 text-white">
-      <h1 className="text-3xl font-bold">Welcome to Mento V3</h1>
-      <p className="mt-2 max-w-2xl">
-        Decentralized borrowing and stability, powered by Celo.
+    <div className="rounded-lg bg-gray-900 p-8 text-white md:p-16">
+      <h1 className="text-3xl tracking-tight sm:text-4xl">
+        Welcome to Mento V3
+      </h1>
+      <p className="text-md mt-6 max-w-3xl leading-6 text-gray-300 sm:text-lg">
+        Decentralized borrowing and stability, powered by Celo. Leverage your
+        assets by opening a Trove, contribute to system stability through
+        redemptions, or help maintain pegs by rebalancing pools.
       </p>
-      <p className="mt-2 max-w-3xl text-purple-100">
-        Leverage your assets by opening a Trove, contribute to system stability
-        through redemptions, or help maintain pegs by rebalancing pools.
-      </p>
-      <div className="mt-6 flex flex-col gap-4 md:flex-row">
+      <div className="mt-10 flex flex-col gap-4 md:flex-row">
         <Button
           variant="secondary"
           className="bg-white/90 text-purple-600 hover:bg-white"

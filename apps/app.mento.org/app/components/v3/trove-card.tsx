@@ -1,9 +1,17 @@
 import { Button, Card, TokenIcon } from "@repo/ui";
 import { X } from "lucide-react";
 
+type Token = {
+  id: string;
+  symbol: string;
+  name: string;
+  color: string;
+  decimals: number;
+};
+
 type Trove = {
   name: string;
-  pair: { collateral: string; debt: string };
+  pair: { collateral: Token; debt: Token };
   collateral: string;
   debt: string;
   interestRate: string;
@@ -39,14 +47,11 @@ export function TroveCard({ trove }: { trove: Trove }) {
             </span>
           </h3>
           <div className="mt-1 flex items-center gap-2">
-            <TokenIcon
-              symbol={trove.pair.collateral as any}
-              className="h-5 w-5"
-            />
+            <TokenIcon token={trove.pair.collateral} className="h-5 w-5" />
             <span className="text-slate-500">/</span>
-            <TokenIcon symbol={trove.pair.debt as any} className="h-5 w-5" />
+            <TokenIcon token={trove.pair.debt} className="h-5 w-5" />
             <span className="text-sm text-slate-600">
-              {trove.pair.collateral} / {trove.pair.debt}
+              {trove.pair.collateral.symbol} / {trove.pair.debt.symbol}
             </span>
           </div>
         </div>
@@ -56,7 +61,7 @@ export function TroveCard({ trove }: { trove: Trove }) {
         <TroveDetailRow label="Debt" value={trove.debt} />
         <TroveDetailRow label="Interest Rate" value={trove.interestRate} />
         <TroveDetailRow
-          label={`Liquidation Price (${trove.pair.collateral})`}
+          label={`Liquidation Price (${trove.pair.collateral.symbol})`}
           value={trove.liquidationPrice}
         />
       </div>
@@ -85,7 +90,6 @@ export function TroveCard({ trove }: { trove: Trove }) {
         </div>
       </div>
       <div className="mt-2 grid grid-cols-2 gap-3">
-        <Button variant="outline">Manage</Button>
         <Button variant="destructive">
           <X className="mr-2 h-4 w-4" />
           Close
