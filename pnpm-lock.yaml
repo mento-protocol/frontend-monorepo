@@ -57,8 +57,8 @@ importers:
         specifier: ^5.0.1
         version: 5.1.1(react-hook-form@7.58.1(react@19.1.0))
       '@mento-protocol/mento-sdk':
-        specifier: ^1.0.9
-        version: 1.0.9(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))
+        specifier: ^1.10.1
+        version: 1.10.1(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))
       '@metamask/jazzicon':
         specifier: https://github.com/jmrossy/jazzicon#7a8df28
         version: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28
@@ -2174,9 +2174,9 @@ packages:
   '@mento-protocol/mento-core-ts@0.2.3':
     resolution: {integrity: sha512-Fjj0t2a6xqpHTbhfafioqjkY9ZDBsq3oy/DkRizihDI2zul/PFQJfQwyy7WDSSc/cNAflevBeSJyqTPTv9HD/Q==}
 
-  '@mento-protocol/mento-sdk@1.0.9':
-    resolution: {integrity: sha512-XaUl4zSz2BOzLirvht5iK7Zwe3rlF6Ok35LyHG7W4Gt6kaiMuQdCJQYxR8fOXCl/SRCTHx8w1+Q5FigV31OAdg==}
-    engines: {node: '>=14'}
+  '@mento-protocol/mento-sdk@1.10.1':
+    resolution: {integrity: sha512-KLsTplVmsiDnGv47TLlclqeikD+aS/5h8QeLmornH8lb6L2ve705SAiFsPkTVEmZLK6uguNgkaDb3kP9WmnOkg==}
+    engines: {node: '>=22'}
     peerDependencies:
       ethers: ^5.7
 
@@ -12405,7 +12405,7 @@ snapshots:
 
   '@mento-protocol/mento-core-ts@0.2.3': {}
 
-  '@mento-protocol/mento-sdk@1.0.9(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))':
+  '@mento-protocol/mento-sdk@1.10.1(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))':
     dependencies:
       '@mento-protocol/mento-core-ts': 0.2.3
       ethers: 5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
