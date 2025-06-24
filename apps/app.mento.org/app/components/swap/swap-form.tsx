@@ -44,6 +44,7 @@ import { ArrowUpDown, ChevronDown, OctagonAlert } from "lucide-react";
 import { useAccount, useChainId } from "wagmi";
 import { waitForTransaction } from "wagmi/actions";
 import TokenDialog from "./token-dialog";
+import { useTradingLimits } from "@/features/swap/hooks/use-trading-limits";
 
 type SwapDirection = "in" | "out";
 
@@ -66,66 +67,6 @@ const formSchema = z.object({
 });
 
 type FormValues = z.infer<typeof formSchema>;
-
-// Custom hook for trading limits
-function useTradingLimits(
-  fromTokenId: string,
-  toTokenId: string,
-  chainId: number,
-) {
-  return useQuery({
-    queryKey: ["trading-limits", fromTokenId, toTokenId, chainId],
-    queryFn: async () => {
-      if (!fromTokenId || !toTokenId) return null;
-
-      const mento = await getMentoSdk(chainId);
-      const tradablePair = await getTradablePairForTokens(
-        chainId,
-        fromTokenId as TokenId,
-        toTokenId as TokenId,
-      );
-
-      if (
-        !tradablePair ||
-        !tradablePair.path ||
-        tradablePair.path.length === 0
-      ) {
-        return null;
-      }
-
-      const exchangeId = tradablePair.path[0].id;
-      const tradingLimits = await mento.getTradingLimits(exchangeId);
-      const filteredTradingLimits = tradingLimits.filter(
-        (limit) =>
-          limit.asset === getTokenAddress(fromTokenId as TokenId, chainId),
-      );
-
-      // Sort limits by 'until' timestamp in ascending order
-      const sortedLimits = filteredTradingLimits.sort(
-        (a, b) => a.until - b.until,
-      );
-
-      const limitAsset = filteredTradingLimits[0]?.asset;
-      const tokenToCheck = limitAsset
-        ? getTokenByAddress(limitAsset as TokenId).symbol
-        : null;
-
-      // Extract L0, L1, and LG limits based on timestamp ranking
-      const L0 = sortedLimits[0] || null; // Soonest timestamp (e.g., 5 minutes)
-      const L1 = sortedLimits[1] || null; // Middle timestamp (e.g., 1 day)
-      const LG = sortedLimits[2] || null; // Latest timestamp (far future)
-
-      return {
-        L0,
-        L1,
-        LG,
-        tokenToCheck,
-        asset: limitAsset,
-      };
-    },
-    enabled: !!fromTokenId && !!toTokenId,
-  });
-}
 
 // Default empty balances object
 const defaultEmptyBalances = {};
@@ -245,6 +186,7 @@ export default function SwapForm() {
       let amountToCheck: number;
       let exceeds = false;
       let limit = 0;
+      let total = 0;
       let timestamp = 0;
       let exceededTier: "L0" | "L1" | "LG" | null = null;
 
@@ -255,16 +197,19 @@ export default function SwapForm() {
           limit = LG.maxIn;
           timestamp = LG.until;
           exceededTier = "LG";
+          total = LG.total;
         } else if (L1 && amountToCheck > L1.maxIn) {
           exceeds = true;
           limit = L1.maxIn;
           timestamp = L1.until;
           exceededTier = "L1";
+          total = L1.total;
         } else if (L0 && amountToCheck > L0.maxIn) {
           exceeds = true;
           limit = L0.maxIn;
           timestamp = L0.until;
           exceededTier = "L0";
+          total = L0.total;
         }
       } else {
         amountToCheck = formDirection === "in" ? numericQuote : numericAmount;
@@ -274,16 +219,19 @@ export default function SwapForm() {
           limit = LG.maxOut;
           timestamp = LG.until;
           exceededTier = "LG";
+          total = LG.total;
         } else if (L1 && amountToCheck > L1.maxOut) {
           exceeds = true;
           limit = L1.maxOut;
           timestamp = L1.until;
           exceededTier = "L1";
+          total = L1.total;
         } else if (L0 && amountToCheck > L0.maxOut) {
           exceeds = true;
           limit = L0.maxOut;
           timestamp = L0.until;
           exceededTier = "L0";
+          total = L0.total;
         }
       }
 
@@ -295,7 +243,7 @@ export default function SwapForm() {
         } else {
           const date = new Date(timestamp * 1000).toLocaleString();
           const timeframe = exceededTier === "L0" ? "5min" : "1d";
-          return `The ${tokenToCheck} amount exceeds the current trading limit of ${limit.toLocaleString()} ${tokenToCheck} to ${toTokenSymbol} within ${timeframe}. It will be reset again at ${date}.`;
+          return `The ${tokenToCheck} amount exceeds the current trading limit of ${limit.toLocaleString()} ${tokenToCheck} to ${toTokenSymbol} within ${timeframe}. It will be reset again to ${total.toLocaleString()} ${tokenToCheck} at ${date}.`;
         }
       }
 
@@ -435,7 +383,6 @@ export default function SwapForm() {
     checkBalance();
   }, [amount, hasAmount, fromTokenId, formDirection, validateBalance]);
 
-  console.log("formQuote", formQuote);
   // Check trading limits in real-time
   useEffect(() => {
     const checkLimits = async () => {
