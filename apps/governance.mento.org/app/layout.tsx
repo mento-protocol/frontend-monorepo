@@ -1,10 +1,10 @@
-import "./globals.css";
 import "@repo/ui/globals.css";
+import "./globals.css";
 
-import localFont from "next/font/local";
 import { Analytics } from "@vercel/analytics/react";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import Providers from "./lib/providers";
 
 const aspekta = localFont({

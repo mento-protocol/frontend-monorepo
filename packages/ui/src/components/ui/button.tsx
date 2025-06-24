@@ -34,6 +34,7 @@ const buttonVariants = cva(
         switch: "p-[3px]",
         xs: "h-8 px-4 py-2",
         sm: "h-9 rounded-none gap-1.5 px-4 has-[>svg]:px-2.5 text-base",
+        md: "h-10 rounded-none px-6 has-[>svg]:px-6 text-base",
         lg: "h-12 rounded-none px-4 has-[>svg]:px-4 text-base",
         icon: "size-9",
       },
@@ -50,6 +51,11 @@ const buttonVariants = cva(
   },
 );
 
+export type ButtonProps = React.ComponentProps<"button"> &
+  VariantProps<typeof buttonVariants> & {
+    asChild?: boolean;
+  };
+
 function Button({
   className,
   variant,
@@ -57,10 +63,7 @@ function Button({
   clipped,
   asChild = false,
   ...props
-}: React.ComponentProps<"button"> &
-  VariantProps<typeof buttonVariants> & {
-    asChild?: boolean;
-  }) {
+}: ButtonProps) {
   const Comp = asChild ? Slot : "button";
 
   return (
