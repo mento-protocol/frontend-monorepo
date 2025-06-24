@@ -90,6 +90,7 @@ export async function promiseTimeout<T>(
   return result;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function asyncTimeout<P extends Array<any>, R>(
   inner: (...args: P) => Promise<R>,
   timeout: number,

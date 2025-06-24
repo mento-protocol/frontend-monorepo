@@ -5,7 +5,7 @@ interface LoadingProps extends React.SVGProps<SVGSVGElement> {
   fill?: string;
 }
 
-const Loading: React.FC<LoadingProps> = ({ fill = "black", ...props }) => {
+const Loading: React.FC<LoadingProps> = (props) => {
   const rect1Ref = useRef<SVGRectElement>(null);
   const rect2Ref = useRef<SVGRectElement>(null);
   const rect3Ref = useRef<SVGRectElement>(null);
