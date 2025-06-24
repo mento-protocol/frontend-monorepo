@@ -77,8 +77,7 @@ function useTradingLimits(
     queryKey: ["trading-limits", fromTokenId, toTokenId, chainId],
     queryFn: async () => {
       if (!fromTokenId || !toTokenId) return null;
-      console.log("fromTokenId", fromTokenId);
-      console.log("toTokenId", toTokenId);
+
       const mento = await getMentoSdk(chainId);
       const tradablePair = await getTradablePairForTokens(
         chainId,
@@ -100,34 +99,26 @@ function useTradingLimits(
         (limit) =>
           limit.asset === getTokenAddress(fromTokenId as TokenId, chainId),
       );
-      console.log("filteredTradingLimits", filteredTradingLimits);
 
-      let minMaxIn = Infinity;
-      let minMaxOut = Infinity;
-      let timestampIn = 0;
-      let timestampOut = 0;
-
-      for (const limit of filteredTradingLimits) {
-        if (limit.maxIn < minMaxIn) {
-          minMaxIn = limit.maxIn;
-          timestampIn = limit.until;
-        }
-        if (limit.maxOut < minMaxOut) {
-          minMaxOut = limit.maxOut;
-          timestampOut = limit.until;
-        }
-      }
+      // Sort limits by 'until' timestamp in ascending order
+      const sortedLimits = filteredTradingLimits.sort(
+        (a, b) => a.until - b.until,
+      );
 
       const limitAsset = filteredTradingLimits[0]?.asset;
       const tokenToCheck = limitAsset
         ? getTokenByAddress(limitAsset as TokenId).symbol
         : null;
 
+      // Extract L0, L1, and LG limits based on timestamp ranking
+      const L0 = sortedLimits[0] || null; // Soonest timestamp (e.g., 5 minutes)
+      const L1 = sortedLimits[1] || null; // Middle timestamp (e.g., 1 day)
+      const LG = sortedLimits[2] || null; // Latest timestamp (far future)
+
       return {
-        minMaxIn,
-        minMaxOut,
-        timestampIn,
-        timestampOut,
+        L0,
+        L1,
+        LG,
         tokenToCheck,
         asset: limitAsset,
       };
@@ -239,6 +230,80 @@ export default function SwapForm() {
     [balances, fromTokenId],
   );
 
+  // Shared function for limit validation logic
+  const checkTradingLimitViolation = useCallback(
+    (
+      numericAmount: number,
+      numericQuote: number,
+      limits: NonNullable<ReturnType<typeof useTradingLimits>["data"]>,
+      formDirection: string,
+      fromTokenId: string,
+      toTokenId: string,
+    ) => {
+      const { L0, L1, LG, tokenToCheck } = limits;
+
+      let amountToCheck: number;
+      let exceeds = false;
+      let limit = 0;
+      let timestamp = 0;
+      let exceededTier: "L0" | "L1" | "LG" | null = null;
+
+      if (tokenToCheck === fromTokenId) {
+        amountToCheck = formDirection === "in" ? numericAmount : numericQuote;
+        if (LG && amountToCheck > LG.maxIn) {
+          exceeds = true;
+          limit = LG.maxIn;
+          timestamp = LG.until;
+          exceededTier = "LG";
+        } else if (L1 && amountToCheck > L1.maxIn) {
+          exceeds = true;
+          limit = L1.maxIn;
+          timestamp = L1.until;
+          exceededTier = "L1";
+        } else if (L0 && amountToCheck > L0.maxIn) {
+          exceeds = true;
+          limit = L0.maxIn;
+          timestamp = L0.until;
+          exceededTier = "L0";
+        }
+      } else {
+        amountToCheck = formDirection === "in" ? numericQuote : numericAmount;
+        // Check from least to most restrictive (LG -> L1 -> L0)
+        if (LG && amountToCheck > LG.maxOut) {
+          exceeds = true;
+          limit = LG.maxOut;
+          timestamp = LG.until;
+          exceededTier = "LG";
+        } else if (L1 && amountToCheck > L1.maxOut) {
+          exceeds = true;
+          limit = L1.maxOut;
+          timestamp = L1.until;
+          exceededTier = "L1";
+        } else if (L0 && amountToCheck > L0.maxOut) {
+          exceeds = true;
+          limit = L0.maxOut;
+          timestamp = L0.until;
+          exceededTier = "L0";
+        }
+      }
+
+      if (exceeds) {
+        const toTokenSymbol = toTokenId;
+
+        if (exceededTier === "LG") {
+          return `The ${tokenToCheck} amount exceeds the global trading limit of ${limit.toLocaleString()} ${tokenToCheck} to ${toTokenSymbol}.`;
+        } else {
+          const date = new Date(timestamp * 1000).toLocaleString();
+          const timeframe = exceededTier === "L0" ? "5min" : "1d";
+          return `The ${tokenToCheck} amount exceeds the current trading limit of ${limit.toLocaleString()} ${tokenToCheck} to ${toTokenSymbol} within ${timeframe}. It will be reset to again at ${date}.`;
+        }
+      }
+
+      return null; // No violation
+    },
+    [],
+  );
+
   // Layer 3: Field-level async validation (trading limits)
   const validateLimits = useCallback(
     async (value: string) => {
@@ -254,39 +319,26 @@ export default function SwapForm() {
       const numericAmount = Number(parsedAmount.toString());
       const numericQuote = Number(formQuote);
 
-      const { minMaxIn, minMaxOut, timestampIn, timestampOut, tokenToCheck } =
-        limits;
+      const violation = checkTradingLimitViolation(
+        numericAmount,
+        numericQuote,
+        limits,
+        formDirection,
+        fromTokenId,
+        toTokenId,
+      );
 
-      let amountToCheck: number;
-      let exceeds = false;
-      let limit = 0;
-      let timestamp = 0;
-
-      if (tokenToCheck === fromTokenId) {
-        amountToCheck = formDirection === "in" ? numericAmount : numericQuote;
-        if (amountToCheck > minMaxIn) {
-          exceeds = true;
-          limit = minMaxIn;
-          timestamp = timestampIn;
-        }
-      } else {
-        amountToCheck = formDirection === "in" ? numericQuote : numericAmount;
-        if (amountToCheck > minMaxOut) {
-          exceeds = true;
-          limit = minMaxOut;
-          timestamp = timestampOut;
-        }
-      }
-      console.log("Amount to check", amountToCheck);
-      console.log("Limit", limits);
-      if (exceeds) {
-        const date = new Date(timestamp * 1000).toLocaleString();
-        return `Exceeds trading limit of ${limit} ${tokenToCheck} until ${date}`;
-      }
-
-      return true;
+      return violation || true;
     },
-    [limits, limitsLoading, formDirection, formQuote, fromTokenId],
+    [
+      limitsLoading,
+      limits,
+      formQuote,
+      checkTradingLimitViolation,
+      formDirection,
+      fromTokenId,
+      toTokenId,
+    ],
   );
 
   // Combined validation for amount field
@@ -397,12 +449,6 @@ export default function SwapForm() {
         return;
       }
 
-      // Call validateLimits inline to avoid dependency issues
-      if (!limits || !limits.tokenToCheck) {
-        setTradingLimitError(null);
-        return;
-      }
-
       const parsedAmount = parseAmount(amount);
       if (!parsedAmount) {
         setTradingLimitError(null);
@@ -412,34 +458,17 @@ export default function SwapForm() {
       const numericAmount = Number(parsedAmount.toString());
       const numericQuote = Number(formQuote);
 
-      const { minMaxIn, minMaxOut, timestampIn, timestampOut, tokenToCheck } =
-        limits;
+      const violation = checkTradingLimitViolation(
+        numericAmount,
+        numericQuote,
+        limits,
+        formDirection,
+        fromTokenId,
+        toTokenId,
+      );
 
-      let exceeds = false;
-      let limit = 0;
-      let timestamp = 0;
-
-      if (formDirection === "in") {
-        const amountToCheck = numericAmount;
-        if (amountToCheck > minMaxIn) {
-          exceeds = true;
-          limit = minMaxIn;
-          timestamp = timestampIn;
-        }
-      } else {
-        const amountToCheck = numericQuote;
-        if (amountToCheck > minMaxOut) {
-          exceeds = true;
-          limit = minMaxOut;
-          timestamp = timestampOut;
-        }
-      }
-
-      if (exceeds) {
-        const date = new Date(timestamp * 1000).toLocaleString();
-        setTradingLimitError(
-          `Exceeds trading limit of ${limit} ${tokenToCheck} until ${date}`,
-        );
+      if (violation) {
+        setTradingLimitError(violation);
       } else {
         setTradingLimitError(null);
       }
@@ -454,6 +483,8 @@ export default function SwapForm() {
     fromTokenId,
     toTokenId,
     formDirection,
+    formQuote,
+    checkTradingLimitViolation,
   ]);
 
   useEffect(() => {
