@@ -44,12 +44,18 @@
   },
   "cSpell.words": [
     "commitlint",
+    "ethersproject",
     "exof",
     "fullwidth",
     "healthcheck",
+    "jazzicon",
+    "jsbi",
     "mento",
     "shadcn",
+    "sonner",
+    "toformat",
     "turbopack",
-    "Turborepo"
+    "Turborepo",
+    "viem"
   ]
 }
