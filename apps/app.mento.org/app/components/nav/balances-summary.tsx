@@ -53,9 +53,16 @@ export function BalancesSummary() {
     <div className="space-y-3">
       {tokenIds.map((id) => {
         const balanceValue = balances[id];
-        const balance = fromWeiRounded(balanceValue, Tokens[id].decimals);
+        const token = Tokens[id];
+
+        // Skip if token doesn't exist
+        if (!token) {
+          console.warn(`Token with id ${id} not found in balances summary`);
+          return null;
+        }
+
+        const balance = fromWeiRounded(balanceValue, token.decimals);
         if (balance !== "0") {
-          const token = Tokens[id];
           return (
             <div
               key={id}

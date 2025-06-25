@@ -15,14 +15,14 @@ export function WelcomeBanner() {
       <div className="mt-10 flex flex-col gap-4 md:flex-row">
         <Button
           variant="secondary"
-          className="bg-white/90 text-purple-600 hover:bg-white"
+          className="bg-white/90 text-slate-800 hover:bg-white"
         >
           <PlusCircle className="mr-2 h-4 w-4" />
           Open a Trove
         </Button>
         <Button
           variant="secondary"
-          className="bg-white/90 text-purple-600 hover:bg-white"
+          className="bg-white/90 text-slate-800 hover:bg-white"
         >
           <Repeat className="mr-2 h-4 w-4" />
           Rebalance Pools

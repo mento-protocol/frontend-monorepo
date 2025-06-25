@@ -18,15 +18,19 @@ function TokenIconBase({ token, className, size = 20 }: Props) {
   const [imgError, setImgError] = useState(false);
 
   const symbol = useMemo(() => {
-    if (!token) {
-      return "";
+    if (!token || !token.symbol) {
+      return "?";
     }
 
-    if (token.symbol[0] && token.symbol[1]) {
-      return token.symbol[0].toUpperCase() + token.symbol[1].toUpperCase();
+    if (token.symbol.length >= 2) {
+      return token.symbol[0]!.toUpperCase() + token.symbol[1]!.toUpperCase();
     }
 
-    return "";
+    if (token.symbol.length === 1) {
+      return token.symbol[0]!.toUpperCase();
+    }
+
+    return "?";
   }, [token]);
 
   if (!token) {

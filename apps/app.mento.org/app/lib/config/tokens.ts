@@ -355,7 +355,18 @@ export function getTokenOptionsByChainId(chainId: ChainId): TokenId[] {
 }
 
 export function getTokenById(id: TokenId | string): Token {
-  return Tokens[id as TokenId];
+  const token = Tokens[id as TokenId];
+  if (!token) {
+    console.warn(`Token with id ${id} not found, returning fallback token`);
+    return {
+      id: id as TokenId,
+      symbol: id as string,
+      name: id as string,
+      color: "#000000",
+      decimals: 18,
+    };
+  }
+  return token;
 }
 
 export function getTokenAddress(id: TokenId, chainId: ChainId): Address {

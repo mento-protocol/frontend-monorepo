@@ -463,9 +463,17 @@ export default function SwapForm() {
                             data-testid="selectSellTokenButton"
                           >
                             <TokenIcon
-                              token={allTokenOptions.find(
-                                (token) => token.id === field.value,
-                              )}
+                              token={
+                                allTokenOptions.find(
+                                  (token) => token.id === field.value,
+                                ) || {
+                                  id: field.value,
+                                  symbol: field.value,
+                                  name: field.value,
+                                  color: "#000000",
+                                  decimals: 18,
+                                }
+                              }
                               className="mr-2"
                               size={20}
                             />
@@ -587,9 +595,17 @@ export default function SwapForm() {
                             data-testid="selectBuyTokenButton"
                           >
                             <TokenIcon
-                              token={allTokenOptions.find(
-                                (token) => token.id === field.value,
-                              )}
+                              token={
+                                allTokenOptions.find(
+                                  (token) => token.id === field.value,
+                                ) || {
+                                  id: field.value,
+                                  symbol: field.value,
+                                  name: field.value,
+                                  color: "#000000",
+                                  decimals: 18,
+                                }
+                              }
                               className="mr-2"
                               size={20}
                             />
