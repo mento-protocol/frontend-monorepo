@@ -34,8 +34,6 @@ function ProposalStatus({
   }) {
   const Comp = asChild ? Slot : "div";
 
-  console.log("VARIANT: ", variant);
-
   return (
     <Comp
       data-slot="div"
