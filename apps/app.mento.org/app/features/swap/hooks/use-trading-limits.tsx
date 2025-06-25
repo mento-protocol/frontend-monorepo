@@ -36,8 +36,7 @@ export function useTradingLimits(
           limit.asset === getTokenAddress(fromTokenId as TokenId, chainId),
       );
       const limitCfg = await mento.getTradingLimitConfig(exchangeId);
-      console.log("DEBUG - limitCfg", limitCfg);
-      console.log("DEBUG - filteredTradingLimits", filteredTradingLimits);
+
       const filteredLimitCfg = limitCfg.filter(
         (limit) =>
           limit.asset === getTokenAddress(fromTokenId as TokenId, chainId),
@@ -60,15 +59,15 @@ export function useTradingLimits(
       return {
         L0: {
           ...L0,
-          total: filteredLimitCfg[0].limit0,
+          total: filteredLimitCfg[0]?.limit0,
         },
         L1: {
           ...L1,
-          total: filteredLimitCfg[0].limit1,
+          total: filteredLimitCfg[0]?.limit1,
         },
         LG: {
           ...LG,
-          total: filteredLimitCfg[0].limitGlobal,
+          total: filteredLimitCfg[0]?.limitGlobal,
         },
         tokenToCheck,
         asset: limitAsset,

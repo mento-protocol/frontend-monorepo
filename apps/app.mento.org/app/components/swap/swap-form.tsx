@@ -1,7 +1,6 @@
 "use client";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { cn, IconLoading, TokenIcon } from "@repo/ui";
-import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
@@ -22,21 +21,16 @@ import { CoinInput } from "@repo/ui";
 
 import { ConnectButton } from "@/components/nav/connect-button";
 import { useAccountBalances } from "@/features/accounts/use-account-balances";
-import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { useApproveTransaction } from "@/features/swap/hooks/use-approve-transaction";
 import { useSwapAllowance } from "@/features/swap/hooks/use-swap-allowance";
 import { useOptimizedSwapQuote } from "@/features/swap/hooks/use-swap-quote";
 import { useTokenOptions } from "@/features/swap/hooks/use-token-options";
+import { useTradingLimits } from "@/features/swap/hooks/use-trading-limits";
 import { confirmViewAtom, formValuesAtom } from "@/features/swap/swap-atoms";
 import type { SwapFormValues } from "@/features/swap/types";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
 import { MIN_ROUNDED_VALUE } from "@/lib/config/consts";
-import {
-  getTokenAddress,
-  getTokenByAddress,
-  type TokenId,
-  Tokens,
-} from "@/lib/config/tokens";
+import { type TokenId, Tokens } from "@/lib/config/tokens";
 import { fromWeiRounded, parseAmount, toWei } from "@/lib/utils/amount";
 import { logger } from "@/lib/utils/logger";
 import { useAtom } from "jotai";
@@ -44,7 +38,6 @@ import { ArrowUpDown, ChevronDown, OctagonAlert } from "lucide-react";
 import { useAccount, useChainId } from "wagmi";
 import { waitForTransaction } from "wagmi/actions";
 import TokenDialog from "./token-dialog";
-import { useTradingLimits } from "@/features/swap/hooks/use-trading-limits";
 
 type SwapDirection = "in" | "out";
 
@@ -80,6 +73,7 @@ export default function SwapForm() {
   const [formValues, setFormValues] = useAtom(formValuesAtom);
   const [, setConfirmView] = useAtom(confirmViewAtom);
   const [isApprovalProcessing, setIsApprovalProcessing] = useState(false);
+  const [latestValidQuote, setLatestValidQuote] = useState<string>("");
 
   const { data: balancesFromHook } = useAccountBalances({ address, chainId });
   const balances = balancesFromHook || defaultEmptyBalances;
@@ -95,8 +89,8 @@ export default function SwapForm() {
       direction: formValues?.direction || "in",
       amount: formValues?.amount || "",
       quote: formValues?.quote || "",
-      fromTokenId: formValues?.fromTokenId || "CELO",
-      toTokenId: formValues?.toTokenId || "cUSD",
+      fromTokenId: formValues?.fromTokenId || "cUSD",
+      toTokenId: formValues?.toTokenId || "cKES",
       slippage: formValues?.slippage || "0.5",
     },
     mode: "onChange", // Important for field-level validation
@@ -281,11 +275,11 @@ export default function SwapForm() {
     [
       limitsLoading,
       limits,
-      formQuote,
       checkTradingLimitViolation,
       formDirection,
       fromTokenId,
       toTokenId,
+      formQuote,
     ],
   );
 
@@ -364,6 +358,30 @@ export default function SwapForm() {
   // Check for balance error
   const [balanceError, setBalanceError] = useState<string | null>(null);
 
+  // Only prevent quote if there's an actual error, not during validation
+  const canQuote =
+    !!hasAmount && !errors.amount && !limitsLoading && !tradingLimitError;
+
+  const {
+    isLoading: quoteLoading,
+    quote,
+    rate,
+    isError,
+    fromTokenUSDValue,
+    toTokenUSDValue,
+  } = useOptimizedSwapQuote(
+    canQuote ? amount : "",
+    formDirection as SwapDirection,
+    fromTokenId as TokenId,
+    toTokenId as TokenId,
+  );
+
+  useEffect(() => {
+    if (quote && quote !== "0") {
+      setLatestValidQuote(quote);
+    }
+  }, [quote]);
+
   // Check balance in real-time
   useEffect(() => {
     const checkBalance = async () => {
@@ -383,7 +401,6 @@ export default function SwapForm() {
     checkBalance();
   }, [amount, hasAmount, fromTokenId, formDirection, validateBalance]);
 
-  // Check trading limits in real-time
   useEffect(() => {
     const checkLimits = async () => {
       if (
@@ -397,8 +414,6 @@ export default function SwapForm() {
         return;
       }
 
-      const formQuote = form.getValues("quote");
-
       const parsedAmount = parseAmount(amount);
       if (!parsedAmount) {
         setTradingLimitError(null);
@@ -406,7 +421,15 @@ export default function SwapForm() {
       }
 
       const numericAmount = Number(parsedAmount.toString());
-      const numericQuote = Number(formQuote);
+
+      let numericQuote = Number(formQuote);
+      if (
+        formDirection === "out" &&
+        latestValidQuote &&
+        (formQuote === "0" || formQuote === "0.00")
+      ) {
+        numericQuote = Number(latestValidQuote);
+      }
 
       const violation = checkTradingLimitViolation(
         numericAmount,
@@ -417,11 +440,7 @@ export default function SwapForm() {
         toTokenId,
       );
 
-      if (violation) {
-        setTradingLimitError(violation);
-      } else {
-        setTradingLimitError(null);
-      }
+      setTradingLimitError((prev) => (prev === violation ? prev : violation));
     };
 
     checkLimits();
@@ -434,7 +453,8 @@ export default function SwapForm() {
     toTokenId,
     formDirection,
     checkTradingLimitViolation,
-    form,
+    formQuote,
+    latestValidQuote, // This won't cause loops since it only updates when quote is valid
   ]);
 
   useEffect(() => {
@@ -444,24 +464,6 @@ export default function SwapForm() {
       });
     }
   }, [tradingLimitError]);
-
-  // Only prevent quote if there's an actual error, not during validation
-  const canQuote =
-    !!hasAmount && !errors.amount && !limitsLoading && !tradingLimitError;
-
-  const {
-    isLoading: quoteLoading,
-    quote,
-    rate,
-    isError,
-    fromTokenUSDValue,
-    toTokenUSDValue,
-  } = useOptimizedSwapQuote(
-    canQuote ? amount : "",
-    formDirection as SwapDirection,
-    fromTokenId as TokenId,
-    toTokenId as TokenId,
-  );
 
   // Override loading state when we have validation errors
   const isLoading =
@@ -517,7 +519,6 @@ export default function SwapForm() {
     address,
   );
 
-  // Update the quote field when the calculated quote changes
   useEffect(() => {
     if (quote !== undefined) {
       const formattedQuote = formatWithMaxDecimals(quote, 4, false);
@@ -525,9 +526,15 @@ export default function SwapForm() {
         form.setValue("quote", formattedQuote, {
           shouldValidate: true,
         });
+
+        if (formDirection === "out" && formattedQuote !== "0") {
+          setTimeout(() => {
+            form.trigger("amount");
+          }, 50);
+        }
       }
     }
-  }, [quote, form, formQuote]);
+  }, [quote, form, formQuote, formDirection]);
 
   // Show error toasts based on form errors
   useEffect(() => {
