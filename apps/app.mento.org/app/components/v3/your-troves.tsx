@@ -41,6 +41,7 @@ export function YourTroves() {
 
   const displayTroves =
     troves?.map((trove) => ({
+      id: trove.id,
       name: `Trove ${trove.id.substring(0, 8)}...`,
       pair: { collateral: USDm, debt: EURm },
       collateral: `${parseFloat(trove.collateral).toFixed(2)} ${USDm.symbol}`,

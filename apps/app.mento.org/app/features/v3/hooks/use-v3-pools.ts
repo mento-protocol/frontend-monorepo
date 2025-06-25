@@ -92,6 +92,8 @@ export function useV3Pools() {
         functionName: "getPools",
       });
 
+      // Get pool from the fpmm factory
+
       if (poolAddresses.length === 0) {
         return [];
       }

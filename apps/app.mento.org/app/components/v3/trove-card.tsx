@@ -1,5 +1,6 @@
 import { Button, Card, TokenIcon } from "@repo/ui";
 import { X } from "lucide-react";
+import { useV3CloseTrove } from "@/features/v3/hooks/use-v3-close-trove";
 
 type Token = {
   id: string;
@@ -10,6 +11,7 @@ type Token = {
 };
 
 type Trove = {
+  id: string;
   name: string;
   pair: { collateral: Token; debt: Token };
   collateral: string;
@@ -30,10 +32,22 @@ function TroveDetailRow({ label, value }: { label: string; value: string }) {
 }
 
 export function TroveCard({ trove }: { trove: Trove }) {
+  const closeTroveMutation = useV3CloseTrove();
+
   const getCRatioColor = (ratio: number) => {
     if (ratio < 150) return "bg-red-500";
     if (ratio < 200) return "bg-yellow-500";
     return "bg-purple-500";
+  };
+
+  const handleCloseTrove = async () => {
+    if (!trove.id) return;
+
+    try {
+      await closeTroveMutation.mutateAsync(trove.id);
+    } catch (error: any) {
+      // Error handling is done in the hook via toast
+    }
   };
 
   return (
@@ -90,9 +104,13 @@ export function TroveCard({ trove }: { trove: Trove }) {
         </div>
       </div>
       <div className="mt-2 grid grid-cols-2 gap-3">
-        <Button variant="destructive">
+        <Button
+          variant="destructive"
+          onClick={handleCloseTrove}
+          disabled={closeTroveMutation.isPending}
+        >
           <X className="mr-2 h-4 w-4" />
-          Close
+          {closeTroveMutation.isPending ? "Closing..." : "Close"}
         </Button>
       </div>
     </Card>
