@@ -55,7 +55,7 @@ function ThemeSwitch() {
 const v3NavItems = [
   { href: "/v3/dashboard", icon: LayoutGrid, label: "Dashboard" },
   { href: "/v3/swap", icon: ArrowUpDown, label: "Swap" },
-  { href: "/v3/trove", icon: DollarSign, label: "Troves" },
+  { href: "/v3/trove", icon: DollarSign, label: "Borrow" },
   { href: "/v3/redeem", icon: Repeat, label: "Redeem" },
   { href: "/v3/pools", icon: Droplets, label: "Pools" },
 ];
