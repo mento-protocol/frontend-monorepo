@@ -55,7 +55,7 @@ const v3NavItems = [
   { href: "/v3/dashboard", icon: LayoutGrid, label: "Dashboard" },
   { href: "/v3/trove", icon: DollarSign, label: "Troves" },
   { href: "/v3/redeem", icon: Repeat, label: "Redeem" },
-  { href: "#", icon: Droplets, label: "Pools" },
+  { href: "/v3/pools", icon: Droplets, label: "Pools" },
 ];
 
 export function Header() {

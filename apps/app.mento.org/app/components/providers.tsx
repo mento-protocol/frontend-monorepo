@@ -60,7 +60,7 @@ export function ClientProviders({ children }: PropsWithChildren) {
         <QueryClientProvider client={reactQueryClient}>
           <NextThemesProvider
             attribute="class"
-            defaultTheme="dark"
+            defaultTheme="light"
             enableSystem
           >
             <WagmiConfig client={wagmiClient}>
