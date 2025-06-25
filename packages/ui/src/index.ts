@@ -37,6 +37,7 @@ export * from "./components/ui/pagination";
 export * from "./components/ui/proposal-list";
 export * from "./components/ui/proposal-status";
 export * from "./components/tiptap/rich-text-editor";
+export * from "./components/ui/datepicker";
 
 // Also export any utility functions or types that might be needed
 export * from "./lib/index";

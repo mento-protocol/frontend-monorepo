@@ -26,7 +26,7 @@ export default function Providers({ children }: { children: ReactNode }) {
     <QueryProvider>
       <Navigation />
       {children}
-      <section className="xl:px-22 w-full px-4 md:px-20">
+      <section className="xl:px-22 mb-8 w-full px-4 md:mb-20 md:px-20">
         <CommunityCard
           images={{
             mobile: `${env.NEXT_PUBLIC_STORAGE_URL}/Join Community CTA Mobile-Ry6dyO5vexptUPwsgDaemmhrMO0u8d.png`,

@@ -158,10 +158,10 @@ export const ProgressBar = ({
 
     return (
       <div className={cn("space-y-4", className)}>
-        <div className="flex justify-between text-sm text-gray-400">
-          <span>{data.labels.start}</span>
-          <span>{data.labels.middle}</span>
-          <span>{data.labels.end}</span>
+        <div className="flex justify-between text-sm">
+          <span className="text-muted-foreground">{data.labels.start}</span>
+          <span className="text-foreground">{data.labels.middle}</span>
+          <span className="text-muted-foreground">{data.labels.end}</span>
         </div>
 
         <div
@@ -181,9 +181,7 @@ export const ProgressBar = ({
         </div>
 
         {data.valueLabel && (
-          <div className="text-center text-lg font-medium">
-            {data.valueLabel}
-          </div>
+          <div className="text-center font-medium">{data.valueLabel}</div>
         )}
       </div>
     );
