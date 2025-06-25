@@ -102,11 +102,11 @@ export default function TrovePage() {
     <div className="container mx-auto max-w-2xl space-y-8 p-4 md:p-8">
       {/* Header */}
       <div className="text-center">
-        <h1 className="mb-2 text-3xl font-bold text-slate-800">
+        <h1 className="mb-2 text-3xl font-bold text-slate-900">
           Borrow {selectedDebtToken.symbol} with{" "}
           {selectedCollateralToken.symbol}
         </h1>
-        <p className="text-slate-800 dark:text-slate-500">
+        <p className="text-slate-700">
           Open a Trove to borrow stablecoins against your collateral.
         </p>
       </div>
@@ -117,7 +117,7 @@ export default function TrovePage() {
         <div className="space-y-2">
           <Label
             htmlFor="collateral"
-            className="text-sm font-medium text-slate-300 dark:text-slate-700"
+            className="text-sm font-medium text-slate-900"
           >
             Collateral
           </Label>
@@ -139,20 +139,20 @@ export default function TrovePage() {
                   )
                 }
               >
-                <SelectTrigger className="h-full min-w-24 rounded-l-none border-l border-slate-300 bg-white px-4 text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-white">
+                <SelectTrigger className="h-full min-w-24 rounded-l-none border-l border-slate-300 bg-white px-4 text-slate-900">
                   <div className="flex items-center gap-2">
                     <TokenIcon token={selectedCollateralToken} size={20} />
-                    <span className="text-slate-900 dark:text-white">
+                    <span className="text-slate-900">
                       {selectedCollateralToken.symbol}
                     </span>
                   </div>
                 </SelectTrigger>
-                <SelectContent className="bg-white text-slate-900 dark:bg-slate-800 dark:text-white">
+                <SelectContent className="bg-white text-slate-900">
                   {collateralTokens.map((token) => (
                     <SelectItem
                       key={token.id}
                       value={token.id}
-                      className="hover:bg-slate-100 dark:hover:bg-slate-700"
+                      className="hover:bg-slate-100"
                     >
                       <div className="flex items-center gap-2">
                         <TokenIcon token={token} size={16} />
@@ -164,7 +164,7 @@ export default function TrovePage() {
               </Select>
             </div>
           </div>
-          <div className="flex justify-between text-sm text-slate-400 dark:text-slate-500">
+          <div className="flex justify-between text-sm text-slate-700">
             <span>Value: {formatPrice(collateralValue)}</span>
             <span>
               {selectedCollateralToken.symbol} Price:{" "}
@@ -175,10 +175,7 @@ export default function TrovePage() {
 
         {/* Loan Input */}
         <div className="space-y-2">
-          <Label
-            htmlFor="loan"
-            className="text-sm font-medium text-slate-300 dark:text-slate-700"
-          >
+          <Label htmlFor="loan" className="text-sm font-medium text-slate-900">
             Loan
           </Label>
           <div className="relative">
@@ -199,20 +196,20 @@ export default function TrovePage() {
                   )
                 }
               >
-                <SelectTrigger className="h-full min-w-24 rounded-l-none border-l border-slate-300 bg-white px-4 text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-white">
+                <SelectTrigger className="h-full min-w-24 rounded-l-none border-l border-slate-300 bg-white px-4 text-slate-900">
                   <div className="flex items-center gap-2">
                     <TokenIcon token={selectedDebtToken} size={20} />
-                    <span className="text-slate-900 dark:text-white">
+                    <span className="text-slate-900">
                       {selectedDebtToken.symbol}
                     </span>
                   </div>
                 </SelectTrigger>
-                <SelectContent className="bg-white text-slate-900 dark:bg-slate-800 dark:text-white">
+                <SelectContent className="bg-white text-slate-900">
                   {debtTokens.map((token) => (
                     <SelectItem
                       key={token.id}
                       value={token.id}
-                      className="hover:bg-slate-100 dark:hover:bg-slate-700"
+                      className="hover:bg-slate-100"
                     >
                       <div className="flex items-center gap-2">
                         <TokenIcon token={token} size={16} />
@@ -224,7 +221,7 @@ export default function TrovePage() {
               </Select>
             </div>
           </div>
-          <div className="flex justify-between text-sm text-slate-400 dark:text-slate-500">
+          <div className="flex justify-between text-sm text-slate-700">
             <span>Value: {formatPrice(debtValue)}</span>
             <span>Min. Collateral Ratio: {MIN_COLLATERALIZATION_RATIO}%</span>
           </div>
@@ -233,7 +230,7 @@ export default function TrovePage() {
         {/* Interest Rate Slider */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <Label className="text-sm font-medium text-slate-300 dark:text-slate-700">
+            <Label className="text-sm font-medium text-slate-900">
               Interest Rate
             </Label>
             <span className="text-sm font-semibold text-slate-900">
@@ -248,12 +245,12 @@ export default function TrovePage() {
               step="0.1"
               value={interestRate}
               onChange={(e) => setInterestRate(parseFloat(e.target.value))}
-              className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-200 dark:bg-slate-700"
+              className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-200"
               style={{
                 background: `linear-gradient(to right, #8B5CF6 0%, #8B5CF6 ${((interestRate - 0.5) / 14.5) * 100}%, #e2e8f0 ${((interestRate - 0.5) / 14.5) * 100}%, #e2e8f0 100%)`,
               }}
             />
-            <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
+            <div className="flex justify-between text-xs text-slate-700">
               <span>0.5%</span>
               <span>15.0%</span>
             </div>
@@ -270,14 +267,14 @@ export default function TrovePage() {
       </Card>
 
       {/* Understanding Troves */}
-      <Card className="border-l-4 border-purple-500 border-slate-200 bg-purple-50 p-6 dark:border-slate-700 dark:bg-slate-800/50">
+      <Card className="border-l-4 border-purple-500 bg-purple-50/80 p-6">
         <div className="flex items-start gap-3">
           <Info className="mt-0.5 h-5 w-5 shrink-0 text-purple-500" />
           <div>
-            <h3 className="mb-2 text-lg font-semibold text-slate-900 dark:text-white">
+            <h3 className="mb-2 text-lg font-semibold text-slate-900">
               Understanding Troves
             </h3>
-            <div className="space-y-2 text-sm text-slate-700 dark:text-slate-300">
+            <div className="space-y-2 text-sm text-slate-700">
               <p>
                 A Trove is a Collateralized Debt Position (CDP). You lock
                 collateral ({selectedCollateralToken.symbol}) and can borrow
@@ -302,7 +299,7 @@ export default function TrovePage() {
 
       {/* Your Existing Troves */}
       <div>
-        <h2 className="mb-4 text-center text-2xl font-bold text-slate-800">
+        <h2 className="mb-4 text-center text-2xl font-bold text-slate-900">
           Your Existing Troves
         </h2>
         <YourTroves />

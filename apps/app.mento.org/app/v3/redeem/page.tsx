@@ -46,10 +46,10 @@ export default function RedeemPage() {
     <div className="container mx-auto max-w-2xl space-y-8 p-4 md:p-8">
       {/* Header */}
       <div className="text-center">
-        <h1 className="mb-2 text-3xl font-bold text-slate-100 dark:text-slate-800">
+        <h1 className="mb-2 text-3xl font-bold text-slate-900">
           Redeem Collateral
         </h1>
-        <p className="text-slate-400 dark:text-slate-600">
+        <p className="text-slate-700">
           Exchange cUSD for system collateral at face value.
         </p>
       </div>
@@ -60,7 +60,7 @@ export default function RedeemPage() {
         <div className="space-y-2">
           <Label
             htmlFor="redeem-amount"
-            className="text-sm font-medium text-slate-300 dark:text-slate-700"
+            className="text-sm font-medium text-slate-900"
           >
             Amount to Redeem
           </Label>
@@ -82,7 +82,7 @@ export default function RedeemPage() {
                   )
                 }
               >
-                <SelectTrigger className="h-full min-w-24 rounded-l-none border-l border-slate-300 bg-white px-4 text-white dark:border-slate-700 dark:bg-slate-800 dark:text-slate-900">
+                <SelectTrigger className="h-full min-w-24 rounded-l-none border-l border-slate-300 bg-white px-4">
                   <div className="flex items-center gap-2">
                     <TokenIcon token={selectedToken} size={20} />
                     <span className="text-slate-800">
@@ -90,12 +90,12 @@ export default function RedeemPage() {
                     </span>
                   </div>
                 </SelectTrigger>
-                <SelectContent className="bg-white text-slate-900 dark:bg-slate-800">
+                <SelectContent className="bg-white text-slate-900">
                   {redeemableTokens.map((token) => (
                     <SelectItem
                       key={token.id}
                       value={token.id}
-                      className="hover:bg-slate-100 dark:hover:bg-slate-700"
+                      className="hover:bg-slate-100"
                     >
                       <div className="flex items-center gap-2">
                         <TokenIcon token={token} size={16} />
@@ -107,7 +107,7 @@ export default function RedeemPage() {
               </Select>
             </div>
           </div>
-          <div className="flex justify-between text-sm text-slate-500 dark:text-slate-400">
+          <div className="flex justify-between text-sm text-slate-700">
             <span>
               Value:{" "}
               {formatPrice(redeemValue * (mockPrices[selectedToken.id] || 0))}
@@ -129,14 +129,14 @@ export default function RedeemPage() {
       </Card>
 
       {/* Redemptions Explained */}
-      <Card className="border-l-4 border-purple-500 border-slate-200 bg-purple-50 p-6 dark:border-slate-700 dark:bg-slate-800/50">
+      <Card className="border-l-4 border-purple-500 bg-purple-50/80 p-6">
         <div className="flex items-start gap-3">
           <Info className="mt-0.5 h-5 w-5 shrink-0 text-purple-500" />
           <div>
-            <h3 className="mb-2 text-lg font-semibold text-slate-900 dark:text-white">
+            <h3 className="mb-2 text-lg font-semibold text-slate-900">
               Redemptions Explained
             </h3>
-            <div className="space-y-2 text-sm text-slate-700 dark:text-slate-300">
+            <div className="space-y-2 text-sm text-slate-700">
               <p>
                 Redemptions are a key mechanism for maintaining the peg of Mento
                 stablecoins (like cUSD). When you redeem, you exchange your cUSD

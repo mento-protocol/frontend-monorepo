@@ -403,7 +403,7 @@ export default function PoolsPage() {
       </Card>
 
       {/* How Rebalancing Works */}
-      <Card className="border-l-4 border-purple-500 bg-purple-50 p-6">
+      <Card className="border-l-4 border-purple-500 bg-purple-50/80 p-6">
         <div className="flex items-start gap-3">
           <Info className="mt-0.5 h-5 w-5 shrink-0 text-purple-500" />
           <div>
