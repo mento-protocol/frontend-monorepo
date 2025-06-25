@@ -1,7 +1,12 @@
+"use client";
+
 import { Button } from "@repo/ui";
 import { PlusCircle, Repeat } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 export function WelcomeBanner() {
+  const router = useRouter();
+
   return (
     <div className="rounded-lg bg-gray-900 p-8 text-white md:p-16">
       <h1 className="text-3xl tracking-tight sm:text-4xl">
@@ -16,6 +21,7 @@ export function WelcomeBanner() {
         <Button
           variant="secondary"
           className="bg-white/90 text-slate-800 hover:bg-white"
+          onClick={() => router.push("/v3/trove")}
         >
           <PlusCircle className="mr-2 h-4 w-4" />
           Open a Trove
@@ -23,6 +29,7 @@ export function WelcomeBanner() {
         <Button
           variant="secondary"
           className="bg-white/90 text-slate-800 hover:bg-white"
+          onClick={() => router.push("/v3/pools")}
         >
           <Repeat className="mr-2 h-4 w-4" />
           Rebalance Pools

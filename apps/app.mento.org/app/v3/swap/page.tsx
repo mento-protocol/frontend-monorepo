@@ -51,7 +51,7 @@ export default function V3SwapPage() {
                     data-testid="backButton"
                     variant="ghost"
                     size="icon"
-                    clipped="none"
+                    clipped={undefined}
                     className="h-8 w-8"
                     onClick={() => setConfirmView(false)}
                   >
