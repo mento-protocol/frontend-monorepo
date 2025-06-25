@@ -589,61 +589,34 @@ export default function SwapForm() {
   );
   const { data: toTokenTradablePairs } = useTradablePairs(toTokenId as TokenId);
 
-  // Reset toTokenId when fromTokenId changes and the pair becomes invalid
-  useEffect(() => {
-    // Skip if no tokens or no tradable pairs data
-    if (!fromTokenId || !toTokenId || !fromTokenTradablePairs) {
-      console.log("Skipping fromToken validation:", {
-        fromTokenId,
-        toTokenId,
-        fromTokenTradablePairs,
-      });
-      return;
-    }
+  const [lastChangedToken, setLastChangedToken] = useState<
+    "from" | "to" | null
+  >(null);
 
-    // Check if current toTokenId is in the list of tradable pairs for fromTokenId
-    const isValidPair = fromTokenTradablePairs.includes(toTokenId as TokenId);
-    console.log("FromToken validation:", {
-      fromTokenId,
-      toTokenId,
-      fromTokenTradablePairs,
-      isValidPair,
-    });
+  // Simple token pair validation - reset opposite token if pair is invalid
+  useEffect(() => {
+    if (!fromTokenId || !toTokenId || !lastChangedToken) return;
+
+    const isValidPair =
+      fromTokenTradablePairs?.includes(toTokenId as TokenId) ||
+      toTokenTradablePairs?.includes(fromTokenId as TokenId);
 
     if (!isValidPair) {
-      console.log("Resetting toTokenId because pair is invalid");
-      // Reset only the toTokenId (the other token)
-      form.setValue("toTokenId", "", { shouldValidate: false });
+      if (lastChangedToken === "from") {
+        form.setValue("toTokenId", "", { shouldValidate: false });
+      } else if (lastChangedToken === "to") {
+        form.setValue("fromTokenId", "", { shouldValidate: false });
+      }
+      setLastChangedToken(null);
     }
-  }, [fromTokenId, fromTokenTradablePairs, toTokenId, form]);
-
-  // Reset fromTokenId when toTokenId changes and the pair becomes invalid
-  useEffect(() => {
-    // Skip if no tokens or no tradable pairs data
-    if (!fromTokenId || !toTokenId || !toTokenTradablePairs) {
-      console.log("Skipping toToken validation:", {
-        fromTokenId,
-        toTokenId,
-        toTokenTradablePairs,
-      });
-      return;
-    }
-
-    // Check if current fromTokenId is in the list of tradable pairs for toTokenId
-    const isValidPair = toTokenTradablePairs.includes(fromTokenId as TokenId);
-    console.log("ToToken validation:", {
-      fromTokenId,
-      toTokenId,
-      toTokenTradablePairs,
-      isValidPair,
-    });
-
-    if (!isValidPair) {
-      console.log("Resetting fromTokenId because pair is invalid");
-      // Reset only the fromTokenId (the other token)
-      form.setValue("fromTokenId", "", { shouldValidate: false });
-    }
-  }, [toTokenId, toTokenTradablePairs, fromTokenId, form]);
+  }, [
+    fromTokenId,
+    toTokenId,
+    fromTokenTradablePairs,
+    toTokenTradablePairs,
+    lastChangedToken,
+    form,
+  ]);
 
   return (
     <Form {...form}>
@@ -706,6 +679,7 @@ export default function SwapForm() {
                         value={field.value}
                         onValueChange={(value) => {
                           field.onChange(value);
+                          setLastChangedToken("from");
                         }}
                         title="Select asset to sell"
                         excludeTokenId={toTokenId}
@@ -841,6 +815,7 @@ export default function SwapForm() {
                         value={field.value}
                         onValueChange={(value) => {
                           field.onChange(value);
+                          setLastChangedToken("to");
                         }}
                         title="Select asset to buy"
                         excludeTokenId={fromTokenId}
