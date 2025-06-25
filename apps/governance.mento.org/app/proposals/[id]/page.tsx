@@ -1,5 +1,3 @@
-import { ProgressBar } from "@/app/components/progress-bar";
-import { Timer } from "@/app/components/timer";
 import { Button, ProposalStatus } from "@repo/ui";
 import { Copy } from "lucide-react";
 import ReactMarkdown from "react-markdown";

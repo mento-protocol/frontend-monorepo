@@ -94,10 +94,7 @@ export function RichTextEditor({ className }: { className?: string }) {
 
   return (
     <div
-      className={cn(
-        "relative w-full pb-[60px] sm:pb-0 md:max-h-[calc(100dvh-6rem)]",
-        className,
-      )}
+      className={cn("relative w-full pb-[60px] sm:pb-0", className)}
       onClick={() => {
         editor?.view.focus();
       }}
