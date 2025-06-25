@@ -97,6 +97,7 @@ export function useV3Troves() {
           const [debt, coll, , status, , , , annualInterestRate] = troveData;
 
           // Calculate collateralization ratio (assuming 1:1 price for demo)
+          // TODO: Get actual price from oracle
           const debtNumber = parseFloat(formatUnits(debt, 18));
           const collNumber = parseFloat(formatUnits(coll, 18));
           const cratio = collNumber > 0 ? (collNumber / debtNumber) * 100 : 0;
