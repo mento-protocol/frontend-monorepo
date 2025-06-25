@@ -137,9 +137,7 @@ export default function PoolsPage() {
         {/* No Pools State */}
         {!isLoading && (!pools || pools.length === 0) && (
           <div className="rounded-lg border-2 border-dashed py-12 text-center">
-            <p className="text-slate-500">
-              No pools registered in the liquidity strategy.
-            </p>
+            <p className="text-slate-500">No pools found.</p>
           </div>
         )}
 
@@ -219,7 +217,9 @@ export default function PoolsPage() {
                           {formatDeviation(pool.deviation)}
                         </td>
                         <td className="px-6 py-4 text-sm font-medium text-slate-900">
-                          {parseFloat(pool.rebalanceIncentive).toFixed(2)}%
+                          {pool.rebalanceIncentive === "N/A"
+                            ? "N/A"
+                            : `${parseFloat(pool.rebalanceIncentive).toFixed(2)}%`}
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-900">
                           {pool.lastRebalance}
@@ -397,10 +397,9 @@ export default function PoolsPage() {
                                       Rebalance Incentive:
                                     </span>
                                     <span className="ml-2 text-sm text-slate-900">
-                                      {parseFloat(
-                                        pool.rebalanceIncentive,
-                                      ).toFixed(2)}
-                                      %
+                                      {pool.rebalanceIncentive === "N/A"
+                                        ? "N/A"
+                                        : `${parseFloat(pool.rebalanceIncentive).toFixed(2)}%`}
                                     </span>
                                   </div>
                                   <div>
@@ -426,22 +425,33 @@ export default function PoolsPage() {
                                     }
                                     disabled={
                                       !pool.canRebalance ||
-                                      rebalanceMutation.isPending
+                                      rebalanceMutation.isPending ||
+                                      pool.rebalanceIncentive === "N/A"
                                     }
                                     className="mt-6 h-12 w-full bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
                                   >
                                     <Zap className="mr-2 h-4 w-4" />
                                     {rebalanceMutation.isPending
                                       ? "Rebalancing..."
-                                      : pool.canRebalance
-                                        ? "Rebalance Pool"
-                                        : Math.abs(pool.deviation) <=
-                                            Math.max(
-                                              parseFloat(pool.thresholdAbove),
-                                              parseFloat(pool.thresholdBelow),
-                                            )
-                                          ? "Within Thresholds"
-                                          : "Cooldown Active"}
+                                      : pool.rebalanceIncentive === "N/A"
+                                        ? "Not in Liquidity Strategy"
+                                        : pool.canRebalance
+                                          ? "Rebalance Pool"
+                                          : Math.abs(pool.deviation) <=
+                                              Math.max(
+                                                parseFloat(
+                                                  pool.thresholdAbove === "N/A"
+                                                    ? "0"
+                                                    : pool.thresholdAbove,
+                                                ),
+                                                parseFloat(
+                                                  pool.thresholdBelow === "N/A"
+                                                    ? "0"
+                                                    : pool.thresholdBelow,
+                                                ),
+                                              )
+                                            ? "Within Thresholds"
+                                            : "Cooldown Active"}
                                   </Button>
                                 </div>
                               </div>

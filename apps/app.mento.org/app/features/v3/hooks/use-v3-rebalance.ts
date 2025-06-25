@@ -13,7 +13,7 @@ const LIQUIDITY_STRATEGY_ABI = parseAbi([
 // Contract addresses for V3
 const V3_LIQUIDITY_STRATEGY = {
   [celo.id]: "0x0000000000000000000000000000000000000000",
-  [celoAlfajores.id]: "0x3dD78d0b0805dcf9E798Bc89c186d5d0a5ffDBda",
+  [celoAlfajores.id]: "0xd202154b1f7d5f1Aa065CdFe47B207A7be514ca6",
 };
 
 export function useV3Rebalance() {

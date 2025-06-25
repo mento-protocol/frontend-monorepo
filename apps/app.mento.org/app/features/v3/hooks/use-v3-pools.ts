@@ -20,12 +20,25 @@ const FPMM_ABI = parseAbi([
 ]);
 
 // ERC20 ABI for token symbols
-const ERC20_ABI = parseAbi(["function symbol() view returns (string)"]);
+const ERC20_ABI = parseAbi([
+  "function symbol() view returns (string)",
+  "function decimals() view returns (uint8)",
+]);
+
+// FPMM Factory ABI
+const FPMM_FACTORY_ABI = parseAbi([
+  "function deployedFPMMAddresses() view returns (address[])",
+]);
 
 // Contract addresses for V3
 const V3_LIQUIDITY_STRATEGY = {
   [celo.id]: "0x0000000000000000000000000000000000000000",
-  [celoAlfajores.id]: "0x3dD78d0b0805dcf9E798Bc89c186d5d0a5ffDBda",
+  [celoAlfajores.id]: "0xd202154b1f7d5f1Aa065CdFe47B207A7be514ca6",
+};
+
+const V3_FPMM_FACTORY = {
+  [celo.id]: "0x0000000000000000000000000000000000000000",
+  [celoAlfajores.id]: "0xd8098494a749a3fDAD2D2e7Fa5272D8f274D8FF6",
 };
 
 export interface V3Pool {
@@ -69,15 +82,8 @@ export function useV3Pools() {
 
       const liquidityStrategyAddress =
         V3_LIQUIDITY_STRATEGY[chainId as keyof typeof V3_LIQUIDITY_STRATEGY];
-      if (
-        !liquidityStrategyAddress ||
-        liquidityStrategyAddress ===
-          "0x0000000000000000000000000000000000000000"
-      ) {
-        throw new Error(
-          `V3 Liquidity Strategy not deployed on chain ${chainId}`,
-        );
-      }
+      const fpmmFactoryAddress =
+        V3_FPMM_FACTORY[chainId as keyof typeof V3_FPMM_FACTORY];
 
       // Create public client for the current chain
       const publicClient = createPublicClient({
@@ -85,14 +91,45 @@ export function useV3Pools() {
         transport: http(),
       });
 
-      // Get all registered pools
-      const poolAddresses = await publicClient.readContract({
-        address: liquidityStrategyAddress as `0x${string}`,
-        abi: LIQUIDITY_STRATEGY_ABI,
-        functionName: "getPools",
-      });
+      let poolAddresses: `0x${string}`[] = [];
 
-      // Get pool from the fpmm factory
+      // Get pools from liquidity strategy if available
+      if (
+        liquidityStrategyAddress &&
+        liquidityStrategyAddress !==
+          "0x0000000000000000000000000000000000000000"
+      ) {
+        try {
+          const strategyPools = await publicClient.readContract({
+            address: liquidityStrategyAddress as `0x${string}`,
+            abi: LIQUIDITY_STRATEGY_ABI,
+            functionName: "getPools",
+          });
+          poolAddresses = [...poolAddresses, ...strategyPools];
+        } catch (error) {
+          console.error("Error fetching pools from liquidity strategy:", error);
+        }
+      }
+
+      // Get pools from FPMM factory if available
+      if (
+        fpmmFactoryAddress &&
+        fpmmFactoryAddress !== "0x0000000000000000000000000000000000000000"
+      ) {
+        try {
+          const factoryPools = await publicClient.readContract({
+            address: fpmmFactoryAddress as `0x${string}`,
+            abi: FPMM_FACTORY_ABI,
+            functionName: "deployedFPMMAddresses",
+          });
+          poolAddresses = [...poolAddresses, ...factoryPools];
+        } catch (error) {
+          console.error("Error fetching pools from FPMM factory:", error);
+        }
+      }
+
+      // Remove duplicates
+      poolAddresses = [...new Set(poolAddresses)];
 
       if (poolAddresses.length === 0) {
         return [];
@@ -104,16 +141,37 @@ export function useV3Pools() {
       // Fetch data for each pool
       for (const poolAddress of poolAddresses) {
         try {
-          // Get pool configuration from liquidity strategy
-          const poolConfig = await publicClient.readContract({
-            address: liquidityStrategyAddress as `0x${string}`,
-            abi: LIQUIDITY_STRATEGY_ABI,
-            functionName: "fpmmPoolConfigs",
-            args: [poolAddress],
-          });
+          // Try to get pool configuration from liquidity strategy (might not exist for factory pools)
+          let lastRebalance = BigInt(0);
+          let rebalanceCooldown = BigInt(0);
+          let rebalanceIncentive = BigInt(0);
+          let isInLiquidityStrategy = false;
 
-          const [lastRebalance, rebalanceCooldown, rebalanceIncentive] =
-            poolConfig;
+          if (
+            liquidityStrategyAddress &&
+            liquidityStrategyAddress !==
+              "0x0000000000000000000000000000000000000000"
+          ) {
+            try {
+              const poolConfig = await publicClient.readContract({
+                address: liquidityStrategyAddress as `0x${string}`,
+                abi: LIQUIDITY_STRATEGY_ABI,
+                functionName: "fpmmPoolConfigs",
+                args: [poolAddress],
+              });
+              [lastRebalance, rebalanceCooldown, rebalanceIncentive] =
+                poolConfig;
+              // Check if pool actually has configuration (not just zero values)
+              isInLiquidityStrategy =
+                lastRebalance > BigInt(0) ||
+                rebalanceCooldown > BigInt(0) ||
+                rebalanceIncentive > BigInt(0);
+            } catch (error: any) {
+              // Pool not in liquidity strategy
+              console.log(`Pool ${poolAddress} not in liquidity strategy`);
+              isInLiquidityStrategy = false;
+            }
+          }
 
           // Get pool data
           const [
@@ -159,6 +217,8 @@ export function useV3Pools() {
           // Get token symbols
           let token0Symbol = "Unknown";
           let token1Symbol = "Unknown";
+          let token0Decimals = 0;
+          let token1Decimals = 0;
 
           try {
             token0Symbol = await publicClient.readContract({
@@ -188,8 +248,36 @@ export function useV3Pools() {
             token1Symbol = token1Address.substring(0, 6) + "...";
           }
 
+          try {
+            token0Decimals = await publicClient.readContract({
+              address: token0Address,
+              abi: ERC20_ABI,
+              functionName: "decimals",
+            });
+          } catch (error) {
+            console.error(
+              `Error getting decimals for token 0 (${token0Address}):`,
+              error,
+            );
+            token0Decimals = 18;
+          }
+
+          try {
+            token1Decimals = await publicClient.readContract({
+              address: token1Address,
+              abi: ERC20_ABI,
+              functionName: "decimals",
+            });
+          } catch (error) {
+            console.error(
+              `Error getting decimals for token 1 (${token1Address}):`,
+              error,
+            );
+            token1Decimals = 18;
+          }
+
           // Parse metadata and prices
-          const [, , reserve0, reserve1] = metadata;
+          const [decimal0, decimal1, reserve0, reserve1] = metadata;
           const [oraclePrice, poolPrice] = prices;
 
           // Calculate deviation first
@@ -200,25 +288,46 @@ export function useV3Pools() {
               ? ((poolPriceNum - oraclePriceNum) / oraclePriceNum) * 100
               : 0;
 
-          // Calculate if rebalance is possible (cooldown check)
-          const cooldownEnds =
-            Number(lastRebalance) + Number(rebalanceCooldown);
-          const cooldownPassed = now > cooldownEnds;
+          // Calculate if rebalance is possible (only if pool is in liquidity strategy)
+          let canRebalance = false;
+          let cooldownEnds = 0;
+          let thresholdAboveNum = 0;
+          let thresholdBelowNum = 0;
 
-          // Parse thresholds to check deviation
-          const thresholdAboveNum = parseFloat(formatUnits(thresholdAbove, 2));
-          const thresholdBelowNum = parseFloat(formatUnits(thresholdBelow, 2));
+          if (isInLiquidityStrategy) {
+            cooldownEnds = Number(lastRebalance) + Number(rebalanceCooldown);
+            const cooldownPassed = now > cooldownEnds;
 
-          // Check if deviation is outside thresholds
-          const deviationOutsideThresholds =
-            deviation > thresholdAboveNum || deviation < -thresholdBelowNum;
+            // Parse thresholds to check deviation
+            thresholdAboveNum = parseFloat(formatUnits(thresholdAbove, 2));
+            thresholdBelowNum = parseFloat(formatUnits(thresholdBelow, 2));
 
-          // Can rebalance if cooldown passed AND deviation is outside thresholds
-          const canRebalance = cooldownPassed && deviationOutsideThresholds;
+            // Check if deviation is outside thresholds
+            const deviationOutsideThresholds =
+              deviation > thresholdAboveNum || deviation < -thresholdBelowNum;
 
-          // Format reserve amounts (assuming different decimals for different tokens)
-          const reserve0Formatted = parseFloat(formatUnits(reserve0, 18));
-          const reserve1Formatted = parseFloat(formatUnits(reserve1, 6)); // USDC-like token
+            // Can rebalance if cooldown passed AND deviation is outside thresholds
+            canRebalance = cooldownPassed && deviationOutsideThresholds;
+          }
+
+          console.log("PoolAddress", poolAddress);
+          console.log("token0Symbol", token0Symbol);
+          console.log("token1Symbol", token1Symbol);
+          console.log("token0Decimals", token0Decimals);
+          console.log("token1Decimals", token1Decimals);
+          console.log("reserve0", reserve0);
+          console.log("reserve1", reserve1);
+
+          // Format reserve amounts using decimals from FPMM metadata
+          const reserve0Formatted = parseFloat(
+            formatUnits(reserve0, token0Decimals),
+          );
+          const reserve1Formatted = parseFloat(
+            formatUnits(reserve1, token1Decimals),
+          );
+
+          console.log("reserve0Formatted", reserve0Formatted);
+          console.log("reserve1Formatted", reserve1Formatted);
 
           // Calculate reserve values and percentages
           const reserve0Value = reserve0Formatted * oraclePriceNum;
@@ -235,18 +344,26 @@ export function useV3Pools() {
             token1Address,
             token0Symbol,
             token1Symbol,
-            reserve0: formatUnits(reserve0, 18),
-            reserve1: formatUnits(reserve1, 6),
+            reserve0: formatUnits(reserve0, token0Decimals),
+            reserve1: formatUnits(reserve1, token1Decimals),
             oraclePrice: formatUnits(oraclePrice, 18),
             poolPrice: formatUnits(poolPrice, 18),
             deviation,
-            lastRebalance: new Date(
-              Number(lastRebalance) * 1000,
-            ).toLocaleString(),
-            rebalanceCooldown: new Date(cooldownEnds * 1000).toLocaleString(),
-            rebalanceIncentive: formatUnits(rebalanceIncentive, 16), // Basis points to percentage
-            thresholdAbove: formatUnits(thresholdAbove, 2), // Convert from basis points (500 = 5.00%)
-            thresholdBelow: formatUnits(thresholdBelow, 2), // Convert from basis points (500 = 5.00%)
+            lastRebalance: isInLiquidityStrategy
+              ? new Date(Number(lastRebalance) * 1000).toLocaleString()
+              : "N/A",
+            rebalanceCooldown: isInLiquidityStrategy
+              ? new Date(cooldownEnds * 1000).toLocaleString()
+              : "N/A",
+            rebalanceIncentive: isInLiquidityStrategy
+              ? formatUnits(rebalanceIncentive, 16) // Basis points to percentage
+              : "N/A",
+            thresholdAbove: isInLiquidityStrategy
+              ? formatUnits(thresholdAbove, 2) // Convert from basis points (500 = 5.00%)
+              : "N/A",
+            thresholdBelow: isInLiquidityStrategy
+              ? formatUnits(thresholdBelow, 2) // Convert from basis points (500 = 5.00%)
+              : "N/A",
             canRebalance,
             reserves: {
               token1: {
@@ -262,9 +379,11 @@ export function useV3Pools() {
               total: totalValue,
             },
             details: {
-              currentPoolPrice: `${poolPriceNum.toFixed(4)} ${token1Symbol} per ${token0Symbol}`,
+              currentPoolPrice: `${poolPriceNum.toFixed(4)}  ${token1Symbol} per ${token0Symbol}`,
               oracleTargetPrice: `${oraclePriceNum.toFixed(4)} ${token1Symbol} per ${token0Symbol}`,
-              thresholds: `+${formatUnits(thresholdAbove, 2)}% / -${formatUnits(thresholdBelow, 2)}%`,
+              thresholds: isInLiquidityStrategy
+                ? `+${formatUnits(thresholdAbove, 2)}% / -${formatUnits(thresholdBelow, 2)}%`
+                : "N/A",
             },
           });
         } catch (error) {
@@ -276,7 +395,8 @@ export function useV3Pools() {
     },
     enabled:
       !!chainId &&
-      !!V3_LIQUIDITY_STRATEGY[chainId as keyof typeof V3_LIQUIDITY_STRATEGY],
+      (!!V3_LIQUIDITY_STRATEGY[chainId as keyof typeof V3_LIQUIDITY_STRATEGY] ||
+        !!V3_FPMM_FACTORY[chainId as keyof typeof V3_FPMM_FACTORY]),
     staleTime: 30000, // 30 seconds
     refetchInterval: 30000, // Refetch every 30 seconds
     retry: 2,
