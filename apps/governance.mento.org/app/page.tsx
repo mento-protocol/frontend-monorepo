@@ -123,7 +123,7 @@ export default async function Home() {
       <section className="xl:px-22 flex flex-col items-start justify-start gap-12 px-4 lg:flex-row lg:gap-20">
         <div className="w-full flex-grow">
           <ProposalCard>
-            <ProposalCardHeader variant="highlighted">
+            <ProposalCardHeader>
               <h2 className="text-2xl font-semibold">Proposals</h2>
               <Button clipped="lg" size="md">
                 Create New Proposal <IconChevron />
