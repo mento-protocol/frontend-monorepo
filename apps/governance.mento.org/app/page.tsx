@@ -138,7 +138,7 @@ export default async function Home() {
                     <h3 className="text-xl text-white xl:text-lg">
                       MGP-5: Update voting period ahead of L2 transition
                     </h3>
-                    <div className="w-full xl:max-w-[192px]">
+                    <div className="w-full xl:ml-auto xl:max-w-[192px]">
                       <div className="grid grid-cols-3 gap-2">
                         <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
                           <span className="block h-1 w-1 bg-[var(--approved)]"></span>
@@ -163,7 +163,7 @@ export default async function Home() {
                     <h3 className="text-xl text-white xl:text-lg">
                       MGP-5: Update voting period ahead of L2 transition
                     </h3>
-                    <div className="w-full xl:max-w-[192px]">
+                    <div className="w-full xl:ml-auto xl:max-w-[192px]">
                       <div className="grid grid-cols-3 gap-2">
                         <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
                           <span className="block h-1 w-1 bg-[var(--approved)]"></span>
@@ -188,7 +188,7 @@ export default async function Home() {
                     <h3 className="text-xl text-white xl:text-lg">
                       MGP-5: Update voting period ahead of L2 transition
                     </h3>
-                    <div className="w-full xl:max-w-[192px]">
+                    <div className="w-full xl:ml-auto xl:max-w-[192px]">
                       <div className="grid grid-cols-3 gap-2">
                         <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
                           <span className="block h-1 w-1 bg-[var(--approved)]"></span>
@@ -213,7 +213,7 @@ export default async function Home() {
                     <h3 className="text-xl text-white xl:text-lg">
                       MGP-5: Update voting period ahead of L2 transition
                     </h3>
-                    <div className="w-full xl:max-w-[192px]">
+                    <div className="w-full xl:ml-auto xl:max-w-[192px]">
                       <div className="grid grid-cols-3 gap-2">
                         <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
                           <span className="block h-1 w-1 bg-[var(--approved)]"></span>
@@ -238,7 +238,7 @@ export default async function Home() {
                     <h3 className="text-xl text-white xl:text-lg">
                       MGP-5: Update voting period ahead of L2 transition
                     </h3>
-                    <div className="w-full xl:max-w-[192px]">
+                    <div className="w-full xl:ml-auto xl:max-w-[192px]">
                       <div className="grid grid-cols-3 gap-2">
                         <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
                           <span className="block h-1 w-1 bg-[var(--approved)]"></span>
@@ -263,7 +263,7 @@ export default async function Home() {
                     <h3 className="text-xl text-white xl:text-lg">
                       MGP-5: Update voting period ahead of L2 transition
                     </h3>
-                    <div className="w-full xl:max-w-[192px]">
+                    <div className="w-full xl:ml-auto xl:max-w-[192px]">
                       <div className="grid grid-cols-3 gap-2">
                         <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
                           <span className="block h-1 w-1 bg-[var(--approved)]"></span>
@@ -288,7 +288,7 @@ export default async function Home() {
                     <h3 className="text-xl text-white xl:text-lg">
                       MGP-5: Update voting period ahead of L2 transition
                     </h3>
-                    <div className="w-full xl:max-w-[192px]">
+                    <div className="w-full xl:ml-auto xl:max-w-[192px]">
                       <div className="grid grid-cols-3 gap-2">
                         <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
                           <span className="block h-1 w-1 bg-[var(--approved)]"></span>
@@ -313,7 +313,7 @@ export default async function Home() {
                     <h3 className="text-xl text-white xl:text-lg">
                       MGP-5: Update voting period ahead of L2 transition
                     </h3>
-                    <div className="w-full xl:max-w-[192px]">
+                    <div className="w-full xl:ml-auto xl:max-w-[192px]">
                       <div className="grid grid-cols-3 gap-2">
                         <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
                           <span className="block h-1 w-1 bg-[var(--approved)]"></span>
@@ -338,7 +338,7 @@ export default async function Home() {
                     <h3 className="text-xl text-white xl:text-lg">
                       MGP-5: Update voting period ahead of L2 transition
                     </h3>
-                    <div className="w-full xl:max-w-[192px]">
+                    <div className="w-full xl:ml-auto xl:max-w-[192px]">
                       <div className="grid grid-cols-3 gap-2">
                         <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
                           <span className="block h-1 w-1 bg-[var(--approved)]"></span>
@@ -363,7 +363,7 @@ export default async function Home() {
                     <h3 className="text-xl text-white xl:text-lg">
                       MGP-5: Update voting period ahead of L2 transition
                     </h3>
-                    <div className="w-full xl:max-w-[192px]">
+                    <div className="w-full xl:ml-auto xl:max-w-[192px]">
                       <div className="grid grid-cols-3 gap-2">
                         <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
                           <span className="block h-1 w-1 bg-[var(--approved)]"></span>
