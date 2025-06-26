@@ -137,8 +137,10 @@ export default function RedeemPage() {
               </div>
             </div>
             <div className="flex justify-between text-sm text-slate-700">
-              <span>You will receive: ~{redeemValue.toFixed(4)} USD.m</span>
-              <span>Rate: 1 EUR.m ≈ 1 USD.m</span>
+              <span>
+                You will receive: ~{(redeemValue / 1.17).toFixed(2)} USD.m
+              </span>
+              <span>Rate: 1 EUR.m ≈ 1.17 USD.m</span>
             </div>
           </div>
 
@@ -178,8 +180,8 @@ export default function RedeemPage() {
                 </p>
                 <p>
                   Redemptions are always processed at face value (1 EUR.m for
-                  approximately 1 USD.m worth of collateral), regardless of the
-                  current market price of the stablecoin. This creates an
+                  approximately 1.17 USD.m worth of collateral), regardless of
+                  the current market price of the stablecoin. This creates an
                   arbitrage opportunity if EUR.m trades below its peg,
                   incentivizing users to redeem and push the price back up.
                 </p>
