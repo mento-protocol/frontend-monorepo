@@ -14,6 +14,10 @@ import {
   IconTimer,
   IconCheckCircle,
   IconThunder,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
 } from "@repo/ui";
 import { Copy } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -74,58 +78,85 @@ export default async function ProposalPage() {
               </div>
             </div>
           </div>
-          <div className="mb-8 md:mb-16">
-            <ProposalCard>
-              <ProposalCardHeader variant={"highlighted"}>
-                <div className="flex w-full flex-col items-center justify-start gap-4 lg:flex-row">
-                  <div className="flex flex-row items-center justify-start gap-2">
-                    <span className="flex flex-row items-center gap-2 text-sm">
-                      <IconTimer />
-                      Time left
-                    </span>
-                    <span className="text-muted-foreground text-sm">
-                      72 : 24 : 13
-                    </span>
-                  </div>
-                  <div className="flex flex-row items-center justify-start gap-2">
-                    <span className="flex flex-row items-center gap-2 text-sm">
-                      <IconCheckCircle />
-                      Quorum reached
-                    </span>
-                    <span className="text-muted-foreground text-sm">
-                      770K of 999K
-                    </span>
-                  </div>
-                  <div className="flex flex-row items-center justify-start gap-2 lg:ml-auto">
-                    <span className="text-muted-foreground text-sm">
-                      Voting Power:
-                    </span>
-                    <span className="flex flex-row items-center gap-2 text-sm">
-                      <IconThunder /> 500 000 veMENTO
-                    </span>
-                  </div>
+
+          <div className="lg:gap-22 flex flex-col gap-8 lg:flex-row">
+            <div>
+              <div className="mb-8 md:mb-16">
+                <ProposalCard>
+                  <ProposalCardHeader variant={"highlighted"}>
+                    <div className="flex w-full flex-col items-center justify-start gap-4 lg:flex-row">
+                      <div className="flex flex-row items-center justify-start gap-2">
+                        <span className="flex flex-row items-center gap-2 text-sm">
+                          <IconTimer />
+                          Time left
+                        </span>
+                        <span className="text-muted-foreground text-sm">
+                          72 : 24 : 13
+                        </span>
+                      </div>
+                      <div className="flex flex-row items-center justify-start gap-2">
+                        <span className="flex flex-row items-center gap-2 text-sm">
+                          <IconCheckCircle />
+                          Quorum reached
+                        </span>
+                        <span className="text-muted-foreground text-sm">
+                          770K of 999K
+                        </span>
+                      </div>
+                      <div className="flex flex-row items-center justify-start gap-2 lg:ml-auto">
+                        <span className="text-muted-foreground text-sm">
+                          Voting Power:
+                        </span>
+                        <span className="flex flex-row items-center gap-2 text-sm">
+                          <IconThunder /> 500 000 veMENTO
+                        </span>
+                      </div>
+                    </div>
+                  </ProposalCardHeader>
+                  <ProposalCardBody>
+                    <div className="lg:y-8 flex w-full flex-col gap-4 px-4 py-6 lg:grid lg:grid-cols-3 lg:gap-8 lg:px-8">
+                      <Button clipped="sm" size="md" variant="approve">
+                        Approve Proposal
+                      </Button>
+                      <Button clipped="sm" size="md" variant="abstain">
+                        Abstain
+                      </Button>
+                      <Button clipped="sm" size="md" variant="reject">
+                        Reject Proposal
+                      </Button>
+                    </div>
+                  </ProposalCardBody>
+                </ProposalCard>
+              </div>
+              <div className="prose prose-invert max-w-none">
+                <ReactMarkdown remarkPlugins={[gfm]}>{markdown}</ReactMarkdown>
+              </div>
+            </div>
+            <div className="w-full max-w-xs">
+              <div className="bg-card">
+                <div className="px-4 lg:p-6">
+                  <h2>Participants</h2>
                 </div>
-              </ProposalCardHeader>
-              <ProposalCardBody>
-                <div className="lg:y-8 flex w-full flex-col gap-4 px-4 py-6 lg:grid lg:grid-cols-3 lg:gap-8 lg:px-8">
-                  <Button clipped="sm" size="md" variant="approve">
-                    Approve Proposal
-                  </Button>
-                  <Button clipped="sm" size="md" variant="abstain">
-                    Abstain
-                  </Button>
-                  <Button clipped="sm" size="md" variant="reject">
-                    Reject Proposal
-                  </Button>
-                </div>
-              </ProposalCardBody>
-            </ProposalCard>
-          </div>
-          <div className="prose prose-invert max-w-none">
-            <ReactMarkdown remarkPlugins={[gfm]}>{markdown}</ReactMarkdown>
+                <Tabs defaultValue="approve" className="">
+                  <TabsList className="px-4 lg:px-6">
+                    <TabsTrigger value="approve">Approve</TabsTrigger>
+                    <TabsTrigger value="reject">Reject</TabsTrigger>
+                    <TabsTrigger value="abstain">Abstain</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="approve" className="p-4 lg:p-6">
+                    Make changes to your account here.
+                  </TabsContent>
+                  <TabsContent value="reject" className="p-4 lg:p-6">
+                    Change your password here.
+                  </TabsContent>
+                  <TabsContent value="abstain" className="p-4 lg:p-6">
+                    Change your password here.
+                  </TabsContent>
+                </Tabs>
+              </div>
+            </div>
           </div>
         </div>
-        <div className="w-full max-w-xs"></div>
       </main>
 
       <section className="md:px-22 relative w-full px-4 py-8 before:absolute before:left-1/2 before:top-0 before:-z-10 before:h-20 before:w-screen before:-translate-x-1/2 before:bg-gradient-to-b before:from-[#15111B] before:to-[#070010] md:py-16">
