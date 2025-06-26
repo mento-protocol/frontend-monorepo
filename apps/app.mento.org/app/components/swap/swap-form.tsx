@@ -73,7 +73,6 @@ export default function SwapForm() {
   const [formValues, setFormValues] = useAtom(formValuesAtom);
   const [, setConfirmView] = useAtom(confirmViewAtom);
   const [isApprovalProcessing, setIsApprovalProcessing] = useState(false);
-  const [latestValidQuote, setLatestValidQuote] = useState<string>("");
 
   const { data: balancesFromHook } = useAccountBalances({ address, chainId });
   const balances = balancesFromHook || defaultEmptyBalances;
@@ -89,8 +88,8 @@ export default function SwapForm() {
       direction: formValues?.direction || "in",
       amount: formValues?.amount || "",
       quote: formValues?.quote || "",
-      fromTokenId: formValues?.fromTokenId || "cUSD",
-      toTokenId: formValues?.toTokenId || "cKES",
+      fromTokenId: formValues?.fromTokenId || "CELO",
+      toTokenId: formValues?.toTokenId || "cUSD",
       slippage: formValues?.slippage || "0.5",
     },
     mode: "onChange", // Important for field-level validation
@@ -358,9 +357,7 @@ export default function SwapForm() {
   // Check for balance error
   const [balanceError, setBalanceError] = useState<string | null>(null);
 
-  // Only prevent quote if there's an actual error, not during validation
-  const canQuote =
-    !!hasAmount && !errors.amount && !limitsLoading && !tradingLimitError;
+  const canQuote = +!!hasAmount && !errors.amount && !limitsLoading;
 
   const {
     isLoading: quoteLoading,
@@ -377,10 +374,8 @@ export default function SwapForm() {
   );
 
   useEffect(() => {
-    if (quote && quote !== "0") {
-      setLatestValidQuote(quote);
-    }
-  }, [quote]);
+    setTradingLimitError(null);
+  }, [amount, quote]);
 
   // Check balance in real-time
   useEffect(() => {
@@ -402,59 +397,31 @@ export default function SwapForm() {
   }, [amount, hasAmount, fromTokenId, formDirection, validateBalance]);
 
   useEffect(() => {
-    const checkLimits = async () => {
-      if (
-        !hasAmount ||
-        !limits ||
-        limitsLoading ||
-        !fromTokenId ||
-        !toTokenId
-      ) {
-        setTradingLimitError(null);
-        return;
-      }
+    if (!hasAmount || !limits || limitsLoading) return;
 
-      const parsedAmount = parseAmount(amount);
-      if (!parsedAmount) {
-        setTradingLimitError(null);
-        return;
-      }
+    const numericAmount = Number(parseAmount(amount) ?? 0);
+    const numericQuote = Number(quote || 0);
 
-      const numericAmount = Number(parsedAmount.toString());
+    const violation = checkTradingLimitViolation(
+      numericAmount,
+      numericQuote,
+      limits,
+      formDirection,
+      fromTokenId,
+      toTokenId,
+    );
 
-      let numericQuote = Number(formQuote);
-      if (
-        formDirection === "out" &&
-        latestValidQuote &&
-        (formQuote === "0" || formQuote === "0.00")
-      ) {
-        numericQuote = Number(latestValidQuote);
-      }
-
-      const violation = checkTradingLimitViolation(
-        numericAmount,
-        numericQuote,
-        limits,
-        formDirection,
-        fromTokenId,
-        toTokenId,
-      );
-
-      setTradingLimitError((prev) => (prev === violation ? prev : violation));
-    };
-
-    checkLimits();
+    setTradingLimitError((v) => (v === violation ? v : violation));
   }, [
     amount,
-    hasAmount,
+    quote,
     limits,
     limitsLoading,
+    formDirection,
     fromTokenId,
     toTokenId,
-    formDirection,
+    hasAmount,
     checkTradingLimitViolation,
-    formQuote,
-    latestValidQuote, // This won't cause loops since it only updates when quote is valid
   ]);
 
   useEffect(() => {
