@@ -17,56 +17,82 @@ const markdown =
 
 export default async function ProposalPage() {
   return (
-    <main className="md:px-22 relative w-full px-4 py-8 md:py-16">
-      <div className="mb-6">
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbLink href="/">Home</BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage>1</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-      </div>
+    <>
+      <main className="md:px-22 relative w-full px-4 py-8 md:py-16">
+        <div className="mb-6">
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink href="/">Home</BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>1</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+        </div>
 
-      <div className="flex flex-col gap-6">
-        <ProposalStatus variant="active" />
-        <h1 className="max-w-[26ch] text-3xl font-medium md:text-6xl">
-          MGP-6: Remove Mento Labs multisig on Locking contract
-        </h1>
-        <div className="flex flex-wrap items-center gap-2 md:gap-8">
-          <div className="flex items-center gap-2">
-            <span className="bg-primary h-4 w-4 rounded-full" />
-            <span className="text-muted-foreground text-sm">
-              by 0x3490...8A4B
-            </span>
-            <Button
-              variant="ghost"
-              size="xs"
-              className="text-secondary-active h-4 w-4"
-            >
-              <Copy />
-            </Button>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground text-sm">Proposed on:</span>
-            <span className="text-sm">Sep 15th, 2023</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground text-sm">
-              Voting deadline:
-            </span>
-            <span className="text-sm">Sep 30th, 2023</span>
+        <div className="flex flex-col gap-6">
+          <ProposalStatus variant="active" />
+          <h1 className="max-w-[26ch] text-3xl font-medium md:text-6xl">
+            MGP-6: Remove Mento Labs multisig on Locking contract
+          </h1>
+          <div className="flex flex-wrap items-center gap-2 md:gap-8">
+            <div className="flex items-center gap-2">
+              <span className="bg-primary h-4 w-4 rounded-full" />
+              <span className="text-muted-foreground text-sm">
+                by 0x3490...8A4B
+              </span>
+              <Button
+                variant="ghost"
+                size="xs"
+                className="text-secondary-active h-4 w-4"
+              >
+                <Copy />
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground text-sm">
+                Proposed on:
+              </span>
+              <span className="text-sm">Sep 15th, 2023</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground text-sm">
+                Voting deadline:
+              </span>
+              <span className="text-sm">Sep 30th, 2023</span>
+            </div>
           </div>
         </div>
-      </div>
-      <div className="mb-8 md:mb-16"></div>
-      <div className="prose prose-invert">
-        <ReactMarkdown remarkPlugins={[gfm]}>{markdown}</ReactMarkdown>
-      </div>
-    </main>
+        <div className="mb-8 md:mb-16"></div>
+        <div className="prose prose-invert">
+          <ReactMarkdown remarkPlugins={[gfm]}>{markdown}</ReactMarkdown>
+        </div>
+      </main>
+      <section className="md:px-22 relative w-full px-4 py-8 before:absolute before:left-1/2 before:top-0 before:-z-10 before:h-20 before:w-screen before:-translate-x-1/2 before:bg-gradient-to-b before:from-[#15111B] before:to-[#070010] md:py-16">
+        <h2 className="mb-6 text-2xl">Explore Other Proposals</h2>
+        <div className="flex flex-col gap-2 lg:grid lg:grid-cols-3 lg:gap-2">
+          <div className="bg-card flex flex-col items-start justify-start gap-4 p-4">
+            <ProposalStatus variant="active" />
+            <h2>MGP-5: Update voting period ahead of L2 transition</h2>
+            <div className="text-muted-foreground text-sm">Feb 02, 2025</div>
+          </div>
+
+          <div className="bg-card flex flex-col items-start justify-start gap-4 p-4">
+            <ProposalStatus variant="active" />
+            <h2>MGP-5: Update voting period ahead of L2 transition</h2>
+            <div className="text-muted-foreground text-sm">Feb 02, 2025</div>
+          </div>
+
+          <div className="bg-card flex flex-col items-start justify-start gap-4 p-4">
+            <ProposalStatus variant="active" />
+            <h2>MGP-5: Update voting period ahead of L2 transition</h2>
+            <div className="text-muted-foreground text-sm">Feb 02, 2025</div>
+          </div>
+        </div>
+      </section>
+    </>
   );
 }
