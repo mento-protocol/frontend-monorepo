@@ -817,7 +817,15 @@ export default function SwapForm() {
 
         {isConnected ? (
           <Button
-            data-testid={shouldApprove ? "approveButton" : "swapButton"}
+            data-testid={
+              balanceError
+                ? "insufficientBalance"
+                : tradingLimitError
+                  ? "swapsHasExceedsTradingLimitLabel"
+                  : shouldApprove
+                    ? "approveButton"
+                    : "swapButton"
+            }
             className="mt-auto w-full"
             size="lg"
             clipped="lg"
