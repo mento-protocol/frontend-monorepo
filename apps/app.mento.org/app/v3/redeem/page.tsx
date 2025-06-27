@@ -155,7 +155,7 @@ export default function RedeemPage() {
               </div>
             </div>
             <div className="flex justify-between text-sm text-slate-700">
-              <span>
+              {/* <span>
                 {isLoadingRate && redeemValue > 0
                   ? "Loading redemption rate..."
                   : expectedCollateral
@@ -168,7 +168,7 @@ export default function RedeemPage() {
                   : redeemValue > 0
                     ? "Rate: Loading..."
                     : "Rate: Enter amount"}
-              </span>
+              </span> */}
             </div>
           </div>
 

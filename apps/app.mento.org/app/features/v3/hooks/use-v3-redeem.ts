@@ -143,8 +143,8 @@ export function useV3Redeem() {
       const explorerUrl = chain?.explorerUrl;
 
       const successMessage = explorerUrl
-        ? `Redemption transaction submitted successfully. View on CeloScan: ${explorerUrl}/tx/${data.hash}`
-        : "Redemption transaction submitted successfully.";
+        ? `Redemption successful. View on CeloScan: ${explorerUrl}/tx/${data.hash}`
+        : "Redemption successful.";
 
       toast.success(successMessage);
 
