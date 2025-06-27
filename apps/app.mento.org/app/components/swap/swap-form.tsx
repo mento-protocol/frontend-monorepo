@@ -593,7 +593,7 @@ export default function SwapForm() {
     "from" | "to" | null
   >(null);
 
-  // Simple token pair validation - reset opposite token if pair is invalid
+  // Handle token pair validation - reset opposite token if an invalid pair is selected
   useEffect(() => {
     if (!fromTokenId || !toTokenId || !lastChangedToken) return;
 
@@ -601,6 +601,7 @@ export default function SwapForm() {
       fromTokenTradablePairs?.includes(toTokenId as TokenId) ||
       toTokenTradablePairs?.includes(fromTokenId as TokenId);
 
+    // If an invalid pair is selected, reset the opposite token
     if (!isValidPair) {
       if (lastChangedToken === "from") {
         form.setValue("toTokenId", "", { shouldValidate: false });
@@ -683,6 +684,7 @@ export default function SwapForm() {
                         }}
                         title="Select asset to sell"
                         excludeTokenId={toTokenId}
+                        filterByTokenId={toTokenId as TokenId}
                         onClose={() => {
                           setTimeout(() => {
                             amountRef.current?.focus();
