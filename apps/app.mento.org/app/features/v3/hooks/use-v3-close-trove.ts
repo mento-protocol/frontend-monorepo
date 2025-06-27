@@ -140,6 +140,8 @@ export function useV3CloseTrove() {
         abi: BORROWER_OPERATIONS_ABI,
         functionName: "closeTrove",
         args: [BigInt(troveId)],
+        maxPriorityFeePerGas: BigInt(1000000000),
+        gas: BigInt(1000000),
       });
 
       return hash;
