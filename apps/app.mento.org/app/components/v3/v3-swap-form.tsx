@@ -34,11 +34,13 @@ export function V3SwapForm() {
   // Get swap hook and quote hook
   const swapMutation = useV3Swap();
 
-  // Quote logic with proper token addresses
+  // Quote logic with proper token addresses - only when amount is valid
+  const shouldGetQuote =
+    amount && parseFloat(amount) > 0 && fromToken && toToken;
   const { data: quoteData, isLoading: isLoadingQuote } = useV3SwapQuote(
-    fromToken?.address,
-    toToken?.address,
-    amount && parseFloat(amount) > 0 ? amount : undefined,
+    shouldGetQuote ? fromToken.address : undefined,
+    shouldGetQuote ? toToken.address : undefined,
+    shouldGetQuote ? amount : undefined,
   );
 
   // Set default tokens when pools data loads
@@ -270,7 +272,13 @@ export function V3SwapForm() {
               type="text"
               placeholder="0.00"
               className="h-16 pr-32 text-2xl"
-              value={isLoadingQuote ? "Loading..." : quoteData?.amountOut || ""}
+              value={
+                !shouldGetQuote
+                  ? ""
+                  : isLoadingQuote
+                    ? "Loading..."
+                    : quoteData?.amountOut || ""
+              }
               readOnly
             />
             <div className="absolute inset-y-0 right-0 flex items-center">
@@ -360,7 +368,7 @@ export function V3SwapForm() {
               <IconLoading />
               Swapping...
             </div>
-          ) : isLoadingQuote ? (
+          ) : isLoadingQuote && shouldGetQuote ? (
             <div className="flex items-center gap-2">
               <IconLoading />
               Getting quote...
