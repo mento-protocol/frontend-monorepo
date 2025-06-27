@@ -137,13 +137,13 @@ export function useV3Redeem() {
 
       return { hash, redemptionRate };
     },
-    onSuccess: (hash) => {
+    onSuccess: (data) => {
       // Show success toast with transaction details
       const chain = chainIdToChain[chainId || 0];
       const explorerUrl = chain?.explorerUrl;
 
       const successMessage = explorerUrl
-        ? `Redemption transaction submitted successfully. View on CeloScan: ${explorerUrl}/tx/${hash}`
+        ? `Redemption transaction submitted successfully. View on CeloScan: ${explorerUrl}/tx/${data.hash}`
         : "Redemption transaction submitted successfully.";
 
       toast.success(successMessage);
@@ -152,7 +152,7 @@ export function useV3Redeem() {
       queryClient.invalidateQueries({ queryKey: ["v3Troves"] });
       queryClient.invalidateQueries({ queryKey: ["accountBalances"] });
 
-      return hash;
+      return data.hash;
     },
     onError: (error: any) => {
       // Show error toast

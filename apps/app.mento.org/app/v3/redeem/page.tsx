@@ -50,7 +50,7 @@ export default function RedeemPage() {
   // Calculate expected collateral based on redemption rate
   const formatRedemptionRate = (rate: bigint | null | undefined) => {
     if (!rate) return null;
-    return Number(rate) / 1e18; // Convert from wei to decimal
+    return Number(rate) / 1e18;
   };
 
   const currentRate = formatRedemptionRate(redemptionRate);

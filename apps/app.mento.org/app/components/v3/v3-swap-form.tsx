@@ -221,12 +221,12 @@ export function V3SwapForm() {
           <div className="rounded-lg bg-slate-50 p-4">
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-slate-600">Exchange Rate:</span>
+                {/* <span className="text-slate-600">Exchange Rate:</span>
                 <span className="font-medium">
                   1 {fromToken} ≈{" "}
                   {(parseFloat(expectedOutput) / parseFloat(amount)).toFixed(6)}{" "}
                   {toToken}
-                </span>
+                </span> */}
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-600">You pay:</span>
