@@ -170,6 +170,8 @@ export function useV3OpenTrove() {
           "0x0000000000000000000000000000000000000000" as `0x${string}`, // removeManager
           "0x0000000000000000000000000000000000000000" as `0x${string}`, // receiver
         ],
+        maxPriorityFeePerGas: BigInt(1000000000),
+        gas: BigInt(1000000),
       });
 
       // Wait for transaction
