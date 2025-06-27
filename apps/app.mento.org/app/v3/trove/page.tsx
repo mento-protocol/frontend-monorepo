@@ -41,7 +41,9 @@ export default function TrovePage() {
 
   // Use real price if available, fallback to 1.0 for USD.m
   const usdmPrice = 1.0; // USD.m is always $1
-  const eurmPrice = priceData?.price ? parseFloat(priceData.price) : 0.92;
+  const eurmPrice = priceData?.price
+    ? parseFloat(priceData.price.toString())
+    : 0.92;
 
   const {
     collateralValue,
@@ -178,7 +180,7 @@ export default function TrovePage() {
         offset={{ top: "80px" }}
         mobileOffset={{ top: "96px" }}
       />
-      <div className="container mx-auto max-w-2xl space-y-8 p-4 md:p-8">
+      <div className="container mx-auto max-w-2xl space-y-8 overflow-x-hidden p-4 md:p-8">
         {/* Header */}
         <div className="text-center">
           <h1 className="mb-2 text-3xl font-bold text-slate-900">
@@ -191,7 +193,7 @@ export default function TrovePage() {
         </div>
 
         {/* Main Form */}
-        <Card className="space-y-6 p-6">
+        <Card className="relative space-y-6 overflow-hidden p-6">
           {/* Collateral Input */}
           <div className="space-y-2">
             <Label
@@ -200,7 +202,7 @@ export default function TrovePage() {
             >
               Collateral
             </Label>
-            <div className="relative">
+            <div className="relative overflow-hidden">
               <Input
                 id="collateral"
                 type="number"
@@ -218,7 +220,7 @@ export default function TrovePage() {
                     )
                   }
                 >
-                  <SelectTrigger className="h-full min-w-24 rounded-l-none border-l border-slate-300 bg-white px-4 text-slate-900">
+                  <SelectTrigger className="h-full w-full min-w-24 rounded-l-none border-l border-slate-300 bg-white px-4 text-slate-900">
                     <div className="flex items-center gap-2">
                       <TokenIcon token={selectedCollateralToken} size={20} />
                       <span className="text-slate-900">

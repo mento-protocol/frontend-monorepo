@@ -57,6 +57,7 @@ export function useV3Rebalance() {
         abi: LIQUIDITY_STRATEGY_ABI,
         functionName: "rebalance",
         args: [poolAddress as `0x${string}`],
+        maxPriorityFeePerGas: BigInt(1000000000),
       });
 
       return hash;

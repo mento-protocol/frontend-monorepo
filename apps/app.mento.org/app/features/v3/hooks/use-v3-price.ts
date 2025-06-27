@@ -14,7 +14,7 @@ const PRICE_FEED_ABI = parseAbi(["function getPrice() view returns (uint256)"]);
 // Contract addresses for V3 (from your basic UI config)
 const V3_ADDRESSES_REGISTRY = {
   [celo.id]: "0x0000000000000000000000000000000000000000",
-  [celoAlfajores.id]: "0xf9bc8b3a0fb0ed51e2c4339849ca96b0ba7a69a4",
+  [celoAlfajores.id]: "0xd39c90bb4c1e5d63f83a9fe52359897bb1068ed3",
 };
 
 export function useV3Price() {

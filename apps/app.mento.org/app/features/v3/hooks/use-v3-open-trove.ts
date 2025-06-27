@@ -36,7 +36,7 @@ const ERC20_ABI = parseAbi([
 // Contract addresses for V3
 const V3_ADDRESSES_REGISTRY = {
   [celo.id]: "0x0000000000000000000000000000000000000000",
-  [celoAlfajores.id]: "0xf9bc8b3a0fb0ed51e2c4339849ca96b0ba7a69a4",
+  [celoAlfajores.id]: "0xd39c90bb4c1e5d63f83a9fe52359897bb1068ed3",
 };
 
 interface OpenTroveParams {
@@ -158,8 +158,7 @@ export function useV3OpenTrove() {
         account: address,
       });
 
-      // Add 20% buffer to gas estimate
-      const gasLimit = (estimatedGas * 120n) / 100n;
+      const gasLimit = (estimatedGas * BigInt(120)) / BigInt(100);
 
       const hash = await walletClient.writeContract({
         address: borrowerOperationsAddress,
@@ -179,6 +178,7 @@ export function useV3OpenTrove() {
           receiver, // receiver
         ],
         gas: gasLimit,
+        maxPriorityFeePerGas: BigInt(1000000000),
       });
 
       return hash;

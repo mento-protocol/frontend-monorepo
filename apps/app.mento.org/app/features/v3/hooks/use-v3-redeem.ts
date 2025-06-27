@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAccount, useChainId } from "wagmi";
 import {
   createWalletClient,
@@ -21,6 +21,7 @@ const ADDRESSES_REGISTRY_ABI = parseAbi([
 // Collateral Registry ABI for redemption
 const COLLATERAL_REGISTRY_ABI = parseAbi([
   "function redeemCollateral(uint256 _boldAmount, uint256 _maxIterations, uint256 _maxFeePercentage) external",
+  "function getRedemptionRateForRedeemedAmount(uint256) external view returns (uint256)",
 ]);
 
 // ERC20 ABI for approvals
@@ -32,7 +33,7 @@ const ERC20_ABI = parseAbi([
 // Contract addresses for V3
 const V3_ADDRESSES_REGISTRY = {
   [celo.id]: "0x0000000000000000000000000000000000000000",
-  [celoAlfajores.id]: "0xf9bc8b3a0fb0ed51e2c4339849ca96b0ba7a69a4",
+  [celoAlfajores.id]: "0xd39c90bb4c1e5d63f83a9fe52359897bb1068ed3",
 };
 
 export function useV3Redeem() {
@@ -115,6 +116,13 @@ export function useV3Redeem() {
         console.log("Approval transaction submitted:", approveTx);
       }
 
+      const redemptionRate = await publicClient.readContract({
+        address: collateralRegistryAddress,
+        abi: COLLATERAL_REGISTRY_ABI,
+        functionName: "getRedemptionRateForRedeemedAmount",
+        args: [amountWei],
+      });
+
       // Execute redemption
       const maxFeePercentage = parseUnits("1", 18);
       const maxIterations = 20;
@@ -124,9 +132,10 @@ export function useV3Redeem() {
         abi: COLLATERAL_REGISTRY_ABI,
         functionName: "redeemCollateral",
         args: [amountWei, BigInt(maxIterations), maxFeePercentage],
+        maxPriorityFeePerGas: BigInt(1000000000),
       });
 
-      return hash;
+      return { hash, redemptionRate };
     },
     onSuccess: (hash) => {
       // Show success toast with transaction details
@@ -152,5 +161,55 @@ export function useV3Redeem() {
       toast.error(`Redemption Failed: ${errorMessage}`);
       throw error;
     },
+  });
+}
+
+export function useV3RedemptionRate(amount: string) {
+  const { address } = useAccount();
+  const chainId = useChainId();
+
+  return useQuery({
+    queryKey: ["v3RedemptionRate", chainId, amount],
+    queryFn: async () => {
+      if (!address || !chainId || !amount || parseFloat(amount) <= 0) {
+        return null;
+      }
+
+      const registryAddress =
+        V3_ADDRESSES_REGISTRY[chainId as keyof typeof V3_ADDRESSES_REGISTRY];
+      if (
+        !registryAddress ||
+        registryAddress === "0x0000000000000000000000000000000000000000"
+      ) {
+        return null;
+      }
+
+      const chain = chainId === celo.id ? celo : celoAlfajores;
+
+      const publicClient = createPublicClient({
+        chain,
+        transport: http(),
+      });
+
+      const amountWei = parseUnits(amount, 18);
+
+      const collateralRegistryAddress = await publicClient.readContract({
+        address: registryAddress as `0x${string}`,
+        abi: ADDRESSES_REGISTRY_ABI,
+        functionName: "collateralRegistry",
+      });
+
+      const redemptionRate = await publicClient.readContract({
+        address: collateralRegistryAddress,
+        abi: COLLATERAL_REGISTRY_ABI,
+        functionName: "getRedemptionRateForRedeemedAmount",
+        args: [amountWei],
+      });
+
+      return redemptionRate;
+    },
+    enabled: Boolean(address && chainId && amount && parseFloat(amount) > 0),
+    refetchInterval: 10000, // Refetch every 10 seconds
+    staleTime: 5000, // Consider data stale after 5 seconds
   });
 }

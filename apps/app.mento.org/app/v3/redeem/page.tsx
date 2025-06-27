@@ -11,7 +11,10 @@ import {
   IconCheck,
 } from "@repo/ui";
 import { Info } from "lucide-react";
-import { useV3Redeem } from "@/features/v3/hooks/use-v3-redeem";
+import {
+  useV3Redeem,
+  useV3RedemptionRate,
+} from "@/features/v3/hooks/use-v3-redeem";
 import { useAccount } from "wagmi";
 import { EURm } from "@/lib/config/tokens";
 
@@ -19,6 +22,8 @@ export default function RedeemPage() {
   const { address } = useAccount();
   const [redeemAmount, setRedeemAmount] = useState("");
   const redeemMutation = useV3Redeem();
+  const { data: redemptionRate, isLoading: isLoadingRate } =
+    useV3RedemptionRate(redeemAmount);
 
   const handleRedeem = async () => {
     if (!address) {
@@ -30,7 +35,10 @@ export default function RedeemPage() {
     }
 
     try {
-      await redeemMutation.mutateAsync({ amount: redeemAmount });
+      const { hash, redemptionRate } = await redeemMutation.mutateAsync({
+        amount: redeemAmount,
+      });
+      console.log("Redemption rate:", redemptionRate);
       setRedeemAmount("");
     } catch (error: any) {
       // Error handling is done in the hook via toast
@@ -38,6 +46,16 @@ export default function RedeemPage() {
   };
 
   const redeemValue = parseFloat(redeemAmount) || 0;
+
+  // Calculate expected collateral based on redemption rate
+  const formatRedemptionRate = (rate: bigint | null | undefined) => {
+    if (!rate) return null;
+    return Number(rate) / 1e18; // Convert from wei to decimal
+  };
+
+  const currentRate = formatRedemptionRate(redemptionRate);
+  const expectedCollateral =
+    currentRate && redeemValue > 0 ? redeemValue * currentRate : null;
 
   if (!address) {
     return (
@@ -138,9 +156,19 @@ export default function RedeemPage() {
             </div>
             <div className="flex justify-between text-sm text-slate-700">
               <span>
-                You will receive: ~{(redeemValue / 1.17).toFixed(2)} USD.m
+                {isLoadingRate && redeemValue > 0
+                  ? "Loading redemption rate..."
+                  : expectedCollateral
+                    ? `You will receive: ~${expectedCollateral.toFixed(4)} USD.m`
+                    : ""}
               </span>
-              <span>Rate: 1 EUR.m ≈ 1.17 USD.m</span>
+              <span>
+                {currentRate
+                  ? `Rate: 1 EUR.m = ${currentRate.toFixed(4)} USD.m`
+                  : redeemValue > 0
+                    ? "Rate: Loading..."
+                    : "Rate: Enter amount"}
+              </span>
             </div>
           </div>
 
