@@ -153,26 +153,34 @@ export function useV3OpenTrove() {
         receiver: "0x0000000000000000000000000000000000000000",
       });
 
-      const tx = await walletClient.writeContract({
-        address: borrowerOperationsAddress,
-        abi: BORROWER_OPERATIONS_ABI,
-        functionName: "openTrove",
-        args: [
-          address, // owner
-          BigInt(ownerIndex), // ownerIndex
-          collAmount, // collAmount
-          boldAmount, // boldAmount
-          BigInt(0), // upperHint
-          BigInt(0), // lowerHint
-          interestRateWei, // annualInterestRate
-          MaxUint256, // maxUpfrontFee
-          "0x0000000000000000000000000000000000000000" as `0x${string}`, // addManager
-          "0x0000000000000000000000000000000000000000" as `0x${string}`, // removeManager
-          "0x0000000000000000000000000000000000000000" as `0x${string}`, // receiver
-        ],
-        maxPriorityFeePerGas: BigInt(1000000000),
-        gas: BigInt(1000000),
-      });
+      let tx: `0x${string}`;
+
+      try {
+        tx = await walletClient.writeContract({
+          address: borrowerOperationsAddress,
+          abi: BORROWER_OPERATIONS_ABI,
+          functionName: "openTrove",
+          args: [
+            address, // owner
+            BigInt(ownerIndex), // ownerIndex
+            collAmount, // collAmount
+            boldAmount, // boldAmount
+            BigInt(0), // upperHint
+            BigInt(0), // lowerHint
+            interestRateWei, // annualInterestRate
+            MaxUint256, // maxUpfrontFee
+            "0x0000000000000000000000000000000000000000" as `0x${string}`, // addManager
+            "0x0000000000000000000000000000000000000000" as `0x${string}`, // removeManager
+            "0x0000000000000000000000000000000000000000" as `0x${string}`, // receiver
+          ],
+          maxPriorityFeePerGas: BigInt(1000000000),
+          gas: BigInt(1000000),
+        });
+      } catch (error) {
+        console.error("Open Trove Error:");
+        console.error(error);
+        throw error;
+      }
 
       // Wait for transaction
       const receipt = await publicClient.waitForTransactionReceipt({
