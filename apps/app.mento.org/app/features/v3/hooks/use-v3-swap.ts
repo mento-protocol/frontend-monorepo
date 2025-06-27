@@ -1,63 +1,29 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useAccount, useChainId } from "wagmi";
 import {
   createWalletClient,
   createPublicClient,
   custom,
   http,
-  parseAbi,
   parseUnits,
+  parseAbi,
 } from "viem";
 import { celo, celoAlfajores } from "viem/chains";
 import { toast } from "@repo/ui";
 import { chainIdToChain } from "@/lib/config/chains";
+import { FPMM_ABI, ERC20_ABI, useGetPoolForTokens } from "./use-v3-fpmm-pools";
 
-// FPMM ABI for swap functionality
-const FPMM_ABI = parseAbi([
-  "function getAmountOut(uint256 amountIn, address tokenIn) view returns (uint256 amountOut)",
-  "function swap(uint256 amount0Out, uint256 amount1Out, address to, bytes calldata data) external",
-  "function token0() view returns (address)",
-  "function token1() view returns (address)",
-  "function getReserves() view returns (uint256 _reserve0, uint256 _reserve1, uint256 _blockTimestampLast)",
-]);
-
-// ERC20 ABI for token transfers
-const ERC20_ABI = parseAbi([
-  "function transfer(address to, uint256 amount) returns (bool)",
-  "function balanceOf(address account) view returns (uint256)",
-  "function symbol() view returns (string)",
-  "function decimals() view returns (uint8)",
-]);
-
-// V3 Addresses Registry ABI
-const ADDRESSES_REGISTRY_ABI = parseAbi([
-  "function collToken() view returns (address)",
-  "function boldToken() view returns (address)",
-]);
-
-// Contract addresses for V3
-const V3_ADDRESSES_REGISTRY = {
-  [celo.id]: "0x0000000000000000000000000000000000000000",
-  [celoAlfajores.id]: "0xd39c90bb4c1e5d63f83a9fe52359897bb1068ed3",
-};
-
-const V3_FPMM_POOL = {
-  [celo.id]: "0x0000000000000000000000000000000000000000",
-  [celoAlfajores.id]: "0x7DBA083Db8303416D858cbF6282698F90f375Aec",
-};
-
-const FPMM_TOKENS = {
-  [celoAlfajores.id]: {
-    "USD.m": "0x9E2d4412d0f434cC85500b79447d9323a7416f09",
-    "EUR.m": "0x46504ef8f2Fd6858e8A94C662350EB62ce1b627F",
-    MockUSDC: "0x87D61dA3d668797786D73BC674F053f87111570d",
-  },
-};
+export const MaxUint256: bigint = BigInt(
+  "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+);
 
 interface SwapParams {
-  fromToken: "USD.m" | "EUR.m";
-  toToken: "USD.m" | "EUR.m";
-  amount: string;
+  tokenInAddress: string;
+  tokenOutAddress: string;
+  amountIn: string;
+  amountOut: string;
+  poolAddress?: string; // Optional - will be discovered if not provided
+  slippageTolerance?: number; // in basis points, default 50 (0.5%)
 }
 
 export function useV3Swap() {
@@ -66,31 +32,16 @@ export function useV3Swap() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ fromToken, toToken, amount }: SwapParams) => {
+    mutationFn: async ({
+      tokenInAddress,
+      tokenOutAddress,
+      amountIn,
+      amountOut,
+      poolAddress: providedPoolAddress,
+      slippageTolerance = 50,
+    }: SwapParams) => {
       if (!address || !chainId) {
         throw new Error("Wallet not connected");
-      }
-
-      if (fromToken === toToken) {
-        throw new Error("Cannot swap the same token");
-      }
-
-      const registryAddress =
-        V3_ADDRESSES_REGISTRY[chainId as keyof typeof V3_ADDRESSES_REGISTRY];
-      const fpmmAddress = V3_FPMM_POOL[chainId as keyof typeof V3_FPMM_POOL];
-
-      if (
-        !registryAddress ||
-        registryAddress === "0x0000000000000000000000000000000000000000"
-      ) {
-        throw new Error(`V3 registry not deployed on chain ${chainId}`);
-      }
-
-      if (
-        !fpmmAddress ||
-        fpmmAddress === "0x0000000000000000000000000000000000000000"
-      ) {
-        throw new Error(`V3 FPMM pool not deployed on chain ${chainId}`);
       }
 
       // Check if window.ethereum is available
@@ -113,169 +64,264 @@ export function useV3Swap() {
         account: address,
       });
 
-      // Get the token addresses that are actually in the FPMM pool
-      const fpmmTokens = FPMM_TOKENS[chainId as keyof typeof FPMM_TOKENS];
-      if (!fpmmTokens) {
-        throw new Error(`FPMM tokens not configured for chain ${chainId}`);
+      // Use provided pool address or discover it from factory
+      const poolAddress =
+        providedPoolAddress ||
+        (await getPoolAddressFromFactory(
+          tokenInAddress,
+          tokenOutAddress,
+          chainId,
+        ));
+
+      if (!poolAddress) {
+        throw new Error(
+          `No FPMM pool found for ${tokenInAddress}/${tokenOutAddress}`,
+        );
       }
 
-      // Get FPMM pool token addresses to determine token order
-      const [token0Address, token1Address] = await Promise.all([
+      console.log("Using FPMM pool:", poolAddress);
+
+      // Get token decimals
+      const [tokenInDecimals, tokenOutDecimals] = await Promise.all([
         publicClient.readContract({
-          address: fpmmAddress as `0x${string}`,
-          abi: FPMM_ABI,
-          functionName: "token0",
+          address: tokenInAddress as `0x${string}`,
+          abi: ERC20_ABI,
+          functionName: "decimals",
         }),
         publicClient.readContract({
-          address: fpmmAddress as `0x${string}`,
-          abi: FPMM_ABI,
-          functionName: "token1",
+          address: tokenOutAddress as `0x${string}`,
+          abi: ERC20_ABI,
+          functionName: "decimals",
         }),
       ]);
 
-      console.log("FPMM Pool tokens:", { token0Address, token1Address });
-      console.log("FPMM Configured tokens:", fpmmTokens);
+      // Convert amounts to wei
+      const amountInWei = parseUnits(amountIn, tokenInDecimals);
+      const amountOutWei = parseUnits(amountOut, tokenOutDecimals);
 
-      // Use the configured token addresses
-      const fromTokenAddress = fpmmTokens[fromToken];
+      // Apply slippage tolerance to minimum amount out
+      const slippageMultiplier = BigInt(10000 - slippageTolerance);
+      const minAmountOut = (amountOutWei * slippageMultiplier) / BigInt(10000);
 
-      if (
-        !fromTokenAddress ||
-        fromTokenAddress === "0x0000000000000000000000000000000000000000"
-      ) {
-        throw new Error(`${fromToken} token not configured for FPMM`);
-      }
+      console.log("Swap parameters:", {
+        tokenIn: tokenInAddress,
+        tokenOut: tokenOutAddress,
+        amountIn: amountInWei.toString(),
+        expectedAmountOut: amountOutWei.toString(),
+        minAmountOut: minAmountOut.toString(),
+        slippageTolerance: slippageTolerance,
+        poolAddress,
+      });
 
-      // Convert amount to wei (assuming 18 decimals for both tokens)
-      const amountIn = parseUnits(amount, 18);
-
-      // Check user balance
-      const balance = await publicClient.readContract({
-        address: fromTokenAddress as `0x${string}`,
+      // Check allowance and approve token if needed
+      const allowance = await publicClient.readContract({
+        address: tokenInAddress as `0x${string}`,
         abi: ERC20_ABI,
-        functionName: "balanceOf",
-        args: [address],
+        functionName: "allowance",
+        args: [address, poolAddress as `0x${string}`],
       });
 
-      if (balance < amountIn) {
-        throw new Error(`Insufficient ${fromToken} balance`);
+      console.log("Current allowance:", allowance.toString());
+
+      if (allowance < amountInWei) {
+        console.log("Approving token...");
+        const approveTx = await walletClient.writeContract({
+          address: tokenInAddress as `0x${string}`,
+          abi: ERC20_ABI,
+          functionName: "approve",
+          args: [poolAddress as `0x${string}`, MaxUint256],
+          maxPriorityFeePerGas: BigInt(1000000000),
+          gas: BigInt(1000000),
+        });
+
+        // Wait for approval transaction
+        const approvalReceipt = await publicClient.waitForTransactionReceipt({
+          hash: approveTx,
+        });
+
+        console.log("Approval transaction completed:", approvalReceipt);
       }
 
-      // Get expected output amount
-      const amountOut = await publicClient.readContract({
-        address: fpmmAddress as `0x${string}`,
-        abi: FPMM_ABI,
-        functionName: "getAmountOut",
-        args: [amountIn, fromTokenAddress as `0x${string}`],
-      });
-
-      if (amountOut === BigInt(0)) {
-        throw new Error("No output amount available for this swap");
-      }
-
-      // Step 1: Transfer tokens to FPMM pool
+      // Transfer tokens to the pool first (FPMM expects this pattern)
+      console.log("Transferring tokens to pool...");
       const transferTx = await walletClient.writeContract({
-        address: fromTokenAddress as `0x${string}`,
+        address: tokenInAddress as `0x${string}`,
         abi: ERC20_ABI,
         functionName: "transfer",
-        args: [fpmmAddress as `0x${string}`, amountIn],
+        args: [poolAddress as `0x${string}`, amountInWei],
         maxPriorityFeePerGas: BigInt(1000000000),
+        gas: BigInt(1000000),
       });
 
-      console.log("Token transfer transaction:", transferTx);
+      // Wait for transfer transaction
+      const transferReceipt = await publicClient.waitForTransactionReceipt({
+        hash: transferTx,
+      });
 
-      // Step 2: Execute swap
-      // Determine amount0Out and amount1Out based on token order
+      console.log("Transfer transaction completed:", transferReceipt);
+
+      // Determine which token is token0 and token1 in the pool
+      const [poolToken0, poolToken1] = await publicClient.readContract({
+        address: poolAddress as `0x${string}`,
+        abi: FPMM_ABI,
+        functionName: "tokens",
+      });
+
+      // Calculate swap output amounts based on token positions
       let amount0Out = BigInt(0);
       let amount1Out = BigInt(0);
 
-      if (fromTokenAddress.toLowerCase() === token0Address.toLowerCase()) {
-        // Swapping token0 for token1
-        amount1Out = amountOut;
+      if (tokenOutAddress.toLowerCase() === poolToken0.toLowerCase()) {
+        amount0Out = minAmountOut;
+      } else if (tokenOutAddress.toLowerCase() === poolToken1.toLowerCase()) {
+        amount1Out = minAmountOut;
       } else {
-        // Swapping token1 for token0
-        amount0Out = amountOut;
+        throw new Error("Output token not found in pool");
       }
 
+      console.log("Executing swap...", {
+        amount0Out: amount0Out.toString(),
+        amount1Out: amount1Out.toString(),
+        to: address,
+      });
+
+      // Execute the swap
       const swapTx = await walletClient.writeContract({
-        address: fpmmAddress as `0x${string}`,
+        address: poolAddress as `0x${string}`,
         abi: FPMM_ABI,
         functionName: "swap",
         args: [amount0Out, amount1Out, address, "0x"],
         maxPriorityFeePerGas: BigInt(1000000000),
+        gas: BigInt(1000000),
       });
 
-      return {
-        transferTx,
-        swapTx,
-        amountIn: amountIn.toString(),
-        amountOut: amountOut.toString(),
-        fromToken,
-        toToken,
-      };
+      // Wait for swap transaction
+      const swapReceipt = await publicClient.waitForTransactionReceipt({
+        hash: swapTx,
+      });
+
+      console.log("Swap completed successfully:", swapReceipt);
+      return swapTx;
     },
-    onSuccess: (result) => {
+    onSuccess: (hash) => {
       // Show success toast with transaction details
       const chain = chainIdToChain[chainId || 0];
       const explorerUrl = chain?.explorerUrl;
 
       const successMessage = explorerUrl
-        ? `Swap completed successfully! Swapped ${result.fromToken} for ${result.toToken}. View on CeloScan: ${explorerUrl}/tx/${result.swapTx}`
-        : `Swap completed successfully! Swapped ${result.fromToken} for ${result.toToken}.`;
+        ? `Swap completed successfully. View on CeloScan: ${explorerUrl}/tx/${hash}`
+        : "Swap completed successfully.";
 
       toast.success(successMessage);
 
-      // Invalidate and refetch relevant data
+      // Invalidate queries to refresh balances
       queryClient.invalidateQueries({ queryKey: ["accountBalances"] });
-      queryClient.invalidateQueries({ queryKey: ["v3Pools"] });
-
-      return result;
+      queryClient.invalidateQueries({ queryKey: ["v3FPMMPools"] });
     },
     onError: (error: any) => {
       // Show error toast
-      const errorMessage = error.message || "Failed to swap tokens";
+      console.error("Swap Error:", error);
+      const errorMessage = error.message || "Failed to execute swap";
       toast.error(`Swap Failed: ${errorMessage}`);
       throw error;
     },
   });
 }
 
-// Hook to get swap quote without executing the swap
-export function useV3SwapQuote() {
-  const { address } = useAccount();
+// FPMM Factory addresses
+const FPMM_FACTORY_ADDRESS = {
+  [celo.id]: "0x0000000000000000000000000000000000000000", // Not deployed yet
+  [celoAlfajores.id]: "0xd8098494a749a3fDAD2D2e7Fa5272D8f274D8FF6",
+};
+
+// FPMM Factory ABI
+const FPMM_FACTORY_ABI = parseAbi([
+  "function deployedFPMMs(address token0, address token1) view returns (address)",
+  "function deployedFPMMAddresses() view returns (address[])",
+]);
+
+// Helper function to get pool address from factory
+async function getPoolAddressFromFactory(
+  tokenInAddress: string,
+  tokenOutAddress: string,
+  chainId: number,
+): Promise<string | null> {
+  const factoryAddress =
+    FPMM_FACTORY_ADDRESS[chainId as keyof typeof FPMM_FACTORY_ADDRESS];
+
+  if (
+    !factoryAddress ||
+    factoryAddress === "0x0000000000000000000000000000000000000000"
+  ) {
+    return null;
+  }
+
+  const chain = chainId === celo.id ? celo : celoAlfajores;
+
+  const publicClient = createPublicClient({
+    chain,
+    transport: http(),
+  });
+
+  try {
+    // Try both token order combinations since pools might be deployed with either order
+    const pool1 = await publicClient.readContract({
+      address: factoryAddress as `0x${string}`,
+      abi: FPMM_FACTORY_ABI,
+      functionName: "deployedFPMMs",
+      args: [tokenInAddress as `0x${string}`, tokenOutAddress as `0x${string}`],
+    });
+
+    if (pool1 && pool1 !== "0x0000000000000000000000000000000000000000") {
+      return pool1;
+    }
+
+    // Try reverse order
+    const pool2 = await publicClient.readContract({
+      address: factoryAddress as `0x${string}`,
+      abi: FPMM_FACTORY_ABI,
+      functionName: "deployedFPMMs",
+      args: [tokenOutAddress as `0x${string}`, tokenInAddress as `0x${string}`],
+    });
+
+    if (pool2 && pool2 !== "0x0000000000000000000000000000000000000000") {
+      return pool2;
+    }
+
+    return null;
+  } catch (error) {
+    console.error("Error querying factory for pool:", error);
+    return null;
+  }
+}
+
+// Hook to get swap quote
+export function useV3SwapQuote(
+  tokenInAddress: string | undefined,
+  tokenOutAddress: string | undefined,
+  amountIn: string | undefined,
+) {
   const chainId = useChainId();
+  const poolAddress = useGetPoolForTokens(tokenInAddress, tokenOutAddress);
 
-  const getQuote = async ({
-    fromToken,
-    toToken,
-    amount,
-  }: {
-    fromToken: "USD.m" | "EUR.m";
-    toToken: "USD.m" | "EUR.m";
-    amount: string;
-  }) => {
-    if (!address || !chainId || !amount || parseFloat(amount) <= 0) {
-      return null;
-    }
+  return useQuery({
+    queryKey: [
+      "v3SwapQuote",
+      tokenInAddress,
+      tokenOutAddress,
+      amountIn,
+      poolAddress,
+      chainId,
+    ],
+    queryFn: async (): Promise<{
+      amountOut: string;
+      minimumAmountOut: string;
+      priceImpact: string;
+    }> => {
+      if (!tokenInAddress || !tokenOutAddress || !amountIn || !poolAddress) {
+        throw new Error("Missing required parameters");
+      }
 
-    if (fromToken === toToken) {
-      return null;
-    }
-
-    const registryAddress =
-      V3_ADDRESSES_REGISTRY[chainId as keyof typeof V3_ADDRESSES_REGISTRY];
-    const fpmmAddress = V3_FPMM_POOL[chainId as keyof typeof V3_FPMM_POOL];
-
-    if (
-      !registryAddress ||
-      registryAddress === "0x0000000000000000000000000000000000000000" ||
-      !fpmmAddress ||
-      fpmmAddress === "0x0000000000000000000000000000000000000000"
-    ) {
-      return null;
-    }
-
-    try {
       const chain = chainId === celo.id ? celo : celoAlfajores;
 
       const publicClient = createPublicClient({
@@ -283,45 +329,75 @@ export function useV3SwapQuote() {
         transport: http(),
       });
 
-      // Get the token addresses that are actually in the FPMM pool
-      const fpmmTokens = FPMM_TOKENS[chainId as keyof typeof FPMM_TOKENS];
-      if (!fpmmTokens) {
-        console.error(`FPMM tokens not configured for chain ${chainId}`);
-        return null;
-      }
+      // Get token decimals
+      const [tokenInDecimals] = await Promise.all([
+        publicClient.readContract({
+          address: tokenInAddress as `0x${string}`,
+          abi: ERC20_ABI,
+          functionName: "decimals",
+        }),
+      ]);
 
-      // Use the configured token addresses
-      const fromTokenAddress = fpmmTokens[fromToken];
+      // Convert amount to wei
+      const amountInWei = parseUnits(amountIn, tokenInDecimals);
 
-      if (
-        !fromTokenAddress ||
-        fromTokenAddress === "0x0000000000000000000000000000000000000000"
-      ) {
-        console.error(`${fromToken} token not configured for FPMM`);
-        return null;
-      }
-
-      const amountIn = parseUnits(amount, 18);
-
-      const amountOut = await publicClient.readContract({
-        address: fpmmAddress as `0x${string}`,
+      // Get quote from FPMM pool
+      const amountOutWei = await publicClient.readContract({
+        address: poolAddress as `0x${string}`,
         abi: FPMM_ABI,
         functionName: "getAmountOut",
-        args: [amountIn, fromTokenAddress as `0x${string}`],
+        args: [amountInWei, tokenInAddress as `0x${string}`],
       });
 
-      return {
-        amountIn: amountIn.toString(),
-        amountOut: amountOut.toString(),
-        amountOutFormatted: parseFloat(
-          (Number(amountOut) / 1e18).toFixed(6),
-        ).toString(),
-      };
-    } catch (error) {
-      console.error("Error getting swap quote:", error);
-      return null;
-    }
-  };
+      // Get output token decimals for formatting
+      const tokenOutDecimals = await publicClient.readContract({
+        address: tokenOutAddress as `0x${string}`,
+        abi: ERC20_ABI,
+        functionName: "decimals",
+      });
 
-  return { getQuote };
+      const amountOut = formatUnits(amountOutWei, tokenOutDecimals);
+
+      // Calculate minimum amount out with 0.5% slippage
+      const minAmountOut = (amountOutWei * BigInt(9950)) / BigInt(10000);
+      const minimumAmountOut = formatUnits(minAmountOut, tokenOutDecimals);
+
+      // For FPMM, price impact is minimal since it uses oracle prices
+      const priceImpact = "0.1"; // Placeholder - could calculate actual impact
+
+      return {
+        amountOut,
+        minimumAmountOut,
+        priceImpact,
+      };
+    },
+    enabled: !!(
+      tokenInAddress &&
+      tokenOutAddress &&
+      amountIn &&
+      poolAddress &&
+      chainId
+    ),
+    staleTime: 10000, // 10 seconds
+  });
+}
+
+// Utility function to format units (simplified version)
+function formatUnits(value: bigint, decimals: number): string {
+  const divisor = BigInt(10 ** decimals);
+  const quotient = value / divisor;
+  const remainder = value % divisor;
+
+  if (remainder === BigInt(0)) {
+    return quotient.toString();
+  }
+
+  const remainderStr = remainder.toString().padStart(decimals, "0");
+  const trimmedRemainder = remainderStr.replace(/0+$/, "");
+
+  if (trimmedRemainder === "") {
+    return quotient.toString();
+  }
+
+  return `${quotient}.${trimmedRemainder}`;
 }
