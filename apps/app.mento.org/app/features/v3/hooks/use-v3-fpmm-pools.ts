@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useChainId } from "wagmi";
 import { createPublicClient, http, parseAbi } from "viem";
 import { celo, celoAlfajores } from "viem/chains";
+import { Tokens, TokenId } from "@/lib/config/tokens";
 
 // FPMM Factory ABI
 const FPMM_FACTORY_ABI = parseAbi([
@@ -33,11 +34,58 @@ const FPMM_FACTORY_ADDRESS = {
   [celoAlfajores.id]: "0xd8098494a749a3fDAD2D2e7Fa5272D8f274D8FF6",
 };
 
+// Helper function to enhance token with config data for icon support
+function enhanceTokenWithConfig(tokenInfo: {
+  address: string;
+  symbol: string;
+  decimals: number;
+  name: string;
+}): TokenInfo {
+  // Try to find matching token in config by symbol
+  const configToken = Object.values(Tokens).find(
+    (token) => token.symbol === tokenInfo.symbol,
+  );
+
+  if (configToken) {
+    return {
+      ...tokenInfo,
+      id: configToken.id,
+      color: configToken.color,
+    };
+  }
+
+  // Special mappings for common tokens that might have different symbols
+  const symbolMappings: Record<string, { id: string; color: string }> = {
+    BridgedUSDC: { id: "USDC", color: "#2775CA" },
+    "USD.m": { id: "USDm", color: "#000000" },
+    "EUR.m": { id: "EURm", color: "#4F46E5" },
+    USDC: { id: "USDC", color: "#2775CA" },
+  };
+
+  const mapping = symbolMappings[tokenInfo.symbol];
+  if (mapping) {
+    return {
+      ...tokenInfo,
+      id: mapping.id,
+      color: mapping.color,
+    };
+  }
+
+  // Fallback: create token-like object with default color
+  return {
+    ...tokenInfo,
+    id: tokenInfo.symbol, // Use symbol as id if no mapping found
+    color: "#6B7280", // Default gray color
+  };
+}
+
 export interface TokenInfo {
   address: string;
   symbol: string;
   decimals: number;
   name: string;
+  id: string; // Make id required
+  color?: string;
 }
 
 export interface FPMMPool {
@@ -133,15 +181,16 @@ export function useV3FPMMPools() {
               }),
             ]);
 
-            const tokenInfo: TokenInfo = {
+            const basicTokenInfo = {
               address: tokenAddress,
               symbol: symbol as string,
               decimals: decimals as number,
               name: name as string,
             };
 
-            tokenInfoCache.set(tokenAddress, tokenInfo);
-            return tokenInfo;
+            const enhancedTokenInfo = enhanceTokenWithConfig(basicTokenInfo);
+            tokenInfoCache.set(tokenAddress, enhancedTokenInfo);
+            return enhancedTokenInfo;
           };
 
           // Get token info for both tokens
