@@ -181,12 +181,7 @@ export function V3SwapForm() {
   return (
     <Card className="p-6">
       <div className="space-y-6">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-slate-900">FPMM Swap</h2>
-          <p className="text-slate-600">
-            Swap tokens using Fixed Product Market Maker pools
-          </p>
-        </div>
+        <div className="text-center"></div>
 
         {/* From Token */}
         <div className="space-y-2">
