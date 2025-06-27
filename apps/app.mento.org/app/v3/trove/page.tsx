@@ -246,7 +246,7 @@ export default function TrovePage() {
               </div>
             </div>
             <div className="flex justify-between text-sm text-slate-700">
-              <span>Value: {formatPrice(collateralValue)}</span>
+              {/* <span>Value: {formatPrice(collateralValue)}</span> */}
               <span>
                 {selectedCollateralToken.symbol} Price:{" "}
                 {isPriceLoading
@@ -312,7 +312,7 @@ export default function TrovePage() {
               </div>
             </div>
             <div className="flex justify-between text-sm text-slate-700">
-              <span>Value: {formatPrice(debtValue)}</span>
+              {/* <span>Value: {formatPrice(debtValue)}</span> */}
               <span>Min. Collateral Ratio: {MIN_COLLATERALIZATION_RATIO}%</span>
             </div>
           </div>

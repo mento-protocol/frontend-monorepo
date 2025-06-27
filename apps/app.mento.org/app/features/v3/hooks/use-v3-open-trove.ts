@@ -22,9 +22,9 @@ const ADDRESSES_REGISTRY_ABI = parseAbi([
   "function collToken() view returns (address)",
 ]);
 
-// Borrower Operations ABI
+// Borrower Operations ABI - exact same as working basic UI
 const BORROWER_OPERATIONS_ABI = parseAbi([
-  "function openTrove(address _owner, uint256 _ownerIndex, uint256 _collAmount, uint256 _boldAmount, uint256 _upperHint, uint256 _lowerHint, uint256 _annualInterestRate, uint256 _maxUpfrontFee, address _addManager, address _removeManager, address _receiver) external",
+  "function openTrove(address _owner, uint256 _ownerIndex, uint256 _collAmount, uint256 _boldAmount, uint256 _upperHint, uint256 _lowerHint, uint256 _annualInterestRate, uint256 _maxUpfrontFee, address _addManager, address _removeManager, address _receiver) returns (uint256)",
 ]);
 
 // ERC20 ABI for approvals
@@ -89,9 +89,9 @@ export function useV3OpenTrove() {
         account: address,
       });
 
-      // Convert amounts to wei
-      const collAmountWei = parseUnits(collateralAmount, 18);
-      const borrowAmountWei = parseUnits(borrowAmount, 18);
+      // Convert amounts to wei - exactly like basic UI
+      const collAmount = parseUnits(collateralAmount, 18);
+      const boldAmount = parseUnits(borrowAmount, 18);
       const interestRateWei = parseUnits(interestRate, 16); // Convert to basis points
 
       // Get contract addresses from registry
@@ -108,7 +108,10 @@ export function useV3OpenTrove() {
         }),
       ]);
 
-      // Check allowance and approve collateral token if needed
+      console.log("collTokenAddress", collTokenAddress);
+      console.log("borrowerOperationsAddress", borrowerOperationsAddress);
+
+      // Check allowance and approve collateral token if needed - exactly like basic UI
       const allowance = await publicClient.readContract({
         address: collTokenAddress,
         abi: ERC20_ABI,
@@ -116,8 +119,9 @@ export function useV3OpenTrove() {
         args: [address, borrowerOperationsAddress],
       });
 
-      if (allowance < collAmountWei) {
-        // Approve collateral token for borrower operations with MaxUint256
+      console.log({ allowance });
+
+      if (allowance < collAmount) {
         const approveTx = await walletClient.writeContract({
           address: collTokenAddress,
           abi: ERC20_ABI,
@@ -125,63 +129,56 @@ export function useV3OpenTrove() {
           args: [borrowerOperationsAddress, MaxUint256],
         });
 
-        console.log("Approval transaction submitted:", approveTx);
+        // Wait for approval transaction
+        const receipt = await publicClient.waitForTransactionReceipt({
+          hash: approveTx,
+        });
+
+        console.log("Approval transaction completed:", receipt);
       }
 
-      // Open trove with parameters matching basic UI
-      const ownerIndex = Math.floor(Date.now() / 1000); // Unique owner index
-      const upperHint = BigInt(0); // Hints for position in sorted list (0 = no hint)
-      const lowerHint = BigInt(0);
-      const maxUpfrontFee = MaxUint256; // Maximum upfront fee willing to pay
-      const addManager = "0x0000000000000000000000000000000000000000"; // No add manager
-      const removeManager = "0x0000000000000000000000000000000000000000"; // No remove manager
-      const receiver = "0x0000000000000000000000000000000000000000"; // No receiver (user gets tokens)
+      const ownerIndex = Math.floor(Date.now() / 1000);
 
-      // Estimate gas for the transaction first
-      const estimatedGas = await publicClient.estimateContractGas({
+      console.log("Opening trove with parameters:", {
+        owner: address,
+        ownerIndex,
+        collAmount: collAmount.toString(),
+        boldAmount: boldAmount.toString(),
+        upperHint: "0",
+        lowerHint: "0",
+        annualInterestRate: interestRateWei.toString(),
+        maxUpfrontFee: MaxUint256.toString(),
+        addManager: "0x0000000000000000000000000000000000000000",
+        removeManager: "0x0000000000000000000000000000000000000000",
+        receiver: "0x0000000000000000000000000000000000000000",
+      });
+
+      const tx = await walletClient.writeContract({
         address: borrowerOperationsAddress,
         abi: BORROWER_OPERATIONS_ABI,
         functionName: "openTrove",
         args: [
           address, // owner
           BigInt(ownerIndex), // ownerIndex
-          collAmountWei, // collAmount
-          borrowAmountWei, // boldAmount
-          upperHint, // upperHint
-          lowerHint, // lowerHint
+          collAmount, // collAmount
+          boldAmount, // boldAmount
+          BigInt(0), // upperHint
+          BigInt(0), // lowerHint
           interestRateWei, // annualInterestRate
-          maxUpfrontFee, // maxUpfrontFee
-          addManager, // addManager
-          removeManager, // removeManager
-          receiver, // receiver
+          MaxUint256, // maxUpfrontFee
+          "0x0000000000000000000000000000000000000000" as `0x${string}`, // addManager
+          "0x0000000000000000000000000000000000000000" as `0x${string}`, // removeManager
+          "0x0000000000000000000000000000000000000000" as `0x${string}`, // receiver
         ],
-        account: address,
       });
 
-      const gasLimit = (estimatedGas * BigInt(120)) / BigInt(100);
-
-      const hash = await walletClient.writeContract({
-        address: borrowerOperationsAddress,
-        abi: BORROWER_OPERATIONS_ABI,
-        functionName: "openTrove",
-        args: [
-          address, // owner
-          BigInt(ownerIndex), // ownerIndex
-          collAmountWei, // collAmount
-          borrowAmountWei, // boldAmount
-          upperHint, // upperHint
-          lowerHint, // lowerHint
-          interestRateWei, // annualInterestRate
-          maxUpfrontFee, // maxUpfrontFee
-          addManager, // addManager
-          removeManager, // removeManager
-          receiver, // receiver
-        ],
-        gas: gasLimit,
-        maxPriorityFeePerGas: BigInt(1000000000),
+      // Wait for transaction
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash: tx,
       });
 
-      return hash;
+      console.log("Trove opened successfully:", receipt);
+      return tx;
     },
     onSuccess: (hash) => {
       // Show success toast with transaction details
@@ -202,6 +199,7 @@ export function useV3OpenTrove() {
     },
     onError: (error: any) => {
       // Show error toast
+      console.error("Open Trove Error:", error);
       const errorMessage = error.message || "Failed to open trove";
       toast.error(`Open Trove Failed: ${errorMessage}`);
       throw error;
