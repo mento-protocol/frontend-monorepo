@@ -25,6 +25,7 @@ import { useApproveTransaction } from "@/features/swap/hooks/use-approve-transac
 import { useSwapAllowance } from "@/features/swap/hooks/use-swap-allowance";
 import { useOptimizedSwapQuote } from "@/features/swap/hooks/use-swap-quote";
 import { useTokenOptions } from "@/features/swap/hooks/use-token-options";
+import { useTradablePairs } from "@/features/swap/hooks/use-tradable-pairs";
 import { confirmViewAtom, formValuesAtom } from "@/features/swap/swap-atoms";
 import type { SwapFormValues } from "@/features/swap/types";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
@@ -195,7 +196,6 @@ export default function SwapForm() {
     debouncedAmount,
   ]);
 
-  // Get insufficient balance message
   const insufficientBalanceMessage = useMemo(() => {
     if (!amountExceedsBalance && !shouldSkipQuoteRequest) return null;
 
@@ -222,7 +222,7 @@ export default function SwapForm() {
 
   const handleUseMaxBalance = () => {
     const maxAmountWei = balances[fromTokenId as keyof typeof balances] || "0";
-    console.log("maxAmountWei", maxAmountWei);
+
     // Use the full balance amount
     const maxAmountBigInt = BigInt(maxAmountWei);
     const decimals = Tokens[fromTokenId as TokenId]?.decimals;
@@ -255,7 +255,7 @@ export default function SwapForm() {
     fromTokenUSDValue,
     toTokenUSDValue,
   } = useOptimizedSwapQuote(
-    shouldSkipQuoteRequest ? "" : amount,
+    shouldSkipQuoteRequest || !fromTokenId || !toTokenId ? "" : amount,
     formDirection as SwapDirection,
     fromTokenId as TokenId,
     toTokenId as TokenId,
@@ -326,6 +326,8 @@ export default function SwapForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quote]);
 
+  // Button loading state is now handled in the button render logic
+
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     try {
       // If approval is needed, do it first
@@ -384,12 +386,49 @@ export default function SwapForm() {
       });
     }
   };
+
   const shouldApprove =
     debouncedAmount === amount &&
     !skipApprove &&
     hasAmount &&
     quote &&
     !isLoading;
+
+  // Get tradable pairs for both tokens
+  const { data: fromTokenTradablePairs } = useTradablePairs(
+    fromTokenId as TokenId,
+  );
+  const { data: toTokenTradablePairs } = useTradablePairs(toTokenId as TokenId);
+
+  const [lastChangedToken, setLastChangedToken] = useState<
+    "from" | "to" | null
+  >(null);
+
+  // Handle token pair validation - reset opposite token if an invalid pair is selected
+  useEffect(() => {
+    if (!fromTokenId || !toTokenId || !lastChangedToken) return;
+
+    const isValidPair =
+      fromTokenTradablePairs?.includes(toTokenId as TokenId) ||
+      toTokenTradablePairs?.includes(fromTokenId as TokenId);
+
+    // If an invalid pair is selected, reset the opposite token
+    if (!isValidPair) {
+      if (lastChangedToken === "from") {
+        form.setValue("toTokenId", "", { shouldValidate: false });
+      } else if (lastChangedToken === "to") {
+        form.setValue("fromTokenId", "", { shouldValidate: false });
+      }
+      setLastChangedToken(null);
+    }
+  }, [
+    fromTokenId,
+    toTokenId,
+    fromTokenTradablePairs,
+    toTokenTradablePairs,
+    lastChangedToken,
+    form,
+  ]);
 
   return (
     <Form {...form}>
@@ -448,9 +487,13 @@ export default function SwapForm() {
                     <FormControl>
                       <TokenDialog
                         value={field.value}
-                        onValueChange={field.onChange}
+                        onValueChange={(value) => {
+                          field.onChange(value);
+                          setLastChangedToken("from");
+                        }}
                         title="Select asset to sell"
                         excludeTokenId={toTokenId}
+                        filterByTokenId={toTokenId as TokenId}
                         onClose={() => {
                           setTimeout(() => {
                             amountRef.current?.focus();
@@ -470,7 +513,7 @@ export default function SwapForm() {
                               size={20}
                             />
 
-                            <span>{field.value || "Select token"}</span>
+                            <span>{field.value || "Select"}</span>
                             <ChevronDown className="h-4 w-4 opacity-50" />
                           </button>
                         }
@@ -572,9 +615,13 @@ export default function SwapForm() {
                     <FormControl>
                       <TokenDialog
                         value={field.value}
-                        onValueChange={field.onChange}
+                        onValueChange={(value) => {
+                          field.onChange(value);
+                          setLastChangedToken("to");
+                        }}
                         title="Select asset to buy"
                         excludeTokenId={fromTokenId}
+                        filterByTokenId={fromTokenId as TokenId}
                         onClose={() => {
                           setTimeout(() => {
                             quoteRef.current?.focus();
@@ -593,7 +640,7 @@ export default function SwapForm() {
                               className="mr-2"
                               size={20}
                             />
-                            <span>{field.value || "Select token"}</span>
+                            <span>{field.value || "Select"}</span>
                             <ChevronDown className="h-4 w-4 opacity-50" />
                           </button>
                         }
@@ -621,6 +668,7 @@ export default function SwapForm() {
           )}
         </div>
 
+        {/* Button state is logged via useEffect */}
         {isConnected ? (
           <Button
             data-testid={shouldApprove ? "approveButton" : "swapButton"}
@@ -639,9 +687,13 @@ export default function SwapForm() {
               debouncedAmount !== amount
             }
           >
-            {isLoading ||
-            (hasAmount && !quote && !shouldSkipQuoteRequest) ||
-            debouncedAmount !== amount ? (
+            {/* Only show loading when we actually have an amount and should be fetching */}
+            {(isLoading && hasAmount && !shouldSkipQuoteRequest) ||
+            (hasAmount &&
+              !quote &&
+              !shouldSkipQuoteRequest &&
+              debouncedAmount === amount) ||
+            (hasAmount && debouncedAmount !== amount) ? (
               <IconLoading />
             ) : hasAmount &&
               (amountExceedsBalance || shouldSkipQuoteRequest) ? (
