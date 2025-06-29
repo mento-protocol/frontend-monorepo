@@ -2,7 +2,7 @@
 
 import { Footer } from "@repo/ui";
 import { Header } from "@/components/nav/header";
-import { PollingWorker } from "@/features/polling/polling-worker";
+import { PollingWorker } from "@repo/web3";
 import type { PropsWithChildren } from "react";
 import Image from "next/image";
 import { useTheme } from "next-themes";

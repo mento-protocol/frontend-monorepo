@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { ConnectButton } from "@/components/nav/connect-button";
+import { ConnectButton } from "@repo/web3";
 
 import { useTheme } from "next-themes";
 import { Button, cn, Logo } from "@repo/ui";

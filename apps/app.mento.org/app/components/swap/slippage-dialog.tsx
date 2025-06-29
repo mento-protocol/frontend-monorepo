@@ -8,7 +8,7 @@ import {
   DialogTrigger,
 } from "@repo/ui";
 
-import { formValuesAtom } from "@/features/swap/swap-atoms";
+import { formValuesAtom } from "@repo/web3";
 import { useAtomValue } from "jotai";
 import { SlidersHorizontal } from "lucide-react";
 import { useState } from "react";

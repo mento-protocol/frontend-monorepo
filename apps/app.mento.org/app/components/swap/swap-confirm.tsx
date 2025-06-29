@@ -1,17 +1,17 @@
 "use client";
 
-import { useGasEstimation } from "@/features/swap/hooks/use-gas-estimation";
-import { useOptimizedSwapQuote } from "@/features/swap/hooks/use-swap-quote";
-import { useSwapTransaction } from "@/features/swap/hooks/use-swap-transaction";
-import { formValuesAtom } from "@/features/swap/swap-atoms";
-import { SwapDirection } from "@/features/swap/types";
+import { useGasEstimation } from "@repo/web3";
+import { useOptimizedSwapQuote } from "@repo/web3";
+import { useSwapTransaction } from "@repo/web3";
+import { formValuesAtom } from "@repo/web3";
+import { SwapDirection } from "@repo/web3";
 import {
   formatWithMaxDecimals,
   getMaxSellAmount,
   getMinBuyAmount,
-} from "@/features/swap/utils";
-import { TokenId, Tokens } from "@/lib/config/tokens";
-import { logger } from "@/lib/utils/logger";
+} from "@repo/web3";
+import { TokenId, Tokens } from "@repo/web3";
+import { logger } from "@repo/web3";
 import { Button, IconLoading, TokenIcon } from "@repo/ui";
 import { useAccount } from "wagmi";
 import { useChainId } from "wagmi";
