@@ -22,6 +22,7 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  transpilePackages: ["@repo/web3"],
 };
 
 export default withSentryConfig(nextConfig, {
