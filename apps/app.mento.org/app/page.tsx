@@ -5,7 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { SlippageDialog } from "./components/swap/slippage-dialog";
 import { SwapConfirm } from "./components/swap/swap-confirm";
 import SwapForm from "./components/swap/swap-form";
-import { confirmViewAtom } from "./features/swap/swap-atoms";
+import { confirmViewAtom } from "@repo/web3";
 
 import { Button, cn, IconCheck, Toaster } from "@repo/ui";
 

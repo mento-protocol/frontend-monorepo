@@ -8,7 +8,7 @@ import type { PropsWithChildren } from "react";
 import { ErrorBoundary } from "./errors";
 import { AppLayout } from "./layout/app-layout";
 
-import { getWalletConnectors } from "@/lib/config/wallets";
+import { getWalletConnectors } from "@repo/web3";
 import { useIsSsr } from "@/lib/utils/ssr";
 import "@/lib/vendor/inpage-metamask";
 
