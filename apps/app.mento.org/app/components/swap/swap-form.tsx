@@ -31,7 +31,12 @@ import type { SwapFormValues } from "@/features/swap/types";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
 import { MIN_ROUNDED_VALUE } from "@/lib/config/consts";
 import { type TokenId, Tokens } from "@/lib/config/tokens";
-import { fromWeiRounded, parseAmount, toWei } from "@/lib/utils/amount";
+import {
+  areAmountsNearlyEqual,
+  fromWeiRounded,
+  parseAmount,
+  toWei,
+} from "@/lib/utils/amount";
 import { logger } from "@/lib/utils/logger";
 import { useAtom } from "jotai";
 import { ArrowUpDown, ChevronDown, OctagonAlert } from "lucide-react";
@@ -136,10 +141,11 @@ export default function SwapForm() {
       if (value === "0." || value === "0") return true;
 
       const parsedAmount = parseAmount(value);
+
       if (!parsedAmount) return true;
 
       // Check minimum amount
-      if (parsedAmount.lt(MIN_ROUNDED_VALUE) && !parsedAmount.isZero()) {
+      if (parsedAmount.lte(MIN_ROUNDED_VALUE) && !parsedAmount.isZero()) {
         return "Amount too small";
       }
 
@@ -152,7 +158,12 @@ export default function SwapForm() {
       // For "in" direction, check the amount directly
       if (direction === "in") {
         const amountInWei = toWei(parsedAmount, tokenInfo.decimals);
-        if (amountInWei.gt(tokenBalance)) {
+
+        // Use areAmountsNearlyEqual to allow for small rounding differences
+        if (
+          amountInWei.gt(tokenBalance) &&
+          !areAmountsNearlyEqual(amountInWei, tokenBalance)
+        ) {
           return "Insufficient balance";
         }
       }
