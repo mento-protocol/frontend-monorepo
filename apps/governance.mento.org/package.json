@@ -7,15 +7,21 @@
     "build": "next build",
     "dev": "next dev --turbopack --port 3002",
     "lint": "trunk check .",
-    "start": "next start"
+    "start": "next start",
+    "codegen": "graphql-codegen"
   },
   "dependencies": {
+    "@apollo/client": "^3.11.8",
+    "@apollo/experimental-nextjs-app-support": "^0.8.0",
     "@celo/contractkit": "^9.2.1",
+    "@mento-protocol/mento-sdk": "^1.10.1",
+    "@rainbow-me/rainbowkit": "^2.1.6",
     "@repo/ui": "workspace:*",
     "@sentry/nextjs": "^9.18.0",
     "@t3-oss/env-nextjs": "^0.13.4",
-    "@tanstack/react-query": "^5.76.0",
+    "@tanstack/react-query": "^5.56.2",
     "@vercel/analytics": "^1.5.0",
+    "date-fns": "^4.1.0",
     "jotai": "^2.12.5",
     "lucide-react": "^0.488.0",
     "next": "15.3.3",
@@ -25,9 +31,14 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "spacetime": "^7.10.0",
+    "viem": "^2.21.7",
+    "wagmi": "^2.12.11",
     "zod": "^3.24.4"
   },
   "devDependencies": {
+    "@graphql-codegen/cli": "^5.0.2",
+    "@graphql-codegen/typescript-apollo-client-helpers": "^3.0.0",
+    "@graphql-codegen/typescript-react-apollo": "^4.3.2",
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@tailwindcss/postcss": "^4.1.5",
@@ -37,5 +48,15 @@
     "@types/react-dom": "^19",
     "tailwindcss": "^4.1.5",
     "typescript": "^5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@sentry/cli",
+      "bufferutil",
+      "es5-ext",
+      "keccak",
+      "secp256k1",
+      "utf-8-validate"
+    ]
   }
 }
