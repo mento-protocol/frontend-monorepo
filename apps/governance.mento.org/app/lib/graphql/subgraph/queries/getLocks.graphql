@@ -1,0 +1,28 @@
+query getLocks($address: String) {
+  locks(first: 1000, where: { owner: $address }) {
+    lockId
+    owner {
+      id
+    }
+    replacedBy {
+      id
+      lockId
+    }
+    replaces {
+      id
+      lockId
+    }
+    relocked
+    amount
+    time
+    slope
+    cliff
+    lockCreate {
+      id
+      timestamp
+    }
+    delegate {
+      id
+    }
+  }
+}
