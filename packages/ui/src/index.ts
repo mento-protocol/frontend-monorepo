@@ -55,6 +55,7 @@ export { default as IconCheck } from "./components/icons/check";
 export { default as IconInfo } from "./components/icons/info";
 export { default as IconLoading } from "./components/icons/loading";
 export { default as IconChevron } from "./components/icons/chevron";
+export { default as MentoIcon } from "./components/icons/mento";
 
 export * as links from "./lib/links";
 
