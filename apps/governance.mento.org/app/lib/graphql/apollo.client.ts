@@ -22,7 +22,7 @@ export function makeClient() {
     // needs to be an absolute url, as relative urls cannot be used in SSR
     uri: (operation) => {
       const { apiName } = operation.getContext();
-
+      console.log("asdasd", SUBGRAPH_URL);
       switch (apiName) {
         case "celoExplorer":
           return CELO_EXPLORER_API_URL;

@@ -19,6 +19,7 @@ export const env = createEnv({
     NEXT_PUBLIC_SUBGRAPH_URL: z.string().url(),
     NEXT_PUBLIC_SUBGRAPH_URL_ALFAJORES: z.string().url(),
     NEXT_PUBLIC_VERCEL_ENV: z.string(),
+    NEXT_PUBLIC_WALLET_CONNECT_ID: z.string(),
   },
   /*
    * Due to how Next.js bundles environment variables on Edge and Client,
@@ -36,5 +37,6 @@ export const env = createEnv({
     NEXT_PUBLIC_SUBGRAPH_URL_ALFAJORES:
       process.env.NEXT_PUBLIC_SUBGRAPH_URL_ALFAJORES,
     NEXT_PUBLIC_VERCEL_ENV: process.env.NEXT_PUBLIC_VERCEL_ENV,
+    NEXT_PUBLIC_WALLET_CONNECT_ID: process.env.NEXT_PUBLIC_WALLET_CONNECT_ID,
   },
 });

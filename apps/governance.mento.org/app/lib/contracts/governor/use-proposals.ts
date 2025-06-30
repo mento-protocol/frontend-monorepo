@@ -22,7 +22,6 @@ const useProposals = () => {
 
   const {
     data: graphData,
-    networkStatus: graphNetworkStatus,
     refetch,
     loading,
   } = useGetProposalsQuery({
@@ -35,8 +34,6 @@ const useProposals = () => {
     errorPolicy: "ignore",
     pollInterval: 5000,
   });
-
-  console.log("DEBUG", graphNetworkStatus);
 
   const { data: chainData, isLoading } = useReadContracts({
     contracts: graphData
@@ -53,18 +50,13 @@ const useProposals = () => {
       : [],
     query: {
       refetchInterval: 5000,
-
-      enabled:
-        graphNetworkStatus === NetworkStatus.ready &&
-        graphData &&
-        graphData.proposals.length > 0,
+      enabled: graphData && graphData.proposals.length > 0,
     },
   });
 
   const proposals: Proposal[] = useMemo<Proposal[]>(() => {
     if (chainData === undefined) return [];
     if (graphData?.proposals === undefined) return [];
-
     const proposalBuild: Proposal[] = [];
     for (const chainDataKey of chainData.keys()) {
       const proposal = graphData.proposals[chainDataKey];

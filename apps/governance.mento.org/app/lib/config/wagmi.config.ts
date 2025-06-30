@@ -8,6 +8,7 @@ import {
 } from "@rainbow-me/rainbowkit/wallets";
 import { createConfig, http } from "wagmi";
 import { valora } from "@/lib/config/valora.wallet";
+import { env } from "@/env.mjs";
 
 const connectors = connectorsForWallets(
   [
@@ -24,8 +25,7 @@ const connectors = connectorsForWallets(
   ],
   {
     appName: "Mento Governance",
-    projectId:
-      process?.env?.NEXT_PUBLIC_WALLET_CONNECT_ID || "123123123123123123",
+    projectId: env?.NEXT_PUBLIC_WALLET_CONNECT_ID || "123123123123123123",
   },
 );
 const transports = {
