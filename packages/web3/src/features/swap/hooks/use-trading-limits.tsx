@@ -29,7 +29,9 @@ export function useTradingLimits(
         return null;
       }
 
-      const exchangeId = tradablePair.path[0].id;
+      const exchangeId = tradablePair?.path?.[0]?.id;
+      if (!exchangeId) return null;
+
       const tradingLimits = await mento.getTradingLimits(exchangeId);
       const filteredTradingLimits = tradingLimits.filter(
         (limit) =>
@@ -48,7 +50,7 @@ export function useTradingLimits(
 
       const limitAsset = filteredTradingLimits[0]?.asset;
       const tokenToCheck = limitAsset
-        ? getTokenByAddress(limitAsset as TokenId).symbol
+        ? getTokenByAddress(limitAsset as `0x${string}`).symbol
         : null;
 
       // Extract L0, L1, and LG limits based on timestamp ranking
