@@ -155,21 +155,16 @@ export default function SwapForm() {
       const tokenBalance = balances[fromTokenId as keyof typeof balances];
       if (typeof tokenBalance === "undefined") return "Balance unavailable";
 
-      // For "in" direction, check the amount directly
-      if (direction === "in") {
-        const amountInWei = toWei(parsedAmount, tokenInfo.decimals);
+      const amountInWei = toWei(parsedAmount, tokenInfo.decimals);
 
-        // Use areAmountsNearlyEqual to allow for small rounding differences
-        if (
-          amountInWei.gt(tokenBalance) &&
-          !areAmountsNearlyEqual(amountInWei, tokenBalance)
-        ) {
-          return "Insufficient balance";
-        }
+      // Use areAmountsNearlyEqual to allow for small rounding differences
+      if (
+        amountInWei.gt(tokenBalance) &&
+        !areAmountsNearlyEqual(amountInWei, tokenBalance)
+      ) {
+        return "Insufficient balance";
       }
 
-      // For "out" direction, we need the quote to check balance
-      // This will be handled by the quote validation
       return true;
     },
     [balances, fromTokenId],
@@ -584,7 +579,7 @@ export default function SwapForm() {
   };
 
   const shouldApprove = !skipApprove && hasAmount && quote && !isLoading;
-
+  console.log("errors.quote", errors.quote);
   return (
     <Form {...form}>
       <form
@@ -844,8 +839,15 @@ export default function SwapForm() {
             disabled={
               !hasAmount ||
               !quote || // Require quote to be fetched
-              (errors.amount &&
-                errors.amount.message !== "Amount is required") ||
+              (formDirection === "in"
+                ? !!(
+                    errors.amount &&
+                    errors.amount.message !== "Amount is required"
+                  )
+                : !!(
+                    errors.quote &&
+                    errors.quote.message !== "Amount is required"
+                  )) ||
               (isLoading && hasAmount) || // Only consider loading if there's an amount
               isApproveTxLoading ||
               isApprovalProcessing ||
