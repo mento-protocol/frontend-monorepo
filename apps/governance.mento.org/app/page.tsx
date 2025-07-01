@@ -5,6 +5,7 @@ import Image from "next/image";
 
 import { ProposalList } from "./components/proposal-list";
 import { ProposalStats } from "./components/proposal-stats";
+import { VotingPowerCard } from "./components/voting-power-card";
 
 export default async function Home() {
   return (
@@ -29,33 +30,7 @@ export default async function Home() {
           <ProposalList />
         </div>
         <div className="w-full max-w-xs">
-          <div className="bg-card md:max-w-xs">
-            <h3 className="bg-incard flex items-center gap-2 px-6 py-5 text-2xl">
-              <Zap /> Voting Power
-            </h3>
-            <div className="flex flex-col gap-4 px-6 pt-6 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">MENTO</span>
-                <span>6000</span>
-              </div>
-              <hr />
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">veMENTO</span>
-                <span>6000</span>
-              </div>
-              <hr />
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Expires</span>
-                <span>{"17.10.2027"}</span>
-              </div>
-            </div>
-            <div className="p-6">
-              <Button className="h-10 w-full" clipped="sm">
-                Manage
-                <ChevronsRight size={20} />
-              </Button>
-            </div>
-          </div>
+          <VotingPowerCard />
           <div className="bg-card mt-4 md:max-w-xs">
             <h3 className="bg-incard flex items-center gap-2 px-6 py-5 text-2xl">
               <Zap className="h-6 w-6 fill-current" /> $MENTO
