@@ -38,16 +38,7 @@ function CoinInput({
       numericRegex.test(currentValue) &&
       (currentValue.match(/\./g) || []).length <= 1
     ) {
-      // Prevent multiple leading zeros (except for 0.xxx)
-      // e.g., "00" or "01" should be prevented. "0.1" is allowed.
-      if (
-        currentValue.length > 1 &&
-        currentValue[0] === "0" &&
-        currentValue[1] !== "."
-      ) {
-        return; // Invalid input, do not call onChange
-      }
-
+      // Note: Multiple leading zeros are now allowed, matching Uniswap's behavior
       onChange?.(eventForCallback); // Pass the appropriate event object
     }
     // If invalid input (regex fails or too many dots), don't call onChange.
