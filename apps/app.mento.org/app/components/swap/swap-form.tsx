@@ -883,6 +883,8 @@ export default function SwapForm() {
             type="submit"
             disabled={
               !hasAmount ||
+              !toTokenId ||
+              !fromTokenId ||
               !quote || // Require quote to be fetched
               (formDirection === "in"
                 ? !!(
@@ -903,6 +905,10 @@ export default function SwapForm() {
           >
             {isLoading && hasAmount ? ( // Only show loading if there's an amount
               <IconLoading />
+            ) : !fromTokenId ? (
+              "Select token to sell"
+            ) : !toTokenId ? (
+              "Select token to buy"
             ) : tradingLimitError ? (
               "Swap exceeds trading limits"
             ) : balanceError ? (
