@@ -523,8 +523,6 @@ export default function SwapForm() {
     }
   }, [errors.amount, hasAmount, amount]);
 
-  // Button loading state is now handled in the button render logic
-
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     try {
       if (!skipApprove && sendApproveTx) {
@@ -868,7 +866,6 @@ export default function SwapForm() {
           )}
         </div>
 
-        {/* Button state is logged via useEffect */}
         {isConnected ? (
           <Button
             data-testid={
