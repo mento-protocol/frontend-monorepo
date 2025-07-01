@@ -39,7 +39,7 @@ export const ProposalList = () => {
             <ProposalListItemIndex index={index + 1} />
             <ProposalListItemBody>
               <ProposalStatus variant="active" />
-              <h3 className="text-xl text-white xl:text-lg">
+              <h3 className="max-w-1/2 text-xl text-white xl:text-lg">
                 {metadata.title}
               </h3>
               <div className="w-full xl:max-w-[192px]">
