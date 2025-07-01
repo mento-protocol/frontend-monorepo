@@ -19,6 +19,9 @@
     "brace-expansion": ">=2.0.2",
     "esbuild": ">=0.25.0"
   },
+  "dependencies": {
+    "zod": "^3.25.67"
+  },
   "devDependencies": {
     "@changesets/cli": "^2.29.1",
     "@commitlint/cli": "^19.8.0",
