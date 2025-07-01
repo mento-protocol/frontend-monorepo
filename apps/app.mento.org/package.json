@@ -14,7 +14,7 @@
     "@ethersproject/address": "^5.8.0",
     "@ethersproject/units": "^5.8.0",
     "@hookform/resolvers": "^5.0.1",
-    "@mento-protocol/mento-sdk": "^1.10.1",
+    "@mento-protocol/mento-sdk": "^1.10.2",
     "@metamask/jazzicon": "https://github.com/jmrossy/jazzicon#7a8df28",
     "@metamask/post-message-stream": "6.1.2",
     "@metamask/providers": "10.2.1",
