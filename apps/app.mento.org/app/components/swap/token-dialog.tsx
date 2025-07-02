@@ -137,7 +137,10 @@ export default function TokenDialog({
         </div>
 
         {isLoadingTradablePairs && filterByTokenId ? (
-          <div className="flex items-center justify-center py-8">
+          <div
+            className="flex items-center justify-center py-8"
+            data-testid="loader"
+          >
             <IconLoading />
           </div>
         ) : (
@@ -149,11 +152,11 @@ export default function TokenDialog({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div
-                          data-testid={`tokenOption_${token.id}`}
                           className={cn(
                             "hover:bg-accent group flex w-full items-center justify-between p-2 text-left opacity-50 hover:cursor-pointer",
                             value === token.id && "bg-accent",
                           )}
+                          data-testid={`tokenOption_${token.id}`}
                           onClick={() => {
                             handleTokenSelect(token.id);
                           }}
@@ -181,7 +184,12 @@ export default function TokenDialog({
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
-                              <div className="font-medium">{token.symbol}</div>
+                              <div
+                                className="font-medium"
+                                data-testid={`invalidToken`}
+                              >
+                                {token.symbol}
+                              </div>
                               <div className="text-muted-foreground text-xs">
                                 {token.name}
                               </div>
@@ -199,17 +207,17 @@ export default function TokenDialog({
                         sideOffset={6}
                         hideArrow
                       >
-                        <p>Invalid pair</p>
+                        <p data-testid="invalidPairTooltip">Invalid pair</p>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
                 ) : (
                   <div
-                    data-testid={`tokenOption_${token.id}`}
                     className={cn(
                       "hover:bg-accent group flex w-full items-center justify-between p-2 text-left hover:cursor-pointer",
                       value === token.id && "bg-accent",
                     )}
+                    data-testid={`tokenOption_${token.id}`}
                     onClick={() => {
                       handleTokenSelect(token.id);
                     }}
@@ -237,7 +245,9 @@ export default function TokenDialog({
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <div className="font-medium">{token.symbol}</div>
+                        <div className="font-medium" data-testid={`validToken`}>
+                          {token.symbol}
+                        </div>
                         <div className="text-muted-foreground text-xs">
                           {token.name}
                         </div>
