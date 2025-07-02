@@ -868,15 +868,13 @@ export default function SwapForm() {
 
         {isConnected ? (
           <Button
-            data-testid={
-              balanceError
-                ? "insufficientBalance"
-                : tradingLimitError
-                  ? "swapsHasExceedsTradingLimitLabel"
-                  : shouldApprove
-                    ? "approveButton"
-                    : "swapButton"
-            }
+            data-testid={defineButtonLocator({
+              balanceError,
+              tradingLimitError,
+              shouldApprove,
+              fromTokenId,
+              toTokenId,
+            })}
             className="mt-auto w-full"
             size="lg"
             clipped="lg"
@@ -933,4 +931,33 @@ export default function SwapForm() {
       </form>
     </Form>
   );
+}
+
+function defineButtonLocator({
+  balanceError,
+  tradingLimitError,
+  shouldApprove,
+  fromTokenId,
+  toTokenId,
+}: {
+  balanceError: string | null;
+  tradingLimitError: string | null;
+  shouldApprove: string | boolean;
+  fromTokenId: string;
+  toTokenId: string;
+}) {
+  switch (true) {
+    case Boolean(balanceError && !tradingLimitError):
+      return "insufficientBalanceButton";
+    case Boolean(tradingLimitError):
+      return "swapsExceedsTradingLimitButton";
+    case Boolean(shouldApprove && fromTokenId && toTokenId):
+      return "approveButton";
+    case !fromTokenId:
+      return "selectTokenToSellButton";
+    case !toTokenId:
+      return "selectTokenToBuyButton";
+    default:
+      return "swapButton";
+  }
 }
