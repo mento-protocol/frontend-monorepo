@@ -26,6 +26,7 @@ import { useSwapAllowance } from "@/features/swap/hooks/use-swap-allowance";
 import { useOptimizedSwapQuote } from "@/features/swap/hooks/use-swap-quote";
 import { useTokenOptions } from "@/features/swap/hooks/use-token-options";
 import { useTradingLimits } from "@/features/swap/hooks/use-trading-limits";
+import { useTradablePairs } from "@/features/swap/hooks/use-tradable-pairs";
 import { confirmViewAtom, formValuesAtom } from "@/features/swap/swap-atoms";
 import type { SwapFormValues } from "@/features/swap/types";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
@@ -579,7 +580,43 @@ export default function SwapForm() {
   };
 
   const shouldApprove = !skipApprove && hasAmount && quote && !isLoading;
-  console.log("errors.quote", errors.quote);
+
+  // Get tradable pairs for both tokens
+  const { data: fromTokenTradablePairs } = useTradablePairs(
+    fromTokenId as TokenId,
+  );
+  const { data: toTokenTradablePairs } = useTradablePairs(toTokenId as TokenId);
+
+  const [lastChangedToken, setLastChangedToken] = useState<
+    "from" | "to" | null
+  >(null);
+
+  // Handle token pair validation - reset opposite token if an invalid pair is selected
+  useEffect(() => {
+    if (!fromTokenId || !toTokenId || !lastChangedToken) return;
+
+    const isValidPair =
+      fromTokenTradablePairs?.includes(toTokenId as TokenId) ||
+      toTokenTradablePairs?.includes(fromTokenId as TokenId);
+
+    // If an invalid pair is selected, reset the opposite token
+    if (!isValidPair) {
+      if (lastChangedToken === "from") {
+        form.setValue("toTokenId", "", { shouldValidate: false });
+      } else if (lastChangedToken === "to") {
+        form.setValue("fromTokenId", "", { shouldValidate: false });
+      }
+      setLastChangedToken(null);
+    }
+  }, [
+    fromTokenId,
+    toTokenId,
+    fromTokenTradablePairs,
+    toTokenTradablePairs,
+    lastChangedToken,
+    form,
+  ]);
+
   return (
     <Form {...form}>
       <form
@@ -639,9 +676,13 @@ export default function SwapForm() {
                     <FormControl>
                       <TokenDialog
                         value={field.value}
-                        onValueChange={field.onChange}
+                        onValueChange={(value) => {
+                          field.onChange(value);
+                          setLastChangedToken("from");
+                        }}
                         title="Select asset to sell"
                         excludeTokenId={toTokenId}
+                        filterByTokenId={toTokenId as TokenId}
                         onClose={() => {
                           setTimeout(() => {
                             amountRef.current?.focus();
@@ -661,7 +702,7 @@ export default function SwapForm() {
                               size={20}
                             />
 
-                            <span>{field.value || "Select token"}</span>
+                            <span>{field.value || "Select"}</span>
                             <ChevronDown className="h-4 w-4 opacity-50" />
                           </button>
                         }
@@ -772,9 +813,13 @@ export default function SwapForm() {
                     <FormControl>
                       <TokenDialog
                         value={field.value}
-                        onValueChange={field.onChange}
+                        onValueChange={(value) => {
+                          field.onChange(value);
+                          setLastChangedToken("to");
+                        }}
                         title="Select asset to buy"
                         excludeTokenId={fromTokenId}
+                        filterByTokenId={fromTokenId as TokenId}
                         onClose={() => {
                           setTimeout(() => {
                             quoteRef.current?.focus();
@@ -793,7 +838,7 @@ export default function SwapForm() {
                               className="mr-2"
                               size={20}
                             />
-                            <span>{field.value || "Select token"}</span>
+                            <span>{field.value || "Select"}</span>
                             <ChevronDown className="h-4 w-4 opacity-50" />
                           </button>
                         }
@@ -823,21 +868,21 @@ export default function SwapForm() {
 
         {isConnected ? (
           <Button
-            data-testid={
-              balanceError
-                ? "insufficientBalance"
-                : tradingLimitError
-                  ? "swapsHasExceedsTradingLimitLabel"
-                  : shouldApprove
-                    ? "approveButton"
-                    : "swapButton"
-            }
+            data-testid={defineButtonLocator({
+              balanceError,
+              tradingLimitError,
+              shouldApprove,
+              fromTokenId,
+              toTokenId,
+            })}
             className="mt-auto w-full"
             size="lg"
             clipped="lg"
             type="submit"
             disabled={
               !hasAmount ||
+              !toTokenId ||
+              !fromTokenId ||
               !quote || // Require quote to be fetched
               (formDirection === "in"
                 ? !!(
@@ -858,6 +903,10 @@ export default function SwapForm() {
           >
             {isLoading && hasAmount ? ( // Only show loading if there's an amount
               <IconLoading />
+            ) : !fromTokenId ? (
+              "Select token to sell"
+            ) : !toTokenId ? (
+              "Select token to buy"
             ) : tradingLimitError ? (
               "Swap exceeds trading limits"
             ) : balanceError ? (
@@ -882,4 +931,33 @@ export default function SwapForm() {
       </form>
     </Form>
   );
+}
+
+function defineButtonLocator({
+  balanceError,
+  tradingLimitError,
+  shouldApprove,
+  fromTokenId,
+  toTokenId,
+}: {
+  balanceError: string | null;
+  tradingLimitError: string | null;
+  shouldApprove: string | boolean;
+  fromTokenId: string;
+  toTokenId: string;
+}) {
+  switch (true) {
+    case Boolean(balanceError && !tradingLimitError):
+      return "insufficientBalanceButton";
+    case Boolean(tradingLimitError):
+      return "swapsExceedsTradingLimitButton";
+    case Boolean(shouldApprove && fromTokenId && toTokenId):
+      return "approveButton";
+    case !fromTokenId:
+      return "selectTokenToSellButton";
+    case !toTokenId:
+      return "selectTokenToBuyButton";
+    default:
+      return "swapButton";
+  }
 }
