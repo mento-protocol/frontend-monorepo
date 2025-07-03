@@ -1,16 +1,6 @@
 import Image from "next/image";
 import { env } from "@/env.mjs";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-  CommunityCard,
-  IconChevron,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@repo/ui";
+import { IconChevron, Tooltip, TooltipContent, TooltipTrigger } from "@repo/ui";
 import { IconInfo } from "@repo/ui";
 import { ChevronsRight, Zap } from "lucide-react";
 import { Button } from "@repo/ui";

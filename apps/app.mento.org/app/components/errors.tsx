@@ -6,17 +6,17 @@ import { Frown } from "lucide-react";
 import { Component } from "react";
 
 interface ErrorBoundaryState {
-  error: any;
-  errorInfo: any;
+  error: unknown;
+  errorInfo: unknown;
 }
 
-export class ErrorBoundary extends Component<any, ErrorBoundaryState> {
-  constructor(props: any) {
+export class ErrorBoundary extends Component<unknown, ErrorBoundaryState> {
+  constructor(props: unknown) {
     super(props);
     this.state = { error: null, errorInfo: null };
   }
 
-  componentDidCatch(error: any, errorInfo: any) {
+  componentDidCatch(error: unknown, errorInfo: unknown) {
     this.setState({
       error,
       errorInfo,

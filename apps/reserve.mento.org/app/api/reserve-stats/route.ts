@@ -45,12 +45,11 @@ export async function GET() {
     // headers.set('Access-Control-Allow-Origin', '*');
 
     return NextResponse.json(result, { headers });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error in /api/reserve-stats:", error);
     Sentry.captureException(error);
-    return NextResponse.json(
-      { message: error.message || "Unknown server error" },
-      { status: error.statusCode || 500 },
-    );
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown server error";
+    return NextResponse.json({ message: errorMessage }, { status: 500 });
   }
 }

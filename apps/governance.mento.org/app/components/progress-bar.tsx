@@ -37,9 +37,26 @@ const ProgressSegment = ({
   );
 };
 
+interface VoteData {
+  approve: { value: string; percentage: number };
+  reject: { value: string; percentage: number };
+  abstain?: { value: string; percentage: number };
+}
+
+interface TimeData {
+  labels: {
+    start: string;
+    middle: string;
+    end: string;
+  };
+  currentValue: number;
+  maxValue: number;
+  valueLabel?: string;
+}
+
 interface ProgressBarProps {
   mode: "vote" | "time";
-  data: any;
+  data: VoteData | TimeData;
   className?: string;
 }
 

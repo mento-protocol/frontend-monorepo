@@ -3,12 +3,6 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "files": [
-    "dist/**"
-  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -17,19 +11,25 @@
     },
     "./globals.css": "./dist/globals.css"
   },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist/**"
+  ],
   "scripts": {
-    "lint": "eslint . --max-warnings 100",
-    "generate:component": "turbo gen react-component",
-    "check-types": "tsc --noEmit",
+    "analyze": "node scripts/analyze-build.js",
+    "build": "pnpm clean && concurrently \"pnpm:build:js\" \"pnpm:build:css\" --names \"js,css\" --prefix-colors \"bgBlue,bgGreen\"",
+    "build:analyze": "pnpm run build && pnpm run analyze",
     "build:css": "tailwindcss -i ./src/globals.css -o ./dist/globals.css --minify",
     "build:js": "tsup",
+    "check-types": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "build": "pnpm clean && concurrently \"pnpm:build:js\" \"pnpm:build:css\" --names \"js,css\" --prefix-colors \"bgBlue,bgGreen\"",
-    "dev:js": "tsup --watch",
-    "dev:css": "tailwindcss -i ./src/globals.css -o ./dist/globals.css --watch",
     "dev": "concurrently \"pnpm:dev:js\" \"pnpm:dev:css\" --names \"js,css\" --prefix-colors \"bgBlue,bgGreen\"",
-    "analyze": "node scripts/analyze-build.js",
-    "build:analyze": "pnpm run build && pnpm run analyze"
+    "dev:css": "tailwindcss -i ./src/globals.css -o ./dist/globals.css --watch",
+    "dev:js": "tsup --watch",
+    "generate:component": "turbo gen react-component",
+    "lint": "eslint . --max-warnings 100"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.11",
@@ -70,7 +70,6 @@
     "date-fns": "^4.1.0",
     "lucide-react": "^0.488.0",
     "next-themes": "^0.4.6",
-    "radio-group": "^0.0.2",
     "react": "^19.1.0",
     "react-day-picker": "^9.7.0",
     "react-dom": "^19.1.0",
@@ -92,6 +91,7 @@
     "@types/react-dom": "^19.1.2",
     "autoprefixer": "^10.4.21",
     "concurrently": "^9.1.2",
+    "esbuild": "^0.25.0",
     "esbuild-plugin-preserve-directives": "^0.0.11",
     "eslint": "^9.24.0",
     "postcss": "^8.5.3",
