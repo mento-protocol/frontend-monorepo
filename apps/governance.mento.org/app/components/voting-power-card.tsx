@@ -3,6 +3,7 @@ import NumbersService from "@/lib/helpers/numbers";
 import useTokens from "@/lib/hooks/use-tokens";
 import { Button } from "@repo/ui";
 import { ChevronsRight, Zap } from "lucide-react";
+import Link from "next/link";
 import { formatUnits } from "viem";
 
 export const VotingPowerCard = () => {
@@ -38,10 +39,12 @@ export const VotingPowerCard = () => {
         </div>
       </div>
       <div className="p-6">
-        <Button className="h-10 w-full" clipped="sm">
-          Manage
-          <ChevronsRight size={20} />
-        </Button>
+        <Link href="/voting-power">
+          <Button className="h-10 w-full" clipped="sm">
+            Manage
+            <ChevronsRight size={20} />
+          </Button>
+        </Link>
       </div>
     </div>
   );

@@ -6,6 +6,7 @@ import Image from "next/image";
 import { ProposalList } from "./components/proposal-list";
 import { ProposalStats } from "./components/proposal-stats";
 import { VotingPowerCard } from "./components/voting-power-card";
+import { MentoTokenInfo } from "./components/mento-token-info";
 
 export default async function Home() {
   return (
@@ -36,38 +37,7 @@ export default async function Home() {
               <Zap className="h-6 w-6 fill-current" /> $MENTO
             </h3>
             <div className="flex flex-col gap-4 px-6 pt-6 text-sm">
-              {/* <Accordion type="single" collapsible className="w-full">
-                <AccordionItem value="item-1">
-                  <AccordionTrigger>General</AccordionTrigger>
-                  <AccordionContent>
-                    <div className="flex flex-col gap-4 text-sm">
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">Label</span>
-                        <span>Celo Mainnet</span>
-                      </div>
-                      <hr />
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">Supply</span>
-                        <span>1,000,000,000</span>
-                      </div>
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-                <AccordionItem value="item-2">
-                  <AccordionTrigger>Parameters</AccordionTrigger>
-                  <AccordionContent></AccordionContent>
-                </AccordionItem>
-                <AccordionItem value="item-3">
-                  <AccordionTrigger>Contract Addresses</AccordionTrigger>
-                  <AccordionContent></AccordionContent>
-                </AccordionItem>
-              </Accordion> */}
-            </div>
-            <div className="p-6">
-              <Button className="h-10 w-full" clipped="sm">
-                Manage
-                <ChevronsRight size={20} />
-              </Button>
+              <MentoTokenInfo />
             </div>
           </div>
         </div>

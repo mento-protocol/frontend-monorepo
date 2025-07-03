@@ -3,6 +3,7 @@
 import { env } from "@/env.mjs";
 import { ProposalPolicy } from "@/lib/graphql/subgraph/policies/Proposal";
 import { ApolloLink, createHttpLink } from "@apollo/client";
+import { setContext } from "@apollo/client/link/context";
 import {
   NextSSRApolloClient,
   NextSSRInMemoryCache,
@@ -16,13 +17,15 @@ const CELO_EXPLORER_API_URL_ALFAJORES =
 const SUBGRAPH_URL = env.NEXT_PUBLIC_SUBGRAPH_URL;
 const SUBGRAPH_URL_ALFAJORES = env.NEXT_PUBLIC_SUBGRAPH_URL_ALFAJORES;
 
+const GRAPH_API_KEY = env.NEXT_PUBLIC_GRAPH_API_KEY;
+const GRAPH_API_KEY_ALFAJORES = env.NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES;
+
 // have a function to create a client for you
 export function makeClient() {
   const httpLink = createHttpLink({
     // needs to be an absolute url, as relative urls cannot be used in SSR
     uri: (operation) => {
       const { apiName } = operation.getContext();
-      console.log("asdasd", SUBGRAPH_URL);
       switch (apiName) {
         case "celoExplorer":
           return CELO_EXPLORER_API_URL;
@@ -46,6 +49,36 @@ export function makeClient() {
     // const { data } = useSuspenseQuery(MY_QUERY, { context: { fetchOptions: { cache: "force-cache" }}});
   });
 
+  // Auth link to add API keys to requests
+  const authLink = setContext((_, { headers, ...context }) => {
+    const { apiName } = context;
+
+    // Determine which API key to use based on the API name
+    let authToken = "";
+
+    switch (apiName) {
+      case "subgraph":
+        authToken = GRAPH_API_KEY || "";
+        break;
+      case "subgraphAlfajores":
+        authToken = GRAPH_API_KEY_ALFAJORES || "";
+        break;
+      default:
+        authToken = "";
+        break;
+    }
+    console.log("Auth token:", authToken);
+
+    // Return the headers to the context so httpLink can read them
+    return {
+      headers: {
+        ...headers,
+        // Add authorization header if API key exists
+        ...(authToken && { authorization: `Bearer ${authToken}` }),
+      },
+    };
+  });
+
   return new NextSSRApolloClient({
     // use the `NextSSRInMemoryCache`, not the normal `InMemoryCache`
     cache: new NextSSRInMemoryCache({
@@ -62,8 +95,9 @@ export function makeClient() {
             new SSRMultipartLink({
               stripDefer: true,
             }),
+            authLink,
             httpLink,
           ])
-        : httpLink,
+        : authLink.concat(httpLink),
   });
 }
