@@ -21,6 +21,7 @@ import {
 import useProposals from "@/lib/contracts/governor/use-proposals";
 import { formatUnits } from "viem";
 import NumbersService from "@/lib/helpers/numbers";
+import Link from "next/link";
 
 export const ProposalList = () => {
   const { proposals } = useProposals();
@@ -29,9 +30,11 @@ export const ProposalList = () => {
     <ProposalCard>
       <ProposalCardHeader variant="highlighted">
         <h2 className="text-2xl font-semibold">Proposals</h2>
-        <Button clipped="lg" size="md">
-          Create New Proposal <IconChevron />
-        </Button>
+        <Link href="/create-proposal">
+          <Button clipped="lg" size="md">
+            Create New Proposal <IconChevron />
+          </Button>
+        </Link>
       </ProposalCardHeader>
       <ProposalCardBody className="flex flex-col">
         {proposals.map(({ proposalId, metadata, state, votes }, index) => (
