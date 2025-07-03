@@ -1,0 +1,17 @@
+name: Smoke Test Run
+on:
+  deployment_status:
+
+permissions:
+  contents: read
+  deployments: read
+  id-token: write
+
+jobs:
+  app-mento:
+    if: github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && contains(github.event.deployment_status.target_url, 'appmento')
+    uses: mento-protocol/mento-automation-tests/.github/workflows/smoke-mento-web-test.yml@main
+    with:
+      CUSTOM_URL: ${{ github.event.deployment_status.environment_url }}
+      IS_MAINNET: "false"
+    secrets: inherit
