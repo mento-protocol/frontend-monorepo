@@ -1,11 +1,12 @@
 {
   "recommendations": [
-    "dbaeumer.vscode-eslint",
+    "trunk.io",
     "esbenp.prettier-vscode",
     "bradlc.vscode-tailwindcss",
     "github.vscode-github-actions",
     "streetsidesoftware.code-spell-checker",
     "yoavbls.pretty-ts-errors",
     "vercel.turbo-vsc"
-  ]
+  ],
+  "unwantedRecommendations": ["dbaeumer.vscode-eslint"]
 }

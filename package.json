@@ -3,25 +3,28 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev",
-    "lint": "turbo run lint",
-    "format": "prettier --write \"**/*.{ts,tsx,md}\" --list-different",
-    "format:check": "prettier --check \"**/*.{ts,tsx,md}\"",
-    "check-types": "turbo run check-types",
-    "test": "turbo run test",
-    "health": "sh ./scripts/healthcheck.sh",
     "changeset": "changeset",
-    "version": "changeset version",
+    "check-types": "turbo run check-types",
+    "dev": "turbo run dev",
+    "format": "trunk fmt",
+    "format:check": "trunk check --filter=prettier",
+    "health": "sh ./scripts/healthcheck.sh",
+    "lint": "trunk check",
+    "lint:fix": "trunk check --fix",
     "release": "turbo run build && changeset publish",
-    "prepare": "husky"
+    "test": "turbo run test",
+    "version": "changeset version"
+  },
+  "resolutions": {
+    "brace-expansion": ">=2.0.2",
+    "esbuild": ">=0.25.0"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.1",
     "@commitlint/cli": "^19.8.0",
     "@commitlint/config-conventional": "^19.8.0",
     "@repo/eslint-config": "workspace:*",
-    "husky": "^9.1.7",
-    "lint-staged": "^15.5.1",
+    "eslint": "^9.24.0",
     "prettier": "^3.5.3",
     "prettier-plugin-tailwindcss": "^0.6.11",
     "turbo": "^2.5.4",
@@ -32,9 +35,6 @@
     "node": ">=22"
   },
   "pnpm": {
-    "overrides": {
-      "esbuild": "0.21.5"
-    },
     "onlyBuiltDependencies": [
       "@parcel/watcher",
       "@sentry/cli",
@@ -51,6 +51,15 @@
       "web3",
       "web3-bzz",
       "web3-shh"
-    ]
+    ],
+    "overrides": {
+      "brace-expansion": ">=2.0.2",
+      "esbuild": ">=0.25.0",
+      "pbkdf2@>=3.0.10 <=3.1.2": ">=3.1.3",
+      "pbkdf2@<=3.1.2": ">=3.1.3",
+      "tar@<6.2.1": ">=6.2.1",
+      "tough-cookie@<4.1.3": ">=4.1.3",
+      "ws@>=2.1.0 <5.2.4": ">=5.2.4"
+    }
   }
 }

@@ -8,20 +8,20 @@ echo "🚀 Running Health Checks..."
 # Run checks sequentially, stopping if any fail.
 # Faster checks first.
 
-echo "\n🔍 Checking formatting..."
+printf "\n🔍 Checking formatting...\n"
 pnpm format:check
 
-echo "\n🧹 Linting..."
+printf "\n🧹 Linting...\n"
 pnpm lint
 
-echo "\n🧐 Checking types..."
+printf "\n🧐 Checking types...\n"
 pnpm check-types
 
 # Once we have a test suite, uncomment this.
-# echo "\n🧪 Running tests..."
+# printf "\n🧪 Running tests...\n"
 # pnpm test
 
-echo "\n🧱 Building..."
+printf "\n🧱 Building...\n"
 pnpm build
 
-echo "\n✅ All Health Checks Passed!" 
+printf "\n✅ All Health Checks Passed!\n"

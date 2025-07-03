@@ -1,0 +1,19 @@
+[[IgnoredVulns]]
+id = "GHSA-3h5v-q93c-6h6q"
+reason = "We'll deal with governance-related vulnerabilities once the app is working"
+
+[[IgnoredVulns]]
+id = "GHSA-v6h2-p8h4-qcjw"
+reason = "We'll deal with governance-related vulnerabilities once the app is working"
+
+[[IgnoredVulns]]
+id = "GHSA-p8p7-x288-28g6"
+reason = "We'll deal with governance-related vulnerabilities once the app is working"
+
+[[IgnoredVulns]]
+id = "GHSA-f5x3-32g6-xq36"
+reason = "We'll deal with governance-related vulnerabilities once the app is working"
+
+[[IgnoredVulns]]
+id = "GHSA-72xf-g2v4-qvf3"
+reason = "We'll deal with governance-related vulnerabilities once the app is working"

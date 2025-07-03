@@ -15,6 +15,10 @@ interface SliceData {
   percent: number;
 }
 
+interface ErrorWithStatusCode extends Error {
+  statusCode?: number;
+}
+
 // Opt out of caching for this dynamic route
 export const dynamic = "force-dynamic";
 
@@ -53,12 +57,15 @@ export async function GET() {
     headers.set("Server-Timing", `ms;dur=${Date.now() - start}`);
 
     return NextResponse.json(slices, { headers });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error in /api/reserve-composition:", error);
     Sentry.captureException(error);
-    return NextResponse.json(
-      { message: error.message || "Unknown server error" },
-      { status: error.statusCode || 500 },
-    );
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown server error";
+    const statusCode =
+      error instanceof Error && "statusCode" in error
+        ? ((error as ErrorWithStatusCode).statusCode ?? 500)
+        : 500;
+    return NextResponse.json({ message: errorMessage }, { status: statusCode });
   }
 }
