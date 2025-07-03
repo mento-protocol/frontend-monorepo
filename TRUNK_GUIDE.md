@@ -12,7 +12,6 @@ This guide provides detailed information about how Trunk CLI is configured and u
 
 1. **Open workspace in VS Code/Cursor**
 2. **Install recommended extensions** (VS Code will prompt automatically):
-
    - ✅ **[Trunk](https://marketplace.cursorapi.com/items?itemName=trunk.io)** - Our main linter/formatter
    - ✅ **Prettier** - Code formatting (integrated with Trunk)
    - ✅ **Tailwind CSS** - Tailwind utilities

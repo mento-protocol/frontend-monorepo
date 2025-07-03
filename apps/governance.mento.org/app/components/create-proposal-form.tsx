@@ -30,7 +30,6 @@ const markdown =
 
 const ProposalDetailsStep = () => {
   const setStep = useSetAtom(stepAtom);
-  const [title, setTitle] = useState("");
 
   return (
     <div>
@@ -173,7 +172,7 @@ const ReviewStep = () => {
 };
 
 export default function CreateProposalForm() {
-  const [connected, setConnected] = useState(true);
+  const [connected] = useState(true);
   const [step] = useAtom(stepAtom);
 
   return (

@@ -135,7 +135,7 @@ export default function SwapForm() {
 
   // Layer 2: Field-level sync validation (balance)
   const validateBalance = useCallback(
-    (value: string, direction: "in" | "out") => {
+    (value: string) => {
       if (!value || !fromTokenId) return true;
 
       // Allow "0." as user is typing
@@ -292,7 +292,7 @@ export default function SwapForm() {
   // Combined validation for amount field
   const validateAmount = useCallback(
     async (value: string) => {
-      const balanceCheck = validateBalance(value, formDirection);
+      const balanceCheck = validateBalance(value);
       if (balanceCheck !== true) return balanceCheck;
 
       const limitsCheck = await validateLimits(value);
@@ -308,7 +308,7 @@ export default function SwapForm() {
     (value: string) => {
       if (formDirection !== "out" || !value || !fromTokenId) return true;
 
-      return validateBalance(value, "out");
+      return validateBalance(value);
     },
     [validateBalance, formDirection, fromTokenId],
   );
@@ -364,7 +364,7 @@ export default function SwapForm() {
   // Check for balance error
   const [balanceError, setBalanceError] = useState<string | null>(null);
 
-  const canQuote = +!!hasAmount && !errors.amount && !limitsLoading;
+  const canQuote = !!hasAmount && !errors.amount && !limitsLoading;
 
   const {
     isLoading: quoteLoading,
@@ -392,7 +392,7 @@ export default function SwapForm() {
         return;
       }
 
-      const balanceCheck = validateBalance(amount, formDirection);
+      const balanceCheck = validateBalance(amount);
       if (balanceCheck !== true) {
         setBalanceError(balanceCheck);
       } else {
