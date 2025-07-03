@@ -71,24 +71,36 @@ const extensions = [
   Typography,
 ];
 
-export function RichTextEditor({ className }: { className?: string }) {
-  const editor = useEditor({
-    immediatelyRender: false,
-    extensions: extensions as Extension[],
-    // content,
-    editorProps: {
-      attributes: {
-        class: "max-w-full focus:outline-none",
+export interface RichTextEditorProps {
+  className?: string;
+  value?: string;
+  onChange?: (content: string) => void;
+}
+
+export function RichTextEditor({
+  className,
+  value,
+  onChange,
+}: RichTextEditorProps) {
+  const editor = useEditor(
+    {
+      immediatelyRender: false,
+      extensions: extensions as Extension[],
+      content: value,
+      editorProps: {
+        attributes: {
+          class: "max-w-full focus:outline-none",
+        },
+      },
+      onUpdate: ({ editor }) => {
+        // Call the onChange handler with the HTML content
+        if (onChange) {
+          onChange(editor.getHTML());
+        }
       },
     },
-    onUpdate: ({ editor }) => {
-      // do what you want to do with output
-      // Update stats
-      // saving as text/json/hmtml
-      // const text = editor.getHTML();
-      console.log(editor.getText());
-    },
-  });
+    [value],
+  );
 
   if (!editor) return null;
 
@@ -104,7 +116,7 @@ export function RichTextEditor({ className }: { className?: string }) {
       <TipTapFloatingMenu editor={editor} />
       <EditorContent
         editor={editor}
-        className="bg-input/30 border-input min-h-[600px] w-full min-w-full cursor-text border sm:p-6"
+        className="bg-input/30 border-input min-h-[400px] w-full min-w-full cursor-text border sm:p-6"
       />
     </div>
   );

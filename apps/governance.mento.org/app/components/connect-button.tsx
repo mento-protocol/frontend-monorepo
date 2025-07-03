@@ -226,6 +226,7 @@ export const ConnectButton = ({
                 className={cn(fullwidth ? "w-full" : "w-auto")}
                 type="button"
                 variant="default"
+                clipped="default"
               >
                 {text}
               </Button>
