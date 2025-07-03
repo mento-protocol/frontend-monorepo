@@ -58,10 +58,6 @@ export const ProposalStats = () => {
     return uniqueVoters.size;
   }, [currentWeek, locks]);
 
-  console.log("DEBUG", {
-    proposals,
-  });
-
   return (
     <section className="xl:px-22 max-w-2xl px-4 md:p-20">
       <h1 className="text-4xl font-medium md:text-6xl">Mento Governance</h1>
