@@ -73,11 +73,12 @@ export function useSwapQuote(
       debouncedAmount != null &&
       debouncedAmount !== "" &&
       Number(debouncedAmount) > 0;
-    const isValidTokenPair = fromTokenId !== toTokenId;
+    const isValidTokenPair =
+      fromTokenId !== toTokenId && !!fromToken && !!toToken;
     const isQueryEnabled = isValidAmount && isValidTokenPair;
 
     return { isValidAmount, isValidTokenPair, isQueryEnabled };
-  }, [debouncedAmount, fromTokenId, toTokenId]);
+  }, [debouncedAmount, fromTokenId, toTokenId, fromToken, toToken]);
 
   // Memoize query key to improve cache efficiency
   const queryKey = useMemo(
@@ -96,6 +97,9 @@ export function useSwapQuote(
   // Memoize the quote fetcher function
   const fetchQuote = useCallback(async (): Promise<ISwapData | null> => {
     if (!validation.isQueryEnabled) return null;
+
+    // Guard clause: ensure tokens exist before proceeding
+    if (!fromToken || !toToken) return null;
 
     if (!skipDebugLogs) {
       const swapIntent =
@@ -122,8 +126,8 @@ export function useSwapQuote(
     );
 
     const amountWeiBN = ethers.BigNumber.from(amountWei);
-    const amountDecimals = isSwapIn ? fromToken.decimals : toToken.decimals;
-    const quoteDecimals = isSwapIn ? toToken.decimals : fromToken.decimals;
+    const amountDecimals = isSwapIn ? fromToken?.decimals : toToken?.decimals;
+    const quoteDecimals = isSwapIn ? toToken?.decimals : fromToken?.decimals;
 
     if (amountWeiBN.lte(0)) return null;
 
@@ -197,11 +201,11 @@ export function useSwapQuote(
     chainId,
     direction,
     amount,
-    fromToken.decimals,
-    toToken.decimals,
     debouncedAmount,
     queryClient,
     queryKey,
+    fromToken,
+    toToken,
   ]);
 
   const { isLoading, isError, error, data, refetch } = useQuery<
@@ -218,10 +222,10 @@ export function useSwapQuote(
   const errorMessage = useMemo(() => {
     if (!error) return null;
     return getToastErrorMessage(error.message, {
-      fromTokenSymbol: fromToken.symbol,
-      toTokenSymbol: toToken.symbol,
+      fromTokenSymbol: fromToken?.symbol,
+      toTokenSymbol: toToken?.symbol,
     });
-  }, [error, fromToken.symbol, toToken.symbol]);
+  }, [error, fromToken?.symbol, toToken?.symbol]);
 
   useEffect(() => {
     if (errorMessage) {

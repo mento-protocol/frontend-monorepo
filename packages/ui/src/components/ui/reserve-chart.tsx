@@ -119,7 +119,6 @@ export function ReserveChart({
             }}
             onMouseLeave={() => {
               handleActiveChanged(undefined);
-              console.log("Mouse leave, active segment cleared");
             }}
             activeIndex={
               activeSegmentInternal
@@ -161,7 +160,6 @@ export function ReserveChart({
             }}
             onMouseLeave={() => {
               handleActiveChanged(undefined);
-              console.log("Mouse leave, active segment cleared");
             }}
             activeIndex={
               activeSegmentInternal
