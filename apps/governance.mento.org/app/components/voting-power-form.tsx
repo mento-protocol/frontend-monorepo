@@ -30,9 +30,12 @@ export default function VotingPowerForm() {
 
   const amountRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState("");
-  const [unlockDate, setUnlockDate] = useState<Date | undefined>(
-    spacetime.tomorrow().toNativeDate(),
+  const tomorrow = useMemo(() => spacetime.tomorrow().toNativeDate(), []);
+  const maxDate = useMemo(
+    () => spacetime.now().add(2, "years").toNativeDate(),
+    [],
   );
+  const [unlockDate, setUnlockDate] = useState<Date | undefined>(tomorrow);
 
   // Calculate duration in months from today to unlock date
   const lockDurationInMonths = useMemo(() => {
@@ -119,12 +122,7 @@ export default function VotingPowerForm() {
       <Card className="border-border md:max-w-1/2">
         <CardHeader className="text-2xl font-medium">Lock MENTO</CardHeader>
         <CardContent>
-          <div
-            className="bg-incard border-border dark:border-input maybe-hover:border-border-secondary focus-within:!border-primary dark:focus-within:!border-primary mb-8 flex grid-cols-12 flex-col gap-4 border p-4 transition-colors md:grid md:h-[120px]"
-            onClick={() => {
-              amountRef.current?.focus();
-            }}
-          >
+          <div className="bg-incard border-border dark:border-input maybe-hover:border-border-secondary focus-within:!border-primary dark:focus-within:!border-primary mb-8 flex grid-cols-12 flex-col gap-4 border p-4 transition-colors md:grid md:h-[120px]">
             <div className="col-span-8 flex flex-col gap-2">
               <Label>MENTO to lock</Label>
               <CoinInput
@@ -140,7 +138,7 @@ export default function VotingPowerForm() {
                 Max available: {formattedMentoBalance} MENTO{" "}
               </span>
             </div>
-            <div className="col-span-4 flex flex-row items-center md:justify-end">
+            <div className="col-span-4 flex flex-row items-center md:flex-col md:items-end md:justify-end">
               <Datepicker
                 value={unlockDate}
                 onChange={setUnlockDate}
@@ -148,6 +146,12 @@ export default function VotingPowerForm() {
                 formatter={(date) => {
                   return spacetime(date).format("dd.MM.yyyy");
                 }}
+                disabled={{
+                  before: tomorrow,
+                  after: maxDate,
+                }}
+                startMonth={tomorrow}
+                endMonth={maxDate}
               />
             </div>
           </div>
