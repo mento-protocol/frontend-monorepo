@@ -2,6 +2,11 @@ name: App Mento Smoke Test Run
 on:
   deployment_status:
 
+permissions:
+  contents: read
+  deployments: read
+  id-token: write
+
 jobs:
   app-mento-smoke-test:
     if: github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && github.event.deployment_status.environment == 'app.mento.org'
