@@ -22,7 +22,7 @@ fragment ProposalFields on Proposal {
   # Votes
   votecast {
     id
-    support{
+    support {
       weight
     }
     receipt {

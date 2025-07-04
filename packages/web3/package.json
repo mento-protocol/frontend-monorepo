@@ -8,6 +8,18 @@
   "files": [
     "dist"
   ],
+  "scripts": {
+    "analyze": "node scripts/analyze-build.js",
+    "build": "pnpm clean && pnpm build:js",
+    "build:analyze": "pnpm run build && pnpm run analyze",
+    "build:js": "tsup",
+    "check-types": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "dev": "pnpm dev:js",
+    "dev:js": "tsup --watch",
+    "generate:component": "turbo gen react-component",
+    "lint": "eslint . --max-warnings 100"
+  },
   "dependencies": {
     "@celo/rainbowkit-celo": "^0.11.2",
     "@ethersproject/address": "^5.8.0",
@@ -17,6 +29,7 @@
     "@rainbow-me/rainbowkit": "0.12.16",
     "@repo/typescript-config": "workspace:*",
     "@repo/ui": "workspace:*",
+    "@wagmi/core": "^2.17.3",
     "bignumber.js": "^9.3.0",
     "decimal.js-light": "^2.5.1",
     "ethers": "^5.8.0",
@@ -27,8 +40,7 @@
     "react-dom": "^19.1.0",
     "react-hook-form": "^7.58.1",
     "toformat": "^2.0.0",
-    "wagmi": "0.12.18",
-    "@wagmi/core": "^2.17.3"
+    "wagmi": "0.12.18"
   },
   "peerDependencies": {
     "@rainbow-me/rainbowkit": "0.12.16",
@@ -41,17 +53,5 @@
     "next": "^15",
     "tsup": "^8.4.0",
     "wagmi": "0.12.18"
-  },
-  "scripts": {
-    "lint": "eslint . --max-warnings 100",
-    "generate:component": "turbo gen react-component",
-    "check-types": "tsc --noEmit",
-    "build:js": "tsup",
-    "clean": "rm -rf dist",
-    "build": "pnpm clean && pnpm build:js",
-    "dev:js": "tsup --watch",
-    "dev": "pnpm dev:js",
-    "analyze": "node scripts/analyze-build.js",
-    "build:analyze": "pnpm run build && pnpm run analyze"
   }
 }

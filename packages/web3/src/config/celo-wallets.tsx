@@ -5,7 +5,7 @@ import { Alfajores, Celo } from "@celo/rainbowkit-celo/chains";
 import type { Chain, Wallet } from "@rainbow-me/rainbowkit";
 import { getWalletConnectConnector } from "@rainbow-me/rainbowkit";
 import { toast } from "@repo/ui";
-// @ts-expect-error
+// @ts-expect-error: wagmi types are not compatible with rainbowkit types
 import { WalletConnectConnector } from "wagmi/dist/connectors/walletConnect";
 
 async function getWalletConnectUri(

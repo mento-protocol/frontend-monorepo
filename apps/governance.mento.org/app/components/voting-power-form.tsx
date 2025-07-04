@@ -7,7 +7,6 @@ import useLockCalculation from "@/lib/contracts/locking/useLockCalculation";
 import { useLockInfo } from "@/lib/contracts/locking/useLockInfo";
 import useTokens from "@/lib/contracts/useTokens";
 import {
-  Button,
   Card,
   CardContent,
   CardFooter,
@@ -23,15 +22,14 @@ import { Controller, FormProvider, useForm } from "react-hook-form";
 import spacetime from "spacetime";
 import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
+import { CreateLockProvider } from "./lock/create-lock-provider";
 import { LockingButton } from "./lock/locking-button";
 import { ProgressBar } from "./progress-bar";
 import { WithdrawButton } from "./withdraw-button";
-import { CreateLockProvider } from "./lock/create-lock-provider";
 
 export default function VotingPowerForm() {
   const { address } = useAccount();
-  const { lock, unlockedMento, hasLock, isLoading, refetch } =
-    useLockInfo(address);
+  const { lock, unlockedMento, hasLock, isLoading } = useLockInfo(address);
 
   const { veMentoBalance, mentoBalance } = useTokens();
 

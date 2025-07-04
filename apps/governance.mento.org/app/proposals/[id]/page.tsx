@@ -62,16 +62,6 @@ export default function ProposalPage() {
     );
   }, [currentBlock, endBlock.data, proposal]);
 
-  const timeLockDeadLine = useMemo(() => {
-    if (
-      proposal &&
-      proposal.state === ProposalState.Queued &&
-      proposal.proposalQueued[0]
-    ) {
-      return new Date(Number(proposal.proposalQueued[0].eta) * 1000);
-    }
-  }, [proposal]);
-
   if (!proposal) {
     return (
       <div className="flex min-h-screen items-center justify-center">

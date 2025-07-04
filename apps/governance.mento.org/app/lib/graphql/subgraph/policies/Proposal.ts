@@ -28,7 +28,7 @@ export const ProposalPolicy: TypePolicy = {
         let metadata;
         try {
           metadata = JSON.parse(readField<string>("description")!);
-        } catch (e) {
+        } catch {
           metadata = {
             title: rawMetadata.split("\n")[0],
             description: rawMetadata,

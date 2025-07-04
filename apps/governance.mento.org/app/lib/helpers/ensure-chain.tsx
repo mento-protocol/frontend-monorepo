@@ -15,7 +15,7 @@ export function EnsureChain({ children }: { children: ReactNode }) {
   const { switchChain } = useSwitchChain();
 
   const [switching, setSwitching] = useState(false);
-  const [incompatibleWalletModalActive, setModalActive] = useState(false);
+  const [, setModalActive] = useState(false);
 
   const setUpAndSwitch = useCallback(async () => {
     const storage = createStorage({ storage: localStorage });

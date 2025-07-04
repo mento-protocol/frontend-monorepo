@@ -166,7 +166,7 @@ const ExecutionCodeStep = () => {
       }
 
       return null; // No validation errors
-    } catch (error) {
+    } catch {
       return "Invalid JSON format";
     }
   };

@@ -13,7 +13,6 @@ import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@repo/ui";
@@ -137,9 +136,8 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
   };
 
   const isVotingOpen =
-    true ||
-    (proposal.state === ProposalState.Active &&
-      !isAfter(new Date(), votingDeadline || new Date()));
+    proposal.state === ProposalState.Active &&
+    !isAfter(new Date(), votingDeadline || new Date());
   const isApproved =
     proposal.state === ProposalState.Succeeded ||
     proposal.state === ProposalState.Queued ||
