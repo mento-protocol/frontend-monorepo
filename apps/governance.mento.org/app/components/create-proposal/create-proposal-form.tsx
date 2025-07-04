@@ -54,6 +54,15 @@ const ProposalDetailsStep = () => {
     setPreviewContent(content || sampleMarkdown);
   };
 
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0 });
+  };
+
+  const handleNextClick = () => {
+    setStep(CreateProposalStep.execution);
+    scrollToTop();
+  };
+
   return (
     <div>
       <h2 className="mb-4 text-lg font-medium md:text-3xl">Proposal Details</h2>
@@ -87,7 +96,7 @@ const ProposalDetailsStep = () => {
             <Button
               className="h-10 w-full min-w-[188px] md:ml-auto md:w-fit"
               clipped="sm"
-              onClick={() => setStep(CreateProposalStep.execution)}
+              onClick={handleNextClick}
             >
               Next <ArrowRight />
             </Button>
@@ -108,6 +117,10 @@ const ProposalDetailsStep = () => {
 const ExecutionCodeStep = () => {
   const { setStep, newProposal, updateProposal } = useCreateProposal();
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   const validateExecutionCode = (code: string): string | null => {
     try {
@@ -218,7 +231,10 @@ const ExecutionCodeStep = () => {
         <Button
           className="h-10 w-full md:w-48"
           clipped="default"
-          onClick={() => setStep(CreateProposalStep.preview)}
+          onClick={() => {
+            setStep(CreateProposalStep.preview);
+            scrollToTop();
+          }}
           disabled={!newProposal.code || !!validationError}
         >
           {newProposal.code && validationError
@@ -230,7 +246,10 @@ const ExecutionCodeStep = () => {
           className="h-10 w-full md:w-48"
           clipped="default"
           variant="abstain"
-          onClick={() => setStep(CreateProposalStep.content)}
+          onClick={() => {
+            setStep(CreateProposalStep.content);
+            scrollToTop();
+          }}
         >
           <ArrowLeft />
           Previous
@@ -263,6 +282,10 @@ const CollapsibleMarkdown = ({ markdown }: { markdown: string }) => {
 const ReviewStep = () => {
   const { setStep, newProposal, submitProposal } = useCreateProposal();
 
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   return (
     <div>
       <h2 className="mb-2 text-lg font-medium md:mb-4 md:text-3xl">Review</h2>
@@ -283,7 +306,10 @@ const ReviewStep = () => {
         <Button
           className="h-10 w-full md:w-auto"
           clipped="default"
-          onClick={submitProposal}
+          onClick={() => {
+            submitProposal();
+            scrollToTop();
+          }}
         >
           Create Proposal <ArrowRight />
         </Button>
@@ -291,7 +317,10 @@ const ReviewStep = () => {
           className="h-10 w-full md:w-auto"
           clipped="default"
           variant="abstain"
-          onClick={() => setStep(CreateProposalStep.execution)}
+          onClick={() => {
+            setStep(CreateProposalStep.execution);
+            scrollToTop();
+          }}
         >
           <ArrowLeft />
           Previous
