@@ -13,7 +13,7 @@ export const useLocalStorage = (storageKey: LocalStorageKeys) => {
       window.localStorage.setItem(key, "");
       window.localStorage.removeItem(key);
       return true;
-    } catch (e) {
+    } catch {
       return false;
     }
   }, []);

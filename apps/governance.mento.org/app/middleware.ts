@@ -1,7 +1,7 @@
-import { Celo } from "@/lib/config/chains";
 import { GovernorABI } from "@/lib/abi/Governor";
+import { Celo } from "@/lib/config/chains";
+import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import type { NextFetchEvent, NextRequest } from "next/server";
 import { createPublicClient, http } from "viem";
 
 export const config = {
@@ -12,7 +12,7 @@ export const IS_PROD = process.env.NEXT_PUBLIC_VERCEL_ENV === "production";
 export const IS_DEV = process.env.NEXT_PUBLIC_VERCEL_ENV === "development";
 export const IS_PREVIEW = process.env.NEXT_PUBLIC_VERCEL_ENV === "preview";
 
-export function middleware(request: NextRequest, event: NextFetchEvent) {
+export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (!IS_PROD && !IS_DEV && !IS_PREVIEW) return NextResponse.next();
 
@@ -45,12 +45,12 @@ export function middleware(request: NextRequest, event: NextFetchEvent) {
                 resolve(NextResponse.redirect(url.origin));
               }
             })
-            .catch((error) => {
+            .catch(() => {
               console.log("Proposal not found on Celo chain, redirecting");
               const url = new URL("/", request.url);
               resolve(NextResponse.redirect(url.origin));
             });
-        } catch (error) {
+        } catch {
           console.log("Proposal ID not found, redirecting");
           const url = new URL("/", request.url);
           resolve(NextResponse.redirect(url.origin));

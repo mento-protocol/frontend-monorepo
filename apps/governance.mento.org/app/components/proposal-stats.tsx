@@ -24,7 +24,7 @@ export const ProposalStats = () => {
     chainId: ensureChainId(chainId),
   });
 
-  const proposalsEndBlocks: Array<BigInt> = proposals.map(
+  const proposalsEndBlocks: Array<bigint> = proposals.map(
     (proposal) => proposal.endBlock,
   );
 

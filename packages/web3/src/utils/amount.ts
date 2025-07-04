@@ -57,8 +57,7 @@ export function toWei(
     return new BigNumber(parseUnits(valueString, decimals).toString());
   }
   if (components.length === 2) {
-    // @ts-ignore
-    const trimmedFraction = components[1].substring(0, decimals);
+    const trimmedFraction = components?.[1]?.substring(0, decimals);
     return new BigNumber(
       parseUnits(`${components[0]}.${trimmedFraction}`, decimals).toString(),
     );
@@ -124,7 +123,7 @@ export const fromFixidity = (f: BigNumber.Value) => {
 };
 
 const getDecimal = () => {
-  // @ts-ignore
+  // @ts-expect-error: toFormat is not exported from toformat
   return toFormat(Decimal);
 };
 
@@ -132,7 +131,6 @@ export const toSignificant = (
   amount: string,
   significantDigits = 6,
   format: object = { groupSeparator: "" },
-  // rounding = 0
 ): string => {
   const Decimal = getDecimal().set({
     precision: significantDigits + 1,

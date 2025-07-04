@@ -119,7 +119,7 @@ export const CreateProposalProvider = ({
     let transactions: TransactionItem[] = [];
     try {
       transactions = JSON.parse(newProposal.code);
-    } catch (e) {
+    } catch {
       /* empty */
     }
 
@@ -231,7 +231,6 @@ export const CreateProposalProvider = ({
       setCreationState("mounting");
     }
     // Only update on chainID change, eslint wants creationState involved
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chainId]);
 
   return (

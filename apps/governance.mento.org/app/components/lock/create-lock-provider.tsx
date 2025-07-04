@@ -11,7 +11,6 @@ import { useFormContext } from "react-hook-form";
 import {
   DEFAULT_LOCKING_CLIFF,
   LOCKING_AMOUNT_FORM_KEY,
-  LOCKING_DURATION_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
 } from "@/lib/constants/locking";
 import { TxDialog } from "../tx-dialog/tx-dialog";

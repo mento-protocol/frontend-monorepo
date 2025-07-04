@@ -5,10 +5,10 @@
   "type": "module",
   "scripts": {
     "build": "next build",
+    "codegen": "graphql-codegen",
     "dev": "next dev --turbopack --port 3002",
     "lint": "trunk check .",
-    "start": "next start",
-    "codegen": "graphql-codegen"
+    "start": "next start"
   },
   "dependencies": {
     "@apollo/client": "^3.11.8",

@@ -109,45 +109,43 @@ export const ProposalList = () => {
         </Link>
       </ProposalCardHeader>
       <ProposalCardBody className="flex flex-col">
-        {paginatedProposals.map(
-          ({ proposalId, metadata, state, votes }, index) => (
-            <ProposalListItem key={index}>
-              <ProposalListItemIndex
-                index={(currentPage - 1) * ITEMS_PER_PAGE + index + 1}
-              />
-              <ProposalListItemBody>
-                <ProposalStatus variant="active" />
-                <Link href={`/proposals/${proposalId}`}>
-                  <h3 className="text-xl text-white xl:text-lg">
-                    {metadata.title}
-                  </h3>
-                </Link>
-                <div className="w-full xl:max-w-[192px] xl:ml-auto">
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
-                      <span className="block h-1 w-1 bg-[var(--approved)]"></span>
-                      {NumbersService.parseNumericValue(
-                        Number(formatUnits(votes.for.total, 18)),
-                      )}
-                    </div>
-                    <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
-                      <span className="block h-1 w-1 bg-[var(--rejected)]"></span>
-                      {NumbersService.parseNumericValue(
-                        Number(formatUnits(votes.against.total, 18)),
-                      )}
-                    </div>
-                    <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
-                      <span className="block h-1 w-1 bg-[var(--abstained)]"></span>
-                      {NumbersService.parseNumericValue(
-                        Number(formatUnits(votes.abstain.total, 18)),
-                      )}
-                    </div>
+        {paginatedProposals.map(({ proposalId, metadata, votes }, index) => (
+          <ProposalListItem key={index}>
+            <ProposalListItemIndex
+              index={(currentPage - 1) * ITEMS_PER_PAGE + index + 1}
+            />
+            <ProposalListItemBody>
+              <ProposalStatus variant="active" />
+              <Link href={`/proposals/${proposalId}`}>
+                <h3 className="text-xl text-white xl:text-lg">
+                  {metadata.title}
+                </h3>
+              </Link>
+              <div className="w-full xl:ml-auto xl:max-w-[192px]">
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                    <span className="block h-1 w-1 bg-[var(--approved)]"></span>
+                    {NumbersService.parseNumericValue(
+                      Number(formatUnits(votes.for.total, 18)),
+                    )}
+                  </div>
+                  <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                    <span className="block h-1 w-1 bg-[var(--rejected)]"></span>
+                    {NumbersService.parseNumericValue(
+                      Number(formatUnits(votes.against.total, 18)),
+                    )}
+                  </div>
+                  <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
+                    <span className="block h-1 w-1 bg-[var(--abstained)]"></span>
+                    {NumbersService.parseNumericValue(
+                      Number(formatUnits(votes.abstain.total, 18)),
+                    )}
                   </div>
                 </div>
-              </ProposalListItemBody>
-            </ProposalListItem>
-          ),
-        )}
+              </div>
+            </ProposalListItemBody>
+          </ProposalListItem>
+        ))}
         {totalPages > 1 && (
           <Pagination className="mt-4">
             <PaginationContent>

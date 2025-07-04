@@ -4,7 +4,7 @@
 
 Apollo Type policies are a way to extend GraphQL schemas with client side only values that can originate either from the server data model itself by reinterpreting it, or can be locally stored.
 
-### Adding a new field.
+### Adding a new field
 
 1. In an existing query for a datatype add a field with the `@client` directive.
    Example:
