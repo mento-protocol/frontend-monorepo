@@ -24,7 +24,7 @@ function ProposalCard({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="proposal-card"
       className={cn(
-        "bg-card flex w-full flex-col items-start justify-start",
+        "bg-[var(--another-card-color)]! flex w-full flex-col items-start justify-start",
         className,
       )}
       {...props}
