@@ -1,3 +1,5 @@
+"use client";
+import { VoteCard } from "@/components/voting/vote-card";
 import { CELO_BLOCK_TIME } from "@/lib/config/config.constants";
 import useProposal from "@/lib/contracts/governor/useProposal";
 import { ProposalState } from "@/lib/graphql";
@@ -10,21 +12,19 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
   Button,
-  ProposalStatus
+  ProposalStatus,
 } from "@repo/ui";
 import { format } from "date-fns";
 import { Copy } from "lucide-react";
+import { useParams } from "next/navigation";
 import { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import gfm from "remark-gfm";
 import { useAccount, useBlock, useBlockNumber } from "wagmi";
-"use client";
 
-export default function ProposalPage({
-  params: { id },
-}: {
-  params: { id: string };
-}) {
+export default function ProposalPage() {
+  const params = useParams();
+  const id = params.id as string;
   const { proposal } = useProposal(BigInt(id));
   const { chainId } = useAccount();
 
@@ -115,18 +115,18 @@ export default function ProposalPage({
 
   return (
     <main className="md:px-22 relative w-full px-4 py-8 md:py-16">
-       <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbLink href="/">Home</BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>1</BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
-      <div className="flex flex-col gap-6">
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/">Home</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>1</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+      <div className="mb-16 flex flex-col gap-6">
         <ProposalStatus variant={getStatusVariant(proposal.state)} />
         <h1 className="max-w-[26ch] text-3xl font-medium md:text-6xl">
           {proposal.metadata?.title}
@@ -162,8 +162,8 @@ export default function ProposalPage({
           </div>
         </div>
       </div>
-      <div className="mb-8 md:mb-16"></div>
-      <div className="prose prose-invert">
+      <VoteCard proposal={proposal} votingDeadline={votingDeadline} />
+      <div className="prose prose-invert mt-16">
         <ReactMarkdown remarkPlugins={[gfm]}>
           {proposal.metadata?.description || ""}
         </ReactMarkdown>
