@@ -1,6 +1,6 @@
 "use client";
 
-import { useAccountBalances } from "@/features/accounts/use-account-balances";
+import { useAccountBalances } from "@repo/web3";
 import {
   cn,
   Dialog,
@@ -21,12 +21,11 @@ import { ChevronLeft, ChevronsRight, Search } from "lucide-react";
 import { Fragment, useState } from "react";
 import { useAccount, useChainId } from "wagmi";
 
-import { useTokenOptions } from "@/features/swap/hooks/use-token-options";
-import { useTradablePairs } from "@/features/swap/hooks/use-tradable-pairs";
-import type { TokenId } from "@/features/swap/types";
-import { fromWeiRounded } from "@/lib/utils/amount";
+import { useTokenOptions, useTradablePairs } from "@repo/web3";
+import type { TokenId } from "@repo/web3";
+import { fromWeiRounded } from "@repo/web3";
 import { Input } from "@repo/ui";
-import { formatWithMaxDecimals } from "@/features/swap/utils";
+import { formatWithMaxDecimals } from "@repo/web3";
 
 interface TokenDialogProps {
   value: string;

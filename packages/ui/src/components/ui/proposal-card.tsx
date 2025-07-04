@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils.js";
 import { cva, type VariantProps } from "class-variance-authority";
 
 const proposalCardHeaderVariants = cva(
-  "flex w-full flex-col items-center justify-between px-6 py-5 lg:flex-row",
+  "flex flex-col gap-5 w-full p-4 xl:py-5 xl:px-6 xl:flex-row! xl:items-center xl:justify-between xl:px-6! xl:py-[30px]!",
   {
     variants: {
       variant: {
@@ -24,7 +24,7 @@ function ProposalCard({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="proposal-card"
       className={cn(
-        "bg-card flex w-full flex-col items-start justify-start",
+        "bg-[var(--another-card-color)]! flex w-full flex-col items-start justify-start",
         className,
       )}
       {...props}

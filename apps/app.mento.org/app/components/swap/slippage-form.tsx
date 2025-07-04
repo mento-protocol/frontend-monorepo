@@ -1,5 +1,5 @@
 "use client";
-import { formValuesAtom } from "@/features/swap/swap-atoms";
+import { formValuesAtom } from "@repo/web3";
 import { Button, cn, Input } from "@repo/ui";
 import { useAtom } from "jotai";
 import { useState, useEffect } from "react";

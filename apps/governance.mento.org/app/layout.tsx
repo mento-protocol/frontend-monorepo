@@ -1,5 +1,6 @@
 import "@repo/ui/globals.css";
 import "./globals.css";
+import "@rainbow-me/rainbowkit/styles.css";
 
 import { Analytics } from "@vercel/analytics/react";
 import type { Metadata } from "next";

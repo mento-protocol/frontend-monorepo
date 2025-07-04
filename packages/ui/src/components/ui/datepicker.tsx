@@ -11,8 +11,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { PropsBase } from "react-day-picker";
 
-interface DatepickerProps {
+interface DatepickerProps extends PropsBase {
   value: Date | undefined;
   onChange: (date: Date | undefined) => void;
   label: string;
@@ -24,12 +25,15 @@ export function Datepicker({
   onChange,
   label,
   formatter,
+  disabled,
+  startMonth,
+  endMonth,
 }: DatepickerProps) {
   const [open, setOpen] = React.useState(false);
   const [date, setDate] = React.useState<Date | undefined>(value);
 
   return (
-    <div className="flex flex-row items-center gap-3 md:flex-col md:items-start">
+    <div className="flex flex-row items-center gap-3 md:flex-col md:items-end">
       <Label htmlFor="date" className="text-muted-foreground shrink-0 px-1">
         {label}
       </Label>
@@ -54,6 +58,9 @@ export function Datepicker({
               onChange(date);
               setOpen(false);
             }}
+            disabled={disabled}
+            startMonth={startMonth}
+            endMonth={endMonth}
           />
         </PopoverContent>
       </Popover>
