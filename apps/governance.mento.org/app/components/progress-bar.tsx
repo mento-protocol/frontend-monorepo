@@ -38,12 +38,14 @@ const ProgressSegment = ({
 };
 
 interface VoteData {
+  mode: "vote";
   approve: { value: string; percentage: number };
   reject: { value: string; percentage: number };
   abstain?: { value: string; percentage: number };
 }
 
 interface TimeData {
+  mode: "time";
   labels: {
     start: string;
     middle: string;
@@ -60,11 +62,7 @@ interface ProgressBarProps {
   className?: string;
 }
 
-export const ProgressBar = ({
-  mode = "vote",
-  data,
-  className,
-}: ProgressBarProps) => {
+export const ProgressBar = ({ mode, data, className }: ProgressBarProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [segmentCount, setSegmentCount] = useState(50);
 
@@ -83,7 +81,7 @@ export const ProgressBar = ({
       const maxSegments = Math.floor(
         (containerWidth + gapSize) / totalSizePerSegment,
       );
-      const clampedSegments = Math.max(20, Math.min(80, maxSegments));
+      const clampedSegments = Math.max(20, Math.min(120, maxSegments));
 
       setSegmentCount(clampedSegments);
     };
@@ -100,13 +98,14 @@ export const ProgressBar = ({
     };
   }, [mode]);
 
-  if (mode === "vote") {
+  if (mode === "vote" && "approve" in data && "reject" in data) {
     // Calculate segments for each section with dynamic segment count
+    const voteData = data as VoteData;
     const approveSegments = Math.round(
-      (data.approve.percentage / 100) * segmentCount,
+      (voteData.approve.percentage / 100) * segmentCount,
     );
-    const abstainSegments = data.abstain
-      ? Math.round((data.abstain.percentage / 100) * segmentCount)
+    const abstainSegments = voteData.abstain
+      ? Math.round((voteData.abstain.percentage / 100) * segmentCount)
       : 0;
     const rejectSegments = segmentCount - approveSegments - abstainSegments;
 
@@ -127,27 +126,33 @@ export const ProgressBar = ({
         <div className="flex justify-between text-sm">
           <div className="flex items-center gap-2">
             <span className="text-success">Approve:</span>
-            <span className="text-success">{data.approve.value}</span>
-            <span className="text-success/80">{data.approve.percentage}%</span>
+            <span className="text-success">
+              {(data as VoteData).approve.value}
+            </span>
+            <span className="text-muted-foreground">
+              {(data as VoteData).approve.percentage}%
+            </span>
           </div>
 
-          {data.abstain && (
+          {(data as VoteData).abstain && (
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground">Abstain:</span>
               <span className="text-muted-foreground">
-                {data.abstain.value}
+                {(data as VoteData).abstain?.value}
               </span>
-              <span className="text-muted-foreground/80">
-                {data.abstain.percentage}%
+              <span className="text-muted-foreground">
+                {(data as VoteData).abstain?.percentage}%
               </span>
             </div>
           )}
 
           <div className="flex items-center gap-2">
             <span className="text-destructive">Reject:</span>
-            <span className="text-destructive">{data.reject.value}</span>
-            <span className="text-destructive/80">
-              {data.reject.percentage}%
+            <span className="text-destructive">
+              {(data as VoteData).reject.value}
+            </span>
+            <span className="text-muted-foreground">
+              {(data as VoteData).reject.percentage}%
             </span>
           </div>
         </div>
@@ -164,9 +169,11 @@ export const ProgressBar = ({
     );
   }
 
-  if (mode === "time") {
+  if (mode === "time" && "currentValue" in data && "maxValue" in data) {
     // Calculate filled segments based on current value and max value
-    const progressPercentage = (data.currentValue / data.maxValue) * 100;
+    const timeData = data as TimeData;
+    const progressPercentage =
+      (timeData.currentValue / timeData.maxValue) * 100;
     const filledSegments = Math.floor(
       (progressPercentage / 100) * segmentCount,
     );
@@ -176,9 +183,15 @@ export const ProgressBar = ({
     return (
       <div className={cn("space-y-4", className)}>
         <div className="flex justify-between text-sm">
-          <span className="text-muted-foreground">{data.labels.start}</span>
-          <span className="text-foreground">{data.labels.middle}</span>
-          <span className="text-muted-foreground">{data.labels.end}</span>
+          <span className="text-muted-foreground">
+            {(data as TimeData).labels.start}
+          </span>
+          <span className="text-foreground">
+            {(data as TimeData).labels.middle}
+          </span>
+          <span className="text-muted-foreground">
+            {(data as TimeData).labels.end}
+          </span>
         </div>
 
         <div
@@ -197,8 +210,10 @@ export const ProgressBar = ({
           ))}
         </div>
 
-        {data.valueLabel && (
-          <div className="text-center font-medium">{data.valueLabel}</div>
+        {(data as TimeData).valueLabel && (
+          <div className="text-center font-medium">
+            {(data as TimeData).valueLabel}
+          </div>
         )}
       </div>
     );
@@ -206,71 +221,3 @@ export const ProgressBar = ({
 
   return null;
 };
-
-// Example usage showing responsive behavior
-export default function ProgressBarDemo() {
-  const voteData1 = {
-    approve: { value: "920K", percentage: 76.7 },
-    reject: { value: "280K", percentage: 23.3 },
-  };
-
-  const voteData2 = {
-    approve: { value: "70K", percentage: 16.7 },
-    abstain: { value: "620K", percentage: 76.7 },
-    reject: { value: "80K", percentage: 6.6 },
-  };
-
-  const timeData = {
-    labels: {
-      start: "1 week",
-      middle: "13 months",
-      end: "2 years",
-    },
-    currentValue: 13,
-    maxValue: 24,
-    valueLabel: "100,000 veMENTO",
-  };
-
-  return (
-    <div className="bg-background min-h-screen space-y-12 p-8">
-      <div className="space-y-8">
-        {/* Full width */}
-        <div className="bg-card rounded-lg p-6">
-          <h3 className="text-foreground mb-4">Full Width Container</h3>
-          <ProgressBar mode="vote" data={voteData1} />
-        </div>
-
-        {/* Different container sizes to show responsiveness */}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <div className="bg-card rounded-lg p-6">
-            <h3 className="text-foreground mb-4">Medium Container</h3>
-            <ProgressBar mode="vote" data={voteData2} />
-          </div>
-
-          <div className="bg-card rounded-lg p-6">
-            <h3 className="text-foreground mb-4">Time Mode</h3>
-            <ProgressBar mode="time" data={timeData} />
-          </div>
-        </div>
-
-        {/* Small container */}
-        <div className="mx-auto max-w-sm">
-          <div className="bg-card rounded-lg p-6">
-            <h3 className="text-foreground mb-4">Small Container</h3>
-            <ProgressBar mode="vote" data={voteData1} />
-          </div>
-        </div>
-
-        {/* Info */}
-        <div className="bg-muted rounded-lg p-6 text-center">
-          <p className="text-muted-foreground">
-            The progress bar automatically adjusts the number of segments based
-            on container width.
-            <br />
-            Try resizing your browser window to see it in action!
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}

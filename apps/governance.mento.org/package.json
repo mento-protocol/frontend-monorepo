@@ -28,6 +28,7 @@
     "postcss": "^8.5.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-hook-form": "^7.59.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "spacetime": "^7.10.0",
