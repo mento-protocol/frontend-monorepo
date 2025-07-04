@@ -10,7 +10,7 @@ export const VotingPowerCard = () => {
   const { veMentoBalance, mentoBalance } = useTokens();
 
   return (
-    <div className="bg-card md:max-w-xs">
+    <div className="bg-card w-full">
       <h3 className="bg-incard flex items-center gap-2 px-6 py-5 text-2xl">
         <Zap /> Voting Power
       </h3>
