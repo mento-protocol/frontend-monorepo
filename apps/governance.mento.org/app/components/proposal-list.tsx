@@ -100,7 +100,7 @@ export const ProposalList = () => {
 
   return (
     <ProposalCard>
-      <ProposalCardHeader variant="highlighted">
+      <ProposalCardHeader>
         <h2 className="text-2xl font-semibold">Proposals</h2>
         <Link href="/create-proposal">
           <Button clipped="lg" size="md">
@@ -118,11 +118,11 @@ export const ProposalList = () => {
               <ProposalListItemBody>
                 <ProposalStatus variant="active" />
                 <Link href={`/proposals/${proposalId}`}>
-                  <h3 className="max-w-1/2 text-xl text-white xl:text-lg">
+                  <h3 className="text-xl text-white xl:text-lg">
                     {metadata.title}
                   </h3>
                 </Link>
-                <div className="w-full xl:max-w-[192px]">
+                <div className="w-full xl:max-w-[192px] xl:ml-auto">
                   <div className="grid grid-cols-3 gap-2">
                     <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-base leading-5 xl:text-sm">
                       <span className="block h-1 w-1 bg-[var(--approved)]"></span>
