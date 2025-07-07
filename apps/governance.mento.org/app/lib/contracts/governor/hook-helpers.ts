@@ -12,6 +12,6 @@ export const STATE_FROM_NUMBER: Record<StateNumber, ProposalState> = {
   7: ProposalState.Executed,
 };
 
-export const isStateNumber = (value: any): value is StateNumber => {
-  return value && typeof value === "number" && value >= 0 && value <= 7;
+export const isStateNumber = (value: unknown): value is StateNumber => {
+  return typeof value === "number" && value >= 0 && value <= 7;
 };
