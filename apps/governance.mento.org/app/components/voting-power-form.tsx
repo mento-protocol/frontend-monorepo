@@ -181,7 +181,7 @@ export default function VotingPowerForm() {
                   valueLabel: `${formattedVeMentoReceived} veMENTO`,
                 }}
               />
-              <div className="my-8 flex justify-between text-sm">
+              <div className="mb-2 mt-8 flex justify-between text-sm">
                 <span className="text-muted-foreground">
                   You receive veMENTO
                 </span>
@@ -219,14 +219,6 @@ export default function VotingPowerForm() {
               <CardFooter className="mt-auto flex flex-col gap-4">
                 <WithdrawButton />
               </CardFooter>
-            </Card>
-          )}
-
-          {!hasLock && !isLoading && (
-            <Card className="border-border flex w-full items-center justify-center md:h-[480px] md:min-w-[494px]">
-              <div className="text-muted-foreground text-center">
-                You have no existing locks
-              </div>
             </Card>
           )}
         </div>
