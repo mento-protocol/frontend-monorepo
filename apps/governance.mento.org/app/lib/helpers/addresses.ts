@@ -5,7 +5,7 @@ export function isValidAddress(address: string) {
   try {
     const isValid = address && isAddress(address);
     return !!isValid;
-  } catch (error) {
+  } catch {
     return false;
   }
 }

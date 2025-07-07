@@ -33,7 +33,7 @@ import { formatUnits } from "viem";
 import { useAccount, useBlock, useBlockNumber } from "wagmi";
 
 type ParticipantListProps = {
-  participants: Array<{ address: string; weight: any }>;
+  participants: Array<{ address: string; weight: bigint }>;
 };
 
 function ParticipantList({ participants }: ParticipantListProps) {

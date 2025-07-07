@@ -1,7 +1,7 @@
 "use client";
 
 import { isValidAddress, normalizeAddress } from "@/lib/helpers/addresses";
-// @ts-expect-error
+// @ts-expect-error: jazzicon is not typed
 import jazzicon from "@metamask/jazzicon";
 import { type CSSProperties, PureComponent } from "react";
 
