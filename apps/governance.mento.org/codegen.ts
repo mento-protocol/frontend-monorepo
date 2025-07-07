@@ -9,10 +9,10 @@ const config: CodegenConfig = {
   generates: {
     // NOTE: In case we need to use different subgraph URLs for different environments
     // we'll need to add another element to the object below, i.e. "./app/graphql/subgraph-alfajores/generated"
-    "./src/lib/graphql/subgraph/generated/subgraph.tsx": {
+    "./app/lib/graphql/subgraph/generated/subgraph.tsx": {
       overwrite: true,
       schema: [SUBGRAPH_URL ?? "", "./schema.client.graphql"],
-      documents: ["src/lib/graphql/subgraph/**/*.graphql"],
+      documents: ["app/lib/graphql/subgraph/**/*.graphql"],
       presetConfig: {
         gqlTagName: "gql",
       },
@@ -34,10 +34,10 @@ const config: CodegenConfig = {
         avoidOptionals: true,
       },
     },
-    "./src/lib/graphql/celo-explorer/generated/celoGraph.tsx": {
+    "./app/lib/graphql/celo-explorer/generated/celoGraph.tsx": {
       overwrite: true,
       schema: CELO_EXPLORER_API_URL,
-      documents: ["src/lib/graphql/celo-explorer/**/*.graphql"],
+      documents: ["app/lib/graphql/celo-explorer/**/*.graphql"],
       plugins: [
         "typescript",
         "typescript-operations",
