@@ -4,9 +4,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { createPublicClient, http } from "viem";
 
-export const config = {
-  matcher: ["/proposals/:id*"],
-};
+export const matcher = ["/proposals/:id*"];
 
 export const IS_PROD = process.env.NEXT_PUBLIC_VERCEL_ENV === "production";
 export const IS_DEV = process.env.NEXT_PUBLIC_VERCEL_ENV === "development";
