@@ -59,7 +59,7 @@ export { default as IconTimer } from "./components/icons/timer";
 export { default as IconX } from "./components/icons/x";
 export type {
   ChartSegment,
-  ReserveChartProps
+  ReserveChartProps,
 } from "./components/ui/reserve-chart";
 
 export * as links from "./lib/links";
