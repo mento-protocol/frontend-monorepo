@@ -21,7 +21,7 @@ function ProposalListItem({ className, ...props }: React.ComponentProps<"li">) {
     <li
       data-slot="proposal-list-item"
       className={cn(
-        "flex w-full flex-row items-center justify-start border-b",
+        "flex w-full flex-row items-center justify-start border-b border-[var(--border-tertiary)] first:border-t",
         className,
       )}
       {...props}
@@ -60,7 +60,7 @@ function ProposalListItemBody({
     <div
       data-slot="proposal-list-item-body"
       className={cn(
-        "flex flex-col items-start justify-start gap-2 p-3 xl:flex-row xl:items-center xl:gap-8 xl:p-8",
+        "flex flex-col items-start justify-start gap-2 p-3 xl:flex xl:w-full xl:!flex-row xl:items-center xl:!gap-8 xl:p-8",
         className,
       )}
     >
