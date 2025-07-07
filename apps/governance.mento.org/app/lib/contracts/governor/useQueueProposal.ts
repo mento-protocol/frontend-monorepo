@@ -38,7 +38,7 @@ const useQueueProposal = () => {
             queryClient.invalidateQueries({
               queryKey: [ProposalQueryKey],
             });
-            onSuccess && onSuccess();
+            onSuccess?.();
           },
           onError,
         },

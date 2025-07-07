@@ -10,7 +10,7 @@ import {
   useGetProposalsQuery,
 } from "@/lib/graphql/subgraph/generated/subgraph";
 import { useEnsureChainId } from "@/lib/hooks/use-ensure-chain-id";
-import { NetworkStatus } from "@apollo/client";
+
 import { useCallback, useMemo } from "react";
 import { useReadContracts } from "wagmi";
 

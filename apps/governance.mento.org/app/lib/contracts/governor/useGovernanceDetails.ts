@@ -22,7 +22,7 @@ function convertSecondsToMinutes(
 }
 
 function formatParam(
-  result: any,
+  result: string | number | bigint,
   formatter: (value: string | number | bigint) => string,
 ) {
   return formatter(result);

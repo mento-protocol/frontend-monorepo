@@ -23,7 +23,7 @@ export type TransactionItem = {
 };
 
 export const isTransactionItem = (
-  toBeDetermined: any,
+  toBeDetermined: unknown,
 ): toBeDetermined is TransactionItem => {
   return (
     typeof toBeDetermined === "object" &&
