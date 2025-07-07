@@ -5,8 +5,10 @@ import { Button } from "@repo/ui";
 import { ChevronsRight, Zap } from "lucide-react";
 import Link from "next/link";
 import { formatUnits } from "viem";
+import { useAccount } from "wagmi";
 
 export const VotingPowerCard = () => {
+  const { isConnected } = useAccount();
   const { veMentoBalance, mentoBalance } = useTokens();
 
   return (
@@ -39,12 +41,14 @@ export const VotingPowerCard = () => {
         </div>
       </div>
       <div className="p-6">
-        <Link href="/voting-power">
-          <Button className="h-10 w-full" clipped="sm">
-            Manage
-            <ChevronsRight size={20} />
-          </Button>
-        </Link>
+        {isConnected && (
+          <Link href="/voting-power">
+            <Button className="h-10 w-full" clipped="sm">
+              Manage
+              <ChevronsRight size={20} />
+            </Button>
+          </Link>
+        )}
       </div>
     </div>
   );

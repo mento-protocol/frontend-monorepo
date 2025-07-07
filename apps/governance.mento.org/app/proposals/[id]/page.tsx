@@ -1,4 +1,5 @@
 "use client";
+import { Identicon } from "@/components/identicon";
 import { VoteCard } from "@/components/voting/vote-card";
 import { CELO_BLOCK_TIME } from "@/lib/config/config.constants";
 import useProposal from "@/lib/contracts/governor/useProposal";
@@ -12,15 +13,135 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
   Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
   ProposalStatus,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
 } from "@repo/ui";
 import { format } from "date-fns";
 import { Copy } from "lucide-react";
 import { useParams } from "next/navigation";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import gfm from "remark-gfm";
+import { formatUnits } from "viem";
 import { useAccount, useBlock, useBlockNumber } from "wagmi";
+
+type ParticipantListProps = {
+  participants: Array<{ address: string; weight: any }>;
+};
+
+function ParticipantList({ participants }: ParticipantListProps) {
+  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
+
+  const handleCopyAddress = (address: string) => {
+    navigator.clipboard.writeText(address);
+    setCopiedAddress(address);
+
+    setTimeout(() => {
+      setCopiedAddress(null);
+    }, 2000);
+  };
+
+  const totalWeight = useMemo(() => {
+    if (participants.length === 0) return BigInt(0);
+    return participants.reduce(
+      (sum, participant) => sum + BigInt(participant.weight),
+      BigInt(0),
+    );
+  }, [participants]);
+
+  const formattedWeight = useMemo(() => {
+    if (totalWeight === BigInt(0)) return "0";
+    const weight = Number(formatUnits(totalWeight, 18));
+
+    let formatted;
+    if (weight >= 1_000_000) {
+      formatted = `${(weight / 1_000_000).toFixed(2)}M`;
+    } else if (weight >= 1_000) {
+      formatted = `${(weight / 1_000).toFixed(2)}K`;
+    } else {
+      formatted = weight.toFixed(2);
+    }
+
+    return formatted;
+  }, [totalWeight]);
+
+  return (
+    <div className="flex flex-col">
+      <div className="mb-2 flex items-center justify-between py-3">
+        <div className="flex items-center gap-2">
+          <span className="text-sm">{formattedWeight} Votes</span>
+        </div>
+        <span className="text-muted-foreground text-sm">
+          {participants.length} addresses
+        </span>
+      </div>
+      {participants.length > 0 ? (
+        [...participants]
+          .sort((a, b) => Number(BigInt(b.weight) - BigInt(a.weight)))
+          .map((participant) => (
+            <div
+              key={participant.address}
+              className="group flex items-center justify-between border-b border-[var(--border)] py-4 last:border-0"
+            >
+              <div className="flex items-center gap-2">
+                <Identicon address={participant.address} size={16} />
+                <Button
+                  className="h-auto !bg-transparent p-0"
+                  onClick={() => handleCopyAddress(participant.address)}
+                >
+                  <span className="flex items-center gap-1">
+                    {`${participant.address.slice(0, 6)}...${participant.address.slice(-4)}`}
+                    {copiedAddress === participant.address ? (
+                      <div className="h-3 w-3 text-green-500">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                      </div>
+                    ) : (
+                      <Copy className="text-muted-foreground h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
+                    )}
+                  </span>
+                </Button>
+              </div>
+              <span>
+                {(() => {
+                  const weight = Number(
+                    formatUnits(BigInt(participant.weight), 18),
+                  );
+                  if (weight >= 1_000_000) {
+                    return `${(weight / 1_000_000).toFixed(2)}M`;
+                  } else if (weight >= 1_000) {
+                    return `${(weight / 1_000).toFixed(2)}K`;
+                  } else {
+                    return weight.toFixed(2);
+                  }
+                })()}
+              </span>
+            </div>
+          ))
+      ) : (
+        <p className="py-4 text-center text-sm text-[var(--muted-foreground)]">
+          No votes yet
+        </p>
+      )}
+    </div>
+  );
+}
 
 export default function ProposalPage() {
   const params = useParams();
@@ -43,7 +164,6 @@ export default function ProposalPage() {
     },
   });
 
-  // There should really ever be 1 ProposalCreated event per proposal so we just take the first one
   const proposedOn = useMemo(() => {
     return proposal && new Date(proposal.proposalCreated[0].timestamp * 1000);
   }, [proposal]);
@@ -105,14 +225,14 @@ export default function ProposalPage() {
 
   return (
     <main className="md:px-22 relative w-full px-4 py-8 md:py-16">
-      <Breadcrumb>
+      <Breadcrumb className="mb-6">
         <BreadcrumbList>
           <BreadcrumbItem>
             <BreadcrumbLink href="/">Home</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>1</BreadcrumbPage>
+            <BreadcrumbPage>{proposal.metadata?.title}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -123,7 +243,7 @@ export default function ProposalPage() {
         </h1>
         <div className="flex flex-wrap items-center gap-2 md:gap-8">
           <div className="flex items-center gap-2">
-            <span className="bg-primary h-4 w-4 rounded-full" />
+            <Identicon address={proposal.proposer.id} size={16} />
             <span className="text-muted-foreground text-sm">
               by {formatAddress(proposal.proposer.id)}
             </span>
@@ -152,7 +272,54 @@ export default function ProposalPage() {
           </div>
         </div>
       </div>
-      <VoteCard proposal={proposal} votingDeadline={votingDeadline} />
+      <div className="flex flex-col gap-6 md:flex-row">
+        <VoteCard proposal={proposal} votingDeadline={votingDeadline} />
+        <Card className="max-h-[420px] w-full gap-3 overflow-hidden md:w-1/3 md:max-w-md">
+          <CardHeader>
+            <CardTitle className="text-2xl">Participants</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Tabs defaultValue="for" className="max-h-[330px] overflow-auto">
+              <TabsList>
+                <TabsTrigger value="for">Approve</TabsTrigger>
+                <TabsTrigger value="against">Reject</TabsTrigger>
+                <TabsTrigger value="abstain">Abstain</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="for" className="max-h-[330px] overflow-auto">
+                <ParticipantList
+                  participants={proposal.votes.for.participants}
+                  totalVotes={proposal.votes.total}
+                  voteType="Approve"
+                />
+              </TabsContent>
+
+              <TabsContent
+                value="against"
+                className="max-h-[330px] overflow-auto"
+              >
+                <ParticipantList
+                  participants={proposal.votes.against.participants}
+                  totalVotes={proposal.votes.total}
+                  voteType="Reject"
+                />
+              </TabsContent>
+
+              <TabsContent
+                value="abstain"
+                className="max-h-[330px] overflow-auto"
+              >
+                <ParticipantList
+                  participants={proposal.votes.abstain.participants}
+                  totalVotes={proposal.votes.total}
+                  voteType="Abstain"
+                />
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="prose prose-invert mt-16">
         <ReactMarkdown remarkPlugins={[gfm]}>
           {proposal.metadata?.description || ""}

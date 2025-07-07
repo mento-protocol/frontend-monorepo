@@ -15,6 +15,7 @@
     "@apollo/experimental-nextjs-app-support": "^0.8.0",
     "@celo/contractkit": "^9.2.1",
     "@mento-protocol/mento-sdk": "^1.10.1",
+    "@metamask/jazzicon": "^2.0.0",
     "@rainbow-me/rainbowkit": "^2.1.6",
     "@repo/ui": "workspace:*",
     "@sentry/nextjs": "^9.18.0",

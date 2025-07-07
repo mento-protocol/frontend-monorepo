@@ -1,5 +1,11 @@
 "use client";
 import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
   Button,
   Card,
   CardContent,
@@ -355,11 +361,121 @@ function CreateProposalSteps() {
   );
 }
 
+function ProposalBreadcrumb() {
+  const { step } = useCreateProposal();
+  const { isConnected } = useAccount();
+
+  return (
+    <div className="flex w-full items-center justify-between">
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            {isConnected && step === CreateProposalStep.content ? (
+              <BreadcrumbPage>Proposal Details</BreadcrumbPage>
+            ) : (
+              <BreadcrumbLink
+                onClick={() =>
+                  useCreateProposal().setStep(CreateProposalStep.content)
+                }
+                className={cn(
+                  "cursor-pointer",
+                  !isConnected && "pointer-events-none opacity-75",
+                )}
+              >
+                Proposal Details
+              </BreadcrumbLink>
+            )}
+          </BreadcrumbItem>
+
+          <BreadcrumbSeparator />
+
+          <BreadcrumbItem>
+            {step === CreateProposalStep.execution ? (
+              <BreadcrumbPage>Execution Code</BreadcrumbPage>
+            ) : (
+              <BreadcrumbLink
+                onClick={() =>
+                  useCreateProposal().setStep(CreateProposalStep.execution)
+                }
+                className={cn(
+                  "cursor-pointer",
+                  step < CreateProposalStep.execution &&
+                    "pointer-events-none opacity-75",
+                )}
+              >
+                Execution Code
+              </BreadcrumbLink>
+            )}
+          </BreadcrumbItem>
+
+          <BreadcrumbSeparator />
+
+          <BreadcrumbItem>
+            {step === CreateProposalStep.preview ? (
+              <BreadcrumbPage>Review</BreadcrumbPage>
+            ) : (
+              <BreadcrumbLink
+                onClick={() =>
+                  useCreateProposal().setStep(CreateProposalStep.preview)
+                }
+                className={cn(
+                  "cursor-pointer",
+                  step < CreateProposalStep.preview &&
+                    "pointer-events-none opacity-75",
+                )}
+              >
+                Review
+              </BreadcrumbLink>
+            )}
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+      <div className="text-muted-foreground flex items-center gap-4 text-sm">
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              "bg-muted-foreground/50 block h-1 w-1",
+              isConnected &&
+                step === CreateProposalStep.content &&
+                "bg-primary",
+            )}
+          />
+          <span
+            className={cn(
+              "bg-muted-foreground/50 block h-1 w-1",
+              step === CreateProposalStep.execution && "bg-primary",
+            )}
+          />
+          <span
+            className={cn(
+              "bg-muted-foreground/50 block h-1 w-1",
+              step === CreateProposalStep.preview && "bg-primary",
+            )}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <span>Step</span>
+          <span
+            className={cn(
+              "text-foreground",
+              !isConnected && "text-muted-foreground",
+            )}
+          >
+            {step}/3
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CreateProposalForm() {
   return (
     <CreateProposalProvider>
       <Card className="border-border pt-0">
-        <CardHeader className="bg-card-header h-16"></CardHeader>
+        <CardHeader className="bg-card-header flex h-16 items-center">
+          <ProposalBreadcrumb />
+        </CardHeader>
         <CardContent>
           <CreateProposalSteps />
         </CardContent>
