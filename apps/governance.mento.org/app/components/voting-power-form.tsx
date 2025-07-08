@@ -30,7 +30,6 @@ import { WithdrawButton } from "./withdraw-button";
 export default function VotingPowerForm() {
   const { address } = useAccount();
   const { lock, unlockedMento, hasLock, isLoading } = useLockInfo(address);
-
   const { veMentoBalance, mentoBalance } = useTokens();
 
   const tomorrow = useMemo(() => spacetime.tomorrow().toNativeDate(), []);
@@ -171,9 +170,10 @@ export default function VotingPowerForm() {
               <ProgressBar
                 mode="time"
                 data={{
+                  mode: "time",
                   labels: {
                     start: "1 week",
-                    middle: "13 months",
+                    middle: "12 months",
                     end: "2 years",
                   },
                   currentValue: lockDurationInMonths,

@@ -190,28 +190,60 @@ export default function ProposalPage() {
     );
   }
 
-  // Get the variant for ProposalStatus based on the state
-  const getStatusVariant = (state: ProposalState) => {
-    switch (state) {
-      case ProposalState.Active:
-        return "active";
-      case ProposalState.Succeeded:
-        return "succeeded";
-      case ProposalState.Executed:
-        return "executed";
-      case ProposalState.Defeated:
-        return "defeated";
-      case ProposalState.Pending:
-        return "pending";
-      case ProposalState.Queued:
-        return "queued";
-      case ProposalState.Expired:
-        return "expired";
-      case ProposalState.Canceled:
-        return "canceled";
-      default:
-        return "active";
+  // Derive the actual proposal state from proposal fields instead of relying on proposal.state
+  const getDerivedProposalState = ():
+    | "pending"
+    | "executed"
+    | "active"
+    | "queued"
+    | "defeated"
+    | "default" => {
+    if (!proposal || !currentBlock) return "active";
+
+    // Check explicit boolean states first
+    if (proposal.canceled) return "defeated"; // Canceled proposals are shown as defeated
+    if (proposal.executed) return "executed";
+    if (proposal.queued) return "queued";
+
+    const currentBlockNum = Number(currentBlock);
+    const endBlockNum = Number(proposal.endBlock);
+    const startBlockNum = Number(proposal.startBlock);
+
+    // Check if voting period hasn't started yet
+    if (currentBlockNum < startBlockNum) {
+      return "pending";
     }
+
+    // Check if voting period is active
+    if (currentBlockNum >= startBlockNum && currentBlockNum <= endBlockNum) {
+      return "active";
+    }
+
+    // Voting period has ended, check if proposal succeeded or was defeated
+    if (currentBlockNum > endBlockNum) {
+      // If queued but not executed and past execution deadline, it's expired (show as default)
+      if (proposal.queued && proposal.eta) {
+        const executionDeadline = Number(proposal.eta) + 7 * 24 * 60 * 60; // 7 days in seconds
+        const currentTimestamp = Math.floor(Date.now() / 1000);
+        if (currentTimestamp > executionDeadline) {
+          return "default"; // "default" variant shows as "Expired"
+        }
+      }
+
+      // Check vote results to determine if succeeded or defeated
+      const totalVotes = Number(proposal.votes.total);
+      const forVotes = Number(proposal.votes.for.total);
+      const againstVotes = Number(proposal.votes.against.total);
+
+      // Simple majority check (this might need adjustment based on actual governance rules)
+      if (totalVotes > 0 && forVotes > againstVotes) {
+        return "queued"; // Succeeded proposals that aren't queued yet show as queued
+      } else {
+        return "defeated";
+      }
+    }
+
+    return "active";
   };
 
   // Format the proposer address for display
@@ -237,7 +269,7 @@ export default function ProposalPage() {
         </BreadcrumbList>
       </Breadcrumb>
       <div className="mb-16 flex flex-col gap-6">
-        <ProposalStatus variant={getStatusVariant(proposal.state)} />
+        <ProposalStatus variant={getDerivedProposalState()} />
         <h1 className="max-w-[26ch] text-3xl font-medium md:text-6xl">
           {proposal.metadata?.title}
         </h1>

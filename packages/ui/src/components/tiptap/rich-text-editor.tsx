@@ -1,5 +1,6 @@
 "use client";
 import "./tiptap.css";
+import * as React from "react";
 import { cn } from "../../lib/utils.js";
 import { ImageExtension } from "./extensions/image.js";
 import { ImagePlaceholder } from "./extensions/image-placeholder.js";
@@ -99,8 +100,16 @@ export function RichTextEditor({
         }
       },
     },
-    [value],
+    [], // Remove value from dependency array to prevent editor recreation
   );
+
+  // Update editor content when value prop changes externally
+  // but only if it's different from current content to avoid infinite loops
+  React.useEffect(() => {
+    if (editor && value !== undefined && editor.getHTML() !== value) {
+      editor.commands.setContent(value, false); // false = don't emit update event
+    }
+  }, [editor, value]);
 
   if (!editor) return null;
 

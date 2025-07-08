@@ -2,6 +2,7 @@ import { LOCKING_AMOUNT_FORM_KEY } from "@/lib/constants/locking";
 import { Button, cn } from "@repo/ui";
 import React from "react";
 import { useFormContext } from "react-hook-form";
+import { useAccount } from "wagmi";
 import {
   CREATE_LOCK_APPROVAL_STATUS,
   CREATE_LOCK_TX_STATUS,
@@ -9,6 +10,7 @@ import {
 } from "./create-lock-provider";
 
 export const LockingButton = () => {
+  const { address } = useAccount();
   const { createLock, CreateLockTxStatus, CreateLockApprovalStatus } =
     useCreateLock();
 
@@ -20,23 +22,37 @@ export const LockingButton = () => {
 
   const amount = watch(LOCKING_AMOUNT_FORM_KEY);
 
-  const isBalanceInsufficient = errors.amountToLock?.type === "max";
+  const isBalanceInsufficient = errors[LOCKING_AMOUNT_FORM_KEY]?.type === "max";
 
   const content = React.useMemo(() => {
-    if (amount === "") {
-      return <>Enter Amount</>;
+    // Wallet not connected
+    if (!address) {
+      return <>Connect Wallet</>;
     }
+
+    // Amount is null or empty
+    if (!amount || amount === "" || amount === "0") {
+      return <>Enter amount</>;
+    }
+
+    // Amount exceeds balance
     if (isBalanceInsufficient) {
-      return <>Insufficient Balance</>;
+      return <>Insufficient balance</>;
     }
+
+    // Approval needed
     if (CreateLockApprovalStatus === CREATE_LOCK_APPROVAL_STATUS.NOT_APPROVED) {
       return <>Approve MENTO</>;
     }
 
     return <>Lock MENTO</>;
-  }, [CreateLockApprovalStatus, amount, isBalanceInsufficient]);
+  }, [address, amount, isBalanceInsufficient, CreateLockApprovalStatus]);
 
   const shouldButtonBeDisabled =
+    !address ||
+    !amount ||
+    amount === "" ||
+    amount === "0" ||
     !isValid ||
     isBalanceInsufficient ||
     CreateLockTxStatus === CREATE_LOCK_TX_STATUS.CONFIRMING_APPROVE_TX ||
@@ -44,13 +60,8 @@ export const LockingButton = () => {
 
   return (
     <Button
-      className={cn(
-        "w-full",
-        isBalanceInsufficient &&
-          "pointer-events-none w-full cursor-not-allowed",
-      )}
+      className="w-full"
       disabled={shouldButtonBeDisabled}
-      variant={isBalanceInsufficient ? "destructive" : "default"}
       onClick={(e: React.MouseEvent) => {
         handleSubmit(() => {
           createLock();

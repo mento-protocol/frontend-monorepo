@@ -6,6 +6,8 @@ import { useContracts } from "@/lib/contracts/useContracts";
 import React from "react";
 import { parseEther } from "viem";
 import { useAccount } from "wagmi";
+import { toast } from "@repo/ui";
+import { Celo, Alfajores } from "@/lib/config/chains";
 
 import { useFormContext } from "react-hook-form";
 import {
@@ -57,7 +59,7 @@ export const CreateLockProvider = ({
   const { watch, reset: resetForm } = useFormContext();
   const [isTxDialogOpen, setIsTxDialogOpen] = React.useState(false);
 
-  const { address } = useAccount();
+  const { address, chainId } = useAccount();
   const amount = watch(LOCKING_AMOUNT_FORM_KEY);
   const unlockDate = watch(LOCKING_UNLOCK_DATE_FORM_KEY);
 
@@ -158,6 +160,80 @@ export const CreateLockProvider = ({
   const retry = React.useCallback(() => {
     createLock();
   }, [createLock]);
+
+  // Toast notifications for approval transaction
+  React.useEffect(() => {
+    if (approve.error) {
+      if (approve.error.message?.includes("User rejected request")) {
+        toast.error("Approval transaction rejected by user");
+      } else {
+        toast.error("Approval transaction failed");
+      }
+    } else if (approve.isConfirmed && approve.hash) {
+      const currentChain = chainId === Celo.id ? Celo : Alfajores;
+      const explorerUrl = currentChain.blockExplorers?.default?.url;
+      const explorerTxUrl = explorerUrl
+        ? `${explorerUrl}/tx/${approve.hash}`
+        : null;
+
+      const message = "MENTO approval confirmed! Creating lock...";
+      const detailsElement = explorerTxUrl ? (
+        <a
+          href={explorerTxUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ textDecoration: "underline", color: "inherit" }}
+        >
+          See Details
+        </a>
+      ) : (
+        <span>See Details</span>
+      );
+
+      toast.success(
+        <>
+          {message} <br /> {detailsElement}
+        </>,
+      );
+    }
+  }, [approve.error, approve.isConfirmed, approve.hash, chainId]);
+
+  // Toast notifications for lock transaction
+  React.useEffect(() => {
+    if (lock.error) {
+      if (lock.error.message?.includes("User rejected request")) {
+        toast.error("Lock transaction rejected by user");
+      } else {
+        toast.error("Lock transaction failed");
+      }
+    } else if (lock.isConfirmed && lock.hash) {
+      const currentChain = chainId === Celo.id ? Celo : Alfajores;
+      const explorerUrl = currentChain.blockExplorers?.default?.url;
+      const explorerTxUrl = explorerUrl
+        ? `${explorerUrl}/tx/${lock.hash}`
+        : null;
+
+      const message = "MENTO locked successfully!";
+      const detailsElement = explorerTxUrl ? (
+        <a
+          href={explorerTxUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ textDecoration: "underline", color: "inherit" }}
+        >
+          See Details
+        </a>
+      ) : (
+        <span>See Details</span>
+      );
+
+      toast.success(
+        <>
+          {message} <br /> {detailsElement}
+        </>,
+      );
+    }
+  }, [lock.error, lock.isConfirmed, lock.hash, chainId]);
 
   const TxMessage = () => {
     return (

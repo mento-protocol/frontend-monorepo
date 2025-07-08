@@ -21,7 +21,8 @@ import { CheckCircle2, CircleCheck, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useMemo } from "react";
 import { formatUnits } from "viem";
-import { useAccount } from "wagmi";
+import { useAccount, useBlockNumber } from "wagmi";
+import { ensureChainId } from "@/lib/helpers/ensure-chain-id";
 
 interface VoteCardProps {
   proposal: Proposal;
@@ -44,8 +45,11 @@ export const REVERSE_VOTE_TYPE_MAP = {
 const cardClassName = "md:max-w-2/3 w-full space-y-8 pt-0";
 
 export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
-  const { address, isConnecting, isConnected } = useAccount();
+  const { address, isConnecting, isConnected, chainId } = useAccount();
   const { veMentoBalance } = useTokens();
+  const { data: currentBlock } = useBlockNumber({
+    chainId: ensureChainId(chainId),
+  });
   const { data: voteReceipt, isLoading: isHasVotedStatusLoading } =
     useVoteReceipt({
       proposalId: proposal.proposalId,
@@ -137,20 +141,72 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
     }
   };
 
+  // Derive the actual proposal state from proposal fields instead of relying on proposal.state
+  const getDerivedProposalState = () => {
+    if (!proposal || !currentBlock) return ProposalState.Active;
+
+    // Check explicit boolean states first
+    if (proposal.canceled) return ProposalState.Defeated; // Canceled proposals are shown as defeated
+    if (proposal.executed) return ProposalState.Executed;
+    if (proposal.queued) return ProposalState.Queued;
+
+    const currentBlockNum = Number(currentBlock);
+    const endBlockNum = Number(proposal.endBlock);
+    const startBlockNum = Number(proposal.startBlock);
+
+    // Check if voting period hasn't started yet
+    if (currentBlockNum < startBlockNum) {
+      return ProposalState.Pending;
+    }
+
+    // Check if voting period is active
+    if (currentBlockNum >= startBlockNum && currentBlockNum <= endBlockNum) {
+      return ProposalState.Active;
+    }
+
+    // Voting period has ended, check if proposal succeeded or was defeated
+    if (currentBlockNum > endBlockNum) {
+      // If queued but not executed and past execution deadline, it's expired
+      if (proposal.queued && proposal.eta) {
+        const executionDeadline = Number(proposal.eta) + 7 * 24 * 60 * 60; // 7 days in seconds
+        const currentTimestamp = Math.floor(Date.now() / 1000);
+        if (currentTimestamp > executionDeadline) {
+          return ProposalState.Expired;
+        }
+      }
+
+      // Check vote results to determine if succeeded or defeated
+      const totalVotes = Number(proposal.votes.total);
+      const forVotes = Number(proposal.votes.for.total);
+      const againstVotes = Number(proposal.votes.against.total);
+
+      // Simple majority check (this might need adjustment based on actual governance rules)
+      if (totalVotes > 0 && forVotes > againstVotes) {
+        return ProposalState.Succeeded;
+      } else {
+        return ProposalState.Defeated;
+      }
+    }
+
+    return ProposalState.Active;
+  };
+
+  const derivedState = getDerivedProposalState();
+
   const isVotingOpen =
-    proposal.state === ProposalState.Active &&
+    derivedState === ProposalState.Active &&
     !(new Date() > (votingDeadline || new Date()));
   const isApproved =
-    proposal.state === ProposalState.Succeeded ||
-    proposal.state === ProposalState.Queued ||
-    proposal.state === ProposalState.Executed;
-  const isRejected = proposal.state === ProposalState.Defeated;
+    derivedState === ProposalState.Succeeded ||
+    derivedState === ProposalState.Queued ||
+    derivedState === ProposalState.Executed;
+  const isRejected = derivedState === ProposalState.Defeated;
   const isAbstained =
-    proposal.state === ProposalState.Defeated &&
+    derivedState === ProposalState.Defeated &&
     abstainVotes > forVotes &&
     abstainVotes > againstVotes;
   const isQuorumNotMet =
-    proposal.state === ProposalState.Defeated && forVotes > againstVotes;
+    derivedState === ProposalState.Defeated && forVotes > againstVotes;
 
   // Determine the current UI state
   const currentState = useMemo(() => {
@@ -159,6 +215,29 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
     if (isConfirming) return "confirming";
     if (isAwaitingUserSignature) return "signing";
     if (voteReceipt?.hasVoted) return "voted";
+
+    // Check if proposal is in a votable state before checking for insufficient MENTO
+    if (!isVotingOpen) {
+      // Return specific states based on the actual proposal state
+      switch (derivedState) {
+        case ProposalState.Executed:
+          return "executed";
+        case ProposalState.Queued:
+          return "queued";
+        case ProposalState.Succeeded:
+          return "succeeded";
+        case ProposalState.Defeated:
+          return "defeated";
+        case ProposalState.Expired:
+          return "expired";
+        case ProposalState.Pending:
+          return "pending";
+        default:
+          return "finished"; // Generic finished state for other non-votable states
+      }
+    }
+
+    // Only check for insufficient MENTO if proposal is actually votable
     if (!hasEnoughLockedMentoToVote && isConnected) return "insufficient-mento";
     return "ready";
   }, [
@@ -169,6 +248,8 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
     voteReceipt?.hasVoted,
     hasEnoughLockedMentoToVote,
     isConnected,
+    isVotingOpen,
+    derivedState,
   ]);
 
   // Get title based on state
@@ -184,22 +265,27 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
         return "Confirm Your Vote";
       case "insufficient-mento":
         return "Lock MENTO to Vote";
-      default:
-        if (isVotingOpen) return "Voting Open";
-        if (isApproved) return "Proposal Approved";
-        if (isRejected) return "Proposal Rejected";
+      case "executed":
+        return "Proposal Executed";
+      case "queued":
+        return "Proposal Queued";
+      case "succeeded":
+        return "Proposal Succeeded";
+      case "defeated":
         if (isAbstained) return "Majority Abstained";
         if (isQuorumNotMet) return "Quorum Not Met";
+        return "Proposal Defeated";
+      case "expired":
+        return "Proposal Expired";
+      case "pending":
+        return "Voting Pending";
+      case "finished":
+        return "Voting Finished";
+      default:
+        if (isVotingOpen) return "Voting Open";
         return "Voting Open";
     }
-  }, [
-    currentState,
-    isVotingOpen,
-    isApproved,
-    isRejected,
-    isAbstained,
-    isQuorumNotMet,
-  ]);
+  }, [currentState, isVotingOpen, isAbstained, isQuorumNotMet]);
 
   // Get description based on state
   const description = useMemo(() => {
@@ -213,20 +299,32 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
         return "Please confirm the transaction in your wallet to cast your vote.";
       case "insufficient-mento":
         return "You need to lock your MENTO tokens to participate in governance voting.";
-      default:
-        if (isVotingOpen) {
-          return (
-            <>
-              Your vote matters - participate in the decision.
-              <br />
-              Even if you abstain, it helps the community move forward.
-            </>
-          );
-        }
-        if (
-          proposal.state === ProposalState.Defeated &&
-          forVotes > againstVotes
-        ) {
+      case "executed":
+        return (
+          <>
+            This proposal has been successfully executed.
+            <br />
+            The changes outlined in the proposal are now in effect.
+          </>
+        );
+      case "queued":
+        return (
+          <>
+            This proposal has been approved and is queued for execution.
+            <br />
+            It will be executed after the timelock period expires.
+          </>
+        );
+      case "succeeded":
+        return (
+          <>
+            The community has voted in favor of this proposal.
+            <br />
+            It will now proceed to the next stage of implementation.
+          </>
+        );
+      case "defeated":
+        if (forVotes > againstVotes) {
           return (
             <>
               The proposal did not reach the required quorum.
@@ -235,11 +333,7 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
             </>
           );
         }
-        if (
-          proposal.state === ProposalState.Defeated &&
-          abstainVotes > forVotes &&
-          abstainVotes > againstVotes
-        ) {
+        if (abstainVotes > forVotes && abstainVotes > againstVotes) {
           return (
             <>
               While quorum was reached, most voters chose to abstain.
@@ -248,21 +342,44 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
             </>
           );
         }
-        if (proposal.state === ProposalState.Defeated) {
+        return (
+          <>
+            The proposal did not receive sufficient support.
+            <br />
+            It will not move forward.
+          </>
+        );
+      case "expired":
+        return (
+          <>
+            This proposal has expired and can no longer be executed.
+            <br />
+            The execution deadline has passed.
+          </>
+        );
+      case "pending":
+        return (
+          <>
+            Voting for this proposal has not yet started.
+            <br />
+            Please check back when the voting period begins.
+          </>
+        );
+      case "finished":
+        return (
+          <>
+            Voting for this proposal has concluded.
+            <br />
+            The final results are displayed above.
+          </>
+        );
+      default:
+        if (isVotingOpen) {
           return (
             <>
-              The proposal did not receive sufficient support.
+              Your vote matters - participate in the decision.
               <br />
-              It will not move forward.
-            </>
-          );
-        }
-        if (isApproved) {
-          return (
-            <>
-              The community has voted in favor of this proposal.
-              <br />
-              It will now proceed to implementation as outlined.
+              Even if you abstain, it helps the community move forward.
             </>
           );
         }
@@ -274,23 +391,12 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
           </>
         );
     }
-  }, [
-    currentState,
-    isVotingOpen,
-    proposal.state,
-    forVotes,
-    againstVotes,
-    abstainVotes,
-    isApproved,
-  ]);
+  }, [currentState, isVotingOpen, forVotes, againstVotes, abstainVotes]);
 
   // Show header based on state
   const showHeader = !["loading", "confirming", "confirmed"].includes(
     currentState,
   );
-  const showProgressBar =
-    ["voted", "ready"].includes(currentState) ||
-    (currentState === "insufficient-mento" && isConnected);
   const showQuorumStatus = currentState === "voted" || currentState === "ready";
 
   // Render vote buttons based on state
@@ -328,6 +434,31 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
           </div>
         );
 
+      case "executed":
+      case "queued":
+      case "succeeded":
+      case "defeated":
+      case "expired":
+      case "finished":
+        // Show disabled buttons for finished proposals
+        return <></>;
+
+      case "pending":
+        // Show disabled buttons for pending proposals
+        return (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <Button variant="approve" size="lg" disabled>
+              Voting Not Started
+            </Button>
+            <Button variant="abstain" size="lg" disabled>
+              Voting Not Started
+            </Button>
+            <Button variant="reject" size="lg" disabled>
+              Voting Not Started
+            </Button>
+          </div>
+        );
+
       case "ready":
         if (!address) {
           return (
@@ -347,7 +478,7 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
               size="lg"
               onClick={() => handleVote(1)}
               disabled={
-                proposal.state !== ProposalState.Active ||
+                derivedState !== ProposalState.Active ||
                 isAwaitingUserSignature ||
                 isConfirming
               }
@@ -359,7 +490,7 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
               size="lg"
               onClick={() => handleVote(2)}
               disabled={
-                proposal.state !== ProposalState.Active ||
+                derivedState !== ProposalState.Active ||
                 isAwaitingUserSignature ||
                 isConfirming
               }
@@ -371,7 +502,7 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
               size="lg"
               onClick={() => handleVote(0)}
               disabled={
-                proposal.state !== ProposalState.Active ||
+                derivedState !== ProposalState.Active ||
                 isAwaitingUserSignature ||
                 isConfirming
               }
@@ -520,11 +651,9 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
               )}
             </div>
 
-            {showProgressBar && (
-              <div className="py-4">
-                <ProgressBar mode="vote" data={voteData} />
-              </div>
-            )}
+            <div className="py-4">
+              <ProgressBar mode="vote" data={voteData} />
+            </div>
 
             <div
               className={
