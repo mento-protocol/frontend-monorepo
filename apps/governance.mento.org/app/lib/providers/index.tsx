@@ -1,7 +1,7 @@
 "use client";
 
 import { env } from "@/env.mjs";
-import { CommunityCard, Footer } from "@repo/ui";
+import { CommunityCard, Footer, IconCheck, Toaster } from "@repo/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type React from "react";
 import { useEffect, useState, type ReactNode } from "react";
@@ -28,6 +28,27 @@ export default function Providers({ children }: { children: ReactNode }) {
           <RainbowKitProvider initialChain={Celo}>
             {mounted && (
               <EnsureChain>
+                <Toaster
+                  position="top-right"
+                  duration={5000}
+                  icons={{
+                    success: <IconCheck className="text-success" />,
+                  }}
+                  closeButton
+                  toastOptions={{
+                    classNames: {
+                      toast: "toast",
+                      title: "title",
+                      description: "description",
+                      actionButton: "action-button",
+                      cancelButton: "cancel-button",
+                      closeButton: "close-button",
+                      icon: "icon",
+                    },
+                  }}
+                  offset={{ top: "80px" }}
+                  mobileOffset={{ top: "96px" }}
+                />
                 <Header />
                 {children}
                 <section className="xl:px-22 mb-8 w-full px-4 md:mb-20 md:px-20">

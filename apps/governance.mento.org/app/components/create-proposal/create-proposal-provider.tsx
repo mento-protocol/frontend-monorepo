@@ -10,12 +10,18 @@ import useCreateProposalOnChain, {
   TransactionItem,
 } from "@/lib/contracts/governor/use-create-proposal-on-chain";
 import { LocalStorageKeys, useLocalStorage } from "@/lib/hooks/use-storage";
-import { useAccount, useBlockNumber } from "wagmi";
+import {
+  useAccount,
+  useBlockNumber,
+  useWaitForTransactionReceipt,
+} from "wagmi";
 import { CreateProposalTxDialog } from "./create-proposal-transaction-dialog";
 import { useRouter } from "next/navigation";
 import useProposals from "@/lib/contracts/governor/use-proposals";
 import { ensureChainId } from "@/lib/helpers/ensure-chain-id";
 import { Loader } from "lucide-react";
+import { toast } from "@repo/ui";
+import { Celo, Alfajores } from "@/lib/config/chains";
 
 export enum CreateProposalStep {
   content = 1,
@@ -86,7 +92,13 @@ export const CreateProposalProvider = ({
     createError,
     createProposalID,
     isSuccess,
+    createTx,
   } = useCreateProposalOnChain();
+
+  const { data: txReceipt, isSuccess: isConfirmed } =
+    useWaitForTransactionReceipt({
+      hash: createTx,
+    });
 
   const [newProposal, updateProposalInternal] = useState({
     description: "",
@@ -225,6 +237,43 @@ export const CreateProposalProvider = ({
     resetCreateProposalHook();
     submitProposal();
   }, [resetCreateProposalHook, submitProposal]);
+
+  // Toast notifications for transaction states
+  useEffect(() => {
+    if (createError) {
+      if (createError.message?.includes("User rejected request")) {
+        toast.error("Proposal creation rejected by user");
+      } else {
+        toast.error("Failed to create proposal");
+      }
+    } else if (isConfirmed && txReceipt && createTx) {
+      const currentChain = chainId === Celo.id ? Celo : Alfajores;
+      const explorerUrl = currentChain.blockExplorers?.default?.url;
+      const explorerTxUrl = explorerUrl
+        ? `${explorerUrl}/tx/${createTx}`
+        : null;
+
+      const message = "Proposal created successfully!";
+      const detailsElement = explorerTxUrl ? (
+        <a
+          href={explorerTxUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ textDecoration: "underline", color: "inherit" }}
+        >
+          See Details
+        </a>
+      ) : (
+        <span>See Details</span>
+      );
+
+      toast.success(
+        <>
+          {message} <br /> {detailsElement}
+        </>,
+      );
+    }
+  }, [createError, isConfirmed, txReceipt, createTx, chainId]);
 
   useEffect(() => {
     if (creationState === "ready") {
