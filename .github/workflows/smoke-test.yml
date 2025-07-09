@@ -10,7 +10,7 @@ permissions:
 jobs:
   app-mento:
     if: github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && contains(github.event.deployment_status.target_url, 'appmento')
-    uses: mento-protocol/mento-automation-tests/.github/workflows/smoke-mento-web-test.yml@main
+    uses: mento-protocol/mento-automation-tests/.github/workflows/app-mento-smoke-test.yml@main
     with:
       CUSTOM_URL: ${{ github.event.deployment_status.environment_url }}
       IS_MAINNET: "false"
