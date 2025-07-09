@@ -1,4 +1,4 @@
-import { Button } from "@repo/ui";
+import { Button, IconLoading } from "@repo/ui";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@repo/ui";
 import { Loader } from "lucide-react";
 
@@ -25,7 +25,7 @@ export const TxDialog = ({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        <div className="mt-2">
+        <div className="text-muted-foreground mt-2 text-center text-sm">
           {error ? <ErrorMessage /> : <PendingMessage message={message} />}
         </div>
         {error && (
@@ -42,20 +42,14 @@ export const TxDialog = ({
 };
 
 const ErrorMessage = () => {
-  return (
-    <>
-      <p className="text-error dark:text-error-light text-center text-lg">
-        Transaction was rejected.
-      </p>
-    </>
-  );
+  return <p>Transaction was rejected.</p>;
 };
 
 const PendingMessage = ({ message }: { message: React.ReactNode }) => {
   return (
     <>
-      <div className="text-primary-dark text-lg dark:text-white">{message}</div>
-      <Loader className="mx-auto my-8" />
+      {message}
+      <IconLoading className="mx-auto my-8" />
     </>
   );
 };
