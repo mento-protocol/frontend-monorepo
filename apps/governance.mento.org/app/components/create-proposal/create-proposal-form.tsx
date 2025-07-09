@@ -265,17 +265,48 @@ const ExecutionCodeStep = () => {
   );
 };
 
-const CollapsibleMarkdown = ({ markdown }: { markdown: string }) => {
+const CollapsibleHtmlContent = ({ htmlContent }: { htmlContent: string }) => {
   const [open, setOpen] = useState(false);
 
   return (
     <div
       className={cn(
-        "prose prose-invert relative",
-        open ? "h-full" : "max-h-[400px] overflow-hidden",
+        "prose prose-invert relative min-h-20",
+        open ? "h-full min-h-48" : "max-h-[400px] overflow-hidden",
       )}
     >
-      <ReactMarkdown remarkPlugins={[gfm]}>{markdown}</ReactMarkdown>
+      <div dangerouslySetInnerHTML={{ __html: htmlContent }} />
+      <div className="to-card absolute bottom-0 right-0 flex w-full items-center justify-center bg-gradient-to-b from-transparent pb-8 pt-16">
+        <Button onClick={() => setOpen(!open)} variant="text">
+          {open ? "See less" : "See all"}
+        </Button>
+      </div>
+    </div>
+  );
+};
+
+const CollapsibleJsonCode = ({ jsonString }: { jsonString: string }) => {
+  const [open, setOpen] = useState(false);
+
+  const formatJson = (jsonStr: string) => {
+    try {
+      const parsed = JSON.parse(jsonStr);
+      return JSON.stringify(parsed, null, 2);
+    } catch (error) {
+      return jsonStr; // Return original if parsing fails
+    }
+  };
+
+  return (
+    <div
+      className={cn(
+        "relative min-h-20",
+        open ? "h-full min-h-60" : "max-h-[400px] overflow-hidden",
+      )}
+    >
+      <pre className="border-border text-muted-foreground overflow-x-auto rounded-lg border p-4 text-sm">
+        <code>{formatJson(jsonString)}</code>
+      </pre>
       <div className="to-card absolute bottom-0 right-0 flex w-full items-center justify-center bg-gradient-to-b from-transparent pb-8 pt-16">
         <Button onClick={() => setOpen(!open)} variant="text">
           {open ? "See less" : "See all"}
@@ -291,7 +322,7 @@ const ReviewStep = () => {
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
-
+  console.log(newProposal);
   return (
     <div>
       <h2 className="mb-2 text-lg font-medium md:mb-4 md:text-3xl">Review</h2>
@@ -300,14 +331,14 @@ const ReviewStep = () => {
         over your proposal and then submit it.
       </p>
       <hr className="border-border mb-8" />
-      <CollapsibleMarkdown
-        markdown={newProposal.description || sampleMarkdown}
+      <CollapsibleHtmlContent
+        htmlContent={newProposal.description || sampleMarkdown}
       />
       <hr className="border-border my-8" />
       <h2 className="mb-2 text-lg font-medium md:mb-4 md:text-3xl">
         Execution Code
       </h2>
-      <CollapsibleMarkdown markdown={newProposal.code} />
+      <CollapsibleJsonCode jsonString={newProposal.code} />
       <div className="flex flex-col items-center gap-4 md:flex-row-reverse md:justify-between">
         <Button
           className="h-10 w-full md:w-auto"
@@ -362,7 +393,7 @@ function CreateProposalSteps() {
 }
 
 function ProposalBreadcrumb() {
-  const { step } = useCreateProposal();
+  const { step, setStep } = useCreateProposal();
   const { isConnected } = useAccount();
 
   return (
@@ -370,63 +401,45 @@ function ProposalBreadcrumb() {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            {isConnected && step === CreateProposalStep.content ? (
-              <BreadcrumbPage>Proposal Details</BreadcrumbPage>
-            ) : (
-              <BreadcrumbLink
-                onClick={() =>
-                  useCreateProposal().setStep(CreateProposalStep.content)
-                }
-                className={cn(
-                  "cursor-pointer",
-                  !isConnected && "pointer-events-none opacity-75",
-                )}
-              >
-                Proposal Details
-              </BreadcrumbLink>
-            )}
+            <BreadcrumbLink
+              onClick={() => setStep(CreateProposalStep.content)}
+              className={cn(
+                "cursor-pointer",
+                !isConnected && "pointer-events-none opacity-75",
+              )}
+            >
+              Proposal Details
+            </BreadcrumbLink>
           </BreadcrumbItem>
 
           <BreadcrumbSeparator />
 
           <BreadcrumbItem>
-            {step === CreateProposalStep.execution ? (
-              <BreadcrumbPage>Execution Code</BreadcrumbPage>
-            ) : (
-              <BreadcrumbLink
-                onClick={() =>
-                  useCreateProposal().setStep(CreateProposalStep.execution)
-                }
-                className={cn(
-                  "cursor-pointer",
-                  step < CreateProposalStep.execution &&
-                    "pointer-events-none opacity-75",
-                )}
-              >
-                Execution Code
-              </BreadcrumbLink>
-            )}
+            <BreadcrumbLink
+              onClick={() => setStep(CreateProposalStep.execution)}
+              className={cn(
+                "cursor-pointer",
+                step < CreateProposalStep.execution &&
+                  "pointer-events-none opacity-75",
+              )}
+            >
+              Execution Code
+            </BreadcrumbLink>
           </BreadcrumbItem>
 
           <BreadcrumbSeparator />
 
           <BreadcrumbItem>
-            {step === CreateProposalStep.preview ? (
-              <BreadcrumbPage>Review</BreadcrumbPage>
-            ) : (
-              <BreadcrumbLink
-                onClick={() =>
-                  useCreateProposal().setStep(CreateProposalStep.preview)
-                }
-                className={cn(
-                  "cursor-pointer",
-                  step < CreateProposalStep.preview &&
-                    "pointer-events-none opacity-75",
-                )}
-              >
-                Review
-              </BreadcrumbLink>
-            )}
+            <BreadcrumbLink
+              onClick={() => setStep(CreateProposalStep.preview)}
+              className={cn(
+                "cursor-pointer",
+                step < CreateProposalStep.preview &&
+                  "pointer-events-none opacity-75",
+              )}
+            >
+              Review
+            </BreadcrumbLink>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>

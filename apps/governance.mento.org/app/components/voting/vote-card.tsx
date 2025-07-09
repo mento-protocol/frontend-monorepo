@@ -15,6 +15,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  IconLoading,
 } from "@repo/ui";
 import * as Sentry from "@sentry/nextjs";
 import { CheckCircle2, CircleCheck, XCircle } from "lucide-react";
@@ -523,7 +524,7 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
       case "loading":
         return (
           <div className="flex flex-col items-center gap-4">
-            <div className="border-primary h-8 w-8 animate-spin rounded-full border-4 border-t-transparent"></div>
+            <IconLoading />
             <p className="text-muted-foreground">
               Loading voting information...
             </p>

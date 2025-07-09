@@ -17,6 +17,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  IconLoading,
   ProposalStatus,
   Tabs,
   TabsContent,
@@ -185,7 +186,7 @@ export default function ProposalPage() {
   if (!proposal) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        Loading...
+        <IconLoading />
       </div>
     );
   }
