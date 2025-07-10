@@ -9,7 +9,11 @@ import {
   useCreateLock,
 } from "./create-lock-provider";
 
-export const LockingButton = () => {
+interface LockingButtonProps {
+  hasLock?: boolean;
+}
+
+export const LockingButton = ({ hasLock = false }: LockingButtonProps) => {
   const { address } = useAccount();
   const { createLock, CreateLockTxStatus, CreateLockApprovalStatus } =
     useCreateLock();
@@ -30,6 +34,11 @@ export const LockingButton = () => {
       return <>Connect Wallet</>;
     }
 
+    // User already has a lock
+    if (hasLock) {
+      return <>Already locked</>;
+    }
+
     // Amount is null or empty
     if (!amount || amount === "" || amount === "0") {
       return <>Enter amount</>;
@@ -46,10 +55,17 @@ export const LockingButton = () => {
     }
 
     return <>Lock MENTO</>;
-  }, [address, amount, isBalanceInsufficient, CreateLockApprovalStatus]);
+  }, [
+    address,
+    amount,
+    isBalanceInsufficient,
+    CreateLockApprovalStatus,
+    hasLock,
+  ]);
 
   const shouldButtonBeDisabled =
     !address ||
+    hasLock ||
     !amount ||
     amount === "" ||
     amount === "0" ||
