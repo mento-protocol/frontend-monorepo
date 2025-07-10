@@ -18,9 +18,8 @@ export const useAddTokens = () => {
       type: "ERC20",
       options: {
         address:
-          mento.addresses[
-            chainId !== Celo.id || chainId !== Alfajores.id ? Celo.id : chainId
-          ].MentoToken,
+          mento.addresses[chainId === Celo.id ? Celo.id : Alfajores.id]
+            .MentoToken,
         symbol: "MENTO",
         decimals: 18,
       },
@@ -35,9 +34,7 @@ export const useAddTokens = () => {
       type: "ERC20",
       options: {
         address:
-          mento.addresses[
-            chainId !== Celo.id || chainId !== Alfajores.id ? Celo.id : chainId
-          ].Locking,
+          mento.addresses[chainId === Celo.id ? Celo.id : Alfajores.id].Locking,
         symbol: "veMENTO",
         decimals: 18,
       },

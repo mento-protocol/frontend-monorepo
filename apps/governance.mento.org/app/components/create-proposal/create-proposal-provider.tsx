@@ -60,6 +60,9 @@ interface ICreateProposalProvider {
   children: ReactNode | ReactNode[];
 }
 
+const defaultCode =
+  '[\n  {\n    "address": "0x0000000000000000000000000000000000000000",\n    "value": 0,\n    "data": "0x"\n  }\n]';
+
 export const CreateProposalProvider = ({
   children,
 }: ICreateProposalProvider) => {
@@ -103,7 +106,7 @@ export const CreateProposalProvider = ({
   const [newProposal, updateProposalInternal] = useState({
     description: "",
     title: "",
-    code: '[\n  {\n    "address": "0x0000000000000000000000000000000000000000",\n    "value": 0,\n    "data": "0x"\n  }\n]',
+    code: defaultCode,
   });
 
   const [creationState, setCreationState] = useState<"mounting" | "ready">(
@@ -154,8 +157,12 @@ export const CreateProposalProvider = ({
 
     setExpectingId(createProposalID(structuredProposal));
 
+    updateProposalInternal({
+      title: "",
+      description: "",
+      code: defaultCode,
+    });
     createProposal(structuredProposal, undefined, (error) => {
-      // TODO: Sentrify.
       console.error(error);
     });
   }, [
@@ -210,7 +217,7 @@ export const CreateProposalProvider = ({
       updateProposalInternal({
         title: title || "",
         description: description || "",
-        code: code || "",
+        code: code || defaultCode,
       });
 
       setCreationState("ready");
