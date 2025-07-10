@@ -11,8 +11,10 @@ import {
   CardContent,
   CardFooter,
   CardHeader,
+  cn,
   CoinInput,
   Datepicker,
+  IconLoading,
   Label,
   useDebounce,
 } from "@repo/ui";
@@ -29,7 +31,8 @@ import { WithdrawButton } from "./withdraw-button";
 
 export default function VotingPowerForm() {
   const { address } = useAccount();
-  const { lock, unlockedMento, hasLock, isLoading } = useLockInfo(address);
+  const { lock, unlockedMento, hasLock, isLoading, refetch } =
+    useLockInfo(address);
   const { veMentoBalance, mentoBalance } = useTokens();
 
   const tomorrow = useMemo(() => spacetime.tomorrow().toNativeDate(), []);
@@ -106,10 +109,6 @@ export default function VotingPowerForm() {
     return format(lock.expiration, "dd.MM.yyyy");
   }, [hasLock, lock]);
 
-  if (isLoading) {
-    return <div className="flex items-center justify-center">Loading...</div>;
-  }
-
   if (!address) {
     return (
       <div className="flex items-center justify-center">
@@ -120,7 +119,7 @@ export default function VotingPowerForm() {
 
   return (
     <FormProvider {...methods}>
-      <CreateLockProvider>
+      <CreateLockProvider onLockConfirmation={refetch}>
         <div className="flex flex-col gap-8 md:flex-row md:gap-20">
           <Card className="border-border md:max-w-1/2">
             <CardHeader className="text-2xl font-medium">Lock MENTO</CardHeader>
@@ -189,38 +188,45 @@ export default function VotingPowerForm() {
               </div>
             </CardContent>
             <CardFooter className="mt-auto">
-              <LockingButton />
+              <LockingButton hasLock={hasLock} />
             </CardFooter>
           </Card>
 
-          {hasLock && (
-            <Card className="border-border w-full md:h-[480px] md:min-w-[494px]">
-              <CardHeader className="text-2xl font-medium">
-                Your existing veMENTO lock
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-col gap-4">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">MENTO</span>
-                    <span>{formattedUnlockedMento}</span>
+          <Card className="border-border w-full md:h-[480px] md:min-w-[494px]">
+            <CardHeader className="text-2xl font-medium">
+              Your existing veMENTO lock
+            </CardHeader>
+            <>
+              <CardContent
+                className={cn(
+                  isLoading && "flex h-full items-center justify-center",
+                )}
+              >
+                {isLoading && <IconLoading />}
+                {!isLoading && (
+                  <div className="flex flex-col gap-4">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">MENTO</span>
+                      <span>{formattedUnlockedMento}</span>
+                    </div>
+                    <hr className="border-border h-full" />
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">veMENTO</span>
+                      <span>{formattedVeMentoBalance}</span>
+                    </div>
+                    <hr className="border-border h-full" />
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Expires</span>
+                      <span>{expirationDate || "-"}</span>
+                    </div>
                   </div>
-                  <hr className="border-border h-full" />
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">veMENTO</span>
-                    <span>{formattedVeMentoBalance}</span>
-                  </div>
-                  <hr className="border-border h-full" />
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Expires</span>
-                    <span>{expirationDate || "-"}</span>
-                  </div>
-                </div>
+                )}
               </CardContent>
               <CardFooter className="mt-auto flex flex-col gap-4">
                 <WithdrawButton />
               </CardFooter>
-            </Card>
-          )}
+            </>
+          </Card>
         </div>
       </CreateLockProvider>
     </FormProvider>
