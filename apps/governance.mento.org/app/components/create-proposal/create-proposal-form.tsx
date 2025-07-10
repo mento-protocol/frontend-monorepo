@@ -1,10 +1,12 @@
 "use client";
+import { useProposalThreshold } from "@/lib/contracts/governor/useProposalThreshold";
+import useTokens from "@/lib/contracts/useTokens";
+import { formatUnitsWithRadix } from "@/lib/helpers/numbers";
 import {
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbLink,
   BreadcrumbList,
-  BreadcrumbPage,
   BreadcrumbSeparator,
   Button,
   Card,
@@ -24,9 +26,11 @@ import {
   TooltipTrigger,
 } from "@repo/ui";
 import { ArrowLeft, ArrowRight, HelpCircle } from "lucide-react";
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import gfm from "remark-gfm";
+import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
 import { ConnectButton } from "../connect-button";
 import {
@@ -35,15 +39,9 @@ import {
   useCreateProposal,
 } from "./create-proposal-provider";
 
-// Sample markdown for preview
-const sampleMarkdown =
-  "## TL;DR\n\nThis proposal removes the temporary permissions granted to the Mento Labs multisig over the Locking contract, which were established during Celo's L2 transition through MGP03. This also marks the first governance proposal after the successful L2 transition and serves as a confirmation of the governance system's functionality.\n\n### Summary\n\nFollowing the successful transition of Celo to L2 and the subsequent verification of the Locking contract's proper functionality with the new block times, it is time to remove the temporary administrative rights granted to the Mento Labs multisig through MGP03. All necessary parameter adjustments have been completed and tested, confirming the contract's compatibility with the new L2 environment.\n\n\n### Transaction Details\n\nThis proposal consists of one transaction:\n\n**TX#0:** call the `setMentoLabsMultisig(address _mentoLabsMultisig)` function with a zero address\n\n- Target: Locking Proxy contract\n- Function: `setMentoLabsMultisig(address)`\n- Parameter: `0x0000000000000000000000000000000000000000`\n\n**Relevant Addresses for verification**\n\n- Locking Proxy\n  - [_0x001Bb66636dCd149A1A2bA8C50E408BdDd80279C_](https://celoscan.io/address/0x001Bb66636dCd149A1A2bA8C50E408BdDd80279C)\n";
-
 const ProposalDetailsStep = () => {
   const { setStep, newProposal, updateProposal } = useCreateProposal();
-  const [previewContent, setPreviewContent] = useState(
-    newProposal.description || sampleMarkdown,
-  );
+  const [previewContent, setPreviewContent] = useState(newProposal.description);
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     updateProposal({
@@ -57,7 +55,7 @@ const ProposalDetailsStep = () => {
       ...newProposal,
       description: content,
     });
-    setPreviewContent(content || sampleMarkdown);
+    setPreviewContent(content);
   };
 
   const scrollToTop = () => {
@@ -103,6 +101,7 @@ const ProposalDetailsStep = () => {
               className="h-10 w-full min-w-[188px] md:ml-auto md:w-fit"
               clipped="sm"
               onClick={handleNextClick}
+              disabled={!newProposal.title || !newProposal.description}
             >
               Next <ArrowRight />
             </Button>
@@ -127,7 +126,7 @@ const ExecutionCodeStep = () => {
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
-
+  console.log(newProposal.code);
   const validateExecutionCode = (code: string): string | null => {
     try {
       // Try to parse the JSON
@@ -171,9 +170,9 @@ const ExecutionCodeStep = () => {
         }
       }
 
-      return null; // No validation errors
+      return null;
     } catch {
-      return "Invalid JSON format";
+      return null;
     }
   };
 
@@ -241,7 +240,7 @@ const ExecutionCodeStep = () => {
             setStep(CreateProposalStep.preview);
             scrollToTop();
           }}
-          disabled={!newProposal.code || !!validationError}
+          disabled={!!validationError}
         >
           {newProposal.code && validationError
             ? "Invalid execution code"
@@ -272,15 +271,23 @@ const CollapsibleHtmlContent = ({ htmlContent }: { htmlContent: string }) => {
     <div
       className={cn(
         "prose prose-invert relative min-h-20",
-        open ? "h-full min-h-48" : "max-h-[400px] overflow-hidden",
+        open ? "max-h-none overflow-visible" : "max-h-[300px] overflow-hidden",
       )}
     >
       <div dangerouslySetInnerHTML={{ __html: htmlContent }} />
-      <div className="to-card absolute bottom-0 right-0 flex w-full items-center justify-center bg-gradient-to-b from-transparent pb-8 pt-16">
-        <Button onClick={() => setOpen(!open)} variant="text">
-          {open ? "See less" : "See all"}
-        </Button>
-      </div>
+      {open ? (
+        <div className="mt-4 flex justify-center">
+          <Button onClick={() => setOpen(false)} variant="text">
+            See less
+          </Button>
+        </div>
+      ) : (
+        <div className="to-card absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-b from-transparent pb-8 pt-16">
+          <Button onClick={() => setOpen(true)} variant="text">
+            See all
+          </Button>
+        </div>
+      )}
     </div>
   );
 };
@@ -301,17 +308,25 @@ const CollapsibleJsonCode = ({ jsonString }: { jsonString: string }) => {
     <div
       className={cn(
         "relative min-h-20",
-        open ? "h-full min-h-60" : "max-h-[400px] overflow-hidden",
+        open ? "max-h-none overflow-visible" : "max-h-[400px] overflow-hidden",
       )}
     >
       <pre className="border-border text-muted-foreground overflow-x-auto rounded-lg border p-4 text-sm">
         <code>{formatJson(jsonString)}</code>
       </pre>
-      <div className="to-card absolute bottom-0 right-0 flex w-full items-center justify-center bg-gradient-to-b from-transparent pb-8 pt-16">
-        <Button onClick={() => setOpen(!open)} variant="text">
-          {open ? "See less" : "See all"}
-        </Button>
-      </div>
+      {open ? (
+        <div className="mt-4 flex justify-center">
+          <Button onClick={() => setOpen(false)} variant="text">
+            See less
+          </Button>
+        </div>
+      ) : (
+        <div className="to-card absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-b from-transparent pb-8 pt-16">
+          <Button onClick={() => setOpen(true)} variant="text">
+            See all
+          </Button>
+        </div>
+      )}
     </div>
   );
 };
@@ -322,7 +337,7 @@ const ReviewStep = () => {
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
-  console.log(newProposal);
+
   return (
     <div>
       <h2 className="mb-2 text-lg font-medium md:mb-4 md:text-3xl">Review</h2>
@@ -331,9 +346,7 @@ const ReviewStep = () => {
         over your proposal and then submit it.
       </p>
       <hr className="border-border mb-8" />
-      <CollapsibleHtmlContent
-        htmlContent={newProposal.description || sampleMarkdown}
-      />
+      <CollapsibleHtmlContent htmlContent={newProposal.description} />
       <hr className="border-border my-8" />
       <h2 className="mb-2 text-lg font-medium md:mb-4 md:text-3xl">
         Execution Code
@@ -370,6 +383,92 @@ const ReviewStep = () => {
 function CreateProposalSteps() {
   const { step } = useCreateProposal();
   const { isConnected } = useAccount();
+  const { veMentoBalance, mentoBalance } = useTokens();
+  const { proposalThreshold } = useProposalThreshold();
+
+  const [direction, setDirection] = useState<"buy" | "lock" | undefined>();
+
+  useEffect(() => {
+    if (
+      isConnected &&
+      proposalThreshold &&
+      veMentoBalance.value &&
+      mentoBalance.value
+    ) {
+      console.log("proposalThreshold", proposalThreshold);
+      console.log("veMentoBalance.value", veMentoBalance.value);
+      console.log("mentoBalance.value", mentoBalance.value);
+      if (veMentoBalance.value <= proposalThreshold) {
+        if (mentoBalance.value == 0n) {
+          setDirection("buy");
+        } else {
+          setDirection("lock");
+        }
+      }
+    }
+  }, [
+    isConnected,
+    veMentoBalance.value,
+    proposalThreshold,
+    mentoBalance.value,
+  ]);
+
+  if (direction === "lock") {
+    return (
+      <>
+        <h2 className="mb-4 text-lg font-medium md:text-3xl">
+          Not enough veMENTO
+        </h2>
+        <p className="text-muted-foreground mb-8 text-sm">
+          You have{" "}
+          <span className="text-foreground">
+            {formatUnits(mentoBalance.value, mentoBalance.decimals)} MENTO
+          </span>{" "}
+          &{" "}
+          <span className="text-foreground">
+            {formatUnits(veMentoBalance.value, veMentoBalance.decimals)} veMENTO
+          </span>
+          <br />
+          <br />
+          To create a new governance proposal, you should have{" "}
+          <span className="text-foreground">
+            {formatUnitsWithRadix(proposalThreshold, 18, 2)} veMENTO
+          </span>{" "}
+          in your account.
+          <br />
+        </p>
+        <Button className="h-10 w-full" clipped="default" asChild>
+          <Link href="/voting-power">Lock MENTO</Link>
+        </Button>
+      </>
+    );
+  }
+
+  if (direction === "buy") {
+    return (
+      <>
+        <h2 className="mb-4 text-lg font-medium md:text-3xl">Buy MENTO</h2>
+        <p className="text-muted-foreground mb-8 text-sm">
+          You have{" "}
+          <span className="text-foreground">
+            {formatUnits(mentoBalance.value, mentoBalance.decimals)} MENTO
+          </span>{" "}
+          &{" "}
+          <span className="text-foreground">
+            {formatUnits(veMentoBalance.value, veMentoBalance.decimals)} veMENTO
+          </span>
+          <br />
+          <br />
+          To create a new governance proposal, you should have{" "}
+          <span className="text-foreground">
+            {formatUnitsWithRadix(proposalThreshold, 18, 2)} veMENTO
+          </span>{" "}
+          in your account.
+          <br />
+        </p>
+      </>
+    );
+  }
 
   if (!isConnected) {
     return (
