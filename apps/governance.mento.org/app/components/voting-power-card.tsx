@@ -13,7 +13,7 @@ export const VotingPowerCard = () => {
 
   return (
     <div className="bg-card w-full">
-      <h3 className="bg-incard flex items-center gap-2 px-6 py-5 text-2xl">
+      <h3 className="bg-incard before:bg-incard after:bg-incard relative flex items-center gap-2 px-6 py-5 text-2xl before:absolute before:-left-4 before:-top-4 before:h-4 before:w-4 after:absolute after:-right-4 after:-top-4 after:h-4 after:w-4 xl:before:-left-2 xl:before:-top-2 xl:before:h-2 xl:before:w-2 xl:after:absolute xl:after:-right-2 xl:after:-top-2 xl:after:h-2 xl:after:w-2">
         <Zap /> Voting Power
       </h3>
       <div className="flex flex-col gap-4 px-6 pt-6 text-sm">
@@ -25,7 +25,7 @@ export const VotingPowerCard = () => {
             )}
           </span>
         </div>
-        <hr />
+        <hr className="border-[var(--border-tertiary)]" />
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">veMENTO</span>
           <span>
@@ -34,7 +34,7 @@ export const VotingPowerCard = () => {
             )}
           </span>
         </div>
-        <hr />
+        <hr className="border-[var(--border-tertiary)]" />
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Expires</span>
           <span>{"17.10.2027"}</span>
