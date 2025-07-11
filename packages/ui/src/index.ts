@@ -41,6 +41,7 @@ export * from "./components/ui/select";
 export * from "./components/ui/sonner";
 export * from "./components/ui/textarea";
 export * from "./components/ui/tooltip";
+export * from "./components/ui/slider";
 
 // Also export any utility functions or types that might be needed
 export * from "./lib/index";
