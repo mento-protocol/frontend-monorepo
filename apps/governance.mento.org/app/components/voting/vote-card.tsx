@@ -483,6 +483,7 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
                 isAwaitingUserSignature ||
                 isConfirming
               }
+              data-testid="approveProposalButton"
             >
               Approve Proposal
             </Button>
@@ -495,6 +496,7 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
                 isAwaitingUserSignature ||
                 isConfirming
               }
+              data-testid="abstainProposalButton"
             >
               Abstain
             </Button>
@@ -507,6 +509,7 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
                 isAwaitingUserSignature ||
                 isConfirming
               }
+              data-testid="rejectProposalButton"
             >
               Reject Proposal
             </Button>
@@ -552,7 +555,10 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
       case "confirmed":
         return (
           <div className="mt-4 flex flex-col items-center gap-4 text-center">
-            <CardTitle className="text-3xl font-medium text-white">
+            <CardTitle
+              className="text-3xl font-medium text-white"
+              data-testid="proposalStateLabel"
+            >
               {title}
             </CardTitle>
             <div className="h-20 w-20 rounded-full bg-green-100 p-4 text-green-600">

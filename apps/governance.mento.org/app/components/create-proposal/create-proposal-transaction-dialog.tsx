@@ -3,6 +3,7 @@ import { ITxDialog, TxDialog } from "../tx-dialog/tx-dialog";
 interface ICreateProposalDialog extends ITxDialog {
   error?: boolean;
   retry: () => void;
+  dataTestId?: string;
 }
 
 export const CreateProposalTxDialog = ({
@@ -12,6 +13,7 @@ export const CreateProposalTxDialog = ({
   retry,
   message,
   title,
+  dataTestId,
 }: ICreateProposalDialog) => {
   return (
     <TxDialog
@@ -21,6 +23,7 @@ export const CreateProposalTxDialog = ({
       retry={retry}
       onClose={onClose}
       message={message}
+      dataTestId={dataTestId}
     />
   );
 };

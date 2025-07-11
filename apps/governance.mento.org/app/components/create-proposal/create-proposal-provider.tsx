@@ -310,6 +310,7 @@ export const CreateProposalProvider = ({
         onClose={() => setTxDialogOpen(false)}
         retry={retry}
         error={!!createError}
+        dataTestId="confirmProposalPopup"
       />
     </CreateProposalContext.Provider>
   );
