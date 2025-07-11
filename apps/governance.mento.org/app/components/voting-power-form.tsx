@@ -2,6 +2,7 @@
 import {
   LOCKING_AMOUNT_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
+  MAX_LOCKING_DURATION_WEEKS,
 } from "@/lib/constants/locking";
 import useLockCalculation from "@/lib/contracts/locking/useLockCalculation";
 import { useLockInfo } from "@/lib/contracts/locking/useLockInfo";
@@ -31,21 +32,50 @@ import { WithdrawButton } from "./withdraw-button";
 
 export default function VotingPowerForm() {
   const { address } = useAccount();
-  const { lock, unlockedMento, hasLock, isLoading, refetch } =
+  const { lock, unlockedMento, hasLock, hasActiveLock, isLoading, refetch } =
     useLockInfo(address);
   const { veMentoBalance, mentoBalance } = useTokens();
 
-  const tomorrow = useMemo(() => spacetime.tomorrow().toNativeDate(), []);
+  // Define minimum lock period as 1 week, only on Wednesdays
+  const MIN_LOCK_PERIOD_WEEKS = 1;
+
+  // Find the first Wednesday that's at least 1 week from now
+  const getFirstWednesdayAfterMinPeriod = () => {
+    // Start with a date 1 week from now
+    const minDate = spacetime.now().add(MIN_LOCK_PERIOD_WEEKS, "week");
+
+    // Find the next Wednesday (day 3 in spacetime, where 0 is Sunday)
+    while (minDate.day() !== 3) {
+      minDate.add(1, "day");
+    }
+
+    return minDate.toNativeDate();
+  };
+
+  const minLockDate = useMemo(() => getFirstWednesdayAfterMinPeriod(), []);
+
   const maxDate = useMemo(
-    () => spacetime.now().add(2, "years").toNativeDate(),
+    () =>
+      spacetime
+        .now()
+        .add(MAX_LOCKING_DURATION_WEEKS / 52, "years")
+        .toNativeDate(),
     [],
   );
+
+  // Function to determine if a date should be disabled
+  // Disables dates before minLockDate and all non-Wednesdays
+  const isDateDisabled = (date: Date) => {
+    const isBeforeMin = date < minLockDate;
+    const isNotWednesday = spacetime(date).day() !== 3; // 3 is Wednesday in spacetime (0-indexed from Sunday)
+    return isBeforeMin || isNotWednesday;
+  };
 
   const methods = useForm({
     mode: "onChange",
     defaultValues: {
       [LOCKING_AMOUNT_FORM_KEY]: "",
-      [LOCKING_UNLOCK_DATE_FORM_KEY]: tomorrow,
+      [LOCKING_UNLOCK_DATE_FORM_KEY]: minLockDate,
     },
   });
 
@@ -105,7 +135,15 @@ export default function VotingPowerForm() {
 
   // Format expiration date
   const expirationDate = useMemo(() => {
-    if (!hasLock || !lock?.expiration) return null;
+    if (!hasLock) return null;
+    if (!lock?.expiration) return null;
+
+    // Check if lock has expired (expiration date is in the past)
+    const now = new Date();
+    if (lock.expiration < now) {
+      return "Fully unlocked";
+    }
+
     return format(lock.expiration, "dd.MM.yyyy");
   }, [hasLock, lock]);
 
@@ -155,11 +193,10 @@ export default function VotingPowerForm() {
                         formatter={(date) => {
                           return spacetime(date).format("dd.MM.yyyy");
                         }}
-                        disabled={{
-                          before: tomorrow,
-                          after: maxDate,
-                        }}
-                        startMonth={tomorrow}
+                        disabled={isDateDisabled}
+                        fromDate={minLockDate}
+                        toDate={maxDate}
+                        startMonth={minLockDate}
                         endMonth={maxDate}
                       />
                     )}
@@ -188,7 +225,7 @@ export default function VotingPowerForm() {
               </div>
             </CardContent>
             <CardFooter className="mt-auto">
-              <LockingButton hasLock={hasLock} />
+              <LockingButton hasLock={hasActiveLock} />
             </CardFooter>
           </Card>
 
@@ -206,13 +243,15 @@ export default function VotingPowerForm() {
                 {!isLoading && (
                   <div className="flex flex-col gap-4">
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">MENTO</span>
-                      <span>{formattedUnlockedMento}</span>
+                      <span className="text-muted-foreground">veMENTO</span>
+                      <span>{formattedVeMentoBalance}</span>
                     </div>
                     <hr className="border-border h-full" />
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">veMENTO</span>
-                      <span>{formattedVeMentoBalance}</span>
+                      <span className="text-muted-foreground">
+                        Withdrawable MENTO
+                      </span>
+                      <span>{formattedUnlockedMento}</span>
                     </div>
                     <hr className="border-border h-full" />
                     <div className="flex justify-between">

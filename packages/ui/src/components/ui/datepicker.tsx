@@ -48,7 +48,13 @@ export function Datepicker({
             <ChevronDownIcon />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-auto overflow-hidden p-0" align="start">
+        <PopoverContent
+          className="w-auto overflow-hidden p-0"
+          align="start"
+          side="bottom"
+          avoidCollisions={false}
+          sticky="always"
+        >
           <Calendar
             mode="single"
             selected={date}
