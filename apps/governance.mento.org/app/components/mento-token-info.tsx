@@ -47,7 +47,7 @@ export const MentoTokenInfo = () => {
       className="w-full"
       defaultValue="item-1"
     >
-      <AccordionItem value="item-1">
+      <AccordionItem value="item-1" className="border-none">
         <AccordionTrigger>General</AccordionTrigger>
         <AccordionContent>
           <div className="flex flex-col gap-4 text-sm">
@@ -55,7 +55,7 @@ export const MentoTokenInfo = () => {
               <span className="text-muted-foreground">Label</span>
               <span>{networkLabel}</span>
             </div>
-            <hr />
+            <hr className="border-[var(--border-tertiary)]" />
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Supply</span>
               <span>{formattedSupply}</span>
@@ -63,7 +63,7 @@ export const MentoTokenInfo = () => {
           </div>
         </AccordionContent>
       </AccordionItem>
-      <AccordionItem value="item-2">
+      <AccordionItem value="item-2" className="border-none">
         <AccordionTrigger>Parameters</AccordionTrigger>
         <AccordionContent>
           <div className="flex flex-col gap-4 text-sm">
@@ -78,7 +78,7 @@ export const MentoTokenInfo = () => {
                   : "-"}
               </span>
             </div>
-            <hr />
+            <hr className="border-[var(--border-tertiary)]" />
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Quorum needed</span>
               <span>
@@ -90,12 +90,12 @@ export const MentoTokenInfo = () => {
                   : "-"}
               </span>
             </div>
-            <hr />
+            <hr className="border-[var(--border-tertiary)]" />
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Voting period</span>
               <span>{votingPeriodFormatted || "-"}</span>
             </div>
-            <hr />
+            <hr className="border-[var(--border-tertiary)]" />
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Timelock</span>
               <span>{timeLockFormatted || "-"}</span>
@@ -103,7 +103,7 @@ export const MentoTokenInfo = () => {
           </div>
         </AccordionContent>
       </AccordionItem>
-      <AccordionItem value="item-3">
+      <AccordionItem value="item-3" className="border-none">
         <AccordionTrigger>Contract Addresses</AccordionTrigger>
         <AccordionContent>
           <div className="flex flex-col gap-4 text-sm">
@@ -111,17 +111,17 @@ export const MentoTokenInfo = () => {
               <span className="text-muted-foreground">Governor</span>
               <ContractAddressDisplay address={governorAddress} />
             </div>
-            <hr />
+            <hr className="border-[var(--border-tertiary)]" />
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">MENTO</span>
               <ContractAddressDisplay address={mentoAddress} />
             </div>
-            <hr />
+            <hr className="border-[var(--border-tertiary)]" />
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Timelock</span>
               <ContractAddressDisplay address={timelockAddress} />
             </div>
-            <hr />
+            <hr className="border-[var(--border-tertiary)]" />
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">veMENTO</span>
               <ContractAddressDisplay address={lockingAddress} />
