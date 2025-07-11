@@ -21,7 +21,7 @@ function ProposalListItem({ className, ...props }: React.ComponentProps<"li">) {
     <li
       data-slot="proposal-list-item"
       className={cn(
-        "flex w-full flex-row items-center justify-start border-b border-[var(--border-tertiary)] first:border-t",
+        "grid grid-cols-[34px_auto] border-b border-[var(--border-tertiary)] first:border-t",
         className,
       )}
       {...props}
@@ -42,7 +42,7 @@ function ProposalListItemIndex({
     <div
       data-slot="proposal-list-item-index"
       className={cn(
-        "flex h-full w-10 shrink-0 flex-col items-center justify-center bg-[var(--dark-background)] text-sm text-[var(--index)] lg:w-12",
+        "flex h-full w-full shrink-0 flex-col items-center justify-center bg-[var(--dark-background)] text-sm text-[var(--index)] lg:w-12",
         className,
       )}
       {...props}
