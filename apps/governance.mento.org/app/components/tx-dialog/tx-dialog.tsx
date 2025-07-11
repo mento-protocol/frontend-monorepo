@@ -9,6 +9,7 @@ export interface ITxDialog {
   message: React.ReactNode;
   title: string;
   onClose: () => void;
+  dataTestId?: string;
 }
 
 export const TxDialog = ({
@@ -18,9 +19,14 @@ export const TxDialog = ({
   retry,
   title,
   onClose,
+  dataTestId,
 }: ITxDialog) => {
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => !open && onClose()}
+      data-testid={dataTestId}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>

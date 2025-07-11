@@ -69,7 +69,12 @@ const ProposalDetailsStep = () => {
 
   return (
     <div>
-      <h2 className="mb-4 text-lg font-medium md:text-3xl">Proposal Details</h2>
+      <h2
+        className="mb-4 text-lg font-medium md:text-3xl"
+        data-testid="proposalDetailsStageLabel"
+      >
+        Proposal Details
+      </h2>
       <p className="text-muted-foreground text-sm">
         Provide crucial information about your proposal. This will be public
         once your proposal goes live.{" "}
@@ -87,9 +92,13 @@ const ProposalDetailsStep = () => {
               className="h-14"
               value={newProposal.title}
               onChange={handleTitleChange}
+              data-testid="proposalTitleInput"
             />
           </div>
-          <div className="mb-8 flex flex-col gap-1">
+          <div
+            className="mb-8 flex flex-col gap-1"
+            data-testid="proposalDescriptionInput"
+          >
             <Label>Description</Label>
             <RichTextEditor
               value={newProposal.description}
@@ -102,6 +111,7 @@ const ProposalDetailsStep = () => {
               clipped="sm"
               onClick={handleNextClick}
               disabled={!newProposal.title || !newProposal.description}
+              data-testid="nextButton"
             >
               Next <ArrowRight />
             </Button>
@@ -208,7 +218,12 @@ const ExecutionCodeStep = () => {
   return (
     <div>
       <div className="mb-2 flex items-center gap-2 md:mb-4">
-        <h2 className="text-lg font-medium md:text-3xl">Execution Code</h2>
+        <h2
+          className="text-lg font-medium md:text-3xl"
+          data-testid="executionCodeStageLabel"
+        >
+          Execution Code
+        </h2>
         <Tooltip>
           <TooltipTrigger asChild>
             <HelpCircle className="text-muted-foreground h-5 w-5 cursor-help" />
@@ -230,6 +245,7 @@ const ExecutionCodeStep = () => {
           placeholder="Start typing..."
           value={newProposal.code}
           onChange={handleCodeChange}
+          data-testid="executionCodeInput"
         />
       </div>
       <div className="flex flex-col items-center gap-4 md:flex-row-reverse md:justify-between">
@@ -241,6 +257,7 @@ const ExecutionCodeStep = () => {
             scrollToTop();
           }}
           disabled={!!validationError}
+          data-testid="nextButton"
         >
           {newProposal.code && validationError
             ? "Invalid execution code"
@@ -255,6 +272,7 @@ const ExecutionCodeStep = () => {
             setStep(CreateProposalStep.content);
             scrollToTop();
           }}
+          data-testid="previousButton"
         >
           <ArrowLeft />
           Previous
@@ -274,16 +292,27 @@ const CollapsibleHtmlContent = ({ htmlContent }: { htmlContent: string }) => {
         open ? "max-h-none overflow-visible" : "max-h-[300px] overflow-hidden",
       )}
     >
-      <div dangerouslySetInnerHTML={{ __html: htmlContent }} />
+      <div
+        dangerouslySetInnerHTML={{ __html: htmlContent }}
+        data-testid="proposalDetailsContent"
+      />
       {open ? (
         <div className="mt-4 flex justify-center">
-          <Button onClick={() => setOpen(false)} variant="text">
+          <Button
+            onClick={() => setOpen(false)}
+            variant="text"
+            data-testid="seeLess_proposalDetailsButton"
+          >
             See less
           </Button>
         </div>
       ) : (
         <div className="to-card absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-b from-transparent pb-8 pt-16">
-          <Button onClick={() => setOpen(true)} variant="text">
+          <Button
+            onClick={() => setOpen(true)}
+            variant="text"
+            data-testid="seeAll_proposalDetailsButton"
+          >
             See all
           </Button>
         </div>
@@ -312,17 +341,25 @@ const CollapsibleJsonCode = ({ jsonString }: { jsonString: string }) => {
       )}
     >
       <pre className="border-border text-muted-foreground overflow-x-auto rounded-lg border p-4 text-sm">
-        <code>{formatJson(jsonString)}</code>
+        <code data-testid="executionCodeContent">{formatJson(jsonString)}</code>
       </pre>
       {open ? (
         <div className="mt-4 flex justify-center">
-          <Button onClick={() => setOpen(false)} variant="text">
+          <Button
+            onClick={() => setOpen(false)}
+            variant="text"
+            data-testid="seeLess_executionCodeButton"
+          >
             See less
           </Button>
         </div>
       ) : (
         <div className="to-card absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-b from-transparent pb-8 pt-16">
-          <Button onClick={() => setOpen(true)} variant="text">
+          <Button
+            onClick={() => setOpen(true)}
+            variant="text"
+            data-testid="seeAll_executionCodeButton"
+          >
             See all
           </Button>
         </div>
@@ -340,7 +377,12 @@ const ReviewStep = () => {
 
   return (
     <div>
-      <h2 className="mb-2 text-lg font-medium md:mb-4 md:text-3xl">Review</h2>
+      <h2
+        className="mb-2 text-lg font-medium md:mb-4 md:text-3xl"
+        data-testid="reviewStageLabel"
+      >
+        Review
+      </h2>
       <p className="text-muted-foreground mb-8 text-sm">
         You're successfully finished all the steps. Now, take a moment to go
         over your proposal and then submit it.
@@ -360,6 +402,7 @@ const ReviewStep = () => {
             submitProposal();
             scrollToTop();
           }}
+          data-testid="createProposalButton"
         >
           Create Proposal <ArrowRight />
         </Button>
@@ -371,6 +414,7 @@ const ReviewStep = () => {
             setStep(CreateProposalStep.execution);
             scrollToTop();
           }}
+          data-testid="previousButton"
         >
           <ArrowLeft />
           Previous

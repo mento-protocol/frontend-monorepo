@@ -270,8 +270,14 @@ export default function ProposalPage() {
         </BreadcrumbList>
       </Breadcrumb>
       <div className="mb-16 flex flex-col gap-6">
-        <ProposalStatus variant={getDerivedProposalState()} />
-        <h1 className="max-w-[26ch] text-3xl font-medium md:text-6xl">
+        <ProposalStatus
+          variant={getDerivedProposalState()}
+          data-testid="proposalStateLabel"
+        />
+        <h1
+          className="max-w-[26ch] text-3xl font-medium md:text-6xl"
+          data-testid="proposalTitleLabel"
+        >
           {proposal.metadata?.title}
         </h1>
         <div className="flex flex-wrap items-center gap-2 md:gap-8">
