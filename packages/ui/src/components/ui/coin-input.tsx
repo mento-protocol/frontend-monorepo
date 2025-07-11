@@ -40,8 +40,60 @@ function CoinInput({
     ) {
       // Note: Multiple leading zeros are now allowed, matching Uniswap's behavior
       onChange?.(eventForCallback); // Pass the appropriate event object
+    } else {
+      // For invalid input, prevent the default behavior
+      e.preventDefault();
+
+      // Keep the previous valid value by setting the input's value back
+      if (e.target instanceof HTMLInputElement) {
+        // Use setTimeout to ensure this happens after React's synthetic event handling
+        setTimeout(() => {
+          e.target.value = props.value?.toString() || "";
+        }, 0);
+      }
     }
-    // If invalid input (regex fails or too many dots), don't call onChange.
+  };
+
+  // Add keydown handler to prevent entering invalid characters
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Allow navigation keys, deletion keys, and number keys
+    const allowedKeys = [
+      "Backspace",
+      "Delete",
+      "ArrowLeft",
+      "ArrowRight",
+      "Tab",
+      "Home",
+      "End",
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      ".",
+    ];
+
+    // Allow copy/paste and selection operations
+    if (
+      (e.ctrlKey || e.metaKey) &&
+      ["a", "c", "v", "x"].includes(e.key.toLowerCase())
+    ) {
+      return;
+    }
+
+    if (!allowedKeys.includes(e.key)) {
+      e.preventDefault();
+    }
+
+    // Prevent multiple decimal points
+    if (e.key === "." && e.currentTarget.value.includes(".")) {
+      e.preventDefault();
+    }
   };
 
   return (
@@ -59,6 +111,8 @@ function CoinInput({
         className,
       )}
       onChange={handleChange}
+      onKeyDown={handleKeyDown}
+      inputMode="decimal"
       {...props}
     />
   );

@@ -52,6 +52,7 @@ export { default as IconDiscord } from "./components/icons/discord";
 export { default as IconGithub } from "./components/icons/github";
 export { default as IconInfo } from "./components/icons/info";
 export { default as IconLoading } from "./components/icons/loading";
+export { default as MentoIcon } from "./components/icons/mento";
 export { default as IconThunder } from "./components/icons/thunder";
 export { default as IconTimer } from "./components/icons/timer";
 export { default as IconX } from "./components/icons/x";
@@ -61,3 +62,5 @@ export type {
 } from "./components/ui/reserve-chart";
 
 export * as links from "./lib/links";
+
+export { useDebounce } from "./hooks/use-debounce";

@@ -12,6 +12,7 @@ interface TimeLeft {
   hours: number;
   minutes: number;
   seconds: number;
+  isFinished: boolean;
 }
 
 export const Timer = ({ until }: TimerProps) => {
@@ -19,6 +20,7 @@ export const Timer = ({ until }: TimerProps) => {
     hours: 0,
     minutes: 0,
     seconds: 0,
+    isFinished: false,
   });
 
   useEffect(() => {
@@ -27,7 +29,7 @@ export const Timer = ({ until }: TimerProps) => {
       const untilDate = spacetime(until);
 
       if (now.isAfter(untilDate)) {
-        setTimeLeft({ hours: 0, minutes: 0, seconds: 0 });
+        setTimeLeft({ hours: 0, minutes: 0, seconds: 0, isFinished: true });
         return;
       }
 
@@ -43,7 +45,7 @@ export const Timer = ({ until }: TimerProps) => {
       );
       const seconds = Math.floor((diff.milliseconds % (1000 * 60)) / 1000);
 
-      setTimeLeft({ hours, minutes, seconds });
+      setTimeLeft({ hours, minutes, seconds, isFinished: false });
     };
 
     calculateTimeLeft();
@@ -57,16 +59,33 @@ export const Timer = ({ until }: TimerProps) => {
     return num.toString().padStart(2, "0");
   };
 
+  const formatFinishDate = () => {
+    const finishDate = spacetime(until);
+    return finishDate.format("{date-ordinal} {month}, {year}");
+  };
+
   return (
-    <div className="flex items-center gap-2 text-sm">
-      <span className="flex items-center gap-1">
-        <TimerIcon size={16} />
-        Time left:
-      </span>
-      <span className="text-muted-foreground w-20">
-        {formatNumber(timeLeft.hours)} : {formatNumber(timeLeft.minutes)} :{" "}
-        {formatNumber(timeLeft.seconds)}
-      </span>
+    <div className="flex items-center gap-2">
+      {timeLeft.isFinished ? (
+        <div className="flex items-center gap-1">
+          <TimerIcon size={16} />
+          <div className="flex items-center gap-2">
+            <span>Finished</span>
+            <span className="text-muted-foreground">{formatFinishDate()}</span>
+          </div>
+        </div>
+      ) : (
+        <>
+          <span className="flex items-center gap-1">
+            <TimerIcon size={16} />
+            Time left:
+          </span>
+          <span className="text-muted-foreground w-20">
+            {formatNumber(timeLeft.hours)} : {formatNumber(timeLeft.minutes)} :{" "}
+            {formatNumber(timeLeft.seconds)}
+          </span>
+        </>
+      )}
     </div>
   );
 };
