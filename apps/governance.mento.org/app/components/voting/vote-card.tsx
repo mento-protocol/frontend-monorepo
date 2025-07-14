@@ -663,7 +663,7 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
             </div>
 
             {/* MANUAL TEST AS PER DESIGN */}
-            <div className="flex flex-col gap-16 py-16">
+            {/* <div className="flex flex-col gap-16 py-16">
               <ProgressBar
                 mode="vote"
                 data={{
@@ -731,8 +731,8 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
                   },
                   mode: "vote",
                 }}
-              />
-            </div>
+              /> 
+            </div>*/}
 
             <div
               className={
