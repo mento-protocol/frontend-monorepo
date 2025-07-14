@@ -32,6 +32,10 @@ export function Datepicker({
   const [open, setOpen] = React.useState(false);
   const [date, setDate] = React.useState<Date | undefined>(value);
 
+  React.useEffect(() => {
+    setDate(value);
+  }, [value]);
+
   return (
     <div className="flex flex-row items-center gap-3 md:flex-col md:items-end">
       <Label htmlFor="date" className="text-muted-foreground shrink-0 px-1">

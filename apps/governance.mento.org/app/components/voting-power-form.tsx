@@ -17,6 +17,7 @@ import {
   Datepicker,
   IconLoading,
   Label,
+  Slider,
   useDebounce,
 } from "@repo/ui";
 import { format } from "date-fns";
@@ -27,7 +28,6 @@ import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
 import { CreateLockProvider } from "./lock/create-lock-provider";
 import { LockingButton } from "./lock/locking-button";
-import { ProgressBar } from "./progress-bar";
 import { WithdrawButton } from "./withdraw-button";
 
 export default function VotingPowerForm() {
@@ -54,6 +54,20 @@ export default function VotingPowerForm() {
 
   const minLockDate = useMemo(() => getFirstWednesdayAfterMinPeriod(), []);
 
+  // Generate all valid Wednesday dates from minLockDate to 2 years from now
+  const validWednesdays = useMemo(() => {
+    const wednesdays: Date[] = [];
+    let currentDate = spacetime(minLockDate);
+    const twoYearsFromNow = spacetime.now().add(2, "year");
+
+    while (currentDate.isBefore(twoYearsFromNow)) {
+      wednesdays.push(currentDate.toNativeDate());
+      currentDate = currentDate.add(1, "week");
+    }
+
+    return wednesdays;
+  }, [minLockDate]);
+
   const maxDate = useMemo(
     () =>
       spacetime
@@ -75,14 +89,35 @@ export default function VotingPowerForm() {
     mode: "onChange",
     defaultValues: {
       [LOCKING_AMOUNT_FORM_KEY]: "",
-      [LOCKING_UNLOCK_DATE_FORM_KEY]: minLockDate,
+      [LOCKING_UNLOCK_DATE_FORM_KEY]:
+        validWednesdays.length > 0 ? validWednesdays[0] : minLockDate,
     },
   });
 
-  const { control, watch, register } = methods;
+  const { control, watch, register, setValue } = methods;
 
   const amountToLock = watch(LOCKING_AMOUNT_FORM_KEY);
   const unlockDate = watch(LOCKING_UNLOCK_DATE_FORM_KEY);
+
+  // Find the index of the current unlock date in validWednesdays
+  const currentDateIndex = useMemo(() => {
+    if (!unlockDate || validWednesdays.length === 0) return 0;
+
+    // Find the closest Wednesday to the current unlock date
+    const unlockTime = unlockDate.getTime();
+    let closestIndex = 0;
+    let minDiff = Math.abs(validWednesdays[0].getTime() - unlockTime);
+
+    for (let i = 1; i < validWednesdays.length; i++) {
+      const diff = Math.abs(validWednesdays[i].getTime() - unlockTime);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestIndex = i;
+      }
+    }
+
+    return closestIndex;
+  }, [unlockDate, validWednesdays]);
 
   // Calculate duration in months from today to unlock date
   const lockDurationInMonths = useMemo(() => {
@@ -159,7 +194,7 @@ export default function VotingPowerForm() {
     <FormProvider {...methods}>
       <CreateLockProvider onLockConfirmation={refetch}>
         <div className="flex flex-col gap-8 md:flex-row md:gap-20">
-          <Card className="border-border md:max-w-1/2">
+          <Card className="border-border md:max-w-1/2 md:min-w-[420px]">
             <CardHeader className="text-2xl font-medium">Lock MENTO</CardHeader>
             <CardContent>
               <div className="bg-incard border-border dark:border-input maybe-hover:border-border-secondary focus-within:!border-primary dark:focus-within:!border-primary mb-8 flex grid-cols-12 flex-col items-start gap-4 border p-4 transition-colors md:grid md:h-[120px]">
@@ -203,20 +238,36 @@ export default function VotingPowerForm() {
                   />
                 </div>
               </div>
-              <ProgressBar
-                mode="time"
-                data={{
-                  mode: "time",
-                  labels: {
-                    start: "1 week",
-                    middle: "12 months",
-                    end: "2 years",
-                  },
-                  currentValue: lockDurationInMonths,
-                  maxValue: 24,
-                  valueLabel: `${formattedVeMentoReceived} veMENTO`,
-                }}
-              />
+              <div className="space-y-2">
+                <div className="text-muted-foreground flex justify-between text-sm">
+                  <span>Lock Duration</span>
+                  <span className="text-foreground font-medium">
+                    {formattedVeMentoReceived} veMENTO
+                  </span>
+                </div>
+                <Slider
+                  value={[currentDateIndex]}
+                  onValueChange={(values) => {
+                    const newIndex = values[0];
+                    if (newIndex >= 0 && newIndex < validWednesdays.length) {
+                      setValue(
+                        LOCKING_UNLOCK_DATE_FORM_KEY,
+                        validWednesdays[newIndex],
+                        { shouldValidate: true },
+                      );
+                    }
+                  }}
+                  min={0}
+                  max={validWednesdays.length - 1}
+                  step={1}
+                  className="my-4"
+                />
+                <div className="text-muted-foreground flex justify-between text-xs">
+                  <span>1 week</span>
+                  <span>1 year</span>
+                  <span>2 years</span>
+                </div>
+              </div>
               <div className="mb-2 mt-8 flex justify-between text-sm">
                 <span className="text-muted-foreground">
                   You receive veMENTO
