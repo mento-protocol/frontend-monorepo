@@ -311,58 +311,66 @@ export default function ProposalPage() {
           </div>
         </div>
       </div>
-      <div className="flex flex-col gap-6 md:flex-row">
-        <VoteCard proposal={proposal} votingDeadline={votingDeadline} />
-        <Card className="max-h-[420px] w-full gap-3 overflow-hidden md:w-1/3 md:max-w-md">
-          <CardHeader>
-            <CardTitle className="text-2xl">Participants</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Tabs defaultValue="for" className="max-h-[330px] overflow-auto">
-              <TabsList>
-                <TabsTrigger value="for">Approve</TabsTrigger>
-                <TabsTrigger value="against">Reject</TabsTrigger>
-                <TabsTrigger value="abstain">Abstain</TabsTrigger>
-              </TabsList>
 
-              <TabsContent value="for" className="max-h-[330px] overflow-auto">
-                <ParticipantList
-                  participants={proposal.votes.for.participants}
-                  totalVotes={proposal.votes.total}
-                  voteType="Approve"
-                />
-              </TabsContent>
+      <div className="xl:gap-22 flex flex-col gap-8 xl:w-full xl:flex-row">
+        <div className="xl:w-2/3">
+          <VoteCard proposal={proposal} votingDeadline={votingDeadline} />
 
-              <TabsContent
-                value="against"
-                className="max-h-[330px] overflow-auto"
-              >
-                <ParticipantList
-                  participants={proposal.votes.against.participants}
-                  totalVotes={proposal.votes.total}
-                  voteType="Reject"
-                />
-              </TabsContent>
+          <div className="prose prose-invert mt-16">
+            <ReactMarkdown remarkPlugins={[gfm]}>
+              {proposal.metadata?.description || ""}
+            </ReactMarkdown>
+          </div>
+        </div>
+        <div className="xl:w-1/3">
+          <Card className="bord max-h-[420px] w-full gap-3 overflow-hidden border-none">
+            <CardHeader>
+              <CardTitle className="text-2xl">Participants</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Tabs defaultValue="for" className="max-h-[330px] overflow-auto">
+                <TabsList>
+                  <TabsTrigger value="for">Approve</TabsTrigger>
+                  <TabsTrigger value="against">Reject</TabsTrigger>
+                  <TabsTrigger value="abstain">Abstain</TabsTrigger>
+                </TabsList>
 
-              <TabsContent
-                value="abstain"
-                className="max-h-[330px] overflow-auto"
-              >
-                <ParticipantList
-                  participants={proposal.votes.abstain.participants}
-                  totalVotes={proposal.votes.total}
-                  voteType="Abstain"
-                />
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
-      </div>
+                <TabsContent
+                  value="for"
+                  className="max-h-[330px] overflow-auto"
+                >
+                  <ParticipantList
+                    participants={proposal.votes.for.participants}
+                    totalVotes={proposal.votes.total}
+                    voteType="Approve"
+                  />
+                </TabsContent>
 
-      <div className="prose prose-invert mt-16">
-        <ReactMarkdown remarkPlugins={[gfm]}>
-          {proposal.metadata?.description || ""}
-        </ReactMarkdown>
+                <TabsContent
+                  value="against"
+                  className="max-h-[330px] overflow-auto"
+                >
+                  <ParticipantList
+                    participants={proposal.votes.against.participants}
+                    totalVotes={proposal.votes.total}
+                    voteType="Reject"
+                  />
+                </TabsContent>
+
+                <TabsContent
+                  value="abstain"
+                  className="max-h-[330px] overflow-auto"
+                >
+                  <ParticipantList
+                    participants={proposal.votes.abstain.participants}
+                    totalVotes={proposal.votes.total}
+                    voteType="Abstain"
+                  />
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </main>
   );
