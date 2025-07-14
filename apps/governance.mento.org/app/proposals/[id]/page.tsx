@@ -29,10 +29,15 @@ import { format } from "date-fns";
 import { Check, Copy } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import gfm from "remark-gfm";
 import { formatUnits } from "viem";
 import { useAccount, useBlock, useBlockNumber } from "wagmi";
+
+// Function to decode HTML entities
+function decodeHtmlEntities(text: string): string {
+  const textArea = document.createElement("textarea");
+  textArea.innerHTML = text;
+  return textArea.value;
+}
 
 type ParticipantListProps = {
   participants: Array<{ address: string; weight: bigint }>;
@@ -328,9 +333,15 @@ export default function ProposalPage() {
           <VoteCard proposal={proposal} votingDeadline={votingDeadline} />
 
           <div className="prose prose-invert mt-16">
-            <ReactMarkdown remarkPlugins={[gfm]}>
-              {proposal.metadata?.description || ""}
-            </ReactMarkdown>
+            {proposal.metadata?.description ? (
+              <div
+                dangerouslySetInnerHTML={{
+                  __html: decodeHtmlEntities(proposal.metadata.description),
+                }}
+              />
+            ) : (
+              <p>No description available</p>
+            )}
           </div>
         </div>
         <div className="xl:w-1/3">
