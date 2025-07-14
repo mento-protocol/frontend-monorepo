@@ -18,7 +18,7 @@ interface RelockMentoParams {
   additionalAmountToLock?: bigint;
   newSlope: number;
   newCliff?: number;
-  lock: LockWithExpiration;
+  lock?: LockWithExpiration;
   onConfirmation?: () => void;
 }
 
@@ -43,6 +43,12 @@ const useRelockMento = ({
 
   const lockingArgs = React.useMemo(() => {
     if (!lock || !lockedBalance || typeof newSlope !== "number") return null;
+
+    // Ensure lock has required properties
+    if (!lock.lockId || !lock.owner?.id || lock.cliff === undefined) {
+      console.warn("Lock object is missing required properties");
+      return null;
+    }
 
     const newTotalLockedAmount = (additionalAmountToLock ?? 0n) + lockedBalance;
     return [
@@ -95,7 +101,15 @@ const useRelockMento = ({
       onSuccess?: () => void;
       onError?: (error?: WriteContractErrorType) => void;
     } = {}) => {
-      if (!lockingConfig) return;
+      if (!lockingConfig) {
+        const error = new Error(
+          "Cannot relock: missing or invalid lock configuration",
+        );
+        console.error(error);
+        onError?.(error as WriteContractErrorType);
+        return;
+      }
+
       writeContract(lockingConfig, {
         onSuccess,
         onError: (error) => {
@@ -106,8 +120,8 @@ const useRelockMento = ({
           Sentry.captureException(error, {
             data: {
               function: "useRelockMento",
-              lockId: lock.lockId,
-              user: lock.owner?.id,
+              lockId: lock?.lockId,
+              user: lock?.owner?.id,
               contract: contracts.Locking.address,
               contractArgs: JSON.stringify(lockingArgs),
             },
@@ -118,8 +132,8 @@ const useRelockMento = ({
     },
     [
       contracts.Locking.address,
-      lock.lockId,
-      lock.owner?.id,
+      lock?.lockId,
+      lock?.owner?.id,
       lockingArgs,
       lockingConfig,
       writeContract,
@@ -127,7 +141,7 @@ const useRelockMento = ({
   );
 
   return {
-    canRelock: simulation.isSuccess,
+    canRelock: !!lock && simulation.isSuccess,
     hash: data,
     relockMento,
     isAwaitingUserSignature,
