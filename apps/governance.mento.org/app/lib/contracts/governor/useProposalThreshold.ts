@@ -7,7 +7,7 @@ export const useProposalThreshold = () => {
   const ensuredChainId = useEnsureChainId();
   const { MentoGovernor } = useContracts();
 
-  const { data: proposalThreshold } = useReadContract({
+  const { data: proposalThreshold, isLoading } = useReadContract({
     address: MentoGovernor.address,
     abi: GovernorABI,
     functionName: "proposalThreshold",
@@ -17,5 +17,6 @@ export const useProposalThreshold = () => {
 
   return {
     proposalThreshold: proposalThreshold ?? 0n,
+    isLoadingProposalThreshold: isLoading,
   };
 };

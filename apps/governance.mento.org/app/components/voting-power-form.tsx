@@ -42,14 +42,14 @@ export default function VotingPowerForm() {
   // Find the first Wednesday that's at least 1 week from now
   const getFirstWednesdayAfterMinPeriod = () => {
     // Start with a date 1 week from now
-    const minDate = spacetime.now().add(MIN_LOCK_PERIOD_WEEKS, "week");
+    let targetDate = spacetime.now().add(MIN_LOCK_PERIOD_WEEKS, "week");
 
     // Find the next Wednesday (day 3 in spacetime, where 0 is Sunday)
-    while (minDate.day() !== 3) {
-      minDate.add(1, "day");
+    while (targetDate.day() !== 3) {
+      targetDate = targetDate.add(1, "day");
     }
 
-    return minDate.toNativeDate();
+    return targetDate.toNativeDate();
   };
 
   const minLockDate = useMemo(() => getFirstWednesdayAfterMinPeriod(), []);
@@ -162,7 +162,7 @@ export default function VotingPowerForm() {
           <Card className="border-border md:max-w-1/2">
             <CardHeader className="text-2xl font-medium">Lock MENTO</CardHeader>
             <CardContent>
-              <div className="bg-incard border-border dark:border-input maybe-hover:border-border-secondary focus-within:!border-primary dark:focus-within:!border-primary mb-8 flex grid-cols-12 flex-col gap-4 border p-4 transition-colors md:grid md:h-[120px]">
+              <div className="bg-incard border-border dark:border-input maybe-hover:border-border-secondary focus-within:!border-primary dark:focus-within:!border-primary mb-8 flex grid-cols-12 flex-col items-start gap-4 border p-4 transition-colors md:grid md:h-[120px]">
                 <div className="col-span-8 flex flex-col gap-2">
                   <Label>MENTO to lock</Label>
                   <CoinInput

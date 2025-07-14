@@ -27,7 +27,7 @@ export const TxDialog = ({
       onOpenChange={(open) => !open && onClose()}
       data-testid={dataTestId}
     >
-      <DialogContent>
+      <DialogContent onPointerDownOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>

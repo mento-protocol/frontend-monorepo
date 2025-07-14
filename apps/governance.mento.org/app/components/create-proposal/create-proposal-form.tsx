@@ -13,6 +13,7 @@ import {
   CardContent,
   CardHeader,
   cn,
+  IconLoading,
   Input,
   Label,
   RichTextEditor,
@@ -381,7 +382,7 @@ const ReviewStep = () => {
         className="mb-2 text-lg font-medium md:mb-4 md:text-3xl"
         data-testid="reviewStageLabel"
       >
-        Review
+        Review - {newProposal.title}
       </h2>
       <p className="text-muted-foreground mb-8 text-sm">
         You're successfully finished all the steps. Now, take a moment to go
@@ -427,21 +428,14 @@ const ReviewStep = () => {
 function CreateProposalSteps() {
   const { step } = useCreateProposal();
   const { isConnected } = useAccount();
-  const { veMentoBalance, mentoBalance } = useTokens();
-  const { proposalThreshold } = useProposalThreshold();
+  const { veMentoBalance, mentoBalance, isBalanceLoading } = useTokens();
+  const { proposalThreshold, isLoadingProposalThreshold } =
+    useProposalThreshold();
 
   const [direction, setDirection] = useState<"buy" | "lock" | undefined>();
 
   useEffect(() => {
-    if (
-      isConnected &&
-      proposalThreshold &&
-      veMentoBalance.value &&
-      mentoBalance.value
-    ) {
-      console.log("proposalThreshold", proposalThreshold);
-      console.log("veMentoBalance.value", veMentoBalance.value);
-      console.log("mentoBalance.value", mentoBalance.value);
+    if (isConnected && proposalThreshold && veMentoBalance && mentoBalance) {
       if (veMentoBalance.value <= proposalThreshold) {
         if (mentoBalance.value == 0n) {
           setDirection("buy");
@@ -456,6 +450,14 @@ function CreateProposalSteps() {
     proposalThreshold,
     mentoBalance.value,
   ]);
+
+  if (isBalanceLoading || isLoadingProposalThreshold) {
+    return (
+      <div className="flex h-full min-h-[188px] items-center justify-center">
+        <IconLoading />
+      </div>
+    );
+  }
 
   if (direction === "lock") {
     return (
