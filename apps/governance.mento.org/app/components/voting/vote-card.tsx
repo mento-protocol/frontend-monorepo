@@ -43,7 +43,7 @@ export const REVERSE_VOTE_TYPE_MAP = {
   [VOTE_TYPES.Abstain]: "Abstain",
 } as const;
 
-const cardClassName = "md:max-w-2/3 w-full space-y-8 pt-0";
+const cardClassName = "w-full space-y-8 pt-0 border-none";
 
 export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
   const { address, isConnecting, isConnected, chainId } = useAccount();
