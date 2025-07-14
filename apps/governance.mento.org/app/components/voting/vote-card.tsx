@@ -43,7 +43,7 @@ export const REVERSE_VOTE_TYPE_MAP = {
   [VOTE_TYPES.Abstain]: "Abstain",
 } as const;
 
-const cardClassName = "w-full space-y-8 pt-0 border-none";
+const cardClassName = "w-full pt-0 border-none gap-0 pb-0";
 
 export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
   const { address, isConnecting, isConnected, chainId } = useAccount();
@@ -601,7 +601,7 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
   return (
     <Card className={cardClassName}>
       {showHeader && (
-        <CardHeader className="bg-incard mb-0 flex h-14 items-center justify-between">
+        <CardHeader className="bg-incard mb-0 flex flex-col items-start justify-between gap-2 p-4 md:flex-row md:items-center xl:px-8 xl:py-6">
           <div className="flex items-center gap-8">
             {votingDeadline && <Timer until={votingDeadline} />}
 
@@ -635,7 +635,7 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
         className={
           currentState === "loading"
             ? "flex items-center justify-center py-16"
-            : "space-y-8"
+            : "space-y-8 p-4 xl:p-8"
         }
       >
         {renderSpecialContent()}
@@ -658,8 +658,79 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
               )}
             </div>
 
-            <div className="py-4">
+            <div className="py-0">
               <ProgressBar mode="vote" data={voteData} />
+            </div>
+
+            {/* MANUAL TEST AS PER DESIGN */}
+            <div className="flex flex-col gap-16 py-16">
+              <ProgressBar
+                mode="vote"
+                data={{
+                  approve: {
+                    value: "920K",
+                    percentage: 76.7,
+                  },
+                  reject: {
+                    value: "280K",
+                    percentage: 23.3,
+                  },
+                  mode: "vote",
+                }}
+              />
+
+              <ProgressBar
+                mode="vote"
+                data={{
+                  approve: {
+                    value: "770K",
+                    percentage: 100,
+                  },
+                  reject: {
+                    value: "0",
+                    percentage: 0,
+                  },
+                  mode: "vote",
+                }}
+              />
+
+              <ProgressBar
+                mode="vote"
+                data={{
+                  approve: {
+                    value: "70K",
+                    percentage: 16.7,
+                  },
+                  reject: {
+                    value: "80K",
+                    percentage: 23.3,
+                  },
+                  abstain: {
+                    value: "620K",
+                    percentage: 76.7,
+                  },
+                  mode: "vote",
+                }}
+              />
+
+              <ProgressBar
+                mode="vote"
+                data={{
+                  approve: {
+                    value: "220K",
+                    percentage: 76.7,
+                  },
+                  reject: {
+                    value: "5",
+                    percentage: 0.0016,
+                  },
+                  abstain: {
+                    value: "80K",
+                    percentage: 23.3,
+                  },
+                  mode: "vote",
+                }}
+              />
             </div>
 
             <div

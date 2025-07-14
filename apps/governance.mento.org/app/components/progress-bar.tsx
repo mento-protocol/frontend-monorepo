@@ -5,7 +5,7 @@ import { cn } from "@repo/ui";
 
 interface ProgressSegmentProps {
   filled: boolean;
-  color: "approve" | "reject" | "abstain" | "time";
+  color: "approve" | "reject" | "abstain" | "time" | "gray";
   isPartial?: boolean;
   mode: "vote" | "time";
   selected?: boolean;
@@ -24,7 +24,8 @@ const ProgressSegment = ({
         "aspect-square transition-all duration-200",
         filled && !isPartial && color === "approve" && "bg-success",
         filled && !isPartial && color === "reject" && "bg-destructive",
-        filled && !isPartial && color === "abstain" && "bg-muted",
+        filled && !isPartial && color === "abstain" && "bg-white",
+        filled && !isPartial && color === "gray" && "bg-muted",
         filled && !isPartial && color === "time" && "bg-primary",
         isPartial && color === "abstain" && "bg-muted",
         isPartial && color === "time" && "bg-primary",
@@ -109,21 +110,39 @@ export const ProgressBar = ({ mode, data, className }: ProgressBarProps) => {
       : 0;
     const rejectSegments = segmentCount - approveSegments - abstainSegments;
 
-    // Create segments array
+    // console.log("approveSegments: ", approveSegments);
+    // console.log("abstainSegments: ", abstainSegments);
+    // console.log("rejectSegments: ", rejectSegments);
+
     const segments: ProgressSegmentProps[] = [];
-    for (let i = 0; i < approveSegments; i++) {
-      segments.push({ filled: true, color: "approve", mode: "vote" });
-    }
-    for (let i = 0; i < abstainSegments; i++) {
-      segments.push({ filled: true, color: "abstain", mode: "vote" });
-    }
-    for (let i = 0; i < rejectSegments; i++) {
-      segments.push({ filled: true, color: "reject", mode: "vote" });
+
+    // Gray Segments if abstain is more than approve and reject
+    if (abstainSegments > approveSegments + rejectSegments) {
+      for (let i = 0; i < approveSegments; i++) {
+        segments.push({ filled: true, color: "gray", mode: "vote" });
+      }
+      for (let i = 0; i < abstainSegments; i++) {
+        segments.push({ filled: true, color: "abstain", mode: "vote" });
+      }
+      for (let i = 0; i < rejectSegments; i++) {
+        segments.push({ filled: true, color: "gray", mode: "vote" });
+      }
+    } else {
+      // Create segments array
+      for (let i = 0; i < approveSegments; i++) {
+        segments.push({ filled: true, color: "approve", mode: "vote" });
+      }
+      for (let i = 0; i < abstainSegments; i++) {
+        segments.push({ filled: true, color: "abstain", mode: "vote" });
+      }
+      for (let i = 0; i < rejectSegments; i++) {
+        segments.push({ filled: true, color: "reject", mode: "vote" });
+      }
     }
 
     return (
       <div className={cn("space-y-4", className)}>
-        <div className="flex justify-between text-sm">
+        <div className="flex flex-col justify-between gap-2 text-sm xl:flex-row">
           <div className="flex items-center gap-2">
             <span className="text-success">Approve:</span>
             <span className="text-success">
@@ -136,8 +155,8 @@ export const ProgressBar = ({ mode, data, className }: ProgressBarProps) => {
 
           {(data as VoteData).abstain && (
             <div className="flex items-center gap-2">
-              <span className="text-muted-foreground">Abstain:</span>
-              <span className="text-muted-foreground">
+              <span className="text-white">Abstain:</span>
+              <span className="text-white">
                 {(data as VoteData).abstain?.value}
               </span>
               <span className="text-muted-foreground">
