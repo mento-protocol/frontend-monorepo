@@ -9,6 +9,7 @@ interface ProgressSegmentProps {
   isPartial?: boolean;
   mode: "vote" | "time";
   selected?: boolean;
+  quorumNotMet?: boolean;
 }
 
 const ProgressSegment = ({
@@ -17,22 +18,38 @@ const ProgressSegment = ({
   isPartial = false,
   mode,
   selected,
-}: ProgressSegmentProps) => {
+  quorumNotMet,
+}: ProgressSegmentProps & { quorumNotMet?: boolean }) => {
   return (
     <div
       className={cn(
         "aspect-square transition-all duration-200",
-        filled && !isPartial && color === "approve" && "bg-success",
-        filled && !isPartial && color === "reject" && "bg-destructive",
-        filled && !isPartial && color === "abstain" && "bg-white",
-        filled && !isPartial && color === "gray" && "bg-muted",
-        filled && !isPartial && color === "time" && "bg-primary",
-        isPartial && color === "abstain" && "bg-muted",
-        isPartial && color === "time" && "bg-primary",
-        !filled && "bg-muted-foreground",
-        mode === "vote" && "h-1 w-1",
-        mode === "time" && "h-2 w-2",
-        selected && "bg-foreground h-3 w-3",
+        quorumNotMet
+          ? [
+              filled && !isPartial && color === "approve" && "bg-white",
+              filled && !isPartial && color === "reject" && "bg-muted",
+              filled && !isPartial && color === "abstain" && "bg-muted",
+              filled && !isPartial && color === "gray" && "bg-muted",
+              filled && !isPartial && color === "time" && "bg-white",
+              isPartial && "bg-muted",
+              !filled && "bg-muted-foreground",
+              mode === "vote" && "h-1 w-1",
+              mode === "time" && "h-2 w-2",
+              selected && "h-3 w-3 bg-white",
+            ]
+          : [
+              filled && !isPartial && color === "approve" && "bg-success",
+              filled && !isPartial && color === "reject" && "bg-destructive",
+              filled && !isPartial && color === "abstain" && "bg-white",
+              filled && !isPartial && color === "gray" && "bg-muted",
+              filled && !isPartial && color === "time" && "bg-primary",
+              isPartial && color === "abstain" && "bg-muted",
+              isPartial && color === "time" && "bg-primary",
+              !filled && "bg-muted-foreground",
+              mode === "vote" && "h-1 w-1",
+              mode === "time" && "h-2 w-2",
+              selected && "bg-foreground h-3 w-3",
+            ],
       )}
     />
   );
@@ -61,9 +78,15 @@ interface ProgressBarProps {
   mode: "vote" | "time";
   data: VoteData | TimeData;
   className?: string;
+  quorumNotMet?: boolean;
 }
 
-export const ProgressBar = ({ mode, data, className }: ProgressBarProps) => {
+export const ProgressBar = ({
+  mode,
+  data,
+  className,
+  quorumNotMet,
+}: ProgressBarProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [segmentCount, setSegmentCount] = useState(50);
 
@@ -141,11 +164,15 @@ export const ProgressBar = ({ mode, data, className }: ProgressBarProps) => {
     }
 
     return (
-      <div className={cn("space-y-4", className)}>
+      <div
+        className={cn("space-y-4", quorumNotMet && "quorum-not-met", className)}
+      >
         <div className="flex flex-col justify-between gap-2 text-sm xl:flex-row">
           <div className="flex items-center gap-2">
-            <span className="text-success">Approve:</span>
-            <span className="text-success">
+            <span className={cn(quorumNotMet ? "text-white" : "text-success")}>
+              Approve:
+            </span>
+            <span className={cn(quorumNotMet ? "text-white" : "text-success")}>
               {(data as VoteData).approve.value}
             </span>
             <span className="text-muted-foreground">
@@ -166,8 +193,14 @@ export const ProgressBar = ({ mode, data, className }: ProgressBarProps) => {
           )}
 
           <div className="flex items-center gap-2">
-            <span className="text-destructive">Reject:</span>
-            <span className="text-destructive">
+            <span
+              className={cn(quorumNotMet ? "text-white" : "text-destructive")}
+            >
+              Reject:
+            </span>
+            <span
+              className={cn(quorumNotMet ? "text-white" : "text-destructive")}
+            >
               {(data as VoteData).reject.value}
             </span>
             <span className="text-muted-foreground">
@@ -181,7 +214,12 @@ export const ProgressBar = ({ mode, data, className }: ProgressBarProps) => {
           className="flex items-center gap-1.5 overflow-hidden"
         >
           {segments.map((segment, index) => (
-            <ProgressSegment key={index} {...segment} mode="vote" />
+            <ProgressSegment
+              key={index}
+              {...segment}
+              mode="vote"
+              quorumNotMet={quorumNotMet}
+            />
           ))}
         </div>
       </div>
