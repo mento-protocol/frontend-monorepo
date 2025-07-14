@@ -23,9 +23,10 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  toast,
 } from "@repo/ui";
 import { format } from "date-fns";
-import { Copy } from "lucide-react";
+import { Check, Copy } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
@@ -149,6 +150,7 @@ export default function ProposalPage() {
   const id = params.id as string;
   const { proposal } = useProposal(BigInt(id));
   const { chainId } = useAccount();
+  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
 
   const { data: currentBlock } = useBlockNumber({
     chainId: ensureChainId(chainId),
@@ -253,7 +255,16 @@ export default function ProposalPage() {
   };
 
   const handleCopyAddress = () => {
-    navigator.clipboard.writeText(proposal.proposer.id);
+    try {
+      navigator.clipboard.writeText(proposal.proposer.id);
+      toast.success("Address copied to clipboard", { duration: 2000 });
+      setCopiedAddress(proposal.proposer.id);
+      setTimeout(() => {
+        setCopiedAddress(null);
+      }, 2000);
+    } catch (error) {
+      console.error("Failed to copy address", error);
+    }
   };
 
   return (
@@ -288,11 +299,11 @@ export default function ProposalPage() {
             </span>
             <Button
               variant="ghost"
-              size="xs"
-              className="text-secondary-active h-4 w-4"
+              size="icon"
+              className="text-secondary-active hover:text-secondary-active/75 h-4 w-4"
               onClick={handleCopyAddress}
             >
-              <Copy />
+              {copiedAddress === proposal.proposer.id ? <Check /> : <Copy />}
             </Button>
           </div>
           <div className="flex items-center gap-2">
