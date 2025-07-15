@@ -663,7 +663,10 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
         {!["loading", "confirming", "signing"].includes(currentState) && (
           <>
             <div className="space-y-4">
-              <CardTitle className="flex items-center gap-2 text-3xl font-medium text-white">
+              <CardTitle
+                className="flex items-center gap-2 text-3xl font-medium text-white"
+                data-testid="voteStatus"
+              >
                 {isApproved && <CircleCheck size={32} />}
                 {isRejected && <XCircle size={32} />}
                 {title}
