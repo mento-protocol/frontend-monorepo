@@ -8,6 +8,7 @@ import {
   BreadcrumbLink,
   BreadcrumbList,
   BreadcrumbSeparator,
+  BreadcrumbPage,
   Button,
   Card,
   CardContent,
@@ -580,7 +581,7 @@ function ProposalBreadcrumb() {
               className={cn(
                 "cursor-pointer",
                 step < CreateProposalStep.preview &&
-                  "pointer-events-none opacity-75",
+                  "text-primary pointer-events-none",
               )}
             >
               Review
