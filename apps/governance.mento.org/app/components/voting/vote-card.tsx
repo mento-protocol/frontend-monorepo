@@ -578,9 +578,19 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
       return (
         <div className="flex flex-col items-center gap-4">
           <IconLoading />
-          <p className="text-muted-foreground">{getLoadingText()}</p>
+          <p
+            className="text-muted-foreground"
+            data-testid={
+              currentState === "signing" && "waitingForConfirmationLabel"
+            }
+          >
+            {getLoadingText()}
+          </p>
           {currentState === "signing" && (
-            <p className="text-muted-foreground text-sm">
+            <p
+              className="text-muted-foreground text-sm"
+              data-testid="waitingForConfirmationDescriptionLabel"
+            >
               You are voting to{" "}
               {variables?.args?.[1] === 1
                 ? "Approve"
