@@ -197,7 +197,7 @@ export default function VotingPowerForm() {
           <Card className="border-border md:max-w-1/2 md:min-w-[420px]">
             <CardHeader className="text-2xl font-medium">Lock MENTO</CardHeader>
             <CardContent>
-              <div className="bg-incard border-border dark:border-input maybe-hover:border-border-secondary focus-within:!border-primary dark:focus-within:!border-primary mb-8 flex grid-cols-12 flex-col items-start gap-4 border p-4 transition-colors md:grid md:h-[120px]">
+              <div className="bg-incard border-border dark:border-input maybe-hover:border-border-secondary focus-within:!border-primary dark:focus-within:!border-primary mb-8 flex grid-cols-12 flex-col items-start gap-4 border p-4 transition-colors md:grid md:min-h-[120px]">
                 <div className="col-span-8 flex flex-col gap-2">
                   <Label>MENTO to lock</Label>
                   <CoinInput
