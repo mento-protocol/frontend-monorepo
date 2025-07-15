@@ -547,6 +547,12 @@ function ProposalBreadcrumb() {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
+            <BreadcrumbLink href="/">Home</BreadcrumbLink>
+          </BreadcrumbItem>
+
+          <BreadcrumbSeparator />
+
+          <BreadcrumbItem>
             <BreadcrumbLink
               onClick={() => setStep(CreateProposalStep.content)}
               className={cn(
