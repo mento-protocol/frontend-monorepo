@@ -36,12 +36,12 @@ export default function VotingPowerForm() {
     useLockInfo(address);
   const { veMentoBalance, mentoBalance } = useTokens();
 
-  // Define minimum lock period as 3 weeks, only on Wednesdays
-  const MIN_LOCK_PERIOD_WEEKS = 3;
+  // Define minimum lock period as 1 weeks, only on Wednesdays
+  const MIN_LOCK_PERIOD_WEEKS = 1;
 
-  // Find the first Wednesday that's at least 3 weeks from now
+  // Find the first Wednesday that's at least 1 weeks from now
   const getFirstWednesdayAfterMinPeriod = () => {
-    // Start with a date 3 weeks from now
+    // Start with a date 1 weeks from now
     let targetDate = spacetime.now().add(MIN_LOCK_PERIOD_WEEKS, "week");
 
     // Find the next Wednesday (day 3 in spacetime, where 0 is Sunday)
