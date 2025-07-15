@@ -1,7 +1,6 @@
 "use client";
 import useProposals from "@/lib/contracts/governor/use-proposals";
 import NumbersService from "@/lib/helpers/numbers";
-import { ProposalState } from "@/lib/graphql";
 import { ensureChainId } from "@/lib/helpers/ensure-chain-id";
 import {
   Button,
@@ -178,7 +177,10 @@ export const ProposalList = () => {
               <ProposalListItemBody>
                 <ProposalStatus variant={derivedState as any} />
                 <Link href={`/proposals/${proposalId}`}>
-                  <h3 className="text-lg leading-5 text-white">
+                  <h3
+                    className="text-lg leading-5 text-white"
+                    data-testid={`proposal_${metadata.title}`}
+                  >
                     {metadata.title}
                   </h3>
                 </Link>
