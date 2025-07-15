@@ -99,7 +99,7 @@ const ConnectedDropdown = ({
   const iconStrokeWidth = 1.5;
 
   return (
-    <DropdownMenu>
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
