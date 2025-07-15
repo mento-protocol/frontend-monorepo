@@ -582,16 +582,9 @@ function ProposalBreadcrumb() {
           <BreadcrumbSeparator />
 
           <BreadcrumbItem>
-            <BreadcrumbLink
-              onClick={() => setStep(CreateProposalStep.preview)}
-              className={cn(
-                "cursor-pointer",
-                step < CreateProposalStep.preview &&
-                  "text-primary pointer-events-none",
-              )}
-            >
+            <BreadcrumbPage className="text-primary pointer-events-none">
               Review
-            </BreadcrumbLink>
+            </BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>

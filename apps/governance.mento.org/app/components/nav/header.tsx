@@ -2,7 +2,18 @@
 
 import { ConnectButton } from "../connect-button";
 
-import { Logo } from "@repo/ui";
+import {
+  Logo,
+  NavigationMenu,
+  NavigationMenuList,
+  NavigationMenuItem,
+  NavigationMenuContent,
+  NavigationMenuTrigger,
+  NavigationMenuLink,
+  NavigationMenuIndicator,
+  NavigationMenuViewport,
+  navigationMenuTriggerStyle,
+} from "@repo/ui";
 
 export function Header() {
   return (
@@ -21,6 +32,16 @@ export function Header() {
           <ConnectButton />
         </div>
       </div>
+      {/* <NavigationMenu>
+        <NavigationMenuList>
+          <NavigationMenuItem>
+            <NavigationMenuTrigger>Item One</NavigationMenuTrigger>
+            <NavigationMenuContent>
+              <NavigationMenuLink>Link</NavigationMenuLink>
+            </NavigationMenuContent>
+          </NavigationMenuItem>
+        </NavigationMenuList>
+      </NavigationMenu> */}
     </header>
   );
 }
