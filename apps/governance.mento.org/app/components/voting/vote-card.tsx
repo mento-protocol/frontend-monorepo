@@ -20,7 +20,7 @@ import {
 import * as Sentry from "@sentry/nextjs";
 import { CheckCircle2, CircleCheck, XCircle } from "lucide-react";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useEffect, useState } from "react";
 import { formatUnits } from "viem";
 import { useAccount, useBlockNumber } from "wagmi";
 import { ensureChainId } from "@/lib/helpers/ensure-chain-id";
@@ -51,11 +51,14 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
   const { data: currentBlock } = useBlockNumber({
     chainId: ensureChainId(chainId),
   });
-  const { data: voteReceipt, isLoading: isHasVotedStatusLoading } =
-    useVoteReceipt({
-      proposalId: proposal.proposalId,
-      address,
-    });
+  const {
+    data: voteReceipt,
+    isLoading: isHasVotedStatusLoading,
+    refetch: refetchVoteReceipt,
+  } = useVoteReceipt({
+    proposalId: proposal.proposalId,
+    address,
+  });
   const {
     hash,
     castVote,
@@ -69,6 +72,35 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
 
   const hasEnoughLockedMentoToVote = veMentoBalance.value > 0;
   const isInitializing = isConnecting || isHasVotedStatusLoading;
+
+  // Track if deadline has passed in real-time
+  const [isDeadlinePassed, setIsDeadlinePassed] = useState(
+    votingDeadline ? new Date() > votingDeadline : false,
+  );
+
+  // Update deadline status every second
+  useEffect(() => {
+    if (!votingDeadline) return;
+
+    const checkDeadline = () => {
+      setIsDeadlinePassed(new Date() > votingDeadline);
+    };
+
+    // Check immediately
+    checkDeadline();
+
+    // Then check every second
+    const interval = setInterval(checkDeadline, 1000);
+
+    return () => clearInterval(interval);
+  }, [votingDeadline]);
+
+  // Refetch vote receipt when transaction is confirmed
+  useEffect(() => {
+    if (isConfirmed) {
+      refetchVoteReceipt();
+    }
+  }, [isConfirmed, refetchVoteReceipt]);
 
   const formattedVeMentoBalance = useMemo(() => {
     return Number(formatUnits(veMentoBalance.value, 18)).toLocaleString();
@@ -195,8 +227,7 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
   const derivedState = getDerivedProposalState();
 
   const isVotingOpen =
-    derivedState === ProposalState.Active &&
-    !(new Date() > (votingDeadline || new Date()));
+    derivedState === ProposalState.Active && !isDeadlinePassed;
   const isApproved =
     derivedState === ProposalState.Succeeded ||
     derivedState === ProposalState.Queued ||
@@ -212,13 +243,17 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
   // Determine the current UI state
   const currentState = useMemo(() => {
     if (isInitializing) return "loading";
-    if (isConfirmed) return "confirmed";
     if (isConfirming) return "confirming";
     if (isAwaitingUserSignature) return "signing";
-    if (voteReceipt?.hasVoted) return "voted";
+    if (voteReceipt?.hasVoted || isConfirmed) return "voted";
 
     // Check if proposal is in a votable state before checking for insufficient MENTO
     if (!isVotingOpen) {
+      // If deadline has passed while proposal is still Active, show finished state
+      if (derivedState === ProposalState.Active && isDeadlinePassed) {
+        return "finished";
+      }
+
       // Return specific states based on the actual proposal state
       switch (derivedState) {
         case ProposalState.Executed:
@@ -251,6 +286,7 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
     isConnected,
     isVotingOpen,
     derivedState,
+    isDeadlinePassed,
   ]);
 
   // Get title based on state
@@ -258,8 +294,6 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
     switch (currentState) {
       case "loading":
         return null;
-      case "confirmed":
-        return "Vote Success";
       case "confirming":
         return "Vote Submitted";
       case "signing":
@@ -284,7 +318,7 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
         return "Voting Finished";
       default:
         if (isVotingOpen) return "Voting Open";
-        return "Voting Open";
+        return "Voting Finished";
     }
   }, [currentState, isVotingOpen, isAbstained, isQuorumNotMet]);
 
@@ -293,7 +327,6 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
     switch (currentState) {
       case "loading":
         return null;
-      case "confirmed":
       case "confirming":
         return null;
       case "signing":
@@ -395,7 +428,7 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
   }, [currentState, isVotingOpen, forVotes, againstVotes, abstainVotes]);
 
   // Show header based on state
-  const showHeader = !["loading", "confirming", "confirmed"].includes(
+  const showHeader = !["loading", "confirming", "signing"].includes(
     currentState,
   );
   const showQuorumStatus = currentState === "voted" || currentState === "ready";
@@ -405,7 +438,6 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
     switch (currentState) {
       case "loading":
       case "confirming":
-      case "confirmed":
       case "signing":
         return null;
 
@@ -480,6 +512,7 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
               onClick={() => handleVote(1)}
               disabled={
                 derivedState !== ProposalState.Active ||
+                isDeadlinePassed ||
                 isAwaitingUserSignature ||
                 isConfirming
               }
@@ -493,6 +526,7 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
               onClick={() => handleVote(2)}
               disabled={
                 derivedState !== ProposalState.Active ||
+                isDeadlinePassed ||
                 isAwaitingUserSignature ||
                 isConfirming
               }
@@ -506,6 +540,7 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
               onClick={() => handleVote(0)}
               disabled={
                 derivedState !== ProposalState.Active ||
+                isDeadlinePassed ||
                 isAwaitingUserSignature ||
                 isConfirming
               }
@@ -521,25 +556,31 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
     }
   };
 
-  // Special content for certain states
-  const renderSpecialContent = () => {
+  // Get loading text based on state
+  const getLoadingText = () => {
     switch (currentState) {
       case "loading":
-        return (
-          <div className="flex flex-col items-center gap-4">
-            <IconLoading />
-            <p className="text-muted-foreground">
-              Loading voting information...
-            </p>
-          </div>
-        );
-
+        return "Loading voting information...";
       case "signing":
-        return (
-          <div className="flex flex-col items-center justify-center gap-4 py-8">
-            <div className="border-primary h-12 w-12 animate-spin rounded-full border-4 border-t-transparent"></div>
-            <p className="text-lg font-medium">Waiting for confirmation...</p>
-            <p className="text-muted-foreground">
+        return "Waiting for confirmation...";
+      case "confirming":
+        return "Your vote is being processed";
+      default:
+        return "";
+    }
+  };
+
+  // Special content for certain states
+  const renderSpecialContent = () => {
+    const loadingStates = ["loading", "signing", "confirming"];
+
+    if (loadingStates.includes(currentState)) {
+      return (
+        <div className="flex flex-col items-center gap-4">
+          <IconLoading />
+          <p className="text-muted-foreground">{getLoadingText()}</p>
+          {currentState === "signing" && (
+            <p className="text-muted-foreground text-sm">
               You are voting to{" "}
               {variables?.args?.[1] === 1
                 ? "Approve"
@@ -548,44 +589,23 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
                   : "Abstain"}{" "}
               on this proposal
             </p>
-          </div>
-        );
-
-      case "confirming":
-      case "confirmed":
-        return (
-          <div className="mt-4 flex flex-col items-center gap-4 text-center">
-            <CardTitle
-              className="text-3xl font-medium text-white"
-              data-testid="proposalStateLabel"
-            >
-              {title}
-            </CardTitle>
-            <div className="h-20 w-20 rounded-full bg-green-100 p-4 text-green-600">
-              <CheckCircle2 className="h-full w-full" />
-            </div>
-            <p className="text-muted-foreground">
-              {currentState === "confirming"
-                ? "Your vote is being processed"
-                : null}
-            </p>
-            {hash && (
-              <Button variant="outline" size="sm" asChild>
-                <a
-                  href={`https://explorer.celo.org/mainnet/tx/${hash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  View on explorer
-                </a>
-              </Button>
-            )}
-          </div>
-        );
-
-      default:
-        return null;
+          )}
+          {currentState === "confirming" && hash && (
+            <Button variant="outline" size="sm" asChild className="mt-2">
+              <a
+                href={`https://explorer.celo.org/mainnet/tx/${hash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                View on explorer
+              </a>
+            </Button>
+          )}
+        </div>
+      );
     }
+
+    return null;
   };
 
   console.log("DEBUG", {
@@ -633,16 +653,14 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
 
       <CardContent
         className={
-          currentState === "loading"
+          ["loading", "signing", "confirming"].includes(currentState)
             ? "flex items-center justify-center py-16"
             : "space-y-8 p-4 xl:p-8"
         }
       >
         {renderSpecialContent()}
 
-        {!["loading", "confirming", "confirmed", "signing"].includes(
-          currentState,
-        ) && (
+        {!["loading", "confirming", "signing"].includes(currentState) && (
           <>
             <div className="space-y-4">
               <CardTitle className="flex items-center gap-2 text-3xl font-medium text-white">
