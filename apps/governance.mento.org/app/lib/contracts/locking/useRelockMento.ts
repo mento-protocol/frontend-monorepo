@@ -89,7 +89,23 @@ const useRelockMento = ({
     if (isConfirmed && onConfirmation) {
       refetchLockedBalance();
       restWrite.reset();
+
       onConfirmation();
+
+      const timeout1 = setTimeout(() => {
+        refetchLockedBalance();
+        onConfirmation();
+      }, 2000);
+
+      const timeout2 = setTimeout(() => {
+        refetchLockedBalance();
+        onConfirmation();
+      }, 5000);
+
+      return () => {
+        clearTimeout(timeout1);
+        clearTimeout(timeout2);
+      };
     }
   }, [isConfirmed, onConfirmation, restWrite, refetchLockedBalance]);
 

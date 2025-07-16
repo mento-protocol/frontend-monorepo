@@ -160,6 +160,12 @@ export default function VotingPowerForm() {
     return Number(formatUnits(veMentoBalance.value, 18)).toLocaleString();
   }, [veMentoBalance.value]);
 
+  const formattedLock = useMemo(() => {
+    return lock?.amount
+      ? Number(formatUnits(lock.amount, 18)).toLocaleString()
+      : "0";
+  }, [lock?.amount]);
+
   const formattedUnlockedMento = useMemo(() => {
     return Number(unlockedMento).toLocaleString();
   }, [unlockedMento]);
@@ -296,6 +302,13 @@ export default function VotingPowerForm() {
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">veMENTO</span>
                       <span>{formattedVeMentoBalance}</span>
+                    </div>
+                    <hr className="border-border h-full" />
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">
+                        Locked MENTO
+                      </span>
+                      <span>{formattedLock}</span>
                     </div>
                     <hr className="border-border h-full" />
                     <div className="flex justify-between">

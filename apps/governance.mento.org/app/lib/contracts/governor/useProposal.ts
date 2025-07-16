@@ -25,6 +25,7 @@ const useProposal = (proposalId: bigint) => {
   const {
     data: { proposals: graphProposals } = { proposals: [] },
     networkStatus: graphNetworkStatus,
+    refetch: refetchProposal,
   } = useGetProposalQuery({
     context: {
       apiName: getSubgraphApiName(ensuredChainId),
@@ -37,7 +38,11 @@ const useProposal = (proposalId: bigint) => {
     },
   });
 
-  const { data: chainData, isLoading: isChainDataLoading } = useReadContract({
+  const {
+    data: chainData,
+    isLoading: isChainDataLoading,
+    refetch: refetchChainData,
+  } = useReadContract({
     address: contracts.MentoGovernor.address,
     abi: GovernorABI,
     functionName: "state",
@@ -63,10 +68,16 @@ const useProposal = (proposalId: bigint) => {
     };
   }, [chainData, graphProposals]);
 
+  const refetch = async () => {
+    await refetchProposal();
+    await refetchChainData();
+  };
+
   return {
     proposal,
     isLoading:
       graphNetworkStatus === NetworkStatus.loading || isChainDataLoading,
+    refetch,
   };
 };
 
