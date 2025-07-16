@@ -445,6 +445,9 @@ function CreateProposalSteps() {
         } else {
           setDirection("lock");
         }
+      } else {
+        // User has sufficient veMENTO, reset direction to show the proposal form
+        setDirection(undefined);
       }
     }
   }, [
@@ -511,17 +514,28 @@ function CreateProposalSteps() {
         <p className="text-muted-foreground mb-8 text-sm">
           You have{" "}
           <span className="text-foreground">
-            {formatUnits(mentoBalance.value, mentoBalance.decimals)} MENTO
+            {formatUnitsWithThousandSeparators(
+              mentoBalance.value,
+              mentoBalance.decimals,
+              2,
+            )}{" "}
+            MENTO
           </span>{" "}
           &{" "}
           <span className="text-foreground">
-            {formatUnits(veMentoBalance.value, veMentoBalance.decimals)} veMENTO
+            {formatUnitsWithThousandSeparators(
+              veMentoBalance.value,
+              veMentoBalance.decimals,
+              4,
+            )}{" "}
+            veMENTO
           </span>
           <br />
           <br />
           To create a new governance proposal, you should have{" "}
           <span className="text-foreground">
-            {formatUnitsWithRadix(proposalThreshold, 18, 2)} veMENTO
+            {formatUnitsWithThousandSeparators(proposalThreshold, 18, 2)}{" "}
+            veMENTO
           </span>{" "}
           in your account.
           <br />
