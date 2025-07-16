@@ -28,6 +28,19 @@ const useLockMento = ({
     if (isConfirmed && onLockConfirmation) {
       onLockConfirmation();
       restWrite.reset();
+
+      const timeout1 = setTimeout(() => {
+        onLockConfirmation();
+      }, 2000);
+
+      const timeout2 = setTimeout(() => {
+        onLockConfirmation();
+      }, 5000);
+
+      return () => {
+        clearTimeout(timeout1);
+        clearTimeout(timeout2);
+      };
     }
   }, [isConfirmed, onLockConfirmation, restWrite]);
 

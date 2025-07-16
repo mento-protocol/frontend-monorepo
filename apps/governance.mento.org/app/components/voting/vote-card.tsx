@@ -2,11 +2,14 @@ import { ConnectButton } from "@/components/connect-button";
 import { ProgressBar } from "@/components/progress-bar";
 import { Timer } from "@/components/timer";
 import useCastVote from "@/lib/contracts/governor/use-cast-vote";
+import useExecuteProposal from "@/lib/contracts/governor/use-execute-proposal";
+import useQueueProposal from "@/lib/contracts/governor/useQueueProposal";
 import { useQuorum } from "@/lib/contracts/governor/useQuorum";
 import useVoteReceipt from "@/lib/contracts/governor/useVoteReceipt";
 import useTokens from "@/lib/contracts/useTokens";
 import type { Proposal } from "@/lib/graphql";
 import { ProposalState } from "@/lib/graphql";
+import { ensureChainId } from "@/lib/helpers/ensure-chain-id";
 import NumbersService from "@/lib/helpers/numbers";
 import {
   Button,
@@ -20,14 +23,14 @@ import {
 import * as Sentry from "@sentry/nextjs";
 import { CheckCircle2, CircleCheck, XCircle } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { formatUnits } from "viem";
 import { useAccount, useBlockNumber } from "wagmi";
-import { ensureChainId } from "@/lib/helpers/ensure-chain-id";
 
 interface VoteCardProps {
   proposal: Proposal;
   votingDeadline: Date | undefined;
+  onVoteConfirmed?: () => void;
 }
 
 // Vote type constants for clarity
@@ -45,7 +48,11 @@ export const REVERSE_VOTE_TYPE_MAP = {
 
 const cardClassName = "w-full pt-0 border-none gap-0 pb-0";
 
-export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
+export const VoteCard = ({
+  proposal,
+  votingDeadline,
+  onVoteConfirmed,
+}: VoteCardProps) => {
   const { address, isConnecting, isConnected, chainId } = useAccount();
   const { veMentoBalance } = useTokens();
   const { data: currentBlock } = useBlockNumber({
@@ -68,6 +75,22 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
     isConfirmed,
     error,
   } = useCastVote();
+  const {
+    hash: executeHash,
+    executeProposal,
+    isAwaitingUserSignature: isAwaitingExecuteSignature,
+    isConfirming: isExecuteConfirming,
+    isConfirmed: isExecuteConfirmed,
+    error: executeError,
+  } = useExecuteProposal();
+  const {
+    hash: queueHash,
+    queueProposal,
+    isAwaitingUserSignature: isAwaitingQueueSignature,
+    isConfirming: isQueueConfirming,
+    isConfirmed: isQueueConfirmed,
+    error: queueError,
+  } = useQueueProposal();
   const { quorumNeeded } = useQuorum(proposal.startBlock);
 
   const hasEnoughLockedMentoToVote = veMentoBalance.value > 0;
@@ -95,12 +118,28 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
     return () => clearInterval(interval);
   }, [votingDeadline]);
 
-  // Refetch vote receipt when transaction is confirmed
   useEffect(() => {
     if (isConfirmed) {
       refetchVoteReceipt();
+
+      if (onVoteConfirmed) {
+        onVoteConfirmed();
+
+        const timeout1 = setTimeout(() => {
+          onVoteConfirmed();
+        }, 2000);
+
+        const timeout2 = setTimeout(() => {
+          onVoteConfirmed();
+        }, 5000);
+
+        return () => {
+          clearTimeout(timeout1);
+          clearTimeout(timeout2);
+        };
+      }
     }
-  }, [isConfirmed, refetchVoteReceipt]);
+  }, [isConfirmed, refetchVoteReceipt, onVoteConfirmed]);
 
   const formattedVeMentoBalance = useMemo(() => {
     return Number(formatUnits(veMentoBalance.value, 18)).toLocaleString();
@@ -139,15 +178,18 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
     // We need to convert to numbers for percentage calculation
     let forPercentage = "0.0";
     let againstPercentage = "0.0";
+    let abstainPercentage = "0.0";
 
     if (totalVotes > BigInt(0)) {
       // Convert to number with proper decimal handling for percentage calculation
       const totalAsNumber = Number(formatUnits(totalVotes, 18));
       const forAsNumber = Number(formatUnits(forVotes, 18));
       const againstAsNumber = Number(formatUnits(againstVotes, 18));
+      const abstainAsNumber = Number(formatUnits(abstainVotes, 18));
 
       forPercentage = ((forAsNumber / totalAsNumber) * 100).toFixed(1);
       againstPercentage = ((againstAsNumber / totalAsNumber) * 100).toFixed(1);
+      abstainPercentage = ((abstainAsNumber / totalAsNumber) * 100).toFixed(1);
     }
 
     return {
@@ -160,14 +202,60 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
         value: NumbersService.parseNumericValue(formatUnits(againstVotes, 18)),
         percentage: parseFloat(againstPercentage),
       },
+      abstain: {
+        value: NumbersService.parseNumericValue(formatUnits(abstainVotes, 18)),
+        percentage: parseFloat(abstainPercentage),
+      },
       mode: "vote" as const,
     };
-  }, [forVotes, againstVotes, totalVotes]);
+  }, [forVotes, againstVotes, abstainVotes, totalVotes]);
 
   const handleVote = (support: number) => {
     if (!isAwaitingUserSignature && !isConfirming && !voteReceipt?.hasVoted) {
       try {
         castVote(proposal.proposalId, support);
+      } catch (error) {
+        Sentry.captureException(error);
+      }
+    }
+  };
+
+  const handleExecute = () => {
+    if (!isAwaitingExecuteSignature && !isExecuteConfirming) {
+      try {
+        executeProposal(
+          BigInt(proposal.proposalId),
+          () => {
+            // Success callback - proposal data will be refetched automatically
+            if (onVoteConfirmed) {
+              onVoteConfirmed();
+            }
+          },
+          (error) => {
+            Sentry.captureException(error);
+          },
+        );
+      } catch (error) {
+        Sentry.captureException(error);
+      }
+    }
+  };
+
+  const handleQueue = () => {
+    if (!isAwaitingQueueSignature && !isQueueConfirming) {
+      try {
+        queueProposal(
+          BigInt(proposal.proposalId),
+          () => {
+            // Success callback - proposal data will be refetched automatically
+            if (onVoteConfirmed) {
+              onVoteConfirmed();
+            }
+          },
+          (error) => {
+            Sentry.captureException(error);
+          },
+        );
       } catch (error) {
         Sentry.captureException(error);
       }
@@ -243,8 +331,14 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
   // Determine the current UI state
   const currentState = useMemo(() => {
     if (isInitializing) return "loading";
-    if (isConfirming) return "confirming";
-    if (isAwaitingUserSignature) return "signing";
+    if (isConfirming || isExecuteConfirming || isQueueConfirming)
+      return "confirming";
+    if (
+      isAwaitingUserSignature ||
+      isAwaitingExecuteSignature ||
+      isAwaitingQueueSignature
+    )
+      return "signing";
     if (voteReceipt?.hasVoted || isConfirmed) return "voted";
 
     // Check if proposal is in a votable state before checking for insufficient MENTO
@@ -342,11 +436,31 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
           </>
         );
       case "queued":
+        const queueTxHash = proposal.proposalQueued?.[0]?.transaction?.id;
+        const queueEndTime = proposal.eta
+          ? new Date(Number(proposal.eta) * 1000)
+          : null;
         return (
           <>
             This proposal has been approved and is queued for execution.
             <br />
-            It will be executed after the timelock period expires.
+            {queueEndTime && (
+              <>It can be executed after {queueEndTime.toLocaleString()}.</>
+            )}
+            {queueTxHash && (
+              <>
+                <br />
+                <Button variant="outline" size="lg" asChild>
+                  <a
+                    href={`https://explorer.celo.org/mainnet/tx/${queueTxHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    View queue transaction
+                  </a>
+                </Button>
+              </>
+            )}
           </>
         );
       case "succeeded":
@@ -449,9 +563,6 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
         );
 
       case "voted":
-      case "executed":
-      case "queued":
-      case "succeeded":
       case "defeated":
       case "expired":
       case "finished":
@@ -470,6 +581,108 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
               {voteReceipt?.support === 0
                 ? "Your vote: Reject"
                 : "Reject Proposal"}
+            </Button>
+          </div>
+        );
+
+      case "queued":
+        // Check if veto period has passed
+        const canExecute =
+          proposal.eta && Date.now() / 1000 > Number(proposal.eta);
+        if (!address) {
+          return (
+            <div className="col-span-full flex justify-center">
+              <ConnectButton
+                size="lg"
+                text={
+                  canExecute ? "Connect Wallet to Execute" : "Proposal Queued"
+                }
+                fullwidth
+                disabled={!canExecute}
+              />
+            </div>
+          );
+        }
+        if (canExecute) {
+          return (
+            <div className="flex justify-center">
+              <Button
+                variant="default"
+                size="lg"
+                clipped="default"
+                onClick={handleExecute}
+                disabled={isAwaitingExecuteSignature || isExecuteConfirming}
+                data-testid="executeProposalButton"
+              >
+                {isAwaitingExecuteSignature
+                  ? "Confirm in Wallet"
+                  : isExecuteConfirming
+                    ? "Executing..."
+                    : "Execute Proposal"}
+              </Button>
+            </div>
+          );
+        }
+        // Show disabled button during veto period
+        return (
+          <div className="flex justify-center">
+            <Button variant="default" size="lg" clipped="default" disabled>
+              In Veto Period
+            </Button>
+          </div>
+        );
+
+      case "executed":
+        // Show link to execution transaction if available
+        const executionTxHash = proposal.proposalExecuted?.[0]?.transaction?.id;
+        return (
+          <div className="flex justify-center">
+            {executionTxHash ? (
+              <Button variant="outline" size="lg" asChild>
+                <a
+                  href={`https://explorer.celo.org/mainnet/tx/${executionTxHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  View Execution Transaction
+                </a>
+              </Button>
+            ) : (
+              <Button variant="default" size="lg" disabled>
+                Proposal Executed
+              </Button>
+            )}
+          </div>
+        );
+
+      case "succeeded":
+        // Show queue button for succeeded proposals
+        if (!address) {
+          return (
+            <div className="col-span-full flex justify-center">
+              <ConnectButton
+                size="lg"
+                text="Connect Wallet to Queue"
+                fullwidth
+              />
+            </div>
+          );
+        }
+        return (
+          <div className="flex justify-center">
+            <Button
+              variant="default"
+              size="lg"
+              clipped="default"
+              onClick={handleQueue}
+              disabled={isAwaitingQueueSignature || isQueueConfirming}
+              data-testid="queueProposalButton"
+            >
+              {isAwaitingQueueSignature
+                ? "Confirm in Wallet"
+                : isQueueConfirming
+                  ? "Queueing..."
+                  : "Queue for Execution"}
             </Button>
           </div>
         );
@@ -560,8 +773,20 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
       case "loading":
         return "Loading voting information...";
       case "signing":
+        if (isAwaitingExecuteSignature) {
+          return "Waiting for execution confirmation...";
+        }
+        if (isAwaitingQueueSignature) {
+          return "Waiting for queue confirmation...";
+        }
         return "Waiting for confirmation...";
       case "confirming":
+        if (isExecuteConfirming) {
+          return "Proposal is being executed";
+        }
+        if (isQueueConfirming) {
+          return "Proposal is being queued";
+        }
         return "Your vote is being processed";
       default:
         return "";
@@ -584,7 +809,7 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
           >
             {getLoadingText()}
           </p>
-          {currentState === "signing" && (
+          {currentState === "signing" && !isAwaitingExecuteSignature && (
             <p
               className="text-muted-foreground text-sm"
               data-testid="waitingForConfirmationDescriptionLabel"
@@ -598,17 +823,34 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
               on this proposal
             </p>
           )}
-          {currentState === "confirming" && hash && (
-            <Button variant="outline" size="sm" asChild className="mt-2">
-              <a
-                href={`https://explorer.celo.org/mainnet/tx/${hash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                View on explorer
-              </a>
-            </Button>
+          {currentState === "signing" && isAwaitingExecuteSignature && (
+            <p
+              className="text-muted-foreground text-sm"
+              data-testid="waitingForExecutionDescriptionLabel"
+            >
+              You are executing this proposal
+            </p>
           )}
+          {currentState === "signing" && isAwaitingQueueSignature && (
+            <p
+              className="text-muted-foreground text-sm"
+              data-testid="waitingForQueueDescriptionLabel"
+            >
+              You are queueing this proposal for execution
+            </p>
+          )}
+          {currentState === "confirming" &&
+            (hash || executeHash || queueHash) && (
+              <Button variant="outline" size="sm" asChild className="mt-2">
+                <a
+                  href={`https://explorer.celo.org/mainnet/tx/${hash || executeHash || queueHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  View on explorer
+                </a>
+              </Button>
+            )}
         </div>
       );
     }
@@ -773,16 +1015,31 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
               {renderActions()}
             </div>
 
-            {error && currentState === "ready" && (
-              <div className="flex w-full flex-col items-center justify-center gap-1 text-sm text-red-500">
-                {error.message?.includes("User rejected") ? null : (
-                  <>
-                    <span>Error casting vote</span>
-                    <span>{error.message}</span>
-                  </>
-                )}
-              </div>
-            )}
+            {(error || executeError || queueError) &&
+              (currentState === "ready" ||
+                currentState === "succeeded" ||
+                currentState === "queued") && (
+                <div className="flex w-full flex-col items-center justify-center gap-1 text-sm text-red-500">
+                  {(
+                    error?.message ||
+                    executeError?.message ||
+                    queueError?.message
+                  )?.includes("User rejected") ? null : (
+                    <>
+                      <span>
+                        {executeError
+                          ? "Error executing proposal"
+                          : queueError
+                            ? "Error queueing proposal"
+                            : "Error casting vote"}
+                      </span>
+                      <span>
+                        {(error || executeError || queueError)?.message}
+                      </span>
+                    </>
+                  )}
+                </div>
+              )}
           </>
         )}
       </CardContent>

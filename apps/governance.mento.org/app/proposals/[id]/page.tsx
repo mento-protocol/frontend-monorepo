@@ -156,7 +156,7 @@ function ParticipantList({ participants }: ParticipantListProps) {
 export default function ProposalPage() {
   const params = useParams();
   const id = params.id as string;
-  const { proposal } = useProposal(BigInt(id));
+  const { proposal, refetch: refetchProposal } = useProposal(BigInt(id));
   const { chainId } = useAccount();
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
 
@@ -333,7 +333,11 @@ export default function ProposalPage() {
 
       <div className="xl:gap-22 flex flex-col gap-8 xl:w-full xl:flex-row">
         <div className="xl:w-2/3">
-          <VoteCard proposal={proposal} votingDeadline={votingDeadline} />
+          <VoteCard
+            proposal={proposal}
+            votingDeadline={votingDeadline}
+            onVoteConfirmed={refetchProposal}
+          />
 
           <div className="prose prose-invert mt-16">
             {proposal.metadata?.description ? (

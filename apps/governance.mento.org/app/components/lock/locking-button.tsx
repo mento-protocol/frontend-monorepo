@@ -72,15 +72,23 @@ export const LockingButton = ({ hasLock = false }: LockingButtonProps) => {
     return Math.max(0, lockSlope - weeksPassed + weeksAdded);
   }, [currentLockingWeek, lock, unlockDate, hasActiveLock]);
 
-  // Relock setup
   const relock = useRelockMento({
     lock,
     newSlope,
     additionalAmountToLock: parsedAmount,
     onConfirmation: () => {
-      refetchLockInfo();
-      resetForm();
       toast.success("Lock updated successfully");
+      resetForm();
+
+      refetchLockInfo();
+
+      setTimeout(() => {
+        refetchLockInfo();
+      }, 2000);
+
+      setTimeout(() => {
+        refetchLockInfo();
+      }, 5000);
     },
   });
 
