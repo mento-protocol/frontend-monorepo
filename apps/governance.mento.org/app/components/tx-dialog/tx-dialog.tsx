@@ -29,7 +29,7 @@ export const TxDialog = ({
     >
       <DialogContent onPointerDownOutside={(e) => e.preventDefault()}>
         <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
+          <DialogTitle className="text-center">{title}</DialogTitle>
         </DialogHeader>
         <div className="text-muted-foreground mt-2 text-center text-sm">
           {error ? <ErrorMessage /> : <PendingMessage message={message} />}

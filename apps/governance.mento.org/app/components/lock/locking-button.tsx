@@ -292,13 +292,6 @@ export const LockingButton = ({ hasLock = false }: LockingButtonProps) => {
   const TxMessage = React.useCallback(() => {
     return (
       <div className="flex min-h-4 flex-col gap-4">
-        {needsApprovalForRelock ? (
-          <span>Approve MENTO</span>
-        ) : parsedAmount === BigInt(0) ? (
-          <span>Extend Lock</span>
-        ) : (
-          <span>Top Up Lock</span>
-        )}
         {relockTxStatus === "AWAITING_SIGNATURE" ? (
           <>Continue in wallet</>
         ) : relockTxStatus === "CONFIRMING_APPROVE_TX" ||

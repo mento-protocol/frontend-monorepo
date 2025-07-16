@@ -46,3 +46,24 @@ export const formatUnitsWithRadix = (
   decimals: number,
   radix: number,
 ) => parseFloat(formatUnits(value, decimals)).toFixed(radix);
+
+export const formatUnitsWithThousandSeparators = (
+  value: bigint,
+  decimals: number,
+  radix: number,
+) => {
+  const parsedValue = parseFloat(formatUnits(value, decimals));
+  const formattedValue = parsedValue.toFixed(radix);
+  const [integerPart, decimalPart = ""] = formattedValue.split(".");
+
+  const integerWithSeparators = integerPart.replace(
+    /\B(?=(\d{3})+(?!\d))/g,
+    ",",
+  );
+
+  if (decimalPart && parseFloat(`0.${decimalPart}`) !== 0) {
+    return `${integerWithSeparators}.${decimalPart}`;
+  }
+
+  return integerWithSeparators;
+};
