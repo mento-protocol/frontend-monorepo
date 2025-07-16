@@ -50,8 +50,7 @@ const useProposal = (proposalId: bigint) => {
     chainId: ensuredChainId,
     query: {
       refetchInterval: CELO_BLOCK_TIME * 10,
-      enabled:
-        graphNetworkStatus === NetworkStatus.ready && graphProposals.length > 0,
+      enabled: graphProposals.length > 0,
     },
   });
 
@@ -59,8 +58,9 @@ const useProposal = (proposalId: bigint) => {
     if (graphProposals === undefined || graphProposals.length === 0) return;
     const graphProposal = graphProposals[0];
 
-    if (chainData === undefined || !isStateNumber(chainData))
+    if (chainData === undefined || !isStateNumber(chainData)) {
       return graphProposal as Proposal;
+    }
 
     return {
       ...(graphProposal as Proposal),
