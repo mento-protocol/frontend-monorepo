@@ -449,6 +449,13 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
         );
 
       case "voted":
+      case "executed":
+      case "queued":
+      case "succeeded":
+      case "defeated":
+      case "expired":
+      case "finished":
+        // Show disabled buttons for finished proposals
         return (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <Button variant="approve" size="lg" disabled>
@@ -466,15 +473,6 @@ export const VoteCard = ({ proposal, votingDeadline }: VoteCardProps) => {
             </Button>
           </div>
         );
-
-      case "executed":
-      case "queued":
-      case "succeeded":
-      case "defeated":
-      case "expired":
-      case "finished":
-        // Show disabled buttons for finished proposals
-        return <></>;
 
       case "pending":
         // Show disabled buttons for pending proposals

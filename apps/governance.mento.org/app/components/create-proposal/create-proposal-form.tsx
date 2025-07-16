@@ -1,7 +1,10 @@
 "use client";
 import { useProposalThreshold } from "@/lib/contracts/governor/useProposalThreshold";
 import useTokens from "@/lib/contracts/useTokens";
-import { formatUnitsWithRadix } from "@/lib/helpers/numbers";
+import {
+  formatUnitsWithRadix,
+  formatUnitsWithThousandSeparators,
+} from "@/lib/helpers/numbers";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -242,8 +245,7 @@ const ExecutionCodeStep = () => {
       <div className="mb-4 flex flex-col gap-1">
         <Label>Execution Code</Label>
         <Textarea
-          className="h-screen"
-          rows={32}
+          className="max-h-[66vh] min-h-44"
           placeholder="Start typing..."
           value={newProposal.code}
           onChange={handleCodeChange}
@@ -469,17 +471,28 @@ function CreateProposalSteps() {
         <p className="text-muted-foreground mb-8 text-sm">
           You have{" "}
           <span className="text-foreground">
-            {formatUnits(mentoBalance.value, mentoBalance.decimals)} MENTO
+            {formatUnitsWithThousandSeparators(
+              mentoBalance.value,
+              mentoBalance.decimals,
+              2,
+            )}{" "}
+            MENTO
           </span>{" "}
           &{" "}
           <span className="text-foreground">
-            {formatUnits(veMentoBalance.value, veMentoBalance.decimals)} veMENTO
+            {formatUnitsWithThousandSeparators(
+              veMentoBalance.value,
+              veMentoBalance.decimals,
+              4,
+            )}{" "}
+            veMENTO
           </span>
           <br />
           <br />
           To create a new governance proposal, you should have{" "}
           <span className="text-foreground">
-            {formatUnitsWithRadix(proposalThreshold, 18, 2)} veMENTO
+            {formatUnitsWithThousandSeparators(proposalThreshold, 18, 4)}{" "}
+            veMENTO
           </span>{" "}
           in your account.
           <br />
