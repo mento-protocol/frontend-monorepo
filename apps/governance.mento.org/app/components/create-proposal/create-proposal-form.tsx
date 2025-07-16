@@ -569,6 +569,8 @@ function ProposalBreadcrumb() {
   const { step, setStep } = useCreateProposal();
   const { isConnected } = useAccount();
 
+  console.log("Current step:", step);
+
   return (
     <div className="flex w-full items-center justify-between">
       <Breadcrumb>
@@ -585,6 +587,7 @@ function ProposalBreadcrumb() {
               className={cn(
                 "cursor-pointer",
                 !isConnected && "pointer-events-none opacity-75",
+                step === CreateProposalStep.content && "text-white opacity-100",
               )}
             >
               Proposal Details
@@ -600,6 +603,8 @@ function ProposalBreadcrumb() {
                 "cursor-pointer",
                 step < CreateProposalStep.execution &&
                   "pointer-events-none opacity-75",
+                step === CreateProposalStep.execution &&
+                  "text-white opacity-100",
               )}
             >
               Execution Code
@@ -609,9 +614,17 @@ function ProposalBreadcrumb() {
           <BreadcrumbSeparator />
 
           <BreadcrumbItem>
-            <BreadcrumbPage className="text-primary pointer-events-none">
+            <BreadcrumbLink
+              onClick={() => setStep(CreateProposalStep.preview)}
+              className={cn(
+                "cursor-pointer",
+                step < CreateProposalStep.preview &&
+                  "pointer-events-none opacity-75",
+                step === CreateProposalStep.preview && "text-white opacity-100",
+              )}
+            >
               Review
-            </BreadcrumbPage>
+            </BreadcrumbLink>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
