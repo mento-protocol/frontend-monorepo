@@ -546,6 +546,10 @@ export const VoteCard = ({
     currentState,
   );
   const showQuorumStatus = currentState === "voted" || currentState === "ready";
+  const isVotedForApprove = voteReceipt?.support === 1;
+  const isVotedForAbstain = voteReceipt?.support === 2;
+  const isVotedForReject = voteReceipt?.support === 0;
+  const usedVoteOptionButtonLocator = "usedVoteOptionButton";
 
   // Render vote buttons based on state
   const renderActions = () => {
@@ -569,15 +573,36 @@ export const VoteCard = ({
         // Show disabled buttons for finished proposals
         return (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <Button variant="approve" size="lg" disabled>
+            <Button
+              variant="approve"
+              size="lg"
+              disabled
+              {...(isVotedForApprove && {
+                "data-testid": usedVoteOptionButtonLocator,
+              })}
+            >
               {voteReceipt?.support === 1
                 ? "Your vote: Approve"
                 : "Approve Proposal"}
             </Button>
-            <Button variant="abstain" size="lg" disabled>
-              {voteReceipt?.support === 2 ? "Your vote: Abstain" : "Abstain"}
+            <Button
+              variant="abstain"
+              size="lg"
+              disabled
+              {...(isVotedForAbstain && {
+                "data-testid": usedVoteOptionButtonLocator,
+              })}
+            >
+              {isVotedForAbstain ? "Your vote: Abstain" : "Abstain"}
             </Button>
-            <Button variant="reject" size="lg" disabled>
+            <Button
+              variant="reject"
+              size="lg"
+              disabled
+              {...(isVotedForReject && {
+                "data-testid": usedVoteOptionButtonLocator,
+              })}
+            >
               {voteReceipt?.support === 0
                 ? "Your vote: Reject"
                 : "Reject Proposal"}
@@ -879,7 +904,10 @@ export const VoteCard = ({
               <div className="flex items-center gap-2">
                 <CheckCircle2 size={16} className="text-white" />
                 <span>Quorum reached</span>
-                <span className="text-muted-foreground">
+                <span
+                  className="text-muted-foreground"
+                  data-testid="quorumReachedLabel"
+                >
                   {NumbersService.parseNumericValue(
                     formatUnits(totalVotes, 18),
                   )}{" "}
