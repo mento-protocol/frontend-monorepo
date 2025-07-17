@@ -11,7 +11,7 @@ interface AddressGroupProps {
   };
   index: number;
   titleOverride?: string;
-  getBlockExplorerUrl: (address: string, network: string) => string;
+  getDebankUrl?: (address: string, network: string) => string;
   handleCopyAddress: (
     address: string,
     category: string,
@@ -24,7 +24,7 @@ export function AddressGroup({
   group,
   index,
   titleOverride,
-  getBlockExplorerUrl,
+  getDebankUrl,
   handleCopyAddress,
   copiedAddresses,
 }: AddressGroupProps) {
@@ -44,7 +44,7 @@ export function AddressGroup({
             address={address}
             group={group}
             addressIndex={addressIndex}
-            getBlockExplorerUrl={getBlockExplorerUrl}
+            getDebankUrl={getDebankUrl}
             handleCopyAddress={handleCopyAddress}
             copiedAddresses={copiedAddresses}
           />

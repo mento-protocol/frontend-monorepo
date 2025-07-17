@@ -10,7 +10,7 @@ interface AddressItemProps {
     category: string;
   };
   addressIndex: number;
-  getBlockExplorerUrl: (address: string, network: string) => string;
+  getDebankUrl?: (address: string, network: string) => string;
   handleCopyAddress: (
     address: string,
     category: string,
@@ -23,7 +23,7 @@ export function AddressItem({
   address,
   group,
   addressIndex,
-  getBlockExplorerUrl,
+  getDebankUrl,
   handleCopyAddress,
   copiedAddresses,
 }: AddressItemProps) {
@@ -39,10 +39,13 @@ export function AddressItem({
       )}
       <div className="flex items-center gap-3">
         <a
-          href={getBlockExplorerUrl(address.address, group.network)}
+          href={
+            getDebankUrl ? getDebankUrl(address.address, group.network) : "#"
+          }
           target="_blank"
           rel="noopener noreferrer"
           className="break-all text-base leading-relaxed text-[#8c35fd] underline transition-colors hover:text-[#a855f7]"
+          title="View DeFi portfolio and positions on DeBank"
         >
           {address.address}
         </a>

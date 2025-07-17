@@ -67,14 +67,9 @@ export default function Content({
     };
   }, []);
 
-  const getBlockExplorerUrl = (address: string, network: string): string => {
-    const baseUrls = {
-      celo: "https://celoscan.io/address",
-      ethereum: "https://etherscan.io/address",
-    };
-
-    const baseUrl = baseUrls[network as keyof typeof baseUrls];
-    return baseUrl ? `${baseUrl}/${address}` : "#";
+  // Function to get DeBank portfolio URL for any address
+  const getDebankUrl = (address: string): string => {
+    return `https://debank.com/profile/${address}`;
   };
 
   const handleCopyAddress = async (
@@ -366,7 +361,7 @@ export default function Content({
                 groups={reserveAddresses.addresses.filter(
                   (group) => group.category === "Mento Reserve",
                 )}
-                getBlockExplorerUrl={getBlockExplorerUrl}
+                getDebankUrl={getDebankUrl}
                 handleCopyAddress={handleCopyAddress}
                 copiedAddresses={copiedAddresses}
               />
@@ -375,7 +370,7 @@ export default function Content({
                 groups={reserveAddresses.addresses.filter(
                   (group) => group.category !== "Mento Reserve",
                 )}
-                getBlockExplorerUrl={getBlockExplorerUrl}
+                getDebankUrl={getDebankUrl}
                 handleCopyAddress={handleCopyAddress}
                 copiedAddresses={copiedAddresses}
               />

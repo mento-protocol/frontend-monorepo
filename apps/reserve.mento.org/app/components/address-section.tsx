@@ -3,7 +3,7 @@ import type { ReserveAddressesResponse } from "../lib/types";
 
 interface AddressSectionProps {
   groups: ReserveAddressesResponse["addresses"];
-  getBlockExplorerUrl: (address: string, network: string) => string;
+  getDebankUrl?: (address: string, network: string) => string;
   handleCopyAddress: (
     address: string,
     category: string,
@@ -14,7 +14,7 @@ interface AddressSectionProps {
 
 export function AddressSection({
   groups,
-  getBlockExplorerUrl,
+  getDebankUrl,
   handleCopyAddress,
   copiedAddresses,
 }: AddressSectionProps) {
@@ -30,7 +30,7 @@ export function AddressSection({
               group={group}
               index={index}
               titleOverride={titleOverride}
-              getBlockExplorerUrl={getBlockExplorerUrl}
+              getDebankUrl={getDebankUrl}
               handleCopyAddress={handleCopyAddress}
               copiedAddresses={copiedAddresses}
             />
