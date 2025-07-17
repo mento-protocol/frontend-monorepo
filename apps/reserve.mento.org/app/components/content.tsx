@@ -406,6 +406,7 @@ export default function Content({
                                     group.network,
                                   )
                                 }
+                                aria-label={`Copy address ${address.address}`}
                                 className="h-4 w-4 shrink-0 cursor-copy opacity-60 hover:opacity-100"
                               >
                                 {copiedAddresses.has(
@@ -468,6 +469,7 @@ export default function Content({
                                     group.network,
                                   )
                                 }
+                                aria-label={`Copy address ${address.address}`}
                                 className="h-4 w-4 shrink-0 cursor-copy opacity-60 hover:opacity-100"
                               >
                                 {copiedAddresses.has(
