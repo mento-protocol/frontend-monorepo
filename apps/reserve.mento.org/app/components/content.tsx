@@ -21,6 +21,7 @@ import {
 import { ClipboardCopy, Check } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
+import * as Sentry from "@sentry/nextjs";
 import { ChainId, getTokenAddress } from "../lib/config/tokenConfig";
 import type {
   HoldingsApi,
@@ -69,7 +70,16 @@ export default function Content({
         });
       }, 500);
     } catch (error) {
-      console.error("Failed to copy address:", error);
+      Sentry.captureException(error, {
+        tags: {
+          operation: "clipboard_copy",
+          category,
+          network,
+        },
+        extra: {
+          address,
+        },
+      });
     }
   };
 
