@@ -19,3 +19,7 @@ This ensures access to tools managed by Volta (like pnpm, turbo, node) and other
 ## Node and Package Manager Versions
 
 Please refer to the main package.json to see what Node and Package Manager versions this project uses.
+
+## Running local servers
+
+- Try to run as little as possible locally to avoid wasting resources. For example, when asked to make changes in the reserve.mento.org app, run `turbo dev --filter reserve.mento.org` (and NOT `turbo dev` which would start every server for every project)
