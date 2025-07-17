@@ -122,6 +122,14 @@ export const VoteCard = ({
     if (isConfirmed) {
       refetchVoteReceipt();
 
+      const voteReceiptTimeout1 = setTimeout(() => {
+        refetchVoteReceipt();
+      }, 2000);
+
+      const voteReceiptTimeout2 = setTimeout(() => {
+        refetchVoteReceipt();
+      }, 5000);
+
       if (onVoteConfirmed) {
         onVoteConfirmed();
 
@@ -136,8 +144,15 @@ export const VoteCard = ({
         return () => {
           clearTimeout(timeout1);
           clearTimeout(timeout2);
+          clearTimeout(voteReceiptTimeout1);
+          clearTimeout(voteReceiptTimeout2);
         };
       }
+
+      return () => {
+        clearTimeout(voteReceiptTimeout1);
+        clearTimeout(voteReceiptTimeout2);
+      };
     }
   }, [isConfirmed, refetchVoteReceipt, onVoteConfirmed]);
 
@@ -147,63 +162,57 @@ export const VoteCard = ({
 
   // Calculate total votes as BigInt
   const totalVotes = useMemo(() => {
-    if (!proposal?.votes) return BigInt(0);
+    if (!proposal?.votes) return 0;
 
-    // Parse vote totals as BigInts
-    const forVotes = BigInt(proposal.votes.for?.total || "0");
-    const againstVotes = BigInt(proposal.votes.against?.total || "0");
-    const abstainVotes = BigInt(proposal.votes.abstain?.total || "0");
+    // Count actual number of votes (participants)
+    const forVoteCount = proposal.votes.for?.participants?.length || 0;
+    const againstVoteCount = proposal.votes.against?.participants?.length || 0;
+    const abstainVoteCount = proposal.votes.abstain?.participants?.length || 0;
 
-    // Sum using BigInt addition
-    return forVotes + againstVotes + abstainVotes;
+    // Sum vote counts
+    return forVoteCount + againstVoteCount + abstainVoteCount;
   }, [proposal.votes]);
 
-  // Individual vote values for easier access
+  // Individual vote counts for easier access
   const forVotes = useMemo(
-    () => BigInt(proposal.votes?.for?.total || "0"),
+    () => proposal.votes?.for?.participants?.length || 0,
     [proposal.votes],
   );
   const againstVotes = useMemo(
-    () => BigInt(proposal.votes?.against?.total || "0"),
+    () => proposal.votes?.against?.participants?.length || 0,
     [proposal.votes],
   );
   const abstainVotes = useMemo(
-    () => BigInt(proposal.votes?.abstain?.total || "0"),
+    () => proposal.votes?.abstain?.participants?.length || 0,
     [proposal.votes],
   );
 
   // Calculate vote percentages and data for progress bar
   const voteData = useMemo(() => {
-    // Calculate percentages using Number conversion for display
-    // We need to convert to numbers for percentage calculation
+    // Calculate percentages using vote counts
     let forPercentage = "0.0";
     let againstPercentage = "0.0";
     let abstainPercentage = "0.0";
 
-    if (totalVotes > BigInt(0)) {
-      // Convert to number with proper decimal handling for percentage calculation
-      const totalAsNumber = Number(formatUnits(totalVotes, 18));
-      const forAsNumber = Number(formatUnits(forVotes, 18));
-      const againstAsNumber = Number(formatUnits(againstVotes, 18));
-      const abstainAsNumber = Number(formatUnits(abstainVotes, 18));
-
-      forPercentage = ((forAsNumber / totalAsNumber) * 100).toFixed(1);
-      againstPercentage = ((againstAsNumber / totalAsNumber) * 100).toFixed(1);
-      abstainPercentage = ((abstainAsNumber / totalAsNumber) * 100).toFixed(1);
+    if (totalVotes > 0) {
+      // Calculate percentages based on vote counts
+      forPercentage = ((forVotes / totalVotes) * 100).toFixed(1);
+      againstPercentage = ((againstVotes / totalVotes) * 100).toFixed(1);
+      abstainPercentage = ((abstainVotes / totalVotes) * 100).toFixed(1);
     }
 
     return {
       approve: {
-        // Format vote counts using NumbersService for display
-        value: NumbersService.parseNumericValue(formatUnits(forVotes, 18)),
+        // Display vote counts directly
+        value: forVotes.toString(),
         percentage: parseFloat(forPercentage),
       },
       reject: {
-        value: NumbersService.parseNumericValue(formatUnits(againstVotes, 18)),
+        value: againstVotes.toString(),
         percentage: parseFloat(againstPercentage),
       },
       abstain: {
-        value: NumbersService.parseNumericValue(formatUnits(abstainVotes, 18)),
+        value: abstainVotes.toString(),
         percentage: parseFloat(abstainPercentage),
       },
       mode: "vote" as const,
@@ -885,10 +894,10 @@ export const VoteCard = ({
 
   console.log("DEBUG", {
     proposalState: proposal,
-    totalVotes: formatUnits(totalVotes, 18),
-    forVotes: formatUnits(forVotes, 18),
-    againstVotes: formatUnits(againstVotes, 18),
-    abstainVotes: formatUnits(abstainVotes, 18),
+    totalVotes: totalVotes,
+    forVotes: forVotes,
+    againstVotes: againstVotes,
+    abstainVotes: abstainVotes,
     isVotingOpen,
     votingDeadline,
   });
@@ -908,10 +917,7 @@ export const VoteCard = ({
                   className="text-muted-foreground"
                   data-testid="quorumReachedLabel"
                 >
-                  {NumbersService.parseNumericValue(
-                    formatUnits(totalVotes, 18),
-                  )}{" "}
-                  of{" "}
+                  {totalVotes} of{" "}
                   {NumbersService.parseNumericValue(
                     formatUnits(quorumNeeded || BigInt(0), 18),
                   )}

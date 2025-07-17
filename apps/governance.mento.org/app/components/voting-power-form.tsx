@@ -119,14 +119,44 @@ export default function VotingPowerForm() {
     return closestIndex;
   }, [unlockDate, validWednesdays]);
 
-  // Calculate duration in months from today to unlock date
-  const lockDurationInMonths = useMemo(() => {
-    if (!unlockDate) return 0;
+  const { lockDurationInMonths, lockDurationDisplay } = useMemo(() => {
+    if (!unlockDate)
+      return {
+        lockDurationInWeeks: 0,
+        lockDurationInMonths: 0,
+        lockDurationDisplay: "0 weeks",
+      };
+
     const now = new Date();
-    const months =
-      (unlockDate.getFullYear() - now.getFullYear()) * 12 +
-      (unlockDate.getMonth() - now.getMonth());
-    return Math.max(0, months);
+    const timeDiff = unlockDate.getTime() - now.getTime();
+    const daysDiff = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+    const weeksDiff = Math.ceil(daysDiff / 7);
+
+    // Calculate months more accurately
+    const yearsDiff = unlockDate.getFullYear() - now.getFullYear();
+    const monthsDiff = unlockDate.getMonth() - now.getMonth();
+    const totalMonths = yearsDiff * 12 + monthsDiff;
+
+    // Adjust for day of month differences
+    const adjustedMonths =
+      unlockDate.getDate() >= now.getDate() ? totalMonths : totalMonths - 1;
+
+    // Helper function for pluralization
+    const pluralize = (count: number, singular: string, plural: string) => {
+      return count === 1 ? `${count} ${singular}` : `${count} ${plural}`;
+    };
+
+    // Display logic: show weeks if less than 2 months, otherwise show months
+    const lockDurationDisplay =
+      adjustedMonths < 1
+        ? pluralize(weeksDiff, "week", "weeks")
+        : pluralize(adjustedMonths, "month", "months");
+
+    return {
+      lockDurationInWeeks: weeksDiff,
+      lockDurationInMonths: adjustedMonths,
+      lockDurationDisplay,
+    };
   }, [unlockDate]);
 
   // Calculate slope and cliff for lock calculation
@@ -248,7 +278,7 @@ export default function VotingPowerForm() {
                 <div className="text-muted-foreground flex justify-between text-sm">
                   <span>Lock Duration</span>
                   <span className="text-foreground font-medium">
-                    {lockDurationInMonths} months
+                    {lockDurationDisplay}
                   </span>
                 </div>
                 <Slider
