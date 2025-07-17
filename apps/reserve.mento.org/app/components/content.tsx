@@ -51,6 +51,15 @@ export default function Content({
     new Set(),
   );
 
+  const getBlockExplorerUrl = (address: string, network: string): string => {
+    const baseUrls = {
+      celo: "https://celoscan.io/address",
+      ethereum: "https://etherscan.io/address",
+    };
+
+    const baseUrl = baseUrls[network as keyof typeof baseUrls];
+    return baseUrl ? `${baseUrl}/${address}` : "#";
+  };
   const handleCopyAddress = async (
     address: string,
     category: string,
@@ -350,9 +359,17 @@ export default function Content({
                               </span>
                             )}
                             <div className="flex items-center gap-3">
-                              <span className="cursor-pointer break-all text-base leading-relaxed text-[#8c35fd] underline">
+                              <a
+                                href={getBlockExplorerUrl(
+                                  address.address,
+                                  group.network,
+                                )}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="break-all text-base leading-relaxed text-[#8c35fd] underline transition-colors hover:text-[#a855f7]"
+                              >
                                 {address.address}
-                              </span>
+                              </a>
                               <button
                                 onClick={() =>
                                   handleCopyAddress(
@@ -404,9 +421,17 @@ export default function Content({
                               </span>
                             )}
                             <div className="flex items-center gap-3">
-                              <span className="cursor-pointer break-all text-base leading-relaxed text-[#8c35fd] underline">
+                              <a
+                                href={getBlockExplorerUrl(
+                                  address.address,
+                                  group.network,
+                                )}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="break-all text-base leading-relaxed text-[#8c35fd] underline transition-colors hover:text-[#a855f7]"
+                              >
                                 {address.address}
-                              </span>
+                              </a>
                               <button
                                 onClick={() =>
                                   handleCopyAddress(
