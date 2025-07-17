@@ -18,6 +18,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@repo/ui";
+import { ClipboardCopy, Check } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
 import { ChainId, getTokenAddress } from "../lib/config/tokenConfig";
@@ -26,20 +27,52 @@ import type {
   ReserveCompositionAPI,
   ReserveCompositionEntry,
   StableValueTokensAPI,
+  ReserveAddressesResponse,
 } from "../lib/types";
 
 interface ContentProps {
   stableCoinStats: StableValueTokensAPI;
   reserveComposition: ReserveCompositionAPI;
   reserveHoldings: HoldingsApi;
+  reserveAddresses: ReserveAddressesResponse;
 }
 
-export function Content({
+export default function Content({
   stableCoinStats,
   reserveComposition,
   reserveHoldings,
+  reserveAddresses,
 }: ContentProps) {
-  const [active, setActive] = useState<string>();
+  const [expandedToken, setExpandedToken] = useState<string | undefined>(
+    undefined,
+  );
+  const [copiedAddresses, setCopiedAddresses] = useState<Set<string>>(
+    new Set(),
+  );
+
+  const handleCopyAddress = async (
+    address: string,
+    category: string,
+    network: string,
+  ) => {
+    try {
+      await navigator.clipboard.writeText(address);
+      const uniqueKey = `${category}-${network}-${address}`;
+      setCopiedAddresses((prev) => new Set(prev).add(uniqueKey));
+
+      // Remove the copied state after 500ms
+      setTimeout(() => {
+        setCopiedAddresses((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(uniqueKey);
+          return newSet;
+        });
+      }, 500);
+    } catch (error) {
+      console.error("Failed to copy address:", error);
+    }
+  };
+
   const TOKEN_COLORS: { [key: string]: string } = {
     CELO: "#7006FC",
     CUSD: "#9A4EFD",
@@ -92,6 +125,7 @@ export function Content({
         <TabsList>
           <TabsTrigger value="stablecoin-supply">Stablecoin Supply</TabsTrigger>
           <TabsTrigger value="reserve-holdings">Reserve Holdings</TabsTrigger>
+          <TabsTrigger value="reserve-addresses">Reserve Addresses</TabsTrigger>
         </TabsList>
         <TabsContent
           value="stablecoin-supply"
@@ -162,10 +196,10 @@ export function Content({
               <ReserveChart
                 data={chartData}
                 centerText={centerChartText}
-                activeSegment={active}
+                activeSegment={expandedToken}
                 className="my-auto h-[288px] justify-center self-center lg:h-[320px] xl:h-[360px] 2xl:h-[480px] min-[2500px]:!h-[640px]"
                 onActiveChanged={(name) => {
-                  setActive(name);
+                  setExpandedToken(name);
                 }}
               />
             </div>
@@ -182,12 +216,12 @@ export function Content({
                   <>
                     <div
                       key={`${celoDetails.token}-unfrozen`}
-                      className={`${celoDetails.token === active ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} grid w-full grid-cols-2 gap-4 border-l-4 p-4 xl:grid-cols-12`}
+                      className={`${celoDetails.token === expandedToken ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} grid w-full grid-cols-2 gap-4 border-l-4 p-4 xl:grid-cols-12`}
                       style={{
                         borderLeftColor: getTokenColor(celoDetails.token),
                       }}
-                      onMouseEnter={() => setActive(celoDetails.token)}
-                      onMouseLeave={() => setActive(undefined)}
+                      onMouseEnter={() => setExpandedToken(celoDetails.token)}
+                      onMouseLeave={() => setExpandedToken(undefined)}
                     >
                       <div className="col-span-2 flex flex-row items-center justify-start gap-4 text-xl font-medium xl:col-span-3">
                         <Image
@@ -230,12 +264,12 @@ export function Content({
                 return (
                   <div
                     key={asset.token}
-                    className={`${asset.token === active ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} grid w-full grid-cols-2 gap-4 border-l-4 p-4 xl:grid-cols-12`}
+                    className={`${asset.token === expandedToken ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} grid w-full grid-cols-2 gap-4 border-l-4 p-4 xl:grid-cols-12`}
                     style={{
                       borderLeftColor: getTokenColor(asset.token),
                     }}
-                    onMouseEnter={() => setActive(asset.token)}
-                    onMouseLeave={() => setActive(undefined)}
+                    onMouseEnter={() => setExpandedToken(asset.token)}
+                    onMouseLeave={() => setExpandedToken(undefined)}
                   >
                     <div className="col-span-2 flex flex-row items-center justify-start gap-4 text-xl font-medium xl:col-span-3">
                       <Image
@@ -269,6 +303,111 @@ export function Content({
                   </div>
                 );
               })}
+            </div>
+          </div>
+        </TabsContent>
+        <TabsContent
+          value="reserve-addresses"
+          className="relative before:absolute before:left-1/2 before:top-0 before:z-0 before:h-20 before:w-screen before:-translate-x-1/2 before:bg-gradient-to-b before:from-[#15111B] before:to-[#070010]"
+        >
+          <h2 className="relative z-10 my-6 hidden text-2xl font-medium md:mb-8 md:mt-12 md:block">
+            Reserve Addresses
+          </h2>
+          <div className="relative z-10 flex h-full flex-col gap-8">
+            <div className="flex flex-col gap-2">
+              {/* First row: Mento Reserve sections */}
+              <div className="flex flex-row gap-2">
+                {reserveAddresses.addresses
+                  .filter((group) => group.category === "Mento Reserve")
+                  .map((group, index) => (
+                    <div
+                      key={`${group.network}-${group.category}-${index}`}
+                      className="flex-1 bg-[#15111b] p-8"
+                    >
+                      <h3 className="mb-8 text-[24px] font-medium leading-[28px] text-[#f7f6fa]">
+                        Mento Reserve on{" "}
+                        {group.network === "celo" ? "Celo" : "Ethereum"}
+                      </h3>
+                      <div className="flex flex-col gap-4">
+                        {group.addresses.map((address, addressIndex) => (
+                          <div
+                            key={`${address.address}-${addressIndex}`}
+                            className="flex items-center gap-4"
+                          >
+                            <span className="cursor-pointer text-[18px] leading-[28px] text-[#8c35fd] underline">
+                              {address.address}
+                            </span>
+                            <button
+                              onClick={() =>
+                                handleCopyAddress(
+                                  address.address,
+                                  group.category,
+                                  group.network,
+                                )
+                              }
+                              className="h-4 w-4 cursor-copy opacity-60 hover:opacity-100"
+                            >
+                              {copiedAddresses.has(
+                                `${group.category}-${group.network}-${address.address}`,
+                              ) ? (
+                                <Check className="h-4 w-4 text-green-500" />
+                              ) : (
+                                <ClipboardCopy className="h-4 w-4" />
+                              )}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+
+              {/* Second row: Uniswap and Aave sections */}
+              <div className="flex flex-row gap-2">
+                {reserveAddresses.addresses
+                  .filter((group) => group.category !== "Mento Reserve")
+                  .map((group, index) => (
+                    <div
+                      key={`${group.network}-${group.category}-${index}`}
+                      className="flex-1 bg-[#15111b] p-8"
+                    >
+                      <h3 className="mb-8 text-[24px] font-medium leading-[28px] text-[#f7f6fa]">
+                        {group.category} on{" "}
+                        {group.network === "celo" ? "Celo" : "Ethereum"}
+                      </h3>
+                      <div className="flex flex-col gap-4">
+                        {group.addresses.map((address, addressIndex) => (
+                          <div
+                            key={`${address.address}-${addressIndex}`}
+                            className="flex items-center gap-4"
+                          >
+                            <span className="cursor-pointer text-[18px] leading-[28px] text-[#8c35fd] underline">
+                              {address.address}
+                            </span>
+                            <button
+                              onClick={() =>
+                                handleCopyAddress(
+                                  address.address,
+                                  group.category,
+                                  group.network,
+                                )
+                              }
+                              className="h-4 w-4 cursor-copy opacity-60 hover:opacity-100"
+                            >
+                              {copiedAddresses.has(
+                                `${group.category}-${group.network}-${address.address}`,
+                              ) ? (
+                                <Check className="h-4 w-4 text-green-500" />
+                              ) : (
+                                <ClipboardCopy className="h-4 w-4" />
+                              )}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+              </div>
             </div>
           </div>
         </TabsContent>

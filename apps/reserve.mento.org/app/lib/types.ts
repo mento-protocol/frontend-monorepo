@@ -81,3 +81,19 @@ export interface ExternalAnalyticsApiResponse {
 }
 
 export type Network = "string";
+
+// Reserve Addresses Types
+export interface ReserveAddress {
+  address: string;
+  label: string;
+}
+
+export interface ReserveAddressGroup {
+  network: string; // "celo" | "ethereum"
+  category: string; // "Mento Reserve" | "Uniswap V3 Pool" | "Aave"
+  addresses: ReserveAddress[];
+}
+
+export interface ReserveAddressesResponse {
+  addresses: ReserveAddressGroup[];
+}
