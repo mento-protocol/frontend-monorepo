@@ -20,7 +20,7 @@ import {
 } from "@repo/ui";
 import { ClipboardCopy, Check } from "lucide-react";
 import Image from "next/image";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import * as Sentry from "@sentry/nextjs";
 import { ChainId, getTokenAddress } from "../lib/config/tokenConfig";
 import type {
@@ -51,6 +51,22 @@ export default function Content({
     new Set(),
   );
 
+  // Track active timeouts to prevent memory leaks
+  const copyTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+
+  // Constants
+  const CLIPBOARD_COPY_FEEDBACK_DURATION = 500;
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      copyTimeoutsRef.current.forEach((timeout) => {
+        clearTimeout(timeout);
+      });
+      copyTimeoutsRef.current.clear();
+    };
+  }, []);
+
   const getBlockExplorerUrl = (address: string, network: string): string => {
     const baseUrls = {
       celo: "https://celoscan.io/address",
@@ -60,6 +76,7 @@ export default function Content({
     const baseUrl = baseUrls[network as keyof typeof baseUrls];
     return baseUrl ? `${baseUrl}/${address}` : "#";
   };
+
   const handleCopyAddress = async (
     address: string,
     category: string,
@@ -70,14 +87,25 @@ export default function Content({
       const uniqueKey = `${category}-${network}-${address}`;
       setCopiedAddresses((prev) => new Set(prev).add(uniqueKey));
 
-      // Remove the copied state after 500ms
-      setTimeout(() => {
+      // Clear any existing timeout for this address
+      const existingTimeout = copyTimeoutsRef.current.get(uniqueKey);
+      if (existingTimeout) {
+        clearTimeout(existingTimeout);
+      }
+
+      // Remove the copied state after the feedback duration
+      const timeoutId = setTimeout(() => {
         setCopiedAddresses((prev) => {
           const newSet = new Set(prev);
           newSet.delete(uniqueKey);
           return newSet;
         });
-      }, 500);
+        // Clean up the timeout reference
+        copyTimeoutsRef.current.delete(uniqueKey);
+      }, CLIPBOARD_COPY_FEEDBACK_DURATION);
+
+      // Store the timeout reference
+      copyTimeoutsRef.current.set(uniqueKey, timeoutId);
     } catch (error) {
       Sentry.captureException(error, {
         tags: {
