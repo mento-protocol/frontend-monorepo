@@ -313,48 +313,55 @@ export default function Content({
           <h2 className="relative z-10 my-6 hidden text-2xl font-medium md:mb-8 md:mt-12 md:block">
             Reserve Addresses
           </h2>
-          <div className="relative z-10 flex h-full flex-col gap-8">
+          <div className="relative z-10 flex h-full flex-col gap-4 md:gap-8">
             <div className="flex flex-col gap-2">
-              {/* First row: Mento Reserve sections */}
-              <div className="flex flex-row gap-2">
+              {/* Mento Reserve sections - responsive layout */}
+              <div className="flex flex-col gap-2 md:flex-row">
                 {reserveAddresses.addresses
                   .filter((group) => group.category === "Mento Reserve")
                   .map((group, index) => (
                     <div
                       key={`${group.network}-${group.category}-${index}`}
-                      className="flex-1 bg-[#15111b] p-8"
+                      className="flex-1 bg-[#15111b] p-4 md:p-8"
                     >
-                      <h3 className="mb-8 text-[24px] font-medium leading-[28px] text-[#f7f6fa]">
+                      <h3 className="mb-6 text-xl font-medium leading-tight text-[#f7f6fa] md:mb-8 md:text-2xl">
                         Mento Reserve on{" "}
                         {group.network === "celo" ? "Celo" : "Ethereum"}
                       </h3>
-                      <div className="flex flex-col gap-4">
+                      <div className="flex flex-col gap-6">
                         {group.addresses.map((address, addressIndex) => (
                           <div
                             key={`${address.address}-${addressIndex}`}
-                            className="flex items-center gap-4"
+                            className="flex flex-col gap-0"
                           >
-                            <span className="cursor-pointer text-[18px] leading-[28px] text-[#8c35fd] underline">
-                              {address.address}
-                            </span>
-                            <button
-                              onClick={() =>
-                                handleCopyAddress(
-                                  address.address,
-                                  group.category,
-                                  group.network,
-                                )
-                              }
-                              className="h-4 w-4 cursor-copy opacity-60 hover:opacity-100"
-                            >
-                              {copiedAddresses.has(
-                                `${group.category}-${group.network}-${address.address}`,
-                              ) ? (
-                                <Check className="h-4 w-4 text-green-500" />
-                              ) : (
-                                <ClipboardCopy className="h-4 w-4" />
-                              )}
-                            </button>
+                            {address.label && (
+                              <span className="text-muted-foreground text-sm font-medium">
+                                {address.label}
+                              </span>
+                            )}
+                            <div className="flex items-center gap-3">
+                              <span className="cursor-pointer break-all text-base leading-relaxed text-[#8c35fd] underline">
+                                {address.address}
+                              </span>
+                              <button
+                                onClick={() =>
+                                  handleCopyAddress(
+                                    address.address,
+                                    group.category,
+                                    group.network,
+                                  )
+                                }
+                                className="h-4 w-4 shrink-0 cursor-copy opacity-60 hover:opacity-100"
+                              >
+                                {copiedAddresses.has(
+                                  `${group.category}-${group.network}-${address.address}`,
+                                ) ? (
+                                  <Check className="h-4 w-4 text-green-500" />
+                                ) : (
+                                  <ClipboardCopy className="h-4 w-4" />
+                                )}
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -362,46 +369,53 @@ export default function Content({
                   ))}
               </div>
 
-              {/* Second row: Uniswap and Aave sections */}
-              <div className="flex flex-row gap-2">
+              {/* Uniswap and Aave sections - responsive layout */}
+              <div className="flex flex-col gap-2 md:flex-row">
                 {reserveAddresses.addresses
                   .filter((group) => group.category !== "Mento Reserve")
                   .map((group, index) => (
                     <div
                       key={`${group.network}-${group.category}-${index}`}
-                      className="flex-1 bg-[#15111b] p-8"
+                      className="flex-1 bg-[#15111b] p-4 md:p-8"
                     >
-                      <h3 className="mb-8 text-[24px] font-medium leading-[28px] text-[#f7f6fa]">
+                      <h3 className="mb-6 text-xl font-medium leading-tight text-[#f7f6fa] md:mb-8 md:text-2xl">
                         {group.category} on{" "}
                         {group.network === "celo" ? "Celo" : "Ethereum"}
                       </h3>
-                      <div className="flex flex-col gap-4">
+                      <div className="flex flex-col gap-6">
                         {group.addresses.map((address, addressIndex) => (
                           <div
                             key={`${address.address}-${addressIndex}`}
-                            className="flex items-center gap-4"
+                            className="flex flex-col gap-0"
                           >
-                            <span className="cursor-pointer text-[18px] leading-[28px] text-[#8c35fd] underline">
-                              {address.address}
-                            </span>
-                            <button
-                              onClick={() =>
-                                handleCopyAddress(
-                                  address.address,
-                                  group.category,
-                                  group.network,
-                                )
-                              }
-                              className="h-4 w-4 cursor-copy opacity-60 hover:opacity-100"
-                            >
-                              {copiedAddresses.has(
-                                `${group.category}-${group.network}-${address.address}`,
-                              ) ? (
-                                <Check className="h-4 w-4 text-green-500" />
-                              ) : (
-                                <ClipboardCopy className="h-4 w-4" />
-                              )}
-                            </button>
+                            {address.label && (
+                              <span className="text-muted-foreground text-sm font-medium">
+                                {address.label}
+                              </span>
+                            )}
+                            <div className="flex items-center gap-3">
+                              <span className="cursor-pointer break-all text-base leading-relaxed text-[#8c35fd] underline">
+                                {address.address}
+                              </span>
+                              <button
+                                onClick={() =>
+                                  handleCopyAddress(
+                                    address.address,
+                                    group.category,
+                                    group.network,
+                                  )
+                                }
+                                className="h-4 w-4 shrink-0 cursor-copy opacity-60 hover:opacity-100"
+                              >
+                                {copiedAddresses.has(
+                                  `${group.category}-${group.network}-${address.address}`,
+                                ) ? (
+                                  <Check className="h-4 w-4 text-green-500" />
+                                ) : (
+                                  <ClipboardCopy className="h-4 w-4" />
+                                )}
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
