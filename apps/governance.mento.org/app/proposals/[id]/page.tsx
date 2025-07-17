@@ -103,10 +103,7 @@ function ParticipantList({ participants }: ParticipantListProps) {
                   className="h-auto !bg-transparent p-0"
                   onClick={() => handleCopyAddress(participant.address)}
                 >
-                  <span
-                    className="flex items-center gap-1"
-                    data-testid={`participantAddress_${participant.address}`}
-                  >
+                  <span className="flex items-center gap-1">
                     {`${participant.address.slice(0, 6)}...${participant.address.slice(-4)}`}
                     {copiedAddress === participant.address ? (
                       <div className="h-3 w-3 text-green-500">
@@ -360,9 +357,24 @@ export default function ProposalPage() {
             <CardContent>
               <Tabs defaultValue="for" className="max-h-[330px] overflow-auto">
                 <TabsList>
-                  <TabsTrigger value="for">Approve</TabsTrigger>
-                  <TabsTrigger value="against">Reject</TabsTrigger>
-                  <TabsTrigger value="abstain">Abstain</TabsTrigger>
+                  <TabsTrigger
+                    value="for"
+                    data-testid="participantsTabButton_approve"
+                  >
+                    Approve
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="against"
+                    data-testid="participantsTabButton_reject"
+                  >
+                    Reject
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="abstain"
+                    data-testid="participantsTabButton_abstain"
+                  >
+                    Abstain
+                  </TabsTrigger>
                 </TabsList>
 
                 <TabsContent
