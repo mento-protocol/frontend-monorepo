@@ -1,4 +1,4 @@
-import { Network } from "./types/index";
+import type { Network } from "./types/index";
 
 // A list of known stablecoin symbols. Add more as needed.
 export type Tokens = "cUSD" | "cEUR" | "cREAL" | "eXOF" | string; // Using string as a fallback
