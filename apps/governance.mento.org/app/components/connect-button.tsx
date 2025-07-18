@@ -95,8 +95,6 @@ const ConnectedDropdown = ({
     }
   };
 
-  toast.success("Address copied to clipboard", { duration: 200000 });
-
   const iconSize = 18;
   const iconStrokeWidth = 1.5;
 
