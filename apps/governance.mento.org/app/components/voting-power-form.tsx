@@ -229,12 +229,12 @@ export default function VotingPowerForm() {
   return (
     <FormProvider {...methods}>
       <CreateLockProvider onLockConfirmation={refetch}>
-        <div className="flex flex-col gap-8 md:flex-row md:gap-20">
-          <Card className="border-border md:max-w-1/2 md:min-w-[420px]">
+        <div className="flex flex-col gap-8 md:gap-20 lg:flex-row">
+          <Card className="border-border xl:max-w-1/2 w-full lg:min-w-[420px] lg:max-w-[420px]">
             <CardHeader className="text-2xl font-medium">Lock MENTO</CardHeader>
             <CardContent>
               <div className="bg-incard border-border dark:border-input maybe-hover:border-border-secondary focus-within:!border-primary dark:focus-within:!border-primary mb-8 flex grid-cols-12 flex-col items-start gap-4 border p-4 transition-colors md:grid md:min-h-[120px]">
-                <div className="col-span-8 flex flex-col gap-2">
+                <div className="col-span-7 flex flex-col gap-2">
                   <Label>MENTO to lock</Label>
                   <CoinInput
                     data-testid="sellAmountInput"
@@ -252,12 +252,13 @@ export default function VotingPowerForm() {
                     Max available: {formattedMentoBalance} MENTO{" "}
                   </span>
                 </div>
-                <div className="col-span-4 flex flex-row items-center md:flex-col md:items-end md:justify-end">
+                <div className="col-span-5 flex flex-row items-center md:flex-col md:items-end md:justify-end">
                   <Controller
                     control={control}
                     name={LOCKING_UNLOCK_DATE_FORM_KEY}
                     render={({ field: { onChange, value } }) => (
                       <Datepicker
+                        className="w-full"
                         value={value}
                         onChange={onChange}
                         label="Lock until"
