@@ -1,6 +1,8 @@
 import { ConnectButton } from "@/components/connect-button";
 import { ProgressBar } from "@/components/progress-bar";
 import { Timer } from "@/components/timer";
+import { Alfajores } from "@/lib/config/chains";
+import { links } from "@/lib/constants/links";
 import useCastVote from "@/lib/contracts/governor/use-cast-vote";
 import useExecuteProposal from "@/lib/contracts/governor/use-execute-proposal";
 import useQueueProposal from "@/lib/contracts/governor/useQueueProposal";
@@ -95,6 +97,9 @@ export const VoteCard = ({
 
   const hasEnoughLockedMentoToVote = veMentoBalance.value > 0;
   const isInitializing = isConnecting || isHasVotedStatusLoading;
+
+  const linkExplorer =
+    chainId === Alfajores.id ? links.explorerAlfajores : links.explorerMain;
 
   // Track if deadline has passed in real-time
   const [isDeadlinePassed, setIsDeadlinePassed] = useState(
@@ -461,7 +466,7 @@ export const VoteCard = ({
                 <br />
                 <Button variant="outline" size="lg" asChild>
                   <a
-                    href={`https://explorer.celo.org/mainnet/tx/${queueTxHash}`}
+                    href={`${linkExplorer}/tx/${queueTxHash}`}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
@@ -674,7 +679,7 @@ export const VoteCard = ({
             {executionTxHash ? (
               <Button variant="outline" size="lg" asChild>
                 <a
-                  href={`https://explorer.celo.org/mainnet/tx/${executionTxHash}`}
+                  href={`${linkExplorer}/tx/${executionTxHash}`}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
@@ -877,7 +882,7 @@ export const VoteCard = ({
             (hash || executeHash || queueHash) && (
               <Button variant="outline" size="sm" asChild className="mt-2">
                 <a
-                  href={`https://explorer.celo.org/mainnet/tx/${hash || executeHash || queueHash}`}
+                  href={`${linkExplorer}/tx/${hash || executeHash || queueHash}`}
                   target="_blank"
                   rel="noopener noreferrer"
                 >

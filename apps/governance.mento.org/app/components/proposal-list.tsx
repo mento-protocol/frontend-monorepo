@@ -5,6 +5,7 @@ import { ensureChainId } from "@/lib/helpers/ensure-chain-id";
 import {
   Button,
   IconChevron,
+  IconLoading,
   Pagination,
   PaginationContent,
   PaginationItem,
@@ -80,7 +81,7 @@ const usePagination = ({
 };
 
 export const ProposalList = () => {
-  const { proposals } = useProposals();
+  const { proposals, isLoading } = useProposals();
   const { chainId } = useAccount();
   const { data: currentBlock } = useBlockNumber({
     chainId: ensureChainId(chainId),
@@ -164,52 +165,59 @@ export const ProposalList = () => {
           </Button>
         </Link>
       </ProposalCardHeader>
-      <ProposalCardBody className="flex flex-col">
-        {paginatedProposals.map((proposal, index) => {
-          const { proposalId, metadata, votes } = proposal;
-          const derivedState = getDerivedProposalState(proposal);
+      <ProposalCardBody className="relative flex min-h-[calc(100vh-200px)] flex-col">
+        {paginatedProposals.length === 0 && isLoading ? (
+          <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-4">
+            <h3 className="text-muted-foreground">Loading proposals</h3>
+            <IconLoading />
+          </div>
+        ) : (
+          paginatedProposals.map((proposal, index) => {
+            const { proposalId, metadata, votes } = proposal;
+            const derivedState = getDerivedProposalState(proposal);
 
-          return (
-            <ProposalListItem key={index}>
-              <ProposalListItemIndex
-                index={(currentPage - 1) * ITEMS_PER_PAGE + index + 1}
-              />
-              <ProposalListItemBody>
-                <ProposalStatus variant={derivedState as any} />
-                <Link href={`/proposals/${proposalId}`}>
-                  <h3
-                    className="text-lg leading-5 text-white"
-                    data-testid={`proposal_${metadata.title}`}
-                  >
-                    {metadata.title}
-                  </h3>
-                </Link>
-                <div className="w-full xl:ml-auto xl:max-w-[192px]">
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-sm leading-5 xl:h-8 xl:text-sm">
-                      <span className="block h-1 w-1 bg-[var(--approved)]"></span>
-                      {NumbersService.parseNumericValue(
-                        Number(formatUnits(votes.for.total, 18)),
-                      )}
-                    </div>
-                    <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-sm leading-5 xl:h-8 xl:text-sm">
-                      <span className="block h-1 w-1 bg-[var(--rejected)]"></span>
-                      {NumbersService.parseNumericValue(
-                        Number(formatUnits(votes.against.total, 18)),
-                      )}
-                    </div>
-                    <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-sm leading-5 xl:h-8 xl:text-sm">
-                      <span className="block h-1 w-1 bg-[var(--abstained)]"></span>
-                      {NumbersService.parseNumericValue(
-                        Number(formatUnits(votes.abstain.total, 18)),
-                      )}
+            return (
+              <ProposalListItem key={index}>
+                <ProposalListItemIndex
+                  index={(currentPage - 1) * ITEMS_PER_PAGE + index + 1}
+                />
+                <ProposalListItemBody>
+                  <ProposalStatus variant={derivedState as any} />
+                  <Link href={`/proposals/${proposalId}`}>
+                    <h3
+                      className="text-lg leading-5 text-white"
+                      data-testid={`proposal_${metadata.title}`}
+                    >
+                      {metadata.title}
+                    </h3>
+                  </Link>
+                  <div className="w-full xl:ml-auto xl:max-w-[192px]">
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-sm leading-5 xl:h-8 xl:text-sm">
+                        <span className="block h-1 w-1 bg-[var(--approved)]"></span>
+                        {NumbersService.parseNumericValue(
+                          Number(formatUnits(votes.for.total, 18)),
+                        )}
+                      </div>
+                      <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-sm leading-5 xl:h-8 xl:text-sm">
+                        <span className="block h-1 w-1 bg-[var(--rejected)]"></span>
+                        {NumbersService.parseNumericValue(
+                          Number(formatUnits(votes.against.total, 18)),
+                        )}
+                      </div>
+                      <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-sm leading-5 xl:h-8 xl:text-sm">
+                        <span className="block h-1 w-1 bg-[var(--abstained)]"></span>
+                        {NumbersService.parseNumericValue(
+                          Number(formatUnits(votes.abstain.total, 18)),
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </ProposalListItemBody>
-            </ProposalListItem>
-          );
-        })}
+                </ProposalListItemBody>
+              </ProposalListItem>
+            );
+          })
+        )}
         {totalPages > 1 && (
           <Pagination className="mt-4">
             <PaginationContent>
