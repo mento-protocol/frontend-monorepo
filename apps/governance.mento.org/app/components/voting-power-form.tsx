@@ -1,5 +1,6 @@
 "use client";
 import {
+  DEFAULT_LOCKING_CLIFF,
   LOCKING_AMOUNT_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
   MAX_LOCKING_DURATION_WEEKS,
@@ -21,7 +22,7 @@ import {
   useDebounce,
 } from "@repo/ui";
 import { format } from "date-fns";
-import { useMemo } from "react";
+import React, { useMemo } from "react";
 import { Controller, FormProvider, useForm } from "react-hook-form";
 import spacetime from "spacetime";
 import { formatUnits } from "viem";
@@ -32,19 +33,22 @@ import { WithdrawButton } from "./withdraw-button";
 
 export default function VotingPowerForm() {
   const { address } = useAccount();
-  const { lock, unlockedMento, hasLock, hasActiveLock, isLoading, refetch } =
-    useLockInfo(address);
+  const {
+    lock,
+    unlockedMento,
+    hasLock,
+    hasActiveLock,
+    hasMultipleLocks,
+    isLoading,
+    refetch,
+  } = useLockInfo(address);
   const { veMentoBalance, mentoBalance } = useTokens();
 
-  // Define minimum lock period as 1 weeks, only on Wednesdays
   const MIN_LOCK_PERIOD_WEEKS = 1;
 
-  // Find the first Wednesday that's at least 1 weeks from now
   const getFirstWednesdayAfterMinPeriod = () => {
-    // Start with a date 1 weeks from now
     let targetDate = spacetime.now().add(MIN_LOCK_PERIOD_WEEKS, "week");
 
-    // Find the next Wednesday (day 3 in spacetime, where 0 is Sunday)
     while (targetDate.day() !== 3) {
       targetDate = targetDate.add(1, "day");
     }
@@ -52,9 +56,32 @@ export default function VotingPowerForm() {
     return targetDate.toNativeDate();
   };
 
-  const minLockDate = useMemo(() => getFirstWednesdayAfterMinPeriod(), []);
+  const minLockDate = useMemo(() => {
+    if (hasActiveLock && lock?.expiration) {
+      const expirationDate = spacetime(lock.expiration);
+      const oneWeekFromNow = spacetime.now().add(MIN_LOCK_PERIOD_WEEKS, "week");
 
-  // Generate all valid Wednesday dates from minLockDate to 2 years from now
+      if (
+        expirationDate.isAfter(oneWeekFromNow) &&
+        expirationDate.day() === 3
+      ) {
+        return expirationDate.toNativeDate();
+      }
+
+      let targetDate = expirationDate.isAfter(oneWeekFromNow)
+        ? expirationDate
+        : oneWeekFromNow;
+
+      while (targetDate.day() !== 3) {
+        targetDate = targetDate.add(1, "day");
+      }
+
+      return targetDate.toNativeDate();
+    }
+
+    return getFirstWednesdayAfterMinPeriod();
+  }, [hasActiveLock, lock?.expiration]);
+
   const validWednesdays = useMemo(() => {
     const wednesdays: Date[] = [];
     let currentDate = spacetime(minLockDate);
@@ -77,12 +104,11 @@ export default function VotingPowerForm() {
     [],
   );
 
-  // Function to determine if a date should be disabled
-  // Disables dates before minLockDate and all non-Wednesdays
   const isDateDisabled = (date: Date) => {
     const isBeforeMin = date < minLockDate;
-    const isNotWednesday = spacetime(date).day() !== 3; // 3 is Wednesday in spacetime (0-indexed from Sunday)
-    return isBeforeMin || isNotWednesday;
+    const isAfterMax = date > maxDate;
+    const isNotWednesday = spacetime(date).day() !== 3;
+    return isBeforeMin || isAfterMax || isNotWednesday;
   };
 
   const methods = useForm({
@@ -96,14 +122,19 @@ export default function VotingPowerForm() {
 
   const { control, watch, register, setValue } = methods;
 
+  React.useEffect(() => {
+    if (validWednesdays.length > 0) {
+      const defaultDate = validWednesdays[0];
+      setValue(LOCKING_UNLOCK_DATE_FORM_KEY, defaultDate);
+    }
+  }, [validWednesdays, setValue]);
+
   const amountToLock = watch(LOCKING_AMOUNT_FORM_KEY);
   const unlockDate = watch(LOCKING_UNLOCK_DATE_FORM_KEY);
 
-  // Find the index of the current unlock date in validWednesdays
   const currentDateIndex = useMemo(() => {
     if (!unlockDate || validWednesdays.length === 0) return 0;
 
-    // Find the closest Wednesday to the current unlock date
     const unlockTime = unlockDate.getTime();
     let closestIndex = 0;
     let minDiff = Math.abs(validWednesdays[0].getTime() - unlockTime);
@@ -119,11 +150,10 @@ export default function VotingPowerForm() {
     return closestIndex;
   }, [unlockDate, validWednesdays]);
 
-  const { lockDurationInMonths, lockDurationDisplay } = useMemo(() => {
+  const { lockDurationInWeeks, lockDurationDisplay } = useMemo(() => {
     if (!unlockDate)
       return {
         lockDurationInWeeks: 0,
-        lockDurationInMonths: 0,
         lockDurationDisplay: "0 weeks",
       };
 
@@ -154,7 +184,6 @@ export default function VotingPowerForm() {
 
     return {
       lockDurationInWeeks: weeksDiff,
-      lockDurationInMonths: adjustedMonths,
       lockDurationDisplay,
     };
   }, [unlockDate]);
@@ -162,8 +191,8 @@ export default function VotingPowerForm() {
   // Calculate slope and cliff for lock calculation
   const slope = useMemo(() => {
     // Convert months to the slope value (assuming 24 months = 104 weeks)
-    return Math.round((lockDurationInMonths / 24) * 104);
-  }, [lockDurationInMonths]);
+    return Math.round(lockDurationInWeeks);
+  }, [lockDurationInWeeks]);
 
   // Debounce inputs for calculation
   const debouncedAmount = useDebounce(amountToLock, 500);
@@ -177,7 +206,7 @@ export default function VotingPowerForm() {
     lock: {
       amount: debouncedAmount,
       slope: debouncedSlope,
-      cliff: 0, // Default cliff value
+      cliff: DEFAULT_LOCKING_CLIFF,
     },
   });
 
@@ -268,7 +297,7 @@ export default function VotingPowerForm() {
                         disabled={isDateDisabled}
                         fromDate={minLockDate}
                         toDate={maxDate}
-                        startMonth={minLockDate}
+                        startMonth={value || minLockDate}
                         endMonth={maxDate}
                       />
                     )}
@@ -353,6 +382,17 @@ export default function VotingPowerForm() {
                       <span className="text-muted-foreground">Expires</span>
                       <span>{expirationDate || "-"}</span>
                     </div>
+                    {hasMultipleLocks && (
+                      <>
+                        <hr className="border-border h-full" />
+                        <div className="text-muted-foreground text-sm">
+                          <span className="font-medium">Note:</span> You have
+                          multiple locks. We're displaying your first lock. You
+                          can add more MENTO to this lock or extend its
+                          duration.
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </CardContent>

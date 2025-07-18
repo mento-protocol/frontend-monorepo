@@ -1,5 +1,5 @@
 import { useAvailableToWithdraw } from "@/lib/contracts/locking/useAvailableToWithdraw";
-import { Button } from "@repo/ui";
+import { Button, toast } from "@repo/ui";
 import { formatUnits } from "viem";
 import React from "react";
 import useTokens from "@/lib/contracts/useTokens";
@@ -7,6 +7,7 @@ import { useWithdraw } from "@/lib/contracts/locking/useWithdraw";
 import { useAccount } from "wagmi";
 import { TxDialog } from "./tx-dialog/tx-dialog";
 import { useLockInfo } from "@/lib/contracts/locking/useLockInfo";
+import { formatUnitsWithThousandSeparators } from "@/lib/helpers/numbers";
 
 export const WithdrawButton = () => {
   const { availableToWithdraw, refetchAvailableToWithdraw } =
@@ -38,6 +39,9 @@ export const WithdrawButton = () => {
 
   const { withdraw, isPending, isConfirming, error } = useWithdraw({
     onConfirmation: handleWithdrawSuccess,
+    onError: () => {
+      toast.error("Failed to withdraw");
+    },
   });
 
   const handleWithdraw = React.useCallback(() => {
@@ -75,7 +79,8 @@ export const WithdrawButton = () => {
           variant="secondary"
           onClick={handleWithdraw}
         >
-          Withdraw {availableToWithdrawFormatted} MENTO
+          Withdraw{" "}
+          {formatUnitsWithThousandSeparators(availableToWithdraw, 18, 2)} MENTO
         </Button>
       )}
       <TxDialog

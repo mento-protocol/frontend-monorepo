@@ -110,7 +110,7 @@ export const ProposalList = () => {
           </Button>
         </Link>
       </ProposalCardHeader>
-      <ProposalCardBody className="relative flex min-h-[calc(100vh-200px)] flex-col">
+      <ProposalCardBody className="relative flex min-h-96 flex-col">
         {paginatedProposals.length === 0 && isLoading ? (
           <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-4">
             <h3 className="text-muted-foreground">Loading proposals</h3>

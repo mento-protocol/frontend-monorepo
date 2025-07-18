@@ -121,7 +121,6 @@ const useRelockMento = ({
         const error = new Error(
           "Cannot relock: missing or invalid lock configuration",
         );
-        console.error(error);
         onError?.(error as WriteContractErrorType);
         return;
       }
@@ -129,10 +128,6 @@ const useRelockMento = ({
       writeContract(lockingConfig, {
         onSuccess,
         onError: (error) => {
-          if (!IS_PROD) {
-            console.log(error);
-          }
-
           Sentry.captureException(error, {
             data: {
               function: "useRelockMento",
@@ -142,6 +137,7 @@ const useRelockMento = ({
               contractArgs: JSON.stringify(lockingArgs),
             },
           });
+
           onError?.(error);
         },
       });

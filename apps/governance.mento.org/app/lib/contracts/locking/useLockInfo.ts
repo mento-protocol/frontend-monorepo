@@ -43,20 +43,13 @@ export const useLockInfo = (address: string | undefined) => {
       !currentLockingWeek ||
       isNaN(lock?.slope ?? 0) ||
       isNaN(lock?.cliff ?? 0) ||
-      isNaN(lock?.time ?? 0) ||
-      activeLocks.length > 1
+      isNaN(lock?.time ?? 0)
     ) {
       return false;
     }
     const weeksPassed = Number(currentLockingWeek) - lock?.time;
     return weeksPassed > 1;
-  }, [
-    activeLocks.length,
-    currentLockingWeek,
-    lock?.cliff,
-    lock?.slope,
-    lock?.time,
-  ]);
+  }, [currentLockingWeek, lock?.cliff, lock?.slope, lock?.time]);
 
   return {
     isLockExtendible,

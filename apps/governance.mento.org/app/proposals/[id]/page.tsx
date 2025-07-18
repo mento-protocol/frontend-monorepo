@@ -292,7 +292,7 @@ export default function ProposalPage() {
         </div>
       </div>
 
-      <div className="xl:gap-22 flex flex-col gap-8 xl:w-full xl:flex-row">
+      <div className="flex flex-col gap-8 xl:w-full xl:flex-row xl:gap-10">
         <div className="xl:w-2/3">
           <VoteCard
             proposal={proposal}
@@ -325,13 +325,13 @@ export default function ProposalPage() {
                     value="for"
                     data-testid="participantsTabButton_approve"
                   >
-                    Approve
+                    Yes
                   </TabsTrigger>
                   <TabsTrigger
                     value="against"
                     data-testid="participantsTabButton_reject"
                   >
-                    Reject
+                    No
                   </TabsTrigger>
                   <TabsTrigger
                     value="abstain"
