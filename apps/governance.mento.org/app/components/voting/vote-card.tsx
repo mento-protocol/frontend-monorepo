@@ -57,9 +57,6 @@ export const VoteCard = ({
 }: VoteCardProps) => {
   const { address, isConnecting, isConnected, chainId } = useAccount();
   const { veMentoBalance } = useTokens();
-  const { data: currentBlock } = useBlockNumber({
-    chainId: ensureChainId(chainId),
-  });
   const {
     data: voteReceipt,
     isLoading: isHasVotedStatusLoading,
@@ -93,6 +90,7 @@ export const VoteCard = ({
     isConfirmed: isQueueConfirmed,
     error: queueError,
   } = useQueueProposal();
+
   const { quorumNeeded } = useQuorum(proposal.startBlock);
 
   const hasEnoughLockedMentoToVote = veMentoBalance.value > 0;
@@ -352,7 +350,11 @@ export const VoteCard = ({
     isInitializing,
     isConfirmed,
     isConfirming,
+    isExecuteConfirming,
+    isQueueConfirming,
     isAwaitingUserSignature,
+    isAwaitingExecuteSignature,
+    isAwaitingQueueSignature,
     voteReceipt?.hasVoted,
     hasEnoughLockedMentoToVote,
     isConnected,
@@ -582,9 +584,13 @@ export const VoteCard = ({
         );
 
       case "queued":
+        const proposalQueued =
+          proposal.proposalQueued && proposal.proposalQueued[0];
         // Check if veto period has passed
         const canExecute =
-          proposal.eta && Date.now() / 1000 > Number(proposal.eta);
+          proposalQueued?.eta &&
+          Date.now() / 1000 > Number(proposalQueued?.eta);
+        console.log("canExecute", canExecute, proposalQueued);
         if (!address) {
           return (
             <div className="col-span-full flex justify-center">
@@ -601,7 +607,7 @@ export const VoteCard = ({
         }
         if (canExecute) {
           return (
-            <div className="flex justify-center">
+            <div className="col-span-full flex justify-center">
               <Button
                 variant="default"
                 size="lg"
@@ -609,6 +615,7 @@ export const VoteCard = ({
                 onClick={handleExecute}
                 disabled={isAwaitingExecuteSignature || isExecuteConfirming}
                 data-testid="executeProposalButton"
+                className="w-full"
               >
                 {isAwaitingExecuteSignature
                   ? "Confirm in Wallet"
@@ -622,7 +629,13 @@ export const VoteCard = ({
         // Show disabled button during veto period
         return (
           <div className="flex justify-center">
-            <Button variant="default" size="lg" clipped="default" disabled>
+            <Button
+              variant="default"
+              size="lg"
+              clipped="default"
+              disabled
+              className="w-full"
+            >
               In Veto Period
             </Button>
           </div>
@@ -639,6 +652,7 @@ export const VoteCard = ({
                   href={`${linkExplorer}/tx/${executionTxHash}`}
                   target="_blank"
                   rel="noopener noreferrer"
+                  className="w-full"
                 >
                   View Execution Transaction
                 </a>
@@ -673,6 +687,7 @@ export const VoteCard = ({
               onClick={handleQueue}
               disabled={isAwaitingQueueSignature || isQueueConfirming}
               data-testid="queueProposalButton"
+              className="w-full"
             >
               {isAwaitingQueueSignature
                 ? "Confirm in Wallet"

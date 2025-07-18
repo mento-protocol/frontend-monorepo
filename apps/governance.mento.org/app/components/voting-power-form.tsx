@@ -22,7 +22,7 @@ import {
   useDebounce,
 } from "@repo/ui";
 import { format } from "date-fns";
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { Controller, FormProvider, useForm } from "react-hook-form";
 import spacetime from "spacetime";
 import { formatUnits } from "viem";
@@ -136,6 +136,17 @@ export default function VotingPowerForm() {
     if (!unlockDate || validWednesdays.length === 0) return 0;
 
     const unlockTime = unlockDate.getTime();
+
+    // First, try to find an exact match
+    const exactIndex = validWednesdays.findIndex(
+      (date) => date.getTime() === unlockTime,
+    );
+
+    if (exactIndex >= 0) {
+      return exactIndex;
+    }
+
+    // If no exact match, find the closest one
     let closestIndex = 0;
     let minDiff = Math.abs(validWednesdays[0].getTime() - unlockTime);
 
@@ -149,6 +160,14 @@ export default function VotingPowerForm() {
 
     return closestIndex;
   }, [unlockDate, validWednesdays]);
+
+  // State to control slider value explicitly
+  const [sliderIndex, setSliderIndex] = useState(0);
+
+  // Sync slider index with calculated currentDateIndex
+  useEffect(() => {
+    setSliderIndex(currentDateIndex);
+  }, [currentDateIndex]);
 
   const { lockDurationInWeeks, lockDurationDisplay } = useMemo(() => {
     if (!unlockDate)
@@ -312,6 +331,7 @@ export default function VotingPowerForm() {
                   </span>
                 </div>
                 <Slider
+                  key={`slider-${currentDateIndex}-${validWednesdays.length}`}
                   value={[currentDateIndex]}
                   onValueChange={(values) => {
                     const newIndex = values[0];
@@ -342,7 +362,7 @@ export default function VotingPowerForm() {
               </div>
             </CardContent>
             <CardFooter className="mt-auto">
-              <LockingButton hasLock={hasActiveLock} />
+              <LockingButton />
             </CardFooter>
           </Card>
 
