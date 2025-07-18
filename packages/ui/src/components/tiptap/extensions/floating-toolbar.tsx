@@ -5,7 +5,6 @@ import { BoldToolbar } from "@/components/tiptap/toolbars/bold.js";
 import { ItalicToolbar } from "@/components/tiptap/toolbars/italic.js";
 import { UnderlineToolbar } from "@/components/tiptap/toolbars/underline.js";
 import { LinkToolbar } from "@/components/tiptap/toolbars/link.js";
-import { ColorHighlightToolbar } from "@/components/tiptap/toolbars/color-and-highlight.js";
 import { ToolbarProvider } from "@/components/tiptap/toolbars/toolbar-provider.js";
 import { TooltipProvider } from "@/components/ui/tooltip.js";
 import { useMediaQuery } from "@/hooks/use-media-querry.js";
@@ -14,7 +13,6 @@ import { Separator } from "@/components/ui/separator.js";
 import { HeadingsToolbar } from "@/components/tiptap/toolbars/headings.js";
 import { BulletListToolbar } from "@/components/tiptap/toolbars/bullet-list.js";
 import { OrderedListToolbar } from "@/components/tiptap/toolbars/ordered-list.js";
-import { ImagePlaceholderToolbar } from "@/components/tiptap/toolbars/image-placeholder-toolbar.js";
 import { AlignmentTooolbar } from "@/components/tiptap/toolbars/alignment.js";
 import { BlockquoteToolbar } from "@/components/tiptap/toolbars/blockquote.js";
 import { useEffect } from "react";
@@ -70,10 +68,7 @@ export function FloatingToolbar({ editor }: { editor: Editor | null }) {
                   <OrderedListToolbar />
                   <Separator orientation="vertical" className="mx-1 h-6" />
 
-                  {/* Rich formatting */}
-                  <ColorHighlightToolbar />
                   <LinkToolbar />
-                  <ImagePlaceholderToolbar />
                   <Separator orientation="vertical" className="mx-1 h-6" />
 
                   {/* Additional controls */}

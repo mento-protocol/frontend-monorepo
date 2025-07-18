@@ -4,6 +4,7 @@
 */
 
 @import "./theme.css";
+@import "./components/tiptap/tiptap.css";
 @import "tailwindcss";
 @source "../../../apps/";
 @source "./";
