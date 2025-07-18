@@ -274,9 +274,6 @@ importers:
 
   apps/reserve.mento.org:
     dependencies:
-      '@celo/contractkit':
-        specifier: ^9.2.1
-        version: 9.2.1(bufferutil@4.0.9)(utf-8-validate@5.0.10)
       '@repo/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -286,9 +283,6 @@ importers:
       '@t3-oss/env-nextjs':
         specifier: ^0.13.4
         version: 0.13.8(typescript@5.8.3)(zod@3.25.67)
-      '@tanstack/react-query':
-        specifier: ^5.76.0
-        version: 5.80.7(react@19.1.0)
       '@vercel/analytics':
         specifier: ^1.5.0
         version: 1.5.0(next@15.3.3(@opentelemetry/api@1.9.0)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)(sass@1.89.2))(react@19.1.0)
