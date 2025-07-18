@@ -108,7 +108,7 @@ export function RichTextEditor({
       <TipTapFloatingMenu editor={editor} />
       <EditorContent
         editor={editor}
-        className="bg-input/30 border-input min-h-[400px] w-full min-w-full cursor-text border sm:p-6"
+        className="bg-input/30 border-input min-h-[400px] w-full min-w-full cursor-text border sm:p-5"
       />
     </div>
   );

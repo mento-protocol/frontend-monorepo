@@ -303,7 +303,8 @@ export const VoteCard = ({
     abstainVotes > forVotes &&
     abstainVotes > againstVotes;
   const isQuorumNotMet =
-    proposalState === ProposalState.Defeated && forVotes > againstVotes;
+    proposalState === ProposalState.Defeated &&
+    totalVotingPower < (quorumNeeded || BigInt(0));
 
   const currentState = useMemo(() => {
     if (isInitializing) return "loading";
@@ -526,6 +527,8 @@ export const VoteCard = ({
   const isVotedForApprove = voteReceipt?.support === 1;
   const isVotedForAbstain = voteReceipt?.support === 2;
   const isVotedForReject = voteReceipt?.support === 0;
+  const hasVoted = voteReceipt?.hasVoted;
+
   const usedVoteOptionButtonLocator = "usedVoteOptionButton";
 
   // Render vote buttons based on state
@@ -548,40 +551,44 @@ export const VoteCard = ({
       case "expired":
       case "finished":
         // Show disabled buttons for finished proposals
-        return (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <Button
-              variant="approve"
-              size="lg"
-              disabled
-              {...(isVotedForApprove && {
-                "data-testid": usedVoteOptionButtonLocator,
-              })}
-            >
-              {voteReceipt?.support === 1 ? "Your vote: YES" : "Vote YES"}
-            </Button>
-            <Button
-              variant="abstain"
-              size="lg"
-              disabled
-              {...(isVotedForAbstain && {
-                "data-testid": usedVoteOptionButtonLocator,
-              })}
-            >
-              {isVotedForAbstain ? "Your vote: Abstain" : "Abstain"}
-            </Button>
-            <Button
-              variant="reject"
-              size="lg"
-              disabled
-              {...(isVotedForReject && {
-                "data-testid": usedVoteOptionButtonLocator,
-              })}
-            >
-              {voteReceipt?.support === 0 ? "Your vote: NO" : "Vote NO"}
-            </Button>
-          </div>
-        );
+        if (hasVoted) {
+          return (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              {isVotedForApprove && (
+                <Button
+                  variant="approve"
+                  size="lg"
+                  data-testid={usedVoteOptionButtonLocator}
+                  disabled
+                >
+                  Your vote: YES
+                </Button>
+              )}
+              {isVotedForAbstain && (
+                <Button
+                  variant="abstain"
+                  size="lg"
+                  data-testid={usedVoteOptionButtonLocator}
+                  disabled
+                >
+                  Your vote: Abstain
+                </Button>
+              )}
+              {isVotedForReject && (
+                <Button
+                  variant="reject"
+                  size="lg"
+                  data-testid={usedVoteOptionButtonLocator}
+                  disabled
+                >
+                  Your vote: NO
+                </Button>
+              )}
+            </div>
+          );
+        }
+
+        return null;
 
       case "queued":
         const proposalQueued =
@@ -590,7 +597,7 @@ export const VoteCard = ({
         const canExecute =
           proposalQueued?.eta &&
           Date.now() / 1000 > Number(proposalQueued?.eta);
-        console.log("canExecute", canExecute, proposalQueued);
+
         if (!address) {
           return (
             <div className="col-span-full flex justify-center">
@@ -740,7 +747,7 @@ export const VoteCard = ({
               }
               data-testid="approveProposalButton"
             >
-              Approve Proposal
+              Vote YES
             </Button>
             <Button
               variant="abstain"
@@ -768,7 +775,7 @@ export const VoteCard = ({
               }
               data-testid="rejectProposalButton"
             >
-              Reject Proposal
+              Vote NO
             </Button>
           </div>
         );
@@ -896,8 +903,10 @@ export const VoteCard = ({
 
           {isConnected && (
             <div className="flex items-center gap-2 text-sm">
-              <span className="text-muted-foreground">Voting Power:</span>
-              <span>{formattedTotalVotingPower} veMENTO</span>
+              <span>Total Votes:</span>
+              <span className="text-muted-foreground">
+                {formattedTotalVotingPower} veMENTO
+              </span>
             </div>
           )}
         </CardHeader>

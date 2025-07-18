@@ -29,8 +29,8 @@
   --editor-highlight-red: hsl(0 84% 96%);
 
   /* Border Colors */
-  --editor-border-default: hsl(268deg 8.9% 43.9%);
-  --editor-border-strong: hsl(240 5% 65%);
+  --editor-border-default: oklch(52.6% 0.0327 306);
+  --editor-border-strong: oklch(52.6% 0.0327 306);
 
   /* Spacing System */
   --editor-spacing-1: 0.25rem;
@@ -80,7 +80,7 @@
   --editor-bg-subtle: hsl(240 3.7% 15.9%);
   --editor-bg-muted: hsl(240 5% 26%);
 
-  --editor-highlight-default: hsl(240 3.7% 15.9%);
+  --editor-highlight-default: oklch(0.5116 0.2893 289.05);
   --editor-highlight-gray: hsl(240 5% 26%);
   --editor-highlight-brown: hsl(43 96% 10%);
   --editor-highlight-orange: hsl(33 100% 10%);
@@ -91,8 +91,8 @@
   --editor-highlight-pink: hsl(336 80% 10%);
   --editor-highlight-red: hsl(0 84% 10%);
 
-  --editor-border-default: hsl(268deg 8.9% 43.9%);
-  --editor-border-strong: hsl(268deg 8.9% 43.9%);
+  --editor-border-default: oklch(52.6% 0.0327 306);
+  --editor-border-strong: oklch(52.6% 0.0327 306);
 }
 
 /* Core Editor Styles */
@@ -103,10 +103,9 @@
   max-width: 90ch;
   font-family: var(--editor-font-sans);
   position: relative;
-  /* background-color: var(--editor-bg-default); */
+  margin: 0;
   color: var(--editor-text-default);
   transition: all var(--editor-transition-normal);
-  min-height: 100vh;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -119,8 +118,7 @@
 
 .ProseMirror .selection,
 .ProseMirror *::selection {
-  background-color: var(--editor-highlight-blue);
-  /* color: var(--editor-text-default); */
+  background-color: var(--editor-highlight-default);
 }
 
 .ProseMirror > .react-renderer {
@@ -181,7 +179,7 @@
 }
 
 .ProseMirror a {
-  color: var(--editor-text-blue);
+  color: var(--editor-text-default);
   cursor: pointer;
   text-decoration: underline;
   text-decoration-thickness: 0.1em;
@@ -190,8 +188,7 @@
 }
 
 .ProseMirror a:hover {
-  color: var(--editor-text-blue);
-  text-decoration-thickness: 0.2em;
+  opacity: 0.9;
 }
 
 .ProseMirror code {

@@ -49,6 +49,15 @@ export const LockingButton = () => {
     return parseEther(amount);
   }, [amount]);
 
+  // Check if user is extending lock duration (different unlock date)
+  const isExtendingDuration = React.useMemo(() => {
+    if (!hasActiveLock || !lock?.expiration || !unlockDate) return false;
+    // Compare dates (ignore time differences)
+    const currentExpiration = new Date(lock.expiration);
+    const selectedDate = new Date(unlockDate);
+    return selectedDate.getTime() !== currentExpiration.getTime();
+  }, [hasActiveLock, lock?.expiration, unlockDate]);
+
   const isBalanceInsufficient = errors[LOCKING_AMOUNT_FORM_KEY]?.type === "max";
 
   const newSlope = React.useMemo(() => {
@@ -162,17 +171,22 @@ export const LockingButton = () => {
   ]);
 
   const content = React.useMemo(() => {
-    // Wallet not connected
+    // Not connected
     if (!address) {
-      return <>Connect Wallet</>;
+      return <>Connect wallet</>;
     }
 
-    // User has multiple locks - we'll default to operating on the first lock
-    // The first lock is already being displayed in the "Your existing veMENTO lock" section
-    // Both topping up and extending duration are now supported for the first lock
+    // Multiple locks - not supported
+    if (hasMultipleLocks) {
+      return <>Multiple locks not supported</>;
+    }
 
-    // Amount is null or empty
+    // Both topping up and extending duration are now supported for the first lock
     if (!amount || amount === "" || amount === "0") {
+      // Allow empty or 0 amount if user is extending lock duration
+      if (hasActiveLock && isExtendingDuration) {
+        return <>Extend lock</>;
+      }
       return <>Enter amount</>;
     }
 
@@ -206,19 +220,22 @@ export const LockingButton = () => {
     hasMultipleLocks,
     needsApprovalForRelock,
     parsedAmount,
+    isExtendingDuration,
   ]);
 
   const shouldButtonBeDisabled = React.useMemo(() => {
     // Basic checks
-    if (
-      !address ||
-      !amount ||
-      amount === "" ||
-      amount === "0" ||
-      !isValid ||
-      isBalanceInsufficient
-    ) {
+    if (!address || !isValid || isBalanceInsufficient) {
       return true;
+    }
+
+    // Check amount requirements
+    const isAmountEmpty = !amount || amount === "" || amount === "0";
+    if (isAmountEmpty) {
+      // Allow empty or 0 amount only if user is extending lock duration
+      if (!(hasActiveLock && isExtendingDuration)) {
+        return true;
+      }
     }
 
     // Has active lock - relock flow checks
@@ -251,6 +268,9 @@ export const LockingButton = () => {
     parsedAmount,
     isRelocking,
     CreateLockTxStatus,
+    isExtendingDuration,
+    unlockDate,
+    lock,
   ]);
 
   // Define relock transaction status
