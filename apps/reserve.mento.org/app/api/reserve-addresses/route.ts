@@ -1,4 +1,4 @@
-import type { Network } from "@/app/lib/types";
+import type { Network } from "@/app/lib/types/index";
 import * as Sentry from "@sentry/nextjs";
 import { NextResponse } from "next/server";
 import { getAnalyticsUrl } from "@/app/lib/config/endpoints";

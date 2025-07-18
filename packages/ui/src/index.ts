@@ -19,6 +19,7 @@ export * from "./components/footer";
 export * from "./components/tiptap/rich-text-editor";
 export * from "./components/token-icon";
 export * from "./components/ui/accordion";
+export * from "./components/ui/badge";
 export * from "./components/ui/breadcrumb";
 export * from "./components/ui/coin-input";
 export * from "./components/ui/coin-select";

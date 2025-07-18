@@ -1,3 +1,5 @@
+import type { Network } from "./types/index";
+
 // A list of known stablecoin symbols. Add more as needed.
 export type Tokens = "cUSD" | "cEUR" | "cREAL" | "eXOF" | string; // Using string as a fallback
 
@@ -80,4 +82,18 @@ export interface ExternalAnalyticsApiResponse {
   assets: ExternalReserveAsset[];
 }
 
-export type Network = "string";
+// Reserve Addresses Types
+export interface ReserveAddress {
+  address: string;
+  label: string;
+}
+
+export interface ReserveAddressGroup {
+  network: Network; // Use proper Network enum
+  category: string; // "Mento Reserve" | "Uniswap V3 Pool" | "Aave"
+  addresses: ReserveAddress[];
+}
+
+export interface ReserveAddressesResponse {
+  addresses: ReserveAddressGroup[];
+}

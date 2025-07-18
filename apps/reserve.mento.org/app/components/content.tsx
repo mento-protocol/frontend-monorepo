@@ -19,27 +19,102 @@ import {
   TabsTrigger,
 } from "@repo/ui";
 import Image from "next/image";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
+import * as Sentry from "@sentry/nextjs";
+import { AddressSection } from "./address-section";
 import { ChainId, getTokenAddress } from "../lib/config/tokenConfig";
 import type {
   HoldingsApi,
   ReserveCompositionAPI,
   ReserveCompositionEntry,
   StableValueTokensAPI,
+  ReserveAddressesResponse,
 } from "../lib/types";
 
 interface ContentProps {
   stableCoinStats: StableValueTokensAPI;
   reserveComposition: ReserveCompositionAPI;
   reserveHoldings: HoldingsApi;
+  reserveAddresses: ReserveAddressesResponse;
 }
 
-export function Content({
+export default function Content({
   stableCoinStats,
   reserveComposition,
   reserveHoldings,
+  reserveAddresses,
 }: ContentProps) {
-  const [active, setActive] = useState<string>();
+  const [expandedToken, setExpandedToken] = useState<string | undefined>(
+    undefined,
+  );
+  const [copiedAddresses, setCopiedAddresses] = useState<Set<string>>(
+    new Set(),
+  );
+
+  // Track active timeouts to prevent memory leaks
+  const copyTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+
+  // Constants
+  const CLIPBOARD_COPY_FEEDBACK_DURATION = 500;
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      copyTimeoutsRef.current.forEach((timeout) => {
+        clearTimeout(timeout);
+      });
+      copyTimeoutsRef.current.clear();
+    };
+  }, []);
+
+  // Function to get DeBank portfolio URL for any address
+  const getDebankUrl = (address: string): string => {
+    return `https://debank.com/profile/${address}`;
+  };
+
+  const handleCopyAddress = async (
+    address: string,
+    category: string,
+    network: string,
+  ) => {
+    try {
+      await navigator.clipboard.writeText(address);
+      const uniqueKey = `${category}-${network}-${address}`;
+      setCopiedAddresses((prev) => new Set(prev).add(uniqueKey));
+
+      // Clear any existing timeout for this address
+      const existingTimeout = copyTimeoutsRef.current.get(uniqueKey);
+      if (existingTimeout) {
+        clearTimeout(existingTimeout);
+      }
+
+      // Remove the copied state after the feedback duration
+      const timeoutId = setTimeout(() => {
+        setCopiedAddresses((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(uniqueKey);
+          return newSet;
+        });
+        // Clean up the timeout reference
+        copyTimeoutsRef.current.delete(uniqueKey);
+      }, CLIPBOARD_COPY_FEEDBACK_DURATION);
+
+      // Store the timeout reference
+      copyTimeoutsRef.current.set(uniqueKey, timeoutId);
+    } catch (error) {
+      Sentry.captureException(error, {
+        tags: {
+          operation: "clipboard_copy",
+          category,
+          network,
+        },
+        extra: {
+          address,
+        },
+      });
+    }
+  };
+
   const TOKEN_COLORS: { [key: string]: string } = {
     CELO: "#7006FC",
     CUSD: "#9A4EFD",
@@ -92,6 +167,7 @@ export function Content({
         <TabsList>
           <TabsTrigger value="stablecoin-supply">Stablecoin Supply</TabsTrigger>
           <TabsTrigger value="reserve-holdings">Reserve Holdings</TabsTrigger>
+          <TabsTrigger value="reserve-addresses">Reserve Addresses</TabsTrigger>
         </TabsList>
         <TabsContent
           value="stablecoin-supply"
@@ -162,10 +238,10 @@ export function Content({
               <ReserveChart
                 data={chartData}
                 centerText={centerChartText}
-                activeSegment={active}
+                activeSegment={expandedToken}
                 className="my-auto h-[288px] justify-center self-center lg:h-[320px] xl:h-[360px] 2xl:h-[480px] min-[2500px]:!h-[640px]"
                 onActiveChanged={(name) => {
-                  setActive(name);
+                  setExpandedToken(name);
                 }}
               />
             </div>
@@ -182,12 +258,12 @@ export function Content({
                   <>
                     <div
                       key={`${celoDetails.token}-unfrozen`}
-                      className={`${celoDetails.token === active ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} grid w-full grid-cols-2 gap-4 border-l-4 p-4 xl:grid-cols-12`}
+                      className={`${celoDetails.token === expandedToken ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} grid w-full grid-cols-2 gap-4 border-l-4 p-4 xl:grid-cols-12`}
                       style={{
                         borderLeftColor: getTokenColor(celoDetails.token),
                       }}
-                      onMouseEnter={() => setActive(celoDetails.token)}
-                      onMouseLeave={() => setActive(undefined)}
+                      onMouseEnter={() => setExpandedToken(celoDetails.token)}
+                      onMouseLeave={() => setExpandedToken(undefined)}
                     >
                       <div className="col-span-2 flex flex-row items-center justify-start gap-4 text-xl font-medium xl:col-span-3">
                         <Image
@@ -230,12 +306,12 @@ export function Content({
                 return (
                   <div
                     key={asset.token}
-                    className={`${asset.token === active ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} grid w-full grid-cols-2 gap-4 border-l-4 p-4 xl:grid-cols-12`}
+                    className={`${asset.token === expandedToken ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} grid w-full grid-cols-2 gap-4 border-l-4 p-4 xl:grid-cols-12`}
                     style={{
                       borderLeftColor: getTokenColor(asset.token),
                     }}
-                    onMouseEnter={() => setActive(asset.token)}
-                    onMouseLeave={() => setActive(undefined)}
+                    onMouseEnter={() => setExpandedToken(asset.token)}
+                    onMouseLeave={() => setExpandedToken(undefined)}
                   >
                     <div className="col-span-2 flex flex-row items-center justify-start gap-4 text-xl font-medium xl:col-span-3">
                       <Image
@@ -269,6 +345,35 @@ export function Content({
                   </div>
                 );
               })}
+            </div>
+          </div>
+        </TabsContent>
+        <TabsContent
+          value="reserve-addresses"
+          className="relative before:absolute before:left-1/2 before:top-0 before:z-0 before:h-20 before:w-screen before:-translate-x-1/2 before:bg-gradient-to-b before:from-[#15111B] before:to-[#070010]"
+        >
+          <h2 className="relative z-10 my-6 hidden text-2xl font-medium md:mb-8 md:mt-12 md:block">
+            Reserve Addresses
+          </h2>
+          <div className="relative z-10 flex h-full flex-col gap-4 md:gap-8">
+            <div className="flex flex-col gap-2">
+              <AddressSection
+                groups={reserveAddresses.addresses.filter(
+                  (group) => group.category === "Mento Reserve",
+                )}
+                getDebankUrl={getDebankUrl}
+                handleCopyAddress={handleCopyAddress}
+                copiedAddresses={copiedAddresses}
+              />
+
+              <AddressSection
+                groups={reserveAddresses.addresses.filter(
+                  (group) => group.category !== "Mento Reserve",
+                )}
+                getDebankUrl={getDebankUrl}
+                handleCopyAddress={handleCopyAddress}
+                copiedAddresses={copiedAddresses}
+              />
             </div>
           </div>
         </TabsContent>

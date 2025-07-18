@@ -1,5 +1,5 @@
 import { getAnalyticsUrl } from "@/app/lib/config/endpoints";
-import { Content } from "./components/content";
+import Content from "./components/content";
 import type {
   ReserveStats,
   StableValueTokensAPI,
@@ -8,6 +8,7 @@ import type {
   ReserveCompositionAPI,
   ExternalAnalyticsApiResponse,
   HoldingsApi,
+  ReserveAddressesResponse,
 } from "@/app/lib/types";
 import Image from "next/image";
 import { env } from "@/env.mjs";
@@ -192,11 +193,39 @@ async function getReserveHoldings(): Promise<HoldingsApi> {
   return convertedResult;
 }
 
+async function getReserveAddresses(): Promise<ReserveAddressesResponse> {
+  const analyticsUrl = getAnalyticsUrl("reserveAddresses");
+  if (!analyticsUrl) {
+    throw new Error(
+      "Analytics API URL for reserve addresses could not be constructed.",
+    );
+  }
+
+  const response = await fetch(analyticsUrl, {
+    cache: "no-store", // Fetches fresh data on every request
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    console.error(
+      `Reserve Addresses Analytics API request failed: ${response.status} ${response.statusText}`,
+      errorBody,
+    );
+    throw new Error(
+      `Reserve Addresses Analytics API request failed with status ${response.status}`,
+    );
+  }
+
+  const result: ReserveAddressesResponse = await response.json();
+  return result;
+}
+
 export default async function Home() {
   const reserveStats = await getReserveStats();
   const stableCoinStats = await getStableCoinStats();
   const reserveComposition = await getReserveComposition();
   const reserveHoldings = await getReserveHoldings();
+  const reserveAddresses = await getReserveAddresses();
 
   const collateralizationRatio = reserveStats.collateralization_ratio;
   const totalSupply = reserveStats.total_outstanding_stables_usd;
@@ -300,6 +329,7 @@ export default async function Home() {
           stableCoinStats={stableCoinStats}
           reserveComposition={reserveComposition}
           reserveHoldings={reserveHoldings}
+          reserveAddresses={reserveAddresses}
         />
       </section>
     </main>
