@@ -2,37 +2,32 @@ import {
   LOCKING_AMOUNT_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
 } from "@/lib/constants/locking";
-import { Button, cn, toast } from "@repo/ui";
+import { useLockInfo } from "@/lib/contracts/locking/useLockInfo";
+import useLockingWeek from "@/lib/contracts/locking/useLockingWeek";
+import useRelockMento from "@/lib/contracts/locking/useRelockMento";
+import { useAllowance } from "@/lib/contracts/mento/useAllowance";
+import useApprove from "@/lib/contracts/mento/useApprove";
+import { useContracts } from "@/lib/contracts/useContracts";
+import { Button, toast } from "@repo/ui";
+import { differenceInWeeks } from "date-fns";
 import React from "react";
 import { useFormContext } from "react-hook-form";
+import { parseEther } from "viem";
 import { useAccount } from "wagmi";
+import { TxDialog } from "../tx-dialog/tx-dialog";
 import {
   CREATE_LOCK_APPROVAL_STATUS,
   CREATE_LOCK_TX_STATUS,
   useCreateLock,
 } from "./create-lock-provider";
-import { useLockInfo } from "@/lib/contracts/locking/useLockInfo";
-import useRelockMento from "@/lib/contracts/locking/useRelockMento";
-import { useAllowance } from "@/lib/contracts/mento/useAllowance";
-import useApprove from "@/lib/contracts/mento/useApprove";
-import { useContracts } from "@/lib/contracts/useContracts";
-import { parseEther } from "viem";
-import { TxDialog } from "../tx-dialog/tx-dialog";
-import { differenceInWeeks } from "date-fns";
-import useLockingWeek from "@/lib/contracts/locking/useLockingWeek";
 
-interface LockingButtonProps {
-  hasLock?: boolean;
-}
-
-export const LockingButton = ({ hasLock = false }: LockingButtonProps) => {
+export const LockingButton = () => {
   const { address } = useAccount();
   const { createLock, CreateLockTxStatus, CreateLockApprovalStatus } =
     useCreateLock();
   const {
     lock,
     hasActiveLock,
-    isLockExtendible,
     hasMultipleLocks,
     refetch: refetchLockInfo,
   } = useLockInfo(address);
@@ -56,11 +51,9 @@ export const LockingButton = ({ hasLock = false }: LockingButtonProps) => {
 
   const isBalanceInsufficient = errors[LOCKING_AMOUNT_FORM_KEY]?.type === "max";
 
-  // Calculate new slope for relock
   const newSlope = React.useMemo(() => {
     if (!unlockDate || !lock || !hasActiveLock || !currentLockingWeek) return 0;
 
-    // Safely access lock properties with nullish coalescing
     const lockTime = lock?.time ?? 0;
     const lockSlope = lock?.slope ?? 0;
     const lockExpiration = lock?.expiration;
@@ -174,10 +167,9 @@ export const LockingButton = ({ hasLock = false }: LockingButtonProps) => {
       return <>Connect Wallet</>;
     }
 
-    // User has multiple locks
-    if (hasMultipleLocks) {
-      return <>Multiple locks not supported</>;
-    }
+    // User has multiple locks - we'll default to operating on the first lock
+    // The first lock is already being displayed in the "Your existing veMENTO lock" section
+    // Both topping up and extending duration are now supported for the first lock
 
     // Amount is null or empty
     if (!amount || amount === "" || amount === "0") {
@@ -191,19 +183,9 @@ export const LockingButton = ({ hasLock = false }: LockingButtonProps) => {
 
     // Has active lock - relock flow
     if (hasActiveLock && lock?.expiration && lock.expiration > new Date()) {
-      // Check if the lock can be extended (only applies when no additional amount)
-      if (!isLockExtendible && parsedAmount === BigInt(0)) {
-        return <>Lock not extendible yet</>;
-      }
-
       // Approval needed for relock
       if (needsApprovalForRelock) {
         return <>Approve MENTO</>;
-      }
-
-      // Check if only extending duration
-      if (parsedAmount === BigInt(0)) {
-        return <>Extend lock</>;
       }
 
       return <>Top up lock</>;
@@ -222,7 +204,6 @@ export const LockingButton = ({ hasLock = false }: LockingButtonProps) => {
     CreateLockApprovalStatus,
     hasActiveLock,
     hasMultipleLocks,
-    isLockExtendible,
     needsApprovalForRelock,
     parsedAmount,
   ]);
@@ -231,7 +212,6 @@ export const LockingButton = ({ hasLock = false }: LockingButtonProps) => {
     // Basic checks
     if (
       !address ||
-      hasMultipleLocks ||
       !amount ||
       amount === "" ||
       amount === "0" ||
@@ -243,11 +223,6 @@ export const LockingButton = ({ hasLock = false }: LockingButtonProps) => {
 
     // Has active lock - relock flow checks
     if (hasActiveLock && lock?.expiration && lock.expiration > new Date()) {
-      // Can't extend if not extendible and no additional amount
-      if (!isLockExtendible && parsedAmount === BigInt(0)) {
-        return true;
-      }
-
       // Disable during relock transaction
       if (isRelocking) {
         return true;
@@ -273,7 +248,6 @@ export const LockingButton = ({ hasLock = false }: LockingButtonProps) => {
     isValid,
     isBalanceInsufficient,
     hasActiveLock,
-    isLockExtendible,
     parsedAmount,
     isRelocking,
     CreateLockTxStatus,
@@ -324,7 +298,6 @@ export const LockingButton = ({ hasLock = false }: LockingButtonProps) => {
         disabled={shouldButtonBeDisabled}
         onClick={(e: React.MouseEvent) => {
           handleSubmit(() => {
-            // Determine if we should create lock or relock
             if (
               hasActiveLock &&
               lock?.expiration &&
@@ -347,7 +320,7 @@ export const LockingButton = ({ hasLock = false }: LockingButtonProps) => {
         isOpen={isTxDialogOpen}
         onClose={resetRelockState}
         error={relockTxStatus === "ERROR"}
-        title={parsedAmount === BigInt(0) ? "Extend Lock" : "Top Up Lock"}
+        title="Top Up Lock"
         retry={handleRelock}
         message={<TxMessage />}
         dataTestId="relock-tx-dialog"

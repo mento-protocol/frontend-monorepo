@@ -14,8 +14,10 @@ import {
   DEFAULT_LOCKING_CLIFF,
   LOCKING_AMOUNT_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
+  MAX_LOCKING_DURATION_WEEKS,
 } from "@/lib/constants/locking";
 import { TxDialog } from "../tx-dialog/tx-dialog";
+import { differenceInWeeks } from "date-fns";
 
 export enum CREATE_LOCK_TX_STATUS {
   PENDING = "PENDING",
@@ -65,11 +67,12 @@ export const CreateLockProvider = ({
 
   const slope = React.useMemo(() => {
     if (!unlockDate) return 0;
-    const months =
-      (unlockDate.getFullYear() - new Date().getFullYear()) * 12 +
-      (unlockDate.getMonth() - new Date().getMonth());
-    return Math.round((months / 24) * 104);
+    const weeks = differenceInWeeks(unlockDate, new Date());
+    const maxSlope = MAX_LOCKING_DURATION_WEEKS / 2;
+    const calculatedSlope = weeks / maxSlope;
+    return Math.max(2, Math.round(calculatedSlope));
   }, [unlockDate]);
+
   const contracts = useContracts();
   const parsedAmount = parseEther(amount);
 
@@ -96,7 +99,10 @@ export const CreateLockProvider = ({
       onSuccess: () => {
         resetAll();
       },
-      onError: (err) => console.error("lockMento failed", err),
+      onError: (err) => {
+        console.log("lockMento failed", err);
+        toast.error("Failed to lock MENTO");
+      },
     });
   }, [address, lock, parsedAmount, resetAll, slope]);
 

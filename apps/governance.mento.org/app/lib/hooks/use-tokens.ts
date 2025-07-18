@@ -1,6 +1,6 @@
 "use client";
 import { CELO_BLOCK_TIME } from "@/lib/config/config.constants";
-import { useContracts } from "@/lib/hooks/use-contracts";
+import { useContracts } from "@/lib/contracts/useContracts";
 import { formatUnitsWithRadix } from "@/lib/helpers/numbers";
 import { useEnsureChainId } from "@/lib/hooks/use-ensure-chain-id";
 import { useMemo } from "react";

@@ -161,23 +161,6 @@ export const VoteCard = ({
     }
   }, [isConfirmed, refetchVoteReceipt, onVoteConfirmed]);
 
-  const formattedVeMentoBalance = useMemo(() => {
-    return Number(formatUnits(veMentoBalance.value, 18)).toLocaleString();
-  }, [veMentoBalance.value]);
-
-  // Calculate total votes as BigInt
-  const totalVotes = useMemo(() => {
-    if (!proposal?.votes) return 0;
-
-    // Count actual number of votes (participants)
-    const forVoteCount = proposal.votes.for?.participants?.length || 0;
-    const againstVoteCount = proposal.votes.against?.participants?.length || 0;
-    const abstainVoteCount = proposal.votes.abstain?.participants?.length || 0;
-
-    // Sum vote counts
-    return forVoteCount + againstVoteCount + abstainVoteCount;
-  }, [proposal.votes]);
-
   // Calculate total voting power for quorum display
   const totalVotingPower = useMemo(() => {
     if (!proposal?.votes) return BigInt(0);
@@ -188,6 +171,10 @@ export const VoteCard = ({
 
     return forPower + againstPower + abstainPower;
   }, [proposal.votes]);
+
+  const formattedTotalVotingPower = useMemo(() => {
+    return NumbersService.parseNumericValue(formatUnits(totalVotingPower, 18));
+  }, [totalVotingPower]);
 
   // Individual vote counts for easier access
   const forVotes = useMemo(
@@ -205,35 +192,52 @@ export const VoteCard = ({
 
   // Calculate vote percentages and data for progress bar
   const voteData = useMemo(() => {
-    // Calculate percentages using vote counts
+    // Get voting power values
+    const forPower = BigInt(proposal.votes?.for?.total || 0);
+    const againstPower = BigInt(proposal.votes?.against?.total || 0);
+    const abstainPower = BigInt(proposal.votes?.abstain?.total || 0);
+    const quorumBigInt = quorumNeeded || BigInt(0);
+
+    // Calculate percentages based on quorum (not total votes cast)
     let forPercentage = "0.0";
     let againstPercentage = "0.0";
     let abstainPercentage = "0.0";
 
-    if (totalVotes > 0) {
-      // Calculate percentages based on vote counts
-      forPercentage = ((forVotes / totalVotes) * 100).toFixed(1);
-      againstPercentage = ((againstVotes / totalVotes) * 100).toFixed(1);
-      abstainPercentage = ((abstainVotes / totalVotes) * 100).toFixed(1);
+    if (quorumBigInt > 0) {
+      // Calculate percentages based on quorum needed
+      forPercentage = ((Number(forPower) / Number(quorumBigInt)) * 100).toFixed(
+        1,
+      );
+      againstPercentage = (
+        (Number(againstPower) / Number(quorumBigInt)) *
+        100
+      ).toFixed(1);
+      abstainPercentage = (
+        (Number(abstainPower) / Number(quorumBigInt)) *
+        100
+      ).toFixed(1);
     }
 
     return {
       approve: {
-        // Display vote counts directly
-        value: forVotes.toString(),
+        // Display voting power formatted
+        value: NumbersService.parseNumericValue(formatUnits(forPower, 18)),
         percentage: parseFloat(forPercentage),
       },
       reject: {
-        value: againstVotes.toString(),
+        value: NumbersService.parseNumericValue(formatUnits(againstPower, 18)),
         percentage: parseFloat(againstPercentage),
       },
       abstain: {
-        value: abstainVotes.toString(),
+        value: NumbersService.parseNumericValue(formatUnits(abstainPower, 18)),
         percentage: parseFloat(abstainPercentage),
       },
+      totalQuorum: NumbersService.parseNumericValue(
+        formatUnits(quorumBigInt, 18),
+      ),
       mode: "vote" as const,
     };
-  }, [forVotes, againstVotes, abstainVotes, totalVotes]);
+  }, [proposal.votes, quorumNeeded]);
 
   const handleVote = (support: number) => {
     if (!isAwaitingUserSignature && !isConfirming && !voteReceipt?.hasVoted) {
@@ -552,9 +556,7 @@ export const VoteCard = ({
                 "data-testid": usedVoteOptionButtonLocator,
               })}
             >
-              {voteReceipt?.support === 1
-                ? "Your vote: Approve"
-                : "Approve Proposal"}
+              {voteReceipt?.support === 1 ? "Your vote: YES" : "Vote YES"}
             </Button>
             <Button
               variant="abstain"
@@ -574,9 +576,7 @@ export const VoteCard = ({
                 "data-testid": usedVoteOptionButtonLocator,
               })}
             >
-              {voteReceipt?.support === 0
-                ? "Your vote: Reject"
-                : "Reject Proposal"}
+              {voteReceipt?.support === 0 ? "Your vote: NO" : "Vote NO"}
             </Button>
           </div>
         );
@@ -810,12 +810,12 @@ export const VoteCard = ({
               className="text-muted-foreground text-sm"
               data-testid="waitingForConfirmationDescriptionLabel"
             >
-              You are voting to{" "}
+              You are voting{" "}
               {variables?.args?.[1] === 1
-                ? "Approve"
+                ? "YES"
                 : variables?.args?.[1] === 0
-                  ? "Reject"
-                  : "Abstain"}{" "}
+                  ? "NO"
+                  : "ABSTAIN"}{" "}
               on this proposal
             </p>
           )}
@@ -858,7 +858,7 @@ export const VoteCard = ({
     <Card className={cardClassName}>
       {showHeader && (
         <CardHeader className="bg-incard mb-0 flex flex-col items-start justify-between gap-2 p-4 md:flex-row md:items-center xl:px-8 xl:py-6">
-          <div className="flex items-center gap-8">
+          <div className="flex items-center gap-8 text-sm">
             {votingDeadline && <Timer until={votingDeadline} />}
 
             <div className="flex items-center gap-2">
@@ -869,13 +869,9 @@ export const VoteCard = ({
               )}
               <span>Quorum {isQuorumNotMet ? "not reached" : "reached"}</span>
               <span
-                className="text-muted-foreground"
+                className="text-muted-foreground text-sm"
                 data-testid="quorumReachedLabel"
               >
-                {NumbersService.parseNumericValue(
-                  formatUnits(totalVotingPower, 18),
-                )}{" "}
-                of{" "}
                 {NumbersService.parseNumericValue(
                   formatUnits(quorumNeeded || BigInt(0), 18),
                 )}
@@ -884,9 +880,9 @@ export const VoteCard = ({
           </div>
 
           {isConnected && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 text-sm">
               <span className="text-muted-foreground">Voting Power:</span>
-              <span>{formattedVeMentoBalance} veMENTO</span>
+              <span>{formattedTotalVotingPower} veMENTO</span>
             </div>
           )}
         </CardHeader>
@@ -993,7 +989,7 @@ export const VoteCard = ({
                   },
                   mode: "vote",
                 }}
-              /> 
+              />
             </div>*/}
 
             <div

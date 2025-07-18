@@ -5,7 +5,7 @@ import { cn } from "@repo/ui";
 
 interface ProgressSegmentProps {
   filled: boolean;
-  color: "approve" | "reject" | "abstain" | "time" | "gray";
+  color: "approve" | "reject" | "abstain" | "time" | "empty";
   isPartial?: boolean;
   mode: "vote" | "time";
   selected?: boolean;
@@ -29,10 +29,10 @@ const ProgressSegment = ({
               filled && !isPartial && color === "approve" && "bg-white",
               filled && !isPartial && color === "reject" && "bg-muted",
               filled && !isPartial && color === "abstain" && "bg-muted",
-              filled && !isPartial && color === "gray" && "bg-muted",
+              filled && !isPartial && color === "empty" && "bg-muted-",
               filled && !isPartial && color === "time" && "bg-white",
               isPartial && "bg-muted",
-              !filled && "bg-muted-foreground",
+              !filled && "bg-muted",
               mode === "vote" && "h-1 w-1",
               mode === "time" && "h-2 w-2",
               selected && "h-3 w-3 bg-white",
@@ -41,11 +41,11 @@ const ProgressSegment = ({
               filled && !isPartial && color === "approve" && "bg-success",
               filled && !isPartial && color === "reject" && "bg-destructive",
               filled && !isPartial && color === "abstain" && "bg-white",
-              filled && !isPartial && color === "gray" && "bg-muted",
+              filled && !isPartial && color === "empty" && "bg-muted",
               filled && !isPartial && color === "time" && "bg-primary",
               isPartial && color === "abstain" && "bg-muted",
               isPartial && color === "time" && "bg-primary",
-              !filled && "bg-muted-foreground",
+              !filled && "bg-muted",
               mode === "vote" && "h-1 w-1",
               mode === "time" && "h-2 w-2",
               selected && "bg-foreground h-3 w-3",
@@ -60,6 +60,7 @@ interface VoteData {
   approve: { value: string; percentage: number };
   reject: { value: string; percentage: number };
   abstain?: { value: string; percentage: number };
+  totalQuorum?: string; // Total quorum needed for the proposal
 }
 
 interface TimeData {
@@ -125,13 +126,44 @@ export const ProgressBar = ({
   if (mode === "vote" && "approve" in data && "reject" in data) {
     // Calculate segments for each section with dynamic segment count
     const voteData = data as VoteData;
-    const approveSegments = Math.round(
-      (voteData.approve.percentage / 100) * segmentCount,
-    );
-    const abstainSegments = voteData.abstain
-      ? Math.round((voteData.abstain.percentage / 100) * segmentCount)
-      : 0;
-    const rejectSegments = segmentCount - approveSegments - abstainSegments;
+
+    // If totalQuorum is provided, calculate segments based on quorum, otherwise use existing logic
+    let approveSegments,
+      abstainSegments,
+      rejectSegments,
+      unfilledSegments = 0;
+
+    if (voteData.totalQuorum) {
+      // Calculate segments based on actual votes vs total quorum
+      const totalVotedPercentage =
+        voteData.approve.percentage +
+        voteData.reject.percentage +
+        (voteData.abstain?.percentage || 0);
+      const votedSegments = Math.round(
+        (totalVotedPercentage / 100) * segmentCount,
+      );
+      unfilledSegments = segmentCount - votedSegments;
+
+      // Calculate segments for each vote type based on their percentage of total quorum
+      approveSegments = Math.round(
+        (voteData.approve.percentage / 100) * segmentCount,
+      );
+      abstainSegments = voteData.abstain
+        ? Math.round((voteData.abstain.percentage / 100) * segmentCount)
+        : 0;
+      rejectSegments = Math.round(
+        (voteData.reject.percentage / 100) * segmentCount,
+      );
+    } else {
+      // Original logic - calculate based on votes cast
+      approveSegments = Math.round(
+        (voteData.approve.percentage / 100) * segmentCount,
+      );
+      abstainSegments = voteData.abstain
+        ? Math.round((voteData.abstain.percentage / 100) * segmentCount)
+        : 0;
+      rejectSegments = segmentCount - approveSegments - abstainSegments;
+    }
 
     // console.log("approveSegments: ", approveSegments);
     // console.log("abstainSegments: ", abstainSegments);
@@ -139,16 +171,16 @@ export const ProgressBar = ({
 
     const segments: ProgressSegmentProps[] = [];
 
-    // Gray Segments if abstain is more than approve and reject
+    // empty Segments if abstain is more than approve and reject
     if (abstainSegments > approveSegments + rejectSegments) {
       for (let i = 0; i < approveSegments; i++) {
-        segments.push({ filled: true, color: "gray", mode: "vote" });
+        segments.push({ filled: true, color: "empty", mode: "vote" });
       }
       for (let i = 0; i < abstainSegments; i++) {
         segments.push({ filled: true, color: "abstain", mode: "vote" });
       }
       for (let i = 0; i < rejectSegments; i++) {
-        segments.push({ filled: true, color: "gray", mode: "vote" });
+        segments.push({ filled: true, color: "empty", mode: "vote" });
       }
     } else {
       // Create segments array
@@ -163,16 +195,25 @@ export const ProgressBar = ({
       }
     }
 
+    // Add unfilled segments (emptyed out) if using totalQuorum
+    for (let i = 0; i < unfilledSegments; i++) {
+      segments.push({ filled: false, color: "empty", mode: "vote" });
+    }
+
     return (
       <div
         className={cn("space-y-4", quorumNotMet && "quorum-not-met", className)}
       >
         <div className="flex flex-col justify-between gap-2 text-sm xl:flex-row">
           <div className="flex items-center gap-2">
-            <span className={cn(quorumNotMet ? "text-white" : "text-success")}>
-              Approve:
+            <span
+              className={cn(quorumNotMet ? "text-foreground" : "text-success")}
+            >
+              Yes:
             </span>
-            <span className={cn(quorumNotMet ? "text-white" : "text-success")}>
+            <span
+              className={cn(quorumNotMet ? "text-foreground" : "text-success")}
+            >
               {(data as VoteData).approve.value}
             </span>
             <span className="text-muted-foreground">
@@ -182,8 +223,8 @@ export const ProgressBar = ({
 
           {(data as VoteData).abstain && (
             <div className="flex items-center gap-2">
-              <span className="text-white">Abstain:</span>
-              <span className="text-white">
+              <span className="text-foreground">Abstain:</span>
+              <span className="text-foreground">
                 {(data as VoteData).abstain?.value}
               </span>
               <span className="text-muted-foreground">
@@ -194,12 +235,16 @@ export const ProgressBar = ({
 
           <div className="flex items-center gap-2">
             <span
-              className={cn(quorumNotMet ? "text-white" : "text-destructive")}
+              className={cn(
+                quorumNotMet ? "text-foreground" : "text-destructive",
+              )}
             >
-              Reject:
+              No:
             </span>
             <span
-              className={cn(quorumNotMet ? "text-white" : "text-destructive")}
+              className={cn(
+                quorumNotMet ? "text-foreground" : "text-destructive",
+              )}
             >
               {(data as VoteData).reject.value}
             </span>

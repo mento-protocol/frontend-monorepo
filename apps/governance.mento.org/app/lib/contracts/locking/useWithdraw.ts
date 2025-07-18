@@ -3,10 +3,15 @@ import { LockingABI } from "@/lib/abi/Locking";
 import { useContracts } from "@/lib/contracts/useContracts";
 import { useEnsureChainId } from "@/lib/hooks/use-ensure-chain-id";
 import React, { useCallback } from "react";
+import { WriteContractErrorType } from "viem";
 
 export const useWithdraw = ({
   onConfirmation,
-}: { onConfirmation?: () => void } = {}) => {
+  onError,
+}: {
+  onConfirmation?: () => void;
+  onError?: (error?: WriteContractErrorType) => void;
+} = {}) => {
   const { writeContract, data, reset, isPending, error } = useWriteContract();
   const { Locking } = useContracts();
   const ensuredChainId = useEnsureChainId();
@@ -20,11 +25,14 @@ export const useWithdraw = ({
     });
   }, [Locking.address, ensuredChainId, writeContract]);
 
-  const { isLoading: isConfirming, isSuccess: isConfirmed } =
-    useWaitForTransactionReceipt({
-      hash: data,
-      pollingInterval: 1000,
-    });
+  const {
+    isLoading: isConfirming,
+    isSuccess: isConfirmed,
+    isError,
+  } = useWaitForTransactionReceipt({
+    hash: data,
+    pollingInterval: 1000,
+  });
 
   React.useEffect(() => {
     if (isConfirmed && onConfirmation) {
@@ -32,6 +40,12 @@ export const useWithdraw = ({
       reset();
     }
   }, [isConfirmed, onConfirmation, reset]);
+
+  React.useEffect(() => {
+    if (isError) {
+      onError?.(error as WriteContractErrorType);
+    }
+  }, [isError, error]);
 
   return {
     withdraw,
