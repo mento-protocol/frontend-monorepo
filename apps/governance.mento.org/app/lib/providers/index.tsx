@@ -42,7 +42,8 @@ export default function Providers({ children }: { children: ReactNode }) {
                       description: "description",
                       actionButton: "action-button",
                       cancelButton: "cancel-button",
-                      closeButton: "close-button",
+                      closeButton:
+                        "close-button text-white! [&>svg]:text-white!",
                       icon: "icon",
                     },
                   }}
