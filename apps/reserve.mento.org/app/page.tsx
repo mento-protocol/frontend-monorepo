@@ -4,8 +4,13 @@ import { ReserveTabs } from "./components/reserve-tabs";
 
 export default async function Home() {
   // Fetch all data once for both tabs
-  const { reserveStats, stableCoinStats, reserveComposition, reserveHoldings } =
-    await getAllReserveData();
+  const {
+    reserveStats,
+    stableCoinStats,
+    reserveComposition,
+    reserveHoldings,
+    reserveAddresses,
+  } = await getAllReserveData();
 
   return (
     <>
@@ -17,6 +22,7 @@ export default async function Home() {
           stableCoinStats={stableCoinStats}
           reserveComposition={reserveComposition}
           reserveHoldings={reserveHoldings}
+          reserveAddresses={reserveAddresses}
         />
       </section>
     </>

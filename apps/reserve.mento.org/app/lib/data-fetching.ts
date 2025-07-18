@@ -7,6 +7,7 @@ import type {
   ReserveCompositionAPI,
   ExternalAnalyticsApiResponse,
   HoldingsApi,
+  ReserveAddressesResponse,
 } from "@/app/lib/types";
 
 // Define a more specific type for the items in result.stablecoins
@@ -187,20 +188,54 @@ export async function getReserveHoldings(): Promise<HoldingsApi> {
   return convertedResult;
 }
 
+export async function getReserveAddresses(): Promise<ReserveAddressesResponse> {
+  const analyticsUrl = getAnalyticsUrl("reserveAddresses");
+  if (!analyticsUrl) {
+    throw new Error(
+      "Analytics API URL for reserve addresses could not be constructed.",
+    );
+  }
+
+  const response = await fetch(analyticsUrl, {
+    cache: "no-store", // Fetches fresh data on every request
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    console.error(
+      `Reserve Addresses Analytics API request failed: ${response.status} ${response.statusText}`,
+      errorBody,
+    );
+    throw new Error(
+      `Reserve Addresses Analytics API request failed with status ${response.status}`,
+    );
+  }
+
+  const result: ReserveAddressesResponse = await response.json();
+  return result;
+}
+
 // Utility function to fetch all data needed for both routes
 export async function getAllReserveData() {
-  const [reserveStats, stableCoinStats, reserveComposition, reserveHoldings] =
-    await Promise.all([
-      getReserveStats(),
-      getStableCoinStats(),
-      getReserveComposition(),
-      getReserveHoldings(),
-    ]);
+  const [
+    reserveStats,
+    stableCoinStats,
+    reserveComposition,
+    reserveHoldings,
+    reserveAddresses,
+  ] = await Promise.all([
+    getReserveStats(),
+    getStableCoinStats(),
+    getReserveComposition(),
+    getReserveHoldings(),
+    getReserveAddresses(),
+  ]);
 
   return {
     reserveStats,
     stableCoinStats,
     reserveComposition,
     reserveHoldings,
+    reserveAddresses,
   };
 }
