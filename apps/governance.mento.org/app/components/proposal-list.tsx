@@ -1,7 +1,7 @@
 "use client";
 import useProposals from "@/lib/contracts/governor/use-proposals";
 import NumbersService from "@/lib/helpers/numbers";
-import { ensureChainId } from "@/lib/helpers/ensure-chain-id";
+import { ProposalState } from "@/lib/graphql";
 import {
   Button,
   IconChevron,
@@ -23,7 +23,6 @@ import {
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { formatUnits } from "viem";
-import { useAccount, useBlockNumber } from "wagmi";
 
 const ITEMS_PER_PAGE = 10;
 const DOTS = "...";
@@ -82,61 +81,7 @@ const usePagination = ({
 
 export const ProposalList = () => {
   const { proposals, isLoading } = useProposals();
-  const { chainId } = useAccount();
-  const { data: currentBlock } = useBlockNumber({
-    chainId: ensureChainId(chainId),
-  });
   const [currentPage, setCurrentPage] = useState(1);
-
-  // Derive the actual proposal state from proposal fields instead of relying on proposal.state
-  const getDerivedProposalState = (proposal: any) => {
-    if (!proposal || !currentBlock) return "active";
-
-    // Check explicit boolean states first
-    if (proposal.canceled) return "defeated"; // Canceled proposals are shown as defeated
-    if (proposal.executed) return "executed";
-    if (proposal.queued) return "queued";
-
-    const currentBlockNum = Number(currentBlock);
-    const endBlockNum = Number(proposal.endBlock);
-    const startBlockNum = Number(proposal.startBlock);
-
-    // Check if voting period hasn't started yet
-    if (currentBlockNum < startBlockNum) {
-      return "pending";
-    }
-
-    // Check if voting period is active
-    if (currentBlockNum >= startBlockNum && currentBlockNum <= endBlockNum) {
-      return "active";
-    }
-
-    // Voting period has ended, check if proposal succeeded or was defeated
-    if (currentBlockNum > endBlockNum) {
-      // If queued but not executed and past execution deadline, it's expired
-      if (proposal.queued && proposal.eta) {
-        const executionDeadline = Number(proposal.eta) + 7 * 24 * 60 * 60; // 7 days in seconds
-        const currentTimestamp = Math.floor(Date.now() / 1000);
-        if (currentTimestamp > executionDeadline) {
-          return "default"; // "default" variant shows as "Expired"
-        }
-      }
-
-      // Check vote results to determine if succeeded or defeated
-      const totalVotes = Number(proposal.votes.total);
-      const forVotes = Number(proposal.votes.for.total);
-      const againstVotes = Number(proposal.votes.against.total);
-
-      // Simple majority check (this might need adjustment based on actual governance rules)
-      if (totalVotes > 0 && forVotes > againstVotes) {
-        return "queued"; // Succeeded proposals that aren't queued yet show as queued
-      } else {
-        return "defeated";
-      }
-    }
-
-    return "active";
-  };
 
   const totalPages = Math.ceil(proposals.length / ITEMS_PER_PAGE);
   const paginatedProposals = proposals.slice(
@@ -173,8 +118,32 @@ export const ProposalList = () => {
           </div>
         ) : (
           paginatedProposals.map((proposal, index) => {
-            const { proposalId, metadata, votes } = proposal;
-            const derivedState = getDerivedProposalState(proposal);
+            const { proposalId, metadata, votes, state } = proposal;
+
+            const getStatusVariant = () => {
+              if (!state) return "active";
+
+              switch (state) {
+                case ProposalState.Pending:
+                  return "pending";
+                case ProposalState.Active:
+                  return "active";
+                case ProposalState.Succeeded:
+                  return "queued";
+                case ProposalState.Defeated:
+                  return "defeated";
+                case ProposalState.Queued:
+                  return "queued";
+                case ProposalState.Executed:
+                  return "executed";
+                case ProposalState.Canceled:
+                  return "defeated";
+                case ProposalState.Expired:
+                  return "default";
+                default:
+                  return "active";
+              }
+            };
 
             return (
               <ProposalListItem key={index}>
@@ -182,7 +151,7 @@ export const ProposalList = () => {
                   index={(currentPage - 1) * ITEMS_PER_PAGE + index + 1}
                 />
                 <ProposalListItemBody>
-                  <ProposalStatus variant={derivedState as any} />
+                  <ProposalStatus variant={getStatusVariant() as any} />
                   <Link href={`/proposals/${proposalId}`}>
                     <h3
                       className="text-lg leading-5 text-white"
