@@ -1,7 +1,5 @@
 import { getAllReserveData } from "./lib/data-fetching";
 import { MetricCards } from "./components/metric-cards";
-import { ReserveHoldingsContent } from "./reserve-holdings/components/reserve-holdings-content";
-import { StablecoinSupplyContent } from "./stablecoin-supply/components/stablecoin-supply-content";
 import { ReserveTabs } from "./components/reserve-tabs";
 
 export default async function Home() {

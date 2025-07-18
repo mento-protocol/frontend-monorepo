@@ -1,4 +1,4 @@
-import { IconInfo } from "./icon-info";
+import { IconInfo } from "@repo/ui";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui";
 import type { ReserveStats } from "@/app/lib/types";
 
