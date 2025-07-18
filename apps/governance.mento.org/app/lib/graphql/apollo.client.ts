@@ -67,7 +67,6 @@ export function makeClient() {
         authToken = "";
         break;
     }
-    console.log("Auth token:", authToken);
 
     // Return the headers to the context so httpLink can read them
     return {

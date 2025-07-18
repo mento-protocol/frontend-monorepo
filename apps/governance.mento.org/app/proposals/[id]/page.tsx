@@ -17,6 +17,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  CopyToClipboard,
   IconLoading,
   ProposalStatus,
   Tabs,
@@ -99,31 +100,18 @@ function ParticipantList({ participants }: ParticipantListProps) {
             >
               <div className="flex items-center gap-2">
                 <Identicon address={participant.address} size={16} />
-                <Button
+                <div
                   className="h-auto !bg-transparent p-0"
                   onClick={() => handleCopyAddress(participant.address)}
                 >
                   <span className="flex items-center gap-1">
                     {`${participant.address.slice(0, 6)}...${participant.address.slice(-4)}`}
-                    {copiedAddress === participant.address ? (
-                      <div className="h-3 w-3 text-green-500">
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <polyline points="20 6 9 17 4 12"></polyline>
-                        </svg>
-                      </div>
-                    ) : (
-                      <Copy className="text-muted-foreground h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
-                    )}
+                    <CopyToClipboard
+                      text={participant.address}
+                      className="opacity-0 transition-opacity group-hover:opacity-100"
+                    />
                   </span>
-                </Button>
+                </div>
               </div>
               <span>
                 {(() => {
@@ -223,19 +211,6 @@ export default function ProposalPage() {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
-  const handleCopyAddress = () => {
-    try {
-      navigator.clipboard.writeText(proposal.proposer.id);
-      toast.success("Address copied to clipboard", { duration: 2000 });
-      setCopiedAddress(proposal.proposer.id);
-      setTimeout(() => {
-        setCopiedAddress(null);
-      }, 2000);
-    } catch (error) {
-      console.error("Failed to copy address", error);
-    }
-  };
-
   return (
     <main className="md:px-22 relative w-full px-4 py-8 md:py-16">
       <Breadcrumb className="mb-6">
@@ -266,14 +241,7 @@ export default function ProposalPage() {
             <span className="text-muted-foreground text-sm">
               by {formatAddress(proposal.proposer.id)}
             </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-secondary-active hover:text-secondary-active/75 h-4 w-4"
-              onClick={handleCopyAddress}
-            >
-              {copiedAddress === proposal.proposer.id ? <Check /> : <Copy />}
-            </Button>
+            <CopyToClipboard text={proposal.proposer.id} />
           </div>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground text-sm">Proposed on:</span>

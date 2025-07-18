@@ -39,7 +39,12 @@ export function Header() {
               </NavigationMenuItem>
               <NavigationMenuItem>
                 <NavigationMenuLink asChild>
-                  <Link href="/create-proposal">My Voting Power</Link>
+                  <Link href="/create-proposal">Create Proposal</Link>
+                </NavigationMenuLink>
+              </NavigationMenuItem>
+              <NavigationMenuItem>
+                <NavigationMenuLink asChild>
+                  <Link href="/voting-power">My Voting Power</Link>
                 </NavigationMenuLink>
               </NavigationMenuItem>
             </NavigationMenuList>

@@ -263,7 +263,7 @@ export default function VotingPowerForm() {
       return "Fully unlocked";
     }
 
-    return format(lock.expiration, "dd.MM.yyyy");
+    return lock.expiration.toLocaleDateString();
   }, [hasLock, lock]);
 
   if (!address) {
@@ -293,6 +293,25 @@ export default function VotingPowerForm() {
                           Number(v) <=
                             Number(formatUnits(mentoBalance.value, 18)) ||
                           "Insufficient balance",
+                        min: (v) => {
+                          const amount = Number(v);
+                          // Allow empty or 0 amount if user has active lock and is extending duration
+                          if (
+                            (!v || v === "" || amount === 0) &&
+                            hasActiveLock &&
+                            unlockDate &&
+                            lock?.expiration
+                          ) {
+                            const currentExpiration = new Date(lock.expiration);
+                            const selectedDate = new Date(unlockDate);
+                            return (
+                              selectedDate.getTime() !==
+                                currentExpiration.getTime() ||
+                              "Select a different unlock date to extend your lock"
+                            );
+                          }
+                          return amount >= 0 || "Amount must be positive";
+                        },
                       },
                     })}
                   />
@@ -311,7 +330,7 @@ export default function VotingPowerForm() {
                         onChange={onChange}
                         label="Lock until"
                         formatter={(date) => {
-                          return spacetime(date).format("dd.MM.yyyy");
+                          return date.toLocaleDateString();
                         }}
                         disabled={isDateDisabled}
                         fromDate={minLockDate}

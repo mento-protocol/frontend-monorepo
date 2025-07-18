@@ -43,6 +43,7 @@ export * from "./components/ui/textarea";
 export * from "./components/ui/tooltip";
 export * from "./components/ui/slider";
 export * from "./components/ui/navigation-menu";
+export * from "./components/copy-to-clipboard";
 
 // Also export any utility functions or types that might be needed
 export * from "./lib/index";

@@ -98,6 +98,7 @@ const ProposalDetailsStep = () => {
               value={newProposal.title}
               onChange={handleTitleChange}
               data-testid="proposalTitleInput"
+              maxLength={79}
             />
           </div>
           <div
@@ -110,26 +111,26 @@ const ProposalDetailsStep = () => {
               onChange={handleDescriptionChange}
             />
           </div>
-          <div className="flex w-full items-center gap-4 md:justify-end">
-            <Button
-              className="h-10 w-full min-w-[188px] md:ml-auto md:w-fit"
-              clipped="sm"
-              onClick={handleNextClick}
-              disabled={!newProposal.title || !newProposal.description}
-              data-testid="nextButton"
-            >
-              Next <ArrowRight />
-            </Button>
-          </div>
         </TabsContent>
         <TabsContent value="preview" className="pt-8">
-          <div className="prose prose-invert">
-            <ReactMarkdown remarkPlugins={[gfm]}>
-              {previewContent}
-            </ReactMarkdown>
-          </div>
+          <div
+            className="prose prose-invert"
+            dangerouslySetInnerHTML={{ __html: previewContent }}
+          />
         </TabsContent>
       </Tabs>
+
+      <div className="flex w-full items-center gap-4 md:justify-end">
+        <Button
+          className="h-10 w-full min-w-[188px] md:ml-auto md:w-fit"
+          clipped="sm"
+          onClick={handleNextClick}
+          disabled={!newProposal.title || !newProposal.description}
+          data-testid="nextButton"
+        >
+          Next <ArrowRight />
+        </Button>
+      </div>
     </div>
   );
 };
@@ -143,6 +144,11 @@ const ExecutionCodeStep = () => {
   };
   console.log(newProposal.code);
   const validateExecutionCode = (code: string): string | null => {
+    // Check if code is empty or only whitespace
+    if (!code || code.trim() === "") {
+      return "Execution code is required";
+    }
+
     try {
       // Try to parse the JSON
       const parsed = JSON.parse(code);
@@ -186,10 +192,15 @@ const ExecutionCodeStep = () => {
       }
 
       return null;
-    } catch {
-      return null;
+    } catch (error) {
+      return "Invalid JSON format. Please check your syntax.";
     }
   };
+
+  // Validate initial value on component mount
+  useEffect(() => {
+    setValidationError(validateExecutionCode(newProposal.code));
+  }, [newProposal.code]);
 
   const handleCodeChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newCode = e.target.value;
