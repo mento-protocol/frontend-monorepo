@@ -1,6 +1,4 @@
 "use client";
-import Color from "@tiptap/extension-color";
-import Highlight from "@tiptap/extension-highlight";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import TextAlign from "@tiptap/extension-text-align";
@@ -13,8 +11,6 @@ import * as React from "react";
 import { cn } from "../../lib/utils.js";
 import { TipTapFloatingMenu } from "./extensions/floating-menu.js";
 import { FloatingToolbar } from "./extensions/floating-toolbar.js";
-import SearchAndReplace from "./extensions/search-and-replace.js";
-import "./tiptap.css";
 import { EditorToolbar } from "./toolbars/editor-toolbar.js";
 
 const extensions = [
@@ -54,13 +50,8 @@ const extensions = [
     types: ["heading", "paragraph"],
   }),
   TextStyle,
-  Color,
   Underline,
   Link,
-  Highlight.configure({
-    multicolor: true,
-  }),
-  SearchAndReplace,
   Typography,
 ];
 

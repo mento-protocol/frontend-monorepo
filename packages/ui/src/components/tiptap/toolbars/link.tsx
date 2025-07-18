@@ -40,7 +40,7 @@ const LinkToolbar = React.forwardRef<HTMLButtonElement, ButtonProps>(
     }, [editor]);
 
     return (
-      <Popover>
+      <Popover modal={false}>
         <Tooltip>
           <TooltipTrigger asChild>
             <PopoverTrigger
@@ -71,6 +71,9 @@ const LinkToolbar = React.forwardRef<HTMLButtonElement, ButtonProps>(
         </Tooltip>
 
         <PopoverContent
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+          }}
           onCloseAutoFocus={(e) => {
             e.preventDefault();
           }}
@@ -90,8 +93,15 @@ const LinkToolbar = React.forwardRef<HTMLButtonElement, ButtonProps>(
                   onChange={(e) => {
                     setLink(e.target.value);
                   }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSubmit(e);
+                    }
+                  }}
                   className="w-full"
                   placeholder="https://example.com"
+                  autoFocus
                 />
                 <div className="flex items-center gap-3">
                   {editor?.getAttributes("link").href && (

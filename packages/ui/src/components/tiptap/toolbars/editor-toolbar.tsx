@@ -8,10 +8,7 @@ import { BoldToolbar } from "./bold.js";
 import { BulletListToolbar } from "./bullet-list.js";
 import { CodeBlockToolbar } from "./code-block.js";
 import { CodeToolbar } from "./code.js";
-import { ColorHighlightToolbar } from "./color-and-highlight.js";
 import { HeadingsToolbar } from "./headings.js";
-import { HorizontalRuleToolbar } from "./horizontal-rule.js";
-import { ImagePlaceholderToolbar } from "./image-placeholder-toolbar.js";
 import { ItalicToolbar } from "./italic.js";
 import { LinkToolbar } from "./link.js";
 import { OrderedListToolbar } from "./ordered-list.js";
@@ -43,16 +40,11 @@ export const EditorToolbar = ({ editor }: { editor: Editor }) => {
               {/* Lists & Structure Group */}
               <BulletListToolbar />
               <OrderedListToolbar />
-              <HorizontalRuleToolbar />
               <Separator orientation="vertical" className="mx-1 h-7" />
 
               {/* Alignment Group */}
               <AlignmentTooolbar />
               <Separator orientation="vertical" className="mx-1 h-7" />
-
-              {/* Media & Styling Group */}
-              <ImagePlaceholderToolbar />
-              <ColorHighlightToolbar />
             </div>
             <ScrollBar className="hidden" orientation="horizontal" />
           </ScrollArea>
