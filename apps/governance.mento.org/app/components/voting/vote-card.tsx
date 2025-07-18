@@ -23,7 +23,7 @@ import {
   IconLoading,
 } from "@repo/ui";
 import * as Sentry from "@sentry/nextjs";
-import { CheckCircle2, CircleCheck, XCircle } from "lucide-react";
+import { CheckCircle2, CircleCheck, XCircle, XCircleIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { formatUnits } from "viem";
@@ -178,6 +178,17 @@ export const VoteCard = ({
     return forVoteCount + againstVoteCount + abstainVoteCount;
   }, [proposal.votes]);
 
+  // Calculate total voting power for quorum display
+  const totalVotingPower = useMemo(() => {
+    if (!proposal?.votes) return BigInt(0);
+
+    const forPower = BigInt(proposal.votes.for?.total || 0);
+    const againstPower = BigInt(proposal.votes.against?.total || 0);
+    const abstainPower = BigInt(proposal.votes.abstain?.total || 0);
+
+    return forPower + againstPower + abstainPower;
+  }, [proposal.votes]);
+
   // Individual vote counts for easier access
   const forVotes = useMemo(
     () => proposal.votes?.for?.participants?.length || 0,
@@ -276,73 +287,22 @@ export const VoteCard = ({
     }
   };
 
-  // Derive the actual proposal state from proposal fields instead of relying on proposal.state
-  const getDerivedProposalState = () => {
-    if (!proposal || !currentBlock) return ProposalState.Active;
-
-    // Check explicit boolean states first
-    if (proposal.canceled) return ProposalState.Defeated; // Canceled proposals are shown as defeated
-    if (proposal.executed) return ProposalState.Executed;
-    if (proposal.queued) return ProposalState.Queued;
-
-    const currentBlockNum = Number(currentBlock);
-    const endBlockNum = Number(proposal.endBlock);
-    const startBlockNum = Number(proposal.startBlock);
-
-    // Check if voting period hasn't started yet
-    if (currentBlockNum < startBlockNum) {
-      return ProposalState.Pending;
-    }
-
-    // Check if voting period is active
-    if (currentBlockNum >= startBlockNum && currentBlockNum <= endBlockNum) {
-      return ProposalState.Active;
-    }
-
-    // Voting period has ended, check if proposal succeeded or was defeated
-    if (currentBlockNum > endBlockNum) {
-      // If queued but not executed and past execution deadline, it's expired
-      if (proposal.queued && proposal.eta) {
-        const executionDeadline = Number(proposal.eta) + 7 * 24 * 60 * 60; // 7 days in seconds
-        const currentTimestamp = Math.floor(Date.now() / 1000);
-        if (currentTimestamp > executionDeadline) {
-          return ProposalState.Expired;
-        }
-      }
-
-      // Check vote results to determine if succeeded or defeated
-      const totalVotes = Number(proposal.votes.total);
-      const forVotes = Number(proposal.votes.for.total);
-      const againstVotes = Number(proposal.votes.against.total);
-
-      // Simple majority check (this might need adjustment based on actual governance rules)
-      if (totalVotes > 0 && forVotes > againstVotes) {
-        return ProposalState.Succeeded;
-      } else {
-        return ProposalState.Defeated;
-      }
-    }
-
-    return ProposalState.Active;
-  };
-
-  const derivedState = getDerivedProposalState();
+  const proposalState = proposal.state || ProposalState.Active;
 
   const isVotingOpen =
-    derivedState === ProposalState.Active && !isDeadlinePassed;
+    proposalState === ProposalState.Active && !isDeadlinePassed;
   const isApproved =
-    derivedState === ProposalState.Succeeded ||
-    derivedState === ProposalState.Queued ||
-    derivedState === ProposalState.Executed;
-  const isRejected = derivedState === ProposalState.Defeated;
+    proposalState === ProposalState.Succeeded ||
+    proposalState === ProposalState.Queued ||
+    proposalState === ProposalState.Executed;
+  const isRejected = proposalState === ProposalState.Defeated;
   const isAbstained =
-    derivedState === ProposalState.Defeated &&
+    proposalState === ProposalState.Defeated &&
     abstainVotes > forVotes &&
     abstainVotes > againstVotes;
   const isQuorumNotMet =
-    derivedState === ProposalState.Defeated && forVotes > againstVotes;
+    proposalState === ProposalState.Defeated && forVotes > againstVotes;
 
-  // Determine the current UI state
   const currentState = useMemo(() => {
     if (isInitializing) return "loading";
     if (isConfirming || isExecuteConfirming || isQueueConfirming)
@@ -353,17 +313,18 @@ export const VoteCard = ({
       isAwaitingQueueSignature
     )
       return "signing";
-    if (voteReceipt?.hasVoted || isConfirmed) return "voted";
+    if (
+      (proposalState === ProposalState.Active && voteReceipt?.hasVoted) ||
+      isConfirmed
+    )
+      return "voted";
 
-    // Check if proposal is in a votable state before checking for insufficient MENTO
     if (!isVotingOpen) {
-      // If deadline has passed while proposal is still Active, show finished state
-      if (derivedState === ProposalState.Active && isDeadlinePassed) {
+      if (proposalState === ProposalState.Active && isDeadlinePassed) {
         return "finished";
       }
 
-      // Return specific states based on the actual proposal state
-      switch (derivedState) {
+      switch (proposalState) {
         case ProposalState.Executed:
           return "executed";
         case ProposalState.Queued:
@@ -377,11 +338,10 @@ export const VoteCard = ({
         case ProposalState.Pending:
           return "pending";
         default:
-          return "finished"; // Generic finished state for other non-votable states
+          return "finished";
       }
     }
 
-    // Only check for insufficient MENTO if proposal is actually votable
     if (!hasEnoughLockedMentoToVote && isConnected) return "insufficient-mento";
     return "ready";
   }, [
@@ -393,11 +353,10 @@ export const VoteCard = ({
     hasEnoughLockedMentoToVote,
     isConnected,
     isVotingOpen,
-    derivedState,
+    proposalState,
     isDeadlinePassed,
   ]);
 
-  // Get title based on state
   const title = useMemo(() => {
     switch (currentState) {
       case "loading":
@@ -430,7 +389,6 @@ export const VoteCard = ({
     }
   }, [currentState, isVotingOpen, isAbstained, isQuorumNotMet]);
 
-  // Get description based on state
   const description = useMemo(() => {
     switch (currentState) {
       case "loading":
@@ -559,7 +517,6 @@ export const VoteCard = ({
   const showHeader = !["loading", "confirming", "signing"].includes(
     currentState,
   );
-  const showQuorumStatus = currentState === "voted" || currentState === "ready";
   const isVotedForApprove = voteReceipt?.support === 1;
   const isVotedForAbstain = voteReceipt?.support === 2;
   const isVotedForReject = voteReceipt?.support === 0;
@@ -761,7 +718,7 @@ export const VoteCard = ({
               size="lg"
               onClick={() => handleVote(1)}
               disabled={
-                derivedState !== ProposalState.Active ||
+                proposalState !== ProposalState.Active ||
                 isDeadlinePassed ||
                 isAwaitingUserSignature ||
                 isConfirming
@@ -775,7 +732,7 @@ export const VoteCard = ({
               size="lg"
               onClick={() => handleVote(2)}
               disabled={
-                derivedState !== ProposalState.Active ||
+                proposalState !== ProposalState.Active ||
                 isDeadlinePassed ||
                 isAwaitingUserSignature ||
                 isConfirming
@@ -789,7 +746,7 @@ export const VoteCard = ({
               size="lg"
               onClick={() => handleVote(0)}
               disabled={
-                derivedState !== ProposalState.Active ||
+                proposalState !== ProposalState.Active ||
                 isDeadlinePassed ||
                 isAwaitingUserSignature ||
                 isConfirming
@@ -897,16 +854,6 @@ export const VoteCard = ({
     return null;
   };
 
-  console.log("DEBUG", {
-    proposalState: proposal,
-    totalVotes: totalVotes,
-    forVotes: forVotes,
-    againstVotes: againstVotes,
-    abstainVotes: abstainVotes,
-    isVotingOpen,
-    votingDeadline,
-  });
-
   return (
     <Card className={cardClassName}>
       {showHeader && (
@@ -914,21 +861,26 @@ export const VoteCard = ({
           <div className="flex items-center gap-8">
             {votingDeadline && <Timer until={votingDeadline} />}
 
-            {showQuorumStatus && (
-              <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
+              {isQuorumNotMet ? (
+                <XCircleIcon size={16} className="text-white" />
+              ) : (
                 <CheckCircle2 size={16} className="text-white" />
-                <span>Quorum reached</span>
-                <span
-                  className="text-muted-foreground"
-                  data-testid="quorumReachedLabel"
-                >
-                  {totalVotes} of{" "}
-                  {NumbersService.parseNumericValue(
-                    formatUnits(quorumNeeded || BigInt(0), 18),
-                  )}
-                </span>
-              </div>
-            )}
+              )}
+              <span>Quorum {isQuorumNotMet ? "not reached" : "reached"}</span>
+              <span
+                className="text-muted-foreground"
+                data-testid="quorumReachedLabel"
+              >
+                {NumbersService.parseNumericValue(
+                  formatUnits(totalVotingPower, 18),
+                )}{" "}
+                of{" "}
+                {NumbersService.parseNumericValue(
+                  formatUnits(quorumNeeded || BigInt(0), 18),
+                )}
+              </span>
+            </div>
           </div>
 
           {isConnected && (
