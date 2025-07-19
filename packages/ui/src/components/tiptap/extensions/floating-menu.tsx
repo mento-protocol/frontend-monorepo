@@ -240,6 +240,7 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (!isOpen || !editor) return;
+      console.log("isOpen", e.key);
 
       const preventDefault = () => {
         e.preventDefault();
@@ -265,9 +266,15 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
 
         case "Enter": {
           preventDefault();
-          const targetIndex = selectedIndex === -1 ? 0 : selectedIndex;
-          if (flatFilteredItems[targetIndex]) {
-            executeCommand(flatFilteredItems[targetIndex].command);
+          let targetIndex = selectedIndex;
+
+          if (targetIndex === -1 && flatFilteredItems.length > 0) {
+            targetIndex = 0;
+          }
+
+          const selectedItem = flatFilteredItems[targetIndex];
+          if (targetIndex >= 0 && selectedItem) {
+            executeCommand(selectedItem.command);
           }
           break;
         }
@@ -283,20 +290,46 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
   );
 
   useEffect(() => {
-    if (!editor?.options.element) return;
+    if (!editor?.view?.dom) return;
 
-    const editorElement = editor.options.element;
-    const handleEditorKeyDown = (e: Event) => handleKeyDown(e as KeyboardEvent);
+    const editorElement = editor.view.dom;
+    const handleEditorKeyDown = (e: KeyboardEvent) => {
+      if (!isOpen) return;
 
-    editorElement.addEventListener("keydown", handleEditorKeyDown);
-    return () =>
-      editorElement.removeEventListener("keydown", handleEditorKeyDown);
-  }, [handleKeyDown, editor]);
+      if (["Enter", "ArrowUp", "ArrowDown", "Escape"].includes(e.key)) {
+        handleKeyDown(e);
+      }
+    };
 
-  // Add new effect for resetting selectedIndex
+    editorElement.addEventListener("keydown", handleEditorKeyDown, {
+      capture: true,
+    });
+
+    return () => {
+      editorElement.removeEventListener("keydown", handleEditorKeyDown, {
+        capture: true,
+      });
+    };
+  }, [editor, isOpen, handleKeyDown]);
+
   useEffect(() => {
-    setSelectedIndex(-1);
-  }, [search]);
+    if (flatFilteredItems.length > 0) {
+      if (
+        flatFilteredItems.length === 1 ||
+        (debouncedSearch.length > 0 &&
+          flatFilteredItems[0] &&
+          flatFilteredItems[0].keywords
+            .toLowerCase()
+            .includes(debouncedSearch.toLowerCase()))
+      ) {
+        setSelectedIndex(0);
+      } else {
+        setSelectedIndex(-1);
+      }
+    } else {
+      setSelectedIndex(-1);
+    }
+  }, [flatFilteredItems, debouncedSearch]);
 
   useEffect(() => {
     if (selectedIndex >= 0 && itemRefs.current[selectedIndex]) {

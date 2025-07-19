@@ -4,19 +4,18 @@ import Link from "next/link";
 import { ConnectButton } from "../connect-button";
 
 import {
+  cn,
   Logo,
   NavigationMenu,
-  NavigationMenuList,
   NavigationMenuItem,
-  NavigationMenuContent,
-  NavigationMenuTrigger,
   NavigationMenuLink,
-  NavigationMenuIndicator,
-  NavigationMenuViewport,
-  navigationMenuTriggerStyle,
+  NavigationMenuList,
 } from "@repo/ui";
+import { usePathname } from "next/navigation";
 
 export function Header() {
+  const pathname = usePathname();
+
   return (
     <header className="relative z-10">
       <div className="flex h-20 flex-row items-center justify-between gap-6">
@@ -33,17 +32,26 @@ export function Header() {
           <NavigationMenu className="hidden md:flex">
             <NavigationMenuList className="gap-6">
               <NavigationMenuItem>
-                <NavigationMenuLink asChild>
+                <NavigationMenuLink
+                  className={cn(pathname === "/" && "bg-accent")}
+                  asChild
+                >
                   <Link href="/">Home</Link>
                 </NavigationMenuLink>
               </NavigationMenuItem>
               <NavigationMenuItem>
-                <NavigationMenuLink asChild>
+                <NavigationMenuLink
+                  className={cn(pathname === "/create-proposal" && "bg-accent")}
+                  asChild
+                >
                   <Link href="/create-proposal">Create Proposal</Link>
                 </NavigationMenuLink>
               </NavigationMenuItem>
               <NavigationMenuItem>
-                <NavigationMenuLink asChild>
+                <NavigationMenuLink
+                  className={cn(pathname === "/voting-power" && "bg-accent")}
+                  asChild
+                >
                   <Link href="/voting-power">My Voting Power</Link>
                 </NavigationMenuLink>
               </NavigationMenuItem>
