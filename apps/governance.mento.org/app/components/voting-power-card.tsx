@@ -1,4 +1,5 @@
 "use client";
+import { useLockInfo } from "@/lib/contracts/locking/useLockInfo";
 import NumbersService from "@/lib/helpers/numbers";
 import useTokens from "@/lib/hooks/use-tokens";
 import { Button } from "@repo/ui";
@@ -10,6 +11,9 @@ import { useAccount } from "wagmi";
 export const VotingPowerCard = () => {
   const { isConnected } = useAccount();
   const { veMentoBalance, mentoBalance } = useTokens();
+  const account = useAccount();
+
+  const { activeLocks } = useLockInfo(account.address);
 
   return (
     <div className="bg-card w-full">
@@ -44,7 +48,7 @@ export const VotingPowerCard = () => {
         {isConnected && (
           <Link href="/voting-power">
             <Button className="h-10 w-full" clipped="sm">
-              Manage
+              {activeLocks.length > 0 ? "Manage" : "Lock Mento"}
               <ChevronsRight size={20} />
             </Button>
           </Link>

@@ -23,6 +23,8 @@ import {
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { formatUnits } from "viem";
+import useTokens from "@/lib/contracts/useTokens";
+import { useProposalThreshold } from "@/lib/contracts/governor/useProposalThreshold";
 
 const ITEMS_PER_PAGE = 10;
 const DOTS = "...";
@@ -81,8 +83,22 @@ const usePagination = ({
 
 export const ProposalList = () => {
   const { proposals, isLoading } = useProposals();
+  const { veMentoBalance, mentoBalance, isBalanceLoading } = useTokens();
+  const { proposalThreshold, isLoadingProposalThreshold } =
+    useProposalThreshold();
+
   const [currentPage, setCurrentPage] = useState(1);
 
+  const canCreateProposal = useMemo(() => {
+    if (isBalanceLoading || isLoadingProposalThreshold) return false;
+
+    return veMentoBalance.value >= proposalThreshold;
+  }, [
+    isBalanceLoading,
+    isLoadingProposalThreshold,
+    veMentoBalance.value,
+    proposalThreshold,
+  ]);
   const totalPages = Math.ceil(proposals.length / ITEMS_PER_PAGE);
   const paginatedProposals = proposals.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
@@ -104,16 +120,17 @@ export const ProposalList = () => {
     <ProposalCard>
       <ProposalCardHeader>
         <h2 className="text-2xl font-semibold">Proposals</h2>
-        <Link href="/create-proposal">
-          <Button clipped="lg" size="md">
-            Create New Proposal <IconChevron />
-          </Button>
-        </Link>
+        {canCreateProposal && (
+          <Link href="/create-proposal">
+            <Button clipped="lg" size="md">
+              Create New Proposal <IconChevron />
+            </Button>
+          </Link>
+        )}
       </ProposalCardHeader>
-      <ProposalCardBody className="relative flex min-h-96 flex-col">
+      <ProposalCardBody className="relative flex min-h-40 flex-col">
         {paginatedProposals.length === 0 && isLoading ? (
           <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-4">
-            <h3 className="text-muted-foreground">Loading proposals</h3>
             <IconLoading />
           </div>
         ) : (

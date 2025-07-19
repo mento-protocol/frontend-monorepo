@@ -9,6 +9,7 @@ import {
   AccordionItem,
   AccordionTrigger,
   Button,
+  CopyToClipboard,
 } from "@repo/ui";
 
 import { useContracts } from "@/lib/contracts/useContracts";
@@ -156,14 +157,7 @@ const ContractAddressDisplay = ({
       <span className="text-muted-foreground text-sm">
         {formatAddress(address)}
       </span>
-      <Button
-        variant="ghost"
-        size="xs"
-        className="text-secondary-active h-4 w-4"
-        onClick={handleCopyAddress}
-      >
-        <Copy />
-      </Button>
+      <CopyToClipboard text={address} />
     </div>
   );
 };

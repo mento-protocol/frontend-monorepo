@@ -1,17 +1,13 @@
 "use client";
 import { useProposalThreshold } from "@/lib/contracts/governor/useProposalThreshold";
 import useTokens from "@/lib/contracts/useTokens";
-import {
-  formatUnitsWithRadix,
-  formatUnitsWithThousandSeparators,
-} from "@/lib/helpers/numbers";
+import { formatUnitsWithThousandSeparators } from "@/lib/helpers/numbers";
 import {
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbLink,
   BreadcrumbList,
   BreadcrumbSeparator,
-  BreadcrumbPage,
   Button,
   Card,
   CardContent,
@@ -33,9 +29,6 @@ import {
 import { ArrowLeft, ArrowRight, HelpCircle } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import gfm from "remark-gfm";
-import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
 import { ConnectButton } from "../connect-button";
 import {
