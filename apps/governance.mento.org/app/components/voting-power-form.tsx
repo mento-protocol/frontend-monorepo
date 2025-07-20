@@ -56,38 +56,27 @@ export default function VotingPowerForm() {
     return targetDate.toNativeDate();
   };
 
-  const minLockDate = useMemo(() => {
-    if (hasActiveLock && lock?.expiration) {
-      const expirationDate = spacetime(lock.expiration);
-      const oneWeekFromNow = spacetime.now().add(MIN_LOCK_PERIOD_WEEKS, "week");
+  // Base minimum is always the first Wednesday at least one week from now.
+  const baseMinLockDate = useMemo(() => getFirstWednesdayAfterMinPeriod(), []);
 
-      if (
-        expirationDate.isAfter(oneWeekFromNow) &&
-        expirationDate.day() === 3
-      ) {
-        return expirationDate.toNativeDate();
-      }
-
-      let targetDate = expirationDate.isAfter(oneWeekFromNow)
-        ? expirationDate
-        : oneWeekFromNow;
-
-      while (targetDate.day() !== 3) {
-        targetDate = targetDate.add(1, "day");
-      }
-
-      return targetDate.toNativeDate();
-    }
-
-    return getFirstWednesdayAfterMinPeriod();
-  }, [hasActiveLock, lock?.expiration]);
+  // For convenience we keep the previous name but it now always points to the
+  // base minimum.  Selection rules for active locks are handled separately via
+  // `isDateDisabled` so that the slider can still render earlier weeks for
+  // display purposes but the user will not be able to select them when a lock
+  // already exists.
+  const minLockDate = baseMinLockDate;
 
   const validWednesdays = useMemo(() => {
     const wednesdays: Date[] = [];
     let currentDate = spacetime(minLockDate);
-    const twoYearsFromNow = spacetime.now().add(2, "year");
+    const maxLockingDate = spacetime
+      .now()
+      .add(MAX_LOCKING_DURATION_WEEKS, "weeks");
 
-    while (currentDate.isBefore(twoYearsFromNow)) {
+    while (
+      currentDate.isBefore(maxLockingDate) ||
+      currentDate.isSame(maxLockingDate, "day")
+    ) {
       wednesdays.push(currentDate.toNativeDate());
       currentDate = currentDate.add(1, "week");
     }
@@ -95,20 +84,83 @@ export default function VotingPowerForm() {
     return wednesdays;
   }, [minLockDate]);
 
-  const maxDate = useMemo(
-    () =>
-      spacetime
-        .now()
-        .add(MAX_LOCKING_DURATION_WEEKS / 52, "years")
-        .toNativeDate(),
-    [],
-  );
+  // When topping up an existing lock, find the first selectable Wednesday index
+  const minSelectableIndex = useMemo(() => {
+    if (!hasActiveLock || !lock?.expiration || validWednesdays.length === 0) {
+      return 0;
+    }
+
+    const expirationTime = new Date(lock.expiration).getTime();
+    const idx = validWednesdays.findIndex(
+      (date) => date.getTime() >= expirationTime,
+    );
+    // If no valid Wednesday is found after expiration, return last index
+    return idx >= 0 ? idx : validWednesdays.length - 1;
+  }, [hasActiveLock, lock?.expiration, validWednesdays]);
+
+  const maxDate = useMemo(() => {
+    // Use the last valid Wednesday as the max date to ensure consistency
+    return validWednesdays.length > 0
+      ? validWednesdays[validWednesdays.length - 1]
+      : spacetime.now().add(MAX_LOCKING_DURATION_WEEKS, "weeks").toNativeDate();
+  }, [validWednesdays]);
+
+  const sliderLabels = useMemo(() => {
+    const formatDuration = (weeksDiff: number, forceMonths = false) => {
+      if (forceMonths || weeksDiff > 4) {
+        const months = Math.round(weeksDiff / 4.33);
+        return months <= 1 ? "1 month" : `${months} months`;
+      }
+      return weeksDiff <= 1 ? "1 week" : `${weeksDiff} weeks`;
+    };
+
+    const minIdx = hasActiveLock && lock?.expiration ? minSelectableIndex : 0;
+    const maxIdx = validWednesdays.length - 1;
+    const midIdx = Math.floor((minIdx + maxIdx) / 2);
+    const now = new Date();
+
+    // Calculate start label
+    const startLabel = (() => {
+      if (minIdx >= 0 && minIdx < validWednesdays.length) {
+        const weeksDiff = Math.ceil(
+          (validWednesdays[minIdx].getTime() - now.getTime()) /
+            (1000 * 60 * 60 * 24 * 7),
+        );
+        return formatDuration(weeksDiff, hasActiveLock && !!lock?.expiration);
+      }
+      return "1 week";
+    })();
+
+    // Calculate middle label
+    const middleLabel = (() => {
+      if (midIdx >= 0 && midIdx < validWednesdays.length) {
+        const weeksDiff = Math.ceil(
+          (validWednesdays[midIdx].getTime() - now.getTime()) /
+            (1000 * 60 * 60 * 24 * 7),
+        );
+        return formatDuration(weeksDiff, hasActiveLock && !!lock?.expiration);
+      }
+      return "1 year";
+    })();
+
+    return { startLabel, middleLabel, endLabel: "2 years" };
+  }, [validWednesdays, hasActiveLock, lock?.expiration, minSelectableIndex]);
 
   const isDateDisabled = (date: Date) => {
     const isBeforeMin = date < minLockDate;
     const isAfterMax = date > maxDate;
     const isNotWednesday = spacetime(date).day() !== 3;
-    return isBeforeMin || isAfterMax || isNotWednesday;
+
+    // When topping up an existing lock, you cannot choose a date before the
+    // current expiration.
+    const isBeforeCurrentExpiration =
+      hasActiveLock && lock?.expiration
+        ? date < new Date(lock.expiration)
+        : false;
+
+    return (
+      isBeforeMin || isAfterMax || isNotWednesday || isBeforeCurrentExpiration
+    );
   };
 
   const methods = useForm({
@@ -123,11 +175,40 @@ export default function VotingPowerForm() {
   const { control, watch, register, setValue } = methods;
 
   React.useEffect(() => {
-    if (validWednesdays.length > 0) {
-      const defaultDate = validWednesdays[0];
-      setValue(LOCKING_UNLOCK_DATE_FORM_KEY, defaultDate);
+    if (validWednesdays.length === 0) {
+      return;
     }
-  }, [validWednesdays, setValue]);
+
+    let defaultDate = validWednesdays[0];
+
+    if (hasActiveLock && lock?.expiration) {
+      const expirationTime = lock.expiration.getTime();
+
+      const exactIdx = validWednesdays.findIndex(
+        (d) => d.getTime() === expirationTime,
+      );
+      if (exactIdx >= 0) {
+        defaultDate = validWednesdays[exactIdx];
+      } else {
+        defaultDate = validWednesdays.reduce((prev, curr) => {
+          return Math.abs(curr.getTime() - expirationTime) <
+            Math.abs(prev.getTime() - expirationTime)
+            ? curr
+            : prev;
+        }, validWednesdays[0]);
+      }
+    }
+
+    setValue(LOCKING_UNLOCK_DATE_FORM_KEY, defaultDate, {
+      shouldValidate: true,
+    });
+    const idx = validWednesdays.findIndex(
+      (d) => d.getTime() === defaultDate.getTime(),
+    );
+    if (idx >= 0) {
+      setSliderIndex(idx);
+    }
+  }, [validWednesdays, hasActiveLock, lock?.expiration, setValue]);
 
   const amountToLock = watch(LOCKING_AMOUNT_FORM_KEY);
   const unlockDate = watch(LOCKING_UNLOCK_DATE_FORM_KEY);
@@ -266,6 +347,13 @@ export default function VotingPowerForm() {
     return lock.expiration.toLocaleDateString();
   }, [hasLock, lock]);
 
+  const handleUseMaxBalance = () => {
+    methods.setValue(
+      LOCKING_AMOUNT_FORM_KEY,
+      formatUnits(mentoBalance.value, 18),
+    );
+  };
+
   if (!address) {
     return (
       <div className="flex items-center justify-center">
@@ -315,9 +403,16 @@ export default function VotingPowerForm() {
                       },
                     })}
                   />
-                  <span className="text-muted-foreground">
-                    Max available: {formattedMentoBalance} MENTO{" "}
-                  </span>
+                  <div className="text-muted-foreground flex items-center gap-1">
+                    <span>Balance: {formattedMentoBalance}</span>
+                    <button
+                      type="button"
+                      className="cursor-pointer border-none bg-transparent p-0 text-inherit underline"
+                      onClick={handleUseMaxBalance}
+                    >
+                      MAX
+                    </button>
+                  </div>
                 </div>
                 <div className="col-span-5 flex flex-row items-center md:flex-col md:items-end md:justify-end">
                   <Controller
@@ -335,8 +430,12 @@ export default function VotingPowerForm() {
                         disabled={isDateDisabled}
                         fromDate={minLockDate}
                         toDate={maxDate}
-                        startMonth={value || minLockDate}
-                        endMonth={maxDate}
+                        startMonth={minLockDate}
+                        endMonth={
+                          validWednesdays.length > 0
+                            ? validWednesdays[validWednesdays.length - 1]
+                            : maxDate
+                        }
                       />
                     )}
                   />
@@ -350,27 +449,39 @@ export default function VotingPowerForm() {
                   </span>
                 </div>
                 <Slider
-                  key={`slider-${currentDateIndex}-${validWednesdays.length}`}
-                  value={[currentDateIndex]}
+                  key="lock-duration-slider"
+                  value={[sliderIndex]}
                   onValueChange={(values) => {
                     const newIndex = values[0];
-                    if (newIndex >= 0 && newIndex < validWednesdays.length) {
+                    // Enforce minimum selectable index for existing locks
+                    const actualIndex =
+                      hasActiveLock && lock?.expiration
+                        ? Math.max(newIndex, minSelectableIndex)
+                        : newIndex;
+
+                    setSliderIndex(actualIndex);
+                    if (
+                      actualIndex >= 0 &&
+                      actualIndex < validWednesdays.length
+                    ) {
                       setValue(
                         LOCKING_UNLOCK_DATE_FORM_KEY,
-                        validWednesdays[newIndex],
+                        validWednesdays[actualIndex],
                         { shouldValidate: true },
                       );
                     }
                   }}
-                  min={0}
+                  min={
+                    hasActiveLock && lock?.expiration ? minSelectableIndex : 0
+                  }
                   max={validWednesdays.length - 1}
                   step={1}
                   className="my-4"
                 />
                 <div className="text-muted-foreground flex justify-between text-xs">
-                  <span>1 week</span>
-                  <span>1 year</span>
-                  <span>2 years</span>
+                  <span>{sliderLabels.startLabel}</span>
+                  <span>{sliderLabels.middleLabel}</span>
+                  <span>{sliderLabels.endLabel}</span>
                 </div>
               </div>
               <div className="mb-2 mt-8 flex justify-between text-sm">

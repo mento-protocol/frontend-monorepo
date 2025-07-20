@@ -159,6 +159,26 @@ export const VoteCard = ({
     }
   }, [isConfirmed, refetchVoteReceipt, onVoteConfirmed]);
 
+  // Trigger onVoteConfirmed when queue transaction is confirmed
+  useEffect(() => {
+    if (isQueueConfirmed && onVoteConfirmed) {
+      onVoteConfirmed();
+
+      const timeout1 = setTimeout(() => {
+        onVoteConfirmed();
+      }, 2000);
+
+      const timeout2 = setTimeout(() => {
+        onVoteConfirmed();
+      }, 5000);
+
+      return () => {
+        clearTimeout(timeout1);
+        clearTimeout(timeout2);
+      };
+    }
+  }, [isQueueConfirmed, onVoteConfirmed]);
+
   // Calculate total voting power for quorum display
   const totalVotingPower = useMemo(() => {
     if (!proposal?.votes) return BigInt(0);
@@ -353,6 +373,7 @@ export const VoteCard = ({
     isConfirming,
     isExecuteConfirming,
     isQueueConfirming,
+    isQueueConfirmed,
     isAwaitingUserSignature,
     isAwaitingExecuteSignature,
     isAwaitingQueueSignature,
@@ -827,20 +848,22 @@ export const VoteCard = ({
           >
             {getLoadingText()}
           </p>
-          {currentState === "signing" && !isAwaitingExecuteSignature && (
-            <p
-              className="text-muted-foreground text-sm"
-              data-testid="waitingForConfirmationDescriptionLabel"
-            >
-              You are voting{" "}
-              {variables?.args?.[1] === 1
-                ? "YES"
-                : variables?.args?.[1] === 0
-                  ? "NO"
-                  : "ABSTAIN"}{" "}
-              on this proposal
-            </p>
-          )}
+          {currentState === "signing" &&
+            !isAwaitingExecuteSignature &&
+            !isAwaitingQueueSignature && (
+              <p
+                className="text-muted-foreground text-sm"
+                data-testid="waitingForConfirmationDescriptionLabel"
+              >
+                You are voting{" "}
+                {variables?.args?.[1] === 1
+                  ? "YES"
+                  : variables?.args?.[1] === 0
+                    ? "NO"
+                    : "ABSTAIN"}{" "}
+                on this proposal
+              </p>
+            )}
           {currentState === "signing" && isAwaitingExecuteSignature && (
             <p
               className="text-muted-foreground text-sm"
@@ -880,7 +903,7 @@ export const VoteCard = ({
     <Card className={cardClassName}>
       {showHeader && (
         <CardHeader className="bg-incard mb-0 flex flex-col items-start justify-between gap-2 p-4 md:flex-row md:items-center xl:px-8 xl:py-6">
-          <div className="flex items-center gap-8 text-sm">
+          <div className="flex flex-col gap-2 text-sm md:flex-row md:items-center md:gap-8">
             {votingDeadline && <Timer until={votingDeadline} />}
 
             <div className="flex items-center gap-2">
@@ -894,9 +917,11 @@ export const VoteCard = ({
                 className="text-muted-foreground text-sm"
                 data-testid="quorumReachedLabel"
               >
+                Min.{" "}
                 {NumbersService.parseNumericValue(
                   formatUnits(quorumNeeded || BigInt(0), 18),
-                )}
+                )}{" "}
+                veMENTO
               </span>
             </div>
           </div>

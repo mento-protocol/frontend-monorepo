@@ -69,9 +69,20 @@ export const LockingButton = () => {
 
     if (!lockExpiration) return 0;
 
+    // Calculate the number of weeks from current time to the new unlock date
+    // This represents the new slope period for the lock
+    const currentDate = new Date();
+    const totalWeeksToUnlock = differenceInWeeks(unlockDate, currentDate);
+
+    // Ensure the new slope period is at least the minimum required
+    // The new slope period must be >= the current remaining slope
     const weeksPassed = Number(currentLockingWeek) - lockTime;
-    const weeksAdded = differenceInWeeks(unlockDate, lockExpiration);
-    return Math.max(0, lockSlope - weeksPassed + weeksAdded);
+    const currentRemainingSlope = Math.max(0, lockSlope - weeksPassed);
+
+    // The new slope period should be the maximum of:
+    // 1. The total weeks to unlock from now
+    // 2. The current remaining slope (to avoid decreasing the lock period)
+    return Math.max(totalWeeksToUnlock, currentRemainingSlope);
   }, [currentLockingWeek, lock, unlockDate, hasActiveLock]);
 
   const relock = useRelockMento({
@@ -81,6 +92,7 @@ export const LockingButton = () => {
     onConfirmation: () => {
       toast.success("Lock updated successfully");
       resetForm();
+      setIsTxDialogOpen(false);
 
       refetchLockInfo();
 
@@ -138,8 +150,7 @@ export const LockingButton = () => {
     const submitRelock = () => {
       relock.relockMento({
         onSuccess: () => {
-          // Success handled in onConfirmation above
-          setIsTxDialogOpen(false);
+          // Success handled in onConfirmation above - dialog stays open until confirmed
         },
         onError: (error) => {
           console.error("Relock failed", error);
@@ -174,11 +185,6 @@ export const LockingButton = () => {
     // Not connected
     if (!address) {
       return <>Connect wallet</>;
-    }
-
-    // Multiple locks - not supported
-    if (hasMultipleLocks) {
-      return <>Multiple locks not supported</>;
     }
 
     // Both topping up and extending duration are now supported for the first lock
@@ -344,6 +350,8 @@ export const LockingButton = () => {
         retry={handleRelock}
         message={<TxMessage />}
         dataTestId="relock-tx-dialog"
+        preventClose={isRelocking}
+        isPending={isRelocking}
       />
     </>
   );

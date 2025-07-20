@@ -39,8 +39,10 @@ export const WithdrawButton = () => {
 
   const { withdraw, isPending, isConfirming, error } = useWithdraw({
     onConfirmation: handleWithdrawSuccess,
-    onError: () => {
+    onError: (error) => {
+      console.error("Withdraw failed", error);
       toast.error("Failed to withdraw");
+      // Keep modal open to show error state
     },
   });
 
@@ -70,6 +72,13 @@ export const WithdrawButton = () => {
     }
   }, [isPending, isConfirming, error]);
 
+  // Ensure modal opens when transaction starts
+  React.useEffect(() => {
+    if (isPending || isConfirming) {
+      setIsModalOpen(true);
+    }
+  }, [isPending, isConfirming]);
+
   return (
     <>
       {hasAmountToWithdraw && (
@@ -90,6 +99,8 @@ export const WithdrawButton = () => {
         retry={retryWithdraw}
         title={modalTitle}
         message={modalMessage}
+        preventClose={isPending || isConfirming}
+        isPending={isPending || isConfirming}
       />
     </>
   );

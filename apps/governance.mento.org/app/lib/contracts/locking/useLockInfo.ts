@@ -29,11 +29,12 @@ export const useLockInfo = (address: string | undefined) => {
       .filter((lock) => {
         return lock.expiration > new Date();
       })
-      .filter((lock) => lock?.relocked !== true);
+      .sort((a, b) => {
+        return Number(a.lockId) < Number(b.lockId) ? 1 : -1;
+      });
   }, [locks]);
 
   const lock = activeLocks[0];
-
   const hasMultipleLocks = React.useMemo(() => {
     return activeLocks.length > 1;
   }, [activeLocks]);

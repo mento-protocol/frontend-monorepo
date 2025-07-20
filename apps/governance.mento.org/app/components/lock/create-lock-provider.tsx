@@ -77,7 +77,10 @@ export const CreateLockProvider = ({
   const parsedAmount = parseEther(amount);
 
   const lock = useCreateLockOnChain({
-    onLockConfirmation,
+    onLockConfirmation: () => {
+      setIsTxDialogOpen(false);
+      onLockConfirmation?.();
+    },
   });
   const allowance = useAllowance({
     owner: address,
@@ -85,7 +88,6 @@ export const CreateLockProvider = ({
   });
 
   const resetAll = React.useCallback(() => {
-    setIsTxDialogOpen(false);
     resetForm();
   }, [resetForm]);
 
@@ -285,6 +287,16 @@ export const CreateLockProvider = ({
         title="Create Lock"
         retry={retry}
         message={<TxMessage />}
+        preventClose={
+          CreateLockTxStatus === CREATE_LOCK_TX_STATUS.AWAITING_SIGNATURE ||
+          CreateLockTxStatus === CREATE_LOCK_TX_STATUS.CONFIRMING_APPROVE_TX ||
+          CreateLockTxStatus === CREATE_LOCK_TX_STATUS.CONFIRMING_LOCK_TX
+        }
+        isPending={
+          CreateLockTxStatus === CREATE_LOCK_TX_STATUS.AWAITING_SIGNATURE ||
+          CreateLockTxStatus === CREATE_LOCK_TX_STATUS.CONFIRMING_APPROVE_TX ||
+          CreateLockTxStatus === CREATE_LOCK_TX_STATUS.CONFIRMING_LOCK_TX
+        }
       />
     </CreateLockContext.Provider>
   );

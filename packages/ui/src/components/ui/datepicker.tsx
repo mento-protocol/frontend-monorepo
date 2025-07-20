@@ -31,10 +31,19 @@ export function Datepicker({
 }: DatepickerProps) {
   const [open, setOpen] = React.useState(false);
   const [date, setDate] = React.useState<Date | undefined>(value);
+  const [displayMonth, setDisplayMonth] = React.useState<Date | undefined>(
+    value,
+  );
 
   React.useEffect(() => {
     setDate(value);
   }, [value]);
+
+  React.useEffect(() => {
+    if (open && date) {
+      setDisplayMonth(date);
+    }
+  }, [open, date]);
 
   return (
     <div className="flex flex-row items-center gap-3 md:flex-col md:items-end">
@@ -71,6 +80,8 @@ export function Datepicker({
             disabled={disabled}
             startMonth={startMonth}
             endMonth={endMonth}
+            month={displayMonth}
+            onMonthChange={setDisplayMonth}
           />
         </PopoverContent>
       </Popover>

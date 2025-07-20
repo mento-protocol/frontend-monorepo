@@ -10,6 +10,8 @@ export interface ITxDialog {
   title: string;
   onClose: () => void;
   dataTestId?: string;
+  preventClose?: boolean;
+  isPending?: boolean;
 }
 
 export const TxDialog = ({
@@ -20,14 +22,23 @@ export const TxDialog = ({
   title,
   onClose,
   dataTestId,
+  preventClose = false,
+  isPending = false,
 }: ITxDialog) => {
   return (
     <Dialog
       open={isOpen}
-      onOpenChange={(open) => !open && onClose()}
+      onOpenChange={(open) =>
+        !open && !(preventClose || isPending) && onClose()
+      }
       data-testid={dataTestId}
     >
-      <DialogContent onPointerDownOutside={(e) => e.preventDefault()}>
+      <DialogContent
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) =>
+          (preventClose || isPending) && e.preventDefault()
+        }
+      >
         <DialogHeader>
           <DialogTitle className="text-center">{title}</DialogTitle>
         </DialogHeader>
