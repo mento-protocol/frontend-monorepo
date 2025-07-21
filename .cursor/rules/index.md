@@ -1,5 +1,7 @@
 # General
 
+- Before starting a server, always check if there's already one running on either localhost:3000 / localhost:3001 / localhost:3002 / localhost:3003 / localhost:3004 / localhost:3005
+
 After you make any changes, please always confirm the following:
 
 - The TypeScript build still works. You can confirm this either globally via "turbo check-types" or on a per-project basis via "turbo check-types --filter app-or-package-name"

@@ -8,8 +8,6 @@ export interface HoldingsApi {
   totalReserveValue?: number;
 }
 
-import type { StableToken, Token } from "@celo/contractkit";
-
 export type Tokens =
   | "CELO"
   | "BTC"
@@ -33,9 +31,7 @@ export type Tokens =
   | "PUSO"
   | "cCOP"
   | "USDGLO"
-  | "cGHS"
-  | Token
-  | StableToken;
+  | "cGHS";
 
 export interface Address {
   address: string;
