@@ -101,6 +101,8 @@ export default function SwapForm() {
     mode: "onChange", // Important for field-level validation
   });
 
+  console.log("1");
+
   const fromTokenId = useWatch({ control: form.control, name: "fromTokenId" });
   const toTokenId = useWatch({ control: form.control, name: "toTokenId" });
   const amount = useWatch({ control: form.control, name: "amount" });
