@@ -278,6 +278,9 @@ export const CreateProposalProvider = ({
         <>
           {message} <br /> {detailsElement}
         </>,
+        {
+          duration: 20000,
+        },
       );
     }
   }, [createError, isConfirmed, txReceipt, createTx, chainId]);
@@ -288,7 +291,6 @@ export const CreateProposalProvider = ({
     }
     // Only update on chainID change, eslint wants creationState involved
   }, [chainId]);
-
   return (
     <CreateProposalContext.Provider
       value={{

@@ -96,6 +96,9 @@ export const VoteCard = ({
   const hasEnoughLockedMentoToVote = veMentoBalance.value > 0;
   const isInitializing = isConnecting || isHasVotedStatusLoading;
 
+  // Track when queue transaction is pending (sent but not confirmed)
+  const isQueueTransactionPending = queueHash && !isQueueConfirmed;
+
   const linkExplorer =
     chainId === Alfajores.id ? links.explorerAlfajores : links.explorerMain;
 
@@ -328,6 +331,8 @@ export const VoteCard = ({
 
   const currentState = useMemo(() => {
     if (isInitializing) return "loading";
+
+    // Show normal loading states during queue transaction
     if (isConfirming || isExecuteConfirming || isQueueConfirming)
       return "confirming";
     if (
@@ -336,6 +341,11 @@ export const VoteCard = ({
       isAwaitingQueueSignature
     )
       return "signing";
+
+    // Only show queued state after queue transaction is confirmed
+    if (proposalState === ProposalState.Succeeded && isQueueConfirmed) {
+      return "queued";
+    }
     if (
       (proposalState === ProposalState.Active && voteReceipt?.hasVoted) ||
       isConfirmed
@@ -374,6 +384,7 @@ export const VoteCard = ({
     isExecuteConfirming,
     isQueueConfirming,
     isQueueConfirmed,
+    isQueueTransactionPending,
     isAwaitingUserSignature,
     isAwaitingExecuteSignature,
     isAwaitingQueueSignature,

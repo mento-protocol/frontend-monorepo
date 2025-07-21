@@ -143,7 +143,6 @@ export default function ProposalPage() {
   const id = params.id as string;
   const { proposal, refetch: refetchProposal } = useProposal(BigInt(id));
   const { chainId } = useAccount();
-  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
 
   const { data: currentBlock } = useBlockNumber({
     chainId: ensureChainId(chainId),
