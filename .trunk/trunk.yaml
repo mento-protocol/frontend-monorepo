@@ -8,7 +8,7 @@ cli:
 plugins:
   sources:
     - id: trunk
-      ref: v1.7.0
+      ref: v1.7.1
       uri: https://github.com/trunk-io/plugins
 
 # Many linters and tools depend on runtimes - configure them here. (https://docs.trunk.io/runtimes)
@@ -36,7 +36,8 @@ lint:
   # All enabled linters - organized by category for clarity
   enabled:
     # === CORE DEVELOPMENT LINTERS ===
-    - eslint@9.30.1 # JavaScript/TypeScript linting (uses our existing configs)
+    - taplo@0.9.3
+    - eslint@9.31.0 # JavaScript/TypeScript linting (uses our existing configs)
     - prettier@3.6.2 # Code formatting with Tailwind CSS class sorting
     - git-diff-check # Validates git diffs for common issues
 
@@ -51,9 +52,9 @@ lint:
     - shfmt@3.6.0 # Shell script formatting
 
     # === SECURITY SCANNING ===
-    - checkov@3.2.442 # Infrastructure as Code security scanning
+    - checkov@3.2.451 # Infrastructure as Code security scanning
     - gitleaks@8.27.2 # Detects secrets in git history and commits
-    - trufflehog@3.89.2 # Advanced secret detection with high accuracy
+    - trufflehog@3.90.0 # Advanced secret detection with high accuracy
     - osv-scanner@2.0.3 # Vulnerability scanning for dependencies
 
     # === GITHUB ACTIONS ===
@@ -61,10 +62,10 @@ lint:
 
     # === ASSET OPTIMIZATION ===
     - oxipng@9.1.5 # PNG image optimization (lossless compression)
-    - svgo@3.3.2 # SVG optimization and cleanup
+    - svgo@4.0.0 # SVG optimization and cleanup
 
     # === CODE QUALITY & ORGANIZATION ===
-    - sort-package-json@3.2.1 # Automatically sorts package.json files
+    - sort-package-json@3.4.0 # Automatically sorts package.json files
     - pre-commit-hooks@4.6.0 # Standard pre-commit validations (trailing whitespace, etc.)
     - dustilock@1.2.0 # Dependency integrity checking
 
