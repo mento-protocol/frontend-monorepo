@@ -9,7 +9,7 @@ import { useAllowance } from "@/lib/contracts/mento/useAllowance";
 import useApprove from "@/lib/contracts/mento/useApprove";
 import { useContracts } from "@/lib/contracts/useContracts";
 import { Button, toast } from "@repo/ui";
-import { differenceInWeeks } from "date-fns";
+import { differenceInWeeks, isAfter } from "date-fns";
 import React from "react";
 import { useFormContext } from "react-hook-form";
 import { parseEther } from "viem";
@@ -49,14 +49,18 @@ export const LockingButton = () => {
     return parseEther(amount);
   }, [amount]);
 
-  // Check if user is extending lock duration (different unlock date)
   const isExtendingDuration = React.useMemo(() => {
     if (!hasActiveLock || !lock?.expiration || !unlockDate) return false;
-    // Compare dates (ignore time differences)
     const currentExpiration = new Date(lock.expiration);
     const selectedDate = new Date(unlockDate);
-    return selectedDate.getTime() !== currentExpiration.getTime();
+    return isAfter(selectedDate.setHours(0, 0, 0, 0), currentExpiration);
   }, [hasActiveLock, lock?.expiration, unlockDate]);
+
+  const isAddingAmount = React.useMemo(() => {
+    if (!hasActiveLock || !amount || amount === "" || amount === "0")
+      return false;
+    return parsedAmount > BigInt(0);
+  }, [hasActiveLock, amount, parsedAmount]);
 
   const isBalanceInsufficient = errors[LOCKING_AMOUNT_FORM_KEY]?.type === "max";
 
@@ -208,6 +212,16 @@ export const LockingButton = () => {
         return <>Approve MENTO</>;
       }
 
+      // Determine button text based on what's changing
+      if (isExtendingDuration && isAddingAmount) {
+        return <>Top up and extend lock</>;
+      } else if (isExtendingDuration && !isAddingAmount) {
+        return <>Extend lock</>;
+      } else if (!isExtendingDuration && isAddingAmount) {
+        return <>Top up lock</>;
+      }
+
+      // Fallback (shouldn't reach here in normal flow)
       return <>Top up lock</>;
     }
 
@@ -227,6 +241,7 @@ export const LockingButton = () => {
     needsApprovalForRelock,
     parsedAmount,
     isExtendingDuration,
+    isAddingAmount,
   ]);
 
   const shouldButtonBeDisabled = React.useMemo(() => {
@@ -275,11 +290,10 @@ export const LockingButton = () => {
     isRelocking,
     CreateLockTxStatus,
     isExtendingDuration,
+    isAddingAmount,
     unlockDate,
     lock,
   ]);
-
-  // Define relock transaction status
   const relockTxStatus = React.useMemo(() => {
     if (approve.error || relock.error) return "ERROR";
     if (approve.isAwaitingUserSignature || relock.isAwaitingUserSignature)

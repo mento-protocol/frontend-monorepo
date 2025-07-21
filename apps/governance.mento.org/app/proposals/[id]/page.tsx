@@ -219,7 +219,9 @@ export default function ProposalPage() {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>{proposal.metadata?.title}</BreadcrumbPage>
+            <BreadcrumbPage className="max-w-xl truncate">
+              {proposal.metadata?.title}
+            </BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -229,7 +231,7 @@ export default function ProposalPage() {
           data-testid="proposalStateLabel"
         />
         <h1
-          className="max-w-[26ch] text-3xl font-medium md:text-6xl"
+          className="max-w-6xlxl truncate text-3xl font-medium leading-[80px] md:text-6xl"
           data-testid="proposalTitleLabel"
         >
           {proposal.metadata?.title}

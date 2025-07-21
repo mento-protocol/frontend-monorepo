@@ -91,7 +91,7 @@ const ProposalDetailsStep = () => {
               value={newProposal.title}
               onChange={handleTitleChange}
               data-testid="proposalTitleInput"
-              maxLength={79}
+              maxLength={100}
             />
           </div>
           <div
@@ -386,7 +386,7 @@ const ReviewStep = () => {
   return (
     <div>
       <h2
-        className="mb-2 text-lg font-medium md:mb-4 md:text-3xl"
+        className="mb-2 max-w-2xl overflow-hidden text-ellipsis text-lg font-medium md:mb-4 md:text-3xl"
         data-testid="reviewStageLabel"
       >
         Review - {newProposal.title}
@@ -572,8 +572,6 @@ function CreateProposalSteps() {
 function ProposalBreadcrumb() {
   const { step, setStep } = useCreateProposal();
   const { isConnected } = useAccount();
-
-  console.log("Current step:", step);
 
   return (
     <div className="flex w-full items-center justify-between">
