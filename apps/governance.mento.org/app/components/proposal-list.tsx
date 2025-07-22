@@ -83,7 +83,7 @@ const usePagination = ({
 
 export const ProposalList = () => {
   const { proposals, isLoading } = useProposals();
-  const { veMentoBalance, mentoBalance, isBalanceLoading } = useTokens();
+  const { veMentoBalance, isBalanceLoading } = useTokens();
   const { proposalThreshold, isLoadingProposalThreshold } =
     useProposalThreshold();
 

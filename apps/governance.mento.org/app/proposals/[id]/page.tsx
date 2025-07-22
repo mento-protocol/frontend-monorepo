@@ -233,6 +233,7 @@ export default function ProposalPage() {
         <h1
           className="max-w-6xlxl truncate text-3xl font-medium leading-[80px] md:text-6xl"
           data-testid="proposalTitleLabel"
+          title={proposal.metadata?.title}
         >
           {proposal.metadata?.title}
         </h1>

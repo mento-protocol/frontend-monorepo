@@ -28,11 +28,15 @@ const LinkToolbar = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, ...props }, ref) => {
     const { editor } = useToolbar();
     const [link, setLink] = React.useState("");
+    const [open, setOpen] = React.useState(false);
 
     const handleSubmit = (e: FormEvent) => {
       e.preventDefault();
       const url = getUrlFromString(link);
-      url && editor?.chain().focus().setLink({ href: url }).run();
+      if (url) {
+        editor?.chain().focus().setLink({ href: url }).run();
+      }
+      setOpen(false);
     };
 
     React.useEffect(() => {
@@ -40,7 +44,7 @@ const LinkToolbar = React.forwardRef<HTMLButtonElement, ButtonProps>(
     }, [editor]);
 
     return (
-      <Popover modal={false}>
+      <Popover modal={false} open={open} onOpenChange={setOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
             <PopoverTrigger
@@ -71,15 +75,15 @@ const LinkToolbar = React.forwardRef<HTMLButtonElement, ButtonProps>(
         </Tooltip>
 
         <PopoverContent
-          onOpenAutoFocus={(e) => {
-            e.preventDefault();
-          }}
-          onCloseAutoFocus={(e) => {
+          onInteractOutside={(e) => {
             e.preventDefault();
           }}
         >
-          <div className="relative">
-            <PopoverClose className="absolute right-3 top-3">
+          <div className="relative" onClick={(e) => e.stopPropagation()}>
+            <PopoverClose
+              className="absolute right-3 top-3"
+              onClick={() => setOpen(false)}
+            >
               <X className="h-4 w-4" />
             </PopoverClose>
             <form onSubmit={handleSubmit}>

@@ -28,7 +28,7 @@ import {
 } from "@repo/ui";
 import { ArrowLeft, ArrowRight, HelpCircle } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAccount } from "wagmi";
 import { ConnectButton } from "../connect-button";
 import {
@@ -36,10 +36,34 @@ import {
   CreateProposalStep,
   useCreateProposal,
 } from "./create-proposal-provider";
+import useProposals from "@/lib/contracts/governor/use-proposals";
+
+const isTextInvalid = (html: string) => {
+  const text = html.replace(/<[^>]*>/g, "").trim();
+  console.log(text);
+  return text.length < 100;
+};
 
 const ProposalDetailsStep = () => {
   const { setStep, newProposal, updateProposal } = useCreateProposal();
+  const { proposals, isLoading } = useProposals();
+
   const [previewContent, setPreviewContent] = useState(newProposal.description);
+
+  const isDescriptionInvalid = useMemo(
+    () => isTextInvalid(newProposal.description),
+    [newProposal.description],
+  );
+
+  // Check if title is unique among existing proposals
+  const isTitleUnique = useMemo(() => {
+    if (!newProposal.title.trim()) return true; // Empty title is handled by required validation
+    return !proposals.some(
+      (proposal) =>
+        proposal.metadata.title.toLowerCase().trim() ===
+        newProposal.title.toLowerCase().trim(),
+    );
+  }, [newProposal.title, proposals]);
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     updateProposal({
@@ -65,6 +89,10 @@ const ProposalDetailsStep = () => {
     scrollToTop();
   };
 
+  const rawProposalDescription = useMemo(() => {
+    return newProposal.description.replace(/<[^>]*>/g, "");
+  }, [newProposal.description]);
+
   return (
     <div>
       <h2
@@ -83,16 +111,25 @@ const ProposalDetailsStep = () => {
           <TabsTrigger value="preview">Preview</TabsTrigger>
         </TabsList>
         <TabsContent value="write" className="pt-8">
-          <div className="mb-8 flex flex-col gap-1">
+          <div className="mb-6 flex flex-col gap-1">
             <Label>Title</Label>
             <Input
               placeholder="Start typing..."
-              className="h-14"
+              className={`h-14 ${!isTitleUnique ? "border-destructive" : ""}`}
               value={newProposal.title}
               onChange={handleTitleChange}
               data-testid="proposalTitleInput"
               maxLength={100}
             />
+            <p
+              className={cn(
+                "text-destructive mt-1 text-sm opacity-0 transition-opacity",
+                !isTitleUnique ? "opacity-100" : "opacity-0",
+              )}
+              data-testid="titleError"
+            >
+              A proposal with this title already exists.
+            </p>
           </div>
           <div
             className="mb-8 flex flex-col gap-1"
@@ -103,9 +140,23 @@ const ProposalDetailsStep = () => {
               value={newProposal.description}
               onChange={handleDescriptionChange}
             />
+
+            <p className="text-muted-foreground mt-1 text-sm transition-opacity">
+              The description must be at least 100 characters long.{" "}
+              {rawProposalDescription.length < 100
+                ? `Write ${100 - rawProposalDescription.length} more characters.`
+                : ""}
+            </p>
           </div>
         </TabsContent>
         <TabsContent value="preview" className="pt-8">
+          <h2
+            className="mb-2 max-w-2xl overflow-hidden text-ellipsis text-2xl font-medium md:mb-4 md:text-5xl"
+            data-testid="previewLabel"
+            title={newProposal.title}
+          >
+            {newProposal.title}
+          </h2>
           <div
             className="prose prose-invert"
             dangerouslySetInnerHTML={{ __html: previewContent }}
@@ -118,7 +169,12 @@ const ProposalDetailsStep = () => {
           className="h-10 w-full min-w-[188px] md:ml-auto md:w-fit"
           clipped="sm"
           onClick={handleNextClick}
-          disabled={!newProposal.title || !newProposal.description}
+          disabled={
+            (proposals?.length === 0 && isLoading) ||
+            !newProposal.title ||
+            isDescriptionInvalid ||
+            !isTitleUnique
+          }
           data-testid="nextButton"
         >
           Next <ArrowRight />
@@ -135,7 +191,7 @@ const ExecutionCodeStep = () => {
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
-  console.log(newProposal.code);
+
   const validateExecutionCode = (code: string): string | null => {
     // Check if code is empty or only whitespace
     if (!code || code.trim() === "") {
@@ -292,19 +348,48 @@ const ExecutionCodeStep = () => {
 
 const CollapsibleHtmlContent = ({ htmlContent }: { htmlContent: string }) => {
   const [open, setOpen] = useState(false);
+  const [showButton, setShowButton] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const checkHeight = () => {
+      if (contentRef.current) {
+        const scrollHeight = contentRef.current.scrollHeight;
+        const shouldShow = scrollHeight > 300; // 300px is the max-height
+        setShowButton(shouldShow);
+      }
+    };
+
+    // Check initially
+    checkHeight();
+
+    // Check again after a small delay to ensure content is rendered
+    const timer = setTimeout(checkHeight, 100);
+
+    // Also check on window resize
+    window.addEventListener("resize", checkHeight);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("resize", checkHeight);
+    };
+  }, [htmlContent]);
 
   return (
     <div
       className={cn(
-        "prose prose-invert relative min-h-20",
-        open ? "max-h-none overflow-visible" : "max-h-[300px] overflow-hidden",
+        "prose prose-invert relative min-h-20 w-full",
+        open
+          ? "max-h-none overflow-visible"
+          : "max-h-[300px] overflow-x-hidden overflow-y-visible",
       )}
     >
       <div
+        ref={contentRef}
         dangerouslySetInnerHTML={{ __html: htmlContent }}
         data-testid="proposalDetailsContent"
       />
-      {open ? (
+      {showButton && open && (
         <div className="mt-4 flex justify-center">
           <Button
             onClick={() => setOpen(false)}
@@ -314,7 +399,8 @@ const CollapsibleHtmlContent = ({ htmlContent }: { htmlContent: string }) => {
             See less
           </Button>
         </div>
-      ) : (
+      )}
+      {showButton && !open && (
         <div className="to-card absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-b from-transparent pb-8 pt-16">
           <Button
             onClick={() => setOpen(true)}
@@ -331,6 +417,8 @@ const CollapsibleHtmlContent = ({ htmlContent }: { htmlContent: string }) => {
 
 const CollapsibleJsonCode = ({ jsonString }: { jsonString: string }) => {
   const [open, setOpen] = useState(false);
+  const [showButton, setShowButton] = useState(false);
+  const contentRef = useRef<HTMLPreElement>(null);
 
   const formatJson = (jsonStr: string) => {
     try {
@@ -341,6 +429,30 @@ const CollapsibleJsonCode = ({ jsonString }: { jsonString: string }) => {
     }
   };
 
+  useEffect(() => {
+    const checkHeight = () => {
+      if (contentRef.current) {
+        const scrollHeight = contentRef.current.scrollHeight;
+        const shouldShow = scrollHeight > 400; // 400px is the max-height for code
+        setShowButton(shouldShow);
+      }
+    };
+
+    // Check initially
+    checkHeight();
+
+    // Check again after a small delay to ensure content is rendered
+    const timer = setTimeout(checkHeight, 100);
+
+    // Also check on window resize
+    window.addEventListener("resize", checkHeight);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("resize", checkHeight);
+    };
+  }, [jsonString]);
+
   return (
     <div
       className={cn(
@@ -348,10 +460,13 @@ const CollapsibleJsonCode = ({ jsonString }: { jsonString: string }) => {
         open ? "max-h-none overflow-visible" : "max-h-[400px] overflow-hidden",
       )}
     >
-      <pre className="border-border text-muted-foreground overflow-x-auto rounded-lg border p-4 text-sm">
+      <pre
+        ref={contentRef}
+        className="border-border text-muted-foreground overflow-x-auto rounded-lg border p-4 text-sm"
+      >
         <code data-testid="executionCodeContent">{formatJson(jsonString)}</code>
       </pre>
-      {open ? (
+      {showButton && open && (
         <div className="mt-4 flex justify-center">
           <Button
             onClick={() => setOpen(false)}
@@ -361,7 +476,8 @@ const CollapsibleJsonCode = ({ jsonString }: { jsonString: string }) => {
             See less
           </Button>
         </div>
-      ) : (
+      )}
+      {showButton && !open && (
         <div className="to-card absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-b from-transparent pb-8 pt-16">
           <Button
             onClick={() => setOpen(true)}
@@ -388,8 +504,9 @@ const ReviewStep = () => {
       <h2
         className="mb-2 max-w-2xl overflow-hidden text-ellipsis text-lg font-medium md:mb-4 md:text-3xl"
         data-testid="reviewStageLabel"
+        title={newProposal.title}
       >
-        Review - {newProposal.title}
+        {newProposal.title}
       </h2>
       <p className="text-muted-foreground mb-8 text-sm">
         You're successfully finished all the steps. Now, take a moment to go
@@ -444,7 +561,7 @@ function CreateProposalSteps() {
   useEffect(() => {
     if (isConnected && proposalThreshold && veMentoBalance && mentoBalance) {
       if (veMentoBalance.value <= proposalThreshold) {
-        if (mentoBalance.value == 0n) {
+        if (mentoBalance.value == BigInt(0)) {
           setDirection("buy");
         } else {
           setDirection("lock");

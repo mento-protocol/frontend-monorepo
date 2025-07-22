@@ -32,9 +32,11 @@ export const WithdrawButton = () => {
   const [modalMessage, setModalMessage] = React.useState<React.ReactNode>(null);
 
   const handleWithdrawSuccess = React.useCallback(() => {
-    refetchAvailableToWithdraw();
-    refetch();
-    setIsModalOpen(false);
+    setTimeout(() => {
+      refetchAvailableToWithdraw();
+      refetch();
+      setIsModalOpen(false);
+    }, 2000);
   }, [refetchAvailableToWithdraw, refetch]);
 
   const { withdraw, isPending, isConfirming, error } = useWithdraw({
@@ -81,7 +83,7 @@ export const WithdrawButton = () => {
 
   return (
     <>
-      {hasAmountToWithdraw && (
+      {hasAmountToWithdraw && !isPending && !isConfirming && (
         <Button
           className="h-12 w-full"
           clipped="default"

@@ -5,4 +5,9 @@
   .prose {
     --tw-prose-body: oklch(64.2% 0.0108 305);
   }
+  .prose h1,
+  .prose h2,
+  .prose h3 {
+    @apply font-medium;
+  }
 }

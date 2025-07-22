@@ -8,7 +8,7 @@ export const useAvailableToWithdraw = () => {
   const ensuredChainId = useEnsureChainId();
   const { address } = useAccount();
 
-  const { data: availableToWithdraw = 0n, refetch } = useReadContract({
+  const { data: availableToWithdraw = BigInt(0), refetch } = useReadContract({
     address: Locking.address,
     abi: LockingABI,
     functionName: "getAvailableForWithdraw",
@@ -16,6 +16,8 @@ export const useAvailableToWithdraw = () => {
     chainId: ensuredChainId,
     query: {
       refetchOnReconnect: true,
+      refetchOnWindowFocus: true,
+      refetchInterval: 12000, // Refetch every 12 seconds (typical block time)
       enabled: !!address,
     },
   });

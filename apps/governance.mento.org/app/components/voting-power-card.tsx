@@ -5,6 +5,7 @@ import useTokens from "@/lib/hooks/use-tokens";
 import { Button } from "@repo/ui";
 import { ChevronsRight, Zap } from "lucide-react";
 import Link from "next/link";
+import { useMemo } from "react";
 import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
 
@@ -12,8 +13,19 @@ export const VotingPowerCard = () => {
   const { isConnected } = useAccount();
   const { veMentoBalance, mentoBalance } = useTokens();
   const account = useAccount();
+  const { lock, hasLock, activeLocks } = useLockInfo(account.address);
 
-  const { activeLocks } = useLockInfo(account.address);
+  const expirationDate = useMemo(() => {
+    if (!hasLock) return null;
+    if (!lock?.expiration) return null;
+
+    const now = new Date();
+    if (lock.expiration < now) {
+      return "Fully unlocked";
+    }
+
+    return lock.expiration.toLocaleDateString();
+  }, [hasLock, lock]);
 
   return (
     <div className="bg-card w-full">
@@ -41,14 +53,14 @@ export const VotingPowerCard = () => {
         <hr className="border-[var(--border-tertiary)]" />
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Expires</span>
-          <span>{"17.10.2027"}</span>
+          <span>{expirationDate ?? "-"}</span>
         </div>
       </div>
       <div className="p-6">
         {isConnected && (
           <Link href="/voting-power">
             <Button className="h-10 w-full" clipped="sm">
-              {activeLocks.length > 0 ? "Manage" : "Lock Mento"}
+              {activeLocks?.length > 0 ? "Manage" : "Lock Mento"}
               <ChevronsRight size={20} />
             </Button>
           </Link>

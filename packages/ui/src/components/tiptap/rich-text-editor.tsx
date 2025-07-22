@@ -99,8 +99,16 @@ export function RichTextEditor({
   return (
     <div
       className={cn("relative w-full pb-[60px] sm:pb-0", className)}
-      onClick={() => {
-        editor?.view.focus();
+      onClick={(e) => {
+        // Only focus if clicking on the editor container itself, not on floating menus
+        const target = e.target as HTMLElement;
+        const isFloatingElement =
+          target.closest('[role="listbox"]') ||
+          target.closest(".tippy-content");
+
+        if (!isFloatingElement && editor) {
+          editor.view.focus();
+        }
       }}
     >
       <EditorToolbar editor={editor} />

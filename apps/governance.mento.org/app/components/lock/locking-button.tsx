@@ -9,6 +9,7 @@ import { useAllowance } from "@/lib/contracts/mento/useAllowance";
 import useApprove from "@/lib/contracts/mento/useApprove";
 import { useContracts } from "@/lib/contracts/useContracts";
 import { Button, toast } from "@repo/ui";
+import { Celo, Alfajores } from "@/lib/config/chains";
 import { differenceInWeeks, isAfter } from "date-fns";
 import React from "react";
 import { useFormContext } from "react-hook-form";
@@ -22,7 +23,7 @@ import {
 } from "./create-lock-provider";
 
 export const LockingButton = () => {
-  const { address } = useAccount();
+  const { address, chainId } = useAccount();
   const { createLock, CreateLockTxStatus, CreateLockApprovalStatus } =
     useCreateLock();
   const {
@@ -73,19 +74,12 @@ export const LockingButton = () => {
 
     if (!lockExpiration) return 0;
 
-    // Calculate the number of weeks from current time to the new unlock date
-    // This represents the new slope period for the lock
     const currentDate = new Date();
-    const totalWeeksToUnlock = differenceInWeeks(unlockDate, currentDate);
+    const totalWeeksToUnlock = differenceInWeeks(unlockDate, currentDate) + 1;
 
-    // Ensure the new slope period is at least the minimum required
-    // The new slope period must be >= the current remaining slope
     const weeksPassed = Number(currentLockingWeek) - lockTime;
     const currentRemainingSlope = Math.max(0, lockSlope - weeksPassed);
 
-    // The new slope period should be the maximum of:
-    // 1. The total weeks to unlock from now
-    // 2. The current remaining slope (to avoid decreasing the lock period)
     return Math.max(totalWeeksToUnlock, currentRemainingSlope);
   }, [currentLockingWeek, lock, unlockDate, hasActiveLock]);
 
@@ -94,7 +88,31 @@ export const LockingButton = () => {
     newSlope,
     additionalAmountToLock: parsedAmount,
     onConfirmation: () => {
-      toast.success("Lock updated successfully");
+      const currentChain = chainId === Celo.id ? Celo : Alfajores;
+      const explorerUrl = currentChain.blockExplorers?.default?.url;
+      const explorerTxUrl = explorerUrl
+        ? `${explorerUrl}/tx/${relock.hash}`
+        : null;
+
+      const message = "Lock updated successfully";
+      const detailsElement = explorerTxUrl ? (
+        <a
+          href={explorerTxUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ textDecoration: "underline", color: "inherit" }}
+        >
+          See Details
+        </a>
+      ) : (
+        <span>See Details</span>
+      );
+
+      toast.success(
+        <>
+          {message} <br /> {detailsElement}
+        </>,
+      );
       resetForm();
       setIsTxDialogOpen(false);
 

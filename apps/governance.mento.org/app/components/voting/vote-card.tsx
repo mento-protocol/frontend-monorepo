@@ -65,6 +65,7 @@ export const VoteCard = ({
     proposalId: proposal.proposalId,
     address,
   });
+
   const {
     hash,
     castVote,
@@ -196,6 +197,12 @@ export const VoteCard = ({
   const formattedTotalVotingPower = useMemo(() => {
     return NumbersService.parseNumericValue(formatUnits(totalVotingPower, 18));
   }, [totalVotingPower]);
+
+  const formattedVeMentoBalance = useMemo(() => {
+    return NumbersService.parseNumericValue(
+      formatUnits(veMentoBalance.value, 18),
+    );
+  }, [veMentoBalance]);
 
   // Individual vote counts for easier access
   const forVotes = useMemo(
@@ -937,7 +944,16 @@ export const VoteCard = ({
             </div>
           </div>
 
-          {isConnected && (
+          {!hasVoted && currentState === "ready" && isConnected && (
+            <div className="flex items-center gap-2 text-sm">
+              <span>Your Voting Power:</span>
+              <span className="text-muted-foreground">
+                {formattedVeMentoBalance} veMENTO
+              </span>
+            </div>
+          )}
+
+          {hasVoted && currentState !== "ready" && isConnected && (
             <div className="flex items-center gap-2 text-sm">
               <span>Total Votes:</span>
               <span className="text-muted-foreground">

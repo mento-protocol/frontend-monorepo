@@ -21,8 +21,7 @@ import {
   Slider,
   useDebounce,
 } from "@repo/ui";
-import { format } from "date-fns";
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Controller, FormProvider, useForm } from "react-hook-form";
 import spacetime from "spacetime";
 import { formatUnits } from "viem";
@@ -532,17 +531,6 @@ export default function VotingPowerForm() {
                       <span className="text-muted-foreground">Expires</span>
                       <span>{expirationDate || "-"}</span>
                     </div>
-                    {hasMultipleLocks && (
-                      <>
-                        <hr className="border-border h-full" />
-                        <div className="text-muted-foreground text-sm">
-                          <span className="font-medium">Note:</span> You have
-                          multiple locks. We're displaying your first lock. You
-                          can add more MENTO to this lock or extend its
-                          duration.
-                        </div>
-                      </>
-                    )}
                   </div>
                 )}
               </CardContent>

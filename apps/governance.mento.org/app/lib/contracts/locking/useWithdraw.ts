@@ -36,8 +36,13 @@ export const useWithdraw = ({
 
   React.useEffect(() => {
     if (isConfirmed && onConfirmation) {
-      onConfirmation();
-      reset();
+      // Add a small delay to ensure we hit the post-transaction block
+      const timer = setTimeout(() => {
+        onConfirmation();
+        reset();
+      }, 1000);
+
+      return () => clearTimeout(timer);
     }
   }, [isConfirmed, onConfirmation, reset]);
 

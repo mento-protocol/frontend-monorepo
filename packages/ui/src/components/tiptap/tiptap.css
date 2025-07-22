@@ -151,7 +151,7 @@
 .ProseMirror h3,
 .ProseMirror h4 {
   font-family: var(--editor-font-sans);
-  font-weight: 700;
+  font-weight: 500;
   letter-spacing: -0.025em;
   color: var(--editor-text-default);
   scroll-margin-top: var(--editor-spacing-16);
@@ -278,7 +278,7 @@
 
 .ProseMirror th {
   background-color: var(--editor-bg-subtle);
-  font-weight: 600;
+  font-weight: 500;
   text-align: left;
   padding: var(--editor-spacing-3) var(--editor-spacing-4);
   border-bottom: 2px solid var(--editor-border-default);

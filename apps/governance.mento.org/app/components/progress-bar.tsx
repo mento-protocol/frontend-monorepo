@@ -165,10 +165,6 @@ export const ProgressBar = ({
       rejectSegments = segmentCount - approveSegments - abstainSegments;
     }
 
-    // console.log("approveSegments: ", approveSegments);
-    // console.log("abstainSegments: ", abstainSegments);
-    // console.log("rejectSegments: ", rejectSegments);
-
     const segments: ProgressSegmentProps[] = [];
 
     // empty Segments if abstain is more than approve and reject
