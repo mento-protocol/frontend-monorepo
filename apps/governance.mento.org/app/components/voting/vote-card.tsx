@@ -567,7 +567,6 @@ export const VoteCard = ({
   const isVotedForAbstain = voteReceipt?.support === 2;
   const isVotedForReject = voteReceipt?.support === 0;
   const hasVoted = voteReceipt?.hasVoted;
-
   const usedVoteOptionButtonLocator = "usedVoteOptionButton";
 
   // Render vote buttons based on state
@@ -784,7 +783,7 @@ export const VoteCard = ({
                 isAwaitingUserSignature ||
                 isConfirming
               }
-              data-testid="approveProposalButton"
+              data-testid="yesProposalButton"
             >
               Vote YES
             </Button>
@@ -812,7 +811,7 @@ export const VoteCard = ({
                 isAwaitingUserSignature ||
                 isConfirming
               }
-              data-testid="rejectProposalButton"
+              data-testid="noProposalButton"
             >
               Vote NO
             </Button>
@@ -956,7 +955,10 @@ export const VoteCard = ({
           {hasVoted && currentState !== "ready" && isConnected && (
             <div className="flex items-center gap-2 text-sm">
               <span>Total Votes:</span>
-              <span className="text-muted-foreground">
+              <span
+                className="text-muted-foreground"
+                data-testid="totalVotesLabel"
+              >
                 {formattedTotalVotingPower} veMENTO
               </span>
             </div>

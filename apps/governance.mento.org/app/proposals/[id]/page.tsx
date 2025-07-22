@@ -293,13 +293,13 @@ export default function ProposalPage() {
                 <TabsList>
                   <TabsTrigger
                     value="for"
-                    data-testid="participantsTabButton_approve"
+                    data-testid="participantsTabButton_yes"
                   >
                     Yes
                   </TabsTrigger>
                   <TabsTrigger
                     value="against"
-                    data-testid="participantsTabButton_reject"
+                    data-testid="participantsTabButton_no"
                   >
                     No
                   </TabsTrigger>
