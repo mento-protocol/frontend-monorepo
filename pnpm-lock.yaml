@@ -7,7 +7,6 @@ settings:
 overrides:
   brace-expansion: '>=2.0.2'
   esbuild: '>=0.25.0'
-  color-string: 1.5.5
   color-string@<1.5.5: '>=1.5.5'
   form-data@<2.5.4: '>=2.5.4'
 
@@ -204,8 +203,8 @@ importers:
         specifier: ^1.10.1
         version: 1.10.2(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))
       '@metamask/jazzicon':
-        specifier: ^2.0.0
-        version: 2.0.0
+        specifier: https://github.com/jmrossy/jazzicon#7a8df28
+        version: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28
       '@rainbow-me/rainbowkit':
         specifier: ^2.1.6
         version: 2.2.8(@tanstack/react-query@5.81.5(react@19.1.0))(@types/react@19.1.8)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)(typescript@5.8.3)(viem@2.29.1(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@3.25.74))(wagmi@2.15.6(@tanstack/query-core@5.81.5)(@tanstack/react-query@5.81.5(react@19.1.0))(@types/react@19.1.8)(bufferutil@4.0.9)(react@19.1.0)(typescript@5.8.3)(utf-8-validate@5.0.10)(viem@2.29.1(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@3.25.74))(zod@3.25.74))
@@ -2514,9 +2513,6 @@ packages:
   '@metamask/eth-json-rpc-provider@1.0.1':
     resolution: {integrity: sha512-whiUMPlAOrVGmX8aKYVPvlKyG4CpQXiNNyt74vE1xb5sPvmx5oA7B/kOi/JdBvhGQq97U1/AVdXEdk2zkP8qyA==}
     engines: {node: '>=14.0.0'}
-
-  '@metamask/jazzicon@2.0.0':
-    resolution: {integrity: sha512-7M+WSZWKcQAo0LEhErKf1z+D3YX0tEDAcGvcKbDyvDg34uvgeKR00mFNIYwAhdAS9t8YXxhxZgsrRBBg6X8UQg==}
 
   '@metamask/jazzicon@https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28':
     resolution: {tarball: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28}
@@ -5658,14 +5654,8 @@ packages:
   color-name@1.1.4:
     resolution: {integrity: sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA==}
 
-  color-string@1.5.5:
-    resolution: {integrity: sha512-jgIoum0OfQfq9Whcfc2z/VhCNcmQjWbey6qBX0vqt7YICflUmBCh9E9CiQD5GSJ+Uehixm3NUwHVhqUAWRivZg==}
-
   color-string@1.9.1:
     resolution: {integrity: sha512-shrVawQFojnZv6xM40anx4CkoDP+fZsw/ZerEMsW/pyzsRbElpsL/DBVW7q3ExxwusdNXI3lXpuhEZkzs8p5Eg==}
-
-  color@0.11.4:
-    resolution: {integrity: sha512-Ajpjd8asqZ6EdxQeqGzU5WBhhTfJ/0cA4Wlbre7e5vXfmDSmda7Ov6jeKoru+b0vHcb1CqvuroTHp5zIWzhVMA==}
 
   color@4.2.3:
     resolution: {integrity: sha512-1rXeuUUiGGrykh+CeBdu5Ie7OJwinCgQY0bc7GCRxy5xVHy+moaqkpL/jqQq0MtQOeYcrqEz4abc5f0KtU7W4A==}
@@ -13130,11 +13120,6 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@metamask/jazzicon@2.0.0':
-    dependencies:
-      color: 0.11.4
-      mersenne-twister: 1.1.0
-
   '@metamask/jazzicon@https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28':
     dependencies:
       mersenne-twister: 1.1.0
@@ -17673,26 +17658,15 @@ snapshots:
 
   color-name@1.1.4: {}
 
-  color-string@1.5.5:
-    dependencies:
-      color-name: 1.1.4
-      simple-swizzle: 0.2.2
-
   color-string@1.9.1:
     dependencies:
       color-name: 1.1.4
       simple-swizzle: 0.2.2
 
-  color@0.11.4:
-    dependencies:
-      clone: 1.0.4
-      color-convert: 1.9.3
-      color-string: 1.9.1
-
   color@4.2.3:
     dependencies:
       color-convert: 2.0.1
-      color-string: 1.5.5
+      color-string: 1.9.1
 
   colorette@2.0.20: {}
 

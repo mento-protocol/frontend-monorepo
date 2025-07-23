@@ -56,7 +56,6 @@
       "web3-shh"
     ],
     "overrides": {
-      "color-string": "1.5.5",
       "color-string@<1.5.5": ">=1.5.5",
       "form-data@<2.5.4": ">=2.5.4"
     }
