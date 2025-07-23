@@ -8,6 +8,7 @@ import {
   useDisconnect,
 } from "wagmi";
 import { IS_PROD } from "../../middleware";
+import { isDevModeEnabled } from "./dev-mode";
 
 export function EnsureChain({ children }: { children: ReactNode }) {
   const { isConnected, chainId } = useAccount();
@@ -16,6 +17,12 @@ export function EnsureChain({ children }: { children: ReactNode }) {
 
   const [switching, setSwitching] = useState(false);
   const [, setModalActive] = useState(false);
+  const [devModeActive, setDevModeActive] = useState(false);
+
+  // Check dev mode status on mount and when URL changes
+  useEffect(() => {
+    setDevModeActive(isDevModeEnabled());
+  }, []);
 
   const setUpAndSwitch = useCallback(async () => {
     const storage = createStorage({ storage: localStorage });
@@ -38,9 +45,28 @@ export function EnsureChain({ children }: { children: ReactNode }) {
         } else {
           setModalActive(false);
         }
+      } else if (storeData?.state.chainId === Celo.id) {
+        setModalActive(false);
       } else if (
-        storeData?.state.chainId !== Celo.id ||
-        storeData?.state.chainId !== Alfajores.id
+        storeData?.state.chainId === Alfajores.id &&
+        (!IS_PROD || devModeActive)
+      ) {
+        setModalActive(false);
+      } else {
+        disconnect();
+        setModalActive(true);
+      }
+    } else {
+      const storeData: {
+        state: {
+          chainId: number;
+        };
+      } | null = await storage.getItem("store");
+
+      if (
+        storeData?.state.chainId !== Celo.id &&
+        (storeData?.state.chainId !== Alfajores.id ||
+          (IS_PROD && !devModeActive))
       ) {
         disconnect();
         setModalActive(true);
@@ -49,20 +75,29 @@ export function EnsureChain({ children }: { children: ReactNode }) {
       }
     }
     setSwitching(false);
-  }, [disconnect, switchChain]);
+  }, [disconnect, switchChain, devModeActive]);
 
   useEffect(() => {
     if (isConnected) {
+      const allowAlfajores = !IS_PROD || devModeActive;
+
       if (
-        (IS_PROD && chainId !== Celo.id) ||
-        (!IS_PROD && chainId !== Celo.id && chainId !== Alfajores.id)
+        (IS_PROD && !devModeActive && chainId !== Celo.id) ||
+        (!allowAlfajores && chainId !== Celo.id && chainId !== Alfajores.id)
       ) {
         if (!switching) {
           setSwitching(true);
         }
       }
     }
-  }, [chainId, isConnected, setUpAndSwitch, switchChain, switching]);
+  }, [
+    chainId,
+    isConnected,
+    setUpAndSwitch,
+    switchChain,
+    switching,
+    devModeActive,
+  ]);
 
   useEffect(() => {
     if (switching) {

@@ -12,18 +12,23 @@ import { wagmiConfig } from "@/lib/config/wagmi.config";
 import { EnsureChain } from "@/lib/helpers/ensure-chain";
 import { ApolloNextAppProvider } from "@apollo/experimental-nextjs-app-support/ssr";
 import { RainbowKitProvider } from "@rainbow-me/rainbowkit";
-import { WagmiProvider } from "wagmi";
+import { State, WagmiProvider } from "wagmi";
 import { makeClient } from "../graphql/apollo.client";
 
 const queryClient = new QueryClient();
 
-export default function Providers({ children }: { children: ReactNode }) {
+type ProvidersProps = {
+  children: ReactNode;
+  initialState: State | undefined;
+};
+
+export default function Providers({ children, initialState }: ProvidersProps) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
   return (
     <ApolloNextAppProvider makeClient={makeClient}>
-      <WagmiProvider config={wagmiConfig}>
+      <WagmiProvider config={wagmiConfig} initialState={initialState}>
         <QueryClientProvider client={queryClient}>
           <RainbowKitProvider initialChain={Celo}>
             {mounted && (

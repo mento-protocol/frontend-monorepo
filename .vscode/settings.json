@@ -103,6 +103,7 @@
   /******************************/
 
   "cSpell.words": [
+    "aspekta",
     "commitlint",
     "ethersproject",
     "exof",
@@ -116,6 +117,7 @@
     "toformat",
     "turbopack",
     "Turborepo",
+    "valora",
     "viem",
     "Vulns"
   ]

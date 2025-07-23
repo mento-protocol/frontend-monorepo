@@ -23,8 +23,10 @@ import {
   Network as NetworkIcon,
 } from "lucide-react";
 import { useDisconnect } from "wagmi";
+import { useEffect, useState } from "react";
 
 // Local imports
+import { isDevModeEnabled } from "@/lib/helpers/dev-mode";
 import NumbersService from "@/lib/helpers/numbers";
 import WalletHelper from "@/lib/helpers/wallet.helper";
 import { useAddTokens } from "@/lib/hooks/use-add-tokens";
@@ -84,6 +86,15 @@ const ConnectedDropdown = ({
   const { openChainModal } = useChainModal();
   const { openAccountModal } = useAccountModal();
   const { disconnect } = useDisconnect();
+  const [devModeActive, setDevModeActive] = useState(false);
+
+  // Check dev mode status on mount and when URL changes
+  useEffect(() => {
+    setDevModeActive(isDevModeEnabled());
+  }, []);
+
+  // Check if Change Network should be hidden
+  const allowChangeNetwork = !IS_PROD || devModeActive;
 
   const onClickCopy = async () => {
     if (!account.address) return;
@@ -141,20 +152,22 @@ const ConnectedDropdown = ({
           />
           <span>Copy Address</span>
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={openChainModal}
-          className={cn(
-            "cursor-pointer gap-3 py-3",
-            "focus:bg-accent focus:text-accent-foreground",
-          )}
-        >
-          <NetworkIcon
-            size={iconSize}
-            strokeWidth={iconStrokeWidth}
-            className="text-muted-foreground"
-          />
-          <span>Change Network</span>
-        </DropdownMenuItem>
+        {allowChangeNetwork && (
+          <DropdownMenuItem
+            onClick={openChainModal}
+            className={cn(
+              "cursor-pointer gap-3 py-3",
+              "focus:bg-accent focus:text-accent-foreground",
+            )}
+          >
+            <NetworkIcon
+              size={iconSize}
+              strokeWidth={iconStrokeWidth}
+              className="text-muted-foreground"
+            />
+            <span>Change Network</span>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem
           onClick={openAccountModal}
           className={cn(
