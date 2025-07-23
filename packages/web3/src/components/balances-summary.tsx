@@ -59,7 +59,7 @@ export function BalancesSummary() {
           return (
             <div
               key={id}
-              className="text-foreground flex items-center gap-3 px-4 py-2 text-sm font-medium"
+              className="text-foreground flex items-center gap-3 px-4 py-1 text-sm font-medium"
               data-testid={`walletSettings_${token.id}_balance`}
             >
               <TokenIcon token={token} className="h-6 w-6 p-1" />
