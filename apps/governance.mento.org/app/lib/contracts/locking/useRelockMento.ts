@@ -1,17 +1,16 @@
-import React, { useCallback } from "react";
+import { LockingABI } from "@/lib/abi/Locking";
 import { useContracts } from "@/lib/contracts/useContracts";
+import { LockWithExpiration } from "@/lib/interfaces/lock.interface";
+import * as Sentry from "@sentry/nextjs";
+import React, { useCallback } from "react";
+import { Address } from "viem";
 import {
   useSimulateContract,
   useWaitForTransactionReceipt,
   useWriteContract,
 } from "wagmi";
-import { LockingABI } from "@/lib/abi/Locking";
-import { Address } from "viem";
 import { WriteContractErrorType } from "wagmi/actions";
 import useLockedAmount from "./useLockedAmount";
-import * as Sentry from "@sentry/nextjs";
-import { IS_PROD } from "../../../middleware";
-import { LockWithExpiration } from "@/lib/interfaces/lock.interface";
 
 interface RelockMentoParams {
   newDelegate?: Address;

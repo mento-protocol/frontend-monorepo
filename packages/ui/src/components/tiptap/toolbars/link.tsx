@@ -1,5 +1,5 @@
 "use client";
-/* eslint-disable */
+
 // @ts-nocheck
 import { PopoverClose } from "@radix-ui/react-popover";
 import { Trash2, X } from "lucide-react";

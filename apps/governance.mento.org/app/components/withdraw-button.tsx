@@ -1,13 +1,11 @@
 import { useAvailableToWithdraw } from "@/lib/contracts/locking/useAvailableToWithdraw";
-import { Button, toast } from "@repo/ui";
-import { formatUnits } from "viem";
-import React from "react";
-import useTokens from "@/lib/contracts/useTokens";
+import { useLockInfo } from "@/lib/contracts/locking/useLockInfo";
 import { useWithdraw } from "@/lib/contracts/locking/useWithdraw";
+import { formatUnitsWithThousandSeparators } from "@/lib/helpers/numbers";
+import { Button, toast } from "@repo/ui";
+import React from "react";
 import { useAccount } from "wagmi";
 import { TxDialog } from "./tx-dialog/tx-dialog";
-import { useLockInfo } from "@/lib/contracts/locking/useLockInfo";
-import { formatUnitsWithThousandSeparators } from "@/lib/helpers/numbers";
 
 export const WithdrawButton = () => {
   const { availableToWithdraw, refetchAvailableToWithdraw } =
@@ -17,15 +15,7 @@ export const WithdrawButton = () => {
 
   const { refetch } = useLockInfo(address);
 
-  const {
-    mentoContractData: { decimals: mentoDecimals },
-  } = useTokens();
-
   const hasAmountToWithdraw = availableToWithdraw > BigInt(0);
-
-  const availableToWithdrawFormatted = React.useMemo(() => {
-    return Number(formatUnits(availableToWithdraw, mentoDecimals)).toFixed(3);
-  }, [availableToWithdraw, mentoDecimals]);
 
   const [isModalOpen, setIsModalOpen] = React.useState(false);
   const [modalTitle, setModalTitle] = React.useState("");

@@ -12,7 +12,6 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
-  Button,
   Card,
   CardContent,
   CardHeader,
@@ -24,12 +23,10 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
-  toast,
 } from "@repo/ui";
 import { format } from "date-fns";
-import { Check, Copy } from "lucide-react";
 import { useParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { formatUnits } from "viem";
 import { useAccount, useBlock, useBlockNumber } from "wagmi";
 
@@ -45,17 +42,6 @@ type ParticipantListProps = {
 };
 
 function ParticipantList({ participants }: ParticipantListProps) {
-  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
-
-  const handleCopyAddress = (address: string) => {
-    navigator.clipboard.writeText(address);
-    setCopiedAddress(address);
-
-    setTimeout(() => {
-      setCopiedAddress(null);
-    }, 2000);
-  };
-
   const totalWeight = useMemo(() => {
     if (participants.length === 0) return BigInt(0);
     return participants.reduce(
@@ -100,10 +86,7 @@ function ParticipantList({ participants }: ParticipantListProps) {
             >
               <div className="flex items-center gap-2">
                 <Identicon address={participant.address} size={16} />
-                <div
-                  className="h-auto !bg-transparent p-0"
-                  onClick={() => handleCopyAddress(participant.address)}
-                >
+                <div className="h-auto !bg-transparent p-0">
                   <span className="flex items-center gap-1">
                     {`${participant.address.slice(0, 6)}...${participant.address.slice(-4)}`}
                     <CopyToClipboard

@@ -168,7 +168,7 @@ export const ProposalList = () => {
                   index={(currentPage - 1) * ITEMS_PER_PAGE + index + 1}
                 />
                 <ProposalListItemBody>
-                  <ProposalStatus variant={getStatusVariant() as any} />
+                  <ProposalStatus variant={getStatusVariant()} />
                   <Link href={`/proposals/${proposalId}`}>
                     <h3
                       className="text-lg leading-5 text-white"

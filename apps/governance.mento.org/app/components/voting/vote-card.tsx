@@ -11,7 +11,6 @@ import useVoteReceipt from "@/lib/contracts/governor/useVoteReceipt";
 import useTokens from "@/lib/contracts/useTokens";
 import type { Proposal } from "@/lib/graphql";
 import { ProposalState } from "@/lib/graphql";
-import { ensureChainId } from "@/lib/helpers/ensure-chain-id";
 import NumbersService from "@/lib/helpers/numbers";
 import {
   Button,
@@ -27,7 +26,7 @@ import { CheckCircle2, CircleCheck, XCircle, XCircleIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { formatUnits } from "viem";
-import { useAccount, useBlockNumber } from "wagmi";
+import { useAccount } from "wagmi";
 
 interface VoteCardProps {
   proposal: Proposal;
@@ -80,7 +79,6 @@ export const VoteCard = ({
     executeProposal,
     isAwaitingUserSignature: isAwaitingExecuteSignature,
     isConfirming: isExecuteConfirming,
-    isConfirmed: isExecuteConfirmed,
     error: executeError,
   } = useExecuteProposal();
   const {
@@ -453,7 +451,7 @@ export const VoteCard = ({
             The changes outlined in the proposal are now in effect.
           </>
         );
-      case "queued":
+      case "queued": {
         const queueTxHash = proposal.proposalQueued?.[0]?.transaction?.id;
         const queueEndTime = proposal.eta
           ? new Date(Number(proposal.eta) * 1000)
@@ -481,6 +479,7 @@ export const VoteCard = ({
             )}
           </>
         );
+      }
       case "succeeded":
         return (
           <>
@@ -628,7 +627,7 @@ export const VoteCard = ({
 
         return null;
 
-      case "queued":
+      case "queued": {
         const proposalQueued =
           proposal.proposalQueued && proposal.proposalQueued[0];
         // Check if veto period has passed
@@ -685,8 +684,9 @@ export const VoteCard = ({
             </Button>
           </div>
         );
+      }
 
-      case "executed":
+      case "executed": {
         // Show link to execution transaction if available
         const executionTxHash = proposal.proposalExecuted?.[0]?.transaction?.id;
         return (
@@ -709,6 +709,7 @@ export const VoteCard = ({
             )}
           </div>
         );
+      }
 
       case "succeeded":
         // Show queue button for succeeded proposals

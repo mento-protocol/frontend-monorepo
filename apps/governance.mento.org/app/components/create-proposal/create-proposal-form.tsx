@@ -241,7 +241,7 @@ const ExecutionCodeStep = () => {
       }
 
       return null;
-    } catch (error) {
+    } catch {
       return "Invalid JSON format. Please check your syntax.";
     }
   };
@@ -424,7 +424,7 @@ const CollapsibleJsonCode = ({ jsonString }: { jsonString: string }) => {
     try {
       const parsed = JSON.parse(jsonStr);
       return JSON.stringify(parsed, null, 2);
-    } catch (error) {
+    } catch {
       return jsonStr; // Return original if parsing fails
     }
   };

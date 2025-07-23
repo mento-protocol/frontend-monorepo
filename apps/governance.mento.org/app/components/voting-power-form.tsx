@@ -32,15 +32,8 @@ import { WithdrawButton } from "./withdraw-button";
 
 export default function VotingPowerForm() {
   const { address } = useAccount();
-  const {
-    lock,
-    unlockedMento,
-    hasLock,
-    hasActiveLock,
-    hasMultipleLocks,
-    isLoading,
-    refetch,
-  } = useLockInfo(address);
+  const { lock, unlockedMento, hasLock, hasActiveLock, isLoading, refetch } =
+    useLockInfo(address);
   const { veMentoBalance, mentoBalance } = useTokens();
 
   const MIN_LOCK_PERIOD_WEEKS = 1;

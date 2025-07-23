@@ -1,6 +1,11 @@
-import { Button, IconLoading } from "@repo/ui";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@repo/ui";
-import { Loader } from "lucide-react";
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  IconLoading,
+} from "@repo/ui";
 
 export interface ITxDialog {
   isOpen: boolean;

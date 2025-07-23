@@ -1,22 +1,19 @@
 "use client";
 
-import React from "react";
-import { formatUnits } from "viem";
-import { useAccount } from "wagmi";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-  Button,
   CopyToClipboard,
 } from "@repo/ui";
+import { formatUnits } from "viem";
+import { useAccount } from "wagmi";
 
-import { useContracts } from "@/lib/contracts/useContracts";
 import useGovernanceDetails from "@/lib/contracts/governor/useGovernanceDetails";
+import { useContracts } from "@/lib/contracts/useContracts";
 import useTokens from "@/lib/contracts/useTokens";
 import NumbersService from "@/lib/helpers/numbers";
-import { Copy } from "lucide-react";
 
 export const MentoTokenInfo = () => {
   const { chain } = useAccount();
@@ -143,11 +140,6 @@ const ContractAddressDisplay = ({
     return <span>-</span>;
   }
 
-  const handleCopyAddress = () => {
-    navigator.clipboard.writeText(address);
-  };
-
-  // Format the proposer address for display
   const formatAddress = (address: string) => {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
