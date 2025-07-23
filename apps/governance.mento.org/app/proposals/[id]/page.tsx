@@ -1,3 +1,10 @@
+"use client";
+import { Identicon } from "@/components/identicon";
+import { VoteCard } from "@/components/voting/vote-card";
+import { CELO_BLOCK_TIME } from "@/lib/config/config.constants";
+import useProposal from "@/lib/contracts/governor/useProposal";
+import { ProposalState } from "@/lib/graphql";
+import { ensureChainId } from "@/lib/helpers/ensure-chain-id";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -5,181 +12,325 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
-  Button,
-  IconCheckCircle,
-  IconThunder,
-  IconTimer,
-  ProposalCard,
-  ProposalCardBody,
-  ProposalCardHeader,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CopyToClipboard,
+  IconLoading,
   ProposalStatus,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
 } from "@repo/ui";
-import { Copy } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import gfm from "remark-gfm";
+import { format } from "date-fns";
+import { useParams } from "next/navigation";
+import { useMemo } from "react";
+import { formatUnits } from "viem";
+import { useAccount, useBlock, useBlockNumber } from "wagmi";
 
-const markdown =
-  "## TL;DR\n\nThis proposal removes the temporary permissions granted to the Mento Labs multisig over the Locking contract, which were established during Celo's L2 transition through MGP03. This also marks the first governance proposal after the successful L2 transition and serves as a confirmation of the governance system's functionality.\n\n### Summary\n\nFollowing the successful transition of Celo to L2 and the subsequent verification of the Locking contract's proper functionality with the new block times, it is time to remove the temporary administrative rights granted to the Mento Labs multisig through MGP03. All necessary parameter adjustments have been completed and tested, confirming the contract's compatibility with the new L2 environment.\n\nThe Locking contract has been operating as expected since the L2 transition, with locks functioning correctly under the new 1-second block time. Our testing has verified that:\n\n- Existing locks maintained their integrity during the transition\n- New locks are being created successfully\n- The adjusted parameters are working as intended with the new block time\n\nThis proposal represents a milestone as it will be the first governance proposal executed after the L2 transition, providing a validation of the governance system's functionality in the new environment.\n\n### Transaction Details\n\nThis proposal consists of one transaction:\n\n**TX#0:** call the `setMentoLabsMultisig(address _mentoLabsMultisig)` function with a zero address\n\n- Target: Locking Proxy contract\n- Function: `setMentoLabsMultisig(address)`\n- Parameter: `0x0000000000000000000000000000000000000000`\n\n**Relevant Addresses for verification**\n\n- Locking Proxy\n  - [_0x001Bb66636dCd149A1A2bA8C50E408BdDd80279C_](https://celoscan.io/address/0x001Bb66636dCd149A1A2bA8C50E408BdDd80279C)\n\n### Expected Outcome\n\nUpon successful execution of this proposal:\n\n1. The Mento Labs multisig will no longer have administrative rights over the Locking contract\n2. The governance system will be confirmed to be functioning correctly in the post-L2 environment\n\nThis completes the temporary administrative arrangements that were put in place for the L2 transition and returns control to the governance system.\n";
+// Function to decode HTML entities
+function decodeHtmlEntities(text: string): string {
+  const textArea = document.createElement("textarea");
+  textArea.innerHTML = text;
+  return textArea.value;
+}
 
-export default async function ProposalPage() {
+type ParticipantListProps = {
+  participants: Array<{ address: string; weight: bigint }>;
+};
+
+function ParticipantList({ participants }: ParticipantListProps) {
+  const totalWeight = useMemo(() => {
+    if (participants.length === 0) return BigInt(0);
+    return participants.reduce(
+      (sum, participant) => sum + BigInt(participant.weight),
+      BigInt(0),
+    );
+  }, [participants]);
+
+  const formattedWeight = useMemo(() => {
+    if (totalWeight === BigInt(0)) return "0";
+    const weight = Number(formatUnits(totalWeight, 18));
+
+    let formatted;
+    if (weight >= 1_000_000) {
+      formatted = `${(weight / 1_000_000).toFixed(2)}M`;
+    } else if (weight >= 1_000) {
+      formatted = `${(weight / 1_000).toFixed(2)}K`;
+    } else {
+      formatted = weight.toFixed(2);
+    }
+
+    return formatted;
+  }, [totalWeight]);
+
   return (
-    <>
-      <main className="md:px-22 xl:px-22 relative flex w-full flex-col items-start justify-start gap-12 px-4 py-8 md:py-16 lg:flex-row lg:gap-20">
-        <div className="w-full flex-grow">
-          <div className="mb-6">
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbLink href="/">Home</BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>1</BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
-          </div>
-
-          <div className="mb-8 flex flex-col gap-6 md:mb-16">
-            <ProposalStatus variant="active" />
-            <h1 className="max-w-[26ch] text-3xl font-medium md:text-6xl">
-              MGP-6: Remove Mento Labs multisig on Locking contract
-            </h1>
-            <div className="flex flex-wrap items-center gap-2 md:gap-8">
+    <div className="flex flex-col">
+      <div className="mb-2 flex items-center justify-between py-3">
+        <div className="flex items-center gap-2">
+          <span className="text-sm">{formattedWeight} Votes</span>
+        </div>
+        <span className="text-muted-foreground text-sm">
+          {participants.length} addresses
+        </span>
+      </div>
+      {participants.length > 0 ? (
+        [...participants]
+          .sort((a, b) => Number(BigInt(b.weight) - BigInt(a.weight)))
+          .map((participant) => (
+            <div
+              key={participant.address}
+              className="group flex items-center justify-between border-b border-[var(--border)] py-4 last:border-0"
+            >
               <div className="flex items-center gap-2">
-                <span className="bg-primary h-4 w-4 rounded-full" />
-                <span className="text-muted-foreground text-sm">
-                  by 0x3490...8A4B
-                </span>
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  className="text-secondary-active h-4 w-4"
-                >
-                  <Copy />
-                </Button>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground text-sm">
-                  Proposed on:
-                </span>
-                <span className="text-sm">Sep 15th, 2023</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground text-sm">
-                  Voting deadline:
-                </span>
-                <span className="text-sm">Sep 30th, 2023</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="lg:gap-22 flex flex-col gap-8 lg:flex-row">
-            <div>
-              <div className="mb-8 md:mb-16">
-                <ProposalCard>
-                  <ProposalCardHeader variant={"highlighted"}>
-                    <div className="flex w-full flex-col items-center justify-start gap-4 lg:flex-row">
-                      <div className="flex flex-row items-center justify-start gap-2">
-                        <span className="flex flex-row items-center gap-2 text-sm">
-                          <IconTimer />
-                          Time left
-                        </span>
-                        <span className="text-muted-foreground text-sm">
-                          72 : 24 : 13
-                        </span>
-                      </div>
-                      <div className="flex flex-row items-center justify-start gap-2">
-                        <span className="flex flex-row items-center gap-2 text-sm">
-                          <IconCheckCircle />
-                          Quorum reached
-                        </span>
-                        <span className="text-muted-foreground text-sm">
-                          770K of 999K
-                        </span>
-                      </div>
-                      <div className="flex flex-row items-center justify-start gap-2 lg:ml-auto">
-                        <span className="text-muted-foreground text-sm">
-                          Voting Power:
-                        </span>
-                        <span className="flex flex-row items-center gap-2 text-sm">
-                          <IconThunder /> 500 000 veMENTO
-                        </span>
-                      </div>
-                    </div>
-                  </ProposalCardHeader>
-                  <ProposalCardBody>
-                    <div className="lg:y-8 flex w-full flex-col gap-4 px-4 py-6 lg:grid lg:grid-cols-3 lg:gap-8 lg:px-8">
-                      <Button clipped="sm" size="md" variant="approve">
-                        Approve Proposal
-                      </Button>
-                      <Button clipped="sm" size="md" variant="abstain">
-                        Abstain
-                      </Button>
-                      <Button clipped="sm" size="md" variant="reject">
-                        Reject Proposal
-                      </Button>
-                    </div>
-                  </ProposalCardBody>
-                </ProposalCard>
-              </div>
-              <div className="prose prose-invert max-w-none">
-                <ReactMarkdown remarkPlugins={[gfm]}>{markdown}</ReactMarkdown>
-              </div>
-            </div>
-            <div className="w-full max-w-xs">
-              <div className="bg-card">
-                <div className="px-4 lg:p-6">
-                  <h2>Participants</h2>
+                <Identicon address={participant.address} size={16} />
+                <div className="h-auto !bg-transparent p-0">
+                  <span className="flex items-center gap-1">
+                    {`${participant.address.slice(0, 6)}...${participant.address.slice(-4)}`}
+                    <CopyToClipboard
+                      text={participant.address}
+                      className="opacity-0 transition-opacity group-hover:opacity-100"
+                    />
+                  </span>
                 </div>
-                <Tabs defaultValue="approve" className="">
-                  <TabsList className="px-4 lg:px-6">
-                    <TabsTrigger value="approve">Approve</TabsTrigger>
-                    <TabsTrigger value="reject">Reject</TabsTrigger>
-                    <TabsTrigger value="abstain">Abstain</TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="approve" className="p-4 lg:p-6">
-                    Make changes to your account here.
-                  </TabsContent>
-                  <TabsContent value="reject" className="p-4 lg:p-6">
-                    Change your password here.
-                  </TabsContent>
-                  <TabsContent value="abstain" className="p-4 lg:p-6">
-                    Change your password here.
-                  </TabsContent>
-                </Tabs>
               </div>
+              <span>
+                {(() => {
+                  const weight = Number(
+                    formatUnits(BigInt(participant.weight), 18),
+                  );
+                  if (weight >= 1_000_000) {
+                    return `${(weight / 1_000_000).toFixed(2)}M`;
+                  } else if (weight >= 1_000) {
+                    return `${(weight / 1_000).toFixed(2)}K`;
+                  } else {
+                    return weight.toFixed(2);
+                  }
+                })()}
+              </span>
             </div>
+          ))
+      ) : (
+        <p className="py-4 text-center text-sm text-[var(--muted-foreground)]">
+          No votes yet
+        </p>
+      )}
+    </div>
+  );
+}
+
+export default function ProposalPage() {
+  const params = useParams();
+  const id = params.id as string;
+  const { proposal, refetch: refetchProposal } = useProposal(BigInt(id));
+  const { chainId } = useAccount();
+
+  const { data: currentBlock } = useBlockNumber({
+    chainId: ensureChainId(chainId),
+    query: {
+      enabled: proposal !== undefined,
+      refetchInterval: CELO_BLOCK_TIME,
+    },
+  });
+
+  const endBlock = useBlock({
+    blockNumber: proposal?.endBlock ? BigInt(proposal.endBlock) : 0n,
+    query: {
+      enabled: proposal !== undefined,
+    },
+  });
+
+  const proposedOn = useMemo(() => {
+    return proposal && new Date(proposal.proposalCreated[0].timestamp * 1000);
+  }, [proposal]);
+
+  const votingDeadline = useMemo(() => {
+    if (!(proposal && currentBlock)) return;
+    if (Number(currentBlock) >= proposal.endBlock && endBlock.data) {
+      return new Date(Number(endBlock.data.timestamp) * 1000);
+    }
+    return new Date(
+      Date.now() + (proposal.endBlock - Number(currentBlock)) * CELO_BLOCK_TIME,
+    );
+  }, [currentBlock, endBlock.data, proposal]);
+
+  if (!proposal) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <IconLoading />
+      </div>
+    );
+  }
+
+  const getStatusVariant = () => {
+    if (!proposal.state) return "active";
+
+    switch (proposal.state) {
+      case ProposalState.Pending:
+        return "pending";
+      case ProposalState.Active:
+        return "active";
+      case ProposalState.Succeeded:
+        return "queued";
+      case ProposalState.Defeated:
+        return "defeated";
+      case ProposalState.Queued:
+        return "queued";
+      case ProposalState.Executed:
+        return "executed";
+      case ProposalState.Canceled:
+        return "defeated";
+      case ProposalState.Expired:
+        return "default";
+      default:
+        return "active";
+    }
+  };
+
+  const formatAddress = (address: string) => {
+    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+  };
+
+  return (
+    <main className="md:px-22 relative w-full px-4 py-8 md:py-16">
+      <Breadcrumb className="mb-6">
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/">Home</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage className="max-w-xl truncate">
+              {proposal.metadata?.title}
+            </BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+      <div className="mb-16 flex flex-col gap-6">
+        <ProposalStatus
+          variant={getStatusVariant()}
+          data-testid="proposalStateLabel"
+        />
+        <h1
+          className="max-w-6xlxl truncate text-3xl font-medium leading-[80px] md:text-6xl"
+          data-testid="proposalTitleLabel"
+          title={proposal.metadata?.title}
+        >
+          {proposal.metadata?.title}
+        </h1>
+        <div className="flex flex-wrap items-center gap-2 md:gap-8">
+          <div className="flex items-center gap-2">
+            <Identicon address={proposal.proposer.id} size={16} />
+            <span className="text-muted-foreground text-sm">
+              by {formatAddress(proposal.proposer.id)}
+            </span>
+            <CopyToClipboard text={proposal.proposer.id} />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground text-sm">Proposed on:</span>
+            <span className="text-sm">
+              {proposedOn && format(proposedOn, "MMM do, yyyy")}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground text-sm">
+              Voting deadline:
+            </span>
+            <span className="text-sm">
+              {votingDeadline && format(votingDeadline, "MMM do, yyyy")}
+            </span>
           </div>
         </div>
-      </main>
+      </div>
 
-      <section className="md:px-22 relative w-full px-4 py-8 before:absolute before:left-1/2 before:top-0 before:-z-10 before:h-20 before:w-screen before:-translate-x-1/2 before:bg-gradient-to-b before:from-[#15111B] before:to-[#070010] md:py-16">
-        <h2 className="mb-6 text-2xl">Explore Other Proposals</h2>
-        <div className="flex flex-col gap-2 lg:grid lg:grid-cols-3 lg:gap-2">
-          <div className="bg-card flex flex-col items-start justify-start gap-4 p-4">
-            <ProposalStatus variant="active" />
-            <h2>MGP-5: Update voting period ahead of L2 transition</h2>
-            <div className="text-muted-foreground text-sm">Feb 02, 2025</div>
-          </div>
+      <div className="flex flex-col gap-8 xl:w-full xl:flex-row xl:gap-10">
+        <div className="xl:w-2/3">
+          <VoteCard
+            proposal={proposal}
+            votingDeadline={votingDeadline}
+            onVoteConfirmed={refetchProposal}
+          />
 
-          <div className="bg-card flex flex-col items-start justify-start gap-4 p-4">
-            <ProposalStatus variant="active" />
-            <h2>MGP-5: Update voting period ahead of L2 transition</h2>
-            <div className="text-muted-foreground text-sm">Feb 02, 2025</div>
-          </div>
-
-          <div className="bg-card flex flex-col items-start justify-start gap-4 p-4">
-            <ProposalStatus variant="active" />
-            <h2>MGP-5: Update voting period ahead of L2 transition</h2>
-            <div className="text-muted-foreground text-sm">Feb 02, 2025</div>
+          <div className="prose prose-invert mt-16">
+            {proposal.metadata?.description ? (
+              <div
+                dangerouslySetInnerHTML={{
+                  __html: decodeHtmlEntities(proposal.metadata.description),
+                }}
+                data-testid="proposalDescriptionLabel"
+              />
+            ) : (
+              <p>No description available</p>
+            )}
           </div>
         </div>
-      </section>
-    </>
+        <div className="xl:w-1/3">
+          <Card className="bord max-h-[420px] w-full gap-3 overflow-hidden border-none">
+            <CardHeader>
+              <CardTitle className="text-2xl">Participants</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Tabs defaultValue="for" className="max-h-[330px] overflow-auto">
+                <TabsList>
+                  <TabsTrigger
+                    value="for"
+                    data-testid="participantsTabButton_yes"
+                  >
+                    Yes
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="against"
+                    data-testid="participantsTabButton_no"
+                  >
+                    No
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="abstain"
+                    data-testid="participantsTabButton_abstain"
+                  >
+                    Abstain
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent
+                  value="for"
+                  className="max-h-[330px] overflow-auto"
+                >
+                  <ParticipantList
+                    participants={proposal.votes.for.participants}
+                    totalVotes={proposal.votes.total}
+                    voteType="Approve"
+                  />
+                </TabsContent>
+
+                <TabsContent
+                  value="against"
+                  className="max-h-[330px] overflow-auto"
+                >
+                  <ParticipantList
+                    participants={proposal.votes.against.participants}
+                    totalVotes={proposal.votes.total}
+                    voteType="Reject"
+                  />
+                </TabsContent>
+
+                <TabsContent
+                  value="abstain"
+                  className="max-h-[330px] overflow-auto"
+                >
+                  <ParticipantList
+                    participants={proposal.votes.abstain.participants}
+                    totalVotes={proposal.votes.total}
+                    voteType="Abstain"
+                  />
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </main>
   );
 }

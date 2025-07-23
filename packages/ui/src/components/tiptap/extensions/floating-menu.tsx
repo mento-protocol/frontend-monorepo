@@ -1,35 +1,34 @@
 "use client";
 
 import {
-  Heading1,
-  Heading2,
-  Heading3,
-  ListOrdered,
-  List,
-  Code2,
-  ChevronRight,
-  Quote,
-  ImageIcon,
-  Minus,
-  AlignLeft,
-  AlignCenter,
-  AlignRight,
-  CodeSquare,
-  TextQuote,
-} from "lucide-react";
-import { FloatingMenu } from "@tiptap/react";
-import {
   Command,
   CommandEmpty,
   CommandGroup,
   CommandItem,
   CommandList,
 } from "@/components/ui/command.js";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { cn } from "@/lib/utils.js";
-import type { Editor } from "@tiptap/core";
 import { ScrollArea } from "@/components/ui/scroll-area.js";
 import { useDebounce } from "@/hooks/use-debounce.js";
+import { cn } from "@/lib/utils.js";
+import type { Editor } from "@tiptap/core";
+import { FloatingMenu } from "@tiptap/react";
+import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  ChevronRight,
+  Code2,
+  CodeSquare,
+  Heading1,
+  Heading2,
+  Heading3,
+  List,
+  ListOrdered,
+  Minus,
+  Quote,
+  TextQuote,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 interface CommandItemType {
   title: string;
@@ -100,14 +99,6 @@ const groups: CommandGroupType[] = [
         icon: Code2,
         keywords: "code snippet pre",
         command: (editor) => editor.chain().focus().toggleCodeBlock().run(),
-      },
-      {
-        title: "Image",
-        description: "Insert an image",
-        icon: ImageIcon,
-        keywords: "image picture photo",
-        command: (editor) =>
-          editor.chain().focus().insertImagePlaceholder().run(),
       },
       {
         title: "Horizontal Rule",
@@ -216,6 +207,7 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
         const { from } = editor.state.selection;
         const slashCommandLength = search.length + 1;
 
+        // Delete the slash command text
         editor
           .chain()
           .focus()
@@ -225,7 +217,15 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
           })
           .run();
 
-        commandFn(editor);
+        // Use requestAnimationFrame to ensure the editor has processed the deletion
+        // before executing the command
+        requestAnimationFrame(() => {
+          // Ensure editor still has focus before executing command
+          if (!editor.view.hasFocus()) {
+            editor.commands.focus();
+          }
+          commandFn(editor);
+        });
       } catch (error) {
         console.error("Error executing command:", error);
       } finally {
@@ -265,9 +265,27 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
 
         case "Enter": {
           preventDefault();
-          const targetIndex = selectedIndex === -1 ? 0 : selectedIndex;
-          if (flatFilteredItems[targetIndex]) {
-            executeCommand(flatFilteredItems[targetIndex].command);
+          console.debug("[Slash Command] Enter pressed", {
+            selectedIndex,
+            flatFilteredItemsLength: flatFilteredItems.length,
+            isOpen,
+          });
+
+          let targetIndex = selectedIndex;
+
+          if (targetIndex === -1 && flatFilteredItems.length > 0) {
+            targetIndex = 0;
+          }
+
+          const selectedItem = flatFilteredItems[targetIndex];
+          if (targetIndex >= 0 && selectedItem) {
+            console.debug("[Slash Command] Executing command", {
+              title: selectedItem.title,
+              targetIndex,
+            });
+            executeCommand(selectedItem.command);
+          } else {
+            console.warn("[Slash Command] No item selected");
           }
           break;
         }
@@ -283,20 +301,67 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
   );
 
   useEffect(() => {
-    if (!editor?.options.element) return;
+    if (!editor?.view?.dom) return;
 
-    const editorElement = editor.options.element;
-    const handleEditorKeyDown = (e: Event) => handleKeyDown(e as KeyboardEvent);
+    const editorElement = editor.view.dom;
+    const handleEditorKeyDown = (e: KeyboardEvent) => {
+      if (!isOpen) return;
 
-    editorElement.addEventListener("keydown", handleEditorKeyDown);
-    return () =>
-      editorElement.removeEventListener("keydown", handleEditorKeyDown);
-  }, [handleKeyDown, editor]);
+      if (["Enter", "ArrowUp", "ArrowDown", "Escape"].includes(e.key)) {
+        // Ensure we catch the event before any other handlers
+        e.stopImmediatePropagation();
+        handleKeyDown(e);
+      }
+    };
 
-  // Add new effect for resetting selectedIndex
+    // Use both capture and passive:false to ensure we get the event first
+    editorElement.addEventListener("keydown", handleEditorKeyDown, {
+      capture: true,
+      passive: false,
+    });
+
+    // Also add to document to catch events that might bubble up
+    const handleDocumentKeyDown = (e: KeyboardEvent) => {
+      if (!isOpen || !editor.view.hasFocus()) return;
+
+      if (e.key === "Enter" && isOpen) {
+        handleEditorKeyDown(e);
+      }
+    };
+
+    document.addEventListener("keydown", handleDocumentKeyDown, {
+      capture: true,
+      passive: false,
+    });
+
+    return () => {
+      editorElement.removeEventListener("keydown", handleEditorKeyDown, {
+        capture: true,
+      });
+      document.removeEventListener("keydown", handleDocumentKeyDown, {
+        capture: true,
+      });
+    };
+  }, [isOpen, handleKeyDown, editor]);
+
   useEffect(() => {
-    setSelectedIndex(-1);
-  }, [search]);
+    if (flatFilteredItems.length > 0) {
+      if (
+        flatFilteredItems.length === 1 ||
+        (debouncedSearch.length > 0 &&
+          flatFilteredItems[0] &&
+          flatFilteredItems[0].keywords
+            .toLowerCase()
+            .includes(debouncedSearch.toLowerCase()))
+      ) {
+        setSelectedIndex(0);
+      } else {
+        setSelectedIndex(-1);
+      }
+    } else {
+      setSelectedIndex(-1);
+    }
+  }, [flatFilteredItems, debouncedSearch]);
 
   useEffect(() => {
     if (selectedIndex >= 0 && itemRefs.current[selectedIndex]) {
@@ -324,13 +389,25 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
           $from.parentOffset === currentLineText.length;
 
         if (!isSlashCommand) {
-          if (isOpen) setIsOpen(false);
+          if (isOpen) {
+            console.debug("[Slash Command] Closing - not a slash command");
+            setIsOpen(false);
+          }
           return false;
         }
 
         const query = currentLineText.slice(1).trim();
-        if (query !== search) setSearch(query);
-        if (!isOpen) setIsOpen(true);
+        if (query !== search) {
+          console.debug("[Slash Command] Query changed", {
+            from: search,
+            to: query,
+          });
+          setSearch(query);
+        }
+        if (!isOpen) {
+          console.debug("[Slash Command] Opening menu");
+          setIsOpen(true);
+        }
         return true;
       }}
       tippyOptions={{

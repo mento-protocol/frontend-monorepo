@@ -29,8 +29,8 @@
   --editor-highlight-red: hsl(0 84% 96%);
 
   /* Border Colors */
-  --editor-border-default: hsl(240 5% 88%);
-  --editor-border-strong: hsl(240 5% 65%);
+  --editor-border-default: oklch(52.6% 0.0327 306);
+  --editor-border-strong: oklch(52.6% 0.0327 306);
 
   /* Spacing System */
   --editor-spacing-1: 0.25rem;
@@ -80,7 +80,7 @@
   --editor-bg-subtle: hsl(240 3.7% 15.9%);
   --editor-bg-muted: hsl(240 5% 26%);
 
-  --editor-highlight-default: hsl(240 3.7% 15.9%);
+  --editor-highlight-default: oklch(0.5116 0.2893 289.05);
   --editor-highlight-gray: hsl(240 5% 26%);
   --editor-highlight-brown: hsl(43 96% 10%);
   --editor-highlight-orange: hsl(33 100% 10%);
@@ -91,23 +91,21 @@
   --editor-highlight-pink: hsl(336 80% 10%);
   --editor-highlight-red: hsl(0 84% 10%);
 
-  --editor-border-default: hsl(240 5% 26%);
-  --editor-border-strong: hsl(240 5% 64.9%);
+  --editor-border-default: oklch(52.6% 0.0327 306);
+  --editor-border-strong: oklch(52.6% 0.0327 306);
 }
 
 /* Core Editor Styles */
 .ProseMirror {
   caret-color: var(--editor-text-default);
   outline: none;
-  padding: var(--editor-spacing-16) var(--editor-spacing-8);
   margin: 0 auto;
   max-width: 90ch;
   font-family: var(--editor-font-sans);
   position: relative;
-  /* background-color: var(--editor-bg-default); */
+  margin: 0;
   color: var(--editor-text-default);
   transition: all var(--editor-transition-normal);
-  min-height: 100vh;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -120,8 +118,7 @@
 
 .ProseMirror .selection,
 .ProseMirror *::selection {
-  background-color: var(--editor-highlight-blue);
-  /* color: var(--editor-text-default); */
+  background-color: var(--editor-highlight-default);
 }
 
 .ProseMirror > .react-renderer {
@@ -140,13 +137,13 @@
 /* Typography Styles */
 .ProseMirror p {
   line-height: 1.75;
-  margin: var(--editor-spacing-4) 0;
+  margin: var(--editor-spacing-2) 0;
   color: var(--editor-text-default);
   font-size: 1.125rem;
 }
 
 .ProseMirror > p {
-  margin: var(--editor-spacing-6) 0;
+  margin: var(--editor-spacing-2) 0;
 }
 
 .ProseMirror h1,
@@ -154,7 +151,7 @@
 .ProseMirror h3,
 .ProseMirror h4 {
   font-family: var(--editor-font-sans);
-  font-weight: 700;
+  font-weight: 500;
   letter-spacing: -0.025em;
   color: var(--editor-text-default);
   scroll-margin-top: var(--editor-spacing-16);
@@ -182,7 +179,7 @@
 }
 
 .ProseMirror a {
-  color: var(--editor-text-blue);
+  color: var(--editor-text-default);
   cursor: pointer;
   text-decoration: underline;
   text-decoration-thickness: 0.1em;
@@ -191,8 +188,7 @@
 }
 
 .ProseMirror a:hover {
-  color: var(--editor-text-blue);
-  text-decoration-thickness: 0.2em;
+  opacity: 0.9;
 }
 
 .ProseMirror code {
@@ -282,7 +278,7 @@
 
 .ProseMirror th {
   background-color: var(--editor-bg-subtle);
-  font-weight: 600;
+  font-weight: 500;
   text-align: left;
   padding: var(--editor-spacing-3) var(--editor-spacing-4);
   border-bottom: 2px solid var(--editor-border-default);
@@ -323,7 +319,7 @@
 .ProseMirror hr {
   margin: var(--editor-spacing-8) 0;
   border: none;
-  border-top: 2px solid var(--editor-border-default);
+  border-top: 2px solid var(--editor-border-default) !important;
 }
 
 /* Floating Menu & Toolbar */

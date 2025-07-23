@@ -19,26 +19,28 @@ import {
 
 import { CoinInput } from "@repo/ui";
 
-import { ConnectButton } from "@/components/nav/connect-button";
-import { useAccountBalances } from "@/features/accounts/use-account-balances";
-import { useApproveTransaction } from "@/features/swap/hooks/use-approve-transaction";
-import { useSwapAllowance } from "@/features/swap/hooks/use-swap-allowance";
-import { useOptimizedSwapQuote } from "@/features/swap/hooks/use-swap-quote";
-import { useTokenOptions } from "@/features/swap/hooks/use-token-options";
-import { useTradingLimits } from "@/features/swap/hooks/use-trading-limits";
-import { useTradablePairs } from "@/features/swap/hooks/use-tradable-pairs";
-import { confirmViewAtom, formValuesAtom } from "@/features/swap/swap-atoms";
-import type { SwapFormValues } from "@/features/swap/types";
-import { formatWithMaxDecimals } from "@/features/swap/utils";
-import { MIN_ROUNDED_VALUE } from "@/lib/config/consts";
-import { type TokenId, Tokens } from "@/lib/config/tokens";
 import {
   areAmountsNearlyEqual,
+  confirmViewAtom,
+  ConnectButton,
+  formatWithMaxDecimals,
+  formValuesAtom,
   fromWeiRounded,
+  logger,
+  MIN_ROUNDED_VALUE,
   parseAmount,
+  SwapFormValues,
+  type TokenId,
+  Tokens,
   toWei,
-} from "@/lib/utils/amount";
-import { logger } from "@/lib/utils/logger";
+  useAccountBalances,
+  useApproveTransaction,
+  useOptimizedSwapQuote,
+  useSwapAllowance,
+  useTokenOptions,
+  useTradablePairs,
+  useTradingLimits,
+} from "@repo/web3";
 import { useAtom } from "jotai";
 import { ArrowUpDown, ChevronDown, OctagonAlert } from "lucide-react";
 import { useAccount, useChainId } from "wagmi";
@@ -192,46 +194,46 @@ export default function SwapForm() {
 
       if (tokenToCheck === fromTokenId) {
         amountToCheck = formDirection === "in" ? numericAmount : numericQuote;
-        if (LG && amountToCheck > LG.maxIn) {
+        if (LG?.maxIn && amountToCheck > LG.maxIn) {
           exceeds = true;
           limit = LG.maxIn;
-          timestamp = LG.until;
+          timestamp = LG.until || 0;
           exceededTier = "LG";
-          total = LG.total;
-        } else if (L1 && amountToCheck > L1.maxIn) {
+          total = LG.total || 0;
+        } else if (L1?.maxIn && amountToCheck > L1.maxIn) {
           exceeds = true;
           limit = L1.maxIn;
-          timestamp = L1.until;
+          timestamp = L1.until || 0;
           exceededTier = "L1";
-          total = L1.total;
-        } else if (L0 && amountToCheck > L0.maxIn) {
+          total = L1.total || 0;
+        } else if (L0?.maxIn && amountToCheck > L0.maxIn) {
           exceeds = true;
           limit = L0.maxIn;
-          timestamp = L0.until;
+          timestamp = L0.until || 0;
           exceededTier = "L0";
-          total = L0.total;
+          total = L0.total || 0;
         }
       } else {
         amountToCheck = formDirection === "in" ? numericQuote : numericAmount;
         // Check from least to most restrictive (LG -> L1 -> L0)
-        if (LG && amountToCheck > LG.maxOut) {
+        if (LG?.maxOut && amountToCheck > LG.maxOut) {
           exceeds = true;
           limit = LG.maxOut;
-          timestamp = LG.until;
+          timestamp = LG.until || 0;
           exceededTier = "LG";
-          total = LG.total;
-        } else if (L1 && amountToCheck > L1.maxOut) {
+          total = LG.total || 0;
+        } else if (L1?.maxOut && amountToCheck > L1.maxOut) {
           exceeds = true;
           limit = L1.maxOut;
-          timestamp = L1.until;
+          timestamp = L1.until || 0;
           exceededTier = "L1";
-          total = L1.total;
-        } else if (L0 && amountToCheck > L0.maxOut) {
+          total = L1.total || 0;
+        } else if (L0?.maxOut && amountToCheck > L0.maxOut) {
           exceeds = true;
           limit = L0.maxOut;
-          timestamp = L0.until;
+          timestamp = L0.until || 0;
           exceededTier = "L0";
-          total = L0.total;
+          total = L0.total || 0;
         }
       }
 

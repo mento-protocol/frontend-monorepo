@@ -28,7 +28,7 @@ export const HeadingsToolbar = React.forwardRef<
   HTMLButtonElement,
   React.ButtonHTMLAttributes<HTMLButtonElement>
 >(({ className, ...props }, ref) => {
-  const { editor } = useToolbar();
+  const { editor, executeWithFocus } = useToolbar();
   const isMobile = useMediaQuery("(max-width: 640px)");
   const activeLevel = levels.find((level) =>
     editor?.isActive("heading", { level }),
@@ -38,7 +38,9 @@ export const HeadingsToolbar = React.forwardRef<
     return (
       <MobileToolbarGroup label={activeLevel ? `H${activeLevel}` : "Normal"}>
         <MobileToolbarItem
-          onClick={() => editor?.chain().focus().setParagraph().run()}
+          onClick={() =>
+            executeWithFocus(() => editor?.chain().focus().setParagraph().run())
+          }
           active={!editor?.isActive("heading")}
         >
           Normal
@@ -47,7 +49,9 @@ export const HeadingsToolbar = React.forwardRef<
           <MobileToolbarItem
             key={level}
             onClick={() =>
-              editor?.chain().focus().toggleHeading({ level }).run()
+              executeWithFocus(() =>
+                editor?.chain().focus().toggleHeading({ level }).run(),
+              )
             }
             active={editor?.isActive("heading", { level })}
           >
@@ -80,7 +84,11 @@ export const HeadingsToolbar = React.forwardRef<
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
             <DropdownMenuItem
-              onClick={() => editor?.chain().focus().setParagraph().run()}
+              onClick={() =>
+                executeWithFocus(() =>
+                  editor?.chain().focus().setParagraph().run(),
+                )
+              }
               className={cn(
                 "flex h-fit items-center gap-2",
                 !editor?.isActive("heading") && "bg-accent",
@@ -92,7 +100,9 @@ export const HeadingsToolbar = React.forwardRef<
               <DropdownMenuItem
                 key={level}
                 onClick={() =>
-                  editor?.chain().focus().toggleHeading({ level }).run()
+                  executeWithFocus(() =>
+                    editor?.chain().focus().toggleHeading({ level }).run(),
+                  )
                 }
                 className={cn(
                   "flex items-center gap-2",

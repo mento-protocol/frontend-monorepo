@@ -27,10 +27,10 @@ import {
 import { useToolbar } from "./toolbar-provider";
 
 export const AlignmentTooolbar = () => {
-  const { editor } = useToolbar();
+  const { editor, executeWithFocus } = useToolbar();
   const isMobile = useMediaQuery("(max-width: 640px)");
   const handleAlign = (value: string) => {
-    editor?.chain().focus().setTextAlign(value).run();
+    executeWithFocus(() => editor?.chain().focus().setTextAlign(value).run());
   };
 
   const isDisabled =

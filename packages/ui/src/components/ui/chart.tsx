@@ -68,21 +68,24 @@ function ChartContainer({
   );
 }
 
-const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
-  const colorConfig = Object.entries(config).filter(
-    ([, config]) => config.theme || config.color,
-  );
+const ChartStyle = React.memo(
+  ({ id, config }: { id: string; config: ChartConfig }) => {
+    const colorConfig = React.useMemo(
+      () =>
+        Object.entries(config).filter(
+          ([, config]) => config.theme || config.color,
+        ),
+      [config],
+    );
 
-  if (!colorConfig.length) {
-    return null;
-  }
+    const styleContent = React.useMemo(() => {
+      if (!colorConfig.length) {
+        return "";
+      }
 
-  return (
-    <style
-      dangerouslySetInnerHTML={{
-        __html: Object.entries(THEMES)
-          .map(
-            ([theme, prefix]) => `
+      return Object.entries(THEMES)
+        .map(
+          ([theme, prefix]) => `
 ${prefix} [data-chart=${id}] {
 ${colorConfig
   .map(([key, itemConfig]) => {
@@ -91,15 +94,30 @@ ${colorConfig
       itemConfig.color;
     return color ? `  --color-${key}: ${color};` : null;
   })
+  .filter(Boolean)
   .join("\n")}
 }
 `,
-          )
-          .join("\n"),
-      }}
-    />
-  );
-};
+        )
+        .join("\n");
+    }, [id, colorConfig]);
+
+    if (!styleContent) {
+      return null;
+    }
+
+    return (
+      <style
+        key={`chart-style-${id}`}
+        suppressHydrationWarning
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: required for Recharts theming
+        dangerouslySetInnerHTML={{
+          __html: styleContent,
+        }}
+      />
+    );
+  },
+);
 
 const ChartTooltip = RechartsPrimitive.Tooltip;
 

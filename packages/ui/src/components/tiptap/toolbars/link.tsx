@@ -1,5 +1,5 @@
 "use client";
-/* eslint-disable */
+
 // @ts-nocheck
 import { PopoverClose } from "@radix-ui/react-popover";
 import { Trash2, X } from "lucide-react";
@@ -28,11 +28,15 @@ const LinkToolbar = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, ...props }, ref) => {
     const { editor } = useToolbar();
     const [link, setLink] = React.useState("");
+    const [open, setOpen] = React.useState(false);
 
     const handleSubmit = (e: FormEvent) => {
       e.preventDefault();
       const url = getUrlFromString(link);
-      url && editor?.chain().focus().setLink({ href: url }).run();
+      if (url) {
+        editor?.chain().focus().setLink({ href: url }).run();
+      }
+      setOpen(false);
     };
 
     React.useEffect(() => {
@@ -40,7 +44,7 @@ const LinkToolbar = React.forwardRef<HTMLButtonElement, ButtonProps>(
     }, [editor]);
 
     return (
-      <Popover>
+      <Popover modal={false} open={open} onOpenChange={setOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
             <PopoverTrigger
@@ -71,14 +75,15 @@ const LinkToolbar = React.forwardRef<HTMLButtonElement, ButtonProps>(
         </Tooltip>
 
         <PopoverContent
-          onCloseAutoFocus={(e) => {
+          onInteractOutside={(e) => {
             e.preventDefault();
           }}
-          asChild
-          className="relative px-3 py-2.5"
         >
-          <div className="relative">
-            <PopoverClose className="absolute right-3 top-3">
+          <div className="relative" onClick={(e) => e.stopPropagation()}>
+            <PopoverClose
+              className="absolute right-3 top-3"
+              onClick={() => setOpen(false)}
+            >
               <X className="h-4 w-4" />
             </PopoverClose>
             <form onSubmit={handleSubmit}>
@@ -92,8 +97,15 @@ const LinkToolbar = React.forwardRef<HTMLButtonElement, ButtonProps>(
                   onChange={(e) => {
                     setLink(e.target.value);
                   }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSubmit(e);
+                    }
+                  }}
                   className="w-full"
                   placeholder="https://example.com"
+                  autoFocus
                 />
                 <div className="flex items-center gap-3">
                   {editor?.getAttributes("link").href && (
