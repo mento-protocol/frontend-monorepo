@@ -21,6 +21,7 @@ import {
   CREATE_LOCK_TX_STATUS,
   useCreateLock,
 } from "./create-lock-provider";
+import { LockWithExpiration } from "@/lib/interfaces/lock.interface";
 
 export const LockingButton = () => {
   const { address, chainId } = useAccount();
@@ -203,6 +204,18 @@ export const LockingButton = () => {
     contracts.Locking.address,
   ]);
 
+  const buttonLocator = getButtonLocator({
+    address: address ?? "",
+    amount,
+    hasActiveLock,
+    isExtendingDuration,
+    isBalanceInsufficient,
+    lock,
+    needsApprovalForRelock,
+    isAddingAmount,
+    CreateLockApprovalStatus,
+    hasMultipleLocks,
+  });
   const content = React.useMemo(() => {
     // Not connected
     if (!address) {
@@ -369,6 +382,7 @@ export const LockingButton = () => {
         }}
         size="lg"
         clipped="default"
+        data-testid={buttonLocator}
       >
         {content}
       </Button>
@@ -388,3 +402,85 @@ export const LockingButton = () => {
     </>
   );
 };
+
+function getButtonLocator({
+  address,
+  amount,
+  hasActiveLock,
+  isExtendingDuration,
+  isBalanceInsufficient,
+  lock,
+  needsApprovalForRelock,
+  isAddingAmount,
+  CreateLockApprovalStatus,
+  hasMultipleLocks,
+}: {
+  address: string;
+  amount: string;
+  hasActiveLock: boolean;
+  isExtendingDuration: boolean;
+  isBalanceInsufficient: boolean;
+  lock: LockWithExpiration;
+  needsApprovalForRelock: boolean;
+  isAddingAmount: boolean;
+  CreateLockApprovalStatus: CREATE_LOCK_APPROVAL_STATUS;
+  hasMultipleLocks: boolean;
+}) {
+  return React.useMemo(() => {
+    // Not connected
+    if (!address) {
+      return "connectWalletButton";
+    }
+
+    // Both topping up and extending duration are now supported for the first lock
+    if (!amount || amount === "" || amount === "0") {
+      // Allow empty or 0 amount if user is extending lock duration
+      if (hasActiveLock && isExtendingDuration) {
+        return "extendLockButton";
+      }
+      return "enterAmountButton";
+    }
+
+    // Amount exceeds balance
+    if (isBalanceInsufficient) {
+      return "insufficientBalanceButton";
+    }
+
+    // Has active lock - relock flow
+    if (hasActiveLock && lock?.expiration && lock.expiration > new Date()) {
+      // Approval needed for relock
+      if (needsApprovalForRelock) {
+        return "approveMentoButton";
+      }
+
+      // Determine button text based on what's changing
+      if (isExtendingDuration && isAddingAmount) {
+        return "topUpAndExtendLockButton";
+      } else if (isExtendingDuration && !isAddingAmount) {
+        return "extendLockButton";
+      } else if (!isExtendingDuration && isAddingAmount) {
+        return "topUpLockButton";
+      }
+
+      // Fallback (shouldn't reach here in normal flow)
+      return "topUpLockButton";
+    }
+
+    // New lock flow - approval needed
+    if (CreateLockApprovalStatus === CREATE_LOCK_APPROVAL_STATUS.NOT_APPROVED) {
+      return "approveMentoButton";
+    }
+
+    return "lockMentoButton";
+  }, [
+    address,
+    amount,
+    isBalanceInsufficient,
+    CreateLockApprovalStatus,
+    hasActiveLock,
+    hasMultipleLocks,
+    needsApprovalForRelock,
+    isExtendingDuration,
+    isAddingAmount,
+  ]);
+}
