@@ -32,6 +32,7 @@ import WalletHelper from "@/lib/helpers/wallet.helper";
 import { useAddTokens } from "@/lib/hooks/use-add-tokens";
 import useTokens from "@/lib/hooks/use-tokens";
 import { MentoIcon } from "@repo/ui";
+import { IS_PROD } from "@/middleware";
 
 /**
  * Custom component to show token balances
