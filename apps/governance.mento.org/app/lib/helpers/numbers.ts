@@ -56,6 +56,7 @@ export const formatUnitsWithThousandSeparators = (
   const formattedValue = parsedValue.toFixed(radix);
   const [integerPart, decimalPart = ""] = formattedValue.split(".");
 
+  if (!integerPart) throw new Error("integerPart is undefined");
   const integerWithSeparators = integerPart.replace(
     /\B(?=(\d{3})+(?!\d))/g,
     ",",
