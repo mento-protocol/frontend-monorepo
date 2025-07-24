@@ -22,7 +22,10 @@ export default function CreateProposalPage() {
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
-      <h1 className="mb-8 text-3xl font-medium md:mb-16 md:text-6xl">
+      <h1
+        className="mb-8 text-3xl font-medium md:mb-16 md:text-6xl"
+        data-testid="yourVotingPowerTitleLabel"
+      >
         Your voting power
       </h1>
       <VotingPowerForm />

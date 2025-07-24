@@ -18,6 +18,7 @@ interface DatepickerProps extends PropsBase {
   onChange: (date: Date | undefined) => void;
   label: string;
   formatter: (date: Date) => string;
+  dataTestId?: string;
 }
 
 export function Datepicker({
@@ -28,6 +29,7 @@ export function Datepicker({
   disabled,
   startMonth,
   endMonth,
+  dataTestId,
 }: DatepickerProps) {
   const [open, setOpen] = React.useState(false);
   const [date, setDate] = React.useState<Date | undefined>(value);
@@ -56,6 +58,7 @@ export function Datepicker({
             variant="outline"
             id="date"
             className="w-fit justify-between font-normal md:w-48"
+            data-testid={dataTestId}
           >
             {date ? formatter(date) : "Select date"}
             <ChevronDownIcon />
