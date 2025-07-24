@@ -1,6 +1,7 @@
 "use client";
 import { Identicon } from "@/components/identicon";
 import { VoteCard } from "@/components/voting/vote-card";
+import { Alfajores, Celo } from "@/lib/config/chains";
 import { CELO_BLOCK_TIME } from "@/lib/config/config.constants";
 import useProposal from "@/lib/contracts/governor/useProposal";
 import { ProposalState } from "@/lib/graphql";
@@ -25,6 +26,7 @@ import {
   TabsTrigger,
 } from "@repo/ui";
 import { format } from "date-fns";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMemo } from "react";
 import { formatUnits } from "viem";
@@ -193,6 +195,9 @@ export default function ProposalPage() {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
+  const currentChain = chainId === Celo.id ? Celo : Alfajores;
+  const explorerUrl = currentChain.blockExplorers?.default?.url;
+
   return (
     <main className="md:px-22 relative w-full px-4 py-8 md:py-16">
       <Breadcrumb className="mb-6">
@@ -223,9 +228,12 @@ export default function ProposalPage() {
         <div className="flex flex-wrap items-center gap-2 md:gap-8">
           <div className="flex items-center gap-2">
             <Identicon address={proposal.proposer.id} size={16} />
-            <span className="text-muted-foreground text-sm">
+            <Link
+              className="text-muted-foreground text-sm"
+              href={`${explorerUrl}/address/${proposal.proposer.id}`}
+            >
               by {formatAddress(proposal.proposer.id)}
-            </span>
+            </Link>
             <CopyToClipboard text={proposal.proposer.id} />
           </div>
           <div className="flex items-center gap-2">
