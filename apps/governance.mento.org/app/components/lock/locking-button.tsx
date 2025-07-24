@@ -420,7 +420,7 @@ function getButtonLocator({
   hasActiveLock: boolean;
   isExtendingDuration: boolean;
   isBalanceInsufficient: boolean;
-  lock: LockWithExpiration;
+  lock: LockWithExpiration | undefined;
   needsApprovalForRelock: boolean;
   isAddingAmount: boolean;
   CreateLockApprovalStatus: CREATE_LOCK_APPROVAL_STATUS;
