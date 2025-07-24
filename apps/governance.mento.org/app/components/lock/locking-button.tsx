@@ -126,6 +126,10 @@ export const LockingButton = () => {
       setTimeout(() => {
         refetchLockInfo();
       }, 5000);
+
+      setTimeout(() => {
+        refetchLockInfo();
+      }, 10000);
     },
   });
 

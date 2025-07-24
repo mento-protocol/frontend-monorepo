@@ -68,9 +68,7 @@ export const CreateLockProvider = ({
   const slope = React.useMemo(() => {
     if (!unlockDate) return 0;
     const weeks = differenceInWeeks(unlockDate, new Date()) + 1;
-    const maxSlope = MAX_LOCKING_DURATION_WEEKS / 2;
-    const calculatedSlope = weeks / maxSlope;
-    return Math.max(2, Math.round(calculatedSlope));
+    return weeks;
   }, [unlockDate]);
 
   const contracts = useContracts();

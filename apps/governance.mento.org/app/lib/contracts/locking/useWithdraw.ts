@@ -9,7 +9,7 @@ export const useWithdraw = ({
   onConfirmation,
   onError,
 }: {
-  onConfirmation?: () => void;
+  onConfirmation?: (hash?: `0x${string}`) => void;
   onError?: (error?: WriteContractErrorType) => void;
 } = {}) => {
   const { writeContract, data, reset, isPending, error } = useWriteContract();
@@ -38,7 +38,7 @@ export const useWithdraw = ({
     if (isConfirmed && onConfirmation) {
       // Add a small delay to ensure we hit the post-transaction block
       const timer = setTimeout(() => {
-        onConfirmation();
+        onConfirmation(data as `0x${string}`);
         reset();
       }, 1000);
 
@@ -57,5 +57,6 @@ export const useWithdraw = ({
     isPending,
     isConfirming,
     error,
+    hash: data,
   };
 };
