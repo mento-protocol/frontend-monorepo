@@ -41,15 +41,24 @@ const useRelockMento = ({
   } = useWriteContract();
 
   const lockingArgs = React.useMemo(() => {
-    if (!lock || !lockedBalance || typeof newSlope !== "number") return null;
+    if (!lock || typeof newSlope !== "number") return null;
 
     // Ensure lock has required properties
-    if (!lock.lockId || !lock.owner?.id || lock.cliff === undefined) {
+    if (
+      !lock.lockId ||
+      !lock.owner?.id ||
+      lock.cliff === undefined ||
+      !lock.amount
+    ) {
       console.warn("Lock object is missing required properties");
       return null;
     }
 
-    const newTotalLockedAmount = (additionalAmountToLock ?? 0n) + lockedBalance;
+    // Calculate new total for this specific lock (not all locks)
+    const currentLockAmount = BigInt(lock.amount);
+    const newTotalLockedAmount =
+      (additionalAmountToLock ?? 0n) + currentLockAmount;
+
     return [
       lock.lockId,
       newDelegate ?? lock.owner?.id,
@@ -57,14 +66,7 @@ const useRelockMento = ({
       newSlope,
       newCliff ?? lock.cliff,
     ] as const;
-  }, [
-    lock,
-    lockedBalance,
-    additionalAmountToLock,
-    newCliff,
-    newDelegate,
-    newSlope,
-  ]);
+  }, [lock, additionalAmountToLock, newCliff, newDelegate, newSlope]);
 
   const lockingConfig = React.useMemo(() => {
     if (!lockingArgs) return null;
