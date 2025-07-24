@@ -60,7 +60,7 @@ interface VoteData {
   approve: { value: string; percentage: number };
   reject: { value: string; percentage: number };
   abstain?: { value: string; percentage: number };
-  totalQuorum?: string; // Total quorum needed for the proposal
+  totalQuorum?: number;
 }
 
 interface TimeData {
