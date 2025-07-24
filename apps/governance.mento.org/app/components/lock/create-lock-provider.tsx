@@ -1,23 +1,21 @@
-import { ReactNode, createContext, useContext } from "react";
+import { Alfajores, Celo } from "@/lib/config/chains";
 import useCreateLockOnChain from "@/lib/contracts/locking/useLockMento";
 import { useAllowance } from "@/lib/contracts/mento/useAllowance";
 import useApprove from "@/lib/contracts/mento/useApprove";
 import { useContracts } from "@/lib/contracts/useContracts";
-import React from "react";
+import { toast } from "@repo/ui";
+import React, { ReactNode, createContext, useContext } from "react";
 import { parseEther } from "viem";
 import { useAccount } from "wagmi";
-import { toast } from "@repo/ui";
-import { Celo, Alfajores } from "@/lib/config/chains";
 
-import { useFormContext } from "react-hook-form";
 import {
   DEFAULT_LOCKING_CLIFF,
   LOCKING_AMOUNT_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
-  MAX_LOCKING_DURATION_WEEKS,
 } from "@/lib/constants/locking";
-import { TxDialog } from "../tx-dialog/tx-dialog";
 import { differenceInWeeks } from "date-fns";
+import { useFormContext } from "react-hook-form";
+import { TxDialog } from "../tx-dialog/tx-dialog";
 
 export enum CREATE_LOCK_TX_STATUS {
   PENDING = "PENDING",

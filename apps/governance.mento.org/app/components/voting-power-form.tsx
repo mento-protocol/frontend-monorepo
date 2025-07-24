@@ -137,14 +137,11 @@ export default function VotingPowerForm() {
 
     const minDate = validWednesdays[minIdx];
     const midDate = validWednesdays[midIdx];
-    const now = new Date();
 
     // Calculate start label
     const startLabel = (() => {
       if (minIdx >= 0 && minIdx < validWednesdays.length && minDate) {
-        const weeksDiff = Math.ceil(
-          (minDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 7),
-        );
+        return formatDuration(minDate, hasActiveLock && !!lock?.expiration);
       }
       return "1 week";
     })();
@@ -152,9 +149,7 @@ export default function VotingPowerForm() {
     // Calculate middle label
     const middleLabel = (() => {
       if (midIdx >= 0 && midIdx < validWednesdays.length && midDate) {
-        const weeksDiff = Math.ceil(
-          (midDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 7),
-        );
+        return formatDuration(midDate, hasActiveLock && !!lock?.expiration);
       }
       return "1 year";
     })();
