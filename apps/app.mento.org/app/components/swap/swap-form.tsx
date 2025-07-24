@@ -548,7 +548,7 @@ export default function SwapForm() {
           <>
             <h4>Approve Successful</h4>
             <span className="text-muted-foreground mt-2 block">
-              You've confirmed approval transaction
+              Token allowance for swap approved
             </span>
             {explorerUrl && (
               <a
