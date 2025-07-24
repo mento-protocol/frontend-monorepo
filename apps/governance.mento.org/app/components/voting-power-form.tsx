@@ -412,6 +412,7 @@ export default function VotingPowerForm() {
                     name={LOCKING_UNLOCK_DATE_FORM_KEY}
                     render={({ field: { onChange, value } }) => (
                       <Datepicker
+                        dataTestId="datepickerButton"
                         className="w-full"
                         value={value}
                         onChange={onChange}
@@ -480,7 +481,9 @@ export default function VotingPowerForm() {
                 <span className="text-muted-foreground">
                   You receive veMENTO
                 </span>
-                <span>{formattedVeMentoReceived} veMENTO</span>
+                <span data-testid="veMentoReceiveLabel">
+                  {formattedVeMentoReceived} veMENTO
+                </span>
               </div>
             </CardContent>
             <CardFooter className="mt-auto">
@@ -503,26 +506,34 @@ export default function VotingPowerForm() {
                   <div className="flex flex-col gap-4">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">veMENTO</span>
-                      <span>{formattedVeMentoBalance}</span>
+                      <span data-testid="existingLockVeMentoLabel">
+                        {formattedVeMentoBalance}
+                      </span>
                     </div>
                     <hr className="border-border h-full" />
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">
                         Locked MENTO
                       </span>
-                      <span>{formattedLock}</span>
+                      <span data-testid="existingLockMentoLabel">
+                        {formattedLock}
+                      </span>
                     </div>
                     <hr className="border-border h-full" />
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">
                         Withdrawable MENTO
                       </span>
-                      <span>{formattedUnlockedMento}</span>
+                      <span data-testid="existingLockWithdrawableMentoLabel">
+                        {formattedUnlockedMento}
+                      </span>
                     </div>
                     <hr className="border-border h-full" />
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Expires</span>
-                      <span>{expirationDate || "-"}</span>
+                      <span data-testid="existingLockExpirationDateLabel">
+                        {expirationDate || "-"}
+                      </span>
                     </div>
                   </div>
                 )}

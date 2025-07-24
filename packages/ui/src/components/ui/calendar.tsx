@@ -185,13 +185,14 @@ function CalendarDayButton({
   React.useEffect(() => {
     if (modifiers.focused) ref.current?.focus();
   }, [modifiers.focused]);
+  const dataDay = day.date.toLocaleDateString();
 
   return (
     <Button
       ref={ref}
       variant="ghost"
       size="icon"
-      data-day={day.date.toLocaleDateString()}
+      data-day={dataDay}
       data-selected-single={
         modifiers.selected &&
         !modifiers.range_start &&
@@ -206,6 +207,7 @@ function CalendarDayButton({
         defaultClassNames.day,
         className,
       )}
+      data-testid={`day_${dataDay}`}
       {...props}
     />
   );
