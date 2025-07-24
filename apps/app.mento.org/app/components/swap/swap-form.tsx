@@ -21,6 +21,7 @@ import { CoinInput } from "@repo/ui";
 
 import {
   areAmountsNearlyEqual,
+  chainIdToChain,
   confirmViewAtom,
   ConnectButton,
   formatWithMaxDecimals,
@@ -527,6 +528,7 @@ export default function SwapForm() {
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     try {
+      const explorerUrl = chainIdToChain[chainId]?.explorerUrl;
       if (!skipApprove && sendApproveTx) {
         setIsApprovalProcessing(true);
         logger.info("Approval needed, sending approve transaction");
@@ -542,6 +544,24 @@ export default function SwapForm() {
         });
         await waitForTransaction({ hash: approveTx.hash });
         logger.info("Approval transaction confirmed");
+        toast.success(
+          <>
+            <h4>Approve Successful</h4>
+            <span className="text-muted-foreground mt-2 block">
+              Token allowance for swap approved
+            </span>
+            {explorerUrl && (
+              <a
+                href={`${explorerUrl}/tx/${approveTx.hash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-muted-foreground underline"
+              >
+                View Transaction on CeloScan
+              </a>
+            )}
+          </>,
+        );
         setIsApprovalProcessing(false);
       }
 
