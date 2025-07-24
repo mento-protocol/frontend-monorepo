@@ -1,40 +1,44 @@
+"use client";
+import { env } from "@/env.mjs";
 import { Alfajores, Celo } from "@/lib/config/chains";
 import { connectorsForWallets } from "@rainbow-me/rainbowkit";
 import {
-  metaMaskWallet,
-  omniWallet,
-  trustWallet,
+  safeWallet,
   walletConnectWallet,
+  metaMaskWallet,
+  rainbowWallet,
+  valoraWallet,
 } from "@rainbow-me/rainbowkit/wallets";
-import { createConfig, http } from "wagmi";
-import { valora } from "@/lib/config/valora.wallet";
-import { env } from "@/env.mjs";
+import { createConfig, http, createStorage, cookieStorage } from "wagmi";
 
 const connectors = connectorsForWallets(
   [
     {
-      groupName: "Recommended for Celo chains",
+      groupName: "Recommended",
       wallets: [
         metaMaskWallet,
+        safeWallet,
+        valoraWallet,
+        rainbowWallet,
         walletConnectWallet,
-        valora,
-        omniWallet,
-        trustWallet,
       ],
     },
   ],
   {
     appName: "Mento Governance",
-    projectId: env?.NEXT_PUBLIC_WALLET_CONNECT_ID || "123123123123123123",
+    projectId: env.NEXT_PUBLIC_WALLET_CONNECT_ID,
   },
 );
-const transports = {
-  [Celo.id]: http(Celo.rpcUrls.default.http[0]),
-  [Alfajores.id]: http(Alfajores.rpcUrls.default.http[0]),
-};
 
 export const wagmiConfig = createConfig({
-  chains: [Alfajores, Celo],
-  transports,
   connectors,
+  chains: [Celo, Alfajores],
+  transports: {
+    [Celo.id]: http(),
+    [Alfajores.id]: http(),
+  },
+  ssr: true,
+  storage: createStorage({
+    storage: cookieStorage,
+  }),
 });

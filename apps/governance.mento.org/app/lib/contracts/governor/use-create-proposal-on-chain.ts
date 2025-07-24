@@ -29,6 +29,7 @@ export const isTransactionItem = (
     typeof toBeDetermined === "object" &&
     toBeDetermined !== null &&
     "address" in toBeDetermined &&
+    typeof toBeDetermined["address"] === "string" &&
     isAddress(toBeDetermined["address"]) &&
     "value" in toBeDetermined &&
     (isHex(toBeDetermined["value"]) ||

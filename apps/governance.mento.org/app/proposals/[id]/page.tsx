@@ -143,7 +143,7 @@ export default function ProposalPage() {
   });
 
   const proposedOn = useMemo(() => {
-    return proposal && new Date(proposal.proposalCreated[0].timestamp * 1000);
+    return proposal && new Date(proposal.proposalCreated[0]!.timestamp * 1000);
   }, [proposal]);
 
   const votingDeadline = useMemo(() => {
@@ -300,8 +300,6 @@ export default function ProposalPage() {
                 >
                   <ParticipantList
                     participants={proposal.votes.for.participants}
-                    totalVotes={proposal.votes.total}
-                    voteType="Approve"
                   />
                 </TabsContent>
 
@@ -311,8 +309,6 @@ export default function ProposalPage() {
                 >
                   <ParticipantList
                     participants={proposal.votes.against.participants}
-                    totalVotes={proposal.votes.total}
-                    voteType="Reject"
                   />
                 </TabsContent>
 
@@ -322,8 +318,6 @@ export default function ProposalPage() {
                 >
                   <ParticipantList
                     participants={proposal.votes.abstain.participants}
-                    totalVotes={proposal.votes.total}
-                    voteType="Abstain"
                   />
                 </TabsContent>
               </Tabs>

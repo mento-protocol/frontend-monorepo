@@ -60,15 +60,19 @@ const useProposals = () => {
     const proposalBuild: Proposal[] = [];
     for (const chainDataKey of chainData.keys()) {
       const proposal = graphData.proposals[chainDataKey];
-      const { status, result } = chainData[chainDataKey];
-      if (status !== "success" || !isStateNumber(result)) {
+      const chainDataValue = chainData[chainDataKey];
+      if (
+        !chainDataValue ||
+        chainDataValue.status !== "success" ||
+        !isStateNumber(chainDataValue.result)
+      ) {
         proposalBuild.push(proposal as Proposal);
         continue;
       }
 
       proposalBuild.push({
         ...(proposal as Proposal),
-        state: STATE_FROM_NUMBER[result],
+        state: STATE_FROM_NUMBER[chainDataValue.result],
       });
     }
 

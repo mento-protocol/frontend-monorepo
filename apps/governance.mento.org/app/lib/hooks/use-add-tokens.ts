@@ -12,14 +12,15 @@ export const useAddTokens = () => {
   const config = useConfig();
 
   const addMento = useCallback(async () => {
+    const mentoTokenAddress =
+      mento.addresses[chainId === Celo.id ? Celo.id : Alfajores.id]?.MentoToken;
+    if (!mentoTokenAddress) throw new Error("Mento token address not found");
     const connectorClient = await getConnectorClient(config);
 
     return await watchAsset(connectorClient, {
       type: "ERC20",
       options: {
-        address:
-          mento.addresses[chainId === Celo.id ? Celo.id : Alfajores.id]
-            .MentoToken,
+        address: mentoTokenAddress,
         symbol: "MENTO",
         decimals: 18,
       },
@@ -28,13 +29,16 @@ export const useAddTokens = () => {
 
   const addVeMento = useCallback(async () => {
     if (!chainId || !client?.request) return;
+    const veMentoTokenAddress =
+      mento.addresses[chainId === Celo.id ? Celo.id : Alfajores.id]?.Locking;
+    if (!veMentoTokenAddress)
+      throw new Error("veMento token address not found");
     const connectorClient = await getConnectorClient(config);
 
     return await watchAsset(connectorClient, {
       type: "ERC20",
       options: {
-        address:
-          mento.addresses[chainId === Celo.id ? Celo.id : Alfajores.id].Locking,
+        address: veMentoTokenAddress,
         symbol: "veMENTO",
         decimals: 18,
       },

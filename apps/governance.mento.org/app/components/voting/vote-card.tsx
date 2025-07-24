@@ -39,7 +39,7 @@ export const VOTE_TYPES = {
   Against: 0,
   For: 1,
   Abstain: 2,
-} as { [key: string]: number };
+} as const;
 
 export const REVERSE_VOTE_TYPE_MAP = {
   [VOTE_TYPES.For]: "For",

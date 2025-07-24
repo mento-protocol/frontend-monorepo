@@ -1,5 +1,8 @@
 import { getSubgraphApiName } from "@/lib/config/config.constants";
-import { useGetLocksQuery } from "@/lib/graphql/subgraph/generated/subgraph";
+import {
+  useGetLocksQuery,
+  GetLocksQueryResult,
+} from "@/lib/graphql/subgraph/generated/subgraph";
 import LockingHelper from "@/lib/helpers/locking";
 import { useEnsureChainId } from "@/lib/hooks/use-ensure-chain-id";
 import useLockingWeek from "./useLockingWeek";
@@ -9,7 +12,11 @@ interface UseLocksProps {
   account: string;
 }
 
-const useLocksByAccount = ({ account }: UseLocksProps) => {
+const useLocksByAccount = ({
+  account,
+}: UseLocksProps): Omit<GetLocksQueryResult, "data"> & {
+  locks: LockWithExpiration[];
+} => {
   const { currentWeek: currentLockingWeek } = useLockingWeek();
   const ensuredChainId = useEnsureChainId();
   const { data, ...rest } = useGetLocksQuery({
