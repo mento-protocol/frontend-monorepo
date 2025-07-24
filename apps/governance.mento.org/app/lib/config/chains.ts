@@ -5,13 +5,6 @@ import { MentoChain, MentoChainContracts } from "@/lib/types";
 
 export const Celo: MentoChain = defineChain({
   ...celo,
-  blockExplorers: {
-    default: {
-      name: "Celoscan",
-      url: "https://celoscan.io",
-      apiUrl: "https://api.celoscan.io/api",
-    },
-  },
   contracts: {
     ...celo.contracts,
     ...transformToChainContracts(addresses[celo.id]),
@@ -32,14 +25,16 @@ export const Alfajores: MentoChain = defineChain({
     ...transformToChainContracts(addresses[celoAlfajores.id]),
   },
 });
+
 /**
  * Transforms the specified Mento contract addresses to the format used by Viem.
  * @param contractAddresses The Mento contract addresses to be transformed.
  * @returns Mento contract addresses in the format used by Viem.
  */
 function transformToChainContracts(
-  contractAddresses: ContractAddresses,
+  contractAddresses: ContractAddresses | undefined,
 ): MentoChainContracts {
+  if (!contractAddresses) throw new Error("Contract addresses not found");
   const chainContracts: Partial<MentoChainContracts> = {};
 
   Object.keys(contractAddresses).forEach((key) => {

@@ -111,12 +111,14 @@ export default function VotingPowerForm() {
     const midIdx = Math.floor((minIdx + maxIdx) / 2);
     const now = new Date();
 
+    const minDate = validWednesdays[minIdx];
+    const midDate = validWednesdays[midIdx];
+
     // Calculate start label
     const startLabel = (() => {
-      if (minIdx >= 0 && minIdx < validWednesdays.length) {
+      if (minIdx >= 0 && minIdx < validWednesdays.length && minDate) {
         const weeksDiff = Math.ceil(
-          (validWednesdays[minIdx].getTime() - now.getTime()) /
-            (1000 * 60 * 60 * 24 * 7),
+          (minDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 7),
         );
         return formatDuration(weeksDiff, hasActiveLock && !!lock?.expiration);
       }
@@ -125,10 +127,9 @@ export default function VotingPowerForm() {
 
     // Calculate middle label
     const middleLabel = (() => {
-      if (midIdx >= 0 && midIdx < validWednesdays.length) {
+      if (midIdx >= 0 && midIdx < validWednesdays.length && midDate) {
         const weeksDiff = Math.ceil(
-          (validWednesdays[midIdx].getTime() - now.getTime()) /
-            (1000 * 60 * 60 * 24 * 7),
+          (midDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 7),
         );
         return formatDuration(weeksDiff, hasActiveLock && !!lock?.expiration);
       }
@@ -139,6 +140,7 @@ export default function VotingPowerForm() {
   }, [validWednesdays, hasActiveLock, lock?.expiration, minSelectableIndex]);
 
   const isDateDisabled = (date: Date) => {
+    if (!maxDate) throw new Error("maxDate is undefined");
     const isBeforeMin = date < minLockDate;
     const isAfterMax = date > maxDate;
     const isNotWednesday = spacetime(date).day() !== 3;
@@ -183,6 +185,7 @@ export default function VotingPowerForm() {
         defaultDate = validWednesdays[exactIdx];
       } else {
         defaultDate = validWednesdays.reduce((prev, curr) => {
+          if (!prev) throw new Error("prev is undefined");
           return Math.abs(curr.getTime() - expirationTime) <
             Math.abs(prev.getTime() - expirationTime)
             ? curr
@@ -190,6 +193,8 @@ export default function VotingPowerForm() {
         }, validWednesdays[0]);
       }
     }
+
+    if (!defaultDate) throw new Error("defaultDate is undefined");
 
     setValue(LOCKING_UNLOCK_DATE_FORM_KEY, defaultDate, {
       shouldValidate: true,
@@ -221,10 +226,10 @@ export default function VotingPowerForm() {
 
     // If no exact match, find the closest one
     let closestIndex = 0;
-    let minDiff = Math.abs(validWednesdays[0].getTime() - unlockTime);
+    let minDiff = Math.abs(validWednesdays[0]!.getTime() - unlockTime);
 
     for (let i = 1; i < validWednesdays.length; i++) {
-      const diff = Math.abs(validWednesdays[i].getTime() - unlockTime);
+      const diff = Math.abs(validWednesdays[i]!.getTime() - unlockTime);
       if (diff < minDiff) {
         minDiff = diff;
         closestIndex = i;
@@ -444,7 +449,7 @@ export default function VotingPowerForm() {
                   key="lock-duration-slider"
                   value={[sliderIndex]}
                   onValueChange={(values) => {
-                    const newIndex = values[0];
+                    const newIndex = values[0]!;
                     // Enforce minimum selectable index for existing locks
                     const actualIndex =
                       hasActiveLock && lock?.expiration
