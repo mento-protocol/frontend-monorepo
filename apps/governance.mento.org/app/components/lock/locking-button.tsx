@@ -142,11 +142,21 @@ export const LockingButton = () => {
 
   // Check if approval is needed for relock
   const needsApprovalForRelock = React.useMemo(() => {
-    if (!hasActiveLock) return false;
-    if (parsedAmount === BigInt(0)) return false;
+    if (!hasActiveLock || !lock) return false;
+
+    // Calculate the actual amount that will be transferred
+    // The contract will transfer: newTotal - currentLockAmount
+    const currentLockAmount = BigInt(lock.amount || 0);
+    const newTotalAmount = parsedAmount + currentLockAmount;
+    const actualTransferAmount = newTotalAmount - currentLockAmount;
+
+    // No approval needed if not adding any tokens
+    if (actualTransferAmount === BigInt(0)) return false;
+
+    // Check if current allowance is sufficient for the actual transfer
     if (!allowance.data) return true;
-    return allowance?.data < parsedAmount;
-  }, [allowance.data, parsedAmount, hasActiveLock]);
+    return allowance.data < actualTransferAmount;
+  }, [allowance.data, parsedAmount, hasActiveLock, lock]);
 
   // Combined status for relock flow
   const isRelocking = React.useMemo(() => {
@@ -187,9 +197,11 @@ export const LockingButton = () => {
     };
 
     if (needsApprovalForRelock) {
+      // Approve the actual amount that will be transferred
+      const actualTransferAmount = parsedAmount; // This is the additional amount being added
       approve.approveMento({
         target: contracts.Locking.address,
-        amount: parsedAmount,
+        amount: actualTransferAmount,
         onConfirmation: submitRelock,
         onError: (error) => {
           console.error("Approval failed", error);

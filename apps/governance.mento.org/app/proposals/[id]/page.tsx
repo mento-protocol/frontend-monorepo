@@ -31,6 +31,8 @@ import { useParams } from "next/navigation";
 import { useMemo } from "react";
 import { formatUnits } from "viem";
 import { useAccount, useBlock, useBlockNumber } from "wagmi";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 // Function to decode HTML entities
 function decodeHtmlEntities(text: string): string {
@@ -198,6 +200,12 @@ export default function ProposalPage() {
   const currentChain = chainId === Celo.id ? Celo : Alfajores;
   const explorerUrl = currentChain.blockExplorers?.default?.url;
 
+  const descriptionType = proposal.metadata?.description
+    ? proposal.metadata.description.match(/^<\w+>|<\/\w+>$/)
+      ? "html"
+      : "text"
+    : "text";
+
   return (
     <main className="md:px-22 relative w-full px-4 py-8 md:py-16">
       <Breadcrumb className="mb-6">
@@ -263,12 +271,18 @@ export default function ProposalPage() {
 
           <div className="prose prose-invert mt-16">
             {proposal.metadata?.description ? (
-              <div
-                dangerouslySetInnerHTML={{
-                  __html: decodeHtmlEntities(proposal.metadata.description),
-                }}
-                data-testid="proposalDescriptionLabel"
-              />
+              descriptionType === "html" ? (
+                <div
+                  dangerouslySetInnerHTML={{
+                    __html: decodeHtmlEntities(proposal.metadata.description),
+                  }}
+                  data-testid="proposalDescriptionLabel"
+                />
+              ) : (
+                <Markdown remarkPlugins={[remarkGfm]}>
+                  {proposal.metadata.description}
+                </Markdown>
+              )
             ) : (
               <p>No description available</p>
             )}
