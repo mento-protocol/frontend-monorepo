@@ -15,3 +15,11 @@ jobs:
       CUSTOM_URL: ${{ github.event.deployment_status.environment_url }}
       IS_MAINNET: "false"
     secrets: inherit
+
+  governance:
+    if: github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && contains(github.event.deployment_status.target_url, 'governancemento')
+    uses: mento-protocol/mento-automation-tests/.github/workflows/governance-smoke-test.yml@feat/add-gov-smoke-test-job
+    with:
+      CUSTOM_URL: ${{ github.event.deployment_status.environment_url }}
+      IS_MAINNET: "false"
+    secrets: inherit
