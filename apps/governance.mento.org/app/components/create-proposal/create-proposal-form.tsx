@@ -141,11 +141,11 @@ const ProposalDetailsStep = () => {
               onChange={handleDescriptionChange}
             />
 
-            <p className="text-muted-foreground mt-1 text-sm transition-opacity">
-              The description must be at least 100 characters long.{" "}
-              {rawProposalDescription.length < 100
-                ? `Write ${100 - rawProposalDescription.length} more characters.`
-                : ""}
+            <p
+              className={`text-muted-foreground mt-1 text-sm transition-opacity ${rawProposalDescription.length < 100 ? "opacity-100" : "opacity-0"}`}
+            >
+              The description must be at least 100 characters long. Write{" "}
+              {100 - rawProposalDescription.length} more characters.
             </p>
           </div>
         </TabsContent>
@@ -519,7 +519,7 @@ const ReviewStep = () => {
         Execution Code
       </h2>
       <CollapsibleJsonCode jsonString={newProposal.code} />
-      <div className="flex flex-col items-center gap-4 md:flex-row-reverse md:justify-between">
+      <div className="mt-4 flex flex-col items-center gap-4 md:flex-row-reverse md:justify-between">
         <Button
           className="h-10 w-full md:w-auto"
           clipped="default"
@@ -556,19 +556,18 @@ function CreateProposalSteps() {
   const { proposalThreshold, isLoadingProposalThreshold } =
     useProposalThreshold();
 
-  const [direction, setDirection] = useState<"buy" | "lock" | undefined>();
+  const [notEnough, setNotEnough] = useState(false);
 
   useEffect(() => {
     if (isConnected && proposalThreshold && veMentoBalance && mentoBalance) {
-      if (veMentoBalance.value <= proposalThreshold) {
-        if (mentoBalance.value == BigInt(0)) {
-          setDirection("buy");
-        } else {
-          setDirection("lock");
-        }
+      if (
+        veMentoBalance.value <= proposalThreshold ||
+        (mentoBalance.value == BigInt(0) &&
+          veMentoBalance.value < proposalThreshold)
+      ) {
+        setNotEnough(true);
       } else {
-        // User has sufficient veMENTO, reset direction to show the proposal form
-        setDirection(undefined);
+        setNotEnough(false);
       }
     }
   }, [
@@ -586,7 +585,7 @@ function CreateProposalSteps() {
     );
   }
 
-  if (direction === "lock") {
+  if (notEnough) {
     return (
       <>
         <h2 className="mb-4 text-lg font-medium md:text-3xl">
@@ -624,43 +623,6 @@ function CreateProposalSteps() {
         <Button className="h-10 w-full" clipped="default" asChild>
           <Link href="/voting-power">Lock MENTO</Link>
         </Button>
-      </>
-    );
-  }
-
-  if (direction === "buy") {
-    return (
-      <>
-        <h2 className="mb-4 text-lg font-medium md:text-3xl">Buy MENTO</h2>
-        <p className="text-muted-foreground mb-8 text-sm">
-          You have{" "}
-          <span className="text-foreground">
-            {formatUnitsWithThousandSeparators(
-              mentoBalance.value,
-              mentoBalance.decimals,
-              2,
-            )}{" "}
-            MENTO
-          </span>{" "}
-          &{" "}
-          <span className="text-foreground">
-            {formatUnitsWithThousandSeparators(
-              veMentoBalance.value,
-              veMentoBalance.decimals,
-              4,
-            )}{" "}
-            veMENTO
-          </span>
-          <br />
-          <br />
-          To create a new governance proposal, you should have{" "}
-          <span className="text-foreground">
-            {formatUnitsWithThousandSeparators(proposalThreshold, 18, 2)}{" "}
-            veMENTO
-          </span>{" "}
-          in your account.
-          <br />
-        </p>
       </>
     );
   }

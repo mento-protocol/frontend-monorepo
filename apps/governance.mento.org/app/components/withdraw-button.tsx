@@ -3,6 +3,7 @@ import { useLockInfo } from "@/lib/contracts/locking/useLockInfo";
 import { useWithdraw } from "@/lib/contracts/locking/useWithdraw";
 import { formatUnitsWithThousandSeparators } from "@/lib/helpers/numbers";
 import { Button, toast } from "@repo/ui";
+import { Celo, Alfajores } from "@/lib/config/chains";
 import React from "react";
 import { useAccount } from "wagmi";
 import { TxDialog } from "./tx-dialog/tx-dialog";
@@ -11,7 +12,7 @@ export const WithdrawButton = () => {
   const { availableToWithdraw, refetchAvailableToWithdraw } =
     useAvailableToWithdraw();
 
-  const { address } = useAccount();
+  const { address, chainId } = useAccount();
 
   const { refetch } = useLockInfo(address);
 
@@ -21,13 +22,41 @@ export const WithdrawButton = () => {
   const [modalTitle, setModalTitle] = React.useState("");
   const [modalMessage, setModalMessage] = React.useState<React.ReactNode>(null);
 
-  const handleWithdrawSuccess = React.useCallback(() => {
-    setTimeout(() => {
-      refetchAvailableToWithdraw();
-      refetch();
-      setIsModalOpen(false);
-    }, 2000);
-  }, [refetchAvailableToWithdraw, refetch]);
+  const handleWithdrawSuccess = React.useCallback(
+    (txHash?: `0x${string}`) => {
+      // Show success toast with explorer link
+      const currentChain = chainId === Celo.id ? Celo : Alfajores;
+      const explorerUrl = currentChain.blockExplorers?.default?.url;
+      const explorerTxUrl =
+        txHash && explorerUrl ? `${explorerUrl}/tx/${txHash}` : null;
+
+      toast.success(
+        <>
+          Withdrawal successful!
+          {explorerTxUrl && (
+            <>
+              <br />
+              <a
+                href={explorerTxUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-muted-foreground underline"
+              >
+                View Transaction on CeloScan
+              </a>
+            </>
+          )}
+        </>,
+      );
+
+      setTimeout(() => {
+        refetchAvailableToWithdraw();
+        refetch();
+        setIsModalOpen(false);
+      }, 2000);
+    },
+    [chainId, refetchAvailableToWithdraw, refetch],
+  );
 
   const { withdraw, isPending, isConfirming, error } = useWithdraw({
     onConfirmation: handleWithdrawSuccess,
