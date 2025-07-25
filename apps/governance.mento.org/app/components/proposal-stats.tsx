@@ -50,13 +50,12 @@ export const ProposalStats = () => {
 
     const uniqueVoters = new Set<string>();
     locks.forEach((lock) => {
-      const { time, cliff, slope } = lock;
-      if (parseInt(time) + cliff + slope > currentWeek)
+      if (lock.owner && lock.owner.id) {
         uniqueVoters.add(lock.owner.id);
+      }
     });
-
     return uniqueVoters.size;
-  }, [currentWeek, locks]);
+  }, [currentWeek, locks, chainId]);
 
   return (
     <section className="xl:px-22 max-w-2xl px-4 md:p-20">
