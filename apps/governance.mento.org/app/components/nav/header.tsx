@@ -55,6 +55,11 @@ export function Header() {
                   <Link href="/voting-power">My Voting Power</Link>
                 </NavigationMenuLink>
               </NavigationMenuItem>
+              <NavigationMenuItem>
+                <NavigationMenuLink asChild>
+                  <a href="https://forum.mento.org/">Governance Forum</a>
+                </NavigationMenuLink>
+              </NavigationMenuItem>
             </NavigationMenuList>
           </NavigationMenu>
         </div>

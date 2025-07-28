@@ -40,7 +40,6 @@ import useProposals from "@/lib/contracts/governor/use-proposals";
 
 const isTextInvalid = (html: string) => {
   const text = html.replace(/<[^>]*>/g, "").trim();
-  console.log(text);
   return text.length < 100;
 };
 
@@ -299,8 +298,9 @@ const ExecutionCodeStep = () => {
         </Tooltip>
       </div>
       <p className="text-muted-foreground mb-8 text-sm">
-        Paste your governance proposal's execution code in the JSON format on
-        the field below.
+        Paste your proposal's execution code in JSON format into the field
+        below. If your proposal does not need execution code, simply leave it as
+        is.
       </p>
       <div className="mb-4 flex flex-col gap-1">
         <Label>Execution Code</Label>

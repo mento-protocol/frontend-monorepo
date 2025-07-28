@@ -227,19 +227,23 @@ export const VoteCard = ({
     const abstainPower = BigInt(proposal.votes?.abstain?.total || 0);
     const total = forPower + againstPower + abstainPower;
 
-    // Calculate percentages based on quorum (not total votes cast)
+    // Calculate percentages, guarded against division by zero
     let forPercentage = "0.0";
     let againstPercentage = "0.0";
     let abstainPercentage = "0.0";
 
-    // Calculate percentages based on quorum needed
-    forPercentage = ((Number(forPower) / Number(total)) * 100).toFixed(1);
-    againstPercentage = ((Number(againstPower) / Number(total)) * 100).toFixed(
-      1,
-    );
-    abstainPercentage = ((Number(abstainPower) / Number(total)) * 100).toFixed(
-      1,
-    );
+    // Only perform calculation if some votes have been cast
+    if (total > BigInt(0)) {
+      forPercentage = ((Number(forPower) / Number(total)) * 100).toFixed(1);
+      againstPercentage = (
+        (Number(againstPower) / Number(total)) *
+        100
+      ).toFixed(1);
+      abstainPercentage = (
+        (Number(abstainPower) / Number(total)) *
+        100
+      ).toFixed(1);
+    }
 
     return {
       approve: {
@@ -496,7 +500,7 @@ export const VoteCard = ({
         if (abstainVotes > forVotes && abstainVotes > againstVotes) {
           return (
             <>
-              While quorum was reached, most voters chose to abstain.
+              While quorum was met, most voters chose to abstain.
               <br />
               As a result, the proposal did not receive enough support to pass.
             </>
@@ -915,9 +919,8 @@ export const VoteCard = ({
   const quorumLabel = useMemo(() => {
     let label = "";
 
-    if (isVotingOpen)
-      label = hasQuorum ? "Quorum reached" : "Quorum not yet reached";
-    else label = hasQuorum ? "Quorum reached" : "Quorum not reached";
+    if (isVotingOpen) label = hasQuorum ? "Quorum met" : "Quorum not yet met";
+    else label = hasQuorum ? "Quorum met" : "Quorum not met";
 
     return label;
   }, [isVotingOpen, totalVotingPower, quorumNeeded]);
@@ -930,7 +933,7 @@ export const VoteCard = ({
             {votingDeadline && <Timer until={votingDeadline} />}
 
             <div className="flex items-center gap-2">
-              {hasQuorum ? (
+              {!hasQuorum ? (
                 <XCircleIcon size={16} className="text-white" />
               ) : (
                 <CheckCircle2 size={16} className="text-white" />
