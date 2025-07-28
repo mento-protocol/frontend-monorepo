@@ -2,6 +2,8 @@
 import { useProposalThreshold } from "@/lib/contracts/governor/useProposalThreshold";
 import useTokens from "@/lib/contracts/useTokens";
 import { formatUnitsWithThousandSeparators } from "@/lib/helpers/numbers";
+import TurndownService from "turndown";
+import ReactMarkdown from "react-markdown";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -43,15 +45,76 @@ const isTextInvalid = (html: string) => {
   return text.length < 100;
 };
 
+// Convert HTML to Markdown for preview purposes
+const htmlToMarkdown = (html: string): string => {
+  const turndownService = new TurndownService({
+    headingStyle: "atx", // Use # style headings instead of underline style
+    codeBlockStyle: "fenced",
+    emDelimiter: "*",
+    hr: "---", // Use --- for horizontal rules instead of *
+  });
+
+  // Add custom rule for HR elements
+  turndownService.addRule("horizontalRule", {
+    filter: "hr",
+    replacement: function () {
+      return "\n\n---\n\n";
+    },
+  });
+
+  return turndownService.turndown(html);
+};
+
+// Convert Markdown to HTML for the editor
+const markdownToHtml = (markdown: string): string => {
+  // Basic markdown to HTML conversion
+  let html = markdown
+    // Horizontal rules (must come before other replacements)
+    .replace(/^---$/gim, "<hr>")
+    .replace(/^\*\*\*$/gim, "<hr>")
+    .replace(/^___$/gim, "<hr>")
+    // Headers
+    .replace(/^### (.*$)/gim, "<h3>$1</h3>")
+    .replace(/^## (.*$)/gim, "<h2>$1</h2>")
+    .replace(/^# (.*$)/gim, "<h1>$1</h1>")
+    // Bold
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    // Italic (but not HR)
+    .replace(/(?<!\*)\*(?!\*)(.+?)\*(?!\*)/g, "<em>$1</em>")
+    // Links
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
+    // Line breaks
+    .replace(/\n\n/g, "</p><p>")
+    .replace(/\n/g, "<br>");
+
+  // Wrap in paragraph tags if needed
+  if (!html.startsWith("<")) {
+    html = "<p>" + html + "</p>";
+  }
+
+  return html;
+};
+
 const ProposalDetailsStep = () => {
   const { setStep, newProposal, updateProposal } = useCreateProposal();
   const { proposals, isLoading } = useProposals();
 
-  const [previewContent, setPreviewContent] = useState(newProposal.description);
+  // Initialize HTML content - convert from Markdown if we have a description
+  const [htmlContent, setHtmlContent] = useState(() => {
+    if (newProposal.description) {
+      // If we have a description, it's in Markdown format, convert to HTML
+      return markdownToHtml(newProposal.description);
+    }
+    return "";
+  });
+
+  const [markdownPreview, setMarkdownPreview] = useState(
+    newProposal.description || "",
+  );
 
   const isDescriptionInvalid = useMemo(
-    () => isTextInvalid(newProposal.description),
-    [newProposal.description],
+    () => isTextInvalid(htmlContent),
+    [htmlContent],
   );
 
   // Check if title is unique among existing proposals
@@ -72,11 +135,16 @@ const ProposalDetailsStep = () => {
   };
 
   const handleDescriptionChange = (content: string) => {
+    setHtmlContent(content);
+
+    const markdownContent = htmlToMarkdown(content);
+
     updateProposal({
       ...newProposal,
-      description: content,
+      description: markdownContent,
     });
-    setPreviewContent(content);
+
+    setMarkdownPreview(markdownContent);
   };
 
   const scrollToTop = () => {
@@ -89,8 +157,10 @@ const ProposalDetailsStep = () => {
   };
 
   const rawProposalDescription = useMemo(() => {
-    return newProposal.description.replace(/<[^>]*>/g, "");
-  }, [newProposal.description]);
+    // For validation, we need to check the length of the text content
+    // Since we're storing markdown in newProposal.description, we need to check the HTML content
+    return htmlContent.replace(/<[^>]*>/g, "");
+  }, [htmlContent]);
 
   return (
     <div>
@@ -136,7 +206,7 @@ const ProposalDetailsStep = () => {
           >
             <Label>Description</Label>
             <RichTextEditor
-              value={newProposal.description}
+              value={htmlContent}
               onChange={handleDescriptionChange}
             />
 
@@ -156,10 +226,9 @@ const ProposalDetailsStep = () => {
           >
             {newProposal.title}
           </h2>
-          <div
-            className="prose prose-invert"
-            dangerouslySetInnerHTML={{ __html: previewContent }}
-          />
+          <div className="prose prose-invert">
+            <ReactMarkdown>{markdownPreview}</ReactMarkdown>
+          </div>
         </TabsContent>
       </Tabs>
 
@@ -494,6 +563,14 @@ const CollapsibleJsonCode = ({ jsonString }: { jsonString: string }) => {
 
 const ReviewStep = () => {
   const { setStep, newProposal, submitProposal } = useCreateProposal();
+  const [htmlContent, setHtmlContent] = useState("");
+
+  // When the component mounts or newProposal changes, update the HTML content
+  useEffect(() => {
+    // Convert markdown to HTML for display
+    const previewHtml = markdownToHtml(newProposal.description);
+    setHtmlContent(previewHtml);
+  }, [newProposal.description]);
 
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -513,7 +590,7 @@ const ReviewStep = () => {
         over your proposal and then submit it.
       </p>
       <hr className="border-border mb-8" />
-      <CollapsibleHtmlContent htmlContent={newProposal.description} />
+      <CollapsibleHtmlContent htmlContent={htmlContent} />
       <hr className="border-border my-8" />
       <h2 className="mb-2 text-lg font-medium md:mb-4 md:text-3xl">
         Execution Code

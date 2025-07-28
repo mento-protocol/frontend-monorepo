@@ -1,3 +1,13 @@
+import { Alfajores, Celo } from "@/lib/config/chains";
+import useCreateProposalOnChain, {
+  TransactionItem,
+} from "@/lib/contracts/governor/use-create-proposal-on-chain";
+import useProposals from "@/lib/contracts/governor/use-proposals";
+import { ensureChainId } from "@/lib/helpers/ensure-chain-id";
+import { LocalStorageKeys, useLocalStorage } from "@/lib/hooks/use-storage";
+import { toast } from "@repo/ui";
+import { Loader } from "lucide-react";
+import { useRouter } from "next/navigation";
 import {
   ReactNode,
   createContext,
@@ -6,22 +16,12 @@ import {
   useEffect,
   useState,
 } from "react";
-import useCreateProposalOnChain, {
-  TransactionItem,
-} from "@/lib/contracts/governor/use-create-proposal-on-chain";
-import { LocalStorageKeys, useLocalStorage } from "@/lib/hooks/use-storage";
 import {
   useAccount,
   useBlockNumber,
   useWaitForTransactionReceipt,
 } from "wagmi";
 import { CreateProposalTxDialog } from "./create-proposal-transaction-dialog";
-import { useRouter } from "next/navigation";
-import useProposals from "@/lib/contracts/governor/use-proposals";
-import { ensureChainId } from "@/lib/helpers/ensure-chain-id";
-import { Loader } from "lucide-react";
-import { toast } from "@repo/ui";
-import { Celo, Alfajores } from "@/lib/config/chains";
 
 export enum CreateProposalStep {
   content = 1,
@@ -147,6 +147,7 @@ export const CreateProposalProvider = ({
         },
       ];
     }
+
     const structuredProposal = {
       metadata: {
         title: newProposal.title,
@@ -157,11 +158,7 @@ export const CreateProposalProvider = ({
 
     setExpectingId(createProposalID(structuredProposal));
 
-    updateProposalInternal({
-      title: "",
-      description: "",
-      code: defaultCode,
-    });
+    // Don't reset the proposal state here - only reset after successful transaction
     createProposal(structuredProposal, undefined, (error) => {
       console.error(error);
     });
@@ -184,6 +181,13 @@ export const CreateProposalProvider = ({
   useEffect(() => {
     if (!isTxDialogOpen) return;
     if (isSuccess && expectingId && proposalExists(expectingId)) {
+      // Reset proposal state only after successful transaction
+      updateProposalInternal({
+        title: "",
+        description: "",
+        code: defaultCode,
+      });
+
       if (canUseLocalStorage) {
         removeCacheItem(CreateProposalCacheEntry.title);
         removeCacheItem(CreateProposalCacheEntry.description);
@@ -266,7 +270,7 @@ export const CreateProposalProvider = ({
           href={explorerTxUrl}
           target="_blank"
           rel="noopener noreferrer"
-          style={{ textDecoration: "underline", color: "inherit" }}
+          className="text-inherit underline"
         >
           See Details
         </a>

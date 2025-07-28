@@ -30,8 +30,7 @@ const useRelockMento = ({
   onConfirmation,
 }: RelockMentoParams) => {
   const contracts = useContracts();
-  const { data: lockedBalance, refetch: refetchLockedBalance } =
-    useLockedAmount();
+  const { refetch: refetchLockedBalance } = useLockedAmount();
 
   const {
     writeContract,
