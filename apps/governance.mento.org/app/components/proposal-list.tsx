@@ -100,7 +100,7 @@ export const ProposalList = () => {
     proposalThreshold,
   ]);
 
-  // Sort proposals in descending order by proposalId (latest first)
+  // Sort proposals in descending order by timestamp (newest first)
   const sortedProposals = useMemo(() => {
     return [...proposals].sort(
       (a, b) =>
