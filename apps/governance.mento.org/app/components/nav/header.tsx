@@ -57,7 +57,13 @@ export function Header() {
               </NavigationMenuItem>
               <NavigationMenuItem>
                 <NavigationMenuLink asChild>
-                  <a href="https://forum.mento.org/">Governance Forum</a>
+                  <a
+                    href="https://forum.mento.org/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Governance Forum
+                  </a>
                 </NavigationMenuLink>
               </NavigationMenuItem>
             </NavigationMenuList>
