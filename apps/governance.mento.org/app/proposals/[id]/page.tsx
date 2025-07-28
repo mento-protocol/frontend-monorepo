@@ -279,7 +279,10 @@ export default function ProposalPage() {
                   data-testid="proposalDescriptionLabel"
                 />
               ) : (
-                <Markdown remarkPlugins={[remarkGfm]}>
+                <Markdown
+                  remarkPlugins={[remarkGfm]}
+                  data-testid="proposalDescriptionLabel"
+                >
                   {proposal.metadata.description}
                 </Markdown>
               )
