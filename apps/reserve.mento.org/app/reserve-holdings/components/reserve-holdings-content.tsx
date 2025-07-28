@@ -29,7 +29,7 @@ export function ReserveHoldingsContent({
     EXOF: "#7579FF",
     BTC: "#FFFFFF",
     ETH: "#66FFB8",
-    SDAI: "#99FFCF",
+    SUSDS: "#99FFCF",
     USDC: "#C69BFF",
     USDT: "#0A452A",
     WBTC: "#F7F6FA",
