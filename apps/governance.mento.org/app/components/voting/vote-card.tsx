@@ -346,7 +346,7 @@ export const VoteCard = ({
 
     // Only show queued state after queue transaction is confirmed
     if (proposalState === ProposalState.Succeeded && isQueueConfirmed) {
-      return "queued";
+      return "succeeded";
     }
     if (
       (proposalState === ProposalState.Active && voteReceipt?.hasVoted) ||

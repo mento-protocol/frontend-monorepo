@@ -178,7 +178,7 @@ export default function ProposalPage() {
       case ProposalState.Active:
         return "active";
       case ProposalState.Succeeded:
-        return "queued";
+        return "succeeded";
       case ProposalState.Defeated:
         return "defeated";
       case ProposalState.Queued:

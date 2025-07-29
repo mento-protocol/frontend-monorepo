@@ -218,13 +218,23 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
           .run();
 
         // Use requestAnimationFrame to ensure the editor has processed the deletion
-        // before executing the command
+        // before executing the command - this is crucial for Enter key to work properly
         requestAnimationFrame(() => {
-          // Ensure editor still has focus before executing command
+          // Double check that editor still has focus before executing command
           if (!editor.view.hasFocus()) {
+            console.debug(
+              "[Slash Command] Refocusing editor before command execution",
+            );
             editor.commands.focus();
           }
-          commandFn(editor);
+
+          // Small delay to ensure focus is properly set
+          setTimeout(() => {
+            console.debug(
+              "[Slash Command] Executing command after focus check",
+            );
+            commandFn(editor);
+          }, 0);
         });
       } catch (error) {
         console.error("Error executing command:", error);

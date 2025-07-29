@@ -14,6 +14,7 @@ const proposalStatusVariants = cva(
         pending: "bg-[var(--pending)]",
         executed: "bg-[var(--executed)] text-black",
         queued: "bg-[var(--queued)]",
+        succeeded: "bg-[var(--succeeded)]",
         defeated: "bg-[var(--defeated)]",
       },
     },

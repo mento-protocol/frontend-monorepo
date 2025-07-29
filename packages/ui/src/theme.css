@@ -49,6 +49,7 @@
   --pending: oklch(0.5717 0.099255 211.0725);
   --executed: oklch(0.8649 0.1299 208.05);
   --queued: oklch(0.5717 0.099255 211.0725);
+  --succeeded: oklch(0.5717 0.099255 255.0725);
   --defeated: oklch(0.476 0.216863 330.1079);
   --expired: oklch(0.2613 0.0288 302.75);
   --expired-text: oklch(0.7429 0.0118 303.05);
@@ -108,6 +109,7 @@
   --pending: oklch(0.5717 0.099255 211.0725);
   --executed: oklch(0.8649 0.1299 208.05);
   --queued: oklch(0.5717 0.099255 211.0725);
+  --succeeded: oklch(0.5717 0.099255 255.0725);
   --defeated: oklch(0.476 0.216863 330.1079);
   --expired: oklch(0.2613 0.0288 302.75);
   --expired-text: oklch(0.7429 0.0118 303.05);
