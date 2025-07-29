@@ -285,12 +285,11 @@ export default function ProposalPage() {
                   data-testid="proposalDescriptionLabel"
                 />
               ) : (
-                <Markdown
-                  remarkPlugins={[remarkGfm]}
-                  data-testid="proposalDescriptionLabel"
-                >
-                  {proposal.metadata.description}
-                </Markdown>
+                <div data-testid="proposalDescriptionLabel">
+                  <Markdown remarkPlugins={[remarkGfm]}>
+                    {proposal.metadata.description}
+                  </Markdown>
+                </div>
               )
             ) : (
               <p>No description available</p>

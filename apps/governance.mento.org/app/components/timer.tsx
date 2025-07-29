@@ -69,10 +69,6 @@ export const Timer = ({ until }: TimerProps) => {
     return () => clearInterval(timer);
   }, [until]);
 
-  const formatNumber = (num: number) => {
-    return num.toString().padStart(2, "0");
-  };
-
   const formatTimeLeft = () => {
     const { weeks, days, hours, minutes, seconds } = timeLeft;
 
