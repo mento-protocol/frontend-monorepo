@@ -13,6 +13,7 @@ import { cookieToInitialState } from "wagmi";
 
 import Providers from "./lib/providers";
 import { wagmiConfig } from "./lib/config/wagmi.config";
+import { env } from "./env.mjs";
 
 const aspekta = localFont({
   src: "./fonts/AspektaVF.ttf",
@@ -32,6 +33,15 @@ export const metadata: Metadata = {
   title: "Mento Governance",
   description:
     "A basket of cryptocurrencies enabling the Mento protocol to expand and contract the supply of Mento stable assets in-line with user demand.",
+  openGraph: {
+    images: [
+      {
+        url: `${env.NEXT_PUBLIC_STORAGE_URL}/og-general.png`,
+        width: 1200,
+        height: 630,
+      },
+    ],
+  },
 };
 
 export default async function RootLayout({
