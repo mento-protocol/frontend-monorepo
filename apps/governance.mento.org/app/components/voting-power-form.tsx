@@ -32,8 +32,16 @@ import { WithdrawButton } from "./withdraw-button";
 
 export default function VotingPowerForm() {
   const { address } = useAccount();
-  const { lock, unlockedMento, hasLock, hasActiveLock, isLoading, refetch } =
-    useLockInfo(address);
+  const {
+    lock,
+    lockedBalance,
+    unlockedMento,
+    hasLock,
+    hasActiveLock,
+    isLoading,
+    refetch,
+  } = useLockInfo(address);
+
   const { veMentoBalance, mentoBalance } = useTokens();
 
   const MIN_LOCK_PERIOD_WEEKS = 1;
@@ -98,18 +106,34 @@ export default function VotingPowerForm() {
   }, [validWednesdays]);
 
   const sliderLabels = useMemo(() => {
-    const formatDuration = (weeksDiff: number, forceMonths = false) => {
-      if (forceMonths || weeksDiff > 4) {
-        const months = Math.round(weeksDiff / 4.33);
-        return months <= 1 ? "1 month" : `${months} months`;
+    const formatDuration = (targetDate: Date, forceMonths = false) => {
+      const now = new Date();
+      const timeDiff = targetDate.getTime() - now.getTime();
+      const daysDiff = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+      const weeksDiff = Math.ceil(daysDiff / 7);
+
+      // Use the same calendar-month logic as lockDurationDisplay
+      const yearsDiff = targetDate.getFullYear() - now.getFullYear();
+      const monthsDiff = targetDate.getMonth() - now.getMonth();
+      const totalMonths = yearsDiff * 12 + monthsDiff;
+      const adjustedMonths =
+        targetDate.getDate() >= now.getDate() ? totalMonths : totalMonths - 1;
+
+      // Helper function for pluralization
+      const pluralize = (count: number, singular: string, plural: string) => {
+        return count === 1 ? `${count} ${singular}` : `${count} ${plural}`;
+      };
+
+      // Display logic: show weeks if less than 1 month, otherwise show months
+      if (forceMonths || adjustedMonths >= 1) {
+        return pluralize(adjustedMonths, "month", "months");
       }
-      return weeksDiff <= 1 ? "1 week" : `${weeksDiff} weeks`;
+      return pluralize(weeksDiff, "week", "weeks");
     };
 
     const minIdx = hasActiveLock && lock?.expiration ? minSelectableIndex : 0;
     const maxIdx = validWednesdays.length - 1;
     const midIdx = Math.floor((minIdx + maxIdx) / 2);
-    const now = new Date();
 
     const minDate = validWednesdays[minIdx];
     const midDate = validWednesdays[midIdx];
@@ -117,10 +141,7 @@ export default function VotingPowerForm() {
     // Calculate start label
     const startLabel = (() => {
       if (minIdx >= 0 && minIdx < validWednesdays.length && minDate) {
-        const weeksDiff = Math.ceil(
-          (minDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 7),
-        );
-        return formatDuration(weeksDiff, hasActiveLock && !!lock?.expiration);
+        return formatDuration(minDate, hasActiveLock && !!lock?.expiration);
       }
       return "1 week";
     })();
@@ -128,10 +149,7 @@ export default function VotingPowerForm() {
     // Calculate middle label
     const middleLabel = (() => {
       if (midIdx >= 0 && midIdx < validWednesdays.length && midDate) {
-        const weeksDiff = Math.ceil(
-          (midDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 7),
-        );
-        return formatDuration(weeksDiff, hasActiveLock && !!lock?.expiration);
+        return formatDuration(midDate, hasActiveLock && !!lock?.expiration);
       }
       return "1 year";
     })();
@@ -317,10 +335,8 @@ export default function VotingPowerForm() {
   }, [veMentoBalance.value]);
 
   const formattedLock = useMemo(() => {
-    return lock?.amount
-      ? Number(formatUnits(lock.amount, 18)).toLocaleString()
-      : "0";
-  }, [lock?.amount]);
+    return Number(lockedBalance).toLocaleString();
+  }, [lockedBalance]);
 
   const formattedUnlockedMento = useMemo(() => {
     return Number(unlockedMento).toLocaleString();

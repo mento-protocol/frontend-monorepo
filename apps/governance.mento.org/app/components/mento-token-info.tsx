@@ -9,6 +9,7 @@ import {
 } from "@repo/ui";
 import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
+import { Celo, Alfajores } from "@/lib/config/chains";
 
 import useGovernanceDetails from "@/lib/contracts/governor/useGovernanceDetails";
 import { useContracts } from "@/lib/contracts/useContracts";
@@ -136,6 +137,8 @@ const ContractAddressDisplay = ({
 }: {
   address: string | undefined;
 }) => {
+  const { chainId } = useAccount();
+
   if (!address) {
     return <span>-</span>;
   }
@@ -144,11 +147,26 @@ const ContractAddressDisplay = ({
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
+  const currentChain = chainId === Celo.id ? Celo : Alfajores;
+  const explorerUrl = currentChain.blockExplorers?.default?.url;
+  const addressUrl = explorerUrl ? `${explorerUrl}/address/${address}` : null;
+
   return (
     <div className="flex items-center gap-2">
-      <span className="text-muted-foreground text-sm">
-        {formatAddress(address)}
-      </span>
+      {addressUrl ? (
+        <a
+          href={addressUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-muted-foreground text-sm hover:underline"
+        >
+          {formatAddress(address)}
+        </a>
+      ) : (
+        <span className="text-muted-foreground text-sm">
+          {formatAddress(address)}
+        </span>
+      )}
       <CopyToClipboard text={address} />
     </div>
   );

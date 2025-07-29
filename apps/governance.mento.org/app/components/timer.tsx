@@ -9,6 +9,8 @@ interface TimerProps {
 }
 
 interface TimeLeft {
+  weeks: number;
+  days: number;
   hours: number;
   minutes: number;
   seconds: number;
@@ -17,6 +19,8 @@ interface TimeLeft {
 
 export const Timer = ({ until }: TimerProps) => {
   const [timeLeft, setTimeLeft] = useState<TimeLeft>({
+    weeks: 0,
+    days: 0,
     hours: 0,
     minutes: 0,
     seconds: 0,
@@ -29,23 +33,33 @@ export const Timer = ({ until }: TimerProps) => {
       const untilDate = spacetime(until);
 
       if (now.isAfter(untilDate)) {
-        setTimeLeft({ hours: 0, minutes: 0, seconds: 0, isFinished: true });
+        setTimeLeft({
+          weeks: 0,
+          days: 0,
+          hours: 0,
+          minutes: 0,
+          seconds: 0,
+          isFinished: true,
+        });
         return;
       }
 
-      const diff = now.diff(untilDate);
+      // Use untilDate.diff(now) to get a positive time difference
+      const diff = untilDate.diff(now);
 
-      const hours =
-        Math.floor(
-          (diff.milliseconds % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60),
-        ) +
-        diff.days * 24;
-      const minutes = Math.floor(
-        (diff.milliseconds % (1000 * 60 * 60)) / (1000 * 60),
-      );
-      const seconds = Math.floor((diff.milliseconds % (1000 * 60)) / 1000);
+      // Calculate time units
+      const totalSeconds = Math.floor(Math.abs(diff.milliseconds) / 1000);
+      const totalMinutes = Math.floor(totalSeconds / 60);
+      const totalHours = Math.floor(totalMinutes / 60);
+      const totalDays = Math.floor(totalHours / 24);
 
-      setTimeLeft({ hours, minutes, seconds, isFinished: false });
+      const weeks = Math.floor(totalDays / 7);
+      const days = totalDays % 7;
+      const hours = totalHours % 24;
+      const minutes = totalMinutes % 60;
+      const seconds = totalSeconds % 60;
+
+      setTimeLeft({ weeks, days, hours, minutes, seconds, isFinished: false });
     };
 
     calculateTimeLeft();
@@ -55,8 +69,19 @@ export const Timer = ({ until }: TimerProps) => {
     return () => clearInterval(timer);
   }, [until]);
 
-  const formatNumber = (num: number) => {
-    return num.toString().padStart(2, "0");
+  const formatTimeLeft = () => {
+    const { weeks, days, hours, minutes, seconds } = timeLeft;
+
+    // Format based on the largest non-zero unit
+    if (weeks > 0) {
+      return `${weeks}w ${days}d ${hours}h`;
+    } else if (days > 0) {
+      return `${days}d ${hours}h ${minutes}m`;
+    } else if (hours > 0) {
+      return `${hours}h ${minutes}m ${seconds}s`;
+    } else {
+      return `${minutes}m ${seconds}s`;
+    }
   };
 
   const formatFinishDate = () => {
@@ -80,10 +105,7 @@ export const Timer = ({ until }: TimerProps) => {
             <TimerIcon size={16} />
             Time left:
           </span>
-          <span className="text-muted-foreground w-20">
-            {formatNumber(timeLeft.hours)} : {formatNumber(timeLeft.minutes)} :{" "}
-            {formatNumber(timeLeft.seconds)}
-          </span>
+          <span className="text-muted-foreground">{formatTimeLeft()}</span>
         </>
       )}
     </div>

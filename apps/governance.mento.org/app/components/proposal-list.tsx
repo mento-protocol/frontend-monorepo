@@ -99,8 +99,18 @@ export const ProposalList = () => {
     veMentoBalance.value,
     proposalThreshold,
   ]);
-  const totalPages = Math.ceil(proposals.length / ITEMS_PER_PAGE);
-  const paginatedProposals = proposals.slice(
+
+  // Sort proposals in descending order by timestamp (newest first)
+  const sortedProposals = useMemo(() => {
+    return [...proposals].sort(
+      (a, b) =>
+        Number(b.proposalCreated[0]?.timestamp) -
+        Number(a.proposalCreated[0]?.timestamp),
+    );
+  }, [proposals]);
+
+  const totalPages = Math.ceil(sortedProposals.length / ITEMS_PER_PAGE);
+  const paginatedProposals = sortedProposals.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE,
   );
@@ -146,7 +156,7 @@ export const ProposalList = () => {
                 case ProposalState.Active:
                   return "active";
                 case ProposalState.Succeeded:
-                  return "queued";
+                  return "succeeded";
                 case ProposalState.Defeated:
                   return "defeated";
                 case ProposalState.Queued:
@@ -165,7 +175,11 @@ export const ProposalList = () => {
             return (
               <ProposalListItem key={index}>
                 <ProposalListItemIndex
-                  index={(currentPage - 1) * ITEMS_PER_PAGE + index + 1}
+                  index={
+                    sortedProposals.length -
+                    1 -
+                    ((currentPage - 1) * ITEMS_PER_PAGE + index)
+                  }
                 />
                 <ProposalListItemBody>
                   <ProposalStatus variant={getStatusVariant()} />

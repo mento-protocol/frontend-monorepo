@@ -2,6 +2,8 @@
 import { useProposalThreshold } from "@/lib/contracts/governor/useProposalThreshold";
 import useTokens from "@/lib/contracts/useTokens";
 import { formatUnitsWithThousandSeparators } from "@/lib/helpers/numbers";
+import TurndownService from "turndown";
+import ReactMarkdown from "react-markdown";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -40,19 +42,79 @@ import useProposals from "@/lib/contracts/governor/use-proposals";
 
 const isTextInvalid = (html: string) => {
   const text = html.replace(/<[^>]*>/g, "").trim();
-  console.log(text);
   return text.length < 100;
+};
+
+// Convert HTML to Markdown for preview purposes
+const htmlToMarkdown = (html: string): string => {
+  const turndownService = new TurndownService({
+    headingStyle: "atx", // Use # style headings instead of underline style
+    codeBlockStyle: "fenced",
+    emDelimiter: "*",
+    hr: "---", // Use --- for horizontal rules instead of *
+  });
+
+  // Add custom rule for HR elements
+  turndownService.addRule("horizontalRule", {
+    filter: "hr",
+    replacement: function () {
+      return "\n\n---\n\n";
+    },
+  });
+
+  return turndownService.turndown(html);
+};
+
+// Convert Markdown to HTML for the editor
+const markdownToHtml = (markdown: string): string => {
+  // Basic markdown to HTML conversion
+  let html = markdown
+    // Horizontal rules (must come before other replacements)
+    .replace(/^---$/gim, "<hr>")
+    .replace(/^\*\*\*$/gim, "<hr>")
+    .replace(/^___$/gim, "<hr>")
+    // Headers
+    .replace(/^### (.*$)/gim, "<h3>$1</h3>")
+    .replace(/^## (.*$)/gim, "<h2>$1</h2>")
+    .replace(/^# (.*$)/gim, "<h1>$1</h1>")
+    // Bold
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    // Italic (but not HR)
+    .replace(/(?<!\*)\*(?!\*)(.+?)\*(?!\*)/g, "<em>$1</em>")
+    // Links
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
+    // Line breaks
+    .replace(/\n\n/g, "</p><p>")
+    .replace(/\n/g, "<br>");
+
+  // Wrap in paragraph tags if needed
+  if (!html.startsWith("<")) {
+    html = "<p>" + html + "</p>";
+  }
+
+  return html;
 };
 
 const ProposalDetailsStep = () => {
   const { setStep, newProposal, updateProposal } = useCreateProposal();
   const { proposals, isLoading } = useProposals();
 
-  const [previewContent, setPreviewContent] = useState(newProposal.description);
+  // Initialize HTML content - convert from Markdown if we have a description
+  const [htmlContent, setHtmlContent] = useState(() => {
+    if (newProposal.description) {
+      // If we have a description, it's in Markdown format, convert to HTML
+      return markdownToHtml(newProposal.description);
+    }
+    return "";
+  });
+
+  const [markdownPreview, setMarkdownPreview] = useState(
+    newProposal.description || "",
+  );
 
   const isDescriptionInvalid = useMemo(
-    () => isTextInvalid(newProposal.description),
-    [newProposal.description],
+    () => isTextInvalid(htmlContent),
+    [htmlContent],
   );
 
   // Check if title is unique among existing proposals
@@ -73,11 +135,16 @@ const ProposalDetailsStep = () => {
   };
 
   const handleDescriptionChange = (content: string) => {
+    setHtmlContent(content);
+
+    const markdownContent = htmlToMarkdown(content);
+
     updateProposal({
       ...newProposal,
-      description: content,
+      description: markdownContent,
     });
-    setPreviewContent(content);
+
+    setMarkdownPreview(markdownContent);
   };
 
   const scrollToTop = () => {
@@ -90,8 +157,10 @@ const ProposalDetailsStep = () => {
   };
 
   const rawProposalDescription = useMemo(() => {
-    return newProposal.description.replace(/<[^>]*>/g, "");
-  }, [newProposal.description]);
+    // For validation, we need to check the length of the text content
+    // Since we're storing markdown in newProposal.description, we need to check the HTML content
+    return htmlContent.replace(/<[^>]*>/g, "");
+  }, [htmlContent]);
 
   return (
     <div>
@@ -137,15 +206,15 @@ const ProposalDetailsStep = () => {
           >
             <Label>Description</Label>
             <RichTextEditor
-              value={newProposal.description}
+              value={htmlContent}
               onChange={handleDescriptionChange}
             />
 
-            <p className="text-muted-foreground mt-1 text-sm transition-opacity">
-              The description must be at least 100 characters long.{" "}
-              {rawProposalDescription.length < 100
-                ? `Write ${100 - rawProposalDescription.length} more characters.`
-                : ""}
+            <p
+              className={`text-muted-foreground mt-1 text-sm transition-opacity ${rawProposalDescription.length < 100 ? "opacity-100" : "opacity-0"}`}
+            >
+              The description must be at least 100 characters long. Write{" "}
+              {100 - rawProposalDescription.length} more characters.
             </p>
           </div>
         </TabsContent>
@@ -157,10 +226,9 @@ const ProposalDetailsStep = () => {
           >
             {newProposal.title}
           </h2>
-          <div
-            className="prose prose-invert"
-            dangerouslySetInnerHTML={{ __html: previewContent }}
-          />
+          <div className="prose prose-invert">
+            <ReactMarkdown>{markdownPreview}</ReactMarkdown>
+          </div>
         </TabsContent>
       </Tabs>
 
@@ -299,8 +367,9 @@ const ExecutionCodeStep = () => {
         </Tooltip>
       </div>
       <p className="text-muted-foreground mb-8 text-sm">
-        Paste your governance proposal's execution code in the JSON format on
-        the field below.
+        Paste your proposal's execution code in JSON format into the field
+        below. If your proposal does not need execution code, simply leave it as
+        is.
       </p>
       <div className="mb-4 flex flex-col gap-1">
         <Label>Execution Code</Label>
@@ -494,6 +563,14 @@ const CollapsibleJsonCode = ({ jsonString }: { jsonString: string }) => {
 
 const ReviewStep = () => {
   const { setStep, newProposal, submitProposal } = useCreateProposal();
+  const [htmlContent, setHtmlContent] = useState("");
+
+  // When the component mounts or newProposal changes, update the HTML content
+  useEffect(() => {
+    // Convert markdown to HTML for display
+    const previewHtml = markdownToHtml(newProposal.description);
+    setHtmlContent(previewHtml);
+  }, [newProposal.description]);
 
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -513,13 +590,13 @@ const ReviewStep = () => {
         over your proposal and then submit it.
       </p>
       <hr className="border-border mb-8" />
-      <CollapsibleHtmlContent htmlContent={newProposal.description} />
+      <CollapsibleHtmlContent htmlContent={htmlContent} />
       <hr className="border-border my-8" />
       <h2 className="mb-2 text-lg font-medium md:mb-4 md:text-3xl">
         Execution Code
       </h2>
       <CollapsibleJsonCode jsonString={newProposal.code} />
-      <div className="flex flex-col items-center gap-4 md:flex-row-reverse md:justify-between">
+      <div className="mt-4 flex flex-col items-center gap-4 md:flex-row-reverse md:justify-between">
         <Button
           className="h-10 w-full md:w-auto"
           clipped="default"
@@ -556,19 +633,18 @@ function CreateProposalSteps() {
   const { proposalThreshold, isLoadingProposalThreshold } =
     useProposalThreshold();
 
-  const [direction, setDirection] = useState<"buy" | "lock" | undefined>();
+  const [notEnough, setNotEnough] = useState(false);
 
   useEffect(() => {
     if (isConnected && proposalThreshold && veMentoBalance && mentoBalance) {
-      if (veMentoBalance.value <= proposalThreshold) {
-        if (mentoBalance.value == BigInt(0)) {
-          setDirection("buy");
-        } else {
-          setDirection("lock");
-        }
+      if (
+        veMentoBalance.value <= proposalThreshold ||
+        (mentoBalance.value == BigInt(0) &&
+          veMentoBalance.value < proposalThreshold)
+      ) {
+        setNotEnough(true);
       } else {
-        // User has sufficient veMENTO, reset direction to show the proposal form
-        setDirection(undefined);
+        setNotEnough(false);
       }
     }
   }, [
@@ -586,7 +662,7 @@ function CreateProposalSteps() {
     );
   }
 
-  if (direction === "lock") {
+  if (notEnough) {
     return (
       <>
         <h2 className="mb-4 text-lg font-medium md:text-3xl">
@@ -624,43 +700,6 @@ function CreateProposalSteps() {
         <Button className="h-10 w-full" clipped="default" asChild>
           <Link href="/voting-power">Lock MENTO</Link>
         </Button>
-      </>
-    );
-  }
-
-  if (direction === "buy") {
-    return (
-      <>
-        <h2 className="mb-4 text-lg font-medium md:text-3xl">Buy MENTO</h2>
-        <p className="text-muted-foreground mb-8 text-sm">
-          You have{" "}
-          <span className="text-foreground">
-            {formatUnitsWithThousandSeparators(
-              mentoBalance.value,
-              mentoBalance.decimals,
-              2,
-            )}{" "}
-            MENTO
-          </span>{" "}
-          &{" "}
-          <span className="text-foreground">
-            {formatUnitsWithThousandSeparators(
-              veMentoBalance.value,
-              veMentoBalance.decimals,
-              4,
-            )}{" "}
-            veMENTO
-          </span>
-          <br />
-          <br />
-          To create a new governance proposal, you should have{" "}
-          <span className="text-foreground">
-            {formatUnitsWithThousandSeparators(proposalThreshold, 18, 2)}{" "}
-            veMENTO
-          </span>{" "}
-          in your account.
-          <br />
-        </p>
       </>
     );
   }

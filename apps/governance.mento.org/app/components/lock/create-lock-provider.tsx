@@ -1,23 +1,21 @@
-import { ReactNode, createContext, useContext } from "react";
+import { Alfajores, Celo } from "@/lib/config/chains";
 import useCreateLockOnChain from "@/lib/contracts/locking/useLockMento";
 import { useAllowance } from "@/lib/contracts/mento/useAllowance";
 import useApprove from "@/lib/contracts/mento/useApprove";
 import { useContracts } from "@/lib/contracts/useContracts";
-import React from "react";
+import { toast } from "@repo/ui";
+import React, { ReactNode, createContext, useContext } from "react";
 import { parseEther } from "viem";
 import { useAccount } from "wagmi";
-import { toast } from "@repo/ui";
-import { Celo, Alfajores } from "@/lib/config/chains";
 
-import { useFormContext } from "react-hook-form";
 import {
   DEFAULT_LOCKING_CLIFF,
   LOCKING_AMOUNT_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
-  MAX_LOCKING_DURATION_WEEKS,
 } from "@/lib/constants/locking";
-import { TxDialog } from "../tx-dialog/tx-dialog";
 import { differenceInWeeks } from "date-fns";
+import { useFormContext } from "react-hook-form";
+import { TxDialog } from "../tx-dialog/tx-dialog";
 
 export enum CREATE_LOCK_TX_STATUS {
   PENDING = "PENDING",
@@ -60,6 +58,8 @@ export const CreateLockProvider = ({
 }: ICreateLockProvider) => {
   const { watch, reset: resetForm } = useFormContext();
   const [isTxDialogOpen, setIsTxDialogOpen] = React.useState(false);
+  const [hasApprovedForCurrentLock, setHasApprovedForCurrentLock] =
+    React.useState(false);
 
   const { address, chainId } = useAccount();
   const amount = watch(LOCKING_AMOUNT_FORM_KEY);
@@ -68,9 +68,7 @@ export const CreateLockProvider = ({
   const slope = React.useMemo(() => {
     if (!unlockDate) return 0;
     const weeks = differenceInWeeks(unlockDate, new Date()) + 1;
-    const maxSlope = MAX_LOCKING_DURATION_WEEKS / 2;
-    const calculatedSlope = weeks / maxSlope;
-    return Math.max(2, Math.round(calculatedSlope));
+    return weeks;
   }, [unlockDate]);
 
   const contracts = useContracts();
@@ -111,9 +109,12 @@ export const CreateLockProvider = ({
   const approve = useApprove();
 
   const needsApproval = React.useMemo(() => {
+    // If we've already approved for this lock transaction, don't recompute based on allowance
+    if (hasApprovedForCurrentLock) return false;
+
     if (!allowance.data) return true;
     return allowance?.data < parsedAmount;
-  }, [allowance.data, parsedAmount]);
+  }, [allowance.data, parsedAmount, hasApprovedForCurrentLock]);
 
   const CreateLockTxStatus = React.useMemo(() => {
     if (approve.error || lock.error) return CREATE_LOCK_TX_STATUS.ERROR;
@@ -143,29 +144,41 @@ export const CreateLockProvider = ({
     lock.reset();
     approve.reset();
     setIsTxDialogOpen(true);
-    if (!needsApproval) {
-      lockMento();
-    } else {
+    setHasApprovedForCurrentLock(false);
+
+    if (needsApproval) {
       approve.approveMento({
         target: contracts.Locking.address,
         amount: parsedAmount,
-        onConfirmation: lockMento,
+        onConfirmation: () => {
+          setHasApprovedForCurrentLock(true);
+          lockMento();
+        },
+        onError: (error) => {
+          console.error("Approval failed", error);
+          toast.error("Failed to approve MENTO");
+        },
       });
+    } else {
+      lockMento();
     }
   }, [
-    lock,
     approve,
-    needsApproval,
-    lockMento,
     contracts.Locking.address,
+    lock,
+    lockMento,
+    needsApproval,
     parsedAmount,
   ]);
 
   const reset = React.useCallback(() => {
+    setIsTxDialogOpen(false);
+    setHasApprovedForCurrentLock(false);
     approve.reset();
     lock.reset();
   }, [approve, lock]);
   const retry = React.useCallback(() => {
+    setHasApprovedForCurrentLock(false);
     createLock();
   }, [createLock]);
 

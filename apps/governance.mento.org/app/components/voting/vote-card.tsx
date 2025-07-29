@@ -98,6 +98,9 @@ export const VoteCard = ({
   // Track when queue transaction is pending (sent but not confirmed)
   const isQueueTransactionPending = queueHash && !isQueueConfirmed;
 
+  // Always use the most recent transaction hash for explorer links
+  const currentTxHash = queueHash || executeHash || hash;
+
   const linkExplorer =
     chainId === Alfajores.id ? links.explorerAlfajores : links.explorerMain;
 
@@ -222,24 +225,22 @@ export const VoteCard = ({
     const forPower = BigInt(proposal.votes?.for?.total || 0);
     const againstPower = BigInt(proposal.votes?.against?.total || 0);
     const abstainPower = BigInt(proposal.votes?.abstain?.total || 0);
-    const quorumBigInt = quorumNeeded || BigInt(0);
+    const total = forPower + againstPower + abstainPower;
 
-    // Calculate percentages based on quorum (not total votes cast)
+    // Calculate percentages, guarded against division by zero
     let forPercentage = "0.0";
     let againstPercentage = "0.0";
     let abstainPercentage = "0.0";
 
-    if (quorumBigInt > 0) {
-      // Calculate percentages based on quorum needed
-      forPercentage = ((Number(forPower) / Number(quorumBigInt)) * 100).toFixed(
-        1,
-      );
+    // Only perform calculation if some votes have been cast
+    if (total > BigInt(0)) {
+      forPercentage = ((Number(forPower) / Number(total)) * 100).toFixed(1);
       againstPercentage = (
-        (Number(againstPower) / Number(quorumBigInt)) *
+        (Number(againstPower) / Number(total)) *
         100
       ).toFixed(1);
       abstainPercentage = (
-        (Number(abstainPower) / Number(quorumBigInt)) *
+        (Number(abstainPower) / Number(total)) *
         100
       ).toFixed(1);
     }
@@ -258,12 +259,10 @@ export const VoteCard = ({
         value: NumbersService.parseNumericValue(formatUnits(abstainPower, 18)),
         percentage: parseFloat(abstainPercentage),
       },
-      totalQuorum: NumbersService.parseNumericValue(
-        formatUnits(quorumBigInt, 18),
-      ),
+      totalQuorum: Number(formatUnits(total, 18)),
       mode: "vote" as const,
     };
-  }, [proposal.votes, quorumNeeded]);
+  }, [proposal.votes]);
 
   const handleVote = (support: number) => {
     if (!isAwaitingUserSignature && !isConfirming && !voteReceipt?.hasVoted) {
@@ -330,9 +329,7 @@ export const VoteCard = ({
     proposalState === ProposalState.Defeated &&
     abstainVotes > forVotes &&
     abstainVotes > againstVotes;
-  const isQuorumNotMet =
-    proposalState === ProposalState.Defeated &&
-    totalVotingPower < (quorumNeeded || BigInt(0));
+  const hasQuorum = totalVotingPower >= (quorumNeeded || BigInt(0));
 
   const currentState = useMemo(() => {
     if (isInitializing) return "loading";
@@ -349,7 +346,7 @@ export const VoteCard = ({
 
     // Only show queued state after queue transaction is confirmed
     if (proposalState === ProposalState.Succeeded && isQueueConfirmed) {
-      return "queued";
+      return "succeeded";
     }
     if (
       (proposalState === ProposalState.Active && voteReceipt?.hasVoted) ||
@@ -368,6 +365,8 @@ export const VoteCard = ({
         case ProposalState.Queued:
           return "queued";
         case ProposalState.Succeeded:
+          // Keep showing the queueing state if the queue transaction is pending
+          if (isQueueTransactionPending) return "confirming";
           return "succeeded";
         case ProposalState.Defeated:
           return "defeated";
@@ -419,7 +418,7 @@ export const VoteCard = ({
         return "Proposal Succeeded";
       case "defeated":
         if (isAbstained) return "Majority Abstained";
-        if (isQuorumNotMet) return "Quorum Not Met";
+        if (!hasQuorum) return "Quorum Not Met";
         return "Proposal Defeated";
       case "expired":
         return "Proposal Expired";
@@ -431,7 +430,7 @@ export const VoteCard = ({
         if (isVotingOpen) return "Voting Open";
         return "Voting Finished";
     }
-  }, [currentState, isVotingOpen, isAbstained, isQuorumNotMet]);
+  }, [currentState, isVotingOpen, isAbstained, hasQuorum]);
 
   const description = useMemo(() => {
     switch (currentState) {
@@ -501,7 +500,7 @@ export const VoteCard = ({
         if (abstainVotes > forVotes && abstainVotes > againstVotes) {
           return (
             <>
-              While quorum was reached, most voters chose to abstain.
+              While quorum was met, most voters chose to abstain.
               <br />
               As a result, the proposal did not receive enough support to pass.
             </>
@@ -902,7 +901,7 @@ export const VoteCard = ({
             (hash || executeHash || queueHash) && (
               <Button variant="outline" size="sm" asChild className="mt-2">
                 <a
-                  href={`${linkExplorer}/tx/${hash || executeHash || queueHash}`}
+                  href={`${linkExplorer}/tx/${currentTxHash}`}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
@@ -917,6 +916,15 @@ export const VoteCard = ({
     return null;
   };
 
+  const quorumLabel = useMemo(() => {
+    let label = "";
+
+    if (isVotingOpen) label = hasQuorum ? "Quorum met" : "Quorum not yet met";
+    else label = hasQuorum ? "Quorum met" : "Quorum not met";
+
+    return label;
+  }, [isVotingOpen, totalVotingPower, quorumNeeded]);
+
   return (
     <Card className={cardClassName}>
       {showHeader && (
@@ -925,12 +933,12 @@ export const VoteCard = ({
             {votingDeadline && <Timer until={votingDeadline} />}
 
             <div className="flex items-center gap-2">
-              {isQuorumNotMet ? (
+              {!hasQuorum ? (
                 <XCircleIcon size={16} className="text-white" />
               ) : (
                 <CheckCircle2 size={16} className="text-white" />
               )}
-              <span>Quorum {isQuorumNotMet ? "not reached" : "reached"}</span>
+              <span>{quorumLabel}</span>
               <span
                 className="text-muted-foreground text-sm"
                 data-testid="quorumReachedLabel"
