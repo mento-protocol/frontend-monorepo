@@ -58,6 +58,8 @@ export const CreateLockProvider = ({
 }: ICreateLockProvider) => {
   const { watch, reset: resetForm } = useFormContext();
   const [isTxDialogOpen, setIsTxDialogOpen] = React.useState(false);
+  const [hasApprovedForCurrentLock, setHasApprovedForCurrentLock] =
+    React.useState(false);
 
   const { address, chainId } = useAccount();
   const amount = watch(LOCKING_AMOUNT_FORM_KEY);
@@ -107,9 +109,12 @@ export const CreateLockProvider = ({
   const approve = useApprove();
 
   const needsApproval = React.useMemo(() => {
+    // If we've already approved for this lock transaction, don't recompute based on allowance
+    if (hasApprovedForCurrentLock) return false;
+
     if (!allowance.data) return true;
     return allowance?.data < parsedAmount;
-  }, [allowance.data, parsedAmount]);
+  }, [allowance.data, parsedAmount, hasApprovedForCurrentLock]);
 
   const CreateLockTxStatus = React.useMemo(() => {
     if (approve.error || lock.error) return CREATE_LOCK_TX_STATUS.ERROR;
@@ -139,29 +144,41 @@ export const CreateLockProvider = ({
     lock.reset();
     approve.reset();
     setIsTxDialogOpen(true);
-    if (!needsApproval) {
-      lockMento();
-    } else {
+    setHasApprovedForCurrentLock(false);
+
+    if (needsApproval) {
       approve.approveMento({
         target: contracts.Locking.address,
         amount: parsedAmount,
-        onConfirmation: lockMento,
+        onConfirmation: () => {
+          setHasApprovedForCurrentLock(true);
+          lockMento();
+        },
+        onError: (error) => {
+          console.error("Approval failed", error);
+          toast.error("Failed to approve MENTO");
+        },
       });
+    } else {
+      lockMento();
     }
   }, [
-    lock,
     approve,
-    needsApproval,
-    lockMento,
     contracts.Locking.address,
+    lock,
+    lockMento,
+    needsApproval,
     parsedAmount,
   ]);
 
   const reset = React.useCallback(() => {
+    setIsTxDialogOpen(false);
+    setHasApprovedForCurrentLock(false);
     approve.reset();
     lock.reset();
   }, [approve, lock]);
   const retry = React.useCallback(() => {
+    setHasApprovedForCurrentLock(false);
     createLock();
   }, [createLock]);
 

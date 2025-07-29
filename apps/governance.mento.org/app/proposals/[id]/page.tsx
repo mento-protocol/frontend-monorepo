@@ -33,6 +33,7 @@ import { formatUnits } from "viem";
 import { useAccount, useBlock, useBlockNumber } from "wagmi";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { formatInTimeZone } from "date-fns-tz";
 
 // Function to decode HTML entities
 function decodeHtmlEntities(text: string): string {
@@ -255,7 +256,12 @@ export default function ProposalPage() {
               Voting deadline:
             </span>
             <span className="text-sm">
-              {votingDeadline && format(votingDeadline, "MMM do, yyyy")}
+              {votingDeadline &&
+                formatInTimeZone(
+                  votingDeadline,
+                  "UTC",
+                  "MMM do, yyyy, HH:mm 'UTC'",
+                )}
             </span>
           </div>
         </div>
