@@ -85,6 +85,8 @@ const ConnectedDropdown = ({
   const { openAccountModal } = useAccountModal();
   const { disconnect } = useDisconnect();
 
+  const isProduction = process.env.NEXT_PUBLIC_VERCEL_ENV === "production";
+
   const onClickCopy = async () => {
     if (!account.address) return;
     try {
@@ -141,20 +143,22 @@ const ConnectedDropdown = ({
           />
           <span>Copy Address</span>
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={openChainModal}
-          className={cn(
-            "cursor-pointer gap-3 py-3",
-            "focus:bg-accent focus:text-accent-foreground",
-          )}
-        >
-          <NetworkIcon
-            size={iconSize}
-            strokeWidth={iconStrokeWidth}
-            className="text-muted-foreground"
-          />
-          <span>Change Network</span>
-        </DropdownMenuItem>
+        {!isProduction && (
+          <DropdownMenuItem
+            onClick={openChainModal}
+            className={cn(
+              "cursor-pointer gap-3 py-3",
+              "focus:bg-accent focus:text-accent-foreground",
+            )}
+          >
+            <NetworkIcon
+              size={iconSize}
+              strokeWidth={iconStrokeWidth}
+              className="text-muted-foreground"
+            />
+            <span>Change Network</span>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem
           onClick={openAccountModal}
           className={cn(
