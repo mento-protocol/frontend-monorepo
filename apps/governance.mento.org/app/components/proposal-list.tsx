@@ -23,7 +23,7 @@ import {
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { formatUnits } from "viem";
-import useTokens from "@/lib/contracts/useTokens";
+import useTokens from "@/lib/hooks/use-tokens";
 import { useProposalThreshold } from "@/lib/contracts/governor/useProposalThreshold";
 
 const ITEMS_PER_PAGE = 10;

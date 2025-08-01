@@ -1,6 +1,5 @@
 "use client";
 
-import { useAccountBalances } from "@repo/web3";
 import {
   cn,
   Dialog,
@@ -9,30 +8,34 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  IconLoading,
   ScrollArea,
   TokenIcon,
-  IconLoading,
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@repo/ui";
+import { useAccountBalances } from "@repo/web3";
+import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { ChevronLeft, ChevronsRight, Search } from "lucide-react";
 import { Fragment, useState } from "react";
-import { useAccount, useChainId } from "wagmi";
 
-import { useTokenOptions, useTradablePairs } from "@repo/web3";
-import type { TokenId } from "@repo/web3";
-import { fromWeiRounded } from "@repo/web3";
 import { Input } from "@repo/ui";
-import { formatWithMaxDecimals } from "@repo/web3";
+import type { TokenId } from "@repo/web3";
+import {
+  formatWithMaxDecimals,
+  fromWeiRounded,
+  useTokenOptions,
+  useTradablePairs,
+} from "@repo/web3";
 
 interface TokenDialogProps {
   value: string;
   onValueChange: (value: string) => void;
   trigger: React.ReactNode;
   title?: string;
-  fromTokenId?: TokenId;
+  tokenInId?: TokenId;
   excludeTokenId?: string;
   filterByTokenId?: TokenId;
   onClose?: () => void;
@@ -43,7 +46,7 @@ export default function TokenDialog({
   onValueChange,
   trigger,
   title = "Select asset to sell",
-  fromTokenId,
+  tokenInId,
   excludeTokenId,
   filterByTokenId,
   onClose,
@@ -56,7 +59,7 @@ export default function TokenDialog({
   const { data: balancesFromHook } = useAccountBalances({ address, chainId });
 
   const { tokenOptions, allTokenOptions } = useTokenOptions(
-    fromTokenId,
+    tokenInId,
     balancesFromHook,
   );
 
@@ -64,7 +67,7 @@ export default function TokenDialog({
   const { data: tradableTokenIds, isLoading: isLoadingTradablePairs } =
     useTradablePairs(filterByTokenId);
   // Filter tokens based on search input and exclude the token that's already selected
-  const filteredTokens = (fromTokenId ? tokenOptions : allTokenOptions)
+  const filteredTokens = (tokenInId ? tokenOptions : allTokenOptions)
     .filter(
       (token) =>
         token.symbol.toLowerCase().includes(search.toLowerCase()) ||

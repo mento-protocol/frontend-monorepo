@@ -6,7 +6,7 @@ import {
   useSwitchChain,
   createStorage,
   useDisconnect,
-} from "wagmi";
+} from "@repo/web3/wagmi";
 import { IS_PROD } from "../../middleware";
 
 export function EnsureChain({ children }: { children: ReactNode }) {

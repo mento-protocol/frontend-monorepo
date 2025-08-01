@@ -20,7 +20,7 @@ import {
   useAccount,
   useBlockNumber,
   useWaitForTransactionReceipt,
-} from "wagmi";
+} from "@repo/web3/wagmi";
 import { CreateProposalTxDialog } from "./create-proposal-transaction-dialog";
 
 export enum CreateProposalStep {

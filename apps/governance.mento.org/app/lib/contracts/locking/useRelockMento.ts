@@ -8,7 +8,7 @@ import {
   useSimulateContract,
   useWaitForTransactionReceipt,
   useWriteContract,
-} from "wagmi";
+} from "@repo/web3/wagmi";
 import { WriteContractErrorType } from "wagmi/actions";
 import useLockedAmount from "./useLockedAmount";
 

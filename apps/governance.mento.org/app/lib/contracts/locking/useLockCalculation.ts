@@ -2,8 +2,8 @@ import { LockingABI } from "@/lib/abi/Locking";
 import { useContracts } from "@/lib/contracts/useContracts";
 import { Lock } from "@/lib/graphql/subgraph/generated/subgraph";
 import { formatUnits, parseUnits } from "viem";
-import { useReadContract } from "wagmi";
-import useTokens from "../useTokens";
+import { useReadContract } from "@repo/web3/wagmi";
+import { useTokens } from "../useTokens";
 import { useEnsureChainId } from "@/lib/hooks/use-ensure-chain-id";
 
 interface ILockHook {

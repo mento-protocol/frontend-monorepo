@@ -2,7 +2,7 @@ import { useUnlockedMento } from "./useUnlockedMento";
 import useLocksByAccount from "./useLocksByAccount";
 import useLockedAmount from "./useLockedAmount";
 import React from "react";
-import useTokens from "@/lib/contracts/useTokens";
+import useTokens from "@/lib/hooks/use-tokens";
 import useLockingWeek from "./useLockingWeek";
 import { formatUnits } from "viem";
 
