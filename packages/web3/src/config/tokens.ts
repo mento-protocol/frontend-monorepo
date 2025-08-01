@@ -201,7 +201,7 @@ export const cNGN: Token = Object.freeze({
   decimals: 18,
 });
 
-export const Tokens: Record<TokenId, Token> = {
+export const Tokens = {
   CELO,
   cUSD,
   cEUR,

@@ -5,7 +5,7 @@ import { formatUnitsWithRadix } from "@/lib/helpers/numbers";
 import { useEnsureChainId } from "@/lib/hooks/use-ensure-chain-id";
 import { useMemo } from "react";
 import { erc20Abi } from "viem";
-import { useAccount, useReadContracts } from "wagmi";
+import { useAccount, useReadContracts } from "@repo/web3/wagmi";
 
 export type TokenBalance = {
   decimals: number;

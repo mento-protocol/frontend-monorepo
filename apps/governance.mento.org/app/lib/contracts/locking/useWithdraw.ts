@@ -1,4 +1,7 @@
-import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import {
+  useWriteContract,
+  useWaitForTransactionReceipt,
+} from "@repo/web3/wagmi";
 import { LockingABI } from "@/lib/abi/Locking";
 import { useContracts } from "@/lib/contracts/useContracts";
 import { useEnsureChainId } from "@/lib/hooks/use-ensure-chain-id";

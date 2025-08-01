@@ -9,9 +9,9 @@ export function useTradablePairs(tokenId?: TokenId) {
   const chainId = useChainId() as ChainId;
   const { allTokenOptions } = useTokenOptions();
 
-  return useQuery(
-    ["tradablePairs", chainId, tokenId],
-    async () => {
+  return useQuery({
+    queryKey: ["tradablePairs", chainId, tokenId],
+    queryFn: async () => {
       if (!tokenId) return [];
 
       // Check each token to see if it forms a tradable pair with the given token
@@ -42,10 +42,8 @@ export function useTradablePairs(tokenId?: TokenId) {
       // Filter out null values to get only tradable token IDs
       return results.filter((id): id is TokenId => id !== null);
     },
-    {
-      enabled: !!tokenId,
-      staleTime: 5 * 60 * 1000, // Cache for 5 minutes
-      cacheTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
-    },
-  );
+    enabled: !!tokenId,
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
+  });
 }

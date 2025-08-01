@@ -8,13 +8,13 @@ import {
   CopyToClipboard,
 } from "@repo/ui";
 import { formatUnits } from "viem";
-import { useAccount } from "wagmi";
+import { useAccount } from "@repo/web3/wagmi";
 import { Celo, Alfajores } from "@/lib/config/chains";
 
 import useGovernanceDetails from "@/lib/contracts/governor/useGovernanceDetails";
 import { useContracts } from "@/lib/contracts/useContracts";
-import useTokens from "@/lib/contracts/useTokens";
 import NumbersService from "@/lib/helpers/numbers";
+import useTokens from "@/lib/hooks/use-tokens";
 
 export const MentoTokenInfo = () => {
   const { chain } = useAccount();

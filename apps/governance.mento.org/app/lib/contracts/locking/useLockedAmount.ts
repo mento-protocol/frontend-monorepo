@@ -1,5 +1,5 @@
 "use client";
-import { useAccount, useReadContract } from "wagmi";
+import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { useContracts } from "@/lib/contracts/useContracts";
 
 import { useEnsureChainId } from "@/lib/hooks/use-ensure-chain-id";

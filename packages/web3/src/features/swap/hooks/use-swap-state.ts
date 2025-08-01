@@ -13,7 +13,7 @@ interface UseSwapStateProps {
   isApproveTxLoading: boolean;
   isApproveTxSuccess: boolean;
   sendSwapTx: (() => Promise<unknown>) | undefined;
-  fromTokenId: TokenId;
+  tokenInId: TokenId;
 }
 
 /**
@@ -32,7 +32,7 @@ interface UseSwapStateProps {
  */
 export function useSwapState(props: UseSwapStateProps): SwapState {
   const {
-    fromTokenId,
+    tokenInId,
     skipApprove,
     isAllowanceLoading,
     isApproveTxLoading,
@@ -45,7 +45,7 @@ export function useSwapState(props: UseSwapStateProps): SwapState {
     // 1. Checking Allowance
     if (isAllowanceLoading) {
       return {
-        text: `Checking ${fromTokenId} allowance...`,
+        text: `Checking ${tokenInId} allowance...`,
         disabled: true,
       };
     }
@@ -60,13 +60,13 @@ export function useSwapState(props: UseSwapStateProps): SwapState {
       }
       if (isApproveTxLoading) {
         return {
-          text: `Approving ${fromTokenId}...`,
+          text: `Approving ${tokenInId}...`,
           disabled: true,
         };
       }
       if (!isApproveTxSuccess) {
         return {
-          text: `Approve ${fromTokenId}`,
+          text: `Approve ${tokenInId}`,
           disabled: false,
         };
       }
@@ -91,6 +91,6 @@ export function useSwapState(props: UseSwapStateProps): SwapState {
     isApproveTxLoading,
     isApproveTxSuccess,
     sendSwapTx,
-    fromTokenId,
+    tokenInId,
   ]);
 }

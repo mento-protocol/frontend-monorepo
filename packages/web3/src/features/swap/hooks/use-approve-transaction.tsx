@@ -1,27 +1,35 @@
-import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { chainIdToChain } from "@/config/chains";
 import { type TokenId, getTokenAddress } from "@/config/tokens";
+import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
+import { logger } from "@/utils";
 import { toast } from "@repo/ui";
 import { useQuery } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Address, TransactionReceipt } from "viem";
 import {
-  type Address,
-  usePrepareSendTransaction,
+  useEstimateGas,
   useSendTransaction,
-  useWaitForTransaction,
+  useWaitForTransactionReceipt,
 } from "wagmi";
-import { logger } from "@/utils";
 
-export function useApproveTransaction(
-  chainId: number,
-  tokenInId: TokenId,
-  tokenOutId: TokenId,
-  amountInWei: string,
-  accountAddress?: Address,
-) {
-  const { error: txPrepError, data: txRequest } = useQuery(
-    [
+export function useApproveTransaction({
+  chainId,
+  tokenInId,
+  tokenOutId,
+  amountInWei,
+  accountAddress,
+  onSuccess,
+}: {
+  chainId: number;
+  tokenInId: TokenId;
+  tokenOutId: TokenId;
+  amountInWei: string;
+  accountAddress?: Address;
+  onSuccess?: (receipt: TransactionReceipt) => void;
+}) {
+  const { error: txPrepError, data: txRequest } = useQuery({
+    queryKey: [
       "useApproveTransaction",
       chainId,
       tokenInId,
@@ -29,7 +37,7 @@ export function useApproveTransaction(
       amountInWei,
       accountAddress,
     ],
-    async () => {
+    queryFn: async () => {
       if (!accountAddress || new BigNumber(amountInWei).lte(0)) return null;
       const sdk = await getMentoSdk(chainId);
       const tokenInAddr = getTokenAddress(tokenInId, chainId);
@@ -45,27 +53,33 @@ export function useApproveTransaction(
       );
       return { ...txRequest, to: tokenInAddr };
     },
-    {
-      retry: false,
-    },
-  );
+  });
 
-  const { config, error: sendPrepError } = usePrepareSendTransaction(
-    txRequest ? { request: txRequest } : undefined,
-  );
+  const [approveTxHash, setApproveTxHash] = useState<Address | null>(null);
+
+  const { data, error: sendPrepError } = useEstimateGas({
+    to: txRequest?.to,
+    data: txRequest?.data,
+  });
+
+  const { data: approveTxReceipt, isSuccess: isApproveTxConfirmed } =
+    useWaitForTransactionReceipt({
+      hash: approveTxHash as Address,
+    });
+
   const {
-    data: txResult,
-    isLoading,
+    data: sendTxHash,
+    isPending,
     isSuccess,
     error: txSendError,
     sendTransactionAsync,
-  } = useSendTransaction(config);
+  } = useSendTransaction();
 
   // Wait for transaction confirmation
-  const { data: txReceipt, isSuccess: isConfirmed } = useWaitForTransaction({
-    hash: txResult?.hash,
-    enabled: !!txResult?.hash,
-  });
+  const { data: txReceipt, isSuccess: isConfirmed } =
+    useWaitForTransactionReceipt({
+      hash: sendTxHash,
+    });
 
   useEffect(() => {
     if (txPrepError || sendPrepError?.message) {
@@ -78,12 +92,12 @@ export function useApproveTransaction(
         toast.error("Approval transaction failed");
       }
       logger.error(txSendError);
-    } else if (isConfirmed && txReceipt && txResult?.hash) {
-      logger.info(`Approval confirmed: ${txResult.hash}`);
+    } else if (isConfirmed && txReceipt && sendTxHash) {
+      logger.info(`Approval confirmed: ${sendTxHash}`);
       const currentChainConfig = chainIdToChain[chainId];
       const explorerBaseUrl = currentChainConfig?.explorerUrl;
       const explorerTxUrl = explorerBaseUrl
-        ? `${explorerBaseUrl}/tx/${txResult.hash}`
+        ? `${explorerBaseUrl}/tx/${sendTxHash}`
         : null;
 
       const message = "Approve complete! Sending swap tx.";
@@ -112,14 +126,32 @@ export function useApproveTransaction(
     txSendError,
     isConfirmed,
     txReceipt,
-    txResult,
+    sendTxHash,
     chainId,
   ]);
 
+  useEffect(() => {
+    if (isApproveTxConfirmed && onSuccess) {
+      onSuccess(approveTxReceipt);
+    }
+  }, [isApproveTxConfirmed, approveTxReceipt, onSuccess]);
+
+  const sendApproveTx = useCallback(async () => {
+    const hash = await sendTransactionAsync({
+      gas: data,
+      to: txRequest?.to,
+      data: txRequest?.data,
+    });
+
+    setApproveTxHash(hash);
+
+    return hash;
+  }, [sendTransactionAsync, data, txRequest]);
+
   return {
-    sendApproveTx: sendTransactionAsync,
-    approveTxResult: txResult,
-    isApproveTxLoading: isLoading,
+    sendApproveTx,
+    approveTxHash: sendTxHash,
+    isApproveTxLoading: isPending,
     isApproveTxSuccess: isSuccess,
     isApproveTxConfirmed: isConfirmed,
   };
