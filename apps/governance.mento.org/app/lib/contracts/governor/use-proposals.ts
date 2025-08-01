@@ -12,7 +12,7 @@ import {
 import { useEnsureChainId } from "@/lib/hooks/use-ensure-chain-id";
 
 import { useCallback, useMemo } from "react";
-import { useReadContracts } from "wagmi";
+import { useReadContracts } from "@repo/web3/wagmi";
 
 export const GraphProposalsQueryKey = ["proposals-graph-query"];
 

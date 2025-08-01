@@ -6,7 +6,7 @@ import { useContracts } from "@/lib/contracts/useContracts";
 import { toast } from "@repo/ui";
 import React, { ReactNode, createContext, useContext } from "react";
 import { parseEther } from "viem";
-import { useAccount } from "wagmi";
+import { useAccount } from "@repo/web3/wagmi";
 
 import {
   DEFAULT_LOCKING_CLIFF,

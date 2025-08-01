@@ -49,8 +49,8 @@ interface UseSwapQuoteOptions {
 export function useSwapQuote(
   amount: string | number,
   direction: SwapDirection,
-  fromTokenId: TokenId,
-  toTokenId: TokenId,
+  tokenInId: TokenId,
+  tokenOutId: TokenId,
   options: UseSwapQuoteOptions = {},
 ) {
   const { skipDebugLogs = false, debounceMs = 350 } = options;
@@ -61,10 +61,10 @@ export function useSwapQuote(
   // Memoize token objects to prevent unnecessary re-renders
   const { fromToken, toToken } = useMemo(
     () => ({
-      fromToken: Tokens[fromTokenId],
-      toToken: Tokens[toTokenId],
+      fromToken: Tokens[tokenInId],
+      toToken: Tokens[tokenOutId],
     }),
-    [fromTokenId, toTokenId],
+    [tokenInId, tokenOutId],
   );
 
   // Memoize validation checks
@@ -74,23 +74,23 @@ export function useSwapQuote(
       debouncedAmount !== "" &&
       Number(debouncedAmount) > 0;
     const isValidTokenPair =
-      fromTokenId !== toTokenId && !!fromToken && !!toToken;
+      tokenInId !== tokenOutId && !!fromToken && !!toToken;
     const isQueryEnabled = isValidAmount && isValidTokenPair;
 
     return { isValidAmount, isValidTokenPair, isQueryEnabled };
-  }, [debouncedAmount, fromTokenId, toTokenId, fromToken, toToken]);
+  }, [debouncedAmount, tokenInId, tokenOutId, fromToken, toToken]);
 
   // Memoize query key to improve cache efficiency
   const queryKey = useMemo(
     () => [
       "swap-quote",
       debouncedAmount,
-      fromTokenId,
-      toTokenId,
+      tokenInId,
+      tokenOutId,
       direction,
       chainId,
     ],
-    [debouncedAmount, fromTokenId, toTokenId, direction, chainId],
+    [debouncedAmount, tokenInId, tokenOutId, direction, chainId],
   );
 
   // Memoize swap intent for logging
@@ -104,8 +104,8 @@ export function useSwapQuote(
     if (!skipDebugLogs) {
       const swapIntent =
         direction === "in"
-          ? `${debouncedAmount} ${fromTokenId} to ${toTokenId}`
-          : `${fromTokenId} to ${debouncedAmount} ${toTokenId}`;
+          ? `${debouncedAmount} ${tokenInId} to ${tokenOutId}`
+          : `${tokenInId} to ${debouncedAmount} ${tokenOutId}`;
 
       // Check if this is a refetch by looking for existing data
       const existingData = queryClient.getQueryData(queryKey);
@@ -116,13 +116,13 @@ export function useSwapQuote(
       );
     }
 
-    const fromTokenAddr = getTokenAddress(fromTokenId, chainId);
-    const toTokenAddr = getTokenAddress(toTokenId, chainId);
+    const fromTokenAddr = getTokenAddress(tokenInId, chainId);
+    const toTokenAddr = getTokenAddress(tokenOutId, chainId);
     const isSwapIn = direction === "in";
 
     const amountWei = parseInputExchangeAmount(
       amount,
-      isSwapIn ? fromTokenId : toTokenId,
+      isSwapIn ? tokenInId : tokenOutId,
     );
 
     const amountWeiBN = ethers.BigNumber.from(amountWei);
@@ -133,7 +133,7 @@ export function useSwapQuote(
 
     const [mento, tradablePair] = await Promise.all([
       getMentoSdk(chainId),
-      getTradablePairForTokens(chainId, fromTokenId, toTokenId),
+      getTradablePairForTokens(chainId, tokenInId, tokenOutId),
     ]);
 
     // Debug output for swap route (skip for refetches)
@@ -175,8 +175,8 @@ export function useSwapQuote(
     if (!skipDebugLogs) {
       const quoteLog =
         direction === "in"
-          ? `${debouncedAmount} ${fromTokenId} => ${quote} ${toTokenId}`
-          : `${quote} ${fromTokenId} => ${debouncedAmount} ${toTokenId}`;
+          ? `${debouncedAmount} ${tokenInId} => ${quote} ${tokenOutId}`
+          : `${quote} ${tokenInId} => ${debouncedAmount} ${tokenOutId}`;
 
       // Check if this is a refetch for the result log too
       const existingData = queryClient.getQueryData(queryKey);
@@ -196,8 +196,8 @@ export function useSwapQuote(
   }, [
     validation.isQueryEnabled,
     skipDebugLogs,
-    fromTokenId,
-    toTokenId,
+    tokenInId,
+    tokenOutId,
     chainId,
     direction,
     amount,
@@ -211,7 +211,9 @@ export function useSwapQuote(
   const { isLoading, isError, error, data, refetch } = useQuery<
     ISwapData | null,
     ISwapError
-  >(queryKey, fetchQuote, {
+  >({
+    queryKey,
+    queryFn: fetchQuote,
     enabled: validation.isQueryEnabled,
     staleTime: SWAP_QUOTE_REFETCH_INTERVAL,
     refetchInterval: SWAP_QUOTE_REFETCH_INTERVAL,
@@ -288,10 +290,10 @@ export function useTokenUSDValue(tokenId: TokenId, amount: string | number) {
 export function useOptimizedSwapQuote(
   amount: string | number,
   direction: SwapDirection,
-  fromTokenId: TokenId,
-  toTokenId: TokenId,
+  tokenInId: TokenId,
+  tokenOutId: TokenId,
 ) {
-  const mainQuote = useSwapQuote(amount, direction, fromTokenId, toTokenId);
+  const mainQuote = useSwapQuote(amount, direction, tokenInId, tokenOutId);
 
   // Calculate USD values more efficiently
   const { fromAmount, toAmount } = useMemo(
@@ -302,8 +304,8 @@ export function useOptimizedSwapQuote(
     [direction, amount, mainQuote.quote],
   );
 
-  const fromTokenUSDValue = useTokenUSDValue(fromTokenId, fromAmount);
-  const toTokenUSDValue = useTokenUSDValue(toTokenId, toAmount);
+  const fromTokenUSDValue = useTokenUSDValue(tokenInId, fromAmount);
+  const toTokenUSDValue = useTokenUSDValue(tokenOutId, toAmount);
 
   return useMemo(
     () => ({

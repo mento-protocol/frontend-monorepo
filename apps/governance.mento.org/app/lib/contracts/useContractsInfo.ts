@@ -2,7 +2,7 @@ import { GetContractsInfoQuery, ProposalCall } from "@/lib/graphql";
 import { useGetContractsInfoQuery } from "@/lib/graphql/celo-explorer/generated/celoGraph";
 import { useMemo } from "react";
 import { decodeFunctionData } from "viem";
-import { useAccount } from "wagmi";
+import { useAccount } from "@repo/web3/wagmi";
 
 /**
  * The Celo Explorer API returns nothing (as in not even undefined) for

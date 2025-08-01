@@ -1,20 +1,21 @@
 "use client";
 
-import { useGasEstimation } from "@repo/web3";
-import { useOptimizedSwapQuote } from "@repo/web3";
-import { useSwapTransaction } from "@repo/web3";
-import { formValuesAtom } from "@repo/web3";
-import { SwapDirection } from "@repo/web3";
+import { Button, IconLoading, TokenIcon } from "@repo/ui";
 import {
   formatWithMaxDecimals,
+  formValuesAtom,
   getMaxSellAmount,
   getMinBuyAmount,
+  logger,
+  SwapDirection,
+  TokenId,
+  Tokens,
+  useGasEstimation,
+  useOptimizedSwapQuote,
+  useSwapAllowance,
+  useSwapTransaction,
 } from "@repo/web3";
-import { TokenId, Tokens } from "@repo/web3";
-import { logger } from "@repo/web3";
-import { Button, IconLoading, TokenIcon } from "@repo/ui";
-import { useAccount } from "wagmi";
-import { useChainId } from "wagmi";
+import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { useAtom } from "jotai";
 import { ArrowRight } from "lucide-react";
 import { useMemo } from "react";
@@ -27,8 +28,8 @@ export function SwapConfirm() {
 
   const amount = String(formValues?.amount || "");
   const direction = (formValues?.direction || "in") as SwapDirection;
-  const fromTokenId = formValues?.fromTokenId || TokenId.cUSD;
-  const toTokenId = formValues?.toTokenId || TokenId.CELO;
+  const tokenInId = formValues?.tokenInId || TokenId.cUSD;
+  const tokenOutId = formValues?.tokenOutId || TokenId.CELO;
   const slippage = String(formValues?.slippage || "0.5");
 
   const {
@@ -38,7 +39,7 @@ export function SwapConfirm() {
     rate,
     fromTokenUSDValue,
     toTokenUSDValue,
-  } = useOptimizedSwapQuote(amount, direction, fromTokenId, toTokenId);
+  } = useOptimizedSwapQuote(amount, direction, tokenInId, tokenOutId);
 
   const swapValues = useMemo(() => {
     let computedFromAmountWei = amountWei;
@@ -90,8 +91,8 @@ export function SwapConfirm() {
 
   const { sendSwapTx, isSwapTxLoading } = useSwapTransaction(
     chainId,
-    fromTokenId,
-    toTokenId,
+    tokenInId,
+    tokenOutId,
     fromAmountWei,
     thresholdAmountInWei,
     direction,
@@ -104,16 +105,24 @@ export function SwapConfirm() {
     },
   );
 
+  const { skipApprove } = useSwapAllowance({
+    chainId,
+    tokenInId,
+    tokenOutId,
+    approveAmount: amountWei,
+    address,
+  });
+
   const { data: gasEstimate, isLoading: isGasEstimating } = useGasEstimation({
     amount,
     quote,
-    fromTokenId,
-    toTokenId,
+    tokenInId,
+    tokenOutId,
     direction,
     address: address || "",
     chainId,
     slippage,
-    skipApprove: true,
+    skipApprove,
   });
 
   // USD values are now calculated by useOptimizedSwapQuote hook
@@ -129,15 +138,15 @@ export function SwapConfirm() {
     // Fallback to calculating it ourselves
     if (direction === "in") {
       // selling from-token
-      return fromTokenId === "cUSD" ? amount || "0" : fromTokenUSDValue || "0";
+      return tokenInId === "cUSD" ? amount || "0" : fromTokenUSDValue || "0";
     } else {
       // still selling from-token (but user typed in Buy first)
-      return fromTokenId === "cUSD" ? quote || "0" : fromTokenUSDValue || "0";
+      return tokenInId === "cUSD" ? quote || "0" : fromTokenUSDValue || "0";
     }
   }, [
     formValues?.sellUSDValue,
     direction,
-    fromTokenId,
+    tokenInId,
     amount,
     quote,
     fromTokenUSDValue,
@@ -153,15 +162,15 @@ export function SwapConfirm() {
 
     // Fallback to calculating it ourselves
     if (direction === "in") {
-      return toTokenId === "cUSD" ? quote || "0" : toTokenUSDValue || "0";
+      return tokenOutId === "cUSD" ? quote || "0" : toTokenUSDValue || "0";
     } else {
       // we're buying the to-token
-      return toTokenId === "cUSD" ? amount || "0" : toTokenUSDValue || "0";
+      return tokenOutId === "cUSD" ? amount || "0" : toTokenUSDValue || "0";
     }
   }, [
     formValues?.buyUSDValue,
     direction,
-    toTokenId,
+    tokenOutId,
     amount,
     quote,
     toTokenUSDValue,
@@ -178,8 +187,8 @@ export function SwapConfirm() {
     }
   }
 
-  const fromToken = Tokens[formValues?.fromTokenId as keyof typeof Tokens];
-  const toToken = Tokens[formValues?.toTokenId as keyof typeof Tokens];
+  const fromToken = Tokens[formValues?.tokenInId as keyof typeof Tokens];
+  const toToken = Tokens[formValues?.tokenOutId as keyof typeof Tokens];
 
   if (!formValues) {
     return null;
@@ -251,7 +260,7 @@ export function SwapConfirm() {
       <div className="flex w-full flex-col items-start justify-start space-y-2">
         <div className="flex w-full flex-row items-center justify-between">
           <span className="text-muted-foreground">Rate</span>
-          <span data-testid="rateLabel">{`${rate && Number(rate) > 0 ? Number(rate).toFixed(4) : "0"} ${fromTokenId} ~ 1 ${toTokenId}`}</span>
+          <span data-testid="rateLabel">{`${rate && Number(rate) > 0 ? Number(rate).toFixed(4) : "0"} ${tokenInId} ~ 1 ${tokenOutId}`}</span>
         </div>
 
         <div className="flex w-full flex-row items-center justify-between">

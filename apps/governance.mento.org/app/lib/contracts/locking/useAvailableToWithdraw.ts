@@ -1,5 +1,5 @@
 import { useContracts } from "@/lib/contracts/useContracts";
-import { useAccount, useReadContract } from "wagmi";
+import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { LockingABI } from "@/lib/abi/Locking";
 import { useEnsureChainId } from "@/lib/hooks/use-ensure-chain-id";
 

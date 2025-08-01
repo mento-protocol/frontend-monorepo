@@ -1,5 +1,5 @@
 import { ensureChainId } from "@/lib/helpers/ensure-chain-id";
-import { useAccount } from "wagmi";
+import { useAccount } from "@repo/web3/wagmi";
 
 export const useEnsureChainId = () => {
   const { chainId } = useAccount();

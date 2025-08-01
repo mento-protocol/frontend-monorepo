@@ -1,5 +1,8 @@
 import { useCallback } from "react";
-import { useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import {
+  useWaitForTransactionReceipt,
+  useWriteContract,
+} from "@repo/web3/wagmi";
 import { useContracts } from "@/lib/contracts/useContracts";
 import { GovernorABI } from "@/lib/abi/Governor";
 import { WriteContractErrorType } from "wagmi/actions";

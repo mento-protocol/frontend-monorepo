@@ -1,4 +1,4 @@
-import { useReadContract } from "wagmi";
+import { useReadContract } from "@repo/web3/wagmi";
 import { Address } from "viem";
 import { GovernorABI } from "@/lib/abi/Governor";
 import { useContracts } from "@/lib/contracts/useContracts";

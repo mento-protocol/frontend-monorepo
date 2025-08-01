@@ -44,8 +44,7 @@ import {
 } from "@repo/web3";
 import { useAtom } from "jotai";
 import { ArrowUpDown, ChevronDown, OctagonAlert } from "lucide-react";
-import { useAccount, useChainId } from "wagmi";
-import { waitForTransaction } from "wagmi/actions";
+import { useAccount, useChainId } from "@repo/web3/wagmi";
 import TokenDialog from "./token-dialog";
 
 type SwapDirection = "in" | "out";
@@ -62,9 +61,9 @@ const formSchema = z.object({
       return parsed !== null && parsed.gt(0);
     }),
   direction: z.enum(["in", "out"]),
-  fromTokenId: z.string().min(1, { message: "From token is required" }),
+  tokenInId: z.string().min(1, { message: "From token is required" }),
   quote: z.string(),
-  toTokenId: z.string().min(1, { message: "To token is required" }),
+  tokenOutId: z.string().min(1, { message: "To token is required" }),
   slippage: z.string().optional(),
 });
 
@@ -97,49 +96,49 @@ export default function SwapForm() {
       direction: formValues?.direction || "in",
       amount: formValues?.amount || "",
       quote: formValues?.quote || "",
-      fromTokenId: formValues?.fromTokenId || "CELO",
-      toTokenId: formValues?.toTokenId || "cUSD",
+      tokenInId: formValues?.tokenInId || "CELO",
+      tokenOutId: formValues?.tokenOutId || "cUSD",
       slippage: formValues?.slippage || "0.5",
     },
     mode: "onChange", // Important for field-level validation
   });
 
-  const fromTokenId = useWatch({ control: form.control, name: "fromTokenId" });
-  const toTokenId = useWatch({ control: form.control, name: "toTokenId" });
+  const tokenInId = useWatch({ control: form.control, name: "tokenInId" });
+  const tokenOutId = useWatch({ control: form.control, name: "tokenOutId" });
   const amount = useWatch({ control: form.control, name: "amount" });
   const formDirection = useWatch({ control: form.control, name: "direction" });
   const formQuote = useWatch({ control: form.control, name: "quote" });
 
   // Get token balances
   const fromTokenBalance = useMemo(() => {
-    const balanceValue = balances[fromTokenId as keyof typeof balances];
+    const balanceValue = balances[tokenInId as keyof typeof balances];
     const balance = fromWeiRounded(
       balanceValue,
-      Tokens[fromTokenId as TokenId]?.decimals,
+      Tokens[tokenInId as TokenId]?.decimals,
     );
     return formatWithMaxDecimals(balance || "0.00");
-  }, [balances, fromTokenId]);
+  }, [balances, tokenInId]);
 
   const toTokenBalance = useMemo(() => {
-    const balanceValue = balances[toTokenId as keyof typeof balances];
+    const balanceValue = balances[tokenOutId as keyof typeof balances];
     const balance = fromWeiRounded(
       balanceValue,
-      Tokens[toTokenId as TokenId]?.decimals,
+      Tokens[tokenOutId as TokenId]?.decimals,
     );
     return formatWithMaxDecimals(balance || "0.00");
-  }, [balances, toTokenId]);
+  }, [balances, tokenOutId]);
 
   // Get trading limits
   const { data: limits, isLoading: limitsLoading } = useTradingLimits(
-    fromTokenId,
-    toTokenId,
+    tokenInId,
+    tokenOutId,
     chainId,
   );
 
   // Layer 2: Field-level sync validation (balance)
   const validateBalance = useCallback(
     (value: string) => {
-      if (!value || !fromTokenId) return true;
+      if (!value || !tokenInId) return true;
 
       // Allow "0." as user is typing
       if (value === "0." || value === "0") return true;
@@ -153,10 +152,10 @@ export default function SwapForm() {
         return "Amount too small";
       }
 
-      const tokenInfo = Tokens[fromTokenId as TokenId];
+      const tokenInfo = Tokens[tokenInId as TokenId];
       if (!tokenInfo) return "Invalid token";
 
-      const tokenBalance = balances[fromTokenId as keyof typeof balances];
+      const tokenBalance = balances[tokenInId as keyof typeof balances];
       if (typeof tokenBalance === "undefined") return "Balance unavailable";
 
       const amountInWei = toWei(parsedAmount, tokenInfo.decimals);
@@ -171,7 +170,7 @@ export default function SwapForm() {
 
       return true;
     },
-    [balances, fromTokenId],
+    [balances, tokenInId],
   );
 
   // Shared function for limit validation logic
@@ -181,8 +180,8 @@ export default function SwapForm() {
       numericQuote: number,
       limits: NonNullable<ReturnType<typeof useTradingLimits>["data"]>,
       formDirection: string,
-      fromTokenId: string,
-      toTokenId: string,
+      tokenInId: string,
+      tokenOutId: string,
     ) => {
       const { L0, L1, LG, tokenToCheck } = limits;
 
@@ -193,7 +192,7 @@ export default function SwapForm() {
       let timestamp = 0;
       let exceededTier: "L0" | "L1" | "LG" | null = null;
 
-      if (tokenToCheck === fromTokenId) {
+      if (tokenToCheck === tokenInId) {
         amountToCheck = formDirection === "in" ? numericAmount : numericQuote;
         if (LG?.maxIn && amountToCheck > LG.maxIn) {
           exceeds = true;
@@ -239,7 +238,7 @@ export default function SwapForm() {
       }
 
       if (exceeds) {
-        const toTokenSymbol = toTokenId;
+        const toTokenSymbol = tokenOutId;
 
         if (exceededTier === "LG") {
           return `The ${tokenToCheck} amount exceeds the global trading limit of ${limit.toLocaleString()} ${tokenToCheck} to ${toTokenSymbol}.`;
@@ -275,8 +274,8 @@ export default function SwapForm() {
         numericQuote,
         limits,
         formDirection,
-        fromTokenId,
-        toTokenId,
+        tokenInId,
+        tokenOutId,
       );
 
       return violation || true;
@@ -286,8 +285,8 @@ export default function SwapForm() {
       limits,
       checkTradingLimitViolation,
       formDirection,
-      fromTokenId,
-      toTokenId,
+      tokenInId,
+      tokenOutId,
       formQuote,
     ],
   );
@@ -309,30 +308,30 @@ export default function SwapForm() {
   // Validation for quote field when direction is "out"
   const validateQuoteBalance = useCallback(
     (value: string) => {
-      if (formDirection !== "out" || !value || !fromTokenId) return true;
+      if (formDirection !== "out" || !value || !tokenInId) return true;
 
       return validateBalance(value);
     },
-    [validateBalance, formDirection, fromTokenId],
+    [validateBalance, formDirection, tokenInId],
   );
 
   // Function to handle token swap
   const handleReverseTokens = () => {
-    const currentFromTokenId = form.getValues("fromTokenId");
-    const currentToTokenId = form.getValues("toTokenId");
+    const currentTokenInId = form.getValues("tokenInId");
+    const currentTokenOutId = form.getValues("tokenOutId");
     const currentAmount = form.getValues("amount");
 
-    form.setValue("fromTokenId", currentToTokenId);
-    form.setValue("toTokenId", currentFromTokenId);
+    form.setValue("tokenInId", currentTokenOutId);
+    form.setValue("tokenOutId", currentTokenInId);
     form.setValue("amount", currentAmount);
     form.setValue("direction", "in");
     form.setValue("quote", "");
   };
 
   const handleUseMaxBalance = () => {
-    const maxAmountWei = balances[fromTokenId as keyof typeof balances] || "0";
-    const maxAmountBigInt = BigInt(maxAmountWei);
-    const decimals = Tokens[fromTokenId as TokenId]?.decimals;
+    const maxamountInWei = balances[tokenInId as keyof typeof balances] || "0";
+    const maxAmountBigInt = BigInt(maxamountInWei);
+    const decimals = Tokens[tokenInId as TokenId]?.decimals;
 
     const formattedAmount = fromWeiRounded(
       maxAmountBigInt.toString(),
@@ -341,7 +340,7 @@ export default function SwapForm() {
     form.setValue("amount", formatWithMaxDecimals(formattedAmount, 4, false));
     form.setValue("direction", "in");
 
-    if (fromTokenId === "CELO") {
+    if (tokenInId === "CELO") {
       toast.success("Max balance used", {
         duration: 5000,
         description: () => <>Consider keeping some CELO for transaction fees</>,
@@ -379,8 +378,8 @@ export default function SwapForm() {
   } = useOptimizedSwapQuote(
     canQuote ? amount : "",
     formDirection as SwapDirection,
-    fromTokenId as TokenId,
-    toTokenId as TokenId,
+    tokenInId as TokenId,
+    tokenOutId as TokenId,
   );
 
   useEffect(() => {
@@ -390,7 +389,7 @@ export default function SwapForm() {
   // Check balance in real-time
   useEffect(() => {
     const checkBalance = async () => {
-      if (!hasAmount || !fromTokenId) {
+      if (!hasAmount || !tokenInId) {
         setBalanceError(null);
         return;
       }
@@ -404,7 +403,7 @@ export default function SwapForm() {
     };
 
     checkBalance();
-  }, [amount, hasAmount, fromTokenId, formDirection, validateBalance]);
+  }, [amount, hasAmount, tokenInId, formDirection, validateBalance]);
 
   useEffect(() => {
     if (!hasAmount || !limits || limitsLoading) return;
@@ -417,8 +416,8 @@ export default function SwapForm() {
       numericQuote,
       limits,
       formDirection,
-      fromTokenId,
-      toTokenId,
+      tokenInId,
+      tokenOutId,
     );
 
     setTradingLimitError((v) => (v === violation ? v : violation));
@@ -428,8 +427,8 @@ export default function SwapForm() {
     limits,
     limitsLoading,
     formDirection,
-    fromTokenId,
-    toTokenId,
+    tokenInId,
+    tokenOutId,
     hasAmount,
     checkTradingLimitViolation,
   ]);
@@ -448,53 +447,88 @@ export default function SwapForm() {
 
   const sellUSDValue = useMemo(() => {
     if (formDirection === "in") {
-      return fromTokenId === "cUSD" ? amount || "0" : fromTokenUSDValue || "0";
+      return tokenInId === "cUSD" ? amount || "0" : fromTokenUSDValue || "0";
     } else {
-      return fromTokenId === "cUSD"
-        ? formQuote || "0"
-        : fromTokenUSDValue || "0";
+      return tokenInId === "cUSD" ? formQuote || "0" : fromTokenUSDValue || "0";
     }
-  }, [formDirection, fromTokenId, amount, formQuote, fromTokenUSDValue]);
+  }, [formDirection, tokenInId, amount, formQuote, fromTokenUSDValue]);
 
   const buyUSDValue = useMemo(() => {
     if (formDirection === "in") {
-      return toTokenId === "cUSD" ? formQuote || "0" : toTokenUSDValue || "0";
+      return tokenOutId === "cUSD" ? formQuote || "0" : toTokenUSDValue || "0";
     } else {
-      return toTokenId === "cUSD" ? amount || "0" : toTokenUSDValue || "0";
+      return tokenOutId === "cUSD" ? amount || "0" : toTokenUSDValue || "0";
     }
-  }, [formDirection, toTokenId, amount, formQuote, toTokenUSDValue]);
+  }, [formDirection, tokenOutId, amount, formQuote, toTokenUSDValue]);
 
-  const amountWei = useMemo(() => {
-    if (!fromTokenId) return "0";
+  const amountInWei = useMemo(() => {
+    if (!tokenInId) return "0";
 
     if (formDirection === "in") {
       return amount
-        ? toWei(amount, Tokens[fromTokenId as TokenId]?.decimals).toFixed(0)
+        ? toWei(amount, Tokens[tokenInId as TokenId]?.decimals).toFixed(0)
         : "0";
     }
 
     return formQuote
-      ? toWei(formQuote, Tokens[fromTokenId as TokenId]?.decimals).toFixed(0)
+      ? toWei(formQuote, Tokens[tokenInId as TokenId]?.decimals).toFixed(0)
       : "0";
-  }, [amount, formQuote, formDirection, fromTokenId]);
+  }, [amount, formQuote, formDirection, tokenInId]);
 
   // Check if approval is needed
   const { skipApprove } = useSwapAllowance({
     chainId,
-    fromTokenId: fromTokenId as TokenId,
-    toTokenId: toTokenId as TokenId,
-    approveAmount: amountWei,
+    tokenInId: tokenInId as TokenId,
+    tokenOutId: tokenOutId as TokenId,
+    approveAmount: amountInWei,
     address,
   });
 
   // Approval transaction hook
-  const { sendApproveTx, isApproveTxLoading } = useApproveTransaction(
-    chainId,
-    fromTokenId as TokenId,
-    toTokenId as TokenId,
-    amountWei,
-    address,
-  );
+  const { sendApproveTx, isApproveTxLoading, approveTxHash } =
+    useApproveTransaction({
+      chainId,
+      tokenInId: tokenInId as TokenId,
+      tokenOutId: tokenOutId as TokenId,
+      amountInWei,
+      accountAddress: address,
+      onSuccess: (receipt) => {
+        logger.info("Approval transaction confirmed");
+        const explorerUrl = chainIdToChain[chainId]?.explorerUrl;
+
+        toast.success(
+          <>
+            <h4>Approve Successful</h4>
+            <span className="text-muted-foreground mt-2 block">
+              Token allowance for swap approved
+            </span>
+            {explorerUrl && (
+              <a
+                href={`${explorerUrl}/tx/${receipt.transactionHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-muted-foreground underline"
+              >
+                View Transaction on CeloScan
+              </a>
+            )}
+          </>,
+        );
+        setIsApprovalProcessing(false);
+
+        const formData: SwapFormValues = {
+          ...formValues,
+          slippage: formValues?.slippage || "0.5",
+          tokenInId: tokenInId as TokenId,
+          tokenOutId: tokenOutId as TokenId,
+          buyUSDValue,
+          sellUSDValue,
+        };
+
+        setFormValues(formData);
+        setConfirmView(true);
+      },
+    });
 
   useEffect(() => {
     if (quote !== undefined) {
@@ -528,54 +562,31 @@ export default function SwapForm() {
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     try {
-      const explorerUrl = chainIdToChain[chainId]?.explorerUrl;
       if (!skipApprove && sendApproveTx) {
         setIsApprovalProcessing(true);
         logger.info("Approval needed, sending approve transaction");
-        const approveTx = await sendApproveTx();
+        const hash = await sendApproveTx();
 
-        if (!approveTx?.hash) {
+        if (!hash) {
           setIsApprovalProcessing(false);
           throw new Error("Approval transaction failed");
         }
 
         logger.info("Waiting for approval transaction", {
-          hash: approveTx.hash,
+          hash: approveTxHash,
         });
-        await waitForTransaction({ hash: approveTx.hash });
-        logger.info("Approval transaction confirmed");
-        toast.success(
-          <>
-            <h4>Approve Successful</h4>
-            <span className="text-muted-foreground mt-2 block">
-              Token allowance for swap approved
-            </span>
-            {explorerUrl && (
-              <a
-                href={`${explorerUrl}/tx/${approveTx.hash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-muted-foreground underline"
-              >
-                View Transaction on CeloScan
-              </a>
-            )}
-          </>,
-        );
-        setIsApprovalProcessing(false);
+      } else {
+        const formData: SwapFormValues = {
+          ...values,
+          slippage: form.getValues("slippage") || "0.5",
+          tokenInId: tokenInId as TokenId,
+          tokenOutId: tokenOutId as TokenId,
+          buyUSDValue,
+          sellUSDValue,
+        };
+        setFormValues(formData);
+        setConfirmView(true);
       }
-
-      const formData: SwapFormValues = {
-        ...values,
-        slippage: formValues?.slippage || "0.5",
-        fromTokenId: fromTokenId as TokenId,
-        toTokenId: toTokenId as TokenId,
-        buyUSDValue,
-        sellUSDValue,
-      };
-
-      setFormValues(formData);
-      setConfirmView(true);
     } catch (error) {
       logger.error("Error in swap form submission", error);
       setIsApprovalProcessing(false);
@@ -605,9 +616,11 @@ export default function SwapForm() {
 
   // Get tradable pairs for both tokens
   const { data: fromTokenTradablePairs } = useTradablePairs(
-    fromTokenId as TokenId,
+    tokenInId as TokenId,
   );
-  const { data: toTokenTradablePairs } = useTradablePairs(toTokenId as TokenId);
+  const { data: toTokenTradablePairs } = useTradablePairs(
+    tokenOutId as TokenId,
+  );
 
   const [lastChangedToken, setLastChangedToken] = useState<
     "from" | "to" | null
@@ -615,24 +628,24 @@ export default function SwapForm() {
 
   // Handle token pair validation - reset opposite token if an invalid pair is selected
   useEffect(() => {
-    if (!fromTokenId || !toTokenId || !lastChangedToken) return;
+    if (!tokenInId || !tokenOutId || !lastChangedToken) return;
 
     const isValidPair =
-      fromTokenTradablePairs?.includes(toTokenId as TokenId) ||
-      toTokenTradablePairs?.includes(fromTokenId as TokenId);
+      fromTokenTradablePairs?.includes(tokenOutId as TokenId) ||
+      toTokenTradablePairs?.includes(tokenInId as TokenId);
 
     // If an invalid pair is selected, reset the opposite token
     if (!isValidPair) {
       if (lastChangedToken === "from") {
-        form.setValue("toTokenId", "", { shouldValidate: false });
+        form.setValue("tokenOutId", "", { shouldValidate: false });
       } else if (lastChangedToken === "to") {
-        form.setValue("fromTokenId", "", { shouldValidate: false });
+        form.setValue("tokenInId", "", { shouldValidate: false });
       }
       setLastChangedToken(null);
     }
   }, [
-    fromTokenId,
-    toTokenId,
+    tokenInId,
+    tokenOutId,
     fromTokenTradablePairs,
     toTokenTradablePairs,
     lastChangedToken,
@@ -692,7 +705,7 @@ export default function SwapForm() {
             <div className="col-span-4 flex flex-row items-center justify-end">
               <FormField
                 control={form.control}
-                name="fromTokenId"
+                name="tokenInId"
                 render={({ field }) => (
                   <FormItem className="flex flex-col items-end justify-end">
                     <FormControl>
@@ -703,8 +716,8 @@ export default function SwapForm() {
                           setLastChangedToken("from");
                         }}
                         title="Select asset to sell"
-                        excludeTokenId={toTokenId}
-                        filterByTokenId={toTokenId as TokenId}
+                        excludeTokenId={tokenOutId}
+                        filterByTokenId={tokenOutId as TokenId}
                         onClose={() => {
                           setTimeout(() => {
                             amountRef.current?.focus();
@@ -829,7 +842,7 @@ export default function SwapForm() {
             <div className="col-span-4 flex flex-row items-center justify-end">
               <FormField
                 control={form.control}
-                name="toTokenId"
+                name="tokenOutId"
                 render={({ field }) => (
                   <FormItem className="flex flex-col items-end justify-end">
                     <FormControl>
@@ -840,8 +853,8 @@ export default function SwapForm() {
                           setLastChangedToken("to");
                         }}
                         title="Select asset to buy"
-                        excludeTokenId={fromTokenId}
-                        filterByTokenId={fromTokenId as TokenId}
+                        excludeTokenId={tokenInId}
+                        filterByTokenId={tokenInId as TokenId}
                         onClose={() => {
                           setTimeout(() => {
                             quoteRef.current?.focus();
@@ -882,7 +895,7 @@ export default function SwapForm() {
             <div className="flex w-full flex-col items-start justify-start space-y-2">
               <div className="flex w-full flex-row items-center justify-between">
                 <span className="text-muted-foreground">Rate</span>
-                <span data-testid="rateLabel">{`${rate && Number(rate) > 0 ? Number(rate).toFixed(4) : "0"} ${fromTokenId} ~ 1 ${toTokenId}`}</span>
+                <span data-testid="rateLabel">{`${rate && Number(rate) > 0 ? Number(rate).toFixed(4) : "0"} ${tokenInId} ~ 1 ${tokenOutId}`}</span>
               </div>
             </div>
           )}
@@ -894,8 +907,8 @@ export default function SwapForm() {
               balanceError,
               tradingLimitError,
               shouldApprove,
-              fromTokenId,
-              toTokenId,
+              tokenInId,
+              tokenOutId,
             })}
             className="mt-auto w-full"
             size="lg"
@@ -903,8 +916,8 @@ export default function SwapForm() {
             type="submit"
             disabled={
               !hasAmount ||
-              !toTokenId ||
-              !fromTokenId ||
+              !tokenOutId ||
+              !tokenInId ||
               !quote || // Require quote to be fetched
               (formDirection === "in"
                 ? !!(
@@ -925,9 +938,9 @@ export default function SwapForm() {
           >
             {isLoading && hasAmount ? ( // Only show loading if there's an amount
               <IconLoading />
-            ) : !fromTokenId ? (
+            ) : !tokenInId ? (
               "Select token to sell"
-            ) : !toTokenId ? (
+            ) : !tokenOutId ? (
               "Select token to buy"
             ) : tradingLimitError ? (
               "Swap exceeds trading limits"
@@ -942,7 +955,7 @@ export default function SwapForm() {
             ) : isApproveTxLoading || isApprovalProcessing ? (
               <IconLoading />
             ) : shouldApprove ? (
-              `Approve ${Tokens[fromTokenId as TokenId]?.symbol || fromTokenId}`
+              `Approve ${Tokens[tokenInId as TokenId]?.symbol || tokenInId}`
             ) : (
               "Swap"
             )}
@@ -959,25 +972,25 @@ function defineButtonLocator({
   balanceError,
   tradingLimitError,
   shouldApprove,
-  fromTokenId,
-  toTokenId,
+  tokenInId,
+  tokenOutId,
 }: {
   balanceError: string | null;
   tradingLimitError: string | null;
   shouldApprove: string | boolean;
-  fromTokenId: string;
-  toTokenId: string;
+  tokenInId: string;
+  tokenOutId: string;
 }) {
   switch (true) {
     case Boolean(balanceError && !tradingLimitError):
       return "insufficientBalanceButton";
     case Boolean(tradingLimitError):
       return "swapsExceedsTradingLimitButton";
-    case Boolean(shouldApprove && fromTokenId && toTokenId):
+    case Boolean(shouldApprove && tokenInId && tokenOutId):
       return "approveButton";
-    case !fromTokenId:
+    case !tokenInId:
       return "selectTokenToSellButton";
-    case !toTokenId:
+    case !tokenOutId:
       return "selectTokenToBuyButton";
     default:
       return "swapButton";

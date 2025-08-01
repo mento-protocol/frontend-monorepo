@@ -13,7 +13,7 @@ import {
   stringToBytes,
   toHex,
 } from "viem";
-import { useWriteContract } from "wagmi";
+import { useWriteContract } from "@repo/web3/wagmi";
 import { WriteContractErrorType } from "wagmi/actions";
 
 export type TransactionItem = {

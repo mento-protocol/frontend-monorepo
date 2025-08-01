@@ -1,10 +1,10 @@
 // Copied from https://github.com/celo-org/rainbowkit-celo/blob/a1b547840cedb48839fd8d0d72c81d9763c1f84c/packages/rainbowkit-celo/wallets/*
 // and modified to fix support for WalletConnect v2
 import { tryClipboardSet } from "@/utils/clipboard";
-import { Alfajores, Celo } from "@celo/rainbowkit-celo/chains";
 import type { Chain, Wallet } from "@rainbow-me/rainbowkit";
 import { getWalletConnectConnector } from "@rainbow-me/rainbowkit";
 import { toast } from "@repo/ui";
+import { celo, celoAlfajores } from "wagmi/chains";
 // @ts-expect-error: wagmi types are not compatible with rainbowkit types
 import { WalletConnectConnector } from "wagmi/dist/connectors/walletConnect";
 
@@ -28,7 +28,7 @@ interface WalletOptions {
 }
 
 export const Valora = ({
-  chains = [Alfajores, Celo],
+  chains = [celo, celoAlfajores],
   projectId,
 }: WalletOptions): Wallet => ({
   id: "valora",
@@ -82,7 +82,7 @@ export const Valora = ({
 });
 
 export const CeloTerminal = ({
-  chains = [Alfajores, Celo],
+  chains = [celo, celoAlfajores],
   projectId,
 }: WalletOptions): Wallet => ({
   id: "celo-terminal",

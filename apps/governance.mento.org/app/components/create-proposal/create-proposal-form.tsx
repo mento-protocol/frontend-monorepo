@@ -1,6 +1,6 @@
 "use client";
 import { useProposalThreshold } from "@/lib/contracts/governor/useProposalThreshold";
-import useTokens from "@/lib/contracts/useTokens";
+import useTokens from "@/lib/hooks/use-tokens";
 import { formatUnitsWithThousandSeparators } from "@/lib/helpers/numbers";
 import TurndownService from "turndown";
 import ReactMarkdown from "react-markdown";
@@ -31,7 +31,7 @@ import {
 import { ArrowLeft, ArrowRight, HelpCircle } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useAccount } from "wagmi";
+import { useAccount } from "@repo/web3/wagmi";
 import { ConnectButton } from "../connect-button";
 import {
   CreateProposalProvider,

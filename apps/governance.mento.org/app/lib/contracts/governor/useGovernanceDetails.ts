@@ -4,7 +4,7 @@ import { useContracts } from "@/lib/contracts/useContracts";
 import { useEnsureChainId } from "@/lib/hooks/use-ensure-chain-id";
 import { useMemo } from "react";
 
-import { useReadContracts } from "wagmi";
+import { useReadContracts } from "@repo/web3/wagmi";
 
 function convertSecondsToDays(
   durationInSeconds: string | bigint | number,

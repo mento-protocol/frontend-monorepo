@@ -4,16 +4,16 @@ import "@repo/ui/globals.css";
 import "./globals.css";
 
 // Modules
+import { cookieToInitialState } from "@repo/web3/wagmi";
 import { Analytics } from "@vercel/analytics/react";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import localFont from "next/font/local";
 import { headers } from "next/headers";
-import { cookieToInitialState } from "wagmi";
 
-import Providers from "./lib/providers";
-import { wagmiConfig } from "./lib/config/wagmi.config";
+import { wagmiConfig } from "@repo/web3";
 import { env } from "./env.mjs";
+import Providers from "./lib/providers";
 
 const aspekta = localFont({
   src: "./fonts/AspektaVF.ttf",
@@ -53,6 +53,7 @@ export default async function RootLayout({
     wagmiConfig,
     (await headers()).get("cookie"),
   );
+
   return (
     <html lang="en">
       <body

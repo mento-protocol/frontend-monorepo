@@ -8,7 +8,7 @@ import useExecuteProposal from "@/lib/contracts/governor/use-execute-proposal";
 import useQueueProposal from "@/lib/contracts/governor/useQueueProposal";
 import { useQuorum } from "@/lib/contracts/governor/useQuorum";
 import useVoteReceipt from "@/lib/contracts/governor/useVoteReceipt";
-import useTokens from "@/lib/contracts/useTokens";
+import useTokens from "@/lib/hooks/use-tokens";
 import type { Proposal } from "@/lib/graphql";
 import { ProposalState } from "@/lib/graphql";
 import NumbersService from "@/lib/helpers/numbers";
@@ -26,7 +26,7 @@ import { CheckCircle2, CircleCheck, XCircle, XCircleIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { formatUnits } from "viem";
-import { useAccount } from "wagmi";
+import { useAccount } from "@repo/web3/wagmi";
 
 interface VoteCardProps {
   proposal: Proposal;

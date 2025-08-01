@@ -15,7 +15,7 @@ import {
 import { useEnsureChainId } from "@/lib/hooks/use-ensure-chain-id";
 import { NetworkStatus } from "@apollo/client";
 import { useMemo } from "react";
-import { useReadContract } from "wagmi";
+import { useReadContract } from "@repo/web3/wagmi";
 export const ProposalQueryKey = "proposal";
 
 const useProposal = (proposalId: bigint) => {

@@ -22,13 +22,13 @@ import {
   LogOut,
   Network as NetworkIcon,
 } from "lucide-react";
-import { useDisconnect } from "wagmi";
+import { useDisconnect } from "@repo/web3/wagmi";
 
 // Local imports
 import NumbersService from "@/lib/helpers/numbers";
 import WalletHelper from "@/lib/helpers/wallet.helper";
 import { useAddTokens } from "@/lib/hooks/use-add-tokens";
-import useTokens from "@/lib/hooks/use-tokens";
+import { useTokens } from "@/lib/hooks/use-tokens";
 import { MentoIcon } from "@repo/ui";
 
 /**

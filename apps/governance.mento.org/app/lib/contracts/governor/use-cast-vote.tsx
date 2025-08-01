@@ -3,7 +3,7 @@ import {
   useWaitForTransactionReceipt,
   useWriteContract,
   useAccount,
-} from "wagmi";
+} from "@repo/web3/wagmi";
 import { useContracts } from "@/lib/contracts/useContracts";
 import { GovernorABI } from "@/lib/abi/Governor";
 import { WriteContractErrorType } from "wagmi/actions";

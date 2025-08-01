@@ -1,4 +1,4 @@
-import { useAccount, useChains } from "wagmi";
+import { useAccount, useChains } from "@repo/web3/wagmi";
 import { MentoChain, MentoChainContracts } from "@/lib/types";
 import { Celo, Alfajores } from "@/lib/config/chains";
 import { IS_PROD } from "../../middleware";
