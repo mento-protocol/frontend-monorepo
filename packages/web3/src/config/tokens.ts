@@ -1,7 +1,7 @@
 import { ChainId } from "./chains";
 import { getMentoSdk } from "@/features/sdk";
 import { areAddressesEqual } from "../utils/addresses";
-import { Address } from "wagmi";
+import { Address } from "viem";
 
 export enum Color {
   primary = "#7D1BFC",
@@ -201,7 +201,7 @@ export const cNGN: Token = Object.freeze({
   decimals: 18,
 });
 
-export const Tokens: Record<TokenId, Token> = {
+export const Tokens = {
   CELO,
   cUSD,
   cEUR,

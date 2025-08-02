@@ -7,7 +7,7 @@ import {
 } from "@/lib/constants/locking";
 import useLockCalculation from "@/lib/contracts/locking/useLockCalculation";
 import { useLockInfo } from "@/lib/contracts/locking/useLockInfo";
-import useTokens from "@/lib/contracts/useTokens";
+import useTokens from "@/lib/hooks/use-tokens";
 import {
   Card,
   CardContent,
@@ -25,7 +25,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Controller, FormProvider, useForm } from "react-hook-form";
 import spacetime from "spacetime";
 import { formatUnits } from "viem";
-import { useAccount } from "wagmi";
+import { useAccount } from "@repo/web3/wagmi";
 import { CreateLockProvider } from "./lock/create-lock-provider";
 import { LockingButton } from "./lock/locking-button";
 import { WithdrawButton } from "./withdraw-button";

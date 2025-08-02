@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { ethers } from "ethers";
-import { useProvider } from "wagmi";
+import { usePublicClient } from "wagmi";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { parseInputExchangeAmount } from "@/features/swap/utils";
 import { getTokenAddress, type TokenId, NativeTokenId } from "@/config/tokens";
@@ -11,8 +11,8 @@ import type { SwapDirection } from "@/features/swap/types";
 interface GasEstimationParams {
   amount: string;
   quote: string;
-  fromTokenId: TokenId;
-  toTokenId: TokenId;
+  tokenInId: TokenId;
+  tokenOutId: TokenId;
   direction: SwapDirection;
   address?: string;
   chainId: number;
@@ -32,8 +32,8 @@ interface GasEstimationResult {
 export function useGasEstimation({
   amount,
   quote,
-  fromTokenId,
-  toTokenId,
+  tokenInId,
+  tokenOutId,
   direction,
   address,
   chainId,
@@ -41,24 +41,24 @@ export function useGasEstimation({
   skipApprove,
   enabled = true,
 }: GasEstimationParams) {
-  const provider = useProvider({ chainId });
+  const publicClient = usePublicClient({ chainId });
 
-  return useQuery<GasEstimationResult | null>(
-    [
+  return useQuery<GasEstimationResult | null>({
+    queryKey: [
       "gas-estimate",
       amount,
       quote,
-      fromTokenId,
-      toTokenId,
+      tokenInId,
+      tokenOutId,
       direction,
       address,
       chainId,
       slippage,
       skipApprove,
     ],
-    async () => {
+    queryFn: async () => {
       if (
-        !provider ||
+        !publicClient ||
         !amount ||
         !quote ||
         !address ||
@@ -71,9 +71,9 @@ export function useGasEstimation({
       try {
         // For swap quote, we just need to estimate a simple transfer
         // This gives us a baseline gas cost without needing approval
-        if (!skipApprove && fromTokenId !== NativeTokenId) {
+        if (!skipApprove && tokenInId !== NativeTokenId) {
           // Estimate gas for a simple transfer as a baseline
-          const fromTokenAddr = getTokenAddress(fromTokenId, chainId);
+          const fromTokenAddr = getTokenAddress(tokenInId, chainId);
 
           // For swapOut, we need to check allowance for the quote amount (fromToken)
           // For swapIn, we check allowance for the amount (fromToken)
@@ -81,19 +81,20 @@ export function useGasEstimation({
 
           const transferData = ethers.utils.defaultAbiCoder.encode(
             ["address", "uint256"],
-            [address, parseInputExchangeAmount(valueToCheck, fromTokenId)],
+            [address, parseInputExchangeAmount(valueToCheck, tokenInId)],
           );
 
-          const gasEstimate = await provider
+          const gasEstimate = await publicClient
             .estimateGas({
               from: address,
               to: fromTokenAddr,
-              data: "0xa9059cbb" + transferData.slice(2), // transfer(address,uint256) selector
+              data: "0xa9059cbb" + transferData.slice(2),
             })
             .catch(() => ethers.BigNumber.from("100000")); // Fallback for transfer
 
-          const gasPrice = await provider.getGasPrice();
-          const totalFeeWei = gasEstimate.mul(gasPrice);
+          const gasPrice = await publicClient.getGasPrice();
+          const totalFeeWei =
+            typeof gasEstimate === "bigint" ? gasEstimate * gasPrice : 0;
           const totalFeeFormatted = fromWei(totalFeeWei.toString(), 18);
           const celoPrice = 0.7;
           const totalFeeUSD = (
@@ -111,12 +112,12 @@ export function useGasEstimation({
 
         // If approval is not needed, estimate the actual swap
         const sdk = await getMentoSdk(chainId);
-        const fromTokenAddr = getTokenAddress(fromTokenId, chainId);
-        const toTokenAddr = getTokenAddress(toTokenId, chainId);
+        const fromTokenAddr = getTokenAddress(tokenInId, chainId);
+        const toTokenAddr = getTokenAddress(tokenOutId, chainId);
         const tradablePair = await getTradablePairForTokens(
           chainId,
-          fromTokenId,
-          toTokenId,
+          tokenInId,
+          tokenOutId,
         );
 
         // Parse amounts based on direction
@@ -125,14 +126,14 @@ export function useGasEstimation({
 
         if (direction === "in") {
           // swapIn: amount is fromToken (sell), quote is toToken (receive)
-          const amountInWei = parseInputExchangeAmount(amount, fromTokenId);
-          const quoteInWei = parseInputExchangeAmount(quote, toTokenId);
+          const amountInWei = parseInputExchangeAmount(amount, tokenInId);
+          const quoteInWei = parseInputExchangeAmount(quote, tokenOutId);
           amountWeiBN = ethers.BigNumber.from(amountInWei);
           quoteWeiBN = ethers.BigNumber.from(quoteInWei);
         } else {
           // swapOut: amount is toToken (buy), quote is fromToken (sell)
-          const amountInWei = parseInputExchangeAmount(amount, toTokenId);
-          const quoteInWei = parseInputExchangeAmount(quote, fromTokenId);
+          const amountInWei = parseInputExchangeAmount(amount, tokenOutId);
+          const quoteInWei = parseInputExchangeAmount(quote, tokenInId);
           amountWeiBN = ethers.BigNumber.from(amountInWei);
           quoteWeiBN = ethers.BigNumber.from(quoteInWei);
         }
@@ -179,7 +180,7 @@ export function useGasEstimation({
         } else {
           // Try to estimate gas
           try {
-            const gasEstimate = await provider.estimateGas({
+            const gasEstimate = await publicClient.estimateGas({
               from: address,
               to: txRequest.to,
               data: txRequest.data,
@@ -194,6 +195,7 @@ export function useGasEstimation({
               estimateError instanceof Error
                 ? estimateError.message
                 : String(estimateError);
+
             // If estimation fails, check if it's due to approval
             if (
               errorMessage.includes("SafeERC20") ||
@@ -211,7 +213,7 @@ export function useGasEstimation({
         }
 
         // Get current gas price
-        const gasPrice = await provider.getGasPrice();
+        const gasPrice = await publicClient.getGasPrice();
         const totalFeeWei = estimatedGas.mul(gasPrice);
         const totalFeeFormatted = fromWei(totalFeeWei.toString(), 18);
 
@@ -236,7 +238,7 @@ export function useGasEstimation({
         // Return a reasonable estimate instead of null
         // This allows the UI to show an approximate fee
         const fallbackGas = ethers.BigNumber.from("250000");
-        const gasPrice = await provider.getGasPrice().catch(
+        const gasPrice = await publicClient.getGasPrice().catch(
           () => ethers.BigNumber.from("5000000000"), // 5 gwei fallback
         );
         const totalFeeWei = fallbackGas.mul(gasPrice);
@@ -252,14 +254,12 @@ export function useGasEstimation({
         };
       }
     },
-    {
-      enabled: enabled && !!address && !!amount && !!quote && !!provider,
-      staleTime: 10000,
-      cacheTime: 30000,
-      retry: 1,
-      retryDelay: 1000,
-      refetchInterval: false,
-      refetchOnWindowFocus: false,
-    },
-  );
+    enabled: enabled && !!address && !!amount && !!quote && !!publicClient,
+    staleTime: 10000,
+    gcTime: 30000,
+    retry: 1,
+    retryDelay: 1000,
+    refetchInterval: false,
+    refetchOnWindowFocus: false,
+  });
 }

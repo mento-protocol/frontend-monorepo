@@ -30,7 +30,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMemo } from "react";
 import { formatUnits } from "viem";
-import { useAccount, useBlock, useBlockNumber } from "wagmi";
+import { useAccount, useBlock, useBlockNumber } from "@repo/web3/wagmi";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { formatInTimeZone } from "date-fns-tz";

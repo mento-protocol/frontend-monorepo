@@ -6,6 +6,9 @@ import { ClientProviders } from "./components/providers";
 import localFont from "next/font/local";
 import { env } from "../env.mjs";
 import { Analytics } from "@vercel/analytics/react";
+import { cookieToInitialState } from "@repo/web3/wagmi";
+import { wagmiConfig } from "@repo/web3";
+import { headers } from "next/headers";
 
 const aspekta = localFont({
   src: "./fonts/AspektaVF.ttf",
@@ -36,17 +39,24 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const initialState = cookieToInitialState(
+    wagmiConfig,
+    (await headers()).get("cookie"),
+  );
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${aspekta.className} min-h-screen antialiased`}
       >
-        <ClientProviders>{children}</ClientProviders>
+        <ClientProviders initialState={initialState}>
+          {children}
+        </ClientProviders>
         <Analytics />
       </body>
     </html>

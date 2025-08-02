@@ -5,7 +5,7 @@ import { formatUnitsWithThousandSeparators } from "@/lib/helpers/numbers";
 import { Button, toast } from "@repo/ui";
 import { Celo, Alfajores } from "@/lib/config/chains";
 import React from "react";
-import { useAccount } from "wagmi";
+import { useAccount } from "@repo/web3/wagmi";
 import { TxDialog } from "./tx-dialog/tx-dialog";
 
 export const WithdrawButton = () => {

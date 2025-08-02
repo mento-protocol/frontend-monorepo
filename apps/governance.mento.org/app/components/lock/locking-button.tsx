@@ -14,7 +14,7 @@ import { differenceInWeeks, isAfter } from "date-fns";
 import React from "react";
 import { useFormContext } from "react-hook-form";
 import { parseEther } from "viem";
-import { useAccount } from "wagmi";
+import { useAccount } from "@repo/web3/wagmi";
 import { TxDialog } from "../tx-dialog/tx-dialog";
 import {
   CREATE_LOCK_APPROVAL_STATUS,
