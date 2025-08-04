@@ -13,7 +13,7 @@ import {
   stringToBytes,
   toHex,
 } from "viem";
-import { useWriteContract } from "@repo/web3/wagmi";
+import { useWriteContract } from "wagmi";
 import { WriteContractErrorType } from "wagmi/actions";
 
 export type TransactionItem = {
@@ -45,7 +45,7 @@ export type ProposalCreateParams = {
   transactions: TransactionItem[];
 };
 
-const useCreateProposalOnChain = () => {
+export const useCreateProposalOnChain = () => {
   const {
     data,
     error,
@@ -131,5 +131,3 @@ const useCreateProposalOnChain = () => {
     resetCreateProposalHook,
   };
 };
-
-export default useCreateProposalOnChain;

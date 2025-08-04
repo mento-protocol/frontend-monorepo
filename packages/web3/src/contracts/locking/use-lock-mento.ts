@@ -1,14 +1,11 @@
 import { useCallback, useEffect } from "react";
 import { useContracts } from "@/contracts/use-contracts";
-import {
-  useWaitForTransactionReceipt,
-  useWriteContract,
-} from "@repo/web3/wagmi";
+import { useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { LockingABI } from "@/abi/Locking";
 import { Address } from "viem";
 import { WriteContractErrorType } from "wagmi/actions";
 
-const useLockMento = ({
+export const useLockMento = ({
   onLockConfirmation,
 }: {
   onLockConfirmation?: () => void;
@@ -90,5 +87,3 @@ const useLockMento = ({
     ...restWrite,
   };
 };
-
-export default useLockMento;

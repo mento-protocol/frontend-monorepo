@@ -1,5 +1,5 @@
 import { LockingABI } from "@/abi/Locking";
-import { useAccount, useReadContract } from "@repo/web3/wagmi";
+import { useAccount, useReadContract } from "wagmi";
 import { useContracts } from "@/contracts/use-contracts";
 
 export const useUnlockedMento = () => {

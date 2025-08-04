@@ -1,11 +1,11 @@
 "use client";
 import { Identicon } from "@/components/identicon";
 import { VoteCard } from "@/components/voting/vote-card";
-import { Alfajores, Celo } from "@/lib/config/chains";
-import { CELO_BLOCK_TIME } from "@/lib/config/config.constants";
-import useProposal from "@/lib/contracts/governor/useProposal";
-import { ProposalState } from "@/lib/graphql";
-import { ensureChainId } from "@/lib/helpers/ensure-chain-id";
+import { Alfajores, Celo } from "@repo/web3";
+import { CELO_BLOCK_TIME } from "@repo/web3";
+import useProposal from "@repo/web3";
+import { ProposalState } from "@repo/web3";
+import { ensureChainId } from "@repo/web3";
 import {
   Breadcrumb,
   BreadcrumbItem,

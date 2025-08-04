@@ -3,7 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { Address, erc20Abi } from "viem";
-import { useBlockNumber, useReadContract } from "@repo/web3/wagmi";
+import { useBlockNumber, useReadContract } from "wagmi";
 import { useContracts } from "../use-contracts";
 import { useEnsureChainId } from "@/features/governance/use-ensure-chain-id";
 

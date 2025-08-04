@@ -11,12 +11,12 @@ import {
 } from "@/graphql/subgraph/generated/subgraph";
 
 import { useCallback, useMemo } from "react";
-import { useReadContracts } from "@repo/web3/wagmi";
+import { useReadContracts } from "wagmi";
 import { useEnsureChainId } from "@/features/governance/use-ensure-chain-id";
 
 export const GraphProposalsQueryKey = ["proposals-graph-query"];
 
-const useProposals = () => {
+export const useProposals = () => {
   const ensuredChainId = useEnsureChainId();
   const contracts = useContracts();
 
@@ -95,5 +95,3 @@ const useProposals = () => {
     refetchProposals: refetch,
   };
 };
-
-export default useProposals;

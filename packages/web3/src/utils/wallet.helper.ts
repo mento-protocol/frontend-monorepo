@@ -1,4 +1,4 @@
-export default abstract class WalletHelper {
+export abstract class WalletHelper {
   public static getShortAddress(address: string, length: number = 10): string {
     if (!address) {
       return "";

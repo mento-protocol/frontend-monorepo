@@ -6,3 +6,4 @@ export * from "./celo-wallets";
 export * from "./config";
 export * from "./wagmi";
 export * from "./providers";
+export * from "./apollo-provider";

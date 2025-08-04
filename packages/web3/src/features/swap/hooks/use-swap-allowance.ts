@@ -1,6 +1,6 @@
 import BigNumber from "bignumber.js";
 import type { TokenId } from "@/config/tokens";
-import { useAllowance } from "./use-allowance";
+import { useAppAllowance } from "./use-allowance";
 
 interface ISwapAllowanceOptions {
   chainId: number;
@@ -12,7 +12,7 @@ interface ISwapAllowanceOptions {
 
 export function useSwapAllowance(options: ISwapAllowanceOptions) {
   const { chainId, tokenInId, tokenOutId, approveAmount, address } = options;
-  const { allowance, isLoading: isAllowanceLoading } = useAllowance(
+  const { allowance, isLoading: isAllowanceLoading } = useAppAllowance(
     chainId,
     tokenInId,
     tokenOutId,
