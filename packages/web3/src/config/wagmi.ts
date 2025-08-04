@@ -12,18 +12,29 @@ import {
 
 export const chains = [celo, celoAlfajores] as const;
 
-const connectors = connectorsForWallets(
-  [
-    {
-      groupName: "Recommended for Celo chains",
-      wallets: [metaMaskWallet, walletConnectWallet, omniWallet, trustWallet],
-    },
-  ],
-  {
-    projectId: config.walletConnectProjectId,
-    appName: "MENTO Swap",
-  },
-);
+// Avoid creating WalletConnect connectors during SSR because they rely on
+// browser-only APIs like `indexedDB`.
+const isServer = typeof window === "undefined";
+
+const connectors = isServer
+  ? []
+  : connectorsForWallets(
+      [
+        {
+          groupName: "Recommended for Celo chains",
+          wallets: [
+            metaMaskWallet,
+            walletConnectWallet,
+            omniWallet,
+            trustWallet,
+          ],
+        },
+      ],
+      {
+        projectId: config.walletConnectProjectId,
+        appName: "MENTO Swap",
+      },
+    );
 
 export const wagmiConfig: Config = createConfig({
   chains,

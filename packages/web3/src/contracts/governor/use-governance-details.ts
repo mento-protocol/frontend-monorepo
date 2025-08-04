@@ -3,7 +3,7 @@ import { TimelockControllerABI } from "@/abi/TimelockController";
 import { useContracts } from "@/contracts/use-contracts";
 import { useMemo } from "react";
 
-import { useReadContracts } from "@repo/web3/wagmi";
+import { useReadContracts } from "wagmi";
 import { useEnsureChainId } from "@/features/governance/use-ensure-chain-id";
 
 function convertSecondsToDays(
@@ -28,7 +28,7 @@ function formatParam(
   return formatter(result);
 }
 
-const useGovernanceDetails = () => {
+export const useGovernanceDetails = () => {
   const ensuredChainId = useEnsureChainId();
   const { MentoGovernor, TimelockController } = useContracts();
 
@@ -126,5 +126,3 @@ const useGovernanceDetails = () => {
     timeLockFormatted,
   };
 };
-
-export default useGovernanceDetails;

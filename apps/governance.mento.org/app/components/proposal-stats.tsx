@@ -1,14 +1,16 @@
 "use client";
-import useProposals from "@/lib/contracts/governor/use-proposals";
-import useAllLocks from "@/lib/contracts/locking/useAllLocks";
-import useLockingWeek from "@/lib/contracts/locking/useLockingWeek";
-import useTokens from "@/lib/hooks/use-tokens";
-import { ensureChainId } from "@/lib/helpers/ensure-chain-id";
-import NumbersService from "@/lib/helpers/numbers";
 import { IconInfo, Tooltip, TooltipContent, TooltipTrigger } from "@repo/ui";
+import {
+  ensureChainId,
+  NumbersService,
+  useAllLocks,
+  useLockingWeek,
+  useProposals,
+  useTokens,
+} from "@repo/web3";
+import { useAccount, useBlockNumber } from "@repo/web3/wagmi";
 import { useMemo } from "react";
 import { formatUnits } from "viem";
-import { useAccount, useBlockNumber } from "@repo/web3/wagmi";
 
 export const ProposalStats = () => {
   const {

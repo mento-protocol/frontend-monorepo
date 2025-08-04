@@ -3,7 +3,7 @@ import {
   useWaitForTransactionReceipt,
   useWriteContract,
   useAccount,
-} from "@repo/web3/wagmi";
+} from "wagmi";
 import { useContracts } from "@/contracts/use-contracts";
 import { GovernorABI } from "@/abi/Governor";
 import { WriteContractErrorType } from "wagmi/actions";
@@ -12,7 +12,7 @@ import { ProposalQueryKey } from "@/contracts/governor/use-proposal";
 import { toast } from "@repo/ui";
 import { Celo, Alfajores } from "@/config/chains";
 
-const useCastVote = () => {
+export const useCastVote = () => {
   const queryClient = useQueryClient();
   const contracts = useContracts();
   const { chainId } = useAccount();
@@ -101,5 +101,3 @@ const useCastVote = () => {
     ...restWrite,
   };
 };
-
-export default useCastVote;

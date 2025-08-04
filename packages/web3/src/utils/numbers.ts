@@ -5,7 +5,7 @@ export const BILLION = 1000000000;
 export const MILLION = 1000000;
 export const THOUSAND = 1000;
 
-export default abstract class NumbersService {
+export abstract class NumbersService {
   public static scaleBalance(
     value: bigint,
     decimals: number = 18,

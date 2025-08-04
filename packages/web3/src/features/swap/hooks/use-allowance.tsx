@@ -42,7 +42,7 @@ async function fetchAllowance(
   return allowance.toString();
 }
 
-export function useAllowance(
+export function useAppAllowance(
   chainId: number,
   tokenInId: TokenId,
   tokenOutId: TokenId,

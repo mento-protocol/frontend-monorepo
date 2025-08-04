@@ -1,10 +1,10 @@
-import { useReadContract } from "@repo/web3/wagmi";
+import { useReadContract } from "wagmi";
 import { Address } from "viem";
 import { GovernorABI } from "@/abi/Governor";
 import { useContracts } from "@/contracts/use-contracts";
 import { useEnsureChainId } from "@/features/governance/use-ensure-chain-id";
 
-const useVoteReceipt = ({
+export const useVoteReceipt = ({
   address,
   proposalId,
 }: {
@@ -23,5 +23,3 @@ const useVoteReceipt = ({
     chainId: ensuredChainId,
   });
 };
-
-export default useVoteReceipt;

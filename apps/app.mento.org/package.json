@@ -28,6 +28,7 @@
     "bignumber.js": "^9.1.1",
     "decimal.js-light": "^2.5.1",
     "ethers": "^5.8.0",
+    "graphql": "^16.11.0",
     "jotai": "^2.12.4",
     "jsbi": "^4.3.0",
     "lucide-react": "^0.488.0",

@@ -12,10 +12,10 @@ import {
 import { useEnsureChainId } from "@/features/governance/use-ensure-chain-id";
 import { NetworkStatus } from "@apollo/client";
 import { useMemo } from "react";
-import { useReadContract } from "@repo/web3/wagmi";
+import { useReadContract } from "wagmi";
 export const ProposalQueryKey = "proposal";
 
-const useProposal = (proposalId: bigint) => {
+export const useProposal = (proposalId: bigint) => {
   const contracts = useContracts();
   const ensuredChainId = useEnsureChainId();
 
@@ -77,5 +77,3 @@ const useProposal = (proposalId: bigint) => {
     refetch,
   };
 };
-
-export default useProposal;
