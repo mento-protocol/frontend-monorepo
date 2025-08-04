@@ -5,7 +5,7 @@ import {
   resetLatestBlockAtom,
 } from "@/features/blocks/block-atoms";
 import { resetSwapUiAtomsAtom } from "@/features/swap/swap-atoms";
-import { type ChainMetadata, allChains, chainIdToChain } from "@/config/chains";
+import { allChains, chainIdToChain } from "@/config/chains";
 import { cleanupStaleWalletSessions } from "@/config/wallets";
 import { logger } from "@/utils/logger";
 import {
@@ -18,7 +18,8 @@ import {
 } from "@repo/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAtomValue, useSetAtom } from "jotai";
-import { useChainId, useSwitchNetwork } from "wagmi";
+import { useChainId, useSwitchChain } from "wagmi";
+import { MentoChain } from "@/types";
 
 interface Props {
   isOpen: boolean;
@@ -31,17 +32,17 @@ export function NetworkDialog({ isOpen, close }: Props) {
   const latestBlock = useAtomValue(latestBlockAtom);
   const chainId = useChainId();
   const currentChain = chainIdToChain[chainId];
-  const { switchNetworkAsync } = useSwitchNetwork();
+  const { switchChainAsync } = useSwitchChain();
   const queryClient = useQueryClient();
   const resetJotaiSwapState = useSetAtom(resetSwapUiAtomsAtom);
   const setResetLatestBlock = useSetAtom(resetLatestBlockAtom);
 
-  const switchToNetwork = async (c: ChainMetadata) => {
+  const switchToNetwork = async (c: MentoChain) => {
     try {
-      if (!switchNetworkAsync) throw new Error("switchNetworkAsync undefined");
+      if (!switchChainAsync) throw new Error("switchChainAsync undefined");
       logger.debug("Resetting and switching to network", c.name);
       cleanupStaleWalletSessions();
-      await switchNetworkAsync(c.chainId);
+      await switchChainAsync({ chainId: c.chainId });
       setResetLatestBlock();
       queryClient.resetQueries({ queryKey: ["accountBalances"] });
       resetJotaiSwapState();

@@ -7,19 +7,19 @@ import { getProvider } from "@/features/providers";
 import { getTradablePairForTokens } from "@/features/sdk";
 
 async function fetchAllowance(
-  fromTokenId: TokenId,
-  toTokenId: TokenId,
+  tokenInId: TokenId,
+  tokenOutId: TokenId,
   accountAddress: string,
   chainId: number,
 ): Promise<string> {
   const tradablePair = await getTradablePairForTokens(
     chainId,
-    fromTokenId,
-    toTokenId,
+    tokenInId,
+    tokenOutId,
   );
   const brokerAddress = getAddress("Broker", chainId);
   const routerAddress = getAddress("MentoRouter", chainId);
-  const tokenAddr = getTokenAddress(fromTokenId, chainId);
+  const tokenAddr = getTokenAddress(tokenInId, chainId);
 
   // For Debugging
   // logger.info(`Fetching allowance for token ${tokenAddr} on chain ${chainId}`);
@@ -42,24 +42,22 @@ async function fetchAllowance(
   return allowance.toString();
 }
 
-export function useAllowance(
+export function useAppAllowance(
   chainId: number,
-  fromTokenId: TokenId,
-  toTokenId: TokenId,
+  tokenInId: TokenId,
+  tokenOutId: TokenId,
   address?: string,
 ) {
-  const { data: allowance, isLoading } = useQuery(
-    ["tokenAllowance", chainId, fromTokenId, toTokenId, address],
-    async () => {
+  const { data: allowance, isLoading } = useQuery({
+    queryKey: ["tokenAllowance", chainId, tokenInId, tokenOutId, address],
+    queryFn: async () => {
       if (!address) return "0";
-      return fetchAllowance(fromTokenId, toTokenId, address, chainId);
+      return fetchAllowance(tokenInId, tokenOutId, address, chainId);
     },
-    {
-      retry: false,
-      enabled: Boolean(address && chainId && fromTokenId && toTokenId),
-      staleTime: 5000, // Consider allowance stale after 5 seconds
-    },
-  );
+    retry: false,
+    enabled: Boolean(address && chainId && tokenInId && tokenOutId),
+    staleTime: 5000, // Consider allowance stale after 5 seconds
+  });
 
   return {
     allowance: allowance || "0",

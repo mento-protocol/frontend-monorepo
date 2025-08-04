@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { ConnectButton } from "../connect-button";
 
 import {
   cn,
@@ -11,6 +10,7 @@ import {
   NavigationMenuLink,
   NavigationMenuList,
 } from "@repo/ui";
+import { ConnectButton } from "@repo/web3";
 import { usePathname } from "next/navigation";
 
 export function Header() {
