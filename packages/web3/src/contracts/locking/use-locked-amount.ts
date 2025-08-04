@@ -1,14 +1,7 @@
 import { LockingABI } from "@/abi/Locking";
 import { useContracts } from "@/contracts/use-contracts";
 import { useEnsureChainId } from "@/features/governance/use-ensure-chain-id";
-import { useAccount, useReadContract } from "@repo/web3/wagmi";
-
-export type TokenBalance = {
-  decimals: number;
-  value: bigint;
-  symbol: string;
-  formatted: string;
-};
+import { useAccount, useReadContract } from "wagmi";
 
 export const useLockedAmount = () => {
   const {
@@ -26,5 +19,3 @@ export const useLockedAmount = () => {
     chainId: ensuredChainId,
   });
 };
-
-export default useLockedAmount;

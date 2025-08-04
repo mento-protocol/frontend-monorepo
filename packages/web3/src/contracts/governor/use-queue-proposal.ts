@@ -1,15 +1,12 @@
 import { useCallback } from "react";
-import {
-  useWaitForTransactionReceipt,
-  useWriteContract,
-} from "@repo/web3/wagmi";
+import { useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { useContracts } from "@/contracts/use-contracts";
 import { GovernorABI } from "@/abi/Governor";
 import { WriteContractErrorType } from "wagmi/actions";
 import { useQueryClient } from "@tanstack/react-query";
 import { ProposalQueryKey } from "@/contracts/governor/use-proposal";
 
-const useQueueProposal = () => {
+export const useQueueProposal = () => {
   const queryClient = useQueryClient();
   const contracts = useContracts();
   const {
@@ -59,5 +56,3 @@ const useQueueProposal = () => {
     ...restWrite,
   };
 };
-
-export default useQueueProposal;

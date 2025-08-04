@@ -1,5 +1,4 @@
-import { GovernorABI } from "@/lib/abi/Governor";
-import { Celo } from "@/lib/config/chains";
+import { Celo, GovernorABI } from "@repo/web3";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { createPublicClient, http } from "viem";

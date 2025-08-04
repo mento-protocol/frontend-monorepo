@@ -4,15 +4,9 @@ import { useContracts } from "@/contracts/use-contracts";
 import { useEnsureChainId } from "@/features/governance/use-ensure-chain-id";
 import { useMemo } from "react";
 import { erc20Abi } from "viem";
-import { useAccount, useReadContracts } from "@repo/web3/wagmi";
+import { useAccount, useReadContracts } from "wagmi";
 import { formatUnitsWithRadix } from "@/utils/numbers";
-
-export type TokenBalance = {
-  decimals: number;
-  value: bigint;
-  symbol: string;
-  formatted: string;
-};
+import { TokenBalance } from "@/types";
 
 export const useTokens = () => {
   const {

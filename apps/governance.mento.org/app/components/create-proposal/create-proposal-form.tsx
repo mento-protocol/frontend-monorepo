@@ -1,7 +1,6 @@
 "use client";
-import { useProposalThreshold } from "@/lib/contracts/governor/useProposalThreshold";
-import useTokens from "@/lib/hooks/use-tokens";
-import { formatUnitsWithThousandSeparators } from "@/lib/helpers/numbers";
+import { useProposalThreshold, useTokens } from "@repo/web3";
+import { formatUnitsWithThousandSeparators } from "@repo/web3";
 import TurndownService from "turndown";
 import ReactMarkdown from "react-markdown";
 import {

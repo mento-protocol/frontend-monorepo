@@ -1,10 +1,11 @@
-import { Alfajores, Celo } from "@/lib/config/chains";
-import useCreateProposalOnChain, {
+import { Alfajores, Celo } from "@repo/web3";
+import {
+  useCreateProposalOnChain,
+  useProposals,
+  ensureChainId,
   TransactionItem,
-} from "@/lib/contracts/governor/use-create-proposal-on-chain";
-import useProposals from "@/lib/contracts/governor/use-proposals";
-import { ensureChainId } from "@/lib/helpers/ensure-chain-id";
-import { LocalStorageKeys, useLocalStorage } from "@/lib/hooks/use-storage";
+} from "@repo/web3";
+import { LocalStorageKeys, useLocalStorage } from "@repo/web3";
 import { toast } from "@repo/ui";
 import { Loader } from "lucide-react";
 import { useRouter } from "next/navigation";

@@ -7,13 +7,13 @@ import {
 import { LockWithExpiration } from "@/types";
 import LockingHelper from "@/utils/locking";
 import { useMemo } from "react";
-import useLockingWeek from "./use-locking-week";
+import { useLockingWeek } from "./use-locking-week";
 
 interface UseLocksProps {
   account: string;
 }
 
-const useLocksByAccount = ({
+export const useLocksByAccount = ({
   account,
 }: UseLocksProps): Omit<GetLocksQueryResult, "data"> & {
   locks: LockWithExpiration[];
@@ -53,5 +53,3 @@ const useLocksByAccount = ({
     ...rest,
   };
 };
-
-export default useLocksByAccount;

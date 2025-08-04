@@ -1,7 +1,7 @@
-import { useContracts } from "@/lib/contracts/useContracts";
-import { useAccount, useReadContract } from "@repo/web3/wagmi";
-import { LockingABI } from "@/lib/abi/Locking";
-import { useEnsureChainId } from "@/lib/hooks/use-ensure-chain-id";
+import { useContracts } from "@/contracts/use-contracts";
+import { useAccount, useReadContract } from "wagmi";
+import { LockingABI } from "@/abi/Locking";
+import { useEnsureChainId } from "@/features/governance/use-ensure-chain-id";
 
 export const useAvailableToWithdraw = () => {
   const { Locking } = useContracts();

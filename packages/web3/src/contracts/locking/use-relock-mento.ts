@@ -9,7 +9,7 @@ import {
   useWriteContract,
 } from "wagmi";
 import { WriteContractErrorType } from "wagmi/actions";
-import useLockedAmount from "./use-locked-amount";
+import { useLockedAmount } from "./use-locked-amount";
 
 interface RelockMentoParams {
   newDelegate?: Address;
@@ -20,7 +20,7 @@ interface RelockMentoParams {
   onConfirmation?: () => void;
 }
 
-const useRelockMento = ({
+export const useRelockMento = ({
   lock,
   additionalAmountToLock,
   newCliff,
@@ -149,5 +149,3 @@ const useRelockMento = ({
     ...restWrite,
   };
 };
-
-export default useRelockMento;

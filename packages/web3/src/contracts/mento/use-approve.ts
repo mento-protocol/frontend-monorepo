@@ -4,7 +4,7 @@ import {
   useConfig,
   useWaitForTransactionReceipt,
   useWriteContract,
-} from "@repo/web3/wagmi";
+} from "wagmi";
 import { Address, erc20Abi } from "viem";
 import {
   waitForTransactionReceipt,

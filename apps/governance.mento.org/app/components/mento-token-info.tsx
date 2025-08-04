@@ -9,12 +9,12 @@ import {
 } from "@repo/ui";
 import { formatUnits } from "viem";
 import { useAccount } from "@repo/web3/wagmi";
-import { Celo, Alfajores } from "@/lib/config/chains";
+import { Celo, Alfajores } from "@repo/web3";
 
-import useGovernanceDetails from "@/lib/contracts/governor/useGovernanceDetails";
-import { useContracts } from "@/lib/contracts/useContracts";
-import NumbersService from "@/lib/helpers/numbers";
-import useTokens from "@/lib/hooks/use-tokens";
+import { useGovernanceDetails } from "@repo/web3";
+import { useContracts } from "@repo/web3";
+import { NumbersService } from "@repo/web3";
+import { useTokens } from "@repo/web3";
 
 export const MentoTokenInfo = () => {
   const { chain } = useAccount();

@@ -1,9 +1,12 @@
-import { useAvailableToWithdraw } from "@/lib/contracts/locking/useAvailableToWithdraw";
-import { useLockInfo } from "@/lib/contracts/locking/useLockInfo";
-import { useWithdraw } from "@/lib/contracts/locking/useWithdraw";
-import { formatUnitsWithThousandSeparators } from "@/lib/helpers/numbers";
+import {
+  useAvailableToWithdraw,
+  useLockInfo,
+  useWithdraw,
+  formatUnitsWithThousandSeparators,
+  Celo,
+  Alfajores,
+} from "@repo/web3";
 import { Button, toast } from "@repo/ui";
-import { Celo, Alfajores } from "@/lib/config/chains";
 import React from "react";
 import { useAccount } from "@repo/web3/wagmi";
 import { TxDialog } from "./tx-dialog/tx-dialog";

@@ -5,7 +5,7 @@ import {
 } from "@/graphql/subgraph/generated/subgraph";
 import { useEnsureChainId } from "@/features/governance/use-ensure-chain-id";
 
-const useAllLocks = () => {
+export const useAllLocks = () => {
   const ensuredChainId = useEnsureChainId();
   const { data, loading } = useGetAllLocksQuery({
     // queryKey: "locking-contract-hook",
@@ -20,5 +20,3 @@ const useAllLocks = () => {
     loading,
   };
 };
-
-export default useAllLocks;

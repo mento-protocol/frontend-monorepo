@@ -1,8 +1,8 @@
-import { Alfajores, Celo } from "@/lib/config/chains";
-import useCreateLockOnChain from "@/lib/contracts/locking/useLockMento";
-import { useAllowance } from "@/lib/contracts/mento/useAllowance";
-import useApprove from "@/lib/contracts/mento/useApprove";
-import { useContracts } from "@/lib/contracts/useContracts";
+import { Alfajores, Celo } from "@repo/web3";
+import { useCreateLockOnChain } from "@repo/web3";
+import { useAllowance } from "@repo/web3";
+import { useApprove } from "@repo/web3";
+import { useContracts } from "@repo/web3";
 import { toast } from "@repo/ui";
 import React, { ReactNode, createContext, useContext } from "react";
 import { parseEther } from "viem";

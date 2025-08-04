@@ -2,7 +2,7 @@ import { LockingABI } from "@/abi/Locking";
 import { useContracts } from "@/contracts/use-contracts";
 import { Lock } from "@/graphql/subgraph/generated/subgraph";
 import { formatUnits, parseUnits } from "viem";
-import { useReadContract } from "@repo/web3/wagmi";
+import { useReadContract } from "wagmi";
 import { useEnsureChainId } from "@/features/governance/use-ensure-chain-id";
 import useTokens from "@/features/governance/use-tokens";
 
@@ -10,7 +10,7 @@ interface ILockHook {
   lock: Pick<Lock, "slope" | "cliff"> & { amount: string };
 }
 
-const useLockCalculation = ({ lock }: ILockHook) => {
+export const useLockCalculation = ({ lock }: ILockHook) => {
   const { Locking } = useContracts();
   const {
     mentoContractData: { decimals: mentoDecimals },
@@ -37,5 +37,3 @@ const useLockCalculation = ({ lock }: ILockHook) => {
     },
   });
 };
-
-export default useLockCalculation;

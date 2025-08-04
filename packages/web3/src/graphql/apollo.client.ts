@@ -1,24 +1,23 @@
 "use client";
 
-import { env } from "@/env.mjs";
 import { ProposalPolicy } from "@/graphql/subgraph/policies/Proposal";
 import { ApolloLink, createHttpLink } from "@apollo/client";
-import { setContext } from "@apollo/client/link/context";
 import {
-  NextSSRApolloClient,
-  NextSSRInMemoryCache,
+  ApolloClient,
+  InMemoryCache,
   SSRMultipartLink,
-} from "@apollo/experimental-nextjs-app-support/ssr";
+} from "@apollo/client-integration-nextjs";
+import { setContext } from "@apollo/client/link/context";
 
-const CELO_EXPLORER_API_URL = env.NEXT_PUBLIC_CELO_EXPLORER_API_URL;
+const CELO_EXPLORER_API_URL = process.env.NEXT_PUBLIC_CELO_EXPLORER_API_URL;
 const CELO_EXPLORER_API_URL_ALFAJORES =
-  env.NEXT_PUBLIC_CELO_EXPLORER_API_URL_ALFAJORES;
+  process.env.NEXT_PUBLIC_CELO_EXPLORER_API_URL_ALFAJORES;
 
-const SUBGRAPH_URL = env.NEXT_PUBLIC_SUBGRAPH_URL;
-const SUBGRAPH_URL_ALFAJORES = env.NEXT_PUBLIC_SUBGRAPH_URL_ALFAJORES;
+const SUBGRAPH_URL = process.env.NEXT_PUBLIC_SUBGRAPH_URL;
+const SUBGRAPH_URL_ALFAJORES = process.env.NEXT_PUBLIC_SUBGRAPH_URL_ALFAJORES;
 
-const GRAPH_API_KEY = env.NEXT_PUBLIC_GRAPH_API_KEY;
-const GRAPH_API_KEY_ALFAJORES = env.NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES;
+const GRAPH_API_KEY = process.env.NEXT_PUBLIC_GRAPH_API_KEY;
+const GRAPH_API_KEY_ALFAJORES = process.env.NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES;
 
 // have a function to create a client for you
 export function makeClient() {
@@ -78,9 +77,9 @@ export function makeClient() {
     };
   });
 
-  return new NextSSRApolloClient({
+  return new ApolloClient({
     // use the `NextSSRInMemoryCache`, not the normal `InMemoryCache`
-    cache: new NextSSRInMemoryCache({
+    cache: new InMemoryCache({
       typePolicies: {
         Proposal: ProposalPolicy,
       },

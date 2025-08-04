@@ -1,7 +1,7 @@
 import { Alfajores, Celo } from "@/config/chains";
 import { MentoChainContracts } from "@/types";
 import { IS_PROD } from "@/utils/environment";
-import { useAccount, useChains } from "@repo/web3/wagmi";
+import { useAccount, useChains } from "wagmi";
 
 export const useContracts = (): MentoChainContracts => {
   const chains = useChains();

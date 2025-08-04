@@ -1,15 +1,15 @@
 import {
   LOCKING_AMOUNT_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
-} from "@/lib/constants/locking";
-import { useLockInfo } from "@/lib/contracts/locking/useLockInfo";
-import useLockingWeek from "@/lib/contracts/locking/useLockingWeek";
-import useRelockMento from "@/lib/contracts/locking/useRelockMento";
-import { useAllowance } from "@/lib/contracts/mento/useAllowance";
-import useApprove from "@/lib/contracts/mento/useApprove";
-import { useContracts } from "@/lib/contracts/useContracts";
+} from "@repo/web3";
+import { useLockInfo } from "@repo/web3";
+import { useLockingWeek } from "@repo/web3";
+import { useRelockMento } from "@repo/web3";
+import { useAllowance } from "@repo/web3";
+import { useApprove } from "@repo/web3";
+import { useContracts } from "@repo/web3";
 import { Button, toast } from "@repo/ui";
-import { Celo, Alfajores } from "@/lib/config/chains";
+import { Celo, Alfajores } from "@repo/web3";
 import { differenceInWeeks, isAfter } from "date-fns";
 import React from "react";
 import { useFormContext } from "react-hook-form";
@@ -21,7 +21,7 @@ import {
   CREATE_LOCK_TX_STATUS,
   useCreateLock,
 } from "./create-lock-provider";
-import { LockWithExpiration } from "@/lib/interfaces/lock.interface";
+import { LockWithExpiration } from "@repo/web3";
 
 export const LockingButton = () => {
   const { address, chainId } = useAccount();

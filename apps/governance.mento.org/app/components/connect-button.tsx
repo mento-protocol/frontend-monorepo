@@ -24,11 +24,12 @@ import {
 } from "lucide-react";
 import { useDisconnect } from "@repo/web3/wagmi";
 
-// Local imports
-import NumbersService from "@/lib/helpers/numbers";
-import WalletHelper from "@/lib/helpers/wallet.helper";
-import { useAddTokens } from "@/lib/hooks/use-add-tokens";
-import { useTokens } from "@/lib/hooks/use-tokens";
+import {
+  NumbersService,
+  WalletHelper,
+  useAddTokens,
+  useTokens,
+} from "@repo/web3";
 import { MentoIcon } from "@repo/ui";
 
 /**

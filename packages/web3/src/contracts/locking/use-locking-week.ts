@@ -1,9 +1,9 @@
 import { LockingABI } from "@/abi/Locking";
 import { useContracts } from "@/contracts/use-contracts";
 import { useEnsureChainId } from "@/features/governance/use-ensure-chain-id";
-import { useReadContract } from "@repo/web3/wagmi";
+import { useReadContract } from "wagmi";
 
-const useLockingWeek = () => {
+export const useLockingWeek = () => {
   const { Locking } = useContracts();
   const ensuredChainId = useEnsureChainId();
 
@@ -30,5 +30,3 @@ const useLockingWeek = () => {
     ...rest,
   };
 };
-
-export default useLockingWeek;

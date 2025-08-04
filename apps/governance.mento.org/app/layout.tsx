@@ -4,16 +4,16 @@ import "@repo/ui/globals.css";
 import "./globals.css";
 
 // Modules
+import { ApolloProvider, wagmiConfig } from "@repo/web3";
 import { cookieToInitialState } from "@repo/web3/wagmi";
 import { Analytics } from "@vercel/analytics/react";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import localFont from "next/font/local";
 import { headers } from "next/headers";
-
-import { wagmiConfig } from "@repo/web3";
+import { ClientProviders } from "./components/providers";
 import { env } from "./env.mjs";
-import Providers from "./lib/providers";
+import { Header } from "./components/nav/header";
 
 const aspekta = localFont({
   src: "./fonts/AspektaVF.ttf",
@@ -59,7 +59,12 @@ export default async function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${aspekta.className} max-w-screen dark overflow-x-hidden antialiased`}
       >
-        <Providers initialState={initialState}>{children}</Providers>
+        <ClientProviders initialState={initialState}>
+          <ApolloProvider>
+            <Header />
+            {children}
+          </ApolloProvider>
+        </ClientProviders>
         <Analytics />
       </body>
     </html>
