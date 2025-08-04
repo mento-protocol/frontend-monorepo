@@ -1,7 +1,10 @@
 "use client";
-import useProposals from "@/lib/contracts/governor/use-proposals";
-import NumbersService from "@/lib/helpers/numbers";
-import { ProposalState } from "@/lib/graphql";
+import {
+  useProposals,
+  useProposalThreshold,
+  NumbersService,
+  ProposalState,
+} from "@repo/web3";
 import {
   Button,
   IconChevron,
@@ -23,8 +26,6 @@ import {
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { formatUnits } from "viem";
-import useTokens from "@/lib/hooks/use-tokens";
-import { useProposalThreshold } from "@/lib/contracts/governor/useProposalThreshold";
 
 const ITEMS_PER_PAGE = 10;
 const DOTS = "...";
