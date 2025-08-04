@@ -6,14 +6,11 @@
   "scripts": {
     "build": "next build",
     "check-types": "tsc --noEmit",
-    "codegen": "graphql-codegen",
     "dev": "next dev --turbopack --port 3002",
     "lint": "trunk check .",
     "start": "next start"
   },
   "dependencies": {
-    "@apollo/client": "^3.13.9",
-    "@apollo/experimental-nextjs-app-support": "^0.12.3",
     "@celo/contractkit": "^9.2.1",
     "@mento-protocol/mento-sdk": "^1.10.1",
     "@metamask/jazzicon": "https://github.com/jmrossy/jazzicon#7a8df28",
@@ -43,9 +40,6 @@
     "wagmi": "^2.16.0"
   },
   "devDependencies": {
-    "@graphql-codegen/cli": "^5.0.2",
-    "@graphql-codegen/typescript-apollo-client-helpers": "^3.0.0",
-    "@graphql-codegen/typescript-react-apollo": "^4.3.2",
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@tailwindcss/postcss": "^4.1.5",

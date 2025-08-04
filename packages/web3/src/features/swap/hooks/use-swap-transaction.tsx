@@ -1,17 +1,17 @@
+import { chainIdToChain } from "@/config/chains";
+import { getTokenAddress, TokenId, Tokens } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { SwapDirection } from "@/features/swap/types";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
-import { chainIdToChain } from "@/config/chains";
-import { TokenId, getTokenAddress, Tokens } from "@/config/tokens";
 import { logger } from "@/utils/logger";
+import { toast } from "@repo/ui";
 import { useMutation } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
 import { useAtom, useSetAtom } from "jotai";
-import { toast } from "@repo/ui";
+import { useEffect } from "react";
 import type { Address } from "viem";
-import { confirmViewAtom, formValuesAtom } from "../swap-atoms";
-import { useEffect, useState } from "react";
 import { useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
+import { confirmViewAtom, formValuesAtom } from "../swap-atoms";
 
 export function useSwapTransaction(
   chainId: number,
@@ -39,13 +39,7 @@ export function useSwapTransaction(
   const [formValues, setFormValues] = useAtom(formValuesAtom);
   const setConfirmView = useSetAtom(confirmViewAtom);
 
-  const {
-    data: swapTxHash,
-    isPending,
-    isSuccess,
-    error: txSendError,
-    sendTransactionAsync,
-  } = useSendTransaction();
+  const { data: swapTxHash, sendTransactionAsync } = useSendTransaction();
 
   const { data: swapTxReceipt, isSuccess: isSwapTxConfirmed } =
     useWaitForTransactionReceipt({
