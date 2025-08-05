@@ -65,7 +65,7 @@ const useCastVote = () => {
         toast.error("Failed to cast vote");
       }
     } else if (isConfirmed && data) {
-      const currentChain = chainId === Celo.id ? Celo : Alfajores;
+      const currentChain = chainId === Alfajores.id ? Alfajores : Celo;
       const explorerUrl = currentChain.blockExplorers?.default?.url;
       const explorerTxUrl = explorerUrl ? `${explorerUrl}/tx/${data}` : null;
 

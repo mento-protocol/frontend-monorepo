@@ -147,7 +147,7 @@ const ContractAddressDisplay = ({
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
-  const currentChain = chainId === Celo.id ? Celo : Alfajores;
+  const currentChain = chainId === Alfajores.id ? Alfajores : Celo;
   const explorerUrl = currentChain.blockExplorers?.default?.url;
   const addressUrl = explorerUrl ? `${explorerUrl}/address/${address}` : null;
 
