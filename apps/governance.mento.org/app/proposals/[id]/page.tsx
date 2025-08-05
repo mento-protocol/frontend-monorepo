@@ -35,7 +35,20 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { formatInTimeZone } from "date-fns-tz";
 
-// Function to decode HTML entities
+const CELO_COMMUNITY_ADDRESS = "0x41822d8a191fcfb1cfca5f7048818acd8ee933d3";
+
+const ADDRESS_ALIASES: Record<string, string> = {
+  [CELO_COMMUNITY_ADDRESS.toLowerCase()]: "Celo Community",
+};
+
+function getAddressLabel(address: string): string {
+  const lowerAddress = address.toLowerCase();
+  return (
+    ADDRESS_ALIASES[lowerAddress] ||
+    `${address.slice(0, 6)}...${address.slice(-4)}`
+  );
+}
+
 function decodeHtmlEntities(text: string): string {
   const textArea = document.createElement("textarea");
   textArea.innerHTML = text;
@@ -93,7 +106,7 @@ function ParticipantList({ participants }: ParticipantListProps) {
                 <Identicon address={participant.address} size={16} />
                 <div className="h-auto !bg-transparent p-0">
                   <span className="flex items-center gap-1">
-                    {`${participant.address.slice(0, 6)}...${participant.address.slice(-4)}`}
+                    {getAddressLabel(participant.address)}
                     <CopyToClipboard
                       text={participant.address}
                       className="opacity-0 transition-opacity group-hover:opacity-100"
@@ -198,7 +211,7 @@ export default function ProposalPage() {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
-  const currentChain = chainId === Celo.id ? Celo : Alfajores;
+  const currentChain = chainId === Alfajores.id ? Alfajores : Celo;
   const explorerUrl = currentChain.blockExplorers?.default?.url;
 
   const descriptionType = proposal.metadata?.description

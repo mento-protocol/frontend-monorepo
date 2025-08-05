@@ -191,7 +191,7 @@ export const CreateLockProvider = ({
         toast.error("Approval transaction failed");
       }
     } else if (approve.isConfirmed && approve.hash) {
-      const currentChain = chainId === Celo.id ? Celo : Alfajores;
+      const currentChain = chainId === Alfajores.id ? Alfajores : Celo;
       const explorerUrl = currentChain.blockExplorers?.default?.url;
       const explorerTxUrl = explorerUrl
         ? `${explorerUrl}/tx/${approve.hash}`
@@ -228,7 +228,7 @@ export const CreateLockProvider = ({
         toast.error("Lock transaction failed");
       }
     } else if (lock.isConfirmed && lock.hash) {
-      const currentChain = chainId === Celo.id ? Celo : Alfajores;
+      const currentChain = chainId === Alfajores.id ? Alfajores : Celo;
       const explorerUrl = currentChain.blockExplorers?.default?.url;
       const explorerTxUrl = explorerUrl
         ? `${explorerUrl}/tx/${lock.hash}`
