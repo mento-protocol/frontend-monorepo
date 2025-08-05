@@ -258,7 +258,7 @@ export const CreateProposalProvider = ({
         toast.error("Failed to create proposal");
       }
     } else if (isConfirmed && txReceipt && createTx) {
-      const currentChain = chainId === Celo.id ? Celo : Alfajores;
+      const currentChain = chainId === Alfajores.id ? Alfajores : Celo;
       const explorerUrl = currentChain.blockExplorers?.default?.url;
       const explorerTxUrl = explorerUrl
         ? `${explorerUrl}/tx/${createTx}`

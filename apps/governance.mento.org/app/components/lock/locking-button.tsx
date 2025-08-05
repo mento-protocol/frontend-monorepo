@@ -89,7 +89,7 @@ export const LockingButton = () => {
     newSlope,
     additionalAmountToLock: parsedAmount,
     onConfirmation: () => {
-      const currentChain = chainId === Celo.id ? Celo : Alfajores;
+      const currentChain = chainId === Alfajores.id ? Alfajores : Celo;
       const explorerUrl = currentChain.blockExplorers?.default?.url;
       const explorerTxUrl = explorerUrl
         ? `${explorerUrl}/tx/${relock.hash}`

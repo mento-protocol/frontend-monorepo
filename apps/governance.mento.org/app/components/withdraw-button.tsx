@@ -25,7 +25,7 @@ export const WithdrawButton = () => {
   const handleWithdrawSuccess = React.useCallback(
     (txHash?: `0x${string}`) => {
       // Show success toast with explorer link
-      const currentChain = chainId === Celo.id ? Celo : Alfajores;
+      const currentChain = chainId === Alfajores.id ? Alfajores : Celo;
       const explorerUrl = currentChain.blockExplorers?.default?.url;
       const explorerTxUrl =
         txHash && explorerUrl ? `${explorerUrl}/tx/${txHash}` : null;
