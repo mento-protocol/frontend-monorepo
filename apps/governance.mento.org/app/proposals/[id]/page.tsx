@@ -34,6 +34,7 @@ import { useAccount, useBlock, useBlockNumber } from "wagmi";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { formatInTimeZone } from "date-fns-tz";
+import { useEnsureChainId } from "@/lib/hooks/use-ensure-chain-id";
 
 // Function to decode HTML entities
 function decodeHtmlEntities(text: string): string {
@@ -71,6 +72,11 @@ function ParticipantList({ participants }: ParticipantListProps) {
     return formatted;
   }, [totalWeight]);
 
+  const chainId = useEnsureChainId();
+
+  const currentChain = chainId === Celo.id ? Celo : Alfajores;
+  const explorerUrl = currentChain.blockExplorers?.default?.url;
+
   return (
     <div className="flex flex-col">
       <div className="mb-2 flex items-center justify-between py-3">
@@ -92,13 +98,16 @@ function ParticipantList({ participants }: ParticipantListProps) {
               <div className="flex items-center gap-2">
                 <Identicon address={participant.address} size={16} />
                 <div className="h-auto !bg-transparent p-0">
-                  <span className="flex items-center gap-1">
-                    {`${participant.address.slice(0, 6)}...${participant.address.slice(-4)}`}
+                  <a
+                    href={`${explorerUrl}/address/${participant.address}`}
+                    className="flex items-center gap-1"
+                  >
+                    <span className="hover:underline">{`${participant.address.slice(0, 6)}...${participant.address.slice(-4)}`}</span>
                     <CopyToClipboard
                       text={participant.address}
                       className="opacity-0 transition-opacity group-hover:opacity-100"
                     />
-                  </span>
+                  </a>
                 </div>
               </div>
               <span>
