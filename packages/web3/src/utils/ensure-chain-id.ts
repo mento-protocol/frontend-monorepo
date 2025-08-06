@@ -1,8 +1,8 @@
 import { Alfajores, Celo } from "@/config/chains";
 
 export const ensureChainId = (chainId?: number) => {
-  if (chainId !== Celo.chainId && chainId !== Alfajores.chainId) {
-    return Celo.chainId;
+  if (chainId !== Celo.id && chainId !== Alfajores.id) {
+    return Celo.id;
   } else {
     return chainId;
   }

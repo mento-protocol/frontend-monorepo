@@ -1,21 +1,22 @@
+import { GovernorABI } from "@/abi/Governor";
+import { ProposalQueryKey } from "@/contracts/governor/use-proposal";
+import { useContracts } from "@/contracts/use-contracts";
+import { useCurrentChain } from "@/features";
+import { toast } from "@repo/ui";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect } from "react";
 import {
+  useAccount,
   useWaitForTransactionReceipt,
   useWriteContract,
-  useAccount,
 } from "wagmi";
-import { useContracts } from "@/contracts/use-contracts";
-import { GovernorABI } from "@/abi/Governor";
 import { WriteContractErrorType } from "wagmi/actions";
-import { useQueryClient } from "@tanstack/react-query";
-import { ProposalQueryKey } from "@/contracts/governor/use-proposal";
-import { toast } from "@repo/ui";
-import { Celo, Alfajores } from "@/config/chains";
 
 export const useCastVote = () => {
   const queryClient = useQueryClient();
   const contracts = useContracts();
   const { chainId } = useAccount();
+  const currentChain = useCurrentChain();
   const {
     writeContract,
     isPending: isAwaitingUserSignature,
@@ -65,8 +66,7 @@ export const useCastVote = () => {
         toast.error("Failed to cast vote");
       }
     } else if (isConfirmed && data) {
-      const currentChain = chainId === Celo.id ? Celo : Alfajores;
-      const explorerUrl = currentChain.blockExplorers?.default?.url;
+      const explorerUrl = currentChain?.blockExplorers?.default?.url[0];
       const explorerTxUrl = explorerUrl ? `${explorerUrl}/tx/${data}` : null;
 
       const message = "Vote cast successfully!";

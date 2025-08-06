@@ -42,7 +42,7 @@ export function NetworkDialog({ isOpen, close }: Props) {
       if (!switchChainAsync) throw new Error("switchChainAsync undefined");
       logger.debug("Resetting and switching to network", c.name);
       cleanupStaleWalletSessions();
-      await switchChainAsync({ chainId: c.chainId });
+      await switchChainAsync({ chainId: c.id });
       setResetLatestBlock();
       queryClient.resetQueries({ queryKey: ["accountBalances"] });
       resetJotaiSwapState();
@@ -93,7 +93,8 @@ export function NetworkDialog({ isOpen, close }: Props) {
                 className="text-foreground text-right text-[14px] font-medium leading-tight opacity-90 sm:text-[15px]"
                 data-testid={`${baseLocator}_currentNodeRpcUrl`}
               >
-                {shortenUrl(currentChain?.rpcUrl) || "Unknown"}
+                {shortenUrl(currentChain?.rpcUrls?.default?.http[0]) ||
+                  "Unknown"}
               </div>
             </div>
           </div>
@@ -106,10 +107,8 @@ export function NetworkDialog({ isOpen, close }: Props) {
             <Button
               type="button"
               onClick={() => switchToNetwork(c)}
-              key={c.chainId}
-              variant={
-                c.chainId === currentChain?.chainId ? "default" : "outline"
-              }
+              key={c.id}
+              variant={c.id === currentChain?.id ? "default" : "outline"}
             >
               {c.name}
             </Button>

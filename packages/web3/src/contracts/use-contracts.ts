@@ -8,10 +8,10 @@ export const useContracts = (): MentoChainContracts => {
   const { isConnected, chainId } = useAccount();
 
   // In production, only allow Celo contracts
-  if (IS_PROD) return Celo.contracts;
+  if (IS_PROD) return Celo.contracts as MentoChainContracts;
 
   return isConnected && (chainId === Celo.id || chainId === Alfajores.id)
     ? (chains.find((chain) => chain.id === chainId)
         ?.contracts as MentoChainContracts)
-    : Celo.contracts;
+    : (Celo.contracts as MentoChainContracts);
 };

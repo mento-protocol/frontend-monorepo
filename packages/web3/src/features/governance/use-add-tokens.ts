@@ -13,9 +13,7 @@ export const useAddTokens = () => {
 
   const addMento = useCallback(async () => {
     const mentoTokenAddress =
-      mento.addresses[
-        chainId === Celo.chainId ? Celo.chainId : Alfajores.chainId
-      ]?.MentoToken;
+      mento.addresses[chainId === Celo.id ? Celo.id : Alfajores.id]?.MentoToken;
     if (!mentoTokenAddress) throw new Error("Mento token address not found");
     const connectorClient = await getConnectorClient(config);
 
@@ -32,9 +30,7 @@ export const useAddTokens = () => {
   const addVeMento = useCallback(async () => {
     if (!chainId || !client?.request) return;
     const veMentoTokenAddress =
-      mento.addresses[
-        chainId === Celo.chainId ? Celo.chainId : Alfajores.chainId
-      ]?.Locking;
+      mento.addresses[chainId === Celo.id ? Celo.id : Alfajores.id]?.Locking;
     if (!veMentoTokenAddress)
       throw new Error("veMento token address not found");
     const connectorClient = await getConnectorClient(config);

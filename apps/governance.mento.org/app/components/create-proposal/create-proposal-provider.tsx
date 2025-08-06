@@ -1,27 +1,28 @@
-import { Alfajores, Celo } from "@repo/web3";
-import {
-  useCreateProposalOnChain,
-  useProposals,
-  ensureChainId,
-  TransactionItem,
-} from "@repo/web3";
-import { LocalStorageKeys, useLocalStorage } from "@repo/web3";
 import { toast } from "@repo/ui";
-import { Loader } from "lucide-react";
-import { useRouter } from "next/navigation";
 import {
-  ReactNode,
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useState,
-} from "react";
+  ensureChainId,
+  LocalStorageKeys,
+  TransactionItem,
+  useCreateProposalOnChain,
+  useCurrentChain,
+  useLocalStorage,
+  useProposals,
+} from "@repo/web3";
 import {
   useAccount,
   useBlockNumber,
   useWaitForTransactionReceipt,
 } from "@repo/web3/wagmi";
+import { Loader } from "lucide-react";
+import { useRouter } from "next/navigation";
+import {
+  createContext,
+  ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 import { CreateProposalTxDialog } from "./create-proposal-transaction-dialog";
 
 export enum CreateProposalStep {
@@ -68,7 +69,10 @@ export const CreateProposalProvider = ({
   children,
 }: ICreateProposalProvider) => {
   const { chainId } = useAccount();
+  const currentChain = useCurrentChain();
+
   const router = useRouter();
+
   const { proposalExists, refetchProposals } = useProposals();
 
   const [isTxDialogOpen, setTxDialogOpen] = useState(false);
@@ -259,7 +263,6 @@ export const CreateProposalProvider = ({
         toast.error("Failed to create proposal");
       }
     } else if (isConfirmed && txReceipt && createTx) {
-      const currentChain = chainId === Alfajores.id ? Alfajores : Celo;
       const explorerUrl = currentChain.blockExplorers?.default?.url;
       const explorerTxUrl = explorerUrl
         ? `${explorerUrl}/tx/${createTx}`

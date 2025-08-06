@@ -1,6 +1,6 @@
 import { connectorsForWallets } from "@rainbow-me/rainbowkit";
 import { Config, createConfig, http } from "wagmi";
-import { celo, celoAlfajores } from "wagmi/chains";
+import { celo, celoAlfajores, Chain } from "wagmi/chains";
 import { config } from "./config";
 
 import {
@@ -9,8 +9,7 @@ import {
   trustWallet,
   walletConnectWallet,
 } from "@rainbow-me/rainbowkit/wallets";
-
-export const chains = [celo, celoAlfajores] as const;
+import { allChains } from ".";
 
 // Avoid creating WalletConnect connectors during SSR because they rely on
 // browser-only APIs like `indexedDB`.
@@ -37,11 +36,11 @@ const connectors = isServer
     );
 
 export const wagmiConfig: Config = createConfig({
-  chains,
+  chains: allChains as any satisfies Chain[],
   connectors,
   transports: {
-    [celo.id]: http(celo.rpcUrls.default.http[0]),
-    [celoAlfajores.id]: http(celoAlfajores.rpcUrls.default.http[0]),
+    [celo.id]: http(),
+    [celoAlfajores.id]: http(),
   },
   ssr: true,
 });

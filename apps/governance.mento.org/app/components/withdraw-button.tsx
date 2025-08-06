@@ -5,6 +5,7 @@ import {
   formatUnitsWithThousandSeparators,
   Celo,
   Alfajores,
+  useCurrentChain,
 } from "@repo/web3";
 import { Button, toast } from "@repo/ui";
 import React from "react";
@@ -16,7 +17,7 @@ export const WithdrawButton = () => {
     useAvailableToWithdraw();
 
   const { address, chainId } = useAccount();
-
+  const currentChain = useCurrentChain();
   const { refetch } = useLockInfo(address);
 
   const hasAmountToWithdraw = availableToWithdraw > BigInt(0);
@@ -27,8 +28,6 @@ export const WithdrawButton = () => {
 
   const handleWithdrawSuccess = React.useCallback(
     (txHash?: `0x${string}`) => {
-      // Show success toast with explorer link
-      const currentChain = chainId === Alfajores.id ? Alfajores : Celo;
       const explorerUrl = currentChain.blockExplorers?.default?.url;
       const explorerTxUrl =
         txHash && explorerUrl ? `${explorerUrl}/tx/${txHash}` : null;

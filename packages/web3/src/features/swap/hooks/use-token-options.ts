@@ -23,7 +23,7 @@ export function useTokenOptions(
   balancesFromHook?: Record<TokenId, string>,
 ) {
   const { chain } = useAccount();
-  const chainId = useMemo(() => chain?.id ?? Celo.chainId, [chain]);
+  const chainId = useMemo(() => chain?.id ?? Celo.id, [chain]);
   const [swappableTokens, setSwappableTokens] = useState<TokenId[]>([]);
 
   // Get all available tokens for current chain
