@@ -9,7 +9,11 @@ export function getProvider(chainId: ChainId): providers.JsonRpcProvider {
   if (!chain) {
     throw new Error(`Unknown chainId: ${chainId}`);
   }
-  const provider = new providers.JsonRpcProvider(chain.rpcUrl, chainId);
+  const rpcUrl = chain.rpcUrls?.default?.http?.[0];
+  if (!rpcUrl) {
+    throw new Error(`No RPC URL configured for chainId ${chainId}`);
+  }
+  const provider = new providers.JsonRpcProvider(rpcUrl, chainId);
   cache[chainId] = provider;
   return provider;
 }

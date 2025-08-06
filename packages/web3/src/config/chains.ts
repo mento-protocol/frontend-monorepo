@@ -1,6 +1,6 @@
 import { MentoChain, MentoChainContracts } from "@/types";
 import { addresses, ContractAddresses } from "@mento-protocol/mento-sdk";
-import { Address } from "viem";
+import { Address, Chain } from "viem";
 import { celo, celoAlfajores } from "wagmi/chains";
 
 export enum ChainId {
@@ -9,30 +9,20 @@ export enum ChainId {
 }
 
 export const Alfajores: MentoChain = {
-  id: ChainId.Alfajores,
-  chainId: ChainId.Alfajores,
-  name: "Alfajores",
-  rpcUrl: "https://alfajores-forno.celo-testnet.org",
-  explorerUrl: "https://alfajores.celoscan.io",
-  explorerApiUrl: "https://api-alfajores.celoscan.io/api",
+  ...celoAlfajores,
   contracts: {
     ...celoAlfajores.contracts,
     ...transformToChainContracts(addresses[celoAlfajores.id]),
   },
-};
+} as const satisfies Chain;
 
 export const Celo: MentoChain = {
-  id: ChainId.Celo,
-  chainId: ChainId.Celo,
-  name: "Celo",
-  rpcUrl: "https://forno.celo.org",
-  explorerUrl: "https://celoscan.io",
-  explorerApiUrl: "https://api.celoscan.io/api",
+  ...celo,
   contracts: {
     ...celo.contracts,
     ...transformToChainContracts(addresses[celo.id]),
   },
-};
+} as const satisfies Chain;
 
 export const chainIdToChain: Record<number, MentoChain> = {
   [ChainId.Alfajores]: Alfajores,

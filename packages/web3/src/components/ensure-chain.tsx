@@ -21,7 +21,7 @@ export function EnsureChain({ children }: { children: ReactNode }) {
     const storage = createStorage({ storage: localStorage });
     const recentConnectorId = await storage.getItem("recentConnectorId");
     switchChain({
-      chainId: Celo.chainId,
+      chainId: Celo.id,
     });
     if (recentConnectorId === "me.rainbow") {
       const directId = window.ethereum.chainId;
@@ -39,8 +39,8 @@ export function EnsureChain({ children }: { children: ReactNode }) {
           setModalActive(false);
         }
       } else if (
-        storeData?.state.chainId !== Celo.chainId ||
-        storeData?.state.chainId !== Alfajores.chainId
+        storeData?.state.chainId !== Celo.id ||
+        storeData?.state.chainId !== Alfajores.id
       ) {
         disconnect();
         setModalActive(true);
@@ -54,8 +54,8 @@ export function EnsureChain({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (isConnected) {
       if (
-        (IS_PROD && chainId !== Celo.chainId) ||
-        (!IS_PROD && chainId !== Celo.chainId && chainId !== Alfajores.chainId)
+        (IS_PROD && chainId !== Celo.id) ||
+        (!IS_PROD && chainId !== Celo.id && chainId !== Alfajores.id)
       ) {
         if (!switching) {
           setSwitching(true);

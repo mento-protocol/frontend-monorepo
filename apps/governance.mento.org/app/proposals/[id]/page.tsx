@@ -1,11 +1,6 @@
 "use client";
 import { Identicon } from "@/components/identicon";
 import { VoteCard } from "@/components/voting/vote-card";
-import { Alfajores, Celo } from "@repo/web3";
-import { CELO_BLOCK_TIME } from "@repo/web3";
-import useProposal from "@repo/web3";
-import { ProposalState } from "@repo/web3";
-import { ensureChainId } from "@repo/web3";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -25,15 +20,21 @@ import {
   TabsList,
   TabsTrigger,
 } from "@repo/ui";
+import useProposal, {
+  CELO_BLOCK_TIME,
+  ensureChainId,
+  ProposalState,
+  useCurrentChain,
+} from "@repo/web3";
+import { useAccount, useBlock, useBlockNumber } from "@repo/web3/wagmi";
 import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMemo } from "react";
-import { formatUnits } from "viem";
-import { useAccount, useBlock, useBlockNumber } from "@repo/web3/wagmi";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { formatInTimeZone } from "date-fns-tz";
+import { formatUnits } from "viem";
 
 // Function to decode HTML entities
 function decodeHtmlEntities(text: string): string {
@@ -132,6 +133,8 @@ export default function ProposalPage() {
   const { proposal, refetch: refetchProposal } = useProposal(BigInt(id));
   const { chainId } = useAccount();
 
+  const currentChain = useCurrentChain();
+
   const { data: currentBlock } = useBlockNumber({
     chainId: ensureChainId(chainId),
     query: {
@@ -198,8 +201,7 @@ export default function ProposalPage() {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
-  const currentChain = chainId === Celo.id ? Celo : Alfajores;
-  const explorerUrl = currentChain.blockExplorers?.default?.url;
+  const explorerUrl = currentChain.blockExplorers?.default?.url[0];
 
   const descriptionType = proposal.metadata?.description
     ? proposal.metadata.description.match(/^<\w+>|<\/\w+>$/)
