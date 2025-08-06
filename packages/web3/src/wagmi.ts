@@ -9,6 +9,7 @@ export {
   cookieToInitialState,
   createStorage,
   useAccount,
+  useBlock,
   useBlockNumber,
   useChains,
   useChainId,

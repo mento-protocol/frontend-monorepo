@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { ethers } from "ethers";
+import type { Hex, Address } from "viem";
 import { usePublicClient } from "wagmi";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { parseInputExchangeAmount } from "@/features/swap/utils";
@@ -86,9 +87,9 @@ export function useGasEstimation({
 
           const gasEstimate = await publicClient
             .estimateGas({
-              from: address,
-              to: fromTokenAddr,
-              data: "0xa9059cbb" + transferData.slice(2),
+              account: address as Address,
+              to: fromTokenAddr as Address,
+              data: ("0xa9059cbb" + transferData.slice(2)) as Hex,
             })
             .catch(() => ethers.BigNumber.from("100000")); // Fallback for transfer
 
@@ -167,7 +168,7 @@ export function useGasEstimation({
 
         logger.info("Gas estimation tx request:", {
           to: txRequest.to,
-          from: address,
+          account: address as Address,
           method: isSwapIn ? "swapIn" : "swapOut",
         });
 
@@ -181,14 +182,16 @@ export function useGasEstimation({
           // Try to estimate gas
           try {
             const gasEstimate = await publicClient.estimateGas({
-              from: address,
-              to: txRequest.to,
-              data: txRequest.data,
-              value: txRequest.value || ethers.constants.Zero,
+              account: address as Address,
+              to: txRequest.to as Address,
+              data: txRequest.data as Hex | undefined,
+              value: txRequest.value
+                ? BigInt(txRequest.value.toString())
+                : undefined,
             });
 
-            // Add 20% buffer
-            estimatedGas = gasEstimate.mul(120).div(100);
+            const gasEstimateBN = ethers.BigNumber.from(gasEstimate);
+            estimatedGas = gasEstimateBN.mul(120).div(100);
             logger.info("Estimated gas with buffer:", estimatedGas.toString());
           } catch (estimateError: unknown) {
             const errorMessage =

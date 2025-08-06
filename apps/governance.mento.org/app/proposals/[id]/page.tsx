@@ -21,7 +21,8 @@ import {
   TabsList,
   TabsTrigger,
 } from "@repo/ui";
-import useProposal, {
+import {
+  useProposal,
   CELO_BLOCK_TIME,
   ensureChainId,
   ProposalState,

@@ -1,8 +1,7 @@
-import { ChainId } from "@/config";
 import { ContractAddresses } from "@mento-protocol/mento-sdk";
+import { Chain } from "@rainbow-me/rainbowkit";
 import { ChainContract } from "viem";
 import { Lock } from "../graphql";
-import { Chain } from "@rainbow-me/rainbowkit";
 
 export type MentoChainContracts = {
   [K in keyof ContractAddresses]: ChainContract;
