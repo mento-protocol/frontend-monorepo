@@ -1,18 +1,22 @@
-import { Alfajores, Celo } from "@repo/web3";
-import { useCreateLockOnChain } from "@repo/web3";
-import { useAllowance } from "@repo/web3";
-import { useApprove } from "@repo/web3";
-import { useContracts } from "@repo/web3";
 import { toast } from "@repo/ui";
+import {
+  Alfajores,
+  Celo,
+  useAllowance,
+  useApprove,
+  useContracts,
+  useLockMento as useCreateLockOnChain,
+  useCurrentChain,
+} from "@repo/web3";
+import { useAccount } from "@repo/web3/wagmi";
 import React, { ReactNode, createContext, useContext } from "react";
 import { parseEther } from "viem";
-import { useAccount } from "@repo/web3/wagmi";
 
 import {
   DEFAULT_LOCKING_CLIFF,
   LOCKING_AMOUNT_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
-} from "@/lib/constants/locking";
+} from "@repo/web3";
 import { differenceInWeeks } from "date-fns";
 import { useFormContext } from "react-hook-form";
 import { TxDialog } from "../tx-dialog/tx-dialog";
@@ -62,6 +66,8 @@ export const CreateLockProvider = ({
     React.useState(false);
 
   const { address, chainId } = useAccount();
+  const currentChain = useCurrentChain();
+
   const amount = watch(LOCKING_AMOUNT_FORM_KEY);
   const unlockDate = watch(LOCKING_UNLOCK_DATE_FORM_KEY);
 
@@ -191,7 +197,6 @@ export const CreateLockProvider = ({
         toast.error("Approval transaction failed");
       }
     } else if (approve.isConfirmed && approve.hash) {
-      const currentChain = chainId === Alfajores.id ? Alfajores : Celo;
       const explorerUrl = currentChain.blockExplorers?.default?.url;
       const explorerTxUrl = explorerUrl
         ? `${explorerUrl}/tx/${approve.hash}`
@@ -228,7 +233,6 @@ export const CreateLockProvider = ({
         toast.error("Lock transaction failed");
       }
     } else if (lock.isConfirmed && lock.hash) {
-      const currentChain = chainId === Alfajores.id ? Alfajores : Celo;
       const explorerUrl = currentChain.blockExplorers?.default?.url;
       const explorerTxUrl = explorerUrl
         ? `${explorerUrl}/tx/${lock.hash}`

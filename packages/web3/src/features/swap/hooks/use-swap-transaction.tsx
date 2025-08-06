@@ -137,7 +137,7 @@ export function useSwapTransaction(
       // Show success toast with transaction details
       if (swapValues) {
         const chain = chainIdToChain[chainId];
-        const explorerUrl = chain?.explorerUrl;
+        const explorerUrl = chain?.blockExplorers?.default.url[0];
         const fromTokenObj = Tokens[fromToken];
         const toTokenObj = Tokens[toToken];
         const fromTokenSymbol = fromTokenObj?.symbol || "Token";

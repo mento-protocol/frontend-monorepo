@@ -1,6 +1,7 @@
 import {
   LOCKING_AMOUNT_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
+  useCurrentChain,
 } from "@repo/web3";
 import { useLockInfo } from "@repo/web3";
 import { useLockingWeek } from "@repo/web3";
@@ -33,6 +34,7 @@ export const LockingButton = () => {
     hasMultipleLocks,
     refetch: refetchLockInfo,
   } = useLockInfo(address);
+  const currentChain = useCurrentChain();
   const contracts = useContracts();
   const { currentWeek: currentLockingWeek } = useLockingWeek();
   const [isTxDialogOpen, setIsTxDialogOpen] = React.useState(false);
@@ -89,7 +91,6 @@ export const LockingButton = () => {
     newSlope,
     additionalAmountToLock: parsedAmount,
     onConfirmation: () => {
-      const currentChain = chainId === Alfajores.id ? Alfajores : Celo;
       const explorerUrl = currentChain.blockExplorers?.default?.url;
       const explorerTxUrl = explorerUrl
         ? `${explorerUrl}/tx/${relock.hash}`

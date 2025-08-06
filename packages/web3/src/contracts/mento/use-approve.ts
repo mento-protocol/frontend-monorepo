@@ -1,11 +1,11 @@
 import { useCallback } from "react";
+import { Address, erc20Abi } from "viem";
 import {
   useAccount,
   useConfig,
   useWaitForTransactionReceipt,
   useWriteContract,
 } from "wagmi";
-import { Address, erc20Abi } from "viem";
 import {
   waitForTransactionReceipt,
   WriteContractErrorType,
@@ -20,7 +20,7 @@ interface ApproveParams {
   onConfirmation?: () => void;
 }
 
-const useApprove = () => {
+export const useApprove = () => {
   const contracts = useContracts();
   const {
     writeContract,
@@ -82,5 +82,3 @@ const useApprove = () => {
     ...restWrite,
   };
 };
-
-export default useApprove;

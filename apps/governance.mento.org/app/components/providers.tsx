@@ -30,10 +30,8 @@ export function ClientProviders({
   initialState,
 }: PropsWithChildren & { initialState: State | undefined }) {
   return (
-    <ErrorBoundary>
-      <SafeHydrate>
-        <Web3Provider initialState={initialState}>{children}</Web3Provider>
-      </SafeHydrate>
-    </ErrorBoundary>
+    <SafeHydrate>
+      <Web3Provider initialState={initialState}>{children}</Web3Provider>
+    </SafeHydrate>
   );
 }
