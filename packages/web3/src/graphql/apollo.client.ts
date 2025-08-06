@@ -9,15 +9,18 @@ import {
 } from "@apollo/client-integration-nextjs";
 import { setContext } from "@apollo/client/link/context";
 
-const CELO_EXPLORER_API_URL = process.env.NEXT_PUBLIC_CELO_EXPLORER_API_URL;
+const CELO_EXPLORER_API_URL =
+  process.env.NEXT_PUBLIC_CELO_EXPLORER_API_URL ?? "";
 const CELO_EXPLORER_API_URL_ALFAJORES =
-  process.env.NEXT_PUBLIC_CELO_EXPLORER_API_URL_ALFAJORES;
+  process.env.NEXT_PUBLIC_CELO_EXPLORER_API_URL_ALFAJORES ?? "";
 
-const SUBGRAPH_URL = process.env.NEXT_PUBLIC_SUBGRAPH_URL;
-const SUBGRAPH_URL_ALFAJORES = process.env.NEXT_PUBLIC_SUBGRAPH_URL_ALFAJORES;
+const SUBGRAPH_URL = process.env.NEXT_PUBLIC_SUBGRAPH_URL ?? "";
+const SUBGRAPH_URL_ALFAJORES =
+  process.env.NEXT_PUBLIC_SUBGRAPH_URL_ALFAJORES ?? "";
 
-const GRAPH_API_KEY = process.env.NEXT_PUBLIC_GRAPH_API_KEY;
-const GRAPH_API_KEY_ALFAJORES = process.env.NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES;
+const GRAPH_API_KEY = process.env.NEXT_PUBLIC_GRAPH_API_KEY ?? "";
+const GRAPH_API_KEY_ALFAJORES =
+  process.env.NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES ?? "";
 
 // have a function to create a client for you
 export function makeClient() {
