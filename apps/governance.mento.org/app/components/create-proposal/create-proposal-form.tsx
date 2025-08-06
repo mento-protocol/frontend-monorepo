@@ -1,5 +1,5 @@
 "use client";
-import { useProposalThreshold, useTokens } from "@repo/web3";
+import { useProposals, useProposalThreshold, useTokens } from "@repo/web3";
 import { formatUnitsWithThousandSeparators } from "@repo/web3";
 import TurndownService from "turndown";
 import ReactMarkdown from "react-markdown";
@@ -37,7 +37,6 @@ import {
   CreateProposalStep,
   useCreateProposal,
 } from "./create-proposal-provider";
-import useProposals from "@/lib/contracts/governor/use-proposals";
 
 const isTextInvalid = (html: string) => {
   const text = html.replace(/<[^>]*>/g, "").trim();

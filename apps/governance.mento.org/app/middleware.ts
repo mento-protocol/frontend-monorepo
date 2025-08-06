@@ -28,7 +28,7 @@ export function middleware(request: NextRequest) {
 
           publicClient
             .readContract({
-              address: Celo.contracts.MentoGovernor.address,
+              address: Celo?.contracts?.MentoGovernor?.address,
               abi: GovernorABI,
               functionName: "proposals",
               args: [BigInt(parsedId)],

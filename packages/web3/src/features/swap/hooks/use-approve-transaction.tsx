@@ -6,7 +6,7 @@ import { toast } from "@repo/ui";
 import { useQuery } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
 import { useCallback, useEffect, useState } from "react";
-import { Address, TransactionReceipt } from "viem";
+import type { Address, Hex, TransactionReceipt } from "viem";
 import {
   useEstimateGas,
   useSendTransaction,
@@ -58,8 +58,8 @@ export function useApproveTransaction({
   const [approveTxHash, setApproveTxHash] = useState<Address | null>(null);
 
   const { data, error: sendPrepError } = useEstimateGas({
-    to: txRequest?.to,
-    data: txRequest?.data,
+    to: txRequest?.to as Address | undefined,
+    data: txRequest?.data as Hex | undefined,
   });
 
   const { data: approveTxReceipt, isSuccess: isApproveTxConfirmed } =
@@ -140,8 +140,8 @@ export function useApproveTransaction({
   const sendApproveTx = useCallback(async () => {
     const hash = await sendTransactionAsync({
       gas: data,
-      to: txRequest?.to,
-      data: txRequest?.data,
+      to: txRequest?.to as Address | undefined,
+      data: txRequest?.data as Hex | undefined,
     });
 
     setApproveTxHash(hash);
