@@ -494,7 +494,8 @@ export default function SwapForm() {
       accountAddress: address,
       onSuccess: (receipt) => {
         logger.info("Approval transaction confirmed");
-        const explorerUrl = chainIdToChain[chainId]?.explorerUrl;
+        const explorerUrl =
+          chainIdToChain[chainId]?.blockExplorers?.default.url[0];
 
         toast.success(
           <>
@@ -961,7 +962,7 @@ export default function SwapForm() {
             )}
           </Button>
         ) : (
-          <ConnectButton size="lg" text="Connect" />
+          <ConnectButton size="lg" text="Connect" fullWidth />
         )}
       </form>
     </Form>
