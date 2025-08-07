@@ -31,7 +31,7 @@ import { ArrowLeft, ArrowRight, HelpCircle } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAccount } from "@repo/web3/wagmi";
-import { ConnectButton } from "../connect-button";
+import { ConnectButton } from "@repo/web3";
 import {
   CreateProposalProvider,
   CreateProposalStep,

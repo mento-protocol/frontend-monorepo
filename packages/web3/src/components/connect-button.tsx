@@ -220,7 +220,10 @@ export function ConnectButton({
               {!connected ? (
                 <Button
                   size={size === "lg" ? "lg" : "sm"}
-                  onClick={rainbowOpenConnectModal}
+                  onClick={() => {
+                    cleanupStaleWalletSessions();
+                    rainbowOpenConnectModal?.();
+                  }}
                   className={cn(fullWidth ? "w-full" : "w-auto")}
                   type="button"
                   variant="default"
