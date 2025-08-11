@@ -114,8 +114,12 @@ function ParticipantList({ participants }: ParticipantListProps) {
                   <a
                     href={`${explorerUrl}/address/${participant.address}`}
                     className="flex items-center gap-1"
+                    target="_blank"
+                    rel="noopener noreferrer"
                   >
-                    <span className="hover:underline">{`${participant.address.slice(0, 6)}...${participant.address.slice(-4)}`}</span>
+                    <span className="hover:underline">
+                      {getAddressLabel(participant.address)}
+                    </span>
                     <CopyToClipboard
                       text={participant.address}
                       className="opacity-0 transition-opacity group-hover:opacity-100"
