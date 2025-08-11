@@ -33,7 +33,7 @@
     "turbo": "^2.5.4",
     "typescript": "^5.8.3"
   },
-  "packageManager": "pnpm@10.12.3",
+  "packageManager": "pnpm@10.14.0",
   "engines": {
     "node": ">=22"
   },
@@ -59,7 +59,8 @@
       "@eslint/plugin-kit@<0.3.4": ">=0.3.4",
       "color-string@<1.5.5": ">=1.5.5",
       "form-data@<2.5.4": ">=2.5.4",
-      "linkifyjs": "^4.3.2"
+      "linkifyjs": "^4.3.2",
+      "tmp": ">=0.2.4"
     }
   }
 }
