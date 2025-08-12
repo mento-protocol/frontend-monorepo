@@ -6,13 +6,12 @@ import { cleanupStaleWalletSessions } from "./wallets";
 
 import {
   metaMaskWallet,
-  omniWallet,
   rabbyWallet,
   trustWallet,
+  valoraWallet,
   walletConnectWallet,
 } from "@rainbow-me/rainbowkit/wallets";
-import { Valora, CeloWallet } from "./celo-wallets";
-import { allChains } from ".";
+import { allChains, CeloWallet } from ".";
 
 // Avoid creating WalletConnect connectors during SSR because they rely on
 // browser-only APIs like `indexedDB`.
@@ -38,9 +37,8 @@ const connectors = isServer
           groupName: "Recommended for Celo chains",
           wallets: [
             metaMaskWallet,
-            () => Valora({ projectId: config.walletConnectProjectId }),
             walletConnectWallet,
-            omniWallet,
+            valoraWallet,
             trustWallet,
             rabbyWallet,
             () => CeloWallet({ projectId: config.walletConnectProjectId }),
