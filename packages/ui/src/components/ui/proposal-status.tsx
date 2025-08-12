@@ -16,6 +16,7 @@ const proposalStatusVariants = cva(
         queued: "bg-[var(--queued)]",
         succeeded: "bg-[var(--succeeded)]",
         defeated: "bg-[var(--defeated)]",
+        canceled: "bg-[var(--canceled)]",
       },
     },
     defaultVariants: {
