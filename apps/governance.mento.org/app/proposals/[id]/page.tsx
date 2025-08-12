@@ -212,7 +212,7 @@ export default function ProposalPage() {
       case ProposalState.Executed:
         return "executed";
       case ProposalState.Canceled:
-        return "defeated";
+        return "canceled";
       case ProposalState.Expired:
         return "default";
       default:
