@@ -7,7 +7,9 @@ export const env = createEnv({
    * Serverside Environment variables, not available on the client.
    * Will throw if you access these variables on the client.
    */
-  server: {},
+  server: {
+    SENTRY_DSN: z.string(),
+  },
   /*
    * Environment variables available on the client (and server).
    *
