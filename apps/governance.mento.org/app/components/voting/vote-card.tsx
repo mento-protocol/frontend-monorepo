@@ -325,6 +325,7 @@ export const VoteCard = ({
     proposalState === ProposalState.Queued ||
     proposalState === ProposalState.Executed;
   const isRejected = proposalState === ProposalState.Defeated;
+  const isCanceled = proposalState === ProposalState.Canceled;
   const isAbstained =
     proposalState === ProposalState.Defeated &&
     abstainVotes > forVotes &&
@@ -370,6 +371,8 @@ export const VoteCard = ({
           return "succeeded";
         case ProposalState.Defeated:
           return "defeated";
+        case ProposalState.Canceled:
+          return "canceled";
         case ProposalState.Expired:
           return "expired";
         case ProposalState.Pending:
@@ -420,6 +423,8 @@ export const VoteCard = ({
         if (isAbstained) return "Majority Abstained";
         if (!hasQuorum) return "Quorum Not Met";
         return "Proposal Defeated";
+      case "canceled":
+        return "Proposal Canceled";
       case "expired":
         return "Proposal Expired";
       case "pending":
@@ -993,6 +998,7 @@ export const VoteCard = ({
               >
                 {isApproved && <CircleCheck size={32} />}
                 {isRejected && <XCircle size={32} />}
+                {isCanceled && <XCircle size={32} />}
                 {title}
               </CardTitle>
 

@@ -51,6 +51,7 @@
   --queued: oklch(0.5717 0.099255 211.0725);
   --succeeded: oklch(0.5717 0.099255 255.0725);
   --defeated: oklch(0.476 0.216863 330.1079);
+  --canceled: oklch(0.5474 0.1933 26.43);
   --expired: oklch(0.2613 0.0288 302.75);
   --expired-text: oklch(0.7429 0.0118 303.05);
   --index: oklch(0.6416 0.0108 305.31);
@@ -111,6 +112,7 @@
   --queued: oklch(0.5717 0.099255 211.0725);
   --succeeded: oklch(0.5717 0.099255 255.0725);
   --defeated: oklch(0.476 0.216863 330.1079);
+  --canceled: oklch(0.5474 0.1933 26.43);
   --expired: oklch(0.2613 0.0288 302.75);
   --expired-text: oklch(0.7429 0.0118 303.05);
   --index: oklch(0.6416 0.0108 305.31);
