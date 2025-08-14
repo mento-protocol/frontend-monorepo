@@ -495,8 +495,8 @@ export default function SwapForm() {
       onSuccess: (receipt) => {
         logger.info("Approval transaction confirmed");
         const explorerUrl =
-          chainIdToChain[chainId]?.blockExplorers?.default.url[0];
-
+          chainIdToChain[chainId]?.blockExplorers?.default.url;
+        console.log("explorerUrl", explorerUrl);
         toast.success(
           <>
             <h4>Approve Successful</h4>
