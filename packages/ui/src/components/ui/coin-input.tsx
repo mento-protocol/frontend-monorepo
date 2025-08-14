@@ -19,10 +19,19 @@ function CoinInput({
 
     let eventForCallback = e; // By default, pass the original event
 
-    // If input starts with '.', prepend '0'
+    // Convert comma to dot for decimal separator
+    if (currentValue.includes(",")) {
+      currentValue = currentValue.replace(",", ".");
+      eventForCallback = {
+        ...e,
+        target: { ...e.target, value: currentValue },
+        currentTarget: { ...e.currentTarget, value: currentValue },
+      };
+    }
+
+    // If input starts with '.' or ',', prepend '0'
     if (currentValue.startsWith(".")) {
       currentValue = "0" + currentValue;
-      // Prepare a new event object for the callback with the modified value
       eventForCallback = {
         ...e,
         target: { ...e.target, value: currentValue },
@@ -76,6 +85,7 @@ function CoinInput({
       "8",
       "9",
       ".",
+      ",",
     ];
 
     // Allow copy/paste and selection operations
@@ -90,8 +100,12 @@ function CoinInput({
       e.preventDefault();
     }
 
-    // Prevent multiple decimal points
-    if (e.key === "." && e.currentTarget.value.includes(".")) {
+    // Prevent multiple decimal points (both dot and comma)
+    if (
+      (e.key === "." || e.key === ",") &&
+      (e.currentTarget.value.includes(".") ||
+        e.currentTarget.value.includes(","))
+    ) {
       e.preventDefault();
     }
   };
