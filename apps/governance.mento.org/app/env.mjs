@@ -46,5 +46,6 @@ export const env = createEnv({
     NEXT_PUBLIC_GRAPH_API_KEY: process.env.NEXT_PUBLIC_GRAPH_API_KEY,
     NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES:
       process.env.NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES,
+    SENTRY_DSN: process.env.SENTRY_DSN,
   },
 });
