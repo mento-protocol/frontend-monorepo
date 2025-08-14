@@ -517,9 +517,10 @@ export default function SwapForm() {
         );
         setIsApprovalProcessing(false);
 
+        const currentFormValues = form.getValues();
         const formData: SwapFormValues = {
-          ...formValues,
-          slippage: formValues?.slippage || "0.5",
+          ...currentFormValues,
+          slippage: currentFormValues.slippage || "0.5",
           tokenInId: tokenInId as TokenId,
           tokenOutId: tokenOutId as TokenId,
           buyUSDValue,
