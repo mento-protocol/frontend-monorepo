@@ -112,8 +112,12 @@ export function useSwapTransaction(
 
       logger.debug("Sending swap transaction...", { txRequest });
 
+      // Rely on the connected wallet's active chain. Passing `chainId` here breaks when it is undefined.
+      // See https://github.com/wagmi-dev/wagmi/issues/1879 – supply only tx fields;
+      if (chainId === undefined) {
+        throw new Error("Chain ID is undefined");
+      }
       const txHash = await sendTransactionAsync({
-        chainId,
         to: txRequest.to as Address,
         data: txRequest.data as `0x${string}` | undefined,
         value: txRequest.value ? BigInt(txRequest.value.toString()) : undefined,

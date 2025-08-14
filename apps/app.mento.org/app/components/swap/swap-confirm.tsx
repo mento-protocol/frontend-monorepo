@@ -105,11 +105,13 @@ export function SwapConfirm() {
     },
   );
 
+  const approveAmount = direction === "in" ? amountWei : thresholdAmountInWei;
+
   const { skipApprove } = useSwapAllowance({
     chainId,
     tokenInId,
     tokenOutId,
-    approveAmount: amountWei,
+    approveAmount,
     address,
   });
 
