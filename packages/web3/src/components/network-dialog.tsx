@@ -5,7 +5,7 @@ import {
   resetLatestBlockAtom,
 } from "@/features/blocks/block-atoms";
 import { resetSwapUiAtomsAtom } from "@/features/swap/swap-atoms";
-import { type ChainMetadata, allChains, chainIdToChain } from "@/config/chains";
+import { allChains, chainIdToChain } from "@/config/chains";
 import { cleanupStaleWalletSessions } from "@/config/wallets";
 import { logger } from "@/utils/logger";
 import {
@@ -18,7 +18,8 @@ import {
 } from "@repo/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAtomValue, useSetAtom } from "jotai";
-import { useChainId, useSwitchNetwork } from "wagmi";
+import { useChainId, useSwitchChain } from "wagmi";
+import { MentoChain } from "@/types";
 
 interface Props {
   isOpen: boolean;
@@ -31,17 +32,17 @@ export function NetworkDialog({ isOpen, close }: Props) {
   const latestBlock = useAtomValue(latestBlockAtom);
   const chainId = useChainId();
   const currentChain = chainIdToChain[chainId];
-  const { switchNetworkAsync } = useSwitchNetwork();
+  const { switchChainAsync } = useSwitchChain();
   const queryClient = useQueryClient();
   const resetJotaiSwapState = useSetAtom(resetSwapUiAtomsAtom);
   const setResetLatestBlock = useSetAtom(resetLatestBlockAtom);
 
-  const switchToNetwork = async (c: ChainMetadata) => {
+  const switchToNetwork = async (c: MentoChain) => {
     try {
-      if (!switchNetworkAsync) throw new Error("switchNetworkAsync undefined");
+      if (!switchChainAsync) throw new Error("switchChainAsync undefined");
       logger.debug("Resetting and switching to network", c.name);
       cleanupStaleWalletSessions();
-      await switchNetworkAsync(c.chainId);
+      await switchChainAsync({ chainId: c.id });
       setResetLatestBlock();
       queryClient.resetQueries({ queryKey: ["accountBalances"] });
       resetJotaiSwapState();
@@ -92,7 +93,8 @@ export function NetworkDialog({ isOpen, close }: Props) {
                 className="text-foreground text-right text-[14px] font-medium leading-tight opacity-90 sm:text-[15px]"
                 data-testid={`${baseLocator}_currentNodeRpcUrl`}
               >
-                {shortenUrl(currentChain?.rpcUrl) || "Unknown"}
+                {shortenUrl(currentChain?.rpcUrls?.default?.http[0]) ||
+                  "Unknown"}
               </div>
             </div>
           </div>
@@ -105,10 +107,8 @@ export function NetworkDialog({ isOpen, close }: Props) {
             <Button
               type="button"
               onClick={() => switchToNetwork(c)}
-              key={c.chainId}
-              variant={
-                c.chainId === currentChain?.chainId ? "default" : "outline"
-              }
+              key={c.id}
+              variant={c.id === currentChain?.id ? "default" : "outline"}
             >
               {c.name}
             </Button>

@@ -4,10 +4,10 @@ import {
   LOCKING_AMOUNT_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
   MAX_LOCKING_DURATION_WEEKS,
-} from "@/lib/constants/locking";
-import useLockCalculation from "@/lib/contracts/locking/useLockCalculation";
-import { useLockInfo } from "@/lib/contracts/locking/useLockInfo";
-import useTokens from "@/lib/contracts/useTokens";
+} from "@repo/web3";
+import { useLockCalculation } from "@repo/web3";
+import { useLockInfo } from "@repo/web3";
+import { useTokens } from "@repo/web3";
 import {
   Card,
   CardContent,
@@ -25,7 +25,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Controller, FormProvider, useForm } from "react-hook-form";
 import spacetime from "spacetime";
 import { formatUnits } from "viem";
-import { useAccount } from "wagmi";
+import { useAccount } from "@repo/web3/wagmi";
 import { CreateLockProvider } from "./lock/create-lock-provider";
 import { LockingButton } from "./lock/locking-button";
 import { WithdrawButton } from "./withdraw-button";

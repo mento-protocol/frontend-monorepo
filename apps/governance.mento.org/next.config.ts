@@ -26,7 +26,13 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  transpilePackages: ["@repo/ui"],
+  transpilePackages: [
+    "@repo/ui",
+    "@repo/web3",
+    "wagmi",
+    "@wagmi/core",
+    "@rainbow-me/rainbowkit",
+  ],
 };
 
 export default nextConfig;
