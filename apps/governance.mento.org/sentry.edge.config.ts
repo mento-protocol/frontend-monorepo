@@ -7,7 +7,7 @@ import { env } from "@/env.mjs";
 import * as Sentry from "@sentry/nextjs";
 
 Sentry.init({
-  dsn: env.SENTRY_DSN,
+  dsn: env.NEXT_PUBLIC_SENTRY_DSN,
 
   // Disable Sentry in development to avoid localhost errors
   enabled: process.env.NODE_ENV === "production",
