@@ -29,6 +29,7 @@ jobs:
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
       SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
       # Governance app environment variables
+      NEXT_PUBLIC_SENTRY_DSN: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}
       NEXT_PUBLIC_CELO_EXPLORER_API_URL: ${{ vars.CELO_EXPLORER_API_URL }}
       NEXT_PUBLIC_CELO_EXPLORER_API_URL_ALFAJORES: ${{ vars.CELO_EXPLORER_API_URL_ALFAJORES }}
       NEXT_PUBLIC_SUBGRAPH_URL: ${{ vars.SUBGRAPH_URL }}

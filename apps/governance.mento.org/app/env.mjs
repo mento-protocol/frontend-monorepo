@@ -7,9 +7,7 @@ export const env = createEnv({
    * Serverside Environment variables, not available on the client.
    * Will throw if you access these variables on the client.
    */
-  server: {
-    SENTRY_DSN: z.string(),
-  },
+  server: {},
   /*
    * Environment variables available on the client (and server).
    *
@@ -25,6 +23,7 @@ export const env = createEnv({
     NEXT_PUBLIC_WALLET_CONNECT_ID: z.string(),
     NEXT_PUBLIC_GRAPH_API_KEY: z.string(),
     NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES: z.string(),
+    NEXT_PUBLIC_SENTRY_DSN: z.string(),
   },
   /*
    * Due to how Next.js bundles environment variables on Edge and Client,
@@ -46,6 +45,6 @@ export const env = createEnv({
     NEXT_PUBLIC_GRAPH_API_KEY: process.env.NEXT_PUBLIC_GRAPH_API_KEY,
     NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES:
       process.env.NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES,
-    SENTRY_DSN: process.env.SENTRY_DSN,
+    NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
   },
 });
