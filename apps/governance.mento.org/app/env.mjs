@@ -23,7 +23,7 @@ export const env = createEnv({
     NEXT_PUBLIC_WALLET_CONNECT_ID: z.string(),
     NEXT_PUBLIC_GRAPH_API_KEY: z.string(),
     NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES: z.string(),
-    NEXT_PUBLIC_SENTRY_DSN: z.string(),
+    NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE: z.string(),
   },
   /*
    * Due to how Next.js bundles environment variables on Edge and Client,
@@ -45,6 +45,7 @@ export const env = createEnv({
     NEXT_PUBLIC_GRAPH_API_KEY: process.env.NEXT_PUBLIC_GRAPH_API_KEY,
     NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES:
       process.env.NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES,
-    NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
+    NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE:
+      process.env.NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE,
   },
 });

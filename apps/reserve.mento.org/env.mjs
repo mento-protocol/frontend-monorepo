@@ -9,7 +9,7 @@ export const env = createEnv({
    */
   server: {
     SENTRY_AUTH_TOKEN: z.string(),
-    SENTRY_DSN: z.string(),
+    NEXT_PUBLIC_SENTRY_DSN_RESERVE: z.string(),
   },
   /*
    * Environment variables available on the client (and server).
@@ -28,6 +28,6 @@ export const env = createEnv({
   runtimeEnv: {
     NEXT_PUBLIC_STORAGE_URL: process.env.NEXT_PUBLIC_STORAGE_URL,
     SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
-    SENTRY_DSN: process.env.SENTRY_DSN,
+    NEXT_PUBLIC_SENTRY_DSN_RESERVE: process.env.NEXT_PUBLIC_SENTRY_DSN_RESERVE,
   },
 });
