@@ -9,7 +9,6 @@ export const env = createEnv({
    */
   server: {
     SENTRY_AUTH_TOKEN: z.string(),
-    SENTRY_DSN: z.string(),
   },
   /*
    * Environment variables available on the client (and server).
@@ -19,6 +18,7 @@ export const env = createEnv({
   client: {
     NEXT_PUBLIC_STORAGE_URL: z.string().url(),
     NEXT_PUBLIC_WALLET_CONNECT_ID: z.string(),
+    NEXT_PUBLIC_SENTRY_DSN_SWAP: z.string(),
   },
   /*
    * Due to how Next.js bundles environment variables on Edge and Client,
@@ -30,6 +30,6 @@ export const env = createEnv({
     NEXT_PUBLIC_STORAGE_URL: process.env.NEXT_PUBLIC_STORAGE_URL,
     NEXT_PUBLIC_WALLET_CONNECT_ID: process.env.NEXT_PUBLIC_WALLET_CONNECT_ID,
     SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
-    SENTRY_DSN: process.env.SENTRY_DSN,
+    NEXT_PUBLIC_SENTRY_DSN_SWAP: process.env.NEXT_PUBLIC_SENTRY_DSN_SWAP,
   },
 });
