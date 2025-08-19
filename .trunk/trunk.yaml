@@ -2,7 +2,7 @@
 # To learn more about the format of this file, see https://docs.trunk.io/reference/trunk-yaml
 version: 0.1
 cli:
-  version: 1.24.0
+  version: 1.25.0
 
 # Trunk provides extensibility via plugins. (https://docs.trunk.io/plugins)
 plugins:
@@ -37,7 +37,7 @@ lint:
   enabled:
     # === CORE DEVELOPMENT LINTERS ===
     - taplo@0.9.3
-    - eslint@9.31.0 # JavaScript/TypeScript linting (uses our existing configs)
+    - eslint@9.33.0 # JavaScript/TypeScript linting (uses our existing configs)
     - prettier@3.6.2 # Code formatting with Tailwind CSS class sorting
     - git-diff-check # Validates git diffs for common issues
 
@@ -52,9 +52,9 @@ lint:
     - shfmt@3.6.0 # Shell script formatting
 
     # === SECURITY SCANNING ===
-    - checkov@3.2.451 # Infrastructure as Code security scanning
-    - gitleaks@8.27.2 # Detects secrets in git history and commits
-    - trufflehog@3.90.0 # Advanced secret detection with high accuracy
+    - checkov@3.2.461 # Infrastructure as Code security scanning
+    - gitleaks@8.28.0 # Detects secrets in git history and commits
+    - trufflehog@3.90.5 # Advanced secret detection with high accuracy
     - osv-scanner@2.0.3 # Vulnerability scanning for dependencies
 
     # === GITHUB ACTIONS ===
