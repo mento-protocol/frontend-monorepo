@@ -705,7 +705,7 @@ function CreateProposalSteps() {
         <p className="text-muted-foreground mb-8 text-sm">
           Connect your wallet to create new proposal.
         </p>
-        <ConnectButton fullwidth size="lg" />
+        <ConnectButton fullWidth size="lg" />
       </>
     );
   }

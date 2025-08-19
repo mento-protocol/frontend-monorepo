@@ -647,7 +647,7 @@ export const VoteCard = ({
                 text={
                   canExecute ? "Connect Wallet to Execute" : "Proposal Queued"
                 }
-                fullwidth
+                fullWidth
                 disabled={!canExecute}
               />
             </div>
@@ -723,7 +723,7 @@ export const VoteCard = ({
               <ConnectButton
                 size="lg"
                 text="Connect Wallet to Queue"
-                fullwidth
+                fullWidth
               />
             </div>
           );
@@ -771,7 +771,7 @@ export const VoteCard = ({
               <ConnectButton
                 size="lg"
                 text="Connect Wallet to Vote"
-                fullwidth
+                fullWidth
               />
             </div>
           );

@@ -10,6 +10,7 @@ import { AppLayout } from "./layout/app-layout";
 
 import { useIsSsr } from "@/lib/utils/ssr";
 import "@/lib/vendor/inpage-metamask";
+
 import { Web3Provider } from "@repo/web3";
 import { State } from "@repo/web3/wagmi";
 

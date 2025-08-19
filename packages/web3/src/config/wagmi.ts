@@ -43,7 +43,6 @@ const connectors = isServer
             omniWallet,
             trustWallet,
             rabbyWallet,
-            () => CeloWallet({ projectId: config.walletConnectProjectId }),
           ],
         },
       ],

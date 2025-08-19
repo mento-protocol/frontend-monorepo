@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 
-export const enum LocalStorageKeys {
+export enum LocalStorageKeys {
   DarkModeToggle = "mento-governance-ui/dark-mode-toggle",
   CreateProposal = "mento-governance-ui/create-proposal",
 }

@@ -1,7 +1,6 @@
 "use client";
 import { Identicon } from "@/components/identicon";
 import { VoteCard } from "@/components/voting/vote-card";
-import { useEnsureChainId } from "@/lib/hooks/use-ensure-chain-id";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -22,11 +21,11 @@ import {
   TabsTrigger,
 } from "@repo/ui";
 import {
-  useProposal,
   CELO_BLOCK_TIME,
   ensureChainId,
   ProposalState,
   useCurrentChain,
+  useProposal,
 } from "@repo/web3";
 import { useAccount, useBlock, useBlockNumber } from "@repo/web3/wagmi";
 import { format } from "date-fns";
@@ -87,9 +86,7 @@ function ParticipantList({ participants }: ParticipantListProps) {
     return formatted;
   }, [totalWeight]);
 
-  const chainId = useEnsureChainId();
-
-  const currentChain = chainId === Alfajores.id ? Alfajores : Celo;
+  const currentChain = useCurrentChain();
   const explorerUrl = currentChain.blockExplorers?.default?.url;
 
   return (
