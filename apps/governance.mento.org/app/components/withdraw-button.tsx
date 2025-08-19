@@ -1,15 +1,13 @@
+import { Button, toast } from "@repo/ui";
 import {
+  formatUnitsWithThousandSeparators,
   useAvailableToWithdraw,
+  useCurrentChain,
   useLockInfo,
   useWithdraw,
-  formatUnitsWithThousandSeparators,
-  Celo,
-  Alfajores,
-  useCurrentChain,
 } from "@repo/web3";
-import { Button, toast } from "@repo/ui";
-import React from "react";
 import { useAccount } from "@repo/web3/wagmi";
+import React from "react";
 import { TxDialog } from "./tx-dialog/tx-dialog";
 
 export const WithdrawButton = () => {

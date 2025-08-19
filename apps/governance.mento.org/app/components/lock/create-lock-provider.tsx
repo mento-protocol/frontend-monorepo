@@ -1,7 +1,5 @@
 import { toast } from "@repo/ui";
 import {
-  Alfajores,
-  Celo,
   useAllowance,
   useApprove,
   useContracts,

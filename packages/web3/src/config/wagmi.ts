@@ -12,7 +12,7 @@ import {
   valoraWallet,
   walletConnectWallet,
 } from "@rainbow-me/rainbowkit/wallets";
-import { allChains, CeloWallet, OmniWallet, RabbyWallet, TrustWallet } from ".";
+import { allChains } from ".";
 
 // Avoid creating WalletConnect connectors during SSR because they rely on
 // browser-only APIs like `indexedDB`.
@@ -53,7 +53,8 @@ const connectors = isServer
     );
 
 export const wagmiConfig: Config = createConfig({
-  chains: allChains as any satisfies Chain[],
+  chains: allChains as readonly [Chain, ...Chain[]],
+
   connectors,
   transports: {
     [celo.id]: http(),

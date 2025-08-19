@@ -29,7 +29,10 @@ export const chainIdToChain: Record<number, MentoChain> = {
   [ChainId.Celo]: Celo,
 };
 
-export const allChains = [Celo, Alfajores];
+export const allChains = [Celo, Alfajores] as const satisfies readonly [
+  MentoChain,
+  ...MentoChain[],
+];
 
 /**
  * Transforms the specified Mento contract addresses to the format used by Viem.
