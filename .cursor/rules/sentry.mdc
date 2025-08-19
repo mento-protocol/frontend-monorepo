@@ -1,3 +1,6 @@
+---
+alwaysApply: false
+---
 # Sentry Rules
 
 These examples should be used as guidance when configuring Sentry functionality within a project.
