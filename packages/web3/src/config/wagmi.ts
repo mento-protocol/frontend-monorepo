@@ -48,7 +48,7 @@ const connectors = isServer
       ],
       {
         projectId: config.walletConnectProjectId,
-        appName: "MENTO Swap",
+        appName: "MENTO Protocol",
       },
     );
 
