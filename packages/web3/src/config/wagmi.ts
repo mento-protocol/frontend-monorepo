@@ -1,5 +1,11 @@
 import { connectorsForWallets } from "@rainbow-me/rainbowkit";
-import { Config, createConfig, http } from "wagmi";
+import {
+  Config,
+  cookieStorage,
+  createConfig,
+  createStorage,
+  http,
+} from "wagmi";
 import { celo, celoAlfajores, Chain } from "wagmi/chains";
 import { config } from "./config";
 import { cleanupStaleWalletSessions } from "./wallets";
@@ -8,6 +14,7 @@ import {
   metaMaskWallet,
   omniWallet,
   rabbyWallet,
+  rainbowWallet,
   trustWallet,
   valoraWallet,
   walletConnectWallet,
@@ -37,12 +44,11 @@ const connectors = isServer
         {
           groupName: "Recommended for Celo chains",
           wallets: [
-            metaMaskWallet,
-            valoraWallet,
             walletConnectWallet,
-            omniWallet,
-            trustWallet,
             rabbyWallet,
+            metaMaskWallet,
+            rainbowWallet,
+            valoraWallet,
           ],
         },
       ],
@@ -61,4 +67,7 @@ export const wagmiConfig: Config = createConfig({
     [celoAlfajores.id]: http(),
   },
   ssr: true,
+  storage: createStorage({
+    storage: cookieStorage,
+  }),
 });
