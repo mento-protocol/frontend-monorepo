@@ -23,6 +23,7 @@ export function Footer({ type = "swap" }: FooterProps) {
           target="_blank"
           rel="noopener noreferrer"
           aria-label="X"
+          data-testid="x-link-button"
         >
           <IconX />
         </a>
@@ -31,6 +32,7 @@ export function Footer({ type = "swap" }: FooterProps) {
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Github"
+          data-testid="github-link-button"
         >
           <IconGithub />
         </a>
@@ -39,6 +41,7 @@ export function Footer({ type = "swap" }: FooterProps) {
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Discord"
+          data-testid="discord-link-button"
         >
           <IconDiscord />
         </a>
