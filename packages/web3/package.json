@@ -53,11 +53,14 @@
     "jotai": "^2.12.5",
     "jsbi": "^4.3.2",
     "lucide-react": "^0.488.0",
+    "react-hook-form": "^7.58.1",
+    "toformat": "^2.0.0"
+  },
+  "devDependencies": {
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-hook-form": "^7.58.1",
-    "toformat": "^2.0.0",
-    "viem": "^2.33.1"
+    "viem": "^2.33.1",
+    "wagmi": "^2.16.0"
   },
   "peerDependencies": {
     "@rainbow-me/rainbowkit": "^2.2.8",
@@ -68,7 +71,10 @@
     "esbuild-plugin-preserve-directives": "^0.0.11",
     "eslint": "^9.24.0",
     "next": "^15",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "tsup": "^8.4.0",
+    "viem": "^2.33.1",
     "wagmi": "^2.16.0"
   }
 }

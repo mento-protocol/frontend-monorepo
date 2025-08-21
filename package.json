@@ -57,10 +57,13 @@
     ],
     "overrides": {
       "@eslint/plugin-kit@<0.3.4": ">=0.3.4",
+      "@tanstack/react-query": "^5.83.0",
       "color-string@<1.5.5": ">=1.5.5",
       "form-data@<2.5.4": ">=2.5.4",
       "linkifyjs": "^4.3.2",
-      "tmp": ">=0.2.4"
+      "tmp": ">=0.2.4",
+      "viem": "^2.33.1",
+      "wagmi": "^2.16.0"
     }
   }
 }
