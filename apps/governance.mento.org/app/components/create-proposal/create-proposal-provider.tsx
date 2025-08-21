@@ -186,6 +186,33 @@ export const CreateProposalProvider = ({
   useEffect(() => {
     if (!isTxDialogOpen) return;
     if (isSuccess && expectingId && proposalExists(expectingId)) {
+      const explorerUrl = currentChain.blockExplorers?.default?.url;
+      const explorerTxUrl =
+        explorerUrl && createTx ? `${explorerUrl}/tx/${createTx}` : null;
+
+      const message = "Proposal created successfully!";
+      const detailsElement = explorerTxUrl ? (
+        <a
+          href={explorerTxUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-inherit underline"
+        >
+          See Details
+        </a>
+      ) : (
+        <span>See Details</span>
+      );
+
+      toast.success(
+        <>
+          {message} <br /> {detailsElement}
+        </>,
+        {
+          duration: 20000,
+        },
+      );
+
       // Reset proposal state only after successful transaction
       updateProposalInternal({
         title: "",
@@ -202,6 +229,8 @@ export const CreateProposalProvider = ({
     }
   }, [
     canUseLocalStorage,
+    createTx,
+    currentChain.blockExplorers?.default?.url,
     expectingId,
     isTxDialogOpen,
     isSuccess,
@@ -254,7 +283,7 @@ export const CreateProposalProvider = ({
     submitProposal();
   }, [resetCreateProposalHook, submitProposal]);
 
-  // Toast notifications for transaction states
+  // Toast notifications for transaction errors only
   useEffect(() => {
     if (createError) {
       if (createError.message?.includes("User rejected request")) {
@@ -262,36 +291,8 @@ export const CreateProposalProvider = ({
       } else {
         toast.error("Failed to create proposal");
       }
-    } else if (isConfirmed && txReceipt && createTx) {
-      const explorerUrl = currentChain.blockExplorers?.default?.url;
-      const explorerTxUrl = explorerUrl
-        ? `${explorerUrl}/tx/${createTx}`
-        : null;
-
-      const message = "Proposal created successfully!";
-      const detailsElement = explorerTxUrl ? (
-        <a
-          href={explorerTxUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-inherit underline"
-        >
-          See Details
-        </a>
-      ) : (
-        <span>See Details</span>
-      );
-
-      toast.success(
-        <>
-          {message} <br /> {detailsElement}
-        </>,
-        {
-          duration: 20000,
-        },
-      );
     }
-  }, [createError, isConfirmed, txReceipt, createTx, chainId]);
+  }, [createError]);
 
   useEffect(() => {
     if (creationState === "ready") {

@@ -2,12 +2,11 @@
 import { Alfajores, Celo } from "@/config/chains";
 import { ReactNode, useCallback, useEffect, useState } from "react";
 import {
-  useAccount,
-  useSwitchChain,
   createStorage,
+  useAccount,
   useDisconnect,
+  useSwitchChain,
 } from "wagmi";
-import { IS_PROD } from "@/utils/environment";
 
 export function EnsureChain({ children }: { children: ReactNode }) {
   const { isConnected, chainId } = useAccount();
@@ -53,14 +52,7 @@ export function EnsureChain({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (isConnected) {
-      if (
-        (IS_PROD && chainId !== Celo.id) ||
-        (!IS_PROD && chainId !== Celo.id && chainId !== Alfajores.id)
-      ) {
-        if (!switching) {
-          setSwitching(true);
-        }
-      }
+      if (chainId !== Celo.id) setSwitching(true);
     }
   }, [chainId, isConnected, setUpAndSwitch, switchChain, switching]);
 
