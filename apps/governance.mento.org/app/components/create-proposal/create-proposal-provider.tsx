@@ -8,11 +8,7 @@ import {
   useLocalStorage,
   useProposals,
 } from "@repo/web3";
-import {
-  useAccount,
-  useBlockNumber,
-  useWaitForTransactionReceipt,
-} from "@repo/web3/wagmi";
+import { useAccount, useBlockNumber } from "@repo/web3/wagmi";
 import { Loader } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
@@ -102,11 +98,6 @@ export const CreateProposalProvider = ({
     isSuccess,
     createTx,
   } = useCreateProposalOnChain();
-
-  const { data: txReceipt, isSuccess: isConfirmed } =
-    useWaitForTransactionReceipt({
-      hash: createTx,
-    });
 
   const [newProposal, updateProposalInternal] = useState({
     description: "",
