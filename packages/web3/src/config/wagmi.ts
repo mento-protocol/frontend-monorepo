@@ -12,10 +12,8 @@ import { cleanupStaleWalletSessions } from "./wallets";
 
 import {
   metaMaskWallet,
-  omniWallet,
   rabbyWallet,
   rainbowWallet,
-  trustWallet,
   valoraWallet,
   walletConnectWallet,
 } from "@rainbow-me/rainbowkit/wallets";
