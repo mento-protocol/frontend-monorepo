@@ -43,6 +43,9 @@ export * from "./components/ui/textarea";
 export * from "./components/ui/tooltip";
 export * from "./components/ui/slider";
 export * from "./components/ui/navigation-menu";
+export * from "./components/ui/calendar";
+export * from "./components/ui/checkbox";
+export * from "./components/ui/separator";
 export * from "./components/copy-to-clipboard";
 
 // Also export any utility functions or types that might be needed
@@ -50,15 +53,11 @@ export * from "./lib/index";
 
 // Export types from components if they are meant to be used externally
 export { default as IconCheck } from "./components/icons/check";
-export { default as IconCheckCircle } from "./components/icons/check-circle";
-export { default as IconChevron } from "./components/icons/chevron";
 export { default as IconDiscord } from "./components/icons/discord";
 export { default as IconGithub } from "./components/icons/github";
 export { default as IconInfo } from "./components/icons/info";
 export { default as IconLoading } from "./components/icons/loading";
-export { default as MentoIcon } from "./components/icons/mento";
-export { default as IconThunder } from "./components/icons/thunder";
-export { default as IconTimer } from "./components/icons/timer";
+export { default as IconMento } from "./components/icons/mento";
 export { default as IconX } from "./components/icons/x";
 export type {
   ChartSegment,

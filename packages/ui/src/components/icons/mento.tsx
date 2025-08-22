@@ -12,19 +12,19 @@ const variants = cva("", {
   },
 });
 
-export interface IMentoIcon extends VariantProps<typeof variants> {
+export interface IIconMento extends VariantProps<typeof variants> {
   className?: string;
   logoColor?: string;
   width?: number;
   height?: number;
 }
 
-export default function MentoIcon({
+export default function IconMento({
   width = 60,
   height = 60,
   backgroundColor = "default",
   logoColor = "fill-primary",
-}: IMentoIcon) {
+}: IIconMento) {
   return (
     <svg
       width={width}

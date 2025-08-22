@@ -5,7 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils.js";
 
 const proposalStatusVariants = cva(
-  "w-[72px] h-8 flex flex-row items-center justify-center gap-0 text-xs lg:text-sm capitalize shrink-0",
+  "min-w-[72px] max-w-24 w-full h-8 flex flex-row items-center justify-center gap-0 text-xs lg:text-sm capitalize shrink-0",
   {
     variants: {
       variant: {
