@@ -104,27 +104,41 @@ export const MentoTokenInfo = () => {
         </AccordionContent>
       </AccordionItem>
       <AccordionItem value="item-3" className="border-none">
-        <AccordionTrigger>Contract Addresses</AccordionTrigger>
+        <AccordionTrigger data-testid="contract-addresses-accordion-button">
+          Contract Addresses
+        </AccordionTrigger>
         <AccordionContent>
           <div className="flex flex-col gap-4 text-sm">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Governor</span>
-              <ContractAddressDisplay address={governorAddress} />
+              <ContractAddressDisplay
+                address={governorAddress}
+                dataTestId="governor-address-button"
+              />
             </div>
             <hr className="border-[var(--border-tertiary)]" />
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">MENTO</span>
-              <ContractAddressDisplay address={mentoAddress} />
+              <ContractAddressDisplay
+                address={mentoAddress}
+                dataTestId="mento-address-button"
+              />
             </div>
             <hr className="border-[var(--border-tertiary)]" />
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Timelock</span>
-              <ContractAddressDisplay address={timelockAddress} />
+              <ContractAddressDisplay
+                address={timelockAddress}
+                dataTestId="timelock-address-button"
+              />
             </div>
             <hr className="border-[var(--border-tertiary)]" />
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">veMENTO</span>
-              <ContractAddressDisplay address={lockingAddress} />
+              <ContractAddressDisplay
+                address={lockingAddress}
+                dataTestId="veMento-address-button"
+              />
             </div>
           </div>
         </AccordionContent>
@@ -135,8 +149,10 @@ export const MentoTokenInfo = () => {
 
 const ContractAddressDisplay = ({
   address,
+  dataTestId,
 }: {
   address: string | undefined;
+  dataTestId?: string;
 }) => {
   const currentChain = useCurrentChain();
 
@@ -159,6 +175,7 @@ const ContractAddressDisplay = ({
           target="_blank"
           rel="noopener noreferrer"
           className="text-muted-foreground text-sm hover:underline"
+          data-testid={dataTestId}
         >
           {formatAddress(address)}
         </a>
