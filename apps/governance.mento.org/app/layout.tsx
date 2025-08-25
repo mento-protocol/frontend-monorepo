@@ -14,6 +14,7 @@ import { headers } from "next/headers";
 import { ClientProviders } from "./components/providers";
 import { env } from "./env.mjs";
 import { Header } from "./components/nav/header";
+import { CommunityCard, Footer } from "@repo/ui";
 
 const aspekta = localFont({
   src: "./fonts/AspektaVF.ttf",
@@ -63,6 +64,16 @@ export default async function RootLayout({
           <ApolloProvider>
             <Header />
             {children}
+            <section className="xl:px-22 mb-8 w-full px-4 md:mb-20 md:px-20">
+              <CommunityCard
+                images={{
+                  mobile: `${env.NEXT_PUBLIC_STORAGE_URL}/Join Community CTA Mobile-Ry6dyO5vexptUPwsgDaemmhrMO0u8d.png`,
+                  desktop: `${env.NEXT_PUBLIC_STORAGE_URL}/Join Community CTA-nvhdeikuseiFmjssXcpQhq3aKFq4Ht.png`,
+                }}
+                buttonHref="http://discord.mento.org"
+              />
+            </section>
+            <Footer type="governance" />
           </ApolloProvider>
         </ClientProviders>
         <Analytics />

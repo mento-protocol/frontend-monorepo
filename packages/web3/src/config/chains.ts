@@ -10,6 +10,17 @@ export enum ChainId {
 
 export const Alfajores: MentoChain = {
   ...celoAlfajores,
+  blockExplorers: {
+    default: {
+      name: "Alfajores Explorer",
+      url: "https://alfajores.celoscan.io",
+    },
+  },
+  rpcUrls: {
+    default: {
+      http: ["https://alfajores-forno.celo-testnet.org"],
+    },
+  },
   contracts: {
     ...celoAlfajores.contracts,
     ...transformToChainContracts(addresses[celoAlfajores.id]),
@@ -18,6 +29,17 @@ export const Alfajores: MentoChain = {
 
 export const Celo: MentoChain = {
   ...celo,
+  blockExplorers: {
+    default: {
+      name: "Celo Explorer",
+      url: "https://celoscan.io",
+    },
+  },
+  rpcUrls: {
+    default: {
+      http: ["https://forno.celo.org"],
+    },
+  },
   contracts: {
     ...celo.contracts,
     ...transformToChainContracts(addresses[celo.id]),
