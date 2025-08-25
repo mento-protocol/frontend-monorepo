@@ -59,6 +59,7 @@ export { default as IconInfo } from "./components/icons/info";
 export { default as IconLoading } from "./components/icons/loading";
 export { default as IconMento } from "./components/icons/mento";
 export { default as IconX } from "./components/icons/x";
+export { default as IconChevron } from "./components/icons/chevron";
 export type {
   ChartSegment,
   ReserveChartProps,
