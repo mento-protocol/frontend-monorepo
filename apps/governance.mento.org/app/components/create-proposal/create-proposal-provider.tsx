@@ -175,8 +175,9 @@ export const CreateProposalProvider = ({
   }, [blockNumber, expectingId, refetchProposals]);
 
   useEffect(() => {
-    if (!isTxDialogOpen) return;
     if (isSuccess && expectingId && proposalExists(expectingId)) {
+      setTxDialogOpen(false);
+
       const explorerUrl = currentChain.blockExplorers?.default?.url;
       const explorerTxUrl =
         explorerUrl && createTx ? `${explorerUrl}/tx/${createTx}` : null;
@@ -216,6 +217,7 @@ export const CreateProposalProvider = ({
         removeCacheItem(CreateProposalCacheEntry.description);
         removeCacheItem(CreateProposalCacheEntry.code);
       }
+
       router.push(`/proposals/${expectingId.toString()}`);
     }
   }, [
@@ -223,7 +225,6 @@ export const CreateProposalProvider = ({
     createTx,
     currentChain.blockExplorers?.default?.url,
     expectingId,
-    isTxDialogOpen,
     isSuccess,
     proposalExists,
     removeCacheItem,

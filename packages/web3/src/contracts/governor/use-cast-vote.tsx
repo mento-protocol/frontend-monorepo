@@ -66,7 +66,7 @@ export const useCastVote = () => {
         toast.error("Failed to cast vote");
       }
     } else if (isConfirmed && data) {
-      const explorerUrl = currentChain?.blockExplorers?.default?.url[0];
+      const explorerUrl = currentChain?.blockExplorers?.default?.url;
       const explorerTxUrl = explorerUrl ? `${explorerUrl}/tx/${data}` : null;
 
       const message = "Vote cast successfully!";

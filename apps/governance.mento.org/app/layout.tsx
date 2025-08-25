@@ -14,7 +14,7 @@ import { headers } from "next/headers";
 import { ClientProviders } from "./components/providers";
 import { env } from "./env.mjs";
 import { Header } from "./components/nav/header";
-import { CommunityCard, Footer } from "@repo/ui";
+import { CommunityCard, Footer, IconCheck, Toaster } from "@repo/ui";
 
 const aspekta = localFont({
   src: "./fonts/AspektaVF.ttf",
@@ -76,6 +76,27 @@ export default async function RootLayout({
             <Footer type="governance" />
           </ApolloProvider>
         </ClientProviders>
+        <Toaster
+          position="top-right"
+          duration={5000}
+          icons={{
+            success: <IconCheck className="text-success" />,
+          }}
+          closeButton
+          toastOptions={{
+            classNames: {
+              toast: "toast",
+              title: "title",
+              description: "description",
+              actionButton: "action-button",
+              cancelButton: "cancel-button",
+              closeButton: "close-button",
+              icon: "icon",
+            },
+          }}
+          offset={{ top: "80px" }}
+          mobileOffset={{ top: "96px" }}
+        />
         <Analytics />
       </body>
     </html>

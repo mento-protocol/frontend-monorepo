@@ -6,5 +6,5 @@ import { useAccount } from "wagmi";
 export const useCurrentChain = () => {
   const { chainId } = useAccount();
 
-  return chainId === Celo.id ? Celo : Alfajores;
+  return chainId === Alfajores.id ? Alfajores : Celo;
 };

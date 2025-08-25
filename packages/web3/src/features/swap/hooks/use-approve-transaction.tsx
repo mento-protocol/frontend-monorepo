@@ -95,8 +95,7 @@ export function useApproveTransaction({
     } else if (isConfirmed && txReceipt && sendTxHash) {
       logger.info(`Approval confirmed: ${sendTxHash}`);
       const currentChainConfig = chainIdToChain[chainId];
-      const explorerBaseUrl =
-        currentChainConfig?.blockExplorers?.default?.url[0];
+      const explorerBaseUrl = currentChainConfig?.blockExplorers?.default?.url;
       const explorerTxUrl = explorerBaseUrl
         ? `${explorerBaseUrl}/tx/${sendTxHash}`
         : null;
