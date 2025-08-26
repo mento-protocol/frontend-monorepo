@@ -46,7 +46,7 @@ export function PollingWorker() {
 
     if (address && isConnected && chainId) {
       queryClient.invalidateQueries({
-        queryKey: ["accountBalances", address, chainId],
+        queryKey: ["accountBalances", { address, chainId }],
       });
     }
   }, [address, isConnected, chainId, queryClient, status, setLatestBlock]);
