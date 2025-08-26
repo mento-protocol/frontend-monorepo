@@ -132,12 +132,12 @@ export function useSwapTransaction(
                 ? BigInt(txRequest.gasLimit.toString())
                 : undefined,
             });
-          } catch (error: any) {
+          } catch (error) {
             // Do not retry if user cancelled the signature
             if (
               error &&
-              typeof error.message === "string" &&
-              error.message.includes("User rejected request")
+              typeof (error as Error).message === "string" &&
+              (error as Error).message.includes("User rejected request")
             ) {
               throw error;
             }
