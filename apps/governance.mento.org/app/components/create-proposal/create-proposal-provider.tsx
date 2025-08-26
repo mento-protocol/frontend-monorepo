@@ -1,26 +1,24 @@
-import { Alfajores, Celo } from "@/lib/config/chains";
-import useCreateProposalOnChain, {
-  TransactionItem,
-} from "@/lib/contracts/governor/use-create-proposal-on-chain";
-import useProposals from "@/lib/contracts/governor/use-proposals";
-import { ensureChainId } from "@/lib/helpers/ensure-chain-id";
-import { LocalStorageKeys, useLocalStorage } from "@/lib/hooks/use-storage";
 import { toast } from "@repo/ui";
+import {
+  ensureChainId,
+  LocalStorageKeys,
+  TransactionItem,
+  useCreateProposalOnChain,
+  useCurrentChain,
+  useLocalStorage,
+  useProposals,
+} from "@repo/web3";
+import { useAccount, useBlockNumber } from "@repo/web3/wagmi";
 import { Loader } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
-  ReactNode,
   createContext,
+  ReactNode,
   useCallback,
   useContext,
   useEffect,
   useState,
 } from "react";
-import {
-  useAccount,
-  useBlockNumber,
-  useWaitForTransactionReceipt,
-} from "wagmi";
 import { CreateProposalTxDialog } from "./create-proposal-transaction-dialog";
 
 export enum CreateProposalStep {
@@ -67,7 +65,10 @@ export const CreateProposalProvider = ({
   children,
 }: ICreateProposalProvider) => {
   const { chainId } = useAccount();
+  const currentChain = useCurrentChain();
+
   const router = useRouter();
+
   const { proposalExists, refetchProposals } = useProposals();
 
   const [isTxDialogOpen, setTxDialogOpen] = useState(false);
@@ -97,11 +98,6 @@ export const CreateProposalProvider = ({
     isSuccess,
     createTx,
   } = useCreateProposalOnChain();
-
-  const { data: txReceipt, isSuccess: isConfirmed } =
-    useWaitForTransactionReceipt({
-      hash: createTx,
-    });
 
   const [newProposal, updateProposalInternal] = useState({
     description: "",
@@ -179,8 +175,36 @@ export const CreateProposalProvider = ({
   }, [blockNumber, expectingId, refetchProposals]);
 
   useEffect(() => {
-    if (!isTxDialogOpen) return;
     if (isSuccess && expectingId && proposalExists(expectingId)) {
+      setTxDialogOpen(false);
+
+      const explorerUrl = currentChain.blockExplorers?.default?.url;
+      const explorerTxUrl =
+        explorerUrl && createTx ? `${explorerUrl}/tx/${createTx}` : null;
+
+      const message = "Proposal created successfully!";
+      const detailsElement = explorerTxUrl ? (
+        <a
+          href={explorerTxUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-inherit underline"
+        >
+          See Details
+        </a>
+      ) : (
+        <span>See Details</span>
+      );
+
+      toast.success(
+        <>
+          {message} <br /> {detailsElement}
+        </>,
+        {
+          duration: 20000,
+        },
+      );
+
       // Reset proposal state only after successful transaction
       updateProposalInternal({
         title: "",
@@ -193,12 +217,14 @@ export const CreateProposalProvider = ({
         removeCacheItem(CreateProposalCacheEntry.description);
         removeCacheItem(CreateProposalCacheEntry.code);
       }
+
       router.push(`/proposals/${expectingId.toString()}`);
     }
   }, [
     canUseLocalStorage,
+    createTx,
+    currentChain.blockExplorers?.default?.url,
     expectingId,
-    isTxDialogOpen,
     isSuccess,
     proposalExists,
     removeCacheItem,
@@ -249,7 +275,7 @@ export const CreateProposalProvider = ({
     submitProposal();
   }, [resetCreateProposalHook, submitProposal]);
 
-  // Toast notifications for transaction states
+  // Toast notifications for transaction errors only
   useEffect(() => {
     if (createError) {
       if (createError.message?.includes("User rejected request")) {
@@ -257,37 +283,8 @@ export const CreateProposalProvider = ({
       } else {
         toast.error("Failed to create proposal");
       }
-    } else if (isConfirmed && txReceipt && createTx) {
-      const currentChain = chainId === Alfajores.id ? Alfajores : Celo;
-      const explorerUrl = currentChain.blockExplorers?.default?.url;
-      const explorerTxUrl = explorerUrl
-        ? `${explorerUrl}/tx/${createTx}`
-        : null;
-
-      const message = "Proposal created successfully!";
-      const detailsElement = explorerTxUrl ? (
-        <a
-          href={explorerTxUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-inherit underline"
-        >
-          See Details
-        </a>
-      ) : (
-        <span>See Details</span>
-      );
-
-      toast.success(
-        <>
-          {message} <br /> {detailsElement}
-        </>,
-        {
-          duration: 20000,
-        },
-      );
     }
-  }, [createError, isConfirmed, txReceipt, createTx, chainId]);
+  }, [createError]);
 
   useEffect(() => {
     if (creationState === "ready") {

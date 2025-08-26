@@ -1,8 +1,7 @@
-import { GovernorABI } from "@/lib/abi/Governor";
-import { Celo } from "@/lib/config/chains";
+import { Celo, GovernorABI } from "@repo/web3";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { createPublicClient, http } from "viem";
+import { Address, ChainContract, createPublicClient, http } from "viem";
 
 export const matcher = ["/proposals/:id*"];
 
@@ -26,10 +25,12 @@ export function middleware(request: NextRequest) {
       return new Promise((resolve) => {
         try {
           const parsedId = BigInt(id);
+          const governor = Celo.contracts?.MentoGovernor as ChainContract;
+          const governorAddress = governor.address as Address;
 
           publicClient
             .readContract({
-              address: Celo.contracts.MentoGovernor.address,
+              address: governorAddress,
               abi: GovernorABI,
               functionName: "proposals",
               args: [BigInt(parsedId)],

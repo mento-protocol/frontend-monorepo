@@ -3,20 +3,23 @@
 import { links } from "@repo/ui";
 import { logger } from "@repo/web3";
 import { Frown } from "lucide-react";
-import { Component } from "react";
+import { Component, PropsWithChildren, type ErrorInfo } from "react";
 
 interface ErrorBoundaryState {
-  error: unknown;
-  errorInfo: unknown;
+  error: Error | null;
+  errorInfo: ErrorInfo | null;
 }
 
-export class ErrorBoundary extends Component<unknown, ErrorBoundaryState> {
-  constructor(props: unknown) {
+export class ErrorBoundary extends Component<
+  PropsWithChildren,
+  ErrorBoundaryState
+> {
+  constructor(props: PropsWithChildren) {
     super(props);
     this.state = { error: null, errorInfo: null };
   }
 
-  componentDidCatch(error: unknown, errorInfo: unknown) {
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     this.setState({
       error,
       errorInfo,
@@ -25,10 +28,10 @@ export class ErrorBoundary extends Component<unknown, ErrorBoundaryState> {
   }
 
   render() {
-    const errorInfo = this.state.error || this.state.errorInfo;
-    if (errorInfo) {
-      const details = errorInfo.message || JSON.stringify(errorInfo);
-      return <FailScreen details={details.substr(0, 120)} />;
+    const { error, errorInfo } = this.state;
+    if (error || errorInfo) {
+      const details = (error && error.message) || JSON.stringify(errorInfo);
+      return <FailScreen details={details.substring(0, 120)} />;
     }
     return this.props.children;
   }
@@ -52,7 +55,7 @@ export function FailContent({ details }: { details?: string }) {
       <Frown />
       <h3 className="mt-2 text-center text-lg">
         Please refresh the page. If the problem persists, you can{" "}
-        <a href={links.discord} className="underline">
+        <a href={links.links.discord} className="underline">
           ask for help on Discord
         </a>
         .

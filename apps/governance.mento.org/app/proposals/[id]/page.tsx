@@ -1,11 +1,6 @@
 "use client";
 import { Identicon } from "@/components/identicon";
 import { VoteCard } from "@/components/voting/vote-card";
-import { Alfajores, Celo } from "@/lib/config/chains";
-import { CELO_BLOCK_TIME } from "@/lib/config/config.constants";
-import useProposal from "@/lib/contracts/governor/useProposal";
-import { ProposalState } from "@/lib/graphql";
-import { ensureChainId } from "@/lib/helpers/ensure-chain-id";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -25,16 +20,22 @@ import {
   TabsList,
   TabsTrigger,
 } from "@repo/ui";
+import {
+  CELO_BLOCK_TIME,
+  ensureChainId,
+  ProposalState,
+  useCurrentChain,
+  useProposal,
+} from "@repo/web3";
+import { useAccount, useBlock, useBlockNumber } from "@repo/web3/wagmi";
 import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMemo } from "react";
-import { formatUnits } from "viem";
-import { useAccount, useBlock, useBlockNumber } from "wagmi";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { formatInTimeZone } from "date-fns-tz";
-import { useEnsureChainId } from "@/lib/hooks/use-ensure-chain-id";
+import { formatUnits } from "viem";
 
 const CELO_COMMUNITY_ADDRESS = "0x41822d8a191fcfb1cfca5f7048818acd8ee933d3";
 
@@ -85,9 +86,7 @@ function ParticipantList({ participants }: ParticipantListProps) {
     return formatted;
   }, [totalWeight]);
 
-  const chainId = useEnsureChainId();
-
-  const currentChain = chainId === Alfajores.id ? Alfajores : Celo;
+  const currentChain = useCurrentChain();
   const explorerUrl = currentChain.blockExplorers?.default?.url;
 
   return (
@@ -158,6 +157,8 @@ export default function ProposalPage() {
   const { proposal, refetch: refetchProposal } = useProposal(BigInt(id));
   const { chainId } = useAccount();
 
+  const currentChain = useCurrentChain();
+
   const { data: currentBlock } = useBlockNumber({
     chainId: ensureChainId(chainId),
     query: {
@@ -224,7 +225,6 @@ export default function ProposalPage() {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
-  const currentChain = chainId === Alfajores.id ? Alfajores : Celo;
   const explorerUrl = currentChain.blockExplorers?.default?.url;
 
   const descriptionType = proposal.metadata?.description

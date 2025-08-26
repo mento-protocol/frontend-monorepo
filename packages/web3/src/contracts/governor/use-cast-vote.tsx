@@ -1,0 +1,103 @@
+import { GovernorABI } from "@/abi/Governor";
+import { ProposalQueryKey } from "@/contracts/governor/use-proposal";
+import { useContracts } from "@/contracts/use-contracts";
+import { useCurrentChain } from "@/features";
+import { toast } from "@repo/ui";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect } from "react";
+import {
+  useAccount,
+  useWaitForTransactionReceipt,
+  useWriteContract,
+} from "wagmi";
+import { WriteContractErrorType } from "wagmi/actions";
+
+export const useCastVote = () => {
+  const queryClient = useQueryClient();
+  const contracts = useContracts();
+  const { chainId } = useAccount();
+  const currentChain = useCurrentChain();
+  const {
+    writeContract,
+    isPending: isAwaitingUserSignature,
+    data,
+    error,
+    ...restWrite
+  } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess: isConfirmed } =
+    useWaitForTransactionReceipt({
+      hash: data,
+    });
+
+  const castVote = useCallback(
+    (
+      proposalId: bigint,
+      support: number,
+      onSuccess?: () => void,
+      onError?: (error?: WriteContractErrorType) => void,
+    ) => {
+      writeContract(
+        {
+          address: contracts.MentoGovernor.address,
+          abi: GovernorABI,
+          functionName: "castVote",
+          args: [proposalId, support],
+        },
+        {
+          onSuccess: () => {
+            queryClient.invalidateQueries({
+              queryKey: [ProposalQueryKey],
+            });
+            onSuccess?.();
+          },
+          onError,
+        },
+      );
+    },
+    [contracts.MentoGovernor.address, queryClient, writeContract],
+  );
+
+  // Toast notifications for vote casting
+  useEffect(() => {
+    if (error) {
+      if (error.message?.includes("User rejected request")) {
+        toast.error("Vote transaction rejected by user");
+      } else {
+        toast.error("Failed to cast vote");
+      }
+    } else if (isConfirmed && data) {
+      const explorerUrl = currentChain?.blockExplorers?.default?.url;
+      const explorerTxUrl = explorerUrl ? `${explorerUrl}/tx/${data}` : null;
+
+      const message = "Vote cast successfully!";
+      const detailsElement = explorerTxUrl ? (
+        <a
+          href={explorerTxUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ textDecoration: "underline", color: "inherit" }}
+        >
+          See Details
+        </a>
+      ) : (
+        <span>See Details</span>
+      );
+
+      toast.success(
+        <>
+          {message} <br /> {detailsElement}
+        </>,
+      );
+    }
+  }, [error, isConfirmed, data, chainId]);
+
+  return {
+    hash: data,
+    castVote,
+    isAwaitingUserSignature,
+    isConfirming,
+    isConfirmed,
+    error,
+    ...restWrite,
+  };
+};

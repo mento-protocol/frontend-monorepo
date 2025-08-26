@@ -1,5 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
-import { Contract } from "ethers";
 import { BALANCE_STALE_TIME } from "@/config/consts";
 import {
   type TokenId,
@@ -9,7 +7,9 @@ import {
 import { getProvider } from "@/features/providers";
 import { validateAddress } from "@/utils/addresses";
 import { logger } from "@/utils/logger";
-import { erc20ABI } from "wagmi";
+import { useQuery } from "@tanstack/react-query";
+import { Contract } from "ethers";
+import { erc20Abi } from "viem";
 
 export type AccountBalances = Record<TokenId, string>;
 
@@ -32,7 +32,7 @@ async function getTokenBalance({
   const tokenAddress = getTokenAddress(tokenSymbol, chainId);
   const provider = getProvider(chainId);
   try {
-    const tokenContract = new Contract(tokenAddress, erc20ABI, provider);
+    const tokenContract = new Contract(tokenAddress, erc20Abi, provider);
     return (await tokenContract.balanceOf(address)).toString();
   } catch (error) {
     logger.error(
@@ -87,37 +87,25 @@ export function useAccountBalances({
   address,
   chainId,
 }: UseAccountBalancesParams) {
-  return useQuery<AccountBalances, Error>(
-    ["accountBalances", { address, chainId }],
-    async () => {
+  return useQuery<AccountBalances, Error>({
+    queryKey: ["accountBalances", { address, chainId }],
+    queryFn: async () => {
       if (!address || !chainId) {
-        // This should ideally not be reached if `enabled` is used correctly.
-        // Return an empty object or throw, depending on how you want to handle.
-        // For consistency, let's return an "empty" state of balances.
-        const emptyBalances: AccountBalances = {} as AccountBalances;
-        for (const id of getTokenOptionsByChainId(chainId || 0)) {
-          // Use a default chainId if undefined for token list
-          emptyBalances[id] = "0";
-        }
-        return emptyBalances;
+        const empty: AccountBalances = {} as AccountBalances;
+        for (const id of getTokenOptionsByChainId(chainId ?? 0))
+          empty[id] = "0";
+        return empty;
       }
       return _fetchAccountBalances(address, chainId);
     },
-    {
-      staleTime: BALANCE_STALE_TIME,
-      enabled: !!address && !!chainId, // Query will only run if address and chainId are truthy
-      // Consider adding placeholderData or initialData if you want to show a default structure sooner.
-      // For example, initialData could be an empty map of balances for all tokens.
-      placeholderData: () => {
-        // Return an empty structure during initial load or when disabled
-        const placeholder: AccountBalances = {} as AccountBalances;
-        for (const id of getTokenOptionsByChainId(chainId || 0)) {
-          // Use a default chainId if undefined for token list
-          placeholder[id] = "0";
-        }
-        return placeholder;
-      },
-      retry: 1, // Optional: retry failed requests once
+    staleTime: BALANCE_STALE_TIME,
+    enabled: !!address && !!chainId,
+    placeholderData: () => {
+      const placeholder: AccountBalances = {} as AccountBalances;
+      for (const id of getTokenOptionsByChainId(chainId ?? 0))
+        placeholder[id] = "0";
+      return placeholder;
     },
-  );
+    retry: 1,
+  });
 }

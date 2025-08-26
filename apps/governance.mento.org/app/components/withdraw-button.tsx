@@ -1,11 +1,13 @@
-import { useAvailableToWithdraw } from "@/lib/contracts/locking/useAvailableToWithdraw";
-import { useLockInfo } from "@/lib/contracts/locking/useLockInfo";
-import { useWithdraw } from "@/lib/contracts/locking/useWithdraw";
-import { formatUnitsWithThousandSeparators } from "@/lib/helpers/numbers";
 import { Button, toast } from "@repo/ui";
-import { Celo, Alfajores } from "@/lib/config/chains";
+import {
+  formatUnitsWithThousandSeparators,
+  useAvailableToWithdraw,
+  useCurrentChain,
+  useLockInfo,
+  useWithdraw,
+} from "@repo/web3";
+import { useAccount } from "@repo/web3/wagmi";
 import React from "react";
-import { useAccount } from "wagmi";
 import { TxDialog } from "./tx-dialog/tx-dialog";
 
 export const WithdrawButton = () => {
@@ -13,7 +15,7 @@ export const WithdrawButton = () => {
     useAvailableToWithdraw();
 
   const { address, chainId } = useAccount();
-
+  const currentChain = useCurrentChain();
   const { refetch } = useLockInfo(address);
 
   const hasAmountToWithdraw = availableToWithdraw > BigInt(0);
@@ -24,8 +26,6 @@ export const WithdrawButton = () => {
 
   const handleWithdrawSuccess = React.useCallback(
     (txHash?: `0x${string}`) => {
-      // Show success toast with explorer link
-      const currentChain = chainId === Alfajores.id ? Alfajores : Celo;
       const explorerUrl = currentChain.blockExplorers?.default?.url;
       const explorerTxUrl =
         txHash && explorerUrl ? `${explorerUrl}/tx/${txHash}` : null;

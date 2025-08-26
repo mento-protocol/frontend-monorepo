@@ -22,7 +22,12 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  transpilePackages: ["@repo/web3"],
+  transpilePackages: [
+    "@repo/ui",
+    "@repo/web3",
+    "@wagmi/core",
+    "@rainbow-me/rainbowkit",
+  ],
 };
 
 export default withSentryConfig(nextConfig, {

@@ -1,15 +1,18 @@
+import { chainIdToChain } from "@/config/chains";
+import { getTokenAddress, TokenId, Tokens } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { SwapDirection } from "@/features/swap/types";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
-import { chainIdToChain } from "@/config/chains";
-import { TokenId, getTokenAddress, Tokens } from "@/config/tokens";
 import { logger } from "@/utils/logger";
+import { retryAsync } from "@/utils/retry";
+import { toast } from "@repo/ui";
 import { useMutation } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
 import { useAtom, useSetAtom } from "jotai";
-import { toast } from "@repo/ui";
-import type { Address } from "wagmi";
-import { sendTransaction, waitForTransaction } from "wagmi/actions";
+import { useEffect } from "react";
+import type { Address } from "viem";
+import { useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
+import { useQueryClient } from "@tanstack/react-query";
 import { confirmViewAtom, formValuesAtom } from "../swap-atoms";
 
 export function useSwapTransaction(
@@ -27,11 +30,8 @@ export function useSwapTransaction(
     toAmountWei?: string; // Add this to receive the exact buy amount for swapOut
   },
 ): {
-  sendSwapTx: () => Promise<{
-    hash: `0x${string}`;
-    receipt: unknown;
-  }>;
-  swapTxResult: { hash: `0x${string}`; receipt: unknown } | undefined;
+  sendSwapTx: () => Promise<Address>;
+  swapTxResult: Address | undefined;
   isSwapTxLoading: boolean;
   isSwapTxSuccess: boolean;
   isSwapTxError: boolean;
@@ -41,8 +41,23 @@ export function useSwapTransaction(
   const [formValues, setFormValues] = useAtom(formValuesAtom);
   const setConfirmView = useSetAtom(confirmViewAtom);
 
-  const mutation = useMutation(
-    async () => {
+  const { data: swapTxHash, sendTransactionAsync } = useSendTransaction();
+
+  const { data: swapTxReceipt, isSuccess: isSwapTxConfirmed } =
+    useWaitForTransactionReceipt({
+      hash: swapTxHash as Address,
+    });
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      console.log("swapValues", {
+        accountAddress,
+        isApproveConfirmed,
+        amountInWei,
+        thresholdAmountInWei,
+        direction,
+        swapValues,
+      });
       if (
         !accountAddress ||
         !isApproveConfirmed ||
@@ -98,108 +113,141 @@ export function useSwapTransaction(
       }
 
       logger.debug("Sending swap transaction...", { txRequest });
-      const txHash = await sendTransaction({
-        chainId,
-        mode: "recklesslyUnprepared",
-        request: {
-          to: txRequest.to as Address,
-          data: txRequest.data as `0x${string}` | undefined,
-          value: txRequest.value
-            ? BigInt(txRequest.value.toString())
-            : undefined,
-          gasLimit: txRequest.gasLimit
-            ? BigInt(txRequest.gasLimit.toString())
-            : undefined,
+
+      // Rely on the connected wallet's active chain. Passing `chainId` here breaks when it is undefined.
+      // See https://github.com/wagmi-dev/wagmi/issues/1879 – supply only tx fields;
+      if (chainId === undefined) {
+        throw new Error("Chain ID is undefined");
+      }
+      const txHash = await retryAsync(
+        async () => {
+          try {
+            return await sendTransactionAsync({
+              to: txRequest.to as Address,
+              data: txRequest.data as `0x${string}` | undefined,
+              value: txRequest.value
+                ? BigInt(txRequest.value.toString())
+                : undefined,
+              gas: txRequest.gasLimit
+                ? BigInt(txRequest.gasLimit.toString())
+                : undefined,
+            });
+          } catch (error) {
+            // Do not retry if user cancelled the signature
+            if (
+              error &&
+              typeof (error as Error).message === "string" &&
+              (error as Error).message.includes("User rejected request")
+            ) {
+              throw error;
+            }
+            throw error; // Retry for all other errors (e.g., Internal JSON-RPC)
+          }
         },
-      });
+        3, // attempts
+        1500, // base delay ms
+      );
 
       logger.debug("Transaction sent, waiting for confirmation...", {
-        hash: txHash.hash,
+        hash: txHash,
       });
 
-      // Wait for transaction confirmation
-      const receipt = await waitForTransaction({ hash: txHash.hash });
+      // Return the transaction hash so that onSuccess receives it
+      return txHash;
+    },
+    onSuccess: (data) => {
+      logger.info("Swap transaction successful", {
+        data,
+      });
 
-      if (receipt.status !== 1) {
+      // Show success toast with transaction details
+      if (swapValues) {
+        const chain = chainIdToChain[chainId];
+        const explorerUrl = chain?.blockExplorers?.default.url;
+        const fromTokenObj = Tokens[fromToken];
+        const toTokenObj = Tokens[toToken];
+        const fromTokenSymbol = fromTokenObj?.symbol || "Token";
+        const toTokenSymbol = toTokenObj?.symbol || "Token";
+
+        // Format amounts for display
+        const fromAmountFormatted = formatWithMaxDecimals(
+          swapValues.fromAmount,
+          4,
+        );
+        const toAmountFormatted = formatWithMaxDecimals(swapValues.toAmount, 4);
+
+        const successMessage = `You've swapped ${fromAmountFormatted} ${fromTokenSymbol} for ${toAmountFormatted} ${toTokenSymbol}.`;
+
+        toast.success(
+          <>
+            <h4>Swap Successful</h4>
+            <span className="text-muted-foreground mt-2 block">
+              {successMessage}
+            </span>
+            {explorerUrl && (
+              <a
+                href={`${explorerUrl}/tx/${data}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-muted-foreground underline"
+              >
+                View Transaction on CeloScan
+              </a>
+            )}
+          </>,
+        );
+      }
+
+      // Reset form and close confirm view only after successful confirmation
+      setFormValues({
+        slippage: formValues?.slippage || "0.5",
+      });
+      setConfirmView(false);
+    },
+    onError: (error: Error) => {
+      if (error.message === "Swap prerequisites not met") {
+        logger.debug("Swap skipped due to prerequisites.");
+        return;
+      }
+      const toastError = getToastErrorMessage(error.message);
+      toast.error(toastError);
+      logger.error(`Swap transaction failed: ${error.message}`, error);
+    },
+  });
+
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (isSwapTxConfirmed) {
+      if (swapTxReceipt?.status !== "success") {
         throw new Error("Transaction failed");
       }
 
       logger.info("Swap transaction confirmed successfully", {
-        hash: txHash.hash,
-        blockNumber: receipt.blockNumber,
+        hash: swapTxHash,
+        blockNumber: swapTxReceipt.blockNumber,
       });
 
-      return { hash: txHash.hash, receipt };
-    },
-    {
-      onSuccess: (data) => {
-        logger.info("Swap transaction successful", {
-          hash: data.hash,
+      // Invalidate account balances to ensure UI shows updated balances
+      if (accountAddress && chainId) {
+        queryClient.invalidateQueries({
+          queryKey: ["accountBalances", { address: accountAddress, chainId }],
         });
-
-        // Show success toast with transaction details
-        if (swapValues) {
-          const chain = chainIdToChain[chainId];
-          const explorerUrl = chain?.explorerUrl;
-          const fromTokenObj = Tokens[fromToken];
-          const toTokenObj = Tokens[toToken];
-          const fromTokenSymbol = fromTokenObj?.symbol || "Token";
-          const toTokenSymbol = toTokenObj?.symbol || "Token";
-
-          // Format amounts for display
-          const fromAmountFormatted = formatWithMaxDecimals(
-            swapValues.fromAmount,
-            4,
-          );
-          const toAmountFormatted = formatWithMaxDecimals(
-            swapValues.toAmount,
-            4,
-          );
-
-          const successMessage = `You've swapped ${fromAmountFormatted} ${fromTokenSymbol} for ${toAmountFormatted} ${toTokenSymbol}.`;
-
-          toast.success(
-            <>
-              <h4>Swap Successful</h4>
-              <span className="text-muted-foreground mt-2 block">
-                {successMessage}
-              </span>
-              {explorerUrl && (
-                <a
-                  href={`${explorerUrl}/tx/${data.hash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-muted-foreground underline"
-                >
-                  View Transaction on CeloScan
-                </a>
-              )}
-            </>,
-          );
-        }
-
-        // Reset form and close confirm view only after successful confirmation
-        setFormValues({
-          slippage: formValues?.slippage || "0.5",
-        });
-        setConfirmView(false);
-      },
-      onError: (error: Error) => {
-        if (error.message === "Swap prerequisites not met") {
-          logger.debug("Swap skipped due to prerequisites.");
-          return;
-        }
-        const toastError = getToastErrorMessage(error.message);
-        toast.error(toastError);
-        logger.error(`Swap transaction failed: ${error.message}`, error);
-      },
-    },
-  );
+      }
+    }
+  }, [
+    isSwapTxConfirmed,
+    swapTxReceipt,
+    swapTxHash,
+    queryClient,
+    accountAddress,
+    chainId,
+  ]);
 
   return {
     sendSwapTx: mutation.mutateAsync,
     swapTxResult: mutation.data,
-    isSwapTxLoading: mutation.isLoading,
+    isSwapTxLoading: mutation.isPending,
     isSwapTxSuccess: mutation.isSuccess,
     isSwapTxError: mutation.isError,
     swapTxError: mutation.error,

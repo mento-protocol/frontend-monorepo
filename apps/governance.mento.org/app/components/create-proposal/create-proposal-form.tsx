@@ -1,7 +1,6 @@
 "use client";
-import { useProposalThreshold } from "@/lib/contracts/governor/useProposalThreshold";
-import useTokens from "@/lib/contracts/useTokens";
-import { formatUnitsWithThousandSeparators } from "@/lib/helpers/numbers";
+import { useProposals, useProposalThreshold, useTokens } from "@repo/web3";
+import { formatUnitsWithThousandSeparators } from "@repo/web3";
 import TurndownService from "turndown";
 import ReactMarkdown from "react-markdown";
 import {
@@ -31,14 +30,13 @@ import {
 import { ArrowLeft, ArrowRight, HelpCircle } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useAccount } from "wagmi";
-import { ConnectButton } from "../connect-button";
+import { useAccount } from "@repo/web3/wagmi";
+import { ConnectButton } from "@repo/web3";
 import {
   CreateProposalProvider,
   CreateProposalStep,
   useCreateProposal,
 } from "./create-proposal-provider";
-import useProposals from "@/lib/contracts/governor/use-proposals";
 
 const isTextInvalid = (html: string) => {
   const text = html.replace(/<[^>]*>/g, "").trim();
@@ -707,7 +705,7 @@ function CreateProposalSteps() {
         <p className="text-muted-foreground mb-8 text-sm">
           Connect your wallet to create new proposal.
         </p>
-        <ConnectButton fullwidth size="lg" />
+        <ConnectButton fullWidth size="lg" />
       </>
     );
   }

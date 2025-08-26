@@ -5,20 +5,20 @@ import { getTradablePairForTokens } from "@/features/sdk";
 import { getTokenByAddress } from "@/config/tokens";
 
 export function useTradingLimits(
-  fromTokenId: string,
-  toTokenId: string,
+  tokenInId: string,
+  tokenOutId: string,
   chainId: number,
 ) {
   return useQuery({
-    queryKey: ["trading-limits", fromTokenId, toTokenId, chainId],
+    queryKey: ["trading-limits", tokenInId, tokenOutId, chainId],
     queryFn: async () => {
-      if (!fromTokenId || !toTokenId) return null;
+      if (!tokenInId || !tokenOutId) return null;
 
       const mento = await getMentoSdk(chainId);
       const tradablePair = await getTradablePairForTokens(
         chainId,
-        fromTokenId as TokenId,
-        toTokenId as TokenId,
+        tokenInId as TokenId,
+        tokenOutId as TokenId,
       );
 
       if (
@@ -35,13 +35,13 @@ export function useTradingLimits(
       const tradingLimits = await mento.getTradingLimits(exchangeId);
       const filteredTradingLimits = tradingLimits.filter(
         (limit) =>
-          limit.asset === getTokenAddress(fromTokenId as TokenId, chainId),
+          limit.asset === getTokenAddress(tokenInId as TokenId, chainId),
       );
       const limitCfg = await mento.getTradingLimitConfig(exchangeId);
 
       const filteredLimitCfg = limitCfg.filter(
         (limit) =>
-          limit.asset === getTokenAddress(fromTokenId as TokenId, chainId),
+          limit.asset === getTokenAddress(tokenInId as TokenId, chainId),
       );
       // Sort limits by 'until' timestamp in ascending order
       const sortedLimits = filteredTradingLimits.sort(
@@ -75,6 +75,6 @@ export function useTradingLimits(
         asset: limitAsset,
       };
     },
-    enabled: !!fromTokenId && !!toTokenId,
+    enabled: !!tokenInId && !!tokenOutId,
   });
 }

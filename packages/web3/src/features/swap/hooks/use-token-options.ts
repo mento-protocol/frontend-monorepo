@@ -7,7 +7,7 @@ import {
   getTokenById,
 } from "@/config/tokens";
 import { logger } from "@/utils/logger";
-import { useNetwork } from "wagmi";
+import { useAccount } from "wagmi";
 
 export interface TokenOption {
   id: TokenId;
@@ -19,11 +19,11 @@ export interface TokenOption {
 }
 
 export function useTokenOptions(
-  fromTokenId?: TokenId,
+  tokenInId?: TokenId,
   balancesFromHook?: Record<TokenId, string>,
 ) {
-  const { chain } = useNetwork();
-  const chainId = useMemo(() => chain?.id ?? Celo.chainId, [chain]);
+  const { chain } = useAccount();
+  const chainId = useMemo(() => chain?.id ?? Celo.id, [chain]);
   const [swappableTokens, setSwappableTokens] = useState<TokenId[]>([]);
 
   // Get all available tokens for current chain
@@ -49,14 +49,14 @@ export function useTokenOptions(
   // Get tokens that can be swapped with selected token
   useEffect(() => {
     const fetchSwappableTokens = async () => {
-      if (!fromTokenId) return;
+      if (!tokenInId) return;
 
-      const tokens = await getSwappableTokenOptions(fromTokenId, chainId);
+      const tokens = await getSwappableTokenOptions(tokenInId, chainId);
       setSwappableTokens(tokens);
     };
 
     fetchSwappableTokens().catch(logger.error);
-  }, [chainId, fromTokenId]);
+  }, [chainId, tokenInId]);
 
   // Map swappable token IDs to token options with additional data
   const swappableTokenOptions = useMemo(() => {

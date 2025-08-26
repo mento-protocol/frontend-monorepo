@@ -1,17 +1,16 @@
-import { ConnectButton } from "@/components/connect-button";
+import { ConnectButton } from "@repo/web3";
 import { ProgressBar } from "@/components/progress-bar";
 import { Timer } from "@/components/timer";
-import { Alfajores } from "@/lib/config/chains";
-import { links } from "@/lib/constants/links";
-import useCastVote from "@/lib/contracts/governor/use-cast-vote";
-import useExecuteProposal from "@/lib/contracts/governor/use-execute-proposal";
-import useQueueProposal from "@/lib/contracts/governor/useQueueProposal";
-import { useQuorum } from "@/lib/contracts/governor/useQuorum";
-import useVoteReceipt from "@/lib/contracts/governor/useVoteReceipt";
-import useTokens from "@/lib/contracts/useTokens";
-import type { Proposal } from "@/lib/graphql";
-import { ProposalState } from "@/lib/graphql";
-import NumbersService from "@/lib/helpers/numbers";
+import { Alfajores } from "@repo/web3";
+import { useCastVote } from "@repo/web3";
+import { useExecuteProposal } from "@repo/web3";
+import { useQueueProposal } from "@repo/web3";
+import { useQuorum } from "@repo/web3";
+import { useVoteReceipt } from "@repo/web3";
+import { useTokens } from "@repo/web3";
+import type { Proposal } from "@repo/web3";
+import { ProposalState } from "@repo/web3";
+import { NumbersService } from "@repo/web3";
 import {
   Button,
   Card,
@@ -26,7 +25,8 @@ import { CheckCircle2, CircleCheck, XCircle, XCircleIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { formatUnits } from "viem";
-import { useAccount } from "wagmi";
+import { useAccount } from "@repo/web3/wagmi";
+import { links } from "@/lib/constants/links";
 
 interface VoteCardProps {
   proposal: Proposal;
@@ -647,7 +647,7 @@ export const VoteCard = ({
                 text={
                   canExecute ? "Connect Wallet to Execute" : "Proposal Queued"
                 }
-                fullwidth
+                fullWidth
                 disabled={!canExecute}
               />
             </div>
@@ -723,7 +723,7 @@ export const VoteCard = ({
               <ConnectButton
                 size="lg"
                 text="Connect Wallet to Queue"
-                fullwidth
+                fullWidth
               />
             </div>
           );
@@ -771,7 +771,7 @@ export const VoteCard = ({
               <ConnectButton
                 size="lg"
                 text="Connect Wallet to Vote"
-                fullwidth
+                fullWidth
               />
             </div>
           );

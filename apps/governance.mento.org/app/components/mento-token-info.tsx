@@ -7,14 +7,15 @@ import {
   AccordionTrigger,
   CopyToClipboard,
 } from "@repo/ui";
+import {
+  NumbersService,
+  useContracts,
+  useCurrentChain,
+  useGovernanceDetails,
+  useTokens,
+} from "@repo/web3";
+import { useAccount } from "@repo/web3/wagmi";
 import { formatUnits } from "viem";
-import { useAccount } from "wagmi";
-import { Celo, Alfajores } from "@/lib/config/chains";
-
-import useGovernanceDetails from "@/lib/contracts/governor/useGovernanceDetails";
-import { useContracts } from "@/lib/contracts/useContracts";
-import useTokens from "@/lib/contracts/useTokens";
-import NumbersService from "@/lib/helpers/numbers";
 
 export const MentoTokenInfo = () => {
   const { chain } = useAccount();
@@ -153,7 +154,7 @@ const ContractAddressDisplay = ({
   address: string | undefined;
   dataTestId?: string;
 }) => {
-  const { chainId } = useAccount();
+  const currentChain = useCurrentChain();
 
   if (!address) {
     return <span>-</span>;
@@ -163,7 +164,6 @@ const ContractAddressDisplay = ({
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
-  const currentChain = chainId === Alfajores.id ? Alfajores : Celo;
   const explorerUrl = currentChain.blockExplorers?.default?.url;
   const addressUrl = explorerUrl ? `${explorerUrl}/address/${address}` : null;
 

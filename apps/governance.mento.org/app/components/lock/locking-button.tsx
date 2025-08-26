@@ -1,30 +1,30 @@
+import { Button, toast } from "@repo/ui";
 import {
   LOCKING_AMOUNT_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
-} from "@/lib/constants/locking";
-import { useLockInfo } from "@/lib/contracts/locking/useLockInfo";
-import useLockingWeek from "@/lib/contracts/locking/useLockingWeek";
-import useRelockMento from "@/lib/contracts/locking/useRelockMento";
-import { useAllowance } from "@/lib/contracts/mento/useAllowance";
-import useApprove from "@/lib/contracts/mento/useApprove";
-import { useContracts } from "@/lib/contracts/useContracts";
-import { Button, toast } from "@repo/ui";
-import { Celo, Alfajores } from "@/lib/config/chains";
+  LockWithExpiration,
+  useAllowance,
+  useApprove,
+  useContracts,
+  useCurrentChain,
+  useLockInfo,
+  useLockingWeek,
+  useRelockMento,
+} from "@repo/web3";
+import { useAccount } from "@repo/web3/wagmi";
 import { differenceInWeeks, isAfter } from "date-fns";
 import React from "react";
 import { useFormContext } from "react-hook-form";
 import { parseEther } from "viem";
-import { useAccount } from "wagmi";
 import { TxDialog } from "../tx-dialog/tx-dialog";
 import {
   CREATE_LOCK_APPROVAL_STATUS,
   CREATE_LOCK_TX_STATUS,
   useCreateLock,
 } from "./create-lock-provider";
-import { LockWithExpiration } from "@/lib/interfaces/lock.interface";
 
 export const LockingButton = () => {
-  const { address, chainId } = useAccount();
+  const { address } = useAccount();
   const { createLock, CreateLockTxStatus, CreateLockApprovalStatus } =
     useCreateLock();
   const {
@@ -33,6 +33,7 @@ export const LockingButton = () => {
     hasMultipleLocks,
     refetch: refetchLockInfo,
   } = useLockInfo(address);
+  const currentChain = useCurrentChain();
   const contracts = useContracts();
   const { currentWeek: currentLockingWeek } = useLockingWeek();
   const [isTxDialogOpen, setIsTxDialogOpen] = React.useState(false);
@@ -89,7 +90,6 @@ export const LockingButton = () => {
     newSlope,
     additionalAmountToLock: parsedAmount,
     onConfirmation: () => {
-      const currentChain = chainId === Alfajores.id ? Alfajores : Celo;
       const explorerUrl = currentChain.blockExplorers?.default?.url;
       const explorerTxUrl = explorerUrl
         ? `${explorerUrl}/tx/${relock.hash}`

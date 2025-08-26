@@ -8,42 +8,11 @@ import type { PropsWithChildren } from "react";
 import { ErrorBoundary } from "./errors";
 import { AppLayout } from "./layout/app-layout";
 
-import { getWalletConnectors } from "@repo/web3";
 import { useIsSsr } from "@/lib/utils/ssr";
 import "@/lib/vendor/inpage-metamask";
 
-import { Alfajores, Celo } from "@celo/rainbowkit-celo/chains";
-import {
-  RainbowKitProvider,
-  connectorsForWallets,
-} from "@rainbow-me/rainbowkit";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { WagmiConfig, configureChains, createClient } from "wagmi";
-import { jsonRpcProvider } from "wagmi/providers/jsonRpc";
-
-const reactQueryClient = new QueryClient({});
-
-const { chains, provider } = configureChains(
-  [Celo, Alfajores],
-  [
-    jsonRpcProvider({
-      rpc: (chain) => ({ http: chain.rpcUrls.default.http[0] }),
-    }),
-  ],
-);
-
-const connectors = connectorsForWallets([
-  {
-    groupName: "Recommended for Celo chains",
-    wallets: getWalletConnectors(chains),
-  },
-]);
-
-const wagmiClient = createClient({
-  autoConnect: true,
-  provider,
-  connectors,
-});
+import { Web3Provider } from "@repo/web3";
+import { State } from "@repo/web3/wagmi";
 
 function SafeHydrate({ children }: PropsWithChildren<unknown>) {
   const isSsr = useIsSsr();
@@ -53,23 +22,18 @@ function SafeHydrate({ children }: PropsWithChildren<unknown>) {
   return <>{children}</>;
 }
 
-export function ClientProviders({ children }: PropsWithChildren) {
+export function ClientProviders({
+  children,
+  initialState,
+}: PropsWithChildren & { initialState: State | undefined }) {
   return (
     <ErrorBoundary>
       <SafeHydrate>
-        <QueryClientProvider client={reactQueryClient}>
-          <NextThemesProvider
-            attribute="class"
-            defaultTheme="dark"
-            enableSystem
-          >
-            <WagmiConfig client={wagmiClient}>
-              <RainbowKitProvider chains={chains}>
-                <AppLayout>{children}</AppLayout>
-              </RainbowKitProvider>
-            </WagmiConfig>
-          </NextThemesProvider>
-        </QueryClientProvider>
+        <NextThemesProvider attribute="class" defaultTheme="dark" enableSystem>
+          <Web3Provider initialState={initialState}>
+            <AppLayout>{children}</AppLayout>
+          </Web3Provider>
+        </NextThemesProvider>
       </SafeHydrate>
     </ErrorBoundary>
   );
