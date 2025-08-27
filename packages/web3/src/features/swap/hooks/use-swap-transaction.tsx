@@ -155,12 +155,30 @@ export function useSwapTransaction(
       // Return the transaction hash so that onSuccess receives it
       return txHash;
     },
-    onSuccess: (data) => {
-      logger.info("Swap transaction successful", {
-        data,
+    onError: (error: Error) => {
+      if (error.message === "Swap prerequisites not met") {
+        logger.debug("Swap skipped due to prerequisites not being met.");
+        return;
+      }
+      const toastError = getToastErrorMessage(error.message);
+      toast.error(toastError);
+      logger.error(`Swap transaction failed: ${error.message}`, error);
+    },
+  });
+
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (isSwapTxConfirmed) {
+      if (swapTxReceipt?.status !== "success") {
+        throw new Error("Transaction failed");
+      }
+
+      logger.info("Swap transaction confirmed successfully", {
+        hash: swapTxHash,
+        blockNumber: swapTxReceipt.blockNumber,
       });
 
-      // Show success toast with transaction details
       if (swapValues) {
         const chain = chainIdToChain[chainId];
         const explorerUrl = chain?.blockExplorers?.default.url;
@@ -186,7 +204,7 @@ export function useSwapTransaction(
             </span>
             {explorerUrl && (
               <a
-                href={`${explorerUrl}/tx/${data}`}
+                href={`${explorerUrl}/tx/${swapTxHash}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-muted-foreground underline"
@@ -198,35 +216,10 @@ export function useSwapTransaction(
         );
       }
 
-      // Reset form and close confirm view only after successful confirmation
       setFormValues({
         slippage: formValues?.slippage || "0.5",
       });
       setConfirmView(false);
-    },
-    onError: (error: Error) => {
-      if (error.message === "Swap prerequisites not met") {
-        logger.debug("Swap skipped due to prerequisites.");
-        return;
-      }
-      const toastError = getToastErrorMessage(error.message);
-      toast.error(toastError);
-      logger.error(`Swap transaction failed: ${error.message}`, error);
-    },
-  });
-
-  const queryClient = useQueryClient();
-
-  useEffect(() => {
-    if (isSwapTxConfirmed) {
-      if (swapTxReceipt?.status !== "success") {
-        throw new Error("Transaction failed");
-      }
-
-      logger.info("Swap transaction confirmed successfully", {
-        hash: swapTxHash,
-        blockNumber: swapTxReceipt.blockNumber,
-      });
 
       // Invalidate account balances to ensure UI shows updated balances
       if (accountAddress && chainId) {
