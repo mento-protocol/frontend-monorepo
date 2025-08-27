@@ -19,12 +19,12 @@ import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
+  ModeToggle,
 } from "@repo/ui";
 
 const tokens = [
   "CELO",
   "BTC",
-  "sDAI",
   "ETH",
   "USDC",
   "EURC",
@@ -74,6 +74,19 @@ export default function BasicComponentsPage() {
               <Button size="lg">Large</Button>
               <Button disabled>Disabled</Button>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Theme Toggle */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Theme Toggle</CardTitle>
+            <CardDescription>
+              Switch between light and dark modes
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex items-center justify-center py-6">
+            <ModeToggle />
           </CardContent>
         </Card>
 

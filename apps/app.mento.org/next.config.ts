@@ -18,7 +18,7 @@ const nextConfig: NextConfig = {
           /^https?:\/\/([^/]+)\/?.*$/,
           "$1",
         ),
-        pathname: "/app/*",
+        pathname: "/app/*|/shared/*",
       },
     ],
   },

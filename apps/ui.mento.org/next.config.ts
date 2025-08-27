@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { env } from "./env.mjs";
 
 const nextConfig: NextConfig = {
   /* Performance Optimizations */
@@ -7,7 +8,16 @@ const nextConfig: NextConfig = {
 
   // Image optimization config
   images: {
-    formats: ["image/avif", "image/webp"],
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: env.NEXT_PUBLIC_STORAGE_URL.replace(
+          /^https?:\/\/([^/]+)\/?.*$/,
+          "$1",
+        ),
+        pathname: "/shared/*",
+      },
+    ],
   },
 
   // Enable compiler optimizations

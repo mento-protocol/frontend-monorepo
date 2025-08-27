@@ -18,7 +18,7 @@ const nextConfig: NextConfig = {
           /^https?:\/\/([^/]+)\/?.*$/,
           "$1",
         ),
-        pathname: "/governance/*",
+        pathname: "/governance/*|/shared/*",
       },
       {
         protocol: "https",

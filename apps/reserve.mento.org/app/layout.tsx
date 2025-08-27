@@ -31,7 +31,7 @@ export const metadata: Metadata = {
   openGraph: {
     images: [
       {
-        url: `${env.NEXT_PUBLIC_STORAGE_URL}/og-general-SosfjsEgr1wfQHzK7jeamtkmEflbPT.png`,
+        url: `${env.NEXT_PUBLIC_STORAGE_URL}/shared/og-general.png`,
         width: 1200,
         height: 630,
       },
@@ -52,14 +52,14 @@ export default function RootLayout({
         <Providers>
           <main className="relative w-full pb-4">
             <Image
-              src={`${env.NEXT_PUBLIC_STORAGE_URL}/hero-mobile-Miv9NJifq4Bv1yI7nLERCxpEAc52Du.png`}
+              src={`${env.NEXT_PUBLIC_STORAGE_URL}/reserve/hero-mobile.png`}
               alt="Mento Reserve"
               width={320}
               height={168}
               className="my-8 w-full md:hidden"
             />
             <Image
-              src={`${env.NEXT_PUBLIC_STORAGE_URL}/hero-yK9EATxAalqBP4Sj6TrjtovwiEKJF6.png`}
+              src={`${env.NEXT_PUBLIC_STORAGE_URL}/reserve/hero.png`}
               alt="Mento Reserve"
               width={1280}
               height={640}
@@ -76,13 +76,7 @@ export default function RootLayout({
               </p>
             </section>
             {children}
-            <CommunityCard
-              images={{
-                mobile: `${env.NEXT_PUBLIC_STORAGE_URL}/cta-join-community-mobile-fiA6uAlKQFhFo6jXvHhxKQ3L74bn8v.png`,
-                desktop: `${env.NEXT_PUBLIC_STORAGE_URL}/cta-join-community-ahNprbnDlm9FaDQ48D6eW7THpdoWdx.png`,
-              }}
-              buttonHref="http://discord.mento.org"
-            />
+            <CommunityCard />
           </main>
         </Providers>
         <Analytics />

@@ -22,7 +22,7 @@ export function AppLayout({ children }: PropsWithChildren) {
       <Footer />
       {theme === "dark" ? (
         <Image
-          src={`${env.NEXT_PUBLIC_STORAGE_URL}/bg-swap-dark-FIraOueLKmMvdIYxmtdni8MLq8bjHF.png`}
+          src={`${env.NEXT_PUBLIC_STORAGE_URL}/app/bg-swap-dark.png`}
           alt="Mento Background"
           width={1440}
           height={720}
@@ -30,7 +30,7 @@ export function AppLayout({ children }: PropsWithChildren) {
         />
       ) : (
         <Image
-          src={`${env.NEXT_PUBLIC_STORAGE_URL}/bg-swap-light-sJa3LVUfg33LU1iD5omWLA4zu41P7O.png`}
+          src={`${env.NEXT_PUBLIC_STORAGE_URL}/app/bg-swap-light.png`}
           alt="Mento Background"
           width={1440}
           height={720}

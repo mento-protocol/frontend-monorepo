@@ -19,10 +19,12 @@ import {
   CoinCardSupply,
   ProposalStatus,
   Calendar,
+  CommunityCard,
 } from "@repo/ui";
 import Image from "next/image";
 import { useState } from "react";
 import USFlag from "../components/client/icons/us";
+import { env } from "../../env.mjs";
 
 export default function SpecializedComponentsPage() {
   const [date, setDate] = useState<Date | undefined>(new Date());
@@ -99,6 +101,8 @@ export default function SpecializedComponentsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <CommunityCard />
     </div>
   );
 }
