@@ -157,7 +157,7 @@ export function useSwapTransaction(
     },
     onError: (error: Error) => {
       if (error.message === "Swap prerequisites not met") {
-        logger.debug("Swap skipped due to prerequisites.");
+        logger.debug("Swap skipped due to prerequisites not being met.");
         return;
       }
       const toastError = getToastErrorMessage(error.message);
