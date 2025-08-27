@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
   Slider,
+  Calendar,
 } from "@repo/ui";
 import { useState } from "react";
 
@@ -26,6 +27,7 @@ export default function FormComponentsPage() {
   const [checkboxChecked, setCheckboxChecked] = useState(false);
   const [radioValue, setRadioValue] = useState("option1");
   const [selectValue, setSelectValue] = useState("");
+  const [date, setDate] = useState<Date | undefined>(new Date());
 
   return (
     <div className="flex w-full flex-col gap-8 p-6">
@@ -116,6 +118,22 @@ export default function FormComponentsPage() {
                 step={1}
               />
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Calendar */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Calendar</CardTitle>
+            <CardDescription>Date picker component</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Calendar
+              mode="single"
+              selected={date}
+              onSelect={setDate}
+              className="rounded-md border"
+            />
           </CardContent>
         </Card>
       </div>

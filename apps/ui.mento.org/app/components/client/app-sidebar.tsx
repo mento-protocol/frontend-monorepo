@@ -10,7 +10,8 @@ import {
   Search,
   Sparkles,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   Collapsible,
@@ -58,6 +59,7 @@ const componentCategories = [
       { name: "Select", description: "Dropdown select menus" },
       { name: "Slider", description: "Range slider controls" },
       { name: "Label", description: "Form field labels" },
+      { name: "Calendar", description: "Date picker and calendar" },
     ],
   },
   {
@@ -81,7 +83,6 @@ const componentCategories = [
         name: "Proposal Status",
         description: "Governance proposal status indicators",
       },
-      { name: "Calendar", description: "Date picker and calendar" },
     ],
   },
   {
@@ -92,6 +93,7 @@ const componentCategories = [
       { name: "Dialog", description: "Modal dialogs and overlays" },
       { name: "Popover", description: "Contextual content overlays" },
       { name: "Tooltip", description: "Hover information displays" },
+      { name: "Toast", description: "Notification messages and alerts" },
     ],
   },
   {
@@ -106,7 +108,79 @@ const componentCategories = [
 ];
 
 export function CustomAppSidebar() {
+  const [isClient, setIsClient] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [openCategories, setOpenCategories] = useState<Set<string>>(new Set());
+  const router = useRouter();
+
+  // Initialize client-side state after hydration
+  useEffect(() => {
+    setIsClient(true);
+
+    // Load search query from localStorage
+    try {
+      const savedQuery = localStorage.getItem("sidebarSearchQuery") || "";
+      setSearchQuery(savedQuery);
+    } catch (e) {
+      console.error("Failed to load search query", e);
+    }
+
+    // Load open categories from localStorage
+    try {
+      const saved = localStorage.getItem("sidebarOpenCategories");
+      setOpenCategories(saved ? new Set(JSON.parse(saved)) : new Set());
+    } catch (e) {
+      console.error("Failed to load sidebar state", e);
+    }
+  }, []);
+
+  // Handle category click - navigate and expand
+  const handleCategoryClick = (category: (typeof componentCategories)[0]) => {
+    router.push(category.url);
+    setOpenCategories((prev) => {
+      const newSet = new Set(prev).add(category.title);
+
+      // Save to localStorage (only on client)
+      if (isClient) {
+        try {
+          localStorage.setItem(
+            "sidebarOpenCategories",
+            JSON.stringify([...newSet]),
+          );
+        } catch (e) {
+          console.error("Failed to save sidebar state", e);
+        }
+      }
+
+      return newSet;
+    });
+  };
+
+  // Handle toggle for collapsible
+  const handleToggle = (categoryTitle: string, isOpen: boolean) => {
+    setOpenCategories((prev) => {
+      const newSet = new Set(prev);
+      if (isOpen) {
+        newSet.add(categoryTitle);
+      } else {
+        newSet.delete(categoryTitle);
+      }
+
+      // Save to localStorage (only on client)
+      if (isClient) {
+        try {
+          localStorage.setItem(
+            "sidebarOpenCategories",
+            JSON.stringify([...newSet]),
+          );
+        } catch (e) {
+          console.error("Failed to save sidebar state", e);
+        }
+      }
+
+      return newSet;
+    });
+  };
 
   // Filter categories and components based on search query
   const filteredCategories = useMemo(() => {
@@ -154,7 +228,18 @@ export function CustomAppSidebar() {
           <SidebarInput
             placeholder="Search components..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              const newQuery = e.target.value;
+              setSearchQuery(newQuery);
+              // Save search query to localStorage (only on client)
+              if (isClient) {
+                try {
+                  localStorage.setItem("sidebarSearchQuery", newQuery);
+                } catch (e) {
+                  console.error("Failed to save search query", e);
+                }
+              }
+            }}
             className="pl-8"
           />
         </div>
@@ -164,47 +249,59 @@ export function CustomAppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {filteredCategories.map((category) => (
-                <SidebarMenuItem key={category.title}>
-                  <Collapsible
-                    open={!!searchQuery || undefined}
-                    className="group/collapsible"
-                  >
-                    <CollapsibleTrigger asChild>
-                      <SidebarMenuButton className="w-full">
-                        <category.icon className="h-4 w-4" />
-                        <span>{category.title}</span>
-                        <ChevronDown className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
-                      </SidebarMenuButton>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <SidebarMenuSub>
-                        <SidebarMenuSubItem>
-                          <SidebarMenuSubButton asChild>
-                            <a href={category.url}>
-                              <span>View All</span>
-                            </a>
-                          </SidebarMenuSubButton>
-                        </SidebarMenuSubItem>
-                        {category.components.map((component) => (
-                          <SidebarMenuSubItem key={component.name}>
-                            <SidebarMenuSubButton asChild>
-                              <a
-                                href={category.url}
-                                title={component.description}
-                              >
-                                <span>{component.name}</span>
-                              </a>
-                            </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>
-                        ))}
-                      </SidebarMenuSub>
-                    </CollapsibleContent>
-                  </Collapsible>
+              {!isClient ? (
+                // Show loading state on server-side to prevent layout shift
+                <SidebarMenuItem>
+                  <div className="text-muted-foreground px-2 py-4 text-center text-sm">
+                    Loading...
+                  </div>
                 </SidebarMenuItem>
-              ))}
+              ) : (
+                filteredCategories.map((category) => (
+                  <SidebarMenuItem key={category.title}>
+                    <Collapsible
+                      open={!!searchQuery || openCategories.has(category.title)}
+                      onOpenChange={(isOpen) =>
+                        handleToggle(category.title, isOpen)
+                      }
+                      className="group/collapsible"
+                    >
+                      <div className="flex w-full items-center">
+                        <SidebarMenuButton
+                          className="flex-1 cursor-pointer"
+                          onClick={() => handleCategoryClick(category)}
+                        >
+                          <category.icon className="h-4 w-4" />
+                          <span>{category.title}</span>
+                        </SidebarMenuButton>
+                        <CollapsibleTrigger asChild>
+                          <button className="hover:bg-accent flex h-8 w-8 items-center justify-center rounded-md">
+                            <ChevronDown className="h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
+                          </button>
+                        </CollapsibleTrigger>
+                      </div>
+                      <CollapsibleContent>
+                        <SidebarMenuSub>
+                          {category.components.map((component) => (
+                            <SidebarMenuSubItem key={component.name}>
+                              <SidebarMenuSubButton asChild>
+                                <a
+                                  href={category.url}
+                                  title={component.description}
+                                >
+                                  <span>{component.name}</span>
+                                </a>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          ))}
+                        </SidebarMenuSub>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </SidebarMenuItem>
+                ))
+              )}
 
-              {filteredCategories.length === 0 && searchQuery && (
+              {isClient && filteredCategories.length === 0 && searchQuery && (
                 <SidebarMenuItem>
                   <div className="text-muted-foreground px-2 py-4 text-center text-sm">
                     No components found matching "{searchQuery}"

@@ -60,19 +60,35 @@ export default function BasicComponentsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap gap-2">
-              <Button>Default</Button>
-              <Button variant="secondary">Secondary</Button>
-              <Button variant="outline">Outline</Button>
+              <Button clipped="default">Default</Button>
+              <Button variant="secondary" clipped="default">
+                Secondary
+              </Button>
+              <Button variant="outline" clipped="default">
+                Outline
+              </Button>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button variant="ghost">Ghost</Button>
-              <Button variant="link">Link</Button>
-              <Button variant="destructive">Destructive</Button>
+              <Button variant="ghost" clipped="default">
+                Ghost
+              </Button>
+              <Button variant="link" clipped="default">
+                Link
+              </Button>
+              <Button variant="destructive" clipped="default">
+                Destructive
+              </Button>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm">Small</Button>
-              <Button size="lg">Large</Button>
-              <Button disabled>Disabled</Button>
+              <Button size="sm" clipped="sm">
+                Small
+              </Button>
+              <Button size="lg" clipped="lg">
+                Large
+              </Button>
+              <Button disabled clipped="default">
+                Disabled
+              </Button>
             </div>
           </CardContent>
         </Card>
