@@ -7,22 +7,21 @@ import {
   CardHeader,
   CardTitle,
   CoinCard,
+  CoinCardFooter,
   CoinCardHeader,
   CoinCardHeaderGroup,
-  CoinCardSymbol,
-  CoinCardName,
   CoinCardLogo,
-  CoinCardFooter,
+  CoinCardName,
+  CoinCardOrigin,
   CoinCardOriginFlag,
   CoinCardOriginText,
-  CoinCardOrigin,
   CoinCardSupply,
-  ProposalStatus,
+  CoinCardSymbol,
   CommunityCard,
+  ProposalStatus,
 } from "@repo/ui";
 import Image from "next/image";
 import USFlag from "../components/client/icons/us";
-import { env } from "../../env.mjs";
 
 export default function SpecializedComponentsPage() {
   return (
