@@ -594,23 +594,17 @@ export default function SwapForm() {
       setIsApprovalProcessing(false);
 
       const errorMessage = error instanceof Error ? error.message : "";
-      const isUserRejection =
+      const isApprovalError =
         errorMessage.includes("User rejected request") ||
         errorMessage.includes("User denied transaction signature") ||
         errorMessage.includes("user rejected transaction");
 
-      const toastTitle = isUserRejection
-        ? "User rejected transaction"
-        : "Transaction failed";
-      const toastDescription = isUserRejection
-        ? "Transaction was cancelled by user"
-        : error instanceof Error
-          ? error.message
-          : "Unknown error occurred";
-
-      toast.error(toastTitle, {
-        description: toastDescription,
-      });
+      if (!isApprovalError) {
+        toast.error("Transaction failed", {
+          description:
+            error instanceof Error ? error.message : "Unknown error occurred",
+        });
+      }
     }
   };
 
