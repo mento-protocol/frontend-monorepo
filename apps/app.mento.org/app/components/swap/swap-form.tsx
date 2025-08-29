@@ -191,8 +191,10 @@ export default function SwapForm() {
       let total = 0;
       let timestamp = 0;
       let exceededTier: "L0" | "L1" | "LG" | null = null;
+      let isImplicitLimit = false;
 
       if (tokenToCheck === tokenInId) {
+        // Direct limit on input token
         amountToCheck = formDirection === "in" ? numericAmount : numericQuote;
         if (LG?.maxIn && amountToCheck > LG.maxIn) {
           exceeds = true;
@@ -213,39 +215,82 @@ export default function SwapForm() {
           exceededTier = "L0";
           total = L0.total || 0;
         }
-      } else {
+      } else if (tokenToCheck === tokenOutId) {
+        // Direct limit on output token OR implicit limit when output token has limits
         amountToCheck = formDirection === "in" ? numericQuote : numericAmount;
-        // Check from least to most restrictive (LG -> L1 -> L0)
-        if (LG?.maxOut && amountToCheck > LG.maxOut) {
-          exceeds = true;
-          limit = LG.maxOut;
-          timestamp = LG.until || 0;
-          exceededTier = "LG";
-          total = LG.total || 0;
-        } else if (L1?.maxOut && amountToCheck > L1.maxOut) {
-          exceeds = true;
-          limit = L1.maxOut;
-          timestamp = L1.until || 0;
-          exceededTier = "L1";
-          total = L1.total || 0;
-        } else if (L0?.maxOut && amountToCheck > L0.maxOut) {
-          exceeds = true;
-          limit = L0.maxOut;
-          timestamp = L0.until || 0;
-          exceededTier = "L0";
-          total = L0.total || 0;
+
+        // When tokenToCheck is the output token, we need to check both:
+        // 1. Direct maxOut limits (can't take out more than X)
+        // 2. Implicit limits from maxOut (can't put in more than X worth)
+
+        if (formDirection === "in") {
+          // Selling tokenIn for tokenOut
+          // Check if we're trying to take out too much tokenOut (use maxOut)
+          if (LG?.maxOut && amountToCheck > LG.maxOut) {
+            exceeds = true;
+            limit = LG.maxOut;
+            timestamp = LG.until || 0;
+            exceededTier = "LG";
+            total = LG.total || 0;
+          } else if (L1?.maxOut && amountToCheck > L1.maxOut) {
+            exceeds = true;
+            limit = L1.maxOut;
+            timestamp = L1.until || 0;
+            exceededTier = "L1";
+            total = L1.total || 0;
+          } else if (L0?.maxOut && amountToCheck > L0.maxOut) {
+            exceeds = true;
+            limit = L0.maxOut;
+            timestamp = L0.until || 0;
+            exceededTier = "L0";
+            total = L0.total || 0;
+          }
+          isImplicitLimit = true;
+        } else {
+          // Direction is "out" - buying exact amount of tokenOut with tokenIn
+          // Check if we're trying to put in too much tokenIn (use maxIn)
+          if (LG?.maxIn && amountToCheck > LG.maxIn) {
+            exceeds = true;
+            limit = LG.maxIn;
+            timestamp = LG.until || 0;
+            exceededTier = "LG";
+            total = LG.total || 0;
+          } else if (L1?.maxIn && amountToCheck > L1.maxIn) {
+            exceeds = true;
+            limit = L1.maxIn;
+            timestamp = L1.until || 0;
+            exceededTier = "L1";
+            total = L1.total || 0;
+          } else if (L0?.maxIn && amountToCheck > L0.maxIn) {
+            exceeds = true;
+            limit = L0.maxIn;
+            timestamp = L0.until || 0;
+            exceededTier = "L0";
+            total = L0.total || 0;
+          }
         }
       }
 
       if (exceeds) {
-        const toTokenSymbol = tokenOutId;
-
-        if (exceededTier === "LG") {
-          return `The ${tokenToCheck} amount exceeds the global trading limit of ${limit.toLocaleString()} ${tokenToCheck} to ${toTokenSymbol}.`;
+        // Adjust message based on whether it's an implicit limit
+        if (isImplicitLimit) {
+          // For implicit limits, explain that you can't get more than X tokenOut
+          if (exceededTier === "LG") {
+            return `Cannot swap for more than ${limit.toLocaleString()} ${tokenToCheck}. This exceeds the global trading limit.`;
+          } else {
+            const date = new Date(timestamp * 1000).toLocaleString();
+            const timeframe = exceededTier === "L0" ? "5min" : "1d";
+            return `Cannot swap for more than ${limit.toLocaleString()} ${tokenToCheck} within ${timeframe}. The limit will reset to ${total.toLocaleString()} ${tokenToCheck} at ${date}.`;
+          }
         } else {
-          const date = new Date(timestamp * 1000).toLocaleString();
-          const timeframe = exceededTier === "L0" ? "5min" : "1d";
-          return `The ${tokenToCheck} amount exceeds the current trading limit of ${limit.toLocaleString()} ${tokenToCheck} to ${toTokenSymbol} within ${timeframe}. It will be reset again to ${total.toLocaleString()} ${tokenToCheck} at ${date}.`;
+          // Direct limit message (existing logic)
+          if (exceededTier === "LG") {
+            return `The ${tokenToCheck} amount exceeds the global trading limit of ${limit.toLocaleString()} ${tokenToCheck}.`;
+          } else {
+            const date = new Date(timestamp * 1000).toLocaleString();
+            const timeframe = exceededTier === "L0" ? "5min" : "1d";
+            return `The ${tokenToCheck} amount exceeds the current trading limit of ${limit.toLocaleString()} ${tokenToCheck} within ${timeframe}. It will be reset again to ${total.toLocaleString()} ${tokenToCheck} at ${date}.`;
+          }
         }
       }
 
