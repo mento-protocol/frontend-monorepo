@@ -4,8 +4,8 @@ import { sleep } from "@/utils/timeout";
 // If all the tries fail it raises the last thrown exception
 export async function retryAsync<T>(
   runner: () => T,
-  attempts = 3,
-  delay = 500,
+  attempts = 2,
+  delay = 1500,
 ) {
   let saveError;
   for (let i = 0; i < attempts; i++) {
@@ -20,9 +20,8 @@ export async function retryAsync<T>(
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       if (
-        errorMessage.includes("User rejected request") ||
-        errorMessage.includes("User denied transaction signature") ||
-        errorMessage.includes("user rejected transaction")
+        errorMessage.toLowerCase().includes("denied") ||
+        errorMessage.toLowerCase().includes("rejected")
       ) {
         logger.error(
           `retryAsync: User rejected transaction, not retrying:`,

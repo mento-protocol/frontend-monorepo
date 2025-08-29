@@ -89,21 +89,22 @@ export function SwapConfirm() {
     thresholdAmountInWei,
   } = swapValues;
 
-  const { sendSwapTx, isSwapTxLoading } = useSwapTransaction(
-    chainId,
-    tokenInId,
-    tokenOutId,
-    fromAmountWei,
-    thresholdAmountInWei,
-    direction,
-    address,
-    true,
-    {
-      fromAmount,
-      toAmount,
-      toAmountWei,
-    },
-  );
+  const { sendSwapTx, isSwapTxLoading, isSwapTxReceiptLoading } =
+    useSwapTransaction(
+      chainId,
+      tokenInId,
+      tokenOutId,
+      fromAmountWei,
+      thresholdAmountInWei,
+      direction,
+      address,
+      true,
+      {
+        fromAmount,
+        toAmount,
+        toAmountWei,
+      },
+    );
 
   const approveAmount = direction === "in" ? amountWei : thresholdAmountInWei;
 
@@ -290,16 +291,25 @@ export function SwapConfirm() {
       </div>
 
       <Button
-        data-testid={isSwapTxLoading ? "loadingLabel" : "swapButton"}
+        data-testid={
+          isSwapTxLoading || isSwapTxReceiptLoading
+            ? "loadingLabel"
+            : "swapButton"
+        }
         onClick={onSubmit}
         className="mt-auto w-full"
         size="lg"
         clipped="lg"
         disabled={
-          isSwapTxLoading || !rate || !amountWei || !address || !isConnected
+          isSwapTxLoading ||
+          isSwapTxReceiptLoading ||
+          !rate ||
+          !amountWei ||
+          !address ||
+          !isConnected
         }
       >
-        {isSwapTxLoading ? <IconLoading /> : "Swap"}
+        {isSwapTxLoading || isSwapTxReceiptLoading ? <IconLoading /> : "Swap"}
       </Button>
     </div>
   );

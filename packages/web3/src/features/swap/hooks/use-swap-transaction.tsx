@@ -33,6 +33,7 @@ export function useSwapTransaction(
   sendSwapTx: () => Promise<Address>;
   swapTxResult: Address | undefined;
   isSwapTxLoading: boolean;
+  isSwapTxReceiptLoading: boolean;
   isSwapTxSuccess: boolean;
   isSwapTxError: boolean;
   swapTxError: Error | null;
@@ -43,21 +44,16 @@ export function useSwapTransaction(
 
   const { data: swapTxHash, sendTransactionAsync } = useSendTransaction();
 
-  const { data: swapTxReceipt, isSuccess: isSwapTxConfirmed } =
-    useWaitForTransactionReceipt({
-      hash: swapTxHash as Address,
-    });
+  const {
+    data: swapTxReceipt,
+    isSuccess: isSwapTxConfirmed,
+    isLoading: isSwapTxLoading,
+  } = useWaitForTransactionReceipt({
+    hash: swapTxHash as Address,
+  });
 
   const mutation = useMutation({
     mutationFn: async () => {
-      console.log("swapValues", {
-        accountAddress,
-        isApproveConfirmed,
-        amountInWei,
-        thresholdAmountInWei,
-        direction,
-        swapValues,
-      });
       if (
         !accountAddress ||
         !isApproveConfirmed ||
@@ -119,34 +115,18 @@ export function useSwapTransaction(
       if (chainId === undefined) {
         throw new Error("Chain ID is undefined");
       }
-      const txHash = await retryAsync(
-        async () => {
-          try {
-            return await sendTransactionAsync({
-              to: txRequest.to as Address,
-              data: txRequest.data as `0x${string}` | undefined,
-              value: txRequest.value
-                ? BigInt(txRequest.value.toString())
-                : undefined,
-              gas: txRequest.gasLimit
-                ? BigInt(txRequest.gasLimit.toString())
-                : undefined,
-            });
-          } catch (error) {
-            // Do not retry if user cancelled the signature
-            if (
-              error &&
-              typeof (error as Error).message === "string" &&
-              (error as Error).message.includes("User rejected request")
-            ) {
-              throw error;
-            }
-            throw error; // Retry for all other errors (e.g., Internal JSON-RPC)
-          }
-        },
-        3, // attempts
-        1500, // base delay ms
-      );
+      const txHash = await retryAsync(async () => {
+        return await sendTransactionAsync({
+          to: txRequest.to as Address,
+          data: txRequest.data as `0x${string}` | undefined,
+          value: txRequest.value
+            ? BigInt(txRequest.value.toString())
+            : undefined,
+          gas: txRequest.gasLimit
+            ? BigInt(txRequest.gasLimit.toString())
+            : undefined,
+        });
+      });
 
       logger.debug("Transaction sent, waiting for confirmation...", {
         hash: txHash,
@@ -241,6 +221,7 @@ export function useSwapTransaction(
     sendSwapTx: mutation.mutateAsync,
     swapTxResult: mutation.data,
     isSwapTxLoading: mutation.isPending,
+    isSwapTxReceiptLoading: isSwapTxLoading,
     isSwapTxSuccess: mutation.isSuccess,
     isSwapTxError: mutation.isError,
     swapTxError: mutation.error,

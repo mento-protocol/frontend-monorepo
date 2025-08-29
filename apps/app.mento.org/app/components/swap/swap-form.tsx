@@ -571,7 +571,6 @@ export default function SwapForm() {
 
         if (!hash) {
           setIsApprovalProcessing(false);
-          throw new Error("Approval transaction failed");
         }
 
         logger.info("Waiting for approval transaction", {
@@ -604,6 +603,8 @@ export default function SwapForm() {
           description:
             error instanceof Error ? error.message : "Unknown error occurred",
         });
+      } else {
+        toast.error("Approval transaction rejected by user");
       }
     }
   };
