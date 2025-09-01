@@ -8,7 +8,6 @@ import {
 } from "wagmi";
 import { celo, celoAlfajores, Chain } from "wagmi/chains";
 import { config } from "./config";
-import { cleanupStaleWalletSessions } from "./wallets";
 
 import {
   metaMaskWallet,
@@ -22,11 +21,6 @@ import { allChains } from ".";
 // Avoid creating WalletConnect connectors during SSR because they rely on
 // browser-only APIs like `indexedDB`.
 const isServer = typeof window === "undefined";
-
-// Clean up stale WalletConnect sessions to prevent connection issues
-if (!isServer) {
-  cleanupStaleWalletSessions();
-}
 
 // Validate WalletConnect project ID
 if (!isServer && !config.walletConnectProjectId) {

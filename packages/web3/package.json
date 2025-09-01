@@ -60,7 +60,7 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "viem": "^2.33.1",
-    "wagmi": "^2.16.0"
+    "wagmi": "^2.16.9"
   },
   "peerDependencies": {
     "@rainbow-me/rainbowkit": "^2.2.8",
@@ -75,6 +75,6 @@
     "react-dom": "^19.0.0",
     "tsup": "^8.4.0",
     "viem": "^2.33.1",
-    "wagmi": "^2.16.0"
+    "wagmi": "^2.16.9"
   }
 }
