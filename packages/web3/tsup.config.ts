@@ -8,7 +8,7 @@ export default defineConfig({
   splitting: false,
   sourcemap: true,
   minify: true,
-  target: "es2019",
+  target: "es2021",
 
   dts: {
     compilerOptions: {
