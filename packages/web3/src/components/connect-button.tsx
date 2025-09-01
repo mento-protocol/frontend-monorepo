@@ -4,7 +4,6 @@ import { BalancesSummary } from "@/components/balances-summary";
 import { BalancesSummaryMento } from "@/components/balances-summary-mento";
 import { Identicon } from "@/components/identicon";
 import { NetworkDialog } from "@/components/network-dialog";
-import { cleanupStaleWalletSessions } from "@/config/wallets";
 import { tryClipboardSet } from "@/utils/clipboard";
 import { WalletHelper } from "@/utils/wallet.helper";
 import {
@@ -192,7 +191,6 @@ export function ConnectButton({
   const { openConnectModal } = useConnectModal();
 
   const onClickConnect = () => {
-    cleanupStaleWalletSessions();
     openConnectModal?.();
   };
 
@@ -221,7 +219,6 @@ export function ConnectButton({
                 <Button
                   size={size === "lg" ? "lg" : "sm"}
                   onClick={() => {
-                    cleanupStaleWalletSessions();
                     rainbowOpenConnectModal?.();
                   }}
                   className={cn(fullWidth ? "w-full" : "w-auto")}

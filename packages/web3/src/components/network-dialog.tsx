@@ -6,7 +6,6 @@ import {
 } from "@/features/blocks/block-atoms";
 import { resetSwapUiAtomsAtom } from "@/features/swap/swap-atoms";
 import { allChains, chainIdToChain } from "@/config/chains";
-import { cleanupStaleWalletSessions } from "@/config/wallets";
 import { logger } from "@/utils/logger";
 import {
   Button,
@@ -41,7 +40,6 @@ export function NetworkDialog({ isOpen, close }: Props) {
     try {
       if (!switchChainAsync) throw new Error("switchChainAsync undefined");
       logger.debug("Resetting and switching to network", c.name);
-      cleanupStaleWalletSessions();
       await switchChainAsync({ chainId: c.id });
       setResetLatestBlock();
       queryClient.resetQueries({ queryKey: ["accountBalances"] });
