@@ -19,9 +19,11 @@ function extractTitleFromContent(description: string): string {
     if (parsed && typeof parsed.title === "string" && parsed.title.trim()) {
       return parsed.title.trim();
     }
-  } catch (_) {}
+  } catch (error) {
+    console.error("Error parsing proposal metadata", error);
+  }
 
-  let cleanDescription = description
+  const cleanDescription = description
     ?.split("\n")[0]
     ?.replace(/^#\s+/, "")
     .trim();
@@ -29,7 +31,7 @@ function extractTitleFromContent(description: string): string {
   return cleanDescription || "Unknown";
 }
 
-export function extractDescriptionFromContent(description: string): string {
+function extractDescriptionFromContent(description: string): string {
   if (!description) return "View proposal details";
 
   try {
@@ -45,7 +47,9 @@ export function extractDescriptionFromContent(description: string): string {
       }
       return desc;
     }
-  } catch (_) {}
+  } catch (error) {
+    console.error("Error parsing proposal metadata", error);
+  }
 
   let cleanDescription = description
     .replace(/^#\s+.+?(?:\n|$)/m, "")
@@ -65,7 +69,7 @@ export function extractDescriptionFromContent(description: string): string {
   return cleanDescription || "View proposal details";
 }
 
-export async function fetchProposalData(id: string) {
+async function fetchProposalData(id: string) {
   const isAlfajores = env.NEXT_PUBLIC_VERCEL_ENV !== "production";
   const subgraphUrl = isAlfajores
     ? env.NEXT_PUBLIC_SUBGRAPH_URL_ALFAJORES
