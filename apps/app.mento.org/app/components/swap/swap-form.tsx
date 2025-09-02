@@ -276,11 +276,11 @@ export default function SwapForm() {
         if (isImplicitLimit) {
           // For implicit limits, explain that you can't get more than X tokenOut
           if (exceededTier === "LG") {
-            return `Cannot swap for more than ${limit.toLocaleString()} ${tokenToCheck}. This exceeds the global trading limit.`;
+            return `Cannot buy more than ${limit.toLocaleString()} ${tokenToCheck}. This exceeds the global trading limit.`;
           } else {
             const date = new Date(timestamp * 1000).toLocaleString();
             const timeframe = exceededTier === "L0" ? "5min" : "1d";
-            return `Cannot swap for more than ${limit.toLocaleString()} ${tokenToCheck} within ${timeframe}. The limit will reset to ${total.toLocaleString()} ${tokenToCheck} at ${date}.`;
+            return `Cannot buy more than ${limit.toLocaleString()} ${tokenToCheck} within ${timeframe}. The limit will reset to ${total.toLocaleString()} ${tokenToCheck} at ${date}.`;
           }
         } else {
           // Direct limit message (existing logic)
