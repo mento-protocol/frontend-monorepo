@@ -1,4 +1,3 @@
-import { connectorsForWallets } from "@rainbow-me/rainbowkit";
 import {
   Config,
   cookieStorage,
@@ -8,47 +7,54 @@ import {
 } from "wagmi";
 import { celo, celoAlfajores, Chain } from "wagmi/chains";
 import { config } from "./config";
-
-import {
-  metaMaskWallet,
-  rabbyWallet,
-  rainbowWallet,
-  valoraWallet,
-  walletConnectWallet,
-} from "@rainbow-me/rainbowkit/wallets";
 import { allChains } from ".";
 
-// Avoid creating WalletConnect connectors during SSR because they rely on
-// browser-only APIs like `indexedDB`.
 const isServer = typeof window === "undefined";
 
-// Validate WalletConnect project ID
-if (!isServer && !config.walletConnectProjectId) {
-  console.warn(
-    "NEXT_PUBLIC_WALLET_CONNECT_ID is not set. WalletConnect functionality may not work properly.",
-  );
-}
-
-const connectors = isServer
-  ? []
-  : connectorsForWallets(
-      [
-        {
-          groupName: "Recommended for Celo chains",
-          wallets: [
-            walletConnectWallet,
-            rabbyWallet,
-            metaMaskWallet,
-            rainbowWallet,
-            valoraWallet,
-          ],
-        },
-      ],
-      {
-        projectId: config.walletConnectProjectId,
-        appName: "MENTO Protocol",
-      },
+let connectors: any = [];
+if (!isServer) {
+  if (!config.walletConnectProjectId) {
+    console.warn(
+      "NEXT_PUBLIC_WALLET_CONNECT_ID is not set. WalletConnect functionality may not work properly.",
     );
+  }
+
+  (async () => {
+    try {
+      const { connectorsForWallets } = await import("@rainbow-me/rainbowkit");
+      const {
+        metaMaskWallet,
+        rabbyWallet,
+        rainbowWallet,
+        valoraWallet,
+        walletConnectWallet,
+      } = await import("@rainbow-me/rainbowkit/wallets");
+
+      const loadedConnectors = connectorsForWallets(
+        [
+          {
+            groupName: "Recommended for Celo chains",
+            wallets: [
+              walletConnectWallet,
+              rabbyWallet,
+              metaMaskWallet,
+              rainbowWallet,
+              valoraWallet,
+            ],
+          },
+        ],
+        {
+          projectId: config.walletConnectProjectId,
+          appName: "MENTO Protocol",
+        },
+      );
+
+      connectors.splice(0, connectors.length, ...loadedConnectors);
+    } catch (error) {
+      console.error("Failed to load wallet connectors:", error);
+    }
+  })();
+}
 
 export const wagmiConfig: Config = createConfig({
   chains: allChains as readonly [Chain, ...Chain[]],

@@ -6,12 +6,7 @@ import { Identicon } from "@/components/identicon";
 import { NetworkDialog } from "@/components/network-dialog";
 import { tryClipboardSet } from "@/utils/clipboard";
 import { WalletHelper } from "@/utils/wallet.helper";
-import {
-  ConnectButton as RainbowConnectButton,
-  useAccountModal,
-  useChainModal,
-  useConnectModal,
-} from "@rainbow-me/rainbowkit";
+import type { ConnectButton as RainbowConnectButtonType } from "@rainbow-me/rainbowkit";
 import { toast } from "@repo/ui";
 import {
   ChevronDown,
@@ -19,7 +14,7 @@ import {
   LogOut,
   Network as NetworkIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAccount, useDisconnect } from "wagmi";
 
 import {
@@ -50,9 +45,12 @@ function ConnectedDropdown({
   account,
   fullWidth,
   balanceMode = "all",
-}: ConnectedDropdownProps) {
-  const { openChainModal } = useChainModal();
-  const { openAccountModal } = useAccountModal();
+  openChainModal,
+  openAccountModal,
+}: ConnectedDropdownProps & {
+  openChainModal?: () => void;
+  openAccountModal?: () => void;
+}) {
   const { disconnect } = useDisconnect();
   const [showNetworkDialog, setShowNetworkDialog] = useState(false);
 
@@ -188,20 +186,27 @@ export function ConnectButton({
   balanceMode = "all",
 }: ConnectButtonProps) {
   const { address, isConnected } = useAccount();
-  const { openConnectModal } = useConnectModal();
+  const [rainbowkitLoaded, setRainbowkitLoaded] = useState(false);
+  const [RainbowConnectButton, setRainbowConnectButton] = useState<
+    typeof RainbowConnectButtonType | null
+  >(null);
 
-  const onClickConnect = () => {
-    openConnectModal?.();
-  };
+  useEffect(() => {
+    import("@rainbow-me/rainbowkit").then((rainbowkit) => {
+      setRainbowConnectButton(() => rainbowkit.ConnectButton);
+      setRainbowkitLoaded(true);
+    });
+  }, []);
 
-  // Use RainbowKit's ConnectButton.Custom when available for better integration
-  if (RainbowConnectButton?.Custom) {
+  if (rainbowkitLoaded && RainbowConnectButton?.Custom) {
     return (
       <RainbowConnectButton.Custom>
         {({
           account,
           chain,
           openConnectModal: rainbowOpenConnectModal,
+          openAccountModal: rainbowOpenAccountModal,
+          openChainModal: rainbowOpenChainModal,
           mounted,
         }) => {
           if (!mounted) return <></>;
@@ -233,6 +238,8 @@ export function ConnectButton({
                   account={account}
                   fullWidth={!!fullWidth}
                   balanceMode={balanceMode}
+                  openAccountModal={rainbowOpenAccountModal}
+                  openChainModal={rainbowOpenChainModal}
                 />
               )}
             </div>
@@ -242,7 +249,7 @@ export function ConnectButton({
     );
   }
 
-  // Fallback to basic implementation
+  // Fallback implementation when RainbowKit is not loaded
   return (
     <div
       className={cn(
@@ -260,7 +267,9 @@ export function ConnectButton({
       ) : (
         <Button
           size={size === "lg" ? "lg" : "sm"}
-          onClick={onClickConnect}
+          onClick={() => {
+            console.warn("RainbowKit not loaded yet");
+          }}
           className={cn(fullWidth ? "w-full" : "w-auto")}
           type="button"
           clipped={size === "lg" ? "lg" : "sm"}

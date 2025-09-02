@@ -4,7 +4,8 @@ import "@repo/ui/globals.css";
 import "./globals.css";
 
 // Modules
-import { ApolloProvider, wagmiConfig } from "@repo/web3";
+import { ApolloProvider } from "@repo/web3";
+import { wagmiServerConfig } from "@repo/web3/wagmi.server";
 import { cookieToInitialState } from "@repo/web3/wagmi";
 import { Analytics } from "@vercel/analytics/react";
 import type { Metadata } from "next";
@@ -51,7 +52,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const initialState = cookieToInitialState(
-    wagmiConfig,
+    wagmiServerConfig,
     (await headers()).get("cookie"),
   );
 
