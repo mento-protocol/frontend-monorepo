@@ -238,7 +238,7 @@ function getToastErrorMessage(errorMessage: string): string {
     case errorMessage.includes(
       "MetaMask Tx Signature: User denied transaction signature",
     ):
-      return "Transaction signature denied in MetaMask.";
+      return "Swap transaction rejected by user";
     case errorMessage.includes("insufficient funds"):
       return "Insufficient funds for transaction.";
     case errorMessage.includes("Transaction failed"):
