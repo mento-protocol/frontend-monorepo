@@ -10,7 +10,7 @@ const HEIGHT = 630;
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   // Fallback title if none provided
-  let title = searchParams.get("title") || "Mento Proposal";
+  let title = searchParams.get("title") || "Mento Governance Proposal";
 
   // Truncate very long titles for aesthetics
   if (title.length > 100) {
