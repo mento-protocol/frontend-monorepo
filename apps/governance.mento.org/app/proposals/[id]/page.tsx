@@ -11,24 +11,37 @@ const GET_PROPOSAL_METADATA = `
   }
 `;
 
+function sanitizeMetaText(input: string): string {
+  return input
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/<a[^>]*>(.*?)<\/a>/gi, "$1")
+    .replace(/<[^>]*>/g, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/_(.*?)_/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function extractTitleFromContent(description: string): string {
   if (!description) return "Unknown";
 
   try {
     const parsed = JSON.parse(description);
     if (parsed && typeof parsed.title === "string" && parsed.title.trim()) {
-      return parsed.title.trim();
+      return sanitizeMetaText(parsed.title.trim());
     }
   } catch (error) {
     console.error("Error parsing proposal metadata", error);
   }
 
-  const cleanDescription = description
-    ?.split("\n")[0]
-    ?.replace(/^#\s+/, "")
-    .trim();
+  const firstLine = description?.split("\n")[0] ?? "";
+  const withoutHeading = firstLine.replace(/^#\s+/, "").trim();
+  const cleanTitle = sanitizeMetaText(withoutHeading);
 
-  return cleanDescription || "Unknown";
+  return cleanTitle || "Unknown";
 }
 
 function extractDescriptionFromContent(description: string): string {
@@ -41,7 +54,7 @@ function extractDescriptionFromContent(description: string): string {
       typeof parsed.description === "string" &&
       parsed.description.trim()
     ) {
-      let desc = parsed.description.trim();
+      let desc = sanitizeMetaText(parsed.description.trim());
       if (desc.length > 160) {
         desc = desc.substring(0, 157) + "...";
       }
@@ -53,13 +66,9 @@ function extractDescriptionFromContent(description: string): string {
 
   let cleanDescription = description
     .replace(/^#{1,6}\s+.*$/gm, "")
-    .replace(/<h[1-6][^>]*>.*?<\/h[1-6]>/gi, "")
-    .replace(/<[^>]*>/g, "")
-    .replace(/\*\*(.*?)\*\*/g, "$1")
-    .replace(/\*(.*?)\*/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/\s+/g, " ")
-    .trim();
+    .replace(/<h[1-6][^>]*>.*?<\/h[1-6]>/gi, "");
+
+  cleanDescription = sanitizeMetaText(cleanDescription);
 
   if (cleanDescription.length > 160) {
     cleanDescription = cleanDescription.substring(0, 157) + "...";
@@ -141,7 +150,6 @@ export async function generateMetadata({
     console.error("Error fetching proposal metadata:", error);
   }
 
-  // Fallback metadata
   return {
     title: `Proposal #${id}`,
     description: "View proposal details on Mento Governance",

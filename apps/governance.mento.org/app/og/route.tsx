@@ -26,7 +26,7 @@ export async function GET(request: Request) {
           tw="w-full h-full"
         />
         <div tw="absolute bottom-[36%] -translate-x-1/2 -translate-y-1/2 flex text-center items-center flex-col">
-          <h1 tw="text-[33px] font-bold max-w-2xl px-12 mb-12">{title}</h1>
+          <h1 tw="text-3xl font-bold max-w-2xl px-12 mb-12">{title}</h1>
         </div>
       </div>
     ),
