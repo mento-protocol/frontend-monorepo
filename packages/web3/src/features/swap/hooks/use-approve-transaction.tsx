@@ -86,9 +86,6 @@ export function useApproveTransaction({
       toast.error("Unable to prepare approval transaction");
       logger.error(txPrepError || sendPrepError?.message);
     } else if (txSendError) {
-      if (!txSendError.message.includes("User rejected request")) {
-        toast.error("Approval transaction failed");
-      }
       logger.error(txSendError);
     } else if (isConfirmed && txReceipt && sendTxHash) {
       logger.info(`Approval confirmed: ${sendTxHash}`);

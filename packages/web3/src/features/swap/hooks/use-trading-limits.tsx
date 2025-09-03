@@ -33,22 +33,49 @@ export function useTradingLimits(
       if (!exchangeId) return null;
 
       const tradingLimits = await mento.getTradingLimits(exchangeId);
-      const filteredTradingLimits = tradingLimits.filter(
-        (limit) =>
-          limit.asset === getTokenAddress(tokenInId as TokenId, chainId),
-      );
       const limitCfg = await mento.getTradingLimitConfig(exchangeId);
 
-      const filteredLimitCfg = limitCfg.filter(
-        (limit) =>
-          limit.asset === getTokenAddress(tokenInId as TokenId, chainId),
+      // Check limits for both tokens
+      const tokenInAddress = getTokenAddress(tokenInId as TokenId, chainId);
+      const tokenOutAddress = getTokenAddress(tokenOutId as TokenId, chainId);
+
+      // Filter limits for tokenIn
+      const tokenInLimits = tradingLimits.filter(
+        (limit) => limit.asset === tokenInAddress,
       );
+      const tokenInLimitCfg = limitCfg.filter(
+        (limit) => limit.asset === tokenInAddress,
+      );
+
+      // Filter limits for tokenOut
+      const tokenOutLimits = tradingLimits.filter(
+        (limit) => limit.asset === tokenOutAddress,
+      );
+      const tokenOutLimitCfg = limitCfg.filter(
+        (limit) => limit.asset === tokenOutAddress,
+      );
+
+      // Determine which token has limits configured
+      let filteredTradingLimits, filteredLimitCfg, limitAsset;
+
+      if (tokenInLimits.length > 0) {
+        filteredTradingLimits = tokenInLimits;
+        filteredLimitCfg = tokenInLimitCfg;
+        limitAsset = tokenInAddress;
+      } else if (tokenOutLimits.length > 0) {
+        filteredTradingLimits = tokenOutLimits;
+        filteredLimitCfg = tokenOutLimitCfg;
+        limitAsset = tokenOutAddress;
+      } else {
+        // No limits configured for either token
+        return null;
+      }
+
       // Sort limits by 'until' timestamp in ascending order
       const sortedLimits = filteredTradingLimits.sort(
         (a, b) => a.until - b.until,
       );
 
-      const limitAsset = filteredTradingLimits[0]?.asset;
       const tokenToCheck = limitAsset
         ? getTokenByAddress(limitAsset as `0x${string}`).symbol
         : null;

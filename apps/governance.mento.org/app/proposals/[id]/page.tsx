@@ -1,386 +1,153 @@
-"use client";
-import { Identicon } from "@/components/identicon";
-import { VoteCard } from "@/components/voting/vote-card";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CopyToClipboard,
-  IconLoading,
-  ProposalStatus,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@repo/ui";
-import {
-  CELO_BLOCK_TIME,
-  ensureChainId,
-  ProposalState,
-  useCurrentChain,
-  useProposal,
-} from "@repo/web3";
-import { useAccount, useBlock, useBlockNumber } from "@repo/web3/wagmi";
-import { format } from "date-fns";
-import { formatInTimeZone } from "date-fns-tz";
-import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useMemo } from "react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { formatUnits } from "viem";
+import { ProposalContent } from "@/components/proposal/content";
+import { env } from "@/env.mjs";
+import { Metadata } from "next";
 
-const CELO_COMMUNITY_ADDRESS = "0x41822d8a191fcfb1cfca5f7048818acd8ee933d3";
-
-const ADDRESS_ALIASES: Record<string, string> = {
-  [CELO_COMMUNITY_ADDRESS.toLowerCase()]: "Celo Community",
-};
-
-function getAddressLabel(address: string): string {
-  const lowerAddress = address.toLowerCase();
-  return (
-    ADDRESS_ALIASES[lowerAddress] ||
-    `${address.slice(0, 6)}...${address.slice(-4)}`
-  );
-}
-
-function decodeHtmlEntities(text: string): string {
-  const textArea = document.createElement("textarea");
-  textArea.innerHTML = text;
-  return textArea.value;
-}
-
-type ParticipantListProps = {
-  participants: Array<{ address: string; weight: bigint }>;
-};
-
-function ParticipantList({ participants }: ParticipantListProps) {
-  const totalWeight = useMemo(() => {
-    if (participants.length === 0) return BigInt(0);
-    return participants.reduce(
-      (sum, participant) => sum + BigInt(participant.weight),
-      BigInt(0),
-    );
-  }, [participants]);
-
-  const formattedWeight = useMemo(() => {
-    if (totalWeight === BigInt(0)) return "0";
-    const weight = Number(formatUnits(totalWeight, 18));
-
-    let formatted;
-    if (weight >= 1_000_000) {
-      formatted = `${(weight / 1_000_000).toFixed(2)}M`;
-    } else if (weight >= 1_000) {
-      formatted = `${(weight / 1_000).toFixed(2)}K`;
-    } else {
-      formatted = weight.toFixed(2);
+const GET_PROPOSAL_METADATA = `
+  query GetProposalMetadata($id: BigInt) {
+    proposals(where: { proposalId: $id }) {
+      proposalId
+      description
     }
+  }
+`;
 
-    return formatted;
-  }, [totalWeight]);
+function extractTitleFromContent(description: string): string {
+  if (!description) return "Unknown";
 
-  const currentChain = useCurrentChain();
-  const explorerUrl = currentChain.blockExplorers?.default?.url;
+  try {
+    const parsed = JSON.parse(description);
+    if (parsed && typeof parsed.title === "string" && parsed.title.trim()) {
+      return parsed.title.trim();
+    }
+  } catch (error) {
+    console.error("Error parsing proposal metadata", error);
+  }
 
-  return (
-    <div className="flex flex-col">
-      <div className="mb-2 flex items-center justify-between py-3">
-        <div className="flex items-center gap-2">
-          <span className="text-sm">{formattedWeight} Votes</span>
-        </div>
-        <span className="text-muted-foreground text-sm">
-          {participants.length} addresses
-        </span>
-      </div>
-      {participants.length > 0 ? (
-        [...participants]
-          .sort((a, b) => Number(BigInt(b.weight) - BigInt(a.weight)))
-          .map((participant) => (
-            <div
-              key={participant.address}
-              className="group flex items-center justify-between border-b border-[var(--border)] py-4 last:border-0"
-            >
-              <div className="flex items-center gap-2">
-                <Identicon address={participant.address} size={16} />
-                <div className="h-auto !bg-transparent p-0">
-                  <a
-                    href={`${explorerUrl}/address/${participant.address}`}
-                    className="flex items-center gap-1"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <span className="hover:underline">
-                      {getAddressLabel(participant.address)}
-                    </span>
-                    <CopyToClipboard
-                      text={participant.address}
-                      className="opacity-0 transition-opacity group-hover:opacity-100"
-                    />
-                  </a>
-                </div>
-              </div>
-              <span>
-                {(() => {
-                  const weight = Number(
-                    formatUnits(BigInt(participant.weight), 18),
-                  );
-                  if (weight >= 1_000_000) {
-                    return `${(weight / 1_000_000).toFixed(2)}M`;
-                  } else if (weight >= 1_000) {
-                    return `${(weight / 1_000).toFixed(2)}K`;
-                  } else {
-                    return weight.toFixed(2);
-                  }
-                })()}
-              </span>
-            </div>
-          ))
-      ) : (
-        <p className="py-4 text-center text-sm text-[var(--muted-foreground)]">
-          No votes yet
-        </p>
-      )}
-    </div>
-  );
+  const cleanDescription = description
+    ?.split("\n")[0]
+    ?.replace(/^#\s+/, "")
+    .trim();
+
+  return cleanDescription || "Unknown";
+}
+
+function extractDescriptionFromContent(description: string): string {
+  if (!description) return "View proposal details";
+
+  try {
+    const parsed = JSON.parse(description);
+    if (
+      parsed &&
+      typeof parsed.description === "string" &&
+      parsed.description.trim()
+    ) {
+      let desc = parsed.description.trim();
+      if (desc.length > 160) {
+        desc = desc.substring(0, 157) + "...";
+      }
+      return desc;
+    }
+  } catch (error) {
+    console.error("Error parsing proposal metadata", error);
+  }
+
+  let cleanDescription = description
+    .replace(/^#\s+.+?(?:\n|$)/m, "")
+    .replace(/<h1[^>]*>.*?<\/h1>/gi, "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/^#+\s+/gm, "")
+    .replace(/\n{2,}/g, " ")
+    .trim();
+
+  if (cleanDescription.length > 160) {
+    cleanDescription = cleanDescription.substring(0, 157) + "...";
+  }
+
+  return cleanDescription || "View proposal details";
+}
+
+async function fetchProposalData(id: string) {
+  const isAlfajores = env.NEXT_PUBLIC_VERCEL_ENV !== "production";
+  const subgraphUrl = isAlfajores
+    ? env.NEXT_PUBLIC_SUBGRAPH_URL_ALFAJORES
+    : env.NEXT_PUBLIC_SUBGRAPH_URL;
+  const apiKey = isAlfajores
+    ? env.NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES
+    : env.NEXT_PUBLIC_GRAPH_API_KEY;
+
+  if (!subgraphUrl) {
+    throw new Error("Subgraph URL not configured");
+  }
+
+  const response = await fetch(subgraphUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(apiKey && { Authorization: `Bearer ${apiKey}` }),
+    },
+    body: JSON.stringify({
+      query: GET_PROPOSAL_METADATA,
+      variables: { id },
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const result = await response.json();
+  return result.data;
+}
+
+interface PageProps {
+  params: Promise<{ id: string }>;
+}
+
+export async function generateMetadata({
+  params,
+}: PageProps): Promise<Metadata> {
+  const { id } = await params;
+
+  try {
+    const data = await fetchProposalData(id);
+    if (data?.proposals?.[0]) {
+      const proposal = data.proposals[0];
+      const title = extractTitleFromContent(proposal.description);
+      const description = extractDescriptionFromContent(proposal.description);
+
+      return {
+        title: `${title}`,
+        description,
+        openGraph: {
+          title: `${title}`,
+          description,
+          type: "website",
+        },
+        twitter: {
+          card: "summary",
+          title: `${title}`,
+          description,
+        },
+      };
+    }
+  } catch (error) {
+    console.error("Error fetching proposal metadata:", error);
+  }
+
+  // Fallback metadata
+  return {
+    title: `Proposal #${id}`,
+    description: "View proposal details on Mento Governance",
+  };
 }
 
 export default function ProposalPage() {
-  const params = useParams();
-  const id = params.id as string;
-  const { proposal, refetch: refetchProposal } = useProposal(BigInt(id));
-  const { chainId } = useAccount();
-
-  const currentChain = useCurrentChain();
-
-  const { data: currentBlock } = useBlockNumber({
-    chainId: ensureChainId(chainId),
-    query: {
-      enabled: proposal !== undefined,
-      refetchInterval: CELO_BLOCK_TIME,
-    },
-  });
-
-  const endBlock = useBlock({
-    blockNumber: proposal?.endBlock ? BigInt(proposal.endBlock) : 0n,
-    query: {
-      enabled: proposal !== undefined,
-    },
-  });
-
-  const proposedOn = useMemo(() => {
-    return proposal && new Date(proposal.proposalCreated[0]!.timestamp * 1000);
-  }, [proposal]);
-
-  const votingDeadline = useMemo(() => {
-    if (!(proposal && currentBlock)) return;
-    if (Number(currentBlock) >= proposal.endBlock && endBlock.data) {
-      return new Date(Number(endBlock.data.timestamp) * 1000);
-    }
-    return new Date(
-      Date.now() + (proposal.endBlock - Number(currentBlock)) * CELO_BLOCK_TIME,
-    );
-  }, [currentBlock, endBlock.data, proposal]);
-
-  if (!proposal) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <IconLoading />
-      </div>
-    );
-  }
-
-  const getStatusVariant = () => {
-    if (!proposal.state) return "active";
-
-    switch (proposal.state) {
-      case ProposalState.Pending:
-        return "pending";
-      case ProposalState.Active:
-        return "active";
-      case ProposalState.Succeeded:
-        return "succeeded";
-      case ProposalState.Defeated:
-        return "defeated";
-      case ProposalState.Queued:
-        return "queued";
-      case ProposalState.Executed:
-        return "executed";
-      case ProposalState.Canceled:
-        return "canceled";
-      case ProposalState.Expired:
-        return "default";
-      default:
-        return "active";
-    }
-  };
-
-  const formatAddress = (address: string) => {
-    return `${address.slice(0, 6)}...${address.slice(-4)}`;
-  };
-
-  const explorerUrl = currentChain.blockExplorers?.default?.url;
-
-  const descriptionType = proposal.metadata?.description
-    ? proposal.metadata.description.match(/^<\w+>|<\/\w+>$/)
-      ? "html"
-      : "text"
-    : "text";
-
   return (
     <main className="md:px-22 relative w-full px-4 py-8 md:py-16">
-      <Breadcrumb className="mb-6">
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage className="max-w-xl truncate">
-              {proposal.metadata?.title}
-            </BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-      <div className="mb-16 flex flex-col gap-6">
-        <ProposalStatus
-          variant={getStatusVariant()}
-          data-testid="proposalStateLabel"
-        />
-        <h1
-          className="max-w-6xlxl truncate text-3xl font-medium leading-[80px] md:text-6xl"
-          data-testid="proposalTitleLabel"
-          title={proposal.metadata?.title}
-        >
-          {proposal.metadata?.title}
-        </h1>
-        <div className="flex flex-wrap items-center gap-2 md:gap-8">
-          <div className="flex items-center gap-2">
-            <Identicon address={proposal.proposer.id} size={16} />
-            <Link
-              className="text-muted-foreground text-sm"
-              href={`${explorerUrl}/address/${proposal.proposer.id}`}
-            >
-              by {formatAddress(proposal.proposer.id)}
-            </Link>
-            <CopyToClipboard text={proposal.proposer.id} />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground text-sm">Proposed on:</span>
-            <span className="text-sm">
-              {proposedOn && format(proposedOn, "MMM do, yyyy")}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground text-sm">
-              Voting deadline:
-            </span>
-            <span className="text-sm">
-              {votingDeadline &&
-                formatInTimeZone(
-                  votingDeadline,
-                  "UTC",
-                  "MMM do, yyyy, HH:mm 'UTC'",
-                )}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-8 xl:w-full xl:flex-row xl:gap-10">
-        <div className="xl:w-2/3">
-          <VoteCard
-            proposal={proposal}
-            votingDeadline={votingDeadline}
-            onVoteConfirmed={refetchProposal}
-          />
-
-          <div className="prose prose-invert mt-16">
-            {proposal.metadata?.description ? (
-              descriptionType === "html" ? (
-                <div
-                  dangerouslySetInnerHTML={{
-                    __html: decodeHtmlEntities(proposal.metadata.description),
-                  }}
-                  data-testid="proposalDescriptionLabel"
-                />
-              ) : (
-                <div data-testid="proposalDescriptionLabel">
-                  <Markdown remarkPlugins={[remarkGfm]}>
-                    {proposal.metadata.description}
-                  </Markdown>
-                </div>
-              )
-            ) : (
-              <p>No description available</p>
-            )}
-          </div>
-        </div>
-        <div className="xl:w-1/3">
-          <Card className="bord max-h-[420px] w-full gap-3 overflow-hidden border-none">
-            <CardHeader>
-              <CardTitle className="text-2xl">Participants</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Tabs defaultValue="for" className="max-h-[330px] overflow-auto">
-                <TabsList>
-                  <TabsTrigger
-                    value="for"
-                    data-testid="participantsTabButton_yes"
-                  >
-                    Yes
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="against"
-                    data-testid="participantsTabButton_no"
-                  >
-                    No
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="abstain"
-                    data-testid="participantsTabButton_abstain"
-                  >
-                    Abstain
-                  </TabsTrigger>
-                </TabsList>
-
-                <TabsContent
-                  value="for"
-                  className="max-h-[330px] overflow-auto"
-                >
-                  <ParticipantList
-                    participants={proposal.votes.for.participants}
-                  />
-                </TabsContent>
-
-                <TabsContent
-                  value="against"
-                  className="max-h-[330px] overflow-auto"
-                >
-                  <ParticipantList
-                    participants={proposal.votes.against.participants}
-                  />
-                </TabsContent>
-
-                <TabsContent
-                  value="abstain"
-                  className="max-h-[330px] overflow-auto"
-                >
-                  <ParticipantList
-                    participants={proposal.votes.abstain.participants}
-                  />
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      <ProposalContent />
     </main>
   );
 }
