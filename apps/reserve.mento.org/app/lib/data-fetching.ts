@@ -35,7 +35,7 @@ export async function getReserveStats(): Promise<ReserveStats> {
 
   if (!response.ok) {
     throw new Error(
-      `Analytics API request failed with status ${response.status}`,
+      `Analytics API request failed with status ${response.status} ${response.statusText}`,
     );
   }
 
@@ -61,7 +61,7 @@ export async function getStableCoinStats(): Promise<StableValueTokensAPI> {
       errorBody,
     );
     throw new Error(
-      `Stablecoins Analytics API request failed with status ${response.status}`,
+      `Stablecoins Analytics API request failed with status ${response.status} ${response.statusText}`,
     );
   }
 
@@ -107,7 +107,7 @@ export async function getReserveComposition(): Promise<ReserveCompositionAPI> {
       errorBody,
     );
     throw new Error(
-      `Reserve Composition Analytics API request failed with status ${response.status}`,
+      `Reserve Composition Analytics API request failed with status ${response.status} ${response.statusText}`,
     );
   }
 
@@ -143,7 +143,7 @@ export async function getReserveHoldings(): Promise<HoldingsApi> {
       errorBody,
     );
     throw new Error(
-      `Reserve Holdings Analytics API request failed with status ${response.status}`,
+      `Reserve Holdings Analytics API request failed with status ${response.status} ${response.statusText}`,
     );
   }
 
@@ -207,7 +207,7 @@ export async function getReserveAddresses(): Promise<ReserveAddressesResponse> {
       errorBody,
     );
     throw new Error(
-      `Reserve Addresses Analytics API request failed with status ${response.status}`,
+      `Reserve Addresses Analytics API request failed with status ${response.status} ${response.statusText}`,
     );
   }
 
