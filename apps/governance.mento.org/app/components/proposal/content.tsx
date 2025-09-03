@@ -312,7 +312,23 @@ export const ProposalContent = () => {
                 />
               ) : (
                 <div data-testid="proposalDescriptionLabel">
-                  <Markdown remarkPlugins={[remarkGfm]}>
+                  <Markdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      a: (props) => (
+                        <a
+                          {...props}
+                          href={
+                            props.href?.includes("https")
+                              ? props.href
+                              : `https://${props.href?.replace("http://", "")}`
+                          }
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        />
+                      ),
+                    }}
+                  >
                     {proposal.metadata.description}
                   </Markdown>
                 </div>
