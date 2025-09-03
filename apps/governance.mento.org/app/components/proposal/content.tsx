@@ -234,7 +234,7 @@ export const ProposalContent = () => {
     : "text";
 
   return (
-    <main className="md:px-22 relative w-full px-4 py-8 md:py-16">
+    <>
       <Breadcrumb className="mb-6">
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -312,7 +312,23 @@ export const ProposalContent = () => {
                 />
               ) : (
                 <div data-testid="proposalDescriptionLabel">
-                  <Markdown remarkPlugins={[remarkGfm]}>
+                  <Markdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      a: (props) => (
+                        <a
+                          {...props}
+                          href={
+                            props.href?.includes("https")
+                              ? props.href
+                              : `https://${props.href?.replace("http://", "")}`
+                          }
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        />
+                      ),
+                    }}
+                  >
                     {proposal.metadata.description}
                   </Markdown>
                 </div>
@@ -381,6 +397,6 @@ export const ProposalContent = () => {
           </Card>
         </div>
       </div>
-    </main>
+    </>
   );
 };

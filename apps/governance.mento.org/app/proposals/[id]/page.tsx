@@ -11,24 +11,37 @@ const GET_PROPOSAL_METADATA = `
   }
 `;
 
+function sanitizeMetaText(input: string): string {
+  return input
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/<a[^>]*>(.*?)<\/a>/gi, "$1")
+    .replace(/<[^>]*>/g, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/_(.*?)_/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function extractTitleFromContent(description: string): string {
   if (!description) return "Unknown";
 
   try {
     const parsed = JSON.parse(description);
     if (parsed && typeof parsed.title === "string" && parsed.title.trim()) {
-      return parsed.title.trim();
+      return sanitizeMetaText(parsed.title.trim());
     }
   } catch (error) {
     console.error("Error parsing proposal metadata", error);
   }
 
-  const cleanDescription = description
-    ?.split("\n")[0]
-    ?.replace(/^#\s+/, "")
-    .trim();
+  const firstLine = description?.split("\n")[0] ?? "";
+  const withoutHeading = firstLine.replace(/^#\s+/, "").trim();
+  const cleanTitle = sanitizeMetaText(withoutHeading);
 
-  return cleanDescription || "Unknown";
+  return cleanTitle || "Unknown";
 }
 
 function extractDescriptionFromContent(description: string): string {
@@ -41,7 +54,7 @@ function extractDescriptionFromContent(description: string): string {
       typeof parsed.description === "string" &&
       parsed.description.trim()
     ) {
-      let desc = parsed.description.trim();
+      let desc = sanitizeMetaText(parsed.description.trim());
       if (desc.length > 160) {
         desc = desc.substring(0, 157) + "...";
       }
@@ -52,15 +65,10 @@ function extractDescriptionFromContent(description: string): string {
   }
 
   let cleanDescription = description
-    .replace(/^#\s+.+?(?:\n|$)/m, "")
-    .replace(/<h1[^>]*>.*?<\/h1>/gi, "")
-    .replace(/<[^>]*>/g, "")
-    .replace(/\*\*(.*?)\*\*/g, "$1")
-    .replace(/\*(.*?)\*/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/^#+\s+/gm, "")
-    .replace(/\n{2,}/g, " ")
-    .trim();
+    .replace(/^#{1,6}\s+.*$/gm, "")
+    .replace(/<h[1-6][^>]*>.*?<\/h[1-6]>/gi, "");
+
+  cleanDescription = sanitizeMetaText(cleanDescription);
 
   if (cleanDescription.length > 160) {
     cleanDescription = cleanDescription.substring(0, 157) + "...";
@@ -113,10 +121,13 @@ export async function generateMetadata({
 
   try {
     const data = await fetchProposalData(id);
+
     if (data?.proposals?.[0]) {
       const proposal = data.proposals[0];
       const title = extractTitleFromContent(proposal.description);
       const description = extractDescriptionFromContent(proposal.description);
+
+      const ogPath = `/og?title=${encodeURIComponent(title)}`;
 
       return {
         title: `${title}`,
@@ -125,11 +136,13 @@ export async function generateMetadata({
           title: `${title}`,
           description,
           type: "website",
+          images: [ogPath],
         },
         twitter: {
-          card: "summary",
+          card: "summary_large_image",
           title: `${title}`,
           description,
+          images: [ogPath],
         },
       };
     }
@@ -137,7 +150,6 @@ export async function generateMetadata({
     console.error("Error fetching proposal metadata:", error);
   }
 
-  // Fallback metadata
   return {
     title: `Proposal #${id}`,
     description: "View proposal details on Mento Governance",
