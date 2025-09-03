@@ -2,16 +2,17 @@ import {
   Config,
   cookieStorage,
   createConfig,
+  type CreateConnectorFn,
   createStorage,
   http,
 } from "wagmi";
 import { celo, celoAlfajores, Chain } from "wagmi/chains";
-import { config } from "./config";
 import { allChains } from ".";
+import { config } from "./config";
 
 const isServer = typeof window === "undefined";
 
-let connectors: any = [];
+const connectors: CreateConnectorFn[] = [];
 if (!isServer) {
   if (!config.walletConnectProjectId) {
     console.warn(
@@ -58,7 +59,6 @@ if (!isServer) {
 
 export const wagmiConfig: Config = createConfig({
   chains: allChains as readonly [Chain, ...Chain[]],
-
   connectors,
   transports: {
     [celo.id]: http(),

@@ -2,18 +2,23 @@
 import "@rainbow-me/rainbowkit/styles.css";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { type PropsWithChildren, useEffect, useState } from "react";
+import React, { type PropsWithChildren, useEffect, useState } from "react";
 import { WagmiProvider } from "wagmi";
-import type { State } from "wagmi";
+import type { Config, State } from "wagmi";
 
 const queryClient = new QueryClient({});
+
+type RainbowKitProviderProps = Parameters<
+  (typeof import("@rainbow-me/rainbowkit"))["RainbowKitProvider"]
+>[0];
 
 export function Web3Provider({
   children,
   initialState,
 }: PropsWithChildren & { initialState: State | undefined }) {
-  const [config, setConfig] = useState<any>(null);
-  const [RainbowKitProvider, setRainbowKitProvider] = useState<any>(null);
+  const [config, setConfig] = useState<Config | null>(null);
+  const [RainbowKitProvider, setRainbowKitProvider] =
+    useState<React.ComponentType<RainbowKitProviderProps> | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -21,7 +26,7 @@ export function Web3Provider({
       import("@rainbow-me/rainbowkit"),
     ]).then(([wagmiModule, rainbowModule]) => {
       setConfig(wagmiModule.wagmiClientConfig);
-      setRainbowKitProvider(() => rainbowModule.RainbowKitProvider);
+      setRainbowKitProvider(rainbowModule.RainbowKitProvider);
     });
   }, []);
 
