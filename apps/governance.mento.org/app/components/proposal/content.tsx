@@ -234,7 +234,7 @@ export const ProposalContent = () => {
     : "text";
 
   return (
-    <main className="md:px-22 relative w-full px-4 py-8 md:py-16">
+    <>
       <Breadcrumb className="mb-6">
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -381,6 +381,6 @@ export const ProposalContent = () => {
           </Card>
         </div>
       </div>
-    </main>
+    </>
   );
 };

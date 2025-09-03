@@ -52,14 +52,13 @@ function extractDescriptionFromContent(description: string): string {
   }
 
   let cleanDescription = description
-    .replace(/^#\s+.+?(?:\n|$)/m, "")
-    .replace(/<h1[^>]*>.*?<\/h1>/gi, "")
+    .replace(/^#{1,6}\s+.*$/gm, "")
+    .replace(/<h[1-6][^>]*>.*?<\/h[1-6]>/gi, "")
     .replace(/<[^>]*>/g, "")
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/\*(.*?)\*/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/^#+\s+/gm, "")
-    .replace(/\n{2,}/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 
   if (cleanDescription.length > 160) {
@@ -118,6 +117,11 @@ export async function generateMetadata({
       const title = extractTitleFromContent(proposal.description);
       const description = extractDescriptionFromContent(proposal.description);
 
+      // Build absolute or relative OG image URL
+      const baseUrl = (env.NEXT_PUBLIC_STORAGE_URL || "").replace(/\/$/, "");
+      const ogPath = `/og?title=${encodeURIComponent(title)}`;
+      const ogImageUrl = `${baseUrl}${ogPath}`;
+
       return {
         title: `${title}`,
         description,
@@ -125,11 +129,13 @@ export async function generateMetadata({
           title: `${title}`,
           description,
           type: "website",
+          images: [ogImageUrl],
         },
         twitter: {
-          card: "summary",
+          card: "summary_large_image",
           title: `${title}`,
           description,
+          images: [ogImageUrl],
         },
       };
     }

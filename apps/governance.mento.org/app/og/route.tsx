@@ -1,0 +1,78 @@
+import { Logo } from "@repo/ui";
+import { ImageResponse } from "next/og";
+
+// Edge runtime is required for Vercel OG image generation
+export const runtime = "edge";
+
+// 1200x630 is the recommended size for Open Graph images
+const WIDTH = 1200;
+const HEIGHT = 630;
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  // Fallback title if none provided
+  let title = searchParams.get("title") || "Mento Proposal";
+
+  // Truncate very long titles for aesthetics
+  if (title.length > 100) {
+    title = title.substring(0, 97) + "...";
+  }
+
+  return new ImageResponse(
+    (
+      <div tw="flex w-full h-full items-center justify-center text-white relative">
+        <img
+          src="https://klbko5u0yg957qmk.public.blob.vercel-storage.com/shared/placeholder-og.png"
+          alt=""
+          tw="w-full h-full"
+        />
+        <div tw="absolute bottom-1/4 -translate-x-1/2 -translate-y-1/2 flex text-center items-center flex-col">
+          <h1 tw="text-4xl font-bold max-w-2xl mb-12">{title}</h1>
+          <svg
+            width="80"
+            height="80"
+            viewBox="0 0 80 80"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <rect width="80" height="80" fill="#7005FC" />
+            <g clipPath="url(#clip0_2555_6556)">
+              <path
+                d="M62.5585 65.0311V61.6051H58.0036V58.9844H54.5776V61.6051H52.1582V65.0311H54.574V70.0281C54.574 72.8502 56.713 74.867 59.5351 74.867H61.7496V71.441H60.3404C58.9275 71.441 58.0036 70.6321 58.0036 69.2229V65.0311H62.5585ZM72.4734 71.441V74.867H67.4764C64.6543 74.867 62.5585 72.8538 62.5585 70.0281V65.0311H65.9845V69.2229C65.9845 70.6321 66.8688 71.441 68.2817 71.441H72.4734ZM65.9845 65.0311V61.6051H70.9815C73.8035 61.6051 75.8994 63.6183 75.8994 66.4403V71.4374H72.4734V67.2528C72.4734 65.84 71.5854 65.0347 70.1726 65.0347H65.9845V65.0311Z"
+                fill="#F7F6FA"
+              />
+              <path
+                d="M42.9346 74.58H39.3828V61.6093H42.9382V63.0904C43.6141 62.0479 44.9622 61.3253 46.6483 61.3253C49.7867 61.3253 51.6561 63.6081 51.6561 66.9802V74.58H48.1006V67.577C48.1006 65.7076 47.2953 64.568 45.8178 64.568C44.1821 64.568 42.9382 65.7615 42.9382 68.2528V74.58H42.9346Z"
+                fill="#F7F6FA"
+              />
+              <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M34.5346 70.3523H38.2447C37.4645 72.973 34.8977 74.8676 31.6011 74.8676C27.6323 74.8676 24.8066 72.0132 24.8066 68.0731C24.8066 64.2049 27.6826 61.3253 31.6299 61.3253C35.4406 61.3253 38.5826 64.0503 38.3992 68.9251H28.283C28.4376 70.4565 29.5772 71.7795 31.7845 71.7795C33.0283 71.7795 34.1212 71.2367 34.5346 70.3523ZM31.5256 64.2049C32.7443 64.2049 34.0673 64.852 34.5095 66.592H28.4124C28.7503 65.1647 29.8899 64.2049 31.5256 64.2049Z"
+                fill="#F7F6FA"
+              />
+              <path
+                d="M4 74.5804H7.55543V68.2532C7.55543 65.7619 8.61954 64.5684 10.1474 64.5684C11.5494 64.5684 12.1714 65.7367 12.1714 67.6565V74.5804H15.7268V68.2532C15.7268 65.7619 16.7909 64.5684 18.3188 64.5684C19.7208 64.5684 20.3428 65.7367 20.3428 67.6565V74.5804H23.8982V67.0597C23.8982 63.5546 22.1366 61.3257 19.045 61.3257C17.571 61.3257 15.8311 62.1022 15.0258 63.7128C14.2457 62.2065 12.8976 61.3221 11.003 61.3221C9.42122 61.3221 8.25285 62.0771 7.55183 63.0837V61.6097H4V74.5768V74.5804Z"
+                fill="#F7F6FA"
+              />
+            </g>
+            <defs>
+              <clipPath id="clip0_2555_6556">
+                <rect
+                  width="72"
+                  height="15.75"
+                  fill="white"
+                  transform="translate(4 58.9844)"
+                />
+              </clipPath>
+            </defs>
+          </svg>
+        </div>
+      </div>
+    ),
+    {
+      width: WIDTH,
+      height: HEIGHT,
+    },
+  );
+}
