@@ -112,15 +112,13 @@ export async function generateMetadata({
 
   try {
     const data = await fetchProposalData(id);
+
     if (data?.proposals?.[0]) {
       const proposal = data.proposals[0];
       const title = extractTitleFromContent(proposal.description);
       const description = extractDescriptionFromContent(proposal.description);
 
-      // Build absolute or relative OG image URL
-      const baseUrl = (env.NEXT_PUBLIC_STORAGE_URL || "").replace(/\/$/, "");
       const ogPath = `/og?title=${encodeURIComponent(title)}`;
-      const ogImageUrl = `${baseUrl}${ogPath}`;
 
       return {
         title: `${title}`,
@@ -129,13 +127,13 @@ export async function generateMetadata({
           title: `${title}`,
           description,
           type: "website",
-          images: [ogImageUrl],
+          images: [ogPath],
         },
         twitter: {
           card: "summary_large_image",
           title: `${title}`,
           description,
-          images: [ogImageUrl],
+          images: [ogPath],
         },
       };
     }
