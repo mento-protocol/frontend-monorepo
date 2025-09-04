@@ -35,7 +35,7 @@ function CommunityCard({
         alt="Community background"
       />
       <img
-        src={`${process.env.NEXT_PUBLIC_STORAGE_URL}/shared/join-community-desktop.png`}
+        src={`${process.env.NEXT_PUBLIC_STORAGE_URL}/shared/join-community.png`}
         className="absolute inset-0 z-0 hidden h-full max-w-2xl object-cover md:block"
         alt="Community background"
       />

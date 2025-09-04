@@ -31,39 +31,34 @@ export default function SpecializedComponentsPage() {
         <p className="text-muted-foreground">Domain-specific UI components</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {/* Coin Card */}
-        <CoinCard>
-          <CoinCardHeader>
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        <CoinCard className="h-fit">
+          <CoinCardHeader className="justify-between">
             <CoinCardHeaderGroup>
               <CoinCardSymbol>cUSD</CoinCardSymbol>
               <CoinCardName>Celo Dollar</CoinCardName>
             </CoinCardHeaderGroup>
             <CoinCardLogo>
               <Image
-                src="/celoDollar.png"
+                src="/tokens/cUSD.svg"
                 alt="Celo Dollar"
-                width={56}
-                height={56}
-                className="h-14 w-14"
+                width={32}
+                height={32}
+                className="h-8 w-8"
+                onError={(e) => {
+                  e.currentTarget.src = "/tokens/CELO.svg";
+                }}
               />
             </CoinCardLogo>
           </CoinCardHeader>
           <CoinCardFooter>
-            <CoinCardOrigin>
-              <CoinCardOriginFlag>
-                <USFlag className="h-4 w-4" />
-              </CoinCardOriginFlag>
-              <CoinCardOriginText>United States</CoinCardOriginText>
-            </CoinCardOrigin>
-            <CoinCardSupply>$464,278</CoinCardSupply>
+            <CoinCardSupply>$16,904,872.81</CoinCardSupply>
           </CoinCardFooter>
         </CoinCard>
 
-        {/* Proposal Status */}
         <Card>
           <CardHeader>
-            <CardTitle>Proposal Status</CardTitle>
+            <CardTitle>Governance Proposal Status</CardTitle>
             <CardDescription>Status indicators for proposals</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -71,11 +66,12 @@ export default function SpecializedComponentsPage() {
               <ProposalStatus variant="active">Active</ProposalStatus>
               <ProposalStatus variant="succeeded">Succeeded</ProposalStatus>
               <ProposalStatus variant="defeated">Defeated</ProposalStatus>
+              <ProposalStatus variant="pending">Pending</ProposalStatus>
             </div>
             <div className="flex flex-wrap gap-2">
-              <ProposalStatus variant="pending">Pending</ProposalStatus>
               <ProposalStatus variant="queued">Queued</ProposalStatus>
               <ProposalStatus variant="executed">Executed</ProposalStatus>
+              <ProposalStatus variant="canceled">Canceled</ProposalStatus>
             </div>
           </CardContent>
         </Card>

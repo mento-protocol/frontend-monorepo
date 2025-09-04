@@ -10,7 +10,7 @@ import {
   Search,
   Sparkles,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -112,6 +112,7 @@ export function CustomAppSidebar() {
   const [searchQuery, setSearchQuery] = useState("");
   const [openCategories, setOpenCategories] = useState<Set<string>>(new Set());
   const router = useRouter();
+  const pathname = usePathname();
 
   // Initialize client-side state after hydration
   useEffect(() => {
@@ -260,7 +261,11 @@ export function CustomAppSidebar() {
                 filteredCategories.map((category) => (
                   <SidebarMenuItem key={category.title}>
                     <Collapsible
-                      open={!!searchQuery || openCategories.has(category.title)}
+                      open={
+                        !!searchQuery ||
+                        openCategories.has(category.title) ||
+                        (pathname?.startsWith(category.url) ?? false)
+                      }
                       onOpenChange={(isOpen) =>
                         handleToggle(category.title, isOpen)
                       }
@@ -270,6 +275,7 @@ export function CustomAppSidebar() {
                         <SidebarMenuButton
                           className="flex-1 cursor-pointer"
                           onClick={() => handleCategoryClick(category)}
+                          isActive={pathname?.startsWith(category.url) ?? false}
                         >
                           <category.icon className="h-4 w-4" />
                           <span>{category.title}</span>

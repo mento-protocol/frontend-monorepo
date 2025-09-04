@@ -117,8 +117,6 @@ export default function BasicComponentsPage() {
               <Badge>Default</Badge>
               <Badge variant="secondary">Secondary</Badge>
               <Badge variant="outline">Outline</Badge>
-            </div>
-            <div className="flex flex-wrap gap-2">
               <Badge variant="destructive">Destructive</Badge>
             </div>
           </CardContent>
