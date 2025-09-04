@@ -65,13 +65,7 @@ export default async function RootLayout({
             <Header />
             {children}
             <section className="xl:px-22 mb-8 w-full px-4 md:mb-20 md:px-20">
-              <CommunityCard
-                images={{
-                  mobile: `${env.NEXT_PUBLIC_STORAGE_URL}/Join Community CTA Mobile-Ry6dyO5vexptUPwsgDaemmhrMO0u8d.png`,
-                  desktop: `${env.NEXT_PUBLIC_STORAGE_URL}/Join Community CTA-nvhdeikuseiFmjssXcpQhq3aKFq4Ht.png`,
-                }}
-                buttonHref="http://discord.mento.org"
-              />
+              <CommunityCard />
             </section>
             <Footer type="governance" />
           </ApolloProvider>

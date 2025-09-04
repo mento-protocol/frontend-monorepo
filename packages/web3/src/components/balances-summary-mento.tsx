@@ -1,9 +1,9 @@
 "use client";
 
-import { useTokens } from "@/features/governance/use-tokens";
 import { useAddTokens } from "@/features/governance/use-add-tokens";
+import { useTokens } from "@/features/governance/use-tokens";
 import { NumbersService } from "@/utils/numbers";
-import { MentoIcon } from "@repo/ui";
+import { IconMento } from "@repo/ui";
 
 export function BalancesSummaryMento() {
   const { mentoBalance, veMentoBalance } = useTokens();
@@ -17,7 +17,7 @@ export function BalancesSummaryMento() {
         className="flex w-full cursor-pointer flex-row justify-between px-2 py-3"
       >
         <div className="flex flex-row items-center font-medium">
-          <MentoIcon className="mr-2" height={24} width={24} />
+          <IconMento className="mr-2" height={24} width={24} />
           <span>{mentoBalance.symbol}</span>
         </div>
         <div className="flex flex-row items-center justify-center font-medium">
@@ -31,7 +31,7 @@ export function BalancesSummaryMento() {
         className="flex w-full cursor-pointer flex-row justify-between px-2 py-3"
       >
         <div className="flex flex-row items-center font-medium">
-          <MentoIcon className="mr-2" height={24} width={24} />
+          <IconMento className="mr-2" height={24} width={24} />
           <span>{veMentoBalance.symbol}</span>
         </div>
         <div className="flex flex-row items-center justify-center font-medium">
