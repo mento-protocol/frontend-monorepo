@@ -12,16 +12,12 @@ import {
   CoinCardHeaderGroup,
   CoinCardLogo,
   CoinCardName,
-  CoinCardOrigin,
-  CoinCardOriginFlag,
-  CoinCardOriginText,
   CoinCardSupply,
   CoinCardSymbol,
   CommunityCard,
   ProposalStatus,
 } from "@repo/ui";
 import Image from "next/image";
-import USFlag from "../components/client/icons/us";
 
 export default function SpecializedComponentsPage() {
   return (
