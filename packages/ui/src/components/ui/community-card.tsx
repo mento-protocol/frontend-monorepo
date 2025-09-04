@@ -1,16 +1,12 @@
 "use client";
 import { cn } from "@/lib/utils.js";
 import { ChevronsRight } from "lucide-react";
-import type * as React from "react";
+import * as React from "react";
 import IconBrandDiscord from "../icons/discord.js";
 import { Button } from "./button.js";
 
 interface CommunityCardProps extends React.ComponentProps<"div"> {
   title?: string;
-  images?: {
-    mobile?: string;
-    desktop?: string;
-  };
   description?: string;
   buttonText?: string;
   buttonHref?: string;
@@ -21,8 +17,7 @@ function CommunityCard({
   title = "Join our community",
   description = "If you're interested in learning more about Mento, finding out what the team is working on now, or would like to contribute, please join our discord server.",
   buttonText = "Join our community",
-  buttonHref = "#",
-  images,
+  buttonHref = "http://discord.mento.org",
   ...props
 }: CommunityCardProps) {
   return (
@@ -35,12 +30,12 @@ function CommunityCard({
       {...props}
     >
       <img
-        src={images?.mobile}
+        src={`${process.env.NEXT_PUBLIC_STORAGE_URL}/shared/join-community-mobile.png`}
         className="absolute inset-0 z-0 h-full max-h-80 w-full object-cover md:hidden"
         alt="Community background"
       />
       <img
-        src={images?.desktop}
+        src={`${process.env.NEXT_PUBLIC_STORAGE_URL}/shared/join-community.png`}
         className="absolute inset-0 z-0 hidden h-full max-w-2xl object-cover md:block"
         alt="Community background"
       />

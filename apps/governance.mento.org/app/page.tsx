@@ -11,15 +11,15 @@ export default async function Home() {
   return (
     <main className="relative w-full pb-4">
       <Image
-        src={`${env.NEXT_PUBLIC_STORAGE_URL}/hero-dhs5Gb3LHWTZgUR0vYoPB13ozvOpfx.png`}
-        alt="Mento Reserve"
+        src={`${env.NEXT_PUBLIC_STORAGE_URL}/governance/hero.png`}
+        alt="Mento Governance"
         width={320}
         height={168}
         className="md:px-22 my-8 w-full lg:hidden"
       />
       <Image
-        src={`${env.NEXT_PUBLIC_STORAGE_URL}/hero-dhs5Gb3LHWTZgUR0vYoPB13ozvOpfx.png`}
-        alt="Mento Reserve"
+        src={`${env.NEXT_PUBLIC_STORAGE_URL}/governance/hero.png`}
+        alt="Mento Governance"
         width={1280}
         height={605}
         className="absolute -bottom-[50px] right-12 top-0 -z-10 hidden h-[605px] w-auto object-cover lg:block 2xl:left-auto 2xl:right-20"

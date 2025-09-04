@@ -38,7 +38,7 @@ function TokenIconBase({ token, className, size = 20 }: Props) {
   }
 
   const imgSrc = `/tokens/${token.id}.svg`;
-
+  console.log(imgSrc);
   if (imgSrc && !imgError) {
     return (
       <img
