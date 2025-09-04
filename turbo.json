@@ -1,7 +1,13 @@
 {
   "$schema": "./node_modules/turbo/schema.json",
   "globalDependencies": ["**/.env.*local"],
-  "globalEnv": ["NODE_ENV", "NEXT_PUBLIC_STORAGE_URL", "NEXT_RUNTIME", "CI"],
+  "globalEnv": [
+    "NODE_ENV",
+    "NEXT_PUBLIC_STORAGE_URL",
+    "NEXT_RUNTIME",
+    "CI",
+    "SENTRY_AUTH_TOKEN"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
