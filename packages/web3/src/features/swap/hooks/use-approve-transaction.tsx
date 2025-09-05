@@ -87,6 +87,12 @@ export function useApproveTransaction({
       logger.error(txPrepError || sendPrepError?.message);
     } else if (txSendError) {
       logger.error(txSendError);
+      const message = getApproveToastErrorMessage(
+        txSendError instanceof Error
+          ? txSendError.message
+          : String(txSendError),
+      );
+      toast.error(message);
     } else if (isConfirmed && txReceipt && sendTxHash) {
       logger.info(`Approval confirmed: ${sendTxHash}`);
       const currentChainConfig = chainIdToChain[chainId];
@@ -150,4 +156,20 @@ export function useApproveTransaction({
     isApproveTxSuccess: isSuccess,
     isApproveTxConfirmed: isConfirmed,
   };
+}
+
+function getApproveToastErrorMessage(errorMessage: string): string {
+  switch (true) {
+    // Normalize user rejection messages across wallets (MetaMask, Rabby, Valora/WalletConnect)
+    case /user\s+rejected/i.test(errorMessage):
+      return "Approval transaction rejected by user.";
+    case /denied\s+transaction\s+signature/i.test(errorMessage):
+      return "Approval transaction rejected by user.";
+    case /request\s+rejected/i.test(errorMessage):
+      return "Approval transaction rejected by user.";
+    case /insufficient\s+funds/i.test(errorMessage):
+      return "Insufficient funds for transaction.";
+    default:
+      return "Unable to complete approval transaction";
+  }
 }

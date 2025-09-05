@@ -233,12 +233,12 @@ function getToastErrorMessage(errorMessage: string): string {
   switch (true) {
     case errorMessage.includes(`Trading is suspended for this reference rate`):
       return "Trading temporarily paused.  " + "Please try again later.";
-    case errorMessage.includes("User rejected request"):
+    case /user\s+rejected/i.test(errorMessage):
       return "Swap transaction rejected by user.";
-    case errorMessage.includes(
-      "MetaMask Tx Signature: User denied transaction signature",
-    ):
-      return "Swap transaction rejected by user";
+    case /denied\s+transaction\s+signature/i.test(errorMessage):
+      return "Swap transaction rejected by user.";
+    case /request\s+rejected/i.test(errorMessage):
+      return "Swap transaction rejected by user.";
     case errorMessage.includes("insufficient funds"):
       return "Insufficient funds for transaction.";
     case errorMessage.includes("Transaction failed"):
