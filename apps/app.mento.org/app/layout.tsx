@@ -6,8 +6,7 @@ import { ClientProviders } from "./components/providers";
 import localFont from "next/font/local";
 import { env } from "../env.mjs";
 import { Analytics } from "@vercel/analytics/react";
-import { cookieToInitialState } from "@repo/web3/wagmi";
-import { wagmiConfig } from "@repo/web3";
+import { cookieToInitialState, wagmiSsrConfig } from "@repo/web3/wagmi-ssr";
 import { headers } from "next/headers";
 
 const aspekta = localFont({
@@ -45,7 +44,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const initialState = cookieToInitialState(
-    wagmiConfig,
+    wagmiSsrConfig,
     (await headers()).get("cookie"),
   );
 
