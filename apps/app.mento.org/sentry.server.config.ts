@@ -16,4 +16,11 @@ Sentry.init({
 
   // Setting this option to true will print useful information to the console while you're setting up Sentry.
   debug: false,
+
+  // temporarily drop indexedDB errors
+  beforeSend(event) {
+    const msg = event?.exception?.values?.[0]?.value || event?.message || "";
+    if (/indexedDB is not defined/i.test(msg)) return null; // drop it
+    return event;
+  },
 });
