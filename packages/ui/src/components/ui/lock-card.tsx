@@ -313,7 +313,7 @@ function LockCardButton({
   return (
     <Button
       data-slot="lock-card-button"
-      className={cn(className, "w-full")}
+      className={cn(className, "w-full text-sm")}
       variant="abstain"
       clipped="default"
       {...props}
@@ -325,7 +325,7 @@ function LockCardNotice({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="lock-card-notice"
-      className={cn("text-muted-foreground px-4 pb-4 text-sm", className)}
+      className={cn("text-muted-foreground px-4 pb-4 text-xs", className)}
       {...props}
     />
   );

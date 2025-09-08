@@ -8,6 +8,7 @@ import {
 import { useLockCalculation } from "@repo/web3";
 import { useLockInfo } from "@repo/web3";
 import { useTokens } from "@repo/web3";
+import { useLocksByAccount } from "@repo/web3";
 import {
   Card,
   CardContent,
@@ -43,6 +44,60 @@ export default function VotingPowerForm() {
   } = useLockInfo(address);
 
   const { veMentoBalance, mentoBalance } = useTokens();
+  const { locks } = useLocksByAccount({ account: address! });
+
+  // Calculate lock type totals
+  const lockTotals = useMemo(() => {
+    if (!locks || !address) {
+      return {
+        totalLockedMento: 0,
+        ownLocksVeMento: 0,
+        delegatedVeMento: 0,
+        totalVeMento: 0,
+        withdrawableMento: 0,
+      };
+    }
+
+    let totalLockedMento = 0;
+    let ownLocksVeMento = 0;
+    let delegatedVeMento = 0;
+    let withdrawableMento = 0;
+
+    locks.forEach((lock) => {
+      const isOwner = lock.owner.id.toLowerCase() === address.toLowerCase();
+      const isDelegatedToSelf =
+        lock.delegate.id.toLowerCase() === address.toLowerCase();
+      const amount = Number(formatUnits(BigInt(lock.amount), 18));
+
+      if (isOwner) {
+        totalLockedMento += amount;
+
+        if (isDelegatedToSelf) {
+          // Personal locks - user owns and delegates to self
+          ownLocksVeMento += amount; // Simplified: using amount as veMento for now
+        }
+
+        // Check if withdrawable (expired)
+        const now = new Date();
+        if (now > lock.expiration) {
+          withdrawableMento += amount;
+        }
+      } else if (isDelegatedToSelf) {
+        // Received delegations - user receives delegation from others
+        delegatedVeMento += amount; // Simplified: using amount as veMento for now
+      }
+    });
+
+    const totalVeMento = ownLocksVeMento + delegatedVeMento;
+
+    return {
+      totalLockedMento,
+      ownLocksVeMento,
+      delegatedVeMento,
+      totalVeMento,
+      withdrawableMento,
+    };
+  }, [locks, address]);
 
   const MIN_LOCK_PERIOD_WEEKS = 1;
 
@@ -514,7 +569,7 @@ export default function VotingPowerForm() {
 
           <Card className="border-border w-full md:h-[480px] md:min-w-[494px]">
             <CardHeader className="text-2xl font-medium">
-              Your existing veMENTO lock
+              veMENTO locks summary
             </CardHeader>
             <>
               <CardContent
@@ -525,35 +580,59 @@ export default function VotingPowerForm() {
                 {isLoading && <IconLoading />}
                 {!isLoading && (
                   <div className="flex flex-col gap-4">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">veMENTO</span>
-                      <span data-testid="existingLockVeMentoLabel">
-                        {formattedVeMentoBalance}
-                      </span>
-                    </div>
-                    <hr className="border-border h-full" />
+                    {/* Locked MENTO */}
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">
                         Locked MENTO
                       </span>
-                      <span data-testid="existingLockMentoLabel">
-                        {formattedLock}
+                      <span data-testid="totalLockedMentoLabel">
+                        {lockTotals.totalLockedMento.toLocaleString()}
                       </span>
                     </div>
-                    <hr className="border-border h-full" />
+                    <hr className="border-border" />
+
+                    {/* veMENTO from your own locks */}
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">
+                        veMENTO from your own locks
+                      </span>
+                      <span data-testid="ownLocksVeMentoLabel">
+                        {lockTotals.ownLocksVeMento.toLocaleString()}
+                      </span>
+                    </div>
+                    <hr className="border-border" />
+
+                    {/* Delegated veMENTO */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-muted-foreground">
+                          Delegated veMENTO
+                        </span>
+                      </div>
+                      <span data-testid="delegatedVeMentoLabel">
+                        {lockTotals.delegatedVeMento.toLocaleString()}
+                      </span>
+                    </div>
+                    <hr className="border-border" />
+
+                    {/* Total veMENTO */}
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">
+                        Total veMENTO
+                      </span>
+                      <span data-testid="totalVeMentoLabel">
+                        {lockTotals.totalVeMento.toLocaleString()}
+                      </span>
+                    </div>
+                    <hr className="border-border" />
+
+                    {/* Withdrawable MENTO */}
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">
                         Withdrawable MENTO
                       </span>
-                      <span data-testid="existingLockWithdrawableMentoLabel">
-                        {formattedUnlockedMento}
-                      </span>
-                    </div>
-                    <hr className="border-border h-full" />
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Expires</span>
-                      <span data-testid="existingLockExpirationDateLabel">
-                        {expirationDate || "-"}
+                      <span data-testid="withdrawableMentoLabel">
+                        {lockTotals.withdrawableMento.toLocaleString()}
                       </span>
                     </div>
                   </div>

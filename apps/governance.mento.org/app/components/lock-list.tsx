@@ -22,10 +22,14 @@ import {
 import { useLocksByAccount } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
 import { formatUnits } from "viem";
+import { useMemo, useState } from "react";
+import { UpdateLockDialog } from "./update-lock-dialog";
 
 export const LockList = () => {
   const { address } = useAccount();
   const { locks, refetch } = useLocksByAccount({ account: address! });
+  const [selectedLock, setSelectedLock] = useState<any>(null);
+  const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
 
   // Helper function to determine badge type based on delegation
   const getBadgeType = (lock: any): BadgeType => {
@@ -81,18 +85,24 @@ export const LockList = () => {
     return now > lock.expiration;
   };
 
+  const handleUpdateLock = (lock: any) => {
+    setSelectedLock(lock);
+    setIsUpdateDialogOpen(true);
+  };
+
+  const handleLockUpdated = () => {
+    refetch();
+    setSelectedLock(null);
+    setIsUpdateDialogOpen(false);
+  };
+
   if (!locks || locks.length === 0) {
-    return (
-      <div>
-        <h2 className="mb-4 text-xl font-semibold">Your Locks</h2>
-        <p className="text-muted-foreground">No locks found.</p>
-      </div>
-    );
+    return <></>;
   }
 
   return (
-    <div>
-      <h2 className="mb-4 text-xl font-semibold">Your Locks</h2>
+    <div className="mt-20">
+      <h2 className="mb-8 text-2xl font-medium">Your existing locks</h2>
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {locks.map((lock) => {
           const badgeType = getBadgeType(lock);
@@ -170,7 +180,9 @@ export const LockList = () => {
 
               {badgeType === "personal" && (
                 <LockCardActions>
-                  <LockCardButton>Update</LockCardButton>
+                  <LockCardButton onClick={() => handleUpdateLock(lock)}>
+                    Update
+                  </LockCardButton>
                 </LockCardActions>
               )}
 
@@ -184,6 +196,15 @@ export const LockList = () => {
           );
         })}
       </div>
+
+      {selectedLock && (
+        <UpdateLockDialog
+          open={isUpdateDialogOpen}
+          onOpenChange={setIsUpdateDialogOpen}
+          lock={selectedLock}
+          onLockUpdated={handleLockUpdated}
+        />
+      )}
     </div>
   );
 };

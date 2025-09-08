@@ -1,4 +1,4 @@
-import { Button, toast } from "@repo/ui";
+import { Button, cn, toast } from "@repo/ui";
 import {
   LOCKING_AMOUNT_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
@@ -23,7 +23,15 @@ import {
   useCreateLock,
 } from "./create-lock-provider";
 
-export const LockingButton = () => {
+interface LockingButtonProps {
+  lockToUpdate?: LockWithExpiration;
+  className?: string;
+}
+
+export const LockingButton = ({
+  lockToUpdate,
+  className,
+}: LockingButtonProps) => {
   const { address } = useAccount();
   const { createLock, CreateLockTxStatus, CreateLockApprovalStatus } =
     useCreateLock();
@@ -33,6 +41,9 @@ export const LockingButton = () => {
     hasMultipleLocks,
     refetch: refetchLockInfo,
   } = useLockInfo(address);
+
+  // Use the specific lock to update or fall back to the user's primary lock
+  const targetLock = lockToUpdate || lock;
   const currentChain = useCurrentChain();
   const contracts = useContracts();
   const { currentWeek: currentLockingWeek } = useLockingWeek();
@@ -381,7 +392,7 @@ export const LockingButton = () => {
   return (
     <>
       <Button
-        className="w-full"
+        className={cn("w-full", className)}
         disabled={shouldButtonBeDisabled}
         onClick={(e: React.MouseEvent) => {
           handleSubmit(() => {
@@ -397,7 +408,7 @@ export const LockingButton = () => {
           })(e);
         }}
         size="lg"
-        clipped="default"
+        clipped="lg"
         data-testid={buttonLocator}
       >
         {content}
