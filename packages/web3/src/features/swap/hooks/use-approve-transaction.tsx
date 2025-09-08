@@ -93,7 +93,7 @@ export function useApproveTransaction({
           : String(txSendError),
       );
       toast.error(message);
-    } else if (isConfirmed && txReceipt && sendTxHash) {
+    } else if (isConfirmed && txReceipt && sendTxHash && !onSuccess) {
       logger.info(`Approval confirmed: ${sendTxHash}`);
       const currentChainConfig = chainIdToChain[chainId];
       const explorerBaseUrl = currentChainConfig?.blockExplorers?.default?.url;
@@ -129,6 +129,7 @@ export function useApproveTransaction({
     txReceipt,
     sendTxHash,
     chainId,
+    onSuccess,
   ]);
 
   useEffect(() => {
