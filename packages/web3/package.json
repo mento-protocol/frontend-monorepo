@@ -13,6 +13,11 @@
       "types": "./dist/wagmi.d.ts",
       "import": "./dist/wagmi.js",
       "require": "./dist/wagmi.cjs"
+    },
+    "./wagmi-ssr": {
+      "types": "./dist/wagmi-ssr.d.ts",
+      "import": "./dist/wagmi-ssr.js",
+      "require": "./dist/wagmi-ssr.cjs"
     }
   },
   "main": "dist/index.js",
