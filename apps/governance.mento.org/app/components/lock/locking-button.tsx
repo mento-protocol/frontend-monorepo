@@ -64,11 +64,11 @@ export const LockingButton = ({
   }, [amount]);
 
   const isExtendingDuration = React.useMemo(() => {
-    if (!hasActiveLock || !lock?.expiration || !unlockDate) return false;
-    const currentExpiration = new Date(lock.expiration);
+    if (!hasActiveLock || !targetLock?.expiration || !unlockDate) return false;
+    const currentExpiration = new Date(targetLock.expiration);
     const selectedDate = new Date(unlockDate);
     return isAfter(selectedDate.setHours(0, 0, 0, 0), currentExpiration);
-  }, [hasActiveLock, lock?.expiration, unlockDate]);
+  }, [hasActiveLock, targetLock?.expiration, unlockDate]);
 
   const isAddingAmount = React.useMemo(() => {
     if (!hasActiveLock || !amount || amount === "" || amount === "0")
@@ -79,11 +79,12 @@ export const LockingButton = ({
   const isBalanceInsufficient = errors[LOCKING_AMOUNT_FORM_KEY]?.type === "max";
 
   const newSlope = React.useMemo(() => {
-    if (!unlockDate || !lock || !hasActiveLock || !currentLockingWeek) return 0;
+    if (!unlockDate || !targetLock || !hasActiveLock || !currentLockingWeek)
+      return 0;
 
-    const lockTime = lock?.time ?? 0;
-    const lockSlope = lock?.slope ?? 0;
-    const lockExpiration = lock?.expiration;
+    const lockTime = Number(targetLock?.time ?? 0);
+    const lockSlope = Number(targetLock?.slope ?? 0);
+    const lockExpiration = targetLock?.expiration;
 
     if (!lockExpiration) return 0;
 
@@ -94,10 +95,10 @@ export const LockingButton = ({
     const currentRemainingSlope = Math.max(0, lockSlope - weeksPassed);
 
     return Math.max(totalWeeksToUnlock, currentRemainingSlope);
-  }, [currentLockingWeek, lock, unlockDate, hasActiveLock]);
+  }, [currentLockingWeek, targetLock, unlockDate, hasActiveLock]);
 
   const relock = useRelockMento({
-    lock,
+    lock: targetLock,
     newSlope,
     additionalAmountToLock: parsedAmount,
     onConfirmation: () => {
@@ -153,11 +154,11 @@ export const LockingButton = ({
 
   // Check if approval is needed for relock
   const needsApprovalForRelock = React.useMemo(() => {
-    if (!hasActiveLock || !lock) return false;
+    if (!hasActiveLock || !targetLock) return false;
 
     // Calculate the actual amount that will be transferred
     // The contract will transfer: newTotal - currentLockAmount
-    const currentLockAmount = BigInt(lock.amount || 0);
+    const currentLockAmount = BigInt(targetLock.amount || 0);
     const newTotalAmount = parsedAmount + currentLockAmount;
     const actualTransferAmount = newTotalAmount - currentLockAmount;
 
@@ -167,7 +168,7 @@ export const LockingButton = ({
     // Check if current allowance is sufficient for the actual transfer
     if (!allowance.data) return true;
     return allowance.data < actualTransferAmount;
-  }, [allowance.data, parsedAmount, hasActiveLock, lock]);
+  }, [allowance.data, parsedAmount, hasActiveLock, targetLock]);
 
   // Combined status for relock flow
   const isRelocking = React.useMemo(() => {
@@ -186,7 +187,7 @@ export const LockingButton = ({
 
   // Handler for relock
   const handleRelock = React.useCallback(() => {
-    if (!lock) {
+    if (!targetLock) {
       toast.error("Cannot update lock: lock information is missing");
       return;
     }
@@ -223,7 +224,7 @@ export const LockingButton = ({
       submitRelock();
     }
   }, [
-    lock,
+    targetLock,
     needsApprovalForRelock,
     approve,
     relock,
@@ -237,7 +238,7 @@ export const LockingButton = ({
     hasActiveLock,
     isExtendingDuration,
     isBalanceInsufficient,
-    lock,
+    lock: targetLock,
     needsApprovalForRelock,
     isAddingAmount,
     CreateLockApprovalStatus,
@@ -264,7 +265,11 @@ export const LockingButton = ({
     }
 
     // Has active lock - relock flow
-    if (hasActiveLock && lock?.expiration && lock.expiration > new Date()) {
+    if (
+      hasActiveLock &&
+      targetLock?.expiration &&
+      targetLock.expiration > new Date()
+    ) {
       // Approval needed for relock
       if (needsApprovalForRelock) {
         return <>Approve MENTO</>;
@@ -300,6 +305,7 @@ export const LockingButton = ({
     parsedAmount,
     isExtendingDuration,
     isAddingAmount,
+    targetLock,
   ]);
 
   const shouldButtonBeDisabled = React.useMemo(() => {
@@ -318,7 +324,11 @@ export const LockingButton = ({
     }
 
     // Has active lock - relock flow checks
-    if (hasActiveLock && lock?.expiration && lock.expiration > new Date()) {
+    if (
+      hasActiveLock &&
+      targetLock?.expiration &&
+      targetLock.expiration > new Date()
+    ) {
       // Disable during relock transaction
       if (isRelocking) {
         return true;
@@ -350,7 +360,7 @@ export const LockingButton = ({
     isExtendingDuration,
     isAddingAmount,
     unlockDate,
-    lock,
+    targetLock,
   ]);
   const relockTxStatus = React.useMemo(() => {
     if (approve.error || relock.error) return "ERROR";
@@ -398,8 +408,8 @@ export const LockingButton = ({
           handleSubmit(() => {
             if (
               hasActiveLock &&
-              lock?.expiration &&
-              lock.expiration > new Date()
+              targetLock?.expiration &&
+              targetLock.expiration > new Date()
             ) {
               handleRelock();
             } else {

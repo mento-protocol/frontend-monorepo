@@ -1,18 +1,6 @@
 "use client";
 import {
-  DEFAULT_LOCKING_CLIFF,
-  LOCKING_AMOUNT_FORM_KEY,
-  LOCKING_UNLOCK_DATE_FORM_KEY,
-  MAX_LOCKING_DURATION_WEEKS,
-} from "@repo/web3";
-import { useLockCalculation } from "@repo/web3";
-import { useTokens } from "@repo/web3";
-import {
   Button,
-  Card,
-  CardContent,
-  CardHeader,
-  cn,
   CoinInput,
   Datepicker,
   Dialog,
@@ -20,19 +8,26 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  IconLoading,
   Label,
   Slider,
   useDebounce,
 } from "@repo/ui";
-import React, { useEffect, useMemo, useState } from "react";
+import type { LockWithExpiration } from "@repo/web3";
+import {
+  DEFAULT_LOCKING_CLIFF,
+  LOCKING_AMOUNT_FORM_KEY,
+  LOCKING_UNLOCK_DATE_FORM_KEY,
+  MAX_LOCKING_DURATION_WEEKS,
+  useLockCalculation,
+  useTokens,
+} from "@repo/web3";
+import { useAccount } from "@repo/web3/wagmi";
+import { useEffect, useMemo, useState } from "react";
 import { Controller, FormProvider, useForm } from "react-hook-form";
 import spacetime from "spacetime";
 import { formatUnits } from "viem";
-import { useAccount } from "@repo/web3/wagmi";
 import { CreateLockProvider } from "./lock/create-lock-provider";
 import { LockingButton } from "./lock/locking-button";
-import type { LockWithExpiration } from "@repo/web3";
 
 interface UpdateLockDialogProps {
   open: boolean;
@@ -74,6 +69,33 @@ export function UpdateLockDialog({
     return wednesdays;
   }, []);
 
+  // Determine the earliest selectable index based on the current lock expiration
+  const minSelectableIndex = useMemo(() => {
+    if (!lock?.expiration || validWednesdays.length === 0) return 0;
+    const expirationTime = lock.expiration.getTime();
+    const idx = validWednesdays.findIndex(
+      (date) => date.getTime() >= expirationTime,
+    );
+    return idx >= 0 ? idx : validWednesdays.length - 1;
+  }, [lock?.expiration, validWednesdays]);
+
+  const isDateDisabled = (date: Date) => {
+    if (validWednesdays.length === 0) return true;
+    const minDate = validWednesdays[0]!;
+    const maxDate = validWednesdays[validWednesdays.length - 1]!;
+
+    const isBeforeMin = date < minDate;
+    const isAfterMax = date > maxDate;
+    const isNotWednesday = spacetime(date).day() !== 3;
+    const isBeforeCurrentExpiration = lock?.expiration
+      ? date < new Date(lock.expiration)
+      : false;
+
+    return (
+      isBeforeMin || isAfterMax || isNotWednesday || isBeforeCurrentExpiration
+    );
+  };
+
   const methods = useForm({
     defaultValues: {
       [LOCKING_AMOUNT_FORM_KEY]: "",
@@ -96,8 +118,10 @@ export function UpdateLockDialog({
       );
 
       if (exactIdx >= 0) {
-        setValue(LOCKING_UNLOCK_DATE_FORM_KEY, validWednesdays[exactIdx]);
-        setSliderIndex(exactIdx);
+        // Ensure slider index is not before the minimum selectable index
+        const idx = Math.max(exactIdx, minSelectableIndex);
+        setValue(LOCKING_UNLOCK_DATE_FORM_KEY, validWednesdays[idx]);
+        setSliderIndex(idx);
       } else {
         // Find closest valid Wednesday
         const closestWednesday = validWednesdays.reduce((prev, curr) => {
@@ -114,11 +138,16 @@ export function UpdateLockDialog({
             )
           : -1;
 
-        setValue(LOCKING_UNLOCK_DATE_FORM_KEY, closestWednesday);
-        setSliderIndex(closestIdx >= 0 ? closestIdx : 0);
+        // Enforce minimum selectable index
+        const idx = Math.max(
+          closestIdx >= 0 ? closestIdx : 0,
+          minSelectableIndex,
+        );
+        setValue(LOCKING_UNLOCK_DATE_FORM_KEY, validWednesdays[idx]);
+        setSliderIndex(idx);
       }
     }
-  }, [lock, open, validWednesdays, setValue]);
+  }, [lock, open, validWednesdays, setValue, minSelectableIndex]);
 
   const amountToLock = watch(LOCKING_AMOUNT_FORM_KEY);
   const unlockDate = watch(LOCKING_UNLOCK_DATE_FORM_KEY);
@@ -152,8 +181,12 @@ export function UpdateLockDialog({
   const [sliderIndex, setSliderIndex] = useState(0);
 
   useEffect(() => {
-    setSliderIndex(currentDateIndex);
-  }, [currentDateIndex]);
+    // Keep slider index within selectable bounds
+    setSliderIndex((prev) => {
+      const next = Math.max(currentDateIndex, minSelectableIndex);
+      return next !== prev ? next : prev;
+    });
+  }, [currentDateIndex, minSelectableIndex]);
 
   const { lockDurationInWeeks, lockDurationDisplay } = useMemo(() => {
     if (!unlockDate)
@@ -199,7 +232,7 @@ export function UpdateLockDialog({
   const debouncedSlope = useDebounce(slope, 500);
 
   const {
-    data: veMentoReceived = 0,
+    data,
     isLoading: isCalculating,
     error: calculationError,
   } = useLockCalculation({
@@ -208,6 +241,14 @@ export function UpdateLockDialog({
       slope: debouncedSlope,
       cliff: DEFAULT_LOCKING_CLIFF,
     },
+  });
+  const veMentoReceived = data?.veMentoReceived || 0;
+
+  console.log("LOG", {
+    lock,
+    veMentoReceived,
+    isCalculating,
+    calculationError,
   });
 
   const formattedVeMentoReceived = useMemo(() => {
@@ -270,13 +311,11 @@ export function UpdateLockDialog({
                       onChange={field.onChange}
                       label="Select date"
                       formatter={(date) => date.toLocaleDateString()}
+                      disabled={isDateDisabled}
+                      fromDate={validWednesdays[0]}
+                      toDate={validWednesdays[validWednesdays.length - 1]}
                       startMonth={validWednesdays[0]}
                       endMonth={validWednesdays[validWednesdays.length - 1]}
-                      disabled={(date) =>
-                        !validWednesdays.some(
-                          (d) => d.getTime() === date.getTime(),
-                        )
-                      }
                     />
                   )}
                 />
@@ -295,17 +334,21 @@ export function UpdateLockDialog({
                 value={[sliderIndex]}
                 onValueChange={(value) => {
                   const newIndex = value[0];
-                  if (newIndex !== undefined && validWednesdays[newIndex]) {
-                    setSliderIndex(newIndex);
-                    setValue(
-                      LOCKING_UNLOCK_DATE_FORM_KEY,
-                      validWednesdays[newIndex],
-                      {
-                        shouldValidate: true,
-                      },
-                    );
+                  if (newIndex !== undefined) {
+                    const clampedIndex = Math.max(newIndex, minSelectableIndex);
+                    if (validWednesdays[clampedIndex]) {
+                      setSliderIndex(clampedIndex);
+                      setValue(
+                        LOCKING_UNLOCK_DATE_FORM_KEY,
+                        validWednesdays[clampedIndex],
+                        {
+                          shouldValidate: true,
+                        },
+                      );
+                    }
                   }
                 }}
+                min={minSelectableIndex}
                 max={validWednesdays.length - 1}
                 step={1}
                 className="w-full"
