@@ -5,7 +5,7 @@ import { logger } from "@/utils";
 import { toast } from "@repo/ui";
 import { useQuery } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Address, Hex, TransactionReceipt } from "viem";
 import {
   useEstimateGas,
@@ -71,8 +71,8 @@ export function useApproveTransaction({
     data: sendTxHash,
     isPending,
     isSuccess,
-    error: txSendError,
     sendTransactionAsync,
+    reset,
   } = useSendTransaction();
 
   // Wait for transaction confirmation
@@ -81,13 +81,14 @@ export function useApproveTransaction({
       hash: sendTxHash,
     });
 
+  const isSendingRef = useRef(false);
+  const lastErrorKeyRef = useRef<string | null>(null);
+  const lastErrorAtRef = useRef<number>(0);
+
   useEffect(() => {
     if (txPrepError || sendPrepError?.message) {
-      toast.error("Unable to prepare approval transaction");
       logger.error(txPrepError || sendPrepError?.message);
-    } else if (txSendError) {
-      logger.error(txSendError);
-    } else if (isConfirmed && txReceipt && sendTxHash) {
+    } else if (isConfirmed && txReceipt && sendTxHash && !onSuccess) {
       logger.info(`Approval confirmed: ${sendTxHash}`);
       const currentChainConfig = chainIdToChain[chainId];
       const explorerBaseUrl = currentChainConfig?.blockExplorers?.default?.url;
@@ -118,11 +119,11 @@ export function useApproveTransaction({
   }, [
     txPrepError,
     sendPrepError,
-    txSendError,
     isConfirmed,
     txReceipt,
     sendTxHash,
     chainId,
+    onSuccess,
   ]);
 
   useEffect(() => {
@@ -132,16 +133,46 @@ export function useApproveTransaction({
   }, [isApproveTxConfirmed, approveTxReceipt, onSuccess]);
 
   const sendApproveTx = useCallback(async () => {
-    const hash = await sendTransactionAsync({
-      gas: data,
-      to: txRequest?.to as Address | undefined,
-      data: txRequest?.data as Hex | undefined,
-    });
+    if (isSendingRef.current || isPending) return null;
+    isSendingRef.current = true;
+    reset();
 
-    setApproveTxHash(hash);
+    if (!txRequest?.to || !txRequest?.data) {
+      toast.error("Unable to prepare approval transaction");
+      return null;
+    }
 
-    return hash;
-  }, [sendTransactionAsync, data, txRequest]);
+    try {
+      const hash = await sendTransactionAsync({
+        gas: data,
+        to: txRequest?.to as Address,
+        data: txRequest?.data as Hex,
+      });
+
+      setApproveTxHash(hash);
+
+      return hash;
+    } catch (err) {
+      logger.error(err);
+      const message = getApproveToastErrorMessage(
+        err instanceof Error ? err.message : String(err),
+      );
+      const errorKey = message;
+      const now = Date.now();
+      if (
+        lastErrorKeyRef.current !== errorKey ||
+        now - lastErrorAtRef.current > 2000
+      ) {
+        lastErrorKeyRef.current = errorKey;
+        lastErrorAtRef.current = now;
+        toast.error(message);
+      }
+      reset();
+      return null;
+    } finally {
+      isSendingRef.current = false;
+    }
+  }, [reset, sendTransactionAsync, data, txRequest, isPending]);
 
   return {
     sendApproveTx,
@@ -150,4 +181,20 @@ export function useApproveTransaction({
     isApproveTxSuccess: isSuccess,
     isApproveTxConfirmed: isConfirmed,
   };
+}
+
+function getApproveToastErrorMessage(errorMessage: string): string {
+  switch (true) {
+    // Normalize user rejection messages across wallets (MetaMask, Rabby, Valora/WalletConnect)
+    case /user\s+rejected/i.test(errorMessage):
+      return "Approval transaction rejected by user.";
+    case /denied\s+transaction\s+signature/i.test(errorMessage):
+      return "Approval transaction rejected by user.";
+    case /request\s+rejected/i.test(errorMessage):
+      return "Approval transaction rejected by user.";
+    case /insufficient\s+funds/i.test(errorMessage):
+      return "Insufficient funds for transaction.";
+    default:
+      return "Unable to complete approval transaction";
+  }
 }

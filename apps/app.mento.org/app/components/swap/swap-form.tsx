@@ -635,21 +635,6 @@ export default function SwapForm() {
     } catch (error) {
       logger.error("Error in swap form submission", error);
       setIsApprovalProcessing(false);
-
-      const errorMessage = error instanceof Error ? error.message : "";
-      const isApprovalError =
-        errorMessage.includes("User rejected request") ||
-        errorMessage.includes("User denied transaction signature") ||
-        errorMessage.includes("user rejected transaction");
-
-      if (!isApprovalError) {
-        toast.error("Transaction failed", {
-          description:
-            error instanceof Error ? error.message : "Unknown error occurred",
-        });
-      } else {
-        toast.error("Approval transaction rejected by user");
-      }
     }
   };
 
