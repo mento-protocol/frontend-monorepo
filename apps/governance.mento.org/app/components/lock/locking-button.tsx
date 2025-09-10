@@ -2,6 +2,8 @@ import { Button, cn, toast } from "@repo/ui";
 import {
   LOCKING_AMOUNT_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
+  LOCKING_DELEGATE_ENABLED_FORM_KEY,
+  LOCKING_DELEGATE_ADDRESS_FORM_KEY,
   LockWithExpiration,
   useAllowance,
   useApprove,
@@ -11,6 +13,7 @@ import {
   useLockingWeek,
   useRelockMento,
 } from "@repo/web3";
+import { isValidAddress } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
 import { differenceInWeeks, isAfter } from "date-fns";
 import React from "react";
@@ -26,24 +29,36 @@ import {
 interface LockingButtonProps {
   lockToUpdate?: LockWithExpiration;
   className?: string;
+  onLockUpdated?: () => void;
 }
 
 export const LockingButton = ({
   lockToUpdate,
   className,
+  onLockUpdated,
 }: LockingButtonProps) => {
   const { address } = useAccount();
   const { createLock, CreateLockTxStatus, CreateLockApprovalStatus } =
     useCreateLock();
   const {
     lock,
-    hasActiveLock,
     hasMultipleLocks,
     refetch: refetchLockInfo,
   } = useLockInfo(address);
 
   // Use the specific lock to update or fall back to the user's primary lock
-  const targetLock = lockToUpdate || lock;
+  const targetLock = lockToUpdate;
+
+  // Determine if we have enough info to relock this specific lock regardless of expiration
+  const canRelockTarget = React.useMemo(() => {
+    return !!(
+      targetLock &&
+      targetLock.lockId &&
+      targetLock.owner?.id &&
+      targetLock.cliff !== undefined &&
+      targetLock.amount !== undefined
+    );
+  }, [targetLock]);
   const currentChain = useCurrentChain();
   const contracts = useContracts();
   const { currentWeek: currentLockingWeek } = useLockingWeek();
@@ -58,29 +73,29 @@ export const LockingButton = ({
 
   const amount = watch(LOCKING_AMOUNT_FORM_KEY);
   const unlockDate = watch(LOCKING_UNLOCK_DATE_FORM_KEY);
+  const delegateEnabled = watch(LOCKING_DELEGATE_ENABLED_FORM_KEY);
+  const delegateAddressInput = watch(LOCKING_DELEGATE_ADDRESS_FORM_KEY);
   const parsedAmount = React.useMemo(() => {
     if (!amount || amount === "") return BigInt(0);
     return parseEther(amount);
   }, [amount]);
 
   const isExtendingDuration = React.useMemo(() => {
-    if (!hasActiveLock || !targetLock?.expiration || !unlockDate) return false;
+    if (!targetLock?.expiration || !unlockDate) return false;
     const currentExpiration = new Date(targetLock.expiration);
     const selectedDate = new Date(unlockDate);
     return isAfter(selectedDate.setHours(0, 0, 0, 0), currentExpiration);
-  }, [hasActiveLock, targetLock?.expiration, unlockDate]);
+  }, [targetLock?.expiration, unlockDate]);
 
   const isAddingAmount = React.useMemo(() => {
-    if (!hasActiveLock || !amount || amount === "" || amount === "0")
-      return false;
+    if (!amount || amount === "" || amount === "0") return false;
     return parsedAmount > BigInt(0);
-  }, [hasActiveLock, amount, parsedAmount]);
+  }, [amount, parsedAmount]);
 
   const isBalanceInsufficient = errors[LOCKING_AMOUNT_FORM_KEY]?.type === "max";
 
   const newSlope = React.useMemo(() => {
-    if (!unlockDate || !targetLock || !hasActiveLock || !currentLockingWeek)
-      return 0;
+    if (!unlockDate || !targetLock || !currentLockingWeek) return 0;
 
     const lockTime = Number(targetLock?.time ?? 0);
     const lockSlope = Number(targetLock?.slope ?? 0);
@@ -95,12 +110,34 @@ export const LockingButton = ({
     const currentRemainingSlope = Math.max(0, lockSlope - weeksPassed);
 
     return Math.max(totalWeeksToUnlock, currentRemainingSlope);
-  }, [currentLockingWeek, targetLock, unlockDate, hasActiveLock]);
+  }, [currentLockingWeek, targetLock, unlockDate]);
+
+  const requestedDelegate: string | undefined = React.useMemo(() => {
+    if (
+      delegateEnabled &&
+      delegateAddressInput &&
+      isValidAddress(delegateAddressInput)
+    ) {
+      return delegateAddressInput;
+    }
+    return undefined;
+  }, [delegateAddressInput, delegateEnabled]);
+
+  const nextDelegate = React.useMemo(() => {
+    const currentDelegate = (targetLock as any)?.delegate?.id as
+      | string
+      | undefined;
+    if (requestedDelegate && requestedDelegate !== currentDelegate) {
+      return requestedDelegate as any;
+    }
+    return undefined;
+  }, [requestedDelegate, targetLock]);
 
   const relock = useRelockMento({
     lock: targetLock,
     newSlope,
     additionalAmountToLock: parsedAmount,
+    newDelegate: nextDelegate as any,
     onConfirmation: () => {
       const explorerUrl = currentChain.blockExplorers?.default?.url;
       const explorerTxUrl = explorerUrl
@@ -142,6 +179,8 @@ export const LockingButton = ({
       setTimeout(() => {
         refetchLockInfo();
       }, 10000);
+
+      onLockUpdated?.();
     },
   });
 
@@ -154,7 +193,7 @@ export const LockingButton = ({
 
   // Check if approval is needed for relock
   const needsApprovalForRelock = React.useMemo(() => {
-    if (!hasActiveLock || !targetLock) return false;
+    if (!targetLock) return false;
 
     // Calculate the actual amount that will be transferred
     // The contract will transfer: newTotal - currentLockAmount
@@ -168,7 +207,7 @@ export const LockingButton = ({
     // Check if current allowance is sufficient for the actual transfer
     if (!allowance.data) return true;
     return allowance.data < actualTransferAmount;
-  }, [allowance.data, parsedAmount, hasActiveLock, targetLock]);
+  }, [allowance.data, parsedAmount, targetLock]);
 
   // Combined status for relock flow
   const isRelocking = React.useMemo(() => {
@@ -235,7 +274,7 @@ export const LockingButton = ({
   const buttonLocator = getButtonLocator({
     address: address ?? "",
     amount,
-    hasActiveLock,
+    canRelockTarget,
     isExtendingDuration,
     isBalanceInsufficient,
     lock: targetLock,
@@ -250,10 +289,10 @@ export const LockingButton = ({
       return <>Connect wallet</>;
     }
 
-    // Both topping up and extending duration are now supported for the first lock
+    // Both topping up and extending duration are now supported for the selected lock
     if (!amount || amount === "" || amount === "0") {
       // Allow empty or 0 amount if user is extending lock duration
-      if (hasActiveLock && isExtendingDuration) {
+      if (canRelockTarget && isExtendingDuration) {
         return <>Extend lock</>;
       }
       return <>Enter amount</>;
@@ -264,12 +303,8 @@ export const LockingButton = ({
       return <>Insufficient balance</>;
     }
 
-    // Has active lock - relock flow
-    if (
-      hasActiveLock &&
-      targetLock?.expiration &&
-      targetLock.expiration > new Date()
-    ) {
+    // Update specific lock (relock) flow
+    if (canRelockTarget) {
       // Approval needed for relock
       if (needsApprovalForRelock) {
         return <>Approve MENTO</>;
@@ -299,7 +334,7 @@ export const LockingButton = ({
     amount,
     isBalanceInsufficient,
     CreateLockApprovalStatus,
-    hasActiveLock,
+    canRelockTarget,
     hasMultipleLocks,
     needsApprovalForRelock,
     parsedAmount,
@@ -318,17 +353,13 @@ export const LockingButton = ({
     const isAmountEmpty = !amount || amount === "" || amount === "0";
     if (isAmountEmpty) {
       // Allow empty or 0 amount only if user is extending lock duration
-      if (!(hasActiveLock && isExtendingDuration)) {
+      if (!(canRelockTarget && isExtendingDuration)) {
         return true;
       }
     }
 
-    // Has active lock - relock flow checks
-    if (
-      hasActiveLock &&
-      targetLock?.expiration &&
-      targetLock.expiration > new Date()
-    ) {
+    // Relock flow checks
+    if (canRelockTarget) {
       // Disable during relock transaction
       if (isRelocking) {
         return true;
@@ -353,7 +384,7 @@ export const LockingButton = ({
     amount,
     isValid,
     isBalanceInsufficient,
-    hasActiveLock,
+    canRelockTarget,
     parsedAmount,
     isRelocking,
     CreateLockTxStatus,
@@ -406,11 +437,7 @@ export const LockingButton = ({
         disabled={shouldButtonBeDisabled}
         onClick={(e: React.MouseEvent) => {
           handleSubmit(() => {
-            if (
-              hasActiveLock &&
-              targetLock?.expiration &&
-              targetLock.expiration > new Date()
-            ) {
+            if (canRelockTarget) {
               handleRelock();
             } else {
               createLock();
@@ -443,7 +470,7 @@ export const LockingButton = ({
 function getButtonLocator({
   address,
   amount,
-  hasActiveLock,
+  canRelockTarget,
   isExtendingDuration,
   isBalanceInsufficient,
   lock,
@@ -454,7 +481,7 @@ function getButtonLocator({
 }: {
   address: string;
   amount: string;
-  hasActiveLock: boolean;
+  canRelockTarget: boolean;
   isExtendingDuration: boolean;
   isBalanceInsufficient: boolean;
   lock: LockWithExpiration | undefined;
@@ -472,7 +499,7 @@ function getButtonLocator({
     // Both topping up and extending duration are now supported for the first lock
     if (!amount || amount === "" || amount === "0") {
       // Allow empty or 0 amount if user is extending lock duration
-      if (hasActiveLock && isExtendingDuration) {
+      if (canRelockTarget && isExtendingDuration) {
         return "extendLockButton";
       }
       return "enterAmountButton";
@@ -484,7 +511,7 @@ function getButtonLocator({
     }
 
     // Has active lock - relock flow
-    if (hasActiveLock && lock?.expiration && lock.expiration > new Date()) {
+    if (canRelockTarget && lock?.expiration && lock.expiration > new Date()) {
       // Approval needed for relock
       if (needsApprovalForRelock) {
         return "approveMentoButton";
@@ -514,7 +541,7 @@ function getButtonLocator({
     amount,
     isBalanceInsufficient,
     CreateLockApprovalStatus,
-    hasActiveLock,
+    canRelockTarget,
     hasMultipleLocks,
     needsApprovalForRelock,
     isExtendingDuration,

@@ -4,6 +4,8 @@ import {
   LOCKING_AMOUNT_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
   MAX_LOCKING_DURATION_WEEKS,
+  LOCKING_DELEGATE_ENABLED_FORM_KEY,
+  LOCKING_DELEGATE_ADDRESS_FORM_KEY,
 } from "@repo/web3";
 import { useLockCalculation } from "@repo/web3";
 import { useLockInfo } from "@repo/web3";
@@ -19,6 +21,8 @@ import {
   Datepicker,
   IconLoading,
   Label,
+  Checkbox,
+  Input,
   Slider,
   useDebounce,
 } from "@repo/ui";
@@ -30,20 +34,13 @@ import { useAccount } from "@repo/web3/wagmi";
 import { CreateLockProvider } from "./lock/create-lock-provider";
 import { LockingButton } from "./lock/locking-button";
 import { WithdrawButton } from "./withdraw-button";
+import { isValidAddress } from "@repo/web3";
 
 export default function VotingPowerForm() {
   const { address } = useAccount();
-  const {
-    lock,
-    lockedBalance,
-    unlockedMento,
-    hasLock,
-    hasActiveLock,
-    isLoading,
-    refetch,
-  } = useLockInfo(address);
+  const { isLoading, refetch } = useLockInfo(address);
 
-  const { veMentoBalance, mentoBalance } = useTokens();
+  const { mentoBalance } = useTokens();
   const { locks } = useLocksByAccount({ account: address! });
 
   // Calculate lock type totals
@@ -139,19 +136,8 @@ export default function VotingPowerForm() {
     return wednesdays;
   }, [minLockDate]);
 
-  // When topping up an existing lock, find the first selectable Wednesday index
-  const minSelectableIndex = useMemo(() => {
-    if (!hasActiveLock || !lock?.expiration || validWednesdays.length === 0) {
-      return 0;
-    }
-
-    const expirationTime = new Date(lock.expiration).getTime();
-    const idx = validWednesdays.findIndex(
-      (date) => date.getTime() >= expirationTime,
-    );
-    // If no valid Wednesday is found after expiration, return last index
-    return idx >= 0 ? idx : validWednesdays.length - 1;
-  }, [hasActiveLock, lock?.expiration, validWednesdays]);
+  // Always creating a new lock: no special minimum beyond base min date
+  // (Slider min index stays at 0; earlier dates are disabled by minLockDate)
 
   const maxDate = useMemo(() => {
     // Use the last valid Wednesday as the max date to ensure consistency
@@ -161,73 +147,51 @@ export default function VotingPowerForm() {
   }, [validWednesdays]);
 
   const sliderLabels = useMemo(() => {
-    const formatDuration = (targetDate: Date, forceMonths = false) => {
+    const formatDuration = (targetDate: Date) => {
       const now = new Date();
       const timeDiff = targetDate.getTime() - now.getTime();
       const daysDiff = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
       const weeksDiff = Math.ceil(daysDiff / 7);
 
-      // Use the same calendar-month logic as lockDurationDisplay
       const yearsDiff = targetDate.getFullYear() - now.getFullYear();
       const monthsDiff = targetDate.getMonth() - now.getMonth();
       const totalMonths = yearsDiff * 12 + monthsDiff;
       const adjustedMonths =
         targetDate.getDate() >= now.getDate() ? totalMonths : totalMonths - 1;
 
-      // Helper function for pluralization
-      const pluralize = (count: number, singular: string, plural: string) => {
-        return count === 1 ? `${count} ${singular}` : `${count} ${plural}`;
-      };
+      const pluralize = (count: number, singular: string, plural: string) =>
+        count === 1 ? `${count} ${singular}` : `${count} ${plural}`;
 
-      // Display logic: show weeks if less than 1 month, otherwise show months
-      if (forceMonths || adjustedMonths >= 1) {
-        return pluralize(adjustedMonths, "month", "months");
-      }
-      return pluralize(weeksDiff, "week", "weeks");
+      return adjustedMonths >= 1
+        ? pluralize(adjustedMonths, "month", "months")
+        : pluralize(weeksDiff, "week", "weeks");
     };
 
-    const minIdx = hasActiveLock && lock?.expiration ? minSelectableIndex : 0;
+    const minIdx = 0;
     const maxIdx = validWednesdays.length - 1;
     const midIdx = Math.floor((minIdx + maxIdx) / 2);
 
     const minDate = validWednesdays[minIdx];
     const midDate = validWednesdays[midIdx];
 
-    // Calculate start label
-    const startLabel = (() => {
-      if (minIdx >= 0 && minIdx < validWednesdays.length && minDate) {
-        return formatDuration(minDate, hasActiveLock && !!lock?.expiration);
-      }
-      return "1 week";
-    })();
-
-    // Calculate middle label
-    const middleLabel = (() => {
-      if (midIdx >= 0 && midIdx < validWednesdays.length && midDate) {
-        return formatDuration(midDate, hasActiveLock && !!lock?.expiration);
-      }
-      return "1 year";
-    })();
+    const startLabel =
+      minIdx >= 0 && minIdx < validWednesdays.length && minDate
+        ? formatDuration(minDate)
+        : "1 week";
+    const middleLabel =
+      midIdx >= 0 && midIdx < validWednesdays.length && midDate
+        ? formatDuration(midDate)
+        : "1 year";
 
     return { startLabel, middleLabel, endLabel: "2 years" };
-  }, [validWednesdays, hasActiveLock, lock?.expiration, minSelectableIndex]);
+  }, [validWednesdays]);
 
   const isDateDisabled = (date: Date) => {
     if (!maxDate) throw new Error("maxDate is undefined");
     const isBeforeMin = date < minLockDate;
     const isAfterMax = date > maxDate;
     const isNotWednesday = spacetime(date).day() !== 3;
-
-    // When topping up an existing lock, you cannot choose a date before the
-    // current expiration.
-    const isBeforeCurrentExpiration =
-      hasActiveLock && lock?.expiration
-        ? date < new Date(lock.expiration)
-        : false;
-
-    return (
-      isBeforeMin || isAfterMax || isNotWednesday || isBeforeCurrentExpiration
-    );
+    return isBeforeMin || isAfterMax || isNotWednesday;
   };
 
   const methods = useForm({
@@ -236,49 +200,23 @@ export default function VotingPowerForm() {
       [LOCKING_AMOUNT_FORM_KEY]: "",
       [LOCKING_UNLOCK_DATE_FORM_KEY]:
         validWednesdays.length > 0 ? validWednesdays[0] : minLockDate,
+      [LOCKING_DELEGATE_ENABLED_FORM_KEY]: false,
+      [LOCKING_DELEGATE_ADDRESS_FORM_KEY]: "",
     },
   });
 
   const { control, watch, register, setValue } = methods;
+  const delegateEnabled = watch(LOCKING_DELEGATE_ENABLED_FORM_KEY);
+  const delegateAddress = watch(LOCKING_DELEGATE_ADDRESS_FORM_KEY);
 
   React.useEffect(() => {
-    if (validWednesdays.length === 0) {
-      return;
-    }
-
-    let defaultDate = validWednesdays[0];
-
-    if (hasActiveLock && lock?.expiration) {
-      const expirationTime = lock.expiration.getTime();
-
-      const exactIdx = validWednesdays.findIndex(
-        (d) => d.getTime() === expirationTime,
-      );
-      if (exactIdx >= 0) {
-        defaultDate = validWednesdays[exactIdx];
-      } else {
-        defaultDate = validWednesdays.reduce((prev, curr) => {
-          if (!prev) throw new Error("prev is undefined");
-          return Math.abs(curr.getTime() - expirationTime) <
-            Math.abs(prev.getTime() - expirationTime)
-            ? curr
-            : prev;
-        }, validWednesdays[0]);
-      }
-    }
-
-    if (!defaultDate) throw new Error("defaultDate is undefined");
-
+    if (validWednesdays.length === 0) return;
+    const defaultDate = validWednesdays[0];
     setValue(LOCKING_UNLOCK_DATE_FORM_KEY, defaultDate, {
       shouldValidate: true,
     });
-    const idx = validWednesdays.findIndex(
-      (d) => d.getTime() === defaultDate.getTime(),
-    );
-    if (idx >= 0) {
-      setSliderIndex(idx);
-    }
-  }, [validWednesdays, hasActiveLock, lock?.expiration, setValue]);
+    setSliderIndex(0);
+  }, [validWednesdays, setValue]);
 
   const amountToLock = watch(LOCKING_AMOUNT_FORM_KEY);
   const unlockDate = watch(LOCKING_UNLOCK_DATE_FORM_KEY);
@@ -385,35 +323,11 @@ export default function VotingPowerForm() {
     return Number(formatUnits(mentoBalance.value, 18)).toLocaleString();
   }, [mentoBalance.value]);
 
-  const formattedVeMentoBalance = useMemo(() => {
-    return Number(formatUnits(veMentoBalance.value, 18)).toLocaleString();
-  }, [veMentoBalance.value]);
-
-  const formattedLock = useMemo(() => {
-    return Number(lockedBalance).toLocaleString();
-  }, [lockedBalance]);
-
-  const formattedUnlockedMento = useMemo(() => {
-    return Number(unlockedMento).toLocaleString();
-  }, [unlockedMento]);
-
   const formattedVeMentoReceived = useMemo(() => {
     return isCalculating ? "..." : Number(veMentoReceived).toLocaleString();
   }, [veMentoReceived, isCalculating]);
 
-  // Format expiration date
-  const expirationDate = useMemo(() => {
-    if (!hasLock) return null;
-    if (!lock?.expiration) return null;
-
-    // Check if lock has expired (expiration date is in the past)
-    const now = new Date();
-    if (lock.expiration < now) {
-      return "Fully unlocked";
-    }
-
-    return lock.expiration.toLocaleDateString();
-  }, [hasLock, lock]);
+  // No longer relying on current active lock in this form; always creating a new lock.
 
   const handleUseMaxBalance = () => {
     methods.setValue(
@@ -451,22 +365,7 @@ export default function VotingPowerForm() {
                           "Insufficient balance",
                         min: (v) => {
                           const amount = Number(v);
-                          // Allow empty or 0 amount if user has active lock and is extending duration
-                          if (
-                            (!v || v === "" || amount === 0) &&
-                            hasActiveLock &&
-                            unlockDate &&
-                            lock?.expiration
-                          ) {
-                            const currentExpiration = new Date(lock.expiration);
-                            const selectedDate = new Date(unlockDate);
-                            return (
-                              selectedDate.getTime() !==
-                                currentExpiration.getTime() ||
-                              "Select a different unlock date to extend your lock"
-                            );
-                          }
-                          return amount >= 0 || "Amount must be positive";
+                          return amount > 0 || "Amount must be greater than 0";
                         },
                       },
                     })}
@@ -480,6 +379,33 @@ export default function VotingPowerForm() {
                     >
                       MAX
                     </button>
+                  </div>
+                  {/* Delegate controls */}
+                  <div className="mt-4 flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="delegateEnabled"
+                        checked={!!delegateEnabled}
+                        onCheckedChange={(v) =>
+                          setValue(
+                            LOCKING_DELEGATE_ENABLED_FORM_KEY,
+                            Boolean(v),
+                            { shouldValidate: true },
+                          )
+                        }
+                      />
+                      <Label htmlFor="delegateEnabled">Delegate</Label>
+                    </div>
+                    <Input
+                      placeholder="Delegate Address..."
+                      disabled={!delegateEnabled}
+                      {...register(LOCKING_DELEGATE_ADDRESS_FORM_KEY, {
+                        validate: (v) => {
+                          if (!delegateEnabled) return true;
+                          return isValidAddress(v) || "Invalid address";
+                        },
+                      })}
+                    />
                   </div>
                 </div>
                 <div className="col-span-5 flex flex-row items-center md:flex-col md:items-end md:justify-end">
@@ -522,27 +448,16 @@ export default function VotingPowerForm() {
                   value={[sliderIndex]}
                   onValueChange={(values) => {
                     const newIndex = values[0]!;
-                    // Enforce minimum selectable index for existing locks
-                    const actualIndex =
-                      hasActiveLock && lock?.expiration
-                        ? Math.max(newIndex, minSelectableIndex)
-                        : newIndex;
-
-                    setSliderIndex(actualIndex);
-                    if (
-                      actualIndex >= 0 &&
-                      actualIndex < validWednesdays.length
-                    ) {
+                    setSliderIndex(newIndex);
+                    if (newIndex >= 0 && newIndex < validWednesdays.length) {
                       setValue(
                         LOCKING_UNLOCK_DATE_FORM_KEY,
-                        validWednesdays[actualIndex],
+                        validWednesdays[newIndex],
                         { shouldValidate: true },
                       );
                     }
                   }}
-                  min={
-                    hasActiveLock && lock?.expiration ? minSelectableIndex : 0
-                  }
+                  min={0}
                   max={validWednesdays.length - 1}
                   step={1}
                   className="my-4"

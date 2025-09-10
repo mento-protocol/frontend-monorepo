@@ -59,7 +59,8 @@ export const useRelockMento = ({
 
     return [
       lock.lockId,
-      newDelegate ?? lock.owner?.id,
+      // Default to existing delegate to preserve current delegation unless explicitly changed
+      (newDelegate ?? (lock as any)?.delegate?.id ?? lock.owner?.id) as Address,
       newTotalLockedAmount,
       newSlope,
       newCliff ?? lock.cliff,

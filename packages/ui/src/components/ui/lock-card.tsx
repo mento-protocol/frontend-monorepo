@@ -300,7 +300,7 @@ function LockCardActions({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="lock-card-actions"
-      className={cn("px-4 pb-2", className)}
+      className={cn("mt-auto px-4 pb-2", className)}
       {...props}
     />
   );

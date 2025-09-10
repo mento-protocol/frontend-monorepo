@@ -11,6 +11,8 @@ import {
   Label,
   Slider,
   useDebounce,
+  Checkbox,
+  Input,
 } from "@repo/ui";
 import type { LockWithExpiration } from "@repo/web3";
 import {
@@ -20,6 +22,9 @@ import {
   MAX_LOCKING_DURATION_WEEKS,
   useLockCalculation,
   useTokens,
+  LOCKING_DELEGATE_ENABLED_FORM_KEY,
+  LOCKING_DELEGATE_ADDRESS_FORM_KEY,
+  isValidAddress,
 } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
 import { useEffect, useMemo, useState } from "react";
@@ -100,10 +105,13 @@ export function UpdateLockDialog({
     defaultValues: {
       [LOCKING_AMOUNT_FORM_KEY]: "",
       [LOCKING_UNLOCK_DATE_FORM_KEY]: validWednesdays[0],
+      [LOCKING_DELEGATE_ENABLED_FORM_KEY]: false,
+      [LOCKING_DELEGATE_ADDRESS_FORM_KEY]: "",
     },
   });
 
   const { register, watch, setValue, control } = methods;
+  const delegateEnabled = watch(LOCKING_DELEGATE_ENABLED_FORM_KEY);
 
   // Pre-populate form with current lock data
   useEffect(() => {
@@ -299,6 +307,44 @@ export function UpdateLockDialog({
                   {Number(formatUnits(mentoBalance.value, 18)).toLocaleString()}{" "}
                   MENTO
                 </span>
+                {/* Delegate controls */}
+                <div className="mt-3 flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="updateDelegateEnabled"
+                      checked={!!delegateEnabled}
+                      onCheckedChange={(v) =>
+                        setValue(
+                          LOCKING_DELEGATE_ENABLED_FORM_KEY,
+                          Boolean(v),
+                          {
+                            shouldValidate: true,
+                          },
+                        )
+                      }
+                    />
+                    <Label htmlFor="updateDelegateEnabled">Delegate</Label>
+                  </div>
+                  <Input
+                    placeholder="Delegate Address..."
+                    disabled={!delegateEnabled}
+                    {...register(LOCKING_DELEGATE_ADDRESS_FORM_KEY, {
+                      validate: (val) => {
+                        if (!delegateEnabled) return true;
+                        return isValidAddress(val) || "Invalid address";
+                      },
+                    })}
+                  />
+                  {lock?.delegate?.id && (
+                    <span className="text-muted-foreground text-xs">
+                      Currently delegated to:{" "}
+                      {lock.delegate.id.toLowerCase() ===
+                      (address ?? "").toLowerCase()
+                        ? "Self"
+                        : `${lock.delegate.id.slice(0, 6)}...${lock.delegate.id.slice(-4)}`}
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="col-span-5 flex flex-col items-end justify-end gap-2">
                 <Label>Lock until</Label>
@@ -372,7 +418,11 @@ export function UpdateLockDialog({
                   Cancel
                 </Button>
               </DialogClose>
-              <LockingButton lockToUpdate={lock} className="w-fit flex-1" />
+              <LockingButton
+                lockToUpdate={lock}
+                className="w-fit flex-1"
+                onLockUpdated={handleLockUpdated}
+              />
             </div>
           </CreateLockProvider>
         </FormProvider>
