@@ -38,9 +38,9 @@ import { isValidAddress } from "@repo/web3";
 
 export default function VotingPowerForm() {
   const { address } = useAccount();
-  const { isLoading, refetch } = useLockInfo(address);
+  const { isLoading, refetch, lockedBalance } = useLockInfo(address);
 
-  const { mentoBalance } = useTokens();
+  const { mentoBalance, veMentoBalance } = useTokens();
   const { locks } = useLocksByAccount({ account: address! });
 
   // Calculate lock type totals
@@ -323,6 +323,16 @@ export default function VotingPowerForm() {
     return Number(formatUnits(mentoBalance.value, 18)).toLocaleString();
   }, [mentoBalance.value]);
 
+  // On-chain totals for summary cards
+  const formattedLockedMento = useMemo(() => {
+    // lockedBalance is already a formatted string from useLockInfo
+    return Number(lockedBalance).toLocaleString();
+  }, [lockedBalance]);
+
+  const formattedTotalVeMento = useMemo(() => {
+    return Number(formatUnits(veMentoBalance.value, 18)).toLocaleString();
+  }, [veMentoBalance.value]);
+
   const formattedVeMentoReceived = useMemo(() => {
     return isCalculating ? "..." : Number(veMentoReceived).toLocaleString();
   }, [veMentoReceived, isCalculating]);
@@ -381,7 +391,7 @@ export default function VotingPowerForm() {
                     </button>
                   </div>
                   {/* Delegate controls */}
-                  <div className="mt-4 flex flex-col gap-2">
+                  <div className="mt-2 flex flex-col gap-3">
                     <div className="flex items-center gap-2">
                       <Checkbox
                         id="delegateEnabled"
@@ -396,16 +406,16 @@ export default function VotingPowerForm() {
                       />
                       <Label htmlFor="delegateEnabled">Delegate</Label>
                     </div>
-                    <Input
-                      placeholder="Delegate Address..."
-                      disabled={!delegateEnabled}
-                      {...register(LOCKING_DELEGATE_ADDRESS_FORM_KEY, {
-                        validate: (v) => {
-                          if (!delegateEnabled) return true;
-                          return isValidAddress(v) || "Invalid address";
-                        },
-                      })}
-                    />
+                    {delegateEnabled && (
+                      <Input
+                        placeholder="Delegate Address..."
+                        {...register(LOCKING_DELEGATE_ADDRESS_FORM_KEY, {
+                          validate: (v) => {
+                            return isValidAddress(v) || "Invalid address";
+                          },
+                        })}
+                      />
+                    )}
                   </div>
                 </div>
                 <div className="col-span-5 flex flex-row items-center md:flex-col md:items-end md:justify-end">
@@ -484,7 +494,7 @@ export default function VotingPowerForm() {
 
           <Card className="border-border w-full md:h-[480px] md:min-w-[494px]">
             <CardHeader className="text-2xl font-medium">
-              veMENTO locks summary
+              Locks Summary
             </CardHeader>
             <>
               <CardContent
@@ -501,7 +511,7 @@ export default function VotingPowerForm() {
                         Locked MENTO
                       </span>
                       <span data-testid="totalLockedMentoLabel">
-                        {lockTotals.totalLockedMento.toLocaleString()}
+                        {formattedLockedMento}
                       </span>
                     </div>
                     <hr className="border-border" />
@@ -536,7 +546,7 @@ export default function VotingPowerForm() {
                         Total veMENTO
                       </span>
                       <span data-testid="totalVeMentoLabel">
-                        {lockTotals.totalVeMento.toLocaleString()}
+                        {formattedTotalVeMento}
                       </span>
                     </div>
                     <hr className="border-border" />

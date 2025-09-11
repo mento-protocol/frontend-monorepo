@@ -1,5 +1,6 @@
 "use client";
 import {
+  CopyToClipboard,
   LockCard,
   LockCardActions,
   LockCardAmount,
@@ -19,15 +20,24 @@ import {
   LockCardToken,
   type BadgeType,
 } from "@repo/ui";
-import { useLocksByAccount } from "@repo/web3";
+import {
+  Identicon,
+  useCurrentChain,
+  useLocksByAccount,
+  useAvailableToWithdraw,
+  WalletHelper,
+} from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
+import { useState } from "react";
 import { formatUnits } from "viem";
-import { useMemo, useState } from "react";
 import { UpdateLockDialog } from "./update-lock-dialog";
 
 export const LockList = () => {
   const { address } = useAccount();
   const { locks, refetch } = useLocksByAccount({ account: address! });
+  const currentChain = useCurrentChain();
+  const { availableToWithdraw } = useAvailableToWithdraw();
+
   const [selectedLock, setSelectedLock] = useState<any>(null);
   const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
 
@@ -100,102 +110,231 @@ export const LockList = () => {
     return <></>;
   }
 
+  const explorerUrl = currentChain.blockExplorers?.default?.url;
+  const now = new Date();
+  const activeLocks = (locks ?? []).filter((l) => now < l.expiration);
+  const pastLocks = (locks ?? []).filter((l) => now >= l.expiration);
+
   return (
     <div className="mt-20">
-      <h2 className="mb-8 text-2xl font-medium">Your existing locks</h2>
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {locks.map((lock) => {
-          const badgeType = getBadgeType(lock);
-          const delegationInfo = getDelegationInfo(lock, badgeType);
-          const withdrawable = canWithdraw(lock);
-          const formattedAmount = formatAmount(lock.amount);
+      {activeLocks.length > 0 && (
+        <>
+          <h2 className="mb-8 text-2xl font-medium">Your existing locks</h2>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {activeLocks.map((lock) => {
+              const badgeType = getBadgeType(lock);
+              const delegationInfo = getDelegationInfo(lock, badgeType);
+              const formattedAmount = formatAmount(lock.amount);
+              const withdrawable = canWithdraw(lock);
 
-          return (
-            <LockCard key={lock.lockId}>
-              <LockCardHeader>
-                <LockCardHeaderGroup>
-                  <LockCardAmount>{formattedAmount}</LockCardAmount>
-                  <LockCardToken>
-                    {badgeType === "received" ? "veMENTO" : "MENTO"}
-                  </LockCardToken>
-                </LockCardHeaderGroup>
-                <LockCardBadge type={badgeType}>
-                  {badgeType.charAt(0).toUpperCase() + badgeType.slice(1)}
-                </LockCardBadge>
-              </LockCardHeader>
+              return (
+                <LockCard key={lock.lockId}>
+                  <LockCardHeader>
+                    <LockCardHeaderGroup>
+                      <LockCardAmount>{formattedAmount}</LockCardAmount>
+                      <LockCardToken>
+                        {badgeType === "received" ? "veMENTO" : "MENTO"}
+                      </LockCardToken>
+                    </LockCardHeaderGroup>
+                    <LockCardBadge type={badgeType}>
+                      {badgeType.charAt(0).toUpperCase() + badgeType.slice(1)}
+                    </LockCardBadge>
+                  </LockCardHeader>
+                  <LockCardBody>
+                    {delegationInfo && (
+                      <LockCardRow>
+                        <LockCardField>
+                          <LockCardDelegationLabel>
+                            {delegationInfo.label}
+                          </LockCardDelegationLabel>
+                          <LockCardDelegationAddress>
+                            <div className="flex items-center gap-2">
+                              <Identicon
+                                address={delegationInfo.address}
+                                size={16}
+                              />
+                              <a
+                                className="text-muted-foreground text-sm"
+                                href={`${explorerUrl}/address/${delegationInfo.address}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {WalletHelper.getShortAddress(
+                                  delegationInfo.address,
+                                )}
+                              </a>
+                              <CopyToClipboard text={delegationInfo.address} />
+                            </div>
+                          </LockCardDelegationAddress>
+                        </LockCardField>
+                      </LockCardRow>
+                    )}
 
-              {delegationInfo && (
-                <LockCardDelegationInfo>
-                  <LockCardDelegationLabel>
-                    {delegationInfo.label}
-                  </LockCardDelegationLabel>
-                  <LockCardDelegationAddress>
-                    {delegationInfo.address}
-                  </LockCardDelegationAddress>
-                </LockCardDelegationInfo>
-              )}
-
-              <LockCardBody>
-                <LockCardRow>
-                  <LockCardField>
-                    <LockCardFieldLabel>Locked</LockCardFieldLabel>
-                    <LockCardFieldValue>
-                      {formattedAmount}{" "}
-                      <span className="text-muted-foreground">MENTO</span>
-                    </LockCardFieldValue>
-                  </LockCardField>
-                  <LockCardField>
-                    <LockCardFieldLabel>ID</LockCardFieldLabel>
-                    <LockCardFieldValue>{lock.lockId}</LockCardFieldValue>
-                  </LockCardField>
-                </LockCardRow>
-
-                <LockCardRow>
-                  <LockCardField>
-                    <LockCardFieldLabel>Expires</LockCardFieldLabel>
-                    <LockCardFieldValue>
-                      {formatDate(lock.expiration)}
-                    </LockCardFieldValue>
-                  </LockCardField>
-                  <LockCardField>
-                    <LockCardFieldLabel>To Withdraw</LockCardFieldLabel>
-                    <LockCardFieldValue>
-                      {withdrawable ? (
-                        <>
+                    <LockCardRow>
+                      <LockCardField>
+                        <LockCardFieldLabel>Locked</LockCardFieldLabel>
+                        <LockCardFieldValue>
                           {formattedAmount}{" "}
                           <span className="text-muted-foreground">MENTO</span>
-                        </>
-                      ) : (
-                        <>
+                        </LockCardFieldValue>
+                      </LockCardField>
+                      <LockCardField>
+                        <LockCardFieldLabel>ID</LockCardFieldLabel>
+                        <LockCardFieldValue>{lock.lockId}</LockCardFieldValue>
+                      </LockCardField>
+                    </LockCardRow>
+
+                    <LockCardRow>
+                      <LockCardField>
+                        <LockCardFieldLabel>Expires</LockCardFieldLabel>
+                        <LockCardFieldValue>
+                          {formatDate(lock.expiration)}
+                        </LockCardFieldValue>
+                      </LockCardField>
+                      <LockCardField>
+                        <LockCardFieldLabel>To Withdraw</LockCardFieldLabel>
+                        <LockCardFieldValue>
+                          {withdrawable ? (
+                            <>
+                              {formattedAmount}{" "}
+                              <span className="text-muted-foreground">
+                                MENTO
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              0{" "}
+                              <span className="text-muted-foreground">
+                                MENTO
+                              </span>
+                            </>
+                          )}
+                          {badgeType === "received" && (
+                            <span className="ml-1 text-xs">ⓘ</span>
+                          )}
+                        </LockCardFieldValue>
+                      </LockCardField>
+                    </LockCardRow>
+                  </LockCardBody>
+
+                  {badgeType !== "received" && (
+                    <LockCardActions>
+                      <LockCardButton onClick={() => handleUpdateLock(lock)}>
+                        Update
+                      </LockCardButton>
+                    </LockCardActions>
+                  )}
+
+                  {badgeType === "received" && (
+                    <LockCardNotice>
+                      Delegated locks can only be updated by their lock owner{" "}
+                      {lock.owner.id}
+                    </LockCardNotice>
+                  )}
+                </LockCard>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {pastLocks.length > 0 && (
+        <>
+          <h2 className="my-8 mt-12 text-2xl font-medium">Your past locks</h2>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {pastLocks.map((lock) => {
+              const badgeType = getBadgeType(lock);
+              const delegationInfo = getDelegationInfo(lock, badgeType);
+              const formattedAmount = formatAmount(lock.amount);
+
+              return (
+                <LockCard key={`past-${lock.lockId}`}>
+                  <LockCardHeader>
+                    <LockCardHeaderGroup>
+                      <LockCardAmount>{formattedAmount}</LockCardAmount>
+                      <LockCardToken>
+                        {badgeType === "received" ? "veMENTO" : "MENTO"}
+                      </LockCardToken>
+                    </LockCardHeaderGroup>
+                    <LockCardBadge type={badgeType}>
+                      {badgeType.charAt(0).toUpperCase() + badgeType.slice(1)}
+                    </LockCardBadge>
+                  </LockCardHeader>
+                  <LockCardBody>
+                    {delegationInfo && (
+                      <LockCardRow>
+                        <LockCardField>
+                          <LockCardDelegationLabel>
+                            {delegationInfo.label}
+                          </LockCardDelegationLabel>
+                          <LockCardDelegationAddress>
+                            <div className="flex items-center gap-2">
+                              <Identicon
+                                address={delegationInfo.address}
+                                size={16}
+                              />
+                              <a
+                                className="text-muted-foreground text-sm"
+                                href={`${explorerUrl}/address/${delegationInfo.address}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {WalletHelper.getShortAddress(
+                                  delegationInfo.address,
+                                )}
+                              </a>
+                              <CopyToClipboard text={delegationInfo.address} />
+                            </div>
+                          </LockCardDelegationAddress>
+                        </LockCardField>
+                      </LockCardRow>
+                    )}
+
+                    <LockCardRow>
+                      <LockCardField>
+                        <LockCardFieldLabel>Locked</LockCardFieldLabel>
+                        <LockCardFieldValue>
+                          {formattedAmount}{" "}
+                          <span className="text-muted-foreground">MENTO</span>
+                        </LockCardFieldValue>
+                      </LockCardField>
+                      <LockCardField>
+                        <LockCardFieldLabel>ID</LockCardFieldLabel>
+                        <LockCardFieldValue>{lock.lockId}</LockCardFieldValue>
+                      </LockCardField>
+                    </LockCardRow>
+
+                    <LockCardRow>
+                      <LockCardField>
+                        <LockCardFieldLabel>Expired</LockCardFieldLabel>
+                        <LockCardFieldValue>
+                          {formatDate(lock.expiration)}
+                        </LockCardFieldValue>
+                      </LockCardField>
+                      <LockCardField>
+                        <LockCardFieldLabel>To Withdraw</LockCardFieldLabel>
+                        <LockCardFieldValue>
                           0 <span className="text-muted-foreground">MENTO</span>
-                        </>
-                      )}
-                      {badgeType === "received" && (
-                        <span className="ml-1 text-xs">ⓘ</span>
-                      )}
-                    </LockCardFieldValue>
-                  </LockCardField>
-                </LockCardRow>
-              </LockCardBody>
+                          {badgeType === "received" && (
+                            <span className="ml-1 text-xs">ⓘ</span>
+                          )}
+                        </LockCardFieldValue>
+                      </LockCardField>
+                    </LockCardRow>
+                  </LockCardBody>
 
-              {badgeType === "personal" && (
-                <LockCardActions>
-                  <LockCardButton onClick={() => handleUpdateLock(lock)}>
-                    Update
-                  </LockCardButton>
-                </LockCardActions>
-              )}
-
-              {badgeType === "received" && (
-                <LockCardNotice>
-                  Delegated locks can only be updated by their lock owner{" "}
-                  {lock.owner.id}
-                </LockCardNotice>
-              )}
-            </LockCard>
-          );
-        })}
-      </div>
+                  {badgeType === "received" && (
+                    <LockCardNotice>
+                      Delegated locks can only be updated by their lock owner{" "}
+                      {lock.owner.id}
+                    </LockCardNotice>
+                  )}
+                </LockCard>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {selectedLock && (
         <UpdateLockDialog

@@ -113,6 +113,14 @@ export function UpdateLockDialog({
   const { register, watch, setValue, control } = methods;
   const delegateEnabled = watch(LOCKING_DELEGATE_ENABLED_FORM_KEY);
 
+  // If this lock is delegated to someone other than the connected user,
+  // we must keep delegation enabled and the delegate address fixed.
+  const isDelegatedToOther = useMemo(() => {
+    const me = (address ?? "").toLowerCase();
+    const delegate = (lock?.delegate?.id ?? "").toLowerCase();
+    return Boolean(delegate) && delegate !== me;
+  }, [address, lock?.delegate?.id]);
+
   // Pre-populate form with current lock data
   useEffect(() => {
     if (lock && open) {
@@ -154,8 +162,27 @@ export function UpdateLockDialog({
         setValue(LOCKING_UNLOCK_DATE_FORM_KEY, validWednesdays[idx]);
         setSliderIndex(idx);
       }
+
+      // If delegated to another address, preset and lock delegation controls
+      if (isDelegatedToOther) {
+        setValue(LOCKING_DELEGATE_ENABLED_FORM_KEY, true, {
+          shouldValidate: true,
+        });
+        if (lock?.delegate?.id) {
+          setValue(LOCKING_DELEGATE_ADDRESS_FORM_KEY, lock.delegate.id, {
+            shouldValidate: true,
+          });
+        }
+      }
     }
-  }, [lock, open, validWednesdays, setValue, minSelectableIndex]);
+  }, [
+    lock,
+    open,
+    validWednesdays,
+    setValue,
+    minSelectableIndex,
+    isDelegatedToOther,
+  ]);
 
   const amountToLock = watch(LOCKING_AMOUNT_FORM_KEY);
   const unlockDate = watch(LOCKING_UNLOCK_DATE_FORM_KEY);
@@ -312,22 +339,24 @@ export function UpdateLockDialog({
                   <div className="flex items-center gap-2">
                     <Checkbox
                       id="updateDelegateEnabled"
-                      checked={!!delegateEnabled}
-                      onCheckedChange={(v) =>
+                      checked={isDelegatedToOther ? true : !!delegateEnabled}
+                      disabled={isDelegatedToOther}
+                      onCheckedChange={(v) => {
+                        if (isDelegatedToOther) return;
                         setValue(
                           LOCKING_DELEGATE_ENABLED_FORM_KEY,
                           Boolean(v),
                           {
                             shouldValidate: true,
                           },
-                        )
-                      }
+                        );
+                      }}
                     />
                     <Label htmlFor="updateDelegateEnabled">Delegate</Label>
                   </div>
                   <Input
                     placeholder="Delegate Address..."
-                    disabled={!delegateEnabled}
+                    disabled={!delegateEnabled || isDelegatedToOther}
                     {...register(LOCKING_DELEGATE_ADDRESS_FORM_KEY, {
                       validate: (val) => {
                         if (!delegateEnabled) return true;
@@ -342,6 +371,7 @@ export function UpdateLockDialog({
                       (address ?? "").toLowerCase()
                         ? "Self"
                         : `${lock.delegate.id.slice(0, 6)}...${lock.delegate.id.slice(-4)}`}
+                      {isDelegatedToOther && " (preset)"}
                     </span>
                   )}
                 </div>

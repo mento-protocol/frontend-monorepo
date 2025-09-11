@@ -201,19 +201,6 @@ function LockCardToken({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
-function LockCardDelegationInfo({
-  className,
-  ...props
-}: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="lock-card-delegation-info"
-      className={cn("mb-4 px-4", className)}
-      {...props}
-    />
-  );
-}
-
 function LockCardDelegationLabel({
   className,
   ...props
@@ -346,7 +333,6 @@ export {
   LockCardBadge,
   LockCardAmount,
   LockCardToken,
-  LockCardDelegationInfo,
   LockCardDelegationLabel,
   LockCardDelegationAddress,
   LockCardBody,
