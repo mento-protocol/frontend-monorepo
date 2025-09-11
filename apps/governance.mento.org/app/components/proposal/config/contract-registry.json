@@ -1,0 +1,124 @@
+{
+  "tokens": {
+    "0x471EcE3750Da237f93B8E339c536989b8978a438": {
+      "name": "CELO Token",
+      "symbol": "CELO",
+      "decimals": 18
+    },
+    "0x7ff62f59e3e89ea34163ea1458eebcc81177cfb6": {
+      "name": "MENTO Token",
+      "symbol": "MENTO",
+      "decimals": 18
+    },
+    "0x46c9757C5497c5B1f2eb73aE79b6B67D119B0B58": {
+      "name": "MENTO Token (Old)",
+      "symbol": "MENTO",
+      "decimals": 18
+    },
+    "0x765DE816845861e75A25fCA122bb6898B8B1282a": {
+      "name": "Celo Dollar",
+      "symbol": "cUSD",
+      "decimals": 18,
+      "friendlyName": "CELO/USD rate feed"
+    },
+    "0xD8763CBa276a3738E6DE85b4b3bF5FDed6D6cA73": {
+      "name": "Celo Euro",
+      "symbol": "cEUR",
+      "decimals": 18,
+      "friendlyName": "CELO/EUR rate feed"
+    },
+    "0xe8537a3d056DA446677B9E9d6c5dB704EaAb4787": {
+      "name": "Celo Real",
+      "symbol": "cREAL",
+      "decimals": 18,
+      "friendlyName": "CELO/BRL rate feed"
+    }
+  },
+  "governance": {
+    "0x47036d78bB3169b4F5560dD77BF93f4412A59852": {
+      "name": "Mento Governor",
+      "friendlyName": "Mento Governance"
+    },
+    "0x001Bb66636dCd149A1A2bA8C50E408BdDd80279C": {
+      "name": "veMENTO",
+      "friendlyName": "veMENTO",
+      "symbol": "veMENTO"
+    },
+    "0x3eFAD8F997F705675924470Ec84677DB68c5A2d0": {
+      "name": "Timelock Controller",
+      "friendlyName": "Governance Timelock"
+    },
+    "0x70d8dc60f9701c46d4ce9ac141e154f6804e1dc3": {
+      "name": "Mento Proxy Admin",
+      "friendlyName": "Mento Proxy Admin"
+    }
+  },
+  "treasury": {
+    "0x9380fA34Fd9e4Fd14c06305fd7B6199089eD4eb9": {
+      "name": "Mento Reserve",
+      "friendlyName": "Mento Reserve"
+    }
+  },
+  "multisigs": {
+    "0x655133d8E90F8190ed5c1F0f3710F602800C0150": {
+      "name": "Mento Labs Multisig",
+      "friendlyName": "Mento Labs"
+    },
+    "0x87647780180B8f55980C7D3fFeFe08a9B29e9aE1": {
+      "name": "Reserve Multisig",
+      "friendlyName": "Reserve Team"
+    },
+    "0x3468D23A0B1aB3Ab9A537813166A8f7ff1947014": {
+      "name": "Mento Protocol Foundation Multisig",
+      "friendlyName": "Mento Protocol Foundation"
+    }
+  },
+  "community": {
+    "0x41822d8a191fcfb1cfca5f7048818acd8ee933d3": {
+      "name": "Celo Community Fund",
+      "friendlyName": "Celo Community"
+    }
+  },
+  "protocol": {
+    "0xefb84935239dacdecf7c5ba76d8de40b077b7b33": {
+      "name": "SortedOracles",
+      "friendlyName": "Mento Price Oracles"
+    }
+  },
+  "rateFeeds": {
+    "0x765DE816845861e75A25fCA122bb6898B8B1282a": "CELO/USD rate feed",
+    "0xD8763CBa276a3738E6DE85b4b3bF5FDed6D6cA73": "CELO/EUR rate feed",
+    "0xe8537a3d056DA446677B9E9d6c5dB704EaAb4787": "CELO/BRL rate feed",
+    "0x73F93dcc49cB8A239e2032663e9475dd5ef29A08": "CELO/XOF rate feed",
+    "0x456a3D042C0DbD3db53D5489e98dFb038553B0d0": "CELO/KES rate feed",
+    "0xaFc02368A174Cd08e01c373de6D0B537CECF43C8": "CELO/PHP rate feed",
+    "0x32ABF1cBdFdcD56790f427694be2658d4B1A83bC": "CELO/COP rate feed",
+    "0x5AD3817fE11971c1fd79c7D88485af560eD5470C": "CELO/GHS rate feed",
+    "0x6732fEF1b6EE8003A06a3D7eECFF1a36550CFDF5": "CELO/GBP rate feed",
+    "0xD064b6CcFF2AE8968bA6725e9A92f3F0431bf5D0": "CELO/ZAR rate feed",
+    "0x15339E57E761F006834893CD5134138339e7bfCb": "CELO/CAD rate feed",
+    "0x1aA86eAd81936a1E9707c6B4A7AEfb2B4A538B58": "CELO/AUD rate feed",
+    "0xD808031cC050CFC81e7609156002361af6a579A6": "CELO/CHF rate feed",
+    "0xd5800BbeC4Fb58b549C8de50635654E919c3Cd5D": "CELO/JPY rate feed",
+    "0xd9D1A7FAA5deFe7E0301Ac5363E6ca18eB78c9D7": "CELO/NGN rate feed",
+    "0xA1A8003936862E7a15092A91898D69fa8bCE290c": "USDC/USD rate feed",
+    "0x206B25Ea01E188Ee243131aFdE526bA6E131a016": "USDC/EUR rate feed",
+    "0x25F21A1f97607Edf6852339fad709728cffb9a9d": "USDC/BRL rate feed",
+    "0x26076B9702885d475ac8c3dB3Bd9F250Dc5A318B": "EUROC/EUR rate feed",
+    "0xed35e46b095197da30ddffa5b91d386886d5ce0d": "EUROC/XOF rate feed",
+    "0x40dc8528167557353fdcd98548ab2139a670dd0b": "EUR/XOF rate feed",
+    "0xbAcEE37d31b9f022Ef5d232B9fD53F05a531c169": "KES/USD rate feed",
+    "0xE06C10C63377cD098b589c0b90314bFb55751558": "USDT/USD rate feed",
+    "0xab921d6ab1057601A9ae19879b111fC381a2a8E9": "PHP/USD rate feed",
+    "0x0196D1F4FdA21fA442e53EaF18Bf31282F6139F1": "COP/USD rate feed",
+    "0x44D99a013a0DAdbB4C06F9Cc9397BFd3AC12b017": "GHS/USD rate feed",
+    "0xf590b62f9cfcc6409075b1ecAc8176fe25744B88": "GBP/USD rate feed",
+    "0x17ef04Af0c52465694a841552fc2415169b1114c": "ZAR/USD rate feed",
+    "0x20869cF54Ead821C45DFb2aB0C23d2e10Fbb65A4": "CAD/USD rate feed",
+    "0x646bD504C3864Ea5b8A6B6D25743721f61864A07": "AUD/USD rate feed",
+    "0x0f61BA9c30ef7CaEE7E5CC1F96BFFCb0f52ccD64": "CHF/USD rate feed",
+    "0xFDE35B45cBd2504FB5dC514F007bC2DE27034274": "JPY/USD rate feed",
+    "0xC13D42556f1baeab4a8600C735afcd5344048d3C": "NGN/USD rate feed",
+    "0xF3CAaE71EAc2DA8D78372A62DDb3acdDaf3Df416": "CELO/ETH rate feed"
+  }
+}
