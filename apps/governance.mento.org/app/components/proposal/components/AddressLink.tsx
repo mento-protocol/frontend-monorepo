@@ -1,0 +1,27 @@
+"use client";
+
+import React from "react";
+import { useExplorerUrl } from "../utils/address-utils";
+
+interface AddressLinkProps {
+  address: string;
+  children?: React.ReactNode;
+}
+
+/**
+ * Simple component that renders a clickable link to an address on the block explorer
+ */
+export function AddressLink({ address, children }: AddressLinkProps) {
+  const explorerUrl = useExplorerUrl();
+
+  return (
+    <a
+      href={`${explorerUrl}/address/${address}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="font-bold underline-offset-4 hover:underline"
+    >
+      {children || address}
+    </a>
+  );
+}
