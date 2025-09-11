@@ -112,9 +112,14 @@ export const LockList = () => {
 
   const explorerUrl = currentChain.blockExplorers?.default?.url;
   const now = new Date();
-  const activeLocks = (locks ?? []).filter((l) => now < l.expiration);
-  const pastLocks = (locks ?? []).filter((l) => now >= l.expiration);
 
+  const activeLocks = (locks ?? []).filter((l) => now < l.expiration);
+  const pastLocks = (locks ?? [])
+    .filter((l) => now >= l.expiration)
+    .sort((a, b) => +new Date(a.expiration) - +new Date(b.expiration));
+
+  // Calculate withdrawable amount to distribute across expired, self-owned locks
+  let remaining = Number(formatUnits(availableToWithdraw ?? BigInt(0), 18));
   return (
     <div className="mt-20">
       {activeLocks.length > 0 && (
@@ -245,10 +250,21 @@ export const LockList = () => {
             {pastLocks.map((lock) => {
               const badgeType = getBadgeType(lock);
               const delegationInfo = getDelegationInfo(lock, badgeType);
+              const isOwner =
+                lock.owner.id.toLowerCase() === address?.toLowerCase();
+              const amt = Number(formatUnits(BigInt(lock.amount), 18));
+
+              // Allocate contract-total across my expired locks
+              let toWithdraw = 0;
+              if (isOwner && remaining > 0) {
+                toWithdraw = Math.min(amt, remaining);
+                remaining -= toWithdraw;
+              }
+
               const formattedAmount = formatAmount(lock.amount);
 
               return (
-                <LockCard key={`past-${lock.lockId}`}>
+                <LockCard key={lock.lockId}>
                   <LockCardHeader>
                     <LockCardHeaderGroup>
                       <LockCardAmount>{formattedAmount}</LockCardAmount>
@@ -306,7 +322,7 @@ export const LockList = () => {
 
                     <LockCardRow>
                       <LockCardField>
-                        <LockCardFieldLabel>Expired</LockCardFieldLabel>
+                        <LockCardFieldLabel>Expires</LockCardFieldLabel>
                         <LockCardFieldValue>
                           {formatDate(lock.expiration)}
                         </LockCardFieldValue>
@@ -314,7 +330,8 @@ export const LockList = () => {
                       <LockCardField>
                         <LockCardFieldLabel>To Withdraw</LockCardFieldLabel>
                         <LockCardFieldValue>
-                          0 <span className="text-muted-foreground">MENTO</span>
+                          {toWithdraw.toLocaleString()}{" "}
+                          <span className="text-muted-foreground">MENTO</span>
                           {badgeType === "received" && (
                             <span className="ml-1 text-xs">ⓘ</span>
                           )}
@@ -322,13 +339,6 @@ export const LockList = () => {
                       </LockCardField>
                     </LockCardRow>
                   </LockCardBody>
-
-                  {badgeType === "received" && (
-                    <LockCardNotice>
-                      Delegated locks can only be updated by their lock owner{" "}
-                      {lock.owner.id}
-                    </LockCardNotice>
-                  )}
                 </LockCard>
               );
             })}

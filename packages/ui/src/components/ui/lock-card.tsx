@@ -29,6 +29,8 @@ const badgeVariants = cva(
         personal: "bg-executed text-muted",
         delegated: "bg-defeated text-foreground",
         received: "bg-primary text-foreground",
+        expired: "bg-muted text-foreground",
+        unlocked: "bg-executed text-foreground",
       },
     },
     defaultVariants: {
@@ -37,7 +39,7 @@ const badgeVariants = cva(
   },
 );
 
-type BadgeType = "personal" | "delegated" | "received";
+type BadgeType = "personal" | "delegated" | "received" | "expired" | "unlocked";
 
 function LockCard({
   className,

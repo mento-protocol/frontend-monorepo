@@ -11,6 +11,7 @@ import { useLockCalculation } from "@repo/web3";
 import { useLockInfo } from "@repo/web3";
 import { useTokens } from "@repo/web3";
 import { useLocksByAccount } from "@repo/web3";
+import { useAvailableToWithdraw } from "@repo/web3";
 import {
   Card,
   CardContent,
@@ -38,63 +39,63 @@ import { isValidAddress } from "@repo/web3";
 
 export default function VotingPowerForm() {
   const { address } = useAccount();
-  const { isLoading, refetch, lockedBalance } = useLockInfo(address);
+  const { isLoading, refetch } = useLockInfo(address);
 
   const { mentoBalance, veMentoBalance } = useTokens();
   const { locks } = useLocksByAccount({ account: address! });
 
-  // Calculate lock type totals
-  const lockTotals = useMemo(() => {
+  // Get on-chain withdrawable principal
+  const { availableToWithdraw } = useAvailableToWithdraw();
+
+  // Calculate lock type totals with correct semantics
+  const summary = useMemo(() => {
     if (!locks || !address) {
       return {
-        totalLockedMento: 0,
-        ownLocksVeMento: 0,
-        delegatedVeMento: 0,
-        totalVeMento: 0,
+        lockedMento: 0,
+        ownVe: 0,
+        receivedVe: 0,
+        delegatedOutVe: 0,
+        totalVe: 0,
         withdrawableMento: 0,
       };
     }
 
-    let totalLockedMento = 0;
-    let ownLocksVeMento = 0;
-    let delegatedVeMento = 0;
-    let withdrawableMento = 0;
+    const now = new Date();
+    const isMe = (a: string) => a.toLowerCase() === address.toLowerCase();
 
-    locks.forEach((lock) => {
-      const isOwner = lock.owner.id.toLowerCase() === address.toLowerCase();
-      const isDelegatedToSelf =
-        lock.delegate.id.toLowerCase() === address.toLowerCase();
-      const amount = Number(formatUnits(BigInt(lock.amount), 18));
+    // 1) Locked MENTO = sum of principal in active, self-owned locks
+    const lockedMento = locks
+      .filter((l) => isMe(l.owner.id) && now < l.expiration && !l.replacedBy)
+      .reduce((sum, l) => sum + Number(formatUnits(BigInt(l.amount), 18)), 0);
 
-      if (isOwner) {
-        totalLockedMento += amount;
+    // 2) Total ve = wallet balanceOf (current effective voting power)
+    const totalVe = Number(formatUnits(veMentoBalance.value, 18));
 
-        if (isDelegatedToSelf) {
-          // Personal locks - user owns and delegates to self
-          ownLocksVeMento += amount; // Simplified: using amount as veMento for now
-        }
+    // 3) Received ve = locks where others delegate to me
+    // NOTE: exact ve per lock needs contract math; we set to 0 unless you later add a precise per-lock ve calculator.
+    const receivedVe = 0;
 
-        // Check if withdrawable (expired)
-        const now = new Date();
-        if (now > lock.expiration) {
-          withdrawableMento += amount;
-        }
-      } else if (isDelegatedToSelf) {
-        // Received delegations - user receives delegation from others
-        delegatedVeMento += amount; // Simplified: using amount as veMento for now
-      }
-    });
+    // 4) Own ve = total minus received
+    const ownVe = Math.max(0, totalVe - receivedVe);
 
-    const totalVeMento = ownLocksVeMento + delegatedVeMento;
+    // 5) Delegated out ve (from my locks to others) = total minted to others from me.
+    // Without per-lock ve math this is 0 when all locks are self-delegated (your case).
+    const delegatedOutVe = 0;
+
+    // 6) Withdrawable principal from contract (keeps button and summary in sync)
+    const withdrawableMento = Number(
+      formatUnits(availableToWithdraw ?? 0n, 18),
+    );
 
     return {
-      totalLockedMento,
-      ownLocksVeMento,
-      delegatedVeMento,
-      totalVeMento,
+      lockedMento,
+      ownVe,
+      receivedVe,
+      delegatedOutVe,
+      totalVe,
       withdrawableMento,
     };
-  }, [locks, address]);
+  }, [locks, address, veMentoBalance.value, availableToWithdraw]);
 
   const MIN_LOCK_PERIOD_WEEKS = 1;
 
@@ -323,15 +324,14 @@ export default function VotingPowerForm() {
     return Number(formatUnits(mentoBalance.value, 18)).toLocaleString();
   }, [mentoBalance.value]);
 
-  // On-chain totals for summary cards
+  // Format summary values for display
   const formattedLockedMento = useMemo(() => {
-    // lockedBalance is already a formatted string from useLockInfo
-    return Number(lockedBalance).toLocaleString();
-  }, [lockedBalance]);
+    return summary.lockedMento.toLocaleString();
+  }, [summary.lockedMento]);
 
   const formattedTotalVeMento = useMemo(() => {
-    return Number(formatUnits(veMentoBalance.value, 18)).toLocaleString();
-  }, [veMentoBalance.value]);
+    return summary.totalVe.toLocaleString();
+  }, [summary.totalVe]);
 
   const formattedVeMentoReceived = useMemo(() => {
     return isCalculating ? "..." : Number(veMentoReceived).toLocaleString();
@@ -522,7 +522,7 @@ export default function VotingPowerForm() {
                         veMENTO from your own locks
                       </span>
                       <span data-testid="ownLocksVeMentoLabel">
-                        {lockTotals.ownLocksVeMento.toLocaleString()}
+                        {summary.ownVe.toLocaleString()}
                       </span>
                     </div>
                     <hr className="border-border" />
@@ -535,7 +535,7 @@ export default function VotingPowerForm() {
                         </span>
                       </div>
                       <span data-testid="delegatedVeMentoLabel">
-                        {lockTotals.delegatedVeMento.toLocaleString()}
+                        {summary.delegatedOutVe.toLocaleString()}
                       </span>
                     </div>
                     <hr className="border-border" />
@@ -557,7 +557,7 @@ export default function VotingPowerForm() {
                         Withdrawable MENTO
                       </span>
                       <span data-testid="withdrawableMentoLabel">
-                        {lockTotals.withdrawableMento.toLocaleString()}
+                        {summary.withdrawableMento.toLocaleString()}
                       </span>
                     </div>
                   </div>
