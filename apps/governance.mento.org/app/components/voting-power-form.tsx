@@ -4,10 +4,14 @@ import {
   LOCKING_AMOUNT_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
   MAX_LOCKING_DURATION_WEEKS,
+  LOCKING_DELEGATE_ENABLED_FORM_KEY,
+  LOCKING_DELEGATE_ADDRESS_FORM_KEY,
 } from "@repo/web3";
 import { useLockCalculation } from "@repo/web3";
 import { useLockInfo } from "@repo/web3";
 import { useTokens } from "@repo/web3";
+import { useLocksByAccount } from "@repo/web3";
+import { useAvailableToWithdraw } from "@repo/web3";
 import {
   Card,
   CardContent,
@@ -18,6 +22,8 @@ import {
   Datepicker,
   IconLoading,
   Label,
+  Checkbox,
+  Input,
   Slider,
   useDebounce,
 } from "@repo/ui";
@@ -29,20 +35,67 @@ import { useAccount } from "@repo/web3/wagmi";
 import { CreateLockProvider } from "./lock/create-lock-provider";
 import { LockingButton } from "./lock/locking-button";
 import { WithdrawButton } from "./withdraw-button";
+import { isValidAddress } from "@repo/web3";
 
 export default function VotingPowerForm() {
   const { address } = useAccount();
-  const {
-    lock,
-    lockedBalance,
-    unlockedMento,
-    hasLock,
-    hasActiveLock,
-    isLoading,
-    refetch,
-  } = useLockInfo(address);
+  const { isLoading, refetch } = useLockInfo(address);
 
-  const { veMentoBalance, mentoBalance } = useTokens();
+  const { mentoBalance, veMentoBalance } = useTokens();
+  const { locks } = useLocksByAccount({ account: address! });
+
+  // Get on-chain withdrawable principal
+  const { availableToWithdraw } = useAvailableToWithdraw();
+
+  // Calculate lock type totals with correct semantics
+  const summary = useMemo(() => {
+    if (!locks || !address) {
+      return {
+        lockedMento: 0,
+        ownVe: 0,
+        receivedVe: 0,
+        delegatedOutVe: 0,
+        totalVe: 0,
+        withdrawableMento: 0,
+      };
+    }
+
+    const now = new Date();
+    const isMe = (a: string) => a.toLowerCase() === address.toLowerCase();
+
+    // 1) Locked MENTO = sum of principal in active, self-owned locks
+    const lockedMento = locks
+      .filter((l) => isMe(l.owner.id) && now < l.expiration && !l.replacedBy)
+      .reduce((sum, l) => sum + Number(formatUnits(BigInt(l.amount), 18)), 0);
+
+    // 2) Total ve = wallet balanceOf (current effective voting power)
+    const totalVe = Number(formatUnits(veMentoBalance.value, 18));
+
+    // 3) Received ve = locks where others delegate to me
+    // NOTE: exact ve per lock needs contract math; we set to 0 unless you later add a precise per-lock ve calculator.
+    const receivedVe = 0;
+
+    // 4) Own ve = total minus received
+    const ownVe = Math.max(0, totalVe - receivedVe);
+
+    // 5) Delegated out ve (from my locks to others) = total minted to others from me.
+    // Without per-lock ve math this is 0 when all locks are self-delegated (your case).
+    const delegatedOutVe = 0;
+
+    // 6) Withdrawable principal from contract (keeps button and summary in sync)
+    const withdrawableMento = Number(
+      formatUnits(availableToWithdraw ?? 0n, 18),
+    );
+
+    return {
+      lockedMento,
+      ownVe,
+      receivedVe,
+      delegatedOutVe,
+      totalVe,
+      withdrawableMento,
+    };
+  }, [locks, address, veMentoBalance.value, availableToWithdraw]);
 
   const MIN_LOCK_PERIOD_WEEKS = 1;
 
@@ -84,19 +137,8 @@ export default function VotingPowerForm() {
     return wednesdays;
   }, [minLockDate]);
 
-  // When topping up an existing lock, find the first selectable Wednesday index
-  const minSelectableIndex = useMemo(() => {
-    if (!hasActiveLock || !lock?.expiration || validWednesdays.length === 0) {
-      return 0;
-    }
-
-    const expirationTime = new Date(lock.expiration).getTime();
-    const idx = validWednesdays.findIndex(
-      (date) => date.getTime() >= expirationTime,
-    );
-    // If no valid Wednesday is found after expiration, return last index
-    return idx >= 0 ? idx : validWednesdays.length - 1;
-  }, [hasActiveLock, lock?.expiration, validWednesdays]);
+  // Always creating a new lock: no special minimum beyond base min date
+  // (Slider min index stays at 0; earlier dates are disabled by minLockDate)
 
   const maxDate = useMemo(() => {
     // Use the last valid Wednesday as the max date to ensure consistency
@@ -106,73 +148,51 @@ export default function VotingPowerForm() {
   }, [validWednesdays]);
 
   const sliderLabels = useMemo(() => {
-    const formatDuration = (targetDate: Date, forceMonths = false) => {
+    const formatDuration = (targetDate: Date) => {
       const now = new Date();
       const timeDiff = targetDate.getTime() - now.getTime();
       const daysDiff = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
       const weeksDiff = Math.ceil(daysDiff / 7);
 
-      // Use the same calendar-month logic as lockDurationDisplay
       const yearsDiff = targetDate.getFullYear() - now.getFullYear();
       const monthsDiff = targetDate.getMonth() - now.getMonth();
       const totalMonths = yearsDiff * 12 + monthsDiff;
       const adjustedMonths =
         targetDate.getDate() >= now.getDate() ? totalMonths : totalMonths - 1;
 
-      // Helper function for pluralization
-      const pluralize = (count: number, singular: string, plural: string) => {
-        return count === 1 ? `${count} ${singular}` : `${count} ${plural}`;
-      };
+      const pluralize = (count: number, singular: string, plural: string) =>
+        count === 1 ? `${count} ${singular}` : `${count} ${plural}`;
 
-      // Display logic: show weeks if less than 1 month, otherwise show months
-      if (forceMonths || adjustedMonths >= 1) {
-        return pluralize(adjustedMonths, "month", "months");
-      }
-      return pluralize(weeksDiff, "week", "weeks");
+      return adjustedMonths >= 1
+        ? pluralize(adjustedMonths, "month", "months")
+        : pluralize(weeksDiff, "week", "weeks");
     };
 
-    const minIdx = hasActiveLock && lock?.expiration ? minSelectableIndex : 0;
+    const minIdx = 0;
     const maxIdx = validWednesdays.length - 1;
     const midIdx = Math.floor((minIdx + maxIdx) / 2);
 
     const minDate = validWednesdays[minIdx];
     const midDate = validWednesdays[midIdx];
 
-    // Calculate start label
-    const startLabel = (() => {
-      if (minIdx >= 0 && minIdx < validWednesdays.length && minDate) {
-        return formatDuration(minDate, hasActiveLock && !!lock?.expiration);
-      }
-      return "1 week";
-    })();
-
-    // Calculate middle label
-    const middleLabel = (() => {
-      if (midIdx >= 0 && midIdx < validWednesdays.length && midDate) {
-        return formatDuration(midDate, hasActiveLock && !!lock?.expiration);
-      }
-      return "1 year";
-    })();
+    const startLabel =
+      minIdx >= 0 && minIdx < validWednesdays.length && minDate
+        ? formatDuration(minDate)
+        : "1 week";
+    const middleLabel =
+      midIdx >= 0 && midIdx < validWednesdays.length && midDate
+        ? formatDuration(midDate)
+        : "1 year";
 
     return { startLabel, middleLabel, endLabel: "2 years" };
-  }, [validWednesdays, hasActiveLock, lock?.expiration, minSelectableIndex]);
+  }, [validWednesdays]);
 
   const isDateDisabled = (date: Date) => {
     if (!maxDate) throw new Error("maxDate is undefined");
     const isBeforeMin = date < minLockDate;
     const isAfterMax = date > maxDate;
     const isNotWednesday = spacetime(date).day() !== 3;
-
-    // When topping up an existing lock, you cannot choose a date before the
-    // current expiration.
-    const isBeforeCurrentExpiration =
-      hasActiveLock && lock?.expiration
-        ? date < new Date(lock.expiration)
-        : false;
-
-    return (
-      isBeforeMin || isAfterMax || isNotWednesday || isBeforeCurrentExpiration
-    );
+    return isBeforeMin || isAfterMax || isNotWednesday;
   };
 
   const methods = useForm({
@@ -181,49 +201,23 @@ export default function VotingPowerForm() {
       [LOCKING_AMOUNT_FORM_KEY]: "",
       [LOCKING_UNLOCK_DATE_FORM_KEY]:
         validWednesdays.length > 0 ? validWednesdays[0] : minLockDate,
+      [LOCKING_DELEGATE_ENABLED_FORM_KEY]: false,
+      [LOCKING_DELEGATE_ADDRESS_FORM_KEY]: "",
     },
   });
 
   const { control, watch, register, setValue } = methods;
+  const delegateEnabled = watch(LOCKING_DELEGATE_ENABLED_FORM_KEY);
+  const delegateAddress = watch(LOCKING_DELEGATE_ADDRESS_FORM_KEY);
 
   React.useEffect(() => {
-    if (validWednesdays.length === 0) {
-      return;
-    }
-
-    let defaultDate = validWednesdays[0];
-
-    if (hasActiveLock && lock?.expiration) {
-      const expirationTime = lock.expiration.getTime();
-
-      const exactIdx = validWednesdays.findIndex(
-        (d) => d.getTime() === expirationTime,
-      );
-      if (exactIdx >= 0) {
-        defaultDate = validWednesdays[exactIdx];
-      } else {
-        defaultDate = validWednesdays.reduce((prev, curr) => {
-          if (!prev) throw new Error("prev is undefined");
-          return Math.abs(curr.getTime() - expirationTime) <
-            Math.abs(prev.getTime() - expirationTime)
-            ? curr
-            : prev;
-        }, validWednesdays[0]);
-      }
-    }
-
-    if (!defaultDate) throw new Error("defaultDate is undefined");
-
+    if (validWednesdays.length === 0) return;
+    const defaultDate = validWednesdays[0];
     setValue(LOCKING_UNLOCK_DATE_FORM_KEY, defaultDate, {
       shouldValidate: true,
     });
-    const idx = validWednesdays.findIndex(
-      (d) => d.getTime() === defaultDate.getTime(),
-    );
-    if (idx >= 0) {
-      setSliderIndex(idx);
-    }
-  }, [validWednesdays, hasActiveLock, lock?.expiration, setValue]);
+    setSliderIndex(0);
+  }, [validWednesdays, setValue]);
 
   const amountToLock = watch(LOCKING_AMOUNT_FORM_KEY);
   const unlockDate = watch(LOCKING_UNLOCK_DATE_FORM_KEY);
@@ -330,35 +324,20 @@ export default function VotingPowerForm() {
     return Number(formatUnits(mentoBalance.value, 18)).toLocaleString();
   }, [mentoBalance.value]);
 
-  const formattedVeMentoBalance = useMemo(() => {
-    return Number(formatUnits(veMentoBalance.value, 18)).toLocaleString();
-  }, [veMentoBalance.value]);
+  // Format summary values for display
+  const formattedLockedMento = useMemo(() => {
+    return summary.lockedMento.toLocaleString();
+  }, [summary.lockedMento]);
 
-  const formattedLock = useMemo(() => {
-    return Number(lockedBalance).toLocaleString();
-  }, [lockedBalance]);
-
-  const formattedUnlockedMento = useMemo(() => {
-    return Number(unlockedMento).toLocaleString();
-  }, [unlockedMento]);
+  const formattedTotalVeMento = useMemo(() => {
+    return summary.totalVe.toLocaleString();
+  }, [summary.totalVe]);
 
   const formattedVeMentoReceived = useMemo(() => {
     return isCalculating ? "..." : Number(veMentoReceived).toLocaleString();
   }, [veMentoReceived, isCalculating]);
 
-  // Format expiration date
-  const expirationDate = useMemo(() => {
-    if (!hasLock) return null;
-    if (!lock?.expiration) return null;
-
-    // Check if lock has expired (expiration date is in the past)
-    const now = new Date();
-    if (lock.expiration < now) {
-      return "Fully unlocked";
-    }
-
-    return lock.expiration.toLocaleDateString();
-  }, [hasLock, lock]);
+  // No longer relying on current active lock in this form; always creating a new lock.
 
   const handleUseMaxBalance = () => {
     methods.setValue(
@@ -396,22 +375,7 @@ export default function VotingPowerForm() {
                           "Insufficient balance",
                         min: (v) => {
                           const amount = Number(v);
-                          // Allow empty or 0 amount if user has active lock and is extending duration
-                          if (
-                            (!v || v === "" || amount === 0) &&
-                            hasActiveLock &&
-                            unlockDate &&
-                            lock?.expiration
-                          ) {
-                            const currentExpiration = new Date(lock.expiration);
-                            const selectedDate = new Date(unlockDate);
-                            return (
-                              selectedDate.getTime() !==
-                                currentExpiration.getTime() ||
-                              "Select a different unlock date to extend your lock"
-                            );
-                          }
-                          return amount >= 0 || "Amount must be positive";
+                          return amount > 0 || "Amount must be greater than 0";
                         },
                       },
                     })}
@@ -425,6 +389,33 @@ export default function VotingPowerForm() {
                     >
                       MAX
                     </button>
+                  </div>
+                  {/* Delegate controls */}
+                  <div className="mt-2 flex flex-col gap-3">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="delegateEnabled"
+                        checked={!!delegateEnabled}
+                        onCheckedChange={(v) =>
+                          setValue(
+                            LOCKING_DELEGATE_ENABLED_FORM_KEY,
+                            Boolean(v),
+                            { shouldValidate: true },
+                          )
+                        }
+                      />
+                      <Label htmlFor="delegateEnabled">Delegate</Label>
+                    </div>
+                    {delegateEnabled && (
+                      <Input
+                        placeholder="Delegate Address..."
+                        {...register(LOCKING_DELEGATE_ADDRESS_FORM_KEY, {
+                          validate: (v) => {
+                            return isValidAddress(v) || "Invalid address";
+                          },
+                        })}
+                      />
+                    )}
                   </div>
                 </div>
                 <div className="col-span-5 flex flex-row items-center md:flex-col md:items-end md:justify-end">
@@ -467,27 +458,16 @@ export default function VotingPowerForm() {
                   value={[sliderIndex]}
                   onValueChange={(values) => {
                     const newIndex = values[0]!;
-                    // Enforce minimum selectable index for existing locks
-                    const actualIndex =
-                      hasActiveLock && lock?.expiration
-                        ? Math.max(newIndex, minSelectableIndex)
-                        : newIndex;
-
-                    setSliderIndex(actualIndex);
-                    if (
-                      actualIndex >= 0 &&
-                      actualIndex < validWednesdays.length
-                    ) {
+                    setSliderIndex(newIndex);
+                    if (newIndex >= 0 && newIndex < validWednesdays.length) {
                       setValue(
                         LOCKING_UNLOCK_DATE_FORM_KEY,
-                        validWednesdays[actualIndex],
+                        validWednesdays[newIndex],
                         { shouldValidate: true },
                       );
                     }
                   }}
-                  min={
-                    hasActiveLock && lock?.expiration ? minSelectableIndex : 0
-                  }
+                  min={0}
                   max={validWednesdays.length - 1}
                   step={1}
                   className="my-4"
@@ -514,7 +494,7 @@ export default function VotingPowerForm() {
 
           <Card className="border-border w-full md:h-[480px] md:min-w-[494px]">
             <CardHeader className="text-2xl font-medium">
-              Your existing veMENTO lock
+              Locks Summary
             </CardHeader>
             <>
               <CardContent
@@ -525,35 +505,59 @@ export default function VotingPowerForm() {
                 {isLoading && <IconLoading />}
                 {!isLoading && (
                   <div className="flex flex-col gap-4">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">veMENTO</span>
-                      <span data-testid="existingLockVeMentoLabel">
-                        {formattedVeMentoBalance}
-                      </span>
-                    </div>
-                    <hr className="border-border h-full" />
+                    {/* Locked MENTO */}
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">
                         Locked MENTO
                       </span>
-                      <span data-testid="existingLockMentoLabel">
-                        {formattedLock}
+                      <span data-testid="totalLockedMentoLabel">
+                        {formattedLockedMento}
                       </span>
                     </div>
-                    <hr className="border-border h-full" />
+                    <hr className="border-border" />
+
+                    {/* veMENTO from your own locks */}
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">
+                        veMENTO from your own locks
+                      </span>
+                      <span data-testid="ownLocksVeMentoLabel">
+                        {summary.ownVe.toLocaleString()}
+                      </span>
+                    </div>
+                    <hr className="border-border" />
+
+                    {/* Delegated veMENTO */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-muted-foreground">
+                          Delegated veMENTO
+                        </span>
+                      </div>
+                      <span data-testid="delegatedVeMentoLabel">
+                        {summary.delegatedOutVe.toLocaleString()}
+                      </span>
+                    </div>
+                    <hr className="border-border" />
+
+                    {/* Total veMENTO */}
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">
+                        Total veMENTO
+                      </span>
+                      <span data-testid="totalVeMentoLabel">
+                        {formattedTotalVeMento}
+                      </span>
+                    </div>
+                    <hr className="border-border" />
+
+                    {/* Withdrawable MENTO */}
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">
                         Withdrawable MENTO
                       </span>
-                      <span data-testid="existingLockWithdrawableMentoLabel">
-                        {formattedUnlockedMento}
-                      </span>
-                    </div>
-                    <hr className="border-border h-full" />
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Expires</span>
-                      <span data-testid="existingLockExpirationDateLabel">
-                        {expirationDate || "-"}
+                      <span data-testid="withdrawableMentoLabel">
+                        {summary.withdrawableMento.toLocaleString()}
                       </span>
                     </div>
                   </div>

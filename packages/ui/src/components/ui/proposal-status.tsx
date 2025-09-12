@@ -10,13 +10,13 @@ const proposalStatusVariants = cva(
     variants: {
       variant: {
         default: "bg-[var(--expired)] text-[var(--expired-text)]", // EXPIRED
-        active: "bg-[var(--active)]",
-        pending: "bg-[var(--pending)]",
-        executed: "bg-[var(--executed)] text-black",
-        queued: "bg-[var(--queued)]",
-        succeeded: "bg-[var(--succeeded)]",
-        defeated: "bg-[var(--defeated)]",
-        canceled: "bg-[var(--canceled)]",
+        active: "bg-active",
+        pending: "bg-pending",
+        executed: "bg-executed text-black",
+        queued: "bg-queued",
+        succeeded: "bg-succeeded",
+        defeated: "bg-defeated",
+        canceled: "bg-canceled",
       },
     },
     defaultVariants: {

@@ -7,6 +7,7 @@ import {
   BreadcrumbSeparator,
 } from "@repo/ui";
 import VotingPowerForm from "../components/voting-power-form";
+import { LockList } from "@/components/lock-list";
 
 export default function CreateProposalPage() {
   return (
@@ -29,6 +30,7 @@ export default function CreateProposalPage() {
         Your voting power
       </h1>
       <VotingPowerForm />
+      <LockList />
     </main>
   );
 }

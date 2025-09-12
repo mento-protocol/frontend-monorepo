@@ -14,6 +14,9 @@ import {
   DEFAULT_LOCKING_CLIFF,
   LOCKING_AMOUNT_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
+  LOCKING_DELEGATE_ENABLED_FORM_KEY,
+  LOCKING_DELEGATE_ADDRESS_FORM_KEY,
+  isValidAddress,
 } from "@repo/web3";
 import { differenceInWeeks } from "date-fns";
 import { useFormContext } from "react-hook-form";
@@ -68,6 +71,8 @@ export const CreateLockProvider = ({
 
   const amount = watch(LOCKING_AMOUNT_FORM_KEY);
   const unlockDate = watch(LOCKING_UNLOCK_DATE_FORM_KEY);
+  const delegateEnabled = watch(LOCKING_DELEGATE_ENABLED_FORM_KEY);
+  const delegateAddressInput = watch(LOCKING_DELEGATE_ADDRESS_FORM_KEY);
 
   const slope = React.useMemo(() => {
     if (!unlockDate) return 0;
@@ -93,11 +98,22 @@ export const CreateLockProvider = ({
     resetForm();
   }, [resetForm]);
 
+  const selectedDelegate = React.useMemo(() => {
+    if (
+      delegateEnabled &&
+      delegateAddressInput &&
+      isValidAddress(delegateAddressInput)
+    ) {
+      return delegateAddressInput as any; // viem Address
+    }
+    return address!;
+  }, [address, delegateAddressInput, delegateEnabled]);
+
   const lockMento = React.useCallback(() => {
     lock.lockMento({
       account: address!,
       amount: parsedAmount,
-      delegate: address!,
+      delegate: selectedDelegate as any,
       slope,
       cliff: DEFAULT_LOCKING_CLIFF,
       onSuccess: () => {
@@ -108,7 +124,7 @@ export const CreateLockProvider = ({
         toast.error("Failed to lock MENTO");
       },
     });
-  }, [address, lock, parsedAmount, resetAll, slope]);
+  }, [address, lock, parsedAmount, resetAll, selectedDelegate, slope]);
 
   const approve = useApprove();
 
