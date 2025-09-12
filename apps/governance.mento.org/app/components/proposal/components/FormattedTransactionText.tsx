@@ -5,6 +5,7 @@ import { Transaction } from "../types/transaction";
 import { useExplorerUrl } from "../utils/address-utils";
 import { AddressParser } from "./AddressParser";
 import { CodeStyler } from "./CodeStyler";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@repo/ui";
 
 interface AddressReplacement {
   match: string;
@@ -57,17 +58,24 @@ export function FormattedTransactionText({
         );
       }
 
-      // Add the clickable link
+      // Add the clickable link with tooltip
       elements.push(
-        <a
-          key={`link-${keyCounter++}`}
-          href={`${explorerUrl}/address/${replacement.address}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-bold underline-offset-4 hover:underline"
-        >
-          {replacement.match}
-        </a>,
+        <Tooltip key={`tooltip-${keyCounter}`}>
+          <TooltipTrigger asChild>
+            <a
+              key={`link-${keyCounter++}`}
+              href={`${explorerUrl}/address/${replacement.address}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-bold underline-offset-4 hover:underline"
+            >
+              {replacement.match}
+            </a>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p className="font-mono text-xs">{replacement.address}</p>
+          </TooltipContent>
+        </Tooltip>,
       );
 
       lastEnd = replacement.end;

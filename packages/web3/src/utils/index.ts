@@ -7,3 +7,4 @@ export * from "./blockscout";
 export * from "./numbers";
 export * from "./ensure-chain-id";
 export * from "./wallet.helper";
+export * from "./abi";

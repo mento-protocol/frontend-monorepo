@@ -1,6 +1,5 @@
-import { decodeFunctionData, parseAbi, formatUnits } from "viem";
-import * as Sentry from "@sentry/nextjs";
-import { DecodedTransaction, Transaction } from "../types/transaction";
+import { parseAbi } from "viem";
+// ABI fallback is now handled in ExecutionCode component
 
 // Common ERC20 ABI (Complete)
 const ERC20_ABI = parseAbi([
@@ -155,31 +154,31 @@ const PROTOCOL_ABI = parseAbi([
 ]);
 
 // SortedOracles functions
-const SORTED_ORACLES_ABI = parseAbi([
-  // Oracle management
-  "function addOracle(address token, address oracleAddress)",
-  "function removeOracle(address token, address oracleAddress, uint256 index)",
+// const SORTED_ORACLES_ABI = parseAbi([
+//   // Oracle management
+//   "function addOracle(address token, address oracleAddress)",
+//   "function removeOracle(address token, address oracleAddress, uint256 index)",
 
-  // Reporting
-  "function report(address token, uint256 value, address lesserKey, address greaterKey)",
-  "function removeExpiredReports(address token, uint256 n)",
+//   // Reporting
+//   "function report(address token, uint256 value, address lesserKey, address greaterKey)",
+//   "function removeExpiredReports(address token, uint256 n)",
 
-  // Configuration
-  "function setReportExpiry(uint256 _reportExpirySeconds)",
-  "function setTokenReportExpiry(address _token, uint256 _reportExpirySeconds)",
-  "function setBreakerBox(address newBreakerBox)",
+//   // Configuration
+//   "function setReportExpiry(uint256 _reportExpirySeconds)",
+//   "function setTokenReportExpiry(address _token, uint256 _reportExpirySeconds)",
+//   "function setBreakerBox(address newBreakerBox)",
 
-  // Equivalent token management
-  "function setEquivalentToken(address token, address equivalentToken)",
-  "function deleteEquivalentToken(address token)",
+//   // Equivalent token management
+//   "function setEquivalentToken(address token, address equivalentToken)",
+//   "function deleteEquivalentToken(address token)",
 
-  // Initialization
-  "function initialize(uint256 _reportExpirySeconds)",
+//   // Initialization
+//   "function initialize(uint256 _reportExpirySeconds)",
 
-  // Ownership
-  "function transferOwnership(address newOwner)",
-  "function renounceOwnership()",
-]);
+//   // Ownership
+//   "function transferOwnership(address newOwner)",
+//   "function renounceOwnership()",
+// ]);
 
 // Proxy Admin functions
 const PROXY_ADMIN_ABI = parseAbi([
@@ -199,141 +198,13 @@ const PROXY_ADMIN_ABI = parseAbi([
 ]);
 
 // Combine all known ABIs
-const KNOWN_ABIS = [
+export const KNOWN_ABIS = [
   ...ERC20_ABI,
   ...MENTO_TOKEN_ABI,
   ...GOVERNANCE_ABI,
   ...VEMENTO_ABI,
   ...RESERVE_ABI,
   ...PROTOCOL_ABI,
-  ...SORTED_ORACLES_ABI,
+  // ...SORTED_ORACLES_ABI,
   ...PROXY_ADMIN_ABI,
 ];
-
-/**
- * Decode a transaction with proper error handling and null checks
- */
-export function decodeTransaction(
-  transaction: Transaction | null | undefined,
-): DecodedTransaction | null {
-  if (
-    !transaction?.address ||
-    !transaction?.data ||
-    transaction.data === "0x"
-  ) {
-    return null;
-  }
-
-  try {
-    // Try to decode with known ABIs
-    for (const abiItem of KNOWN_ABIS) {
-      try {
-        const decoded = decodeFunctionData({
-          abi: [abiItem],
-          data: transaction.data as `0x${string}`,
-        });
-
-        if (decoded && abiItem.type === "function") {
-          // Extract function signature
-          const functionSignature = `${abiItem.name}(${abiItem.inputs.map((i) => i.type).join(",")})`;
-
-          // viem returns args as an array in decoded.args
-          const decodedArgs = decoded.args as readonly unknown[];
-
-          // Format arguments with null checks
-          const args = abiItem.inputs.map((input, index) => {
-            let value = decodedArgs?.[index] as
-              | string
-              | number
-              | boolean
-              | bigint
-              | null
-              | undefined;
-
-            // Handle null/undefined values
-            if (value === null || value === undefined) {
-              value = "";
-            } else if (input.type.includes("uint") && value !== "") {
-              // Keep as string for large numbers
-              value = value.toString();
-            } else if (input.type === "address" && value) {
-              value = (value as string).toLowerCase();
-            } else if (input.type === "bool") {
-              value = Boolean(value);
-            }
-
-            return {
-              name: input.name || `arg${index}`,
-              type: input.type,
-              value: value || "",
-            };
-          });
-
-          return {
-            functionName: abiItem.name,
-            functionSignature,
-            args,
-          };
-        }
-      } catch {
-        // Try next ABI item
-        continue;
-      }
-    }
-
-    // If no known ABI matches, try to extract basic info
-    const selector = transaction.data.slice(0, 10);
-    return {
-      functionName: `Unknown function ${selector}`,
-      functionSignature: selector,
-      args: [],
-    };
-  } catch (error) {
-    // Log to Sentry with context
-    Sentry.withScope((scope) => {
-      scope.setTag("component", "decoder-utils");
-      scope.setContext("transaction", {
-        address: transaction.address,
-        dataLength: transaction.data?.length || 0,
-        hasData: !!(transaction.data && transaction.data !== "0x"),
-      });
-      Sentry.captureException(error);
-    });
-
-    console.error("Error decoding transaction:", error);
-    return null;
-  }
-}
-
-// Helper to format decoded values for display
-export function formatDecodedValue(
-  value: string | number | boolean | bigint | null | undefined,
-  type: string,
-): string {
-  if (value === null || value === undefined) {
-    return "";
-  }
-
-  if (type.includes("uint")) {
-    try {
-      const decimals = type.includes("256") ? 18 : 0; // Assume 18 decimals for uint256
-      return formatUnits(BigInt(value), decimals);
-    } catch {
-      return value.toString();
-    }
-  }
-
-  if (type === "address") {
-    return String(value).toLowerCase();
-  }
-
-  if (type === "bool") {
-    return value ? "true" : "false";
-  }
-
-  if (type === "bytes" || type.startsWith("bytes")) {
-    return String(value);
-  }
-
-  return String(value);
-}
