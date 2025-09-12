@@ -262,6 +262,7 @@ export const LockList = () => {
               }
 
               const formattedAmount = formatAmount(lock.amount);
+              const expired = lock.expiration < new Date();
 
               return (
                 <LockCard key={lock.lockId}>
@@ -272,8 +273,8 @@ export const LockList = () => {
                         {badgeType === "received" ? "veMENTO" : "MENTO"}
                       </LockCardToken>
                     </LockCardHeaderGroup>
-                    <LockCardBadge type={badgeType}>
-                      {badgeType.charAt(0).toUpperCase() + badgeType.slice(1)}
+                    <LockCardBadge type={expired ? "expired" : "unlocked"}>
+                      {expired ? "Expired" : "Unlocked"}
                     </LockCardBadge>
                   </LockCardHeader>
                   <LockCardBody>
@@ -322,7 +323,9 @@ export const LockList = () => {
 
                     <LockCardRow>
                       <LockCardField>
-                        <LockCardFieldLabel>Expires</LockCardFieldLabel>
+                        <LockCardFieldLabel>
+                          {expired ? "Expired" : "Expires"}
+                        </LockCardFieldLabel>
                         <LockCardFieldValue>
                           {formatDate(lock.expiration)}
                         </LockCardFieldValue>

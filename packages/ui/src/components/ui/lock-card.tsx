@@ -30,7 +30,7 @@ const badgeVariants = cva(
         delegated: "bg-defeated text-foreground",
         received: "bg-primary text-foreground",
         expired: "bg-muted text-foreground",
-        unlocked: "bg-executed text-foreground",
+        unlocked: "bg-success text-foreground",
       },
     },
     defaultVariants: {
