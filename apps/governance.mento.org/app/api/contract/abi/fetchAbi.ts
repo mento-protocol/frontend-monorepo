@@ -1,10 +1,12 @@
 import { env } from "@/env.mjs";
 import { Abi, Address } from "viem";
 
+export type AbiSource = "blockscout" | "celoscan";
+
 // Function to fetch ABI from external APIs
 export async function fetchAbi(
   address: Address,
-  source: "blockscout" | "celoscan",
+  source: AbiSource,
   apiKey?: string,
 ): Promise<Abi | null> {
   try {

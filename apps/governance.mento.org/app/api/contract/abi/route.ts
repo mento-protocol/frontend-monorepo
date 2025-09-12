@@ -8,7 +8,7 @@ import {
 } from "viem";
 import { celo } from "viem/chains";
 import { getImplementationAddress } from "./getImplementationAddress";
-import { fetchAbi } from "./fetchAbi";
+import { AbiSource, fetchAbi } from "./fetchAbi";
 import { env } from "../../../env.mjs";
 import { isAbi } from "./isAbi";
 
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
     const apiKey = env.NEXT_PUBLIC_ETHERSCAN_API_KEY;
 
     // Try Celoscan first
-    let abiSource = "celoscan";
+    let abiSource: AbiSource = "celoscan";
     let abi = await fetchAbi(address, abiSource, apiKey);
 
     // Fallback to Blockscout
