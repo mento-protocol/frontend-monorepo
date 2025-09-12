@@ -36,6 +36,7 @@ import { useMemo } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { formatUnits } from "viem";
+import { ExecutionCode } from "./execution-code/ExecutionCode";
 
 const CELO_COMMUNITY_ADDRESS = "0x41822d8a191fcfb1cfca5f7048818acd8ee933d3";
 
@@ -188,6 +189,15 @@ export const ProposalContent = () => {
     );
   }, [currentBlock, endBlock.data, proposal]);
 
+  const transactions = useMemo(() => {
+    if (!proposal?.calls || proposal.calls.length === 0) return [];
+    return proposal.calls.map((call) => ({
+      address: call.target.id,
+      value: call.value,
+      data: call.calldata,
+    }));
+  }, [proposal?.calls]);
+
   if (!proposal) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -301,42 +311,55 @@ export const ProposalContent = () => {
             onVoteConfirmed={refetchProposal}
           />
 
-          <div className="prose prose-invert mt-16">
-            {proposal.metadata?.description ? (
-              descriptionType === "html" ? (
-                <div
-                  dangerouslySetInnerHTML={{
-                    __html: decodeHtmlEntities(proposal.metadata.description),
-                  }}
-                  data-testid="proposalDescriptionLabel"
-                />
-              ) : (
-                <div data-testid="proposalDescriptionLabel">
-                  <Markdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      a: (props) => (
-                        <a
-                          {...props}
-                          href={
-                            props.href?.includes("https")
-                              ? props.href
-                              : `https://${props.href?.replace("http://", "")}`
-                          }
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        />
-                      ),
-                    }}
-                  >
-                    {proposal.metadata.description}
-                  </Markdown>
-                </div>
-              )
-            ) : (
-              <p>No description available</p>
-            )}
-          </div>
+          {transactions.length > 0 && (
+            <ExecutionCode transactions={transactions} className="mt-4" />
+          )}
+
+          <Card className="border-border mt-4">
+            <CardHeader>
+              <CardTitle className="text-2xl">Proposal Description</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="prose prose-invert">
+                {proposal.metadata?.description ? (
+                  descriptionType === "html" ? (
+                    <div
+                      dangerouslySetInnerHTML={{
+                        __html: decodeHtmlEntities(
+                          proposal.metadata.description,
+                        ),
+                      }}
+                      data-testid="proposalDescriptionLabel"
+                    />
+                  ) : (
+                    <div data-testid="proposalDescriptionLabel">
+                      <Markdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          a: (props) => (
+                            <a
+                              {...props}
+                              href={
+                                props.href?.includes("https")
+                                  ? props.href
+                                  : `https://${props.href?.replace("http://", "")}`
+                              }
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            />
+                          ),
+                        }}
+                      >
+                        {proposal.metadata.description}
+                      </Markdown>
+                    </div>
+                  )
+                ) : (
+                  <p>No description available</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </div>
         <div className="xl:w-1/3">
           <Card className="bord max-h-[420px] w-full gap-3 overflow-hidden border-none">

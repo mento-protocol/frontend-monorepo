@@ -3,13 +3,6 @@ import type { NextConfig } from "next";
 import { env } from "@/env.mjs";
 
 const nextConfig: NextConfig = {
-  // TODO: Remove once stable
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   images: {
     remotePatterns: [
       {
@@ -33,6 +26,7 @@ const nextConfig: NextConfig = {
     "@wagmi/core",
     "@rainbow-me/rainbowkit",
   ],
+  serverExternalPackages: ["require-in-the-middle", "import-in-the-middle"],
 };
 
 export default withSentryConfig(nextConfig, {

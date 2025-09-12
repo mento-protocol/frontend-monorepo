@@ -1,7 +1,7 @@
 import { CodegenConfig } from "@graphql-codegen/cli";
 import "dotenv/config";
 
-const CELO_EXPLORER_API_URL = process.env.NEXT_PUBLIC_CELO_EXPLORER_API_URL;
+const CELO_EXPLORER_API_URL = process.env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL;
 
 const SUBGRAPH_URL = process.env.NEXT_PUBLIC_SUBGRAPH_URL;
 

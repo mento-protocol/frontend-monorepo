@@ -10,9 +10,9 @@ import {
 import { setContext } from "@apollo/client/link/context";
 
 const CELO_EXPLORER_API_URL =
-  process.env.NEXT_PUBLIC_CELO_EXPLORER_API_URL ?? "";
+  process.env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL ?? "";
 const CELO_EXPLORER_API_URL_ALFAJORES =
-  process.env.NEXT_PUBLIC_CELO_EXPLORER_API_URL_ALFAJORES ?? "";
+  process.env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_ALFAJORES ?? "";
 
 const SUBGRAPH_URL = process.env.NEXT_PUBLIC_SUBGRAPH_URL ?? "";
 const SUBGRAPH_URL_ALFAJORES =

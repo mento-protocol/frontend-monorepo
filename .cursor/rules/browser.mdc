@@ -1,7 +1,73 @@
 ---
+description: For checking frontend and UI development in a browser
 alwaysApply: false
 ---
-# Browser MCP Rules
+# Playwright Rules for UI Development
 
-- Whenever you are making UI changes, use the browser MCP to verify the changes in the browser. When you're having trouble connecting to the browser MCP tool, ask me for help
-- Refresh the browser using "CMD + R" (and not F5)
+## When to Use @playwright
+
+✅ Verify components render after changes
+✅ Test clicks/forms/interactions work
+✅ Debug visual issues
+✅ Check error states
+
+❌ NOT for: syntax errors, API responses, build errors
+
+## Token-Efficient Commands
+
+### Always be specific
+
+❌ "@playwright screenshot the page" (expensive, consumes lots of tokens)
+✅ "@playwright screenshot .todo-list" (better, more specific, cheaper)
+✅ "@playwright check if .error exists" (best, cheapest)
+
+### Preferred commands (cheapest first):
+
+1. `check if [selector] exists` - 50 tokens
+2. `get text of [selector]` - 100 tokens
+3. `count [selector] elements` - 100 tokens
+4. `click [selector] and verify [result]` - 150 tokens
+5. `screenshot [selector]` - 600 tokens
+
+## Development Workflow
+
+### After creating component:
+
+`@playwright verify [ComponentName] renders at localhost:3000`
+
+### After adding interaction:
+
+`@playwright click [element] and verify [expected change]`
+
+### When debugging:
+
+1. `@playwright check for console errors`
+2. Only if needed: `@playwright screenshot the broken element`
+
+## Key Patterns
+
+### Forms:
+
+`@playwright fill [field] with [value] and check for [response]`
+
+### Responsive:
+
+`@playwright set viewport to mobile and verify layout`
+
+### Errors:
+
+`@playwright check if .error exists`
+If yes: `@playwright get text of .error`
+
+## React-Specific
+
+- Playwright auto-waits for renders
+- Check error boundaries: `verify .error-boundary visibility`
+- Test conditional rendering: `click toggle and verify element appears`
+
+## Remember
+
+- Start with existence checks (50 tokens)
+- Use screenshots only when necessary (600 tokens)
+- Never capture full page unless critical (1200+ tokens)
+- Batch related checks in one command
