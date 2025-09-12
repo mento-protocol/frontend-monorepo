@@ -79,12 +79,6 @@
       "friendlyName": "Celo Community"
     }
   },
-  "protocol": {
-    "0xefb84935239dacdecf7c5ba76d8de40b077b7b33": {
-      "name": "SortedOracles",
-      "friendlyName": "Mento Price Oracles"
-    }
-  },
   "rateFeeds": {
     "0x765DE816845861e75A25fCA122bb6898B8B1282a": "CELO/USD rate feed",
     "0xD8763CBa276a3738E6DE85b4b3bF5FDed6D6cA73": "CELO/EUR rate feed",

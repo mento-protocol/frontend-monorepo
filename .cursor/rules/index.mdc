@@ -6,27 +6,17 @@ alwaysApply: true
 
 ## Running local commands
 
-- To run an app, use `turbo dev --filter <app-name-as-defined-in-package-json>`
-- Before starting a server, always check if there's already one running on either localhost:3000 / localhost:3001 / localhost:3002 / localhost:3003 / localhost:3004 / localhost:3005
-- Generally use turbo's `--filter` arg whenever possible to avoid wasting resources. For example, when asked to make changes in the reserve.mento.org app, run `turbo dev --filter reserve.mento.org` (and NOT `turbo dev` which would start every server for every project)
+- Always check if the app you need is already running on localhost:[3000-3005]
+- Run apps via `turbo dev --filter <app-name-as-defined-in-package-json>`, but only do so after you confirmed there's no existing local server running ont that port
+- Use turbo's `--filter` flag whenever possible to avoid wasting resources. I.e., when asked to make changes in the reserve.mento.org app, run `turbo dev --filter reserve.mento.org` (and NOT `turbo dev` which would start every server for every project)
 
 ## After making changes
 
 Always test your changes by doing at least the following:
 
-- Run `turbo check-types` to confirm the TypeScript build still works. You can confirm this either globally via or on a per-project basis via `turbo check-types --filter app-or-package-name`
-- Run `trunk check` to confirm our linters are still passing.
-- The changes are actually working in the browser. You can use the browser tool to look at the UI and the browser console. If you can't connect to my browser, it's likely because I forgot to activate my MCP browser extension. You can ask me do activate it if that's the case
-
-## Shell Configuration
-
-When using the `run_terminal_cmd` tool, always use zsh with the user's configuration loaded by using:
-
-```bash
-zsh -l "your-command-here"
-```
-
-This ensures access to tools managed by Volta (like pnpm, turbo, node) and other development tools configured in the user's environment.
+- Run `turbo check-types` to confirm the TypeScript build still works
+- Run `trunk check --fix` to confirm our linters are still passing
+- Confirm your changes actually work by checking the edited page on localhost (you can get the right port from looking at the respective "dev" script in package.json, i.e. when developing app.mento.org you'd check the "dev" script in `./apps/app.mento.org/package.json` for the port etc.)
 
 ## Node and Package Manager Versions
 

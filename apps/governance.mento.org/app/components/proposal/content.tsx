@@ -189,6 +189,15 @@ export const ProposalContent = () => {
     );
   }, [currentBlock, endBlock.data, proposal]);
 
+  const transactions = useMemo(() => {
+    if (!proposal?.calls || proposal.calls.length === 0) return [];
+    return proposal.calls.map((call) => ({
+      address: call.target.id,
+      value: call.value,
+      data: call.calldata,
+    }));
+  }, [proposal?.calls]);
+
   if (!proposal) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -302,15 +311,8 @@ export const ProposalContent = () => {
             onVoteConfirmed={refetchProposal}
           />
 
-          {proposal.calls && proposal.calls.length > 0 && (
-            <ExecutionCode
-              transactions={proposal.calls.map((call) => ({
-                address: call.target.id,
-                value: call.value,
-                data: call.calldata,
-              }))}
-              className="mt-4"
-            />
+          {transactions.length > 0 && (
+            <ExecutionCode transactions={transactions} className="mt-4" />
           )}
 
           <Card className="border-border mt-4">

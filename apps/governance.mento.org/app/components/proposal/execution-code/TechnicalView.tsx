@@ -1,33 +1,57 @@
 "use client";
 
 import { CopyToClipboard } from "@repo/ui";
-import { useMemo } from "react";
-import { Transaction } from "../types/transaction";
-import { useContractName } from "../hooks/useContractRegistry";
+import { Transaction, type DecodedTransaction } from "../types/transaction";
 import { useExplorerUrl, formatAddress } from "../utils/address-utils";
-import { decodeTransaction } from "../lib/decoder-utils";
+import { removeProxySuffix } from "./utils/removeProxySuffix";
+import { LoadingState } from "./LoadingState";
 
-interface DecodedTransactionProps {
-  transaction: Transaction;
-  index: number;
+interface TechnicalViewProps {
+  isLoading: boolean;
+  transactions: Transaction[];
+  decodedTransactions: (DecodedTransaction | null)[];
+  contractNames: Record<string, string>;
 }
 
-export function DecodedTransaction({
-  transaction,
-  index,
-}: DecodedTransactionProps) {
-  const explorerUrl = useExplorerUrl();
-  const contractName = useContractName(transaction?.address);
+export function TechnicalView({
+  isLoading,
+  transactions,
+  decodedTransactions,
+  contractNames,
+}: TechnicalViewProps) {
+  if (isLoading) {
+    return <LoadingState />;
+  }
 
-  const decoded = useMemo(() => {
-    if (!transaction) return null;
-    try {
-      return decodeTransaction(transaction);
-    } catch (error) {
-      console.error("Error decoding transaction:", error);
-      return null;
-    }
-  }, [transaction]);
+  return (
+    <div className="space-y-4">
+      {transactions.map((transaction, index) => (
+        <DecodedTransactionView
+          key={index}
+          transaction={transaction}
+          decoded={decodedTransactions[index] || null}
+          index={index}
+          contractName={contractNames[transaction.address]}
+        />
+      ))}
+    </div>
+  );
+}
+
+interface DecodedTransactionViewProps {
+  transaction: Transaction;
+  decoded: DecodedTransaction | null;
+  index: number;
+  contractName?: string;
+}
+
+function DecodedTransactionView({
+  transaction,
+  decoded,
+  index,
+  contractName,
+}: DecodedTransactionViewProps) {
+  const explorerUrl = useExplorerUrl();
 
   if (!transaction) {
     return (
@@ -50,11 +74,13 @@ export function DecodedTransaction({
               rel="noopener noreferrer"
               className="flex items-center gap-1 text-sm hover:underline"
             >
-              {contractName || formatAddress(transaction.address)}
+              {removeProxySuffix(contractName) ||
+                formatAddress(transaction.address)}
             </a>
           ) : (
             <span className="text-sm">
-              {contractName || formatAddress(transaction.address)}
+              {removeProxySuffix(contractName) ||
+                formatAddress(transaction.address)}
             </span>
           )}
           <CopyToClipboard text={transaction.address} />
@@ -73,12 +99,21 @@ export function DecodedTransaction({
           </div>
           {decoded.args && decoded.args.length > 0 && (
             <div className="ml-4 space-y-1">
-              {decoded.args.map((arg, i) => (
-                <div key={i} className="text-sm">
-                  <span className="text-muted-foreground">{arg.name}:</span>{" "}
-                  <span className="font-mono">{String(arg.value)}</span>
-                </div>
-              ))}
+              {decoded.args.map(
+                (
+                  arg: {
+                    name: string;
+                    type: string;
+                    value: string | number | boolean | bigint;
+                  },
+                  i: number,
+                ) => (
+                  <div key={i} className="text-sm">
+                    <span className="text-muted-foreground">{arg.name}:</span>{" "}
+                    <span className="font-mono">{String(arg.value)}</span>
+                  </div>
+                ),
+              )}
             </div>
           )}
         </div>

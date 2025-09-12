@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useEffect } from "react";
 import { Transaction } from "../types/transaction";
-import { useAllContractMappings } from "../hooks/useContractRegistry";
-import { decodeTransaction } from "../lib/decoder-utils";
+import {
+  useAllContractMappings,
+  getContractInfo,
+} from "../hooks/useContractRegistry";
 
 interface AddressReplacement {
   match: string;
@@ -55,21 +57,9 @@ export function AddressParser({
       const contractTruncated = `${transaction.address.slice(0, 6)}...${transaction.address.slice(-4)}`;
       addressMapping[contractTruncated] = transaction.address;
 
-      // Decode the transaction to get all addresses used in the call
-      const decoded = decodeTransaction(transaction);
-      if (decoded?.args) {
-        decoded.args.forEach((arg) => {
-          if (
-            arg.type === "address" &&
-            typeof arg.value === "string" &&
-            arg.value.startsWith("0x") &&
-            arg.value.length === 42
-          ) {
-            const truncated = `${arg.value.slice(0, 6)}...${arg.value.slice(-4)}`;
-            addressMapping[truncated] = arg.value;
-          }
-        });
-      }
+      // Note: We can't call decodeTransaction here as it's async and would cause infinite loops
+      // For now, we'll only map the contract address itself
+      // TODO: Consider moving this logic to a useEffect or making it async-safe
 
       // Now find truncated addresses in text and map them
       while ((addressMatch = truncatedAddressRegex.exec(text)) !== null) {
@@ -132,6 +122,17 @@ export function AddressParser({
         }
       }
     });
+
+    // Add contract names from transaction context for "Call function on ContractName" patterns
+    if (transaction) {
+      const contractInfo = getContractInfo(transaction.address);
+      if (contractInfo?.name) {
+        friendlyNameToAddress[contractInfo.name] = transaction.address;
+      }
+      if (contractInfo?.friendlyName) {
+        friendlyNameToAddress[contractInfo.friendlyName] = transaction.address;
+      }
+    }
 
     // Sort friendly names by length (longest first)
     const sortedFriendlyNames = Object.keys(friendlyNameToAddress).sort(
@@ -210,12 +211,11 @@ export function AddressParser({
   }, [text, contractMappings, addressReplacements]);
 
   // Combine and notify parent of all replacements
-  useMemo(() => {
+  useEffect(() => {
     const combined = [...addressReplacements, ...friendlyNameReplacements].sort(
       (a, b) => a.start - b.start,
     );
     onAddressFound(combined);
-    return combined;
   }, [addressReplacements, friendlyNameReplacements, onAddressFound]);
 
   return null; // This is a utility component that doesn't render
