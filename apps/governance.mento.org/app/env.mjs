@@ -7,7 +7,9 @@ export const env = createEnv({
    * Serverside Environment variables, not available on the client.
    * Will throw if you access these variables on the client.
    */
-  server: {},
+  server: {
+    ETHERSCAN_API_KEY: z.string(),
+  },
   /*
    * Environment variables available on the client (and server).
    *
@@ -17,7 +19,6 @@ export const env = createEnv({
     NEXT_PUBLIC_BLOCKSCOUT_API_URL: z.string().url(),
     NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL: z.string().url(),
     NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_ALFAJORES: z.string().url(),
-    NEXT_PUBLIC_ETHERSCAN_API_KEY: z.string(),
     NEXT_PUBLIC_ETHERSCAN_API_URL: z.string().url(),
     NEXT_PUBLIC_GRAPH_API_KEY: z.string(),
     NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES: z.string(),
@@ -40,7 +41,7 @@ export const env = createEnv({
       process.env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL,
     NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_ALFAJORES:
       process.env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_ALFAJORES,
-    NEXT_PUBLIC_ETHERSCAN_API_KEY: process.env.NEXT_PUBLIC_ETHERSCAN_API_KEY,
+    ETHERSCAN_API_KEY: process.env.ETHERSCAN_API_KEY,
     NEXT_PUBLIC_ETHERSCAN_API_URL: process.env.NEXT_PUBLIC_ETHERSCAN_API_URL,
     NEXT_PUBLIC_GRAPH_API_KEY: process.env.NEXT_PUBLIC_GRAPH_API_KEY,
     NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES:
