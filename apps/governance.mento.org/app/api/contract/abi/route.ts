@@ -53,14 +53,14 @@ export async function GET(request: NextRequest) {
     // Get API key from environment (only needed for Celoscan)
     const apiKey = env.NEXT_PUBLIC_ETHERSCAN_API_KEY;
 
-    // Try Blockscout first (no API key required)
-    let abiSource = "blockscout";
-    let abi = await fetchAbi(address, "blockscout");
+    // Try Celoscan first
+    let abiSource = "celoscan";
+    let abi = await fetchAbi(address, abiSource, apiKey);
 
-    // Fallback to Celoscan (requires API key)
+    // Fallback to Blockscout
     if (!abi) {
-      abiSource = "celoscan";
-      abi = await fetchAbi(address, "celoscan", apiKey);
+      abiSource = "blockscout";
+      abi = await fetchAbi(address, abiSource);
     }
 
     if (abi && isAbi(abi)) {
@@ -134,6 +134,7 @@ export async function GET(request: NextRequest) {
       {
         error: "Contract ABI not found or contract not verified",
         address,
+        source: abiSource,
       },
       { status: 404 },
     );
