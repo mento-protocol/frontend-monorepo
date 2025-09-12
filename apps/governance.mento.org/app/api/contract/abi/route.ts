@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get API key from environment (only needed for Celoscan)
-    const apiKey = env.NEXT_PUBLIC_ETHERSCAN_API_KEY;
+    const apiKey = env.ETHERSCAN_API_KEY;
 
     // Try Celoscan first
     let abiSource: AbiSource = "celoscan";
