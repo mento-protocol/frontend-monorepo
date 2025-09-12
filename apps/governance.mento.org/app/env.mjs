@@ -17,7 +17,7 @@ export const env = createEnv({
     NEXT_PUBLIC_BLOCKSCOUT_API_URL: z.string().url(),
     NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL: z.string().url(),
     NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_ALFAJORES: z.string().url(),
-    NEXT_PUBLIC_ETHERSCAN_API_KEY: z.string().optional(),
+    NEXT_PUBLIC_ETHERSCAN_API_KEY: z.string(),
     NEXT_PUBLIC_ETHERSCAN_API_URL: z.string().url(),
     NEXT_PUBLIC_GRAPH_API_KEY: z.string(),
     NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES: z.string(),
