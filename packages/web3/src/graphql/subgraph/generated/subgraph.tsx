@@ -7618,7 +7618,12 @@ export type GetDelegatesQueryResult = Apollo.QueryResult<
 >;
 export const GetLocksDocument = gql`
   query getLocks($address: String) {
-    locks(first: 1000, where: { owner: $address }) {
+    locks(
+      first: 1000
+      where: {
+        or: [{ owner_: { id: $address } }, { delegate_: { id: $address } }]
+      }
+    ) {
       lockId
       owner {
         id

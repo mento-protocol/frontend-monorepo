@@ -8,7 +8,7 @@ import {
 } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
 import React, { ReactNode, createContext, useContext } from "react";
-import { parseEther } from "viem";
+import { Address, parseEther } from "viem";
 
 import {
   DEFAULT_LOCKING_CLIFF,
@@ -98,13 +98,13 @@ export const CreateLockProvider = ({
     resetForm();
   }, [resetForm]);
 
-  const selectedDelegate = React.useMemo(() => {
+  const selectedDelegate: Address = React.useMemo(() => {
     if (
       delegateEnabled &&
       delegateAddressInput &&
       isValidAddress(delegateAddressInput)
     ) {
-      return delegateAddressInput as any; // viem Address
+      return delegateAddressInput;
     }
     return address!;
   }, [address, delegateAddressInput, delegateEnabled]);
@@ -113,7 +113,7 @@ export const CreateLockProvider = ({
     lock.lockMento({
       account: address!,
       amount: parsedAmount,
-      delegate: selectedDelegate as any,
+      delegate: selectedDelegate,
       slope,
       cliff: DEFAULT_LOCKING_CLIFF,
       onSuccess: () => {

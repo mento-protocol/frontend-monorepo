@@ -40,11 +40,7 @@ export const LockingButton = ({
   const { address } = useAccount();
   const { createLock, CreateLockTxStatus, CreateLockApprovalStatus } =
     useCreateLock();
-  const {
-    lock,
-    hasMultipleLocks,
-    refetch: refetchLockInfo,
-  } = useLockInfo(address);
+  const { hasMultipleLocks, refetch: refetchLockInfo } = useLockInfo(address);
 
   // Use the specific lock to update or fall back to the user's primary lock
   const targetLock = lockToUpdate;
@@ -124,20 +120,18 @@ export const LockingButton = ({
   }, [delegateAddressInput, delegateEnabled]);
 
   const nextDelegate = React.useMemo(() => {
-    const currentDelegate = (targetLock as any)?.delegate?.id as
-      | string
-      | undefined;
+    const currentDelegate = targetLock?.delegate?.id as string | undefined;
     if (requestedDelegate && requestedDelegate !== currentDelegate) {
-      return requestedDelegate as any;
+      return requestedDelegate;
     }
-    return undefined;
-  }, [requestedDelegate, targetLock]);
+    return address;
+  }, [requestedDelegate, address, targetLock]);
 
   const relock = useRelockMento({
     lock: targetLock,
     newSlope,
     additionalAmountToLock: parsedAmount,
-    newDelegate: nextDelegate as any,
+    newDelegate: nextDelegate,
     onConfirmation: () => {
       const explorerUrl = currentChain.blockExplorers?.default?.url;
       const explorerTxUrl = explorerUrl

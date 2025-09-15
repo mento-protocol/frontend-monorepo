@@ -208,7 +208,6 @@ export default function VotingPowerForm() {
 
   const { control, watch, register, setValue } = methods;
   const delegateEnabled = watch(LOCKING_DELEGATE_ENABLED_FORM_KEY);
-  const delegateAddress = watch(LOCKING_DELEGATE_ADDRESS_FORM_KEY);
 
   React.useEffect(() => {
     if (validWednesdays.length === 0) return;

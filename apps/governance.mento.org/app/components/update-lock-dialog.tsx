@@ -1,6 +1,7 @@
 "use client";
 import {
   Button,
+  Checkbox,
   CoinInput,
   Datepicker,
   Dialog,
@@ -8,23 +9,22 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  Input,
   Label,
   Slider,
   useDebounce,
-  Checkbox,
-  Input,
 } from "@repo/ui";
 import type { LockWithExpiration } from "@repo/web3";
 import {
   DEFAULT_LOCKING_CLIFF,
   LOCKING_AMOUNT_FORM_KEY,
+  LOCKING_DELEGATE_ADDRESS_FORM_KEY,
+  LOCKING_DELEGATE_ENABLED_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
   MAX_LOCKING_DURATION_WEEKS,
+  isValidAddress,
   useLockCalculation,
   useTokens,
-  LOCKING_DELEGATE_ENABLED_FORM_KEY,
-  LOCKING_DELEGATE_ADDRESS_FORM_KEY,
-  isValidAddress,
 } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
 import { useEffect, useMemo, useState } from "react";
@@ -48,7 +48,7 @@ export function UpdateLockDialog({
   onLockUpdated,
 }: UpdateLockDialogProps) {
   const { address } = useAccount();
-  const { veMentoBalance, mentoBalance } = useTokens();
+  const { mentoBalance } = useTokens();
 
   const MIN_LOCK_PERIOD_WEEKS = 1;
 
@@ -66,7 +66,7 @@ export function UpdateLockDialog({
     const wednesdays: Date[] = [];
     const startDate = getFirstWednesdayAfterMinPeriod();
 
-    for (let i = 0; i < MAX_LOCKING_DURATION_WEEKS; i++) {
+    for (let i = 0; i < MAX_LOCKING_DURATION_WEEKS - 1; i++) {
       const wednesday = spacetime(startDate).add(i, "week").toNativeDate();
       wednesdays.push(wednesday);
     }
@@ -279,20 +279,9 @@ export function UpdateLockDialog({
   });
   const veMentoReceived = data?.veMentoReceived || 0;
 
-  console.log("LOG", {
-    lock,
-    veMentoReceived,
-    isCalculating,
-    calculationError,
-  });
-
   const formattedVeMentoReceived = useMemo(() => {
     return isCalculating ? "..." : Number(veMentoReceived).toLocaleString();
   }, [veMentoReceived, isCalculating]);
-
-  const handleUseMaxBalance = () => {
-    setValue(LOCKING_AMOUNT_FORM_KEY, formatUnits(mentoBalance.value, 18));
-  };
 
   const handleLockUpdated = () => {
     onLockUpdated?.();
@@ -424,7 +413,7 @@ export function UpdateLockDialog({
                     }
                   }
                 }}
-                min={minSelectableIndex}
+                min={0}
                 max={validWednesdays.length - 1}
                 step={1}
                 className="w-full"

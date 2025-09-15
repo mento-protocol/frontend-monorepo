@@ -41,7 +41,7 @@ export const useLocksByAccount = ({
     // Build a set of lockIds that were replaced by a newer lock
     const replacedIds = new Set<string>();
     for (const l of data.locks) {
-      const replaced = (l as any)?.replaces?.lockId;
+      const replaced = l?.replaces?.lockId;
       if (replaced !== undefined && replaced !== null) {
         replacedIds.add(String(replaced));
       }

@@ -8,7 +8,6 @@ import {
   LockCardBody,
   LockCardButton,
   LockCardDelegationAddress,
-  LockCardDelegationInfo,
   LockCardDelegationLabel,
   LockCardField,
   LockCardFieldLabel,
@@ -18,31 +17,38 @@ import {
   LockCardNotice,
   LockCardRow,
   LockCardToken,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
   type BadgeType,
 } from "@repo/ui";
 import {
   Identicon,
+  Lock,
+  LockWithExpiration,
+  useAvailableToWithdraw,
   useCurrentChain,
   useLocksByAccount,
-  useAvailableToWithdraw,
   WalletHelper,
 } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
 import { useState } from "react";
 import { formatUnits } from "viem";
 import { UpdateLockDialog } from "./update-lock-dialog";
-
+import { Info } from "lucide-react";
 export const LockList = () => {
   const { address } = useAccount();
-  const { locks, refetch } = useLocksByAccount({ account: address! });
+  const { locks, refetch } = useLocksByAccount({ account: address as string });
   const currentChain = useCurrentChain();
   const { availableToWithdraw } = useAvailableToWithdraw();
 
-  const [selectedLock, setSelectedLock] = useState<any>(null);
+  const [selectedLock, setSelectedLock] = useState<LockWithExpiration | null>(
+    null,
+  );
   const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
 
-  // Helper function to determine badge type based on delegation
-  const getBadgeType = (lock: any): BadgeType => {
+  const getBadgeType = (lock: LockWithExpiration): BadgeType => {
     const isOwner = lock.owner.id.toLowerCase() === address?.toLowerCase();
     const isDelegatedToSelf =
       lock.delegate.id.toLowerCase() === address?.toLowerCase();
@@ -73,8 +79,10 @@ export const LockList = () => {
     });
   };
 
-  // Helper function to get delegation info
-  const getDelegationInfo = (lock: any, badgeType: BadgeType) => {
+  const getDelegationInfo = (
+    lock: LockWithExpiration,
+    badgeType: BadgeType,
+  ) => {
     if (badgeType === "delegated") {
       return {
         label: "Delegated to",
@@ -89,13 +97,7 @@ export const LockList = () => {
     return null;
   };
 
-  // Helper function to check if user can withdraw
-  const canWithdraw = (lock: any) => {
-    const now = new Date();
-    return now > lock.expiration;
-  };
-
-  const handleUpdateLock = (lock: any) => {
+  const handleUpdateLock = (lock: LockWithExpiration) => {
     setSelectedLock(lock);
     setIsUpdateDialogOpen(true);
   };
@@ -130,7 +132,6 @@ export const LockList = () => {
               const badgeType = getBadgeType(lock);
               const delegationInfo = getDelegationInfo(lock, badgeType);
               const formattedAmount = formatAmount(lock.amount);
-              const withdrawable = canWithdraw(lock);
 
               return (
                 <LockCard key={lock.lockId}>
@@ -198,24 +199,23 @@ export const LockList = () => {
                       </LockCardField>
                       <LockCardField>
                         <LockCardFieldLabel>To Withdraw</LockCardFieldLabel>
-                        <LockCardFieldValue>
-                          {withdrawable ? (
-                            <>
-                              {formattedAmount}{" "}
-                              <span className="text-muted-foreground">
-                                MENTO
-                              </span>
-                            </>
-                          ) : (
-                            <>
-                              0{" "}
-                              <span className="text-muted-foreground">
-                                MENTO
-                              </span>
-                            </>
-                          )}
+                        <LockCardFieldValue className="flex items-center gap-1">
+                          {0}{" "}
+                          <span className="text-muted-foreground">MENTO</span>
                           {badgeType === "received" && (
-                            <span className="ml-1 text-xs">ⓘ</span>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Info className="text-muted-foreground ml-1 size-4" />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>
+                                    Received locks can only be updated by their
+                                    lock owner
+                                  </p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                           )}
                         </LockCardFieldValue>
                       </LockCardField>
@@ -336,7 +336,19 @@ export const LockList = () => {
                           {toWithdraw.toLocaleString()}{" "}
                           <span className="text-muted-foreground">MENTO</span>
                           {badgeType === "received" && (
-                            <span className="ml-1 text-xs">ⓘ</span>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Info className="text-muted-foreground ml-1 size-4" />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>
+                                    Received locks can only be updated by their
+                                    lock owner
+                                  </p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                           )}
                         </LockCardFieldValue>
                       </LockCardField>
