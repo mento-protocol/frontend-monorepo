@@ -55,6 +55,7 @@ export async function GET(request: NextRequest) {
     let apiKey: string | undefined;
     try {
       apiKey = env.ETHERSCAN_API_KEY;
+      console.log("🥳🥳🥳🥳🥳🥳🥳🥳🥳🥳🥳🥳 SUCCESSFULLY GOT API KEY FROM ENV");
     } catch (error) {
       console.warn(
         "Failed to get ETHERSCAN_API_KEY from validated env, trying direct access:",
