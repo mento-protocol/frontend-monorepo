@@ -51,7 +51,26 @@ export async function GET(request: NextRequest) {
     }
 
     // Get API key from environment (only needed for Celoscan)
-    const apiKey = env.ETHERSCAN_API_KEY;
+    // Try both the validated env and direct process.env access as fallback
+    let apiKey: string | undefined;
+    try {
+      apiKey = env.ETHERSCAN_API_KEY;
+    } catch (error) {
+      console.warn(
+        "Failed to get ETHERSCAN_API_KEY from validated env, trying direct access:",
+        error,
+      );
+      apiKey = process.env.ETHERSCAN_API_KEY;
+    }
+
+    // Debug logging for environment variable
+    console.log("Environment debug:", {
+      hasApiKey: !!apiKey,
+      apiKeyLength: apiKey?.length || 0,
+      apiKeyPrefix: apiKey?.substring(0, 4) || "undefined",
+      nodeEnv: process.env.NODE_ENV,
+      rawEnvVar: process.env.ETHERSCAN_API_KEY ? "present" : "missing",
+    });
 
     // Try Celoscan first
     let abiSource: AbiSource = "celoscan";
