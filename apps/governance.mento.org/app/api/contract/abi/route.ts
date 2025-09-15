@@ -54,9 +54,11 @@ export async function GET(request: NextRequest) {
     // Try both the validated env and direct process.env access as fallback
     let apiKey: string | undefined;
     try {
+      console.log("TRYING TO GET API KEY FROM ENV");
       apiKey = env.ETHERSCAN_API_KEY;
-      console.log("🥳🥳🥳🥳🥳🥳🥳🥳🥳🥳🥳🥳 SUCCESSFULLY GOT API KEY FROM ENV");
+      console.log("SUCCESSFULLY GOT API KEY FROM ENV");
     } catch (error) {
+      console.log("FAILED TO GET API KEY FROM ENV");
       console.warn(
         "Failed to get ETHERSCAN_API_KEY from validated env, trying direct access:",
         error,
@@ -79,6 +81,7 @@ export async function GET(request: NextRequest) {
 
     // Fallback to Blockscout
     if (!abi) {
+      console.log("FAAAAALLBACK TO BLOCKSCOUT");
       abiSource = "blockscout";
       abi = await fetchAbi(address, abiSource);
     }
