@@ -51,37 +51,14 @@ export async function GET(request: NextRequest) {
     }
 
     // Get API key from environment (only needed for Celoscan)
-    // Try both the validated env and direct process.env access as fallback
-    let apiKey: string | undefined;
-    try {
-      console.log("TRYING TO GET API KEY FROM ENV");
-      apiKey = env.ETHERSCAN_API_KEY;
-      console.log("SUCCESSFULLY GOT API KEY FROM ENV");
-    } catch (error) {
-      console.log("FAILED TO GET API KEY FROM ENV");
-      console.warn(
-        "Failed to get ETHERSCAN_API_KEY from validated env, trying direct access:",
-        error,
-      );
-      apiKey = process.env.ETHERSCAN_API_KEY;
-    }
-
-    // Debug logging for environment variable
-    console.log("Environment debug:", {
-      hasApiKey: !!apiKey,
-      apiKeyLength: apiKey?.length || 0,
-      apiKeyPrefix: apiKey?.substring(0, 4) || "undefined",
-      nodeEnv: process.env.NODE_ENV,
-      rawEnvVar: process.env.ETHERSCAN_API_KEY ? "present" : "missing",
-    });
+    const etherscanApiKey = env.ETHERSCAN_API_KEY;
 
     // Try Celoscan first
     let abiSource: AbiSource = "celoscan";
-    let abi = await fetchAbi(address, abiSource, apiKey);
+    let abi = await fetchAbi(address, abiSource, etherscanApiKey);
 
     // Fallback to Blockscout
     if (!abi) {
-      console.log("FAAAAALLBACK TO BLOCKSCOUT");
       abiSource = "blockscout";
       abi = await fetchAbi(address, abiSource);
     }
@@ -107,25 +84,14 @@ export async function GET(request: NextRequest) {
         );
 
         if (implementationAddress) {
-          let implementationSource;
-          let implementationABI = await fetchAbi(
+          const implementationABI = await fetchAbi(
             implementationAddress,
-            "blockscout",
+            abiSource,
+            abiSource === "celoscan" ? etherscanApiKey : undefined,
           );
 
-          if (!implementationABI) {
-            implementationABI = await fetchAbi(
-              implementationAddress,
-              "celoscan",
-              apiKey,
-            );
-            implementationSource = "celoscan";
-          } else {
-            implementationSource = "blockscout";
-          }
-
           return NextResponse.json({
-            source: implementationSource,
+            source: abiSource,
             proxyABI: abi,
             implementationABI,
             proxyAddress: address,
