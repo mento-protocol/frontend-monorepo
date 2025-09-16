@@ -367,7 +367,7 @@ export default function VotingPowerForm() {
                 <div className="col-span-7 flex flex-col gap-2">
                   <Label>MENTO to lock</Label>
                   <CoinInput
-                    data-testid="sellAmountInput"
+                    data-testid="lockAmountInput"
                     placeholder="0"
                     {...register(LOCKING_AMOUNT_FORM_KEY, {
                       validate: {

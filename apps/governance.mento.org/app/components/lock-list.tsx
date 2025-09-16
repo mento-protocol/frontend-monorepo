@@ -129,7 +129,7 @@ export const LockList = () => {
         <>
           <h2 className="mb-8 text-2xl font-medium">Your current locks</h2>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            {activeLocks.map((lock) => {
+            {activeLocks.map((lock, index) => {
               const badgeType = getBadgeType(lock);
               const delegationInfo = getDelegationInfo(lock, badgeType);
               const formattedAmount = formatAmount(lock.amount);
@@ -253,7 +253,10 @@ export const LockList = () => {
 
                   {badgeType !== "received" && (
                     <LockCardActions>
-                      <LockCardButton onClick={() => handleUpdateLock(lock)}>
+                      <LockCardButton
+                        onClick={() => handleUpdateLock(lock)}
+                        data-testid={`lockCard_${index}`}
+                      >
                         Update
                       </LockCardButton>
                     </LockCardActions>
