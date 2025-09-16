@@ -35,6 +35,7 @@ import {
 import { useAccount } from "@repo/web3/wagmi";
 import { useState } from "react";
 import { formatUnits } from "viem";
+import { subWeeks } from "date-fns";
 import { UpdateLockDialog } from "./update-lock-dialog";
 import { Info } from "lucide-react";
 export const LockList = () => {
@@ -126,21 +127,21 @@ export const LockList = () => {
     <div className="mt-20">
       {activeLocks.length > 0 && (
         <>
-          <h2 className="mb-8 text-2xl font-medium">Your existing locks</h2>
+          <h2 className="mb-8 text-2xl font-medium">Your current locks</h2>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {activeLocks.map((lock) => {
               const badgeType = getBadgeType(lock);
               const delegationInfo = getDelegationInfo(lock, badgeType);
               const formattedAmount = formatAmount(lock.amount);
+              const cliffEnd = subWeeks(lock.expiration, lock.slope);
+              const hasActiveCliff = lock.cliff > 0 && new Date() < cliffEnd;
 
               return (
                 <LockCard key={lock.lockId}>
                   <LockCardHeader>
                     <LockCardHeaderGroup>
                       <LockCardAmount>{formattedAmount}</LockCardAmount>
-                      <LockCardToken>
-                        {badgeType === "received" ? "veMENTO" : "MENTO"}
-                      </LockCardToken>
+                      <LockCardToken>veMENTO</LockCardToken>
                     </LockCardHeaderGroup>
                     <LockCardBadge type={badgeType}>
                       {badgeType.charAt(0).toUpperCase() + badgeType.slice(1)}
@@ -186,15 +187,43 @@ export const LockList = () => {
                       </LockCardField>
                       <LockCardField>
                         <LockCardFieldLabel>ID</LockCardFieldLabel>
-                        <LockCardFieldValue>{lock.lockId}</LockCardFieldValue>
+                        <LockCardFieldValue>
+                          {lock.lockCreate?.[0]?.transaction?.id ? (
+                            <a
+                              className="underline-offset-2 hover:underline"
+                              href={`${explorerUrl}/tx/${lock.lockCreate?.[0]?.transaction?.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              {lock.lockId}
+                            </a>
+                          ) : (
+                            lock.lockId
+                          )}
+                        </LockCardFieldValue>
                       </LockCardField>
                     </LockCardRow>
 
                     <LockCardRow>
                       <LockCardField>
                         <LockCardFieldLabel>Expires</LockCardFieldLabel>
-                        <LockCardFieldValue>
+                        <LockCardFieldValue className="flex items-center gap-1">
                           {formatDate(lock.expiration)}
+                          {hasActiveCliff && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Info className="text-muted-foreground ml-1 size-4" />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Cliff until {formatDate(cliffEnd)}</p>
+                                  <p>
+                                    Unlocks beginning on {formatDate(cliffEnd)}
+                                  </p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
                         </LockCardFieldValue>
                       </LockCardField>
                       <LockCardField>
@@ -232,8 +261,15 @@ export const LockList = () => {
 
                   {badgeType === "received" && (
                     <LockCardNotice>
-                      Delegated locks can only be updated by their lock owner{" "}
-                      {lock.owner.id}
+                      Only the lock owner can update delegated locks{" "}
+                      <a
+                        className="text-muted-foreground text-sm font-medium"
+                        href={`${explorerUrl}/address/${lock.owner.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {WalletHelper.getShortAddress(lock.owner.id)}
+                      </a>
                     </LockCardNotice>
                   )}
                 </LockCard>

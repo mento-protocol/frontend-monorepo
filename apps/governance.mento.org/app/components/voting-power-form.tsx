@@ -72,8 +72,11 @@ export default function VotingPowerForm() {
     const totalVe = Number(formatUnits(veMentoBalance.value, 18));
 
     // 3) Received ve = locks where others delegate to me
-    // NOTE: exact ve per lock needs contract math; we set to 0 unless you later add a precise per-lock ve calculator.
-    const receivedVe = 0;
+    const receivedVe = locks
+      .filter(
+        (l) => !isMe(l.owner.id) && isMe(l.delegate.id) && now < l.expiration,
+      )
+      .reduce((sum, l) => sum + Number(formatUnits(BigInt(l.amount), 18)), 0);
 
     // 4) Own ve = total minus received
     const ownVe = Math.max(0, totalVe - receivedVe);
@@ -535,6 +538,19 @@ export default function VotingPowerForm() {
                       </div>
                       <span data-testid="delegatedVeMentoLabel">
                         {summary.delegatedOutVe.toLocaleString()}
+                      </span>
+                    </div>
+                    <hr className="border-border" />
+
+                    {/* Received veMENTO */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-muted-foreground">
+                          Received veMENTO
+                        </span>
+                      </div>
+                      <span data-testid="receivedVeMentoLabel">
+                        {summary.receivedVe.toLocaleString()}
                       </span>
                     </div>
                     <hr className="border-border" />

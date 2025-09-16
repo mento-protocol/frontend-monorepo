@@ -305,7 +305,7 @@ export function UpdateLockDialog({
           <CreateLockProvider onLockConfirmation={handleLockUpdated}>
             <div className="bg-incard border-border dark:border-input maybe-hover:border-border-secondary focus-within:!border-primary dark:focus-within:!border-primary mb-8 flex grid-cols-12 flex-col items-start gap-4 border p-4 transition-colors md:grid md:min-h-[120px]">
               <div className="col-span-7 flex flex-col gap-2">
-                <Label>MENTO to lock</Label>
+                <Label>MENTO to add to the lock </Label>
                 <CoinInput
                   data-testid="updateLockAmountInput"
                   placeholder="0"

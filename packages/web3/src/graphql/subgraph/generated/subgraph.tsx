@@ -7644,6 +7644,10 @@ export const GetLocksDocument = gql`
       lockCreate {
         id
         timestamp
+        transaction {
+          id
+          timestamp
+        }
       }
       delegate {
         id

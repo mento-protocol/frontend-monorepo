@@ -25,6 +25,10 @@ query getLocks($address: String) {
     lockCreate {
       id
       timestamp
+      transaction {
+        id
+        timestamp
+      }
     }
     delegate {
       id
