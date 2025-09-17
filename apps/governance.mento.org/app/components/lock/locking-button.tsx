@@ -59,6 +59,8 @@ export const LockingButton = ({
   const contracts = useContracts();
   const { currentWeek: currentLockingWeek } = useLockingWeek();
   const [isTxDialogOpen, setIsTxDialogOpen] = React.useState(false);
+  const [hasApprovedForCurrentRelock, setHasApprovedForCurrentRelock] =
+    React.useState(false);
 
   const {
     watch,
@@ -228,6 +230,7 @@ export const LockingButton = ({
     relock.reset();
     approve.reset();
     setIsTxDialogOpen(true);
+    setHasApprovedForCurrentRelock(false);
 
     const submitRelock = () => {
       relock.relockMento({
@@ -247,7 +250,10 @@ export const LockingButton = ({
       approve.approveMento({
         target: contracts.Locking.address,
         amount: actualTransferAmount,
-        onConfirmation: submitRelock,
+        onConfirmation: () => {
+          setHasApprovedForCurrentRelock(true);
+          submitRelock();
+        },
         onError: (error) => {
           console.error("Approval failed", error);
           toast.error("Failed to approve MENTO");
@@ -405,23 +411,37 @@ export const LockingButton = ({
 
   // Transaction dialog message component
   const TxMessage = React.useCallback(() => {
+    const isApprovalActive =
+      (approve.isAwaitingUserSignature || approve.isConfirming) &&
+      !hasApprovedForCurrentRelock;
+    const isAwaiting =
+      approve.isAwaitingUserSignature || relock.isAwaitingUserSignature;
+    const isConfirming = approve.isConfirming || relock.isConfirming;
+
     return (
       <div className="flex min-h-4 flex-col gap-4">
-        {relockTxStatus === "AWAITING_SIGNATURE" ? (
+        <span>{isApprovalActive ? "Approve MENTO" : "Update Lock"}</span>
+        {isAwaiting ? (
           <>Continue in wallet</>
-        ) : relockTxStatus === "CONFIRMING_APPROVE_TX" ||
-          relockTxStatus === "CONFIRMING_RELOCK_TX" ? (
+        ) : isConfirming ? (
           <>Confirming...</>
         ) : null}
       </div>
     );
-  }, [needsApprovalForRelock, parsedAmount, relockTxStatus]);
+  }, [
+    approve.isAwaitingUserSignature,
+    approve.isConfirming,
+    relock.isAwaitingUserSignature,
+    relock.isConfirming,
+    hasApprovedForCurrentRelock,
+  ]);
 
   // Reset function for dialog
   const resetRelockState = React.useCallback(() => {
     setIsTxDialogOpen(false);
     approve.reset();
     relock.reset();
+    setHasApprovedForCurrentRelock(false);
   }, [approve, relock]);
 
   return (
@@ -450,7 +470,7 @@ export const LockingButton = ({
         isOpen={isTxDialogOpen}
         onClose={resetRelockState}
         error={relockTxStatus === "ERROR"}
-        title="Top Up Lock"
+        title="Update Lock"
         retry={handleRelock}
         message={<TxMessage />}
         dataTestId="relock-tx-dialog"

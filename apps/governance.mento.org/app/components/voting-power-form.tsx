@@ -339,12 +339,13 @@ export default function VotingPowerForm() {
     return isCalculating ? "..." : Number(veMentoReceived).toLocaleString();
   }, [veMentoReceived, isCalculating]);
 
-  // No longer relying on current active lock in this form; always creating a new lock.
-
   const handleUseMaxBalance = () => {
     methods.setValue(
       LOCKING_AMOUNT_FORM_KEY,
       formatUnits(mentoBalance.value, 18),
+      {
+        shouldValidate: true,
+      },
     );
   };
 
@@ -381,6 +382,9 @@ export default function VotingPowerForm() {
                         },
                       },
                     })}
+                    onChange={(e) => {
+                      setValue(LOCKING_AMOUNT_FORM_KEY, e.target.value);
+                    }}
                   />
                   <div className="text-muted-foreground flex items-center gap-1">
                     <span>Balance: {formattedMentoBalance}</span>
