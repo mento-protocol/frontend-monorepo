@@ -2,7 +2,8 @@
 
 import { CopyToClipboard } from "@repo/ui";
 import { Transaction, type DecodedTransaction } from "../types/transaction";
-import { useExplorerUrl, formatAddress } from "../utils/address-utils";
+import { formatAddress } from "../utils/address-utils";
+import { AddressLink } from "../components/AddressLink";
 import { removeProxySuffix } from "./utils/removeProxySuffix";
 import { LoadingState } from "./LoadingState";
 
@@ -51,8 +52,6 @@ function DecodedTransactionView({
   index,
   contractName,
 }: DecodedTransactionViewProps) {
-  const explorerUrl = useExplorerUrl();
-
   if (!transaction) {
     return (
       <div className="border-border rounded-lg border p-4">
@@ -67,22 +66,13 @@ function DecodedTransactionView({
         <h4 className="font-medium">Transaction {index + 1}</h4>
         <div className="flex items-center gap-2">
           <span className="text-muted-foreground text-sm">Contract:</span>
-          {explorerUrl ? (
-            <a
-              href={`${explorerUrl}/address/${transaction.address}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1 text-sm hover:underline"
-            >
-              {removeProxySuffix(contractName) ||
-                formatAddress(transaction.address)}
-            </a>
-          ) : (
-            <span className="text-sm">
-              {removeProxySuffix(contractName) ||
-                formatAddress(transaction.address)}
-            </span>
-          )}
+          <AddressLink
+            address={transaction.address}
+            className="flex items-center gap-1 text-sm hover:underline"
+          >
+            {removeProxySuffix(contractName) ||
+              formatAddress(transaction.address)}
+          </AddressLink>
           <CopyToClipboard text={transaction.address} />
         </div>
       </div>
