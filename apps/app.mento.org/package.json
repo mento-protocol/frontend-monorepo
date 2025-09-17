@@ -14,8 +14,6 @@
     "@ethersproject/units": "^5.8.0",
     "@hookform/resolvers": "^5.0.1",
     "@mento-protocol/mento-sdk": "^1.10.3",
-    "@metamask/post-message-stream": "6.1.2",
-    "@metamask/providers": "10.2.1",
     "@rainbow-me/rainbowkit": "^2.2.8",
     "@repo/ui": "workspace:*",
     "@repo/web3": "workspace:*",

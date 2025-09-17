@@ -52,7 +52,7 @@ lint:
     - shfmt@3.6.0 # Shell script formatting
 
     # === SECURITY SCANNING ===
-    - checkov@3.2.470 # Infrastructure as Code security scanning
+    - checkov@3.2.471 # Infrastructure as Code security scanning
     - gitleaks@8.28.0 # Detects secrets in git history and commits
     - trufflehog@3.90.6 # Advanced secret detection with high accuracy
     - osv-scanner@2.2.2 # Vulnerability scanning for dependencies
