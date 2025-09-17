@@ -3,7 +3,6 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
-    "changeset": "changeset",
     "check-types": "turbo run check-types",
     "dev": "turbo run dev",
     "format": "trunk fmt",
@@ -11,9 +10,7 @@
     "health": "sh ./scripts/healthcheck.sh",
     "lint": "trunk check",
     "lint:fix": "trunk check --fix",
-    "release": "turbo run build && changeset publish",
-    "test": "turbo run test",
-    "version": "changeset version"
+    "test": "turbo run test"
   },
   "resolutions": {
     "brace-expansion": ">=2.0.2",

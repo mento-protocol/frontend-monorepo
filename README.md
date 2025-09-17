@@ -216,14 +216,6 @@ feat(ui): add new button component
 - **Pre-push**: Run comprehensive checks before pushing
 - **Commit-msg**: Validate commit message format
 
-#### Publishing Packages
-
-To publish packages to the registry:
-
-```bash
-pnpm release
-```
-
 ## CI/CD Pipeline
 
 The repository is set up with GitHub Actions for CI/CD:
