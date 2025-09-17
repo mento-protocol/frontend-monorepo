@@ -432,7 +432,7 @@ export const VoteCard = ({
       case "finished":
         return "Voting Finished";
       default:
-        if (isVotingOpen) return "Voting Open";
+        if (isVotingOpen) return "Voting is Open";
         return "Voting Finished";
     }
   }, [currentState, isVotingOpen, isAbstained, hasQuorum]);
@@ -542,6 +542,24 @@ export const VoteCard = ({
             The final results are displayed above.
           </>
         );
+      case "canceled":
+        return (
+          <>
+            The{" "}
+            <a
+              href="https://docs.mento.org/mento/overview/governance-and-the-mento-token/watchdogs-and-safety"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 underline hover:text-blue-800"
+            >
+              governance watchdogs
+            </a>{" "}
+            have canceled this proposal.
+            <br />
+            It will not move forward.
+          </>
+        );
+
       default:
         if (isVotingOpen) {
           return (
