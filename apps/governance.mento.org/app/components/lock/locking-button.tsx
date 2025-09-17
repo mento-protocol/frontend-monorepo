@@ -133,7 +133,7 @@ export const LockingButton = ({
     lock: targetLock,
     newSlope,
     additionalAmountToLock: parsedAmount,
-    newDelegate: nextDelegate,
+    newDelegate: nextDelegate as `0x${string}`,
     onConfirmation: () => {
       const explorerUrl = currentChain.blockExplorers?.default?.url;
       const explorerTxUrl = explorerUrl

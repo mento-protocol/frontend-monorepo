@@ -25,7 +25,6 @@ import {
 } from "@repo/ui";
 import {
   Identicon,
-  Lock,
   LockWithExpiration,
   useAvailableToWithdraw,
   useCurrentChain,
@@ -33,11 +32,11 @@ import {
   WalletHelper,
 } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
+import { subWeeks } from "date-fns";
+import { Info } from "lucide-react";
 import { useState } from "react";
 import { formatUnits } from "viem";
-import { subWeeks } from "date-fns";
 import { UpdateLockDialog } from "./update-lock-dialog";
-import { Info } from "lucide-react";
 export const LockList = () => {
   const { address } = useAccount();
   const { locks, refetch } = useLocksByAccount({ account: address as string });

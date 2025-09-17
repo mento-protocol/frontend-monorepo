@@ -266,11 +266,7 @@ export function UpdateLockDialog({
   const debouncedAmount = useDebounce(amountToLock, 500);
   const debouncedSlope = useDebounce(slope, 500);
 
-  const {
-    data,
-    isLoading: isCalculating,
-    error: calculationError,
-  } = useLockCalculation({
+  const { data, isLoading: isCalculating } = useLockCalculation({
     lock: {
       amount: debouncedAmount,
       slope: debouncedSlope,
