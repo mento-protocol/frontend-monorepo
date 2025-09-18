@@ -71,9 +71,17 @@ lint:
 
 # Git hooks and automated actions
 actions:
+  definitions:
+    - id: check-types-pre-push
+      display_name: Check Types Pre-Push
+      description: Run `turbo run check-types` before pushing code
+      run: turbo run check-types
+      triggers:
+        - git_hooks: [pre-push]
   enabled:
     - trunk-fmt-pre-commit # Auto-format files when committing
     - trunk-check-pre-push # Run checks before pushing
+    - check-types-pre-push # Run type checking before pushing
     - trunk-announce # Show announcements for new features
     - trunk-upgrade-available # Notify when Trunk updates are available
     - commitlint # Validate commit messages follow conventional format
