@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAddress } from "viem";
 import { env } from "../../../env.mjs";
 import { ContractInfo } from "../types";
+import {
+  fetchSourceCode,
+  BlockchainExplorerSource,
+} from "../services/blockchain-explorer-service";
 
 interface ContractSourceCodeResponse {
   status: string;
@@ -24,63 +28,11 @@ interface ContractSourceCodeResponse {
 }
 
 /**
- * Fetch contract source code from external APIs
- */
-async function fetchSourceCode(
-  address: string,
-  source: "celoscan" | "blockscout",
-  apiKey?: string,
-): Promise<ContractSourceCodeResponse | null> {
-  try {
-    let url: string;
-
-    if (source === "celoscan") {
-      // Celoscan requires an API key - use Etherscan V2 API (Celo chain ID: 42220)
-      if (apiKey) {
-        url = `https://api.etherscan.io/v2/api?chainid=42220&module=contract&action=getsourcecode&address=${address}&apikey=${apiKey}`;
-      } else {
-        // Fallback to old Celoscan API (will fail without API key)
-        url = `https://api.celoscan.io/api?module=contract&action=getsourcecode&address=${address}`;
-      }
-    } else {
-      // Blockscout doesn't require an API key
-      url = `https://celo.blockscout.com/api?module=contract&action=getsourcecode&address=${address}`;
-    }
-
-    const response = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "MentoGovernance/1.0",
-      },
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      if (data.status === "1" && data.result && data.result.length > 0) {
-        return data;
-      } else {
-        console.warn(
-          `${source} API returned status ${data.status}: ${data.message || "Unknown error"}`,
-        );
-      }
-    } else {
-      console.warn(
-        `${source} API returned ${response.status}: ${response.statusText}`,
-      );
-    }
-    return null;
-  } catch (error) {
-    console.warn(`${source} API failed for address ${address}:`, error);
-    return null;
-  }
-}
-
-/**
  * Extract contract name from source code response
  */
 function extractContractName(
   response: ContractSourceCodeResponse,
-  source: "celoscan" | "blockscout",
+  source: BlockchainExplorerSource,
 ): ContractInfo | null {
   const result = response.result[0];
 
@@ -141,7 +93,7 @@ export async function GET(request: NextRequest) {
       apiKey = env.ETHERSCAN_API_KEY;
     } catch (error) {
       console.warn(
-        "Failed to get ETHERSCAN_API_KEY from validated env, trying direct access:",
+        "/info: Failed to get ETHERSCAN_API_KEY from validated env, trying direct access:",
         error,
       );
       apiKey = process.env.ETHERSCAN_API_KEY;
@@ -149,7 +101,7 @@ export async function GET(request: NextRequest) {
 
     // Try Celoscan first (requires API key)
     let sourceCodeResponse = await fetchSourceCode(address, "celoscan", apiKey);
-    let source: "blockscout" | "celoscan" = "celoscan";
+    let source: BlockchainExplorerSource = "celoscan";
 
     // Fallback to Blockscout (no API key required)
     if (!sourceCodeResponse) {
@@ -164,7 +116,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const contractInfo = extractContractName(sourceCodeResponse, source);
+    const contractInfo = extractContractName(
+      sourceCodeResponse as ContractSourceCodeResponse,
+      source,
+    );
 
     if (!contractInfo) {
       return NextResponse.json(

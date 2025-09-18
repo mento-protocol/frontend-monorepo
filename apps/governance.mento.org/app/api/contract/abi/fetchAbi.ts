@@ -29,17 +29,18 @@ export async function fetchAbi(
         return JSON.parse(data.result);
       } else {
         console.warn(
-          `${source} API returned status ${data.status}: ${data.message || "Unknown error"}`,
+          `/abi: ${source} API returned status ${data.status}: ${data.message || "Unknown error"} ${data.result || ""}`,
         );
       }
     } else {
       console.warn(
-        `${source} API returned ${response.status}: ${response.statusText}`,
+        `/abi: ${source} API returned ${response.status}: ${response.statusText}`,
       );
+      console.warn(response);
     }
     return null;
   } catch (error) {
-    console.warn(`${source} API failed for address ${address}:`, error);
+    console.warn(`/abi: ${source} API failed for address ${address}:`, error);
     return null;
   }
 }

@@ -13,13 +13,41 @@ interface FetchedData {
 export async function fetchTransactionData(
   transactions: Transaction[],
 ): Promise<FetchedData> {
-  const [abiResults, contractNameResults] = await Promise.all([
-    Promise.all(transactions.map(fetchTransactionABI)),
-    Promise.all(transactions.map(fetchTransactionContractName)),
-  ]);
+  // Deduplicate addresses to avoid fetching the same ABI multiple times
+  const uniqueAddresses = new Set<string>();
+  const addressToTransactions = new Map<string, Transaction[]>();
 
+  transactions.forEach((tx) => {
+    if (!isEmptyTransaction(tx)) {
+      uniqueAddresses.add(tx.address);
+      if (!addressToTransactions.has(tx.address)) {
+        addressToTransactions.set(tx.address, []);
+      }
+      addressToTransactions.get(tx.address)!.push(tx);
+    }
+  });
+
+  // Fetch ABIs for unique addresses only
+  const abiResults = await Promise.all(
+    Array.from(uniqueAddresses).map(async (address) => {
+      const abiResponse = await fetchContractABI(address);
+      return { address, abiResponse };
+    }),
+  );
+
+  // Create ABI map from results
   const abiMap = new Map(
     abiResults.map((result) => [result.address, result.abiResponse]),
+  );
+
+  // Fetch contract names for unique addresses only (deduplicated)
+  const contractNameResults = await Promise.all(
+    Array.from(uniqueAddresses).map(async (address) => {
+      const result = await fetchTransactionContractName({
+        address,
+      } as Transaction);
+      return result;
+    }),
   );
 
   const contractNameMap = contractNameResults.reduce(
@@ -33,18 +61,6 @@ export async function fetchTransactionData(
   );
 
   return { abiMap, contractNameMap };
-}
-
-// Helper function to fetch ABI for a single transaction
-async function fetchTransactionABI(
-  tx: Transaction,
-): Promise<{ address: string; abiResponse: ABIResponse | null }> {
-  if (isEmptyTransaction(tx)) {
-    return { address: tx.address, abiResponse: null };
-  }
-
-  const abiResponse = await fetchContractABI(tx.address);
-  return { address: tx.address, abiResponse };
 }
 
 // Helper function to fetch contract name for a single transaction

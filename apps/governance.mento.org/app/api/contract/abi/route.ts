@@ -8,7 +8,10 @@ import {
 } from "viem";
 import { celo } from "viem/chains";
 import { getImplementationAddress } from "./getImplementationAddress";
-import { AbiSource, fetchAbi } from "./fetchAbi";
+import {
+  fetchAbi,
+  BlockchainExplorerSource,
+} from "../services/blockchain-explorer-service";
 import { env } from "../../../env.mjs";
 import { isAbi } from "./isAbi";
 
@@ -54,18 +57,28 @@ export async function GET(request: NextRequest) {
     const etherscanApiKey = env.ETHERSCAN_API_KEY;
 
     // Try Celoscan first
-    let abiSource: AbiSource = "celoscan";
+    let abiSource: BlockchainExplorerSource = "celoscan";
     let abi = await fetchAbi(address, abiSource, etherscanApiKey);
 
     // Fallback to Blockscout
     if (!abi) {
+      console.log(
+        "Etherscan: No ABI found for",
+        address,
+        "falling back to Blockscout",
+      );
       abiSource = "blockscout";
       abi = await fetchAbi(address, abiSource);
     }
 
     if (abi && isAbi(abi)) {
-      const isProxy = abi.some((item) => {
-        if (item.type === "function" && "name" in item) {
+      const isProxy = abi.some((item: unknown) => {
+        if (
+          typeof item === "object" &&
+          item !== null &&
+          "type" in item &&
+          "name" in item
+        ) {
           const abiFunction = item as AbiFunction;
           return (
             abiFunction.name &&
