@@ -274,19 +274,19 @@ export const ProposalContent = () => {
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
-      <div className="mb-16 flex flex-col gap-6">
-        <ProposalStatus
-          variant={getStatusVariant()}
-          data-testid="proposalStateLabel"
-        />
+      <div className="mb-12 flex flex-col gap-4">
         <h1
-          className="max-w-6xlxl truncate text-3xl font-medium leading-[80px] md:text-6xl"
+          className="text-3xl font-medium md:text-6xl"
           data-testid="proposalTitleLabel"
           title={proposal.metadata?.title}
         >
           {proposal.metadata?.title}
         </h1>
         <div className="flex flex-wrap items-center gap-2 md:gap-8">
+          <ProposalStatus
+            variant={getStatusVariant()}
+            data-testid="proposalStateLabel"
+          />
           <div className="flex items-center gap-2">
             <Identicon address={proposal.proposer.id} size={16} />
             <Link
