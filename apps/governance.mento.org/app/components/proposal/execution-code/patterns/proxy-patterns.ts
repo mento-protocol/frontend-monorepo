@@ -1,28 +1,38 @@
-import { getAddressName } from "../../hooks/useContractRegistry";
 import type { PatternRegistry } from "./types";
+import { createPattern } from "./base-pattern";
+import { getAddressNameFromCache } from "../../services/address-resolver-service";
 
 export const proxyPatterns: PatternRegistry = {
-  "changeProxyAdmin(address,address)": (contract, args) => {
-    const [proxy, newAdmin] = args;
-    if (!proxy || !newAdmin) return "Invalid changeProxyAdmin parameters";
-    const proxyName = getAddressName(String(proxy.value));
-    const adminName = getAddressName(String(newAdmin.value));
-    return `Change proxy admin for ${proxyName} to ${adminName}`;
-  },
+  "changeProxyAdmin(address,address)": createPattern(
+    (contract, args) => {
+      const [proxy, newAdmin] = args;
+      const proxyName = getAddressNameFromCache(String(proxy!.value));
+      const adminName = getAddressNameFromCache(String(newAdmin!.value));
+      return `Change proxy admin for ${proxyName} to ${adminName}`;
+    },
+    2,
+    "changeProxyAdmin",
+  ),
 
-  "upgrade(address,address)": (contract, args) => {
-    const [proxy, implementation] = args;
-    if (!proxy || !implementation) return "Invalid upgrade parameters";
-    const proxyName = getAddressName(String(proxy.value));
-    const implName = getAddressName(String(implementation.value));
-    return `Upgrade ${proxyName} to implementation ${implName}`;
-  },
+  "upgrade(address,address)": createPattern(
+    (contract, args) => {
+      const [proxy, implementation] = args;
+      const proxyName = getAddressNameFromCache(String(proxy!.value));
+      const implName = getAddressNameFromCache(String(implementation!.value));
+      return `Upgrade ${proxyName} to implementation ${implName}`;
+    },
+    2,
+    "upgrade",
+  ),
 
-  "upgradeAndCall(address,address,bytes)": (contract, args) => {
-    const [proxy, implementation] = args;
-    if (!proxy || !implementation) return "Invalid upgradeAndCall parameters";
-    const proxyName = getAddressName(String(proxy.value));
-    const implName = getAddressName(String(implementation.value));
-    return `Upgrade ${proxyName} to implementation ${implName} and execute initialization`;
-  },
+  "upgradeAndCall(address,address,bytes)": createPattern(
+    (contract, args) => {
+      const [proxy, implementation] = args;
+      const proxyName = getAddressNameFromCache(String(proxy!.value));
+      const implName = getAddressNameFromCache(String(implementation!.value));
+      return `Upgrade ${proxyName} to implementation ${implName} and execute initialization`;
+    },
+    3,
+    "upgradeAndCall",
+  ),
 };

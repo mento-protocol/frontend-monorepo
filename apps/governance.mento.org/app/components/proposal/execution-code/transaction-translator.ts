@@ -1,5 +1,8 @@
 import { formatUnits } from "viem";
-import { getAddressName, getContractInfo } from "../hooks/useContractRegistry";
+import {
+  getAddressNameFromCache,
+  getContractInfo,
+} from "../services/address-resolver-service";
 import { decodeTransaction } from "./utils/decodeTransaction";
 import type {
   DecodedTransaction,
@@ -93,7 +96,7 @@ export async function translateDecodedTransaction(
     const contractNameClean = removeProxySuffix(
       contractName ||
         localContractInfo?.name ||
-        getAddressName(transaction.address),
+        getAddressNameFromCache(transaction.address),
     );
 
     // Create a generic description using ABI-decoded function info
@@ -111,7 +114,7 @@ export async function translateDecodedTransaction(
   } catch (error) {
     console.error("Error translating transaction with decoded data:", error);
     return {
-      description: `Execute transaction on ${removeProxySuffix(getAddressName(transaction.address))}`,
+      description: `Execute transaction on ${removeProxySuffix(getAddressNameFromCache(transaction.address))}`,
       confidence: "low",
     };
   }

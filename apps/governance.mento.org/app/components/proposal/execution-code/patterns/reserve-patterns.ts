@@ -1,118 +1,143 @@
-import { formatUnits } from "viem";
+import type { PatternRegistry } from "./types";
+import { createPattern, DEFAULT_TOKEN_DECIMALS } from "./base-pattern";
 import {
   getContractInfo,
-  getAddressName,
-} from "../../hooks/useContractRegistry";
-import type { PatternRegistry } from "./types";
-
-function formatTokenAmount(amount: string | number, decimals: number): string {
-  try {
-    const formatted = formatUnits(BigInt(amount), decimals);
-    const num = parseFloat(formatted);
-
-    // Use native Intl.NumberFormat for compact notation (K/M suffixes)
-    const formatter = new Intl.NumberFormat("en-US", {
-      notation: "compact",
-      compactDisplay: "short",
-      maximumFractionDigits: 4,
-    });
-
-    return formatter.format(num);
-  } catch {
-    return String(amount);
-  }
-}
+  getAddressNameFromCache,
+} from "../../services/address-resolver-service";
+import { formatTokenAmount } from "./utils";
 
 export const reservePatterns: PatternRegistry = {
-  "transferGold(address,uint256)": (contract, args) => {
-    const [to, value] = args;
-    if (!to || !value) return "Invalid transfer parameters";
-    const toName = getAddressName(String(to.value));
-    const formattedAmount = formatTokenAmount(String(value.value), 18);
-    return `Transfer ${formattedAmount} CELO from Mento Reserve to ${toName}`;
-  },
+  "transferGold(address,uint256)": createPattern(
+    (contract, args) => {
+      const [to, value] = args;
+      const toName = getAddressNameFromCache(String(to!.value));
+      const formattedAmount = formatTokenAmount(String(value!.value), 18);
+      return `Transfer ${formattedAmount} CELO from Mento Reserve to ${toName}`;
+    },
+    2,
+    "transferGold",
+  ),
 
-  "transferCollateralAsset(address,address,uint256)": (contract, args) => {
-    const [asset, to, value] = args;
-    if (!asset || !to || !value) return "Invalid transfer parameters";
-    const assetInfo = getContractInfo(String(asset.value));
-    const assetName = assetInfo?.symbol || getAddressName(String(asset.value));
-    const toName = getAddressName(String(to.value));
-    const formattedAmount = formatTokenAmount(
-      String(value.value),
-      assetInfo?.decimals || 18,
-    );
-    return `Transfer ${formattedAmount} ${assetName} from Mento Reserve to ${toName}`;
-  },
+  "transferCollateralAsset(address,address,uint256)": createPattern(
+    (contract, args) => {
+      const [asset, to, value] = args;
+      const assetInfo = getContractInfo(String(asset!.value));
+      const assetName =
+        assetInfo?.symbol || getAddressNameFromCache(String(asset!.value));
+      const toName = getAddressNameFromCache(String(to!.value));
+      const formattedAmount = formatTokenAmount(
+        String(value!.value),
+        assetInfo?.decimals || DEFAULT_TOKEN_DECIMALS,
+      );
+      return `Transfer ${formattedAmount} ${assetName} from Mento Reserve to ${toName}`;
+    },
+    3,
+    "transferCollateralAsset",
+  ),
 
-  "addToken(address)": (contract, args) => {
-    const [token] = args;
-    if (!token) return "Invalid addToken parameters";
-    const tokenInfo = getContractInfo(String(token.value));
-    const tokenName = tokenInfo?.symbol || getAddressName(String(token.value));
-    return `Add ${tokenName} to Reserve tokens`;
-  },
+  "addToken(address)": createPattern(
+    (contract, args) => {
+      const [token] = args;
+      const tokenInfo = getContractInfo(String(token!.value));
+      const tokenName =
+        tokenInfo?.symbol || getAddressNameFromCache(String(token!.value));
+      return `Add ${tokenName} to Reserve tokens`;
+    },
+    1,
+    "addToken",
+  ),
 
-  "removeToken(address,uint256)": (contract, args) => {
-    const [token] = args;
-    if (!token) return "Invalid removeToken parameters";
-    const tokenInfo = getContractInfo(String(token.value));
-    const tokenName = tokenInfo?.symbol || getAddressName(String(token.value));
-    return `Remove ${tokenName} from Reserve tokens`;
-  },
+  "removeToken(address,uint256)": createPattern(
+    (contract, args) => {
+      const [token] = args;
+      const tokenInfo = getContractInfo(String(token!.value));
+      const tokenName =
+        tokenInfo?.symbol || getAddressNameFromCache(String(token!.value));
+      return `Remove ${tokenName} from Reserve tokens`;
+    },
+    2,
+    "removeToken",
+  ),
 
-  "addCollateralAsset(address)": (contract, args) => {
-    const [asset] = args;
-    if (!asset) return "Invalid addCollateralAsset parameters";
-    const assetInfo = getContractInfo(String(asset.value));
-    const assetName = assetInfo?.symbol || getAddressName(String(asset.value));
-    return `Add ${assetName} as Reserve collateral asset`;
-  },
+  "addCollateralAsset(address)": createPattern(
+    (contract, args) => {
+      const [asset] = args;
+      const assetInfo = getContractInfo(String(asset!.value));
+      const assetName =
+        assetInfo?.symbol || getAddressNameFromCache(String(asset!.value));
+      return `Add ${assetName} as Reserve collateral asset`;
+    },
+    1,
+    "addCollateralAsset",
+  ),
 
-  "removeCollateralAsset(address,uint256)": (contract, args) => {
-    const [asset] = args;
-    if (!asset) return "Invalid removeCollateralAsset parameters";
-    const assetInfo = getContractInfo(String(asset.value));
-    const assetName = assetInfo?.symbol || getAddressName(String(asset.value));
-    return `Remove ${assetName} from Reserve collateral assets`;
-  },
+  "removeCollateralAsset(address,uint256)": createPattern(
+    (contract, args) => {
+      const [asset] = args;
+      const assetInfo = getContractInfo(String(asset!.value));
+      const assetName =
+        assetInfo?.symbol || getAddressNameFromCache(String(asset!.value));
+      return `Remove ${assetName} from Reserve collateral assets`;
+    },
+    2,
+    "removeCollateralAsset",
+  ),
 
-  "setAssetAllocations(bytes32[],uint256[])": () => {
-    return `Update Reserve asset allocation weights`;
-  },
+  "setAssetAllocations(bytes32[],uint256[])": createPattern(
+    () => {
+      return `Update Reserve asset allocation weights`;
+    },
+    0,
+    "setAssetAllocations",
+  ),
 
-  "setDailySpendingRatio(uint256)": (contract, args) => {
-    const [ratio] = args;
-    if (!ratio) return "Invalid spending ratio parameters";
-    const percentage = ((Number(ratio.value) / 1e18) * 100).toFixed(2);
-    return `Set Reserve daily spending limit to ${percentage}%`;
-  },
+  "setDailySpendingRatio(uint256)": createPattern(
+    (contract, args) => {
+      const [ratio] = args;
+      const percentage = ((Number(ratio!.value) / 1e18) * 100).toFixed(2);
+      return `Set Reserve daily spending limit to ${percentage}%`;
+    },
+    1,
+    "setDailySpendingRatio",
+  ),
 
-  "addSpender(address)": (contract, args) => {
-    const [spender] = args;
-    if (!spender) return "Invalid addSpender parameters";
-    const spenderName = getAddressName(String(spender.value));
-    return `Add ${spenderName} as Reserve spender`;
-  },
+  "addSpender(address)": createPattern(
+    (contract, args) => {
+      const [spender] = args;
+      const spenderName = getAddressNameFromCache(String(spender!.value));
+      return `Add ${spenderName} as Reserve spender`;
+    },
+    1,
+    "addSpender",
+  ),
 
-  "removeSpender(address)": (contract, args) => {
-    const [spender] = args;
-    if (!spender) return "Invalid removeSpender parameters";
-    const spenderName = getAddressName(String(spender.value));
-    return `Remove ${spenderName} from Reserve spenders`;
-  },
+  "removeSpender(address)": createPattern(
+    (contract, args) => {
+      const [spender] = args;
+      const spenderName = getAddressNameFromCache(String(spender!.value));
+      return `Remove ${spenderName} from Reserve spenders`;
+    },
+    1,
+    "removeSpender",
+  ),
 
-  "addExchangeSpender(address)": (contract, args) => {
-    const [spender] = args;
-    if (!spender) return "Invalid addExchangeSpender parameters";
-    const spenderName = getAddressName(String(spender.value));
-    return `Add ${spenderName} as Reserve exchange spender`;
-  },
+  "addExchangeSpender(address)": createPattern(
+    (contract, args) => {
+      const [spender] = args;
+      const spenderName = getAddressNameFromCache(String(spender!.value));
+      return `Add ${spenderName} as Reserve exchange spender`;
+    },
+    1,
+    "addExchangeSpender",
+  ),
 
-  "removeExchangeSpender(address,uint256)": (contract, args) => {
-    const [spender] = args;
-    if (!spender) return "Invalid removeExchangeSpender parameters";
-    const spenderName = getAddressName(String(spender.value));
-    return `Remove ${spenderName} from Reserve exchange spenders`;
-  },
+  "removeExchangeSpender(address,uint256)": createPattern(
+    (contract, args) => {
+      const [spender] = args;
+      const spenderName = getAddressNameFromCache(String(spender!.value));
+      return `Remove ${spenderName} from Reserve exchange spenders`;
+    },
+    2,
+    "removeExchangeSpender",
+  ),
 };

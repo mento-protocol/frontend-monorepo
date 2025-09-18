@@ -4,10 +4,10 @@ import { CopyToClipboard } from "@repo/ui";
 import { useCurrentChain } from "@repo/web3";
 import { useMemo } from "react";
 import { formatUnits } from "viem";
-import { getAddressName } from "../hooks/useContractRegistry";
+import { getAddressNameFromCache } from "../services/address-resolver-service";
 
 function getAddressLabel(address: string): string {
-  const contractName = getAddressName(address);
+  const contractName = getAddressNameFromCache(address);
   return contractName !== "Unknown"
     ? contractName
     : `${address.slice(0, 6)}...${address.slice(-4)}`;

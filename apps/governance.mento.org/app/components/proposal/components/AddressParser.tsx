@@ -3,10 +3,8 @@
 import { useMemo, useEffect } from "react";
 import { isAddress } from "viem";
 import { Transaction, DecodedTransaction } from "../types/transaction";
-import {
-  useAllContractMappings,
-  getContractInfo,
-} from "../hooks/useContractRegistry";
+import { useAllResolvedMappings } from "../hooks/useAddressResolver";
+import { getContractInfo } from "../services/address-resolver-service";
 
 interface AddressReplacement {
   match: string;
@@ -31,7 +29,7 @@ export function AddressParser({
   decodedTransaction,
   onAddressFound,
 }: AddressParserProps) {
-  const contractMappings = useAllContractMappings();
+  const contractMappings = useAllResolvedMappings();
 
   const allReplacements = useMemo(() => {
     const fullAddresses = findFullAddresses(text);

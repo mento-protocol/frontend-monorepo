@@ -26,4 +26,6 @@ export interface ContractInfo {
   symbol?: string;
   decimals?: number;
   friendlyName?: string;
+  isProxy?: boolean;
+  implementationAddress?: string;
 }

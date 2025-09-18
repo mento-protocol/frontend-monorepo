@@ -2,7 +2,7 @@ import { ABIResponse } from "@/api/contract/types";
 import { Transaction } from "../../types/transaction";
 import { isEmptyTransaction } from "../patterns/utils";
 import { ContractAPIService } from "../../services/contract-api-service";
-import { getContractInfo } from "../../hooks/useContractRegistry";
+import { getContractInfo } from "../../services/address-resolver-service";
 
 interface FetchedData {
   abiMap: Map<string, ABIResponse | null>;

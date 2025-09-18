@@ -551,13 +551,11 @@ export const VoteCard = ({
               href="https://docs.mento.org/mento/overview/governance-and-the-mento-token/watchdogs-and-safety"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-blue-600 underline hover:text-blue-800"
+              className="underline underline-offset-4"
             >
               governance watchdogs
             </a>{" "}
-            have canceled this proposal.
-            <br />
-            It will not move forward.
+            have canceled this proposal. It will not move forward.
           </>
         );
 

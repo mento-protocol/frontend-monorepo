@@ -1,76 +1,94 @@
-import {
-  getContractInfo,
-  getAddressName,
-} from "../../hooks/useContractRegistry";
 import type { PatternRegistry } from "./types";
 import { formatTokenAmount } from "./utils";
+import { createPattern, DEFAULT_TOKEN_DECIMALS } from "./base-pattern";
+import {
+  getContractInfo,
+  getAddressNameFromCache,
+} from "../../services/address-resolver-service";
 
 export const tokenPatterns: PatternRegistry = {
-  "transfer(address,uint256)": (contract, args) => {
-    const [recipient, amount] = args;
-    if (!recipient || !amount) return "Invalid transfer parameters";
-    const recipientName = getAddressName(String(recipient.value));
-    const token = getContractInfo(contract.address);
-    const formattedAmount = formatTokenAmount(
-      String(amount.value),
-      token?.decimals || 18,
-    );
+  "transfer(address,uint256)": createPattern(
+    (contract, args) => {
+      const [recipient, amount] = args;
+      const recipientName = getAddressNameFromCache(String(recipient!.value));
+      const token = getContractInfo(contract.address);
+      const formattedAmount = formatTokenAmount(
+        String(amount!.value),
+        token?.decimals || DEFAULT_TOKEN_DECIMALS,
+      );
 
-    return `Send ${formattedAmount} ${token?.symbol || "tokens"} to ${recipientName}`;
-  },
+      return `Send ${formattedAmount} ${token?.symbol || "tokens"} to ${recipientName}`;
+    },
+    2,
+    "transfer",
+  ),
 
-  "approve(address,uint256)": (contract, args) => {
-    const [spender, amount] = args;
-    if (!spender || !amount) return "Invalid approve parameters";
-    const spenderName = getAddressName(String(spender.value));
-    const token = getContractInfo(contract.address);
-    const formattedAmount = formatTokenAmount(
-      String(amount.value),
-      token?.decimals || 18,
-    );
+  "approve(address,uint256)": createPattern(
+    (contract, args) => {
+      const [spender, amount] = args;
+      const spenderName = getAddressNameFromCache(String(spender!.value));
+      const token = getContractInfo(contract.address);
+      const formattedAmount = formatTokenAmount(
+        String(amount!.value),
+        token?.decimals || DEFAULT_TOKEN_DECIMALS,
+      );
 
-    return `Approve ${spenderName} to spend ${formattedAmount} ${token?.symbol || "tokens"}`;
-  },
+      return `Approve ${spenderName} to spend ${formattedAmount} ${token?.symbol || "tokens"}`;
+    },
+    2,
+    "approve",
+  ),
 
-  "mint(address,uint256)": (contract, args) => {
-    const [recipient, amount] = args;
-    if (!recipient || !amount) return "Invalid mint parameters";
-    const recipientName = getAddressName(String(recipient.value));
-    const token = getContractInfo(contract.address);
-    const formattedAmount = formatTokenAmount(
-      String(amount.value),
-      token?.decimals || 18,
-    );
+  "mint(address,uint256)": createPattern(
+    (contract, args) => {
+      const [recipient, amount] = args;
+      const recipientName = getAddressNameFromCache(String(recipient!.value));
+      const token = getContractInfo(contract.address);
+      const formattedAmount = formatTokenAmount(
+        String(amount!.value),
+        token?.decimals || DEFAULT_TOKEN_DECIMALS,
+      );
 
-    return `Mint ${formattedAmount} ${token?.symbol || "tokens"} to ${recipientName}`;
-  },
+      return `Mint ${formattedAmount} ${token?.symbol || "tokens"} to ${recipientName}`;
+    },
+    2,
+    "mint",
+  ),
 
-  "burn(uint256)": (contract, args) => {
-    const [amount] = args;
-    if (!amount) return "Invalid burn parameters";
-    const token = getContractInfo(contract.address);
-    const formattedAmount = formatTokenAmount(
-      String(amount.value),
-      token?.decimals || 18,
-    );
+  "burn(uint256)": createPattern(
+    (contract, args) => {
+      const [amount] = args;
+      const token = getContractInfo(contract.address);
+      const formattedAmount = formatTokenAmount(
+        String(amount!.value),
+        token?.decimals || DEFAULT_TOKEN_DECIMALS,
+      );
 
-    return `Burn ${formattedAmount} ${token?.symbol || "tokens"}`;
-  },
+      return `Burn ${formattedAmount} ${token?.symbol || "tokens"}`;
+    },
+    1,
+    "burn",
+  ),
 
   // veMENTO functions
-  "lock(address,address,uint96,uint32,uint32)": (contract, args) => {
-    const [account, , amount, slopePeriod, cliff] = args;
-    if (!account || !amount || !cliff || !slopePeriod)
-      return "Invalid lock parameters";
-    const accountName = getAddressName(String(account.value));
-    const formattedAmount = formatTokenAmount(String(amount.value), 18);
-    return `Lock ${formattedAmount} MENTO for ${accountName} with ${String(cliff.value)} weeks cliff and ${String(slopePeriod.value)} weeks slope period`;
-  },
+  "lock(address,address,uint96,uint32,uint32)": createPattern(
+    (contract, args) => {
+      const [account, , amount, slopePeriod, cliff] = args;
+      const accountName = getAddressNameFromCache(String(account!.value));
+      const formattedAmount = formatTokenAmount(String(amount!.value), 18);
+      return `Lock ${formattedAmount} MENTO for ${accountName} with ${String(cliff!.value)} weeks cliff and ${String(slopePeriod!.value)} weeks slope period`;
+    },
+    5,
+    "lock",
+  ),
 
-  "delegateTo(uint256,address)": (contract, args) => {
-    const [id, newDelegate] = args;
-    if (!id || !newDelegate) return "Invalid delegation parameters";
-    const delegateName = getAddressName(String(newDelegate.value));
-    return `Delegate voting power from lock #${id.value} to ${delegateName}`;
-  },
+  "delegateTo(uint256,address)": createPattern(
+    (contract, args) => {
+      const [id, newDelegate] = args;
+      const delegateName = getAddressNameFromCache(String(newDelegate!.value));
+      return `Delegate voting power from lock #${id!.value} to ${delegateName}`;
+    },
+    2,
+    "delegateTo",
+  ),
 };
