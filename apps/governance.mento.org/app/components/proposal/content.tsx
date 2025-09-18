@@ -38,19 +38,13 @@ import remarkGfm from "remark-gfm";
 import { formatUnits } from "viem";
 import { ExecutionCode } from "./execution-code/ExecutionCode";
 import { isEmptyTransaction } from "./execution-code/patterns/utils";
-
-const CELO_COMMUNITY_ADDRESS = "0x41822d8a191fcfb1cfca5f7048818acd8ee933d3";
-
-const ADDRESS_ALIASES: Record<string, string> = {
-  [CELO_COMMUNITY_ADDRESS.toLowerCase()]: "Celo Community",
-};
+import { getAddressName } from "./hooks/useContractRegistry";
 
 function getAddressLabel(address: string): string {
-  const lowerAddress = address.toLowerCase();
-  return (
-    ADDRESS_ALIASES[lowerAddress] ||
-    `${address.slice(0, 6)}...${address.slice(-4)}`
-  );
+  const contractName = getAddressName(address);
+  return contractName !== "Unknown"
+    ? contractName
+    : `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
 function decodeHtmlEntities(text: string): string {
