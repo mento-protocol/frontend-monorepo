@@ -225,28 +225,6 @@ export const LockList = () => {
                           )}
                         </LockCardFieldValue>
                       </LockCardField>
-                      <LockCardField>
-                        <LockCardFieldLabel>To Withdraw</LockCardFieldLabel>
-                        <LockCardFieldValue className="flex items-center gap-1">
-                          {0}{" "}
-                          <span className="text-muted-foreground">MENTO</span>
-                          {badgeType === "received" && (
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Info className="text-muted-foreground ml-1 size-4" />
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>
-                                    Received locks can only be updated by their
-                                    lock owner
-                                  </p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          )}
-                        </LockCardFieldValue>
-                      </LockCardField>
                     </LockCardRow>
                   </LockCardBody>
 
@@ -366,28 +344,6 @@ export const LockList = () => {
                         </LockCardFieldLabel>
                         <LockCardFieldValue>
                           {formatDate(lock.expiration)}
-                        </LockCardFieldValue>
-                      </LockCardField>
-                      <LockCardField>
-                        <LockCardFieldLabel>To Withdraw</LockCardFieldLabel>
-                        <LockCardFieldValue>
-                          {toWithdraw.toLocaleString()}{" "}
-                          <span className="text-muted-foreground">MENTO</span>
-                          {badgeType === "received" && (
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Info className="text-muted-foreground ml-1 size-4" />
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>
-                                    Received locks can only be updated by their
-                                    lock owner
-                                  </p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          )}
                         </LockCardFieldValue>
                       </LockCardField>
                     </LockCardRow>

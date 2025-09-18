@@ -342,6 +342,9 @@ export function LockFormFields({
                 },
               },
             })}
+            onChange={(e) => {
+              setValue(LOCKING_AMOUNT_FORM_KEY, e.target.value);
+            }}
           />
           <div className="text-muted-foreground flex items-center gap-1 text-xs">
             <span>Balance: {formattedMentoBalance}</span>
