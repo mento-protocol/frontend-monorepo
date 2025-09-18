@@ -1,5 +1,8 @@
 import { formatUnits } from "viem";
-import { getContractInfo, getAddressName } from "../utils/contract-registry";
+import {
+  getContractInfo,
+  getAddressName,
+} from "../../hooks/useContractRegistry";
 import type { PatternRegistry } from "./types";
 
 function formatTokenAmount(amount: string | number, decimals: number): string {

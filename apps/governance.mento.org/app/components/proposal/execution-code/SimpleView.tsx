@@ -1,4 +1,8 @@
-import type { Transaction, TransactionSummary } from "../types/transaction";
+import type {
+  Transaction,
+  TransactionSummary,
+  DecodedTransaction,
+} from "../types/transaction";
 import { FormattedTransactionText } from "../components/FormattedTransactionText";
 import { LoadingState } from "./LoadingState";
 
@@ -6,12 +10,14 @@ interface SimpleViewProps {
   isLoading: boolean;
   summaries: TransactionSummary[];
   transactions: Transaction[];
+  decodedTransactions: (DecodedTransaction | null)[];
 }
 
 export function SimpleView({
   isLoading,
   summaries,
   transactions,
+  decodedTransactions,
 }: SimpleViewProps) {
   if (isLoading) {
     return <LoadingState />;
@@ -25,6 +31,7 @@ export function SimpleView({
           <FormattedTransactionText
             text={summary.description}
             transaction={transactions[index]}
+            decodedTransaction={decodedTransactions[index] || undefined}
           />
         </li>
       ))}

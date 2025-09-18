@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { Transaction } from "../types/transaction";
+import { Transaction, DecodedTransaction } from "../types/transaction";
 import { useExplorerUrl } from "../utils/address-utils";
 import { AddressParser } from "./AddressParser";
 import { CodeStyler } from "./CodeStyler";
@@ -17,6 +17,7 @@ interface AddressReplacement {
 interface FormattedTransactionTextProps {
   text: string;
   transaction?: Transaction;
+  decodedTransaction?: DecodedTransaction;
 }
 
 /**
@@ -27,6 +28,7 @@ interface FormattedTransactionTextProps {
 export function FormattedTransactionText({
   text,
   transaction,
+  decodedTransaction,
 }: FormattedTransactionTextProps) {
   const explorerUrl = useExplorerUrl();
   const [addressReplacements, setAddressReplacements] = useState<
@@ -101,6 +103,7 @@ export function FormattedTransactionText({
       <AddressParser
         text={text}
         transaction={transaction}
+        decodedTransaction={decodedTransaction}
         onAddressFound={setAddressReplacements}
       />
       {formattedElements}

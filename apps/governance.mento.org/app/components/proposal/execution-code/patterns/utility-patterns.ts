@@ -1,4 +1,7 @@
-import { getContractInfo, getAddressName } from "../utils/contract-registry";
+import {
+  getContractInfo,
+  getAddressName,
+} from "../../hooks/useContractRegistry";
 import type { PatternRegistry } from "./types";
 
 export const utilityPatterns: PatternRegistry = {

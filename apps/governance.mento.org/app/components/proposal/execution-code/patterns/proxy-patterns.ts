@@ -1,4 +1,4 @@
-import { getAddressName } from "../utils/contract-registry";
+import { getAddressName } from "../../hooks/useContractRegistry";
 import type { PatternRegistry } from "./types";
 
 export const proxyPatterns: PatternRegistry = {

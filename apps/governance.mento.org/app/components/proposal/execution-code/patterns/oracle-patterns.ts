@@ -1,4 +1,7 @@
-import { getAddressName, getRateFeedName } from "../utils/contract-registry";
+import {
+  getRateFeedName,
+  getAddressName,
+} from "../../hooks/useContractRegistry";
 import type { PatternRegistry } from "./types";
 
 export const oraclePatterns: PatternRegistry = {
@@ -6,15 +9,17 @@ export const oraclePatterns: PatternRegistry = {
     const [token, oracle] = args;
     if (!token || !oracle) return "Invalid addOracle parameters";
     const rateFeedName = getRateFeedName(String(token.value));
-    const oracleName = getAddressName(String(oracle.value));
-    return `Add ${oracleName} as price oracle for the ${rateFeedName}`;
+    const oracleAddress = String(oracle.value);
+    const oracleDisplay = getAddressName(oracleAddress);
+    return `Add ${oracleDisplay} as price oracle for the ${rateFeedName}`;
   },
 
   "removeOracle(address,address,uint256)": (contract, args) => {
     const [token, oracle] = args;
     if (!token || !oracle) return "Invalid removeOracle parameters";
     const rateFeedName = getRateFeedName(String(token.value));
-    const oracleName = getAddressName(String(oracle.value));
-    return `Remove ${oracleName} as price oracle for the ${rateFeedName}`;
+    const oracleAddress = String(oracle.value);
+    const oracleDisplay = getAddressName(oracleAddress);
+    return `Remove ${oracleDisplay} as price oracle for the ${rateFeedName}`;
   },
 };

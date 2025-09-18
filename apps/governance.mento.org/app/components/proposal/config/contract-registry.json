@@ -51,6 +51,10 @@
     "0x70d8dc60f9701c46d4ce9ac141e154f6804e1dc3": {
       "name": "Mento Proxy Admin",
       "friendlyName": "Mento Proxy Admin"
+    },
+    "0xefB84935239dAcdecF7c5bA76d8dE40b077B7b33": {
+      "name": "SortedOracles",
+      "friendlyName": "SortedOracles"
     }
   },
   "treasury": {

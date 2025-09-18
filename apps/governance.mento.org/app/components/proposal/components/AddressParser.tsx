@@ -2,7 +2,7 @@
 
 import { useMemo, useEffect } from "react";
 import { isAddress } from "viem";
-import { Transaction } from "../types/transaction";
+import { Transaction, DecodedTransaction } from "../types/transaction";
 import {
   useAllContractMappings,
   getContractInfo,
@@ -18,6 +18,7 @@ interface AddressReplacement {
 interface AddressParserProps {
   text: string;
   transaction?: Transaction;
+  decodedTransaction?: DecodedTransaction;
   onAddressFound: (replacements: AddressReplacement[]) => void;
 }
 
@@ -27,19 +28,23 @@ interface AddressParserProps {
 export function AddressParser({
   text,
   transaction,
+  decodedTransaction,
   onAddressFound,
 }: AddressParserProps) {
   const contractMappings = useAllContractMappings();
 
   const allReplacements = useMemo(() => {
     const fullAddresses = findFullAddresses(text);
-    const truncatedAddresses = findTruncatedAddresses(text, transaction);
+    const truncatedAddresses = findTruncatedAddresses(
+      text,
+      transaction,
+      decodedTransaction,
+    );
     const friendlyNames = findFriendlyNameMatches(
       text,
       contractMappings,
       transaction,
     );
-
     // Combine all replacements and sort by position
     const combined = [
       ...fullAddresses,
@@ -140,21 +145,50 @@ function findFullAddresses(text: string): AddressReplacement[] {
 }
 
 /**
- * Find truncated addresses and resolve them using transaction context
+ * Find truncated addresses and resolve them using transaction context and decoded arguments
  */
 function findTruncatedAddresses(
   text: string,
   transaction?: Transaction,
+  decodedTransaction?: DecodedTransaction,
 ): AddressReplacement[] {
   if (!transaction) return [];
 
   const truncatedAddressRegex = /0x[a-fA-F0-9]{4,6}\.\.\.[a-fA-F0-9]{4}/g;
   const matches = findAllMatches(text, truncatedAddressRegex);
 
+  const addressMapping: Record<string, string> = {};
+
+  // Add transaction address mapping
   const contractTruncated = `${transaction.address.slice(0, 6)}...${transaction.address.slice(-4)}`;
-  const addressMapping: Record<string, string> = {
-    [contractTruncated]: transaction.address,
-  };
+  addressMapping[contractTruncated] = transaction.address;
+
+  // Add oracle addresses from decoded transaction arguments
+  if (decodedTransaction?.args) {
+    decodedTransaction.args.forEach((arg) => {
+      if (
+        typeof arg.value === "string" &&
+        arg.value.startsWith("0x") &&
+        arg.value.length === 42
+      ) {
+        const fullAddress = arg.value;
+        const truncated = `${fullAddress.slice(0, 6)}...${fullAddress.slice(-4)}`;
+        addressMapping[truncated] = fullAddress;
+      }
+    });
+  }
+
+  // Fallback: Try to find oracle addresses in the text
+  // This is a heuristic approach - we look for full addresses in the text
+  // and try to match them with truncated addresses
+  const fullAddressRegex = /0x[a-fA-F0-9]{40}/g;
+  const fullAddressMatches = findAllMatches(text, fullAddressRegex);
+
+  fullAddressMatches.forEach((fullMatch) => {
+    const fullAddress = fullMatch[0];
+    const truncated = `${fullAddress.slice(0, 6)}...${fullAddress.slice(-4)}`;
+    addressMapping[truncated] = fullAddress;
+  });
 
   return matches
     .filter((match) => {
@@ -219,15 +253,15 @@ function buildFriendlyNameMapping(
   const mapping: Record<string, string> = {};
 
   contractMappings.forEach(({ name, address, friendlyName, symbol }) => {
-    // Add main name for non-token contracts
-    if (name && !name.includes("Token")) {
+    // Add main name for non-token contracts, but exclude rate feed IDs
+    if (name && !name.includes("Token") && !isRateFeedId(name)) {
       mapping[name] = address;
     }
 
     // Add friendly name if it meets criteria
     if (
       friendlyName &&
-      !friendlyName.includes("rate feed") &&
+      !isRateFeedId(friendlyName) &&
       friendlyName.length > 5 &&
       !friendlyName.includes("MENTO")
     ) {
@@ -247,10 +281,13 @@ function buildFriendlyNameMapping(
   // Add contract names from transaction context
   if (transaction) {
     const contractInfo = getContractInfo(transaction.address);
-    if (contractInfo?.name) {
+    if (contractInfo?.name && !isRateFeedId(contractInfo.name)) {
       mapping[contractInfo.name] = transaction.address;
     }
-    if (contractInfo?.friendlyName) {
+    if (
+      contractInfo?.friendlyName &&
+      !isRateFeedId(contractInfo.friendlyName)
+    ) {
       mapping[contractInfo.friendlyName] = transaction.address;
     }
   }
@@ -259,10 +296,23 @@ function buildFriendlyNameMapping(
 }
 
 /**
+ * Check if a name is a rate feed ID (should not be linked)
+ * Rate feed IDs are descriptive names like "CELO/ETH rate feed"
+ * Contract names like "SortedOracles" should still be linked
+ */
+function isRateFeedId(name: string): boolean {
+  // Rate feed IDs typically contain "rate feed" and have a pattern like "TOKEN1/TOKEN2 rate feed"
+  return (
+    name.includes("rate feed") &&
+    /^[A-Z]{3,4}\/[A-Z]{3,4}\s+rate\s+feed$/i.test(name)
+  );
+}
+
+/**
  * Check if a friendly name match is part of a rate feed name
  */
 function isPartOfRateFeed(text: string, match: RegExpExecArray): boolean {
-  const beforeText = text.substring(Math.max(0, match.index - 10), match.index);
+  const beforeText = text.substring(Math.max(0, match.index - 20), match.index);
   const afterText = text.substring(
     match.index + match[0].length,
     Math.min(text.length, match.index + match[0].length + 20),
@@ -277,8 +327,12 @@ function isPartOfRateFeed(text: string, match: RegExpExecArray): boolean {
   }
 
   // Check if this appears to be part of a rate feed name
+  // Look for patterns like "CELO/ETH rate feed", "rate feed", etc.
   return (
-    Boolean(afterText.match(/^\/[A-Z]{3,4}(\s+rate\s+feed)?/)) ||
-    Boolean(beforeText.match(/rate\s+feed.*$/))
+    Boolean(afterText.match(/^\/[A-Z]{3,4}(\s+rate\s+feed)?/i)) ||
+    Boolean(beforeText.match(/rate\s+feed.*$/i)) ||
+    Boolean(afterText.match(/^\s+rate\s+feed/i)) ||
+    Boolean(beforeText.match(/[A-Z]{3,4}\/[A-Z]{3,4}\s+rate\s+feed.*$/i)) ||
+    Boolean(afterText.match(/^[A-Z]{3,4}\/[A-Z]{3,4}\s+rate\s+feed/i))
   );
 }

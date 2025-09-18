@@ -67,6 +67,7 @@ export function ExecutionCode({ transactions, className }: ExecutionCodeProps) {
                   isLoading={isLoading}
                   summaries={summaries}
                   transactions={transactions}
+                  decodedTransactions={decodedTransactions}
                 />
               </TabsContent>
 
