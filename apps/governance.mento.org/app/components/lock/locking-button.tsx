@@ -73,10 +73,26 @@ export const LockingButton = ({
   const unlockDate = watch(LOCKING_UNLOCK_DATE_FORM_KEY);
   const delegateEnabled = watch(LOCKING_DELEGATE_ENABLED_FORM_KEY);
   const delegateAddressInput = watch(LOCKING_DELEGATE_ADDRESS_FORM_KEY);
-  const parsedAmount = React.useMemo(() => {
-    if (!amount || amount === "") return BigInt(0);
-    return parseEther(amount);
+
+  const isAmountFormatValid = React.useMemo(() => {
+    if (amount === undefined || amount === null) return true;
+    const s = String(amount).trim();
+    if (s === "") return true;
+    const re = /^(?:\d+)(?:\.\d{1,18})?$/;
+    return re.test(s);
   }, [amount]);
+
+  const parsedAmount = React.useMemo(() => {
+    try {
+      if (!amount || amount === "") return BigInt(0);
+      const normalized = String(amount).trim();
+      if (normalized === "" || normalized === "0") return BigInt(0);
+      if (!isAmountFormatValid) return BigInt(0);
+      return parseEther(normalized as string);
+    } catch {
+      return BigInt(0);
+    }
+  }, [amount, isAmountFormatValid]);
 
   const isExtendingDuration = React.useMemo(() => {
     if (!targetLock?.expiration || !unlockDate) return false;
@@ -86,9 +102,10 @@ export const LockingButton = ({
   }, [targetLock?.expiration, unlockDate]);
 
   const isAddingAmount = React.useMemo(() => {
+    if (!isAmountFormatValid) return false;
     if (!amount || amount === "" || amount === "0") return false;
     return parsedAmount > BigInt(0);
-  }, [amount, parsedAmount]);
+  }, [amount, parsedAmount, isAmountFormatValid]);
 
   const isBalanceInsufficient = errors[LOCKING_AMOUNT_FORM_KEY]?.type === "max";
 
@@ -289,28 +306,33 @@ export const LockingButton = ({
       return <>Connect wallet</>;
     }
 
-    // Both topping up and extending duration are now supported for the selected lock
-    if (!amount || amount === "" || amount === "0") {
-      // Allow empty or 0 amount if user is extending lock duration
+    if (!isAmountFormatValid) {
       if (canRelockTarget && isExtendingDuration) {
         return <>Extend lock</>;
       }
       return <>Enter amount</>;
     }
 
-    // Amount exceeds balance
+    if (
+      !amount ||
+      amount === "" ||
+      amount === "0" ||
+      parsedAmount === BigInt(0)
+    ) {
+      if (canRelockTarget && isExtendingDuration) {
+        return <>Extend lock</>;
+      }
+      return <>Enter amount</>;
+    }
+
     if (isBalanceInsufficient) {
       return <>Insufficient balance</>;
     }
 
-    // Update specific lock (relock) flow
     if (canRelockTarget) {
-      // Approval needed for relock
       if (needsApprovalForRelock) {
         return <>Approve MENTO</>;
       }
-
-      // Determine button text based on what's changing
       if (isExtendingDuration && isAddingAmount) {
         return <>Top up and extend lock</>;
       } else if (isExtendingDuration && !isAddingAmount) {
@@ -318,12 +340,9 @@ export const LockingButton = ({
       } else if (!isExtendingDuration && isAddingAmount) {
         return <>Top up lock</>;
       }
-
-      // Fallback (shouldn't reach here in normal flow)
       return <>Top up lock</>;
     }
 
-    // New lock flow - approval needed
     if (CreateLockApprovalStatus === CREATE_LOCK_APPROVAL_STATUS.NOT_APPROVED) {
       return <>Approve MENTO</>;
     }
@@ -341,26 +360,27 @@ export const LockingButton = ({
     isExtendingDuration,
     isAddingAmount,
     targetLock,
+    isAmountFormatValid,
   ]);
 
   const shouldButtonBeDisabled = React.useMemo(() => {
-    // Basic checks
     if (!address || !isValid || isBalanceInsufficient) {
       return true;
     }
 
-    // Check amount requirements
-    const isAmountEmpty = !amount || amount === "" || amount === "0";
+    if (!isAmountFormatValid) {
+      return true;
+    }
+
+    const isAmountEmpty =
+      !amount || amount === "" || amount === "0" || parsedAmount === BigInt(0);
     if (isAmountEmpty) {
-      // Allow empty or 0 amount only if user is extending lock duration
       if (!(canRelockTarget && isExtendingDuration)) {
         return true;
       }
     }
 
-    // Relock flow checks
     if (canRelockTarget) {
-      // Disable during relock transaction
       if (isRelocking) {
         return true;
       }
@@ -368,7 +388,6 @@ export const LockingButton = ({
       return false;
     }
 
-    // New lock flow - disable during transaction
     if (
       CreateLockTxStatus === CREATE_LOCK_TX_STATUS.CONFIRMING_APPROVE_TX ||
       CreateLockTxStatus === CREATE_LOCK_TX_STATUS.AWAITING_SIGNATURE ||
@@ -392,6 +411,7 @@ export const LockingButton = ({
     isAddingAmount,
     unlockDate,
     targetLock,
+    isAmountFormatValid,
   ]);
   const relockTxStatus = React.useMemo(() => {
     if (approve.error || relock.error) return "ERROR";
@@ -420,7 +440,13 @@ export const LockingButton = ({
 
     return (
       <div className="flex min-h-4 flex-col gap-4">
-        <span>{isApprovalActive ? "Approve MENTO" : "Update Lock"}</span>
+        <span>
+          {isApprovalActive
+            ? "Approve MENTO"
+            : isExtendingDuration
+              ? "Top-up lock without extending a date"
+              : "Top-up lock"}
+        </span>
         {isAwaiting ? (
           <>Continue in wallet</>
         ) : isConfirming ? (
@@ -505,9 +531,25 @@ function getButtonLocator({
   hasMultipleLocks: boolean;
 }) {
   return React.useMemo(() => {
+    const isAmountFormatValid = (() => {
+      if (amount === undefined || amount === null) return true;
+      const s = String(amount).trim();
+      if (s === "") return true;
+      const re = /^(?:\d+)(?:\.\d{1,18})?$/;
+      return re.test(s);
+    })();
+
     // Not connected
     if (!address) {
       return "connectWalletButton";
+    }
+
+    // Invalid amount format
+    if (!isAmountFormatValid) {
+      if (canRelockTarget && isExtendingDuration) {
+        return "extendLockButton";
+      }
+      return "enterAmountButton";
     }
 
     // Both topping up and extending duration are now supported for the first lock

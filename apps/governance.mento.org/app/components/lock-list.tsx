@@ -1,6 +1,7 @@
 "use client";
 import {
   CopyToClipboard,
+  IconLoading,
   LockCard,
   LockCardActions,
   LockCardAmount,
@@ -39,7 +40,9 @@ import { formatUnits } from "viem";
 import { UpdateLockDialog } from "./update-lock-dialog";
 export const LockList = () => {
   const { address } = useAccount();
-  const { locks, refetch } = useLocksByAccount({ account: address as string });
+  const { locks, loading, refetch } = useLocksByAccount({
+    account: address as string,
+  });
   const currentChain = useCurrentChain();
   const { availableToWithdraw } = useAvailableToWithdraw();
 
@@ -124,10 +127,11 @@ export const LockList = () => {
   let remaining = Number(formatUnits(availableToWithdraw ?? BigInt(0), 18));
   return (
     <div className="mt-20">
+      {loading && <IconLoading className="mx-auto h-8 w-8" />}
       {activeLocks.length > 0 && (
         <>
-          <h2 className="mb-8 text-2xl font-medium">Your current locks</h2>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <h2 className="mb-8 text-2xl font-medium">Your Current Locks</h2>
+          <div className="flex flex-wrap gap-4">
             {activeLocks.map((lock, index) => {
               const badgeType = getBadgeType(lock);
               const delegationInfo = getDelegationInfo(lock, badgeType);
@@ -136,7 +140,7 @@ export const LockList = () => {
               const hasActiveCliff = lock.cliff > 0 && new Date() < cliffEnd;
 
               return (
-                <LockCard key={lock.lockId}>
+                <LockCard key={lock.lockId} id={`lock-${lock.lockId}`}>
                   <LockCardHeader>
                     <LockCardHeaderGroup>
                       <LockCardAmount>{formattedAmount}</LockCardAmount>
@@ -184,26 +188,6 @@ export const LockList = () => {
                           <span className="text-muted-foreground">MENTO</span>
                         </LockCardFieldValue>
                       </LockCardField>
-                      <LockCardField>
-                        <LockCardFieldLabel>ID</LockCardFieldLabel>
-                        <LockCardFieldValue>
-                          {lock.lockCreate?.[0]?.transaction?.id ? (
-                            <a
-                              className="underline-offset-2 hover:underline"
-                              href={`${explorerUrl}/tx/${lock.lockCreate?.[0]?.transaction?.id}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              {lock.lockId}
-                            </a>
-                          ) : (
-                            lock.lockId
-                          )}
-                        </LockCardFieldValue>
-                      </LockCardField>
-                    </LockCardRow>
-
-                    <LockCardRow>
                       <LockCardField>
                         <LockCardFieldLabel>Expires</LockCardFieldLabel>
                         <LockCardFieldValue className="flex items-center gap-1">
@@ -261,8 +245,8 @@ export const LockList = () => {
 
       {pastLocks.length > 0 && (
         <>
-          <h2 className="my-8 mt-12 text-2xl font-medium">Your past locks</h2>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <h2 className="my-8 mt-12 text-2xl font-medium">Your Past Locks</h2>
+          <div className="flex gap-4 sm:flex-wrap">
             {pastLocks.map((lock) => {
               const badgeType = getBadgeType(lock);
               const delegationInfo = getDelegationInfo(lock, badgeType);
@@ -281,7 +265,7 @@ export const LockList = () => {
               const expired = lock.expiration < new Date();
 
               return (
-                <LockCard key={lock.lockId}>
+                <LockCard key={lock.lockId} id={`lock-${lock.lockId}`}>
                   <LockCardHeader>
                     <LockCardHeaderGroup>
                       <LockCardAmount>{formattedAmount}</LockCardAmount>
@@ -330,10 +314,6 @@ export const LockList = () => {
                           {formattedAmount}{" "}
                           <span className="text-muted-foreground">MENTO</span>
                         </LockCardFieldValue>
-                      </LockCardField>
-                      <LockCardField>
-                        <LockCardFieldLabel>ID</LockCardFieldLabel>
-                        <LockCardFieldValue>{lock.lockId}</LockCardFieldValue>
                       </LockCardField>
                     </LockCardRow>
 

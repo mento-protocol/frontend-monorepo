@@ -21,7 +21,7 @@ import {
   useLockCalculation,
   type LockWithExpiration,
 } from "@repo/web3";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useId } from "react";
 import { Controller, useForm, useFormContext } from "react-hook-form";
 import spacetime from "spacetime";
 import { formatUnits } from "viem";
@@ -65,6 +65,7 @@ export function LockFormFields({
   const unlockDate = watch(LOCKING_UNLOCK_DATE_FORM_KEY);
 
   const [sliderIndex, setSliderIndex] = useState(0);
+  const delegateFieldId = useId();
 
   const getFirstWednesdayAfterMinPeriod = () => {
     let targetDate = spacetime.now().add(MIN_LOCK_PERIOD_WEEKS, "week");
@@ -331,6 +332,12 @@ export function LockFormFields({
             placeholder={amountPlaceholder}
             {...register(LOCKING_AMOUNT_FORM_KEY, {
               validate: {
+                format: (v) => {
+                  if (v === undefined || v === null || v === "") return true;
+                  // Require a valid decimal number, with optional fractional part of 1-18 digits (no trailing dot like "0.")
+                  const re = /^(?:\d+)(?:\.\d{1,18})?$/;
+                  return re.test(v) || "Invalid amount format";
+                },
                 max: (v) =>
                   Number(v) <= Number(formatUnits(mentoBalance, 18)) ||
                   "Insufficient balance",
@@ -343,7 +350,10 @@ export function LockFormFields({
               },
             })}
             onChange={(e) => {
-              setValue(LOCKING_AMOUNT_FORM_KEY, e.target.value);
+              setValue(LOCKING_AMOUNT_FORM_KEY, e.target.value, {
+                shouldValidate: true,
+                shouldDirty: true,
+              });
             }}
           />
           <div className="text-muted-foreground flex items-center gap-1 text-xs">
@@ -360,7 +370,7 @@ export function LockFormFields({
           <div className="mt-3 flex flex-col gap-2">
             <div className="flex items-center gap-2">
               <Checkbox
-                id="delegateEnabled"
+                id={`delegateEnabled-${delegateFieldId}`}
                 checked={isDelegatedToOther ? true : !!delegateEnabled}
                 disabled={isDelegatedToOther}
                 onCheckedChange={(v) => {
@@ -370,14 +380,19 @@ export function LockFormFields({
                   });
                 }}
               />
-              <Label htmlFor="delegateEnabled">Delegate</Label>
+              <Label htmlFor={`delegateEnabled-${delegateFieldId}`}>
+                Delegate
+              </Label>
             </div>
 
             {(delegateEnabled || isDelegatedToOther) && (
               <Input
                 placeholder="Delegate Address..."
+                maxLength={42}
                 disabled={isDelegatedToOther}
                 {...register(LOCKING_DELEGATE_ADDRESS_FORM_KEY, {
+                  setValueAs: (v: string) =>
+                    (v ?? "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 42),
                   validate: (val) => {
                     if (!delegateEnabled && !isDelegatedToOther) return true;
                     return isValidAddress(val) || "Invalid address";
@@ -399,7 +414,7 @@ export function LockFormFields({
           </div>
         </div>
 
-        <div className="col-span-5 flex flex-col items-end justify-end gap-2">
+        <div className="col-span-5 flex flex-col justify-end gap-2 md:items-end">
           <Label>Lock until</Label>
           <Controller
             control={control}
@@ -409,7 +424,6 @@ export function LockFormFields({
                 data-testid={datePickerTestId}
                 value={field.value}
                 onChange={field.onChange}
-                label="Select date"
                 formatter={(date) => date.toLocaleDateString()}
                 disabled={isDateDisabled}
                 fromDate={minLockDate}

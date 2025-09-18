@@ -73,12 +73,6 @@ export function UpdateLockDialog({
               }}
             />
 
-            <div className="mb-8 mt-4 text-center">
-              <span className="text-lg font-semibold">
-                {formattedVeMentoReceived} veMENTO
-              </span>
-            </div>
-
             <div className="mb-2 flex justify-between text-sm">
               <span className="text-muted-foreground">You receive veMENTO</span>
               <span data-testid="updateLockVeMentoReceiveLabel">
