@@ -10,11 +10,6 @@
       "symbol": "MENTO",
       "decimals": 18
     },
-    "0x46c9757C5497c5B1f2eb73aE79b6B67D119B0B58": {
-      "name": "MENTO Token (Old)",
-      "symbol": "MENTO",
-      "decimals": 18
-    },
     "0x765DE816845861e75A25fCA122bb6898B8B1282a": {
       "name": "Celo Dollar",
       "symbol": "cUSD",
@@ -51,7 +46,9 @@
     "0x70d8dc60f9701c46d4ce9ac141e154f6804e1dc3": {
       "name": "Mento Proxy Admin",
       "friendlyName": "Mento Proxy Admin"
-    },
+    }
+  },
+  "oracles": {
     "0xefB84935239dAcdecF7c5bA76d8dE40b077B7b33": {
       "name": "SortedOracles",
       "friendlyName": "SortedOracles"

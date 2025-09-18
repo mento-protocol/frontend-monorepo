@@ -35,116 +35,14 @@ import { useParams } from "next/navigation";
 import { useMemo } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { formatUnits } from "viem";
 import { ExecutionCode } from "./execution-code/ExecutionCode";
 import { isEmptyTransaction } from "./execution-code/patterns/utils";
-import { getAddressName } from "./hooks/useContractRegistry";
-
-function getAddressLabel(address: string): string {
-  const contractName = getAddressName(address);
-  return contractName !== "Unknown"
-    ? contractName
-    : `${address.slice(0, 6)}...${address.slice(-4)}`;
-}
+import { ParticipantList } from "./participants/ParticipantList";
 
 function decodeHtmlEntities(text: string): string {
   const textArea = document.createElement("textarea");
   textArea.innerHTML = text;
   return textArea.value;
-}
-
-type ParticipantListProps = {
-  participants: Array<{ address: string; weight: bigint }>;
-};
-
-function ParticipantList({ participants }: ParticipantListProps) {
-  const totalWeight = useMemo(() => {
-    if (participants.length === 0) return BigInt(0);
-    return participants.reduce(
-      (sum, participant) => sum + BigInt(participant.weight),
-      BigInt(0),
-    );
-  }, [participants]);
-
-  const formattedWeight = useMemo(() => {
-    if (totalWeight === BigInt(0)) return "0";
-    const weight = Number(formatUnits(totalWeight, 18));
-
-    let formatted;
-    if (weight >= 1_000_000) {
-      formatted = `${(weight / 1_000_000).toFixed(2)}M`;
-    } else if (weight >= 1_000) {
-      formatted = `${(weight / 1_000).toFixed(2)}K`;
-    } else {
-      formatted = weight.toFixed(2);
-    }
-
-    return formatted;
-  }, [totalWeight]);
-
-  const currentChain = useCurrentChain();
-  const explorerUrl = currentChain.blockExplorers?.default?.url;
-
-  return (
-    <div className="flex flex-col">
-      <div className="mb-2 flex items-center justify-between py-3">
-        <div className="flex items-center gap-2">
-          <span className="text-sm">{formattedWeight} Votes</span>
-        </div>
-        <span className="text-muted-foreground text-sm">
-          {participants.length} addresses
-        </span>
-      </div>
-      {participants.length > 0 ? (
-        [...participants]
-          .sort((a, b) => Number(BigInt(b.weight) - BigInt(a.weight)))
-          .map((participant) => (
-            <div
-              key={participant.address}
-              className="group flex items-center justify-between border-b border-[var(--border)] py-4 last:border-0"
-            >
-              <div className="flex items-center gap-2">
-                <Identicon address={participant.address} size={16} />
-                <div className="h-auto !bg-transparent p-0">
-                  <a
-                    href={`${explorerUrl}/address/${participant.address}`}
-                    className="flex items-center gap-1"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <span className="hover:underline">
-                      {getAddressLabel(participant.address)}
-                    </span>
-                    <CopyToClipboard
-                      text={participant.address}
-                      className="opacity-0 transition-opacity group-hover:opacity-100"
-                    />
-                  </a>
-                </div>
-              </div>
-              <span>
-                {(() => {
-                  const weight = Number(
-                    formatUnits(BigInt(participant.weight), 18),
-                  );
-                  if (weight >= 1_000_000) {
-                    return `${(weight / 1_000_000).toFixed(2)}M`;
-                  } else if (weight >= 1_000) {
-                    return `${(weight / 1_000).toFixed(2)}K`;
-                  } else {
-                    return weight.toFixed(2);
-                  }
-                })()}
-              </span>
-            </div>
-          ))
-      ) : (
-        <p className="py-4 text-center text-sm text-[var(--muted-foreground)]">
-          No votes yet
-        </p>
-      )}
-    </div>
-  );
 }
 
 export const ProposalContent = () => {
@@ -268,7 +166,7 @@ export const ProposalContent = () => {
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
-      <div className="mb-12 flex flex-col gap-4">
+      <div className="mb-12 flex flex-col gap-5">
         <h1
           className="text-3xl font-medium md:text-6xl"
           data-testid="proposalTitleLabel"
