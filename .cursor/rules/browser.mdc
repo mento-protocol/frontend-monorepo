@@ -1,11 +1,12 @@
 ---
-description: For checking frontend and UI development in a browser
+globs: *.tsx
 alwaysApply: false
 ---
 # Playwright Rules for UI Development
 
 ## When to Use @playwright
 
+✅ Confirm your UI changes actually worked
 ✅ Verify components render after changes
 ✅ Test clicks/forms/interactions work
 ✅ Debug visual issues
