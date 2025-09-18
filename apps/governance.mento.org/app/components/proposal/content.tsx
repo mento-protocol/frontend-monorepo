@@ -33,17 +33,10 @@ import { formatInTimeZone } from "date-fns-tz";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMemo } from "react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { ExecutionCode } from "./execution-code/ExecutionCode";
 import { isEmptyTransaction } from "./execution-code/patterns/utils";
 import { ParticipantList } from "./participants/ParticipantList";
-
-function decodeHtmlEntities(text: string): string {
-  const textArea = document.createElement("textarea");
-  textArea.innerHTML = text;
-  return textArea.value;
-}
+import { ProposalDescription } from "./description/ProposalDescription";
 
 export const ProposalContent = () => {
   const params = useParams();
@@ -145,12 +138,6 @@ export const ProposalContent = () => {
 
   const explorerUrl = currentChain.blockExplorers?.default?.url;
 
-  const descriptionType = proposal.metadata?.description
-    ? proposal.metadata.description.match(/^<\w+>|<\/\w+>$/)
-      ? "html"
-      : "text"
-    : "text";
-
   return (
     <>
       <Breadcrumb className="mb-6">
@@ -224,51 +211,7 @@ export const ProposalContent = () => {
             <ExecutionCode transactions={transactions} className="mt-4" />
           )}
 
-          <Card className="border-border mt-4">
-            <CardHeader>
-              <CardTitle className="text-2xl">Proposal Description</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="prose prose-invert">
-                {proposal.metadata?.description ? (
-                  descriptionType === "html" ? (
-                    <div
-                      dangerouslySetInnerHTML={{
-                        __html: decodeHtmlEntities(
-                          proposal.metadata.description,
-                        ),
-                      }}
-                      data-testid="proposalDescriptionLabel"
-                    />
-                  ) : (
-                    <div data-testid="proposalDescriptionLabel">
-                      <Markdown
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                          a: (props) => (
-                            <a
-                              {...props}
-                              href={
-                                props.href?.includes("https")
-                                  ? props.href
-                                  : `https://${props.href?.replace("http://", "")}`
-                              }
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            />
-                          ),
-                        }}
-                      >
-                        {proposal.metadata.description}
-                      </Markdown>
-                    </div>
-                  )
-                ) : (
-                  <p>No description available</p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+          <ProposalDescription description={proposal.metadata?.description} />
 
           {/* Show execution code below description when there are no transactions */}
           {!hasExecutionCode && (
