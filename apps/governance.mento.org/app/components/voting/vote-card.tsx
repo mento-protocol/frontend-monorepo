@@ -205,6 +205,12 @@ export const VoteCard = ({
     );
   }, [veMentoBalance]);
 
+  const quorumNeededFormatted = useMemo(() => {
+    return NumbersService.parseNumericValue(
+      formatUnits(quorumNeeded || BigInt(0), 18),
+    );
+  }, [quorumNeeded]);
+
   // Individual vote counts for easier access
   const forVotes = useMemo(
     () => proposal.votes?.for?.participants?.length || 0,
@@ -934,12 +940,6 @@ export const VoteCard = ({
 
     return label;
   }, [isVotingOpen, totalVotingPower, quorumNeeded]);
-
-  const quorumNeededFormatted = useMemo(() => {
-    return NumbersService.parseNumericValue(
-      formatUnits(quorumNeeded || BigInt(0), 18),
-    );
-  }, [quorumNeeded]);
 
   return (
     <Card className={cardClassName}>
