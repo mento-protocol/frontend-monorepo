@@ -15,13 +15,13 @@ interface ParticipantsProps {
   proposal: {
     votes: {
       for: {
-        participants: unknown[];
+        participants: Array<{ address: string; weight: bigint }>;
       };
       against: {
-        participants: unknown[];
+        participants: Array<{ address: string; weight: bigint }>;
       };
       abstain: {
-        participants: unknown[];
+        participants: Array<{ address: string; weight: bigint }>;
       };
     };
   };
