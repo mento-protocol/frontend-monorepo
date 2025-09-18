@@ -37,6 +37,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { formatUnits } from "viem";
 import { ExecutionCode } from "./execution-code/ExecutionCode";
+import { isEmptyTransaction } from "./execution-code/patterns/utils";
 
 const CELO_COMMUNITY_ADDRESS = "0x41822d8a191fcfb1cfca5f7048818acd8ee933d3";
 
@@ -198,6 +199,21 @@ export const ProposalContent = () => {
     }));
   }, [proposal?.calls]);
 
+  // Check if there's meaningful execution code (same logic as ExecutionCode component)
+  const hasExecutionCode = useMemo(() => {
+    if (transactions.length === 0) return false;
+
+    // If there's more than one transaction, it's meaningful
+    if (transactions.length > 1) return true;
+
+    // If there's exactly one transaction, check if it's empty
+    return !(
+      transactions.length === 1 &&
+      transactions[0] &&
+      isEmptyTransaction(transactions[0])
+    );
+  }, [transactions]);
+
   if (!proposal) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -311,7 +327,8 @@ export const ProposalContent = () => {
             onVoteConfirmed={refetchProposal}
           />
 
-          {transactions.length > 0 && (
+          {/* Show execution code above description only when there are meaningful transactions */}
+          {hasExecutionCode && (
             <ExecutionCode transactions={transactions} className="mt-4" />
           )}
 
@@ -360,6 +377,11 @@ export const ProposalContent = () => {
               </div>
             </CardContent>
           </Card>
+
+          {/* Show execution code below description when there are no transactions */}
+          {!hasExecutionCode && (
+            <ExecutionCode transactions={transactions} className="mt-4" />
+          )}
         </div>
         <div className="xl:w-1/3">
           <Card className="bord max-h-[420px] w-full gap-3 overflow-hidden border-none">

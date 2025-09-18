@@ -3,6 +3,7 @@
 import {
   Card,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
   cn,
@@ -38,9 +39,7 @@ export function ExecutionCode({ transactions, className }: ExecutionCodeProps) {
     );
   }, [transactions]);
 
-  if (!transactions || transactions.length === 0) {
-    return null;
-  }
+  const hasTransactions = transactions && transactions.length > 0;
 
   return (
     <Card className={cn("border-border", className)}>
@@ -48,11 +47,12 @@ export function ExecutionCode({ transactions, className }: ExecutionCodeProps) {
         className="cursor-pointer"
         onClick={() => setIsExpanded(!isExpanded)}
       >
-        <CardTitle className="text-2xl">What This Proposal Will Do</CardTitle>
+        <CardTitle className="text-2xl">Execution Code</CardTitle>
+        <CardDescription>What This Proposal Will Do</CardDescription>
       </CardHeader>
       {isExpanded && (
         <CardContent>
-          {isEmptyExecutionCode ? (
+          {!hasTransactions || isEmptyExecutionCode ? (
             <EmptyExecutionMessage />
           ) : (
             <Tabs defaultValue="simple">

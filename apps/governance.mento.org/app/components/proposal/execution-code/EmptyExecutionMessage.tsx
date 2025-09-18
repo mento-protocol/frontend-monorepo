@@ -6,7 +6,7 @@ export function EmptyExecutionMessage() {
       </div>
       <div>
         <p className="text-foreground font-medium">
-          This is an informational proposal
+          This is an informational proposal only
         </p>
         <p className="text-muted-foreground text-sm">
           No on-chain actions will be executed if this proposal passes.

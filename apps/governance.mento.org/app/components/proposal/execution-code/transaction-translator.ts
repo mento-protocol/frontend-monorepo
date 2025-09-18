@@ -1,5 +1,5 @@
 import { formatUnits } from "viem";
-import { getAddressName, getContractInfo } from "./utils/contract-registry";
+import { getAddressName, getContractInfo } from "../hooks/useContractRegistry";
 import { decodeTransaction } from "./utils/decodeTransaction";
 import type {
   DecodedTransaction,
