@@ -109,22 +109,24 @@ export const VoteCard = ({
     votingDeadline ? new Date() > votingDeadline : false,
   );
 
-  // Update deadline status every second
+  // Update deadline status every second, but only when voting is open
   useEffect(() => {
     if (!votingDeadline) return;
 
-    const checkDeadline = () => {
-      setIsDeadlinePassed(new Date() > votingDeadline);
-    };
+    const proposalState = proposal.state || ProposalState.Active;
+    const isVotingCurrentlyOpen =
+      proposalState === ProposalState.Active && !isDeadlinePassed;
 
-    // Check immediately
-    checkDeadline();
+    if (!isVotingCurrentlyOpen) return;
 
-    // Then check every second
-    const interval = setInterval(checkDeadline, 1000);
+    const interval = setInterval(() => {
+      const now = new Date();
+      const deadlinePassed = now > votingDeadline;
+      setIsDeadlinePassed(deadlinePassed);
+    }, 1000);
 
     return () => clearInterval(interval);
-  }, [votingDeadline]);
+  }, [votingDeadline, proposal.state, isDeadlinePassed]);
 
   useEffect(() => {
     if (isConfirmed) {
