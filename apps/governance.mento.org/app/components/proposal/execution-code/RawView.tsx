@@ -16,7 +16,10 @@ export function RawView({ transactions }: RawViewProps) {
         </code>
       </pre>
       <div className="absolute right-2 top-2">
-        <CopyToClipboard text={jsonString} />
+        <CopyToClipboard
+          text={jsonString}
+          toastMsg="Copied execution code to clipboard"
+        />
       </div>
     </div>
   );

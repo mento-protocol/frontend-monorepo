@@ -7,15 +7,24 @@ import { cn } from "@/lib";
 interface CopyToClipboardProps {
   text: string;
   className?: string;
+  toastMsg?: string;
 }
 
-export const CopyToClipboard = ({ text, className }: CopyToClipboardProps) => {
+export const CopyToClipboard = ({
+  text,
+  className,
+  toastMsg,
+}: CopyToClipboardProps) => {
   const [copied, setCopied] = useState<string | null>(null);
 
-  const handleCopyAddress = () => {
+  const handleCopyAddress = (event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
     try {
       navigator.clipboard.writeText(text);
-      toast.success("Address copied to clipboard", { duration: 2000 });
+      toast.success(toastMsg || "Address copied to clipboard", {
+        duration: 2000,
+      });
       setCopied(text);
       setTimeout(() => {
         setCopied(null);
