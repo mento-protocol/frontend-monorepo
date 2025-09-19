@@ -87,24 +87,21 @@ export async function GET(request: NextRequest) {
     }
 
     // Get API key from environment (only needed for Celoscan)
-    // Try both the validated env and direct process.env access as fallback
-    let apiKey: string | undefined;
-    try {
-      apiKey = env.ETHERSCAN_API_KEY;
-    } catch (error) {
-      console.warn(
-        "/info: Failed to get ETHERSCAN_API_KEY from validated env, trying direct access:",
-        error,
-      );
-      apiKey = process.env.ETHERSCAN_API_KEY;
-    }
+    const etherscanApiKey = env.ETHERSCAN_API_KEY;
 
-    // Try Celoscan first (requires API key)
-    let sourceCodeResponse = await fetchSourceCode(address, "celoscan", apiKey);
+    // Try Celoscan first
     let source: BlockchainExplorerSource = "celoscan";
+    let sourceCodeResponse = await fetchSourceCode(
+      address,
+      source,
+      etherscanApiKey,
+    );
 
-    // Fallback to Blockscout (no API key required)
+    // Fallback to Blockscout
     if (!sourceCodeResponse) {
+      console.log(
+        `Etherscan: No source code found for ${address}, falling back to Blockscout API`,
+      );
       sourceCodeResponse = await fetchSourceCode(address, "blockscout");
       source = "blockscout";
     }

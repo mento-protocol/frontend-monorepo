@@ -63,9 +63,7 @@ export async function GET(request: NextRequest) {
     // Fallback to Blockscout
     if (!abi) {
       console.log(
-        "Etherscan: No ABI found for",
-        address,
-        "falling back to Blockscout",
+        `Etherscan: No ABI found for ${address}, falling back to Blockscout API`,
       );
       abiSource = "blockscout";
       abi = await fetchAbi(address, abiSource);
