@@ -2,6 +2,26 @@ import { env } from "../../../env.mjs";
 
 export type BlockchainExplorerSource = "blockscout" | "celoscan";
 
+export interface ContractSourceCodeItem {
+  ContractName: string;
+  SourceCode: string;
+  ABI: string;
+  CompilerVersion: string;
+  OptimizationUsed: string;
+  Runs: string;
+  ConstructorArguments: string;
+  EVMVersion: string;
+  Library: string;
+  LicenseType: string;
+  Proxy: string;
+  Implementation: string;
+  SwarmSource: string;
+}
+
+export interface ContractSourceCodeResponse {
+  result: ContractSourceCodeItem[];
+}
+
 // In-memory cache for all blockchain explorer API responses
 const responseCache = new Map<string, { data: unknown; timestamp: number }>();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
@@ -149,49 +169,6 @@ export async function fetchAbi(
   }
 
   return null;
-}
-
-/**
- * Fetch contract source code from external APIs
- */
-export async function fetchSourceCode(
-  address: string,
-  source: BlockchainExplorerSource,
-  apiKey?: string,
-): Promise<{
-  result: Array<{
-    ContractName: string;
-    SourceCode: string;
-    ABI: string;
-    CompilerVersion: string;
-    OptimizationUsed: string;
-    Runs: string;
-    ConstructorArguments: string;
-    EVMVersion: string;
-    Library: string;
-    LicenseType: string;
-    Proxy: string;
-    Implementation: string;
-    SwarmSource: string;
-  }>;
-} | null> {
-  return fetchFromBlockchainExplorer<{
-    result: Array<{
-      ContractName: string;
-      SourceCode: string;
-      ABI: string;
-      CompilerVersion: string;
-      OptimizationUsed: string;
-      Runs: string;
-      ConstructorArguments: string;
-      EVMVersion: string;
-      Library: string;
-      LicenseType: string;
-      Proxy: string;
-      Implementation: string;
-      SwarmSource: string;
-    }>;
-  }>("getsourcecode", address, source, apiKey);
 }
 
 /**

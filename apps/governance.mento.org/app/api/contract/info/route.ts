@@ -3,29 +3,10 @@ import { isAddress } from "viem";
 import { env } from "../../../env.mjs";
 import { ContractInfo } from "../types";
 import {
-  fetchSourceCode,
+  fetchFromBlockchainExplorer,
   BlockchainExplorerSource,
+  ContractSourceCodeResponse,
 } from "../services/blockchain-explorer-service";
-
-interface ContractSourceCodeResponse {
-  status: string;
-  result: Array<{
-    ContractName: string;
-    SourceCode: string;
-    ABI: string;
-    CompilerVersion: string;
-    OptimizationUsed: string;
-    Runs: string;
-    ConstructorArguments: string;
-    EVMVersion: string;
-    Library: string;
-    LicenseType: string;
-    Proxy: string;
-    Implementation: string;
-    SwarmSource: string;
-  }>;
-  message?: string;
-}
 
 /**
  * Extract contract name from source code response
@@ -91,18 +72,25 @@ export async function GET(request: NextRequest) {
 
     // Try Celoscan first
     let source: BlockchainExplorerSource = "celoscan";
-    let sourceCodeResponse = await fetchSourceCode(
-      address,
-      source,
-      etherscanApiKey,
-    );
+    let sourceCodeResponse =
+      await fetchFromBlockchainExplorer<ContractSourceCodeResponse>(
+        "getsourcecode",
+        address,
+        source,
+        etherscanApiKey,
+      );
 
     // Fallback to Blockscout
     if (!sourceCodeResponse) {
       console.log(
         `Etherscan: No source code found for ${address}, falling back to Blockscout API`,
       );
-      sourceCodeResponse = await fetchSourceCode(address, "blockscout");
+      sourceCodeResponse =
+        await fetchFromBlockchainExplorer<ContractSourceCodeResponse>(
+          "getsourcecode",
+          address,
+          "blockscout",
+        );
       source = "blockscout";
     }
 
@@ -113,10 +101,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const contractInfo = extractContractName(
-      sourceCodeResponse as ContractSourceCodeResponse,
-      source,
-    );
+    const contractInfo = extractContractName(sourceCodeResponse, source);
 
     if (!contractInfo) {
       return NextResponse.json(
