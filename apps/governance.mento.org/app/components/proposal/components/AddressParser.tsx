@@ -205,7 +205,7 @@ function hasOverlap(
   existingReplacements: AddressReplacement[],
 ): boolean {
   return existingReplacements.some(
-    (existing) => start < end && existing.start < existing.end,
+    (existing) => start < existing.end && existing.start < end,
   );
 }
 
