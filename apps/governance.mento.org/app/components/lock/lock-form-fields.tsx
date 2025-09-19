@@ -63,6 +63,15 @@ export function LockFormFields({
   const delegateEnabled = watch(LOCKING_DELEGATE_ENABLED_FORM_KEY);
   const amountToLock = watch(LOCKING_AMOUNT_FORM_KEY);
   const unlockDate = watch(LOCKING_UNLOCK_DATE_FORM_KEY);
+  const delegateAddress = watch(LOCKING_DELEGATE_ADDRESS_FORM_KEY);
+
+  // Set up registration for delegate address without attaching RHF's onChange to avoid conflicts
+  const delegateRegister = register(LOCKING_DELEGATE_ADDRESS_FORM_KEY, {
+    validate: (val) => {
+      if (!delegateEnabled && !isDelegatedToOther) return true;
+      return isValidAddress(val) || "Invalid address";
+    },
+  });
 
   const [sliderIndex, setSliderIndex] = useState(0);
   const delegateFieldId = useId();
@@ -390,14 +399,22 @@ export function LockFormFields({
                 placeholder="Delegate Address..."
                 maxLength={42}
                 disabled={isDelegatedToOther}
-                {...register(LOCKING_DELEGATE_ADDRESS_FORM_KEY, {
-                  setValueAs: (v: string) =>
-                    (v ?? "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 42),
-                  validate: (val) => {
-                    if (!delegateEnabled && !isDelegatedToOther) return true;
-                    return isValidAddress(val) || "Invalid address";
-                  },
-                })}
+                name={delegateRegister.name}
+                ref={delegateRegister.ref}
+                onBlur={delegateRegister.onBlur}
+                value={delegateAddress ?? ""}
+                onChange={(e) => {
+                  const sanitized = e.target.value
+                    .replace(/[^a-zA-Z0-9]/g, "")
+                    .slice(0, 42);
+                  setValue(LOCKING_DELEGATE_ADDRESS_FORM_KEY, sanitized, {
+                    shouldValidate: true,
+                    shouldDirty: true,
+                  });
+                }}
+                inputMode="text"
+                pattern="[A-Za-z0-9]*"
+                autoComplete="off"
               />
             )}
 

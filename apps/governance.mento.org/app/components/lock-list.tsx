@@ -225,15 +225,16 @@ export const LockList = () => {
 
                   {badgeType === "received" && (
                     <LockCardNotice>
-                      Only the lock owner can update delegated locks{" "}
+                      Only the{" "}
                       <a
-                        className="text-muted-foreground text-sm font-medium"
                         href={`${explorerUrl}/address/${lock.owner.id}`}
                         target="_blank"
                         rel="noopener noreferrer"
+                        className="font-semibold"
                       >
-                        {WalletHelper.getShortAddress(lock.owner.id)}
-                      </a>
+                        lock owner
+                      </a>{" "}
+                      can update delegated locks
                     </LockCardNotice>
                   )}
                 </LockCard>

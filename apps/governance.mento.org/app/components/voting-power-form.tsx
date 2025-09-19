@@ -12,6 +12,7 @@ import {
   useLockInfo,
   useLocksByAccount,
   useTokens,
+  useLockedAmount,
 } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
 import React, { useMemo, useState } from "react";
@@ -31,6 +32,8 @@ export default function VotingPowerForm() {
 
   // Get on-chain withdrawable principal
   const { availableToWithdraw } = useAvailableToWithdraw();
+  // Get on-chain currently locked principal from Locking.locked(address)
+  const { data: lockedAmount = 0n } = useLockedAmount();
 
   // Calculate lock type totals with correct semantics
   const summary = useMemo(() => {
@@ -47,11 +50,6 @@ export default function VotingPowerForm() {
 
     const now = new Date();
     const isMe = (a: string) => a.toLowerCase() === address.toLowerCase();
-
-    // 1) Locked MENTO = sum of principal in active, self-owned locks
-    const lockedMento = locks
-      .filter((l) => isMe(l.owner.id) && now < l.expiration && !l.replacedBy)
-      .reduce((sum, l) => sum + Number(formatUnits(BigInt(l.amount), 18)), 0);
 
     // 2) Total ve = wallet balanceOf (current effective voting power)
     const totalVe = Number(formatUnits(veMentoBalance.value, 18));
@@ -76,14 +74,14 @@ export default function VotingPowerForm() {
     );
 
     return {
-      lockedMento,
+      lockedMento: Number(formatUnits(lockedAmount, 18)),
       ownVe,
       receivedVe,
       delegatedOutVe,
       totalVe,
       withdrawableMento,
     };
-  }, [locks, address, veMentoBalance.value, availableToWithdraw]);
+  }, [locks, address, veMentoBalance.value, availableToWithdraw, lockedAmount]);
 
   const methods = useForm();
 

@@ -10,7 +10,7 @@ const cardVariants = cva(
   {
     variants: {
       variant: {
-        default: "md:max-w-[260px]",
+        default: "md:max-w-[330px]",
         horizontal:
           "md:flex-row justify-between hover:bg-muted transition-colors",
       },
