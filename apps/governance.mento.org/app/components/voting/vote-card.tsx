@@ -114,19 +114,28 @@ export const VoteCard = ({
     if (!votingDeadline) return;
 
     const proposalState = proposal.state || ProposalState.Active;
-    const isVotingCurrentlyOpen =
-      proposalState === ProposalState.Active && !isDeadlinePassed;
+    const isVotingCurrentlyOpen = proposalState === ProposalState.Active;
 
     if (!isVotingCurrentlyOpen) return;
 
-    const interval = setInterval(() => {
+    // Helper function to check and update deadline status
+    const checkDeadline = () => {
       const now = new Date();
       const deadlinePassed = now > votingDeadline;
       setIsDeadlinePassed(deadlinePassed);
-    }, 1000);
+      return deadlinePassed;
+    };
+
+    // Check immediately if deadline has passed
+    const deadlinePassed = checkDeadline();
+
+    // If deadline has already passed, no need to set up interval
+    if (deadlinePassed) return;
+
+    const interval = setInterval(checkDeadline, 1000);
 
     return () => clearInterval(interval);
-  }, [votingDeadline, proposal.state, isDeadlinePassed]);
+  }, [votingDeadline, proposal.state]);
 
   useEffect(() => {
     if (isConfirmed) {
