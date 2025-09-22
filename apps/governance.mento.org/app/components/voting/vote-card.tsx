@@ -109,22 +109,33 @@ export const VoteCard = ({
     votingDeadline ? new Date() > votingDeadline : false,
   );
 
-  // Update deadline status every second
+  // Update deadline status every second, but only when voting is open
   useEffect(() => {
     if (!votingDeadline) return;
 
+    const proposalState = proposal.state || ProposalState.Active;
+    const isVotingCurrentlyOpen = proposalState === ProposalState.Active;
+
+    if (!isVotingCurrentlyOpen) return;
+
+    // Helper function to check and update deadline status
     const checkDeadline = () => {
-      setIsDeadlinePassed(new Date() > votingDeadline);
+      const now = new Date();
+      const deadlinePassed = now > votingDeadline;
+      setIsDeadlinePassed(deadlinePassed);
+      return deadlinePassed;
     };
 
-    // Check immediately
-    checkDeadline();
+    // Check immediately if deadline has passed
+    const deadlinePassed = checkDeadline();
 
-    // Then check every second
+    // If deadline has already passed, no need to set up interval
+    if (deadlinePassed) return;
+
     const interval = setInterval(checkDeadline, 1000);
 
     return () => clearInterval(interval);
-  }, [votingDeadline]);
+  }, [votingDeadline, proposal.state]);
 
   useEffect(() => {
     if (isConfirmed) {
@@ -204,6 +215,12 @@ export const VoteCard = ({
       formatUnits(veMentoBalance.value, 18),
     );
   }, [veMentoBalance]);
+
+  const quorumNeededFormatted = useMemo(() => {
+    return NumbersService.parseNumericValue(
+      formatUnits(quorumNeeded || BigInt(0), 18),
+    );
+  }, [quorumNeeded]);
 
   // Individual vote counts for easier access
   const forVotes = useMemo(
@@ -432,7 +449,7 @@ export const VoteCard = ({
       case "finished":
         return "Voting Finished";
       default:
-        if (isVotingOpen) return "Voting Open";
+        if (isVotingOpen) return "Voting is Open";
         return "Voting Finished";
     }
   }, [currentState, isVotingOpen, isAbstained, hasQuorum]);
@@ -489,16 +506,17 @@ export const VoteCard = ({
           <>
             The community has voted in favor of this proposal.
             <br />
-            It will now proceed to the next stage of implementation.
+            It can now be queued for execution by anyone.
           </>
         );
       case "defeated":
         if (forVotes > againstVotes) {
           return (
             <>
-              The proposal did not reach the required quorum.
+              The proposal did not reach the required quorum of{" "}
+              {quorumNeededFormatted} votes.
               <br />
-              As a result, it has not been approved and will not be implemented.
+              It will not move forward.
             </>
           );
         }
@@ -513,7 +531,7 @@ export const VoteCard = ({
         }
         return (
           <>
-            The proposal did not receive sufficient support.
+            The proposal did not receive enough YES votes.
             <br />
             It will not move forward.
           </>
@@ -542,23 +560,27 @@ export const VoteCard = ({
             The final results are displayed above.
           </>
         );
-      default:
-        if (isVotingOpen) {
-          return (
-            <>
-              Your vote matters - participate in the decision.
-              <br />
-              Even if you abstain, it helps the community move forward.
-            </>
-          );
-        }
+      case "canceled":
         return (
           <>
-            Your vote matters - participate in the decision.
-            <br />
-            Even if you abstain, it helps the community move forward.
+            The{" "}
+            <a
+              href="https://docs.mento.org/mento/overview/governance-and-the-mento-token/watchdogs-and-safety"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-4"
+            >
+              governance watchdogs
+            </a>{" "}
+            have canceled this proposal. It will not move forward.
           </>
         );
+
+      default:
+        if (isVotingOpen) {
+          return <>Your vote matters - participate in the decision.</>;
+        }
+        return <>Your vote matters - participate in the decision.</>;
     }
   }, [currentState, isVotingOpen, forVotes, againstVotes, abstainVotes]);
 
@@ -948,11 +970,7 @@ export const VoteCard = ({
                 className="text-muted-foreground text-sm"
                 data-testid="quorumReachedLabel"
               >
-                Min.{" "}
-                {NumbersService.parseNumericValue(
-                  formatUnits(quorumNeeded || BigInt(0), 18),
-                )}{" "}
-                veMENTO
+                Min. {quorumNeededFormatted} veMENTO
               </span>
             </div>
           </div>
@@ -1012,78 +1030,6 @@ export const VoteCard = ({
             <div className="py-0">
               <ProgressBar mode="vote" data={voteData} />
             </div>
-
-            {/* MANUAL TEST AS PER DESIGN */}
-            {/* <div className="flex flex-col gap-16 py-16">
-              <ProgressBar
-                mode="vote"
-                data={{
-                  approve: {
-                    value: "920K",
-                    percentage: 76.7,
-                  },
-                  reject: {
-                    value: "280K",
-                    percentage: 23.3,
-                  },
-                  mode: "vote",
-                }}
-              />
-
-              <ProgressBar
-                mode="vote"
-                data={{
-                  approve: {
-                    value: "770K",
-                    percentage: 100,
-                  },
-                  reject: {
-                    value: "0",
-                    percentage: 0,
-                  },
-                  mode: "vote",
-                }}
-              />
-
-              <ProgressBar
-                mode="vote"
-                data={{
-                  approve: {
-                    value: "70K",
-                    percentage: 16.7,
-                  },
-                  reject: {
-                    value: "80K",
-                    percentage: 23.3,
-                  },
-                  abstain: {
-                    value: "620K",
-                    percentage: 76.7,
-                  },
-                  mode: "vote",
-                }}
-              />
-
-              <ProgressBar
-                mode="vote"
-                quorumNotMet={true}
-                data={{
-                  approve: {
-                    value: "220K",
-                    percentage: 76.7,
-                  },
-                  reject: {
-                    value: "5",
-                    percentage: 0.0016,
-                  },
-                  abstain: {
-                    value: "80K",
-                    percentage: 23.3,
-                  },
-                  mode: "vote",
-                }}
-              />
-            </div>*/}
 
             <div
               className={

@@ -277,7 +277,11 @@ This repository has Signed Remote Caching enabled (`"signature": true` in `turbo
 
 ## Potential Future Improvements
 
+<!-- This link is working, idk what markdownlint's problem is here 🤷‍♂️ -->
+<!-- markdown-link-check-disable -->
+
 - [ ] Add [syncpack](https://www.npmjs.com/package/syncpack) for consistent dependency versions across all monorepo packages
+<!-- markdown-link-check-enable -->
 - [ ] Finetune builds. There's probably ways to make the builds of both packages and apps smaller and/or more performant.
 - [ ] Make VS Code's "Go To Definition" on a component jump to the actual TypeScript source file instead of the compiled JS file in ./dist
 - [ ] Enable additional Trunk linters for production CI (security scanning, image optimization)
