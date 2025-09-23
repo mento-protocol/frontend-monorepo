@@ -1,7 +1,6 @@
 "use client";
 import {
   CopyToClipboard,
-  IconLoading,
   LockCard,
   LockCardActions,
   LockCardAmount,
@@ -18,6 +17,7 @@ import {
   LockCardNotice,
   LockCardRow,
   LockCardToken,
+  Skeleton,
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -127,8 +127,17 @@ export const LockList = () => {
   let remaining = Number(formatUnits(availableToWithdraw ?? BigInt(0), 18));
   return (
     <div className="mt-20">
-      {loading && <IconLoading className="mx-auto h-8 w-8" />}
-      {activeLocks.length > 0 && (
+      {loading && (
+        <>
+          <Skeleton className="mb-5 h-10 w-60 rounded-md" />
+          <div className="flex w-full flex-wrap gap-4">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton className="h-64 w-full rounded-md md:max-w-[330px]" />
+            ))}
+          </div>
+        </>
+      )}
+      {!loading && activeLocks.length > 0 && (
         <>
           <h2 className="mb-8 text-2xl font-medium">Your Current Locks</h2>
           <div className="flex flex-wrap gap-4">

@@ -443,9 +443,11 @@ export const LockingButton = ({
         <span>
           {isApprovalActive
             ? "Approve MENTO"
-            : isExtendingDuration
-              ? "Top-up lock without extending a date"
-              : "Top-up lock"}
+            : isExtendingDuration && isAddingAmount
+              ? "Top up and extend lock"
+              : isExtendingDuration && !isAddingAmount
+                ? "Extend lock"
+                : "Top up lock"}
         </span>
         {isAwaiting ? (
           <>Continue in wallet</>
@@ -460,6 +462,8 @@ export const LockingButton = ({
     relock.isAwaitingUserSignature,
     relock.isConfirming,
     hasApprovedForCurrentRelock,
+    isExtendingDuration,
+    isAddingAmount,
   ]);
 
   // Reset function for dialog
