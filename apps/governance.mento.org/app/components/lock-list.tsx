@@ -149,13 +149,20 @@ export const LockList = () => {
               const hasActiveCliff = lock.cliff > 0 && new Date() < cliffEnd;
 
               return (
-                <LockCard key={lock.lockId} id={`lock-${lock.lockId}`}>
+                <LockCard
+                  key={lock.lockId}
+                  id={`lock-${lock.lockId}`}
+                  data-testid={`lockCard_${index}`}
+                >
                   <LockCardHeader>
                     <LockCardHeaderGroup>
                       <LockCardAmount>{formattedAmount}</LockCardAmount>
                       <LockCardToken>veMENTO</LockCardToken>
                     </LockCardHeaderGroup>
-                    <LockCardBadge type={badgeType}>
+                    <LockCardBadge
+                      type={badgeType}
+                      data-testid={`lockCardBadge`}
+                    >
                       {badgeType.charAt(0).toUpperCase() + badgeType.slice(1)}
                     </LockCardBadge>
                   </LockCardHeader>
@@ -225,7 +232,7 @@ export const LockList = () => {
                     <LockCardActions>
                       <LockCardButton
                         onClick={() => handleUpdateLock(lock)}
-                        data-testid={`lockCard_${index}`}
+                        data-testid={`updateLockButton`}
                       >
                         Update
                       </LockCardButton>

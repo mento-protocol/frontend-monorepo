@@ -440,7 +440,7 @@ export const LockingButton = ({
 
     return (
       <div className="flex min-h-4 flex-col gap-4">
-        <span>
+        <span data-testid="actionLabel">
           {isApprovalActive
             ? "Approve MENTO"
             : isExtendingDuration && isAddingAmount

@@ -396,6 +396,7 @@ export function LockFormFields({
 
             {(delegateEnabled || isDelegatedToOther) && (
               <Input
+                data-testid={`delegateAddressInput`}
                 placeholder="Delegate Address..."
                 maxLength={42}
                 disabled={isDelegatedToOther}
