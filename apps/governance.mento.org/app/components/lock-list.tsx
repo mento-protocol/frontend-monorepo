@@ -131,7 +131,7 @@ export const LockList = () => {
         <>
           <Skeleton className="mb-5 h-10 w-60 rounded-md" />
           <div className="flex w-full flex-wrap gap-4">
-            {Array.from({ length: 3 }).map((_, i) => (
+            {Array.from({ length: 3 }).map(() => (
               <Skeleton className="h-64 w-full rounded-md md:max-w-[330px]" />
             ))}
           </div>

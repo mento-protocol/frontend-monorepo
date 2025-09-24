@@ -11,7 +11,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { PropsBase } from "react-day-picker";
-import { cn } from "@/lib";
 
 interface DatepickerProps extends PropsBase {
   value: Date | undefined;
