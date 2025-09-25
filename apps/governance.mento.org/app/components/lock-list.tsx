@@ -27,7 +27,6 @@ import {
 import {
   Identicon,
   LockWithExpiration,
-  useAvailableToWithdraw,
   useCurrentChain,
   useLocksByAccount,
   WalletHelper,
@@ -46,7 +45,6 @@ export const LockList = () => {
     account: address as string,
   });
   const currentChain = useCurrentChain();
-  const { availableToWithdraw } = useAvailableToWithdraw();
 
   const [selectedLock, setSelectedLock] = useState<LockWithExpiration | null>(
     null,
@@ -169,57 +167,9 @@ export const LockList = () => {
       })
       .filter((l) => !l.isReplaced); // Ignore replaced locks
 
-    // Step 1: Allocate available_to_withdraw to locks
-    const availableTotal = availableToWithdraw ?? 0n;
-    const claimableMap = new Map<string, bigint>();
-    let remainingAvailable = availableTotal;
-
-    // Expired locks first (up to their full amount)
+    // Step 1: Identify expired and vesting locks (for internal calculations only)
     const expiredLocks = lockData.filter((l) => l.isExpired);
-    for (const { lock, amount } of expiredLocks) {
-      if (remainingAvailable <= 0n) {
-        claimableMap.set(lock.lockId, 0n);
-        continue;
-      }
-      const take = remainingAvailable < amount ? remainingAvailable : amount;
-      claimableMap.set(lock.lockId, take);
-      remainingAvailable -= take;
-    }
-
-    // Vesting locks pro-rata by vested amount
     const vestingLocks = lockData.filter((l) => l.isVesting);
-    if (remainingAvailable > 0n && vestingLocks.length > 0) {
-      const totalVested = vestingLocks.reduce(
-        (sum, l) => sum + l.vestedAmount,
-        0n,
-      );
-      if (totalVested > 0n) {
-        for (const { lock, vestedAmount } of vestingLocks) {
-          const allocation = (vestedAmount * remainingAvailable) / totalVested;
-          claimableMap.set(
-            lock.lockId,
-            (claimableMap.get(lock.lockId) ?? 0n) + allocation,
-          );
-        }
-      }
-    }
-
-    // Fix any dust to ensure exact total
-    const allocatedTotal = Array.from(claimableMap.values()).reduce(
-      (a, b) => a + b,
-      0n,
-    );
-    const dust = availableTotal - allocatedTotal;
-    if (dust !== 0n && lockData.length > 0) {
-      const firstLock = lockData[0];
-      if (firstLock) {
-        const firstLockId = firstLock.lock.lockId;
-        claimableMap.set(
-          firstLockId,
-          (claimableMap.get(firstLockId) ?? 0n) + dust,
-        );
-      }
-    }
 
     // Step 2: Back-solve withdrawn amounts
     const totalOriginal = lockData.reduce((sum, l) => sum + l.amount, 0n);
@@ -227,6 +177,11 @@ export const LockList = () => {
 
     const withdrawnMap = new Map<string, bigint>();
     let remainingWithdrawn = withdrawnTotal;
+
+    // Initialize all locks with 0 withdrawn amount
+    for (const { lock } of lockData) {
+      withdrawnMap.set(lock.lockId, 0n);
+    }
 
     // Allocate withdrawn using same logic (expired first, then vesting pro-rata)
     for (const { lock, amount } of expiredLocks) {
@@ -245,13 +200,17 @@ export const LockList = () => {
         0n,
       );
       if (totalVested > 0n) {
+        let allocatedFromVestingWithdrawn = 0n;
         for (const { lock, vestedAmount } of vestingLocks) {
+          // Calculate pro-rata allocation for withdrawn amounts
           const allocation = (vestedAmount * remainingWithdrawn) / totalVested;
           withdrawnMap.set(
             lock.lockId,
             (withdrawnMap.get(lock.lockId) ?? 0n) + allocation,
           );
+          allocatedFromVestingWithdrawn += allocation;
         }
+        remainingWithdrawn -= allocatedFromVestingWithdrawn;
       }
     }
 
@@ -287,16 +246,17 @@ export const LockList = () => {
 
       // Use contract veMENTO value if available, otherwise calculate manually
       let veMentoAmount = veMentoMap.get(lock.lockId) ?? 0n;
-
       // Fallback calculation if contract value not available
       if (veMentoAmount === 0n && nowSec < expirySec) {
         const timeRemaining = BigInt(expirySec - nowSec);
-        const totalLockDuration = BigInt((lock.cliff + lock.slope) * WEEK);
+        const totalLockDuration = BigInt(
+          (lock.cliff + lock.slope - 0.25) * WEEK,
+        );
+
         const MAX_LOCK_WEEKS = 104n; // 2 years maximum
 
         if (totalLockDuration > 0n) {
-          // Calculate initial veMENTO based on lock duration (shorter locks get proportionally less)
-          const lockDurationWeeks = BigInt(lock.cliff + lock.slope);
+          const lockDurationWeeks = BigInt(Math.ceil(lock.cliff + lock.slope));
           const initialVeMento =
             (BigInt(lock.amount) * lockDurationWeeks) / MAX_LOCK_WEEKS;
 
@@ -307,7 +267,6 @@ export const LockList = () => {
 
       estimates.set(lock.lockId, {
         remaining: remaining,
-        claimable: claimableMap.get(lock.lockId) ?? 0n,
         withdrawn: withdrawnMap.get(lock.lockId) ?? 0n,
         original: BigInt(lock.amount),
         veMento: veMentoAmount,
@@ -315,7 +274,7 @@ export const LockList = () => {
     }
 
     return estimates;
-  }, [locks, address, availableToWithdraw, totalLockedNow]);
+  }, [locks, address, totalLockedNow]);
 
   const getDelegationInfo = (
     lock: LockWithExpiration,
@@ -358,8 +317,6 @@ export const LockList = () => {
     .filter((l) => now >= l.expiration)
     .sort((a, b) => +new Date(a.expiration) - +new Date(b.expiration));
 
-  // Calculate withdrawable amount to distribute across expired, self-owned locks
-  let remaining = Number(formatUnits(availableToWithdraw ?? BigInt(0), 18));
   return (
     <div className="mt-20">
       {loading && (
@@ -384,7 +341,6 @@ export const LockList = () => {
               const estimates = lockEstimates.get(lock.lockId);
               const remainingAmount =
                 estimates?.remaining ?? BigInt(lock.amount);
-              const claimableAmount = estimates?.claimable ?? 0n;
               const veMentoAmount = estimates?.veMento ?? 0n;
               const originalAmount = BigInt(lock.amount);
 
@@ -398,11 +354,6 @@ export const LockList = () => {
               ).toLocaleString("en-US", {
                 maximumFractionDigits: 3,
               });
-              const formattedClaimable = Number(
-                formatUnits(claimableAmount, 18),
-              ).toLocaleString("en-US", {
-                maximumFractionDigits: 3,
-              });
               const formattedVeMento = Number(
                 formatUnits(veMentoAmount, 18),
               ).toLocaleString("en-US", {
@@ -410,7 +361,6 @@ export const LockList = () => {
               });
 
               const cliffEnd = subWeeks(lock.expiration, lock.slope);
-              const hasActiveCliff = lock.cliff > 0 && new Date() < cliffEnd;
               const now = new Date();
               const inCliff = now < cliffEnd;
               const inVesting = !inCliff && now < lock.expiration;
@@ -508,17 +458,6 @@ export const LockList = () => {
                           </TooltipProvider>
                         </LockCardFieldValue>
                       </LockCardField>
-                      {claimableAmount > 0n && (
-                        <LockCardField>
-                          <LockCardFieldLabel>
-                            Withdrawable now
-                          </LockCardFieldLabel>
-                          <LockCardFieldValue>
-                            {formattedClaimable}{" "}
-                            <span className="text-muted-foreground">MENTO</span>
-                          </LockCardFieldValue>
-                        </LockCardField>
-                      )}
                     </LockCardRow>
                   </LockCardBody>
 
@@ -579,16 +518,6 @@ export const LockList = () => {
               });
               const formattedOriginal = Number(
                 formatUnits(originalAmount, 18),
-              ).toLocaleString("en-US", {
-                maximumFractionDigits: 3,
-              });
-              const formattedClaimable = Number(
-                formatUnits(claimableAmount, 18),
-              ).toLocaleString("en-US", {
-                maximumFractionDigits: 3,
-              });
-              const formattedVeMento = Number(
-                formatUnits(veMentoAmount, 18),
               ).toLocaleString("en-US", {
                 maximumFractionDigits: 3,
               });
