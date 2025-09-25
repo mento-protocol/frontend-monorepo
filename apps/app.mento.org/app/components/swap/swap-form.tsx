@@ -25,6 +25,7 @@ import {
   confirmViewAtom,
   ConnectButton,
   formatWithMaxDecimals,
+  formatBalance,
   formValuesAtom,
   fromWeiRounded,
   logger,
@@ -117,8 +118,7 @@ export default function SwapForm() {
   // Get token balances
   const fromTokenBalance = useMemo(() => {
     const balanceValue = balances[tokenInId as keyof typeof balances];
-    const balance = fromWeiRounded(balanceValue, getTokenDecimals(tokenInId));
-    return formatWithMaxDecimals(balance || "0.00");
+    return formatBalance(balanceValue, getTokenDecimals(tokenInId));
   }, [balances, tokenInId]);
 
   const toTokenBalance = useMemo(() => {
@@ -377,11 +377,11 @@ export default function SwapForm() {
     const maxAmountBigInt = BigInt(maxAmountInWei);
     const decimals = getTokenDecimals(tokenInId);
 
-    const formattedAmount = fromWeiRounded(
+    const formattedAmount = formatBalance(
       maxAmountBigInt.toString(),
       decimals,
     );
-    form.setValue("amount", formatWithMaxDecimals(formattedAmount, 4, false));
+    form.setValue("amount", formattedAmount);
     form.setValue("direction", "in");
 
     if (tokenInId === "CELO") {
