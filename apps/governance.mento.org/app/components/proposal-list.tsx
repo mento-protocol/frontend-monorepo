@@ -197,20 +197,20 @@ export const ProposalList = () => {
                     <div className="grid grid-cols-3 gap-2">
                       <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-sm leading-5 xl:h-8 xl:text-sm">
                         <span className="block h-1 w-1 bg-[var(--approved)]"></span>
-                        {NumbersService.parseNumericValue(
-                          Number(formatUnits(votes.for.total, 18)),
+                        {NumbersService.formatCompactNumber(
+                          formatUnits(votes.for.total, 18),
                         )}
                       </div>
                       <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-sm leading-5 xl:h-8 xl:text-sm">
                         <span className="block h-1 w-1 bg-[var(--rejected)]"></span>
-                        {NumbersService.parseNumericValue(
-                          Number(formatUnits(votes.against.total, 18)),
+                        {NumbersService.formatCompactNumber(
+                          formatUnits(votes.against.total, 18),
                         )}
                       </div>
                       <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-sm leading-5 xl:h-8 xl:text-sm">
                         <span className="block h-1 w-1 bg-[var(--abstained)]"></span>
-                        {NumbersService.parseNumericValue(
-                          Number(formatUnits(votes.abstain.total, 18)),
+                        {NumbersService.formatCompactNumber(
+                          formatUnits(votes.abstain.total, 18),
                         )}
                       </div>
                     </div>

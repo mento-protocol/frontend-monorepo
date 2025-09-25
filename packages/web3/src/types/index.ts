@@ -17,5 +17,4 @@ export type TokenBalance = {
   decimals: number;
   value: bigint;
   symbol: string;
-  formatted: string;
 };

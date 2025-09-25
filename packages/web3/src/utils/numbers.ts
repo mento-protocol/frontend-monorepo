@@ -1,5 +1,3 @@
-import { formatUnits } from "viem";
-
 export const TRILLION = 1000000000000000;
 export const BILLION = 1000000000;
 export const MILLION = 1000000;
@@ -16,55 +14,25 @@ export abstract class NumbersService {
     );
   }
 
-  public static parseNumericValue(
-    value: number | string,
-    precision: number = 1,
-  ): string {
-    if (!value || +value <= 0) {
-      return "0";
+  public static formatCompactNumber(value: string, precision = 1): string {
+    const n = Number(value);
+    if (isNaN(n) || !Number.isFinite(n) || n <= 0) return "0";
+
+    const UNITS = [
+      { v: 1e12, s: "T" },
+      { v: 1e9,  s: "B" },
+      { v: 1e6,  s: "M" },
+      { v: 1e3,  s: "K" },
+    ] as const;
+
+    for (const { v, s } of UNITS) {
+      if (n >= v) {
+        const scaled = n / v;
+        const dp = Number.isInteger(scaled) ? 0 : precision;
+        return `${scaled.toFixed(dp)}${s}`;
+      }
     }
 
-    if (+value / TRILLION >= 1) {
-      return `${(+value / TRILLION).toFixed((+value / TRILLION) % 1 ? precision : 0)}T`;
-    }
-    if (+value / BILLION >= 1) {
-      return `${(+value / BILLION).toFixed((+value / BILLION) % 1 ? precision : 0)}B`;
-    }
-    if (+value / MILLION >= 1) {
-      return `${(+value / MILLION).toFixed((+value / MILLION) % 1 ? precision : 0)}M`;
-    }
-    if (+value / THOUSAND >= 1) {
-      return `${(+value / THOUSAND).toFixed((+value / THOUSAND) % 1 ? precision : 0)}K`;
-    }
-
-    return (+value).toFixed(0);
+    return n.toFixed(0);
   }
 }
-
-export const formatUnitsWithRadix = (
-  value: bigint,
-  decimals: number,
-  radix: number,
-) => parseFloat(formatUnits(value, decimals)).toFixed(radix);
-
-export const formatUnitsWithThousandSeparators = (
-  value: bigint,
-  decimals: number,
-  radix: number,
-) => {
-  const parsedValue = parseFloat(formatUnits(value, decimals));
-  const formattedValue = parsedValue.toFixed(radix);
-  const [integerPart, decimalPart = ""] = formattedValue.split(".");
-
-  if (!integerPart) throw new Error("integerPart is undefined");
-  const integerWithSeparators = integerPart.replace(
-    /\B(?=(\d{3})+(?!\d))/g,
-    ",",
-  );
-
-  if (decimalPart && parseFloat(`0.${decimalPart}`) !== 0) {
-    return `${integerWithSeparators}.${decimalPart}`;
-  }
-
-  return integerWithSeparators;
-};

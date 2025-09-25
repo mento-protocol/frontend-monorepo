@@ -1,4 +1,5 @@
 "use client";
+import { ethers } from "ethers";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { cn, IconLoading, TokenIcon } from "@repo/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -375,7 +376,7 @@ export default function SwapForm() {
     const maxAmountBigInt = BigInt(maxamountInWei);
     const decimals = Tokens[tokenInId as TokenId]?.decimals;
 
-    const formattedAmount = formatBalance(
+    const formattedAmount = ethers.utils.formatUnits(
       maxAmountBigInt.toString(),
       decimals,
     );
@@ -703,7 +704,7 @@ export default function SwapForm() {
                         ref={amountRef}
                         data-testid="sellAmountInput"
                         placeholder="0"
-                        value={formDirection === "in" ? field.value : formQuote}
+                        value={formDirection === "in" ? formatWithMaxDecimals(field.value, 4, false) : formQuote}
                         onChange={(e) => {
                           const val =
                             typeof e === "string" ? e : e.target.value;

@@ -43,8 +43,8 @@ export const ProposalStats = () => {
   }, [proposalsEndBlocks, currentBlockNumber]);
 
   const totalSupplyParsed = useMemo(() => {
-    const totalSupplyNumber = Number(formatUnits(totalSupply || BigInt(0), 18));
-    return NumbersService.parseNumericValue(Math.floor(totalSupplyNumber));
+    const totalSupplyNumber = formatUnits(totalSupply || 0n, 18);
+    return NumbersService.formatCompactNumber(totalSupplyNumber);
   }, [totalSupply]);
 
   const activeVoters = useMemo(() => {

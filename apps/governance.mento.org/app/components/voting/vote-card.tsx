@@ -207,17 +207,17 @@ export const VoteCard = ({
   }, [proposal.votes]);
 
   const formattedTotalVotingPower = useMemo(() => {
-    return NumbersService.parseNumericValue(formatUnits(totalVotingPower, 18));
+    return NumbersService.formatCompactNumber(formatUnits(totalVotingPower, 18));
   }, [totalVotingPower]);
 
   const formattedVeMentoBalance = useMemo(() => {
-    return NumbersService.parseNumericValue(
+    return NumbersService.formatCompactNumber(
       formatUnits(veMentoBalance.value, 18),
     );
   }, [veMentoBalance]);
 
   const quorumNeededFormatted = useMemo(() => {
-    return NumbersService.parseNumericValue(
+    return NumbersService.formatCompactNumber(
       formatUnits(quorumNeeded || BigInt(0), 18),
     );
   }, [quorumNeeded]);
@@ -265,15 +265,15 @@ export const VoteCard = ({
     return {
       approve: {
         // Display voting power formatted
-        value: NumbersService.parseNumericValue(formatUnits(forPower, 18)),
+        value: NumbersService.formatCompactNumber(formatUnits(forPower, 18)),
         percentage: parseFloat(forPercentage),
       },
       reject: {
-        value: NumbersService.parseNumericValue(formatUnits(againstPower, 18)),
+        value: NumbersService.formatCompactNumber(formatUnits(againstPower, 18)),
         percentage: parseFloat(againstPercentage),
       },
       abstain: {
-        value: NumbersService.parseNumericValue(formatUnits(abstainPower, 18)),
+        value: NumbersService.formatCompactNumber(formatUnits(abstainPower, 18)),
         percentage: parseFloat(abstainPercentage),
       },
       totalQuorum: Number(formatUnits(total, 18)),

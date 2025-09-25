@@ -5,7 +5,6 @@ import { useEnsureChainId } from "@/features/governance/use-ensure-chain-id";
 import { useMemo } from "react";
 import { erc20Abi } from "viem";
 import { useAccount, useReadContracts } from "wagmi";
-import { formatUnitsWithRadix } from "@/utils/numbers";
 import { TokenBalance } from "@/types";
 
 export const useTokens = () => {
@@ -155,46 +154,33 @@ export const useTokens = () => {
     mentoBalance: TokenBalance;
     veMentoBalance: TokenBalance;
   } = useMemo(() => {
-    if (balanceFetchSuccess) {
-      const [mentoData, veMentoData] = balanceData;
-      return {
-        mentoBalance: {
-          decimals: mentoContractData.decimals,
-          symbol: mentoContractData.symbol,
-          value: mentoData,
-          formatted: formatUnitsWithRadix(
-            mentoData,
-            mentoContractData.decimals,
-            2,
-          ),
-        },
-        veMentoBalance: {
-          decimals: veMentoContractData.decimals,
-          symbol: veMentoContractData.symbol,
-          value: veMentoData,
-          formatted: formatUnitsWithRadix(
-            veMentoData,
-            veMentoContractData.decimals,
-            2,
-          ),
-        },
-      };
-    } else {
+    if (!balanceFetchSuccess) {
       return {
         mentoBalance: {
           decimals: mentoContractData.decimals,
           symbol: mentoContractData.symbol,
           value: 0n,
-          formatted: "0",
         },
         veMentoBalance: {
           decimals: veMentoContractData.decimals,
           symbol: veMentoContractData.symbol,
           value: 0n,
-          formatted: "0",
         },
       };
     }
+    const [mentoData, veMentoData] = balanceData;
+    return {
+      mentoBalance: {
+        decimals: mentoContractData.decimals,
+        symbol: mentoContractData.symbol,
+        value: mentoData,
+      },
+      veMentoBalance: {
+        decimals: veMentoContractData.decimals,
+        symbol: veMentoContractData.symbol,
+        value: veMentoData,
+      },
+    };
   }, [
     balanceData,
     balanceFetchSuccess,

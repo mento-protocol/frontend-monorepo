@@ -10,6 +10,7 @@ import { logger } from "@/utils/logger";
 import { useQuery } from "@tanstack/react-query";
 import { Contract } from "ethers";
 import { erc20Abi } from "viem";
+import { TokenBalance } from "@/types";
 
 export type AccountBalances = Record<TokenId, string>;
 
@@ -27,13 +28,22 @@ async function getTokenBalance({
   address: string;
   chainId: number;
   tokenSymbol: TokenId;
-}): Promise<string> {
+}): Promise<TokenBalance> {
   // Return type changed to Promise<string>
   const tokenAddress = getTokenAddress(tokenSymbol, chainId);
   const provider = getProvider(chainId);
   try {
     const tokenContract = new Contract(tokenAddress, erc20Abi, provider);
-    return (await tokenContract.balanceOf(address)).toString();
+    const [balance, decimals] = await Promise.all([
+      tokenContract.balanceOf(address),
+      tokenContract.decimals(),
+    ]);
+    return {
+      symbol: tokenSymbol,
+      decimals: Number(decimals),
+      value: balance,
+
+    }
   } catch (error) {
     logger.error(
       `Error on getting balance of '${tokenSymbol}' token. Address: ${address}, ChainId: ${chainId}`,

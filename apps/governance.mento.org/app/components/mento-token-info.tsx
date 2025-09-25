@@ -36,7 +36,7 @@ export const MentoTokenInfo = () => {
   } = useContracts();
 
   const networkLabel = `${chain?.name || "Celo"} ${chain?.testnet ? "Testnet" : "Mainnet"}`;
-  const formattedSupply = NumbersService.parseNumericValue(
+  const formattedSupply = NumbersService.formatCompactNumber(
     formatUnits(totalSupply, decimals),
   );
 
@@ -71,7 +71,7 @@ export const MentoTokenInfo = () => {
               <span className="text-muted-foreground">Proposal threshold</span>
               <span>
                 {proposalThreshold
-                  ? NumbersService.parseNumericValue(
+                  ? NumbersService.formatCompactNumber(
                       formatUnits(BigInt(proposalThreshold), 18),
                       2,
                     )
@@ -83,7 +83,7 @@ export const MentoTokenInfo = () => {
               <span className="text-muted-foreground">Quorum needed</span>
               <span>
                 {quorumNeeded
-                  ? NumbersService.parseNumericValue(
+                  ? NumbersService.formatCompactNumber(
                       formatUnits(quorumNeeded, 18),
                       2,
                     )

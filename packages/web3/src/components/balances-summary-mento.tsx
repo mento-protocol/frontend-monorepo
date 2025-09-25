@@ -4,6 +4,7 @@ import { useAddTokens } from "@/features/governance/use-add-tokens";
 import { useTokens } from "@/features/governance/use-tokens";
 import { NumbersService } from "@/utils/numbers";
 import { IconMento } from "@repo/ui";
+import { formatUnits } from "viem";
 
 export function BalancesSummaryMento() {
   const { mentoBalance, veMentoBalance } = useTokens();
@@ -21,7 +22,7 @@ export function BalancesSummaryMento() {
           <span>{mentoBalance.symbol}</span>
         </div>
         <div className="flex flex-row items-center justify-center font-medium">
-          {NumbersService.parseNumericValue(mentoBalance.formatted, 1)}
+          {NumbersService.formatCompactNumber(formatUnits(mentoBalance.value, mentoBalance.decimals))}
         </div>
       </div>
       <hr className="border-border mx-auto w-[calc(100%_-_32px)]" />
@@ -35,7 +36,7 @@ export function BalancesSummaryMento() {
           <span>{veMentoBalance.symbol}</span>
         </div>
         <div className="flex flex-row items-center justify-center font-medium">
-          {NumbersService.parseNumericValue(veMentoBalance.formatted, 1)}
+          {NumbersService.formatCompactNumber(formatUnits(veMentoBalance.value, veMentoBalance.decimals))}
         </div>
       </div>
     </div>

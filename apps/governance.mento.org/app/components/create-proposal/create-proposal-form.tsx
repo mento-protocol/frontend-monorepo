@@ -635,17 +635,13 @@ function CreateProposalSteps() {
 
   useEffect(() => {
     if (isConnected && proposalThreshold && veMentoBalance && mentoBalance) {
-      if (veMentoBalance.value < proposalThreshold) {
-        setNotEnough(true);
-      } else {
-        setNotEnough(false);
-      }
+      setNotEnough(veMentoBalance.value < proposalThreshold);
     }
   }, [
     isConnected,
-    veMentoBalance.value,
+    veMentoBalance,
     proposalThreshold,
-    mentoBalance.value,
+    mentoBalance,
   ]);
 
   if (isBalanceLoading || isLoadingProposalThreshold) {

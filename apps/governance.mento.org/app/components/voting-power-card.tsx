@@ -36,7 +36,7 @@ export const VotingPowerCard = () => {
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">MENTO</span>
           <span>
-            {NumbersService.parseNumericValue(
+            {NumbersService.formatCompactNumber(
               formatUnits(mentoBalance.value, mentoBalance.decimals),
             )}
           </span>
@@ -45,7 +45,7 @@ export const VotingPowerCard = () => {
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">veMENTO</span>
           <span>
-            {NumbersService.parseNumericValue(
+            {NumbersService.formatCompactNumber(
               formatUnits(veMentoBalance.value, veMentoBalance.decimals),
             )}
           </span>
