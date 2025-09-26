@@ -1050,7 +1050,7 @@ export const VoteCard = ({
                     error?.message ||
                     executeError?.message ||
                     queueError?.message
-                  )?.includes("User rejected") ? null : (
+                  )?.includes("rejected") ? null : (
                     <>
                       <span>
                         {executeError

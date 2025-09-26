@@ -110,7 +110,7 @@ export const WithdrawButton = () => {
           onClick={handleWithdraw}
         >
           Withdraw{" "}
-          {formatUnitsWithThousandSeparators(availableToWithdraw, 18, 2)} MENTO
+          {formatUnitsWithThousandSeparators(availableToWithdraw, 18, 3)} MENTO
         </Button>
       )}
       <TxDialog
