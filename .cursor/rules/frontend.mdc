@@ -27,7 +27,7 @@ Carefully follow these instructions for frontend TypeScript and React developmen
 2. Use the following React patterns and libraries:
    - Use components from `@repo/ui`.
    - Use `onPress` instead of `onClick` for event handlers.
-   - Use the `AddressLink` component for all links to block explorers.
+   - Use the `AddressLink` and `TransactionLink` components for all links to block explorers.
 
 3. Always follow these steps when implementing changes:
    - Consult relevant rule files and list which ones guided your implementation.
