@@ -163,7 +163,7 @@ export default function VotingPowerForm() {
     <FormProvider {...methods}>
       <CreateLockProvider onLockConfirmation={refetch}>
         <div className="flex flex-col gap-8 md:gap-20 lg:flex-row">
-          <Card className="border-border xl:max-w-1/2 w-full lg:min-w-[420px] lg:max-w-[420px]">
+          <Card className="border-border w-full lg:min-w-[420px] lg:max-w-[420px] xl:max-w-[60%]">
             <CardHeader className="text-2xl font-medium">Lock MENTO</CardHeader>
             <CardContent>
               <LockFormFields
@@ -192,7 +192,7 @@ export default function VotingPowerForm() {
             </CardFooter>
           </Card>
 
-          <Card className="border-border w-full md:h-[480px] md:min-w-[494px]">
+          <Card className="border-border w-full md:h-[480px] md:min-w-[494px] xl:max-w-[40%]">
             <CardHeader className="text-2xl font-medium">
               Locks Summary
             </CardHeader>
