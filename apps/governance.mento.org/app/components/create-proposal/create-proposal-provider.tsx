@@ -1,13 +1,12 @@
 import { toast } from "@repo/ui";
+import { ensureChainId } from "@/governance/ensure-chain-id";
 import {
-  ensureChainId,
-  LocalStorageKeys,
-  TransactionItem,
   useCreateProposalOnChain,
-  useCurrentChain,
-  useLocalStorage,
   useProposals,
-} from "@repo/web3";
+  TransactionItem,
+} from "@/contracts/governor";
+import { LocalStorageKeys, useLocalStorage } from "@/governance/use-storage";
+import { useCurrentChain } from "@/hooks/use-current-chain";
 import { useAccount, useBlockNumber } from "@repo/web3/wagmi";
 import { Loader } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -291,7 +290,7 @@ export const CreateProposalProvider = ({
       setCreationState("mounting");
     }
     // Only update on chainID change, eslint wants creationState involved
-  }, [chainId]);
+  }, [chainId, creationState]);
   return (
     <CreateProposalContext.Provider
       value={{

@@ -3,7 +3,7 @@ import "@repo/ui/globals.css";
 import "./globals.css";
 
 import { CommunityCard, Footer, IconCheck, Toaster } from "@repo/ui";
-import { ApolloProvider } from "@repo/web3";
+import { ApolloProvider } from "./apollo-provider";
 import { cookieToInitialState, wagmiSsrConfig } from "@repo/web3/wagmi-ssr";
 import { Analytics } from "@vercel/analytics/react";
 import type { Metadata } from "next";

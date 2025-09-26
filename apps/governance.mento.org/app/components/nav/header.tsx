@@ -70,7 +70,7 @@ export function Header() {
           </NavigationMenu>
         </div>
         <div className="flex flex-row items-center justify-between gap-2 px-4 md:px-6">
-          <ConnectButton balanceMode="mento" />
+          <ConnectButton />
         </div>
       </div>
     </header>

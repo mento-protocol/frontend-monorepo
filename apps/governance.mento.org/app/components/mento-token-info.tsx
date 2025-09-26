@@ -7,13 +7,10 @@ import {
   AccordionTrigger,
   CopyToClipboard,
 } from "@repo/ui";
-import {
-  NumbersService,
-  useContracts,
-  useCurrentChain,
-  useGovernanceDetails,
-  useTokens,
-} from "@repo/web3";
+import { NumbersService } from "@repo/web3";
+import { useContracts, useGovernanceDetails } from "@/contracts";
+import { useTokens } from "@/governance";
+import { useCurrentChain } from "@/hooks/use-current-chain";
 import { useAccount } from "@repo/web3/wagmi";
 import { formatUnits } from "viem";
 

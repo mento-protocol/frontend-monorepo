@@ -31,7 +31,7 @@ import {
   MIN_ROUNDED_VALUE,
   parseAmount,
   SwapFormValues,
-  type TokenId,
+  TokenId,
   Tokens,
   toWei,
   useAccountBalances,
@@ -48,6 +48,11 @@ import { useAccount, useChainId } from "@repo/web3/wagmi";
 import TokenDialog from "./token-dialog";
 
 type SwapDirection = "in" | "out";
+
+// Helper functions for token operations
+const getTokenDecimals = (tokenId: string) =>
+  Tokens[tokenId as TokenId]?.decimals;
+const getTokenInfo = (tokenId: string) => Tokens[tokenId as TokenId];
 
 // Layer 1: Keep Zod for static checks only
 const formSchema = z.object({
@@ -112,19 +117,13 @@ export default function SwapForm() {
   // Get token balances
   const fromTokenBalance = useMemo(() => {
     const balanceValue = balances[tokenInId as keyof typeof balances];
-    const balance = fromWeiRounded(
-      balanceValue,
-      Tokens[tokenInId as TokenId]?.decimals,
-    );
+    const balance = fromWeiRounded(balanceValue, getTokenDecimals(tokenInId));
     return formatWithMaxDecimals(balance || "0.00");
   }, [balances, tokenInId]);
 
   const toTokenBalance = useMemo(() => {
     const balanceValue = balances[tokenOutId as keyof typeof balances];
-    const balance = fromWeiRounded(
-      balanceValue,
-      Tokens[tokenOutId as TokenId]?.decimals,
-    );
+    const balance = fromWeiRounded(balanceValue, getTokenDecimals(tokenOutId));
     return formatWithMaxDecimals(balance || "0.00");
   }, [balances, tokenOutId]);
 
@@ -152,7 +151,7 @@ export default function SwapForm() {
         return "Amount too small";
       }
 
-      const tokenInfo = Tokens[tokenInId as TokenId];
+      const tokenInfo = getTokenInfo(tokenInId);
       if (!tokenInfo) return "Invalid token";
 
       const tokenBalance = balances[tokenInId as keyof typeof balances];
@@ -347,7 +346,7 @@ export default function SwapForm() {
 
       return true;
     },
-    [validateBalance, validateLimits, formDirection],
+    [validateBalance, validateLimits],
   );
 
   // Validation for quote field when direction is "out"
@@ -374,9 +373,9 @@ export default function SwapForm() {
   };
 
   const handleUseMaxBalance = () => {
-    const maxamountInWei = balances[tokenInId as keyof typeof balances] || "0";
-    const maxAmountBigInt = BigInt(maxamountInWei);
-    const decimals = Tokens[tokenInId as TokenId]?.decimals;
+    const maxAmountInWei = balances[tokenInId as keyof typeof balances] || "0";
+    const maxAmountBigInt = BigInt(maxAmountInWei);
+    const decimals = getTokenDecimals(tokenInId);
 
     const formattedAmount = fromWeiRounded(
       maxAmountBigInt.toString(),
@@ -511,12 +510,12 @@ export default function SwapForm() {
 
     if (formDirection === "in") {
       return amount
-        ? toWei(amount, Tokens[tokenInId as TokenId]?.decimals).toFixed(0)
+        ? toWei(amount, getTokenDecimals(tokenInId)).toFixed(0)
         : "0";
     }
 
     return formQuote
-      ? toWei(formQuote, Tokens[tokenInId as TokenId]?.decimals).toFixed(0)
+      ? toWei(formQuote, getTokenDecimals(tokenInId)).toFixed(0)
       : "0";
   }, [amount, formQuote, formDirection, tokenInId]);
 
@@ -981,7 +980,7 @@ export default function SwapForm() {
             ) : isApproveTxLoading || isApprovalProcessing ? (
               <IconLoading />
             ) : shouldApprove ? (
-              `Approve ${Tokens[tokenInId as TokenId]?.symbol || tokenInId}`
+              `Approve ${getTokenInfo(tokenInId)?.symbol || tokenInId}`
             ) : (
               "Swap"
             )}

@@ -73,7 +73,7 @@ export function useResolvedAddresses(
   const [error, setError] = useState<Error | null>(null);
 
   // Memoize the addresses array to prevent unnecessary re-renders
-  const memoizedAddresses = useMemo(() => addresses, [addresses.join(",")]);
+  const memoizedAddresses = useMemo(() => addresses, [addresses]);
 
   useEffect(() => {
     if (!memoizedAddresses.length) {

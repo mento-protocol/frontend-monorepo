@@ -209,12 +209,18 @@ export function useSwapTransaction(
       }
     }
   }, [
-    isSwapTxConfirmed,
-    swapTxReceipt,
-    swapTxHash,
-    queryClient,
     accountAddress,
     chainId,
+    formValues?.slippage,
+    fromToken,
+    isSwapTxConfirmed,
+    queryClient,
+    setConfirmView,
+    setFormValues,
+    swapTxHash,
+    swapTxReceipt,
+    swapValues,
+    toToken,
   ]);
 
   return {

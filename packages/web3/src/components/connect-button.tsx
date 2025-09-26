@@ -1,7 +1,6 @@
 "use client";
 
 import { BalancesSummary } from "@/components/balances-summary";
-import { BalancesSummaryMento } from "@/components/balances-summary-mento";
 import { Identicon } from "@/components/identicon";
 import { NetworkDialog } from "@/components/network-dialog";
 import { tryClipboardSet } from "@/utils/clipboard";
@@ -37,20 +36,14 @@ type ConnectButtonProps = ButtonProps & {
   size?: "sm" | "lg";
   text?: string;
   fullWidth?: boolean;
-  balanceMode?: "all" | "mento";
 };
 
 interface ConnectedDropdownProps {
   account: { address: string };
   fullWidth?: boolean;
-  balanceMode?: "all" | "mento";
 }
 
-function ConnectedDropdown({
-  account,
-  fullWidth,
-  balanceMode = "all",
-}: ConnectedDropdownProps) {
+function ConnectedDropdown({ account, fullWidth }: ConnectedDropdownProps) {
   const { openChainModal } = useChainModal();
   const { openAccountModal } = useAccountModal();
   const { disconnect } = useDisconnect();
@@ -97,16 +90,9 @@ function ConnectedDropdown({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          className={cn(
-            balanceMode === "mento" ? "w-64" : "w-42",
-            fullWidth && "w-full",
-          )}
+          className={cn("w-42", fullWidth && "w-full")}
         >
-          {balanceMode === "mento" ? (
-            <BalancesSummaryMento />
-          ) : (
-            <BalancesSummary />
-          )}
+          <BalancesSummary />
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={onClickCopy}
@@ -185,7 +171,6 @@ export function ConnectButton({
   size = "sm",
   text = "Connect Wallet",
   fullWidth,
-  balanceMode = "all",
 }: ConnectButtonProps) {
   const { address, isConnected } = useAccount();
   const { openConnectModal } = useConnectModal();
@@ -229,11 +214,7 @@ export function ConnectButton({
                   {text}
                 </Button>
               ) : (
-                <ConnectedDropdown
-                  account={account}
-                  fullWidth={!!fullWidth}
-                  balanceMode={balanceMode}
-                />
+                <ConnectedDropdown account={account} fullWidth={!!fullWidth} />
               )}
             </div>
           );
@@ -252,11 +233,7 @@ export function ConnectButton({
       )}
     >
       {address && isConnected ? (
-        <ConnectedDropdown
-          account={{ address }}
-          fullWidth={!!fullWidth}
-          balanceMode={balanceMode}
-        />
+        <ConnectedDropdown account={{ address }} fullWidth={!!fullWidth} />
       ) : (
         <Button
           size={size === "lg" ? "lg" : "sm"}

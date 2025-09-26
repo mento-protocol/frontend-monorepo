@@ -10,7 +10,8 @@ import {
   CopyToClipboard,
   ProposalStatus,
 } from "@repo/ui";
-import { ProposalState, useCurrentChain } from "@repo/web3";
+import { useCurrentChain } from "@/hooks/use-current-chain";
+import { ProposalState } from "@/graphql/subgraph/generated/subgraph";
 import { format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import Link from "next/link";

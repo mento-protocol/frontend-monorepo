@@ -3,6 +3,10 @@ import type { NextConfig } from "next";
 import { env } from "@/env.mjs";
 
 const nextConfig: NextConfig = {
+  // We use trunk to lint the code in a separate step, disable eslint during build for faster builds
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   images: {
     remotePatterns: [
       {
@@ -27,6 +31,22 @@ const nextConfig: NextConfig = {
     "@rainbow-me/rainbowkit",
   ],
   serverExternalPackages: ["require-in-the-middle", "import-in-the-middle"],
+  webpack: (config) => {
+    // Ignore React Native modules that are not needed in web builds
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      "@react-native-async-storage/async-storage": false,
+      "react-native": false,
+    };
+
+    // Add alias to prevent webpack from trying to resolve these modules
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      "@react-native-async-storage/async-storage": false,
+    };
+
+    return config;
+  },
 };
 
 export default withSentryConfig(nextConfig, {

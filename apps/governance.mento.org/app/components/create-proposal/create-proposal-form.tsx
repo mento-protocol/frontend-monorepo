@@ -1,5 +1,6 @@
 "use client";
-import { useProposals, useProposalThreshold, useTokens } from "@repo/web3";
+import { useTokens } from "@/governance";
+import { useProposals, useProposalThreshold } from "@/contracts/governor";
 import { formatUnitsWithThousandSeparators } from "@repo/web3";
 import TurndownService from "turndown";
 import ReactMarkdown from "react-markdown";
@@ -365,7 +366,7 @@ const ExecutionCodeStep = () => {
         </Tooltip>
       </div>
       <p className="text-muted-foreground mb-8 text-sm">
-        Paste your proposal's execution code in JSON format into the field
+        Paste your proposal&apos;s execution code in JSON format into the field
         below. If your proposal does not need execution code, simply leave it as
         is.
       </p>
@@ -584,8 +585,8 @@ const ReviewStep = () => {
         {newProposal.title}
       </h2>
       <p className="text-muted-foreground mb-8 text-sm">
-        You're successfully finished all the steps. Now, take a moment to go
-        over your proposal and then submit it.
+        You&apos;re successfully finished all the steps. Now, take a moment to
+        go over your proposal and then submit it.
       </p>
       <hr className="border-border mb-8" />
       <CollapsibleHtmlContent htmlContent={htmlContent} />
@@ -641,12 +642,7 @@ function CreateProposalSteps() {
         setNotEnough(false);
       }
     }
-  }, [
-    isConnected,
-    veMentoBalance.value,
-    proposalThreshold,
-    mentoBalance.value,
-  ]);
+  }, [isConnected, veMentoBalance, proposalThreshold, mentoBalance]);
 
   if (isBalanceLoading || isLoadingProposalThreshold) {
     return (

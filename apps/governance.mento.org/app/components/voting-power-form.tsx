@@ -4,10 +4,10 @@ import {
   LOCKING_AMOUNT_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
   MAX_LOCKING_DURATION_WEEKS,
-} from "@repo/web3";
-import { useLockCalculation } from "@repo/web3";
-import { useLockInfo } from "@repo/web3";
-import { useTokens } from "@repo/web3";
+  useLockCalculation,
+  useLockInfo,
+} from "@/contracts/locking";
+import { useTokens } from "@/governance";
 import {
   Card,
   CardContent,

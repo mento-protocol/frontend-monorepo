@@ -1,7 +1,9 @@
 "use client";
 import { VoteCard } from "@/components/voting/vote-card";
 import { IconLoading } from "@repo/ui";
-import { CELO_BLOCK_TIME, ensureChainId, useProposal } from "@repo/web3";
+import { CELO_BLOCK_TIME } from "@repo/web3";
+import { ensureChainId } from "@/contracts/governor";
+import { useProposal } from "@/contracts/governor";
 import { useAccount, useBlock, useBlockNumber } from "@repo/web3/wagmi";
 import { useParams } from "next/navigation";
 import { useMemo } from "react";
@@ -37,8 +39,14 @@ export const ProposalContent = () => {
     if (Number(currentBlock) >= proposal.endBlock && endBlock.data) {
       return new Date(Number(endBlock.data.timestamp) * 1000);
     }
+    // Only calculate deadline if we have block data to avoid hydration mismatches
+    // This prevents server/client differences when using Date.now()
+    if (!endBlock.data) return undefined;
+
     return new Date(
-      Date.now() + (proposal.endBlock - Number(currentBlock)) * CELO_BLOCK_TIME,
+      (endBlock.data.timestamp +
+        (proposal.endBlock - Number(currentBlock)) * CELO_BLOCK_TIME) *
+        1000,
     );
   }, [currentBlock, endBlock.data, proposal]);
 
