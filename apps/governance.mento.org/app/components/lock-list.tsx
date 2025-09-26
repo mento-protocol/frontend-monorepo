@@ -39,6 +39,10 @@ import { formatUnits, parseUnits } from "viem";
 import { useLockedAmount, useReadContracts, useContracts } from "@repo/web3";
 import { LockingABI } from "@repo/web3";
 import { UpdateLockDialog } from "./update-lock-dialog";
+import spacetime from "spacetime";
+
+const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b;
+
 export const LockList = () => {
   const { address } = useAccount();
   const { locks, loading, refetch } = useLocksByAccount({
@@ -83,7 +87,9 @@ export const LockList = () => {
   };
 
   // Constants for calculations
-  const WEEK = 7 * 24 * 60 * 60; // seconds
+  const WEEK = 7 * 24 * 60 * 60;
+  const WEEK_BIG = BigInt(WEEK);
+  const MAX_LOCK_WEEKS = 104n;
 
   // Get total locked amount from chain
   const { data: totalLockedNow = 0n } = useLockedAmount();
@@ -127,15 +133,15 @@ export const LockList = () => {
 
     const now = new Date();
     const nowSec = Math.floor(now.getTime() / 1000);
+    const nowSecBig = BigInt(nowSec);
 
-    // Use the already computed ownedLocks from above
-
-    // Classify locks and compute vested amounts
     const lockData = ownedLocks
       .map((lock) => {
         const amount = BigInt(lock.amount);
         const expirySec = Math.floor(lock.expiration.getTime() / 1000);
-        const startSec = expirySec - lock.slope * WEEK;
+        const startSec = Math.floor(
+          expirySec - (lock.cliff + lock.slope) * Number(WEEK_BIG),
+        );
 
         // Classify lock state
         const isExpired = nowSec >= expirySec;
@@ -242,31 +248,21 @@ export const LockList = () => {
     // Return combined estimates with veMENTO calculation
     const estimates = new Map();
     for (const { lock, expirySec } of lockData) {
-      const remaining = remainingMap.get(lock.lockId) ?? 0n;
+      const expirySecBig = BigInt(expirySec);
+      let veMentoAmount = 0n;
 
-      // Use contract veMENTO value if available, otherwise calculate manually
-      let veMentoAmount = veMentoMap.get(lock.lockId) ?? 0n;
-      // Fallback calculation if contract value not available
-      if (veMentoAmount === 0n && nowSec < expirySec) {
-        const timeRemaining = BigInt(expirySec - nowSec);
-        const totalLockDuration = BigInt(
-          (lock.cliff + lock.slope - 0.25) * WEEK,
-        );
+      if (nowSecBig < expirySecBig) {
+        const secsRemaining = expirySecBig - nowSecBig;
+        const weeksRemaining = ceilDiv(secsRemaining, WEEK_BIG);
 
-        const MAX_LOCK_WEEKS = 104n; // 2 years maximum
+        // IMPORTANT: use the contract’s ve base amount for THIS lock
+        const amountForVe = BigInt(lock.amount); // NOT remainingMap.get(lock.lockId)
 
-        if (totalLockDuration > 0n) {
-          const lockDurationWeeks = BigInt(Math.ceil(lock.cliff + lock.slope));
-          const initialVeMento =
-            (BigInt(lock.amount) * lockDurationWeeks) / MAX_LOCK_WEEKS;
-
-          // Current veMENTO decays linearly from initial amount
-          veMentoAmount = (initialVeMento * timeRemaining) / totalLockDuration;
-        }
+        veMentoAmount = (amountForVe * weeksRemaining) / MAX_LOCK_WEEKS;
       }
 
       estimates.set(lock.lockId, {
-        remaining: remaining,
+        remaining: remainingMap.get(lock.lockId) ?? 0n, // this is fine for display
         withdrawn: withdrawnMap.get(lock.lockId) ?? 0n,
         original: BigInt(lock.amount),
         veMento: veMentoAmount,
@@ -507,8 +503,6 @@ export const LockList = () => {
               const estimates = lockEstimates.get(lock.lockId);
               const remainingAmount =
                 estimates?.remaining ?? BigInt(lock.amount);
-              const claimableAmount = estimates?.claimable ?? 0n;
-              const veMentoAmount = estimates?.veMento ?? 0n;
               const originalAmount = BigInt(lock.amount);
 
               const formattedRemaining = Number(
@@ -575,17 +569,6 @@ export const LockList = () => {
                           <span className="text-muted-foreground">MENTO</span>
                         </LockCardFieldValue>
                       </LockCardField>
-                      {claimableAmount > 0n && (
-                        <LockCardField>
-                          <LockCardFieldLabel>
-                            Withdrawable now
-                          </LockCardFieldLabel>
-                          <LockCardFieldValue>
-                            {formattedClaimable}{" "}
-                            <span className="text-muted-foreground">MENTO</span>
-                          </LockCardFieldValue>
-                        </LockCardField>
-                      )}
                     </LockCardRow>
 
                     <LockCardRow>

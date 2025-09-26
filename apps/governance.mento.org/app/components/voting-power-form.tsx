@@ -13,11 +13,14 @@ import {
   useLocksByAccount,
   useTokens,
   useLockedAmount,
+  useReadContracts,
+  useContracts,
+  LockingABI,
 } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
 import React, { useMemo, useState } from "react";
 import { FormProvider, useForm } from "react-hook-form";
-import { formatUnits } from "viem";
+import { formatUnits, parseUnits } from "viem";
 import { CreateLockProvider } from "./lock/create-lock-provider";
 import { LockFormFields } from "./lock/lock-form-fields";
 import { LockingButton } from "./lock/locking-button";
@@ -29,11 +32,44 @@ export default function VotingPowerForm() {
 
   const { mentoBalance, veMentoBalance } = useTokens();
   const { locks } = useLocksByAccount({ account: address! });
+  const { Locking } = useContracts();
 
   // Get on-chain withdrawable principal
   const { availableToWithdraw } = useAvailableToWithdraw();
   // Get on-chain currently locked principal from Locking.locked(address)
   const { data: lockedAmount = 0n } = useLockedAmount();
+
+  // Get owned locks for veMENTO calculations (locks where I am the owner)
+  const ownedLocks = useMemo(
+    () =>
+      (locks ?? []).filter(
+        (l) => l.owner.id.toLowerCase() === address?.toLowerCase(),
+      ),
+    [locks, address],
+  );
+
+  // Get veMENTO amounts for owned locks using contract calls
+  const { data: veMentoData } = useReadContracts({
+    allowFailure: true,
+    contracts: ownedLocks.map((lock) => ({
+      address: Locking.address,
+      abi: LockingABI,
+      functionName: "getLock",
+      args: [parseUnits(lock.amount, 18), lock.slope, lock.cliff],
+    })),
+  });
+
+  // Map lockId to veMENTO amount from contract
+  const veMentoMap = useMemo(() => {
+    const map = new Map<string, bigint>();
+    ownedLocks.forEach((lock, i) => {
+      const result = veMentoData?.[i]?.result as [bigint, bigint] | undefined;
+      if (result) {
+        map.set(lock.lockId, result[0]); // First return value is veMENTO amount
+      }
+    });
+    return map;
+  }, [veMentoData]);
 
   // Calculate lock type totals with correct semantics
   const summary = useMemo(() => {
@@ -64,9 +100,15 @@ export default function VotingPowerForm() {
     // 4) Own ve = total minus received
     const ownVe = Math.max(0, totalVe - receivedVe);
 
-    // 5) Delegated out ve (from my locks to others) = total minted to others from me.
-    // Without per-lock ve math this is 0 when all locks are self-delegated (your case).
-    const delegatedOutVe = 0;
+    // 5) Delegated out ve = veMENTO from my locks that are delegated to others
+    const delegatedOutVe = locks
+      .filter(
+        (l) => isMe(l.owner.id) && !isMe(l.delegate.id) && now < l.expiration,
+      )
+      .reduce((sum, l) => {
+        const veMentoAmount = veMentoMap.get(l.lockId) ?? 0n;
+        return sum + Number(formatUnits(veMentoAmount, 18));
+      }, 0);
 
     // 6) Withdrawable principal from contract (keeps button and summary in sync)
     const withdrawableMento = Number(
@@ -81,7 +123,14 @@ export default function VotingPowerForm() {
       totalVe,
       withdrawableMento,
     };
-  }, [locks, address, veMentoBalance.value, availableToWithdraw, lockedAmount]);
+  }, [
+    locks,
+    address,
+    veMentoBalance.value,
+    availableToWithdraw,
+    lockedAmount,
+    veMentoMap,
+  ]);
 
   const methods = useForm();
 
