@@ -143,7 +143,7 @@ export const LockingButton = ({
     if (requestedDelegate && requestedDelegate !== currentDelegate) {
       return requestedDelegate;
     }
-    return address;
+    return currentDelegate || address;
   }, [requestedDelegate, address, targetLock]);
 
   const relock = useRelockMento({
