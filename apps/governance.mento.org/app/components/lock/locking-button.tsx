@@ -2,11 +2,11 @@ import { Button, toast } from "@repo/ui";
 import {
   useAllowance,
   useApprove,
-  useContracts,
   useLockInfo,
   useLockingWeek,
   useRelockMento,
 } from "@/contracts";
+import { useContracts } from "@repo/web3";
 import {
   LOCKING_AMOUNT_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,

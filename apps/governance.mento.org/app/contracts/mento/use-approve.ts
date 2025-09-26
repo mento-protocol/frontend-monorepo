@@ -9,7 +9,7 @@ import {
   waitForTransactionReceipt,
   WriteContractErrorType,
 } from "wagmi/actions";
-import { useContracts } from "../use-contracts";
+import { useContracts } from "@repo/web3";
 
 interface ApproveParams {
   target: Address;

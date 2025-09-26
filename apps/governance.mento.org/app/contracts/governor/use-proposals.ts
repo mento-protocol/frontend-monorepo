@@ -4,7 +4,7 @@ import {
   STATE_FROM_NUMBER,
   isStateNumber,
 } from "@/contracts/governor/hook-helpers";
-import { useContracts } from "@/contracts/use-contracts";
+import { useContracts, useEnsureChainId } from "@repo/web3";
 import {
   Proposal,
   useGetProposalsQuery,
@@ -12,7 +12,6 @@ import {
 
 import { useCallback, useMemo } from "react";
 import { useReadContracts } from "wagmi";
-import { useEnsureChainId } from "@/governance/use-ensure-chain-id";
 
 export const GraphProposalsQueryKey = ["proposals-graph-query"];
 

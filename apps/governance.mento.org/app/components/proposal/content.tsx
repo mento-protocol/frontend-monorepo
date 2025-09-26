@@ -2,7 +2,7 @@
 import { VoteCard } from "@/components/voting/vote-card";
 import { IconLoading } from "@repo/ui";
 import { CELO_BLOCK_TIME } from "@repo/web3";
-import { ensureChainId } from "@/contracts/governor";
+import { ensureChainId } from "@repo/web3";
 import { useProposal } from "@/contracts/governor";
 import { useAccount, useBlock, useBlockNumber } from "@repo/web3/wagmi";
 import { useParams } from "next/navigation";

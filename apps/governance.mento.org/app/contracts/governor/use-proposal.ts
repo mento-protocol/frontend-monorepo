@@ -5,12 +5,11 @@ import {
   STATE_FROM_NUMBER,
   isStateNumber,
 } from "@/contracts/governor/hook-helpers";
-import { useContracts } from "@/contracts/use-contracts";
 import {
   Proposal,
   useGetProposalQuery,
 } from "@/graphql/subgraph/generated/subgraph";
-import { useEnsureChainId } from "@/governance/use-ensure-chain-id";
+import { useContracts, useEnsureChainId } from "@repo/web3";
 import { NetworkStatus } from "@apollo/client";
 import { useMemo } from "react";
 import { useReadContract } from "wagmi";

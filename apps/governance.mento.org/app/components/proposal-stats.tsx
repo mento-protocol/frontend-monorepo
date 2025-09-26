@@ -1,8 +1,6 @@
 "use client";
 import { IconInfo, Tooltip, TooltipContent, TooltipTrigger } from "@repo/ui";
-import { NumbersService } from "@repo/web3";
-import { useTokens } from "@/governance";
-import { ensureChainId } from "@/contracts/governor";
+import { NumbersService, useTokens, ensureChainId } from "@repo/web3";
 import { useAllLocks, useLockingWeek } from "@/contracts/locking";
 import { useProposals } from "@/contracts/governor";
 import { useAccount, useBlockNumber } from "@repo/web3/wagmi";

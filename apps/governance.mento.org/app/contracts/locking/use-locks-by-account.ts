@@ -1,5 +1,5 @@
 import { getSubgraphApiName } from "@/config";
-import { useEnsureChainId } from "@/governance/use-ensure-chain-id";
+import { useEnsureChainId } from "@repo/web3";
 import {
   GetLocksQueryResult,
   useGetLocksQuery,

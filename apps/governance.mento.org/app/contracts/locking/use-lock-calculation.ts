@@ -1,10 +1,12 @@
-import { LockingABI } from "@repo/web3";
-import { useContracts } from "@/contracts/use-contracts";
+import {
+  LockingABI,
+  useContracts,
+  useEnsureChainId,
+  useTokens,
+} from "@repo/web3";
 import { Lock } from "@/graphql/subgraph/generated/subgraph";
 import { formatUnits, parseUnits } from "viem";
 import { useReadContract } from "wagmi";
-import { useEnsureChainId } from "@/governance/use-ensure-chain-id";
-import useTokens from "@/governance/use-tokens";
 
 interface ILockHook {
   lock: Pick<Lock, "slope" | "cliff"> & { amount: string };

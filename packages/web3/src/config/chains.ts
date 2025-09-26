@@ -1,4 +1,4 @@
-import { MentoChain, MentoChainContracts } from "@/types";
+import { MentoChain, MentoChainContracts } from "../types";
 import { addresses, ContractAddresses } from "@mento-protocol/mento-sdk";
 import { Address, Chain } from "viem";
 import { celo, celoAlfajores } from "wagmi/chains";

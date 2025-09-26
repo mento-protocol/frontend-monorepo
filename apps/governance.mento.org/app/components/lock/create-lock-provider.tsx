@@ -3,8 +3,8 @@ import {
   useLockMento as useCreateLockOnChain,
   useAllowance,
   useApprove,
-  useContracts,
 } from "@/contracts";
+import { useContracts } from "@repo/web3";
 
 import { useCurrentChain } from "@/hooks/use-current-chain";
 import { useAccount } from "@repo/web3/wagmi";

@@ -3,7 +3,7 @@ import {
   Lock,
   useGetAllLocksQuery,
 } from "@/graphql/subgraph/generated/subgraph";
-import { useEnsureChainId } from "@/governance/use-ensure-chain-id";
+import { useEnsureChainId } from "@repo/web3";
 
 export const useAllLocks = () => {
   const ensuredChainId = useEnsureChainId();

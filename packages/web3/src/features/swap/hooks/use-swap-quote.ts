@@ -4,7 +4,7 @@ import { useEffect, useMemo, useCallback } from "react";
 import { toast } from "@repo/ui";
 import { useChainId } from "wagmi";
 
-import { SWAP_QUOTE_REFETCH_INTERVAL } from "@/config/consts";
+import { SWAP_QUOTE_REFETCH_INTERVAL } from "@/config/constants";
 import {
   type TokenId,
   TokenId as TokenIdEnum,

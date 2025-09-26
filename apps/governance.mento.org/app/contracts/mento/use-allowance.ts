@@ -4,8 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { Address, erc20Abi } from "viem";
 import { useBlockNumber, useReadContract } from "wagmi";
-import { useContracts } from "../use-contracts";
-import { useEnsureChainId } from "@/governance/use-ensure-chain-id";
+import { useContracts, useEnsureChainId } from "@repo/web3";
 
 interface UseAllowance {
   owner: Address | undefined;

@@ -1,8 +1,7 @@
 import { useReadContract } from "wagmi";
 import { Address } from "viem";
 import { GovernorABI } from "@repo/web3";
-import { useContracts } from "@/contracts/use-contracts";
-import { useEnsureChainId } from "@/governance/use-ensure-chain-id";
+import { useContracts, useEnsureChainId } from "@repo/web3";
 
 export const useVoteReceipt = ({
   address,

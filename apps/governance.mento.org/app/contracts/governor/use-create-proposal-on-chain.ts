@@ -1,5 +1,4 @@
-import { GovernorABI } from "@repo/web3";
-import { useContracts } from "@/contracts/use-contracts";
+import { GovernorABI, useContracts } from "@repo/web3";
 import { useCallback } from "react";
 import {
   Address,

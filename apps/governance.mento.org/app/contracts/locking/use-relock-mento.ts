@@ -1,5 +1,4 @@
-import { LockingABI } from "@repo/web3";
-import { useContracts } from "@/contracts/use-contracts";
+import { LockingABI, useContracts } from "@repo/web3";
 import { LockWithExpiration } from "@/contracts/types";
 import React, { useCallback } from "react";
 import { Address } from "viem";

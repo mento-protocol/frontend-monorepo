@@ -1,5 +1,4 @@
 import { toast } from "@repo/ui";
-import { ensureChainId } from "@/governance/ensure-chain-id";
 import {
   useCreateProposalOnChain,
   useProposals,
@@ -7,7 +6,7 @@ import {
 } from "@/contracts/governor";
 import { LocalStorageKeys, useLocalStorage } from "@/governance/use-storage";
 import { useCurrentChain } from "@/hooks/use-current-chain";
-import { useAccount, useBlockNumber } from "@repo/web3/wagmi";
+import { useAccount, useBlockNumber, ensureChainId } from "@repo/web3";
 import { Loader } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
@@ -289,8 +288,9 @@ export const CreateProposalProvider = ({
     if (creationState === "ready") {
       setCreationState("mounting");
     }
-    // Only update on chainID change, eslint wants creationState involved
-  }, [chainId, creationState]);
+    // Only update on chainID change, otherwise we will end up in an infinite loop
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chainId]);
   return (
     <CreateProposalContext.Provider
       value={{

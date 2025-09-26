@@ -1,4 +1,4 @@
-import { Alfajores, Celo } from "@repo/web3";
+import { Alfajores, Celo } from "@/config/chains";
 
 export const ensureChainId = (chainId?: number) => {
   if (chainId !== Celo.id && chainId !== Alfajores.id) {

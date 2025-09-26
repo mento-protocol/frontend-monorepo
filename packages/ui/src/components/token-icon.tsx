@@ -53,7 +53,10 @@ function TokenIconBase({ token, className, size = 20 }: Props) {
   }
 
   return (
-    <div className="bg-background flex h-10 w-10 items-center justify-center">
+    <div
+      className="bg-background flex items-center justify-center"
+      style={{ width: size, height: size }}
+    >
       <div className="text-foreground font-semibold">{symbol}</div>
     </div>
   );

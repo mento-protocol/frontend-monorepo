@@ -1,6 +1,5 @@
 "use client";
-import { NumbersService } from "@repo/web3";
-import { useTokens } from "@/governance";
+import { NumbersService, useTokens } from "@repo/web3";
 import { useLockInfo } from "@/contracts/locking";
 import { Button } from "@repo/ui";
 import { ChevronsRight, Zap } from "lucide-react";

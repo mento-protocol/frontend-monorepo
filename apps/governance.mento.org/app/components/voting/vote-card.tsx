@@ -9,9 +9,8 @@ import {
   useQuorum,
   useVoteReceipt,
 } from "@/contracts/governor";
-import { useTokens } from "@/governance";
 import { Proposal, ProposalState } from "@/graphql/subgraph/generated/subgraph";
-import { NumbersService } from "@repo/web3";
+import { useTokens, NumbersService } from "@repo/web3";
 import {
   Button,
   Card,

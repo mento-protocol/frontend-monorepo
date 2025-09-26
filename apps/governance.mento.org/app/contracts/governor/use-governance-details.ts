@@ -1,10 +1,11 @@
 import { GovernorABI } from "@repo/web3";
-import { TimelockControllerABI } from "@repo/web3";
-import { useContracts } from "@/contracts/use-contracts";
+import {
+  TimelockControllerABI,
+  useContracts,
+  useEnsureChainId,
+} from "@repo/web3";
 import { useMemo } from "react";
-
 import { useReadContracts } from "wagmi";
-import { useEnsureChainId } from "@/governance/use-ensure-chain-id";
 
 function convertSecondsToDays(
   durationInSeconds: string | bigint | number,

@@ -1,7 +1,6 @@
 "use client";
-import { useTokens } from "@/governance";
 import { useProposals, useProposalThreshold } from "@/contracts/governor";
-import { formatUnitsWithThousandSeparators } from "@repo/web3";
+import { formatUnitsWithThousandSeparators, useTokens } from "@repo/web3";
 import TurndownService from "turndown";
 import ReactMarkdown from "react-markdown";
 import {

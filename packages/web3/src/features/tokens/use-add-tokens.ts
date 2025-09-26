@@ -2,7 +2,7 @@
 import { useCallback } from "react";
 import * as mento from "@mento-protocol/mento-sdk";
 import { useAccount, useClient, useConfig } from "wagmi";
-import { Alfajores, Celo } from "@repo/web3";
+import { Alfajores, Celo } from "@/config/chains";
 import { getConnectorClient } from "wagmi/actions";
 import { watchAsset } from "viem/actions";
 

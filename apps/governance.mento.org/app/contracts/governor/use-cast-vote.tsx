@@ -1,6 +1,6 @@
 import { GovernorABI } from "@repo/web3";
 import { ProposalQueryKey } from "@/contracts/governor/use-proposal";
-import { useContracts } from "@/contracts/use-contracts";
+import { useContracts } from "@repo/web3";
 import { useCurrentChain } from "@/hooks/use-current-chain";
 import { toast } from "@repo/ui";
 import { useQueryClient } from "@tanstack/react-query";

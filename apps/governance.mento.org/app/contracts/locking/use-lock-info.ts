@@ -1,10 +1,10 @@
+import React from "react";
+import { formatUnits } from "viem";
 import { useUnlockedMento } from "./use-unlocked-mento";
 import { useLocksByAccount } from "./use-locks-by-account";
 import { useLockedAmount } from "./use-locked-amount";
-import React from "react";
 import { useLockingWeek } from "./use-locking-week";
-import { formatUnits } from "viem";
-import { useTokens } from "@/governance/use-tokens";
+import { useTokens } from "@repo/web3";
 
 const formatNumber = (value: bigint | undefined, decimals: number): string =>
   Number(formatUnits(value ?? BigInt(0), decimals)).toFixed(3);

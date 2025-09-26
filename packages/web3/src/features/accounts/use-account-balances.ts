@@ -1,4 +1,4 @@
-import { BALANCE_STALE_TIME } from "@/config/consts";
+import { BALANCE_STALE_TIME } from "@/config/constants";
 import {
   type TokenId,
   getTokenAddress,
