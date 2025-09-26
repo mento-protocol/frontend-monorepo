@@ -44,7 +44,7 @@ export const ProposalContent = () => {
     if (!endBlock.data) return undefined;
 
     return new Date(
-      (endBlock.data.timestamp +
+      (Number(endBlock.data.timestamp) +
         (proposal.endBlock - Number(currentBlock)) * CELO_BLOCK_TIME) *
         1000,
     );

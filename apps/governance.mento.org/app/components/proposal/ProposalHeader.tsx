@@ -10,12 +10,12 @@ import {
   CopyToClipboard,
   ProposalStatus,
 } from "@repo/ui";
-import { useCurrentChain } from "@/hooks/use-current-chain";
 import { ProposalState } from "@/graphql/subgraph/generated/subgraph";
 import { format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
-import Link from "next/link";
 import { useMemo } from "react";
+import { TransactionLink } from "./components/TransactionLink";
+import { AddressLink } from "./components/AddressLink";
 
 interface ProposalHeaderProps {
   proposal: {
@@ -28,6 +28,9 @@ interface ProposalHeaderProps {
     state?: ProposalState;
     proposalCreated: Array<{
       timestamp: number;
+      transaction: {
+        id: string;
+      };
     }>;
   };
   votingDeadline?: Date;
@@ -37,9 +40,6 @@ export const ProposalHeader = ({
   proposal,
   votingDeadline,
 }: ProposalHeaderProps) => {
-  const currentChain = useCurrentChain();
-  const explorerUrl = currentChain.blockExplorers?.default?.url;
-
   const proposedOn = useMemo(() => {
     return proposal && new Date(proposal.proposalCreated[0]!.timestamp * 1000);
   }, [proposal]);
@@ -67,10 +67,6 @@ export const ProposalHeader = ({
       default:
         return "active";
     }
-  };
-
-  const formatAddress = (address: string) => {
-    return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
   return (
@@ -102,20 +98,32 @@ export const ProposalHeader = ({
             data-testid="proposalStateLabel"
           />
           <div className="flex items-center gap-2">
-            <Identicon address={proposal.proposer.id} size={16} />
-            <Link
-              className="text-muted-foreground text-sm"
-              href={`${explorerUrl}/address/${proposal.proposer.id}`}
-            >
-              by {formatAddress(proposal.proposer.id)}
-            </Link>
+            <span className="text-muted-foreground text-sm">Proposed by:</span>
+            <div className="flex items-center gap-1">
+              <Identicon address={proposal.proposer.id} size={16} />
+              <AddressLink
+                address={proposal.proposer.id}
+                className="text-sm underline-offset-4 hover:underline"
+              >
+                {`${proposal.proposer.id.slice(0, 6)}...${proposal.proposer.id.slice(-4)}`}
+              </AddressLink>
+            </div>
             <CopyToClipboard text={proposal.proposer.id} />
           </div>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground text-sm">Proposed on:</span>
-            <span className="text-sm">
-              {proposedOn && format(proposedOn, "MMM do, yyyy")}
-            </span>
+            {proposedOn && proposal.proposalCreated[0]?.transaction.id ? (
+              <TransactionLink
+                className="text-sm underline-offset-4 hover:underline"
+                txHash={proposal.proposalCreated[0].transaction.id}
+              >
+                {format(proposedOn, "MMM do, yyyy")}
+              </TransactionLink>
+            ) : (
+              <span className="text-sm">
+                {proposedOn && format(proposedOn, "MMM do, yyyy")}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground text-sm">

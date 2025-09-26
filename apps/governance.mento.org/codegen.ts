@@ -4,15 +4,23 @@ import "dotenv/config";
 const CELO_EXPLORER_API_URL = process.env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL;
 
 const SUBGRAPH_URL = process.env.NEXT_PUBLIC_SUBGRAPH_URL;
+const GRAPH_API_KEY = process.env.NEXT_PUBLIC_GRAPH_API_KEY;
 
 const config: CodegenConfig = {
   generates: {
     // NOTE: In case we need to use different subgraph URLs for different environments
     // we'll need to add another element to the object below, i.e. "./app/graphql/subgraph-alfajores/generated"
-    "./src/graphql/subgraph/generated/subgraph.tsx": {
+    "./app/graphql/subgraph/generated/subgraph.tsx": {
       overwrite: true,
-      schema: [SUBGRAPH_URL ?? "", "./schema.client.graphql"],
-      documents: ["src/graphql/subgraph/**/*.graphql"],
+      schema: {
+        [SUBGRAPH_URL ?? ""]: {
+          headers: {
+            Authorization: `Bearer ${GRAPH_API_KEY}`,
+          },
+        },
+        "./schema.client.graphql": {},
+      },
+      documents: ["app/graphql/subgraph/**/*.graphql"],
       presetConfig: {
         gqlTagName: "gql",
       },
@@ -34,10 +42,10 @@ const config: CodegenConfig = {
         avoidOptionals: true,
       },
     },
-    "./src/graphql/celo-explorer/generated/celoGraph.tsx": {
+    "./app/graphql/celo-explorer/generated/celoGraph.tsx": {
       overwrite: true,
       schema: CELO_EXPLORER_API_URL,
-      documents: ["src/graphql/celo-explorer/**/*.graphql"],
+      documents: ["app/graphql/celo-explorer/**/*.graphql"],
       plugins: [
         "typescript",
         "typescript-operations",

@@ -38,15 +38,9 @@ export type Scalars = {
   BigDecimal: { input: any; output: any };
   BigInt: { input: any; output: any };
   Bytes: { input: any; output: any };
-  /**
-   * 8 bytes signed integer
-   *
-   */
+  /** 8 bytes signed integer */
   Int8: { input: any; output: any };
-  /**
-   * A string representation of microseconds UNIX timestamp (16 digits)
-   *
-   */
+  /** A string representation of microseconds UNIX timestamp (16 digits) */
   Timestamp: { input: any; output: any };
 };
 
@@ -4512,700 +4506,6 @@ export enum Role_OrderBy {
   RoleOf = "roleOf",
 }
 
-export type Subscription = {
-  __typename?: "Subscription";
-  /** Access to subgraph metadata */
-  _meta: Maybe<_Meta_>;
-  accessControl: Maybe<AccessControl>;
-  accessControlRole: Maybe<AccessControlRole>;
-  accessControlRoleMember: Maybe<AccessControlRoleMember>;
-  accessControlRoleMembers: Array<AccessControlRoleMember>;
-  accessControlRoles: Array<AccessControlRole>;
-  accessControls: Array<AccessControl>;
-  account: Maybe<Account>;
-  accounts: Array<Account>;
-  delegate: Maybe<Delegate>;
-  delegateChanged: Maybe<DelegateChanged>;
-  delegateChangeds: Array<DelegateChanged>;
-  delegateVotesChanged: Maybe<DelegateVotesChanged>;
-  delegateVotesChangeds: Array<DelegateVotesChanged>;
-  delegates: Array<Delegate>;
-  event: Maybe<Event>;
-  events: Array<Event>;
-  governor: Maybe<Governor>;
-  governors: Array<Governor>;
-  lock: Maybe<Lock>;
-  lockCreate: Maybe<LockCreate>;
-  lockCreates: Array<LockCreate>;
-  locking: Maybe<Locking>;
-  lockings: Array<Locking>;
-  locks: Array<Lock>;
-  proposal: Maybe<Proposal>;
-  proposalCall: Maybe<ProposalCall>;
-  proposalCalls: Array<ProposalCall>;
-  proposalCanceled: Maybe<ProposalCanceled>;
-  proposalCanceleds: Array<ProposalCanceled>;
-  proposalCreated: Maybe<ProposalCreated>;
-  proposalCreateds: Array<ProposalCreated>;
-  proposalExecuted: Maybe<ProposalExecuted>;
-  proposalExecuteds: Array<ProposalExecuted>;
-  proposalQueued: Maybe<ProposalQueued>;
-  proposalQueueds: Array<ProposalQueued>;
-  proposalSupport: Maybe<ProposalSupport>;
-  proposalSupports: Array<ProposalSupport>;
-  proposals: Array<Proposal>;
-  relock: Maybe<Relock>;
-  relocks: Array<Relock>;
-  role: Maybe<Role>;
-  roleAdminChanged: Maybe<RoleAdminChanged>;
-  roleAdminChangeds: Array<RoleAdminChanged>;
-  roleGranted: Maybe<RoleGranted>;
-  roleGranteds: Array<RoleGranted>;
-  roleRevoked: Maybe<RoleRevoked>;
-  roleRevokeds: Array<RoleRevoked>;
-  roles: Array<Role>;
-  timelock: Maybe<Timelock>;
-  timelockCall: Maybe<TimelockCall>;
-  timelockCalls: Array<TimelockCall>;
-  timelockMinDelayChange: Maybe<TimelockMinDelayChange>;
-  timelockMinDelayChanges: Array<TimelockMinDelayChange>;
-  timelockOperation: Maybe<TimelockOperation>;
-  timelockOperationCancelled: Maybe<TimelockOperationCancelled>;
-  timelockOperationCancelleds: Array<TimelockOperationCancelled>;
-  timelockOperationExecuted: Maybe<TimelockOperationExecuted>;
-  timelockOperationExecuteds: Array<TimelockOperationExecuted>;
-  timelockOperationScheduled: Maybe<TimelockOperationScheduled>;
-  timelockOperationScheduleds: Array<TimelockOperationScheduled>;
-  timelockOperations: Array<TimelockOperation>;
-  timelocks: Array<Timelock>;
-  transaction: Maybe<Transaction>;
-  transactions: Array<Transaction>;
-  voteCast: Maybe<VoteCast>;
-  voteCasts: Array<VoteCast>;
-  voteDelegation: Maybe<VoteDelegation>;
-  voteDelegations: Array<VoteDelegation>;
-  voteReceipt: Maybe<VoteReceipt>;
-  voteReceipts: Array<VoteReceipt>;
-  voteWeight: Maybe<VoteWeight>;
-  voteWeights: Array<VoteWeight>;
-  votingContract: Maybe<VotingContract>;
-  votingContracts: Array<VotingContract>;
-  withdraw: Maybe<Withdraw>;
-  withdraws: Array<Withdraw>;
-};
-
-export type Subscription_MetaArgs = {
-  block: InputMaybe<Block_Height>;
-};
-
-export type SubscriptionAccessControlArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionAccessControlRoleArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionAccessControlRoleMemberArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionAccessControlRoleMembersArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<AccessControlRoleMember_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<AccessControlRoleMember_Filter>;
-};
-
-export type SubscriptionAccessControlRolesArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<AccessControlRole_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<AccessControlRole_Filter>;
-};
-
-export type SubscriptionAccessControlsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<AccessControl_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<AccessControl_Filter>;
-};
-
-export type SubscriptionAccountArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionAccountsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<Account_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<Account_Filter>;
-};
-
-export type SubscriptionDelegateArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionDelegateChangedArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionDelegateChangedsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<DelegateChanged_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<DelegateChanged_Filter>;
-};
-
-export type SubscriptionDelegateVotesChangedArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionDelegateVotesChangedsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<DelegateVotesChanged_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<DelegateVotesChanged_Filter>;
-};
-
-export type SubscriptionDelegatesArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<Delegate_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<Delegate_Filter>;
-};
-
-export type SubscriptionEventArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionEventsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<Event_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<Event_Filter>;
-};
-
-export type SubscriptionGovernorArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionGovernorsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<Governor_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<Governor_Filter>;
-};
-
-export type SubscriptionLockArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionLockCreateArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionLockCreatesArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<LockCreate_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<LockCreate_Filter>;
-};
-
-export type SubscriptionLockingArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionLockingsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<Locking_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<Locking_Filter>;
-};
-
-export type SubscriptionLocksArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<Lock_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<Lock_Filter>;
-};
-
-export type SubscriptionProposalArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionProposalCallArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionProposalCallsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<ProposalCall_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<ProposalCall_Filter>;
-};
-
-export type SubscriptionProposalCanceledArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionProposalCanceledsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<ProposalCanceled_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<ProposalCanceled_Filter>;
-};
-
-export type SubscriptionProposalCreatedArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionProposalCreatedsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<ProposalCreated_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<ProposalCreated_Filter>;
-};
-
-export type SubscriptionProposalExecutedArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionProposalExecutedsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<ProposalExecuted_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<ProposalExecuted_Filter>;
-};
-
-export type SubscriptionProposalQueuedArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionProposalQueuedsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<ProposalQueued_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<ProposalQueued_Filter>;
-};
-
-export type SubscriptionProposalSupportArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionProposalSupportsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<ProposalSupport_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<ProposalSupport_Filter>;
-};
-
-export type SubscriptionProposalsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<Proposal_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<Proposal_Filter>;
-};
-
-export type SubscriptionRelockArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionRelocksArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<Relock_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<Relock_Filter>;
-};
-
-export type SubscriptionRoleArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionRoleAdminChangedArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionRoleAdminChangedsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<RoleAdminChanged_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<RoleAdminChanged_Filter>;
-};
-
-export type SubscriptionRoleGrantedArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionRoleGrantedsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<RoleGranted_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<RoleGranted_Filter>;
-};
-
-export type SubscriptionRoleRevokedArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionRoleRevokedsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<RoleRevoked_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<RoleRevoked_Filter>;
-};
-
-export type SubscriptionRolesArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<Role_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<Role_Filter>;
-};
-
-export type SubscriptionTimelockArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionTimelockCallArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionTimelockCallsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<TimelockCall_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<TimelockCall_Filter>;
-};
-
-export type SubscriptionTimelockMinDelayChangeArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionTimelockMinDelayChangesArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<TimelockMinDelayChange_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<TimelockMinDelayChange_Filter>;
-};
-
-export type SubscriptionTimelockOperationArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionTimelockOperationCancelledArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionTimelockOperationCancelledsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<TimelockOperationCancelled_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<TimelockOperationCancelled_Filter>;
-};
-
-export type SubscriptionTimelockOperationExecutedArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionTimelockOperationExecutedsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<TimelockOperationExecuted_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<TimelockOperationExecuted_Filter>;
-};
-
-export type SubscriptionTimelockOperationScheduledArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionTimelockOperationScheduledsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<TimelockOperationScheduled_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<TimelockOperationScheduled_Filter>;
-};
-
-export type SubscriptionTimelockOperationsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<TimelockOperation_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<TimelockOperation_Filter>;
-};
-
-export type SubscriptionTimelocksArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<Timelock_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<Timelock_Filter>;
-};
-
-export type SubscriptionTransactionArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionTransactionsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<Transaction_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<Transaction_Filter>;
-};
-
-export type SubscriptionVoteCastArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionVoteCastsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<VoteCast_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<VoteCast_Filter>;
-};
-
-export type SubscriptionVoteDelegationArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionVoteDelegationsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<VoteDelegation_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<VoteDelegation_Filter>;
-};
-
-export type SubscriptionVoteReceiptArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionVoteReceiptsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<VoteReceipt_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<VoteReceipt_Filter>;
-};
-
-export type SubscriptionVoteWeightArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionVoteWeightsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<VoteWeight_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<VoteWeight_Filter>;
-};
-
-export type SubscriptionVotingContractArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionVotingContractsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<VotingContract_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<VotingContract_Filter>;
-};
-
-export type SubscriptionWithdrawArgs = {
-  block: InputMaybe<Block_Height>;
-  id: Scalars["ID"]["input"];
-  subgraphError?: _SubgraphErrorPolicy_;
-};
-
-export type SubscriptionWithdrawsArgs = {
-  block: InputMaybe<Block_Height>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  orderBy: InputMaybe<Withdraw_OrderBy>;
-  orderDirection: InputMaybe<OrderDirection>;
-  skip?: InputMaybe<Scalars["Int"]["input"]>;
-  subgraphError?: _SubgraphErrorPolicy_;
-  where: InputMaybe<Withdraw_Filter>;
-};
-
 export type Timelock = {
   __typename?: "Timelock";
   asAccount: Account;
@@ -7079,7 +6379,6 @@ export type _Meta_ = {
    * will be null if the _meta field has a block constraint that asks for
    * a block number. It will be filled if the _meta field has no block constraint
    * and therefore asks for the latest  block
-   *
    */
   block: _Block_;
   /** The deployment ID */
@@ -7106,7 +6405,11 @@ export type ProposalFieldsFragment = {
   executed: boolean;
   state: ProposalState;
   proposer: { __typename?: "Account"; id: any };
-  proposalCreated: Array<{ __typename?: "ProposalCreated"; timestamp: any }>;
+  proposalCreated: Array<{
+    __typename?: "ProposalCreated";
+    timestamp: any;
+    transaction: { __typename?: "Transaction"; id: string };
+  }>;
   proposalQueued: Array<{ __typename?: "ProposalQueued"; eta: any }>;
   proposalExecuted: Array<{
     __typename?: "ProposalExecuted";
@@ -7247,7 +6550,11 @@ export type GetProposalQuery = {
       target: { __typename?: "Account"; id: any };
     }>;
     proposer: { __typename?: "Account"; id: any };
-    proposalCreated: Array<{ __typename?: "ProposalCreated"; timestamp: any }>;
+    proposalCreated: Array<{
+      __typename?: "ProposalCreated";
+      timestamp: any;
+      transaction: { __typename?: "Transaction"; id: string };
+    }>;
     proposalQueued: Array<{ __typename?: "ProposalQueued"; eta: any }>;
     proposalExecuted: Array<{
       __typename?: "ProposalExecuted";
@@ -7323,7 +6630,11 @@ export type GetProposalsQuery = {
     executed: boolean;
     state: ProposalState;
     proposer: { __typename?: "Account"; id: any };
-    proposalCreated: Array<{ __typename?: "ProposalCreated"; timestamp: any }>;
+    proposalCreated: Array<{
+      __typename?: "ProposalCreated";
+      timestamp: any;
+      transaction: { __typename?: "Transaction"; id: string };
+    }>;
     proposalQueued: Array<{ __typename?: "ProposalQueued"; eta: any }>;
     proposalExecuted: Array<{
       __typename?: "ProposalExecuted";
@@ -7393,6 +6704,9 @@ export const ProposalFieldsFragmentDoc = gql`
     }
     proposalCreated {
       timestamp
+      transaction {
+        id
+      }
     }
     proposalQueued {
       eta
@@ -7518,12 +6832,17 @@ export function useGetAllLocksLazyQuery(
   );
 }
 export function useGetAllLocksSuspenseQuery(
-  baseOptions?: Apollo.SuspenseQueryHookOptions<
-    GetAllLocksQuery,
-    GetAllLocksQueryVariables
-  >,
+  baseOptions?:
+    | Apollo.SkipToken
+    | Apollo.SuspenseQueryHookOptions<
+        GetAllLocksQuery,
+        GetAllLocksQueryVariables
+      >,
 ) {
-  const options = { ...defaultOptions, ...baseOptions };
+  const options =
+    baseOptions === Apollo.skipToken
+      ? baseOptions
+      : { ...defaultOptions, ...baseOptions };
   return Apollo.useSuspenseQuery<GetAllLocksQuery, GetAllLocksQueryVariables>(
     GetAllLocksDocument,
     options,
@@ -7592,12 +6911,17 @@ export function useGetDelegatesLazyQuery(
   );
 }
 export function useGetDelegatesSuspenseQuery(
-  baseOptions?: Apollo.SuspenseQueryHookOptions<
-    GetDelegatesQuery,
-    GetDelegatesQueryVariables
-  >,
+  baseOptions?:
+    | Apollo.SkipToken
+    | Apollo.SuspenseQueryHookOptions<
+        GetDelegatesQuery,
+        GetDelegatesQueryVariables
+      >,
 ) {
-  const options = { ...defaultOptions, ...baseOptions };
+  const options =
+    baseOptions === Apollo.skipToken
+      ? baseOptions
+      : { ...defaultOptions, ...baseOptions };
   return Apollo.useSuspenseQuery<GetDelegatesQuery, GetDelegatesQueryVariables>(
     GetDelegatesDocument,
     options,
@@ -7685,12 +7009,14 @@ export function useGetLocksLazyQuery(
   );
 }
 export function useGetLocksSuspenseQuery(
-  baseOptions?: Apollo.SuspenseQueryHookOptions<
-    GetLocksQuery,
-    GetLocksQueryVariables
-  >,
+  baseOptions?:
+    | Apollo.SkipToken
+    | Apollo.SuspenseQueryHookOptions<GetLocksQuery, GetLocksQueryVariables>,
 ) {
-  const options = { ...defaultOptions, ...baseOptions };
+  const options =
+    baseOptions === Apollo.skipToken
+      ? baseOptions
+      : { ...defaultOptions, ...baseOptions };
   return Apollo.useSuspenseQuery<GetLocksQuery, GetLocksQueryVariables>(
     GetLocksDocument,
     options,
@@ -7766,12 +7092,17 @@ export function useGetProposalLazyQuery(
   );
 }
 export function useGetProposalSuspenseQuery(
-  baseOptions?: Apollo.SuspenseQueryHookOptions<
-    GetProposalQuery,
-    GetProposalQueryVariables
-  >,
+  baseOptions?:
+    | Apollo.SkipToken
+    | Apollo.SuspenseQueryHookOptions<
+        GetProposalQuery,
+        GetProposalQueryVariables
+      >,
 ) {
-  const options = { ...defaultOptions, ...baseOptions };
+  const options =
+    baseOptions === Apollo.skipToken
+      ? baseOptions
+      : { ...defaultOptions, ...baseOptions };
   return Apollo.useSuspenseQuery<GetProposalQuery, GetProposalQueryVariables>(
     GetProposalDocument,
     options,
@@ -7837,12 +7168,17 @@ export function useGetProposalsLazyQuery(
   );
 }
 export function useGetProposalsSuspenseQuery(
-  baseOptions?: Apollo.SuspenseQueryHookOptions<
-    GetProposalsQuery,
-    GetProposalsQueryVariables
-  >,
+  baseOptions?:
+    | Apollo.SkipToken
+    | Apollo.SuspenseQueryHookOptions<
+        GetProposalsQuery,
+        GetProposalsQueryVariables
+      >,
 ) {
-  const options = { ...defaultOptions, ...baseOptions };
+  const options =
+    baseOptions === Apollo.skipToken
+      ? baseOptions
+      : { ...defaultOptions, ...baseOptions };
   return Apollo.useSuspenseQuery<GetProposalsQuery, GetProposalsQueryVariables>(
     GetProposalsDocument,
     options,
@@ -8563,165 +7899,6 @@ export type RoleRevokedFieldPolicy = {
   timestamp?: FieldPolicy<any> | FieldReadFunction<any>;
   transaction?: FieldPolicy<any> | FieldReadFunction<any>;
 };
-export type SubscriptionKeySpecifier = (
-  | "_meta"
-  | "accessControl"
-  | "accessControlRole"
-  | "accessControlRoleMember"
-  | "accessControlRoleMembers"
-  | "accessControlRoles"
-  | "accessControls"
-  | "account"
-  | "accounts"
-  | "delegate"
-  | "delegateChanged"
-  | "delegateChangeds"
-  | "delegateVotesChanged"
-  | "delegateVotesChangeds"
-  | "delegates"
-  | "event"
-  | "events"
-  | "governor"
-  | "governors"
-  | "lock"
-  | "lockCreate"
-  | "lockCreates"
-  | "locking"
-  | "lockings"
-  | "locks"
-  | "proposal"
-  | "proposalCall"
-  | "proposalCalls"
-  | "proposalCanceled"
-  | "proposalCanceleds"
-  | "proposalCreated"
-  | "proposalCreateds"
-  | "proposalExecuted"
-  | "proposalExecuteds"
-  | "proposalQueued"
-  | "proposalQueueds"
-  | "proposalSupport"
-  | "proposalSupports"
-  | "proposals"
-  | "relock"
-  | "relocks"
-  | "role"
-  | "roleAdminChanged"
-  | "roleAdminChangeds"
-  | "roleGranted"
-  | "roleGranteds"
-  | "roleRevoked"
-  | "roleRevokeds"
-  | "roles"
-  | "timelock"
-  | "timelockCall"
-  | "timelockCalls"
-  | "timelockMinDelayChange"
-  | "timelockMinDelayChanges"
-  | "timelockOperation"
-  | "timelockOperationCancelled"
-  | "timelockOperationCancelleds"
-  | "timelockOperationExecuted"
-  | "timelockOperationExecuteds"
-  | "timelockOperationScheduled"
-  | "timelockOperationScheduleds"
-  | "timelockOperations"
-  | "timelocks"
-  | "transaction"
-  | "transactions"
-  | "voteCast"
-  | "voteCasts"
-  | "voteDelegation"
-  | "voteDelegations"
-  | "voteReceipt"
-  | "voteReceipts"
-  | "voteWeight"
-  | "voteWeights"
-  | "votingContract"
-  | "votingContracts"
-  | "withdraw"
-  | "withdraws"
-  | SubscriptionKeySpecifier
-)[];
-export type SubscriptionFieldPolicy = {
-  _meta?: FieldPolicy<any> | FieldReadFunction<any>;
-  accessControl?: FieldPolicy<any> | FieldReadFunction<any>;
-  accessControlRole?: FieldPolicy<any> | FieldReadFunction<any>;
-  accessControlRoleMember?: FieldPolicy<any> | FieldReadFunction<any>;
-  accessControlRoleMembers?: FieldPolicy<any> | FieldReadFunction<any>;
-  accessControlRoles?: FieldPolicy<any> | FieldReadFunction<any>;
-  accessControls?: FieldPolicy<any> | FieldReadFunction<any>;
-  account?: FieldPolicy<any> | FieldReadFunction<any>;
-  accounts?: FieldPolicy<any> | FieldReadFunction<any>;
-  delegate?: FieldPolicy<any> | FieldReadFunction<any>;
-  delegateChanged?: FieldPolicy<any> | FieldReadFunction<any>;
-  delegateChangeds?: FieldPolicy<any> | FieldReadFunction<any>;
-  delegateVotesChanged?: FieldPolicy<any> | FieldReadFunction<any>;
-  delegateVotesChangeds?: FieldPolicy<any> | FieldReadFunction<any>;
-  delegates?: FieldPolicy<any> | FieldReadFunction<any>;
-  event?: FieldPolicy<any> | FieldReadFunction<any>;
-  events?: FieldPolicy<any> | FieldReadFunction<any>;
-  governor?: FieldPolicy<any> | FieldReadFunction<any>;
-  governors?: FieldPolicy<any> | FieldReadFunction<any>;
-  lock?: FieldPolicy<any> | FieldReadFunction<any>;
-  lockCreate?: FieldPolicy<any> | FieldReadFunction<any>;
-  lockCreates?: FieldPolicy<any> | FieldReadFunction<any>;
-  locking?: FieldPolicy<any> | FieldReadFunction<any>;
-  lockings?: FieldPolicy<any> | FieldReadFunction<any>;
-  locks?: FieldPolicy<any> | FieldReadFunction<any>;
-  proposal?: FieldPolicy<any> | FieldReadFunction<any>;
-  proposalCall?: FieldPolicy<any> | FieldReadFunction<any>;
-  proposalCalls?: FieldPolicy<any> | FieldReadFunction<any>;
-  proposalCanceled?: FieldPolicy<any> | FieldReadFunction<any>;
-  proposalCanceleds?: FieldPolicy<any> | FieldReadFunction<any>;
-  proposalCreated?: FieldPolicy<any> | FieldReadFunction<any>;
-  proposalCreateds?: FieldPolicy<any> | FieldReadFunction<any>;
-  proposalExecuted?: FieldPolicy<any> | FieldReadFunction<any>;
-  proposalExecuteds?: FieldPolicy<any> | FieldReadFunction<any>;
-  proposalQueued?: FieldPolicy<any> | FieldReadFunction<any>;
-  proposalQueueds?: FieldPolicy<any> | FieldReadFunction<any>;
-  proposalSupport?: FieldPolicy<any> | FieldReadFunction<any>;
-  proposalSupports?: FieldPolicy<any> | FieldReadFunction<any>;
-  proposals?: FieldPolicy<any> | FieldReadFunction<any>;
-  relock?: FieldPolicy<any> | FieldReadFunction<any>;
-  relocks?: FieldPolicy<any> | FieldReadFunction<any>;
-  role?: FieldPolicy<any> | FieldReadFunction<any>;
-  roleAdminChanged?: FieldPolicy<any> | FieldReadFunction<any>;
-  roleAdminChangeds?: FieldPolicy<any> | FieldReadFunction<any>;
-  roleGranted?: FieldPolicy<any> | FieldReadFunction<any>;
-  roleGranteds?: FieldPolicy<any> | FieldReadFunction<any>;
-  roleRevoked?: FieldPolicy<any> | FieldReadFunction<any>;
-  roleRevokeds?: FieldPolicy<any> | FieldReadFunction<any>;
-  roles?: FieldPolicy<any> | FieldReadFunction<any>;
-  timelock?: FieldPolicy<any> | FieldReadFunction<any>;
-  timelockCall?: FieldPolicy<any> | FieldReadFunction<any>;
-  timelockCalls?: FieldPolicy<any> | FieldReadFunction<any>;
-  timelockMinDelayChange?: FieldPolicy<any> | FieldReadFunction<any>;
-  timelockMinDelayChanges?: FieldPolicy<any> | FieldReadFunction<any>;
-  timelockOperation?: FieldPolicy<any> | FieldReadFunction<any>;
-  timelockOperationCancelled?: FieldPolicy<any> | FieldReadFunction<any>;
-  timelockOperationCancelleds?: FieldPolicy<any> | FieldReadFunction<any>;
-  timelockOperationExecuted?: FieldPolicy<any> | FieldReadFunction<any>;
-  timelockOperationExecuteds?: FieldPolicy<any> | FieldReadFunction<any>;
-  timelockOperationScheduled?: FieldPolicy<any> | FieldReadFunction<any>;
-  timelockOperationScheduleds?: FieldPolicy<any> | FieldReadFunction<any>;
-  timelockOperations?: FieldPolicy<any> | FieldReadFunction<any>;
-  timelocks?: FieldPolicy<any> | FieldReadFunction<any>;
-  transaction?: FieldPolicy<any> | FieldReadFunction<any>;
-  transactions?: FieldPolicy<any> | FieldReadFunction<any>;
-  voteCast?: FieldPolicy<any> | FieldReadFunction<any>;
-  voteCasts?: FieldPolicy<any> | FieldReadFunction<any>;
-  voteDelegation?: FieldPolicy<any> | FieldReadFunction<any>;
-  voteDelegations?: FieldPolicy<any> | FieldReadFunction<any>;
-  voteReceipt?: FieldPolicy<any> | FieldReadFunction<any>;
-  voteReceipts?: FieldPolicy<any> | FieldReadFunction<any>;
-  voteWeight?: FieldPolicy<any> | FieldReadFunction<any>;
-  voteWeights?: FieldPolicy<any> | FieldReadFunction<any>;
-  votingContract?: FieldPolicy<any> | FieldReadFunction<any>;
-  votingContracts?: FieldPolicy<any> | FieldReadFunction<any>;
-  withdraw?: FieldPolicy<any> | FieldReadFunction<any>;
-  withdraws?: FieldPolicy<any> | FieldReadFunction<any>;
-};
 export type TimelockKeySpecifier = (
   | "asAccount"
   | "cancelled"
@@ -9205,13 +8382,6 @@ export type StrictTypedTypePolicies = {
       | RoleRevokedKeySpecifier
       | (() => undefined | RoleRevokedKeySpecifier);
     fields?: RoleRevokedFieldPolicy;
-  };
-  Subscription?: Omit<TypePolicy, "fields" | "keyFields"> & {
-    keyFields?:
-      | false
-      | SubscriptionKeySpecifier
-      | (() => undefined | SubscriptionKeySpecifier);
-    fields?: SubscriptionFieldPolicy;
   };
   Timelock?: Omit<TypePolicy, "fields" | "keyFields"> & {
     keyFields?:

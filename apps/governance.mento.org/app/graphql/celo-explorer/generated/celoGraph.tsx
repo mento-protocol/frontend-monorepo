@@ -42,16 +42,26 @@ export type Scalars = {
 /** A stored representation of a Web3 address. */
 export type Address = {
   __typename?: "Address";
-  celoAccount?: Maybe<CeloAccount>;
-  celoValidator?: Maybe<CeloValidator>;
-  celoValidatorGroup?: Maybe<CeloValidatorGroup>;
   contractCode?: Maybe<Scalars["Data"]["output"]>;
   fetchedCoinBalance?: Maybe<Scalars["Wei"]["output"]>;
   fetchedCoinBalanceBlockNumber?: Maybe<Scalars["Int"]["output"]>;
+  gasUsed?: Maybe<Scalars["Int"]["output"]>;
   hash?: Maybe<Scalars["AddressHash"]["output"]>;
-  online?: Maybe<Scalars["Boolean"]["output"]>;
+  nonce?: Maybe<Scalars["Int"]["output"]>;
   smartContract?: Maybe<SmartContract>;
+  tokenTransfers?: Maybe<TokenTransferConnection>;
+  tokenTransfersCount?: Maybe<Scalars["Int"]["output"]>;
   transactions?: Maybe<TransactionConnection>;
+  transactionsCount?: Maybe<Scalars["Int"]["output"]>;
+};
+
+/** A stored representation of a Web3 address. */
+export type AddressTokenTransfersArgs = {
+  after?: InputMaybe<Scalars["String"]["input"]>;
+  before?: InputMaybe<Scalars["String"]["input"]>;
+  count?: InputMaybe<Scalars["Int"]["input"]>;
+  first?: InputMaybe<Scalars["Int"]["input"]>;
+  last?: InputMaybe<Scalars["Int"]["input"]>;
 };
 
 /** A stored representation of a Web3 address. */
@@ -71,11 +81,13 @@ export type AddressTransactionsArgs = {
  */
 export type Block = {
   __typename?: "Block";
+  baseFeePerGas?: Maybe<Scalars["Wei"]["output"]>;
   consensus?: Maybe<Scalars["Boolean"]["output"]>;
   difficulty?: Maybe<Scalars["Decimal"]["output"]>;
   gasLimit?: Maybe<Scalars["Decimal"]["output"]>;
   gasUsed?: Maybe<Scalars["Decimal"]["output"]>;
   hash?: Maybe<Scalars["FullHash"]["output"]>;
+  isEmpty?: Maybe<Scalars["Boolean"]["output"]>;
   minerHash?: Maybe<Scalars["AddressHash"]["output"]>;
   nonce?: Maybe<Scalars["NonceHash"]["output"]>;
   number?: Maybe<Scalars["Int"]["output"]>;
@@ -91,99 +103,6 @@ export enum CallType {
   Delegatecall = "DELEGATECALL",
   Staticcall = "STATICCALL",
 }
-
-/** Celo account information */
-export type CeloAccount = {
-  __typename?: "CeloAccount";
-  accountType?: Maybe<Scalars["String"]["output"]>;
-  activeGold?: Maybe<Scalars["Wei"]["output"]>;
-  address?: Maybe<Scalars["AddressHash"]["output"]>;
-  addressInfo?: Maybe<Address>;
-  attestationsFulfilled?: Maybe<Scalars["Int"]["output"]>;
-  attestationsRequested?: Maybe<Scalars["Int"]["output"]>;
-  claims?: Maybe<CeloClaimsConnection>;
-  group?: Maybe<CeloValidatorGroup>;
-  lockedGold?: Maybe<Scalars["Wei"]["output"]>;
-  name?: Maybe<Scalars["String"]["output"]>;
-  nonvotingLockedGold?: Maybe<Scalars["Wei"]["output"]>;
-  url?: Maybe<Scalars["String"]["output"]>;
-  usd?: Maybe<Scalars["Wei"]["output"]>;
-  validator?: Maybe<CeloValidator>;
-  voted?: Maybe<CeloValidatorGroupConnection>;
-  votes?: Maybe<Scalars["Wei"]["output"]>;
-};
-
-/** Celo account information */
-export type CeloAccountClaimsArgs = {
-  after?: InputMaybe<Scalars["String"]["input"]>;
-  before?: InputMaybe<Scalars["String"]["input"]>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  last?: InputMaybe<Scalars["Int"]["input"]>;
-};
-
-/** Celo account information */
-export type CeloAccountVotedArgs = {
-  after?: InputMaybe<Scalars["String"]["input"]>;
-  before?: InputMaybe<Scalars["String"]["input"]>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  last?: InputMaybe<Scalars["Int"]["input"]>;
-};
-
-export type CeloAccountConnection = {
-  __typename?: "CeloAccountConnection";
-  edges?: Maybe<Array<Maybe<CeloAccountEdge>>>;
-  pageInfo: PageInfo;
-};
-
-export type CeloAccountEdge = {
-  __typename?: "CeloAccountEdge";
-  cursor?: Maybe<Scalars["String"]["output"]>;
-  node?: Maybe<CeloAccount>;
-};
-
-/** Celo Claims */
-export type CeloClaims = {
-  __typename?: "CeloClaims";
-  address?: Maybe<Scalars["AddressHash"]["output"]>;
-  element?: Maybe<Scalars["String"]["output"]>;
-  type?: Maybe<Scalars["String"]["output"]>;
-  verified?: Maybe<Scalars["Boolean"]["output"]>;
-};
-
-export type CeloClaimsConnection = {
-  __typename?: "CeloClaimsConnection";
-  edges?: Maybe<Array<Maybe<CeloClaimsEdge>>>;
-  pageInfo: PageInfo;
-};
-
-export type CeloClaimsEdge = {
-  __typename?: "CeloClaimsEdge";
-  cursor?: Maybe<Scalars["String"]["output"]>;
-  node?: Maybe<CeloClaims>;
-};
-
-/** Celo network parameters */
-export type CeloParameters = {
-  __typename?: "CeloParameters";
-  celoToken?: Maybe<Scalars["AddressHash"]["output"]>;
-  /** @deprecated Use celoToken instead. */
-  goldToken?: Maybe<Scalars["AddressHash"]["output"]>;
-  maxElectableValidators?: Maybe<Scalars["Int"]["output"]>;
-  minElectableValidators?: Maybe<Scalars["Int"]["output"]>;
-  numRegisteredValidators?: Maybe<Scalars["Int"]["output"]>;
-  /** @deprecated Use stableTokens instead. */
-  stableToken?: Maybe<Scalars["AddressHash"]["output"]>;
-  stableTokens?: Maybe<CeloStableCoins>;
-  totalLockedGold?: Maybe<Scalars["Wei"]["output"]>;
-};
-
-/** Celo stable coins */
-export type CeloStableCoins = {
-  __typename?: "CeloStableCoins";
-  ceur?: Maybe<Scalars["AddressHash"]["output"]>;
-  creal?: Maybe<Scalars["AddressHash"]["output"]>;
-  cusd?: Maybe<Scalars["AddressHash"]["output"]>;
-};
 
 /** Represents a CELO or usd token transfer between addresses. */
 export type CeloTransfer = Node & {
@@ -221,151 +140,11 @@ export type CeloTransferEdge = {
   node?: Maybe<CeloTransfer>;
 };
 
-/** Celo validator information */
-export type CeloValidator = {
-  __typename?: "CeloValidator";
-  account?: Maybe<CeloAccount>;
-  activeGold?: Maybe<Scalars["Wei"]["output"]>;
-  address?: Maybe<Scalars["AddressHash"]["output"]>;
-  addressInfo?: Maybe<Address>;
-  attestationsFulfilled?: Maybe<Scalars["Int"]["output"]>;
-  attestationsRequested?: Maybe<Scalars["Int"]["output"]>;
-  groupAddressHash?: Maybe<Scalars["AddressHash"]["output"]>;
-  groupInfo?: Maybe<CeloValidatorGroup>;
-  lastElected?: Maybe<Scalars["Int"]["output"]>;
-  lastOnline?: Maybe<Scalars["Int"]["output"]>;
-  lockedGold?: Maybe<Scalars["Wei"]["output"]>;
-  member?: Maybe<Scalars["Int"]["output"]>;
-  name?: Maybe<Scalars["String"]["output"]>;
-  nonvotingLockedGold?: Maybe<Scalars["Wei"]["output"]>;
-  score?: Maybe<Scalars["Wei"]["output"]>;
-  signerAddressHash?: Maybe<Scalars["AddressHash"]["output"]>;
-  url?: Maybe<Scalars["String"]["output"]>;
-  usd?: Maybe<Scalars["Wei"]["output"]>;
-};
-
-export type CeloValidatorConnection = {
-  __typename?: "CeloValidatorConnection";
-  edges?: Maybe<Array<Maybe<CeloValidatorEdge>>>;
-  pageInfo: PageInfo;
-};
-
-export type CeloValidatorEdge = {
-  __typename?: "CeloValidatorEdge";
-  cursor?: Maybe<Scalars["String"]["output"]>;
-  node?: Maybe<CeloValidator>;
-};
-
-/** Celo validator group information */
-export type CeloValidatorGroup = {
-  __typename?: "CeloValidatorGroup";
-  account?: Maybe<CeloAccount>;
-  accumulatedActive?: Maybe<Scalars["Wei"]["output"]>;
-  accumulatedRewards?: Maybe<Scalars["Wei"]["output"]>;
-  activeGold?: Maybe<Scalars["Wei"]["output"]>;
-  address?: Maybe<Scalars["AddressHash"]["output"]>;
-  addressInfo?: Maybe<Address>;
-  affiliates?: Maybe<CeloValidatorConnection>;
-  commission?: Maybe<Scalars["Wei"]["output"]>;
-  lockedGold?: Maybe<Scalars["Wei"]["output"]>;
-  name?: Maybe<Scalars["String"]["output"]>;
-  nonvotingLockedGold?: Maybe<Scalars["Wei"]["output"]>;
-  numMembers?: Maybe<Scalars["Int"]["output"]>;
-  receivableVotes?: Maybe<Scalars["Decimal"]["output"]>;
-  rewardsRatio?: Maybe<Scalars["Wei"]["output"]>;
-  url?: Maybe<Scalars["String"]["output"]>;
-  usd?: Maybe<Scalars["Wei"]["output"]>;
-  voters?: Maybe<CeloAccountConnection>;
-  votes?: Maybe<Scalars["Wei"]["output"]>;
-};
-
-/** Celo validator group information */
-export type CeloValidatorGroupAffiliatesArgs = {
-  after?: InputMaybe<Scalars["String"]["input"]>;
-  before?: InputMaybe<Scalars["String"]["input"]>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  last?: InputMaybe<Scalars["Int"]["input"]>;
-};
-
-/** Celo validator group information */
-export type CeloValidatorGroupVotersArgs = {
-  after?: InputMaybe<Scalars["String"]["input"]>;
-  before?: InputMaybe<Scalars["String"]["input"]>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  last?: InputMaybe<Scalars["Int"]["input"]>;
-};
-
-export type CeloValidatorGroupConnection = {
-  __typename?: "CeloValidatorGroupConnection";
-  edges?: Maybe<Array<Maybe<CeloValidatorGroupEdge>>>;
-  pageInfo: PageInfo;
-};
-
-export type CeloValidatorGroupEdge = {
-  __typename?: "CeloValidatorGroupEdge";
-  cursor?: Maybe<Scalars["String"]["output"]>;
-  node?: Maybe<CeloValidatorGroup>;
-};
-
-/** Coin balance record */
-export type CoinBalance = Node & {
-  __typename?: "CoinBalance";
-  blockNumber?: Maybe<Scalars["Int"]["output"]>;
-  blockTimestamp?: Maybe<Scalars["DateTime"]["output"]>;
-  delta?: Maybe<Scalars["Wei"]["output"]>;
-  /** The ID of an object */
-  id: Scalars["ID"]["output"];
-  value?: Maybe<Scalars["Wei"]["output"]>;
-};
-
-export type CoinBalanceConnection = {
-  __typename?: "CoinBalanceConnection";
-  edges?: Maybe<Array<Maybe<CoinBalanceEdge>>>;
-  pageInfo: PageInfo;
-};
-
-export type CoinBalanceEdge = {
-  __typename?: "CoinBalanceEdge";
-  cursor?: Maybe<Scalars["String"]["output"]>;
-  node?: Maybe<CoinBalance>;
-};
-
-/** Leaderboard entry */
-export type Competitor = {
-  __typename?: "Competitor";
-  address?: Maybe<Scalars["AddressHash"]["output"]>;
-  identity?: Maybe<Scalars["String"]["output"]>;
-  points?: Maybe<Scalars["Float"]["output"]>;
-};
-
-/** Represents a CELO token transfer between addresses. */
-export type GoldTransfer = Node & {
-  __typename?: "GoldTransfer";
-  blockNumber?: Maybe<Scalars["Int"]["output"]>;
-  comment?: Maybe<Scalars["String"]["output"]>;
-  fromAddressHash?: Maybe<Scalars["AddressHash"]["output"]>;
-  /** The ID of an object */
-  id: Scalars["ID"]["output"];
-  toAddressHash?: Maybe<Scalars["AddressHash"]["output"]>;
-  transactionHash?: Maybe<Scalars["FullHash"]["output"]>;
-  value?: Maybe<Scalars["Decimal"]["output"]>;
-};
-
-export type GoldTransferConnection = {
-  __typename?: "GoldTransferConnection";
-  edges?: Maybe<Array<Maybe<GoldTransferEdge>>>;
-  pageInfo: PageInfo;
-};
-
-export type GoldTransferEdge = {
-  __typename?: "GoldTransferEdge";
-  cursor?: Maybe<Scalars["String"]["output"]>;
-  node?: Maybe<GoldTransfer>;
-};
-
 /** Models internal transactions. */
 export type InternalTransaction = Node & {
   __typename?: "InternalTransaction";
+  blockHash?: Maybe<Scalars["FullHash"]["output"]>;
+  blockIndex?: Maybe<Scalars["Int"]["output"]>;
   blockNumber?: Maybe<Scalars["Int"]["output"]>;
   callType?: Maybe<CallType>;
   createdContractAddressHash?: Maybe<Scalars["AddressHash"]["output"]>;
@@ -400,6 +179,12 @@ export type InternalTransactionEdge = {
   node?: Maybe<InternalTransaction>;
 };
 
+export enum Language {
+  Solidity = "SOLIDITY",
+  Vyper = "VYPER",
+  Yul = "YUL",
+}
+
 export type Node = {
   /** The ID of the object. */
   id: Scalars["ID"]["output"];
@@ -425,39 +210,13 @@ export type RootQueryType = {
   addresses?: Maybe<Array<Maybe<Address>>>;
   /** Gets a block by number. */
   block?: Maybe<Block>;
-  /** Gets an account by address hash. */
-  celoAccount?: Maybe<CeloAccount>;
-  /** Gets all the claims given a address hash. */
-  celoClaims?: Maybe<Array<Maybe<CeloClaims>>>;
-  /** Gets all elected validator signers. */
-  celoElectedValidators?: Maybe<Array<Maybe<Address>>>;
-  /** Gets Celo network parameters */
-  celoParameters?: Maybe<CeloParameters>;
-  /** Gets CELO and stable token transfers. */
-  celoTransfers?: Maybe<CeloTransferConnection>;
-  /** Gets a validator by address hash. */
-  celoValidator?: Maybe<CeloValidator>;
-  /** Gets a validator group by address hash. */
-  celoValidatorGroup?: Maybe<CeloValidatorGroup>;
-  /** Gets all validator groups. */
-  celoValidatorGroups?: Maybe<Array<Maybe<CeloValidatorGroup>>>;
-  /** Gets coin balances by address hash */
-  coinBalances?: Maybe<CoinBalanceConnection>;
-  /** Gets CELO token transfers. */
-  goldTransfers?: Maybe<GoldTransferConnection>;
-  /** Gets latest block number. */
-  latestBlock?: Maybe<Scalars["Int"]["output"]>;
-  /** Gets the leaderboard */
-  leaderboard?: Maybe<Array<Maybe<Competitor>>>;
   node?: Maybe<Node>;
-  /** Token transfer transactions. */
-  tokenTransferTxs?: Maybe<TransferTxConnection>;
+  /** Gets token transfer transactions. */
+  tokenTransferTxs?: Maybe<TransferTransactionConnection>;
   /** Gets token transfers by token contract address hash. */
   tokenTransfers?: Maybe<TokenTransferConnection>;
   /** Gets a transaction by hash. */
   transaction?: Maybe<Transaction>;
-  /** Gets CELO and stable token transfer transactions. */
-  transferTxs?: Maybe<TransferTxConnection>;
 };
 
 export type RootQueryTypeAddressArgs = {
@@ -470,54 +229,6 @@ export type RootQueryTypeAddressesArgs = {
 
 export type RootQueryTypeBlockArgs = {
   number: Scalars["Int"]["input"];
-};
-
-export type RootQueryTypeCeloAccountArgs = {
-  hash: Scalars["AddressHash"]["input"];
-};
-
-export type RootQueryTypeCeloClaimsArgs = {
-  hash: Scalars["AddressHash"]["input"];
-  limit?: InputMaybe<Scalars["Int"]["input"]>;
-};
-
-export type RootQueryTypeCeloElectedValidatorsArgs = {
-  blockNumber: Scalars["Int"]["input"];
-};
-
-export type RootQueryTypeCeloTransfersArgs = {
-  addressHash?: InputMaybe<Scalars["AddressHash"]["input"]>;
-  after?: InputMaybe<Scalars["String"]["input"]>;
-  before?: InputMaybe<Scalars["String"]["input"]>;
-  count?: InputMaybe<Scalars["Int"]["input"]>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  last?: InputMaybe<Scalars["Int"]["input"]>;
-};
-
-export type RootQueryTypeCeloValidatorArgs = {
-  hash: Scalars["AddressHash"]["input"];
-};
-
-export type RootQueryTypeCeloValidatorGroupArgs = {
-  hash: Scalars["AddressHash"]["input"];
-};
-
-export type RootQueryTypeCoinBalancesArgs = {
-  address: Scalars["AddressHash"]["input"];
-  after?: InputMaybe<Scalars["String"]["input"]>;
-  before?: InputMaybe<Scalars["String"]["input"]>;
-  count?: InputMaybe<Scalars["Int"]["input"]>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  last?: InputMaybe<Scalars["Int"]["input"]>;
-};
-
-export type RootQueryTypeGoldTransfersArgs = {
-  addressHash?: InputMaybe<Scalars["AddressHash"]["input"]>;
-  after?: InputMaybe<Scalars["String"]["input"]>;
-  before?: InputMaybe<Scalars["String"]["input"]>;
-  count?: InputMaybe<Scalars["Int"]["input"]>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  last?: InputMaybe<Scalars["Int"]["input"]>;
 };
 
 export type RootQueryTypeNodeArgs = {
@@ -546,15 +257,6 @@ export type RootQueryTypeTransactionArgs = {
   hash: Scalars["FullHash"]["input"];
 };
 
-export type RootQueryTypeTransferTxsArgs = {
-  addressHash?: InputMaybe<Scalars["AddressHash"]["input"]>;
-  after?: InputMaybe<Scalars["String"]["input"]>;
-  before?: InputMaybe<Scalars["String"]["input"]>;
-  count?: InputMaybe<Scalars["Int"]["input"]>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  last?: InputMaybe<Scalars["Int"]["input"]>;
-};
-
 export type RootSubscriptionType = {
   __typename?: "RootSubscriptionType";
   tokenTransfers?: Maybe<Array<Maybe<TokenTransfer>>>;
@@ -576,10 +278,21 @@ export type SmartContract = {
   __typename?: "SmartContract";
   abi?: Maybe<Scalars["Json"]["output"]>;
   addressHash?: Maybe<Scalars["AddressHash"]["output"]>;
+  compilerSettings?: Maybe<Scalars["Json"]["output"]>;
   compilerVersion?: Maybe<Scalars["String"]["output"]>;
+  constructorArguments?: Maybe<Scalars["String"]["output"]>;
   contractSourceCode?: Maybe<Scalars["String"]["output"]>;
+  evmVersion?: Maybe<Scalars["String"]["output"]>;
+  externalLibraries?: Maybe<Scalars["Json"]["output"]>;
+  filePath?: Maybe<Scalars["String"]["output"]>;
+  isChangedBytecode?: Maybe<Scalars["Boolean"]["output"]>;
+  language?: Maybe<Language>;
   name?: Maybe<Scalars["String"]["output"]>;
   optimization?: Maybe<Scalars["Boolean"]["output"]>;
+  optimizationRuns?: Maybe<Scalars["Int"]["output"]>;
+  partiallyVerified?: Maybe<Scalars["Boolean"]["output"]>;
+  verifiedViaEthBytecodeDb?: Maybe<Scalars["Boolean"]["output"]>;
+  verifiedViaSourcify?: Maybe<Scalars["Boolean"]["output"]>;
 };
 
 export enum SortOrder {
@@ -592,22 +305,36 @@ export enum Status {
   Ok = "OK",
 }
 
+/** Represents a token. */
+export type Token = {
+  __typename?: "Token";
+  circulatingMarketCap?: Maybe<Scalars["Decimal"]["output"]>;
+  contractAddressHash?: Maybe<Scalars["AddressHash"]["output"]>;
+  decimals?: Maybe<Scalars["Decimal"]["output"]>;
+  holderCount?: Maybe<Scalars["Int"]["output"]>;
+  iconUrl?: Maybe<Scalars["String"]["output"]>;
+  name?: Maybe<Scalars["String"]["output"]>;
+  symbol?: Maybe<Scalars["String"]["output"]>;
+  totalSupply?: Maybe<Scalars["Decimal"]["output"]>;
+  type?: Maybe<Scalars["String"]["output"]>;
+  volume24h?: Maybe<Scalars["Decimal"]["output"]>;
+};
+
 /** Represents a token transfer between addresses. */
 export type TokenTransfer = Node & {
   __typename?: "TokenTransfer";
   amount?: Maybe<Scalars["Decimal"]["output"]>;
   amounts?: Maybe<Array<Maybe<Scalars["Decimal"]["output"]>>>;
-  blockHash?: Maybe<Scalars["FullHash"]["output"]>;
   blockNumber?: Maybe<Scalars["Int"]["output"]>;
-  comment?: Maybe<Scalars["String"]["output"]>;
   fromAddressHash?: Maybe<Scalars["AddressHash"]["output"]>;
   /** The ID of an object */
   id: Scalars["ID"]["output"];
   logIndex?: Maybe<Scalars["Int"]["output"]>;
   toAddressHash?: Maybe<Scalars["AddressHash"]["output"]>;
+  token?: Maybe<Token>;
   tokenContractAddressHash?: Maybe<Scalars["AddressHash"]["output"]>;
-  tokenId?: Maybe<Scalars["Decimal"]["output"]>;
   tokenIds?: Maybe<Array<Maybe<Scalars["Decimal"]["output"]>>>;
+  transaction?: Maybe<Transaction>;
   transactionHash?: Maybe<Scalars["FullHash"]["output"]>;
 };
 
@@ -626,25 +353,34 @@ export type TokenTransferEdge = {
 /** Models a Web3 transaction. */
 export type Transaction = Node & {
   __typename?: "Transaction";
+  block?: Maybe<Block>;
+  blockHash?: Maybe<Scalars["FullHash"]["output"]>;
   blockNumber?: Maybe<Scalars["Int"]["output"]>;
   createdContractAddressHash?: Maybe<Scalars["AddressHash"]["output"]>;
   cumulativeGasUsed?: Maybe<Scalars["Decimal"]["output"]>;
+  earliestProcessingStart?: Maybe<Scalars["DateTime"]["output"]>;
   error?: Maybe<Scalars["String"]["output"]>;
   fromAddressHash?: Maybe<Scalars["AddressHash"]["output"]>;
   gas?: Maybe<Scalars["Decimal"]["output"]>;
   gasPrice?: Maybe<Scalars["Wei"]["output"]>;
+  gasTokenContractAddressHash?: Maybe<Scalars["AddressHash"]["output"]>;
   gasUsed?: Maybe<Scalars["Decimal"]["output"]>;
+  hasErrorInInternalTransactions?: Maybe<Scalars["Boolean"]["output"]>;
   hash?: Maybe<Scalars["FullHash"]["output"]>;
   /** The ID of an object */
   id: Scalars["ID"]["output"];
   index?: Maybe<Scalars["Int"]["output"]>;
   input?: Maybe<Scalars["String"]["output"]>;
   internalTransactions?: Maybe<InternalTransactionConnection>;
+  maxFeePerGas?: Maybe<Scalars["Wei"]["output"]>;
+  maxPriorityFeePerGas?: Maybe<Scalars["Wei"]["output"]>;
   nonce?: Maybe<Scalars["NonceHash"]["output"]>;
   r?: Maybe<Scalars["Decimal"]["output"]>;
+  revertReason?: Maybe<Scalars["String"]["output"]>;
   s?: Maybe<Scalars["Decimal"]["output"]>;
   status?: Maybe<Status>;
   toAddressHash?: Maybe<Scalars["AddressHash"]["output"]>;
+  type?: Maybe<Scalars["Int"]["output"]>;
   v?: Maybe<Scalars["Decimal"]["output"]>;
   value?: Maybe<Scalars["Wei"]["output"]>;
 };
@@ -671,11 +407,10 @@ export type TransactionEdge = {
 };
 
 /** Represents a CELO token transfer between addresses. */
-export type TransferTx = Node & {
-  __typename?: "TransferTx";
+export type TransferTransaction = Node & {
+  __typename?: "TransferTransaction";
   addressHash?: Maybe<Scalars["AddressHash"]["output"]>;
   blockNumber?: Maybe<Scalars["Int"]["output"]>;
-  celoTransfer?: Maybe<CeloTransferConnection>;
   feeCurrency?: Maybe<Scalars["AddressHash"]["output"]>;
   feeToken?: Maybe<Scalars["String"]["output"]>;
   gasPrice?: Maybe<Scalars["Wei"]["output"]>;
@@ -691,7 +426,7 @@ export type TransferTx = Node & {
 };
 
 /** Represents a CELO token transfer between addresses. */
-export type TransferTxCeloTransferArgs = {
+export type TransferTransactionTokenTransferArgs = {
   after?: InputMaybe<Scalars["String"]["input"]>;
   before?: InputMaybe<Scalars["String"]["input"]>;
   count?: InputMaybe<Scalars["Int"]["input"]>;
@@ -699,25 +434,16 @@ export type TransferTxCeloTransferArgs = {
   last?: InputMaybe<Scalars["Int"]["input"]>;
 };
 
-/** Represents a CELO token transfer between addresses. */
-export type TransferTxTokenTransferArgs = {
-  after?: InputMaybe<Scalars["String"]["input"]>;
-  before?: InputMaybe<Scalars["String"]["input"]>;
-  count?: InputMaybe<Scalars["Int"]["input"]>;
-  first?: InputMaybe<Scalars["Int"]["input"]>;
-  last?: InputMaybe<Scalars["Int"]["input"]>;
-};
-
-export type TransferTxConnection = {
-  __typename?: "TransferTxConnection";
-  edges?: Maybe<Array<Maybe<TransferTxEdge>>>;
+export type TransferTransactionConnection = {
+  __typename?: "TransferTransactionConnection";
+  edges?: Maybe<Array<Maybe<TransferTransactionEdge>>>;
   pageInfo: PageInfo;
 };
 
-export type TransferTxEdge = {
-  __typename?: "TransferTxEdge";
+export type TransferTransactionEdge = {
+  __typename?: "TransferTransactionEdge";
   cursor?: Maybe<Scalars["String"]["output"]>;
-  node?: Maybe<TransferTx>;
+  node?: Maybe<TransferTransaction>;
 };
 
 export enum Type {
@@ -803,12 +529,17 @@ export function useGetContractsInfoLazyQuery(
   >(GetContractsInfoDocument, options);
 }
 export function useGetContractsInfoSuspenseQuery(
-  baseOptions?: Apollo.SuspenseQueryHookOptions<
-    GetContractsInfoQuery,
-    GetContractsInfoQueryVariables
-  >,
+  baseOptions?:
+    | Apollo.SkipToken
+    | Apollo.SuspenseQueryHookOptions<
+        GetContractsInfoQuery,
+        GetContractsInfoQueryVariables
+      >,
 ) {
-  const options = { ...defaultOptions, ...baseOptions };
+  const options =
+    baseOptions === Apollo.skipToken
+      ? baseOptions
+      : { ...defaultOptions, ...baseOptions };
   return Apollo.useSuspenseQuery<
     GetContractsInfoQuery,
     GetContractsInfoQueryVariables
