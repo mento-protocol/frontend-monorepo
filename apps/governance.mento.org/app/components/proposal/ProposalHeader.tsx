@@ -100,7 +100,11 @@ export const ProposalHeader = ({
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground text-sm">Proposed by:</span>
             <div className="flex items-center gap-1">
-              <Identicon address={proposal.proposer.id} size={16} />
+              <Identicon
+                address={proposal.proposer.id}
+                size={16}
+                styles={{ alignSelf: "self-start" }}
+              />
               <AddressLink
                 address={proposal.proposer.id}
                 className="text-sm underline-offset-4 hover:underline"
