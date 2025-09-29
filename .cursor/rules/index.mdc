@@ -6,9 +6,8 @@ alwaysApply: true
 
 ## Running terminal commands
 
-- IMPORTANT: EVERY TIME YOU OPEN A NEW TERMINAL SESSION, MAKE SURE YOU FIRST `cd` INTO THE PROJECT DIRECTORY
-- Always cd into the project repo first before trying to execute any shell commands
 - Always check if the app you need is already running on localhost:[3000-3005]
+  - The Governance App is usually running on localhost:3002
 - Run apps via `turbo dev --filter <app-name-as-defined-in-package-json>`, but only do so after you confirmed there's no existing local server running ont that port
 - Use turbo's `--filter` flag whenever possible to avoid wasting resources. I.e., when asked to make changes in the reserve.mento.org app, run `turbo dev --filter reserve.mento.org` (and NOT `turbo dev` which would start every server for every project)
 
