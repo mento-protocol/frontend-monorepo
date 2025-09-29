@@ -377,10 +377,7 @@ export default function SwapForm() {
     const maxAmountBigInt = BigInt(maxAmountInWei);
     const decimals = getTokenDecimals(tokenInId);
 
-    const formattedAmount = formatBalance(
-      maxAmountBigInt.toString(),
-      decimals,
-    );
+    const formattedAmount = formatBalance(maxAmountBigInt.toString(), decimals);
     form.setValue("amount", formattedAmount);
     form.setValue("direction", "in");
 

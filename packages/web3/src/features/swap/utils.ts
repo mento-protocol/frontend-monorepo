@@ -59,15 +59,16 @@ export function invertExchangeRate(rate: NumberT) {
   }
 }
 
-export const formatBalance = (
-  value: string,
-  decimals: number,
-): string => {
-  const formatted = ethers.utils.formatUnits(value, decimals);
-  const decimalPoint = formatted.indexOf('.');
-  if (decimalPoint === -1) return formatted;
-  return formatted.slice(0, decimalPoint + 5);
-}
+export const formatBalance = (value: string, decimals: number): string => {
+  try {
+    const formatted = ethers.utils.formatUnits(value, decimals);
+    const decimalPoint = formatted.indexOf(".");
+    if (decimalPoint === -1) return formatted;
+    return formatted.slice(0, decimalPoint + 5);
+  } catch {
+    return "0";
+  }
+};
 
 export const formatWithMaxDecimals = (
   value: string,
