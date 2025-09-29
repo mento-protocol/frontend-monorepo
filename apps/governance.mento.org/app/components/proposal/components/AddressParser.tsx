@@ -60,7 +60,7 @@ export function AddressParser({
     });
 
     return finalReplacements.sort((a, b) => a.start - b.start);
-  }, [text, transaction, contractMappings]);
+  }, [text, transaction, contractMappings, decodedTransaction]);
 
   // Notify parent of all replacements
   useEffect(() => {

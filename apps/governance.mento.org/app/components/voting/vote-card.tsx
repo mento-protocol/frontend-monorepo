@@ -1,16 +1,16 @@
 import { ConnectButton } from "@repo/web3";
 import { ProgressBar } from "@/components/progress-bar";
 import { Timer } from "@/components/timer";
-import { Alfajores } from "@repo/web3";
-import { useCastVote } from "@repo/web3";
-import { useExecuteProposal } from "@repo/web3";
-import { useQueueProposal } from "@repo/web3";
-import { useQuorum } from "@repo/web3";
-import { useVoteReceipt } from "@repo/web3";
-import { useTokens } from "@repo/web3";
-import type { Proposal } from "@repo/web3";
-import { ProposalState } from "@repo/web3";
-import { NumbersService } from "@repo/web3";
+import { TransactionLink } from "@/components/proposal/components/TransactionLink";
+import {
+  useCastVote,
+  useExecuteProposal,
+  useQueueProposal,
+  useQuorum,
+  useVoteReceipt,
+} from "@/contracts/governor";
+import { Proposal, ProposalState } from "@/graphql/subgraph/generated/subgraph";
+import { useTokens, NumbersService } from "@repo/web3";
 import {
   Button,
   Card,
@@ -26,7 +26,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { formatUnits } from "viem";
 import { useAccount } from "@repo/web3/wagmi";
-import { links } from "@/lib/constants/links";
 
 interface VoteCardProps {
   proposal: Proposal;
@@ -54,7 +53,7 @@ export const VoteCard = ({
   votingDeadline,
   onVoteConfirmed,
 }: VoteCardProps) => {
-  const { address, isConnecting, isConnected, chainId } = useAccount();
+  const { address, isConnecting, isConnected } = useAccount();
   const { veMentoBalance } = useTokens();
   const {
     data: voteReceipt,
@@ -101,13 +100,9 @@ export const VoteCard = ({
   // Always use the most recent transaction hash for explorer links
   const currentTxHash = queueHash || executeHash || hash;
 
-  const linkExplorer =
-    chainId === Alfajores.id ? links.explorerAlfajores : links.explorerMain;
-
   // Track if deadline has passed in real-time
-  const [isDeadlinePassed, setIsDeadlinePassed] = useState(
-    votingDeadline ? new Date() > votingDeadline : false,
-  );
+  // Initialize as false to prevent hydration mismatch, will be updated in useEffect
+  const [isDeadlinePassed, setIsDeadlinePassed] = useState(false);
 
   // Update deadline status every second, but only when voting is open
   useEffect(() => {
@@ -116,8 +111,6 @@ export const VoteCard = ({
     const proposalState = proposal.state || ProposalState.Active;
     const isVotingCurrentlyOpen = proposalState === ProposalState.Active;
 
-    if (!isVotingCurrentlyOpen) return;
-
     // Helper function to check and update deadline status
     const checkDeadline = () => {
       const now = new Date();
@@ -125,6 +118,11 @@ export const VoteCard = ({
       setIsDeadlinePassed(deadlinePassed);
       return deadlinePassed;
     };
+
+    // Initialize deadline status immediately
+    checkDeadline();
+
+    if (!isVotingCurrentlyOpen) return;
 
     // Check immediately if deadline has passed
     const deadlinePassed = checkDeadline();
@@ -488,13 +486,9 @@ export const VoteCard = ({
               <>
                 <br />
                 <Button variant="outline" size="lg" asChild>
-                  <a
-                    href={`${linkExplorer}/tx/${queueTxHash}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
+                  <TransactionLink txHash={queueTxHash}>
                     View queue transaction
-                  </a>
+                  </TransactionLink>
                 </Button>
               </>
             )}
@@ -582,7 +576,16 @@ export const VoteCard = ({
         }
         return <>Your vote matters - participate in the decision.</>;
     }
-  }, [currentState, isVotingOpen, forVotes, againstVotes, abstainVotes]);
+  }, [
+    currentState,
+    isVotingOpen,
+    forVotes,
+    againstVotes,
+    abstainVotes,
+    quorumNeededFormatted,
+    proposal.eta,
+    proposal.proposalQueued,
+  ]);
 
   // Show header based on state
   const showHeader = !["loading", "confirming", "signing"].includes(
@@ -719,14 +722,9 @@ export const VoteCard = ({
           <div className="flex justify-center">
             {executionTxHash ? (
               <Button variant="outline" size="lg" asChild>
-                <a
-                  href={`${linkExplorer}/tx/${executionTxHash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full"
-                >
+                <TransactionLink txHash={executionTxHash} className="w-full">
                   View Execution Transaction
-                </a>
+                </TransactionLink>
               </Button>
             ) : (
               <Button variant="default" size="lg" disabled>
@@ -925,15 +923,12 @@ export const VoteCard = ({
             </p>
           )}
           {currentState === "confirming" &&
+            currentTxHash &&
             (hash || executeHash || queueHash) && (
               <Button variant="outline" size="sm" asChild className="mt-2">
-                <a
-                  href={`${linkExplorer}/tx/${currentTxHash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
+                <TransactionLink txHash={currentTxHash}>
                   View on explorer
-                </a>
+                </TransactionLink>
               </Button>
             )}
         </div>
@@ -950,7 +945,7 @@ export const VoteCard = ({
     else label = hasQuorum ? "Quorum met" : "Quorum not met";
 
     return label;
-  }, [isVotingOpen, totalVotingPower, quorumNeeded]);
+  }, [isVotingOpen, hasQuorum]);
 
   return (
     <Card className={cardClassName}>

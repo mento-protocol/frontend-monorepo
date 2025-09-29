@@ -1,11 +1,7 @@
 "use client";
-import {
-  useProposals,
-  useProposalThreshold,
-  NumbersService,
-  ProposalState,
-  useTokens,
-} from "@repo/web3";
+import { NumbersService, useTokens } from "@repo/web3";
+import { ProposalState } from "@/graphql/subgraph/generated/subgraph";
+import { useProposals, useProposalThreshold } from "@/contracts/governor";
 import {
   Button,
   IconChevron,

@@ -1,13 +1,8 @@
 "use client";
 import { IconInfo, Tooltip, TooltipContent, TooltipTrigger } from "@repo/ui";
-import {
-  ensureChainId,
-  NumbersService,
-  useAllLocks,
-  useLockingWeek,
-  useProposals,
-  useTokens,
-} from "@repo/web3";
+import { NumbersService, useTokens, ensureChainId } from "@repo/web3";
+import { useAllLocks, useLockingWeek } from "@/contracts/locking";
+import { useProposals } from "@/contracts/governor";
 import { useAccount, useBlockNumber } from "@repo/web3/wagmi";
 import { useMemo } from "react";
 import { formatUnits } from "viem";
@@ -57,7 +52,7 @@ export const ProposalStats = () => {
       }
     });
     return uniqueVoters.size;
-  }, [currentWeek, locks, chainId]);
+  }, [currentWeek, locks]);
 
   return (
     <section className="xl:px-22 max-w-2xl px-4 md:p-20">

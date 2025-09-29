@@ -1,11 +1,12 @@
 import { Button, toast } from "@repo/ui";
+import { formatUnitsWithThousandSeparators } from "@repo/web3";
+import { useCurrentChain } from "@/hooks/use-current-chain";
+
 import {
-  formatUnitsWithThousandSeparators,
   useAvailableToWithdraw,
-  useCurrentChain,
   useLockInfo,
   useWithdraw,
-} from "@repo/web3";
+} from "@/contracts/locking";
 import { useAccount } from "@repo/web3/wagmi";
 import React from "react";
 import { TxDialog } from "./tx-dialog/tx-dialog";
@@ -14,7 +15,7 @@ export const WithdrawButton = () => {
   const { availableToWithdraw, refetchAvailableToWithdraw } =
     useAvailableToWithdraw();
 
-  const { address, chainId } = useAccount();
+  const { address } = useAccount();
   const currentChain = useCurrentChain();
   const { refetch } = useLockInfo(address);
 
@@ -55,7 +56,11 @@ export const WithdrawButton = () => {
         setIsModalOpen(false);
       }, 2000);
     },
-    [chainId, refetchAvailableToWithdraw, refetch],
+    [
+      currentChain.blockExplorers?.default?.url,
+      refetchAvailableToWithdraw,
+      refetch,
+    ],
   );
 
   const { withdraw, isPending, isConfirming, error } = useWithdraw({

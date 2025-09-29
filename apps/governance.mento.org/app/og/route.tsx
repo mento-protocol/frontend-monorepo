@@ -19,7 +19,9 @@ export async function GET(request: Request) {
 
   return new ImageResponse(
     (
+      /* eslint-disable react/no-unknown-property */
       <div tw="flex w-full h-full items-center justify-center text-white relative">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src="https://klbko5u0yg957qmk.public.blob.vercel-storage.com/shared/placeholder-og.png"
           alt=""
@@ -30,6 +32,7 @@ export async function GET(request: Request) {
         </div>
       </div>
     ),
+    /* eslint-enable react/no-unknown-property */
     {
       width: WIDTH,
       height: HEIGHT,

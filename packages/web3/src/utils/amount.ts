@@ -6,7 +6,7 @@ import {
   DISPLAY_DECIMALS,
   MIN_ROUNDED_VALUE,
   STANDARD_TOKEN_DECIMALS,
-} from "@/config/consts";
+} from "@/config/constants";
 import { logger } from "@/utils/logger";
 import toFormat from "toformat";
 

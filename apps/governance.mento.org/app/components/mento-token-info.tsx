@@ -7,14 +7,10 @@ import {
   AccordionTrigger,
   CopyToClipboard,
 } from "@repo/ui";
-import {
-  NumbersService,
-  useContracts,
-  useCurrentChain,
-  useGovernanceDetails,
-  useTokens,
-} from "@repo/web3";
-import { useAccount } from "@repo/web3/wagmi";
+import { useContracts, NumbersService } from "@repo/web3";
+import { useGovernanceDetails } from "@/contracts";
+import { useCurrentChain } from "@/hooks/use-current-chain";
+import { useAccount, useTokens } from "@repo/web3";
 import { formatUnits } from "viem";
 
 export const MentoTokenInfo = () => {
