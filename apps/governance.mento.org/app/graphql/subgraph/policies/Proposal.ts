@@ -47,14 +47,23 @@ export const ProposalPolicy: TypePolicy = {
 
         return votecastRefs.reduce(
           (acc: ProposalVotes, votecastRef) => {
-            const receipt = readField<VoteReceipt>("receipt", votecastRef);
-            if (!receipt) return acc;
+            const receiptRef = readField<VoteReceipt>("receipt", votecastRef);
+            if (!receiptRef) return acc;
 
-            const voterRef = readField<Account>("voter", receipt);
-            const supportRef = readField<ProposalSupport>("support", receipt);
-            const weight = BigInt(readField<string>("weight", receipt) || "0");
+            const voterRef = readField<Account>("voter", receiptRef);
+            const supportRef = readField<ProposalSupport>(
+              "support",
+              receiptRef,
+            );
+            const weight = BigInt(
+              readField<string>("weight", receiptRef) || "0",
+            );
+
+            if (!voterRef || !supportRef) return acc;
+
             const address = readField<string>("id", voterRef) as Address;
             const support = readField<number>("support", supportRef);
+
             switch (support) {
               case 0: // AGAINST
                 acc.against.total += weight;
