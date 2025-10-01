@@ -104,6 +104,50 @@ export const LockList = () => {
     [locks, address],
   );
 
+  // Get received locks (delegated to current user)
+  const receivedLocks = useMemo(
+    () =>
+      (locks ?? []).filter(
+        (l) =>
+          l.owner.id.toLowerCase() !== address?.toLowerCase() &&
+          l.delegate.id.toLowerCase() === address?.toLowerCase() &&
+          !l.replacedBy,
+      ),
+    [locks, address],
+  );
+
+  // Get unique owner addresses from received locks
+  const receivedLockOwners = useMemo(
+    () =>
+      Array.from(
+        new Set(receivedLocks.map((l) => l.owner.id as `0x${string}`)),
+      ),
+    [receivedLocks],
+  );
+
+  // Fetch locked amounts for owners of received locks
+  const { data: ownerLockedAmounts } = useReadContracts({
+    allowFailure: true,
+    contracts: receivedLockOwners.map((owner) => ({
+      address: Locking.address,
+      abi: LockingABI,
+      functionName: "locked",
+      args: [owner],
+    })),
+  });
+
+  // Map owner address to their current locked amount
+  const ownerLockedMap = useMemo(() => {
+    const map = new Map<string, bigint>();
+    receivedLockOwners.forEach((owner, i) => {
+      const result = ownerLockedAmounts?.[i]?.result as bigint | undefined;
+      if (result !== undefined) {
+        map.set(owner.toLowerCase(), result);
+      }
+    });
+    return map;
+  }, [receivedLockOwners, ownerLockedAmounts]);
+
   // Get veMENTO amounts for owned locks using contract calls (same as voting power form)
   const { data: veMentoData } = useReadContracts({
     allowFailure: true,
@@ -135,7 +179,8 @@ export const LockList = () => {
     const nowSec = Math.floor(now.getTime() / 1000);
     const nowSecBig = BigInt(nowSec);
 
-    const lockData = ownedLocks
+    // Process owned locks for withdrawal calculations
+    const ownedLockData = ownedLocks
       .map((lock) => {
         const amount = BigInt(lock.amount);
         const expirySec = Math.floor(lock.expiration.getTime() / 1000);
@@ -174,18 +219,18 @@ export const LockList = () => {
       .filter((l) => !l.isReplaced); // Ignore replaced locks
 
     // Step 1: Identify expired and vesting locks (for internal calculations only)
-    const expiredLocks = lockData.filter((l) => l.isExpired);
-    const vestingLocks = lockData.filter((l) => l.isVesting);
+    const expiredLocks = ownedLockData.filter((l) => l.isExpired);
+    const vestingLocks = ownedLockData.filter((l) => l.isVesting);
 
-    // Step 2: Back-solve withdrawn amounts
-    const totalOriginal = lockData.reduce((sum, l) => sum + l.amount, 0n);
+    // Step 2: Back-solve withdrawn amounts (only for owned locks)
+    const totalOriginal = ownedLockData.reduce((sum, l) => sum + l.amount, 0n);
     const withdrawnTotal = totalOriginal - totalLockedNow;
 
     const withdrawnMap = new Map<string, bigint>();
     let remainingWithdrawn = withdrawnTotal;
 
-    // Initialize all locks with 0 withdrawn amount
-    for (const { lock } of lockData) {
+    // Initialize all owned locks with 0 withdrawn amount
+    for (const { lock } of ownedLockData) {
       withdrawnMap.set(lock.lockId, 0n);
     }
 
@@ -220,9 +265,9 @@ export const LockList = () => {
       }
     }
 
-    // Step 3: Compute remaining amounts
+    // Step 3: Compute remaining amounts (only for owned locks)
     const remainingMap = new Map<string, bigint>();
-    for (const { lock, amount } of lockData) {
+    for (const { lock, amount } of ownedLockData) {
       const withdrawn = withdrawnMap.get(lock.lockId) ?? 0n;
       const remaining = amount > withdrawn ? amount - withdrawn : 0n;
       remainingMap.set(lock.lockId, remaining);
@@ -234,8 +279,8 @@ export const LockList = () => {
       0n,
     );
     const remainingDust = totalLockedNow - remainingTotal;
-    if (remainingDust !== 0n && lockData.length > 0) {
-      const firstLock = lockData[0];
+    if (remainingDust !== 0n && ownedLockData.length > 0) {
+      const firstLock = ownedLockData[0];
       if (firstLock) {
         const firstLockId = firstLock.lock.lockId;
         remainingMap.set(
@@ -245,9 +290,11 @@ export const LockList = () => {
       }
     }
 
-    // Return combined estimates with veMENTO calculation
+    // Step 4: Calculate estimates for ALL locks (owned + received)
     const estimates = new Map();
-    for (const { lock, expirySec } of lockData) {
+
+    // Process owned locks with withdrawal calculations
+    for (const { lock, expirySec } of ownedLockData) {
       const expirySecBig = BigInt(expirySec);
       let veMentoAmount = 0n;
 
@@ -255,22 +302,142 @@ export const LockList = () => {
         const secsRemaining = expirySecBig - nowSecBig;
         const weeksRemaining = ceilDiv(secsRemaining, WEEK_BIG);
 
-        // IMPORTANT: use the contract’s ve base amount for THIS lock
+        // IMPORTANT: use the contract's ve base amount for THIS lock
         const amountForVe = BigInt(lock.amount); // NOT remainingMap.get(lock.lockId)
 
         veMentoAmount = (amountForVe * weeksRemaining) / MAX_LOCK_WEEKS;
       }
 
       estimates.set(lock.lockId, {
-        remaining: remainingMap.get(lock.lockId) ?? 0n, // this is fine for display
+        remaining: remainingMap.get(lock.lockId) ?? 0n,
         withdrawn: withdrawnMap.get(lock.lockId) ?? 0n,
         original: BigInt(lock.amount),
         veMento: veMentoAmount,
       });
     }
 
+    // Process received locks (delegated to current user) - calculate per owner
+    for (const ownerAddress of Array.from(
+      new Set(receivedLocks.map((l) => l.owner.id.toLowerCase())),
+    )) {
+      const ownerLocks = receivedLocks.filter(
+        (l) => l.owner.id.toLowerCase() === ownerAddress,
+      );
+      const ownerTotalLockedNow = ownerLockedMap.get(ownerAddress) ?? 0n;
+
+      // Calculate owner's lock data (same logic as owned locks)
+      const ownerLockData = ownerLocks.map((lock) => {
+        const amount = BigInt(lock.amount);
+        const expirySec = Math.floor(lock.expiration.getTime() / 1000);
+        const startSec = Math.floor(
+          expirySec - (lock.cliff + lock.slope) * Number(WEEK_BIG),
+        );
+
+        const isExpired = nowSec >= expirySec;
+        const isVesting = nowSec >= startSec && nowSec < expirySec;
+        const isNotStarted = nowSec < startSec;
+
+        let vestedAmount = 0n;
+        if (isExpired) {
+          vestedAmount = amount;
+        } else if (isVesting) {
+          const elapsed = BigInt(nowSec - startSec);
+          const duration = BigInt(expirySec - startSec);
+          vestedAmount = (amount * elapsed) / duration;
+        }
+
+        return {
+          lock,
+          amount,
+          vestedAmount,
+          isExpired,
+          isVesting,
+          isNotStarted,
+          expirySec,
+        };
+      });
+
+      // Calculate withdrawals for this owner's locks
+      const ownerExpiredLocks = ownerLockData.filter((l) => l.isExpired);
+      const ownerVestingLocks = ownerLockData.filter((l) => l.isVesting);
+
+      const ownerTotalOriginal = ownerLockData.reduce(
+        (sum, l) => sum + l.amount,
+        0n,
+      );
+      const ownerWithdrawnTotal = ownerTotalOriginal - ownerTotalLockedNow;
+
+      const ownerWithdrawnMap = new Map<string, bigint>();
+      let ownerRemainingWithdrawn = ownerWithdrawnTotal;
+
+      // Initialize
+      for (const { lock } of ownerLockData) {
+        ownerWithdrawnMap.set(lock.lockId, 0n);
+      }
+
+      // Allocate withdrawn (expired first)
+      for (const { lock, amount } of ownerExpiredLocks) {
+        if (ownerRemainingWithdrawn <= 0n) {
+          ownerWithdrawnMap.set(lock.lockId, 0n);
+          continue;
+        }
+        const take =
+          ownerRemainingWithdrawn < amount ? ownerRemainingWithdrawn : amount;
+        ownerWithdrawnMap.set(lock.lockId, take);
+        ownerRemainingWithdrawn -= take;
+      }
+
+      // Then vesting pro-rata
+      if (ownerRemainingWithdrawn > 0n && ownerVestingLocks.length > 0) {
+        const totalVested = ownerVestingLocks.reduce(
+          (sum, l) => sum + l.vestedAmount,
+          0n,
+        );
+        if (totalVested > 0n) {
+          for (const { lock, vestedAmount } of ownerVestingLocks) {
+            const allocation =
+              (vestedAmount * ownerRemainingWithdrawn) / totalVested;
+            ownerWithdrawnMap.set(
+              lock.lockId,
+              (ownerWithdrawnMap.get(lock.lockId) ?? 0n) + allocation,
+            );
+          }
+        }
+      }
+
+      // Calculate remaining and veMENTO for each received lock
+      for (const { lock, amount, expirySec } of ownerLockData) {
+        const withdrawn = ownerWithdrawnMap.get(lock.lockId) ?? 0n;
+        const remaining = amount > withdrawn ? amount - withdrawn : 0n;
+
+        const expirySecBig = BigInt(expirySec);
+        let veMentoAmount = 0n;
+
+        if (nowSecBig < expirySecBig) {
+          const secsRemaining = expirySecBig - nowSecBig;
+          const weeksRemaining = ceilDiv(secsRemaining, WEEK_BIG);
+          const amountForVe = BigInt(lock.amount);
+          veMentoAmount = (amountForVe * weeksRemaining) / MAX_LOCK_WEEKS;
+        }
+
+        estimates.set(lock.lockId, {
+          remaining,
+          withdrawn,
+          original: BigInt(lock.amount),
+          veMento: veMentoAmount,
+        });
+      }
+    }
+
     return estimates;
-  }, [locks, address, totalLockedNow]);
+  }, [
+    locks,
+    address,
+    totalLockedNow,
+    ownedLocks,
+    receivedLocks,
+    ownerLockedMap,
+  ]);
 
   const getDelegationInfo = (
     lock: LockWithExpiration,
@@ -442,13 +609,32 @@ export const LockList = () => {
                                 <Info className="text-muted-foreground ml-1 size-4" />
                               </TooltipTrigger>
                               <TooltipContent>
-                                {inCliff ? (
-                                  <p>Cliff until {formatDate(cliffEnd)}</p>
-                                ) : inVesting ? (
-                                  <p>Vesting since {formatDate(cliffEnd)}</p>
-                                ) : (
-                                  <p>Expired</p>
-                                )}
+                                <div className="space-y-1">
+                                  <p className="text-xs font-medium">
+                                    Lock ID: {lock.lockId}
+                                  </p>
+                                  {inCliff ? (
+                                    <>
+                                      <p>Cliff until {formatDate(cliffEnd)}</p>
+                                      <p>
+                                        Unlocks beginning on{" "}
+                                        {formatDate(cliffEnd)}
+                                      </p>
+                                    </>
+                                  ) : inVesting ? (
+                                    <>
+                                      <p>
+                                        Vesting since {formatDate(cliffEnd)}
+                                      </p>
+                                      <p>
+                                        Unlocks until{" "}
+                                        {formatDate(lock.expiration)}
+                                      </p>
+                                    </>
+                                  ) : (
+                                    <p>Expired</p>
+                                  )}
+                                </div>
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
@@ -522,7 +708,7 @@ export const LockList = () => {
                 <LockCard key={lock.lockId} id={`lock-${lock.lockId}`}>
                   <LockCardHeader>
                     <LockCardHeaderGroup>
-                      <LockCardAmount>≈{formattedRemaining}</LockCardAmount>
+                      <LockCardAmount>{formattedRemaining}</LockCardAmount>
                       <LockCardToken>MENTO</LockCardToken>
                     </LockCardHeaderGroup>
                     <LockCardBadge type={expired ? "expired" : "unlocked"}>
