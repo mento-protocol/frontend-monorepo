@@ -353,8 +353,10 @@ export function LockFormFields({
                 min: (v) => {
                   const amount = Number(v);
                   return lock
-                    ? amount >= 0 || "Amount must be greater than or equal to 0"
-                    : amount > 0 || "Amount must be greater than 0";
+                    ? amount === 0 ||
+                        amount >= 1 ||
+                        "Amount must be at least 1 MENTO"
+                    : amount >= 1 || "Amount must be at least 1 MENTO";
                 },
               },
             })}

@@ -108,6 +108,7 @@ export const LockingButton = ({
   }, [amount, parsedAmount, isAmountFormatValid]);
 
   const isBalanceInsufficient = errors[LOCKING_AMOUNT_FORM_KEY]?.type === "max";
+  const isBelowMinimum = errors[LOCKING_AMOUNT_FORM_KEY]?.type === "min";
 
   const newSlope = React.useMemo(() => {
     if (!unlockDate || !targetLock || !currentLockingWeek) return 0;
@@ -329,6 +330,10 @@ export const LockingButton = ({
       return <>Insufficient balance</>;
     }
 
+    if (isBelowMinimum) {
+      return <>Minimum 1 MENTO</>;
+    }
+
     if (canRelockTarget) {
       if (needsApprovalForRelock) {
         return <>Approve MENTO</>;
@@ -361,10 +366,11 @@ export const LockingButton = ({
     isAddingAmount,
     targetLock,
     isAmountFormatValid,
+    isBelowMinimum,
   ]);
 
   const shouldButtonBeDisabled = React.useMemo(() => {
-    if (!address || !isValid || isBalanceInsufficient) {
+    if (!address || !isValid || isBalanceInsufficient || isBelowMinimum) {
       return true;
     }
 

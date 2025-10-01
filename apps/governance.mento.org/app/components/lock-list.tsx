@@ -120,10 +120,26 @@ export const LockList = () => {
   const receivedLockOwners = useMemo(
     () =>
       Array.from(
-        new Set(receivedLocks.map((l) => l.owner.id as `0x${string}`)),
+        new Set(
+          receivedLocks.map((l) => l.owner.id.toLowerCase() as `0x${string}`),
+        ),
       ),
     [receivedLocks],
   );
+
+  // Fetch all locks for each unique owner using separate queries
+  // We need to call hooks unconditionally, so we'll fetch for up to 3 owners
+  const owner0Locks = useLocksByAccount({
+    account: receivedLockOwners[0] || "",
+  });
+  const owner1Locks = useLocksByAccount({
+    account: receivedLockOwners[1] || "",
+  });
+  const owner2Locks = useLocksByAccount({
+    account: receivedLockOwners[2] || "",
+  });
+
+  const ownerLocksArray = [owner0Locks, owner1Locks, owner2Locks];
 
   // Fetch locked amounts for owners of received locks
   const { data: ownerLockedAmounts } = useReadContracts({
@@ -136,17 +152,21 @@ export const LockList = () => {
     })),
   });
 
-  // Map owner address to their current locked amount
-  const ownerLockedMap = useMemo(() => {
-    const map = new Map<string, bigint>();
+  // Map owner address to their current locked amount and all their locks
+  const ownerDataMap = useMemo(() => {
+    const map = new Map<
+      string,
+      { lockedAmount: bigint; allLocks: LockWithExpiration[] }
+    >();
+
     receivedLockOwners.forEach((owner, i) => {
-      const result = ownerLockedAmounts?.[i]?.result as bigint | undefined;
-      if (result !== undefined) {
-        map.set(owner.toLowerCase(), result);
-      }
+      const lockedAmount = (ownerLockedAmounts?.[i]?.result as bigint) ?? 0n;
+      const allLocks = ownerLocksArray[i]?.locks ?? [];
+      map.set(owner.toLowerCase(), { lockedAmount, allLocks });
     });
+
     return map;
-  }, [receivedLockOwners, ownerLockedAmounts]);
+  }, [receivedLockOwners, ownerLockedAmounts, ownerLocksArray]);
 
   // Get veMENTO amounts for owned locks using contract calls (same as voting power form)
   const { data: veMentoData } = useReadContracts({
@@ -320,13 +340,14 @@ export const LockList = () => {
     for (const ownerAddress of Array.from(
       new Set(receivedLocks.map((l) => l.owner.id.toLowerCase())),
     )) {
-      const ownerLocks = receivedLocks.filter(
-        (l) => l.owner.id.toLowerCase() === ownerAddress,
-      );
-      const ownerTotalLockedNow = ownerLockedMap.get(ownerAddress) ?? 0n;
+      const ownerData = ownerDataMap.get(ownerAddress);
+      if (!ownerData) continue;
+
+      const { lockedAmount: ownerTotalLockedNow, allLocks: ownerAllLocks } =
+        ownerData;
 
       // Calculate owner's lock data (same logic as owned locks)
-      const ownerLockData = ownerLocks.map((lock) => {
+      const ownerLockData = ownerAllLocks.map((lock) => {
         const amount = BigInt(lock.amount);
         const expirySec = Math.floor(lock.expiration.getTime() / 1000);
         const startSec = Math.floor(
@@ -405,11 +426,33 @@ export const LockList = () => {
         }
       }
 
-      // Calculate remaining and veMENTO for each received lock
-      for (const { lock, amount, expirySec } of ownerLockData) {
+      // Step 3: Compute remaining amounts for this owner's locks
+      const ownerRemainingMap = new Map<string, bigint>();
+      for (const { lock, amount } of ownerLockData) {
         const withdrawn = ownerWithdrawnMap.get(lock.lockId) ?? 0n;
         const remaining = amount > withdrawn ? amount - withdrawn : 0n;
+        ownerRemainingMap.set(lock.lockId, remaining);
+      }
 
+      // Ensure remaining total matches owner's chain total
+      const ownerRemainingTotal = Array.from(ownerRemainingMap.values()).reduce(
+        (a, b) => a + b,
+        0n,
+      );
+      const ownerRemainingDust = ownerTotalLockedNow - ownerRemainingTotal;
+      if (ownerRemainingDust !== 0n && ownerLockData.length > 0) {
+        const firstLock = ownerLockData[0];
+        if (firstLock) {
+          const firstLockId = firstLock.lock.lockId;
+          ownerRemainingMap.set(
+            firstLockId,
+            (ownerRemainingMap.get(firstLockId) ?? 0n) + ownerRemainingDust,
+          );
+        }
+      }
+
+      // Calculate veMENTO and set estimates for each of this owner's locks
+      for (const { lock, expirySec } of ownerLockData) {
         const expirySecBig = BigInt(expirySec);
         let veMentoAmount = 0n;
 
@@ -421,8 +464,8 @@ export const LockList = () => {
         }
 
         estimates.set(lock.lockId, {
-          remaining,
-          withdrawn,
+          remaining: ownerRemainingMap.get(lock.lockId) ?? 0n,
+          withdrawn: ownerWithdrawnMap.get(lock.lockId) ?? 0n,
           original: BigInt(lock.amount),
           veMento: veMentoAmount,
         });
@@ -430,14 +473,7 @@ export const LockList = () => {
     }
 
     return estimates;
-  }, [
-    locks,
-    address,
-    totalLockedNow,
-    ownedLocks,
-    receivedLocks,
-    ownerLockedMap,
-  ]);
+  }, [locks, address, totalLockedNow, ownedLocks, receivedLocks, ownerDataMap]);
 
   const getDelegationInfo = (
     lock: LockWithExpiration,
@@ -678,7 +714,7 @@ export const LockList = () => {
       {pastLocks.length > 0 && (
         <>
           <h2 className="my-8 mt-12 text-2xl font-medium">Your Past Locks</h2>
-          <div className="flex gap-4 sm:flex-wrap">
+          <div className="flex flex-wrap gap-4">
             {pastLocks.map((lock) => {
               const badgeType = getBadgeType(lock);
               const delegationInfo = getDelegationInfo(lock, badgeType);
