@@ -4,6 +4,8 @@ query getLocks($address: String) {
     where: {
       or: [{ owner_: { id: $address } }, { delegate_: { id: $address } }]
     }
+    orderBy: lockId
+    orderDirection: desc
   ) {
     lockId
     owner {

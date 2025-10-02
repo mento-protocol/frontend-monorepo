@@ -1,5 +1,10 @@
 query getAllLocks {
-  locks(first: 1000, where: { relocked: false }) {
+  locks(
+    first: 1000
+    where: { relocked: false }
+    orderBy: lockId
+    orderDirection: desc
+  ) {
     lockId
     owner {
       id
