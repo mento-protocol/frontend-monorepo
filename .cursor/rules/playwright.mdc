@@ -1,6 +1,12 @@
-# Browser Rules for UI Development
+---
+alwaysApply: false
+---
 
-## When to Use @browser
+# Playwright Rules for UI Development
+
+Disabled for now as Cursor has built-in Browser support now
+
+## When to Use @playwright
 
 ✅ Confirm your UI changes actually worked
 ✅ Verify components render after changes
@@ -14,9 +20,9 @@
 
 ### Always be specific
 
-❌ "@browser screenshot the page" (expensive, consumes lots of tokens)
-✅ "@browser screenshot .todo-list" (better, more specific, cheaper)
-✅ "@browser check if .error exists" (best, cheapest)
+❌ "@playwright screenshot the page" (expensive, consumes lots of tokens)
+✅ "@playwright screenshot .todo-list" (better, more specific, cheaper)
+✅ "@playwright check if .error exists" (best, cheapest)
 
 ### Preferred commands (cheapest first)
 
@@ -30,35 +36,35 @@
 
 ### After creating component
 
-`@browser verify [ComponentName] renders at localhost:3000`
+`@playwright verify [ComponentName] renders at localhost:3000`
 
 ### After adding interaction
 
-`@browser click [element] and verify [expected change]`
+`@playwright click [element] and verify [expected change]`
 
 ### When debugging
 
-1. `@browser check for console errors`
-2. Only if needed: `@browser screenshot the broken element`
+1. `@playwright check for console errors`
+2. Only if needed: `@playwright screenshot the broken element`
 
 ## Key Patterns
 
 ### Forms
 
-`@browser fill [field] with [value] and check for [response]`
+`@playwright fill [field] with [value] and check for [response]`
 
 ### Responsive
 
-`@browser set viewport to mobile and verify layout`
+`@playwright set viewport to mobile and verify layout`
 
 ### Errors
 
-`@browser check if .error exists`
-If yes: `@browser get text of .error`
+`@playwright check if .error exists`
+If yes: `@playwright get text of .error`
 
 ## React-Specific
 
-- Browser auto-waits for renders
+- Playwright auto-waits for renders
 - Check error boundaries: `verify .error-boundary visibility`
 - Test conditional rendering: `click toggle and verify element appears`
 
