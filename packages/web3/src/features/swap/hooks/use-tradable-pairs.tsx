@@ -7,7 +7,7 @@ import type { ChainId } from "@/config/chains";
 
 export function useTradablePairs(tokenId?: TokenId) {
   const chainId = useChainId() as ChainId;
-  const { allTokenOptions } = useTokenOptions();
+  const { allTokenOptions, isLoading: isLoadingTokens } = useTokenOptions();
 
   return useQuery({
     queryKey: ["tradablePairs", chainId, tokenId],
@@ -42,7 +42,7 @@ export function useTradablePairs(tokenId?: TokenId) {
       // Filter out null values to get only tradable token IDs
       return results.filter((id): id is TokenId => id !== null);
     },
-    enabled: !!tokenId,
+    enabled: !!tokenId && !isLoadingTokens && allTokenOptions.length > 0,
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
     gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
   });

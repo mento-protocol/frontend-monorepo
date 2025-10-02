@@ -8,7 +8,7 @@ import { SWAP_QUOTE_REFETCH_INTERVAL } from "@/config/constants";
 import {
   type TokenId,
   TokenId as TokenIdEnum,
-  Tokens,
+  getTokenById,
   getTokenAddress,
 } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
@@ -61,10 +61,10 @@ export function useSwapQuote(
   // Memoize token objects to prevent unnecessary re-renders
   const { fromToken, toToken } = useMemo(
     () => ({
-      fromToken: Tokens[tokenInId],
-      toToken: Tokens[tokenOutId],
+      fromToken: getTokenById(tokenInId, chainId),
+      toToken: getTokenById(tokenOutId, chainId),
     }),
-    [tokenInId, tokenOutId],
+    [tokenInId, tokenOutId, chainId],
   );
 
   // Memoize validation checks
@@ -123,6 +123,7 @@ export function useSwapQuote(
     const amountWei = parseInputExchangeAmount(
       amount,
       isSwapIn ? tokenInId : tokenOutId,
+      chainId,
     );
 
     const amountWeiBN = ethers.BigNumber.from(amountWei);
@@ -142,7 +143,12 @@ export function useSwapQuote(
       const isRefetch = !!existingData;
 
       if (!isRefetch) {
-        const route = buildSwapRoute(tradablePair, fromTokenAddr, toTokenAddr);
+        const route = buildSwapRoute(
+          tradablePair,
+          fromTokenAddr,
+          toTokenAddr,
+          chainId,
+        );
         console.log(`Swap route: ${route}`);
       }
     }

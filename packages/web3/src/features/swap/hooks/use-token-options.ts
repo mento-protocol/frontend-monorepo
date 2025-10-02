@@ -1,50 +1,57 @@
-import { useEffect, useMemo, useState } from "react";
 import { Celo } from "@/config/chains";
-import {
-  type TokenId,
-  getSwappableTokenOptions,
-  getTokenOptionsByChainId,
-  getTokenById,
-} from "@/config/tokens";
+import { getSwappableTokenOptions } from "@/config/tokens";
 import { logger } from "@/utils/logger";
+import { useEffect, useMemo, useState } from "react";
 import { useAccount } from "wagmi";
+import { useSDKTokens } from "@/features/tokens/use-sdk-tokens";
 
 export interface TokenOption {
-  id: TokenId;
+  id: string;
   symbol: string;
   name: string;
   balance: string;
-  color?: string;
   decimals?: number;
 }
 
 export function useTokenOptions(
-  tokenInId?: TokenId,
-  balancesFromHook?: Record<TokenId, string>,
+  tokenInId?: string,
+  balancesFromHook?: Record<string, string>,
 ) {
   const { chain } = useAccount();
   const chainId = useMemo(() => chain?.id ?? Celo.id, [chain]);
-  const [swappableTokens, setSwappableTokens] = useState<TokenId[]>([]);
+  const [swappableTokens, setSwappableTokens] = useState<string[]>([]);
 
-  // Get all available tokens for current chain
+  // Get cached tokens synchronously from SDK
+  const sdkTokens = useSDKTokens();
+  const isLoading = Object.keys(sdkTokens).length === 0;
+
+  // Get all available token IDs from SDK
   const allTokenIds = useMemo(() => {
-    return getTokenOptionsByChainId(chainId);
-  }, [chainId]);
+    if (!sdkTokens) return [];
+    return Object.keys(sdkTokens);
+  }, [sdkTokens]);
 
   // Map all token IDs to token options with additional data
   const allTokenOptions = useMemo(() => {
-    return allTokenIds.map((id) => {
-      const token = getTokenById(id);
-      return {
-        id,
-        symbol: token.symbol,
-        name: token.name,
-        balance: balancesFromHook?.[id] || "0",
-        color: token.color,
-        decimals: token.decimals,
-      };
-    });
-  }, [allTokenIds, balancesFromHook]);
+    if (!sdkTokens) return [];
+
+    return allTokenIds
+      .map((id) => {
+        const sdkToken = sdkTokens[id];
+        if (!sdkToken) return null;
+
+        return {
+          id,
+          symbol: sdkToken.symbol,
+          name: sdkToken.name,
+          balance: balancesFromHook?.[id] || "0",
+          decimals: sdkToken.decimals,
+        };
+      })
+      .filter(
+        (option): option is NonNullable<typeof option> => option !== null,
+      );
+  }, [sdkTokens, allTokenIds, balancesFromHook]);
 
   // Get tokens that can be swapped with selected token
   useEffect(() => {
@@ -60,22 +67,30 @@ export function useTokenOptions(
 
   // Map swappable token IDs to token options with additional data
   const swappableTokenOptions = useMemo(() => {
-    return swappableTokens.map((id) => {
-      const token = getTokenById(id);
-      return {
-        id,
-        symbol: token.symbol,
-        name: token.name,
-        balance: balancesFromHook?.[id] || "0",
-        color: token.color,
-        decimals: token.decimals,
-      };
-    });
-  }, [swappableTokens, balancesFromHook]);
+    if (!sdkTokens) return [];
+
+    return swappableTokens
+      .map((id) => {
+        const sdkToken = sdkTokens[id];
+        if (!sdkToken) return null;
+
+        return {
+          id,
+          symbol: sdkToken.symbol,
+          name: sdkToken.name,
+          balance: balancesFromHook?.[id] || "0",
+          decimals: sdkToken.decimals,
+        };
+      })
+      .filter(
+        (option): option is NonNullable<typeof option> => option !== null,
+      );
+  }, [swappableTokens, balancesFromHook, sdkTokens]);
 
   return {
     allTokenOptions,
     swappableTokens,
     tokenOptions: swappableTokenOptions,
+    isLoading,
   };
 }

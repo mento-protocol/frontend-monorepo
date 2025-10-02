@@ -1,9 +1,5 @@
 import { BALANCE_STALE_TIME } from "@/config/constants";
-import {
-  type TokenId,
-  getTokenAddress,
-  getTokenOptionsByChainId,
-} from "@/config/tokens";
+import { getTokenAddress, getTokenOptionsByChainId } from "@/config/tokens";
 import { getProvider } from "@/features/providers";
 import { validateAddress } from "@/utils/addresses";
 import { logger } from "@/utils/logger";
@@ -11,7 +7,11 @@ import { useQuery } from "@tanstack/react-query";
 import { Contract } from "ethers";
 import { erc20Abi } from "viem";
 
-export type AccountBalances = Record<TokenId, string>;
+/**
+ * Account balances mapped by token symbol
+ * Token symbols are dynamically determined from the SDK
+ */
+export type AccountBalances = Record<string, string>;
 
 interface UseAccountBalancesParams {
   address?: string;
@@ -26,7 +26,7 @@ async function getTokenBalance({
 }: {
   address: string;
   chainId: number;
-  tokenSymbol: TokenId;
+  tokenSymbol: string;
 }): Promise<string> {
   // Return type changed to Promise<string>
   const tokenAddress = getTokenAddress(tokenSymbol, chainId);
@@ -55,7 +55,7 @@ async function _fetchAccountBalances(
   chainId: number,
 ): Promise<AccountBalances> {
   validateAddress(address, "_fetchAccountBalancesRQ"); // Renamed for clarity
-  const tokenBalances: Partial<Record<TokenId, string>> = {};
+  const tokenBalances: AccountBalances = {};
   const tokenOptions = getTokenOptionsByChainId(chainId);
 
   const balancePromises = tokenOptions.map(async (tokenSymbol) => {

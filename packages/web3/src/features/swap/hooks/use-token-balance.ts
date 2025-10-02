@@ -1,7 +1,7 @@
 import { toast } from "@repo/ui";
-import { TokenId, Tokens } from "@/config/tokens";
+import { TokenId, getTokenDecimals } from "@/config/tokens";
 import { fromWei, fromWeiRounded } from "@/utils/amount";
-import { useAccount } from "wagmi";
+import { useAccount, useChainId } from "wagmi";
 import type { UseFormSetValue } from "react-hook-form";
 
 import type { SwapFormValues } from "../types";
@@ -14,13 +14,15 @@ export function useTokenBalance(
   setValue: UseFormSetValue<SwapFormValues>,
 ) {
   const { isConnected } = useAccount();
+  const chainId = useChainId();
 
   const balance = balances[tokenId];
-  const roundedBalance = fromWeiRounded(balance, Tokens[tokenId].decimals);
+  const decimals = getTokenDecimals(tokenId, chainId);
+  const roundedBalance = fromWeiRounded(balance, decimals);
   const hasBalance = Boolean(Number.parseFloat(roundedBalance) > 0);
 
   const useMaxBalance = () => {
-    const maxAmount = fromWei(balance, Tokens[tokenId].decimals);
+    const maxAmount = fromWei(balance, decimals);
     setValue("amount", maxAmount, { shouldValidate: true, shouldDirty: true });
     setValue("direction", "in", { shouldValidate: true, shouldDirty: true });
 

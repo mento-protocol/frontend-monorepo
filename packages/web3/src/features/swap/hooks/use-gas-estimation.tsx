@@ -1,13 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
-import { ethers } from "ethers";
-import type { Hex, Address } from "viem";
-import { usePublicClient } from "wagmi";
+import { getTokenAddress, NativeTokenId, type TokenId } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
+import type { SwapDirection } from "@/features/swap/types";
 import { parseInputExchangeAmount } from "@/features/swap/utils";
-import { getTokenAddress, type TokenId, NativeTokenId } from "@/config/tokens";
 import { fromWei } from "@/utils/amount";
 import { logger } from "@/utils/logger";
-import type { SwapDirection } from "@/features/swap/types";
+import { useQuery } from "@tanstack/react-query";
+import { ethers } from "ethers";
+import type { Address, Hex } from "viem";
+import { usePublicClient } from "wagmi";
 
 interface GasEstimationParams {
   amount: string;
@@ -82,7 +82,10 @@ export function useGasEstimation({
 
           const transferData = ethers.utils.defaultAbiCoder.encode(
             ["address", "uint256"],
-            [address, parseInputExchangeAmount(valueToCheck, tokenInId)],
+            [
+              address,
+              parseInputExchangeAmount(valueToCheck, tokenInId, chainId),
+            ],
           );
 
           const gasEstimate = await publicClient
@@ -127,14 +130,30 @@ export function useGasEstimation({
 
         if (direction === "in") {
           // swapIn: amount is fromToken (sell), quote is toToken (receive)
-          const amountInWei = parseInputExchangeAmount(amount, tokenInId);
-          const quoteInWei = parseInputExchangeAmount(quote, tokenOutId);
+          const amountInWei = parseInputExchangeAmount(
+            amount,
+            tokenInId,
+            chainId,
+          );
+          const quoteInWei = parseInputExchangeAmount(
+            quote,
+            tokenOutId,
+            chainId,
+          );
           amountWeiBN = ethers.BigNumber.from(amountInWei);
           quoteWeiBN = ethers.BigNumber.from(quoteInWei);
         } else {
-          // swapOut: amount is toToken (buy), quote is fromToken (sell)
-          const amountInWei = parseInputExchangeAmount(amount, tokenOutId);
-          const quoteInWei = parseInputExchangeAmount(quote, tokenInId);
+          // swapOut: quote is fromToken (sell), amount is toToken (receive)
+          const amountInWei = parseInputExchangeAmount(
+            amount,
+            tokenOutId,
+            chainId,
+          );
+          const quoteInWei = parseInputExchangeAmount(
+            quote,
+            tokenInId,
+            chainId,
+          );
           amountWeiBN = ethers.BigNumber.from(amountInWei);
           quoteWeiBN = ethers.BigNumber.from(quoteInWei);
         }

@@ -13,7 +13,7 @@
     "@ethersproject/address": "^5.8.0",
     "@ethersproject/units": "^5.8.0",
     "@hookform/resolvers": "^5.0.1",
-    "@mento-protocol/mento-sdk": "^1.12.0",
+    "@mento-protocol/mento-sdk": "^1.14.0",
     "@rainbow-me/rainbowkit": "^2.2.8",
     "@repo/ui": "workspace:*",
     "@repo/web3": "workspace:*",
