@@ -79,8 +79,10 @@ export default function TokenDialog({
       const balance = fromWeiRounded(balanceValue, token.decimals);
 
       // Check if this token is a valid pair with the filterByTokenId
+      // Show as valid if: no filter, still loading, or token is in the valid list
       const isValidPair =
         !filterByTokenId ||
+        isLoadingTradablePairs ||
         !tradableTokenIds ||
         tradableTokenIds.includes(token.id as TokenId);
 
@@ -100,7 +102,7 @@ export default function TokenDialog({
       return 0;
     });
 
-  const handleTokenSelect = (tokenId: TokenId) => {
+  const handleTokenSelect = (tokenId: string) => {
     onValueChange(tokenId);
     setIsOpen(false);
   };
@@ -158,7 +160,7 @@ export default function TokenDialog({
                             "hover:bg-accent group flex w-full items-center justify-between p-2 text-left opacity-50 hover:cursor-pointer",
                             value === token.id && "bg-accent",
                           )}
-                          data-testid={`tokenOption_${token.id}`}
+                          data-testid={`tokenOption_${token.id}_invalid`}
                           onClick={() => {
                             handleTokenSelect(token.id);
                           }}
@@ -175,7 +177,6 @@ export default function TokenDialog({
                                   id: token.id,
                                   symbol: token.symbol,
                                   name: token.name,
-                                  color: token.color || "#000000",
                                   decimals: token.decimals || 18,
                                 }}
                                 className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 group-hover:opacity-0"
@@ -209,7 +210,9 @@ export default function TokenDialog({
                         sideOffset={6}
                         hideArrow
                       >
-                        <p data-testid="invalidPairTooltip">Invalid pair</p>
+                        <p data-testid="invalidPairTooltip">
+                          No route found to this token
+                        </p>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -236,7 +239,6 @@ export default function TokenDialog({
                             id: token.id,
                             symbol: token.symbol,
                             name: token.name,
-                            color: token.color || "#000000",
                             decimals: token.decimals || 18,
                           }}
                           className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 group-hover:opacity-0"

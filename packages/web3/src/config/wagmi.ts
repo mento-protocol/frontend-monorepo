@@ -1,4 +1,5 @@
 import { connectorsForWallets } from "@rainbow-me/rainbowkit";
+import { celoSepolia } from "viem/chains";
 import {
   Config,
   cookieStorage,
@@ -6,7 +7,7 @@ import {
   createStorage,
   http,
 } from "wagmi";
-import { celo, celoAlfajores, Chain } from "wagmi/chains";
+import { celo, Chain } from "wagmi/chains";
 import { config } from "./config";
 
 import {
@@ -56,7 +57,7 @@ export const wagmiConfig: Config = createConfig({
   connectors,
   transports: {
     [celo.id]: http(),
-    [celoAlfajores.id]: http(),
+    [celoSepolia.id]: http(),
   },
   ssr: true,
   storage: createStorage({

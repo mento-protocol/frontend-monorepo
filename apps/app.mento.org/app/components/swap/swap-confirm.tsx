@@ -9,11 +9,12 @@ import {
   logger,
   SwapDirection,
   TokenId,
-  Tokens,
+  useAccountBalances,
   useGasEstimation,
   useOptimizedSwapQuote,
   useSwapAllowance,
   useSwapTransaction,
+  useTokenOptions,
 } from "@repo/web3";
 import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { useAtom } from "jotai";
@@ -31,6 +32,9 @@ export function SwapConfirm() {
   const tokenInId = formValues?.tokenInId || TokenId.cUSD;
   const tokenOutId = formValues?.tokenOutId || TokenId.CELO;
   const slippage = String(formValues?.slippage || "0.5");
+
+  const { data: balancesFromHook } = useAccountBalances({ address, chainId });
+  const { allTokenOptions } = useTokenOptions(undefined, balancesFromHook);
 
   const {
     amountWei,
@@ -190,8 +194,8 @@ export function SwapConfirm() {
     }
   }
 
-  const fromToken = Tokens[formValues?.tokenInId as keyof typeof Tokens];
-  const toToken = Tokens[formValues?.tokenOutId as keyof typeof Tokens];
+  const fromToken = allTokenOptions.find((token) => token.id === tokenInId);
+  const toToken = allTokenOptions.find((token) => token.id === tokenOutId);
 
   if (!formValues) {
     return null;

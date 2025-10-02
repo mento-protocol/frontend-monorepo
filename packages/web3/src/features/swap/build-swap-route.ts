@@ -1,5 +1,5 @@
-import type { TradablePair } from "@mento-protocol/mento-sdk";
 import { getTokenByAddress } from "@/config/tokens";
+import type { TradablePair } from "@mento-protocol/mento-sdk";
 
 /**
  * Builds a human-readable swap route string by tracing the path from input to output token
@@ -9,6 +9,7 @@ export function buildSwapRoute(
   tradablePair: TradablePair,
   fromTokenAddr: string,
   toTokenAddr: string,
+  chainId: number,
 ): string {
   const { path, assets } = tradablePair;
 
@@ -16,15 +17,17 @@ export function buildSwapRoute(
   const getTokenSymbol = (address: string): string => {
     try {
       // First try to get symbol from local token configuration (most reliable)
-      const token = getTokenByAddress(address as `0x${string}`);
-      return token.symbol;
+      const token = getTokenByAddress(address as `0x${string}`, chainId);
+      if (token) return token.symbol;
     } catch {
-      // Fall back to tradablePair assets if not found in local config
-      const asset = assets.find(
-        (a) => a.address.toLowerCase() === address.toLowerCase(),
-      );
-      return asset?.symbol || `${address.slice(0, 6)}...`;
+      // Ignore errors
     }
+
+    // Fall back to tradablePair assets if not found in local config
+    const asset = assets.find(
+      (a) => a.address.toLowerCase() === address.toLowerCase(),
+    );
+    return asset?.symbol || `${address.slice(0, 6)}...`;
   };
 
   // For direct swaps (single hop)

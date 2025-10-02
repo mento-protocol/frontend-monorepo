@@ -8,19 +8,7 @@ import {
   SSRMultipartLink,
 } from "@apollo/client-integration-nextjs";
 import { setContext } from "@apollo/client/link/context";
-
-const CELO_EXPLORER_API_URL =
-  process.env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL ?? "";
-const CELO_EXPLORER_API_URL_ALFAJORES =
-  process.env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_ALFAJORES ?? "";
-
-const SUBGRAPH_URL = process.env.NEXT_PUBLIC_SUBGRAPH_URL ?? "";
-const SUBGRAPH_URL_ALFAJORES =
-  process.env.NEXT_PUBLIC_SUBGRAPH_URL_ALFAJORES ?? "";
-
-const GRAPH_API_KEY = process.env.NEXT_PUBLIC_GRAPH_API_KEY ?? "";
-const GRAPH_API_KEY_ALFAJORES =
-  process.env.NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES ?? "";
+import { env } from "@/env.mjs";
 
 // have a function to create a client for you
 export function makeClient() {
@@ -30,15 +18,15 @@ export function makeClient() {
       const { apiName } = operation.getContext();
       switch (apiName) {
         case "celoExplorer":
-          return CELO_EXPLORER_API_URL;
-        case "celoExplorerAlfajores":
-          return CELO_EXPLORER_API_URL_ALFAJORES;
+          return env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL;
+        case "celoExplorerCeloSepolia":
+          return env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA;
         case "subgraph":
-          return SUBGRAPH_URL;
-        case "subgraphAlfajores":
-          return SUBGRAPH_URL_ALFAJORES;
+          return env.NEXT_PUBLIC_SUBGRAPH_URL;
+        case "subgraphCeloSepolia":
+          return env.NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA;
         default:
-          return SUBGRAPH_URL;
+          return env.NEXT_PUBLIC_SUBGRAPH_URL;
       }
     },
 
@@ -60,10 +48,8 @@ export function makeClient() {
 
     switch (apiName) {
       case "subgraph":
-        authToken = GRAPH_API_KEY || "";
-        break;
-      case "subgraphAlfajores":
-        authToken = GRAPH_API_KEY_ALFAJORES || "";
+      case "subgraphCeloSepolia":
+        authToken = env.NEXT_PUBLIC_GRAPH_API_KEY;
         break;
       default:
         authToken = "";

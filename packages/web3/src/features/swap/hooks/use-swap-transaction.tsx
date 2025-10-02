@@ -1,18 +1,17 @@
 import { chainIdToChain } from "@/config/chains";
-import { getTokenAddress, TokenId, Tokens } from "@/config/tokens";
+import { getTokenAddress, TokenId, getTokenById } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { SwapDirection } from "@/features/swap/types";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
 import { logger } from "@/utils/logger";
 import { retryAsync } from "@/utils/retry";
 import { toast } from "@repo/ui";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
 import { useAtom, useSetAtom } from "jotai";
 import { useEffect } from "react";
 import type { Address } from "viem";
 import { useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
-import { useQueryClient } from "@tanstack/react-query";
 import { confirmViewAtom, formValuesAtom } from "../swap-atoms";
 
 export function useSwapTransaction(
@@ -162,8 +161,8 @@ export function useSwapTransaction(
       if (swapValues) {
         const chain = chainIdToChain[chainId];
         const explorerUrl = chain?.blockExplorers?.default.url;
-        const fromTokenObj = Tokens[fromToken];
-        const toTokenObj = Tokens[toToken];
+        const fromTokenObj = getTokenById(fromToken, chainId);
+        const toTokenObj = getTokenById(toToken, chainId);
         const fromTokenSymbol = fromTokenObj?.symbol || "Token";
         const toTokenSymbol = toTokenObj?.symbol || "Token";
 

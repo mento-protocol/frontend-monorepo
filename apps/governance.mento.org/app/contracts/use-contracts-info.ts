@@ -106,7 +106,8 @@ const useContractsInfo = ({ calls }: Props) => {
       addresses: calls.map((call) => call.target.id),
     },
     context: {
-      apiName: chainId === 44787 ? "celoExplorerAlfajores" : "celoExplorer",
+      apiName:
+        chainId === 11142220 ? "celoExplorerCeloSepolia" : "celoExplorer",
     },
     skip: !calls.length,
   });

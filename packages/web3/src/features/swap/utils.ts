@@ -1,16 +1,18 @@
 import BigNumber from "bignumber.js";
 import { ethers } from "ethers";
-import { type TokenId, Tokens } from "@/config/tokens";
+import { type TokenId, getTokenDecimals } from "@/config/tokens";
 import { type NumberT, parseAmountWithDefault, toWei } from "@/utils/amount";
 import { logger } from "@/utils/logger";
 
 export function parseInputExchangeAmount(
   amount: NumberT | null | undefined,
   tokenId: TokenId,
+  chainId: number,
   isWei = false,
 ) {
   const parsed = parseAmountWithDefault(amount, 0);
-  const parsedWei = isWei ? parsed : toWei(parsed, Tokens[tokenId].decimals);
+  const decimals = getTokenDecimals(tokenId, chainId);
+  const parsedWei = isWei ? parsed : toWei(parsed, decimals);
   return BigNumber.max(parsedWei, 0).toFixed(0);
 }
 

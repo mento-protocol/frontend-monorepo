@@ -1,7 +1,8 @@
-import { celo, celoAlfajores } from "viem/chains";
+import { celoSepolia } from "viem/chains";
+import { celo } from "wagmi/chains";
 
 export const subgraphApiNames = {
-  [celoAlfajores.id]: "subgraphAlfajores",
+  [celoSepolia.id]: "subgraphCeloSepolia",
   [celo.id]: "subgraph",
   // Considered default
   [0]: "subgraph",

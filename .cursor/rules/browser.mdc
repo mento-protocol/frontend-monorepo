@@ -2,9 +2,11 @@
 globs: *.tsx
 alwaysApply: false
 ---
-# Playwright Rules for UI Development
+# Browser Rules for UI Development
 
-## When to Use @playwright
+If you're having connection issues with @browser, try using @playwright as an alternative
+
+## When to Use @browser
 
 ✅ Confirm your UI changes actually worked
 ✅ Verify components render after changes
@@ -18,11 +20,11 @@ alwaysApply: false
 
 ### Always be specific
 
-❌ "@playwright screenshot the page" (expensive, consumes lots of tokens)
-✅ "@playwright screenshot .todo-list" (better, more specific, cheaper)
-✅ "@playwright check if .error exists" (best, cheapest)
+❌ "@browser screenshot the page" (expensive, consumes lots of tokens)
+✅ "@browser screenshot .todo-list" (better, more specific, cheaper)
+✅ "@browser check if .error exists" (best, cheapest)
 
-### Preferred commands (cheapest first):
+### Preferred commands (cheapest first)
 
 1. `check if [selector] exists` - 50 tokens
 2. `get text of [selector]` - 100 tokens
@@ -32,37 +34,107 @@ alwaysApply: false
 
 ## Development Workflow
 
-### After creating component:
+### After creating component
 
-`@playwright verify [ComponentName] renders at localhost:3000`
+`@browser verify [ComponentName] renders at localhost:3000`
 
-### After adding interaction:
+### After adding interaction
 
-`@playwright click [element] and verify [expected change]`
+`@browser click [element] and verify [expected change]`
 
-### When debugging:
+### When debugging
 
-1. `@playwright check for console errors`
-2. Only if needed: `@playwright screenshot the broken element`
+1. `@browser check for console errors`
+2. Only if needed: `@browser screenshot the broken element`
 
 ## Key Patterns
 
-### Forms:
+### Forms
 
-`@playwright fill [field] with [value] and check for [response]`
+`@browser fill [field] with [value] and check for [response]`
 
-### Responsive:
+### Responsive
 
-`@playwright set viewport to mobile and verify layout`
+`@browser set viewport to mobile and verify layout`
 
-### Errors:
+### Errors
 
-`@playwright check if .error exists`
-If yes: `@playwright get text of .error`
+`@browser check if .error exists`
+If yes: `@browser get text of .error`
 
 ## React-Specific
 
-- Playwright auto-waits for renders
+- Browser auto-waits for renders
+- Check error boundaries: `verify .error-boundary visibility`
+- Test conditional rendering: `click toggle and verify element appears`
+
+## Remember
+
+- Start with existence checks (50 tokens)
+- Use screenshots only when necessary (600 tokens)
+- Never capture full page unless critical (1200+ tokens)
+- Batch related checks in one command
+# Browser Rules for UI Development
+
+## When to Use @browser
+
+✅ Confirm your UI changes actually worked
+✅ Verify components render after changes
+✅ Test clicks/forms/interactions work
+✅ Debug visual issues
+✅ Check error states
+
+❌ NOT for: syntax errors, API responses, build errors
+
+## Token-Efficient Commands
+
+### Always be specific
+
+❌ "@browser screenshot the page" (expensive, consumes lots of tokens)
+✅ "@browser screenshot .todo-list" (better, more specific, cheaper)
+✅ "@browser check if .error exists" (best, cheapest)
+
+### Preferred commands (cheapest first)
+
+1. `check if [selector] exists` - 50 tokens
+2. `get text of [selector]` - 100 tokens
+3. `count [selector] elements` - 100 tokens
+4. `click [selector] and verify [result]` - 150 tokens
+5. `screenshot [selector]` - 600 tokens
+
+## Development Workflow
+
+### After creating component
+
+`@browser verify [ComponentName] renders at localhost:3000`
+
+### After adding interaction
+
+`@browser click [element] and verify [expected change]`
+
+### When debugging
+
+1. `@browser check for console errors`
+2. Only if needed: `@browser screenshot the broken element`
+
+## Key Patterns
+
+### Forms
+
+`@browser fill [field] with [value] and check for [response]`
+
+### Responsive
+
+`@browser set viewport to mobile and verify layout`
+
+### Errors
+
+`@browser check if .error exists`
+If yes: `@browser get text of .error`
+
+## React-Specific
+
+- Browser auto-waits for renders
 - Check error boundaries: `verify .error-boundary visibility`
 - Test conditional rendering: `click toggle and verify element appears`
 

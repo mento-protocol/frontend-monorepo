@@ -1,35 +1,18 @@
 // Token and chain configuration for reserve.mento.org
-// This is a synchronized version of the configuration in app.mento.org
+// Now uses TokenSymbol from mento-sdk for consistency
+
+import { TokenSymbol } from "@mento-protocol/mento-sdk";
 
 // Chain IDs
 export enum ChainId {
   Celo = "42220",
-  Alfajores = "44787",
+  CeloSepolia = "11142220",
 }
 
-// Token IDs
-export enum TokenId {
-  CELO = "CELO",
-  cUSD = "cUSD",
-  cEUR = "cEUR",
-  cREAL = "cREAL",
-  eXOF = "eXOF",
-  USDC = "USDC",
-  USDT = "USDT",
-  axlUSDC = "axlUSDC",
-  axlEUROC = "axlEUROC",
-  cKES = "cKES",
-  PUSO = "PUSO",
-  cCOP = "cCOP",
-  cGHS = "cGHS",
-  cGBP = "cGBP",
-  cZAR = "cZAR",
-  cCAD = "cCAD",
-  cAUD = "cAUD",
-  cCHF = "cCHF",
-  cJPY = "cJPY",
-  cNGN = "cNGN",
-}
+// Re-export TokenSymbol from SDK as TokenId for backwards compatibility
+export { TokenSymbol };
+export type TokenId = TokenSymbol;
+export const TokenId = TokenSymbol;
 
 // Token addresses on different chains
 export const TokenAddresses: Record<ChainId, Record<TokenId, string>> = {
@@ -55,7 +38,8 @@ export const TokenAddresses: Record<ChainId, Record<TokenId, string>> = {
     [TokenId.cJPY]: "0xc45eCF20f3CD864B32D9794d6f76814aE8892e20",
     [TokenId.cNGN]: "0xE2702Bd97ee33c88c8f6f92DA3B733608aa76F71",
   },
-  [ChainId.Alfajores]: {
+  [ChainId.CeloSepolia]: {
+    // TODO: Update these addresses from mento-sdk v1.11.0 once installed
     [TokenId.CELO]: "0xF194afDf50B03e69Bd7D057c1Aa9e10c9954E4C9",
     [TokenId.cUSD]: "0x874069Fa1Eb16D44d622F2e0Ca25eeA172369bC1",
     [TokenId.cEUR]: "0x10c892A6EC43a53E45D0B916B4b7D383B1b78C0F",

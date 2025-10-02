@@ -1,6 +1,6 @@
 "use client";
 
-import { type TokenId, Tokens } from "@/config/tokens";
+import { type TokenId, getTokenById, getTokenDecimals } from "@/config/tokens";
 import { useAccountBalances } from "@/features/accounts/use-account-balances";
 import { useAccount, useChainId } from "wagmi";
 import { TokenIcon } from "@repo/ui";
@@ -53,16 +53,26 @@ export function BalancesSummary() {
     <div className="space-y-3">
       {tokenIds.map((id) => {
         const balanceValue = balances[id];
-        const balance = fromWeiRounded(balanceValue, Tokens[id].decimals);
+        const decimals = getTokenDecimals(id, chainId);
+        const balance = fromWeiRounded(balanceValue, decimals);
         if (balance !== "0") {
-          const token = Tokens[id];
+          const token = getTokenById(id, chainId);
+
+          // If token details aren't loaded yet, show with fallback
+          const tokenData = token ?? {
+            id,
+            symbol: id,
+            name: id,
+            decimals: decimals ?? 18,
+          };
+
           return (
             <div
               key={id}
               className="text-foreground flex items-center gap-3 px-4 py-1 text-sm font-medium"
-              data-testid={`walletSettings_${token.id}_balance`}
+              data-testid={`walletSettings_${tokenData.id}_balance`}
             >
-              <TokenIcon token={token} className="h-6 w-6 p-1" />
+              <TokenIcon token={tokenData} className="h-6 w-6 p-1" />
               <span className="truncate">{formatWithMaxDecimals(balance)}</span>
             </div>
           );

@@ -1,5 +1,5 @@
 "use client";
-import { Alfajores, Celo } from "@/config/chains";
+import { CeloSepolia, Celo } from "@/config/chains";
 import { ReactNode, useCallback, useEffect, useState } from "react";
 import {
   createStorage,
@@ -39,7 +39,7 @@ export function EnsureChain({ children }: { children: ReactNode }) {
         }
       } else if (
         storeData?.state.chainId !== Celo.id ||
-        storeData?.state.chainId !== Alfajores.id
+        storeData?.state.chainId !== CeloSepolia.id
       ) {
         disconnect();
         setModalActive(true);

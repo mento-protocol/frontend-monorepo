@@ -4,7 +4,6 @@ interface Token {
   id: string;
   symbol: string;
   name: string;
-  color: string;
   decimals: number;
 }
 

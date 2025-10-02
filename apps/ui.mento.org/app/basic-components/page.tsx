@@ -149,7 +149,6 @@ export default function BasicComponentsPage() {
                       token={{
                         symbol: token,
                         name: token,
-                        color: "#000000",
                         decimals: 18,
                         id: token,
                       }}

@@ -28,12 +28,12 @@ import {
   formatBalance,
   formValuesAtom,
   fromWeiRounded,
+  getTokenDecimals,
   logger,
   MIN_ROUNDED_VALUE,
   parseAmount,
   SwapFormValues,
   TokenId,
-  Tokens,
   toWei,
   useAccountBalances,
   useApproveTransaction,
@@ -49,11 +49,6 @@ import { useAccount, useChainId } from "@repo/web3/wagmi";
 import TokenDialog from "./token-dialog";
 
 type SwapDirection = "in" | "out";
-
-// Helper functions for token operations
-const getTokenDecimals = (tokenId: string) =>
-  Tokens[tokenId as TokenId]?.decimals;
-const getTokenInfo = (tokenId: string) => Tokens[tokenId as TokenId];
 
 // Layer 1: Keep Zod for static checks only
 const formSchema = z.object({
@@ -83,7 +78,7 @@ const tokenButtonClassName =
 
 export default function SwapForm() {
   const { address, isConnected } = useAccount();
-  const chainId = useChainId();
+  const chainId = useChainId() ?? 42220; // Default to Celo mainnet
   const [formValues, setFormValues] = useAtom(formValuesAtom);
   const [, setConfirmView] = useAtom(confirmViewAtom);
   const [isApprovalProcessing, setIsApprovalProcessing] = useState(false);
@@ -118,14 +113,17 @@ export default function SwapForm() {
   // Get token balances
   const fromTokenBalance = useMemo(() => {
     const balanceValue = balances[tokenInId as keyof typeof balances];
-    return formatBalance(balanceValue, getTokenDecimals(tokenInId));
-  }, [balances, tokenInId]);
+    return formatBalance(balanceValue, getTokenDecimals(tokenInId, chainId));
+  }, [balances, tokenInId, chainId]);
 
   const toTokenBalance = useMemo(() => {
     const balanceValue = balances[tokenOutId as keyof typeof balances];
-    const balance = fromWeiRounded(balanceValue, getTokenDecimals(tokenOutId));
+    const balance = fromWeiRounded(
+      balanceValue,
+      getTokenDecimals(tokenOutId, chainId),
+    );
     return formatWithMaxDecimals(balance || "0.00");
-  }, [balances, tokenOutId]);
+  }, [balances, tokenOutId, chainId]);
 
   // Get trading limits
   const { data: limits, isLoading: limitsLoading } = useTradingLimits(
@@ -151,13 +149,13 @@ export default function SwapForm() {
         return "Amount too small";
       }
 
-      const tokenInfo = getTokenInfo(tokenInId);
+      const tokenInfo = allTokenOptions.find((t) => t.id === tokenInId);
       if (!tokenInfo) return "Invalid token";
 
       const tokenBalance = balances[tokenInId as keyof typeof balances];
       if (typeof tokenBalance === "undefined") return "Balance unavailable";
 
-      const amountInWei = toWei(parsedAmount, tokenInfo.decimals);
+      const amountInWei = toWei(parsedAmount, tokenInfo.decimals || 18);
 
       // Use areAmountsNearlyEqual to allow for small rounding differences
       if (
@@ -169,7 +167,7 @@ export default function SwapForm() {
 
       return true;
     },
-    [balances, tokenInId],
+    [balances, tokenInId, allTokenOptions],
   );
 
   // Shared function for limit validation logic
@@ -375,7 +373,7 @@ export default function SwapForm() {
   const handleUseMaxBalance = () => {
     const maxAmountInWei = balances[tokenInId as keyof typeof balances] || "0";
     const maxAmountBigInt = BigInt(maxAmountInWei);
-    const decimals = getTokenDecimals(tokenInId);
+    const decimals = getTokenDecimals(tokenInId, chainId);
 
     const formattedAmount = formatBalance(maxAmountBigInt.toString(), decimals);
     form.setValue("amount", formattedAmount);
@@ -507,14 +505,14 @@ export default function SwapForm() {
 
     if (formDirection === "in") {
       return amount
-        ? toWei(amount, getTokenDecimals(tokenInId)).toFixed(0)
+        ? toWei(amount, getTokenDecimals(tokenInId, chainId)).toFixed(0)
         : "0";
     }
 
     return formQuote
-      ? toWei(formQuote, getTokenDecimals(tokenInId)).toFixed(0)
+      ? toWei(formQuote, getTokenDecimals(tokenInId, chainId)).toFixed(0)
       : "0";
-  }, [amount, formQuote, formDirection, tokenInId]);
+  }, [amount, formQuote, formDirection, tokenInId, chainId]);
 
   // Check if approval is needed
   const { skipApprove } = useSwapAllowance({
@@ -977,7 +975,7 @@ export default function SwapForm() {
             ) : isApproveTxLoading || isApprovalProcessing ? (
               <IconLoading />
             ) : shouldApprove ? (
-              `Approve ${getTokenInfo(tokenInId)?.symbol || tokenInId}`
+              `Approve ${allTokenOptions.find((t) => t.id === tokenInId)?.symbol || tokenInId}`
             ) : (
               "Swap"
             )}

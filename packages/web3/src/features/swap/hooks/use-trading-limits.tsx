@@ -77,7 +77,7 @@ export function useTradingLimits(
       );
 
       const tokenToCheck = limitAsset
-        ? getTokenByAddress(limitAsset as `0x${string}`).symbol
+        ? getTokenByAddress(limitAsset as `0x${string}`, chainId)?.symbol
         : null;
 
       // Extract L0, L1, and LG limits based on timestamp ranking

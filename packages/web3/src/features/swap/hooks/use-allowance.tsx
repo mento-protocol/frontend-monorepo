@@ -1,10 +1,10 @@
-import { getAddress } from "@mento-protocol/mento-sdk";
-import { useQuery } from "@tanstack/react-query";
-import { Contract } from "ethers";
 import { ERC20_ABI } from "@/config/constants";
 import { TokenId, getTokenAddress } from "@/config/tokens";
 import { getProvider } from "@/features/providers";
 import { getTradablePairForTokens } from "@/features/sdk";
+import { getAddress } from "@mento-protocol/mento-sdk";
+import { useQuery } from "@tanstack/react-query";
+import { Contract } from "ethers";
 
 async function fetchAllowance(
   tokenInId: TokenId,
