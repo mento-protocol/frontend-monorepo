@@ -1,10 +1,23 @@
 import type { Network } from "./types/index";
+import type { TokenSymbol } from "@mento-protocol/mento-sdk";
 
-// A list of known stablecoin symbols. Add more as needed.
-export type Tokens = "cUSD" | "cEUR" | "cREAL" | "eXOF" | string; // Using string as a fallback
+export type ReserveAssetSymbol =
+  | "CELO"
+  | "ETH"
+  | "BTC"
+  | "USDC"
+  | "USDT"
+  | "DAI"
+  | "EURC"
+  | "WBTC"
+  | "WETH"
+  | "stEUR"
+  | "sDAI"
+  | "stETH"
+  | "USDGLO";
 
 export interface TokenModel {
-  token: Tokens;
+  symbol: TokenSymbol;
   name: string;
   units: number;
   value: number; // Presumed to be USD value
@@ -26,7 +39,7 @@ export interface ReserveStats {
 
 // Types for Reserve Composition
 export interface ReserveCompositionEntry {
-  token: string;
+  symbol: ReserveAssetSymbol;
   percent: number;
 }
 
@@ -45,14 +58,14 @@ export interface ExternalCompositionResponse {
 
 // Types for Reserve Holdings
 export interface CeloAssetDetails {
-  token: "CELO";
+  symbol: "CELO";
   units: number;
   value: number;
   updated: number; // Timestamp of the last update
 }
 
 export interface OtherReserveAsset {
-  token: Tokens;
+  symbol: ReserveAssetSymbol;
   units: number;
   value: number;
   updated: number; // Timestamp of the last update

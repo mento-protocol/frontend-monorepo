@@ -6,6 +6,7 @@ import Image from "next/image";
 import { useState } from "react";
 import type {
   HoldingsApi,
+  ReserveAssetSymbol,
   ReserveCompositionAPI,
   ReserveCompositionEntry,
 } from "../../lib/types";
@@ -39,22 +40,22 @@ export function ReserveHoldingsContent({
     STETH: "#7579FF",
   };
 
-  const getTokenColor = (tokenSymbol: string): string => {
+  const getTokenColor = (tokenSymbol: ReserveAssetSymbol): string => {
     return TOKEN_COLORS[tokenSymbol.toUpperCase()] ?? "#fff000";
   };
 
   // Prepare data for ReserveChart
   const chartData: ChartSegment[] = reserveComposition.map(
     (item: ReserveCompositionEntry) => ({
-      name: item.token,
+      name: item.symbol,
       value: item.percent, // Assuming item.percent is the value to display
-      color: getTokenColor(item.token),
+      color: getTokenColor(item.symbol),
     }),
   );
 
   let centerChartText = "Reserve";
   const celoComposition = reserveComposition.find(
-    (item) => item.token.toUpperCase() === "CELO",
+    (item) => item.symbol.toUpperCase() === "CELO",
   );
   if (celoComposition) {
     centerChartText = `${celoComposition.percent.toFixed(2)}%`;
@@ -88,7 +89,7 @@ export function ReserveHoldingsContent({
           {(() => {
             const celoDetails = reserveHoldings.celo.unfrozen;
             const celoComp = reserveComposition.find(
-              (c) => c.token === celoDetails.token,
+              (c) => c.symbol === celoDetails.symbol,
             );
 
             const celoIcon = "/tokens/CELO.svg";
@@ -96,23 +97,23 @@ export function ReserveHoldingsContent({
             return (
               <>
                 <div
-                  key={`${celoDetails.token}-unfrozen`}
-                  className={`${celoDetails.token === active ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} grid w-full grid-cols-2 gap-4 border-l-4 p-4 xl:grid-cols-12`}
+                  key={`${celoDetails.symbol}-unfrozen`}
+                  className={`${celoDetails.symbol === active ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} grid w-full grid-cols-2 gap-4 border-l-4 p-4 xl:grid-cols-12`}
                   style={{
-                    borderLeftColor: getTokenColor(celoDetails.token),
+                    borderLeftColor: getTokenColor(celoDetails.symbol),
                   }}
-                  onMouseEnter={() => setActive(celoDetails.token)}
+                  onMouseEnter={() => setActive(celoDetails.symbol)}
                   onMouseLeave={() => setActive(undefined)}
                 >
                   <div className="col-span-2 flex flex-row items-center justify-start gap-4 text-xl font-medium xl:col-span-3">
                     <Image
                       src={celoIcon}
-                      alt={celoDetails.token}
+                      alt={celoDetails.symbol}
                       width={24}
                       height={24}
                       className="h-9 w-9"
                     />
-                    {celoDetails.token}
+                    {celoDetails.symbol}
                   </div>
                   <div className="col-span-1 flex flex-row items-center justify-start gap-2 text-sm text-white xl:col-span-4">
                     {celoDetails.units.toLocaleString(undefined, {
@@ -136,25 +137,25 @@ export function ReserveHoldingsContent({
 
           {reserveHoldings.otherAssets.map((asset) => {
             const assetComp = reserveComposition.find(
-              (c) => c.token === asset.token,
+              (c) => c.symbol === asset.symbol,
             );
 
-            const iconPath = `/tokens/${asset.token}.svg`;
+            const iconPath = `/tokens/${asset.symbol}.svg`;
 
             return (
               <div
-                key={asset.token}
-                className={`${asset.token === active ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} grid w-full grid-cols-2 gap-4 border-l-4 p-4 xl:grid-cols-12`}
+                key={asset.symbol}
+                className={`${asset.symbol === active ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} grid w-full grid-cols-2 gap-4 border-l-4 p-4 xl:grid-cols-12`}
                 style={{
-                  borderLeftColor: getTokenColor(asset.token),
+                  borderLeftColor: getTokenColor(asset.symbol),
                 }}
-                onMouseEnter={() => setActive(asset.token)}
+                onMouseEnter={() => setActive(asset.symbol)}
                 onMouseLeave={() => setActive(undefined)}
               >
                 <div className="col-span-2 flex flex-row items-center justify-start gap-4 text-xl font-medium xl:col-span-3">
                   <Image
                     src={iconPath}
-                    alt={asset.token}
+                    alt={asset.symbol}
                     width={24}
                     height={24}
                     className="h-9 w-9"
@@ -162,7 +163,7 @@ export function ReserveHoldingsContent({
                       e.currentTarget.src = "/tokens/CELO.svg";
                     }}
                   />
-                  {asset.token}
+                  {asset.symbol}
                 </div>
                 <div className="col-span-1 flex flex-row items-center justify-start gap-2 text-sm text-white xl:col-span-4">
                   {asset.units.toLocaleString(undefined, {

@@ -11,11 +11,18 @@ import {
   CoinCardSymbol,
 } from "@repo/ui";
 import Image from "next/image";
-import { ChainId, getTokenAddress } from "../../lib/config/tokenConfig";
+import { getTokenAddress } from "@mento-protocol/mento-sdk";
 import type { StableValueTokensAPI } from "../../lib/types";
 
 interface StablecoinSupplyContentProps {
   stableCoinStats: StableValueTokensAPI;
+}
+
+// NOTE: Conscious duplication of ChainId to avoid having to install @repo/web3
+// as a dependency of this app.
+enum ChainId {
+  CeloSepolia = 11142220,
+  Celo = 42220,
 }
 
 export function StablecoinSupplyContent({
@@ -24,16 +31,16 @@ export function StablecoinSupplyContent({
   return (
     <div className="flex h-full flex-wrap gap-2 md:gap-4">
       {stableCoinStats.tokens.map((token) => (
-        <CoinCard key={token.token}>
+        <CoinCard key={token.symbol}>
           <CoinCardHeader className="justify-between">
             <CoinCardHeaderGroup>
               <CoinCardSymbol>
                 {(() => {
                   const chainId = ChainId.Celo;
-                  const tokenAddress = getTokenAddress(token.token, chainId);
+                  const tokenAddress = getTokenAddress(token.symbol, chainId);
                   if (!tokenAddress) {
                     throw new Error(
-                      `${token.token} token address not found on chain ${chainId}`,
+                      `${token.symbol} token address not found on chain ${chainId}`,
                     );
                   }
 
@@ -43,10 +50,10 @@ export function StablecoinSupplyContent({
                       target="_blank"
                       rel="noopener noreferrer"
                     >
-                      {token.token}
+                      {token.symbol}
                     </a>
                   ) : (
-                    token.token
+                    token.symbol
                   );
                 })()}
               </CoinCardSymbol>
@@ -54,8 +61,8 @@ export function StablecoinSupplyContent({
             </CoinCardHeaderGroup>
             <CoinCardLogo>
               <Image
-                src={`/tokens/${token.token}.svg`}
-                alt={token.token}
+                src={`/tokens/${token.symbol}.svg`}
+                alt={token.symbol}
                 width={32}
                 height={32}
                 className="h-8 w-8"
