@@ -1,11 +1,12 @@
 "use client";
 
-import { type TokenId, getTokenById, getTokenDecimals } from "@/config/tokens";
+import { getTokenBySymbol, getTokenDecimals } from "@/config/tokens";
 import { useAccountBalances } from "@/features/accounts/use-account-balances";
-import { useAccount, useChainId } from "wagmi";
-import { TokenIcon } from "@repo/ui";
-import { fromWeiRounded } from "@/utils/amount";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
+import { fromWeiRounded } from "@/utils/amount";
+import { TokenSymbol } from "@mento-protocol/mento-sdk";
+import { TokenIcon } from "@repo/ui";
+import { useAccount, useChainId } from "wagmi";
 
 export function BalancesSummary() {
   const { address } = useAccount();
@@ -19,7 +20,7 @@ export function BalancesSummary() {
     chainId: chainId,
   });
 
-  const tokenIds = balances ? (Object.keys(balances) as TokenId[]) : [];
+  const tokenSymbols = balances ? (Object.keys(balances) as TokenSymbol[]) : [];
 
   if (isLoading) {
     return (
@@ -39,8 +40,8 @@ export function BalancesSummary() {
 
   if (
     !balances ||
-    tokenIds.length === 0 ||
-    tokenIds.every((id) => balances[id] === "0")
+    tokenSymbols.length === 0 ||
+    tokenSymbols.every((symbol) => balances[symbol] === "0")
   ) {
     return (
       <div className="flex flex-col space-y-2">
@@ -51,26 +52,26 @@ export function BalancesSummary() {
 
   return (
     <div className="space-y-3">
-      {tokenIds.map((id) => {
-        const balanceValue = balances[id];
-        const decimals = getTokenDecimals(id, chainId);
+      {tokenSymbols.map((symbol) => {
+        const balanceValue = balances[symbol];
+        const decimals = getTokenDecimals(symbol, chainId);
         const balance = fromWeiRounded(balanceValue, decimals);
         if (balance !== "0") {
-          const token = getTokenById(id, chainId);
+          const token = getTokenBySymbol(symbol, chainId);
 
           // If token details aren't loaded yet, show with fallback
           const tokenData = token ?? {
-            id,
-            symbol: id,
-            name: id,
+            address: "0x0000000000000000000000000000000000000000",
+            symbol,
+            name: symbol,
             decimals: decimals ?? 18,
           };
 
           return (
             <div
-              key={id}
+              key={symbol}
               className="text-foreground flex items-center gap-3 px-4 py-1 text-sm font-medium"
-              data-testid={`walletSettings_${tokenData.id}_balance`}
+              data-testid={`walletSettings_${tokenData.symbol}_balance`}
             >
               <TokenIcon token={tokenData} className="h-6 w-6 p-1" />
               <span className="truncate">{formatWithMaxDecimals(balance)}</span>

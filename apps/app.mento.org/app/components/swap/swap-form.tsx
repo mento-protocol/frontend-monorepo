@@ -19,13 +19,14 @@ import {
 
 import { CoinInput } from "@repo/ui";
 
+import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import {
   areAmountsNearlyEqual,
   chainIdToChain,
   confirmViewAtom,
   ConnectButton,
-  formatWithMaxDecimals,
   formatBalance,
+  formatWithMaxDecimals,
   formValuesAtom,
   fromWeiRounded,
   getTokenDecimals,
@@ -33,7 +34,6 @@ import {
   MIN_ROUNDED_VALUE,
   parseAmount,
   SwapFormValues,
-  TokenId,
   toWei,
   useAccountBalances,
   useApproveTransaction,
@@ -43,9 +43,9 @@ import {
   useTradablePairs,
   useTradingLimits,
 } from "@repo/web3";
+import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { useAtom } from "jotai";
 import { ArrowUpDown, ChevronDown, OctagonAlert } from "lucide-react";
-import { useAccount, useChainId } from "@repo/web3/wagmi";
 import TokenDialog from "./token-dialog";
 
 type SwapDirection = "in" | "out";
@@ -62,9 +62,9 @@ const formSchema = z.object({
       return parsed !== null && parsed.gt(0);
     }),
   direction: z.enum(["in", "out"]),
-  tokenInId: z.string().min(1, { message: "From token is required" }),
+  tokenInSymbol: z.string().min(1, { message: "From token is required" }),
   quote: z.string(),
-  tokenOutId: z.string().min(1, { message: "To token is required" }),
+  tokenOutSymbol: z.string().min(1, { message: "To token is required" }),
   slippage: z.string().optional(),
 });
 
@@ -97,45 +97,54 @@ export default function SwapForm() {
       direction: formValues?.direction || "in",
       amount: formValues?.amount || "",
       quote: formValues?.quote || "",
-      tokenInId: formValues?.tokenInId || "CELO",
-      tokenOutId: formValues?.tokenOutId || "cUSD",
+      tokenInSymbol: formValues?.tokenInSymbol || "CELO",
+      tokenOutSymbol: formValues?.tokenOutSymbol || "cUSD",
       slippage: formValues?.slippage || "0.5",
     },
     mode: "onChange", // Important for field-level validation
   });
 
-  const tokenInId = useWatch({ control: form.control, name: "tokenInId" });
-  const tokenOutId = useWatch({ control: form.control, name: "tokenOutId" });
+  const tokenInSymbol = useWatch({
+    control: form.control,
+    name: "tokenInSymbol",
+  }) as TokenSymbol;
+  const tokenOutSymbol = useWatch({
+    control: form.control,
+    name: "tokenOutSymbol",
+  }) as TokenSymbol;
   const amount = useWatch({ control: form.control, name: "amount" });
   const formDirection = useWatch({ control: form.control, name: "direction" });
   const formQuote = useWatch({ control: form.control, name: "quote" });
 
   // Get token balances
   const fromTokenBalance = useMemo(() => {
-    const balanceValue = balances[tokenInId as keyof typeof balances];
-    return formatBalance(balanceValue, getTokenDecimals(tokenInId, chainId));
-  }, [balances, tokenInId, chainId]);
+    const balanceValue = balances[tokenInSymbol as keyof typeof balances];
+    return formatBalance(
+      balanceValue,
+      getTokenDecimals(tokenInSymbol, chainId),
+    );
+  }, [balances, tokenInSymbol, chainId]);
 
   const toTokenBalance = useMemo(() => {
-    const balanceValue = balances[tokenOutId as keyof typeof balances];
+    const balanceValue = balances[tokenOutSymbol as keyof typeof balances];
     const balance = fromWeiRounded(
       balanceValue,
-      getTokenDecimals(tokenOutId, chainId),
+      getTokenDecimals(tokenOutSymbol, chainId),
     );
     return formatWithMaxDecimals(balance || "0.00");
-  }, [balances, tokenOutId, chainId]);
+  }, [balances, tokenOutSymbol, chainId]);
 
   // Get trading limits
   const { data: limits, isLoading: limitsLoading } = useTradingLimits(
-    tokenInId,
-    tokenOutId,
+    tokenInSymbol,
+    tokenOutSymbol,
     chainId,
   );
 
   // Layer 2: Field-level sync validation (balance)
   const validateBalance = useCallback(
     (value: string) => {
-      if (!value || !tokenInId) return true;
+      if (!value || !tokenInSymbol) return true;
 
       // Allow "0." as user is typing
       if (value === "0." || value === "0") return true;
@@ -149,10 +158,10 @@ export default function SwapForm() {
         return "Amount too small";
       }
 
-      const tokenInfo = allTokenOptions.find((t) => t.id === tokenInId);
+      const tokenInfo = allTokenOptions.find((t) => t.symbol === tokenInSymbol);
       if (!tokenInfo) return "Invalid token";
 
-      const tokenBalance = balances[tokenInId as keyof typeof balances];
+      const tokenBalance = balances[tokenInSymbol as keyof typeof balances];
       if (typeof tokenBalance === "undefined") return "Balance unavailable";
 
       const amountInWei = toWei(parsedAmount, tokenInfo.decimals || 18);
@@ -167,7 +176,7 @@ export default function SwapForm() {
 
       return true;
     },
-    [balances, tokenInId, allTokenOptions],
+    [balances, tokenInSymbol, allTokenOptions],
   );
 
   // Shared function for limit validation logic
@@ -177,8 +186,8 @@ export default function SwapForm() {
       numericQuote: number,
       limits: NonNullable<ReturnType<typeof useTradingLimits>["data"]>,
       formDirection: string,
-      tokenInId: string,
-      tokenOutId: string,
+      tokenInSymbol: string,
+      tokenOutSymbol: string,
     ) => {
       const { L0, L1, LG, tokenToCheck } = limits;
 
@@ -190,7 +199,7 @@ export default function SwapForm() {
       let exceededTier: "L0" | "L1" | "LG" | null = null;
       let isImplicitLimit = false;
 
-      if (tokenToCheck === tokenInId) {
+      if (tokenToCheck === tokenInSymbol) {
         // Direct limit on input token
         amountToCheck = formDirection === "in" ? numericAmount : numericQuote;
         if (LG?.maxIn && amountToCheck > LG.maxIn) {
@@ -212,7 +221,7 @@ export default function SwapForm() {
           exceededTier = "L0";
           total = L0.total || 0;
         }
-      } else if (tokenToCheck === tokenOutId) {
+      } else if (tokenToCheck === tokenOutSymbol) {
         // Direct limit on output token OR implicit limit when output token has limits
         amountToCheck = formDirection === "in" ? numericQuote : numericAmount;
 
@@ -316,8 +325,8 @@ export default function SwapForm() {
         numericQuote,
         limits,
         formDirection,
-        tokenInId,
-        tokenOutId,
+        tokenInSymbol,
+        tokenOutSymbol,
       );
 
       return violation || true;
@@ -327,8 +336,8 @@ export default function SwapForm() {
       limits,
       checkTradingLimitViolation,
       formDirection,
-      tokenInId,
-      tokenOutId,
+      tokenInSymbol,
+      tokenOutSymbol,
       formQuote,
     ],
   );
@@ -350,36 +359,37 @@ export default function SwapForm() {
   // Validation for quote field when direction is "out"
   const validateQuoteBalance = useCallback(
     (value: string) => {
-      if (formDirection !== "out" || !value || !tokenInId) return true;
+      if (formDirection !== "out" || !value || !tokenInSymbol) return true;
 
       return validateBalance(value);
     },
-    [validateBalance, formDirection, tokenInId],
+    [validateBalance, formDirection, tokenInSymbol],
   );
 
   // Function to handle token swap
   const handleReverseTokens = () => {
-    const currentTokenInId = form.getValues("tokenInId");
-    const currentTokenOutId = form.getValues("tokenOutId");
+    const currentTokenInSymbol = form.getValues("tokenInSymbol");
+    const currentTokenOutSymbol = form.getValues("tokenOutSymbol");
     const currentAmount = form.getValues("amount");
 
-    form.setValue("tokenInId", currentTokenOutId);
-    form.setValue("tokenOutId", currentTokenInId);
+    form.setValue("tokenInSymbol", currentTokenOutSymbol);
+    form.setValue("tokenOutSymbol", currentTokenInSymbol);
     form.setValue("amount", currentAmount);
     form.setValue("direction", "in");
     form.setValue("quote", "");
   };
 
   const handleUseMaxBalance = () => {
-    const maxAmountInWei = balances[tokenInId as keyof typeof balances] || "0";
+    const maxAmountInWei =
+      balances[tokenInSymbol as keyof typeof balances] || "0";
     const maxAmountBigInt = BigInt(maxAmountInWei);
-    const decimals = getTokenDecimals(tokenInId, chainId);
+    const decimals = getTokenDecimals(tokenInSymbol, chainId);
 
     const formattedAmount = formatBalance(maxAmountBigInt.toString(), decimals);
     form.setValue("amount", formattedAmount);
     form.setValue("direction", "in");
 
-    if (tokenInId === "CELO") {
+    if (tokenInSymbol === "CELO") {
       toast.success("Max balance used", {
         duration: 5000,
         description: () => <>Consider keeping some CELO for transaction fees</>,
@@ -417,8 +427,8 @@ export default function SwapForm() {
   } = useOptimizedSwapQuote(
     canQuote ? amount : "",
     formDirection as SwapDirection,
-    tokenInId as TokenId,
-    tokenOutId as TokenId,
+    tokenInSymbol,
+    tokenOutSymbol,
   );
 
   useEffect(() => {
@@ -428,7 +438,7 @@ export default function SwapForm() {
   // Check balance in real-time
   useEffect(() => {
     const checkBalance = async () => {
-      if (!hasAmount || !tokenInId) {
+      if (!hasAmount || !tokenInSymbol) {
         setBalanceError(null);
         return;
       }
@@ -442,7 +452,7 @@ export default function SwapForm() {
     };
 
     checkBalance();
-  }, [amount, hasAmount, tokenInId, formDirection, validateBalance]);
+  }, [amount, hasAmount, tokenInSymbol, formDirection, validateBalance]);
 
   useEffect(() => {
     if (!hasAmount || !limits || limitsLoading) return;
@@ -455,8 +465,8 @@ export default function SwapForm() {
       numericQuote,
       limits,
       formDirection,
-      tokenInId,
-      tokenOutId,
+      tokenInSymbol,
+      tokenOutSymbol,
     );
 
     setTradingLimitError((v) => (v === violation ? v : violation));
@@ -466,8 +476,8 @@ export default function SwapForm() {
     limits,
     limitsLoading,
     formDirection,
-    tokenInId,
-    tokenOutId,
+    tokenInSymbol,
+    tokenOutSymbol,
     hasAmount,
     checkTradingLimitViolation,
   ]);
@@ -486,39 +496,45 @@ export default function SwapForm() {
 
   const sellUSDValue = useMemo(() => {
     if (formDirection === "in") {
-      return tokenInId === "cUSD" ? amount || "0" : fromTokenUSDValue || "0";
+      return tokenInSymbol === "cUSD"
+        ? amount || "0"
+        : fromTokenUSDValue || "0";
     } else {
-      return tokenInId === "cUSD" ? formQuote || "0" : fromTokenUSDValue || "0";
+      return tokenInSymbol === "cUSD"
+        ? formQuote || "0"
+        : fromTokenUSDValue || "0";
     }
-  }, [formDirection, tokenInId, amount, formQuote, fromTokenUSDValue]);
+  }, [formDirection, tokenInSymbol, amount, formQuote, fromTokenUSDValue]);
 
   const buyUSDValue = useMemo(() => {
     if (formDirection === "in") {
-      return tokenOutId === "cUSD" ? formQuote || "0" : toTokenUSDValue || "0";
+      return tokenOutSymbol === "cUSD"
+        ? formQuote || "0"
+        : toTokenUSDValue || "0";
     } else {
-      return tokenOutId === "cUSD" ? amount || "0" : toTokenUSDValue || "0";
+      return tokenOutSymbol === "cUSD" ? amount || "0" : toTokenUSDValue || "0";
     }
-  }, [formDirection, tokenOutId, amount, formQuote, toTokenUSDValue]);
+  }, [formDirection, tokenOutSymbol, amount, formQuote, toTokenUSDValue]);
 
   const amountInWei = useMemo(() => {
-    if (!tokenInId) return "0";
+    if (!tokenInSymbol) return "0";
 
     if (formDirection === "in") {
       return amount
-        ? toWei(amount, getTokenDecimals(tokenInId, chainId)).toFixed(0)
+        ? toWei(amount, getTokenDecimals(tokenInSymbol, chainId)).toFixed(0)
         : "0";
     }
 
     return formQuote
-      ? toWei(formQuote, getTokenDecimals(tokenInId, chainId)).toFixed(0)
+      ? toWei(formQuote, getTokenDecimals(tokenInSymbol, chainId)).toFixed(0)
       : "0";
-  }, [amount, formQuote, formDirection, tokenInId, chainId]);
+  }, [amount, formQuote, formDirection, tokenInSymbol, chainId]);
 
   // Check if approval is needed
   const { skipApprove } = useSwapAllowance({
     chainId,
-    tokenInId: tokenInId as TokenId,
-    tokenOutId: tokenOutId as TokenId,
+    tokenInSymbol,
+    tokenOutSymbol,
     approveAmount: amountInWei,
     address,
   });
@@ -527,8 +543,8 @@ export default function SwapForm() {
   const { sendApproveTx, isApproveTxLoading, approveTxHash } =
     useApproveTransaction({
       chainId,
-      tokenInId: tokenInId as TokenId,
-      tokenOutId: tokenOutId as TokenId,
+      tokenInSymbol,
+      tokenOutSymbol,
       amountInWei,
       accountAddress: address,
       onSuccess: (receipt) => {
@@ -559,8 +575,8 @@ export default function SwapForm() {
         const formData: SwapFormValues = {
           ...currentFormValues,
           slippage: currentFormValues.slippage || "0.5",
-          tokenInId: tokenInId as TokenId,
-          tokenOutId: tokenOutId as TokenId,
+          tokenInSymbol,
+          tokenOutSymbol,
           buyUSDValue,
           sellUSDValue,
         };
@@ -618,8 +634,8 @@ export default function SwapForm() {
         const formData: SwapFormValues = {
           ...values,
           slippage: form.getValues("slippage") || "0.5",
-          tokenInId: tokenInId as TokenId,
-          tokenOutId: tokenOutId as TokenId,
+          tokenInSymbol,
+          tokenOutSymbol,
           buyUSDValue,
           sellUSDValue,
         };
@@ -635,12 +651,8 @@ export default function SwapForm() {
   const shouldApprove = !skipApprove && hasAmount && quote && !isLoading;
 
   // Get tradable pairs for both tokens
-  const { data: fromTokenTradablePairs } = useTradablePairs(
-    tokenInId as TokenId,
-  );
-  const { data: toTokenTradablePairs } = useTradablePairs(
-    tokenOutId as TokenId,
-  );
+  const { data: fromTokenTradablePairs } = useTradablePairs(tokenInSymbol);
+  const { data: toTokenTradablePairs } = useTradablePairs(tokenOutSymbol);
 
   const [lastChangedToken, setLastChangedToken] = useState<
     "from" | "to" | null
@@ -648,24 +660,24 @@ export default function SwapForm() {
 
   // Handle token pair validation - reset opposite token if an invalid pair is selected
   useEffect(() => {
-    if (!tokenInId || !tokenOutId || !lastChangedToken) return;
+    if (!tokenInSymbol || !tokenOutSymbol || !lastChangedToken) return;
 
     const isValidPair =
-      fromTokenTradablePairs?.includes(tokenOutId as TokenId) ||
-      toTokenTradablePairs?.includes(tokenInId as TokenId);
+      fromTokenTradablePairs?.includes(tokenOutSymbol) ||
+      toTokenTradablePairs?.includes(tokenInSymbol);
 
     // If an invalid pair is selected, reset the opposite token
     if (!isValidPair) {
       if (lastChangedToken === "from") {
-        form.setValue("tokenOutId", "", { shouldValidate: false });
+        form.setValue("tokenOutSymbol", "", { shouldValidate: false });
       } else if (lastChangedToken === "to") {
-        form.setValue("tokenInId", "", { shouldValidate: false });
+        form.setValue("tokenInSymbol", "", { shouldValidate: false });
       }
       setLastChangedToken(null);
     }
   }, [
-    tokenInId,
-    tokenOutId,
+    tokenInSymbol,
+    tokenOutSymbol,
     fromTokenTradablePairs,
     toTokenTradablePairs,
     lastChangedToken,
@@ -725,7 +737,7 @@ export default function SwapForm() {
             <div className="col-span-4 flex flex-row items-center justify-end">
               <FormField
                 control={form.control}
-                name="tokenInId"
+                name="tokenInSymbol"
                 render={({ field }) => (
                   <FormItem className="flex flex-col items-end justify-end">
                     <FormControl>
@@ -736,8 +748,8 @@ export default function SwapForm() {
                           setLastChangedToken("from");
                         }}
                         title="Select asset to sell"
-                        excludeTokenId={tokenOutId}
-                        filterByTokenId={tokenOutId as TokenId}
+                        excludeTokenSymbol={tokenOutSymbol}
+                        filterByTokenSymbol={tokenOutSymbol}
                         onClose={() => {
                           setTimeout(() => {
                             amountRef.current?.focus();
@@ -751,7 +763,7 @@ export default function SwapForm() {
                           >
                             <TokenIcon
                               token={allTokenOptions.find(
-                                (token) => token.id === field.value,
+                                (token) => token.symbol === field.value,
                               )}
                               className="mr-2"
                               size={20}
@@ -862,7 +874,7 @@ export default function SwapForm() {
             <div className="col-span-4 flex flex-row items-center justify-end">
               <FormField
                 control={form.control}
-                name="tokenOutId"
+                name="tokenOutSymbol"
                 render={({ field }) => (
                   <FormItem className="flex flex-col items-end justify-end">
                     <FormControl>
@@ -873,8 +885,8 @@ export default function SwapForm() {
                           setLastChangedToken("to");
                         }}
                         title="Select asset to buy"
-                        excludeTokenId={tokenInId}
-                        filterByTokenId={tokenInId as TokenId}
+                        excludeTokenSymbol={tokenInSymbol}
+                        filterByTokenSymbol={tokenInSymbol}
                         onClose={() => {
                           setTimeout(() => {
                             quoteRef.current?.focus();
@@ -888,7 +900,7 @@ export default function SwapForm() {
                           >
                             <TokenIcon
                               token={allTokenOptions.find(
-                                (token) => token.id === field.value,
+                                (token) => token.symbol === field.value,
                               )}
                               className="mr-2"
                               size={20}
@@ -915,7 +927,7 @@ export default function SwapForm() {
             <div className="flex w-full flex-col items-start justify-start space-y-2">
               <div className="flex w-full flex-row items-center justify-between">
                 <span className="text-muted-foreground">Rate</span>
-                <span data-testid="rateLabel">{`${rate && Number(rate) > 0 ? Number(rate).toFixed(4) : "0"} ${tokenInId} ~ 1 ${tokenOutId}`}</span>
+                <span data-testid="rateLabel">{`${rate && Number(rate) > 0 ? Number(rate).toFixed(4) : "0"} ${tokenInSymbol} ~ 1 ${tokenOutSymbol}`}</span>
               </div>
             </div>
           )}
@@ -927,8 +939,8 @@ export default function SwapForm() {
               balanceError,
               tradingLimitError,
               shouldApprove,
-              tokenInId,
-              tokenOutId,
+              tokenInSymbol: tokenInSymbol,
+              tokenOutSymbol: tokenOutSymbol,
             })}
             className="mt-auto w-full"
             size="lg"
@@ -936,8 +948,8 @@ export default function SwapForm() {
             type="submit"
             disabled={
               !hasAmount ||
-              !tokenOutId ||
-              !tokenInId ||
+              !tokenOutSymbol ||
+              !tokenInSymbol ||
               !quote || // Require quote to be fetched
               (formDirection === "in"
                 ? !!(
@@ -958,9 +970,9 @@ export default function SwapForm() {
           >
             {isLoading && hasAmount ? ( // Only show loading if there's an amount
               <IconLoading />
-            ) : !tokenInId ? (
+            ) : !tokenInSymbol ? (
               "Select token to sell"
-            ) : !tokenOutId ? (
+            ) : !tokenOutSymbol ? (
               "Select token to buy"
             ) : tradingLimitError ? (
               "Swap exceeds trading limits"
@@ -975,7 +987,7 @@ export default function SwapForm() {
             ) : isApproveTxLoading || isApprovalProcessing ? (
               <IconLoading />
             ) : shouldApprove ? (
-              `Approve ${allTokenOptions.find((t) => t.id === tokenInId)?.symbol || tokenInId}`
+              `Approve ${allTokenOptions.find((t) => t.symbol === tokenInSymbol)?.symbol || tokenInSymbol}`
             ) : (
               "Swap"
             )}
@@ -992,25 +1004,25 @@ function defineButtonLocator({
   balanceError,
   tradingLimitError,
   shouldApprove,
-  tokenInId,
-  tokenOutId,
+  tokenInSymbol,
+  tokenOutSymbol,
 }: {
   balanceError: string | null;
   tradingLimitError: string | null;
   shouldApprove: string | boolean;
-  tokenInId: string;
-  tokenOutId: string;
+  tokenInSymbol: string;
+  tokenOutSymbol: string;
 }) {
   switch (true) {
     case Boolean(balanceError && !tradingLimitError):
       return "insufficientBalanceButton";
     case Boolean(tradingLimitError):
       return "swapsExceedsTradingLimitButton";
-    case Boolean(shouldApprove && tokenInId && tokenOutId):
+    case Boolean(shouldApprove && tokenInSymbol && tokenOutSymbol):
       return "approveButton";
-    case !tokenInId:
+    case !tokenInSymbol:
       return "selectTokenToSellButton";
-    case !tokenOutId:
+    case !tokenOutSymbol:
       return "selectTokenToBuyButton";
     default:
       return "swapButton";

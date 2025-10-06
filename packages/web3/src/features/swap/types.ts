@@ -1,11 +1,11 @@
-import type { TokenId } from "@/config/tokens";
+import type { TokenSymbol } from "@mento-protocol/mento-sdk";
 import type { AccountBalances } from "../accounts/use-account-balances";
 
 export type SwapDirection = "in" | "out";
 
 export interface SwapFormValues {
-  tokenInId?: TokenId;
-  tokenOutId?: TokenId;
+  tokenInSymbol?: TokenSymbol;
+  tokenOutSymbol?: TokenSymbol;
   amount?: string;
   quote?: string;
   direction?: SwapDirection;
@@ -14,7 +14,7 @@ export interface SwapFormValues {
   sellUSDValue?: string;
 }
 
-export type ToCeloRates = Partial<Record<TokenId, ExchangeRate>>;
+export type ToCeloRates = Partial<Record<TokenSymbol, ExchangeRate>>;
 
 // Raw Mento chain data from an Exchange contract
 export interface ExchangeRate {
@@ -30,7 +30,9 @@ export interface SimpleExchangeRate {
   lastUpdated: number;
 }
 
-export type SizeLimits = Partial<Record<TokenId, { min: string; max: string }>>;
+export type SizeLimits = Partial<
+  Record<TokenSymbol, { min: string; max: string }>
+>;
 
 export interface IUseFormValidatorProps {
   balances: AccountBalances;

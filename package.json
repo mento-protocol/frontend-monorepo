@@ -17,6 +17,7 @@
     "esbuild": ">=0.25.0"
   },
   "dependencies": {
+    "@mento-protocol/mento-sdk": "^1.15.4",
     "zod": "^3.25.67"
   },
   "devDependencies": {

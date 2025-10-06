@@ -40,7 +40,6 @@
   "dependencies": {
     "@ethersproject/address": "^5.8.0",
     "@ethersproject/units": "^5.8.0",
-    "@mento-protocol/mento-sdk": "^1.14.0",
     "@metamask/jazzicon": "https://github.com/jmrossy/jazzicon#7a8df28",
     "@repo/typescript-config": "workspace:*",
     "@repo/ui": "workspace:*",

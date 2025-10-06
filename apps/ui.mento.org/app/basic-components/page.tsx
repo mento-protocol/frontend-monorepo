@@ -1,28 +1,28 @@
 "use client";
 
 import {
+  Badge,
   Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-  Badge,
   IconCheck,
-  IconInfo,
-  IconLoading,
   IconDiscord,
   IconGithub,
+  IconInfo,
+  IconLoading,
   IconMento,
   IconX,
+  ModeToggle,
   TokenIcon,
   Tooltip,
-  TooltipTrigger,
   TooltipContent,
-  ModeToggle,
+  TooltipTrigger,
 } from "@repo/ui";
 
-const tokens = [
+const tokenSymbols = [
   "CELO",
   "BTC",
   "ETH",
@@ -142,15 +142,15 @@ export default function BasicComponentsPage() {
             </div>
             <span className="text-muted-foreground text-sm">Token icons</span>
             <div className="flex flex-wrap items-center gap-4">
-              {tokens.map((token) => (
+              {tokenSymbols.map((token) => (
                 <Tooltip key={token}>
                   <TooltipTrigger>
                     <TokenIcon
                       token={{
+                        address: "0x0000000000000000000000000000000000000000",
                         symbol: token,
                         name: token,
                         decimals: 18,
-                        id: token,
                       }}
                       className="h-6 w-6"
                     />

@@ -1,5 +1,5 @@
 import { connectorsForWallets } from "@rainbow-me/rainbowkit";
-import { celoSepolia } from "viem/chains";
+import { Chain, celo, celoSepolia } from "viem/chains";
 import {
   Config,
   cookieStorage,
@@ -7,7 +7,6 @@ import {
   createStorage,
   http,
 } from "wagmi";
-import { celo, Chain } from "wagmi/chains";
 import { config } from "./config";
 
 import {

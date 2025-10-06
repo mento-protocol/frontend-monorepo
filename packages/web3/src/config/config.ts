@@ -18,5 +18,3 @@ export const config: Config = Object.freeze({
   showPriceChart: false,
   walletConnectProjectId,
 });
-
-export const CELO_BLOCK_TIME = 1000; // 1 seconds

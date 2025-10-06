@@ -1,5 +1,5 @@
+import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import { useMemo } from "react";
-import { TokenId } from "@/config/tokens";
 
 interface SwapState {
   text: string;
@@ -13,7 +13,7 @@ interface UseSwapStateProps {
   isApproveTxLoading: boolean;
   isApproveTxSuccess: boolean;
   sendSwapTx: (() => Promise<unknown>) | undefined;
-  tokenInId: TokenId;
+  tokenInSymbol: TokenSymbol;
 }
 
 /**
@@ -32,7 +32,7 @@ interface UseSwapStateProps {
  */
 export function useSwapState(props: UseSwapStateProps): SwapState {
   const {
-    tokenInId,
+    tokenInSymbol,
     skipApprove,
     isAllowanceLoading,
     isApproveTxLoading,
@@ -45,7 +45,7 @@ export function useSwapState(props: UseSwapStateProps): SwapState {
     // 1. Checking Allowance
     if (isAllowanceLoading) {
       return {
-        text: `Checking ${tokenInId} allowance...`,
+        text: `Checking ${tokenInSymbol} allowance...`,
         disabled: true,
       };
     }
@@ -60,13 +60,13 @@ export function useSwapState(props: UseSwapStateProps): SwapState {
       }
       if (isApproveTxLoading) {
         return {
-          text: `Approving ${tokenInId}...`,
+          text: `Approving ${tokenInSymbol}...`,
           disabled: true,
         };
       }
       if (!isApproveTxSuccess) {
         return {
-          text: `Approve ${tokenInId}`,
+          text: `Approve ${tokenInSymbol}`,
           disabled: false,
         };
       }
@@ -91,6 +91,6 @@ export function useSwapState(props: UseSwapStateProps): SwapState {
     isApproveTxLoading,
     isApproveTxSuccess,
     sendSwapTx,
-    tokenInId,
+    tokenInSymbol,
   ]);
 }

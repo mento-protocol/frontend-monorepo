@@ -1,7 +1,11 @@
 import { ChainId } from "@/config/chains";
-import { getTokenAddress } from "@/config/tokens";
 import { getProvider } from "@/features/providers";
-import { Mento, TradablePair } from "@mento-protocol/mento-sdk";
+import {
+  Mento,
+  TokenSymbol,
+  TradablePair,
+  getTokenAddress,
+} from "@mento-protocol/mento-sdk";
 
 const cache: Record<number, Mento> = {};
 
@@ -20,11 +24,21 @@ export async function getMentoSdk(chainId: ChainId): Promise<Mento> {
  */
 export async function getTradablePairForTokens(
   chainId: ChainId,
-  tokenInId: string,
-  tokenOutId: string,
+  tokenInSymbol: TokenSymbol,
+  tokenOutSymbol: TokenSymbol,
 ): Promise<TradablePair> {
   const sdk = await getMentoSdk(chainId);
-  const tokenInAddr = getTokenAddress(tokenInId, chainId);
-  const tokenOutAddr = getTokenAddress(tokenOutId, chainId);
+  const tokenInAddr = getTokenAddress(tokenInSymbol, chainId);
+  const tokenOutAddr = getTokenAddress(tokenOutSymbol, chainId);
+  if (!tokenInAddr) {
+    throw new Error(
+      `${tokenInSymbol} token address not found on chain ${chainId}`,
+    );
+  }
+  if (!tokenOutAddr) {
+    throw new Error(
+      `${tokenOutSymbol} token address not found on chain ${chainId}`,
+    );
+  }
   return await sdk.findPairForTokens(tokenInAddr, tokenOutAddr);
 }

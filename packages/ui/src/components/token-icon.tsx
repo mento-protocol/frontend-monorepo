@@ -1,7 +1,7 @@
 import { memo, useMemo, useState } from "react";
 
 interface Token {
-  id: string;
+  address: string;
   symbol: string;
   name: string;
   decimals: number;
@@ -36,7 +36,7 @@ function TokenIconBase({ token, className, size = 20 }: Props) {
     );
   }
 
-  const imgSrc = `/tokens/${token.id}.svg`;
+  const imgSrc = `/tokens/${token.symbol}.svg`;
 
   if (imgSrc && !imgError) {
     return (

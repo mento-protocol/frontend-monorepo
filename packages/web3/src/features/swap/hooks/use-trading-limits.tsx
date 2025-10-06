@@ -1,24 +1,23 @@
-import { useQuery } from "@tanstack/react-query";
-import { getMentoSdk } from "@/features/sdk";
-import { TokenId, getTokenAddress } from "@/config/tokens";
-import { getTradablePairForTokens } from "@/features/sdk";
 import { getTokenByAddress } from "@/config/tokens";
+import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
+import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
+import { useQuery } from "@tanstack/react-query";
 
 export function useTradingLimits(
-  tokenInId: string,
-  tokenOutId: string,
+  tokenInSymbol: string,
+  tokenOutSymbol: string,
   chainId: number,
 ) {
   return useQuery({
-    queryKey: ["trading-limits", tokenInId, tokenOutId, chainId],
+    queryKey: ["trading-limits", tokenInSymbol, tokenOutSymbol, chainId],
     queryFn: async () => {
-      if (!tokenInId || !tokenOutId) return null;
+      if (!tokenInSymbol || !tokenOutSymbol) return null;
 
       const mento = await getMentoSdk(chainId);
       const tradablePair = await getTradablePairForTokens(
         chainId,
-        tokenInId as TokenId,
-        tokenOutId as TokenId,
+        tokenInSymbol as TokenSymbol,
+        tokenOutSymbol as TokenSymbol,
       );
 
       if (
@@ -36,8 +35,26 @@ export function useTradingLimits(
       const limitCfg = await mento.getTradingLimitConfig(exchangeId);
 
       // Check limits for both tokens
-      const tokenInAddress = getTokenAddress(tokenInId as TokenId, chainId);
-      const tokenOutAddress = getTokenAddress(tokenOutId as TokenId, chainId);
+      const tokenInAddress = getTokenAddress(
+        tokenInSymbol as TokenSymbol,
+        chainId,
+      );
+      const tokenOutAddress = getTokenAddress(
+        tokenOutSymbol as TokenSymbol,
+        chainId,
+      );
+
+      if (!tokenInAddress) {
+        throw new Error(
+          `${tokenInSymbol} token address not found on chain ${chainId}`,
+        );
+      }
+
+      if (!tokenOutAddress) {
+        throw new Error(
+          `${tokenOutSymbol} token address not found on chain ${chainId}`,
+        );
+      }
 
       // Filter limits for tokenIn
       const tokenInLimits = tradingLimits.filter(
@@ -102,6 +119,6 @@ export function useTradingLimits(
         asset: limitAsset,
       };
     },
-    enabled: !!tokenInId && !!tokenOutId,
+    enabled: !!tokenInSymbol && !!tokenOutSymbol,
   });
 }

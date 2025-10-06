@@ -1,10 +1,11 @@
 import { chainIdToChain } from "@/config/chains";
-import { getTokenAddress, TokenId, getTokenById } from "@/config/tokens";
+import { getTokenBySymbol } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { SwapDirection } from "@/features/swap/types";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
 import { logger } from "@/utils/logger";
 import { retryAsync } from "@/utils/retry";
+import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
 import { toast } from "@repo/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
@@ -16,8 +17,8 @@ import { confirmViewAtom, formValuesAtom } from "../swap-atoms";
 
 export function useSwapTransaction(
   chainId: number,
-  fromToken: TokenId,
-  toToken: TokenId,
+  fromToken: TokenSymbol,
+  toToken: TokenSymbol,
   amountInWei: string,
   thresholdAmountInWei: string,
   direction: SwapDirection,
@@ -66,6 +67,16 @@ export function useSwapTransaction(
       const sdk = await getMentoSdk(chainId);
       const fromTokenAddr = getTokenAddress(fromToken, chainId);
       const toTokenAddr = getTokenAddress(toToken, chainId);
+      if (!fromTokenAddr) {
+        throw new Error(
+          `${fromToken} token address not found on chain ${chainId}`,
+        );
+      }
+      if (!toTokenAddr) {
+        throw new Error(
+          `${toToken} token address not found on chain ${chainId}`,
+        );
+      }
       const tradablePair = await getTradablePairForTokens(
         chainId,
         fromToken,
@@ -161,8 +172,8 @@ export function useSwapTransaction(
       if (swapValues) {
         const chain = chainIdToChain[chainId];
         const explorerUrl = chain?.blockExplorers?.default.url;
-        const fromTokenObj = getTokenById(fromToken, chainId);
-        const toTokenObj = getTokenById(toToken, chainId);
+        const fromTokenObj = getTokenBySymbol(fromToken, chainId);
+        const toTokenObj = getTokenBySymbol(toToken, chainId);
         const fromTokenSymbol = fromTokenObj?.symbol || "Token";
         const toTokenSymbol = toTokenObj?.symbol || "Token";
 

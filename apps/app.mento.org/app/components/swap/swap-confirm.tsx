@@ -1,5 +1,6 @@
 "use client";
 
+import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import { Button, IconLoading, TokenIcon } from "@repo/ui";
 import {
   formatWithMaxDecimals,
@@ -8,7 +9,6 @@ import {
   getMinBuyAmount,
   logger,
   SwapDirection,
-  TokenId,
   useAccountBalances,
   useGasEstimation,
   useOptimizedSwapQuote,
@@ -29,8 +29,8 @@ export function SwapConfirm() {
 
   const amount = String(formValues?.amount || "");
   const direction = (formValues?.direction || "in") as SwapDirection;
-  const tokenInId = formValues?.tokenInId || TokenId.cUSD;
-  const tokenOutId = formValues?.tokenOutId || TokenId.CELO;
+  const tokenInSymbol = formValues?.tokenInSymbol || TokenSymbol.cUSD;
+  const tokenOutSymbol = formValues?.tokenOutSymbol || TokenSymbol.CELO;
   const slippage = String(formValues?.slippage || "0.5");
 
   const { data: balancesFromHook } = useAccountBalances({ address, chainId });
@@ -43,7 +43,7 @@ export function SwapConfirm() {
     rate,
     fromTokenUSDValue,
     toTokenUSDValue,
-  } = useOptimizedSwapQuote(amount, direction, tokenInId, tokenOutId);
+  } = useOptimizedSwapQuote(amount, direction, tokenInSymbol, tokenOutSymbol);
 
   const swapValues = useMemo(() => {
     let computedFromAmountWei = amountWei;
@@ -96,8 +96,8 @@ export function SwapConfirm() {
   const { sendSwapTx, isSwapTxLoading, isSwapTxReceiptLoading } =
     useSwapTransaction(
       chainId,
-      tokenInId,
-      tokenOutId,
+      tokenInSymbol,
+      tokenOutSymbol,
       fromAmountWei,
       thresholdAmountInWei,
       direction,
@@ -114,8 +114,8 @@ export function SwapConfirm() {
 
   const { skipApprove } = useSwapAllowance({
     chainId,
-    tokenInId,
-    tokenOutId,
+    tokenInSymbol,
+    tokenOutSymbol,
     approveAmount,
     address,
   });
@@ -123,8 +123,8 @@ export function SwapConfirm() {
   const { data: gasEstimate, isLoading: isGasEstimating } = useGasEstimation({
     amount,
     quote,
-    tokenInId,
-    tokenOutId,
+    tokenInSymbol,
+    tokenOutSymbol,
     direction,
     address: address || "",
     chainId,
@@ -145,15 +145,17 @@ export function SwapConfirm() {
     // Fallback to calculating it ourselves
     if (direction === "in") {
       // selling from-token
-      return tokenInId === "cUSD" ? amount || "0" : fromTokenUSDValue || "0";
+      return tokenInSymbol === "cUSD"
+        ? amount || "0"
+        : fromTokenUSDValue || "0";
     } else {
       // still selling from-token (but user typed in Buy first)
-      return tokenInId === "cUSD" ? quote || "0" : fromTokenUSDValue || "0";
+      return tokenInSymbol === "cUSD" ? quote || "0" : fromTokenUSDValue || "0";
     }
   }, [
     formValues?.sellUSDValue,
     direction,
-    tokenInId,
+    tokenInSymbol,
     amount,
     quote,
     fromTokenUSDValue,
@@ -169,15 +171,15 @@ export function SwapConfirm() {
 
     // Fallback to calculating it ourselves
     if (direction === "in") {
-      return tokenOutId === "cUSD" ? quote || "0" : toTokenUSDValue || "0";
+      return tokenOutSymbol === "cUSD" ? quote || "0" : toTokenUSDValue || "0";
     } else {
       // we're buying the to-token
-      return tokenOutId === "cUSD" ? amount || "0" : toTokenUSDValue || "0";
+      return tokenOutSymbol === "cUSD" ? amount || "0" : toTokenUSDValue || "0";
     }
   }, [
     formValues?.buyUSDValue,
     direction,
-    tokenOutId,
+    tokenOutSymbol,
     amount,
     quote,
     toTokenUSDValue,
@@ -194,8 +196,12 @@ export function SwapConfirm() {
     }
   }
 
-  const fromToken = allTokenOptions.find((token) => token.id === tokenInId);
-  const toToken = allTokenOptions.find((token) => token.id === tokenOutId);
+  const fromToken = allTokenOptions.find(
+    (token) => token.symbol === tokenInSymbol,
+  );
+  const toToken = allTokenOptions.find(
+    (token) => token.symbol === tokenOutSymbol,
+  );
 
   if (!formValues) {
     return null;
@@ -267,7 +273,7 @@ export function SwapConfirm() {
       <div className="flex w-full flex-col items-start justify-start space-y-2">
         <div className="flex w-full flex-row items-center justify-between">
           <span className="text-muted-foreground">Rate</span>
-          <span data-testid="rateLabel">{`${rate && Number(rate) > 0 ? Number(rate).toFixed(4) : "0"} ${tokenInId} ~ 1 ${tokenOutId}`}</span>
+          <span data-testid="rateLabel">{`${rate && Number(rate) > 0 ? Number(rate).toFixed(4) : "0"} ${tokenInSymbol} ~ 1 ${tokenOutSymbol}`}</span>
         </div>
 
         <div className="flex w-full flex-row items-center justify-between">

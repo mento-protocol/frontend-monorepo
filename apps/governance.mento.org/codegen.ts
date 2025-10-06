@@ -1,5 +1,6 @@
 import { CodegenConfig } from "@graphql-codegen/cli";
 import "dotenv/config";
+import { env } from "./app/env.mjs";
 
 const config: CodegenConfig = {
   generates: {
@@ -8,9 +9,9 @@ const config: CodegenConfig = {
     "./app/graphql/subgraph/generated/subgraph.tsx": {
       overwrite: true,
       schema: {
-        [process.env.NEXT_PUBLIC_SUBGRAPH_URL ?? ""]: {
+        [env.NEXT_PUBLIC_SUBGRAPH_URL ?? ""]: {
           headers: {
-            Authorization: `Bearer ${process.env.NEXT_PUBLIC_GRAPH_API_KEY}`,
+            Authorization: `Bearer ${env.NEXT_PUBLIC_GRAPH_API_KEY}`,
           },
         },
         "./schema.client.graphql": {},
@@ -39,7 +40,7 @@ const config: CodegenConfig = {
     },
     "./app/graphql/celo-explorer/generated/celoGraph.tsx": {
       overwrite: true,
-      schema: process.env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL,
+      schema: env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL,
       documents: ["app/graphql/celo-explorer/**/*.graphql"],
       plugins: [
         "typescript",
