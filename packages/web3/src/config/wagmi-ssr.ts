@@ -1,6 +1,5 @@
-import { celoSepolia } from "viem/chains";
+import { Chain, celo, celoSepolia } from "viem/chains";
 import { cookieStorage, createConfig, createStorage, http } from "wagmi";
-import { celo, Chain } from "wagmi/chains";
 import { allChains } from "./chains";
 
 export const wagmiSsrConfig = createConfig({
