@@ -1,8 +1,7 @@
 "use client";
 
-import { NumbersService } from "@repo/web3";
-import { formatUnits } from "viem";
 import { useTokens } from "@repo/web3";
+import { formatUnits } from "viem";
 
 export const VoteTitle = () => {
   const { veMentoBalance } = useTokens();

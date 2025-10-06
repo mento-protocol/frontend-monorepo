@@ -26,20 +26,21 @@ import {
 } from "@repo/ui";
 import {
   Identicon,
+  LockingABI,
   LockWithExpiration,
+  useContracts,
   useCurrentChain,
+  useLockedAmount,
   useLocksByAccount,
+  useReadContracts,
   WalletHelper,
 } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
 import { subWeeks } from "date-fns";
 import { Info } from "lucide-react";
-import { useState, useMemo } from "react";
-import { formatUnits, parseUnits } from "viem";
-import { useLockedAmount, useReadContracts, useContracts } from "@repo/web3";
-import { LockingABI } from "@repo/web3";
+import { useMemo, useState } from "react";
+import { formatUnits } from "viem";
 import { UpdateLockDialog } from "./update-lock-dialog";
-import spacetime from "spacetime";
 
 const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b;
 
@@ -67,14 +68,6 @@ export const LockList = () => {
     } else {
       return "received";
     }
-  };
-
-  // Helper function to format amounts
-  const formatAmount = (amount: string) => {
-    const formatted = formatUnits(BigInt(amount), 18);
-    return Number(formatted).toLocaleString("en-US", {
-      maximumFractionDigits: 0,
-    });
   };
 
   // Helper function to format date
@@ -167,29 +160,6 @@ export const LockList = () => {
 
     return map;
   }, [receivedLockOwners, ownerLockedAmounts, ownerLocksArray]);
-
-  // Get veMENTO amounts for owned locks using contract calls (same as voting power form)
-  const { data: veMentoData } = useReadContracts({
-    allowFailure: true,
-    contracts: ownedLocks.map((lock) => ({
-      address: Locking.address,
-      abi: LockingABI,
-      functionName: "getLock",
-      args: [parseUnits(lock.amount, 18), lock.slope, lock.cliff],
-    })),
-  });
-
-  // Map lockId to veMENTO amount from contract
-  const veMentoMap = useMemo(() => {
-    const map = new Map<string, bigint>();
-    ownedLocks.forEach((lock, i) => {
-      const result = veMentoData?.[i]?.result as [bigint, bigint] | undefined;
-      if (result) {
-        map.set(lock.lockId, result[0]); // First return value is veMENTO amount
-      }
-    });
-    return map;
-  }, [ownedLocks, veMentoData]);
 
   // Deterministic client-side estimation
   const lockEstimates = useMemo(() => {
@@ -718,8 +688,6 @@ export const LockList = () => {
             {pastLocks.map((lock) => {
               const badgeType = getBadgeType(lock);
               const delegationInfo = getDelegationInfo(lock, badgeType);
-              const isOwner =
-                lock.owner.id.toLowerCase() === address?.toLowerCase();
 
               // Get estimates for this lock
               const estimates = lockEstimates.get(lock.lockId);
