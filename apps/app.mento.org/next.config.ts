@@ -55,7 +55,7 @@ export default withSentryConfig(nextConfig, {
 
   // Sentry authentication token, required for readable stack traces
   // https://docs.sentry.io/platforms/javascript/guides/nextjs/manual-setup/#step-4-add-readable-stack-traces-with-source-maps-optional
-  authToken: process.env.SENTRY_AUTH_TOKEN,
+  authToken: env.SENTRY_AUTH_TOKEN,
 
   // Upload a larger set of source maps for prettier stack traces (increases build time)
   widenClientFileUpload: true,
