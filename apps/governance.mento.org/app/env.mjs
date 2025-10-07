@@ -7,23 +7,30 @@ export const env = createEnv({
    * Serverside Environment variables, not available on the client.
    * Will throw if you access these variables on the client.
    */
-  server: {},
+  server: {
+    ETHERSCAN_API_KEY: z.string(),
+  },
   /*
    * Environment variables available on the client (and server).
    *
    * 💡 You'll get type errors if these are not prefixed with NEXT_PUBLIC_.
    */
   client: {
+    NEXT_PUBLIC_BLOCKSCOUT_API_URL: z.string().url(),
+    NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL: z.string().url(),
+    NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA: z
+      .string()
+      .url()
+      .optional()
+      .default("https://celo-sepolia.blockscout.com/api/v1/graphql"),
+    NEXT_PUBLIC_ETHERSCAN_API_URL: z.string().url(),
+    NEXT_PUBLIC_GRAPH_API_KEY: z.string(),
+    NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE: z.string(),
     NEXT_PUBLIC_STORAGE_URL: z.string().url(),
-    NEXT_PUBLIC_CELO_EXPLORER_API_URL: z.string().url(),
-    NEXT_PUBLIC_CELO_EXPLORER_API_URL_ALFAJORES: z.string().url(),
     NEXT_PUBLIC_SUBGRAPH_URL: z.string().url(),
-    NEXT_PUBLIC_SUBGRAPH_URL_ALFAJORES: z.string().url(),
+    NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA: z.string().url(),
     NEXT_PUBLIC_VERCEL_ENV: z.string(),
     NEXT_PUBLIC_WALLET_CONNECT_ID: z.string(),
-    NEXT_PUBLIC_GRAPH_API_KEY: z.string(),
-    NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES: z.string(),
-    NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE: z.string(),
   },
   /*
    * Due to how Next.js bundles environment variables on Edge and Client,
@@ -32,20 +39,21 @@ export const env = createEnv({
    * 💡 You'll get type errors if not all variables from `server` & `client` are included here.
    */
   runtimeEnv: {
-    NEXT_PUBLIC_STORAGE_URL: process.env.NEXT_PUBLIC_STORAGE_URL,
-    NEXT_PUBLIC_CELO_EXPLORER_API_URL:
-      process.env.NEXT_PUBLIC_CELO_EXPLORER_API_URL,
-    NEXT_PUBLIC_CELO_EXPLORER_API_URL_ALFAJORES:
-      process.env.NEXT_PUBLIC_CELO_EXPLORER_API_URL_ALFAJORES,
-    NEXT_PUBLIC_SUBGRAPH_URL: process.env.NEXT_PUBLIC_SUBGRAPH_URL,
-    NEXT_PUBLIC_SUBGRAPH_URL_ALFAJORES:
-      process.env.NEXT_PUBLIC_SUBGRAPH_URL_ALFAJORES,
-    NEXT_PUBLIC_VERCEL_ENV: process.env.NEXT_PUBLIC_VERCEL_ENV,
-    NEXT_PUBLIC_WALLET_CONNECT_ID: process.env.NEXT_PUBLIC_WALLET_CONNECT_ID,
+    NEXT_PUBLIC_BLOCKSCOUT_API_URL: process.env.NEXT_PUBLIC_BLOCKSCOUT_API_URL,
+    NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL:
+      process.env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL,
+    NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA:
+      process.env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA,
+    ETHERSCAN_API_KEY: process.env.ETHERSCAN_API_KEY,
+    NEXT_PUBLIC_ETHERSCAN_API_URL: process.env.NEXT_PUBLIC_ETHERSCAN_API_URL,
     NEXT_PUBLIC_GRAPH_API_KEY: process.env.NEXT_PUBLIC_GRAPH_API_KEY,
-    NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES:
-      process.env.NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES,
     NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE:
       process.env.NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE,
+    NEXT_PUBLIC_STORAGE_URL: process.env.NEXT_PUBLIC_STORAGE_URL,
+    NEXT_PUBLIC_SUBGRAPH_URL: process.env.NEXT_PUBLIC_SUBGRAPH_URL,
+    NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA:
+      process.env.NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA,
+    NEXT_PUBLIC_VERCEL_ENV: process.env.NEXT_PUBLIC_VERCEL_ENV,
+    NEXT_PUBLIC_WALLET_CONNECT_ID: process.env.NEXT_PUBLIC_WALLET_CONNECT_ID,
   },
 });

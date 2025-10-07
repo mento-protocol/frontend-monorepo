@@ -10,8 +10,8 @@ export const links = {
   forum: "https://forum.celo.org/c/mento/33",
   privacyPdf:
     "https://drive.google.com/uc?export=download&id=1E1pBFFo1R7sdGZx_xvkESdaaH2LOhC5e",
-  explorerMain: "https://explorer.celo.org/mainnet",
-  explorerAlfajores: "https://alfajores.celoscan.io",
+  explorerMain: "https://celo.blockscout.com/mainnet",
+  explorerCeloSepolia: "https://celo-sepolia.blockscout.com",
   votingPolicy: "/voting-policy",
   privacyPolicy: "/privacy-policy",
 };

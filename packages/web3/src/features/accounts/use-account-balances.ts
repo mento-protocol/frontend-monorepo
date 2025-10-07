@@ -1,17 +1,18 @@
-import { BALANCE_STALE_TIME } from "@/config/consts";
-import {
-  type TokenId,
-  getTokenAddress,
-  getTokenOptionsByChainId,
-} from "@/config/tokens";
+import { BALANCE_STALE_TIME } from "@/config/constants";
+import { getTokenOptionsByChainId } from "@/config/tokens";
 import { getProvider } from "@/features/providers";
 import { validateAddress } from "@/utils/addresses";
 import { logger } from "@/utils/logger";
+import { getTokenAddress, TokenSymbol } from "@mento-protocol/mento-sdk";
 import { useQuery } from "@tanstack/react-query";
 import { Contract } from "ethers";
 import { erc20Abi } from "viem";
 
-export type AccountBalances = Record<TokenId, string>;
+/**
+ * Account balances mapped by token symbol
+ * Token symbols are dynamically determined from the SDK
+ */
+export type AccountBalances = Partial<Record<TokenSymbol, string>>;
 
 interface UseAccountBalancesParams {
   address?: string;
@@ -26,10 +27,14 @@ async function getTokenBalance({
 }: {
   address: string;
   chainId: number;
-  tokenSymbol: TokenId;
+  tokenSymbol: TokenSymbol;
 }): Promise<string> {
-  // Return type changed to Promise<string>
   const tokenAddress = getTokenAddress(tokenSymbol, chainId);
+  if (!tokenAddress) {
+    throw new Error(
+      `${tokenSymbol} token address not found on chain ${chainId}`,
+    );
+  }
   const provider = getProvider(chainId);
   try {
     const tokenContract = new Contract(tokenAddress, erc20Abi, provider);
@@ -55,7 +60,7 @@ async function _fetchAccountBalances(
   chainId: number,
 ): Promise<AccountBalances> {
   validateAddress(address, "_fetchAccountBalancesRQ"); // Renamed for clarity
-  const tokenBalances: Partial<Record<TokenId, string>> = {};
+  const tokenBalances: AccountBalances = {};
   const tokenOptions = getTokenOptionsByChainId(chainId);
 
   const balancePromises = tokenOptions.map(async (tokenSymbol) => {
@@ -80,7 +85,7 @@ async function _fetchAccountBalances(
     }
   });
 
-  return tokenBalances as AccountBalances;
+  return tokenBalances;
 }
 
 export function useAccountBalances({
@@ -92,8 +97,8 @@ export function useAccountBalances({
     queryFn: async () => {
       if (!address || !chainId) {
         const empty: AccountBalances = {} as AccountBalances;
-        for (const id of getTokenOptionsByChainId(chainId ?? 0))
-          empty[id] = "0";
+        for (const symbol of getTokenOptionsByChainId(chainId ?? 0))
+          empty[symbol] = "0";
         return empty;
       }
       return _fetchAccountBalances(address, chainId);
@@ -102,8 +107,8 @@ export function useAccountBalances({
     enabled: !!address && !!chainId,
     placeholderData: () => {
       const placeholder: AccountBalances = {} as AccountBalances;
-      for (const id of getTokenOptionsByChainId(chainId ?? 0))
-        placeholder[id] = "0";
+      for (const symbol of getTokenOptionsByChainId(chainId ?? 0))
+        placeholder[symbol] = "0";
       return placeholder;
     },
     retry: 1,

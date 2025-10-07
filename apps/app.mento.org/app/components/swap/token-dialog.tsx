@@ -21,8 +21,8 @@ import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { ChevronLeft, ChevronsRight, Search } from "lucide-react";
 import { Fragment, useState } from "react";
 
+import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import { Input } from "@repo/ui";
-import type { TokenId } from "@repo/web3";
 import {
   formatWithMaxDecimals,
   fromWeiRounded,
@@ -35,9 +35,9 @@ interface TokenDialogProps {
   onValueChange: (value: string) => void;
   trigger: React.ReactNode;
   title?: string;
-  tokenInId?: TokenId;
-  excludeTokenId?: string;
-  filterByTokenId?: TokenId;
+  tokenInSymbol?: TokenSymbol;
+  excludeTokenSymbol?: TokenSymbol;
+  filterByTokenSymbol?: TokenSymbol;
   onClose?: () => void;
 }
 
@@ -46,9 +46,9 @@ export default function TokenDialog({
   onValueChange,
   trigger,
   title = "Select asset to sell",
-  tokenInId,
-  excludeTokenId,
-  filterByTokenId,
+  tokenInSymbol,
+  excludeTokenSymbol,
+  filterByTokenSymbol,
   onClose,
 }: TokenDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -59,30 +59,32 @@ export default function TokenDialog({
   const { data: balancesFromHook } = useAccountBalances({ address, chainId });
 
   const { tokenOptions, allTokenOptions } = useTokenOptions(
-    tokenInId,
+    tokenInSymbol,
     balancesFromHook,
   );
 
-  // Get tradable pairs if filterByTokenId is provided
-  const { data: tradableTokenIds, isLoading: isLoadingTradablePairs } =
-    useTradablePairs(filterByTokenId);
+  // Get tradable pairs if filterByTokenSymbol is provided
+  const { data: tradableTokenSymbols, isLoading: isLoadingTradablePairs } =
+    useTradablePairs(filterByTokenSymbol);
   // Filter tokens based on search input and exclude the token that's already selected
-  const filteredTokens = (tokenInId ? tokenOptions : allTokenOptions)
+  const filteredTokens = (tokenInSymbol ? tokenOptions : allTokenOptions)
     .filter(
       (token) =>
         token.symbol.toLowerCase().includes(search.toLowerCase()) ||
         token.name.toLowerCase().includes(search.toLowerCase()),
     )
-    .filter((token) => token.id !== excludeTokenId)
+    .filter((token) => token.symbol !== excludeTokenSymbol)
     .map((token) => {
-      const balanceValue = balancesFromHook?.[token.id];
+      const balanceValue = balancesFromHook?.[token.symbol];
       const balance = fromWeiRounded(balanceValue, token.decimals);
 
-      // Check if this token is a valid pair with the filterByTokenId
+      // Check if this token is a valid pair with the filterByTokenSymbol
+      // Show as valid if: no filter, still loading, or token is in the valid list
       const isValidPair =
-        !filterByTokenId ||
-        !tradableTokenIds ||
-        tradableTokenIds.includes(token.id as TokenId);
+        !filterByTokenSymbol ||
+        isLoadingTradablePairs ||
+        !tradableTokenSymbols ||
+        tradableTokenSymbols.includes(token.symbol as TokenSymbol);
 
       return {
         ...token,
@@ -100,8 +102,8 @@ export default function TokenDialog({
       return 0;
     });
 
-  const handleTokenSelect = (tokenId: TokenId) => {
-    onValueChange(tokenId);
+  const handleTokenSelect = (TokenSymbol: TokenSymbol) => {
+    onValueChange(TokenSymbol);
     setIsOpen(false);
   };
 
@@ -138,7 +140,7 @@ export default function TokenDialog({
           />
         </div>
 
-        {isLoadingTradablePairs && filterByTokenId ? (
+        {isLoadingTradablePairs && filterByTokenSymbol ? (
           <div
             className="flex items-center justify-center py-8"
             data-testid="loader"
@@ -148,7 +150,7 @@ export default function TokenDialog({
         ) : (
           <ScrollArea className="h-[calc(100vh-20rem)] pr-3">
             {filteredTokens.map((token, index) => (
-              <Fragment key={token.id}>
+              <Fragment key={token.symbol}>
                 {!token.isValidPair ? (
                   <TooltipProvider>
                     <Tooltip>
@@ -156,15 +158,15 @@ export default function TokenDialog({
                         <div
                           className={cn(
                             "hover:bg-accent group flex w-full items-center justify-between p-2 text-left opacity-50 hover:cursor-pointer",
-                            value === token.id && "bg-accent",
+                            value === token.symbol && "bg-accent",
                           )}
-                          data-testid={`tokenOption_${token.id}`}
+                          data-testid={`tokenOption_${token.symbol}_invalid`}
                           onClick={() => {
-                            handleTokenSelect(token.id);
+                            handleTokenSelect(token.symbol);
                           }}
                           onKeyUp={(e) => {
                             if (e.key === "Enter") {
-                              handleTokenSelect(token.id);
+                              handleTokenSelect(token.symbol);
                             }
                           }}
                         >
@@ -172,10 +174,9 @@ export default function TokenDialog({
                             <div className="group relative grid h-10 w-10 place-content-center">
                               <TokenIcon
                                 token={{
-                                  id: token.id,
+                                  address: token.address,
                                   symbol: token.symbol,
                                   name: token.name,
-                                  color: token.color || "#000000",
                                   decimals: token.decimals || 18,
                                 }}
                                 className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 group-hover:opacity-0"
@@ -209,7 +210,9 @@ export default function TokenDialog({
                         sideOffset={6}
                         hideArrow
                       >
-                        <p data-testid="invalidPairTooltip">Invalid pair</p>
+                        <p data-testid="invalidPairTooltip">
+                          No route found to this token
+                        </p>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -217,15 +220,15 @@ export default function TokenDialog({
                   <div
                     className={cn(
                       "hover:bg-accent group flex w-full items-center justify-between p-2 text-left hover:cursor-pointer",
-                      value === token.id && "bg-accent",
+                      value === token.symbol && "bg-accent",
                     )}
-                    data-testid={`tokenOption_${token.id}`}
+                    data-testid={`tokenOption_${token.symbol}`}
                     onClick={() => {
-                      handleTokenSelect(token.id);
+                      handleTokenSelect(token.symbol);
                     }}
                     onKeyUp={(e) => {
                       if (e.key === "Enter") {
-                        handleTokenSelect(token.id);
+                        handleTokenSelect(token.symbol);
                       }
                     }}
                   >
@@ -233,10 +236,9 @@ export default function TokenDialog({
                       <div className="group relative grid h-10 w-10 place-content-center">
                         <TokenIcon
                           token={{
-                            id: token.id,
+                            address: token.address,
                             symbol: token.symbol,
                             name: token.name,
-                            color: token.color || "#000000",
                             decimals: token.decimals || 18,
                           }}
                           className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 group-hover:opacity-0"

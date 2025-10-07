@@ -24,11 +24,12 @@ export function ReserveAddressesContent({
 
   // Cleanup timeouts on unmount
   useEffect(() => {
+    const timeouts = copyTimeoutsRef.current;
     return () => {
-      copyTimeoutsRef.current.forEach((timeout) => {
+      timeouts.forEach((timeout) => {
         clearTimeout(timeout);
       });
-      copyTimeoutsRef.current.clear();
+      timeouts.clear();
     };
   }, []);
 

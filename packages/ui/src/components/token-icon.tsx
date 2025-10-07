@@ -1,10 +1,9 @@
 import { memo, useMemo, useState } from "react";
 
 interface Token {
-  id: string;
+  address: string;
   symbol: string;
   name: string;
-  color: string;
   decimals: number;
 }
 
@@ -37,7 +36,7 @@ function TokenIconBase({ token, className, size = 20 }: Props) {
     );
   }
 
-  const imgSrc = `/tokens/${token.id}.svg`;
+  const imgSrc = `/tokens/${token.symbol}.svg`;
 
   if (imgSrc && !imgError) {
     return (
@@ -53,7 +52,10 @@ function TokenIconBase({ token, className, size = 20 }: Props) {
   }
 
   return (
-    <div className="bg-background flex h-10 w-10 items-center justify-center">
+    <div
+      className="bg-background flex items-center justify-center"
+      style={{ width: size, height: size }}
+    >
       <div className="text-foreground font-semibold">{symbol}</div>
     </div>
   );

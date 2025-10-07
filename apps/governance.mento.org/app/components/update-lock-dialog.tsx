@@ -7,7 +7,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@repo/ui";
-import type { LockWithExpiration } from "@repo/web3";
 import { useTokens } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
 import { useMemo, useState } from "react";
@@ -15,6 +14,7 @@ import { FormProvider, useForm } from "react-hook-form";
 import { CreateLockProvider } from "./lock/create-lock-provider";
 import { LockFormFields } from "./lock/lock-form-fields";
 import { LockingButton } from "./lock/locking-button";
+import { LockWithExpiration } from "@/contracts/types";
 
 interface UpdateLockDialogProps {
   open: boolean;

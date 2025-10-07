@@ -1,5 +1,17 @@
 "use client";
 import {
+  DEFAULT_LOCKING_CLIFF,
+  LOCKING_AMOUNT_FORM_KEY,
+  LOCKING_DELEGATE_ADDRESS_FORM_KEY,
+  LOCKING_DELEGATE_ENABLED_FORM_KEY,
+  LOCKING_DURATION_FORM_KEY,
+  LOCKING_UNLOCK_DATE_FORM_KEY,
+  MAX_LOCKING_DURATION_WEEKS,
+  MIN_LOCK_PERIOD_WEEKS,
+  useLockCalculation,
+} from "@/contracts/locking";
+import { LockWithExpiration } from "@/contracts/types";
+import {
   Checkbox,
   CoinInput,
   Datepicker,
@@ -8,20 +20,8 @@ import {
   Slider,
   useDebounce,
 } from "@repo/ui";
-import {
-  DEFAULT_LOCKING_CLIFF,
-  LOCKING_AMOUNT_FORM_KEY,
-  LOCKING_DURATION_FORM_KEY,
-  LOCKING_DELEGATE_ADDRESS_FORM_KEY,
-  LOCKING_DELEGATE_ENABLED_FORM_KEY,
-  LOCKING_UNLOCK_DATE_FORM_KEY,
-  MAX_LOCKING_DURATION_WEEKS,
-  MIN_LOCK_PERIOD_WEEKS,
-  isValidAddress,
-  useLockCalculation,
-  type LockWithExpiration,
-} from "@repo/web3";
-import { useEffect, useMemo, useState, useId } from "react";
+import { isValidAddress } from "@repo/web3";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Controller, useForm, useFormContext } from "react-hook-form";
 import spacetime from "spacetime";
 import { formatUnits } from "viem";

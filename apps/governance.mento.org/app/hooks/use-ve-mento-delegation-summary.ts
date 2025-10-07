@@ -1,6 +1,6 @@
+import { LockWithExpiration } from "@/contracts/types";
 import { useMemo } from "react";
 import { formatUnits } from "viem";
-import { LockWithExpiration } from "@repo/web3";
 
 export function useVeMentoDelegationSummary(params: {
   locks: LockWithExpiration[] | undefined;

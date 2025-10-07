@@ -11,7 +11,6 @@ A monorepo for all our frontend apps, designed to simplify sharing of code like 
 - **[Tailwind CSS](https://tailwindcss.com/)**: For styling
 - **[shadcn/ui](https://ui.shadcn.com/)**: Our UI component base library to extend from
 - **[Trunk CLI](https://trunk.io/)**: Metalinter and formatter (ESLint, Prettier, Markdown, YAML, Shell, Commitlint)
-- **[Changesets](https://github.com/changesets/changesets)**: For managing versions and generating changelogs
 - **[Vercel](https://vercel.com/)**: For deployments and turborepo build remote caching
 - **[GitHub Actions](https://github.com/features/actions)**: For CI/CD (with Turborepo caching for builds via Vercel)
 
@@ -32,7 +31,6 @@ frontend-monorepo/
 │   ├── ui/                   # Shared UI library with tailwind styles and shadcn/ui components
 │   └── web3/                 # Shared library with web3-specific components and hooks
 │
-├── .changeset/               # Changesets for versioning
 ├── .github/                  # GitHub workflows
 │   └── workflows/            # CI/CD workflows
 ├── .trunk/                   # Trunk CLI configuration and cache
@@ -218,36 +216,6 @@ feat(ui): add new button component
 - **Pre-push**: Run comprehensive checks before pushing
 - **Commit-msg**: Validate commit message format
 
-### Versioning and Publishing
-
-This repository uses Changesets to manage versions and changelogs.
-
-#### Creating a Changeset
-
-When you make changes that should be published:
-
-```bash
-pnpm changeset
-```
-
-Follow the prompts to specify the type of change (patch, minor, major) and describe the changes.
-
-#### Versioning Packages
-
-To update versions based on changesets:
-
-```bash
-pnpm version
-```
-
-#### Publishing Packages
-
-To publish packages to the registry:
-
-```bash
-pnpm release
-```
-
 ## CI/CD Pipeline
 
 The repository is set up with GitHub Actions for CI/CD:
@@ -309,7 +277,11 @@ This repository has Signed Remote Caching enabled (`"signature": true` in `turbo
 
 ## Potential Future Improvements
 
+<!-- This link is working, idk what markdownlint's problem is here 🤷‍♂️ -->
+<!-- markdown-link-check-disable -->
+
 - [ ] Add [syncpack](https://www.npmjs.com/package/syncpack) for consistent dependency versions across all monorepo packages
+<!-- markdown-link-check-enable -->
 - [ ] Finetune builds. There's probably ways to make the builds of both packages and apps smaller and/or more performant.
 - [ ] Make VS Code's "Go To Definition" on a component jump to the actual TypeScript source file instead of the compiled JS file in ./dist
 - [ ] Enable additional Trunk linters for production CI (security scanning, image optimization)

@@ -3,7 +3,6 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
-    "changeset": "changeset",
     "check-types": "turbo run check-types",
     "dev": "turbo run dev",
     "format": "trunk fmt",
@@ -11,9 +10,7 @@
     "health": "sh ./scripts/healthcheck.sh",
     "lint": "trunk check",
     "lint:fix": "trunk check --fix",
-    "release": "turbo run build && changeset publish",
-    "test": "turbo run test",
-    "version": "changeset version"
+    "test": "turbo run test"
   },
   "resolutions": {
     "brace-expansion": ">=2.0.2",
@@ -23,17 +20,22 @@
     "zod": "^3.25.67"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.29.1",
-    "@commitlint/cli": "^19.8.0",
     "@commitlint/config-conventional": "^19.8.0",
+    "@eslint/js": "^9.32.0",
+    "@next/eslint-plugin-next": "^15.4.5",
     "@repo/eslint-config": "workspace:*",
     "eslint": "^9.31.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^16.3.0",
     "prettier": "^3.5.3",
     "prettier-plugin-tailwindcss": "^0.6.11",
-    "turbo": "^2.5.4",
-    "typescript": "^5.8.3"
+    "turbo": "^2.5.6",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.38.0"
   },
-  "packageManager": "pnpm@10.14.0",
+  "packageManager": "pnpm@10.17.1",
   "engines": {
     "node": ">=22"
   },
@@ -57,13 +59,14 @@
     ],
     "overrides": {
       "@eslint/plugin-kit@<0.3.4": ">=0.3.4",
+      "@metamask/sdk@>=0.16.0 <=0.33.0": ">=0.33.1",
+      "@metamask/sdk-communication-layer@>=0.16.0 <=0.33.0": ">=0.33.1",
       "@tanstack/react-query": "^5.83.0",
       "color-string@<1.5.5": ">=1.5.5",
       "form-data@<2.5.4": ">=2.5.4",
       "linkifyjs": "^4.3.2",
       "next": "^15.5.2",
       "tmp": ">=0.2.4",
-      "viem": "^2.33.1",
       "wagmi": "^2.16.9"
     }
   }

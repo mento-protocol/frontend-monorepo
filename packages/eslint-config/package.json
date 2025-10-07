@@ -6,7 +6,8 @@
   "exports": {
     "./base": "./base.js",
     "./next-js": "./next.js",
-    "./react-internal": "./react-internal.js"
+    "./react-library": "./react-library.js",
+    "./react-shared": "./react-shared.js"
   },
   "dependencies": {
     "eslint-config-turbo": "^2.5.1"

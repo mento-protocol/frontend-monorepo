@@ -1,5 +1,6 @@
 ---
 alwaysApply: false
+description: When writing error handling code that should send exceptions to Sentry
 ---
 # Sentry Rules
 

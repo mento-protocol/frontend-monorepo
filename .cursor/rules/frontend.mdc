@@ -27,7 +27,7 @@ Carefully follow these instructions for frontend TypeScript and React developmen
 2. Use the following React patterns and libraries:
    - Use components from `@repo/ui`.
    - Use `onPress` instead of `onClick` for event handlers.
-   - Use `<Trans>...</Trans>` or t-string literals (t`...`) for translations.
+   - Use the `AddressLink` and `TransactionLink` components for all links to block explorers.
 
 3. Always follow these steps when implementing changes:
    - Consult relevant rule files and list which ones guided your implementation.
@@ -37,12 +37,12 @@ Carefully follow these instructions for frontend TypeScript and React developmen
 4. After each change, build and format your changes:
    - Run `trunk format` to format your code
    - Run `trunk check` to lint your code
-   - Run `turbo build --filter <package-or-app-name-as-defined-in-its-package.json>` to build your code, but only the parts that actually changed
+   - Use playwright to see if everything works as expected in the browser
 
 5. When a task is complete, verify your changes:
-   - Run `turbo build` to build the entire project
    - Run `trunk check --all` to run all linters
    - Run `trunk format --all` to run all formatters
+   - Run `turbo build` to build the entire project
    - Fix any warnings or failures before proceeding.
 
 ## Examples

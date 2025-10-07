@@ -310,7 +310,7 @@ export function CustomAppSidebar() {
               {isClient && filteredCategories.length === 0 && searchQuery && (
                 <SidebarMenuItem>
                   <div className="text-muted-foreground px-2 py-4 text-center text-sm">
-                    No components found matching "{searchQuery}"
+                    No components found matching &quot;{searchQuery}&quot;
                   </div>
                 </SidebarMenuItem>
               )}

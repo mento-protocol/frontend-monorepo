@@ -1,5 +1,11 @@
 "use client";
 import {
+  useAvailableToWithdraw,
+  useLockedAmount,
+  useLockInfo,
+  useLocksByAccount,
+} from "@/contracts/locking";
+import {
   Card,
   CardContent,
   CardFooter,
@@ -7,22 +13,15 @@ import {
   cn,
   IconLoading,
 } from "@repo/ui";
-import {
-  useAvailableToWithdraw,
-  useLockInfo,
-  useLocksByAccount,
-  useTokens,
-  useLockedAmount,
-} from "@repo/web3";
-import { useAccount } from "@repo/web3/wagmi";
-import React, { useMemo, useState } from "react";
+import { useAccount, useTokens } from "@repo/web3";
+import { useMemo, useState } from "react";
 import { FormProvider, useForm } from "react-hook-form";
 import { formatUnits } from "viem";
+import { useVeMentoDelegationSummary } from "../hooks/use-ve-mento-delegation-summary";
 import { CreateLockProvider } from "./lock/create-lock-provider";
 import { LockFormFields } from "./lock/lock-form-fields";
 import { LockingButton } from "./lock/locking-button";
 import { WithdrawButton } from "./withdraw-button";
-import { useVeMentoDelegationSummary } from "../hooks/use-ve-mento-delegation-summary";
 
 export default function VotingPowerForm() {
   const { address } = useAccount();

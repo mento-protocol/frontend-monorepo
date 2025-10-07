@@ -5,6 +5,7 @@ import {
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ChevronUpIcon,
 } from "lucide-react";
 import { DayButton, DayPicker, getDefaultClassNames } from "react-day-picker";
 
@@ -126,7 +127,14 @@ function Calendar({
         ...classNames,
       }}
       components={{
-        Root: ({ className, rootRef, ...props }) => {
+        Root: ({
+          className,
+          rootRef,
+          ...props
+        }: {
+          className?: string;
+          rootRef?: React.Ref<HTMLDivElement>;
+        } & React.HTMLAttributes<HTMLDivElement>) => {
           return (
             <div
               data-slot="calendar"
@@ -136,7 +144,14 @@ function Calendar({
             />
           );
         },
-        Chevron: ({ className, orientation, ...props }) => {
+        Chevron: ({
+          className,
+          orientation,
+          ...props
+        }: {
+          className?: string;
+          orientation?: "left" | "right" | "down" | "up";
+        } & React.SVGProps<SVGSVGElement>) => {
           if (orientation === "left") {
             return (
               <ChevronLeftIcon className={cn("size-4", className)} {...props} />
@@ -149,6 +164,18 @@ function Calendar({
                 className={cn("size-4", className)}
                 {...props}
               />
+            );
+          }
+
+          if (orientation === "down") {
+            return (
+              <ChevronDownIcon className={cn("size-4", className)} {...props} />
+            );
+          }
+
+          if (orientation === "up") {
+            return (
+              <ChevronUpIcon className={cn("size-4", className)} {...props} />
             );
           }
 

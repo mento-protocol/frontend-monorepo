@@ -1,16 +1,19 @@
-import BigNumber from "bignumber.js";
-import { ethers } from "ethers";
-import { type TokenId, Tokens } from "@/config/tokens";
+import { getTokenDecimals } from "@/config/tokens";
 import { type NumberT, parseAmountWithDefault, toWei } from "@/utils/amount";
 import { logger } from "@/utils/logger";
+import { TokenSymbol } from "@mento-protocol/mento-sdk";
+import BigNumber from "bignumber.js";
+import { ethers } from "ethers";
 
 export function parseInputExchangeAmount(
   amount: NumberT | null | undefined,
-  tokenId: TokenId,
+  tokenSymbol: TokenSymbol,
+  chainId: number,
   isWei = false,
 ) {
   const parsed = parseAmountWithDefault(amount, 0);
-  const parsedWei = isWei ? parsed : toWei(parsed, Tokens[tokenId].decimals);
+  const decimals = getTokenDecimals(tokenSymbol, chainId);
+  const parsedWei = isWei ? parsed : toWei(parsed, decimals);
   return BigNumber.max(parsedWei, 0).toFixed(0);
 }
 
@@ -58,6 +61,17 @@ export function invertExchangeRate(rate: NumberT) {
     return "0";
   }
 }
+
+export const formatBalance = (value: string, decimals: number): string => {
+  try {
+    const formatted = ethers.utils.formatUnits(value, decimals);
+    const decimalPoint = formatted.indexOf(".");
+    if (decimalPoint === -1) return formatted;
+    return formatted.slice(0, decimalPoint + 5);
+  } catch {
+    return "0";
+  }
+};
 
 export const formatWithMaxDecimals = (
   value: string,

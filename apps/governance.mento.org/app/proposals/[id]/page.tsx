@@ -78,13 +78,11 @@ function extractDescriptionFromContent(description: string): string {
 }
 
 async function fetchProposalData(id: string) {
-  const isAlfajores = env.NEXT_PUBLIC_VERCEL_ENV !== "production";
-  const subgraphUrl = isAlfajores
-    ? env.NEXT_PUBLIC_SUBGRAPH_URL_ALFAJORES
+  const isCeloSepolia = env.NEXT_PUBLIC_VERCEL_ENV !== "production";
+  const subgraphUrl = isCeloSepolia
+    ? env.NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA
     : env.NEXT_PUBLIC_SUBGRAPH_URL;
-  const apiKey = isAlfajores
-    ? env.NEXT_PUBLIC_GRAPH_API_KEY_ALFAJORES
-    : env.NEXT_PUBLIC_GRAPH_API_KEY;
+  const apiKey = env.NEXT_PUBLIC_GRAPH_API_KEY;
 
   if (!subgraphUrl) {
     throw new Error("Subgraph URL not configured");

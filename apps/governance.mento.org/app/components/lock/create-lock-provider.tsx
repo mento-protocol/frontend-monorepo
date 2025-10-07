@@ -1,11 +1,12 @@
 import { toast } from "@repo/ui";
 import {
+  useLockMento as useCreateLockOnChain,
   useAllowance,
   useApprove,
-  useContracts,
-  useLockMento as useCreateLockOnChain,
-  useCurrentChain,
-} from "@repo/web3";
+} from "@/contracts";
+import { useContracts } from "@repo/web3";
+
+import { useCurrentChain } from "@/hooks/use-current-chain";
 import { useAccount } from "@repo/web3/wagmi";
 import { useReadContract } from "wagmi";
 import { LockingABI } from "@repo/web3";
@@ -19,8 +20,8 @@ import {
   LOCKING_UNLOCK_DATE_FORM_KEY,
   LOCKING_DELEGATE_ENABLED_FORM_KEY,
   LOCKING_DELEGATE_ADDRESS_FORM_KEY,
-  isValidAddress,
-} from "@repo/web3";
+} from "@/contracts/locking";
+import { isValidAddress } from "@repo/web3";
 import { differenceInWeeks } from "date-fns";
 import { useFormContext } from "react-hook-form";
 import { TxDialog } from "../tx-dialog/tx-dialog";
@@ -270,7 +271,13 @@ export const CreateLockProvider = ({
         </>,
       );
     }
-  }, [approve.error, approve.isConfirmed, approve.hash, chainId]);
+  }, [
+    approve.error,
+    approve.isConfirmed,
+    approve.hash,
+    chainId,
+    currentChain.blockExplorers?.default?.url,
+  ]);
 
   // Toast notifications for lock transaction
   React.useEffect(() => {
@@ -306,7 +313,13 @@ export const CreateLockProvider = ({
         </>,
       );
     }
-  }, [lock.error, lock.isConfirmed, lock.hash, chainId]);
+  }, [
+    lock.error,
+    lock.isConfirmed,
+    lock.hash,
+    chainId,
+    currentChain.blockExplorers?.default?.url,
+  ]);
 
   const TxMessage = () => {
     return (

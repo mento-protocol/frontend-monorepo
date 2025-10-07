@@ -27,11 +27,8 @@ import {
 import {
   Identicon,
   LockingABI,
-  LockWithExpiration,
   useContracts,
   useCurrentChain,
-  useLockedAmount,
-  useLocksByAccount,
   useReadContracts,
   WalletHelper,
 } from "@repo/web3";
@@ -41,6 +38,8 @@ import { Info } from "lucide-react";
 import { useMemo, useState } from "react";
 import { formatUnits } from "viem";
 import { UpdateLockDialog } from "./update-lock-dialog";
+import { LockWithExpiration } from "@/contracts/types";
+import { useLockedAmount, useLocksByAccount } from "@/contracts";
 
 const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b;
 
@@ -159,6 +158,7 @@ export const LockList = () => {
     });
 
     return map;
+    // @ts-ignore: potentially bad dependency caching
   }, [receivedLockOwners, ownerLockedAmounts, ownerLocksArray]);
 
   // Deterministic client-side estimation

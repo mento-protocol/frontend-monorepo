@@ -114,7 +114,7 @@ Trunk uses the existing ESLint configurations without modification:
 
 - **Root**: `eslint.config.mjs` → `@repo/eslint-config/base`
 - **Apps**: Each app uses `@repo/eslint-config/next-js`
-- **Packages**: Use `@repo/eslint-config/react-internal`
+- **Packages**: Use `@repo/eslint-config/react-library`
 
 **All existing ESLint rules continue to work exactly as before.**
 

@@ -3,10 +3,7 @@ import type { NextConfig } from "next";
 import { env } from "@/env.mjs";
 
 const nextConfig: NextConfig = {
-  // TODO: Remove once stable
-  typescript: {
-    ignoreBuildErrors: true,
-  },
+  // We use trunk to lint the code in a separate step, disable eslint during build for faster builds
   eslint: {
     ignoreDuringBuilds: true,
   },
@@ -33,6 +30,23 @@ const nextConfig: NextConfig = {
     "@wagmi/core",
     "@rainbow-me/rainbowkit",
   ],
+  serverExternalPackages: ["require-in-the-middle", "import-in-the-middle"],
+  webpack: (config) => {
+    // Ignore React Native modules that are not needed in web builds
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      "@react-native-async-storage/async-storage": false,
+      "react-native": false,
+    };
+
+    // Add alias to prevent webpack from trying to resolve these modules
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      "@react-native-async-storage/async-storage": false,
+    };
+
+    return config;
+  },
 };
 
 export default withSentryConfig(nextConfig, {

@@ -32,22 +32,15 @@
     "build:js": "tsup",
     "check-types": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "codegen": "graphql-codegen",
     "dev": "pnpm dev:js",
     "dev:js": "tsup --watch",
     "generate:component": "turbo gen react-component",
     "lint": "eslint . --max-warnings 100"
   },
   "dependencies": {
-    "@apollo/client": "^3.13.9",
-    "@apollo/client-integration-nextjs": "^0.12.3",
-    "@apollo/experimental-nextjs-app-support": "^0.12.3",
     "@ethersproject/address": "^5.8.0",
     "@ethersproject/units": "^5.8.0",
-    "@graphql-codegen/cli": "^5.0.2",
-    "@graphql-codegen/typescript-apollo-client-helpers": "^3.0.0",
-    "@graphql-codegen/typescript-react-apollo": "^4.3.2",
-    "@mento-protocol/mento-sdk": "^1.10.3",
+    "@mento-protocol/mento-sdk": "^1.15.4",
     "@metamask/jazzicon": "https://github.com/jmrossy/jazzicon#7a8df28",
     "@repo/typescript-config": "workspace:*",
     "@repo/ui": "workspace:*",
@@ -64,7 +57,7 @@
   "devDependencies": {
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "viem": "^2.33.1",
+    "viem": "^2.37.11",
     "wagmi": "^2.16.9"
   },
   "peerDependencies": {
@@ -79,7 +72,7 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tsup": "^8.4.0",
-    "viem": "^2.33.1",
+    "viem": "^2.37.11",
     "wagmi": "^2.16.9"
   }
 }

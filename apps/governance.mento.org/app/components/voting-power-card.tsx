@@ -1,11 +1,10 @@
 "use client";
-import { useLockInfo } from "@repo/web3";
-import { NumbersService } from "@repo/web3";
-import { useTokens } from "@repo/web3";
+import { NumbersService, useTokens } from "@repo/web3";
+import { useLockInfo } from "@/contracts/locking";
 import { Button } from "@repo/ui";
 import { ChevronsRight, Zap } from "lucide-react";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useState, useEffect } from "react";
 import { formatUnits } from "viem";
 import { useAccount } from "@repo/web3/wagmi";
 
@@ -15,16 +14,20 @@ export const VotingPowerCard = () => {
   const account = useAccount();
   const { lock, hasLock, activeLocks } = useLockInfo(account.address);
 
-  const expirationDate = useMemo(() => {
-    if (!hasLock) return null;
-    if (!lock?.expiration) return null;
+  const [expirationDate, setExpirationDate] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!hasLock || !lock?.expiration) {
+      setExpirationDate(null);
+      return;
+    }
 
     const now = new Date();
     if (lock.expiration < now) {
-      return "Fully unlocked";
+      setExpirationDate("Fully unlocked");
+    } else {
+      setExpirationDate(lock.expiration.toLocaleDateString());
     }
-
-    return lock.expiration.toLocaleDateString();
   }, [hasLock, lock]);
 
   return (
