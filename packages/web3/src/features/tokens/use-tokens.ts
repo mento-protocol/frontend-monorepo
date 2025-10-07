@@ -1,10 +1,11 @@
 "use client";
+import { CELO_BLOCK_TIME } from "@/config/constants";
+import { useEnsureChainId } from "@/config/use-ensure-chain-id";
+import { useContracts } from "@/features/contracts";
+import type { TokenBalance } from "@/types";
 import { useMemo } from "react";
 import { erc20Abi, formatUnits } from "viem";
 import { useAccount, useReadContracts } from "wagmi";
-import { CELO_BLOCK_TIME, TokenBalance } from "@repo/web3";
-import { useContracts } from "@/features/contracts";
-import { useEnsureChainId } from "@/config/use-ensure-chain-id";
 
 const formatUnitsWithRadix = (value: bigint, decimals: number, radix: number) =>
   parseFloat(formatUnits(value, decimals)).toFixed(radix);

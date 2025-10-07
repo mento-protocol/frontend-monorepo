@@ -1,7 +1,7 @@
 import { chainIdToChain } from "@/config/chains";
-import { type TokenId, getTokenAddress } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { logger } from "@/utils";
+import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
 import { toast } from "@repo/ui";
 import { useQuery } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
@@ -15,15 +15,15 @@ import {
 
 export function useApproveTransaction({
   chainId,
-  tokenInId,
-  tokenOutId,
+  tokenInSymbol,
+  tokenOutSymbol,
   amountInWei,
   accountAddress,
   onSuccess,
 }: {
   chainId: number;
-  tokenInId: TokenId;
-  tokenOutId: TokenId;
+  tokenInSymbol: TokenSymbol;
+  tokenOutSymbol: TokenSymbol;
   amountInWei: string;
   accountAddress?: Address;
   onSuccess?: (receipt: TransactionReceipt) => void;
@@ -32,19 +32,24 @@ export function useApproveTransaction({
     queryKey: [
       "useApproveTransaction",
       chainId,
-      tokenInId,
-      tokenOutId,
+      tokenInSymbol,
+      tokenOutSymbol,
       amountInWei,
       accountAddress,
     ],
     queryFn: async () => {
       if (!accountAddress || new BigNumber(amountInWei).lte(0)) return null;
       const sdk = await getMentoSdk(chainId);
-      const tokenInAddr = getTokenAddress(tokenInId, chainId);
+      const tokenInAddr = getTokenAddress(tokenInSymbol, chainId);
+      if (!tokenInAddr) {
+        throw new Error(
+          `${tokenInSymbol} token address not found on chain ${chainId}`,
+        );
+      }
       const tradablePair = await getTradablePairForTokens(
         chainId,
-        tokenInId,
-        tokenOutId,
+        tokenInSymbol,
+        tokenOutSymbol,
       );
       const txRequest = await sdk.increaseTradingAllowance(
         tokenInAddr,

@@ -2,7 +2,7 @@
 import { useCallback } from "react";
 import * as mento from "@mento-protocol/mento-sdk";
 import { useAccount, useClient, useConfig } from "wagmi";
-import { Alfajores, Celo } from "@/config/chains";
+import { CeloSepolia, Celo } from "@/config/chains";
 import { getConnectorClient } from "wagmi/actions";
 import { watchAsset } from "viem/actions";
 
@@ -13,7 +13,8 @@ export const useAddTokens = () => {
 
   const addMento = useCallback(async () => {
     const mentoTokenAddress =
-      mento.addresses[chainId === Celo.id ? Celo.id : Alfajores.id]?.MentoToken;
+      mento.addresses[chainId === Celo.id ? Celo.id : CeloSepolia.id]
+        ?.MentoToken;
     if (!mentoTokenAddress) throw new Error("Mento token address not found");
     const connectorClient = await getConnectorClient(config);
 
@@ -30,7 +31,7 @@ export const useAddTokens = () => {
   const addVeMento = useCallback(async () => {
     if (!chainId || !client?.request) return;
     const veMentoTokenAddress =
-      mento.addresses[chainId === Celo.id ? Celo.id : Alfajores.id]?.Locking;
+      mento.addresses[chainId === Celo.id ? Celo.id : CeloSepolia.id]?.Locking;
     if (!veMentoTokenAddress)
       throw new Error("veMento token address not found");
     const connectorClient = await getConnectorClient(config);

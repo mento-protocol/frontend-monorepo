@@ -2,13 +2,14 @@ import { getAnalyticsUrl } from "@/app/lib/config/endpoints";
 import type {
   ReserveStats,
   StableValueTokensAPI,
-  Tokens,
   ExternalCompositionResponse,
   ReserveCompositionAPI,
   ExternalAnalyticsApiResponse,
   HoldingsApi,
   ReserveAddressesResponse,
+  ReserveAssetSymbol,
 } from "@/app/lib/types";
+import { TokenSymbol } from "@mento-protocol/mento-sdk";
 
 // Define a more specific type for the items in result.stablecoins
 interface ExternalStablecoin {
@@ -72,7 +73,7 @@ export async function getStableCoinStats(): Promise<StableValueTokensAPI> {
   const convertedResult: StableValueTokensAPI = {
     totalStableValueInUSD: result.total_supply_usd,
     tokens: result.stablecoins.map((stablecoin: ExternalStablecoin) => ({
-      token: stablecoin.symbol as Tokens,
+      symbol: stablecoin.symbol as TokenSymbol,
       name: stablecoin.name,
       units: Number(stablecoin.supply.amount),
       value: stablecoin.supply.usd_value,
@@ -116,7 +117,7 @@ export async function getReserveComposition(): Promise<ReserveCompositionAPI> {
   // Convert the result to the ReserveCompositionAPI interface
   const convertedResult: ReserveCompositionAPI = result.composition.map(
     (item) => ({
-      token: item.symbol,
+      symbol: item.symbol as ReserveAssetSymbol,
       percent: item.percentage,
     }),
   );
@@ -154,20 +155,20 @@ export async function getReserveHoldings(): Promise<HoldingsApi> {
   const convertedResult: HoldingsApi = {
     celo: {
       unfrozen: {
-        token: "CELO",
+        symbol: "CELO",
         units: Number(celoAsset?.totalBalance || 0),
         value: celoAsset?.usdValue || 0,
         updated: Date.now(),
       },
       frozen: {
         // Assuming frozen and custody are not directly in this API response, default to 0
-        token: "CELO",
+        symbol: "CELO",
         units: 0,
         value: 0,
         updated: Date.now(),
       },
       custody: {
-        token: "CELO",
+        symbol: "CELO",
         units: 0,
         value: 0,
         updated: Date.now(),
@@ -177,7 +178,7 @@ export async function getReserveHoldings(): Promise<HoldingsApi> {
     otherAssets: result.assets
       .filter((asset) => asset.symbol !== "CELO")
       .map((asset) => ({
-        token: asset.symbol as Tokens, // Type assertion, ensure all symbols are covered by Tokens or extend Tokens
+        symbol: asset.symbol as ReserveAssetSymbol,
         units: Number(asset.totalBalance),
         value: asset.usdValue,
         updated: Date.now(),

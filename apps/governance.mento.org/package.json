@@ -15,7 +15,7 @@
     "@apollo/client": "^3.13.9",
     "@apollo/client-integration-nextjs": "^0.12.3",
     "@apollo/experimental-nextjs-app-support": "^0.12.3",
-    "@mento-protocol/mento-sdk": "^1.10.1",
+    "@mento-protocol/mento-sdk": "^1.15.4",
     "@metamask/jazzicon": "https://github.com/jmrossy/jazzicon#7a8df28",
     "@rainbow-me/rainbowkit": "^2.2.8",
     "@repo/ui": "workspace:*",
@@ -40,7 +40,7 @@
     "sonner": "^2.0.6",
     "spacetime": "^7.10.0",
     "turndown": "^7.2.0",
-    "viem": "^2.33.1",
+    "viem": "^2.37.11",
     "wagmi": "^2.16.9"
   },
   "devDependencies": {
