@@ -12,7 +12,7 @@ import {
   fetchAbi,
   BlockchainExplorerSource,
 } from "../services/blockchain-explorer-service";
-import { env } from "../../../env.mjs";
+import { env } from "@/env.mjs";
 import { isAbi } from "./isAbi";
 
 // Create a public client for Celo mainnet

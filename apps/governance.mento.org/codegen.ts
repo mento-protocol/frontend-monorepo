@@ -1,6 +1,6 @@
 import { CodegenConfig } from "@graphql-codegen/cli";
 import "dotenv/config";
-import { env } from "./app/env.mjs";
+import { env } from "@/env.mjs";
 
 const config: CodegenConfig = {
   generates: {

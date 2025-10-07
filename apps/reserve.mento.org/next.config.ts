@@ -1,6 +1,6 @@
 import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
-import { env } from "./env.mjs";
+import { env } from "@/env.mjs";
 
 const nextConfig: NextConfig = {
   // TODO: Remove once stable

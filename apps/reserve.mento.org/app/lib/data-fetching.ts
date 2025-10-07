@@ -1,4 +1,4 @@
-import { getAnalyticsUrl } from "@/app/lib/config/endpoints";
+import { getAnalyticsUrl } from "@/lib/config/endpoints";
 import type {
   ReserveStats,
   StableValueTokensAPI,
@@ -8,7 +8,7 @@ import type {
   HoldingsApi,
   ReserveAddressesResponse,
   ReserveAssetSymbol,
-} from "@/app/lib/types";
+} from "@/lib/types";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 
 // Define a more specific type for the items in result.stablecoins

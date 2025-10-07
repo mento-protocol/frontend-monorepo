@@ -1,6 +1,6 @@
 import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
-import { env } from "./env.mjs";
+import { env } from "@/env.mjs";
 
 const nextConfig: NextConfig = {
   // We use trunk to lint the code in a separate step, disable eslint during build for faster builds
