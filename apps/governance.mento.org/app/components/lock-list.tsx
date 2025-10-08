@@ -131,8 +131,6 @@ export const LockList = () => {
     account: receivedLockOwners[2] || "",
   });
 
-  const ownerLocksArray = [owner0Locks, owner1Locks, owner2Locks];
-
   // Fetch locked amounts for owners of received locks
   const { data: ownerLockedAmounts } = useReadContracts({
     allowFailure: true,
@@ -146,6 +144,7 @@ export const LockList = () => {
 
   // Map owner address to their current locked amount and all their locks
   const ownerDataMap = useMemo(() => {
+    const ownerLocksArray = [owner0Locks, owner1Locks, owner2Locks];
     const map = new Map<
       string,
       { lockedAmount: bigint; allLocks: LockWithExpiration[] }
@@ -158,8 +157,14 @@ export const LockList = () => {
     });
 
     return map;
-    // @ts-ignore: potentially bad dependency caching
-  }, [receivedLockOwners, ownerLockedAmounts, ownerLocksArray]);
+    // @ts-expect-error: potentially bad dependency caching
+  }, [
+    receivedLockOwners,
+    ownerLockedAmounts,
+    owner0Locks,
+    owner1Locks,
+    owner2Locks,
+  ]);
 
   // Deterministic client-side estimation
   const lockEstimates = useMemo(() => {
@@ -443,7 +448,16 @@ export const LockList = () => {
     }
 
     return estimates;
-  }, [locks, address, totalLockedNow, ownedLocks, receivedLocks, ownerDataMap]);
+  }, [
+    locks,
+    address,
+    totalLockedNow,
+    ownedLocks,
+    receivedLocks,
+    ownerDataMap,
+    WEEK_BIG,
+    MAX_LOCK_WEEKS,
+  ]);
 
   const getDelegationInfo = (
     lock: LockWithExpiration,
@@ -492,8 +506,11 @@ export const LockList = () => {
         <>
           <Skeleton className="mb-5 h-10 w-60 rounded-md" />
           <div className="flex w-full flex-wrap gap-4">
-            {Array.from({ length: 3 }).map(() => (
-              <Skeleton className="h-64 w-full rounded-md md:max-w-[330px]" />
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton
+                key={i}
+                className="h-64 w-full rounded-md md:max-w-[330px]"
+              />
             ))}
           </div>
         </>

@@ -41,7 +41,7 @@ export const LockingButton = ({
   const { address } = useAccount();
   const { createLock, CreateLockTxStatus, CreateLockApprovalStatus } =
     useCreateLock();
-  const { hasMultipleLocks, refetch: refetchLockInfo } = useLockInfo(address);
+  const { refetch: refetchLockInfo } = useLockInfo(address);
 
   // Use the specific lock to update or fall back to the user's primary lock
   const targetLock = lockToUpdate;
@@ -371,13 +371,12 @@ export const LockingButton = ({
     isBalanceInsufficient,
     CreateLockApprovalStatus,
     canRelockTarget,
-    hasMultipleLocks,
     needsApprovalForRelock,
     isExtendingDuration,
     isAddingAmount,
-    targetLock,
     isAmountFormatValid,
     isBelowMinimum,
+    parsedAmount,
   ]);
 
   const shouldButtonBeDisabled = React.useMemo(() => {
@@ -424,10 +423,8 @@ export const LockingButton = ({
     isRelocking,
     CreateLockTxStatus,
     isExtendingDuration,
-    isAddingAmount,
-    unlockDate,
-    targetLock,
     isAmountFormatValid,
+    isBelowMinimum,
   ]);
   const relockTxStatus = React.useMemo(() => {
     if (approve.error || relock.error) return "ERROR";

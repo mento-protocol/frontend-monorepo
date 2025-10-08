@@ -8,21 +8,20 @@ export function useVeMentoDelegationSummary(params: {
 }) {
   const { locks, address } = params;
 
-  const now = new Date();
-  const isMe = (a: string) =>
-    !!address && a.toLowerCase() === address.toLowerCase();
+  const addressLc = address?.toLowerCase();
 
   // Only consider active locks and exclude replaced locks
-  const activeLocks = useMemo(
-    () => (locks ?? []).filter((l) => now < l.expiration && !l.replacedBy),
-    [locks, now],
-  );
+  const activeLocks = useMemo(() => {
+    const nowMs = Date.now();
+    return (locks ?? []).filter(
+      (l) => nowMs < l.expiration.getTime() && !l.replacedBy,
+    );
+  }, [locks]);
 
   // Deterministic estimation matching lock-list.tsx
   const WEEK = 7 * 24 * 60 * 60;
   const WEEK_BIG = BigInt(WEEK);
   const MAX_LOCK_WEEKS = 104n;
-  const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b;
 
   // Map lockId -> current estimated veMENTO
   const veByLockId = useMemo(() => {
@@ -37,7 +36,7 @@ export function useVeMentoDelegationSummary(params: {
 
       if (nowSecBig < expirySecBig) {
         const secsRemaining = expirySecBig - nowSecBig;
-        const weeksRemaining = ceilDiv(secsRemaining, WEEK_BIG);
+        const weeksRemaining = (secsRemaining + WEEK_BIG - 1n) / WEEK_BIG;
         const amountForVe = BigInt(lock.amount);
         veMentoAmount = (amountForVe * weeksRemaining) / MAX_LOCK_WEEKS;
       }
@@ -45,7 +44,7 @@ export function useVeMentoDelegationSummary(params: {
       map.set(lock.lockId, veMentoAmount);
     }
     return map;
-  }, [activeLocks]);
+  }, [activeLocks, WEEK_BIG, MAX_LOCK_WEEKS]);
 
   // Totals
   const { delegatedOutVe, receivedVe } = useMemo(() => {
@@ -56,15 +55,19 @@ export function useVeMentoDelegationSummary(params: {
       const ve = veByLockId.get(l.lockId) ?? 0n;
       const veNum = Number(formatUnits(ve, 18));
 
-      if (isMe(l.owner.id) && !isMe(l.delegate.id)) {
+      const ownerIsMe = !!addressLc && l.owner.id.toLowerCase() === addressLc;
+      const delegateIsMe =
+        !!addressLc && l.delegate.id.toLowerCase() === addressLc;
+
+      if (ownerIsMe && !delegateIsMe) {
         delegatedOut += veNum;
-      } else if (!isMe(l.owner.id) && isMe(l.delegate.id)) {
+      } else if (!ownerIsMe && delegateIsMe) {
         received += veNum;
       }
     }
 
     return { delegatedOutVe: delegatedOut, receivedVe: received };
-  }, [activeLocks, veByLockId, address]);
+  }, [activeLocks, veByLockId, addressLc]);
 
   return {
     delegatedOutVe,
