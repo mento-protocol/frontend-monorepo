@@ -35,8 +35,8 @@ export default function VotingPowerForm() {
   // Get on-chain currently locked principal from Locking.locked(address)
   const { data: lockedAmount = 0n } = useLockedAmount();
 
-  // Use shared hook to compute delegated and received veMENTO totals
-  const { delegatedOutVe, receivedVe } = useVeMentoDelegationSummary({
+  // Use shared hook to compute delegated, received, and own veMENTO totals
+  const { delegatedOutVe, receivedVe, ownVe } = useVeMentoDelegationSummary({
     locks,
     address,
   });
@@ -57,14 +57,13 @@ export default function VotingPowerForm() {
     // 2) Total ve = wallet balanceOf (current effective voting power)
     const totalVe = Number(formatUnits(veMentoBalance.value, 18));
 
-    // 3) Received ve from hook
+    // 3) Own ve from hook (locks I own and delegate to myself)
+    const own = ownVe;
+
+    // 4) Received ve from hook (locks others own but delegate to me)
     const received = receivedVe;
 
-    // 4) Own ve = total minus received
-    const ownVe = Math.max(0, totalVe - received);
-
-    // 5) Delegated out ve = veMENTO from my locks that are delegated to others
-    // 5) Delegated out ve from hook
+    // 5) Delegated out ve from hook (locks I own but delegate to others)
     const delegated = delegatedOutVe;
 
     // 6) Withdrawable principal from contract (keeps button and summary in sync)
@@ -74,7 +73,7 @@ export default function VotingPowerForm() {
 
     return {
       lockedMento: Number(formatUnits(lockedAmount, 18)),
-      ownVe,
+      ownVe: own,
       receivedVe: received,
       delegatedOutVe: delegated,
       totalVe,
@@ -88,6 +87,7 @@ export default function VotingPowerForm() {
     lockedAmount,
     delegatedOutVe,
     receivedVe,
+    ownVe,
   ]);
 
   const methods = useForm();

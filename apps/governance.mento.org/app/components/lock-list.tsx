@@ -289,18 +289,28 @@ export const LockList = () => {
     const estimates = new Map();
 
     // Process owned locks with withdrawal calculations
-    for (const { lock, expirySec } of ownedLockData) {
+    for (const { lock, expirySec, startSec } of ownedLockData) {
       const expirySecBig = BigInt(expirySec);
+      const startSecBig = BigInt(startSec);
+      // Cliff ends when vesting begins
+      const cliffEndSec = startSec + lock.cliff * Number(WEEK_BIG);
+      const cliffEndSecBig = BigInt(cliffEndSec);
       let veMentoAmount = 0n;
 
       if (nowSecBig < expirySecBig) {
-        const secsRemaining = expirySecBig - nowSecBig;
-        const weeksRemaining = ceilDiv(secsRemaining, WEEK_BIG);
+        const amountForVe = BigInt(lock.amount);
 
-        // IMPORTANT: use the contract's ve base amount for THIS lock
-        const amountForVe = BigInt(lock.amount); // NOT remainingMap.get(lock.lockId)
-
-        veMentoAmount = (amountForVe * weeksRemaining) / MAX_LOCK_WEEKS;
+        // During cliff period: veMENTO remains at full value
+        if (nowSecBig < cliffEndSecBig) {
+          // Calculate total weeks (cliff + slope)
+          const totalWeeks = BigInt(lock.cliff + lock.slope);
+          veMentoAmount = (amountForVe * totalWeeks) / MAX_LOCK_WEEKS;
+        } else {
+          // During slope period: veMENTO decays linearly
+          const secsRemaining = expirySecBig - nowSecBig;
+          const weeksRemaining = ceilDiv(secsRemaining, WEEK_BIG);
+          veMentoAmount = (amountForVe * weeksRemaining) / MAX_LOCK_WEEKS;
+        }
       }
 
       estimates.set(lock.lockId, {
@@ -429,13 +439,29 @@ export const LockList = () => {
       // Calculate veMENTO and set estimates for each of this owner's locks
       for (const { lock, expirySec } of ownerLockData) {
         const expirySecBig = BigInt(expirySec);
+        const startSec = Math.floor(
+          expirySec - (lock.cliff + lock.slope) * Number(WEEK_BIG),
+        );
+        const startSecBig = BigInt(startSec);
+        // Cliff ends when vesting begins
+        const cliffEndSec = startSec + lock.cliff * Number(WEEK_BIG);
+        const cliffEndSecBig = BigInt(cliffEndSec);
         let veMentoAmount = 0n;
 
         if (nowSecBig < expirySecBig) {
-          const secsRemaining = expirySecBig - nowSecBig;
-          const weeksRemaining = ceilDiv(secsRemaining, WEEK_BIG);
           const amountForVe = BigInt(lock.amount);
-          veMentoAmount = (amountForVe * weeksRemaining) / MAX_LOCK_WEEKS;
+
+          // During cliff period: veMENTO remains at full value
+          if (nowSecBig < cliffEndSecBig) {
+            // Calculate total weeks (cliff + slope)
+            const totalWeeks = BigInt(lock.cliff + lock.slope);
+            veMentoAmount = (amountForVe * totalWeeks) / MAX_LOCK_WEEKS;
+          } else {
+            // During slope period: veMENTO decays linearly
+            const secsRemaining = expirySecBig - nowSecBig;
+            const weeksRemaining = ceilDiv(secsRemaining, WEEK_BIG);
+            veMentoAmount = (amountForVe * weeksRemaining) / MAX_LOCK_WEEKS;
+          }
         }
 
         estimates.set(lock.lockId, {
