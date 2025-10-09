@@ -492,7 +492,7 @@ export const LockingButton = ({
       <Button
         className={cn("w-full", className)}
         disabled={shouldButtonBeDisabled}
-        onClick={(e: MouseEvent) => {
+        onClick={(e) => {
           handleSubmit(() => {
             if (canRelockTarget) {
               handleRelock();
