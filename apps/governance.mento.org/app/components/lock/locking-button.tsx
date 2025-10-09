@@ -89,7 +89,13 @@ export const LockingButton = ({
       const normalized = String(amount).trim();
       if (normalized === "" || normalized === "0") return BigInt(0);
       if (!isAmountFormatValid) return BigInt(0);
-      return parseEther(normalized as string);
+      const parsed = parseEther(normalized as string);
+      // Ensure parsed amount is either 0 or >= 1 MENTO
+      const minAmount = parseEther("1");
+      if (parsed > 0n && parsed < minAmount) {
+        return BigInt(0); // Invalid amount that rounds below minimum
+      }
+      return parsed;
     } catch {
       return BigInt(0);
     }

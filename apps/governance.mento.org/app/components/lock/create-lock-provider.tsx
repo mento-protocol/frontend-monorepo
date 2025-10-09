@@ -109,7 +109,22 @@ export const CreateLockProvider = ({
     () => Number(minCliffPeriodBn ?? 0n),
     [minCliffPeriodBn],
   );
-  const parsedAmount = parseEther(amount ?? "0");
+
+  const parsedAmount = React.useMemo(() => {
+    try {
+      const normalized = (amount ?? "0").trim();
+      if (normalized === "" || normalized === "0") return BigInt(0);
+      const parsed = parseEther(normalized);
+      // Ensure parsed amount is either 0 or >= 1 MENTO to prevent invalid transactions
+      const minAmount = parseEther("1");
+      if (parsed > 0n && parsed < minAmount) {
+        return BigInt(0); // Invalid amount that rounds below minimum
+      }
+      return parsed;
+    } catch {
+      return BigInt(0);
+    }
+  }, [amount]);
 
   const lock = useCreateLockOnChain({
     onLockConfirmation: () => {

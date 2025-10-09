@@ -24,7 +24,7 @@ import { isValidAddress } from "@repo/web3";
 import { useEffect, useId, useMemo, useState } from "react";
 import { Controller, useForm, useFormContext } from "react-hook-form";
 import spacetime from "spacetime";
-import { formatUnits } from "viem";
+import { formatUnits, parseEther } from "viem";
 
 interface LockFormFieldsProps {
   mentoBalance: bigint;
@@ -351,12 +351,35 @@ export function LockFormFields({
                   Number(v) <= Number(formatUnits(mentoBalance, 18)) ||
                   "Insufficient balance",
                 min: (v) => {
+                  if (v === undefined || v === null || v === "") return true;
                   const amount = Number(v);
-                  return lock
-                    ? amount === 0 ||
-                        amount >= 1 ||
-                        "Amount must be at least 1 MENTO"
-                    : amount >= 1 || "Amount must be at least 1 MENTO";
+
+                  // For lock updates, allow 0 or >= 1
+                  if (lock) {
+                    if (amount === 0) return true;
+                    if (amount >= 1) return true;
+                    return "Amount must be at least 1 MENTO";
+                  }
+
+                  // For new locks, require >= 1
+                  if (amount < 1) {
+                    return "Amount must be at least 1 MENTO";
+                  }
+
+                  // Additional check: ensure the parsed value is valid and meets minimum
+                  try {
+                    const normalized = String(v).trim();
+                    if (normalized === "" || normalized === "0") return true;
+                    const parsed = parseEther(normalized);
+                    const minAmount = parseEther("1");
+                    if (parsed < minAmount && parsed > 0n) {
+                      return "Amount rounds to less than 1 MENTO";
+                    }
+                  } catch {
+                    return "Invalid amount";
+                  }
+
+                  return true;
                 },
               },
             })}
