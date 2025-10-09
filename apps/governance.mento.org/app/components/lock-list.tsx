@@ -62,11 +62,11 @@ export const LockList = () => {
 
     if (isOwner && isDelegatedToSelf) {
       return "personal";
-    } else if (isOwner && !isDelegatedToSelf) {
-      return "delegated";
-    } else {
-      return "received";
     }
+    if (isOwner && !isDelegatedToSelf) {
+      return "delegated";
+    }
+    return "received";
   };
 
   // Helper function to format date
@@ -90,21 +90,25 @@ export const LockList = () => {
   // Get owned locks for veMENTO calculations
   const ownedLocks = useMemo(
     () =>
-      (locks ?? []).filter(
-        (l) => l.owner.id.toLowerCase() === address?.toLowerCase(),
-      ),
+      locks?.length
+        ? locks.filter(
+            (lock) => lock.owner.id.toLowerCase() === address?.toLowerCase(),
+          )
+        : [],
     [locks, address],
   );
 
   // Get received locks (delegated to current user)
   const receivedLocks = useMemo(
     () =>
-      (locks ?? []).filter(
-        (l) =>
-          l.owner.id.toLowerCase() !== address?.toLowerCase() &&
-          l.delegate.id.toLowerCase() === address?.toLowerCase() &&
-          !l.replacedBy,
-      ),
+      locks?.length
+        ? locks.filter(
+            (l) =>
+              l.owner.id.toLowerCase() !== address?.toLowerCase() &&
+              l.delegate.id.toLowerCase() === address?.toLowerCase() &&
+              !l.replacedBy,
+          )
+        : [],
     [locks, address],
   );
 
@@ -291,7 +295,6 @@ export const LockList = () => {
     // Process owned locks with withdrawal calculations
     for (const { lock, expirySec, startSec } of ownedLockData) {
       const expirySecBig = BigInt(expirySec);
-      const startSecBig = BigInt(startSec);
       // Cliff ends when vesting begins
       const cliffEndSec = startSec + lock.cliff * Number(WEEK_BIG);
       const cliffEndSecBig = BigInt(cliffEndSec);
@@ -442,7 +445,6 @@ export const LockList = () => {
         const startSec = Math.floor(
           expirySec - (lock.cliff + lock.slope) * Number(WEEK_BIG),
         );
-        const startSecBig = BigInt(startSec);
         // Cliff ends when vesting begins
         const cliffEndSec = startSec + lock.cliff * Number(WEEK_BIG);
         const cliffEndSecBig = BigInt(cliffEndSec);
