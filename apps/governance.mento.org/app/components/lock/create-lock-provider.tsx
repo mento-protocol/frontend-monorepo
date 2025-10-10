@@ -8,14 +8,20 @@ import { useContracts } from "@repo/web3";
 
 import { useCurrentChain } from "@/hooks/use-current-chain";
 import { useAccount } from "@repo/web3/wagmi";
+import { useReadContract } from "wagmi";
+import { LockingABI } from "@repo/web3";
 import React, { ReactNode, createContext, useContext } from "react";
-import { parseEther } from "viem";
+import { Address, parseEther } from "viem";
 
 import {
   DEFAULT_LOCKING_CLIFF,
   LOCKING_AMOUNT_FORM_KEY,
+  LOCKING_DURATION_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
+  LOCKING_DELEGATE_ENABLED_FORM_KEY,
+  LOCKING_DELEGATE_ADDRESS_FORM_KEY,
 } from "@/contracts/locking";
+import { isValidAddress } from "@repo/web3";
 import { differenceInWeeks } from "date-fns";
 import { useFormContext } from "react-hook-form";
 import { TxDialog } from "../tx-dialog/tx-dialog";
@@ -69,15 +75,56 @@ export const CreateLockProvider = ({
 
   const amount = watch(LOCKING_AMOUNT_FORM_KEY);
   const unlockDate = watch(LOCKING_UNLOCK_DATE_FORM_KEY);
+  const delegateEnabled = watch(LOCKING_DELEGATE_ENABLED_FORM_KEY);
+  const delegateAddressInput = watch(LOCKING_DELEGATE_ADDRESS_FORM_KEY);
 
+  const slopeFromForm = watch(LOCKING_DURATION_FORM_KEY) as number | undefined;
   const slope = React.useMemo(() => {
+    if (typeof slopeFromForm === "number" && !Number.isNaN(slopeFromForm)) {
+      return Math.max(0, Math.floor(slopeFromForm));
+    }
     if (!unlockDate) return 0;
     const weeks = differenceInWeeks(unlockDate, new Date()) + 1;
-    return weeks;
-  }, [unlockDate]);
+    return Math.max(0, weeks);
+  }, [slopeFromForm, unlockDate]);
 
   const contracts = useContracts();
-  const parsedAmount = parseEther(amount);
+  const { data: minSlopePeriodBn } = useReadContract({
+    address: contracts.Locking.address,
+    abi: LockingABI,
+    functionName: "minSlopePeriod",
+    args: [],
+  });
+  const { data: minCliffPeriodBn } = useReadContract({
+    address: contracts.Locking.address,
+    abi: LockingABI,
+    functionName: "minCliffPeriod",
+    args: [],
+  });
+  const minSlopePeriod = React.useMemo(
+    () => Number(minSlopePeriodBn ?? 0n),
+    [minSlopePeriodBn],
+  );
+  const minCliffPeriod = React.useMemo(
+    () => Number(minCliffPeriodBn ?? 0n),
+    [minCliffPeriodBn],
+  );
+
+  const parsedAmount = React.useMemo(() => {
+    try {
+      const normalized = (amount ?? "0").trim();
+      if (normalized === "" || normalized === "0") return BigInt(0);
+      const parsed = parseEther(normalized);
+      // Ensure parsed amount is either 0 or >= 1 MENTO to prevent invalid transactions
+      const minAmount = parseEther("1");
+      if (parsed > 0n && parsed < minAmount) {
+        return BigInt(0); // Invalid amount that rounds below minimum
+      }
+      return parsed;
+    } catch {
+      return BigInt(0);
+    }
+  }, [amount]);
 
   const lock = useCreateLockOnChain({
     onLockConfirmation: () => {
@@ -94,22 +141,40 @@ export const CreateLockProvider = ({
     resetForm();
   }, [resetForm]);
 
+  const selectedDelegate: Address = React.useMemo(() => {
+    if (
+      delegateEnabled &&
+      delegateAddressInput &&
+      isValidAddress(delegateAddressInput)
+    ) {
+      return delegateAddressInput;
+    }
+    return address!;
+  }, [address, delegateAddressInput, delegateEnabled]);
+
   const lockMento = React.useCallback(() => {
+    const effectiveSlope = Math.max(slope, minSlopePeriod);
+    const effectiveCliff = Math.max(DEFAULT_LOCKING_CLIFF, minCliffPeriod);
     lock.lockMento({
       account: address!,
       amount: parsedAmount,
-      delegate: address!,
-      slope,
-      cliff: DEFAULT_LOCKING_CLIFF,
+      delegate: selectedDelegate,
+      slope: effectiveSlope,
+      cliff: effectiveCliff,
       onSuccess: () => {
         resetAll();
       },
-      onError: (err) => {
-        console.log("lockMento failed", err);
-        toast.error("Failed to lock MENTO");
-      },
     });
-  }, [address, lock, parsedAmount, resetAll, slope]);
+  }, [
+    address,
+    lock,
+    parsedAmount,
+    resetAll,
+    selectedDelegate,
+    slope,
+    minSlopePeriod,
+    minCliffPeriod,
+  ]);
 
   const approve = useApprove();
 

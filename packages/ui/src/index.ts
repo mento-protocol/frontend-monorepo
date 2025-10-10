@@ -10,6 +10,7 @@ export * from "./components/theme-provider";
 export * from "./components/ui/button";
 export * from "./components/ui/card";
 export * from "./components/ui/coin-card";
+export * from "./components/ui/lock-card";
 export * from "./components/ui/community-card";
 export * from "./components/ui/reserve-chart";
 export * from "./components/ui/sidebar";
@@ -46,6 +47,7 @@ export * from "./components/ui/navigation-menu";
 export * from "./components/ui/calendar";
 export * from "./components/ui/checkbox";
 export * from "./components/ui/separator";
+export * from "./components/ui/skeleton";
 export * from "./components/copy-to-clipboard";
 
 // Also export any utility functions or types that might be needed
