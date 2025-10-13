@@ -143,8 +143,12 @@ export const LockingButton = ({
     ) {
       return delegateAddressInput;
     }
+    // If delegation is disabled, delegate to self
+    if (!delegateEnabled) {
+      return address;
+    }
     return undefined;
-  }, [delegateAddressInput, delegateEnabled]);
+  }, [delegateAddressInput, delegateEnabled, address]);
 
   const nextDelegate = useMemo(() => {
     const currentDelegate = targetLock?.delegate?.id as string | undefined;
@@ -153,6 +157,13 @@ export const LockingButton = ({
     }
     return currentDelegate || address;
   }, [requestedDelegate, address, targetLock]);
+
+  const isChangingDelegate = useMemo(() => {
+    if (!targetLock) return false;
+    const currentDelegate = (targetLock.delegate?.id ?? "").toLowerCase();
+    const newDelegate = (nextDelegate ?? "").toLowerCase();
+    return currentDelegate !== newDelegate;
+  }, [targetLock, nextDelegate]);
 
   const relock = useRelockMento({
     lock: targetLock,
@@ -306,6 +317,7 @@ export const LockingButton = ({
       lock: targetLock,
       needsApprovalForRelock,
       isAddingAmount,
+      isChangingDelegate,
       CreateLockApprovalStatus,
     });
   }, [
@@ -317,6 +329,7 @@ export const LockingButton = ({
     targetLock,
     needsApprovalForRelock,
     isAddingAmount,
+    isChangingDelegate,
     CreateLockApprovalStatus,
   ]);
   const content = useMemo(() => {
@@ -341,6 +354,16 @@ export const LockingButton = ({
       if (canRelockTarget && isExtendingDuration) {
         return <>Extend lock</>;
       }
+      if (canRelockTarget && isChangingDelegate) {
+        // Check if delegating to self
+        const isDelegatingToSelf =
+          nextDelegate?.toLowerCase() === address?.toLowerCase();
+        return isDelegatingToSelf ? (
+          <>Delegate to self</>
+        ) : (
+          <>Change delegate</>
+        );
+      }
       return <>Enter amount</>;
     }
 
@@ -356,12 +379,27 @@ export const LockingButton = ({
       if (needsApprovalForRelock) {
         return <>Approve MENTO</>;
       }
-      if (isExtendingDuration && isAddingAmount) {
+      if (isExtendingDuration && isAddingAmount && isChangingDelegate) {
+        return <>Top up, extend and change delegate</>;
+      } else if (isExtendingDuration && isAddingAmount) {
         return <>Top up and extend lock</>;
+      } else if (isExtendingDuration && isChangingDelegate) {
+        return <>Extend and change delegate</>;
       } else if (isExtendingDuration && !isAddingAmount) {
         return <>Extend lock</>;
+      } else if (isAddingAmount && isChangingDelegate) {
+        return <>Top up and change delegate</>;
       } else if (!isExtendingDuration && isAddingAmount) {
         return <>Top up lock</>;
+      } else if (isChangingDelegate) {
+        // Check if delegating to self
+        const isDelegatingToSelf =
+          nextDelegate?.toLowerCase() === address?.toLowerCase();
+        return isDelegatingToSelf ? (
+          <>Delegate to self</>
+        ) : (
+          <>Change delegate</>
+        );
       }
       return <>Top up lock</>;
     }
@@ -380,6 +418,7 @@ export const LockingButton = ({
     needsApprovalForRelock,
     isExtendingDuration,
     isAddingAmount,
+    isChangingDelegate,
     isAmountFormatValid,
     isBelowMinimum,
     parsedAmount,
@@ -397,7 +436,7 @@ export const LockingButton = ({
     const isAmountEmpty =
       !amount || amount === "" || amount === "0" || parsedAmount === BigInt(0);
     if (isAmountEmpty) {
-      if (!(canRelockTarget && isExtendingDuration)) {
+      if (!(canRelockTarget && (isExtendingDuration || isChangingDelegate))) {
         return true;
       }
     }
@@ -429,6 +468,7 @@ export const LockingButton = ({
     isRelocking,
     CreateLockTxStatus,
     isExtendingDuration,
+    isChangingDelegate,
     isAmountFormatValid,
     isBelowMinimum,
   ]);
@@ -462,11 +502,21 @@ export const LockingButton = ({
         <span data-testid="actionLabel">
           {isApprovalActive
             ? "Approve MENTO"
-            : isExtendingDuration && isAddingAmount
-              ? "Top up and extend lock"
-              : isExtendingDuration && !isAddingAmount
-                ? "Extend lock"
-                : "Top up lock"}
+            : isExtendingDuration && isAddingAmount && isChangingDelegate
+              ? "Top up, extend and change delegate"
+              : isExtendingDuration && isAddingAmount
+                ? "Top up and extend lock"
+                : isExtendingDuration && isChangingDelegate
+                  ? "Extend and change delegate"
+                  : isExtendingDuration && !isAddingAmount
+                    ? "Extend lock"
+                    : isAddingAmount && isChangingDelegate
+                      ? "Top up and change delegate"
+                      : isChangingDelegate
+                        ? nextDelegate?.toLowerCase() === address?.toLowerCase()
+                          ? "Delegate to self"
+                          : "Change delegate"
+                        : "Top up lock"}
         </span>
         {isAwaiting ? (
           <>Continue in wallet</>
@@ -483,6 +533,7 @@ export const LockingButton = ({
     hasApprovedForCurrentRelock,
     isExtendingDuration,
     isAddingAmount,
+    isChangingDelegate,
   ]);
 
   // Reset function for dialog
@@ -539,6 +590,7 @@ function getButtonLocator({
   lock,
   needsApprovalForRelock,
   isAddingAmount,
+  isChangingDelegate,
   CreateLockApprovalStatus,
 }: {
   address: string;
@@ -549,6 +601,7 @@ function getButtonLocator({
   lock: LockWithExpiration | undefined;
   needsApprovalForRelock: boolean;
   isAddingAmount: boolean;
+  isChangingDelegate: boolean;
   CreateLockApprovalStatus: CREATE_LOCK_APPROVAL_STATUS;
 }) {
   const isAmountFormatValid = (() => {
@@ -574,9 +627,12 @@ function getButtonLocator({
 
   // Both topping up and extending duration are now supported for the first lock
   if (!amount || amount === "" || amount === "0") {
-    // Allow empty or 0 amount if user is extending lock duration
+    // Allow empty or 0 amount if user is extending lock duration or changing delegate
     if (canRelockTarget && isExtendingDuration) {
       return "extendLockButton";
+    }
+    if (canRelockTarget && isChangingDelegate) {
+      return "changeDelegateButton";
     }
     return "enterAmountButton";
   }
@@ -594,12 +650,20 @@ function getButtonLocator({
     }
 
     // Determine button text based on what's changing
-    if (isExtendingDuration && isAddingAmount) {
+    if (isExtendingDuration && isAddingAmount && isChangingDelegate) {
+      return "topUpExtendAndChangeDelegateButton";
+    } else if (isExtendingDuration && isAddingAmount) {
       return "topUpAndExtendLockButton";
+    } else if (isExtendingDuration && isChangingDelegate) {
+      return "extendAndChangeDelegateButton";
     } else if (isExtendingDuration && !isAddingAmount) {
       return "extendLockButton";
+    } else if (isAddingAmount && isChangingDelegate) {
+      return "topUpAndChangeDelegateButton";
     } else if (!isExtendingDuration && isAddingAmount) {
       return "topUpLockButton";
+    } else if (isChangingDelegate) {
+      return "changeDelegateButton";
     }
 
     // Fallback (shouldn't reach here in normal flow)

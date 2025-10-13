@@ -68,7 +68,7 @@ export function LockFormFields({
   // Set up registration for delegate address without attaching RHF's onChange to avoid conflicts
   const delegateRegister = register(LOCKING_DELEGATE_ADDRESS_FORM_KEY, {
     validate: (val) => {
-      if (!delegateEnabled && !isDelegatedToOther) return true;
+      if (!delegateEnabled) return true;
       return isValidAddress(val) || "Invalid address";
     },
   });
@@ -173,15 +173,15 @@ export function LockFormFields({
         setSliderIndex(idx);
       }
 
+      // Initialize delegate fields based on existing lock
+      // Only set delegate fields if delegated to someone other than self
       if (isDelegatedToOther) {
         setValue(LOCKING_DELEGATE_ENABLED_FORM_KEY, true, {
           shouldValidate: true,
         });
-        if (lock?.delegate?.id) {
-          setValue(LOCKING_DELEGATE_ADDRESS_FORM_KEY, lock.delegate.id, {
-            shouldValidate: true,
-          });
-        }
+        setValue(LOCKING_DELEGATE_ADDRESS_FORM_KEY, lock.delegate.id, {
+          shouldValidate: true,
+        });
       } else {
         setValue(LOCKING_DELEGATE_ENABLED_FORM_KEY, false, {
           shouldValidate: true,
@@ -413,13 +413,17 @@ export function LockFormFields({
             <div className="flex items-center gap-2">
               <Checkbox
                 id={`delegateEnabled-${delegateFieldId}`}
-                checked={isDelegatedToOther ? true : !!delegateEnabled}
-                disabled={isDelegatedToOther}
+                checked={!!delegateEnabled}
                 onCheckedChange={(v) => {
-                  if (isDelegatedToOther) return;
                   setValue(LOCKING_DELEGATE_ENABLED_FORM_KEY, Boolean(v), {
                     shouldValidate: true,
                   });
+                  // Clear delegate address when unchecking
+                  if (!v) {
+                    setValue(LOCKING_DELEGATE_ADDRESS_FORM_KEY, "", {
+                      shouldValidate: true,
+                    });
+                  }
                 }}
               />
               <Label htmlFor={`delegateEnabled-${delegateFieldId}`}>
@@ -427,12 +431,11 @@ export function LockFormFields({
               </Label>
             </div>
 
-            {(delegateEnabled || isDelegatedToOther) && (
+            {delegateEnabled && (
               <Input
                 data-testid={`delegateAddressInput`}
                 placeholder="Delegate Address..."
                 maxLength={42}
-                disabled={isDelegatedToOther}
                 name={delegateRegister.name}
                 ref={delegateRegister.ref}
                 onBlur={delegateRegister.onBlur}
@@ -452,14 +455,10 @@ export function LockFormFields({
               />
             )}
 
-            {lock?.delegate?.id && (
+            {lock?.delegate?.id && isDelegatedToOther && (
               <span className="text-muted-foreground text-xs">
                 Currently delegated to:{" "}
-                {lock.delegate.id.toLowerCase() ===
-                (currentAddress ?? "").toLowerCase()
-                  ? "Self"
-                  : `${lock.delegate.id.slice(0, 6)}...${lock.delegate.id.slice(-4)}`}
-                {isDelegatedToOther && " (locked)"}
+                {`${lock.delegate.id.slice(0, 6)}...${lock.delegate.id.slice(-4)}`}
               </span>
             )}
           </div>
