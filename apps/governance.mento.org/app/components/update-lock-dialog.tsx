@@ -45,10 +45,6 @@ export function UpdateLockDialog({
     onOpenChange(false);
   };
 
-  if (!address) {
-    return null;
-  }
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">

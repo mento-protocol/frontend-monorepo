@@ -48,6 +48,7 @@ export const LockList = () => {
   const { locks, loading, refetch } = useLocksByAccount({
     account: address as string,
   });
+
   const currentChain = useCurrentChain();
 
   const [selectedLock, setSelectedLock] = useState<LockWithExpiration | null>(
@@ -183,24 +184,30 @@ export const LockList = () => {
       .map((lock) => {
         const amount = BigInt(lock.amount);
         const expirySec = Math.floor(lock.expiration.getTime() / 1000);
-        const startSec = Math.floor(
+        // Full lock start (includes cliff + slope)
+        const lockStartSec = Math.floor(
           expirySec - (lock.cliff + lock.slope) * Number(WEEK_BIG),
         );
+        // Vesting/unlocking start = end of cliff
+        const vestingStartSec = lockStartSec + lock.cliff * Number(WEEK_BIG);
 
         // Classify lock state
         const isExpired = nowSec >= expirySec;
-        const isVesting = nowSec >= startSec && nowSec < expirySec;
-        const isNotStarted = nowSec < startSec;
+        // Vesting (unlocking) happens only after cliff ends
+        const isVesting = nowSec >= vestingStartSec && nowSec < expirySec;
+        const isNotStarted = nowSec < vestingStartSec;
         const isReplaced = !!lock.replacedBy;
 
-        // Compute vested amount (linear)
+        // Compute vested/withdrawable amount (discrete weekly unlocks)
         let vestedAmount = 0n;
         if (isExpired) {
           vestedAmount = amount;
         } else if (isVesting) {
-          const elapsed = BigInt(nowSec - startSec);
-          const duration = BigInt(expirySec - startSec);
-          vestedAmount = (amount * elapsed) / duration;
+          const weeksPassed = Math.min(
+            Math.floor((nowSec - vestingStartSec) / WEEK),
+            Number(lock.slope),
+          );
+          vestedAmount = (amount * BigInt(weeksPassed)) / BigInt(lock.slope);
         }
 
         return {
@@ -211,7 +218,7 @@ export const LockList = () => {
           isVesting,
           isNotStarted,
           isReplaced,
-          startSec,
+          startSec: lockStartSec,
           expirySec,
         };
       })
@@ -338,21 +345,24 @@ export const LockList = () => {
       const ownerLockData = ownerAllLocks.map((lock) => {
         const amount = BigInt(lock.amount);
         const expirySec = Math.floor(lock.expiration.getTime() / 1000);
-        const startSec = Math.floor(
+        const lockStartSec = Math.floor(
           expirySec - (lock.cliff + lock.slope) * Number(WEEK_BIG),
         );
+        const vestingStartSec = lockStartSec + lock.cliff * Number(WEEK_BIG);
 
         const isExpired = nowSec >= expirySec;
-        const isVesting = nowSec >= startSec && nowSec < expirySec;
-        const isNotStarted = nowSec < startSec;
+        const isVesting = nowSec >= vestingStartSec && nowSec < expirySec;
+        const isNotStarted = nowSec < vestingStartSec;
 
         let vestedAmount = 0n;
         if (isExpired) {
           vestedAmount = amount;
         } else if (isVesting) {
-          const elapsed = BigInt(nowSec - startSec);
-          const duration = BigInt(expirySec - startSec);
-          vestedAmount = (amount * elapsed) / duration;
+          const weeksPassed = Math.min(
+            Math.floor((nowSec - vestingStartSec) / WEEK),
+            Number(lock.slope),
+          );
+          vestedAmount = (amount * BigInt(weeksPassed)) / BigInt(lock.slope);
         }
 
         return {
