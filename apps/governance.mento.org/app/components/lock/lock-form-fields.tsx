@@ -182,11 +182,19 @@ export function LockFormFields({
             shouldValidate: true,
           });
         }
+      } else {
+        setValue(LOCKING_DELEGATE_ENABLED_FORM_KEY, false, {
+          shouldValidate: true,
+        });
+        setValue(LOCKING_DELEGATE_ADDRESS_FORM_KEY, "", {
+          shouldValidate: true,
+        });
       }
     } else if (!lock && validWednesdays.length > 0) {
       setValue(LOCKING_UNLOCK_DATE_FORM_KEY, validWednesdays[0], {
         shouldValidate: true,
       });
+      setValue(LOCKING_AMOUNT_FORM_KEY, "");
       setSliderIndex(0);
     }
   }, [lock, validWednesdays, setValue, minSelectableIndex, isDelegatedToOther]);

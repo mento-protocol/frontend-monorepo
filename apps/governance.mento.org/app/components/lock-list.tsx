@@ -598,35 +598,6 @@ export const LockList = () => {
                     </LockCardBadge>
                   </LockCardHeader>
                   <LockCardBody>
-                    {delegationInfo && (
-                      <LockCardRow>
-                        <LockCardField>
-                          <LockCardDelegationLabel>
-                            {delegationInfo.label}
-                          </LockCardDelegationLabel>
-                          <LockCardDelegationAddress>
-                            <div className="flex items-center gap-2">
-                              <Identicon
-                                address={delegationInfo.address}
-                                size={16}
-                              />
-                              <a
-                                className="text-muted-foreground text-sm"
-                                href={`${explorerUrl}/address/${delegationInfo.address}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                              >
-                                {WalletHelper.getShortAddress(
-                                  delegationInfo.address,
-                                )}
-                              </a>
-                              <CopyToClipboard text={delegationInfo.address} />
-                            </div>
-                          </LockCardDelegationAddress>
-                        </LockCardField>
-                      </LockCardRow>
-                    )}
-
                     <LockCardRow>
                       <LockCardField>
                         <LockCardFieldLabel>
@@ -692,6 +663,34 @@ export const LockList = () => {
                         </LockCardFieldValue>
                       </LockCardField>
                     </LockCardRow>
+                    {delegationInfo && (
+                      <LockCardRow>
+                        <LockCardField>
+                          <LockCardDelegationLabel>
+                            {delegationInfo.label}
+                          </LockCardDelegationLabel>
+                          <LockCardDelegationAddress>
+                            <div className="flex items-center gap-2">
+                              <Identicon
+                                address={delegationInfo.address}
+                                size={16}
+                              />
+                              <a
+                                className="text-muted-foreground text-sm"
+                                href={`${explorerUrl}/address/${delegationInfo.address}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {WalletHelper.getShortAddress(
+                                  delegationInfo.address,
+                                )}
+                              </a>
+                              <CopyToClipboard text={delegationInfo.address} />
+                            </div>
+                          </LockCardDelegationAddress>
+                        </LockCardField>
+                      </LockCardRow>
+                    )}
                   </LockCardBody>
 
                   {badgeType !== "received" && (
