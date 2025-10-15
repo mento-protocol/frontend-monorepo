@@ -25,7 +25,7 @@ export enum CreateProposalStep {
   preview = 3,
 }
 
-export const enum CreateProposalCacheEntry {
+const enum CreateProposalCacheEntry {
   title = "title",
   description = "description",
   code = "code",
@@ -37,7 +37,7 @@ type Proposal = {
   code: string;
 };
 
-export interface ICreateProposalContext {
+interface ICreateProposalContext {
   step: CreateProposalStep;
   setStep: (step: CreateProposalStep) => void;
   newProposal: Proposal;

@@ -13,8 +13,6 @@ import {
 import { useCallback, useMemo } from "react";
 import { useReadContracts } from "wagmi";
 
-export const GraphProposalsQueryKey = ["proposals-graph-query"];
-
 export const useProposals = () => {
   const ensuredChainId = useEnsureChainId();
   const contracts = useContracts();

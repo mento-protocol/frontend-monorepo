@@ -1,12 +1,10 @@
 "use client";
 
 // Export all components from a single file for easier imports
-export * from "./components/dropdown-menu";
 export * from "./components/mode-toggle";
 
 export * from "./components/logo";
 export * from "./components/navigation";
-export * from "./components/theme-provider";
 export * from "./components/ui/button";
 export * from "./components/ui/card";
 export * from "./components/ui/coin-card";
@@ -26,6 +24,7 @@ export * from "./components/ui/coin-select";
 export * from "./components/ui/collapsible";
 export * from "./components/ui/datepicker";
 export * from "./components/ui/dialog";
+export * from "./components/ui/dropdown-menu";
 export * from "./components/ui/form";
 export * from "./components/ui/input";
 export * from "./components/ui/label";

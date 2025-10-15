@@ -33,19 +33,6 @@ interface VoteCardProps {
   onVoteConfirmed?: () => void;
 }
 
-// Vote type constants for clarity
-export const VOTE_TYPES = {
-  Against: 0,
-  For: 1,
-  Abstain: 2,
-} as const;
-
-export const REVERSE_VOTE_TYPE_MAP = {
-  [VOTE_TYPES.For]: "For",
-  [VOTE_TYPES.Against]: "Against",
-  [VOTE_TYPES.Abstain]: "Abstain",
-} as const;
-
 const cardClassName = "w-full pt-0 border-none gap-0 pb-0";
 
 export const VoteCard = ({

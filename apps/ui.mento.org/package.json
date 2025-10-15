@@ -7,7 +7,7 @@
     "build": "next build",
     "check-types": "tsc --noEmit",
     "dev": "next dev --turbopack --port 3003",
-    "lint": "trunk check .",
+    "lint": "npx @trunkio/launcher check .",
     "start": "next start"
   },
   "dependencies": {
@@ -17,7 +17,8 @@
     "next": "^15.5.2",
     "next-themes": "^0.4.6",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@repo/eslint-config": "workspace:*",
@@ -26,10 +27,8 @@
     "@types/node": "^22.14.1",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.1",
-    "autoprefixer": "^10.4.21",
     "eslint": "^9.24.0",
     "postcss": "^8.5.3",
-    "tailwindcss": "^4.1.4",
     "typescript": "^5.8.3"
   }
 }

@@ -8,6 +8,8 @@ export interface ContractInfo {
   address: string;
 }
 
+// knip ignore because it doesn't understand the implicit need of the PatternManagerImpl of this interface
+/** @public */
 export interface PatternFunction {
   (contract: ContractInfo, args: DecodedArg[], value: string | number): string;
 }

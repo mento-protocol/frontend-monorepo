@@ -8,7 +8,7 @@ import {
   Check,
   ChevronDown,
 } from "lucide-react";
-import { useMediaQuery } from "@/hooks/use-media-querry";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { MobileToolbarGroup, MobileToolbarItem } from "./mobile-toolbar-group";
 
 import { Button } from "@/components/ui/button";

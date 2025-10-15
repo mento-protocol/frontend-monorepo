@@ -32,7 +32,7 @@ export async function decodeTransaction(
 /**
  * Decode transaction with locally stored ABIs
  */
-export function decodeWithLocalAbi(
+function decodeWithLocalAbi(
   transaction: Transaction | null | undefined,
 ): DecodedTransaction | null {
   return decodeTransactionWithABI(transaction, KNOWN_ABIS);
@@ -41,7 +41,7 @@ export function decodeWithLocalAbi(
 /**
  * Decode transaction with ABIs fetched from block explorer APIs
  */
-export async function decodeWithRemoteABI(
+async function decodeWithRemoteABI(
   tx: Transaction,
   abiResponse: ABIResponse | null | undefined,
 ): Promise<DecodedTransaction | null> {

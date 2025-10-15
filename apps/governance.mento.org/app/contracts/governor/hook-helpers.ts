@@ -1,6 +1,6 @@
 import { ProposalState } from "@/graphql/subgraph/generated/subgraph";
 
-export type StateNumber = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+type StateNumber = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 export const STATE_FROM_NUMBER: Record<StateNumber, ProposalState> = {
   0: ProposalState.Pending,
   1: ProposalState.Active,

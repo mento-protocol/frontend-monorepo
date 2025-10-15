@@ -1,4 +1,4 @@
-export const API_ENDPOINTS = {
+const API_ENDPOINTS = {
   analytics: {
     base: (() => {
       const url = process.env.NEXT_PUBLIC_ANALYTICS_API_URL;

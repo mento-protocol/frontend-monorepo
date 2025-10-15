@@ -8,7 +8,7 @@ import { State } from "@repo/web3/wagmi";
 import { useEffect, useState } from "react";
 import { ErrorBoundary } from "@sentry/nextjs";
 
-export function useIsSsr() {
+function useIsSsr() {
   const [isSsr, setIsSsr] = useState(true);
   useEffect(() => {
     setIsSsr(false);

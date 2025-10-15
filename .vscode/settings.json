@@ -9,12 +9,12 @@
   },
 
   // Configure formatters by language
-  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.defaultFormatter": "trunk.io",
   "[typescript]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.defaultFormatter": "trunk.io"
   },
   "[typescriptreact]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.defaultFormatter": "trunk.io"
   },
   "[javascript]": {
     "editor.defaultFormatter": "trunk.io"

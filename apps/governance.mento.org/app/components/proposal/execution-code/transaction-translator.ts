@@ -15,7 +15,7 @@ import { isEmptyTransaction } from "./patterns/utils";
 import { removeProxySuffix } from "./utils/removeProxySuffix";
 
 // Combined result for both views
-export interface ProcessedTransaction {
+interface ProcessedTransaction {
   summary: TransactionSummary;
   decoded: DecodedTransaction | null;
 }
@@ -70,7 +70,7 @@ export async function processTransaction(
   }
 }
 
-export async function translateDecodedTransaction(
+async function translateDecodedTransaction(
   transaction: Transaction,
   decoded: DecodedTransaction,
   contractName?: string,

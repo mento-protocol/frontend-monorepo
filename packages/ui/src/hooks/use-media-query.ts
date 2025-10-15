@@ -1,37 +1,20 @@
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 
+// @public comment is to suppress invalid knip warning https://knip.dev/reference/jsdoc-tsdoc-tags#public
+/** @public */
 export function useMediaQuery(query: string): boolean {
   const [matches, setMatches] = useState(false);
 
   useEffect(() => {
     const media = window.matchMedia(query);
 
-    // Set the initial value
-    setMatches(media.matches);
-
-    // Define the listener
-    const listener = (event: MediaQueryListEvent) => {
-      setMatches(event.matches);
-    };
-
-    // Add the listener
-    if (media.addEventListener) {
-      media.addEventListener("change", listener);
-    } else {
-      // Fallback for older browsers
-      media.addListener(listener);
+    if (media.matches !== matches) {
+      setMatches(media.matches);
     }
-
-    // Cleanup
-    return () => {
-      if (media.removeEventListener) {
-        media.removeEventListener("change", listener);
-      } else {
-        // Fallback for older browsers
-        media.removeListener(listener);
-      }
-    };
-  }, [query]);
+    const listener = () => setMatches(media.matches);
+    window.addEventListener("resize", listener);
+    return () => window.removeEventListener("resize", listener);
+  }, [matches, query]);
 
   return matches;
 }
