@@ -1,0 +1,44 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "ignore": [
+    ".trunk/**",
+    "apps/governance.mento.org/app/graphql/**/generated/**",
+    "commitlint.config.mjs"
+  ],
+  "workspaces": {
+    "apps/*": {
+      "project": "app/**/*.{mjs,tsx,ts}"
+    },
+    "apps/app.mento.org": {
+      "ignoreDependencies": ["tailwindcss", "pino-pretty"]
+    },
+    "apps/governance.mento.org": {
+      "entry": ["app/middleware.ts"],
+      "ignoreDependencies": [
+        "tailwindcss",
+        "@tailwindcss/typography",
+        "pino-pretty"
+      ]
+    },
+    "apps/reserve.mento.org": {
+      "ignoreDependencies": ["tailwindcss"]
+    },
+    "packages/*": {
+      "project": "**/*.{ts,tsx}"
+    },
+    "packages/ui": {
+      "entry": ["turbo/generators/config.ts"],
+      "project": "**/*.{ts,tsx}",
+      "ignoreDependencies": ["tailwindcss", "tw-animate-css"]
+    },
+    "packages/eslint-config": {
+      "entry": "*.js",
+      "project": "**/*.js"
+    },
+    "packages/typescript-config": {
+      "entry": "*.json",
+      "project": "**/*.json",
+      "ignoreDependencies": ["next"]
+    }
+  }
+}

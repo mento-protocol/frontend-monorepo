@@ -1,5 +1,6 @@
 {
   "$schema": "./node_modules/turbo/schema.json",
+  "ui": "tui",
   "globalDependencies": ["**/.env.*local"],
   "globalEnv": [
     "ETHERSCAN_API_KEY",
@@ -17,7 +18,8 @@
     },
     "lint": {},
     "check-types": {
-      "dependsOn": ["^build"]
+      "outputs": [".tsbuildinfo", "tsconfig.tsbuildinfo"],
+      "cache": true
     },
     "dev": {
       "dependsOn": ["^build"],

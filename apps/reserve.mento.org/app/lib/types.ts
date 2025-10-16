@@ -1,5 +1,10 @@
-import type { Network } from "./types/index";
 import type { TokenSymbol } from "@mento-protocol/mento-sdk";
+
+enum Network {
+  ETH = "ethereum",
+  CELO = "celo",
+  BTC = "btc",
+}
 
 export type ReserveAssetSymbol =
   | "CELO"
@@ -16,7 +21,7 @@ export type ReserveAssetSymbol =
   | "stETH"
   | "USDGLO";
 
-export interface TokenModel {
+interface TokenModel {
   symbol: TokenSymbol;
   name: string;
   units: number;
@@ -46,7 +51,7 @@ export interface ReserveCompositionEntry {
 export type ReserveCompositionAPI = ReserveCompositionEntry[];
 
 // Raw type from external API for reserve composition
-export interface ExternalReserveCompositionItem {
+interface ExternalReserveCompositionItem {
   symbol: string;
   percentage: number;
   usd_value: number;
@@ -57,14 +62,14 @@ export interface ExternalCompositionResponse {
 }
 
 // Types for Reserve Holdings
-export interface CeloAssetDetails {
+interface CeloAssetDetails {
   symbol: "CELO";
   units: number;
   value: number;
   updated: number; // Timestamp of the last update
 }
 
-export interface OtherReserveAsset {
+interface OtherReserveAsset {
   symbol: ReserveAssetSymbol;
   units: number;
   value: number;
@@ -83,7 +88,7 @@ export interface HoldingsApi {
 }
 
 // Raw type from external API for reserve holdings
-export interface ExternalReserveAsset {
+interface ExternalReserveAsset {
   symbol: string;
   totalBalance: string; // Will be converted to number
   usdValue: number;
@@ -96,12 +101,12 @@ export interface ExternalAnalyticsApiResponse {
 }
 
 // Reserve Addresses Types
-export interface ReserveAddress {
+interface ReserveAddress {
   address: string;
   label: string;
 }
 
-export interface ReserveAddressGroup {
+interface ReserveAddressGroup {
   network: Network; // Use proper Network enum
   category: string; // "Mento Reserve" | "Uniswap V3 Pool" | "Aave"
   addresses: ReserveAddress[];

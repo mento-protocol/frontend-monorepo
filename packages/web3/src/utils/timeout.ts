@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 
 // https://usehooks-typescript.com/react-hook/use-interval
+// @public comment is to suppress invalid knip warning https://knip.dev/reference/jsdoc-tsdoc-tags#public
+/** @public */
 export function useInterval(callback: () => void, delay: number | null) {
   const savedCallback = useRef<() => void | null>(null);
 
@@ -29,31 +31,6 @@ export function useInterval(callback: () => void, delay: number | null) {
   }, [delay]);
 }
 
-// https://medium.com/javascript-in-plain-english/usetimeout-react-hook-3cc58b94af1f
-export const useTimeout = (
-  callback: () => void,
-  delay = 0, // in ms (default: immediately put into JS Event Queue)
-): (() => void) => {
-  const timeoutIdRef = useRef<NodeJS.Timeout | undefined>(undefined);
-
-  const cancel = useCallback(() => {
-    const timeoutId = timeoutIdRef.current;
-    if (timeoutId) {
-      timeoutIdRef.current = undefined;
-      clearTimeout(timeoutId);
-    }
-  }, [timeoutIdRef]);
-
-  useEffect(() => {
-    if (delay >= 0) {
-      timeoutIdRef.current = setTimeout(callback, delay);
-    }
-    return cancel;
-  }, [callback, delay, cancel]);
-
-  return cancel;
-};
-
 export async function fetchWithTimeout(
   resource: RequestInfo,
   options?: RequestInit,
@@ -73,34 +50,4 @@ export function sleep(milliseconds: number) {
   return new Promise((resolve) =>
     setTimeout(() => resolve(true), milliseconds),
   );
-}
-
-export const PROMISE_TIMEOUT = "__promise_timeout__";
-
-export async function promiseTimeout<T>(
-  promise: Promise<T>,
-  milliseconds: number,
-) {
-  // Create a promise that rejects in <ms> milliseconds
-  const timeout = new Promise<T>((_resolve, reject) => {
-    const id = setTimeout(() => {
-      clearTimeout(id);
-      reject(new Error(PROMISE_TIMEOUT));
-    }, milliseconds);
-  });
-  // Awaits the race, which will throw on timeout
-  const result = await Promise.race([promise, timeout]);
-  return result;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function asyncTimeout<P extends Array<any>, R>(
-  inner: (...args: P) => Promise<R>,
-  timeout: number,
-) {
-  return async (...args: P): Promise<R> => {
-    const resultP = inner(...args);
-    const result = await promiseTimeout(resultP, timeout);
-    return result;
-  };
 }

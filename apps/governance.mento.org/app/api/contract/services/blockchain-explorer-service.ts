@@ -2,7 +2,7 @@ import { env } from "@/env.mjs";
 
 export type BlockchainExplorerSource = "blockscout" | "celoscan";
 
-export interface ContractSourceCodeItem {
+interface ContractSourceCodeItem {
   ContractName: string;
   SourceCode: string;
   ABI: string;
@@ -169,34 +169,4 @@ export async function fetchAbi(
   }
 
   return null;
-}
-
-/**
- * Clear cache (useful for testing or manual cache invalidation)
- */
-export function clearCache(): void {
-  responseCache.clear();
-  pendingRequests.clear();
-  apiCallTimes.length = 0;
-}
-
-/**
- * Get cache statistics (useful for monitoring)
- */
-export function getCacheStats(): {
-  cacheSize: number;
-  pendingRequests: number;
-  recentApiCalls: number;
-} {
-  const now = Date.now();
-  const oneSecondAgo = now - 1000;
-  const recentCalls = apiCallTimes.filter(
-    (time) => time >= oneSecondAgo,
-  ).length;
-
-  return {
-    cacheSize: responseCache.size,
-    pendingRequests: pendingRequests.size,
-    recentApiCalls: recentCalls,
-  };
 }

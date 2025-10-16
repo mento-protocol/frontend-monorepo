@@ -2,6 +2,8 @@ import * as React from "react";
 
 const MOBILE_BREAKPOINT = 768;
 
+// @public comment is to suppress invalid knip warning https://knip.dev/reference/jsdoc-tsdoc-tags#public
+/** @public */
 export function useIsMobile() {
   const [isMobile, setIsMobile] = React.useState<boolean | undefined>(
     undefined,

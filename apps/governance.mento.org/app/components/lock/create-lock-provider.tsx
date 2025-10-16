@@ -21,7 +21,6 @@ import { useFormContext } from "react-hook-form";
 import { TxDialog } from "../tx-dialog/tx-dialog";
 
 export enum CREATE_LOCK_TX_STATUS {
-  PENDING = "PENDING",
   CONFIRMING_LOCK_TX = "CONFIRMING_LOCK_TX",
   CONFIRMING_APPROVE_TX = "CONFIRMING_APPROVE_TX",
   AWAITING_SIGNATURE = "AWAITING_SIGNATURE",
@@ -34,7 +33,7 @@ export enum CREATE_LOCK_APPROVAL_STATUS {
   UNKNOWN = "UNKNOWN",
 }
 
-export interface ICreateLockContext {
+interface ICreateLockContext {
   needsApproval: boolean;
   createLock: () => void;
   reset: () => void;

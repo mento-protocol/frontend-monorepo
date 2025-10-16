@@ -12,7 +12,7 @@ const variants = cva("", {
   },
 });
 
-export interface IIconMento extends VariantProps<typeof variants> {
+interface IIconMento extends VariantProps<typeof variants> {
   className?: string;
   logoColor?: string;
   width?: number;
