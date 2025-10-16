@@ -5,7 +5,6 @@
   "compilerOptions": {
     "baseUrl": ".",
     "incremental": true,
-    "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "module": "ESNext",
     "moduleResolution": "bundler",
     "paths": {
