@@ -7,7 +7,6 @@ import { makeClient } from "./graphql/apollo.client";
 export const ApolloProvider = ({ children }: PropsWithChildren) => {
   return (
     <ApolloNextAppProvider makeClient={makeClient}>
-      Test
       {children}
     </ApolloNextAppProvider>
   );

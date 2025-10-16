@@ -9,6 +9,7 @@
     "moduleResolution": "bundler",
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+    "tsBuildInfoFile": "./tsconfig.tsbuildinfo"
   }
 }
