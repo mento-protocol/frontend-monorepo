@@ -1,7 +1,7 @@
-import { ConnectButton } from "@repo/web3";
 import { ProgressBar } from "@/components/progress-bar";
-import { Timer } from "@/components/timer";
 import { TransactionLink } from "@/components/proposal/components/TransactionLink";
+import { Timer } from "@/components/timer";
+import { useLocksByAccount } from "@/contracts";
 import {
   useCastVote,
   useExecuteProposal,
@@ -10,7 +10,7 @@ import {
   useVoteReceipt,
 } from "@/contracts/governor";
 import { Proposal, ProposalState } from "@/graphql/subgraph/generated/subgraph";
-import { useTokens, NumbersService } from "@repo/web3";
+import { useVeMentoDelegationSummary } from "@/hooks/use-ve-mento-delegation-summary";
 import {
   Button,
   Card,
@@ -20,12 +20,13 @@ import {
   CardTitle,
   IconLoading,
 } from "@repo/ui";
+import { ConnectButton, NumbersService } from "@repo/web3";
+import { useAccount } from "@repo/web3/wagmi";
 import * as Sentry from "@sentry/nextjs";
 import { CheckCircle2, CircleCheck, XCircle, XCircleIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { formatUnits } from "viem";
-import { useAccount } from "@repo/web3/wagmi";
 
 interface VoteCardProps {
   proposal: Proposal;
@@ -54,7 +55,14 @@ export const VoteCard = ({
   onVoteConfirmed,
 }: VoteCardProps) => {
   const { address, isConnecting, isConnected } = useAccount();
-  const { veMentoBalance } = useTokens();
+
+  // Get locks for delegation calculation
+  const { locks } = useLocksByAccount({
+    account: address as string,
+  });
+
+  // Calculate total voting power including received delegations
+  const { ownVe, receivedVe } = useVeMentoDelegationSummary({ locks, address });
   const {
     data: voteReceipt,
     isLoading: isHasVotedStatusLoading,
@@ -91,7 +99,8 @@ export const VoteCard = ({
 
   const { quorumNeeded } = useQuorum(proposal.startBlock);
 
-  const hasEnoughLockedMentoToVote = veMentoBalance.value > 0;
+  // User can vote if they have any voting power (own or delegated)
+  const hasEnoughLockedMentoToVote = ownVe + receivedVe > 0;
   const isInitializing = isConnecting || isHasVotedStatusLoading;
 
   // Track when queue transaction is pending (sent but not confirmed)
@@ -209,10 +218,10 @@ export const VoteCard = ({
   }, [totalVotingPower]);
 
   const formattedVeMentoBalance = useMemo(() => {
-    return NumbersService.parseNumericValue(
-      formatUnits(veMentoBalance.value, 18),
-    );
-  }, [veMentoBalance]);
+    // Total voting power = own veMENTO + received delegated veMENTO
+    const totalVotingPower = ownVe + receivedVe;
+    return NumbersService.parseNumericValue(totalVotingPower.toFixed(18));
+  }, [ownVe, receivedVe]);
 
   const quorumNeededFormatted = useMemo(() => {
     return NumbersService.parseNumericValue(

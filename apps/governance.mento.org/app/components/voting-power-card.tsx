@@ -1,18 +1,32 @@
 "use client";
 import { NumbersService, useTokens } from "@repo/web3";
-import { useLockInfo } from "@/contracts/locking";
+import { useLockInfo, useLocksByAccount } from "@/contracts/locking";
+import { useVeMentoDelegationSummary } from "@/hooks/use-ve-mento-delegation-summary";
 import { Button } from "@repo/ui";
 import { ChevronsRight, Zap } from "lucide-react";
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { formatUnits } from "viem";
 import { useAccount } from "@repo/web3/wagmi";
 
 export const VotingPowerCard = () => {
-  const { isConnected } = useAccount();
-  const { veMentoBalance, mentoBalance } = useTokens();
+  const { isConnected, address } = useAccount();
+  const { mentoBalance } = useTokens();
   const account = useAccount();
   const { lock, hasLock, activeLocks } = useLockInfo(account.address);
+
+  // Get locks for delegation calculation
+  const { locks } = useLocksByAccount({
+    account: address as string,
+  });
+
+  // Calculate total voting power including received delegations
+  const { ownVe, receivedVe } = useVeMentoDelegationSummary({ locks, address });
+
+  // Total voting power = own veMENTO + received delegated veMENTO
+  const totalVotingPower = useMemo(() => {
+    return ownVe + receivedVe;
+  }, [ownVe, receivedVe]);
 
   const [expirationDate, setExpirationDate] = useState<string | null>(null);
 
@@ -48,9 +62,9 @@ export const VotingPowerCard = () => {
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">veMENTO</span>
           <span>
-            {NumbersService.parseNumericValue(
-              formatUnits(veMentoBalance.value, veMentoBalance.decimals),
-            )}
+            {totalVotingPower.toLocaleString(undefined, {
+              maximumFractionDigits: 3,
+            })}
           </span>
         </div>
         <hr className="border-[var(--border-tertiary)]" />

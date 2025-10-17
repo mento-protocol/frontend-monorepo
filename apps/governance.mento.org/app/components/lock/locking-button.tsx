@@ -422,6 +422,7 @@ export const LockingButton = ({
     isAmountFormatValid,
     isBelowMinimum,
     parsedAmount,
+    nextDelegate,
   ]);
 
   const shouldButtonBeDisabled = useMemo(() => {
@@ -534,6 +535,8 @@ export const LockingButton = ({
     isExtendingDuration,
     isAddingAmount,
     isChangingDelegate,
+    address,
+    nextDelegate,
   ]);
 
   // Reset function for dialog

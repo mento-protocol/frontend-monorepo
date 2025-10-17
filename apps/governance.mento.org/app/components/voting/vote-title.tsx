@@ -1,10 +1,25 @@
 "use client";
 
-import { useTokens } from "@repo/web3";
-import { formatUnits } from "viem";
+import { useLocksByAccount } from "@/contracts";
+import { useVeMentoDelegationSummary } from "@/hooks/use-ve-mento-delegation-summary";
+import { useAccount } from "@repo/web3/wagmi";
+import { useMemo } from "react";
 
 export const VoteTitle = () => {
-  const { veMentoBalance } = useTokens();
+  const { address } = useAccount();
+
+  // Get locks for delegation calculation
+  const { locks } = useLocksByAccount({
+    account: address as string,
+  });
+
+  // Calculate total voting power including received delegations
+  const { ownVe, receivedVe } = useVeMentoDelegationSummary({ locks, address });
+
+  // Total voting power = own veMENTO + received delegated veMENTO
+  const totalVotingPower = useMemo(() => {
+    return ownVe + receivedVe;
+  }, [ownVe, receivedVe]);
 
   return (
     <div className="mb-8 md:mb-16">
@@ -15,10 +30,9 @@ export const VoteTitle = () => {
         Your voting power
       </h1>
       <span className="text-muted-foreground text-xl font-medium md:text-3xl">
-        {Number(formatUnits(veMentoBalance.value, 18)).toLocaleString(
-          undefined,
-          { maximumFractionDigits: 0 },
-        )}{" "}
+        {totalVotingPower.toLocaleString(undefined, {
+          maximumFractionDigits: 3,
+        })}{" "}
         veMENTO
       </span>
     </div>
