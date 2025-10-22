@@ -21,7 +21,7 @@ import {
   useDebounce,
 } from "@repo/ui";
 import { isValidAddress } from "@repo/web3";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Controller, useForm, useFormContext } from "react-hook-form";
 import spacetime from "spacetime";
 import { formatUnits, parseEther } from "viem";
@@ -61,7 +61,7 @@ export function LockFormFields({
     mode: "onChange",
     defaultValues: {
       [LOCKING_AMOUNT_FORM_KEY]: "",
-      [LOCKING_UNLOCK_DATE_FORM_KEY]: getFirstWednesdayAfterMinPeriod(),
+      [LOCKING_UNLOCK_DATE_FORM_KEY]: "",
       [LOCKING_DELEGATE_ENABLED_FORM_KEY]: false,
       [LOCKING_DELEGATE_ADDRESS_FORM_KEY]: "",
     },
@@ -84,6 +84,7 @@ export function LockFormFields({
 
   const [sliderIndex, setSliderIndex] = useState(0);
   const delegateFieldId = useId();
+  const hasInitializedRef = useRef(false);
 
   const minLockDate = useMemo(() => getFirstWednesdayAfterMinPeriod(), []);
 
@@ -202,23 +203,19 @@ export function LockFormFields({
           shouldValidate: true,
         });
       }
-    } else if (!lock && validWednesdays.length > 0) {
-      // Ensure date is set to first valid Wednesday if not already set
-      if (!unlockDate) {
-        setValue(LOCKING_UNLOCK_DATE_FORM_KEY, validWednesdays[0], {
-          shouldValidate: true,
-        });
-        setSliderIndex(0);
-      }
+    } else if (
+      !lock &&
+      validWednesdays.length > 0 &&
+      !hasInitializedRef.current
+    ) {
+      // Ensure date is set to first valid Wednesday if not already set (only once)
+      setValue(LOCKING_UNLOCK_DATE_FORM_KEY, validWednesdays[0], {
+        shouldValidate: true,
+      });
+      setSliderIndex(0);
+      hasInitializedRef.current = true;
     }
-  }, [
-    lock,
-    validWednesdays,
-    setValue,
-    minSelectableIndex,
-    isDelegatedToOther,
-    unlockDate,
-  ]);
+  }, [lock, validWednesdays, setValue, minSelectableIndex, isDelegatedToOther]);
 
   const currentDateIndex = useMemo(() => {
     if (!unlockDate || validWednesdays.length === 0) return 0;
