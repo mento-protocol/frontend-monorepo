@@ -62,6 +62,7 @@ export const LockingButton = ({
   const [isTxDialogOpen, setIsTxDialogOpen] = useState(false);
   const [hasApprovedForCurrentRelock, setHasApprovedForCurrentRelock] =
     useState(false);
+  const [relockError, setRelockError] = useState(false);
 
   const {
     watch,
@@ -267,6 +268,7 @@ export const LockingButton = ({
     approve.reset();
     setIsTxDialogOpen(true);
     setHasApprovedForCurrentRelock(false);
+    setRelockError(false);
 
     const submitRelock = () => {
       relock.relockMento({
@@ -276,6 +278,7 @@ export const LockingButton = ({
         onError: (error) => {
           console.error("Relock failed", error);
           toast.error("Failed to update lock");
+          setRelockError(true);
         },
       });
     };
@@ -293,6 +296,7 @@ export const LockingButton = ({
         onError: (error) => {
           console.error("Approval failed", error);
           toast.error("Failed to approve MENTO");
+          setRelockError(true);
         },
       });
     } else {
@@ -450,6 +454,11 @@ export const LockingButton = ({
       return false;
     }
 
+    // New lock flow: require unlock date
+    if (!canRelockTarget && !unlockDate) {
+      return true;
+    }
+
     if (
       CreateLockTxStatus === CREATE_LOCK_TX_STATUS.CONFIRMING_APPROVE_TX ||
       CreateLockTxStatus === CREATE_LOCK_TX_STATUS.AWAITING_SIGNATURE ||
@@ -472,15 +481,17 @@ export const LockingButton = ({
     isChangingDelegate,
     isAmountFormatValid,
     isBelowMinimum,
+    unlockDate,
   ]);
   const relockTxStatus = useMemo(() => {
-    if (approve.error || relock.error) return "ERROR";
+    if (relockError || approve.error || relock.error) return "ERROR";
     if (approve.isAwaitingUserSignature || relock.isAwaitingUserSignature)
       return "AWAITING_SIGNATURE";
     if (approve.isConfirming) return "CONFIRMING_APPROVE_TX";
     if (relock.isConfirming) return "CONFIRMING_RELOCK_TX";
     return "UNKNOWN";
   }, [
+    relockError,
     approve.error,
     approve.isAwaitingUserSignature,
     approve.isConfirming,
@@ -545,6 +556,7 @@ export const LockingButton = ({
     approve.reset();
     relock.reset();
     setHasApprovedForCurrentRelock(false);
+    setRelockError(false);
   }, [approve, relock]);
 
   return (

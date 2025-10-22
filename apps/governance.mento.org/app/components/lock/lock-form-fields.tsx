@@ -26,6 +26,15 @@ import { Controller, useForm, useFormContext } from "react-hook-form";
 import spacetime from "spacetime";
 import { formatUnits, parseEther } from "viem";
 
+// Helper function to calculate the first valid Wednesday
+const getFirstWednesdayAfterMinPeriod = () => {
+  let targetDate = spacetime.now().add(MIN_LOCK_PERIOD_WEEKS, "week");
+  while (targetDate.day() !== 3) {
+    targetDate = targetDate.add(1, "day");
+  }
+  return targetDate.toNativeDate();
+};
+
 interface LockFormFieldsProps {
   mentoBalance: bigint;
   lock?: LockWithExpiration;
@@ -52,7 +61,7 @@ export function LockFormFields({
     mode: "onChange",
     defaultValues: {
       [LOCKING_AMOUNT_FORM_KEY]: "",
-      [LOCKING_UNLOCK_DATE_FORM_KEY]: undefined as Date | undefined,
+      [LOCKING_UNLOCK_DATE_FORM_KEY]: getFirstWednesdayAfterMinPeriod(),
       [LOCKING_DELEGATE_ENABLED_FORM_KEY]: false,
       [LOCKING_DELEGATE_ADDRESS_FORM_KEY]: "",
     },
@@ -75,14 +84,6 @@ export function LockFormFields({
 
   const [sliderIndex, setSliderIndex] = useState(0);
   const delegateFieldId = useId();
-
-  const getFirstWednesdayAfterMinPeriod = () => {
-    let targetDate = spacetime.now().add(MIN_LOCK_PERIOD_WEEKS, "week");
-    while (targetDate.day() !== 3) {
-      targetDate = targetDate.add(1, "day");
-    }
-    return targetDate.toNativeDate();
-  };
 
   const minLockDate = useMemo(() => getFirstWednesdayAfterMinPeriod(), []);
 
@@ -117,12 +118,23 @@ export function LockFormFields({
 
   const isDateDisabled = (date: Date) => {
     if (validWednesdays.length === 0) return true;
+
+    const normalizeDate = (d: Date) => {
+      const normalized = new Date(d);
+      normalized.setHours(0, 0, 0, 0);
+      return normalized.getTime();
+    };
+
+    const dateTime = normalizeDate(date);
     const minDate = validWednesdays[0]!;
-    const isBeforeMin = date < minDate;
-    const isAfterMax = date > maxDate;
+    const minDateTime = normalizeDate(minDate);
+    const maxDateTime = normalizeDate(maxDate);
+
+    const isBeforeMin = dateTime < minDateTime;
+    const isAfterMax = dateTime > maxDateTime;
     const isNotWednesday = spacetime(date).day() !== 3;
     const isBeforeCurrentExpiration = lock?.expiration
-      ? date < new Date(lock.expiration)
+      ? dateTime < normalizeDate(new Date(lock.expiration))
       : false;
 
     return (
@@ -191,13 +203,22 @@ export function LockFormFields({
         });
       }
     } else if (!lock && validWednesdays.length > 0) {
-      setValue(LOCKING_UNLOCK_DATE_FORM_KEY, validWednesdays[0], {
-        shouldValidate: true,
-      });
-      setValue(LOCKING_AMOUNT_FORM_KEY, "");
-      setSliderIndex(0);
+      // Ensure date is set to first valid Wednesday if not already set
+      if (!unlockDate) {
+        setValue(LOCKING_UNLOCK_DATE_FORM_KEY, validWednesdays[0], {
+          shouldValidate: true,
+        });
+        setSliderIndex(0);
+      }
     }
-  }, [lock, validWednesdays, setValue, minSelectableIndex, isDelegatedToOther]);
+  }, [
+    lock,
+    validWednesdays,
+    setValue,
+    minSelectableIndex,
+    isDelegatedToOther,
+    unlockDate,
+  ]);
 
   const currentDateIndex = useMemo(() => {
     if (!unlockDate || validWednesdays.length === 0) return 0;
@@ -469,6 +490,7 @@ export function LockFormFields({
           <Controller
             control={control}
             name={LOCKING_UNLOCK_DATE_FORM_KEY}
+            rules={{ required: "Select a date" }}
             render={({ field }) => (
               <Datepicker
                 data-testid={datePickerTestId}

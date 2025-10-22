@@ -69,6 +69,7 @@ export const CreateLockProvider = ({
   const [isTxDialogOpen, setIsTxDialogOpen] = React.useState(false);
   const [hasApprovedForCurrentLock, setHasApprovedForCurrentLock] =
     React.useState(false);
+  const [createLockError, setCreateLockError] = React.useState(false);
 
   const { address, chainId } = useAccount();
   const currentChain = useCurrentChain();
@@ -164,6 +165,11 @@ export const CreateLockProvider = ({
       onSuccess: () => {
         resetAll();
       },
+      onError: (error) => {
+        console.error("Lock failed", error);
+        toast.error("Failed to create lock");
+        setCreateLockError(true);
+      },
     });
   }, [
     address,
@@ -187,7 +193,8 @@ export const CreateLockProvider = ({
   }, [allowance.data, parsedAmount, hasApprovedForCurrentLock]);
 
   const CreateLockTxStatus = React.useMemo(() => {
-    if (approve.error || lock.error) return CREATE_LOCK_TX_STATUS.ERROR;
+    if (createLockError || approve.error || lock.error)
+      return CREATE_LOCK_TX_STATUS.ERROR;
     if (approve.isAwaitingUserSignature || lock.isAwaitingUserSignature)
       return CREATE_LOCK_TX_STATUS.AWAITING_SIGNATURE;
     if (approve.isConfirming)
@@ -196,6 +203,7 @@ export const CreateLockProvider = ({
 
     return CREATE_LOCK_TX_STATUS.UNKNOWN;
   }, [
+    createLockError,
     approve.error,
     approve.isAwaitingUserSignature,
     approve.isConfirming,
@@ -211,10 +219,16 @@ export const CreateLockProvider = ({
   }, [needsApproval]);
 
   const createLock = React.useCallback(() => {
+    // Require an unlock date before proceeding
+    if (!unlockDate) {
+      toast.error("Please select a lock end date");
+      return;
+    }
     lock.reset();
     approve.reset();
     setIsTxDialogOpen(true);
     setHasApprovedForCurrentLock(false);
+    setCreateLockError(false);
 
     if (needsApproval) {
       approve.approveMento({
@@ -227,6 +241,7 @@ export const CreateLockProvider = ({
         onError: (error) => {
           console.error("Approval failed", error);
           toast.error("Failed to approve MENTO");
+          setCreateLockError(true);
         },
       });
     } else {
@@ -244,11 +259,13 @@ export const CreateLockProvider = ({
   const reset = React.useCallback(() => {
     setIsTxDialogOpen(false);
     setHasApprovedForCurrentLock(false);
+    setCreateLockError(false);
     approve.reset();
     lock.reset();
   }, [approve, lock]);
   const retry = React.useCallback(() => {
     setHasApprovedForCurrentLock(false);
+    setCreateLockError(false);
     createLock();
   }, [createLock]);
 

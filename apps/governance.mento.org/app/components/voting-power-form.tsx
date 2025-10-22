@@ -22,6 +22,14 @@ import { CreateLockProvider } from "./lock/create-lock-provider";
 import { LockFormFields } from "./lock/lock-form-fields";
 import { LockingButton } from "./lock/locking-button";
 import { WithdrawButton } from "./withdraw-button";
+import spacetime from "spacetime";
+import {
+  LOCKING_AMOUNT_FORM_KEY,
+  LOCKING_DELEGATE_ADDRESS_FORM_KEY,
+  LOCKING_DELEGATE_ENABLED_FORM_KEY,
+  LOCKING_UNLOCK_DATE_FORM_KEY,
+  MIN_LOCK_PERIOD_WEEKS,
+} from "@/contracts/locking";
 
 export default function VotingPowerForm() {
   const { address } = useAccount();
@@ -90,7 +98,23 @@ export default function VotingPowerForm() {
     ownVe,
   ]);
 
-  const methods = useForm();
+  // Helper to get first valid Wednesday
+  const getFirstWednesdayAfterMinPeriod = () => {
+    let targetDate = spacetime.now().add(MIN_LOCK_PERIOD_WEEKS, "week");
+    while (targetDate.day() !== 3) {
+      targetDate = targetDate.add(1, "day");
+    }
+    return targetDate.toNativeDate();
+  };
+
+  const methods = useForm({
+    defaultValues: {
+      [LOCKING_AMOUNT_FORM_KEY]: "",
+      [LOCKING_UNLOCK_DATE_FORM_KEY]: getFirstWednesdayAfterMinPeriod(),
+      [LOCKING_DELEGATE_ENABLED_FORM_KEY]: false,
+      [LOCKING_DELEGATE_ADDRESS_FORM_KEY]: "",
+    },
+  });
 
   // Format summary values for display
   const formattedLockedMento = useMemo(() => {
