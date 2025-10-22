@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { useChainId } from "wagmi";
-import { getWatchdogMultisigAddress } from "@/config";
+import { getWatchdogMultisigAddress, getSafeServiceUrl } from "@/config";
 import { encodeFunctionData } from "viem";
 import { TimelockControllerABI, useContracts } from "@repo/web3";
+import * as Sentry from "@sentry/nextjs";
 
 interface SafeTransaction {
   safe: string;
@@ -31,11 +32,21 @@ interface SafeTransactionsResponse {
   results: SafeTransaction[];
 }
 
+interface PendingSafeCancellationResult {
+  hasPendingCancellation: boolean;
+  signaturesCollected: number;
+  signaturesRequired: number;
+  nonce: number | undefined;
+  isLoading: boolean;
+}
+
 /**
  * Hook to check if there's a pending Safe transaction to cancel a specific proposal.
  * Queries the Safe Transaction Service API to find pending cancel transactions.
  */
-export const usePendingSafeCancellation = (operationId: `0x${string}`) => {
+export const usePendingSafeCancellation = (
+  operationId: `0x${string}`,
+): PendingSafeCancellationResult => {
   const chainId = useChainId();
   const contracts = useContracts();
   const watchdogAddress = getWatchdogMultisigAddress(chainId);
@@ -50,20 +61,26 @@ export const usePendingSafeCancellation = (operationId: `0x${string}`) => {
   const { data, isLoading } = useQuery({
     queryKey: ["pending-safe-cancel", watchdogAddress, chainId, operationId],
     queryFn: async () => {
-      // Determine the Safe Transaction Service API URL based on chain
-      const safeServiceUrl =
-        chainId === 42220
-          ? "https://safe-transaction-celo.safe.global"
-          : "https://safe-transaction-celo-testnet.safe.global";
-
       try {
+        // Get the Safe Transaction Service API URL based on chain
+        const safeServiceUrl = getSafeServiceUrl(chainId);
+
         // Fetch pending transactions from the Safe
         const response = await fetch(
           `${safeServiceUrl}/api/v1/safes/${watchdogAddress}/multisig-transactions/?executed=false&limit=100`,
         );
 
         if (!response.ok) {
-          console.warn("Failed to fetch Safe transactions:", response.status);
+          const errorMessage = `Failed to fetch Safe transactions: ${response.status}`;
+          console.error(errorMessage);
+          Sentry.captureMessage(errorMessage, {
+            level: "warning",
+            tags: {
+              context: "pending-safe-cancellation",
+              chainId,
+              watchdogAddress,
+            },
+          });
           return null;
         }
 
@@ -90,11 +107,18 @@ export const usePendingSafeCancellation = (operationId: `0x${string}`) => {
         };
       } catch (error) {
         console.error("Error fetching Safe transactions:", error);
+        Sentry.captureException(error, {
+          tags: {
+            context: "pending-safe-cancellation",
+            chainId,
+            watchdogAddress,
+          },
+        });
         return null;
       }
     },
-    // Refetch every 10 seconds to keep signatures count updated
-    refetchInterval: 10000,
+    // Refetch every 3 seconds to keep signatures count updated
+    refetchInterval: 3000,
     // Keep previous data while refetching
     placeholderData: (previousData) => previousData,
   });

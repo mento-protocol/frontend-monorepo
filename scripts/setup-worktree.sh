@@ -2,8 +2,15 @@
 
 # Worktree Setup Script
 # This script sets up a new git worktree with all necessary dependencies and builds
+# Requires: Bash 4.0 or higher
 
 set -e # Exit on error
+
+# Check Bash version
+if ((BASH_VERSINFO[0] < 4)); then
+	echo "Error: This script requires Bash 4.0 or higher. Current version: ${BASH_VERSION}"
+	exit 1
+fi
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -45,12 +52,14 @@ if ! command -v node &>/dev/null; then
 	exit 1
 fi
 
-NODE_VERSION=$(node -v | cut -d 'v' -f 2 | cut -d '.' -f 1 || true)
+CURRENT_NODE_VERSION=$(node -v)
+NODE_VERSION_TRIMMED=$(echo "${CURRENT_NODE_VERSION}" | cut -d 'v' -f 2)
+NODE_VERSION=$(echo "${NODE_VERSION_TRIMMED}" | cut -d '.' -f 1)
 if [[ ${NODE_VERSION} -lt 22 ]]; then
-	print_error "Node.js version must be >= 22. Current version: $(node -v || true)"
+	print_error "Node.js version must be >= 22. Current version: ${CURRENT_NODE_VERSION}"
 	exit 1
 fi
-print_success "Node.js version: $(node -v || true)"
+print_success "Node.js version: ${CURRENT_NODE_VERSION}"
 echo ""
 
 # Check pnpm version
@@ -60,7 +69,7 @@ if ! command -v pnpm &>/dev/null; then
 	npm install -g pnpm@10.17.1
 fi
 
-PNPM_VERSION=$(pnpm -v || true)
+PNPM_VERSION=$(pnpm -v)
 print_success "pnpm version: ${PNPM_VERSION}"
 echo ""
 
@@ -71,7 +80,9 @@ if ! command -v turbo &>/dev/null; then
 	print_error "Turbo installation failed. Please check your pnpm configuration."
 	exit 1
 fi
-print_success "Turbo version: $(turbo --version | head -n 1 || true)"
+TURBO_FULL_OUTPUT=$(turbo --version)
+TURBO_VERSION=$(echo "${TURBO_FULL_OUTPUT}" | head -n 1)
+print_success "Turbo version: ${TURBO_VERSION}"
 echo ""
 
 # Install dependencies
@@ -83,7 +94,7 @@ echo ""
 # Build packages (required before running dev)
 print_step "Building packages..."
 print_warning "This may take a few minutes..."
-turbo run build --filter='./packages/*'
+turbo run build --filter "./packages/*"
 print_success "Packages built successfully"
 echo ""
 

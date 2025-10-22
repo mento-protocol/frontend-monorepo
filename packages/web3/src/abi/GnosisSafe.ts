@@ -1,3 +1,7 @@
+/**
+ * Minimal Gnosis Safe ABI for watchdog functionality.
+ * Only includes methods needed to check Safe ownership.
+ */
 export const GnosisSafeABI = [
   {
     inputs: [],

@@ -2,16 +2,20 @@ import { useCallback } from "react";
 import { TimelockControllerABI, useContracts } from "@repo/web3";
 import { encodeFunctionData } from "viem";
 import {
-  useAccount,
   useChainId,
   useWaitForTransactionReceipt,
   useWriteContract,
 } from "wagmi";
-import { getWatchdogMultisigAddress } from "@/config";
+import {
+  getWatchdogMultisigAddress,
+  getSafeUrl,
+  getSafeNetworkSlug,
+} from "@/config";
 import { toast } from "@repo/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { ProposalQueryKey } from "@/contracts/governor/use-proposal";
 import * as Sentry from "@sentry/nextjs";
+import { useIsWatchdog } from "@/contracts/governor/use-is-watchdog";
 
 /**
  * Hook to cancel a queued proposal.
@@ -35,12 +39,8 @@ export const useCancelProposal = (): {
   const queryClient = useQueryClient();
   const contracts = useContracts();
   const chainId = useChainId();
-  const { address } = useAccount();
   const watchdogAddress = getWatchdogMultisigAddress(chainId);
-
-  // Check if connected AS the Safe itself (via WalletConnect from Safe UI)
-  const isConnectedAsSafe =
-    address?.toLowerCase() === watchdogAddress.toLowerCase();
+  const { isWatchdogSafe } = useIsWatchdog();
 
   // Direct transaction execution (when connected as Safe)
   const { writeContract, isPending, data, ...restWrite } = useWriteContract();
@@ -56,8 +56,8 @@ export const useCancelProposal = (): {
       onSuccess?: () => void,
       onError?: (error?: Error) => void,
     ) => {
-      // Open Safe UI immediately (before async transaction) to avoid popup blockers
-      const safeUrl = `https://app.safe.global/home?safe=${chainId === 42220 ? "celo" : "celo-sepolia"}:${watchdogAddress}`;
+      // Open Safe UI
+      const safeUrl = getSafeUrl(chainId, watchdogAddress);
       window.open(safeUrl, "_blank");
 
       writeContract(
@@ -131,9 +131,9 @@ export const useCancelProposal = (): {
       });
 
       // Build transaction builder URL with pre-filled data
+      const networkSlug = getSafeNetworkSlug(chainId);
       const txBuilderUrl = new URL(
-        "https://app.safe.global/apps/open?safe=" +
-          `${chainId === 42220 ? "celo" : "celo-sepolia"}:${watchdogAddress}`,
+        `https://app.safe.global/apps/open?safe=${networkSlug}:${watchdogAddress}`,
       );
       txBuilderUrl.searchParams.set(
         "appUrl",
@@ -210,7 +210,7 @@ export const useCancelProposal = (): {
       onError?: (error?: Error) => void,
     ) => {
       try {
-        if (isConnectedAsSafe) {
+        if (isWatchdogSafe) {
           // Mode 1: Connected AS the Safe itself
           executeCancelDirectly(operationId, onSuccess, onError);
         } else {
@@ -222,25 +222,25 @@ export const useCancelProposal = (): {
         Sentry.captureException(error, {
           tags: {
             context: "cancel-proposal",
-            mode: isConnectedAsSafe ? "direct-execution" : "file-download",
+            mode: isWatchdogSafe ? "direct-execution" : "file-download",
           },
         });
         toast.error("Failed to prepare cancellation transaction", {
           description:
-            "Please try again or contact support if the problem persists.",
+            "Unable to prepare the cancellation transaction. Check your wallet connection and try again.",
         });
         onError?.(error as Error);
       }
     },
-    [isConnectedAsSafe, executeCancelDirectly, downloadCancelTransaction],
+    [isWatchdogSafe, executeCancelDirectly, downloadCancelTransaction],
   );
 
   return {
-    hash: isConnectedAsSafe ? data : undefined,
+    hash: isWatchdogSafe ? data : undefined,
     cancelProposal,
-    isAwaitingUserSignature: isConnectedAsSafe ? isPending : false,
-    isConfirming: isConnectedAsSafe ? isConfirming : false,
-    isConfirmed: isConnectedAsSafe ? isConfirmed : false,
-    error: isConnectedAsSafe ? (restWrite.error ?? undefined) : undefined,
+    isAwaitingUserSignature: isWatchdogSafe ? isPending : false,
+    isConfirming: isWatchdogSafe ? isConfirming : false,
+    isConfirmed: isWatchdogSafe ? isConfirmed : false,
+    error: isWatchdogSafe ? (restWrite.error ?? undefined) : undefined,
   };
 };

@@ -2,6 +2,7 @@ import { ConnectButton } from "@repo/web3";
 import { ProgressBar } from "@/components/progress-bar";
 import { Timer } from "@/components/timer";
 import { TransactionLink } from "@/components/proposal/components/TransactionLink";
+import { ProposalCancelButton } from "@/components/voting/proposal-cancel-button";
 import {
   useCancelProposal,
   useCastVote,
@@ -48,12 +49,8 @@ export const VoteCard = ({
   const { address, isConnecting, isConnected } = useAccount();
   const chainId = useChainId();
   const { veMentoBalance } = useTokens();
-  const { isWatchdog } = useIsWatchdog();
-
-  // Check if connected AS the Safe itself (via WalletConnect from Safe UI)
+  const { isWatchdog, isWatchdogSafe } = useIsWatchdog();
   const watchdogAddress = getWatchdogMultisigAddress(chainId);
-  const isConnectedAsSafe =
-    address?.toLowerCase() === watchdogAddress.toLowerCase();
   const {
     data: voteReceipt,
     isLoading: isHasVotedStatusLoading,
@@ -498,7 +495,7 @@ export const VoteCard = ({
   }, [currentState, isVotingOpen, isAbstained, hasQuorum]);
 
   const cancelButtonText = useMemo(() => {
-    if (isConnectedAsSafe) {
+    if (isWatchdogSafe) {
       // Connected AS the Safe (via WalletConnect) - direct execution
       if (isAwaitingCancelSignature) return "Confirm in Safe UI";
       if (isCancelConfirming) return "Cancelling...";
@@ -507,7 +504,7 @@ export const VoteCard = ({
       // Connected as individual watchdog signer - propose in Safe UI
       return "Propose Cancellation in Safe";
     }
-  }, [isConnectedAsSafe, isAwaitingCancelSignature, isCancelConfirming]);
+  }, [isWatchdogSafe, isAwaitingCancelSignature, isCancelConfirming]);
 
   const description = useMemo(() => {
     switch (currentState) {
@@ -753,37 +750,18 @@ export const VoteCard = ({
                     ? "Executing..."
                     : "Execute Proposal"}
               </Button>
-              {isWatchdog && !hasPendingCancellation && (
-                <Button
-                  variant="reject"
-                  size="lg"
-                  clipped="default"
-                  onClick={handleCancel}
-                  disabled={isAwaitingCancelSignature || isCancelConfirming}
-                  data-testid="cancelProposalButton"
-                  className="w-full"
-                >
-                  {cancelButtonText}
-                </Button>
-              )}
-              {isWatchdog && hasPendingCancellation && (
-                <Button
-                  variant="outline"
-                  size="lg"
-                  clipped="default"
-                  asChild
-                  className="w-full"
-                >
-                  <a
-                    href={`https://app.safe.global/home?safe=${chainId === 42220 ? "celo" : "celo-sepolia"}:${watchdogAddress}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Cancellation pending — {signaturesCollected}/
-                    {signaturesRequired} signatures
-                  </a>
-                </Button>
-              )}
+              <ProposalCancelButton
+                isWatchdog={isWatchdog}
+                hasPendingCancellation={hasPendingCancellation}
+                onCancel={handleCancel}
+                isAwaitingCancelSignature={isAwaitingCancelSignature}
+                isCancelConfirming={isCancelConfirming}
+                cancelButtonText={cancelButtonText}
+                signaturesCollected={signaturesCollected}
+                signaturesRequired={signaturesRequired}
+                chainId={chainId}
+                watchdogAddress={watchdogAddress}
+              />
             </div>
           );
         }
@@ -799,37 +777,18 @@ export const VoteCard = ({
             >
               In Veto Period
             </Button>
-            {isWatchdog && !hasPendingCancellation && (
-              <Button
-                variant="reject"
-                size="lg"
-                clipped="default"
-                onClick={handleCancel}
-                disabled={isAwaitingCancelSignature || isCancelConfirming}
-                data-testid="cancelProposalButton"
-                className="w-full"
-              >
-                {cancelButtonText}
-              </Button>
-            )}
-            {isWatchdog && hasPendingCancellation && (
-              <Button
-                variant="outline"
-                size="lg"
-                clipped="default"
-                asChild
-                className="w-full"
-              >
-                <a
-                  href={`https://app.safe.global/home?safe=${chainId === 42220 ? "celo" : "celo-sepolia"}:${watchdogAddress}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Cancellation pending — {signaturesCollected}/
-                  {signaturesRequired} signatures
-                </a>
-              </Button>
-            )}
+            <ProposalCancelButton
+              isWatchdog={isWatchdog}
+              hasPendingCancellation={hasPendingCancellation}
+              onCancel={handleCancel}
+              isAwaitingCancelSignature={isAwaitingCancelSignature}
+              isCancelConfirming={isCancelConfirming}
+              cancelButtonText={cancelButtonText}
+              signaturesCollected={signaturesCollected}
+              signaturesRequired={signaturesRequired}
+              chainId={chainId}
+              watchdogAddress={watchdogAddress}
+            />
           </div>
         );
       }
@@ -884,37 +843,18 @@ export const VoteCard = ({
                   ? "Queueing..."
                   : "Queue for Execution"}
             </Button>
-            {isWatchdog && !hasPendingCancellation && (
-              <Button
-                variant="reject"
-                size="lg"
-                clipped="default"
-                onClick={handleCancel}
-                disabled={isAwaitingCancelSignature || isCancelConfirming}
-                data-testid="cancelProposalButton"
-                className="w-full"
-              >
-                {cancelButtonText}
-              </Button>
-            )}
-            {isWatchdog && hasPendingCancellation && (
-              <Button
-                variant="outline"
-                size="lg"
-                clipped="default"
-                asChild
-                className="w-full"
-              >
-                <a
-                  href={`https://app.safe.global/home?safe=${chainId === 42220 ? "celo" : "celo-sepolia"}:${watchdogAddress}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Cancellation pending — {signaturesCollected}/
-                  {signaturesRequired} signatures
-                </a>
-              </Button>
-            )}
+            <ProposalCancelButton
+              isWatchdog={isWatchdog}
+              hasPendingCancellation={hasPendingCancellation}
+              onCancel={handleCancel}
+              isAwaitingCancelSignature={isAwaitingCancelSignature}
+              isCancelConfirming={isCancelConfirming}
+              cancelButtonText={cancelButtonText}
+              signaturesCollected={signaturesCollected}
+              signaturesRequired={signaturesRequired}
+              chainId={chainId}
+              watchdogAddress={watchdogAddress}
+            />
           </div>
         );
 
