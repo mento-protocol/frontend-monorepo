@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
   deployments: read
-  statuses: write
+  pull-requests: write
   id-token: write
 
 jobs:
@@ -17,27 +17,57 @@ jobs:
       IS_MAINNET: "false"
     secrets: inherit
 
-  report-status:
+  comment:
     runs-on: ubuntu-latest
     needs: test
     if: always() && github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && contains(github.event.deployment_status.target_url, 'governancemento')
     steps:
-      - name: Report Status to Commit
+      - name: Find PR for this commit
+        id: find-pr
         uses: actions/github-script@v7
         with:
           script: |
             const sha = context.payload.deployment.sha;
-            const state = '${{ needs.test.result }}' === 'success' ? 'success' : 'failure';
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-
-            await github.rest.repos.createCommitStatus({
+            const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                sha: sha,
-                state: state,
-                target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-                description: state === 'success' ? 'Smoke tests passed' : 'Smoke tests failed',
-                context: `smoke-test/governance/${timestamp}`
+                commit_sha: sha
             });
 
-            core.info(`Created commit status: smoke-test/governance/${timestamp}`);
+            if (prs.length > 0) {
+                core.setOutput('pr_number', prs[0].number);
+                return prs[0].number;
+            } else {
+                core.info('No PR found for this commit');
+                return null;
+            }
+
+      - name: Post PR Comment
+        if: steps.find-pr.outputs.pr_number
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = ${{ steps.find-pr.outputs.pr_number }};
+            const status = '${{ needs.test.result }}';
+            const env = context.payload.deployment.environment || 'unknown';
+            const url = context.payload.deployment_status.environment_url || 'N/A';
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            const emoji = status === 'success' ? '✅' : '❌';
+            const statusText = status === 'success' ? 'passed' : 'failed';
+
+            const body = `${emoji} **Governance Smoke Test ${statusText}**
+
+            - **Environment**: ${env}
+            - **Deployment URL**: ${url}
+            - **Status**: ${statusText}
+            - **Workflow Run**: [View Details](${runUrl})`;
+
+            await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: body
+            });
+
+            core.info(`Posted comment to PR #${prNumber}`);
