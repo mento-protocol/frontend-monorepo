@@ -6,3 +6,4 @@ export * from "./providers";
 export * from "./sdk";
 export * from "./swap";
 export * from "./tokens";
+export * from "./wallets";
