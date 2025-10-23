@@ -1,0 +1,78 @@
+name: Smoke Test Summary
+
+on:
+  workflow_call:
+    inputs:
+      test_result:
+        required: true
+        type: string
+        description: Result of the test job (success, failure, etc.)
+      app_name:
+        required: true
+        type: string
+        description: Name of the app being tested (e.g., App Mento, Governance)
+      deployment_url:
+        required: true
+        type: string
+        description: URL of the deployment
+      deployment_sha:
+        required: true
+        type: string
+        description: SHA of the deployment commit
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  summary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find PR for this commit
+        id: find-pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = '${{ inputs.deployment_sha }}';
+            const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: sha
+            });
+
+            if (prs.length > 0) {
+                core.setOutput('pr_number', prs[0].number);
+                return prs[0].number;
+            } else {
+                core.info('No PR found for this commit');
+                return null;
+            }
+
+      - name: Post PR Comment
+        if: steps.find-pr.outputs.pr_number
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = ${{ steps.find-pr.outputs.pr_number }};
+            const status = '${{ inputs.test_result }}';
+            const appName = '${{ inputs.app_name }}';
+            const url = '${{ inputs.deployment_url }}';
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            const emoji = status === 'success' ? '✅' : '❌';
+            const statusText = status === 'success' ? 'Passed' : 'Failed';
+
+            const body = `${emoji} **[${appName}] Smoke Test ${statusText}**
+
+            - **Deployment URL**: ${url}
+            - **Status**: ${statusText}
+            - **Workflow Run**: [View Details](${runUrl})`;
+
+            await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: body
+            });
+
+            core.info(`Posted comment to PR #${prNumber}`);
