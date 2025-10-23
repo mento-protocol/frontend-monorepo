@@ -5,6 +5,7 @@ on:
 permissions:
   contents: read
   deployments: read
+  pull-requests: write
   id-token: write
 
 jobs:
