@@ -230,6 +230,26 @@ export const VoteCard = ({
     }
   }, [isQueueConfirmed, onVoteConfirmed]);
 
+  // Trigger onVoteConfirmed when proposer cancel transaction is confirmed
+  useEffect(() => {
+    if (isProposerCancelConfirmed && onVoteConfirmed) {
+      onVoteConfirmed();
+
+      const timeout1 = setTimeout(() => {
+        onVoteConfirmed();
+      }, 2000);
+
+      const timeout2 = setTimeout(() => {
+        onVoteConfirmed();
+      }, 5000);
+
+      return () => {
+        clearTimeout(timeout1);
+        clearTimeout(timeout2);
+      };
+    }
+  }, [isProposerCancelConfirmed, onVoteConfirmed]);
+
   // Calculate total voting power for quorum display
   const totalVotingPower = useMemo(() => {
     if (!proposal?.votes) return BigInt(0);
