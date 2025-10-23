@@ -32,7 +32,7 @@ interface SafeTransactionsResponse {
   results: SafeTransaction[];
 }
 
-interface PendingSafeCancellationResult {
+interface PendingMultisigCancellationResult {
   hasPendingCancellation: boolean;
   signaturesCollected: number;
   signaturesRequired: number;
@@ -44,9 +44,10 @@ interface PendingSafeCancellationResult {
  * Hook to check if there's a pending Safe transaction to cancel a specific proposal.
  * Queries the Safe Transaction Service API to find pending cancel transactions.
  */
-export const usePendingSafeCancellation = (
+export const usePendingMultisigCancellation = (
   operationId: `0x${string}`,
-): PendingSafeCancellationResult => {
+  enabled = true,
+): PendingMultisigCancellationResult => {
   const chainId = useChainId();
   const contracts = useContracts();
   const watchdogAddress = getWatchdogMultisigAddress(chainId);
@@ -60,6 +61,7 @@ export const usePendingSafeCancellation = (
 
   const { data, isLoading } = useQuery({
     queryKey: ["pending-safe-cancel", watchdogAddress, chainId, operationId],
+    enabled,
     queryFn: async () => {
       try {
         // Get the Safe Transaction Service API URL based on chain
