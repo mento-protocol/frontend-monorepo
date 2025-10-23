@@ -6415,6 +6415,12 @@ export type ProposalFieldsFragment = {
     __typename?: "ProposalExecuted";
     transaction: { __typename?: "Transaction"; id: string; timestamp: any };
   }>;
+  proposalCanceled: Array<{
+    __typename?: "ProposalCanceled";
+    timestamp: any;
+    emitter: { __typename?: "Account"; id: any };
+    transaction: { __typename?: "Transaction"; id: string };
+  }>;
   votecast: Array<{
     __typename?: "VoteCast";
     id: string;
@@ -6560,6 +6566,12 @@ export type GetProposalQuery = {
       __typename?: "ProposalExecuted";
       transaction: { __typename?: "Transaction"; id: string; timestamp: any };
     }>;
+    proposalCanceled: Array<{
+      __typename?: "ProposalCanceled";
+      timestamp: any;
+      emitter: { __typename?: "Account"; id: any };
+      transaction: { __typename?: "Transaction"; id: string };
+    }>;
     votecast: Array<{
       __typename?: "VoteCast";
       id: string;
@@ -6640,6 +6652,12 @@ export type GetProposalsQuery = {
       __typename?: "ProposalExecuted";
       transaction: { __typename?: "Transaction"; id: string; timestamp: any };
     }>;
+    proposalCanceled: Array<{
+      __typename?: "ProposalCanceled";
+      timestamp: any;
+      emitter: { __typename?: "Account"; id: any };
+      transaction: { __typename?: "Transaction"; id: string };
+    }>;
     votecast: Array<{
       __typename?: "VoteCast";
       id: string;
@@ -6716,6 +6734,15 @@ export const ProposalFieldsFragmentDoc = gql`
         id
         timestamp
       }
+    }
+    proposalCanceled {
+      emitter {
+        id
+      }
+      transaction {
+        id
+      }
+      timestamp
     }
     votecast {
       id

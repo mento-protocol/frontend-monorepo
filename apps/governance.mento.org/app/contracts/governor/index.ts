@@ -5,7 +5,7 @@ export * from "./use-create-proposal-on-chain";
 export * from "./use-execute-proposal";
 export * from "./use-governance-details";
 export * from "./use-is-watchdog";
-export * from "./use-pending-safe-cancel";
+export * from "./use-pending-multisig-cancel";
 export * from "./use-proposal-threshold";
 export * from "./use-proposal";
 export * from "./use-proposals";

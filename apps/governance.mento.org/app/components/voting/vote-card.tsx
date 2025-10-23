@@ -9,7 +9,7 @@ import {
   useCastVote,
   useExecuteProposal,
   useIsWatchdog,
-  usePendingSafeCancellation,
+  usePendingMultisigCancellation,
   useQueueProposal,
   useQuorum,
   useVoteReceipt,
@@ -33,6 +33,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { formatUnits, keccak256, toHex } from "viem";
 import { useAccount, useChainId } from "@repo/web3/wagmi";
+import spacetime from "spacetime";
 
 interface VoteCardProps {
   proposal: Proposal;
@@ -96,6 +97,7 @@ export const VoteCard = ({
     cancelProposalAsProposer,
     isAwaitingUserSignature: isAwaitingProposerCancelSignature,
     isConfirming: isProposerCancelConfirming,
+    isConfirmed: isProposerCancelConfirmed,
   } = useCancelProposalAsProposer();
 
   // Calculate operation ID for checking pending Safe cancellation
@@ -112,9 +114,17 @@ export const VoteCard = ({
     return getTimelockOperationId(targets, values, calldatas, descriptionHash);
   }, [proposal.calls, proposal.description]);
 
+  // Only check for pending Safe cancellation when:
+  // 1. User is a watchdog (otherwise they can't see/interact with it anyway)
+  // 2. Proposal is in a state where it could be canceled (queued/succeeded)
+  const shouldCheckPendingCancellation =
+    isWatchdog &&
+    (proposal.state === ProposalState.Queued ||
+      proposal.state === ProposalState.Succeeded);
+
   // Check for pending Safe cancellation transaction
   const { hasPendingCancellation, signaturesCollected, signaturesRequired } =
-    usePendingSafeCancellation(operationId);
+    usePendingMultisigCancellation(operationId, shouldCheckPendingCancellation);
 
   const { quorumNeeded } = useQuorum(proposal.startBlock);
 
@@ -644,21 +654,26 @@ export const VoteCard = ({
             The final results are displayed above.
           </>
         );
-      case "canceled":
+      case "canceled": {
+        const cancelTxHash = proposal.proposalCanceled?.[0]?.transaction?.id;
         return (
           <>
-            The{" "}
-            <a
-              href="https://docs.mento.org/mento/overview/governance-and-the-mento-token/watchdogs-and-safety"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline underline-offset-4"
-            >
-              governance watchdogs
-            </a>{" "}
-            have canceled this proposal. It will not move forward.
+            This proposal has been canceled. It will not move forward.
+            <br />
+            {cancelTxHash && (
+              <>
+                {" "}
+                <TransactionLink
+                  txHash={cancelTxHash}
+                  className="underline underline-offset-4"
+                >
+                  View cancel transaction &rarr;
+                </TransactionLink>
+              </>
+            )}
           </>
         );
+      }
 
       default:
         if (isVotingOpen) {
@@ -675,6 +690,7 @@ export const VoteCard = ({
     quorumNeededFormatted,
     proposal.eta,
     proposal.proposalQueued,
+    proposal.proposalCanceled,
   ]);
 
   // Show header based on state
@@ -899,13 +915,14 @@ export const VoteCard = ({
                 onClick={handleCancelByProposer}
                 disabled={
                   isAwaitingProposerCancelSignature ||
-                  isProposerCancelConfirming
+                  isProposerCancelConfirming ||
+                  isProposerCancelConfirmed
                 }
-                className="w-full"
+                className="mt-4 w-full"
               >
                 {isAwaitingProposerCancelSignature
                   ? "Confirm in Wallet"
-                  : isProposerCancelConfirming
+                  : isProposerCancelConfirming || isProposerCancelConfirmed
                     ? "Cancelling..."
                     : "Cancel Proposal"}
               </Button>
@@ -936,13 +953,14 @@ export const VoteCard = ({
                 onClick={handleCancelByProposer}
                 disabled={
                   isAwaitingProposerCancelSignature ||
-                  isProposerCancelConfirming
+                  isProposerCancelConfirming ||
+                  isProposerCancelConfirmed
                 }
-                className="w-full"
+                className="mt-4 w-full"
               >
                 {isAwaitingProposerCancelSignature
                   ? "Confirm in Wallet"
-                  : isProposerCancelConfirming
+                  : isProposerCancelConfirming || isProposerCancelConfirmed
                     ? "Cancelling..."
                     : "Cancel Proposal"}
               </Button>
@@ -1016,13 +1034,14 @@ export const VoteCard = ({
                 onClick={handleCancelByProposer}
                 disabled={
                   isAwaitingProposerCancelSignature ||
-                  isProposerCancelConfirming
+                  isProposerCancelConfirming ||
+                  isProposerCancelConfirmed
                 }
-                className="w-full"
+                className="mt-4 w-full"
               >
                 {isAwaitingProposerCancelSignature
                   ? "Confirm in Wallet"
-                  : isProposerCancelConfirming
+                  : isProposerCancelConfirming || isProposerCancelConfirmed
                     ? "Cancelling..."
                     : "Cancel Proposal"}
               </Button>
@@ -1139,7 +1158,37 @@ export const VoteCard = ({
       {showHeader && (
         <CardHeader className="bg-incard mb-0 flex flex-col items-start justify-between gap-2 p-4 md:flex-row md:items-center xl:px-8 xl:py-6">
           <div className="flex flex-col gap-2 text-sm md:flex-row md:items-center md:gap-8">
-            {votingDeadline && <Timer until={votingDeadline} />}
+            {isCanceled && proposal.proposalCanceled?.[0] ? (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
+                  <XCircleIcon size={16} />
+                  <span>Cancelled:</span>
+                </div>
+                {proposal.proposalCanceled[0].transaction?.id &&
+                proposal.proposalCanceled[0].timestamp ? (
+                  <TransactionLink
+                    txHash={proposal.proposalCanceled[0].transaction.id}
+                    className="text-muted-foreground underline-offset-4 hover:underline"
+                  >
+                    {spacetime(
+                      new Date(
+                        Number(proposal.proposalCanceled[0].timestamp) * 1000,
+                      ),
+                    ).format("{date-ordinal} {month}, {year}")}
+                  </TransactionLink>
+                ) : proposal.proposalCanceled[0].timestamp ? (
+                  <span className="text-muted-foreground">
+                    {spacetime(
+                      new Date(
+                        Number(proposal.proposalCanceled[0].timestamp) * 1000,
+                      ),
+                    ).format("{date-ordinal} {month}, {year}")}
+                  </span>
+                ) : null}
+              </div>
+            ) : !isCanceled && !isProposerCancelConfirmed && votingDeadline ? (
+              <Timer until={votingDeadline} />
+            ) : null}
 
             <div className="flex items-center gap-2">
               {!hasQuorum ? (
