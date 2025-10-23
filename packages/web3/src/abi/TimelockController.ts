@@ -12,4 +12,11 @@ export const TimelockControllerABI = [
     stateMutability: "view",
     type: "function",
   },
+  {
+    inputs: [{ internalType: "bytes32", name: "id", type: "bytes32" }],
+    name: "cancel",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
 ] as const;

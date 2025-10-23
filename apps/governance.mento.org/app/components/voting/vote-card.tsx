@@ -2,13 +2,19 @@ import { ConnectButton } from "@repo/web3";
 import { ProgressBar } from "@/components/progress-bar";
 import { Timer } from "@/components/timer";
 import { TransactionLink } from "@/components/proposal/components/TransactionLink";
+import { ProposalCancelButton } from "@/components/voting/proposal-cancel-button";
 import {
+  useCancelProposal,
   useCastVote,
   useExecuteProposal,
+  useIsWatchdog,
+  usePendingSafeCancellation,
   useQueueProposal,
   useQuorum,
   useVoteReceipt,
 } from "@/contracts/governor";
+import { getTimelockOperationId } from "@/contracts/governor/utils/get-timelock-operation-id";
+import { getWatchdogMultisigAddress } from "@/config";
 import { Proposal, ProposalState } from "@/graphql/subgraph/generated/subgraph";
 import { useTokens, NumbersService } from "@repo/web3";
 import {
@@ -24,8 +30,8 @@ import * as Sentry from "@sentry/nextjs";
 import { CheckCircle2, CircleCheck, XCircle, XCircleIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { formatUnits } from "viem";
-import { useAccount } from "@repo/web3/wagmi";
+import { formatUnits, keccak256, toHex } from "viem";
+import { useAccount, useChainId } from "@repo/web3/wagmi";
 
 interface VoteCardProps {
   proposal: Proposal;
@@ -41,7 +47,10 @@ export const VoteCard = ({
   onVoteConfirmed,
 }: VoteCardProps) => {
   const { address, isConnecting, isConnected } = useAccount();
+  const chainId = useChainId();
   const { veMentoBalance } = useTokens();
+  const { isWatchdog, isWatchdogSafe } = useIsWatchdog();
+  const watchdogAddress = getWatchdogMultisigAddress(chainId);
   const {
     data: voteReceipt,
     isLoading: isHasVotedStatusLoading,
@@ -75,6 +84,31 @@ export const VoteCard = ({
     isConfirmed: isQueueConfirmed,
     error: queueError,
   } = useQueueProposal();
+  const {
+    hash: cancelHash,
+    cancelProposal,
+    isAwaitingUserSignature: isAwaitingCancelSignature,
+    isConfirming: isCancelConfirming,
+    error: cancelError,
+  } = useCancelProposal();
+
+  // Calculate operation ID for checking pending Safe cancellation
+  const operationId = useMemo(() => {
+    const targets = proposal.calls.map((call) => call.target.id);
+    const values = proposal.calls.map((call) => BigInt(call.value));
+    const calldatas = proposal.calls.map(
+      (call) => call.calldata as `0x${string}`,
+    );
+    const descriptionHash = keccak256(
+      toHex(proposal.description || ""),
+    ) as `0x${string}`;
+
+    return getTimelockOperationId(targets, values, calldatas, descriptionHash);
+  }, [proposal.calls, proposal.description]);
+
+  // Check for pending Safe cancellation transaction
+  const { hasPendingCancellation, signaturesCollected, signaturesRequired } =
+    usePendingSafeCancellation(operationId);
 
   const { quorumNeeded } = useQuorum(proposal.startBlock);
 
@@ -85,7 +119,7 @@ export const VoteCard = ({
   const isQueueTransactionPending = queueHash && !isQueueConfirmed;
 
   // Always use the most recent transaction hash for explorer links
-  const currentTxHash = queueHash || executeHash || hash;
+  const currentTxHash = cancelHash || queueHash || executeHash || hash;
 
   // Track if deadline has passed in real-time
   // Initialize as false to prevent hydration mismatch, will be updated in useEffect
@@ -318,6 +352,27 @@ export const VoteCard = ({
     }
   };
 
+  const handleCancel = () => {
+    if (!isAwaitingCancelSignature && !isCancelConfirming) {
+      try {
+        cancelProposal(
+          operationId,
+          () => {
+            // Success callback - proposal data will be refetched automatically
+            if (onVoteConfirmed) {
+              onVoteConfirmed();
+            }
+          },
+          (error) => {
+            Sentry.captureException(error);
+          },
+        );
+      } catch (error) {
+        Sentry.captureException(error);
+      }
+    }
+  };
+
   const proposalState = proposal.state || ProposalState.Active;
 
   const isVotingOpen =
@@ -438,6 +493,18 @@ export const VoteCard = ({
         return "Voting Finished";
     }
   }, [currentState, isVotingOpen, isAbstained, hasQuorum]);
+
+  const cancelButtonText = useMemo(() => {
+    if (isWatchdogSafe) {
+      // Connected AS the Safe (via WalletConnect) - direct execution
+      if (isAwaitingCancelSignature) return "Confirm in Safe UI";
+      if (isCancelConfirming) return "Cancelling...";
+      return "Cancel Proposal";
+    } else {
+      // Connected as individual watchdog signer - propose in Safe UI
+      return "Propose Cancellation in Safe";
+    }
+  }, [isWatchdogSafe, isAwaitingCancelSignature, isCancelConfirming]);
 
   const description = useMemo(() => {
     switch (currentState) {
@@ -667,7 +734,7 @@ export const VoteCard = ({
         }
         if (canExecute) {
           return (
-            <div className="col-span-full flex justify-center">
+            <div className="flex flex-col gap-4">
               <Button
                 variant="default"
                 size="lg"
@@ -683,12 +750,24 @@ export const VoteCard = ({
                     ? "Executing..."
                     : "Execute Proposal"}
               </Button>
+              <ProposalCancelButton
+                isWatchdog={isWatchdog}
+                hasPendingCancellation={hasPendingCancellation}
+                onCancel={handleCancel}
+                isAwaitingCancelSignature={isAwaitingCancelSignature}
+                isCancelConfirming={isCancelConfirming}
+                cancelButtonText={cancelButtonText}
+                signaturesCollected={signaturesCollected}
+                signaturesRequired={signaturesRequired}
+                chainId={chainId}
+                watchdogAddress={watchdogAddress}
+              />
             </div>
           );
         }
-        // Show disabled button during veto period
+        // Show disabled button during veto period or cancel button for watchdog
         return (
-          <div className="flex justify-center">
+          <div className="flex flex-col gap-4">
             <Button
               variant="default"
               size="lg"
@@ -698,6 +777,18 @@ export const VoteCard = ({
             >
               In Veto Period
             </Button>
+            <ProposalCancelButton
+              isWatchdog={isWatchdog}
+              hasPendingCancellation={hasPendingCancellation}
+              onCancel={handleCancel}
+              isAwaitingCancelSignature={isAwaitingCancelSignature}
+              isCancelConfirming={isCancelConfirming}
+              cancelButtonText={cancelButtonText}
+              signaturesCollected={signaturesCollected}
+              signaturesRequired={signaturesRequired}
+              chainId={chainId}
+              watchdogAddress={watchdogAddress}
+            />
           </div>
         );
       }
@@ -736,7 +827,7 @@ export const VoteCard = ({
           );
         }
         return (
-          <div className="flex justify-center">
+          <div className="flex flex-col gap-4">
             <Button
               variant="default"
               size="lg"
@@ -752,6 +843,18 @@ export const VoteCard = ({
                   ? "Queueing..."
                   : "Queue for Execution"}
             </Button>
+            <ProposalCancelButton
+              isWatchdog={isWatchdog}
+              hasPendingCancellation={hasPendingCancellation}
+              onCancel={handleCancel}
+              isAwaitingCancelSignature={isAwaitingCancelSignature}
+              isCancelConfirming={isCancelConfirming}
+              cancelButtonText={cancelButtonText}
+              signaturesCollected={signaturesCollected}
+              signaturesRequired={signaturesRequired}
+              chainId={chainId}
+              watchdogAddress={watchdogAddress}
+            />
           </div>
         );
 
@@ -1023,7 +1126,7 @@ export const VoteCard = ({
               {renderActions()}
             </div>
 
-            {(error || executeError || queueError) &&
+            {(error || executeError || queueError || cancelError) &&
               (currentState === "ready" ||
                 currentState === "succeeded" ||
                 currentState === "queued") && (
@@ -1031,7 +1134,8 @@ export const VoteCard = ({
                   {(
                     error?.message ||
                     executeError?.message ||
-                    queueError?.message
+                    queueError?.message ||
+                    cancelError?.message
                   )?.includes("User rejected") ? null : (
                     <>
                       <span>
@@ -1039,10 +1143,15 @@ export const VoteCard = ({
                           ? "Error executing proposal"
                           : queueError
                             ? "Error queueing proposal"
-                            : "Error casting vote"}
+                            : cancelError
+                              ? "Error cancelling proposal"
+                              : "Error casting vote"}
                       </span>
                       <span>
-                        {(error || executeError || queueError)?.message}
+                        {
+                          (error || executeError || queueError || cancelError)
+                            ?.message
+                        }
                       </span>
                     </>
                   )}
