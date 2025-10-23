@@ -24,7 +24,7 @@ import { useIsWatchdog } from "@/contracts/governor/use-is-watchdog";
  * 1. Connected AS the watchdog Safe (via WalletConnect) → executes transaction directly
  * 2. Connected as individual watchdog signer → downloads JSON file for Safe UI import
  */
-export const useCancelProposal = (): {
+export const useCancelProposalAsWatchdog = (): {
   hash: `0x${string}` | undefined;
   cancelProposal: (
     operationId: `0x${string}`,

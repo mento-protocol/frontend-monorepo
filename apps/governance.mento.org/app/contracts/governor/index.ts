@@ -1,4 +1,5 @@
-export * from "./use-cancel-proposal";
+export * from "./use-cancel-proposal-as-watchdog";
+export * from "./use-cancel-proposal-as-proposer";
 export * from "./use-cast-vote";
 export * from "./use-create-proposal-on-chain";
 export * from "./use-execute-proposal";

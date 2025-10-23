@@ -3,6 +3,7 @@
 ## Overview
 
 Create a well-structured pull request description and instructions on how to review the PR.
+Be very concise.
 
 ## Steps
 

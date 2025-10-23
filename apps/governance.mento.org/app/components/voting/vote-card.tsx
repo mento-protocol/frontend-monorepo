@@ -4,7 +4,8 @@ import { Timer } from "@/components/timer";
 import { TransactionLink } from "@/components/proposal/components/TransactionLink";
 import { ProposalCancelButton } from "@/components/voting/proposal-cancel-button";
 import {
-  useCancelProposal,
+  useCancelProposalAsWatchdog,
+  useCancelProposalAsProposer,
   useCastVote,
   useExecuteProposal,
   useIsWatchdog,
@@ -90,7 +91,12 @@ export const VoteCard = ({
     isAwaitingUserSignature: isAwaitingCancelSignature,
     isConfirming: isCancelConfirming,
     error: cancelError,
-  } = useCancelProposal();
+  } = useCancelProposalAsWatchdog();
+  const {
+    cancelProposalAsProposer,
+    isAwaitingUserSignature: isAwaitingProposerCancelSignature,
+    isConfirming: isProposerCancelConfirming,
+  } = useCancelProposalAsProposer();
 
   // Calculate operation ID for checking pending Safe cancellation
   const operationId = useMemo(() => {
@@ -352,7 +358,7 @@ export const VoteCard = ({
     }
   };
 
-  const handleCancel = () => {
+  const handleCancelByWatchdog = () => {
     if (!isAwaitingCancelSignature && !isCancelConfirming) {
       try {
         cancelProposal(
@@ -372,6 +378,36 @@ export const VoteCard = ({
       }
     }
   };
+
+  const handleCancelByProposer = () => {
+    if (!isAwaitingProposerCancelSignature && !isProposerCancelConfirming) {
+      try {
+        cancelProposalAsProposer(
+          BigInt(proposal.proposalId),
+          () => {
+            // Success callback - proposal data will be refetched automatically
+            if (onVoteConfirmed) {
+              onVoteConfirmed();
+            }
+          },
+          (error) => {
+            Sentry.captureException(error);
+          },
+        );
+      } catch (error) {
+        Sentry.captureException(error);
+      }
+    }
+  };
+
+  // Check if connected user is the proposer and can cancel
+  const isProposer =
+    address?.toLowerCase() === proposal.proposer.id.toLowerCase();
+  const canProposerCancel =
+    isProposer &&
+    (proposal.state === ProposalState.Pending ||
+      proposal.state === ProposalState.Active ||
+      proposal.state === ProposalState.Succeeded);
 
   const proposalState = proposal.state || ProposalState.Active;
 
@@ -753,7 +789,7 @@ export const VoteCard = ({
               <ProposalCancelButton
                 isWatchdog={isWatchdog}
                 hasPendingCancellation={hasPendingCancellation}
-                onCancel={handleCancel}
+                onCancel={handleCancelByWatchdog}
                 isAwaitingCancelSignature={isAwaitingCancelSignature}
                 isCancelConfirming={isCancelConfirming}
                 cancelButtonText={cancelButtonText}
@@ -780,7 +816,7 @@ export const VoteCard = ({
             <ProposalCancelButton
               isWatchdog={isWatchdog}
               hasPendingCancellation={hasPendingCancellation}
-              onCancel={handleCancel}
+              onCancel={handleCancelByWatchdog}
               isAwaitingCancelSignature={isAwaitingCancelSignature}
               isCancelConfirming={isCancelConfirming}
               cancelButtonText={cancelButtonText}
@@ -846,7 +882,7 @@ export const VoteCard = ({
             <ProposalCancelButton
               isWatchdog={isWatchdog}
               hasPendingCancellation={hasPendingCancellation}
-              onCancel={handleCancel}
+              onCancel={handleCancelByWatchdog}
               isAwaitingCancelSignature={isAwaitingCancelSignature}
               isCancelConfirming={isCancelConfirming}
               cancelButtonText={cancelButtonText}
@@ -855,23 +891,63 @@ export const VoteCard = ({
               chainId={chainId}
               watchdogAddress={watchdogAddress}
             />
+            {canProposerCancel && (
+              <Button
+                variant="reject"
+                size="lg"
+                clipped="default"
+                onClick={handleCancelByProposer}
+                disabled={
+                  isAwaitingProposerCancelSignature ||
+                  isProposerCancelConfirming
+                }
+                className="w-full"
+              >
+                {isAwaitingProposerCancelSignature
+                  ? "Confirm in Wallet"
+                  : isProposerCancelConfirming
+                    ? "Cancelling..."
+                    : "Cancel Proposal"}
+              </Button>
+            )}
           </div>
         );
 
       case "pending":
         // Show disabled buttons for pending proposals
         return (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <Button variant="approve" size="lg" disabled>
-              Voting Not Started
-            </Button>
-            <Button variant="abstain" size="lg" disabled>
-              Voting Not Started
-            </Button>
-            <Button variant="reject" size="lg" disabled>
-              Voting Not Started
-            </Button>
-          </div>
+          <>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <Button variant="approve" size="lg" disabled>
+                Voting Not Started
+              </Button>
+              <Button variant="abstain" size="lg" disabled>
+                Voting Not Started
+              </Button>
+              <Button variant="reject" size="lg" disabled>
+                Voting Not Started
+              </Button>
+            </div>
+            {canProposerCancel && (
+              <Button
+                variant="reject"
+                size="lg"
+                clipped="default"
+                onClick={handleCancelByProposer}
+                disabled={
+                  isAwaitingProposerCancelSignature ||
+                  isProposerCancelConfirming
+                }
+                className="w-full"
+              >
+                {isAwaitingProposerCancelSignature
+                  ? "Confirm in Wallet"
+                  : isProposerCancelConfirming
+                    ? "Cancelling..."
+                    : "Cancel Proposal"}
+              </Button>
+            )}
+          </>
         );
 
       case "ready":
@@ -887,50 +963,71 @@ export const VoteCard = ({
           );
         }
         return (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <Button
-              variant="approve"
-              size="lg"
-              onClick={() => handleVote(1)}
-              disabled={
-                proposalState !== ProposalState.Active ||
-                isDeadlinePassed ||
-                isAwaitingUserSignature ||
-                isConfirming
-              }
-              data-testid="yesProposalButton"
-            >
-              Vote YES
-            </Button>
-            <Button
-              variant="abstain"
-              size="lg"
-              onClick={() => handleVote(2)}
-              disabled={
-                proposalState !== ProposalState.Active ||
-                isDeadlinePassed ||
-                isAwaitingUserSignature ||
-                isConfirming
-              }
-              data-testid="abstainProposalButton"
-            >
-              Abstain
-            </Button>
-            <Button
-              variant="reject"
-              size="lg"
-              onClick={() => handleVote(0)}
-              disabled={
-                proposalState !== ProposalState.Active ||
-                isDeadlinePassed ||
-                isAwaitingUserSignature ||
-                isConfirming
-              }
-              data-testid="noProposalButton"
-            >
-              Vote NO
-            </Button>
-          </div>
+          <>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <Button
+                variant="approve"
+                size="lg"
+                onClick={() => handleVote(1)}
+                disabled={
+                  proposalState !== ProposalState.Active ||
+                  isDeadlinePassed ||
+                  isAwaitingUserSignature ||
+                  isConfirming
+                }
+                data-testid="yesProposalButton"
+              >
+                Vote YES
+              </Button>
+              <Button
+                variant="abstain"
+                size="lg"
+                onClick={() => handleVote(2)}
+                disabled={
+                  proposalState !== ProposalState.Active ||
+                  isDeadlinePassed ||
+                  isAwaitingUserSignature ||
+                  isConfirming
+                }
+                data-testid="abstainProposalButton"
+              >
+                Abstain
+              </Button>
+              <Button
+                variant="reject"
+                size="lg"
+                onClick={() => handleVote(0)}
+                disabled={
+                  proposalState !== ProposalState.Active ||
+                  isDeadlinePassed ||
+                  isAwaitingUserSignature ||
+                  isConfirming
+                }
+                data-testid="noProposalButton"
+              >
+                Vote NO
+              </Button>
+            </div>
+            {canProposerCancel && (
+              <Button
+                variant="reject"
+                size="lg"
+                clipped="default"
+                onClick={handleCancelByProposer}
+                disabled={
+                  isAwaitingProposerCancelSignature ||
+                  isProposerCancelConfirming
+                }
+                className="w-full"
+              >
+                {isAwaitingProposerCancelSignature
+                  ? "Confirm in Wallet"
+                  : isProposerCancelConfirming
+                    ? "Cancelling..."
+                    : "Cancel Proposal"}
+              </Button>
+            )}
+          </>
         );
 
       default:
