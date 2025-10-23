@@ -1,4 +1,5 @@
 name: Smoke Test - Governance
+run-name: "Governance Smoke Test #${{ github.run_number }} - ${{ github.event.deployment.environment || 'deploy' }}"
 on:
   deployment_status:
 
@@ -8,7 +9,7 @@ permissions:
   id-token: write
 
 jobs:
-  governance:
+  test:
     if: github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && contains(github.event.deployment_status.target_url, 'governancemento')
     uses: mento-protocol/mento-automation-tests/.github/workflows/governance-smoke-test.yml@main
     with:

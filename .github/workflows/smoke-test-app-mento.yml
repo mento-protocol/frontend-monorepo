@@ -1,4 +1,5 @@
 name: Smoke Test - App Mento
+run-name: "App Mento Smoke Test #${{ github.run_number }} - ${{ github.event.deployment.environment || 'deploy' }}"
 on:
   deployment_status:
 
@@ -8,7 +9,7 @@ permissions:
   id-token: write
 
 jobs:
-  app-mento:
+  test:
     if: github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && contains(github.event.deployment_status.target_url, 'appmento')
     uses: mento-protocol/mento-automation-tests/.github/workflows/app-mento-smoke-test.yml@main
     with:
