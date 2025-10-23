@@ -1,0 +1,17 @@
+name: Smoke Test - Governance
+on:
+  deployment_status:
+
+permissions:
+  contents: read
+  deployments: read
+  id-token: write
+
+jobs:
+  governance:
+    if: github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && contains(github.event.deployment_status.target_url, 'governancemento')
+    uses: mento-protocol/mento-automation-tests/.github/workflows/governance-smoke-test.yml@main
+    with:
+      CUSTOM_URL: ${{ github.event.deployment_status.environment_url }}
+      IS_MAINNET: "false"
+    secrets: inherit
