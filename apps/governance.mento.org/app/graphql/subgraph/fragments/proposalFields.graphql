@@ -22,6 +22,16 @@ fragment ProposalFields on Proposal {
     }
   }
 
+  proposalCanceled {
+    emitter {
+      id
+    }
+    transaction {
+      id
+    }
+    timestamp
+  }
+
   # Votes
   votecast {
     id
