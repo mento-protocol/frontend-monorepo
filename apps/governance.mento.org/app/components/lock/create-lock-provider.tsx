@@ -254,6 +254,7 @@ export const CreateLockProvider = ({
     lockMento,
     needsApproval,
     parsedAmount,
+    unlockDate,
   ]);
 
   const reset = React.useCallback(() => {
