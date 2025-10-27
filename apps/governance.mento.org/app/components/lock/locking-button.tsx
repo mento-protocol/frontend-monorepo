@@ -6,6 +6,10 @@ import {
   useRelockMento,
 } from "@/contracts";
 import {
+  useOptimisticLocks,
+  OptimisticLock,
+} from "@/contexts/optimistic-locks-context";
+import {
   LOCKING_AMOUNT_FORM_KEY,
   LOCKING_DELEGATE_ADDRESS_FORM_KEY,
   LOCKING_DELEGATE_ENABLED_FORM_KEY,
@@ -26,6 +30,7 @@ import {
   useCreateLock,
 } from "./create-lock-provider";
 import { useCallback, useMemo, useState } from "react";
+import { Account } from "@/graphql";
 
 interface LockingButtonProps {
   lockToUpdate?: LockWithExpiration;
@@ -42,6 +47,7 @@ export const LockingButton = ({
   const { createLock, CreateLockTxStatus, CreateLockApprovalStatus } =
     useCreateLock();
   const { refetch: refetchLockInfo } = useLockInfo(address);
+  const { addOptimisticLock } = useOptimisticLocks();
 
   // Use the specific lock to update or fall back to the user's primary lock
   const targetLock = lockToUpdate;
@@ -271,6 +277,29 @@ export const LockingButton = ({
     setRelockError(false);
 
     const submitRelock = () => {
+      // Create optimistic updated lock
+      const currentDate = new Date();
+      const totalWeeksToUnlock = differenceInWeeks(unlockDate, currentDate) + 1;
+      const expirationDate = new Date(
+        currentDate.getTime() + totalWeeksToUnlock * 7 * 24 * 60 * 60 * 1000,
+      );
+
+      const updatedAmount = BigInt(targetLock.amount) + parsedAmount;
+
+      const optimisticLock: OptimisticLock = {
+        ...targetLock,
+        amount: updatedAmount.toString(),
+        delegate: {
+          id: nextDelegate || targetLock.delegate.id,
+        } as unknown as Account,
+        expiration: expirationDate,
+        slope: newSlope,
+        isOptimistic: true,
+      };
+
+      // Add optimistic lock immediately (will replace the old one in the UI)
+      addOptimisticLock(optimisticLock);
+
       relock.relockMento({
         onSuccess: () => {
           // Success handled in onConfirmation above - dialog stays open until confirmed
@@ -309,6 +338,10 @@ export const LockingButton = ({
     relock,
     parsedAmount,
     contracts.Locking.address,
+    addOptimisticLock,
+    unlockDate,
+    nextDelegate,
+    newSlope,
   ]);
 
   const buttonLocator = useMemo(() => {

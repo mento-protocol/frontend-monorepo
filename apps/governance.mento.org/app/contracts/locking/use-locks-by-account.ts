@@ -1,12 +1,13 @@
 import { getSubgraphApiName } from "@/config";
-import { useEnsureChainId } from "@repo/web3";
+import { useOptimisticLocks } from "@/contexts/optimistic-locks-context";
+import { LockWithExpiration } from "@/contracts/types";
 import {
   GetLocksQueryResult,
   useGetLocksQuery,
 } from "@/graphql/subgraph/generated/subgraph";
-import { LockWithExpiration } from "@/contracts/types";
-import LockingHelper from "./locking-helper";
+import { useEnsureChainId } from "@repo/web3";
 import { useMemo } from "react";
+import LockingHelper from "./locking-helper";
 import { useLockingWeek } from "./use-locking-week";
 
 interface UseLocksProps {
@@ -20,6 +21,8 @@ export const useLocksByAccount = ({
 } => {
   const { currentWeek: currentLockingWeek } = useLockingWeek();
   const ensuredChainId = useEnsureChainId();
+  const { optimisticLocks, removeOptimisticLock } = useOptimisticLocks();
+
   const { data, ...rest } = useGetLocksQuery({
     refetchWritePolicy: "overwrite",
     fetchPolicy: "network-only",
@@ -69,8 +72,32 @@ export const useLocksByAccount = ({
     return mapped;
   }, [data, currentLockingWeek]) as LockWithExpiration[];
 
+  // Merge optimistic locks with real locks
+  const mergedLocks = useMemo(() => {
+    // Filter optimistic locks for this account
+    const accountOptimisticLocks = optimisticLocks.filter(
+      (lock) => lock.owner.id.toLowerCase() === account.toLowerCase(),
+    );
+
+    // Remove optimistic locks that now exist in real data
+    const realLockIds = new Set(locks.map((l) => String(l.lockId)));
+    accountOptimisticLocks.forEach((optLock) => {
+      if (realLockIds.has(String(optLock.lockId))) {
+        removeOptimisticLock(String(optLock.lockId));
+      }
+    });
+
+    // Filter out optimistic locks that are now real
+    const validOptimisticLocks = accountOptimisticLocks.filter(
+      (optLock) => !realLockIds.has(String(optLock.lockId)),
+    );
+
+    // Combine and sort: optimistic locks first (newest), then real locks
+    return [...validOptimisticLocks, ...locks];
+  }, [locks, optimisticLocks, account, removeOptimisticLock]);
+
   return {
-    locks,
+    locks: mergedLocks,
     ...rest,
   };
 };

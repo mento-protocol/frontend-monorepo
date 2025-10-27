@@ -1,30 +1,35 @@
-import { toast } from "@repo/ui";
 import {
-  useLockMento as useCreateLockOnChain,
   useAllowance,
   useApprove,
+  useLockMento as useCreateLockOnChain,
 } from "@/contracts";
+import { toast } from "@repo/ui";
 import { useContracts } from "@repo/web3";
 
+import {
+  OptimisticLock,
+  useOptimisticLocks,
+} from "@/contexts/optimistic-locks-context";
 import { useCurrentChain } from "@/hooks/use-current-chain";
-import { useAccount } from "@repo/web3/wagmi";
-import { useReadContract } from "wagmi";
 import { LockingABI } from "@repo/web3";
+import { useAccount } from "@repo/web3/wagmi";
 import React, { ReactNode, createContext, useContext } from "react";
 import { Address, parseEther } from "viem";
+import { useReadContract } from "wagmi";
 
 import {
   DEFAULT_LOCKING_CLIFF,
   LOCKING_AMOUNT_FORM_KEY,
+  LOCKING_DELEGATE_ADDRESS_FORM_KEY,
+  LOCKING_DELEGATE_ENABLED_FORM_KEY,
   LOCKING_DURATION_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
-  LOCKING_DELEGATE_ENABLED_FORM_KEY,
-  LOCKING_DELEGATE_ADDRESS_FORM_KEY,
 } from "@/contracts/locking";
 import { isValidAddress } from "@repo/web3";
 import { differenceInWeeks } from "date-fns";
 import { useFormContext } from "react-hook-form";
 import { TxDialog } from "../tx-dialog/tx-dialog";
+import { Account, Locking } from "@/graphql";
 
 export enum CREATE_LOCK_TX_STATUS {
   PENDING = "PENDING",
@@ -73,6 +78,7 @@ export const CreateLockProvider = ({
 
   const { address, chainId } = useAccount();
   const currentChain = useCurrentChain();
+  const { addOptimisticLock } = useOptimisticLocks();
 
   const amount = watch(LOCKING_AMOUNT_FORM_KEY);
   const unlockDate = watch(LOCKING_UNLOCK_DATE_FORM_KEY);
@@ -156,6 +162,39 @@ export const CreateLockProvider = ({
   const lockMento = React.useCallback(() => {
     const effectiveSlope = Math.max(slope, minSlopePeriod);
     const effectiveCliff = Math.max(DEFAULT_LOCKING_CLIFF, minCliffPeriod);
+
+    // Generate a temporary optimistic lock ID (will be replaced when real data arrives)
+    const optimisticLockId = `optimistic-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // Calculate expiration date for optimistic lock
+    const now = new Date();
+    const expirationDate = new Date(
+      now.getTime() + effectiveSlope * 7 * 24 * 60 * 60 * 1000,
+    );
+
+    // Create optimistic lock
+    const optimisticLock: OptimisticLock = {
+      lockId: optimisticLockId,
+      amount: parsedAmount.toString(),
+      owner: { id: address! } as unknown as Account,
+      delegate: { id: selectedDelegate } as unknown as Account,
+      expiration: expirationDate,
+      time: 0,
+      slope: effectiveSlope,
+      cliff: effectiveCliff,
+      isOptimistic: true,
+      id: optimisticLockId,
+      lockCreate: [],
+      locking: {} as unknown as Locking,
+      relock: [],
+      relocked: false,
+      replacedBy: null,
+      replaces: null,
+    };
+
+    // Add optimistic lock immediately
+    addOptimisticLock(optimisticLock);
+
     lock.lockMento({
       account: address!,
       amount: parsedAmount,
@@ -180,6 +219,7 @@ export const CreateLockProvider = ({
     slope,
     minSlopePeriod,
     minCliffPeriod,
+    addOptimisticLock,
   ]);
 
   const approve = useApprove();

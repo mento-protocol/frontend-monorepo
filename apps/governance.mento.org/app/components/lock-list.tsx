@@ -359,11 +359,16 @@ export const LockList = () => {
               const inCliff = now < cliffEnd;
               const inVesting = !inCliff && now < lock.expiration;
 
+              // Check if this is an optimistic lock
+              const isOptimistic =
+                "isOptimistic" in lock && lock.isOptimistic === true;
+
               return (
                 <LockCard
                   key={lock.lockId}
                   id={`lock-${lock.lockId}`}
                   data-testid={`lockCard_${index}`}
+                  className={isOptimistic ? "opacity-60" : ""}
                 >
                   <LockCardHeader>
                     <LockCardHeaderGroup>
@@ -478,8 +483,9 @@ export const LockList = () => {
                       <LockCardButton
                         onClick={() => handleUpdateLock(lock)}
                         data-testid={`updateLockButton`}
+                        disabled={isOptimistic}
                       >
-                        Update
+                        {isOptimistic ? "Confirming..." : "Update"}
                       </LockCardButton>
                     </LockCardActions>
                   )}
