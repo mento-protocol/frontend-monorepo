@@ -29,7 +29,7 @@ import {
   CREATE_LOCK_TX_STATUS,
   useCreateLock,
 } from "./create-lock-provider";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Account } from "@/graphql";
 
 interface LockingButtonProps {
@@ -582,6 +582,28 @@ export const LockingButton = ({
     address,
     nextDelegate,
   ]);
+
+  // Toast notifications for relock approval errors
+  useEffect(() => {
+    if (approve.error && isTxDialogOpen) {
+      if (approve.error.message?.includes("User rejected request")) {
+        toast.error("Transaction rejected");
+      } else {
+        toast.error("Transaction failed");
+      }
+    }
+  }, [approve.error, isTxDialogOpen]);
+
+  // Toast notifications for relock transaction errors
+  useEffect(() => {
+    if (relock.error && isTxDialogOpen) {
+      if (relock.error.message?.includes("User rejected request")) {
+        toast.error("Transaction rejected");
+      } else {
+        toast.error("Transaction failed");
+      }
+    }
+  }, [relock.error, isTxDialogOpen]);
 
   // Reset function for dialog
   const resetRelockState = useCallback(() => {

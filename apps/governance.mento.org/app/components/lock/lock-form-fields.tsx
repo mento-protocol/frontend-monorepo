@@ -161,7 +161,8 @@ export function LockFormFields({
 
       if (exactIdx >= 0) {
         const idx = Math.max(exactIdx, minSelectableIndex);
-        setValue(LOCKING_UNLOCK_DATE_FORM_KEY, validWednesdays[idx]);
+        // setValue(LOCKING_UNLOCK_DATE_FORM_KEY, validWednesdays[idx]);
+        setValue(LOCKING_UNLOCK_DATE_FORM_KEY, "");
         setSliderIndex(idx);
       } else {
         const closestWednesday = validWednesdays.reduce((prev, curr) => {
@@ -182,7 +183,8 @@ export function LockFormFields({
           closestIdx >= 0 ? closestIdx : 0,
           minSelectableIndex,
         );
-        setValue(LOCKING_UNLOCK_DATE_FORM_KEY, validWednesdays[idx]);
+        // setValue(LOCKING_UNLOCK_DATE_FORM_KEY, validWednesdays[idx]);
+        setValue(LOCKING_UNLOCK_DATE_FORM_KEY, "");
         setSliderIndex(idx);
       }
 
@@ -209,9 +211,10 @@ export function LockFormFields({
       !hasInitializedRef.current
     ) {
       // Ensure date is set to first valid Wednesday if not already set (only once)
-      setValue(LOCKING_UNLOCK_DATE_FORM_KEY, validWednesdays[0], {
-        shouldValidate: true,
-      });
+      // setValue(LOCKING_UNLOCK_DATE_FORM_KEY, validWednesdays[0], {
+      //   shouldValidate: true,
+      // });
+      setValue(LOCKING_UNLOCK_DATE_FORM_KEY, "");
       setSliderIndex(0);
       hasInitializedRef.current = true;
     }
