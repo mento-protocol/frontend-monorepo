@@ -3,7 +3,6 @@ import "@rainbow-me/rainbowkit/styles.css";
 
 import type { PropsWithChildren } from "react";
 
-import { OptimisticLocksProvider } from "@/contexts/optimistic-locks-context";
 import { Web3Provider } from "@repo/web3";
 import { State } from "@repo/web3/wagmi";
 import { ErrorBoundary } from "@sentry/nextjs";
@@ -32,9 +31,7 @@ export function ClientProviders({
   return (
     <ErrorBoundary>
       <SafeHydrate>
-        <Web3Provider initialState={initialState}>
-          <OptimisticLocksProvider>{children}</OptimisticLocksProvider>
-        </Web3Provider>
+        <Web3Provider initialState={initialState}>{children}</Web3Provider>
       </SafeHydrate>
     </ErrorBoundary>
   );

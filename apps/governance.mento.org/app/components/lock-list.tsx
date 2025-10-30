@@ -1,7 +1,7 @@
 "use client";
-import { useLockedAmount, useLocksByAccount } from "@/contracts";
+import { useLocksByAccount } from "@/contracts";
 import { LockWithExpiration } from "@/contracts/types";
-import { useVeMentoDelegationSummary } from "@/hooks/use-ve-mento-delegation-summary";
+import { useLockAmountsFromWithdrawals } from "@/hooks/use-lock-amounts-from-withdrawals";
 import {
   CopyToClipboard,
   LockCard,
@@ -72,24 +72,14 @@ export const LockList = () => {
     });
   };
 
-  // Get total locked amount from chain
-  const { data: totalLockedNow = 0n } = useLockedAmount();
+  // Calculate exact amounts using withdrawal events from subgraph
+  const { lockAmountsMap, loading: amountsLoading } =
+    useLockAmountsFromWithdrawals({
+      locks,
+      address,
+    });
 
-  // Use shared veMENTO calculation hook for consistency with summary
-  const { veByLockId } = useVeMentoDelegationSummary({ locks, address });
-
-  // Get owned locks for veMENTO calculations
-  const ownedLocks = useMemo(
-    () =>
-      locks?.length
-        ? locks.filter(
-            (lock) => lock.owner.id.toLowerCase() === address?.toLowerCase(),
-          )
-        : [],
-    [locks, address],
-  );
-
-  // Get received locks (delegated to current user)
+  // Get received locks (delegated to current user) for display
   const receivedLocks = useMemo(
     () =>
       locks?.length
@@ -103,167 +93,34 @@ export const LockList = () => {
     [locks, address],
   );
 
+  // Build estimates map from withdrawal-based calculations
   const lockEstimates = useMemo(() => {
-    if (!locks || !address) return new Map();
-
-    const nowMs = block?.data?.timestamp
-      ? Number(block.data.timestamp) * 1000
-      : Date.now();
-    const now = new Date(nowMs);
-    const nowSec = Math.floor(now.getTime() / 1000);
-    const WEEK = 7 * 24 * 60 * 60;
-    const WEEK_BIG = BigInt(WEEK);
-
-    // Process owned locks with vesting calculations
-    const ownedLockData = ownedLocks
-      .map((lock) => {
-        const amount = BigInt(lock.amount);
-        const expirySec = Math.floor(lock.expiration.getTime() / 1000);
-        const lockStartSec = Math.floor(
-          expirySec - (lock.cliff + lock.slope) * Number(WEEK_BIG),
-        );
-        const vestingStartSec = lockStartSec + lock.cliff * Number(WEEK_BIG);
-
-        const isExpired = nowSec >= expirySec;
-        const isVesting = nowSec >= vestingStartSec && nowSec < expirySec;
-        const isNotStarted = nowSec < vestingStartSec;
-        const isReplaced = !!lock.replacedBy;
-
-        // Calculate vested amount for withdrawal estimation
-        let vestedAmount = 0n;
-        if (isExpired) {
-          vestedAmount = amount;
-        } else if (isVesting) {
-          const weeksPassed = Math.min(
-            Math.floor((nowSec - vestingStartSec) / WEEK),
-            Number(lock.slope),
-          );
-          vestedAmount = (amount * BigInt(weeksPassed)) / BigInt(lock.slope);
-        }
-
-        return {
-          lock,
-          amount,
-          vestedAmount,
-          isExpired,
-          isVesting,
-          isNotStarted,
-          isReplaced,
-        };
-      })
-      .filter((l) => !l.isReplaced);
-
-    const totalOriginal = ownedLockData.reduce((sum, l) => sum + l.amount, 0n);
-    const withdrawnTotal = totalOriginal - totalLockedNow;
-
-    // Step 1: Estimate withdrawn amounts using vesting logic
-    const withdrawnMap = new Map<string, bigint>();
-    const vestingLocks = ownedLockData.filter((l) => l.isVesting);
-
-    // Initialize all to 0
-    for (const { lock } of ownedLockData) {
-      withdrawnMap.set(lock.lockId, 0n);
-    }
-
-    // Allocate withdrawals pro-rata by vested amount (best estimate)
-    if (withdrawnTotal > 0n && vestingLocks.length > 0) {
-      const totalVested = vestingLocks.reduce(
-        (sum, l) => sum + l.vestedAmount,
-        0n,
-      );
-      if (totalVested > 0n) {
-        for (const { lock, vestedAmount } of vestingLocks) {
-          const allocation = (vestedAmount * withdrawnTotal) / totalVested;
-          withdrawnMap.set(lock.lockId, allocation);
-        }
-      }
-    }
-
-    // Step 2: Calculate initial remaining amounts
-    const remainingMap = new Map<string, bigint>();
-    for (const { lock, amount } of ownedLockData) {
-      const withdrawn = withdrawnMap.get(lock.lockId) ?? 0n;
-      const remaining = amount > withdrawn ? amount - withdrawn : 0n;
-      remainingMap.set(lock.lockId, remaining);
-    }
-
-    // Step 3: CRITICAL - Normalize to match contract total exactly
-    // This ensures sum of locks = contract total, regardless of estimation errors
-    const estimatedTotal = Array.from(remainingMap.values()).reduce(
-      (a, b) => a + b,
-      0n,
-    );
-
-    if (estimatedTotal > 0n && totalLockedNow !== estimatedTotal) {
-      // Apply proportional correction to all locks
-      for (const { lock } of ownedLockData) {
-        const estimated = remainingMap.get(lock.lockId) ?? 0n;
-        const corrected = (estimated * totalLockedNow) / estimatedTotal;
-        remainingMap.set(lock.lockId, corrected);
-      }
-
-      // Handle rounding dust
-      const correctedTotal = Array.from(remainingMap.values()).reduce(
-        (a, b) => a + b,
-        0n,
-      );
-      const dust = totalLockedNow - correctedTotal;
-
-      if (dust !== 0n && ownedLockData.length > 0) {
-        const firstLock = ownedLockData[0];
-        if (firstLock) {
-          remainingMap.set(
-            firstLock.lock.lockId,
-            (remainingMap.get(firstLock.lock.lockId) ?? 0n) + dust,
-          );
-        }
-      }
-    }
-
-    // Step 4: Build estimates map
     const estimates = new Map();
 
-    for (const { lock } of ownedLockData) {
-      const veMentoAmount = veByLockId.get(lock.lockId) ?? 0n;
-      const remaining = remainingMap.get(lock.lockId) ?? 0n;
-      const original = BigInt(lock.amount);
-      const withdrawn = original > remaining ? original - remaining : 0n;
-
-      estimates.set(lock.lockId, {
-        remaining,
-        withdrawn,
-        original,
-        veMento: veMentoAmount,
+    // Add owned locks with accurate amounts from withdrawal events
+    for (const [lockId, amounts] of lockAmountsMap.entries()) {
+      estimates.set(lockId, {
+        remaining: amounts.remainingMento,
+        withdrawn: amounts.withdrawn,
+        original: amounts.originalAmount,
+        veMento: amounts.currentVeMento,
       });
     }
 
-    // Process received locks (delegated to current user)
-    // For received locks, we show the original amount since we can't accurately
-    // determine which specific locks the owner withdrew from
+    // Add received locks (delegated to current user)
+    // For received locks, show original amount since we can't track owner's withdrawals
     for (const lock of receivedLocks) {
-      // Use veMENTO from shared hook for consistency with summary
-      const veMentoAmount = veByLockId.get(lock.lockId) ?? 0n;
       const receivedRemaining = BigInt(lock.amount);
-
-      // For received locks, show original amount (no withdrawal estimation)
       estimates.set(lock.lockId, {
         remaining: receivedRemaining,
         withdrawn: 0n,
         original: BigInt(lock.amount),
-        veMento: veMentoAmount,
+        veMento: lockAmountsMap.get(lock.lockId)?.currentVeMento ?? 0n,
       });
     }
 
     return estimates;
-  }, [
-    locks,
-    address,
-    totalLockedNow,
-    ownedLocks,
-    receivedLocks,
-    veByLockId,
-    block?.data?.timestamp,
-  ]);
+  }, [lockAmountsMap, receivedLocks]);
 
   const getDelegationInfo = (
     lock: LockWithExpiration,
@@ -310,7 +167,7 @@ export const LockList = () => {
 
   return (
     <div className="mt-20">
-      {loading && (
+      {(loading || amountsLoading) && (
         <>
           <Skeleton className="mb-5 h-10 w-60 rounded-md" />
           <div className="flex w-full flex-wrap gap-4">
@@ -359,16 +216,11 @@ export const LockList = () => {
               const inCliff = now < cliffEnd;
               const inVesting = !inCliff && now < lock.expiration;
 
-              // Check if this is an optimistic lock
-              const isOptimistic =
-                "isOptimistic" in lock && lock.isOptimistic === true;
-
               return (
                 <LockCard
                   key={lock.lockId}
                   id={`lock-${lock.lockId}`}
                   data-testid={`lockCard_${index}`}
-                  className={isOptimistic ? "opacity-60" : ""}
                 >
                   <LockCardHeader>
                     <LockCardHeaderGroup>
@@ -483,9 +335,8 @@ export const LockList = () => {
                       <LockCardButton
                         onClick={() => handleUpdateLock(lock)}
                         data-testid={`updateLockButton`}
-                        disabled={isOptimistic}
                       >
-                        {isOptimistic ? "Confirming..." : "Update"}
+                        Update
                       </LockCardButton>
                     </LockCardActions>
                   )}

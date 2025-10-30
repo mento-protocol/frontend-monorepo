@@ -1,4 +1,4 @@
-query getLocks($address: String) {
+query getLocks($address: Bytes) {
   locks(
     first: 1000
     where: {

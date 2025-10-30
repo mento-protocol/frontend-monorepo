@@ -6500,7 +6500,7 @@ export type GetDelegatesQuery = {
 };
 
 export type GetLocksQueryVariables = Exact<{
-  address: InputMaybe<Scalars["String"]["input"]>;
+  address: InputMaybe<Scalars["Bytes"]["input"]>;
 }>;
 
 export type GetLocksQuery = {
@@ -6520,6 +6520,7 @@ export type GetLocksQuery = {
       __typename?: "LockCreate";
       id: string;
       timestamp: any;
+      transaction: { __typename?: "Transaction"; id: string; timestamp: any };
     }>;
     delegate: { __typename?: "Account"; id: any };
   }>;
@@ -6695,6 +6696,24 @@ export type GetProposalsQuery = {
   }>;
 };
 
+export type GetWithdrawalsQueryVariables = Exact<{
+  address: InputMaybe<Scalars["Bytes"]["input"]>;
+}>;
+
+export type GetWithdrawalsQuery = {
+  __typename?: "Query";
+  withdraws: Array<{
+    __typename?: "Withdraw";
+    id: string;
+    amount: any;
+    timestamp: any;
+    emitter: { __typename?: "Account"; id: any };
+    locking: { __typename?: "Locking"; id: any };
+    owner: { __typename?: "Account"; id: any };
+    transaction: { __typename?: "Transaction"; id: string; timestamp: any };
+  }>;
+};
+
 export const ProposalFieldsFragmentDoc = gql`
   fragment ProposalFields on Proposal {
     proposalId
@@ -6772,7 +6791,12 @@ export const ProposalFieldsFragmentDoc = gql`
 `;
 export const GetAllLocksDocument = gql`
   query getAllLocks {
-    locks(first: 1000, where: { relocked: false }) {
+    locks(
+      first: 1000
+      where: { relocked: false }
+      orderBy: lockId
+      orderDirection: desc
+    ) {
       lockId
       owner {
         id
@@ -6941,12 +6965,14 @@ export type GetDelegatesQueryResult = Apollo.QueryResult<
   GetDelegatesQueryVariables
 >;
 export const GetLocksDocument = gql`
-  query getLocks($address: String) {
+  query getLocks($address: Bytes) {
     locks(
       first: 1000
       where: {
         or: [{ owner_: { id: $address } }, { delegate_: { id: $address } }]
       }
+      orderBy: lockId
+      orderDirection: desc
     ) {
       lockId
       owner {
@@ -7205,6 +7231,104 @@ export type GetProposalsSuspenseQueryHookResult = ReturnType<
 export type GetProposalsQueryResult = Apollo.QueryResult<
   GetProposalsQuery,
   GetProposalsQueryVariables
+>;
+export const GetWithdrawalsDocument = gql`
+  query getWithdrawals($address: Bytes) {
+    withdraws(
+      first: 1000
+      where: { owner_: { id: $address } }
+      orderBy: timestamp
+      orderDirection: desc
+    ) {
+      id
+      amount
+      timestamp
+      emitter {
+        id
+      }
+      locking {
+        id
+      }
+      owner {
+        id
+      }
+      transaction {
+        id
+        timestamp
+      }
+    }
+  }
+`;
+
+/**
+ * __useGetWithdrawalsQuery__
+ *
+ * To run a query within a React component, call `useGetWithdrawalsQuery` and pass it any options that fit your needs.
+ * When your component renders, `useGetWithdrawalsQuery` returns an object from Apollo Client that contains loading, error, and data properties
+ * you can use to render your UI.
+ *
+ * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
+ *
+ * @example
+ * const { data, loading, error } = useGetWithdrawalsQuery({
+ *   variables: {
+ *      address: // value for 'address'
+ *   },
+ * });
+ */
+export function useGetWithdrawalsQuery(
+  baseOptions?: Apollo.QueryHookOptions<
+    GetWithdrawalsQuery,
+    GetWithdrawalsQueryVariables
+  >,
+) {
+  const options = { ...defaultOptions, ...baseOptions };
+  return Apollo.useQuery<GetWithdrawalsQuery, GetWithdrawalsQueryVariables>(
+    GetWithdrawalsDocument,
+    options,
+  );
+}
+export function useGetWithdrawalsLazyQuery(
+  baseOptions?: Apollo.LazyQueryHookOptions<
+    GetWithdrawalsQuery,
+    GetWithdrawalsQueryVariables
+  >,
+) {
+  const options = { ...defaultOptions, ...baseOptions };
+  return Apollo.useLazyQuery<GetWithdrawalsQuery, GetWithdrawalsQueryVariables>(
+    GetWithdrawalsDocument,
+    options,
+  );
+}
+export function useGetWithdrawalsSuspenseQuery(
+  baseOptions?:
+    | Apollo.SkipToken
+    | Apollo.SuspenseQueryHookOptions<
+        GetWithdrawalsQuery,
+        GetWithdrawalsQueryVariables
+      >,
+) {
+  const options =
+    baseOptions === Apollo.skipToken
+      ? baseOptions
+      : { ...defaultOptions, ...baseOptions };
+  return Apollo.useSuspenseQuery<
+    GetWithdrawalsQuery,
+    GetWithdrawalsQueryVariables
+  >(GetWithdrawalsDocument, options);
+}
+export type GetWithdrawalsQueryHookResult = ReturnType<
+  typeof useGetWithdrawalsQuery
+>;
+export type GetWithdrawalsLazyQueryHookResult = ReturnType<
+  typeof useGetWithdrawalsLazyQuery
+>;
+export type GetWithdrawalsSuspenseQueryHookResult = ReturnType<
+  typeof useGetWithdrawalsSuspenseQuery
+>;
+export type GetWithdrawalsQueryResult = Apollo.QueryResult<
+  GetWithdrawalsQuery,
+  GetWithdrawalsQueryVariables
 >;
 export type AccessControlKeySpecifier = (
   | "asAccount"
