@@ -177,14 +177,10 @@ export function calculateLockAmountsFromWithdrawals(
     const remainingMento =
       originalAmount > withdrawn ? originalAmount - withdrawn : 0n;
 
-    // Create a temporary lock object with the remaining amount for veMENTO calculation
-    const lockForVeCalculation = {
-      ...lock,
-      amount: remainingMento.toString(),
-    };
-
+    // veMENTO is always based on the ORIGINAL amount, not remaining amount
+    // Withdrawals don't reduce veMENTO - only time decay does
     const currentVeMento = calculateVeMentoForLock(
-      lockForVeCalculation,
+      lock,
       nowSecBig,
       WEEK_BIG,
       MAX_LOCK_WEEKS,
