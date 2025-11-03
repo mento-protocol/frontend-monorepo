@@ -41,7 +41,8 @@ export default function VotingPowerForm() {
   // Get on-chain withdrawable principal
   const { availableToWithdraw } = useAvailableToWithdraw();
   // Get on-chain currently locked principal from Locking.locked(address)
-  const { data: lockedAmount = 0n } = useLockedAmount();
+  const { data: lockedAmount = 0n, refetch: refetchLockedAmount } =
+    useLockedAmount();
 
   // Use shared hook to compute delegated, received, and own veMENTO totals
   const { delegatedOutVe, receivedVe, ownVe } = useVeMentoDelegationSummary({
@@ -143,7 +144,12 @@ export default function VotingPowerForm() {
 
   return (
     <FormProvider {...methods}>
-      <CreateLockProvider onLockConfirmation={refetch}>
+      <CreateLockProvider
+        onLockConfirmation={() => {
+          refetch();
+          refetchLockedAmount();
+        }}
+      >
         <div className="flex flex-col gap-8 md:gap-20 lg:flex-row">
           <Card className="border-border w-full lg:min-w-[420px] xl:max-w-[60%]">
             <CardHeader className="text-2xl font-medium">Lock MENTO</CardHeader>

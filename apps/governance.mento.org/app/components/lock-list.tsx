@@ -1,5 +1,5 @@
 "use client";
-import { useLocksByAccount } from "@/contracts";
+import { useLocksByAccount, useLockedAmount } from "@/contracts";
 import { LockWithExpiration } from "@/contracts/types";
 import { useLockAmountsFromWithdrawals } from "@/hooks/use-lock-amounts-from-withdrawals";
 import {
@@ -40,6 +40,7 @@ export const LockList = () => {
   const { locks, loading, refetch } = useLocksByAccount({
     account: address as string,
   });
+  const { refetch: refetchLockedAmount } = useLockedAmount();
 
   const block = useBlock();
   const currentChain = useCurrentChain();
@@ -147,6 +148,7 @@ export const LockList = () => {
 
   const handleLockUpdated = () => {
     refetch();
+    refetchLockedAmount();
     setSelectedLock(null);
     setIsUpdateDialogOpen(false);
   };
