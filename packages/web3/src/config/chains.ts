@@ -11,6 +11,11 @@ export enum ChainId {
 
 export const CELO_EXPLORER_URL = "https://celoscan.io";
 export const CELO_SEPOLIA_EXPLORER_URL = "https://sepolia.celoscan.io";
+// Local Otterscan block explorer for forks
+const forkBlockExplorer = {
+  name: "Otterscan (Local)",
+  url: "http://localhost:5100",
+};
 
 export const CeloSepolia: MentoChain = {
   ...celoSepolia,
@@ -46,15 +51,79 @@ export const Celo: MentoChain = {
   },
 } as const satisfies Chain;
 
+export const CeloMainnetFork: MentoChain = {
+  id: ChainId.Celo,
+  name: "Celo Mainnet Fork",
+  nativeCurrency: {
+    decimals: 18,
+    name: "CELO",
+    symbol: "CELO",
+  },
+  blockExplorers: { default: forkBlockExplorer },
+  rpcUrls: {
+    default: {
+      http: ["http://localhost:8545"],
+    },
+  },
+  contracts: {
+    ...celo.contracts,
+    ...transformToChainContracts(addresses[ChainId.Celo]),
+  },
+} as const satisfies Chain;
+
+export const CeloSepoliaFork: MentoChain = {
+  id: ChainId.CeloSepolia,
+  name: "Celo Sepolia Fork",
+  nativeCurrency: {
+    decimals: 18,
+    name: "CELO",
+    symbol: "CELO",
+  },
+  blockExplorers: { default: forkBlockExplorer },
+  rpcUrls: {
+    default: {
+      http: ["http://localhost:8545"],
+    },
+  },
+  contracts: {
+    ...celoSepolia.contracts,
+    ...transformToChainContracts(addresses[ChainId.CeloSepolia]),
+  },
+} as const satisfies Chain;
+
+function isForkModeEnabled(): boolean {
+  // Check environment variable (works during build and SSR)
+  if (process.env.NEXT_PUBLIC_USE_FORK === "true") {
+    return true;
+  }
+
+  // Check localStorage (works in browser for runtime toggling)
+  if (typeof window !== "undefined") {
+    const storedValue = localStorage.getItem("mento_use_fork");
+    if (storedValue !== null) {
+      return storedValue === "true";
+    }
+  }
+
+  return false;
+}
+
+const useFork = isForkModeEnabled();
+
 export const chainIdToChain: Record<number, MentoChain> = {
-  [ChainId.CeloSepolia]: CeloSepolia,
-  [ChainId.Celo]: Celo,
+  [ChainId.CeloSepolia]: useFork ? CeloSepoliaFork : CeloSepolia,
+  [ChainId.Celo]: useFork ? CeloMainnetFork : Celo,
 };
 
-export const allChains = [Celo, CeloSepolia] as const satisfies readonly [
-  MentoChain,
-  ...MentoChain[],
-];
+export const allChains = useFork
+  ? ([CeloMainnetFork, CeloSepoliaFork] as const satisfies readonly [
+      MentoChain,
+      ...MentoChain[],
+    ])
+  : ([Celo, CeloSepolia] as const satisfies readonly [
+      MentoChain,
+      ...MentoChain[],
+    ]);
 
 /**
  * Transforms the specified Mento contract addresses to the format used by Viem.
