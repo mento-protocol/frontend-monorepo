@@ -204,10 +204,12 @@ export default function VotingPowerForm() {
                     </div>
                     <hr className="border-border" />
 
-                    {/* veMENTO from your own locks */}
+                    {/* veMENTO from your own locks / veMENTO */}
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">
-                        veMENTO from your own locks
+                        {summary.receivedVe === 0
+                          ? "veMENTO"
+                          : "veMENTO from your own locks"}
                       </span>
                       <span data-testid="ownLocksVeMentoLabel">
                         {summary.ownVe.toLocaleString()}
@@ -215,42 +217,54 @@ export default function VotingPowerForm() {
                     </div>
                     <hr className="border-border" />
 
-                    {/* Delegated veMENTO */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground">
-                          Delegated veMENTO
-                        </span>
-                      </div>
-                      <span data-testid="delegatedVeMentoLabel">
-                        {summary.delegatedOutVe.toLocaleString()}
-                      </span>
-                    </div>
-                    <hr className="border-border" />
+                    {/* Delegated veMENTO - only show if > 0 */}
+                    {summary.delegatedOutVe > 0 && (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground">
+                              Delegated veMENTO
+                            </span>
+                          </div>
+                          <span data-testid="delegatedVeMentoLabel">
+                            {summary.delegatedOutVe.toLocaleString()}
+                          </span>
+                        </div>
+                        <hr className="border-border" />
+                      </>
+                    )}
 
-                    {/* Received veMENTO */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground">
-                          Received veMENTO
-                        </span>
-                      </div>
-                      <span data-testid="receivedVeMentoLabel">
-                        {summary.receivedVe.toLocaleString()}
-                      </span>
-                    </div>
-                    <hr className="border-border" />
+                    {/* Received veMENTO - only show if > 0 */}
+                    {summary.receivedVe > 0 && (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground">
+                              Received veMENTO
+                            </span>
+                          </div>
+                          <span data-testid="receivedVeMentoLabel">
+                            {summary.receivedVe.toLocaleString()}
+                          </span>
+                        </div>
+                        <hr className="border-border" />
+                      </>
+                    )}
 
-                    {/* Total veMENTO */}
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">
-                        Total veMENTO
-                      </span>
-                      <span data-testid="totalVeMentoLabel">
-                        {formattedTotalVeMento}
-                      </span>
-                    </div>
-                    <hr className="border-border" />
+                    {/* Total veMENTO - only show if there's received veMENTO */}
+                    {summary.receivedVe > 0 && (
+                      <>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">
+                            Total veMENTO
+                          </span>
+                          <span data-testid="totalVeMentoLabel">
+                            {formattedTotalVeMento}
+                          </span>
+                        </div>
+                        <hr className="border-border" />
+                      </>
+                    )}
 
                     {/* Withdrawable MENTO */}
                     <div className="flex justify-between">
