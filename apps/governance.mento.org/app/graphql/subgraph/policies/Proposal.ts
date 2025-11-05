@@ -11,7 +11,7 @@ import {
 
 type ProposalID = Scalars["ID"]["output"];
 type ProposalToState = Record<ProposalID, ProposalState>;
-export const proposalToStateVar = makeVar<ProposalToState>({});
+const proposalToStateVar = makeVar<ProposalToState>({});
 
 export const ProposalPolicy: TypePolicy = {
   fields: {

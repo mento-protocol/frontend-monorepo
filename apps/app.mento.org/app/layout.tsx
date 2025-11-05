@@ -4,7 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import type { Metadata } from "next";
 import { ClientProviders } from "./components/providers";
 import localFont from "next/font/local";
-import { env } from "../env.mjs";
+import { env } from "@/env.mjs";
 import { Analytics } from "@vercel/analytics/react";
 import { cookieToInitialState, wagmiSsrConfig } from "@repo/web3/wagmi-ssr";
 import { headers } from "next/headers";

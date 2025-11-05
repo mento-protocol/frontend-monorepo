@@ -10,7 +10,7 @@ export interface DecodedTransaction {
   args?: DecodedArg[];
 }
 
-export interface DecodedArg {
+interface DecodedArg {
   name: string;
   type: string;
   value: string | number | boolean | bigint;

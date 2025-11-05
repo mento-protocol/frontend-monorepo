@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAddress } from "viem";
-import { env } from "../../../env.mjs";
+import { env } from "@/env.mjs";
 import { ContractInfo } from "../types";
 import {
   fetchFromBlockchainExplorer,

@@ -1,6 +1,6 @@
 import { IconInfo } from "@repo/ui";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui";
-import type { ReserveStats } from "@/app/lib/types";
+import type { ReserveStats } from "@/lib/types";
 
 interface MetricCardsProps {
   reserveStats: ReserveStats;

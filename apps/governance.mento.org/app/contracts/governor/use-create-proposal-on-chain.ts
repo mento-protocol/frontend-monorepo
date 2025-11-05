@@ -5,7 +5,6 @@ import {
   Hex,
   encodeAbiParameters,
   hexToBigInt,
-  isAddress,
   isHex,
   keccak256,
   parseAbiParameters,
@@ -21,25 +20,7 @@ export type TransactionItem = {
   data: string | Hex;
 };
 
-export const isTransactionItem = (
-  toBeDetermined: unknown,
-): toBeDetermined is TransactionItem => {
-  return (
-    typeof toBeDetermined === "object" &&
-    toBeDetermined !== null &&
-    "address" in toBeDetermined &&
-    typeof toBeDetermined["address"] === "string" &&
-    isAddress(toBeDetermined["address"]) &&
-    "value" in toBeDetermined &&
-    (isHex(toBeDetermined["value"]) ||
-      typeof toBeDetermined["value"] === "bigint" ||
-      typeof toBeDetermined["value"] === "number") &&
-    "data" in toBeDetermined &&
-    isHex(toBeDetermined["data"])
-  );
-};
-
-export type ProposalCreateParams = {
+type ProposalCreateParams = {
   metadata: { title: string; description: string };
   transactions: TransactionItem[];
 };

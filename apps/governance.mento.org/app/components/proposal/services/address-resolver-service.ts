@@ -6,7 +6,7 @@ import contractsConfig from "../config/contract-registry.json";
 import { ContractAPIService } from "./contract-api-service";
 import * as Sentry from "@sentry/nextjs";
 
-export interface ResolvedAddress {
+interface ResolvedAddress {
   address: string;
   name: string;
   friendlyName?: string;
@@ -26,7 +26,7 @@ interface CachedResolvedAddress {
  * Unified service for resolving addresses to human-readable names and information.
  * Consolidates local contract registry, API calls, and formatting logic.
  */
-export class AddressResolverService {
+class AddressResolverService {
   private cache = new Map<string, CachedResolvedAddress>();
   private contractAPIService: ContractAPIService;
 
@@ -348,16 +348,6 @@ export const addressResolverService = new AddressResolverService();
 // Convenience functions for backward compatibility and ease of use
 
 /**
- * Get address name (async version)
- */
-export async function getAddressName(
-  address: string | null | undefined,
-): Promise<string> {
-  const resolved = await addressResolverService.resolve(address);
-  return resolved.name;
-}
-
-/**
  * Get address name (sync version using local registry only)
  */
 export function getAddressNameFromCache(
@@ -374,14 +364,4 @@ export function getContractInfo(
   address: string | null | undefined,
 ): ContractInfo | null {
   return addressResolverService.getLocalContractInfo(address);
-}
-
-/**
- * Get rate feed name
- */
-export async function getRateFeedName(
-  address: string | null | undefined,
-): Promise<string> {
-  const resolved = await addressResolverService.resolveRateFeed(address);
-  return resolved.name;
 }

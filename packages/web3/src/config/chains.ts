@@ -11,6 +11,13 @@ export enum ChainId {
 
 export const CeloSepolia: MentoChain = {
   ...celoSepolia,
+  blockExplorers: {
+    default: {
+      name: "Celo Sepolia Explorer",
+      url: "https://sepolia.celoscan.io",
+      apiUrl: "https://sepolia.celoscan.io/api",
+    },
+  },
   contracts: {
     ...celoSepolia.contracts,
     ...transformToChainContracts(addresses[celoSepolia.id]),

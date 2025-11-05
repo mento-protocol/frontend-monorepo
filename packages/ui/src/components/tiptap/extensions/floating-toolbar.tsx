@@ -7,7 +7,7 @@ import { UnderlineToolbar } from "@/components/tiptap/toolbars/underline.js";
 import { LinkToolbar } from "@/components/tiptap/toolbars/link.js";
 import { ToolbarProvider } from "@/components/tiptap/toolbars/toolbar-provider.js";
 import { TooltipProvider } from "@/components/ui/tooltip.js";
-import { useMediaQuery } from "@/hooks/use-media-querry.js";
+import { useMediaQuery } from "@/hooks/use-media-query.js";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area.js";
 import { Separator } from "@/components/ui/separator.js";
 import { HeadingsToolbar } from "@/components/tiptap/toolbars/headings.js";

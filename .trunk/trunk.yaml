@@ -8,7 +8,7 @@ cli:
 plugins:
   sources:
     - id: trunk
-      ref: v1.7.2
+      ref: v1.7.3
       uri: https://github.com/trunk-io/plugins
 
 # Many linters and tools depend on runtimes - configure them here. (https://docs.trunk.io/runtimes)
@@ -37,14 +37,14 @@ lint:
   enabled:
     # === CORE DEVELOPMENT LINTERS ===
     - taplo@0.10.0
-    - eslint@9.35.0 # JavaScript/TypeScript linting (uses our existing configs)
+    - eslint@9.37.0 # JavaScript/TypeScript linting (uses our existing configs)
     - prettier@3.6.2 # Code formatting with Tailwind CSS class sorting
     - git-diff-check # Validates git diffs for common issues
 
     # === CONFIGURATION & DOCUMENTATION ===
     - yamllint@1.37.1 # YAML configuration file linting
     - markdownlint@0.45.0 # Markdown documentation linting
-    - markdown-link-check@3.13.7 # Validates that markdown links are not broken
+    - markdown-link-check@3.14.1 # Validates that markdown links are not broken
     - dotenv-linter@3.3.0 # Environment file validation (.env files)
 
     # === SHELL SCRIPTING ===
@@ -52,13 +52,13 @@ lint:
     - shfmt@3.6.0 # Shell script formatting
 
     # === SECURITY SCANNING ===
-    - checkov@3.2.471 # Infrastructure as Code security scanning
+    - checkov@3.2.483 # Infrastructure as Code security scanning
     - gitleaks@8.28.0 # Detects secrets in git history and commits
-    - trufflehog@3.90.6 # Advanced secret detection with high accuracy
-    - osv-scanner@2.2.2 # Vulnerability scanning for dependencies
+    - trufflehog@3.90.8 # Advanced secret detection with high accuracy
+    - osv-scanner@2.2.3 # Vulnerability scanning for dependencies
 
     # === GITHUB ACTIONS ===
-    - actionlint@1.7.7 # GitHub Actions workflow linting
+    - actionlint@1.7.8 # GitHub Actions workflow linting
 
     # === ASSET OPTIMIZATION ===
     - oxipng@9.1.5 # PNG image optimization (lossless compression)
@@ -78,10 +78,18 @@ actions:
       run: turbo run check-types
       triggers:
         - git_hooks: [pre-push]
+    - id: check-knip-pre-push
+      display_name: Check Knip Pre-Push
+      description: Run `pnpm run knip` before pushing code
+      run: pnpm run knip
+      triggers:
+        - git_hooks: [pre-push]
+
   enabled:
     - trunk-fmt-pre-commit # Auto-format files when committing
     - trunk-check-pre-push # Run checks before pushing
     - check-types-pre-push # Run type checking before pushing
+    - check-knip-pre-push # Run knip before pushing
     - trunk-announce # Show announcements for new features
     - trunk-upgrade-available # Notify when Trunk updates are available
     - commitlint # Validate commit messages follow conventional format

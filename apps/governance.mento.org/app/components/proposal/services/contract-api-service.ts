@@ -376,6 +376,3 @@ export class ContractAPIService {
     }
   }
 }
-
-// Create singleton instance
-export const contractAPIService = new ContractAPIService();

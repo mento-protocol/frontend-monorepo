@@ -5,8 +5,6 @@ import { reservePatterns } from "./reserve-patterns";
 import { proxyPatterns } from "./proxy-patterns";
 import { utilityPatterns } from "./utility-patterns";
 import type { PatternRegistry, PatternManager, PatternCategory } from "./types";
-export { formatTokenAmount } from "./utils";
-
 // Combine all pattern categories
 const patternCategories: Record<string, PatternCategory> = {
   token: {
@@ -42,7 +40,7 @@ const allPatterns: PatternRegistry = Object.values(patternCategories).reduce(
 );
 
 // Pattern manager implementation
-export class PatternManagerImpl implements PatternManager {
+class PatternManagerImpl implements PatternManager {
   getPattern(signature: string) {
     return allPatterns[signature];
   }
@@ -64,15 +62,5 @@ export class PatternManagerImpl implements PatternManager {
 export const patternManager = new PatternManagerImpl();
 
 // Export individual pattern categories for direct access if needed
-export {
-  tokenPatterns,
-  oraclePatterns,
-  governancePatterns,
-  reservePatterns,
-  proxyPatterns,
-  utilityPatterns,
-  patternCategories,
-};
 
 // Export the combined patterns for backward compatibility
-export { allPatterns as functionPatterns };

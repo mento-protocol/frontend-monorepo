@@ -46,7 +46,7 @@ function FailScreen({ details }: { details?: string }) {
   );
 }
 
-export function FailContent({ details }: { details?: string }) {
+function FailContent({ details }: { details?: string }) {
   return (
     <div className="flex flex-col items-center justify-center p-5">
       <h1 className="mb-2 text-center text-2xl">

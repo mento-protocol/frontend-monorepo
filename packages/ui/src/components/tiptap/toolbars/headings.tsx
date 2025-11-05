@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu.js";
 import { cn } from "@/lib/utils.js";
 import { useToolbar } from "./toolbar-provider.js";
-import { useMediaQuery } from "@/hooks/use-media-querry.js";
+import { useMediaQuery } from "@/hooks/use-media-query.js";
 import {
   MobileToolbarGroup,
   MobileToolbarItem,

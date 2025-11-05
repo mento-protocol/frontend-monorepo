@@ -214,5 +214,3 @@ export const useTokens = () => {
     veMentoContractData,
   };
 };
-
-export default useTokens;

@@ -1,4 +1,4 @@
-import { getAnalyticsUrl } from "@/app/lib/config/endpoints";
+import { getAnalyticsUrl } from "@/lib/config/endpoints";
 import type {
   ReserveStats,
   StableValueTokensAPI,
@@ -8,7 +8,7 @@ import type {
   HoldingsApi,
   ReserveAddressesResponse,
   ReserveAssetSymbol,
-} from "@/app/lib/types";
+} from "@/lib/types";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 
 // Define a more specific type for the items in result.stablecoins
@@ -22,7 +22,7 @@ interface ExternalStablecoin {
   icon_url?: string;
 }
 
-export async function getReserveStats(): Promise<ReserveStats> {
+async function getReserveStats(): Promise<ReserveStats> {
   // For server-side rendering, we'll directly fetch from the external API
   // instead of going through our own API route
   const analyticsUrl = getAnalyticsUrl("reserveStats");
@@ -43,7 +43,7 @@ export async function getReserveStats(): Promise<ReserveStats> {
   return response.json();
 }
 
-export async function getStableCoinStats(): Promise<StableValueTokensAPI> {
+async function getStableCoinStats(): Promise<StableValueTokensAPI> {
   const analyticsUrl = getAnalyticsUrl("stablecoins");
   if (!analyticsUrl) {
     throw new Error(
@@ -89,7 +89,7 @@ export async function getStableCoinStats(): Promise<StableValueTokensAPI> {
   };
 }
 
-export async function getReserveComposition(): Promise<ReserveCompositionAPI> {
+async function getReserveComposition(): Promise<ReserveCompositionAPI> {
   const analyticsUrl = getAnalyticsUrl("reserveComposition");
   if (!analyticsUrl) {
     throw new Error(
@@ -125,7 +125,7 @@ export async function getReserveComposition(): Promise<ReserveCompositionAPI> {
   return convertedResult;
 }
 
-export async function getReserveHoldings(): Promise<HoldingsApi> {
+async function getReserveHoldings(): Promise<HoldingsApi> {
   const analyticsUrl = getAnalyticsUrl("reserveHoldings");
   if (!analyticsUrl) {
     throw new Error(
@@ -189,7 +189,7 @@ export async function getReserveHoldings(): Promise<HoldingsApi> {
   return convertedResult;
 }
 
-export async function getReserveAddresses(): Promise<ReserveAddressesResponse> {
+async function getReserveAddresses(): Promise<ReserveAddressesResponse> {
   const analyticsUrl = getAnalyticsUrl("reserveAddresses");
   if (!analyticsUrl) {
     throw new Error(

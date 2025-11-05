@@ -5,30 +5,25 @@
     "build": "turbo run build",
     "check-types": "turbo run check-types",
     "dev": "turbo run dev",
-    "format": "trunk fmt",
-    "format:check": "trunk check --filter=prettier",
+    "format": "npx @trunkio/launcher fmt",
+    "format:check": "npx @trunkio/launcher check --filter=prettier",
     "health": "sh ./scripts/healthcheck.sh",
-    "lint": "trunk check",
-    "lint:fix": "trunk check --fix",
+    "knip": "knip",
+    "lint": "npx @trunkio/launcher check",
+    "lint:fix": "npx @trunkio/launcher check --fix",
     "test": "turbo run test"
   },
   "resolutions": {
     "brace-expansion": ">=2.0.2",
     "esbuild": ">=0.25.0"
   },
-  "dependencies": {
-    "zod": "^3.25.67"
-  },
   "devDependencies": {
-    "@commitlint/config-conventional": "^19.8.0",
     "@eslint/js": "^9.32.0",
-    "@next/eslint-plugin-next": "^15.4.5",
     "@repo/eslint-config": "workspace:*",
+    "@types/node": "^24.7.1",
     "eslint": "^9.31.0",
     "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-react": "^7.37.5",
-    "eslint-plugin-react-hooks": "^5.2.0",
-    "globals": "^16.3.0",
+    "knip": "^5.64.3",
     "prettier": "^3.5.3",
     "prettier-plugin-tailwindcss": "^0.6.11",
     "turbo": "^2.5.6",

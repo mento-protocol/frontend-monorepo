@@ -1,6 +1,5 @@
 "use client";
 
-// @ts-nocheck
 import { PopoverClose } from "@radix-ui/react-popover";
 import { Trash2, X } from "lucide-react";
 
@@ -22,7 +21,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useToolbar } from "./toolbar-provider";
-import { getUrlFromString } from "@/lib/tiptap-utils";
+import { getUrlFromString } from "../utils/get-url-from-string";
 
 const LinkToolbar = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, ...props }, ref) => {

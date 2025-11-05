@@ -12,7 +12,7 @@ import localFont from "next/font/local";
 import { headers } from "next/headers";
 import { Header } from "./components/nav/header";
 import { ClientProviders } from "./components/providers";
-import { env } from "./env.mjs";
+import { env } from "@/env.mjs";
 
 const aspekta = localFont({
   src: "./fonts/AspektaVF.ttf",

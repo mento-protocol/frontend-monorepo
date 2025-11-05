@@ -8,7 +8,7 @@ import Image from "next/image";
 import { useTheme } from "next-themes";
 
 import "@repo/ui/globals.css";
-import { env } from "../../../env.mjs";
+import { env } from "@/env.mjs";
 
 export function AppLayout({ children }: PropsWithChildren) {
   const { theme } = useTheme();

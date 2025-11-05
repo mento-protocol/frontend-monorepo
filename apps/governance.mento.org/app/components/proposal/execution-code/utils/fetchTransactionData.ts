@@ -91,9 +91,7 @@ async function fetchTransactionContractName(
 /**
  * Fetch ABI for a contract address from our /abi endpoint
  */
-export async function fetchContractABI(
-  address: string,
-): Promise<ABIResponse | null> {
+async function fetchContractABI(address: string): Promise<ABIResponse | null> {
   try {
     const response = await fetch(`/api/contract/abi?address=${address}`);
 
