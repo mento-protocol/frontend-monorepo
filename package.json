@@ -2,9 +2,13 @@
   "name": "frontend-monorepo",
   "private": true,
   "scripts": {
+    "blockexplorer:start": "docker run -d --name otterscan -p 5100:80 -e ERIGON_URL=http://localhost:8545 otterscan/otterscan:latest",
+    "blockexplorer:stop": "docker stop otterscan && docker rm otterscan",
     "build": "turbo run build",
     "check-types": "turbo run check-types",
     "dev": "turbo run dev",
+    "fork:mainnet": "anvil --fork-url https://forno.celo.org --chain-id 42220 --port 8545",
+    "fork:testnet": "anvil --fork-url https://forno.celo-sepolia.celo-testnet.org --chain-id 11142220 --port 8545",
     "format": "npx @trunkio/launcher fmt",
     "format:check": "npx @trunkio/launcher check --filter=prettier",
     "health": "sh ./scripts/healthcheck.sh",
