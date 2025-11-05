@@ -1,8 +1,4 @@
-import {
-  useAllowance,
-  useApprove,
-  useLockMento as useCreateLockOnChain,
-} from "@/contracts";
+import { useApprove, useLockMento as useCreateLockOnChain } from "@/contracts";
 import { toast } from "@repo/ui";
 import { useContracts } from "@repo/web3";
 import { useCurrentChain } from "@/hooks/use-current-chain";
@@ -47,7 +43,6 @@ export interface ICreateLockContext {
   retry: () => void;
   approve: ReturnType<typeof useApprove>;
   lock: ReturnType<typeof useCreateLockOnChain>;
-  allowance: ReturnType<typeof useAllowance>;
   CreateLockTxStatus: CREATE_LOCK_TX_STATUS;
   CreateLockApprovalStatus: CREATE_LOCK_APPROVAL_STATUS;
 }
@@ -133,10 +128,6 @@ export const CreateLockProvider = ({
       onLockConfirmation?.();
     },
   });
-  const allowance = useAllowance({
-    owner: address,
-    spender: contracts.Locking.address,
-  });
 
   const resetAll = React.useCallback(() => {
     resetForm();
@@ -186,12 +177,9 @@ export const CreateLockProvider = ({
   const approve = useApprove();
 
   const needsApproval = React.useMemo(() => {
-    // If we've already approved for this lock transaction, don't recompute based on allowance
-    if (hasApprovedForCurrentLock) return false;
-
-    if (!allowance.data) return true;
-    return allowance?.data < parsedAmount;
-  }, [allowance.data, parsedAmount, hasApprovedForCurrentLock]);
+    // Always require approval when locking tokens
+    return parsedAmount > BigInt(0);
+  }, [parsedAmount]);
 
   const CreateLockTxStatus = React.useMemo(() => {
     if (createLockError || approve.error || lock.error)
@@ -231,7 +219,8 @@ export const CreateLockProvider = ({
     setHasApprovedForCurrentLock(false);
     setCreateLockError(false);
 
-    if (needsApproval) {
+    // Always require approval when locking tokens
+    if (parsedAmount > BigInt(0)) {
       approve.approveMento({
         target: contracts.Locking.address,
         amount: parsedAmount,
@@ -246,6 +235,7 @@ export const CreateLockProvider = ({
         },
       });
     } else {
+      // Should not reach here in normal flow
       lockMento();
     }
   }, [
@@ -253,7 +243,6 @@ export const CreateLockProvider = ({
     contracts.Locking.address,
     lock,
     lockMento,
-    needsApproval,
     parsedAmount,
     unlockDate,
   ]);
@@ -385,7 +374,6 @@ export const CreateLockProvider = ({
         needsApproval,
         approve,
         lock,
-        allowance,
       }}
     >
       {children}

@@ -1,5 +1,4 @@
 import {
-  useAllowance,
   useApprove,
   useLockInfo,
   useLockingWeek,
@@ -220,28 +219,17 @@ export const LockingButton = ({
 
   // Approval setup for relock
   const approve = useApprove();
-  const allowance = useAllowance({
-    owner: address,
-    spender: contracts.Locking.address,
-  });
 
   // Check if approval is needed for relock
   const needsApprovalForRelock = useMemo(() => {
     if (!targetLock) return false;
 
-    // Calculate the actual amount that will be transferred
-    // The contract will transfer: newTotal - currentLockAmount
-    const currentLockAmount = BigInt(targetLock.amount || 0);
-    const newTotalAmount = parsedAmount + currentLockAmount;
-    const actualTransferAmount = newTotalAmount - currentLockAmount;
+    // If we've already approved for this relock, don't require approval again
+    if (hasApprovedForCurrentRelock) return false;
 
-    // No approval needed if not adding any tokens
-    if (actualTransferAmount === BigInt(0)) return false;
-
-    // Check if current allowance is sufficient for the actual transfer
-    if (!allowance.data) return true;
-    return allowance.data < actualTransferAmount;
-  }, [allowance.data, parsedAmount, targetLock]);
+    // Always require approval when adding tokens
+    return parsedAmount > BigInt(0);
+  }, [parsedAmount, targetLock, hasApprovedForCurrentRelock]);
 
   // Combined status for relock flow
   const isRelocking = useMemo(() => {
@@ -285,11 +273,9 @@ export const LockingButton = ({
     };
 
     if (needsApprovalForRelock) {
-      // Approve the actual amount that will be transferred
-      const actualTransferAmount = parsedAmount; // This is the additional amount being added
       approve.approveMento({
         target: contracts.Locking.address,
-        amount: actualTransferAmount,
+        amount: parsedAmount,
         onConfirmation: () => {
           setHasApprovedForCurrentRelock(true);
           submitRelock();
@@ -305,7 +291,6 @@ export const LockingButton = ({
     }
   }, [
     targetLock,
-    needsApprovalForRelock,
     approve,
     relock,
     parsedAmount,
