@@ -8,7 +8,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Contract } from "ethers";
 import { erc20Abi } from "viem";
 import type { Address } from "viem";
-import { InsufficientReserveCollateralError } from "./insufficient-reserve-collateral-error";
 
 export interface ReserveBalanceCheckResult {
   isCollateralAsset: boolean;
@@ -20,7 +19,6 @@ export interface ReserveBalanceCheckResult {
 /**
  * Checks if the reserve has sufficient collateral balance for a swap.
  * Only checks when swapping INTO a collateral asset.
- * Also checks trading limits and other constraints.
  *
  * @param chainId - The chain ID to check on
  * @param toToken - The token symbol being received (must be collateral)
@@ -91,7 +89,6 @@ export async function checkReserveBalance(
     const isZeroBalance = actualReserveBalanceBN === 0n;
     const hasSufficientBalance =
       actualReserveBalanceBN >= requiredReserveBalanceBN;
-    // Maximum available from reserve (may be subject to trading limits)
     const maxSwapAmountFormatted = reserveBalanceFormatted;
 
     return {
@@ -108,10 +105,6 @@ export async function checkReserveBalance(
       requiredReserveBalanceInWei,
       reserveAddress,
     });
-    // Re-throw with additional context
-    if (error instanceof InsufficientReserveCollateralError) {
-      throw error;
-    }
     throw new Error(
       `Failed to check reserve balance for ${toToken} on chain ${chainId}: ${error instanceof Error ? error.message : String(error)}`,
       { cause: error },
@@ -150,7 +143,11 @@ export function useReserveBalanceCheck({
   enabled = true,
 }: UseReserveBalanceCheckOptions) {
   const isQueryEnabled =
-    enabled && !!chainId && !!requiredReserveBalanceInWei && !!reserveAddress;
+    enabled &&
+    !!chainId &&
+    !!requiredReserveBalanceInWei &&
+    requiredReserveBalanceInWei !== "0" &&
+    !!reserveAddress;
 
   return useQuery({
     queryKey: [

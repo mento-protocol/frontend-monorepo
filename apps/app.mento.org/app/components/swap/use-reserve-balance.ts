@@ -11,9 +11,8 @@ interface UseReserveBalanceOptions {
 
 /**
  * Combined hook that handles reserve balance checking and toast notifications.
- * The caller should calculate `requiredReserveBalanceInWei` based on swap direction:
- * - For swapIn: use quoteWei (expected amount)
- * - For swapOut: use toAmountWei (exact amount to buy)
+ * The caller should use `calculateRequiredReserveBalance` utility to calculate
+ * `requiredReserveBalanceInWei` based on swap direction.
  *
  * Returns derived state for use in disabling buttons, etc.
  */
@@ -37,7 +36,11 @@ export function useReserveBalance({
     requiredReserveBalanceInWei,
     reserveAddress,
     enabled:
-      enabled && !!chainId && !!requiredReserveBalanceInWei && !!reserveAddress,
+      enabled &&
+      !!chainId &&
+      !!requiredReserveBalanceInWei &&
+      requiredReserveBalanceInWei !== "0" &&
+      !!reserveAddress,
   });
 
   // Show toast and get derived state

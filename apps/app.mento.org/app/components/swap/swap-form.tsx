@@ -22,6 +22,7 @@ import { CoinInput } from "@repo/ui";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import {
   areAmountsNearlyEqual,
+  calculateRequiredReserveBalance,
   chainIdToChain,
   confirmViewAtom,
   ConnectButton,
@@ -535,17 +536,15 @@ export default function SwapForm() {
 
   // Calculate required reserve balance for collateral assets
   const requiredReserveBalanceInWei = useMemo(() => {
-    if (!hasAmount) return undefined;
-    if (formDirection === "in") {
-      // swapIn: expected amount of toToken to receive (quoteWei)
-      return quoteWei;
-    } else {
-      // swapOut: exact amount of toToken to buy
-      return toWei(amount, getTokenDecimals(tokenOutSymbol, chainId)).toFixed(
-        0,
-      );
-    }
-  }, [quoteWei, hasAmount, formDirection, amount, tokenOutSymbol, chainId]);
+    if (!chainId) return undefined;
+    return calculateRequiredReserveBalance(
+      formDirection,
+      quoteWei,
+      amount,
+      tokenOutSymbol,
+      chainId,
+    );
+  }, [formDirection, quoteWei, amount, tokenOutSymbol, chainId]);
 
   // Check reserve balance for collateral assets and show toast on error
   const { hasInsufficientReserveBalance, isReserveCheckLoading } =

@@ -1,7 +1,6 @@
 import {
   getReserveBalanceErrorMessage,
   getTokenBySymbol,
-  InsufficientReserveCollateralError,
   type ReserveBalanceCheckResult,
 } from "@repo/web3";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
@@ -54,10 +53,8 @@ export function useReserveBalanceToast({
       const toTokenObj = getTokenBySymbol(tokenOutSymbol, chainId);
       const toTokenSymbol = toTokenObj?.symbol || tokenOutSymbol;
 
-      // Determine if this is a network error (not an InsufficientReserveCollateralError)
-      const isNetworkError =
-        !!reserveCheckError &&
-        !(reserveCheckError instanceof InsufficientReserveCollateralError);
+      // Determine if this is a network error (any error means network/contract issue)
+      const isNetworkError = !!reserveCheckError;
 
       // Use shared utility to generate error message
       const errorMessage = getReserveBalanceErrorMessage(

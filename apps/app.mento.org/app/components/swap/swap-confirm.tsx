@@ -3,6 +3,7 @@
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import { Button, IconLoading, TokenIcon } from "@repo/ui";
 import {
+  calculateRequiredReserveBalance,
   formatWithMaxDecimals,
   formValuesAtom,
   getMaxSellAmount,
@@ -134,10 +135,16 @@ export function SwapConfirm() {
   });
 
   // Calculate required reserve balance for collateral assets
-  const requiredReserveBalanceInWei =
-    direction === "in"
-      ? quoteWei // swapIn: expected amount of toToken to receive
-      : toAmountWei; // swapOut: exact amount of toToken to buy
+  const requiredReserveBalanceInWei = useMemo(() => {
+    if (!chainId) return undefined;
+    return calculateRequiredReserveBalance(
+      direction,
+      quoteWei,
+      amount,
+      tokenOutSymbol,
+      chainId,
+    );
+  }, [direction, quoteWei, amount, tokenOutSymbol, chainId]);
 
   // Check reserve balance for collateral assets and show toast on error
   const { hasInsufficientReserveBalance, isReserveCheckLoading } =

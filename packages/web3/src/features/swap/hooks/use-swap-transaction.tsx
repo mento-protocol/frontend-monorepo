@@ -2,10 +2,7 @@ import { chainIdToChain } from "@/config/chains";
 import { getTokenBySymbol } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { SwapDirection } from "@/features/swap/types";
-import {
-  formatWithMaxDecimals,
-  getReserveBalanceErrorMessage,
-} from "@/features/swap/utils";
+import { formatWithMaxDecimals } from "@/features/swap/utils";
 import { logger } from "@/utils/logger";
 import { retryAsync } from "@/utils/retry";
 import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
@@ -17,7 +14,6 @@ import { useEffect } from "react";
 import type { Address } from "viem";
 import { useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
 import { confirmViewAtom, formValuesAtom } from "../swap-atoms";
-import { InsufficientReserveCollateralError } from "./insufficient-reserve-collateral-error";
 
 export function useSwapTransaction(
   chainId: number,
@@ -250,12 +246,6 @@ export function useSwapTransaction(
 }
 
 function getToastErrorMessage(error: Error | string): string {
-  // Handle insufficient reserve collateral error using shared utility
-  if (error instanceof InsufficientReserveCollateralError) {
-    // Extract token symbol from error for fallback (utility will use error.tokenSymbol)
-    return getReserveBalanceErrorMessage(error, error.tokenSymbol, false);
-  }
-
   const errorMessage = error instanceof Error ? error.message : error;
 
   switch (true) {

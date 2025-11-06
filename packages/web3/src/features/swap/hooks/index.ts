@@ -1,4 +1,3 @@
-export * from "./insufficient-reserve-collateral-error";
 export * from "./use-allowance";
 export * from "./use-approve-transaction";
 export * from "./use-gas-estimation";
