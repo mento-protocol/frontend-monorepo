@@ -119,10 +119,11 @@ export default function SwapForm() {
   // Get token balances
   const fromTokenBalance = useMemo(() => {
     const balanceValue = balances[tokenInSymbol as keyof typeof balances];
-    return formatBalance(
+    const balance = formatBalance(
       balanceValue,
       getTokenDecimals(tokenInSymbol, chainId),
     );
+    return formatWithMaxDecimals(balance || "0.00");
   }, [balances, tokenInSymbol, chainId]);
 
   const toTokenBalance = useMemo(() => {
