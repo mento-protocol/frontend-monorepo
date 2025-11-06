@@ -14,6 +14,8 @@ import { useEffect } from "react";
 import type { Address } from "viem";
 import { useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
 import { confirmViewAtom, formValuesAtom } from "../swap-atoms";
+import { InsufficientReserveCollateralError } from "./insufficient-reserve-collateral-error";
+import { checkReserveBalance } from "./use-reserve-balance-check";
 
 export function useSwapTransaction(
   chainId: number,
@@ -83,6 +85,78 @@ export function useSwapTransaction(
         toToken,
       );
 
+      // Check reserve balance before creating transaction
+      // Determine the required amount based on swap direction
+      const requiredReserveBalanceInWei =
+        direction === "in"
+          ? thresholdAmountInWei // swapIn: minimum amount of toToken to receive
+          : swapValues?.toAmountWei || "0"; // swapOut: exact amount of toToken to buy
+
+      // Get reserve address from chain config
+      const chain = chainIdToChain[chainId];
+      const reserveContract = chain?.contracts?.Reserve;
+      const reserveAddress =
+        reserveContract && "address" in reserveContract
+          ? reserveContract.address
+          : undefined;
+
+      // Only check reserve balance if we have a reserve address
+      // If missing, log warning but allow swap to proceed (will fail on-chain if needed)
+      if (reserveAddress) {
+        try {
+          const reserveCheck = await checkReserveBalance(
+            chainId,
+            toToken,
+            requiredReserveBalanceInWei,
+            reserveAddress,
+          );
+
+          if (
+            reserveCheck.isCollateralAsset &&
+            !reserveCheck.hasSufficientBalance
+          ) {
+            const explorerUrl = chain?.blockExplorers?.default.url;
+            const toTokenObj = getTokenBySymbol(toToken, chainId);
+            const toTokenSymbol = toTokenObj?.symbol || toToken;
+
+            // Validate reserve address format before constructing URL
+            const isValidAddress = /^0x[a-fA-F0-9]{40}$/.test(reserveAddress);
+            const celoscanUrl = isValidAddress
+              ? `${explorerUrl || "https://celoscan.io"}/address/${reserveAddress}`
+              : "https://celoscan.io";
+
+            const maxSwapAmountFormatted = formatWithMaxDecimals(
+              reserveCheck.maxSwapAmountFormatted,
+              4,
+            );
+
+            throw new InsufficientReserveCollateralError(
+              toTokenSymbol,
+              reserveCheck.isZeroBalance,
+              maxSwapAmountFormatted,
+              celoscanUrl,
+            );
+          }
+        } catch (error) {
+          // Re-throw InsufficientReserveCollateralError as-is
+          if (error instanceof InsufficientReserveCollateralError) {
+            throw error;
+          }
+          // For other errors, log and re-throw with context
+          logger.error("Reserve balance check failed", {
+            error,
+            chainId,
+            toToken,
+            requiredReserveBalanceInWei,
+          });
+          throw error;
+        }
+      } else {
+        logger.warn(
+          `Reserve address not found for chainId ${chainId}, skipping reserve balance check`,
+        );
+      }
+
       let txRequest;
       if (direction === "in") {
         // swapIn: sell exact amount of fromToken, receive at least minAmountOut of toToken
@@ -150,7 +224,7 @@ export function useSwapTransaction(
         logger.debug("Swap skipped due to prerequisites not being met.");
         return;
       }
-      const toastError = getToastErrorMessage(error.message);
+      const toastError = getToastErrorMessage(error);
       toast.error(toastError);
       logger.error(`Swap transaction failed: ${error.message}`, error);
     },
@@ -245,7 +319,23 @@ export function useSwapTransaction(
   };
 }
 
-function getToastErrorMessage(errorMessage: string): string {
+function getToastErrorMessage(error: Error | string): string {
+  // Handle insufficient reserve collateral error
+  const errorMessage = error instanceof Error ? error.message : error;
+
+  if (error instanceof InsufficientReserveCollateralError) {
+    if (error.isZeroBalance) {
+      return error.message;
+    }
+
+    // For non-zero balance, include max swap amount if available
+    if (error.maxSwapAmount) {
+      return `Swap amount too high. The Reserve does not have enough ${error.tokenSymbol} to execute your trade. You can only swap up to ${error.maxSwapAmount} ${error.tokenSymbol} at the moment.`;
+    }
+
+    return `Swap amount too high. The Reserve does not have enough ${error.tokenSymbol} to execute your trade.`;
+  }
+
   switch (true) {
     case errorMessage.includes(`Trading is suspended for this reference rate`):
       return "Trading temporarily paused.  " + "Please try again later.";

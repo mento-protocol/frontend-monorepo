@@ -20,6 +20,7 @@ import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { useAtom } from "jotai";
 import { ArrowRight } from "lucide-react";
 import { useMemo } from "react";
+import { useReserveBalance } from "./use-reserve-balance";
 
 export function SwapConfirm() {
   const [formValues] = useAtom(formValuesAtom);
@@ -132,7 +133,21 @@ export function SwapConfirm() {
     skipApprove,
   });
 
-  // USD values are now calculated by useOptimizedSwapQuote hook
+  // Calculate required reserve balance for collateral assets
+  const requiredReserveBalanceInWei =
+    direction === "in"
+      ? thresholdAmountInWei // swapIn: minimum amount of toToken to receive
+      : toAmountWei; // swapOut: exact amount of toToken to buy
+
+  // Check reserve balance for collateral assets and show toast on error
+  const { hasInsufficientReserveBalance, isReserveCheckLoading } =
+    useReserveBalance({
+      chainId,
+      tokenOutSymbol,
+      requiredReserveBalanceInWei,
+      enabled:
+        !!chainId && !!requiredReserveBalanceInWei && !!quote && isConnected,
+    });
 
   // Calculate sell USD value with fallback
   const sellUSDValue = useMemo(() => {
@@ -316,7 +331,9 @@ export function SwapConfirm() {
           !rate ||
           !amountWei ||
           !address ||
-          !isConnected
+          !isConnected ||
+          hasInsufficientReserveBalance ||
+          isReserveCheckLoading
         }
       >
         {isSwapTxLoading || isSwapTxReceiptLoading ? <IconLoading /> : "Swap"}
