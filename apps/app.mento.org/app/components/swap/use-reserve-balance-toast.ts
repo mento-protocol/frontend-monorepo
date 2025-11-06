@@ -1,6 +1,7 @@
 import {
-  formatWithMaxDecimals,
+  getReserveBalanceErrorMessage,
   getTokenBySymbol,
+  InsufficientReserveCollateralError,
   type ReserveBalanceCheckResult,
 } from "@repo/web3";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
@@ -53,28 +54,17 @@ export function useReserveBalanceToast({
       const toTokenObj = getTokenBySymbol(tokenOutSymbol, chainId);
       const toTokenSymbol = toTokenObj?.symbol || tokenOutSymbol;
 
-      let errorMessage: string;
+      // Determine if this is a network error (not an InsufficientReserveCollateralError)
+      const isNetworkError =
+        !!reserveCheckError &&
+        !(reserveCheckError instanceof InsufficientReserveCollateralError);
 
-      // Handle error case (network/contract error)
-      if (reserveCheckError) {
-        errorMessage = `Unable to check reserve balance for ${toTokenSymbol}. Please try again.`;
-      } else if (reserveCheck) {
-        // Handle insufficient balance case
-        if (reserveCheck.isZeroBalance) {
-          errorMessage = `The Reserve is currently out of ${toTokenSymbol} and will be refilled soon.`;
-        } else if (reserveCheck.maxSwapAmountFormatted) {
-          const maxSwapAmountFormatted = formatWithMaxDecimals(
-            reserveCheck.maxSwapAmountFormatted,
-            4,
-          );
-          errorMessage = `Swap amount too high. The Reserve does not have enough ${toTokenSymbol} to execute your trade. You can only swap up to ${maxSwapAmountFormatted} ${toTokenSymbol} at the moment.`;
-        } else {
-          errorMessage = `Swap amount too high. The Reserve does not have enough ${toTokenSymbol} to execute your trade.`;
-        }
-      } else {
-        // Fallback message
-        errorMessage = `Swap amount too high. The Reserve does not have enough ${toTokenSymbol} to execute your trade.`;
-      }
+      // Use shared utility to generate error message
+      const errorMessage = getReserveBalanceErrorMessage(
+        reserveCheckError || reserveCheck || null,
+        toTokenSymbol,
+        isNetworkError,
+      );
 
       // Only show/update toast if the error message has changed
       if (lastShownErrorMessage.current !== errorMessage) {

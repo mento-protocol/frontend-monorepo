@@ -26,8 +26,7 @@ export interface ReserveBalanceCheckResult {
  * @param toToken - The token symbol being received (must be collateral)
  * @param requiredReserveBalanceInWei - The amount required from the Reserve in wei
  * @param reserveAddress - The reserve contract address (required)
- * @returns Reserve balance check result
- * @throws {InsufficientReserveCollateralError} When reserve has insufficient balance
+ * @returns Reserve balance check result with hasSufficientBalance flag
  * @throws {Error} When the check fails due to network or contract errors
  */
 export async function checkReserveBalance(

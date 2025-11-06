@@ -403,7 +403,7 @@ export default function SwapForm() {
   // Get form state
   const { errors } = form.formState;
   const hasAmount =
-    amount &&
+    !!amount &&
     amount !== "" &&
     amount !== "0" &&
     amount !== "0." &&

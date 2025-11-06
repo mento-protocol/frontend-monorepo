@@ -2,7 +2,10 @@ import { chainIdToChain } from "@/config/chains";
 import { getTokenBySymbol } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { SwapDirection } from "@/features/swap/types";
-import { formatWithMaxDecimals } from "@/features/swap/utils";
+import {
+  formatWithMaxDecimals,
+  getReserveBalanceErrorMessage,
+} from "@/features/swap/utils";
 import { logger } from "@/utils/logger";
 import { retryAsync } from "@/utils/retry";
 import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
@@ -247,21 +250,13 @@ export function useSwapTransaction(
 }
 
 function getToastErrorMessage(error: Error | string): string {
-  // Handle insufficient reserve collateral error
-  const errorMessage = error instanceof Error ? error.message : error;
-
+  // Handle insufficient reserve collateral error using shared utility
   if (error instanceof InsufficientReserveCollateralError) {
-    if (error.isZeroBalance) {
-      return error.message;
-    }
-
-    // For non-zero balance, include max swap amount if available
-    if (error.maxSwapAmount) {
-      return `Swap amount too high. The Reserve does not have enough ${error.tokenSymbol} to execute your trade. You can only swap up to ${error.maxSwapAmount} ${error.tokenSymbol} at the moment.`;
-    }
-
-    return `Swap amount too high. The Reserve does not have enough ${error.tokenSymbol} to execute your trade.`;
+    // Extract token symbol from error for fallback (utility will use error.tokenSymbol)
+    return getReserveBalanceErrorMessage(error, error.tokenSymbol, false);
   }
+
+  const errorMessage = error instanceof Error ? error.message : error;
 
   switch (true) {
     case errorMessage.includes(`Trading is suspended for this reference rate`):

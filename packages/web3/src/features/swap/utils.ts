@@ -4,6 +4,8 @@ import { logger } from "@/utils/logger";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import BigNumber from "bignumber.js";
 import { ethers } from "ethers";
+import { InsufficientReserveCollateralError } from "./hooks/insufficient-reserve-collateral-error";
+import type { ReserveBalanceCheckResult } from "./hooks/use-reserve-balance-check";
 
 export function parseInputExchangeAmount(
   amount: NumberT | null | undefined,
@@ -97,3 +99,70 @@ export const formatWithMaxDecimals = (
     return truncated.toFixed(maxDecimals).replace(/\.?0+$/, "");
   }
 };
+
+/**
+ * Generates a user-friendly error message for insufficient reserve balance.
+ * Handles both InsufficientReserveCollateralError instances and ReserveBalanceCheckResult objects.
+ *
+ * @param errorOrResult - Either an InsufficientReserveCollateralError or a ReserveBalanceCheckResult with insufficient balance
+ * @param tokenSymbol - The token symbol for fallback messages
+ * @param isNetworkError - Whether this is a network/contract error (not insufficient balance)
+ * @returns User-friendly error message
+ */
+export function getReserveBalanceErrorMessage(
+  errorOrResult:
+    | InsufficientReserveCollateralError
+    | ReserveBalanceCheckResult
+    | Error
+    | null
+    | undefined,
+  tokenSymbol: string,
+  isNetworkError = false,
+): string {
+  // Handle network/contract errors
+  if (
+    isNetworkError ||
+    (errorOrResult instanceof Error &&
+      !(errorOrResult instanceof InsufficientReserveCollateralError))
+  ) {
+    return `Unable to check reserve balance for ${tokenSymbol}. Please try again.`;
+  }
+
+  // Handle InsufficientReserveCollateralError
+  if (errorOrResult instanceof InsufficientReserveCollateralError) {
+    const error = errorOrResult;
+    if (error.isZeroBalance) {
+      return error.message;
+    }
+
+    // For non-zero balance, include max swap amount if available
+    if (error.maxSwapAmount) {
+      const maxSwapAmountFormatted = formatWithMaxDecimals(
+        error.maxSwapAmount,
+        4,
+      );
+      return `Swap amount too high. The Reserve does not have enough ${error.tokenSymbol} to execute your trade. You can only swap up to ${maxSwapAmountFormatted} ${error.tokenSymbol} at the moment.`;
+    }
+
+    return `Swap amount too high. The Reserve does not have enough ${error.tokenSymbol} to execute your trade.`;
+  }
+
+  // Handle ReserveBalanceCheckResult
+  const result = errorOrResult as ReserveBalanceCheckResult | null | undefined;
+  if (result && "isCollateralAsset" in result) {
+    if (result.isZeroBalance) {
+      return `The Reserve is currently out of ${tokenSymbol} and will be refilled soon.`;
+    } else if (result.maxSwapAmountFormatted) {
+      const maxSwapAmountFormatted = formatWithMaxDecimals(
+        result.maxSwapAmountFormatted,
+        4,
+      );
+      return `Swap amount too high. The Reserve does not have enough ${tokenSymbol} to execute your trade. You can only swap up to ${maxSwapAmountFormatted} ${tokenSymbol} at the moment.`;
+    } else {
+      return `Swap amount too high. The Reserve does not have enough ${tokenSymbol} to execute your trade.`;
+    }
+  }
+
+  // Fallback message
+  return `Swap amount too high. The Reserve does not have enough ${tokenSymbol} to execute your trade.`;
+}

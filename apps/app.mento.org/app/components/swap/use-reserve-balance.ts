@@ -52,7 +52,5 @@ export function useReserveBalance({
   return {
     hasInsufficientReserveBalance,
     isReserveCheckLoading,
-    reserveCheck,
-    reserveCheckError,
   };
 }
