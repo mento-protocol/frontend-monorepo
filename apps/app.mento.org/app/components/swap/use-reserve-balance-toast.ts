@@ -37,7 +37,7 @@ export function useReserveBalanceToast({
   chainId,
   tokenOutSymbol,
 }: UseReserveBalanceToastParams) {
-  // Calculate if there's insufficient reserve balance
+  // Calculate if there's insufficient reserve balance.
   const hasInsufficientReserveBalance = useMemo(
     () =>
       (reserveCheck?.isCollateralAsset && !reserveCheck.hasSufficientBalance) ||
@@ -45,34 +45,38 @@ export function useReserveBalanceToast({
     [reserveCheck, reserveCheckError],
   );
 
-  // Track the last error message we showed to prevent duplicate toasts
+  // Get token symbol with fallback.
+  const toTokenSymbol = useMemo(() => {
+    if (!chainId) return tokenOutSymbol;
+    const toTokenObj = getTokenBySymbol(tokenOutSymbol, chainId);
+    return toTokenObj?.symbol || tokenOutSymbol;
+  }, [chainId, tokenOutSymbol]);
+
+  // Track the last error message we showed to prevent duplicate toasts.
   const lastShownErrorMessage = useRef<string | null>(null);
 
   useEffect(() => {
     if (hasInsufficientReserveBalance && !isReserveCheckLoading && chainId) {
-      const toTokenObj = getTokenBySymbol(tokenOutSymbol, chainId);
-      const toTokenSymbol = toTokenObj?.symbol || tokenOutSymbol;
-
-      // Determine if this is a network error (any error means network/contract issue)
+      // Determine if this is a network error (any error means network/contract issue).
       const isNetworkError = !!reserveCheckError;
 
-      // Use shared utility to generate error message
+      // Use shared utility to generate error message.
       const errorMessage = getReserveBalanceErrorMessage(
         reserveCheckError || reserveCheck || null,
         toTokenSymbol,
         isNetworkError,
       );
 
-      // Only show/update toast if the error message has changed
+      // Only show/update toast if the error message has changed.
       if (lastShownErrorMessage.current !== errorMessage) {
         toast.error(errorMessage, {
-          id: RESERVE_BALANCE_TOAST_ID, // Use consistent ID to update same toast
-          duration: Infinity, // Make toast permanent until user closes it manually
+          id: RESERVE_BALANCE_TOAST_ID, // Use consistent ID to update same toast.
+          duration: Infinity, // Make toast permanent until user closes it manually.
         });
         lastShownErrorMessage.current = errorMessage;
       }
     } else if (!hasInsufficientReserveBalance && !isReserveCheckLoading) {
-      // Dismiss the toast when balance becomes sufficient and not loading
+      // Dismiss the toast when balance becomes sufficient and not loading.
       toast.dismiss(RESERVE_BALANCE_TOAST_ID);
       lastShownErrorMessage.current = null;
     }
@@ -82,7 +86,7 @@ export function useReserveBalanceToast({
     reserveCheckError,
     isReserveCheckLoading,
     chainId,
-    tokenOutSymbol,
+    toTokenSymbol,
   ]);
 
   return { hasInsufficientReserveBalance };

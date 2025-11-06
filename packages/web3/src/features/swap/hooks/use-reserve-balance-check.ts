@@ -1,6 +1,7 @@
 import { ReserveABI } from "@/abi";
 import { getTokenDecimals } from "@/config/tokens";
 import { getProvider } from "@/features/providers";
+import { shouldCheckReserveBalance } from "@/features/swap/utils/reserve-balance";
 import { fromWei } from "@/utils/amount";
 import { logger } from "@/utils/logger";
 import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
@@ -34,12 +35,6 @@ export async function checkReserveBalance(
   reserveAddress: Address,
 ): Promise<ReserveBalanceCheckResult> {
   try {
-    if (!reserveAddress) {
-      throw new Error(
-        `Reserve address not provided for chainId ${chainId}. Cannot perform reserve balance check.`,
-      );
-    }
-
     const toTokenAddress = getTokenAddress(toToken, chainId);
     if (!toTokenAddress) {
       throw new Error(
@@ -50,12 +45,12 @@ export async function checkReserveBalance(
     const provider = getProvider(chainId);
     const reserveContract = new Contract(reserveAddress, ReserveABI, provider);
 
-    // Check if the token is a collateral asset
+    // Check if the token is a collateral asset.
     const isCollateralAsset =
       await reserveContract.isCollateralAsset(toTokenAddress);
 
     if (!isCollateralAsset) {
-      // Not a collateral asset, no need to check balance
+      // Not a collateral asset, no need to check balance.
       return {
         isCollateralAsset: false,
         hasSufficientBalance: true,
@@ -64,7 +59,7 @@ export async function checkReserveBalance(
       };
     }
 
-    // Get the reserve's balance of the token
+    // Get the reserve's balance of the token.
     const tokenContract = new Contract(toTokenAddress, erc20Abi, provider);
     const reserveBalanceWei = (
       await tokenContract.balanceOf(reserveAddress)
@@ -73,7 +68,7 @@ export async function checkReserveBalance(
     const decimals = getTokenDecimals(toToken, chainId);
     const reserveBalanceFormatted = fromWei(reserveBalanceWei, decimals);
 
-    // Validate amounts before BigInt conversion
+    // Validate amounts before BigInt conversion.
     let requiredReserveBalanceBN: bigint;
     let actualReserveBalanceBN: bigint;
     try {
@@ -142,12 +137,12 @@ export function useReserveBalanceCheck({
   reserveAddress,
   enabled = true,
 }: UseReserveBalanceCheckOptions) {
-  const isQueryEnabled =
-    enabled &&
-    !!chainId &&
-    !!requiredReserveBalanceInWei &&
-    requiredReserveBalanceInWei !== "0" &&
-    !!reserveAddress;
+  const isQueryEnabled = shouldCheckReserveBalance(
+    enabled,
+    chainId,
+    requiredReserveBalanceInWei,
+    reserveAddress,
+  );
 
   return useQuery({
     queryKey: [
@@ -161,7 +156,7 @@ export function useReserveBalanceCheck({
       if (!chainId || !requiredReserveBalanceInWei || !reserveAddress) {
         return null;
       }
-      // Errors will be handled by React Query's error state
+      // Errors will be handled by React Query's error state.
       return await checkReserveBalance(
         chainId,
         toToken,
@@ -170,7 +165,7 @@ export function useReserveBalanceCheck({
       );
     },
     enabled: isQueryEnabled,
-    staleTime: 10000, // 10 seconds - reserve balance can change frequently
-    refetchInterval: isQueryEnabled ? 5000 : false, // Pause refetch when query is disabled
+    staleTime: 10000, // 10 seconds - reserve balance can change frequently.
+    refetchInterval: isQueryEnabled ? 5000 : false, // Pause refetch when query is disabled.
   });
 }

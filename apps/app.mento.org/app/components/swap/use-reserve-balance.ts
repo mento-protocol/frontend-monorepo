@@ -1,4 +1,8 @@
-import { useContracts, useReserveBalanceCheck } from "@repo/web3";
+import {
+  shouldCheckReserveBalance,
+  useContracts,
+  useReserveBalanceCheck,
+} from "@repo/web3";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import { useReserveBalanceToast } from "./use-reserve-balance-toast";
 
@@ -25,7 +29,7 @@ export function useReserveBalance({
   const contracts = useContracts();
   const reserveAddress = contracts.Reserve?.address;
 
-  // Perform reserve balance check
+  // Perform reserve balance check.
   const {
     data: reserveCheck,
     isLoading: isReserveCheckLoading,
@@ -35,15 +39,15 @@ export function useReserveBalance({
     toToken: tokenOutSymbol,
     requiredReserveBalanceInWei,
     reserveAddress,
-    enabled:
-      enabled &&
-      !!chainId &&
-      !!requiredReserveBalanceInWei &&
-      requiredReserveBalanceInWei !== "0" &&
-      !!reserveAddress,
+    enabled: shouldCheckReserveBalance(
+      enabled,
+      chainId,
+      requiredReserveBalanceInWei,
+      reserveAddress,
+    ),
   });
 
-  // Show toast and get derived state
+  // Show toast and get derived state.
   const { hasInsufficientReserveBalance } = useReserveBalanceToast({
     reserveCheck,
     reserveCheckError,

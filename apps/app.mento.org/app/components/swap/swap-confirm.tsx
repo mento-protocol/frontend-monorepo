@@ -134,7 +134,7 @@ export function SwapConfirm() {
     skipApprove,
   });
 
-  // Calculate required reserve balance for collateral assets
+  // Calculate required reserve balance for collateral assets.
   const requiredReserveBalanceInWei = useMemo(() => {
     if (!chainId) return undefined;
     return calculateRequiredReserveBalance(
@@ -146,14 +146,18 @@ export function SwapConfirm() {
     );
   }, [direction, quoteWei, amount, tokenOutSymbol, chainId]);
 
-  // Check reserve balance for collateral assets and show toast on error
+  // Check reserve balance for collateral assets and show toast on error.
   const { hasInsufficientReserveBalance, isReserveCheckLoading } =
     useReserveBalance({
       chainId,
       tokenOutSymbol,
       requiredReserveBalanceInWei,
       enabled:
-        !!chainId && !!requiredReserveBalanceInWei && !!quote && isConnected,
+        !!chainId &&
+        !!requiredReserveBalanceInWei &&
+        !!quote &&
+        !!amount &&
+        isConnected,
     });
 
   // Calculate sell USD value with fallback

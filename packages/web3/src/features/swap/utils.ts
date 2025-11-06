@@ -115,14 +115,18 @@ export function getReserveBalanceErrorMessage(
   tokenSymbol: string,
   isNetworkError = false,
 ): string {
-  // Handle network/contract errors
+  // Handle network/contract errors.
   if (isNetworkError || errorOrResult instanceof Error) {
     return `Unable to check reserve balance for ${tokenSymbol}. Please try again.`;
   }
 
-  // Handle ReserveBalanceCheckResult
-  const result = errorOrResult as ReserveBalanceCheckResult | null | undefined;
-  if (result && "isCollateralAsset" in result) {
+  // Handle ReserveBalanceCheckResult.
+  if (
+    errorOrResult &&
+    !(errorOrResult instanceof Error) &&
+    "isCollateralAsset" in errorOrResult
+  ) {
+    const result = errorOrResult;
     if (result.isZeroBalance) {
       return `The Reserve is currently out of ${tokenSymbol} and will be refilled soon.`;
     } else if (result.maxSwapAmountFormatted) {
@@ -136,6 +140,6 @@ export function getReserveBalanceErrorMessage(
     }
   }
 
-  // Fallback message
+  // Fallback message.
   return `Swap amount too high. The Reserve does not have enough ${tokenSymbol} to execute your trade.`;
 }

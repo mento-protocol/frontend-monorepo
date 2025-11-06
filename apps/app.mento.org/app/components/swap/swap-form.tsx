@@ -534,7 +534,7 @@ export default function SwapForm() {
       : "0";
   }, [amount, formQuote, formDirection, tokenInSymbol, chainId]);
 
-  // Calculate required reserve balance for collateral assets
+  // Calculate required reserve balance for collateral assets.
   const requiredReserveBalanceInWei = useMemo(() => {
     if (!chainId) return undefined;
     return calculateRequiredReserveBalance(
@@ -546,7 +546,7 @@ export default function SwapForm() {
     );
   }, [formDirection, quoteWei, amount, tokenOutSymbol, chainId]);
 
-  // Check reserve balance for collateral assets and show toast on error
+  // Check reserve balance for collateral assets and show toast on error.
   const { hasInsufficientReserveBalance, isReserveCheckLoading } =
     useReserveBalance({
       chainId,
