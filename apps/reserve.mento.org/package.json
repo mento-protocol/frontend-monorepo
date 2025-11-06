@@ -10,7 +10,7 @@
     "start": "next start"
   },
   "dependencies": {
-    "@mento-protocol/mento-sdk": "^1.15.4",
+    "@mento-protocol/mento-sdk": "^1.15.5",
     "@repo/ui": "workspace:*",
     "@sentry/nextjs": "^9.30.0",
     "@t3-oss/env-nextjs": "^0.13.4",
