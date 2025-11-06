@@ -23,23 +23,6 @@ export interface LockAmounts {
 }
 
 /**
- * Result returned by useLockAmountsFromWithdrawals hook
- */
-export interface UseLockAmountsFromWithdrawalsResult {
-  /** Array of lock amounts for all locks */
-  lockAmounts: LockAmounts[];
-
-  /** Map for O(1) lookup of lock amounts by lockId */
-  lockAmountsMap: Map<string, LockAmounts>;
-
-  /** Loading state while fetching withdrawal events */
-  loading: boolean;
-
-  /** Error if the withdrawal events query failed */
-  error?: Error;
-}
-
-/**
  * Example usage:
  *
  * ```typescript

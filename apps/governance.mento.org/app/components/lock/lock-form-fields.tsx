@@ -95,7 +95,7 @@ export function LockFormFields({
       ? MAX_LOCKING_DURATION_WEEKS - 1
       : MAX_LOCKING_DURATION_WEEKS;
 
-    for (let i = 0; i < maxWeeks; i++) {
+    for (let i = 0; i < maxWeeks - 1; i++) {
       const wednesday = spacetime(startDate).add(i, "week").toNativeDate();
       wednesdays.push(wednesday);
     }
