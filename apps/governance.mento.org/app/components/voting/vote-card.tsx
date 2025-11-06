@@ -1,11 +1,12 @@
 import { ProgressBar } from "@/components/progress-bar";
 import { TransactionLink } from "@/components/proposal/components/TransactionLink";
 import { Timer } from "@/components/timer";
-import { useLocksByAccount } from "@/contracts";
 import { ProposalCancelButton } from "@/components/voting/proposal-cancel-button";
+import { getWatchdogMultisigAddress } from "@/config";
+import { useLocksByAccount } from "@/contracts";
 import {
-  useCancelProposalAsWatchdog,
   useCancelProposalAsProposer,
+  useCancelProposalAsWatchdog,
   useCastVote,
   useExecuteProposal,
   useIsWatchdog,
@@ -15,7 +16,6 @@ import {
   useVoteReceipt,
 } from "@/contracts/governor";
 import { getTimelockOperationId } from "@/contracts/governor/utils/get-timelock-operation-id";
-import { getWatchdogMultisigAddress } from "@/config";
 import { Proposal, ProposalState } from "@/graphql/subgraph/generated/subgraph";
 import { useVeMentoDelegationSummary } from "@/hooks/use-ve-mento-delegation-summary";
 import {
@@ -27,14 +27,14 @@ import {
   CardTitle,
   IconLoading,
 } from "@repo/ui";
-import { ConnectButton, NumbersService, useTokens } from "@repo/web3";
+import { ConnectButton, NumbersService } from "@repo/web3";
+import { useAccount, useChainId } from "@repo/web3/wagmi";
 import * as Sentry from "@sentry/nextjs";
 import { CheckCircle2, CircleCheck, XCircle, XCircleIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { formatUnits, keccak256, toHex } from "viem";
-import { useAccount, useChainId } from "@repo/web3/wagmi";
 import spacetime from "spacetime";
+import { formatUnits, keccak256, toHex } from "viem";
 
 interface VoteCardProps {
   proposal: Proposal;

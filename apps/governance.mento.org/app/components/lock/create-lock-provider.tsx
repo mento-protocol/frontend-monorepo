@@ -1,8 +1,7 @@
 import { useApprove, useLockMento as useCreateLockOnChain } from "@/contracts";
-import { toast } from "@repo/ui";
-import { useContracts } from "@repo/web3";
 import { useCurrentChain } from "@/hooks/use-current-chain";
-import { LockingABI } from "@repo/web3";
+import { toast } from "@repo/ui";
+import { LockingABI, useContracts } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
 import React, { ReactNode, createContext, useContext } from "react";
 import { Address, parseEther } from "viem";
@@ -20,7 +19,6 @@ import { isValidAddress } from "@repo/web3";
 import { differenceInWeeks } from "date-fns";
 import { useFormContext } from "react-hook-form";
 import { TxDialog } from "../tx-dialog/tx-dialog";
-import { Account, Locking } from "@/graphql";
 
 export enum CREATE_LOCK_TX_STATUS {
   CONFIRMING_LOCK_TX = "CONFIRMING_LOCK_TX",
@@ -61,8 +59,6 @@ export const CreateLockProvider = ({
 }: ICreateLockProvider) => {
   const { watch, reset: resetForm } = useFormContext();
   const [isTxDialogOpen, setIsTxDialogOpen] = React.useState(false);
-  const [hasApprovedForCurrentLock, setHasApprovedForCurrentLock] =
-    React.useState(false);
   const [createLockError, setCreateLockError] = React.useState(false);
 
   const { address, chainId } = useAccount();
@@ -215,7 +211,6 @@ export const CreateLockProvider = ({
     lock.reset();
     approve.reset();
     setIsTxDialogOpen(true);
-    setHasApprovedForCurrentLock(false);
     setCreateLockError(false);
 
     // Always require approval when locking tokens
@@ -224,7 +219,6 @@ export const CreateLockProvider = ({
         target: contracts.Locking.address,
         amount: parsedAmount,
         onConfirmation: () => {
-          setHasApprovedForCurrentLock(true);
           lockMento();
         },
         onError: (error) => {
@@ -248,13 +242,11 @@ export const CreateLockProvider = ({
 
   const reset = React.useCallback(() => {
     setIsTxDialogOpen(false);
-    setHasApprovedForCurrentLock(false);
     setCreateLockError(false);
     approve.reset();
     lock.reset();
   }, [approve, lock]);
   const retry = React.useCallback(() => {
-    setHasApprovedForCurrentLock(false);
     setCreateLockError(false);
     createLock();
   }, [createLock]);

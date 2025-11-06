@@ -1,5 +1,5 @@
 "use client";
-import { useLocksByAccount, useLockedAmount } from "@/contracts";
+import { useLockedAmount, useLocksByAccount } from "@/contracts";
 import { LockWithExpiration } from "@/contracts/types";
 import { useLockAmountsFromWithdrawals } from "@/hooks/use-lock-amounts-from-withdrawals";
 import {
@@ -27,7 +27,7 @@ import {
   TooltipTrigger,
   type BadgeType,
 } from "@repo/ui";
-import { Identicon, useBlock, useCurrentChain, WalletHelper } from "@repo/web3";
+import { Identicon, useCurrentChain, WalletHelper } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
 import { subWeeks } from "date-fns";
 import { Info } from "lucide-react";
@@ -42,7 +42,6 @@ export const LockList = () => {
   });
   const { refetch: refetchLockedAmount } = useLockedAmount();
 
-  const block = useBlock();
   const currentChain = useCurrentChain();
 
   const [selectedLock, setSelectedLock] = useState<LockWithExpiration | null>(

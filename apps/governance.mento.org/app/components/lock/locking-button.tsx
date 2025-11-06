@@ -16,6 +16,7 @@ import { Button, cn, toast } from "@repo/ui";
 import { isValidAddress, useContracts } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
 import { differenceInWeeks, isAfter } from "date-fns";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useFormContext } from "react-hook-form";
 import { parseEther } from "viem";
 import { TxDialog } from "../tx-dialog/tx-dialog";
@@ -24,8 +25,6 @@ import {
   CREATE_LOCK_TX_STATUS,
   useCreateLock,
 } from "./create-lock-provider";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Account } from "@/graphql";
 
 interface LockingButtonProps {
   lockToUpdate?: LockWithExpiration;
@@ -295,9 +294,7 @@ export const LockingButton = ({
     relock,
     parsedAmount,
     contracts.Locking.address,
-    unlockDate,
-    nextDelegate,
-    newSlope,
+    needsApprovalForRelock,
   ]);
 
   const buttonLocator = useMemo(() => {
