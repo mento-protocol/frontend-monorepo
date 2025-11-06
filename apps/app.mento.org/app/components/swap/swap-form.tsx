@@ -556,6 +556,7 @@ export default function SwapForm() {
         !!chainId &&
         !!requiredReserveBalanceInWei &&
         !!quote &&
+        quote !== "0" &&
         hasAmount &&
         isConnected,
     });

@@ -150,7 +150,7 @@ export function useSwapTransaction(
         logger.debug("Swap skipped due to prerequisites not being met.");
         return;
       }
-      const toastError = getToastErrorMessage(error);
+      const toastError = getSwapTransactionErrorMessage(error);
       toast.error(toastError);
       logger.error(`Swap transaction failed: ${error.message}`, error);
     },
@@ -245,7 +245,11 @@ export function useSwapTransaction(
   };
 }
 
-function getToastErrorMessage(error: Error | string): string {
+/**
+ * Converts swap transaction errors to user-friendly toast messages.
+ * Handles transaction-specific errors like user rejection, insufficient funds, etc.
+ */
+function getSwapTransactionErrorMessage(error: Error | string): string {
   const errorMessage = error instanceof Error ? error.message : error;
 
   switch (true) {

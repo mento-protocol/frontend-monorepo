@@ -29,6 +29,10 @@ export function calculateRequiredReserveBalance(
 
   if (direction === "in") {
     // swapIn: expected amount of toToken to receive (quoteWei).
+    // Validate quoteWei is present and non-zero.
+    if (!quoteWei || quoteWei === "0") {
+      return undefined;
+    }
     return quoteWei;
   }
 
@@ -51,11 +55,21 @@ export function shouldCheckReserveBalance(
   requiredReserveBalanceInWei: string | undefined,
   reserveAddress: Address | undefined,
 ): boolean {
-  return (
-    enabled &&
-    !!chainId &&
-    !!requiredReserveBalanceInWei &&
-    requiredReserveBalanceInWei !== "0" &&
-    !!reserveAddress
-  );
+  if (!enabled || !chainId || !reserveAddress || !requiredReserveBalanceInWei) {
+    return false;
+  }
+
+  // Validate that the required balance is non-zero using BigInt to handle edge cases
+  // like "0.0", "00", "0x0", etc.
+  try {
+    const balanceBN = BigInt(requiredReserveBalanceInWei);
+    if (balanceBN === 0n) {
+      return false;
+    }
+  } catch {
+    // If BigInt conversion fails, the amount is invalid
+    return false;
+  }
+
+  return true;
 }

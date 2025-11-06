@@ -156,6 +156,7 @@ export function SwapConfirm() {
         !!chainId &&
         !!requiredReserveBalanceInWei &&
         !!quote &&
+        quote !== "0" &&
         !!amount &&
         isConnected,
     });
