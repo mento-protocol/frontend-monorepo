@@ -15,7 +15,6 @@ import type { Address } from "viem";
 import { useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
 import { confirmViewAtom, formValuesAtom } from "../swap-atoms";
 import { InsufficientReserveCollateralError } from "./insufficient-reserve-collateral-error";
-import { checkReserveBalance } from "./use-reserve-balance-check";
 
 export function useSwapTransaction(
   chainId: number,
@@ -84,78 +83,6 @@ export function useSwapTransaction(
         fromToken,
         toToken,
       );
-
-      // Check reserve balance before creating transaction
-      // Determine the required amount based on swap direction
-      const requiredReserveBalanceInWei =
-        direction === "in"
-          ? thresholdAmountInWei // swapIn: minimum amount of toToken to receive
-          : swapValues?.toAmountWei || "0"; // swapOut: exact amount of toToken to buy
-
-      // Get reserve address from chain config
-      const chain = chainIdToChain[chainId];
-      const reserveContract = chain?.contracts?.Reserve;
-      const reserveAddress =
-        reserveContract && "address" in reserveContract
-          ? reserveContract.address
-          : undefined;
-
-      // Only check reserve balance if we have a reserve address
-      // If missing, log warning but allow swap to proceed (will fail on-chain if needed)
-      if (reserveAddress) {
-        try {
-          const reserveCheck = await checkReserveBalance(
-            chainId,
-            toToken,
-            requiredReserveBalanceInWei,
-            reserveAddress,
-          );
-
-          if (
-            reserveCheck.isCollateralAsset &&
-            !reserveCheck.hasSufficientBalance
-          ) {
-            const explorerUrl = chain?.blockExplorers?.default.url;
-            const toTokenObj = getTokenBySymbol(toToken, chainId);
-            const toTokenSymbol = toTokenObj?.symbol || toToken;
-
-            // Validate reserve address format before constructing URL
-            const isValidAddress = /^0x[a-fA-F0-9]{40}$/.test(reserveAddress);
-            const celoscanUrl = isValidAddress
-              ? `${explorerUrl || "https://celoscan.io"}/address/${reserveAddress}`
-              : "https://celoscan.io";
-
-            const maxSwapAmountFormatted = formatWithMaxDecimals(
-              reserveCheck.maxSwapAmountFormatted,
-              4,
-            );
-
-            throw new InsufficientReserveCollateralError(
-              toTokenSymbol,
-              reserveCheck.isZeroBalance,
-              maxSwapAmountFormatted,
-              celoscanUrl,
-            );
-          }
-        } catch (error) {
-          // Re-throw InsufficientReserveCollateralError as-is
-          if (error instanceof InsufficientReserveCollateralError) {
-            throw error;
-          }
-          // For other errors, log and re-throw with context
-          logger.error("Reserve balance check failed", {
-            error,
-            chainId,
-            toToken,
-            requiredReserveBalanceInWei,
-          });
-          throw error;
-        }
-      } else {
-        logger.warn(
-          `Reserve address not found for chainId ${chainId}, skipping reserve balance check`,
-        );
-      }
 
       let txRequest;
       if (direction === "in") {

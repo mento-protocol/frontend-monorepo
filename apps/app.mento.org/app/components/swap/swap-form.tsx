@@ -553,13 +553,12 @@ export default function SwapForm() {
       chainId,
       tokenOutSymbol,
       requiredReserveBalanceInWei,
-      enabled: Boolean(
-        chainId &&
-          requiredReserveBalanceInWei &&
-          quote &&
-          hasAmount &&
-          isConnected,
-      ),
+      enabled:
+        !!chainId &&
+        !!requiredReserveBalanceInWei &&
+        !!quote &&
+        hasAmount &&
+        isConnected,
     });
 
   // Check if approval is needed

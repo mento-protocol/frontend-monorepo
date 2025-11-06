@@ -133,7 +133,15 @@ export interface UseReserveBalanceCheckOptions {
  * Returns the check result and loading state.
  *
  * @param options - Configuration options for the reserve balance check
- * @returns React Query result with reserve balance check data
+ * @param options.chainId - The chain ID to check on
+ * @param options.toToken - The token symbol being received
+ * @param options.requiredReserveBalanceInWei - The amount required from the Reserve in wei
+ * @param options.reserveAddress - The reserve contract address
+ * @param options.enabled - Whether the query should be enabled
+ * @returns React Query result with reserve balance check data, including:
+ *   - `data`: ReserveBalanceCheckResult | null - The check result
+ *   - `isLoading`: boolean - Whether the query is loading
+ *   - `error`: Error | null - Any error that occurred
  */
 export function useReserveBalanceCheck({
   chainId,
@@ -142,6 +150,9 @@ export function useReserveBalanceCheck({
   reserveAddress,
   enabled = true,
 }: UseReserveBalanceCheckOptions) {
+  const isQueryEnabled =
+    enabled && !!chainId && !!requiredReserveBalanceInWei && !!reserveAddress;
+
   return useQuery({
     queryKey: [
       "reserveBalanceCheck",
@@ -162,9 +173,8 @@ export function useReserveBalanceCheck({
         reserveAddress,
       );
     },
-    enabled:
-      enabled && !!chainId && !!requiredReserveBalanceInWei && !!reserveAddress,
+    enabled: isQueryEnabled,
     staleTime: 10000, // 10 seconds - reserve balance can change frequently
-    refetchInterval: 5000, // Refetch every 5 seconds
+    refetchInterval: isQueryEnabled ? 5000 : false, // Pause refetch when query is disabled
   });
 }

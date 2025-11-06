@@ -12,7 +12,7 @@ interface UseReserveBalanceOptions {
 /**
  * Combined hook that handles reserve balance checking and toast notifications.
  * The caller should calculate `requiredReserveBalanceInWei` based on swap direction:
- * - For swapIn: use quoteWei (expected amount) or thresholdAmountInWei (minimum with slippage)
+ * - For swapIn: use quoteWei (expected amount)
  * - For swapOut: use toAmountWei (exact amount to buy)
  *
  * Returns derived state for use in disabling buttons, etc.

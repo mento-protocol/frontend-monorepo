@@ -136,7 +136,7 @@ export function SwapConfirm() {
   // Calculate required reserve balance for collateral assets
   const requiredReserveBalanceInWei =
     direction === "in"
-      ? thresholdAmountInWei // swapIn: minimum amount of toToken to receive
+      ? quoteWei // swapIn: expected amount of toToken to receive
       : toAmountWei; // swapOut: exact amount of toToken to buy
 
   // Check reserve balance for collateral assets and show toast on error

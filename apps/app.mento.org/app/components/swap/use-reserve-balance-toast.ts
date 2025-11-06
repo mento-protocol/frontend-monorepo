@@ -21,6 +21,14 @@ interface UseReserveBalanceToastParams {
  * Hook to show a toast notification when reserve balance check fails.
  * Prevents duplicate toasts by using a consistent toast ID and tracking the last shown message.
  * Returns `hasInsufficientReserveBalance` for use in disabling buttons, etc.
+ *
+ * @param params - Configuration parameters
+ * @param params.reserveCheck - The reserve balance check result (may be null/undefined)
+ * @param params.reserveCheckError - Any error that occurred during the check
+ * @param params.isReserveCheckLoading - Whether the check is currently loading
+ * @param params.chainId - The chain ID (used for token symbol lookup, may be undefined)
+ * @param params.tokenOutSymbol - The token symbol being received
+ * @returns Object with `hasInsufficientReserveBalance` boolean flag
  */
 export function useReserveBalanceToast({
   reserveCheck,
@@ -76,8 +84,8 @@ export function useReserveBalanceToast({
         });
         lastShownErrorMessage.current = errorMessage;
       }
-    } else if (!hasInsufficientReserveBalance) {
-      // Dismiss the toast when balance becomes sufficient
+    } else if (!hasInsufficientReserveBalance && !isReserveCheckLoading) {
+      // Dismiss the toast when balance becomes sufficient and not loading
       toast.dismiss(RESERVE_BALANCE_TOAST_ID);
       lastShownErrorMessage.current = null;
     }
