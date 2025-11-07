@@ -129,15 +129,12 @@ export function getReserveBalanceErrorMessage(
     const result = errorOrResult;
     if (result.isZeroBalance) {
       return `The Reserve is currently out of ${tokenSymbol} and will be refilled soon.`;
-    } else if (result.maxSwapAmountFormatted) {
-      const maxSwapAmountFormatted = formatWithMaxDecimals(
-        result.maxSwapAmountFormatted,
-        4,
-      );
-      return `Swap amount too high. The Reserve does not have enough ${tokenSymbol} to execute your trade. You can only swap up to ${maxSwapAmountFormatted} ${tokenSymbol} at the moment.`;
-    } else {
-      return `Swap amount too high. The Reserve does not have enough ${tokenSymbol} to execute your trade.`;
     }
+    const maxSwapAmountFormatted = formatWithMaxDecimals(
+      result.maxSwapAmountFormatted,
+      4,
+    );
+    return `Swap amount too high. The Reserve does not have enough ${tokenSymbol} to execute your trade. You can only swap up to ${maxSwapAmountFormatted} ${tokenSymbol} at the moment.`;
   }
 
   // Fallback message.

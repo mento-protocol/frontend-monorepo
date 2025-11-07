@@ -81,7 +81,9 @@ export async function checkReserveBalance(
       );
     }
 
-    const isZeroBalance = actualReserveBalanceBN === 0n;
+    // Treat balance as zero if it's less than 1 whole token (1e18 wei)
+    // In reality, reserves will likely never have exactly 0 wei, so we use a tolerance
+    const isZeroBalance = actualReserveBalanceBN < 10n ** 18n;
     const hasSufficientBalance =
       actualReserveBalanceBN >= requiredReserveBalanceBN;
     const maxSwapAmountFormatted = reserveBalanceFormatted;
