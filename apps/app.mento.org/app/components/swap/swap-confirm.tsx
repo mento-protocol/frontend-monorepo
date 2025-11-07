@@ -3,6 +3,7 @@
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import { Button, IconLoading, TokenIcon } from "@repo/ui";
 import {
+  calculateRequiredReserveBalance,
   formatWithMaxDecimals,
   formValuesAtom,
   getMaxSellAmount,
@@ -20,6 +21,7 @@ import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { useAtom } from "jotai";
 import { ArrowRight } from "lucide-react";
 import { useMemo } from "react";
+import { useReserveBalance } from "./use-reserve-balance";
 
 export function SwapConfirm() {
   const [formValues] = useAtom(formValuesAtom);
@@ -132,7 +134,32 @@ export function SwapConfirm() {
     skipApprove,
   });
 
-  // USD values are now calculated by useOptimizedSwapQuote hook
+  // Calculate required reserve balance for collateral assets.
+  const requiredReserveBalanceInWei = useMemo(() => {
+    if (!chainId) return undefined;
+    return calculateRequiredReserveBalance(
+      direction,
+      quoteWei,
+      amount,
+      tokenOutSymbol,
+      chainId,
+    );
+  }, [direction, quoteWei, amount, tokenOutSymbol, chainId]);
+
+  // Check reserve balance for collateral assets and show toast on error.
+  const { hasInsufficientReserveBalance, isReserveCheckLoading } =
+    useReserveBalance({
+      chainId,
+      tokenOutSymbol,
+      requiredReserveBalanceInWei,
+      enabled:
+        !!chainId &&
+        !!requiredReserveBalanceInWei &&
+        !!quote &&
+        quote !== "0" &&
+        !!amount &&
+        isConnected,
+    });
 
   // Calculate sell USD value with fallback
   const sellUSDValue = useMemo(() => {
@@ -316,7 +343,9 @@ export function SwapConfirm() {
           !rate ||
           !amountWei ||
           !address ||
-          !isConnected
+          !isConnected ||
+          hasInsufficientReserveBalance ||
+          isReserveCheckLoading
         }
       >
         {isSwapTxLoading || isSwapTxReceiptLoading ? <IconLoading /> : "Swap"}
