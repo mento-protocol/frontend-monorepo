@@ -44,20 +44,14 @@ import {
  * Uses DOMPurify to ensure dangerous content is removed before text extraction
  */
 function extractTextFromHtml(html: string): string {
-  // First sanitize to remove dangerous tags like <script> using DOMPurify
-  // ALLOWED_TAGS: [] removes all HTML tags, making this safe
-  let sanitized = DOMPurify.sanitize(html, { ALLOWED_TAGS: [] });
+  // DOMPurify with ALLOWED_TAGS: [] removes all HTML tags including script tags
+  // This is the primary and most reliable sanitization method
+  const sanitized = DOMPurify.sanitize(html, { ALLOWED_TAGS: [] });
 
-  // Additional safety: explicitly remove any remaining script tags (case-insensitive)
-  // This handles edge cases where DOMPurify might have missed malformed tags
-  sanitized = sanitized
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-    .replace(/<script[^>]*>/gi, "")
-    .replace(/<\/script>/gi, "");
-
-  // Finally, remove any remaining HTML tags as a safety measure
-  sanitized = sanitized.replace(/<[^>]*>/g, "");
-
+  // Extract text content - DOMPurify already removed all tags, so this is just
+  // for extracting the text content. No need for additional regex filtering since
+  // DOMPurify handles all edge cases including malformed tags, script tags with
+  // spaces, etc.
   return sanitized.trim();
 }
 
