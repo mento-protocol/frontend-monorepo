@@ -44,11 +44,21 @@ import {
  * Uses DOMPurify to ensure dangerous content is removed before text extraction
  */
 function extractTextFromHtml(html: string): string {
-  // First sanitize to remove dangerous tags like <script>
-  const sanitized = DOMPurify.sanitize(html, { ALLOWED_TAGS: [] });
-  // Then extract text content by removing remaining tags
-  const text = sanitized.replace(/<[^>]*>/g, "").trim();
-  return text;
+  // First sanitize to remove dangerous tags like <script> using DOMPurify
+  // ALLOWED_TAGS: [] removes all HTML tags, making this safe
+  let sanitized = DOMPurify.sanitize(html, { ALLOWED_TAGS: [] });
+
+  // Additional safety: explicitly remove any remaining script tags (case-insensitive)
+  // This handles edge cases where DOMPurify might have missed malformed tags
+  sanitized = sanitized
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+    .replace(/<script[^>]*>/gi, "")
+    .replace(/<\/script>/gi, "");
+
+  // Finally, remove any remaining HTML tags as a safety measure
+  sanitized = sanitized.replace(/<[^>]*>/g, "");
+
+  return sanitized.trim();
 }
 
 const isTextInvalid = (html: string) => {
