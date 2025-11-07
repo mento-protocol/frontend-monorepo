@@ -6,6 +6,7 @@ import {
   useLocksByAccount,
 } from "@/contracts/locking";
 import {
+  Button,
   Card,
   CardContent,
   CardFooter,
@@ -14,12 +15,12 @@ import {
   IconLoading,
 } from "@repo/ui";
 import { useAccount, useTokens } from "@repo/web3";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { FormProvider, useForm } from "react-hook-form";
 import { formatUnits } from "viem";
 import { useVeMentoDelegationSummary } from "../hooks/use-ve-mento-delegation-summary";
 import { CreateLockProvider } from "./lock/create-lock-provider";
-import { LockFormFields } from "./lock/lock-form-fields";
+import { LockFormFields, LockFormFieldsRef } from "./lock/lock-form-fields";
 import { LockingButton } from "./lock/locking-button";
 import { WithdrawButton } from "./withdraw-button";
 import spacetime from "spacetime";
@@ -35,8 +36,10 @@ export default function VotingPowerForm() {
   const { address } = useAccount();
   const { isLoading, refetch } = useLockInfo(address);
 
-  const { mentoBalance, veMentoBalance } = useTokens();
-  const { locks } = useLocksByAccount({ account: address! });
+  const { mentoBalance, veMentoBalance, refetchBalances } = useTokens();
+  const { locks, refetch: refetchLocks } = useLocksByAccount({
+    account: address!,
+  });
 
   // Get on-chain withdrawable principal
   const { availableToWithdraw } = useAvailableToWithdraw();
@@ -130,6 +133,12 @@ export default function VotingPowerForm() {
   const [veMentoReceived, setVeMentoReceived] = useState(0);
   const [isCalculating, setIsCalculating] = useState(false);
 
+  // Ref for focusing the lock form input
+  const lockFormRef = useRef<LockFormFieldsRef>(null);
+
+  // Check if user has no locks, no veMENTO, and no locked MENTO
+  const hasNoLocks = summary.lockedMento === 0 && summary.totalVe === 0;
+
   const formattedVeMentoReceived = useMemo(() => {
     return isCalculating ? "..." : veMentoReceived.toLocaleString();
   }, [veMentoReceived, isCalculating]);
@@ -155,6 +164,7 @@ export default function VotingPowerForm() {
             <CardHeader className="text-2xl font-medium">Lock MENTO</CardHeader>
             <CardContent>
               <LockFormFields
+                ref={lockFormRef}
                 mentoBalance={mentoBalance.value}
                 currentAddress={address}
                 amountLabel="MENTO to lock"
@@ -191,6 +201,7 @@ export default function VotingPowerForm() {
                 )}
               >
                 {isLoading && <IconLoading />}
+
                 {!isLoading && (
                   <div className="flex flex-col gap-4">
                     {/* Locked MENTO */}
@@ -279,7 +290,27 @@ export default function VotingPowerForm() {
                 )}
               </CardContent>
               <CardFooter className="mt-auto flex flex-col gap-4">
-                <WithdrawButton />
+                {!isLoading && hasNoLocks && (
+                  <div className="flex w-full flex-col justify-end gap-4">
+                    <Button
+                      type="button"
+                      onClick={() => lockFormRef.current?.focusAmountInput()}
+                      variant="default"
+                      size="lg"
+                      className="w-full"
+                    >
+                      Create your First Lock
+                    </Button>
+                  </div>
+                )}
+                <WithdrawButton
+                  onWithdrawSuccess={() => {
+                    refetch();
+                    refetchLockedAmount();
+                    refetchBalances();
+                    refetchLocks();
+                  }}
+                />
               </CardFooter>
             </>
           </Card>

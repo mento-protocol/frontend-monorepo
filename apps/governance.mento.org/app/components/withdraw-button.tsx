@@ -11,7 +11,11 @@ import { useAccount } from "@repo/web3/wagmi";
 import React from "react";
 import { TxDialog } from "./tx-dialog/tx-dialog";
 
-export const WithdrawButton = () => {
+interface WithdrawButtonProps {
+  onWithdrawSuccess?: () => void;
+}
+
+export const WithdrawButton = ({ onWithdrawSuccess }: WithdrawButtonProps) => {
   const { availableToWithdraw, refetchAvailableToWithdraw } =
     useAvailableToWithdraw();
 
@@ -54,12 +58,18 @@ export const WithdrawButton = () => {
         refetchAvailableToWithdraw();
         refetch();
         setIsModalOpen(false);
+
+        // Wait 3 seconds before refreshing all data to ensure blockchain state is updated
+        setTimeout(() => {
+          onWithdrawSuccess?.();
+        }, 3000);
       }, 2000);
     },
     [
       currentChain.blockExplorers?.default?.url,
       refetchAvailableToWithdraw,
       refetch,
+      onWithdrawSuccess,
     ],
   );
 

@@ -21,7 +21,15 @@ import {
   useDebounce,
 } from "@repo/ui";
 import { isValidAddress } from "@repo/web3";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Controller, useForm, useFormContext } from "react-hook-form";
 import spacetime from "spacetime";
 import { formatUnits, parseEther } from "viem";
@@ -46,16 +54,26 @@ interface LockFormFieldsProps {
   onVeMentoCalculated?: (veMento: number, isCalculating: boolean) => void;
 }
 
-export function LockFormFields({
-  mentoBalance,
-  lock,
-  currentAddress,
-  amountLabel = "MENTO to lock",
-  amountPlaceholder = "0",
-  amountInputTestId = "lockAmountInput",
-  datePickerTestId = "datepickerButton",
-  onVeMentoCalculated,
-}: LockFormFieldsProps) {
+export interface LockFormFieldsRef {
+  focusAmountInput: () => void;
+}
+
+export const LockFormFields = forwardRef<
+  LockFormFieldsRef,
+  LockFormFieldsProps
+>(function LockFormFields(
+  {
+    mentoBalance,
+    lock,
+    currentAddress,
+    amountLabel = "MENTO to lock",
+    amountPlaceholder = "0",
+    amountInputTestId = "lockAmountInput",
+    datePickerTestId = "datepickerButton",
+    onVeMentoCalculated,
+  },
+  ref,
+) {
   const existingMethods = useFormContext();
   const localMethods = useForm({
     mode: "onChange",
@@ -74,6 +92,52 @@ export function LockFormFields({
   const unlockDate = watch(LOCKING_UNLOCK_DATE_FORM_KEY);
   const delegateAddress = watch(LOCKING_DELEGATE_ADDRESS_FORM_KEY);
 
+  // Set up registration for amount field
+  const amountRegister = register(LOCKING_AMOUNT_FORM_KEY, {
+    validate: {
+      format: (v) => {
+        if (v === undefined || v === null || v === "") return true;
+        // Require a valid decimal number, with optional fractional part of 1-18 digits (no trailing dot like "0.")
+        const re = /^(?:\d+)(?:\.\d{1,18})?$/;
+        return re.test(v) || "Invalid amount format";
+      },
+      max: (v) =>
+        Number(v) <= Number(formatUnits(mentoBalance, 18)) ||
+        "Insufficient balance",
+      min: (v) => {
+        if (v === undefined || v === null || v === "") return true;
+        const amount = Number(v);
+
+        // For lock updates, allow 0 or >= 1
+        if (lock) {
+          if (amount === 0) return true;
+          if (amount >= 1) return true;
+          return "Amount must be at least 1 MENTO";
+        }
+
+        // For new locks, require >= 1
+        if (amount < 1) {
+          return "Amount must be at least 1 MENTO";
+        }
+
+        // Additional check: ensure the parsed value is valid and meets minimum
+        try {
+          const normalized = String(v).trim();
+          if (normalized === "" || normalized === "0") return true;
+          const parsed = parseEther(normalized);
+          const minAmount = parseEther("1");
+          if (parsed < minAmount && parsed > 0n) {
+            return "Amount rounds to less than 1 MENTO";
+          }
+        } catch {
+          return "Invalid amount";
+        }
+
+        return true;
+      },
+    },
+  });
+
   // Set up registration for delegate address without attaching RHF's onChange to avoid conflicts
   const delegateRegister = register(LOCKING_DELEGATE_ADDRESS_FORM_KEY, {
     validate: (val) => {
@@ -85,6 +149,14 @@ export function LockFormFields({
   const [sliderIndex, setSliderIndex] = useState(0);
   const delegateFieldId = useId();
   const hasInitializedRef = useRef(false);
+  const amountInputRef = useRef<HTMLInputElement>(null);
+
+  // Expose focusAmountInput method to parent
+  useImperativeHandle(ref, () => ({
+    focusAmountInput: () => {
+      amountInputRef.current?.focus();
+    },
+  }));
 
   const minLockDate = useMemo(() => getFirstWednesdayAfterMinPeriod(), []);
 
@@ -365,50 +437,12 @@ export function LockFormFields({
           <CoinInput
             data-testid={amountInputTestId}
             placeholder={amountPlaceholder}
-            {...register(LOCKING_AMOUNT_FORM_KEY, {
-              validate: {
-                format: (v) => {
-                  if (v === undefined || v === null || v === "") return true;
-                  // Require a valid decimal number, with optional fractional part of 1-18 digits (no trailing dot like "0.")
-                  const re = /^(?:\d+)(?:\.\d{1,18})?$/;
-                  return re.test(v) || "Invalid amount format";
-                },
-                max: (v) =>
-                  Number(v) <= Number(formatUnits(mentoBalance, 18)) ||
-                  "Insufficient balance",
-                min: (v) => {
-                  if (v === undefined || v === null || v === "") return true;
-                  const amount = Number(v);
-
-                  // For lock updates, allow 0 or >= 1
-                  if (lock) {
-                    if (amount === 0) return true;
-                    if (amount >= 1) return true;
-                    return "Amount must be at least 1 MENTO";
-                  }
-
-                  // For new locks, require >= 1
-                  if (amount < 1) {
-                    return "Amount must be at least 1 MENTO";
-                  }
-
-                  // Additional check: ensure the parsed value is valid and meets minimum
-                  try {
-                    const normalized = String(v).trim();
-                    if (normalized === "" || normalized === "0") return true;
-                    const parsed = parseEther(normalized);
-                    const minAmount = parseEther("1");
-                    if (parsed < minAmount && parsed > 0n) {
-                      return "Amount rounds to less than 1 MENTO";
-                    }
-                  } catch {
-                    return "Invalid amount";
-                  }
-
-                  return true;
-                },
-              },
-            })}
+            name={amountRegister.name}
+            onBlur={amountRegister.onBlur}
+            ref={(e) => {
+              amountRegister.ref(e);
+              amountInputRef.current = e;
+            }}
             onChange={(e) => {
               setValue(LOCKING_AMOUNT_FORM_KEY, e.target.value, {
                 shouldValidate: true,
@@ -543,4 +577,4 @@ export function LockFormFields({
       </div>
     </>
   );
-}
+});
