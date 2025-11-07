@@ -1,5 +1,4 @@
-import { useCurrentChain } from "@repo/web3";
-import { useMemo } from "react";
+import { useExplorerUrl as useExplorerUrlFromWeb3 } from "@repo/web3";
 
 /**
  * Formats an address for display by truncating the middle
@@ -11,14 +10,9 @@ export function formatAddress(address: string): string {
 
 /**
  * Hook to get the current chain's explorer URL
+ * Re-exported from @repo/web3 for backwards compatibility
  */
-export function useExplorerUrl(): string {
-  const currentChain = useCurrentChain();
-
-  return useMemo(() => {
-    return currentChain.blockExplorers?.default?.url || "https://celoscan.io";
-  }, [currentChain.blockExplorers?.default?.url]);
-}
+export const useExplorerUrl = useExplorerUrlFromWeb3;
 
 /**
  * Normalizes an address to lowercase for comparison

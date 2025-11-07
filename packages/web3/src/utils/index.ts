@@ -2,6 +2,7 @@ export * from "./abi";
 export * from "./addresses";
 export * from "./amount";
 export * from "./blockscout";
+export * from "./chain";
 export * from "./clipboard";
 export * from "./environment";
 export * from "./logger";

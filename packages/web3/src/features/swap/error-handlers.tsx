@@ -1,7 +1,20 @@
+import { JSX } from "react";
+import { addresses } from "@mento-protocol/mento-sdk";
+import { getExplorerUrl } from "@/utils/chain";
+
 interface SwapErrorOptions {
   fromTokenSymbol?: string;
   toTokenSymbol?: string;
+  chainId?: number;
   type?: "quote" | "swap";
+}
+
+/**
+ * Gets the Reserve contract address for a given chainId
+ */
+function getReserveAddress(chainId: number): string | undefined {
+  const chainAddresses = addresses[chainId];
+  return chainAddresses?.Reserve;
 }
 
 /**
@@ -9,8 +22,12 @@ interface SwapErrorOptions {
  */
 export function getToastErrorMessage(
   swapErrorMessage: string,
-  { fromTokenSymbol, toTokenSymbol }: Omit<SwapErrorOptions, "type"> = {},
-): string {
+  {
+    fromTokenSymbol,
+    toTokenSymbol,
+    chainId,
+  }: Omit<SwapErrorOptions, "type"> = {},
+): string | (() => JSX.Element) {
   const errorChecks = [
     {
       condition: swapErrorMessage.includes("overflow x1y1"),
@@ -32,9 +49,32 @@ export function getToastErrorMessage(
     },
     {
       condition: swapErrorMessage.includes("Insufficient balance in reserve"),
-      message: toTokenSymbol
-        ? `The Reserve does not have enough ${toTokenSymbol} to execute this swap. Please try a smaller amount or try again later.`
-        : "The Reserve does not have enough tokens to execute this swap. Please try a smaller amount or try again later.",
+      message:
+        toTokenSymbol && chainId
+          ? () => {
+              const reserveAddress = getReserveAddress(chainId);
+              const explorerUrl = getExplorerUrl(chainId);
+              const reserveUrl = reserveAddress
+                ? `${explorerUrl}/address/${reserveAddress}`
+                : explorerUrl;
+
+              return (
+                <>
+                  The{" "}
+                  <a
+                    href={reserveUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline"
+                  >
+                    Reserve
+                  </a>{" "}
+                  does not have enough {toTokenSymbol} to execute this swap.
+                  Please try a smaller amount or try again later.
+                </>
+              );
+            }
+          : "The Reserve does not have enough tokens to execute this swap. Please try a smaller amount or try again later.",
     },
   ];
 

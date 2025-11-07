@@ -242,8 +242,9 @@ export function useSwapQuote(
     return getToastErrorMessage(errorMsg, {
       fromTokenSymbol: fromToken?.symbol,
       toTokenSymbol: toToken?.symbol,
+      chainId,
     });
-  }, [error, fromToken?.symbol, toToken?.symbol]);
+  }, [error, fromToken?.symbol, toToken?.symbol, chainId]);
 
   useEffect(() => {
     if (errorMessage) {

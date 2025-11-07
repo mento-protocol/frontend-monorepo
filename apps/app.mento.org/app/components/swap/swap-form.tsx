@@ -22,7 +22,6 @@ import { CoinInput } from "@repo/ui";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import {
   areAmountsNearlyEqual,
-  calculateRequiredReserveBalance,
   chainIdToChain,
   confirmViewAtom,
   ConnectButton,
@@ -48,7 +47,6 @@ import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { useAtom } from "jotai";
 import { ArrowUpDown, ChevronDown, OctagonAlert } from "lucide-react";
 import TokenDialog from "./token-dialog";
-import { useReserveBalance } from "./use-reserve-balance";
 
 type SwapDirection = "in" | "out";
 
@@ -423,7 +421,6 @@ export default function SwapForm() {
   const {
     isFetching: quoteFetching,
     quote,
-    quoteWei,
     rate,
     isError,
     fromTokenUSDValue,
@@ -591,33 +588,6 @@ export default function SwapForm() {
       ? toWei(formQuote, getTokenDecimals(tokenInSymbol, chainId)).toFixed(0)
       : "0";
   }, [amount, formQuote, formDirection, tokenInSymbol, chainId]);
-
-  // Calculate required reserve balance for collateral assets.
-  const requiredReserveBalanceInWei = useMemo(() => {
-    if (!chainId) return undefined;
-    return calculateRequiredReserveBalance(
-      formDirection,
-      quoteWei,
-      amount,
-      tokenOutSymbol,
-      chainId,
-    );
-  }, [formDirection, quoteWei, amount, tokenOutSymbol, chainId]);
-
-  // Check reserve balance for collateral assets and show toast on error.
-  const { hasInsufficientReserveBalance, isReserveCheckLoading } =
-    useReserveBalance({
-      chainId,
-      tokenOutSymbol,
-      requiredReserveBalanceInWei,
-      enabled:
-        !!chainId &&
-        !!requiredReserveBalanceInWei &&
-        !!quote &&
-        quote !== "0" &&
-        hasAmount &&
-        isConnected,
-    });
 
   // Check if approval is needed
   const { skipApprove } = useSwapAllowance({
@@ -1054,9 +1024,7 @@ export default function SwapForm() {
               isApprovalProcessing ||
               !!tradingLimitError ||
               !!balanceError ||
-              (isError && hasAmount && canQuote) || // Disable when unable to fetch quote
-              hasInsufficientReserveBalance || // Disable when reserve has insufficient balance
-              isReserveCheckLoading // Disable while checking reserve balance
+              (isError && hasAmount && canQuote) // Disable when unable to fetch quote
             }
           >
             {isButtonLoading ? ( // Show loading when quote is being fetched
