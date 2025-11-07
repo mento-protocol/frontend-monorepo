@@ -235,7 +235,11 @@ export function useSwapQuote(
   // Memoize error handling to prevent unnecessary effect runs
   const errorMessage = useMemo(() => {
     if (!error) return null;
-    return getToastErrorMessage(error.message, {
+    // Extract error message, checking both message and reason properties
+    // (ethers errors sometimes have the revert reason in error.reason)
+    const errorMsg =
+      error.message || (error as { reason?: string }).reason || String(error);
+    return getToastErrorMessage(errorMsg, {
       fromTokenSymbol: fromToken?.symbol,
       toTokenSymbol: toToken?.symbol,
     });
