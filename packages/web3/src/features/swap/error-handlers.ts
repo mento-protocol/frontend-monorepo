@@ -30,6 +30,12 @@ export function getToastErrorMessage(
         ),
       message: `Trading temporarily paused. Unable to determine accurate ${fromTokenSymbol} to ${toTokenSymbol} exchange rate now. Please try again later.`,
     },
+    {
+      condition: swapErrorMessage.includes("Insufficient balance in reserve"),
+      message: toTokenSymbol
+        ? `The Reserve does not have enough ${toTokenSymbol} to execute this swap. Please try a smaller amount or try again later.`
+        : "The Reserve does not have enough tokens to execute this swap. Please try a smaller amount or try again later.",
+    },
   ];
 
   const matchedError = errorChecks.find((check) => check.condition);
@@ -44,11 +50,17 @@ export function shouldRetrySwapError(
   error: unknown,
 ): boolean {
   // Don't retry on certain errors
-  const errorMessage = error instanceof Error ? error.message : String(error);
+  // Extract error message, checking both message and reason properties
+  // (ethers errors sometimes have the revert reason in error.reason)
+  const errorMessage =
+    error instanceof Error
+      ? error.message || (error as { reason?: string }).reason || String(error)
+      : String(error);
   if (errorMessage.includes("Trading is suspended")) return false;
   if (errorMessage.includes("overflow x1y1")) return false;
   if (errorMessage.includes("can't create fixidity number larger than"))
     return false;
+  if (errorMessage.includes("Insufficient balance in reserve")) return false;
 
   return failureCount < 2;
 }
