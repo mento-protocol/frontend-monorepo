@@ -3,11 +3,41 @@ import { Card, CardContent, CardHeader, CardTitle } from "@repo/ui";
 import { useMemo } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import DOMPurify from "dompurify";
 
 function decodeHtmlEntities(text: string): string {
   const textArea = document.createElement("textarea");
   textArea.innerHTML = text;
   return textArea.value;
+}
+
+function sanitizeHtml(html: string): string {
+  // Decode HTML entities first
+  const decoded = decodeHtmlEntities(html);
+  // Then sanitize to remove any dangerous content like <script> tags
+  return DOMPurify.sanitize(decoded, {
+    ALLOWED_TAGS: [
+      "p",
+      "br",
+      "strong",
+      "em",
+      "u",
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "h5",
+      "h6",
+      "ul",
+      "ol",
+      "li",
+      "a",
+      "blockquote",
+      "code",
+      "pre",
+    ],
+    ALLOWED_ATTR: ["href", "target", "rel"],
+  });
 }
 
 interface ProposalDescriptionProps {
@@ -32,7 +62,7 @@ export const ProposalDescription = ({
             descriptionType === "html" ? (
               <div
                 dangerouslySetInnerHTML={{
-                  __html: decodeHtmlEntities(description),
+                  __html: sanitizeHtml(description),
                 }}
                 data-testid="proposalDescriptionLabel"
               />

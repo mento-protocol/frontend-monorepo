@@ -1,6 +1,7 @@
 import { ProposalContent } from "@/components/proposal/content";
 import { env } from "@/env.mjs";
 import { Metadata } from "next";
+import createDOMPurify from "isomorphic-dompurify";
 
 const GET_PROPOSAL_METADATA = `
   query GetProposalMetadata($id: BigInt) {
@@ -11,8 +12,15 @@ const GET_PROPOSAL_METADATA = `
   }
 `;
 
+/**
+ * Safely sanitize text for metadata extraction, removing all HTML tags including <script> tags
+ * Uses DOMPurify to ensure dangerous content is removed
+ */
 function sanitizeMetaText(input: string): string {
-  return input
+  // First sanitize to remove dangerous tags like <script>
+  const sanitized = createDOMPurify.sanitize(input, { ALLOWED_TAGS: [] });
+  // Then extract text content by removing markdown and HTML
+  return sanitized
     .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/<a[^>]*>(.*?)<\/a>/gi, "$1")

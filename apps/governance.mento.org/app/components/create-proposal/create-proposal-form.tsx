@@ -3,6 +3,7 @@ import { useProposals, useProposalThreshold } from "@/contracts/governor";
 import { formatUnitsWithThousandSeparators, useTokens } from "@repo/web3";
 import TurndownService from "turndown";
 import ReactMarkdown from "react-markdown";
+import DOMPurify from "dompurify";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -38,8 +39,20 @@ import {
   useCreateProposal,
 } from "./create-proposal-provider";
 
+/**
+ * Safely extract text content from HTML, removing all tags including <script> tags
+ * Uses DOMPurify to ensure dangerous content is removed before text extraction
+ */
+function extractTextFromHtml(html: string): string {
+  // First sanitize to remove dangerous tags like <script>
+  const sanitized = DOMPurify.sanitize(html, { ALLOWED_TAGS: [] });
+  // Then extract text content by removing remaining tags
+  const text = sanitized.replace(/<[^>]*>/g, "").trim();
+  return text;
+}
+
 const isTextInvalid = (html: string) => {
-  const text = html.replace(/<[^>]*>/g, "").trim();
+  const text = extractTextFromHtml(html);
   return text.length < 100;
 };
 
@@ -157,7 +170,7 @@ const ProposalDetailsStep = () => {
   const rawProposalDescription = useMemo(() => {
     // For validation, we need to check the length of the text content
     // Since we're storing markdown in newProposal.description, we need to check the HTML content
-    return htmlContent.replace(/<[^>]*>/g, "");
+    return extractTextFromHtml(htmlContent);
   }, [htmlContent]);
 
   return (
@@ -453,7 +466,32 @@ const CollapsibleHtmlContent = ({ htmlContent }: { htmlContent: string }) => {
     >
       <div
         ref={contentRef}
-        dangerouslySetInnerHTML={{ __html: htmlContent }}
+        dangerouslySetInnerHTML={{
+          __html: DOMPurify.sanitize(htmlContent, {
+            ALLOWED_TAGS: [
+              "p",
+              "br",
+              "strong",
+              "em",
+              "u",
+              "h1",
+              "h2",
+              "h3",
+              "h4",
+              "h5",
+              "h6",
+              "ul",
+              "ol",
+              "li",
+              "a",
+              "blockquote",
+              "code",
+              "pre",
+              "hr",
+            ],
+            ALLOWED_ATTR: ["href", "target", "rel"],
+          }),
+        }}
         data-testid="proposalDetailsContent"
       />
       {showButton && open && (

@@ -117,21 +117,31 @@ export async function fetchFromBlockchainExplorer<T>(
           responseCache.set(cacheKey, { data, timestamp: Date.now() });
           return data as T;
         } else {
-          console.warn(
-            `/${endpoint}: ${source} API returned status ${data.status}: ${data.message || "Unknown error"}`,
-          );
+          // Safely log error without using user input in format string
+          console.warn(`API returned error status`, {
+            endpoint,
+            source,
+            status: data.status,
+            message: data.message || "Unknown error",
+          });
         }
       } else {
-        console.warn(
-          `/${endpoint}: ${source} API returned ${response.status}: ${response.statusText}`,
-        );
+        console.warn(`API returned HTTP error`, {
+          endpoint,
+          source,
+          status: response.status,
+          statusText: response.statusText,
+        });
       }
       return null;
     } catch (error) {
-      console.warn(
-        `/${endpoint}: ${source} API failed for address ${address}:`,
+      // Safely log error without using user input in format string
+      console.warn(`API request failed`, {
+        endpoint,
+        source,
+        address,
         error,
-      );
+      });
       return null;
     } finally {
       // Clean up pending request
@@ -163,7 +173,8 @@ export async function fetchAbi(
     try {
       return JSON.parse(response.result);
     } catch (error) {
-      console.warn(`Failed to parse ABI for ${address}:`, error);
+      // Safely log error without using user input in format string
+      console.warn("Failed to parse ABI", { address, error });
       return null;
     }
   }

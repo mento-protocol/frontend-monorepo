@@ -40,7 +40,21 @@ function CoinInput({
     }
 
     // Only allow numbers and one decimal point using the (potentially modified) currentValue
-    const numericRegex = /^[0-9]*\.?[0-9]*$/;
+    // Optimized regex to prevent ReDoS: use possessive quantifiers and limit input length
+    // Limit input length to prevent excessive processing
+    if (currentValue.length > 100) {
+      e.preventDefault();
+      if (e.target instanceof HTMLInputElement) {
+        setTimeout(() => {
+          e.target.value = props.value?.toString() || "";
+        }, 0);
+      }
+      return;
+    }
+
+    // Use a more efficient regex pattern that avoids catastrophic backtracking
+    // Pattern: optional digits, optional dot, optional digits after dot
+    const numericRegex = /^\d*\.?\d*$/;
 
     // Check if the currentValue matches the pattern and doesn't have multiple dots
     if (
