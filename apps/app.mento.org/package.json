@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^5.0.1",
-    "@mento-protocol/mento-sdk": "^1.15.4",
+    "@mento-protocol/mento-sdk": "^1.15.5",
     "@rainbow-me/rainbowkit": "^2.2.8",
     "@repo/ui": "workspace:*",
     "@repo/web3": "workspace:*",
