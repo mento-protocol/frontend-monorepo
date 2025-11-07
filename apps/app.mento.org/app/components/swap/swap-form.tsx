@@ -421,7 +421,7 @@ export default function SwapForm() {
   const canQuote = !!hasAmount && !errors.amount && !limitsLoading;
 
   const {
-    isLoading: quoteLoading,
+    isFetching: quoteFetching,
     quote,
     quoteWei,
     rate,
@@ -496,7 +496,65 @@ export default function SwapForm() {
 
   // Override loading state when we have validation errors
   const isLoading =
-    quoteLoading && canQuote && !tradingLimitError && !limitsLoading;
+    quoteFetching && canQuote && !tradingLimitError && !limitsLoading;
+
+  // Track previous token pair to detect token changes and manage waiting state
+  const prevTokenPairRef = useRef<{
+    tokenInSymbol: TokenSymbol | undefined;
+    tokenOutSymbol: TokenSymbol | undefined;
+  }>({ tokenInSymbol: undefined, tokenOutSymbol: undefined });
+
+  // Track if we're waiting for quote after token change
+  const [isWaitingForQuote, setIsWaitingForQuote] = useState(false);
+
+  // Handle token changes and quote arrival
+  useEffect(() => {
+    const tokensChanged =
+      prevTokenPairRef.current.tokenInSymbol !== tokenInSymbol ||
+      prevTokenPairRef.current.tokenOutSymbol !== tokenOutSymbol;
+
+    if (tokensChanged) {
+      prevTokenPairRef.current = { tokenInSymbol, tokenOutSymbol };
+      // Start waiting when tokens change and we have inputs
+      if (hasAmount && !!tokenInSymbol && !!tokenOutSymbol) {
+        setIsWaitingForQuote(true);
+      }
+    }
+
+    // Clear waiting flag when we have a valid quote and fetching is done
+    if (
+      isWaitingForQuote &&
+      quote &&
+      quote !== "0" &&
+      Number(quote) > 0 &&
+      !quoteFetching
+    ) {
+      setIsWaitingForQuote(false);
+    }
+  }, [
+    tokenInSymbol,
+    tokenOutSymbol,
+    hasAmount,
+    isWaitingForQuote,
+    quote,
+    quoteFetching,
+  ]);
+
+  // Button loading state: show loading when quote is being fetched or waiting after token change
+  const isButtonLoading = useMemo(
+    () =>
+      (quoteFetching || isWaitingForQuote) &&
+      hasAmount &&
+      !!tokenInSymbol &&
+      !!tokenOutSymbol,
+    [
+      quoteFetching,
+      isWaitingForQuote,
+      hasAmount,
+      tokenInSymbol,
+      tokenOutSymbol,
+    ],
+  );
 
   const sellUSDValue = useMemo(() => {
     if (formDirection === "in") {
@@ -991,7 +1049,7 @@ export default function SwapForm() {
                     errors.quote &&
                     errors.quote.message !== "Amount is required"
                   )) ||
-              (isLoading && hasAmount) || // Only consider loading if there's an amount
+              isButtonLoading || // Disable button when quote is loading
               isApproveTxLoading ||
               isApprovalProcessing ||
               !!tradingLimitError ||
@@ -1001,7 +1059,7 @@ export default function SwapForm() {
               isReserveCheckLoading // Disable while checking reserve balance
             }
           >
-            {isLoading && hasAmount ? ( // Only show loading if there's an amount
+            {isButtonLoading ? ( // Show loading when quote is being fetched
               <IconLoading />
             ) : !tokenInSymbol ? (
               "Select token to sell"

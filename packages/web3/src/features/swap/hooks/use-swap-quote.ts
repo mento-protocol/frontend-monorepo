@@ -220,7 +220,7 @@ export function useSwapQuote(
     toToken,
   ]);
 
-  const { isLoading, isError, error, data, refetch } = useQuery<
+  const { isFetching, isError, error, data, refetch } = useQuery<
     ISwapData | null,
     ISwapError
   >({
@@ -250,7 +250,7 @@ export function useSwapQuote(
 
   return useMemo(
     () => ({
-      isLoading,
+      isFetching,
       isError,
       amountWei: data?.amountWei || "0",
       quoteWei: data?.quoteWei || "0",
@@ -258,7 +258,7 @@ export function useSwapQuote(
       rate: data?.rate,
       refetch,
     }),
-    [isLoading, isError, data, refetch],
+    [isFetching, isError, data, refetch],
   );
 }
 
