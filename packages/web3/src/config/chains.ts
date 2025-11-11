@@ -9,13 +9,16 @@ export enum ChainId {
   Celo = 42220,
 }
 
+export const CELO_EXPLORER_URL = "https://celoscan.io";
+export const CELO_SEPOLIA_EXPLORER_URL = "https://sepolia.celoscan.io";
+
 export const CeloSepolia: MentoChain = {
   ...celoSepolia,
   blockExplorers: {
     default: {
       name: "Celo Sepolia Explorer",
-      url: "https://sepolia.celoscan.io",
-      apiUrl: "https://sepolia.celoscan.io/api",
+      url: CELO_SEPOLIA_EXPLORER_URL,
+      apiUrl: `${CELO_SEPOLIA_EXPLORER_URL}/api`,
     },
   },
   contracts: {
@@ -29,7 +32,7 @@ export const Celo: MentoChain = {
   blockExplorers: {
     default: {
       name: "Celo Explorer",
-      url: "https://celoscan.io",
+      url: CELO_EXPLORER_URL,
     },
   },
   rpcUrls: {

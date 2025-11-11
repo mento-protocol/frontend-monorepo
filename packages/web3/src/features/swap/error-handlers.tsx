@@ -10,12 +10,17 @@ interface SwapErrorOptions {
 }
 
 /**
- * Gets the Reserve contract address for a given chainId
+ * Error message strings used for swap error detection
  */
-function getReserveAddress(chainId: number): string | undefined {
-  const chainAddresses = addresses[chainId];
-  return chainAddresses?.Reserve;
-}
+const SWAP_ERROR_MESSAGES = {
+  OVERFLOW_X1Y1: "overflow x1y1",
+  FIXIDITY_TOO_LARGE: "can't create fixidity number larger than",
+  TRADING_SUSPENDED: "Trading is suspended",
+  TRADING_SUSPENDED_REFERENCE_RATE:
+    "Trading is suspended for this reference rate",
+  NO_VALID_MEDIAN: "no valid median",
+  INSUFFICIENT_RESERVE_BALANCE: "Insufficient balance in reserve",
+} as const;
 
 /**
  * Converts swap error messages to user-friendly toast messages
@@ -30,29 +35,31 @@ export function getToastErrorMessage(
 ): string | (() => JSX.Element) {
   const errorChecks = [
     {
-      condition: swapErrorMessage.includes("overflow x1y1"),
+      condition: swapErrorMessage.includes(SWAP_ERROR_MESSAGES.OVERFLOW_X1Y1),
       message: "Amount in is too large",
     },
     {
       condition: swapErrorMessage.includes(
-        "can't create fixidity number larger than",
+        SWAP_ERROR_MESSAGES.FIXIDITY_TOO_LARGE,
       ),
       message: "Amount out is too large",
     },
     {
       condition:
-        swapErrorMessage.includes("no valid median") ||
+        swapErrorMessage.includes(SWAP_ERROR_MESSAGES.NO_VALID_MEDIAN) ||
         swapErrorMessage.includes(
-          "Trading is suspended for this reference rate",
+          SWAP_ERROR_MESSAGES.TRADING_SUSPENDED_REFERENCE_RATE,
         ),
       message: `Trading temporarily paused. Unable to determine accurate ${fromTokenSymbol} to ${toTokenSymbol} exchange rate now. Please try again later.`,
     },
     {
-      condition: swapErrorMessage.includes("Insufficient balance in reserve"),
+      condition: swapErrorMessage.includes(
+        SWAP_ERROR_MESSAGES.INSUFFICIENT_RESERVE_BALANCE,
+      ),
       message:
         toTokenSymbol && chainId
           ? () => {
-              const reserveAddress = getReserveAddress(chainId);
+              const reserveAddress = addresses[chainId]?.Reserve;
               const explorerUrl = getExplorerUrl(chainId);
               const reserveUrl = reserveAddress
                 ? `${explorerUrl}/address/${reserveAddress}`
@@ -96,11 +103,13 @@ export function shouldRetrySwapError(
     error instanceof Error
       ? error.message || (error as { reason?: string }).reason || String(error)
       : String(error);
-  if (errorMessage.includes("Trading is suspended")) return false;
-  if (errorMessage.includes("overflow x1y1")) return false;
-  if (errorMessage.includes("can't create fixidity number larger than"))
+  if (errorMessage.includes(SWAP_ERROR_MESSAGES.TRADING_SUSPENDED))
     return false;
-  if (errorMessage.includes("Insufficient balance in reserve")) return false;
+  if (errorMessage.includes(SWAP_ERROR_MESSAGES.OVERFLOW_X1Y1)) return false;
+  if (errorMessage.includes(SWAP_ERROR_MESSAGES.FIXIDITY_TOO_LARGE))
+    return false;
+  if (errorMessage.includes(SWAP_ERROR_MESSAGES.INSUFFICIENT_RESERVE_BALANCE))
+    return false;
 
   return failureCount < 2;
 }
