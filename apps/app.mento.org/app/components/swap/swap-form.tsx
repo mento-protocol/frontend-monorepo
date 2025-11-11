@@ -21,7 +21,6 @@ import { CoinInput } from "@repo/ui";
 
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import {
-  areAmountsNearlyEqual,
   chainIdToChain,
   confirmViewAtom,
   ConnectButton,
@@ -33,6 +32,7 @@ import {
   logger,
   MIN_ROUNDED_VALUE,
   parseAmount,
+  parseAmountWithDefault,
   SwapFormValues,
   toWei,
   useAccountBalances,
@@ -142,16 +142,16 @@ export default function SwapForm() {
     chainId,
   );
 
-  // Layer 2: Field-level sync validation (balance)
+  // Balance validation
   const validateBalance = useCallback(
     (value: string) => {
       if (!value || !tokenInSymbol) return true;
 
-      // Allow "0." as user is typing
+      // Allow "0" or "0." while user is typing
       if (value === "0." || value === "0") return true;
 
+      // Parse the amount
       const parsedAmount = parseAmount(value);
-
       if (!parsedAmount) return true;
 
       // Check minimum amount
@@ -162,15 +162,16 @@ export default function SwapForm() {
       const tokenInfo = allTokenOptions.find((t) => t.symbol === tokenInSymbol);
       if (!tokenInfo) return "Invalid token";
 
-      const tokenBalance = balances[tokenInSymbol as keyof typeof balances];
-      if (typeof tokenBalance === "undefined") return "Balance unavailable";
+      const balance = balances[tokenInSymbol as keyof typeof balances];
+      if (typeof balance === "undefined") return "Balance unavailable";
 
       const amountInWei = toWei(parsedAmount, tokenInfo.decimals || 18);
+      const balanceInWei = parseAmountWithDefault(balance, "0");
 
-      // Use areAmountsNearlyEqual to allow for small rounding differences
+      // Check if amount exceeds balance
       if (
-        amountInWei.gt(tokenBalance) &&
-        !areAmountsNearlyEqual(amountInWei, tokenBalance)
+        amountInWei.gt(0) &&
+        (balanceInWei.isZero() || balanceInWei.lt(amountInWei))
       ) {
         return "Insufficient balance";
       }
@@ -707,7 +708,8 @@ export default function SwapForm() {
     }
   };
 
-  const shouldApprove = !skipApprove && hasAmount && quote && !isLoading;
+  const shouldApprove =
+    !skipApprove && hasAmount && quote && !isLoading && !balanceError;
 
   // Get tradable pairs for both tokens
   const { data: fromTokenTradablePairs } = useTradablePairs(tokenInSymbol);
