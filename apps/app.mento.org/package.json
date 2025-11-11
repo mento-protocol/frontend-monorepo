@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "next build --turbopack",
-    "dev": "next dev --turbopack --port 3000",
+    "dev": "concurrently \"pnpm --filter @repo/web3 watch\" \"pnpm --filter @repo/ui watch\" \"next dev --turbopack --port 3000\" --names \"web3,ui,next\" --prefix-colors \"bgBlue,bgGreen,bgMagenta\"",
     "lint": "npx @trunkio/launcher check .",
     "start": "next start"
   },
@@ -40,6 +40,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^9.1.2",
     "eslint": "^9.29.0",
     "pino-pretty": "^13.1.2",
     "postcss": "^8.5.3",
