@@ -46,13 +46,10 @@
     "@repo/typescript-config": "workspace:*",
     "@repo/ui": "workspace:*",
     "bignumber.js": "^9.3.0",
-    "decimal.js-light": "^2.5.1",
     "ethers": "^5.8.0",
     "jotai": "^2.12.5",
-    "jsbi": "^4.3.2",
     "lucide-react": "^0.488.0",
-    "react-hook-form": "^7.58.1",
-    "toformat": "^2.0.0"
+    "react-hook-form": "^7.58.1"
   },
   "devDependencies": {
     "react": "^19.1.0",
