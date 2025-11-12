@@ -1,14 +1,11 @@
 import { formatUnits, parseUnits } from "@ethersproject/units";
 import BigNumber from "bignumber.js";
-import Decimal from "decimal.js-light";
-import JSBI from "jsbi";
 import {
   DISPLAY_DECIMALS,
   MIN_ROUNDED_VALUE,
   STANDARD_TOKEN_DECIMALS,
 } from "@/config/constants";
 import { logger } from "@/utils/logger";
-import toFormat from "toformat";
 
 export type NumberT = BigNumber.Value;
 
@@ -85,61 +82,3 @@ export function parseAmountWithDefault(
 ): BigNumber {
   return parseAmount(value) ?? new BigNumber(defaultValue);
 }
-
-// Checks if an amount is equal of nearly equal to balance within a small margin of error
-// Necessary because amounts in the UI are often rounded
-export function areAmountsNearlyEqual(
-  amountInWei1: BigNumber,
-  amountInWei2: NumberT,
-) {
-  const minValueWei = toWei(MIN_ROUNDED_VALUE);
-  // Is difference btwn amount and balance less than min amount shown for token
-  return amountInWei1.minus(amountInWei2).abs().lt(minValueWei);
-}
-
-// Get amount that is adjusted when user input is nearly the same as max value
-export function getAdjustedAmount(
-  _amountInWei: BigNumber.Value,
-  _maxAmount: BigNumber.Value,
-): BigNumber {
-  const amountInWei = new BigNumber(_amountInWei);
-  const maxAmount = new BigNumber(_maxAmount);
-  if (areAmountsNearlyEqual(amountInWei, maxAmount)) {
-    return maxAmount;
-  }
-  // Just the amount entered, no adjustment needed
-  return amountInWei;
-}
-
-export const fixed1 = new BigNumber("1000000000000000000000000");
-
-export const toFixidity = (n: BigNumber.Value) => {
-  return fixed1.times(n).integerValue(BigNumber.ROUND_FLOOR);
-};
-
-// Keeps the decimal portion
-export const fromFixidity = (f: BigNumber.Value) => {
-  return new BigNumber(f).div(fixed1);
-};
-
-const getDecimal = () => {
-  // @ts-expect-error: toFormat is not exported from toformat
-  return toFormat(Decimal);
-};
-
-export const toSignificant = (
-  amount: string,
-  significantDigits = 6,
-  format: object = { groupSeparator: "" },
-): string => {
-  const Decimal = getDecimal().set({
-    precision: significantDigits + 1,
-    rounding: 0,
-  });
-
-  const quotient = new Decimal(amount)
-
-    .div(JSBI.BigInt(1).toString())
-    .toSignificantDigits(significantDigits);
-  return quotient.toFormat(quotient.decimalPlaces(), format);
-};

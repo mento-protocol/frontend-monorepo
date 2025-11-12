@@ -4,9 +4,6 @@ import { logger } from "@/utils/logger";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import BigNumber from "bignumber.js";
 import { ethers } from "ethers";
-import type { ReserveBalanceCheckResult } from "./hooks/use-reserve-balance-check";
-
-export * from "./utils/reserve-balance";
 
 export function parseInputExchangeAmount(
   amount: NumberT | null | undefined,
@@ -100,43 +97,3 @@ export const formatWithMaxDecimals = (
     return truncated.toFixed(maxDecimals).replace(/\.?0+$/, "");
   }
 };
-
-/**
- * Generates a user-friendly error message for insufficient reserve balance.
- * Handles ReserveBalanceCheckResult objects and Error instances.
- *
- * @param errorOrResult - Either a ReserveBalanceCheckResult with insufficient balance or an Error
- * @param tokenSymbol - The token symbol for fallback messages
- * @param isNetworkError - Whether this is a network/contract error (not insufficient balance)
- * @returns User-friendly error message
- */
-export function getReserveBalanceErrorMessage(
-  errorOrResult: ReserveBalanceCheckResult | Error | null | undefined,
-  tokenSymbol: string,
-  isNetworkError = false,
-): string {
-  // Handle network/contract errors.
-  if (isNetworkError || errorOrResult instanceof Error) {
-    return `Unable to check reserve balance for ${tokenSymbol}. Please try again.`;
-  }
-
-  // Handle ReserveBalanceCheckResult.
-  if (
-    errorOrResult &&
-    !(errorOrResult instanceof Error) &&
-    "isCollateralAsset" in errorOrResult
-  ) {
-    const result = errorOrResult;
-    if (result.isZeroBalance) {
-      return `The Reserve is currently out of ${tokenSymbol} and will be refilled soon.`;
-    }
-    const maxSwapAmountFormatted = formatWithMaxDecimals(
-      result.maxSwapAmountFormatted,
-      4,
-    );
-    return `Swap amount too high. The Reserve does not have enough ${tokenSymbol} to execute your trade. You can only swap up to ${maxSwapAmountFormatted} ${tokenSymbol} at the moment.`;
-  }
-
-  // Fallback message.
-  return `Swap amount too high. The Reserve does not have enough ${tokenSymbol} to execute your trade.`;
-}

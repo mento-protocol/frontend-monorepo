@@ -21,8 +21,6 @@ import { CoinInput } from "@repo/ui";
 
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import {
-  areAmountsNearlyEqual,
-  calculateRequiredReserveBalance,
   chainIdToChain,
   confirmViewAtom,
   ConnectButton,
@@ -34,6 +32,7 @@ import {
   logger,
   MIN_ROUNDED_VALUE,
   parseAmount,
+  parseAmountWithDefault,
   SwapFormValues,
   toWei,
   useAccountBalances,
@@ -48,7 +47,6 @@ import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { useAtom } from "jotai";
 import { ArrowUpDown, ChevronDown, OctagonAlert } from "lucide-react";
 import TokenDialog from "./token-dialog";
-import { useReserveBalance } from "./use-reserve-balance";
 
 type SwapDirection = "in" | "out";
 
@@ -144,16 +142,16 @@ export default function SwapForm() {
     chainId,
   );
 
-  // Layer 2: Field-level sync validation (balance)
+  // Balance validation
   const validateBalance = useCallback(
     (value: string) => {
       if (!value || !tokenInSymbol) return true;
 
-      // Allow "0." as user is typing
+      // Allow "0" or "0." while user is typing
       if (value === "0." || value === "0") return true;
 
+      // Parse the amount
       const parsedAmount = parseAmount(value);
-
       if (!parsedAmount) return true;
 
       // Check minimum amount
@@ -164,15 +162,16 @@ export default function SwapForm() {
       const tokenInfo = allTokenOptions.find((t) => t.symbol === tokenInSymbol);
       if (!tokenInfo) return "Invalid token";
 
-      const tokenBalance = balances[tokenInSymbol as keyof typeof balances];
-      if (typeof tokenBalance === "undefined") return "Balance unavailable";
+      const balance = balances[tokenInSymbol as keyof typeof balances];
+      if (typeof balance === "undefined") return "Balance unavailable";
 
       const amountInWei = toWei(parsedAmount, tokenInfo.decimals || 18);
+      const balanceInWei = parseAmountWithDefault(balance, "0");
 
-      // Use areAmountsNearlyEqual to allow for small rounding differences
+      // Check if amount exceeds balance
       if (
-        amountInWei.gt(tokenBalance) &&
-        !areAmountsNearlyEqual(amountInWei, tokenBalance)
+        amountInWei.gt(0) &&
+        (balanceInWei.isZero() || balanceInWei.lt(amountInWei))
       ) {
         return "Insufficient balance";
       }
@@ -421,9 +420,8 @@ export default function SwapForm() {
   const canQuote = !!hasAmount && !errors.amount && !limitsLoading;
 
   const {
-    isLoading: quoteLoading,
+    isFetching: quoteFetching,
     quote,
-    quoteWei,
     rate,
     isError,
     fromTokenUSDValue,
@@ -496,7 +494,65 @@ export default function SwapForm() {
 
   // Override loading state when we have validation errors
   const isLoading =
-    quoteLoading && canQuote && !tradingLimitError && !limitsLoading;
+    quoteFetching && canQuote && !tradingLimitError && !limitsLoading;
+
+  // Track previous token pair to detect token changes and manage waiting state
+  const prevTokenPairRef = useRef<{
+    tokenInSymbol: TokenSymbol | undefined;
+    tokenOutSymbol: TokenSymbol | undefined;
+  }>({ tokenInSymbol: undefined, tokenOutSymbol: undefined });
+
+  // Track if we're waiting for quote after token change
+  const [isWaitingForQuote, setIsWaitingForQuote] = useState(false);
+
+  // Handle token changes and quote arrival
+  useEffect(() => {
+    const tokensChanged =
+      prevTokenPairRef.current.tokenInSymbol !== tokenInSymbol ||
+      prevTokenPairRef.current.tokenOutSymbol !== tokenOutSymbol;
+
+    if (tokensChanged) {
+      prevTokenPairRef.current = { tokenInSymbol, tokenOutSymbol };
+      // Start waiting when tokens change and we have inputs
+      if (hasAmount && !!tokenInSymbol && !!tokenOutSymbol) {
+        setIsWaitingForQuote(true);
+      }
+    }
+
+    // Clear waiting flag when we have a valid quote and fetching is done
+    if (
+      isWaitingForQuote &&
+      quote &&
+      quote !== "0" &&
+      Number(quote) > 0 &&
+      !quoteFetching
+    ) {
+      setIsWaitingForQuote(false);
+    }
+  }, [
+    tokenInSymbol,
+    tokenOutSymbol,
+    hasAmount,
+    isWaitingForQuote,
+    quote,
+    quoteFetching,
+  ]);
+
+  // Button loading state: show loading when quote is being fetched or waiting after token change
+  const isButtonLoading = useMemo(
+    () =>
+      (quoteFetching || isWaitingForQuote) &&
+      hasAmount &&
+      !!tokenInSymbol &&
+      !!tokenOutSymbol,
+    [
+      quoteFetching,
+      isWaitingForQuote,
+      hasAmount,
+      tokenInSymbol,
+      tokenOutSymbol,
+    ],
+  );
 
   const sellUSDValue = useMemo(() => {
     if (formDirection === "in") {
@@ -533,33 +589,6 @@ export default function SwapForm() {
       ? toWei(formQuote, getTokenDecimals(tokenInSymbol, chainId)).toFixed(0)
       : "0";
   }, [amount, formQuote, formDirection, tokenInSymbol, chainId]);
-
-  // Calculate required reserve balance for collateral assets.
-  const requiredReserveBalanceInWei = useMemo(() => {
-    if (!chainId) return undefined;
-    return calculateRequiredReserveBalance(
-      formDirection,
-      quoteWei,
-      amount,
-      tokenOutSymbol,
-      chainId,
-    );
-  }, [formDirection, quoteWei, amount, tokenOutSymbol, chainId]);
-
-  // Check reserve balance for collateral assets and show toast on error.
-  const { hasInsufficientReserveBalance, isReserveCheckLoading } =
-    useReserveBalance({
-      chainId,
-      tokenOutSymbol,
-      requiredReserveBalanceInWei,
-      enabled:
-        !!chainId &&
-        !!requiredReserveBalanceInWei &&
-        !!quote &&
-        quote !== "0" &&
-        hasAmount &&
-        isConnected,
-    });
 
   // Check if approval is needed
   const { skipApprove } = useSwapAllowance({
@@ -679,7 +708,8 @@ export default function SwapForm() {
     }
   };
 
-  const shouldApprove = !skipApprove && hasAmount && quote && !isLoading;
+  const shouldApprove =
+    !skipApprove && hasAmount && quote && !isLoading && !balanceError;
 
   // Get tradable pairs for both tokens
   const { data: fromTokenTradablePairs } = useTradablePairs(tokenInSymbol);
@@ -991,17 +1021,15 @@ export default function SwapForm() {
                     errors.quote &&
                     errors.quote.message !== "Amount is required"
                   )) ||
-              (isLoading && hasAmount) || // Only consider loading if there's an amount
+              isButtonLoading || // Disable button when quote is loading
               isApproveTxLoading ||
               isApprovalProcessing ||
               !!tradingLimitError ||
               !!balanceError ||
-              (isError && hasAmount && canQuote) || // Disable when unable to fetch quote
-              hasInsufficientReserveBalance || // Disable when reserve has insufficient balance
-              isReserveCheckLoading // Disable while checking reserve balance
+              (isError && hasAmount && canQuote) // Disable when unable to fetch quote
             }
           >
-            {isLoading && hasAmount ? ( // Only show loading if there's an amount
+            {isButtonLoading ? ( // Show loading when quote is being fetched
               <IconLoading />
             ) : !tokenInSymbol ? (
               "Select token to sell"

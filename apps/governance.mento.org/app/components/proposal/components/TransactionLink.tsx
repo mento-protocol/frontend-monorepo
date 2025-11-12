@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { useExplorerUrl } from "../utils/address-utils";
+import { useExplorerUrl } from "@repo/web3";
 
 interface TransactionLinkProps {
   txHash: string;
