@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from "react";
 import { Transaction, DecodedTransaction } from "../types/transaction";
-import { useExplorerUrl } from "../utils/address-utils";
+import { useExplorerUrl } from "@repo/web3";
 import { AddressParser } from "./AddressParser";
 import { CodeStyler } from "./CodeStyler";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@repo/ui";

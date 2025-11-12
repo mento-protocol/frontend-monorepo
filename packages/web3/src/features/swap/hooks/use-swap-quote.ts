@@ -220,7 +220,7 @@ export function useSwapQuote(
     toToken,
   ]);
 
-  const { isLoading, isError, error, data, refetch } = useQuery<
+  const { isFetching, isError, error, data, refetch } = useQuery<
     ISwapData | null,
     ISwapError
   >({
@@ -235,11 +235,16 @@ export function useSwapQuote(
   // Memoize error handling to prevent unnecessary effect runs
   const errorMessage = useMemo(() => {
     if (!error) return null;
-    return getToastErrorMessage(error.message, {
+    // Extract error message, checking both message and reason properties
+    // (ethers errors sometimes have the revert reason in error.reason)
+    const errorMsg =
+      error.message || (error as { reason?: string }).reason || String(error);
+    return getToastErrorMessage(errorMsg, {
       fromTokenSymbol: fromToken?.symbol,
       toTokenSymbol: toToken?.symbol,
+      chainId,
     });
-  }, [error, fromToken?.symbol, toToken?.symbol]);
+  }, [error, fromToken?.symbol, toToken?.symbol, chainId]);
 
   useEffect(() => {
     if (errorMessage) {
@@ -250,7 +255,7 @@ export function useSwapQuote(
 
   return useMemo(
     () => ({
-      isLoading,
+      isFetching,
       isError,
       amountWei: data?.amountWei || "0",
       quoteWei: data?.quoteWei || "0",
@@ -258,7 +263,7 @@ export function useSwapQuote(
       rate: data?.rate,
       refetch,
     }),
-    [isLoading, isError, data, refetch],
+    [isFetching, isError, data, refetch],
   );
 }
 
