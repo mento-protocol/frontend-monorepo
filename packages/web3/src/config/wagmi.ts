@@ -16,7 +16,7 @@ import {
   valoraWallet,
   walletConnectWallet,
 } from "@rainbow-me/rainbowkit/wallets";
-import { allChains, CeloMainnetFork } from ".";
+import { allChains } from ".";
 
 // Avoid creating WalletConnect connectors during SSR because they rely on
 // browser-only APIs like `indexedDB`.
@@ -57,7 +57,6 @@ export const wagmiConfig: Config = createConfig({
   transports: {
     [celo.id]: http(),
     [celoSepolia.id]: http(),
-    [CeloMainnetFork.id]: http(),
   },
   ssr: true,
   storage: createStorage({
