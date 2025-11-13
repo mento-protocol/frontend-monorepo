@@ -15,11 +15,11 @@ const LOCAL_FORK_EXPLORER = {
   name: "Otterscan (Local Fork)",
   url: "http://localhost:5100",
 };
-const CELO_EXPLORER = {
+export const CELO_EXPLORER = {
   name: "Celo Explorer",
   url: "https://celoscan.io",
 };
-const CELO_SEPOLIA_EXPLORER = {
+export const CELO_SEPOLIA_EXPLORER = {
   name: "Celo Sepolia Explorer",
   url: "https://sepolia.celoscan.io",
   apiUrl: "https://sepolia.celoscan.io/api",
