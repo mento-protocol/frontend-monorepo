@@ -1,4 +1,3 @@
-export * from "./use-allowance";
 export * from "./use-approve-transaction";
 export * from "./use-gas-estimation";
 export * from "./use-swap-allowance";

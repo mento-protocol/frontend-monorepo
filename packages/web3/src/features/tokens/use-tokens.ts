@@ -125,6 +125,7 @@ export const useTokens = () => {
     data: balanceData,
     isSuccess: balanceFetchSuccess,
     isLoading: isBalanceLoading,
+    refetch: refetchBalances,
   } = useReadContracts({
     allowFailure: false,
     contracts: [
@@ -212,5 +213,6 @@ export const useTokens = () => {
     mentoBalance,
     mentoContractData,
     veMentoContractData,
+    refetchBalances,
   };
 };
