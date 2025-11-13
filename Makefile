@@ -3,12 +3,12 @@
 # Default target - show help
 help:
 	@echo "Available targets:"
-	@echo "  make mainnet-fork-setup      				- Start mainnet fork and block explorer"
-	@echo "  make testnet-fork-setup      				- Start testnet fork and block explorer"
-	@echo "  make mainnet-fork-only   					- Start mainnet fork only"
-	@echo "  make testnet-fork-only   					- Start testnet fork only"
-	@echo "  make block-explorer-only   				- Start block explorer only"
-	@echo "  make stop-all-services                     - Stop all services"
+	@echo "  make mainnet-fork-setup   - Start mainnet fork and block explorer"
+	@echo "  make testnet-fork-setup   - Start testnet fork and block explorer"
+	@echo "  make mainnet-fork-only    - Start mainnet fork only"
+	@echo "  make testnet-fork-only    - Start testnet fork only"
+	@echo "  make block-explorer-only  - Start block explorer only"
+	@echo "  make stop-all-services    - Stop all services"
 
 # Start mainnet fork and block explorer
 mainnet-fork-setup:

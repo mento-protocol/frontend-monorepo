@@ -4,26 +4,45 @@ import { celoSepolia } from "viem/chains";
 import { celo } from "wagmi/chains";
 import { MentoChain, MentoChainContracts } from "../types";
 
+const useFork = isForkModeEnabled();
+
 export enum ChainId {
   CeloSepolia = 11142220,
   Celo = 42220,
 }
 
-export const CELO_EXPLORER_URL = "https://celoscan.io";
-export const CELO_SEPOLIA_EXPLORER_URL = "https://sepolia.celoscan.io";
-// Local Otterscan block explorer for forks
-const forkBlockExplorer = {
-  name: "Otterscan (Local)",
+const LOCAL_FORK_EXPLORER = {
+  name: "Otterscan (Local Fork)",
   url: "http://localhost:5100",
+};
+const CELO_EXPLORER = {
+  name: "Celo Explorer",
+  url: "https://celoscan.io",
+};
+const CELO_SEPOLIA_EXPLORER = {
+  name: "Celo Sepolia Explorer",
+  url: "https://sepolia.celoscan.io",
+  apiUrl: "https://sepolia.celoscan.io/api",
 };
 
 export const CeloSepolia: MentoChain = {
   ...celoSepolia,
+  id: ChainId.CeloSepolia,
+  nativeCurrency: {
+    decimals: 18,
+    name: "CELO",
+    symbol: "CELO",
+  },
   blockExplorers: {
+    default: useFork ? LOCAL_FORK_EXPLORER : CELO_SEPOLIA_EXPLORER,
+  },
+  rpcUrls: {
     default: {
-      name: "Celo Sepolia Explorer",
-      url: CELO_SEPOLIA_EXPLORER_URL,
-      apiUrl: `${CELO_SEPOLIA_EXPLORER_URL}/api`,
+      http: [
+        useFork
+          ? "http://localhost:8545"
+          : "https://forno.celo-sepolia.celo-testnet.org",
+      ],
     },
   },
   contracts: {
@@ -34,60 +53,21 @@ export const CeloSepolia: MentoChain = {
 
 export const Celo: MentoChain = {
   ...celo,
-  blockExplorers: {
-    default: {
-      name: "Celo Explorer",
-      url: CELO_EXPLORER_URL,
-    },
+  id: ChainId.Celo,
+  nativeCurrency: {
+    decimals: 18,
+    name: "CELO",
+    symbol: "CELO",
   },
+  blockExplorers: { default: useFork ? LOCAL_FORK_EXPLORER : CELO_EXPLORER },
   rpcUrls: {
     default: {
-      http: ["https://forno.celo.org"],
+      http: [useFork ? "http://localhost:8545" : "https://forno.celo.org"],
     },
   },
   contracts: {
     ...celo.contracts,
     ...transformToChainContracts(addresses[celo.id]),
-  },
-} as const satisfies Chain;
-
-export const CeloMainnetFork: MentoChain = {
-  id: ChainId.Celo,
-  name: "Celo Mainnet Fork",
-  nativeCurrency: {
-    decimals: 18,
-    name: "CELO",
-    symbol: "CELO",
-  },
-  blockExplorers: { default: forkBlockExplorer },
-  rpcUrls: {
-    default: {
-      http: ["http://localhost:8545"],
-    },
-  },
-  contracts: {
-    ...celo.contracts,
-    ...transformToChainContracts(addresses[ChainId.Celo]),
-  },
-} as const satisfies Chain;
-
-export const CeloSepoliaFork: MentoChain = {
-  id: ChainId.CeloSepolia,
-  name: "Celo Sepolia Fork",
-  nativeCurrency: {
-    decimals: 18,
-    name: "CELO",
-    symbol: "CELO",
-  },
-  blockExplorers: { default: forkBlockExplorer },
-  rpcUrls: {
-    default: {
-      http: ["http://localhost:8545"],
-    },
-  },
-  contracts: {
-    ...celoSepolia.contracts,
-    ...transformToChainContracts(addresses[ChainId.CeloSepolia]),
   },
 } as const satisfies Chain;
 
@@ -108,22 +88,15 @@ function isForkModeEnabled(): boolean {
   return false;
 }
 
-const useFork = isForkModeEnabled();
-
 export const chainIdToChain: Record<number, MentoChain> = {
-  [ChainId.CeloSepolia]: useFork ? CeloSepoliaFork : CeloSepolia,
-  [ChainId.Celo]: useFork ? CeloMainnetFork : Celo,
+  [ChainId.CeloSepolia]: CeloSepolia,
+  [ChainId.Celo]: Celo,
 };
 
-export const allChains = useFork
-  ? ([CeloMainnetFork, CeloSepoliaFork] as const satisfies readonly [
-      MentoChain,
-      ...MentoChain[],
-    ])
-  : ([Celo, CeloSepolia] as const satisfies readonly [
-      MentoChain,
-      ...MentoChain[],
-    ]);
+export const allChains = [Celo, CeloSepolia] as const satisfies readonly [
+  MentoChain,
+  ...MentoChain[],
+];
 
 /**
  * Transforms the specified Mento contract addresses to the format used by Viem.
