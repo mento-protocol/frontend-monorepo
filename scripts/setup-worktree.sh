@@ -65,8 +65,11 @@ echo ""
 # Check pnpm version
 print_step "Checking pnpm version..."
 if ! command -v pnpm &>/dev/null; then
-	print_error "pnpm is not installed. Installing pnpm..."
-	npm install -g pnpm@10.17.1
+	print_error "pnpm is not installed. Installing pnpm via corepack..."
+	# Use corepack (built into Node.js) for secure package manager installation
+	# Corepack uses the packageManager field in package.json for version pinning
+	corepack enable
+	corepack prepare pnpm@10.17.1 --activate
 fi
 
 PNPM_VERSION=$(pnpm -v)
