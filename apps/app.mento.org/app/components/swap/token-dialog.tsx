@@ -16,7 +16,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@repo/ui";
-import { useAccountBalances } from "@repo/web3";
+import { formatBalance, useAccountBalances } from "@repo/web3";
 import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { ChevronLeft, ChevronsRight, Search } from "lucide-react";
 import { Fragment, useState } from "react";
@@ -76,7 +76,7 @@ export default function TokenDialog({
     .filter((token) => token.symbol !== excludeTokenSymbol)
     .map((token) => {
       const balanceValue = balancesFromHook?.[token.symbol];
-      const balance = fromWeiRounded(balanceValue, token.decimals);
+      const balance = formatBalance(balanceValue ?? "0", token.decimals);
 
       // Check if this token is a valid pair with the filterByTokenSymbol
       // Show as valid if: no filter, still loading, or token is in the valid list
