@@ -25,7 +25,6 @@ import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import { Input } from "@repo/ui";
 import {
   formatWithMaxDecimals,
-  fromWeiRounded,
   useTokenOptions,
   useTradablePairs,
 } from "@repo/web3";
