@@ -388,7 +388,12 @@ export default function SwapForm() {
     const decimals = getTokenDecimals(tokenInSymbol, chainId);
 
     const formattedAmount = formatBalance(maxAmountBigInt.toString(), decimals);
-    form.setValue("amount", formattedAmount);
+    const formattedAmountWithMaxDecimals = formatWithMaxDecimals(
+      formattedAmount,
+      4,
+      false,
+    );
+    form.setValue("amount", formattedAmountWithMaxDecimals);
     form.setValue("direction", "in");
 
     if (tokenInSymbol === "CELO") {
