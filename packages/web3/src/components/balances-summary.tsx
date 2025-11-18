@@ -3,7 +3,7 @@
 import { getTokenBySymbol, getTokenDecimals } from "@/config/tokens";
 import { useAccountBalances } from "@/features/accounts/use-account-balances";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
-import { fromWeiRounded } from "@/utils/amount";
+import { formatBalance } from "@repo/web3";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import { TokenIcon } from "@repo/ui";
 import { useAccount, useChainId } from "wagmi";
@@ -55,7 +55,7 @@ export function BalancesSummary() {
       {tokenSymbols.map((symbol) => {
         const balanceValue = balances[symbol];
         const decimals = getTokenDecimals(symbol, chainId);
-        const balance = fromWeiRounded(balanceValue, decimals);
+        const balance = formatBalance(balanceValue ?? "0", decimals);
         if (balance !== "0") {
           const token = getTokenBySymbol(symbol, chainId);
 
