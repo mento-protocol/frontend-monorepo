@@ -10,9 +10,18 @@ export default defineConfig({
   sourcemap: true,
   target: "esnext",
   external: ["react", "react-dom"],
+  publicDir: "src/assets",
   esbuildOptions(options) {
     // ✅ give the plugin the metafile
     options.metafile = true;
+    // Handle image files as data URLs
+    options.loader = {
+      ...options.loader,
+      ".png": "dataurl",
+      ".jpg": "dataurl",
+      ".jpeg": "dataurl",
+      ".svg": "dataurl",
+    };
   },
   esbuildPlugins: [
     preserveDirectivesPlugin({

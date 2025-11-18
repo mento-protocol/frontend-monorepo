@@ -19,6 +19,11 @@ export const env = createEnv({
     NEXT_PUBLIC_STORAGE_URL: z.string().url(),
     NEXT_PUBLIC_WALLET_CONNECT_ID: z.string(),
     NEXT_PUBLIC_SENTRY_DSN_SWAP: z.string(),
+    NEXT_PUBLIC_ENABLE_DEBUG: z
+      .enum(["true", "false"])
+      .optional()
+      .default("false"),
+    NEXT_PUBLIC_USE_FORK: z.enum(["true", "false"]).optional().default("false"),
   },
   /*
    * Due to how Next.js bundles environment variables on Edge and Client,
@@ -31,5 +36,7 @@ export const env = createEnv({
     NEXT_PUBLIC_WALLET_CONNECT_ID: process.env.NEXT_PUBLIC_WALLET_CONNECT_ID,
     SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
     NEXT_PUBLIC_SENTRY_DSN_SWAP: process.env.NEXT_PUBLIC_SENTRY_DSN_SWAP,
+    NEXT_PUBLIC_ENABLE_DEBUG: process.env.NEXT_PUBLIC_ENABLE_DEBUG,
+    NEXT_PUBLIC_USE_FORK: process.env.NEXT_PUBLIC_USE_FORK,
   },
 });
