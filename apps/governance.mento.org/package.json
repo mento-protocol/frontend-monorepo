@@ -27,6 +27,7 @@
     "@vercel/analytics": "catalog:",
     "date-fns": "catalog:",
     "date-fns-tz": "catalog:",
+    "dompurify": "catalog:",
     "graphql": "catalog:",
     "lucide-react": "catalog:",
     "next": "catalog:",
@@ -41,8 +42,7 @@
     "turndown": "catalog:",
     "viem": "catalog:",
     "wagmi": "catalog:",
-    "zod": "catalog:",
-    "dompurify": "catalog:"
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@graphql-codegen/add": "catalog:",
