@@ -4,6 +4,309 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+catalogs:
+  default:
+    '@apollo/client':
+      specifier: ^3.13.9
+      version: 3.13.9
+    '@apollo/client-integration-nextjs':
+      specifier: ^0.12.3
+      version: 0.12.3
+    '@eslint/js':
+      specifier: ^9.32.0
+      version: 9.32.0
+    '@ethersproject/address':
+      specifier: ^5.8.0
+      version: 5.8.0
+    '@ethersproject/units':
+      specifier: ^5.8.0
+      version: 5.8.0
+    '@graphql-codegen/add':
+      specifier: ^6.0.0
+      version: 6.0.0
+    '@graphql-codegen/cli':
+      specifier: ^5.0.2
+      version: 5.0.7
+    '@graphql-codegen/typescript':
+      specifier: ^5.0.2
+      version: 5.0.2
+    '@graphql-codegen/typescript-apollo-client-helpers':
+      specifier: ^3.0.0
+      version: 3.0.1
+    '@graphql-codegen/typescript-operations':
+      specifier: ^5.0.2
+      version: 5.0.2
+    '@graphql-codegen/typescript-react-apollo':
+      specifier: ^4.3.2
+      version: 4.3.3
+    '@hookform/resolvers':
+      specifier: ^5.0.1
+      version: 5.2.1
+    '@mento-protocol/mento-sdk':
+      specifier: ^1.15.5
+      version: 1.15.5
+    '@metamask/jazzicon':
+      specifier: https://github.com/jmrossy/jazzicon#7a8df28
+      version: 2.1.0
+    '@next/eslint-plugin-next':
+      specifier: ^15.3.0
+      version: 15.4.5
+    '@radix-ui/react-accordion':
+      specifier: ^1.2.11
+      version: 1.2.11
+    '@radix-ui/react-checkbox':
+      specifier: ^1.3.2
+      version: 1.3.2
+    '@radix-ui/react-collapsible':
+      specifier: ^1.1.11
+      version: 1.1.11
+    '@radix-ui/react-dialog':
+      specifier: ^1.1.14
+      version: 1.1.14
+    '@radix-ui/react-dropdown-menu':
+      specifier: ^2.1.15
+      version: 2.1.15
+    '@radix-ui/react-label':
+      specifier: ^2.1.7
+      version: 2.1.7
+    '@radix-ui/react-navigation-menu':
+      specifier: ^1.2.13
+      version: 1.2.13
+    '@radix-ui/react-popover':
+      specifier: ^1.1.14
+      version: 1.1.14
+    '@radix-ui/react-radio-group':
+      specifier: ^1.3.7
+      version: 1.3.7
+    '@radix-ui/react-scroll-area':
+      specifier: ^1.2.9
+      version: 1.2.9
+    '@radix-ui/react-select':
+      specifier: ^2.2.4
+      version: 2.2.5
+    '@radix-ui/react-separator':
+      specifier: ^1.1.7
+      version: 1.1.7
+    '@radix-ui/react-slider':
+      specifier: ^1.3.5
+      version: 1.3.5
+    '@radix-ui/react-slot':
+      specifier: ^1.2.3
+      version: 1.2.3
+    '@radix-ui/react-tabs':
+      specifier: ^1.1.12
+      version: 1.1.12
+    '@radix-ui/react-tooltip':
+      specifier: ^1.2.7
+      version: 1.2.7
+    '@rainbow-me/rainbowkit':
+      specifier: ^2.2.8
+      version: 2.2.8
+    '@sentry/nextjs':
+      specifier: ^10.27.0
+      version: 10.27.0
+    '@t3-oss/env-nextjs':
+      specifier: ^0.13.8
+      version: 0.13.8
+    '@tailwindcss/cli':
+      specifier: ^4.1.4
+      version: 4.1.11
+    '@tailwindcss/postcss':
+      specifier: ^4.1.5
+      version: 4.1.11
+    '@tailwindcss/typography':
+      specifier: ^0.5.19
+      version: 0.5.19
+    '@tiptap/core':
+      specifier: ^2.22.3
+      version: 2.26.1
+    '@tiptap/extension-link':
+      specifier: ^2.22.3
+      version: 2.26.1
+    '@tiptap/extension-placeholder':
+      specifier: ^2.22.3
+      version: 2.26.1
+    '@tiptap/extension-text-align':
+      specifier: ^2.22.3
+      version: 2.26.1
+    '@tiptap/extension-text-style':
+      specifier: ^2.22.3
+      version: 2.26.1
+    '@tiptap/extension-typography':
+      specifier: ^2.22.3
+      version: 2.26.1
+    '@tiptap/extension-underline':
+      specifier: ^2.22.3
+      version: 2.26.1
+    '@tiptap/pm':
+      specifier: ^2.22.3
+      version: 2.26.1
+    '@tiptap/react':
+      specifier: ^2.22.3
+      version: 2.26.1
+    '@tiptap/starter-kit':
+      specifier: ^2.22.3
+      version: 2.26.1
+    '@turbo/gen':
+      specifier: ^2.5.8
+      version: 2.5.8
+    '@types/node':
+      specifier: ^22.14.1
+      version: 22.17.0
+    '@types/react':
+      specifier: ^19.1.2
+      version: 19.1.9
+    '@types/react-dom':
+      specifier: ^19.1.2
+      version: 19.1.7
+    '@types/turndown':
+      specifier: ^5.0.5
+      version: 5.0.5
+    '@vercel/analytics':
+      specifier: ^1.5.0
+      version: 1.5.0
+    animejs:
+      specifier: ^4.0.2
+      version: 4.1.2
+    bignumber.js:
+      specifier: ^9.3.0
+      version: 9.3.1
+    class-variance-authority:
+      specifier: ^0.7.1
+      version: 0.7.1
+    clsx:
+      specifier: ^2.1.1
+      version: 2.1.1
+    cmdk:
+      specifier: ^1.1.1
+      version: 1.1.1
+    concurrently:
+      specifier: ^9.1.2
+      version: 9.2.0
+    date-fns:
+      specifier: ^4.1.0
+      version: 4.1.0
+    date-fns-tz:
+      specifier: ^3.2.0
+      version: 3.2.0
+    dompurify:
+      specifier: ^3.3.0
+      version: 3.3.0
+    dotenv:
+      specifier: ^17.2.3
+      version: 17.2.3
+    esbuild-plugin-preserve-directives:
+      specifier: ^0.0.11
+      version: 0.0.11
+    eslint:
+      specifier: ^9.31.0
+      version: 9.32.0
+    eslint-config-prettier:
+      specifier: ^10.1.2
+      version: 10.1.8
+    eslint-config-turbo:
+      specifier: ^2.5.1
+      version: 2.5.5
+    eslint-plugin-only-warn:
+      specifier: ^1.1.0
+      version: 1.1.0
+    eslint-plugin-react:
+      specifier: ^7.37.5
+      version: 7.37.5
+    eslint-plugin-react-hooks:
+      specifier: ^5.2.0
+      version: 5.2.0
+    ethers:
+      specifier: ^5.8.0
+      version: 5.8.0
+    globals:
+      specifier: ^16.0.0
+      version: 16.3.0
+    graphql:
+      specifier: ^16.11.0
+      version: 16.11.0
+    jotai:
+      specifier: ^2.12.5
+      version: 2.12.5
+    knip:
+      specifier: ^5.64.3
+      version: 5.64.3
+    lucide-react:
+      specifier: ^0.488.0
+      version: 0.488.0
+    next-themes:
+      specifier: ^0.4.6
+      version: 0.4.6
+    pino-pretty:
+      specifier: ^13.1.2
+      version: 13.1.2
+    postcss:
+      specifier: ^8.5.3
+      version: 8.5.6
+    prettier:
+      specifier: ^3.5.3
+      version: 3.6.2
+    prettier-plugin-tailwindcss:
+      specifier: ^0.6.11
+      version: 0.6.14
+    react:
+      specifier: ^19.1.0
+      version: 19.1.1
+    react-day-picker:
+      specifier: ^9.7.0
+      version: 9.8.1
+    react-dom:
+      specifier: ^19.1.0
+      version: 19.1.1
+    react-hook-form:
+      specifier: ^7.59.0
+      version: 7.61.1
+    react-markdown:
+      specifier: ^10.1.0
+      version: 10.1.0
+    recharts:
+      specifier: ^2.15.3
+      version: 2.15.4
+    remark-gfm:
+      specifier: ^4.0.1
+      version: 4.0.1
+    sonner:
+      specifier: ^2.0.3
+      version: 2.0.6
+    spacetime:
+      specifier: ^7.10.0
+      version: 7.10.0
+    tailwind-merge:
+      specifier: ^3.2.0
+      version: 3.3.1
+    tailwindcss:
+      specifier: ^4.1.14
+      version: 4.1.14
+    tsup:
+      specifier: ^8.5.0
+      version: 8.5.0
+    turbo:
+      specifier: ^2.5.6
+      version: 2.6.0
+    turndown:
+      specifier: ^7.2.0
+      version: 7.2.0
+    tw-animate-css:
+      specifier: ^1.4.0
+      version: 1.4.0
+    typescript:
+      specifier: ^5.8.3
+      version: 5.8.3
+    typescript-eslint:
+      specifier: ^8.38.0
+      version: 8.38.0
+    vaul:
+      specifier: ^1.1.2
+      version: 1.1.2
+    viem:
+      specifier: ^2.37.11
+      version: 2.37.11
+
 overrides:
   brace-expansion: '>=2.0.2'
   esbuild: '>=0.25.0'
@@ -26,49 +329,49 @@ importers:
   .:
     devDependencies:
       '@eslint/js':
-        specifier: ^9.32.0
+        specifier: 'catalog:'
         version: 9.32.0
       '@repo/eslint-config':
         specifier: workspace:*
         version: link:packages/eslint-config
       '@types/node':
-        specifier: ^24.7.1
-        version: 24.7.1
+        specifier: 'catalog:'
+        version: 22.17.0
       eslint:
-        specifier: ^9.31.0
+        specifier: 'catalog:'
         version: 9.32.0(jiti@2.6.1)
       eslint-config-prettier:
-        specifier: ^10.1.8
+        specifier: 'catalog:'
         version: 10.1.8(eslint@9.32.0(jiti@2.6.1))
       knip:
-        specifier: ^5.64.3
-        version: 5.64.3(@types/node@24.7.1)(typescript@5.8.3)
+        specifier: 'catalog:'
+        version: 5.64.3(@types/node@22.17.0)(typescript@5.8.3)
       prettier:
-        specifier: ^3.5.3
+        specifier: 'catalog:'
         version: 3.6.2
       prettier-plugin-tailwindcss:
-        specifier: ^0.6.11
+        specifier: 'catalog:'
         version: 0.6.14(prettier@3.6.2)
       turbo:
-        specifier: ^2.5.6
-        version: 2.5.6
+        specifier: 'catalog:'
+        version: 2.6.0
       typescript:
-        specifier: ^5.8.3
+        specifier: 'catalog:'
         version: 5.8.3
       typescript-eslint:
-        specifier: ^8.38.0
+        specifier: 'catalog:'
         version: 8.38.0(eslint@9.32.0(jiti@2.6.1))(typescript@5.8.3)
 
   apps/app.mento.org:
     dependencies:
       '@hookform/resolvers':
-        specifier: ^5.0.1
+        specifier: 'catalog:'
         version: 5.2.1(react-hook-form@7.61.1(react@19.1.1))
       '@mento-protocol/mento-sdk':
-        specifier: ^1.15.5
+        specifier: 'catalog:'
         version: 1.15.5(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))
       '@rainbow-me/rainbowkit':
-        specifier: ^2.2.8
+        specifier: 'catalog:'
         version: 2.2.8(@tanstack/react-query@5.83.0(react@19.1.1))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)(typescript@5.8.3)(viem@2.37.11(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.1.12))(wagmi@2.16.9(@tanstack/query-core@5.83.0)(@tanstack/react-query@5.83.0(react@19.1.1))(@types/react@19.1.9)(bufferutil@4.0.9)(react@19.1.1)(typescript@5.8.3)(utf-8-validate@5.0.10)(viem@2.37.11(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.1.12))(zod@4.1.12))
       '@repo/ui':
         specifier: workspace:*
@@ -77,49 +380,49 @@ importers:
         specifier: workspace:*
         version: link:../../packages/web3
       '@sentry/nextjs':
-        specifier: ^10.27.0
-        version: 10.27.0(@opentelemetry/context-async-hooks@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/core@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.2.0(@opentelemetry/api@1.9.0))(next@15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)(webpack@5.101.0)
+        specifier: 'catalog:'
+        version: 10.27.0(@opentelemetry/context-async-hooks@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/core@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.2.0(@opentelemetry/api@1.9.0))(next@15.5.2(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)(webpack@5.101.0)
       '@t3-oss/env-nextjs':
-        specifier: ^0.13.4
+        specifier: 'catalog:'
         version: 0.13.8(typescript@5.8.3)(zod@4.1.12)
       '@tanstack/react-query':
         specifier: ^5.83.0
         version: 5.83.0(react@19.1.1)
       '@vercel/analytics':
-        specifier: ^1.5.0
-        version: 1.5.0(next@15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)
+        specifier: 'catalog:'
+        version: 1.5.0(next@15.5.2(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)
       ethers:
-        specifier: ^5.8.0
+        specifier: 'catalog:'
         version: 5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
       jotai:
-        specifier: ^2.12.4
+        specifier: 'catalog:'
         version: 2.12.5(@types/react@19.1.9)(react@19.1.1)
       lucide-react:
-        specifier: ^0.488.0
+        specifier: 'catalog:'
         version: 0.488.0(react@19.1.1)
       next:
         specifier: ^15.5.2
         version: 15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       next-themes:
-        specifier: ^0.4.6
+        specifier: 'catalog:'
         version: 0.4.6(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       react:
-        specifier: ^19.0.0
+        specifier: 'catalog:'
         version: 19.1.1
       react-dom:
-        specifier: ^19.0.0
+        specifier: 'catalog:'
         version: 19.1.1(react@19.1.1)
       react-hook-form:
-        specifier: ^7.51.5
+        specifier: 'catalog:'
         version: 7.61.1(react@19.1.1)
       sonner:
-        specifier: ^2.0.3
+        specifier: 'catalog:'
         version: 2.0.6(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       tailwindcss:
-        specifier: ^4.1.14
+        specifier: 'catalog:'
         version: 4.1.14
       viem:
-        specifier: ^2.37.11
+        specifier: 'catalog:'
         version: 2.37.11(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.1.12)
       wagmi:
         specifier: ^2.16.9
@@ -135,46 +438,46 @@ importers:
         specifier: workspace:*
         version: link:../../packages/typescript-config
       '@tailwindcss/postcss':
-        specifier: ^4.1.4
+        specifier: 'catalog:'
         version: 4.1.11
       '@types/node':
-        specifier: ^20
-        version: 20.19.9
+        specifier: 'catalog:'
+        version: 22.17.0
       '@types/react':
-        specifier: ^19
+        specifier: 'catalog:'
         version: 19.1.9
       '@types/react-dom':
-        specifier: ^19
+        specifier: 'catalog:'
         version: 19.1.7(@types/react@19.1.9)
       concurrently:
-        specifier: ^9.1.2
+        specifier: 'catalog:'
         version: 9.2.0
       eslint:
-        specifier: ^9.29.0
+        specifier: 'catalog:'
         version: 9.32.0(jiti@2.6.1)
       pino-pretty:
-        specifier: ^13.1.2
+        specifier: 'catalog:'
         version: 13.1.2
       postcss:
-        specifier: ^8.5.3
+        specifier: 'catalog:'
         version: 8.5.6
       typescript:
-        specifier: ^5.8.3
+        specifier: 'catalog:'
         version: 5.8.3
 
   apps/governance.mento.org:
     dependencies:
       '@apollo/client':
-        specifier: ^3.13.9
-        version: 3.13.9(@types/react@19.1.9)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.3(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+        specifier: 'catalog:'
+        version: 3.13.9(@types/react@19.1.9)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@apollo/client-integration-nextjs':
-        specifier: ^0.12.3
-        version: 0.12.3(@apollo/client@3.13.9(@types/react@19.1.9)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.3(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(@types/react@19.1.9)(graphql@16.11.0)(next@15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+        specifier: 'catalog:'
+        version: 0.12.3(@apollo/client@3.13.9(@types/react@19.1.9)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(@types/react@19.1.9)(graphql@16.11.0)(next@15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@metamask/jazzicon':
-        specifier: https://github.com/jmrossy/jazzicon#7a8df28
+        specifier: 'catalog:'
         version: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28
       '@rainbow-me/rainbowkit':
-        specifier: ^2.2.8
+        specifier: 'catalog:'
         version: 2.2.8(@tanstack/react-query@5.83.0(react@19.1.1))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)(typescript@5.8.3)(viem@2.37.11(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.1.12))(wagmi@2.16.9(@tanstack/query-core@5.83.0)(@tanstack/react-query@5.83.0(react@19.1.1))(@types/react@19.1.9)(bufferutil@4.0.9)(react@19.1.1)(typescript@5.8.3)(utf-8-validate@5.0.10)(viem@2.37.11(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.1.12))(zod@4.1.12))
       '@repo/ui':
         specifier: workspace:*
@@ -183,70 +486,70 @@ importers:
         specifier: workspace:*
         version: link:../../packages/web3
       '@sentry/nextjs':
-        specifier: ^10.27.0
-        version: 10.27.0(@opentelemetry/context-async-hooks@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/core@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.2.0(@opentelemetry/api@1.9.0))(next@15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)(webpack@5.101.0)
+        specifier: 'catalog:'
+        version: 10.27.0(@opentelemetry/context-async-hooks@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/core@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.2.0(@opentelemetry/api@1.9.0))(next@15.5.2(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)(webpack@5.101.0)
       '@t3-oss/env-nextjs':
-        specifier: ^0.13.4
+        specifier: 'catalog:'
         version: 0.13.8(typescript@5.8.3)(zod@4.1.12)
       '@tailwindcss/typography':
-        specifier: ^0.5.19
+        specifier: 'catalog:'
         version: 0.5.19(tailwindcss@4.1.14)
       '@tanstack/react-query':
         specifier: ^5.83.0
         version: 5.83.0(react@19.1.1)
       '@types/turndown':
-        specifier: ^5.0.5
+        specifier: 'catalog:'
         version: 5.0.5
       '@vercel/analytics':
-        specifier: ^1.5.0
-        version: 1.5.0(next@15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)
+        specifier: 'catalog:'
+        version: 1.5.0(next@15.5.2(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)
       date-fns:
-        specifier: ^4.1.0
+        specifier: 'catalog:'
         version: 4.1.0
       date-fns-tz:
-        specifier: ^3.2.0
+        specifier: 'catalog:'
         version: 3.2.0(date-fns@4.1.0)
       dompurify:
-        specifier: ^3.3.0
+        specifier: 'catalog:'
         version: 3.3.0
       graphql:
-        specifier: ^16.11.0
+        specifier: 'catalog:'
         version: 16.11.0
       lucide-react:
-        specifier: ^0.488.0
+        specifier: 'catalog:'
         version: 0.488.0(react@19.1.1)
       next:
         specifier: ^15.5.2
         version: 15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       postcss:
-        specifier: ^8.5.3
+        specifier: 'catalog:'
         version: 8.5.6
       react:
-        specifier: ^19.0.0
+        specifier: 'catalog:'
         version: 19.1.1
       react-dom:
-        specifier: ^19.0.0
+        specifier: 'catalog:'
         version: 19.1.1(react@19.1.1)
       react-hook-form:
-        specifier: ^7.59.0
+        specifier: 'catalog:'
         version: 7.61.1(react@19.1.1)
       react-markdown:
-        specifier: ^10.1.0
+        specifier: 'catalog:'
         version: 10.1.0(@types/react@19.1.9)(react@19.1.1)
       remark-gfm:
-        specifier: ^4.0.1
+        specifier: 'catalog:'
         version: 4.0.1
       spacetime:
-        specifier: ^7.10.0
+        specifier: 'catalog:'
         version: 7.10.0
       tailwindcss:
-        specifier: ^4.1.14
+        specifier: 'catalog:'
         version: 4.1.14
       turndown:
-        specifier: ^7.2.0
+        specifier: 'catalog:'
         version: 7.2.0
       viem:
-        specifier: ^2.37.11
+        specifier: 'catalog:'
         version: 2.37.11(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.1.12)
       wagmi:
         specifier: ^2.16.9
@@ -256,22 +559,22 @@ importers:
         version: 4.1.12
     devDependencies:
       '@graphql-codegen/add':
-        specifier: ^6.0.0
+        specifier: 'catalog:'
         version: 6.0.0(graphql@16.11.0)
       '@graphql-codegen/cli':
-        specifier: ^5.0.2
-        version: 5.0.7(@parcel/watcher@2.5.1)(@types/node@20.19.9)(bufferutil@4.0.9)(crossws@0.3.5)(enquirer@2.4.1)(graphql@16.11.0)(typescript@5.8.3)(utf-8-validate@5.0.10)
+        specifier: 'catalog:'
+        version: 5.0.7(@parcel/watcher@2.5.1)(@types/node@22.17.0)(bufferutil@4.0.9)(crossws@0.3.5)(enquirer@2.4.1)(graphql@16.11.0)(typescript@5.8.3)(utf-8-validate@5.0.10)
       '@graphql-codegen/typescript':
-        specifier: ^5.0.2
+        specifier: 'catalog:'
         version: 5.0.2(graphql@16.11.0)
       '@graphql-codegen/typescript-apollo-client-helpers':
-        specifier: ^3.0.0
+        specifier: 'catalog:'
         version: 3.0.1(graphql@16.11.0)
       '@graphql-codegen/typescript-operations':
-        specifier: ^5.0.2
+        specifier: 'catalog:'
         version: 5.0.2(graphql@16.11.0)
       '@graphql-codegen/typescript-react-apollo':
-        specifier: ^4.3.2
+        specifier: 'catalog:'
         version: 4.3.3(graphql@16.11.0)
       '@repo/eslint-config':
         specifier: workspace:*
@@ -280,61 +583,61 @@ importers:
         specifier: workspace:*
         version: link:../../packages/typescript-config
       '@tailwindcss/postcss':
-        specifier: ^4.1.5
+        specifier: 'catalog:'
         version: 4.1.11
       '@types/node':
-        specifier: ^20
-        version: 20.19.9
+        specifier: 'catalog:'
+        version: 22.17.0
       '@types/react':
-        specifier: ^19
+        specifier: 'catalog:'
         version: 19.1.9
       '@types/react-dom':
-        specifier: ^19
+        specifier: 'catalog:'
         version: 19.1.7(@types/react@19.1.9)
       dotenv:
-        specifier: ^17.2.3
+        specifier: 'catalog:'
         version: 17.2.3
       pino-pretty:
-        specifier: ^13.1.2
+        specifier: 'catalog:'
         version: 13.1.2
       typescript:
-        specifier: ^5
+        specifier: 'catalog:'
         version: 5.8.3
 
   apps/reserve.mento.org:
     dependencies:
       '@mento-protocol/mento-sdk':
-        specifier: ^1.15.5
+        specifier: 'catalog:'
         version: 1.15.5(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))
       '@repo/ui':
         specifier: workspace:*
         version: link:../../packages/ui
       '@sentry/nextjs':
-        specifier: ^10.27.0
-        version: 10.27.0(@opentelemetry/context-async-hooks@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/core@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.2.0(@opentelemetry/api@1.9.0))(next@15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)(webpack@5.101.0)
+        specifier: 'catalog:'
+        version: 10.27.0(@opentelemetry/context-async-hooks@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/core@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.2.0(@opentelemetry/api@1.9.0))(next@15.5.2(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)(webpack@5.101.0)
       '@t3-oss/env-nextjs':
-        specifier: ^0.13.4
+        specifier: 'catalog:'
         version: 0.13.8(typescript@5.8.3)(zod@4.1.12)
       '@vercel/analytics':
-        specifier: ^1.5.0
-        version: 1.5.0(next@15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)
+        specifier: 'catalog:'
+        version: 1.5.0(next@15.5.2(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)
       lucide-react:
-        specifier: ^0.488.0
+        specifier: 'catalog:'
         version: 0.488.0(react@19.1.1)
       next:
         specifier: ^15.5.2
         version: 15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       postcss:
-        specifier: ^8.5.3
+        specifier: 'catalog:'
         version: 8.5.6
       react:
-        specifier: ^19.0.0
+        specifier: 'catalog:'
         version: 19.1.1
       react-dom:
-        specifier: ^19.0.0
+        specifier: 'catalog:'
         version: 19.1.1(react@19.1.1)
       tailwindcss:
-        specifier: ^4.1.14
+        specifier: 'catalog:'
         version: 4.1.14
       zod:
         specifier: ^4.1.12
@@ -344,19 +647,19 @@ importers:
         specifier: workspace:*
         version: link:../../packages/typescript-config
       '@tailwindcss/postcss':
-        specifier: ^4.1.5
+        specifier: 'catalog:'
         version: 4.1.11
       '@types/node':
-        specifier: ^20
-        version: 20.19.9
+        specifier: 'catalog:'
+        version: 22.17.0
       '@types/react':
-        specifier: ^19
+        specifier: 'catalog:'
         version: 19.1.9
       '@types/react-dom':
-        specifier: ^19
+        specifier: 'catalog:'
         version: 19.1.7(@types/react@19.1.9)
       typescript:
-        specifier: ^5
+        specifier: 'catalog:'
         version: 5.8.3
 
   apps/ui.mento.org:
@@ -365,22 +668,22 @@ importers:
         specifier: workspace:*
         version: link:../../packages/ui
       '@t3-oss/env-nextjs':
-        specifier: ^0.13.8
+        specifier: 'catalog:'
         version: 0.13.8(typescript@5.8.3)(zod@4.1.12)
       lucide-react:
-        specifier: ^0.488.0
+        specifier: 'catalog:'
         version: 0.488.0(react@19.1.1)
       next:
         specifier: ^15.5.2
         version: 15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       next-themes:
-        specifier: ^0.4.6
+        specifier: 'catalog:'
         version: 0.4.6(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       react:
-        specifier: ^19.1.0
+        specifier: 'catalog:'
         version: 19.1.1
       react-dom:
-        specifier: ^19.1.0
+        specifier: 'catalog:'
         version: 19.1.1(react@19.1.1)
       zod:
         specifier: ^4.1.12
@@ -393,62 +696,62 @@ importers:
         specifier: workspace:*
         version: link:../../packages/typescript-config
       '@tailwindcss/postcss':
-        specifier: ^4.1.4
+        specifier: 'catalog:'
         version: 4.1.11
       '@types/node':
-        specifier: ^22.14.1
+        specifier: 'catalog:'
         version: 22.17.0
       '@types/react':
-        specifier: ^19.1.0
+        specifier: 'catalog:'
         version: 19.1.9
       '@types/react-dom':
-        specifier: ^19.1.1
+        specifier: 'catalog:'
         version: 19.1.7(@types/react@19.1.9)
       eslint:
-        specifier: ^9.24.0
+        specifier: 'catalog:'
         version: 9.32.0(jiti@2.6.1)
       postcss:
-        specifier: ^8.5.3
+        specifier: 'catalog:'
         version: 8.5.6
       typescript:
-        specifier: ^5.8.3
+        specifier: 'catalog:'
         version: 5.8.3
 
   packages/eslint-config:
     dependencies:
       eslint-config-turbo:
-        specifier: ^2.5.1
+        specifier: 'catalog:'
         version: 2.5.5(eslint@9.32.0(jiti@2.6.1))(turbo@2.6.0)
     devDependencies:
       '@eslint/js':
-        specifier: ^9.24.0
+        specifier: 'catalog:'
         version: 9.32.0
       '@next/eslint-plugin-next':
-        specifier: ^15.3.0
+        specifier: 'catalog:'
         version: 15.4.5
       eslint:
-        specifier: ^9.24.0
+        specifier: 'catalog:'
         version: 9.32.0(jiti@2.6.1)
       eslint-config-prettier:
-        specifier: ^10.1.2
+        specifier: 'catalog:'
         version: 10.1.8(eslint@9.32.0(jiti@2.6.1))
       eslint-plugin-only-warn:
-        specifier: ^1.1.0
+        specifier: 'catalog:'
         version: 1.1.0
       eslint-plugin-react:
-        specifier: ^7.37.5
+        specifier: 'catalog:'
         version: 7.37.5(eslint@9.32.0(jiti@2.6.1))
       eslint-plugin-react-hooks:
-        specifier: ^5.2.0
+        specifier: 'catalog:'
         version: 5.2.0(eslint@9.32.0(jiti@2.6.1))
       globals:
-        specifier: ^16.0.0
+        specifier: 'catalog:'
         version: 16.3.0
       typescript:
-        specifier: ^5.8.3
+        specifier: 'catalog:'
         version: 5.8.3
       typescript-eslint:
-        specifier: ^8.30.1
+        specifier: 'catalog:'
         version: 8.38.0(eslint@9.32.0(jiti@2.6.1))(typescript@5.8.3)
 
   packages/typescript-config: {}
@@ -456,130 +759,130 @@ importers:
   packages/ui:
     dependencies:
       '@radix-ui/react-accordion':
-        specifier: ^1.2.11
+        specifier: 'catalog:'
         version: 1.2.11(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-checkbox':
-        specifier: ^1.3.2
+        specifier: 'catalog:'
         version: 1.3.2(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-collapsible':
-        specifier: ^1.1.11
+        specifier: 'catalog:'
         version: 1.1.11(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-dialog':
-        specifier: ^1.1.14
+        specifier: 'catalog:'
         version: 1.1.14(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-dropdown-menu':
-        specifier: ^2.1.15
+        specifier: 'catalog:'
         version: 2.1.15(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-label':
-        specifier: ^2.1.7
+        specifier: 'catalog:'
         version: 2.1.7(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-navigation-menu':
-        specifier: ^1.2.13
+        specifier: 'catalog:'
         version: 1.2.13(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-popover':
-        specifier: ^1.1.14
+        specifier: 'catalog:'
         version: 1.1.14(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-radio-group':
-        specifier: ^1.3.7
+        specifier: 'catalog:'
         version: 1.3.7(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-scroll-area':
-        specifier: ^1.2.9
+        specifier: 'catalog:'
         version: 1.2.9(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-select':
-        specifier: ^2.2.4
+        specifier: 'catalog:'
         version: 2.2.5(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-separator':
-        specifier: ^1.1.7
+        specifier: 'catalog:'
         version: 1.1.7(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-slider':
-        specifier: ^1.3.5
+        specifier: 'catalog:'
         version: 1.3.5(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-slot':
-        specifier: ^1.2.3
+        specifier: 'catalog:'
         version: 1.2.3(@types/react@19.1.9)(react@19.1.1)
       '@radix-ui/react-tabs':
-        specifier: ^1.1.12
+        specifier: 'catalog:'
         version: 1.1.12(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-tooltip':
-        specifier: ^1.2.7
+        specifier: 'catalog:'
         version: 1.2.7(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@tiptap/core':
-        specifier: ^2.22.3
+        specifier: 'catalog:'
         version: 2.26.1(@tiptap/pm@2.26.1)
       '@tiptap/extension-link':
-        specifier: ^2.22.3
+        specifier: 'catalog:'
         version: 2.26.1(@tiptap/core@2.26.1(@tiptap/pm@2.26.1))(@tiptap/pm@2.26.1)
       '@tiptap/extension-placeholder':
-        specifier: ^2.22.3
+        specifier: 'catalog:'
         version: 2.26.1(@tiptap/core@2.26.1(@tiptap/pm@2.26.1))(@tiptap/pm@2.26.1)
       '@tiptap/extension-text-align':
-        specifier: ^2.22.3
+        specifier: 'catalog:'
         version: 2.26.1(@tiptap/core@2.26.1(@tiptap/pm@2.26.1))
       '@tiptap/extension-text-style':
-        specifier: ^2.22.3
+        specifier: 'catalog:'
         version: 2.26.1(@tiptap/core@2.26.1(@tiptap/pm@2.26.1))
       '@tiptap/extension-typography':
-        specifier: ^2.22.3
+        specifier: 'catalog:'
         version: 2.26.1(@tiptap/core@2.26.1(@tiptap/pm@2.26.1))
       '@tiptap/extension-underline':
-        specifier: ^2.22.3
+        specifier: 'catalog:'
         version: 2.26.1(@tiptap/core@2.26.1(@tiptap/pm@2.26.1))
       '@tiptap/pm':
-        specifier: ^2.22.3
+        specifier: 'catalog:'
         version: 2.26.1
       '@tiptap/react':
-        specifier: ^2.22.3
+        specifier: 'catalog:'
         version: 2.26.1(@tiptap/core@2.26.1(@tiptap/pm@2.26.1))(@tiptap/pm@2.26.1)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@tiptap/starter-kit':
-        specifier: ^2.22.3
+        specifier: 'catalog:'
         version: 2.26.1
       animejs:
-        specifier: ^4.0.2
+        specifier: 'catalog:'
         version: 4.1.2
       class-variance-authority:
-        specifier: ^0.7.1
+        specifier: 'catalog:'
         version: 0.7.1
       clsx:
-        specifier: ^2.1.1
+        specifier: 'catalog:'
         version: 2.1.1
       cmdk:
-        specifier: ^1.1.1
+        specifier: 'catalog:'
         version: 1.1.1(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       lucide-react:
-        specifier: ^0.488.0
+        specifier: 'catalog:'
         version: 0.488.0(react@19.1.1)
       next-themes:
-        specifier: ^0.4.6
+        specifier: 'catalog:'
         version: 0.4.6(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       react:
-        specifier: ^19.1.0
+        specifier: 'catalog:'
         version: 19.1.1
       react-day-picker:
-        specifier: ^9.7.0
+        specifier: 'catalog:'
         version: 9.8.1(react@19.1.1)
       react-dom:
-        specifier: ^19.1.0
+        specifier: 'catalog:'
         version: 19.1.1(react@19.1.1)
       react-hook-form:
-        specifier: ^7.56.3
+        specifier: 'catalog:'
         version: 7.61.1(react@19.1.1)
       recharts:
-        specifier: ^2.15.3
+        specifier: 'catalog:'
         version: 2.15.4(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       sonner:
-        specifier: ^2.0.3
+        specifier: 'catalog:'
         version: 2.0.6(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       tailwind-merge:
-        specifier: ^3.2.0
+        specifier: 'catalog:'
         version: 3.3.1
       tailwindcss:
-        specifier: ^4.1.14
+        specifier: 'catalog:'
         version: 4.1.14
       tw-animate-css:
-        specifier: ^1.4.0
+        specifier: 'catalog:'
         version: 1.4.0
       vaul:
-        specifier: ^1.1.2
+        specifier: 'catalog:'
         version: 1.1.2(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
     devDependencies:
       '@repo/eslint-config':
@@ -589,55 +892,55 @@ importers:
         specifier: workspace:*
         version: link:../typescript-config
       '@tailwindcss/cli':
-        specifier: ^4.1.4
+        specifier: 'catalog:'
         version: 4.1.11
       '@tailwindcss/postcss':
-        specifier: ^4.1.4
+        specifier: 'catalog:'
         version: 4.1.11
       '@turbo/gen':
-        specifier: ^2.5.8
-        version: 2.5.8(@types/node@24.10.0)(typescript@5.8.3)
+        specifier: 'catalog:'
+        version: 2.5.8(@types/node@22.17.0)(typescript@5.8.3)
       '@types/react':
-        specifier: ^19.1.2
+        specifier: 'catalog:'
         version: 19.1.9
       concurrently:
-        specifier: ^9.1.2
+        specifier: 'catalog:'
         version: 9.2.0
       esbuild:
         specifier: '>=0.25.0'
         version: 0.25.8
       esbuild-plugin-preserve-directives:
-        specifier: ^0.0.11
+        specifier: 'catalog:'
         version: 0.0.11(esbuild@0.25.8)
       eslint:
-        specifier: ^9.24.0
+        specifier: 'catalog:'
         version: 9.32.0(jiti@2.6.1)
       postcss:
-        specifier: ^8.5.3
+        specifier: 'catalog:'
         version: 8.5.6
       tsup:
-        specifier: ^8.4.0
+        specifier: 'catalog:'
         version: 8.5.0(jiti@2.6.1)(postcss@8.5.6)(typescript@5.8.3)(yaml@2.8.0)
       typescript:
-        specifier: ^5.8.3
+        specifier: 'catalog:'
         version: 5.8.3
 
   packages/web3:
     dependencies:
       '@ethersproject/address':
-        specifier: ^5.8.0
+        specifier: 'catalog:'
         version: 5.8.0
       '@ethersproject/units':
-        specifier: ^5.8.0
+        specifier: 'catalog:'
         version: 5.8.0
       '@mento-protocol/mento-sdk':
-        specifier: ^1.15.5
+        specifier: 'catalog:'
         version: 1.15.5(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))
       '@metamask/jazzicon':
-        specifier: https://github.com/jmrossy/jazzicon#7a8df28
+        specifier: 'catalog:'
         version: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28
       '@rainbow-me/rainbowkit':
-        specifier: ^2.2.8
+        specifier: 'catalog:'
         version: 2.2.8(@tanstack/react-query@5.83.0(react@19.1.1))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)(typescript@5.8.3)(viem@2.37.11(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.1.12))(wagmi@2.16.9(@tanstack/query-core@5.83.0)(@tanstack/react-query@5.83.0(react@19.1.1))(@types/react@19.1.9)(bufferutil@4.0.9)(react@19.1.1)(typescript@5.8.3)(utf-8-validate@5.0.10)(viem@2.37.11(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.1.12))(zod@4.1.12))
       '@repo/typescript-config':
         specifier: workspace:*
@@ -649,50 +952,49 @@ importers:
         specifier: ^5.83.0
         version: 5.83.0(react@19.1.1)
       '@types/node':
-        specifier: ^22.14.1
+        specifier: 'catalog:'
         version: 22.17.0
       '@types/react':
-        specifier: ^19.1.2
+        specifier: 'catalog:'
         version: 19.1.9
       '@types/react-dom':
-        specifier: ^19.1.2
+        specifier: 'catalog:'
         version: 19.1.7(@types/react@19.1.9)
       bignumber.js:
-        specifier: ^9.3.0
+        specifier: 'catalog:'
         version: 9.3.1
       esbuild-plugin-preserve-directives:
-        specifier: ^0.0.11
+        specifier: 'catalog:'
         version: 0.0.11(esbuild@0.25.8)
       eslint:
-        specifier: ^9.24.0
+        specifier: 'catalog:'
         version: 9.32.0(jiti@2.6.1)
       ethers:
-        specifier: ^5.8.0
+        specifier: 'catalog:'
         version: 5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
       jotai:
-        specifier: ^2.12.5
+        specifier: 'catalog:'
         version: 2.12.5(@types/react@19.1.9)(react@19.1.1)
       lucide-react:
-        specifier: ^0.488.0
+        specifier: 'catalog:'
         version: 0.488.0(react@19.1.1)
       next:
         specifier: ^15.5.2
         version: 15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+      react:
+        specifier: 'catalog:'
+        version: 19.1.1
       react-dom:
-        specifier: ^19.0.0
+        specifier: 'catalog:'
         version: 19.1.1(react@19.1.1)
       react-hook-form:
-        specifier: ^7.58.1
+        specifier: 'catalog:'
         version: 7.61.1(react@19.1.1)
-    devDependencies:
-      react:
-        specifier: ^19.1.0
-        version: 19.1.1
       tsup:
-        specifier: ^8.5.0
+        specifier: 'catalog:'
         version: 8.5.0(jiti@2.6.1)(postcss@8.5.6)(typescript@5.8.3)(yaml@2.8.0)
       viem:
-        specifier: ^2.37.11
+        specifier: 'catalog:'
         version: 2.37.11(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.1.12)
       wagmi:
         specifier: ^2.16.9
@@ -1885,9 +2187,6 @@ packages:
     resolution: {integrity: sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w==}
     engines: {node: '>=18.0.0'}
 
-  '@jridgewell/gen-mapping@0.3.12':
-    resolution: {integrity: sha512-OuLGC46TjB5BbN1dH8JULVVZY4WTdkF7tV9Ys6wLL1rubZnCMstOhNHueU5bLCrnRuDhKPDM4g6sw4Bel5Gzqg==}
-
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
 
@@ -1898,14 +2197,8 @@ packages:
   '@jridgewell/source-map@0.3.11':
     resolution: {integrity: sha512-ZMp1V8ZFcPG5dIWnQLr3NSI1MiCU7UETdS/A0G8V/XWHvJv3ZsFqutJn1Y5RPmAPX6F3BiE397OqveU/9NCuIA==}
 
-  '@jridgewell/sourcemap-codec@1.5.4':
-    resolution: {integrity: sha512-VT2+G1VQs/9oz078bLrYbecdZKs912zQlkelYpuf+SXF+QvZDYJlbx/LSx+meSAwdDFnF8FVXW92AVjjkVmgFw==}
-
   '@jridgewell/sourcemap-codec@1.5.5':
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
-
-  '@jridgewell/trace-mapping@0.3.29':
-    resolution: {integrity: sha512-uw6guiW/gcAGPDhLmd77/6lW8QLeiV5RUTsAX46Db6oLhGaVj4lhnPwb184s1bkc8kdVg/+h988dro8GRDpmYQ==}
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
@@ -3725,17 +4018,11 @@ packages:
   '@types/mysql@2.15.27':
     resolution: {integrity: sha512-YfWiV16IY0OeBfBCk8+hXKmdTKrKlwKN1MNKAPBu5JYxLwBEZl7QzeEpGnlZb3VMGJrrGmB84gXiH+ofs/TezA==}
 
-  '@types/node@20.19.9':
-    resolution: {integrity: sha512-cuVNgarYWZqxRJDQHEB58GEONhOK79QVR/qYx4S7kcUObQvUwvFnYxJuuHUKm2aieN9X3yZB4LZsuYNU1Qphsw==}
-
   '@types/node@22.17.0':
     resolution: {integrity: sha512-bbAKTCqX5aNVryi7qXVMi+OkB3w/OyblodicMbvE38blyAz7GxXf6XYhklokijuPwwVg9sDLKRxt0ZHXQwZVfQ==}
 
   '@types/node@24.10.0':
     resolution: {integrity: sha512-qzQZRBqkFsYyaSWXuEHc2WR9c0a0CXwiE5FWUvn7ZM+vdy1uZLfCunD38UzhuB7YN/J11ndbDBcTmOdxJo9Q7A==}
-
-  '@types/node@24.7.1':
-    resolution: {integrity: sha512-CmyhGZanP88uuC5GpWU9q+fI61j2SkhO3UGMUdfYRE6Bcy0ccyzn1Rqj9YAB/ZY4kOXmNf0ocah5GtphmLMP6Q==}
 
   '@types/pg-pool@2.0.6':
     resolution: {integrity: sha512-TaAUE5rq2VQYxab5Ts7WZhKNmuN78Q6PiFonTDdpbx8a1H0M1vhy3rhiMjl+e2iHmogyMw7jZF4FrE6eJUy5HQ==}
@@ -4328,11 +4615,6 @@ packages:
 
   brorand@1.1.0:
     resolution: {integrity: sha512-cKV8tMCEpQs4hK/ik71d6LrPOnpkpGBR0wzxqr68g2m/LB2GxVYQroAjMJZRVM1Y4BCjCKc3vAamxSzOY2RP+w==}
-
-  browserslist@4.25.1:
-    resolution: {integrity: sha512-KGj0KoOMXLpSNkkEI6Z6mShmQy0bc1I+T7K9N81k4WWMrfz+6fQ6es80B/YLAeRoKvjYE1YSHHOW1qe9xIVzHw==}
-    engines: {node: ^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7}
-    hasBin: true
 
   browserslist@4.27.0:
     resolution: {integrity: sha512-AXVQwdhot1eqLihwasPElhX2tAZiBjWdJ9i/Zcj2S6QYIjkx62OKSfnobkriB81C3l4w0rVy3Nt4jaTBltYEpw==}
@@ -4929,9 +5211,6 @@ packages:
     resolution: {integrity: sha512-r6kEJXDKecVOCj2nLMuXK/FCPeurW33+3JRpfXVbjLja3XUYFfD9I/JBreH6sUyzcm3G/YQboBjMla6poKeSdA==}
     engines: {bun: '>=1', deno: '>=2', node: '>=16'}
 
-  electron-to-chromium@1.5.192:
-    resolution: {integrity: sha512-rP8Ez0w7UNw/9j5eSXCe10o1g/8B1P5SM90PCCMVkIRQn2R0LEHWz4Eh9RnxkniuDe1W0cTSOB3MLlkTGDcuCg==}
-
   electron-to-chromium@1.5.248:
     resolution: {integrity: sha512-zsur2yunphlyAO4gIubdJEXCK6KOVvtpiuDfCIqbM9FjcnMYiyn0ICa3hWfPr0nc41zcLWobgy1iL7VvoOyA2Q==}
 
@@ -4956,10 +5235,6 @@ packages:
   engine.io-parser@5.2.3:
     resolution: {integrity: sha512-HqD3yTBfnBxIrbnM1DoD6Pcq8NECnh8d4As1Qgh0z5Gg3jRRIqijury0CL3ghu/edArpUYiYqQiDUQBIs4np3Q==}
     engines: {node: '>=10.0.0'}
-
-  enhanced-resolve@5.18.2:
-    resolution: {integrity: sha512-6Jw4sE1maoRJo3q8MsSIn2onJFbLTOjY9hlx4DZXmOKvLRd1Ok2kXmAGXaafL2+ijsJZ1ClYbl/pmqr9+k4iUQ==}
-    engines: {node: '>=10.13.0'}
 
   enhanced-resolve@5.18.3:
     resolution: {integrity: sha512-d4lC8xfavMeBjzGr2vECC3fsGXziXZQyJxD868h2M/mBI3PwAuODxAkLkq5HYuvrPYcUtiLzsTo8U3PgX3Ocww==}
@@ -5839,10 +6114,6 @@ packages:
     resolution: {integrity: sha512-/imKNG4EbWNrVjoNC/1H5/9GFy+tqjGBHCaSsN+P2RnPqjsLmv6UD3Ej+Kj8nBWaRAwyk7kK5ZUc+OEatnTR3A==}
     hasBin: true
 
-  jiti@2.5.1:
-    resolution: {integrity: sha512-twQoecYPiVA5K/h6SxtORw/Bs3ar+mLUtoPSc7iMXzQzK8d7eJ/R09wmTwAjiamETn1cXYPGfNnu7DMoHgu12w==}
-    hasBin: true
-
   jiti@2.6.1:
     resolution: {integrity: sha512-ekilCSN1jwRvIbgeg/57YFh8qQDNbwDb9xT/qu2DAHbFFZUicIl4ygVaAvzveMhMVr3LnpSKTNnwt8PoOfmKhQ==}
     hasBin: true
@@ -6477,9 +6748,6 @@ packages:
   node-plop@0.26.3:
     resolution: {integrity: sha512-Cov028YhBZ5aB7MdMWJEmwyBig43aGL5WT4vdoB28Oitau1zZAcHUn8Sgfk9HM33TqhtLJ9PlM/O0Mv+QpV/4Q==}
     engines: {node: '>=8.9.4'}
-
-  node-releases@2.0.19:
-    resolution: {integrity: sha512-xxOWJsBKtzAq7DY0J+DTzuz58K8e7sJbdgwkbMWQe8UYB6ekmsQ45q0M/tJDsGaZmbC+l7n57UV8Hl5tHxO9uw==}
 
   node-releases@2.0.27:
     resolution: {integrity: sha512-nmh3lCkYZ3grZvqcCH+fjmQ7X+H0OeZgP40OierEaAptX4XofMh5kwNbWh7lBduUzCcV/8kZ+NDLCwm2iorIlA==}
@@ -7629,10 +7897,6 @@ packages:
   tailwindcss@4.1.14:
     resolution: {integrity: sha512-b7pCxjGO98LnxVkKjaZSDeNuljC4ueKUddjENJOADtubtdo8llTaJy7HwBMeLNSSo2N5QIAgklslK1+Ir8r6CA==}
 
-  tapable@2.2.2:
-    resolution: {integrity: sha512-Re10+NauLTMCudc7T5WLFLAwDhQ0JWdrMK+9B2M8zR5hRExKmsRDCBA7/aV/pNJFltmBFO5BAMlQFi/vq3nKOg==}
-    engines: {node: '>=6'}
-
   tapable@2.3.0:
     resolution: {integrity: sha512-g9ljZiwki/LfxmQADO3dEY1CbpmXT5Hm2fJ+QaGKwSXUylMybePR7/67YW7jOrrvjEgL1Fmz5kzyAjWVWLlucg==}
     engines: {node: '>=6'}
@@ -7793,19 +8057,9 @@ packages:
       typescript:
         optional: true
 
-  turbo-darwin-64@2.5.6:
-    resolution: {integrity: sha512-3C1xEdo4aFwMJAPvtlPqz1Sw/+cddWIOmsalHFMrsqqydcptwBfu26WW2cDm3u93bUzMbBJ8k3zNKFqxJ9ei2A==}
-    cpu: [x64]
-    os: [darwin]
-
   turbo-darwin-64@2.6.0:
     resolution: {integrity: sha512-6vHnLAubHj8Ib45Knu+oY0ZVCLO7WcibzAvt5b1E72YHqAs4y8meMAGMZM0jLqWPh/9maHDc16/qBCMxtW4pXg==}
     cpu: [x64]
-    os: [darwin]
-
-  turbo-darwin-arm64@2.5.6:
-    resolution: {integrity: sha512-LyiG+rD7JhMfYwLqB6k3LZQtYn8CQQUePbpA8mF/hMLPAekXdJo1g0bUPw8RZLwQXUIU/3BU7tXENvhSGz5DPA==}
-    cpu: [arm64]
     os: [darwin]
 
   turbo-darwin-arm64@2.6.0:
@@ -7813,19 +8067,9 @@ packages:
     cpu: [arm64]
     os: [darwin]
 
-  turbo-linux-64@2.5.6:
-    resolution: {integrity: sha512-GOcUTT0xiT/pSnHL4YD6Yr3HreUhU8pUcGqcI2ksIF9b2/r/kRHwGFcsHgpG3+vtZF/kwsP0MV8FTlTObxsYIA==}
-    cpu: [x64]
-    os: [linux]
-
   turbo-linux-64@2.6.0:
     resolution: {integrity: sha512-CKoiJ2ZFJLCDsWdRlZg+ew1BkGn8iCEGdePhISVpjsGwkJwSVhVu49z2zKdBeL1IhcSKS2YALwp9ellNZANJxw==}
     cpu: [x64]
-    os: [linux]
-
-  turbo-linux-arm64@2.5.6:
-    resolution: {integrity: sha512-10Tm15bruJEA3m0V7iZcnQBpObGBcOgUcO+sY7/2vk1bweW34LMhkWi8svjV9iDF68+KJDThnYDlYE/bc7/zzQ==}
-    cpu: [arm64]
     os: [linux]
 
   turbo-linux-arm64@2.6.0:
@@ -7833,29 +8077,15 @@ packages:
     cpu: [arm64]
     os: [linux]
 
-  turbo-windows-64@2.5.6:
-    resolution: {integrity: sha512-FyRsVpgaj76It0ludwZsNN40ytHN+17E4PFJyeliBEbxrGTc5BexlXVpufB7XlAaoaZVxbS6KT8RofLfDRyEPg==}
-    cpu: [x64]
-    os: [win32]
-
   turbo-windows-64@2.6.0:
     resolution: {integrity: sha512-7pZo5aGQPR+A7RMtWCZHusarJ6y15LQ+o3jOmpMxTic/W6Bad+jSeqo07TWNIseIWjCVzrSv27+0odiYRYtQdA==}
     cpu: [x64]
-    os: [win32]
-
-  turbo-windows-arm64@2.5.6:
-    resolution: {integrity: sha512-j/tWu8cMeQ7HPpKri6jvKtyXg9K1gRyhdK4tKrrchH8GNHscPX/F71zax58yYtLRWTiK04zNzPcUJuoS0+v/+Q==}
-    cpu: [arm64]
     os: [win32]
 
   turbo-windows-arm64@2.6.0:
     resolution: {integrity: sha512-1Ty+NwIksQY7AtFUCPrTpcKQE7zmd/f7aRjdT+qkqGFQjIjFYctEtN7qo4vpQPBgCfS1U3ka83A2u/9CfJQ3wQ==}
     cpu: [arm64]
     os: [win32]
-
-  turbo@2.5.6:
-    resolution: {integrity: sha512-gxToHmi9oTBNB05UjUsrWf0OyN5ZXtD0apOarC1KIx232Vp3WimRNy3810QzeNSgyD5rsaIDXlxlbnOzlouo+w==}
-    hasBin: true
 
   turbo@2.6.0:
     resolution: {integrity: sha512-kC5VJqOXo50k0/0jnJDDjibLAXalqT9j7PQ56so0pN+81VR4Fwb2QgIE9dTzT3phqOTQuEXkPh3sCpnv5Isz2g==}
@@ -7941,9 +8171,6 @@ packages:
 
   undici-types@6.21.0:
     resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
-
-  undici-types@7.14.0:
-    resolution: {integrity: sha512-QQiYxHuyZ9gQUIrmPo3IA+hUl4KYk8uSA7cHrcKd/l3p1OTpZcM0Tbp9x7FAtXdAYhlasd60ncPpgu6ihG6TOA==}
 
   undici-types@7.16.0:
     resolution: {integrity: sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw==}
@@ -8035,12 +8262,6 @@ packages:
         optional: true
       uploadthing:
         optional: true
-
-  update-browserslist-db@1.1.3:
-    resolution: {integrity: sha512-UxhIZQ+QInVdunkDAaiazvvT/+fXL5Osr0JZlJulepYu6Jd7qJtDZjlur0emRlT71EN3ScPoE7gvsuIKKNavKw==}
-    hasBin: true
-    peerDependencies:
-      browserslist: '>= 4.21.0'
 
   update-browserslist-db@1.1.4:
     resolution: {integrity: sha512-q0SPT4xyU84saUX+tomz1WLkxUbuaJnR1xWt17M7fJtEJigJeWUNGUqrauFXsHnqev9y9JTRGwk13tFBuKby4A==}
@@ -8444,8 +8665,8 @@ snapshots:
 
   '@ampproject/remapping@2.3.0':
     dependencies:
-      '@jridgewell/gen-mapping': 0.3.12
-      '@jridgewell/trace-mapping': 0.3.29
+      '@jridgewell/gen-mapping': 0.3.13
+      '@jridgewell/trace-mapping': 0.3.31
 
   '@apm-js-collab/code-transformer@0.8.2': {}
 
@@ -8457,10 +8678,10 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@apollo/client-integration-nextjs@0.12.3(@apollo/client@3.13.9(@types/react@19.1.9)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.3(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(@types/react@19.1.9)(graphql@16.11.0)(next@15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react-dom@19.1.1(react@19.1.1))(react@19.1.1)':
+  '@apollo/client-integration-nextjs@0.12.3(@apollo/client@3.13.9(@types/react@19.1.9)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(@types/react@19.1.9)(graphql@16.11.0)(next@15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react-dom@19.1.1(react@19.1.1))(react@19.1.1)':
     dependencies:
-      '@apollo/client': 3.13.9(@types/react@19.1.9)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.3(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
-      '@apollo/client-react-streaming': 0.12.3(@apollo/client@3.13.9(@types/react@19.1.9)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.3(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(@types/react@19.1.9)(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+      '@apollo/client': 3.13.9(@types/react@19.1.9)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+      '@apollo/client-react-streaming': 0.12.3(@apollo/client@3.13.9(@types/react@19.1.9)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(@types/react@19.1.9)(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       next: 15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       react: 19.1.1
     transitivePeerDependencies:
@@ -8468,9 +8689,9 @@ snapshots:
       - graphql
       - react-dom
 
-  '@apollo/client-react-streaming@0.12.3(@apollo/client@3.13.9(@types/react@19.1.9)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.3(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(@types/react@19.1.9)(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)':
+  '@apollo/client-react-streaming@0.12.3(@apollo/client@3.13.9(@types/react@19.1.9)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(@types/react@19.1.9)(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)':
     dependencies:
-      '@apollo/client': 3.13.9(@types/react@19.1.9)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.3(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+      '@apollo/client': 3.13.9(@types/react@19.1.9)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@types/react-dom': 19.1.7(@types/react@19.1.9)
       '@wry/equality': 0.5.7
       graphql: 16.11.0
@@ -8480,7 +8701,7 @@ snapshots:
     transitivePeerDependencies:
       - '@types/react'
 
-  '@apollo/client@3.13.9(@types/react@19.1.9)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.3(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)':
+  '@apollo/client@3.13.9(@types/react@19.1.9)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)':
     dependencies:
       '@graphql-typed-document-node/core': 3.2.0(graphql@16.11.0)
       '@wry/caches': 1.0.1
@@ -8497,7 +8718,7 @@ snapshots:
       tslib: 2.8.1
       zen-observable-ts: 1.2.5
     optionalDependencies:
-      graphql-ws: 6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.3(bufferutil@4.0.9)(utf-8-validate@5.0.10))
+      graphql-ws: 6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))
       react: 19.1.1
       react-dom: 19.1.1(react@19.1.1)
     transitivePeerDependencies:
@@ -8575,8 +8796,8 @@ snapshots:
     dependencies:
       '@babel/parser': 7.28.0
       '@babel/types': 7.28.2
-      '@jridgewell/gen-mapping': 0.3.12
-      '@jridgewell/trace-mapping': 0.3.29
+      '@jridgewell/gen-mapping': 0.3.13
+      '@jridgewell/trace-mapping': 0.3.31
       jsesc: 3.1.0
 
   '@babel/helper-annotate-as-pure@7.27.3':
@@ -8587,7 +8808,7 @@ snapshots:
     dependencies:
       '@babel/compat-data': 7.28.0
       '@babel/helper-validator-option': 7.27.1
-      browserslist: 4.25.1
+      browserslist: 4.27.0
       lru-cache: 5.1.1
       semver: 6.3.1
 
@@ -9063,7 +9284,7 @@ snapshots:
   '@eslint/config-array@0.21.0':
     dependencies:
       '@eslint/object-schema': 2.1.6
-      debug: 4.4.1
+      debug: 4.4.3
       minimatch: 3.1.2
     transitivePeerDependencies:
       - supports-color
@@ -9077,7 +9298,7 @@ snapshots:
   '@eslint/eslintrc@3.3.1':
     dependencies:
       ajv: 6.12.6
-      debug: 4.4.1
+      debug: 4.4.3
       espree: 10.4.0
       globals: 14.0.0
       ignore: 5.3.2
@@ -9411,7 +9632,7 @@ snapshots:
       graphql: 16.11.0
       tslib: 2.6.3
 
-  '@graphql-codegen/cli@5.0.7(@parcel/watcher@2.5.1)(@types/node@20.19.9)(bufferutil@4.0.9)(crossws@0.3.5)(enquirer@2.4.1)(graphql@16.11.0)(typescript@5.8.3)(utf-8-validate@5.0.10)':
+  '@graphql-codegen/cli@5.0.7(@parcel/watcher@2.5.1)(@types/node@22.17.0)(bufferutil@4.0.9)(crossws@0.3.5)(enquirer@2.4.1)(graphql@16.11.0)(typescript@5.8.3)(utf-8-validate@5.0.10)':
     dependencies:
       '@babel/generator': 7.28.0
       '@babel/template': 7.27.2
@@ -9422,12 +9643,12 @@ snapshots:
       '@graphql-tools/apollo-engine-loader': 8.0.22(graphql@16.11.0)
       '@graphql-tools/code-file-loader': 8.1.22(graphql@16.11.0)
       '@graphql-tools/git-loader': 8.0.26(graphql@16.11.0)
-      '@graphql-tools/github-loader': 8.0.22(@types/node@20.19.9)(graphql@16.11.0)
+      '@graphql-tools/github-loader': 8.0.22(@types/node@22.17.0)(graphql@16.11.0)
       '@graphql-tools/graphql-file-loader': 8.0.22(graphql@16.11.0)
       '@graphql-tools/json-file-loader': 8.0.20(graphql@16.11.0)
       '@graphql-tools/load': 8.1.2(graphql@16.11.0)
-      '@graphql-tools/prisma-loader': 8.0.17(@types/node@20.19.9)(bufferutil@4.0.9)(crossws@0.3.5)(graphql@16.11.0)(utf-8-validate@5.0.10)
-      '@graphql-tools/url-loader': 8.0.33(@types/node@20.19.9)(bufferutil@4.0.9)(crossws@0.3.5)(graphql@16.11.0)(utf-8-validate@5.0.10)
+      '@graphql-tools/prisma-loader': 8.0.17(@types/node@22.17.0)(bufferutil@4.0.9)(crossws@0.3.5)(graphql@16.11.0)(utf-8-validate@5.0.10)
+      '@graphql-tools/url-loader': 8.0.33(@types/node@22.17.0)(bufferutil@4.0.9)(crossws@0.3.5)(graphql@16.11.0)(utf-8-validate@5.0.10)
       '@graphql-tools/utils': 10.9.1(graphql@16.11.0)
       '@whatwg-node/fetch': 0.10.9
       chalk: 4.1.2
@@ -9435,7 +9656,7 @@ snapshots:
       debounce: 1.2.1
       detect-indent: 6.1.0
       graphql: 16.11.0
-      graphql-config: 5.1.5(@types/node@20.19.9)(bufferutil@4.0.9)(crossws@0.3.5)(graphql@16.11.0)(typescript@5.8.3)(utf-8-validate@5.0.10)
+      graphql-config: 5.1.5(@types/node@22.17.0)(bufferutil@4.0.9)(crossws@0.3.5)(graphql@16.11.0)(typescript@5.8.3)(utf-8-validate@5.0.10)
       inquirer: 8.2.6
       is-glob: 4.0.3
       jiti: 1.21.7
@@ -9752,7 +9973,7 @@ snapshots:
       - uWebSockets.js
       - utf-8-validate
 
-  '@graphql-tools/executor-http@1.3.3(@types/node@20.19.9)(graphql@16.11.0)':
+  '@graphql-tools/executor-http@1.3.3(@types/node@22.17.0)(graphql@16.11.0)':
     dependencies:
       '@graphql-hive/signal': 1.0.0
       '@graphql-tools/executor-common': 0.0.4(graphql@16.11.0)
@@ -9762,7 +9983,7 @@ snapshots:
       '@whatwg-node/fetch': 0.10.9
       '@whatwg-node/promise-helpers': 1.3.2
       graphql: 16.11.0
-      meros: 1.3.1(@types/node@20.19.9)
+      meros: 1.3.1(@types/node@22.17.0)
       tslib: 2.8.1
     transitivePeerDependencies:
       - '@types/node'
@@ -9801,9 +10022,9 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@graphql-tools/github-loader@8.0.22(@types/node@20.19.9)(graphql@16.11.0)':
+  '@graphql-tools/github-loader@8.0.22(@types/node@22.17.0)(graphql@16.11.0)':
     dependencies:
-      '@graphql-tools/executor-http': 1.3.3(@types/node@20.19.9)(graphql@16.11.0)
+      '@graphql-tools/executor-http': 1.3.3(@types/node@22.17.0)(graphql@16.11.0)
       '@graphql-tools/graphql-tag-pluck': 8.3.21(graphql@16.11.0)
       '@graphql-tools/utils': 10.9.1(graphql@16.11.0)
       '@whatwg-node/fetch': 0.10.9
@@ -9881,14 +10102,14 @@ snapshots:
       graphql: 16.11.0
       tslib: 2.8.1
 
-  '@graphql-tools/prisma-loader@8.0.17(@types/node@20.19.9)(bufferutil@4.0.9)(crossws@0.3.5)(graphql@16.11.0)(utf-8-validate@5.0.10)':
+  '@graphql-tools/prisma-loader@8.0.17(@types/node@22.17.0)(bufferutil@4.0.9)(crossws@0.3.5)(graphql@16.11.0)(utf-8-validate@5.0.10)':
     dependencies:
-      '@graphql-tools/url-loader': 8.0.33(@types/node@20.19.9)(bufferutil@4.0.9)(crossws@0.3.5)(graphql@16.11.0)(utf-8-validate@5.0.10)
+      '@graphql-tools/url-loader': 8.0.33(@types/node@22.17.0)(bufferutil@4.0.9)(crossws@0.3.5)(graphql@16.11.0)(utf-8-validate@5.0.10)
       '@graphql-tools/utils': 10.9.1(graphql@16.11.0)
       '@types/js-yaml': 4.0.9
       '@whatwg-node/fetch': 0.10.9
       chalk: 4.1.2
-      debug: 4.4.1
+      debug: 4.4.3
       dotenv: 16.6.1
       graphql: 16.11.0
       graphql-request: 6.1.0(graphql@16.11.0)
@@ -9936,10 +10157,10 @@ snapshots:
       graphql: 16.11.0
       tslib: 2.8.1
 
-  '@graphql-tools/url-loader@8.0.33(@types/node@20.19.9)(bufferutil@4.0.9)(crossws@0.3.5)(graphql@16.11.0)(utf-8-validate@5.0.10)':
+  '@graphql-tools/url-loader@8.0.33(@types/node@22.17.0)(bufferutil@4.0.9)(crossws@0.3.5)(graphql@16.11.0)(utf-8-validate@5.0.10)':
     dependencies:
       '@graphql-tools/executor-graphql-ws': 2.0.6(bufferutil@4.0.9)(crossws@0.3.5)(graphql@16.11.0)(utf-8-validate@5.0.10)
-      '@graphql-tools/executor-http': 1.3.3(@types/node@20.19.9)(graphql@16.11.0)
+      '@graphql-tools/executor-http': 1.3.3(@types/node@22.17.0)(graphql@16.11.0)
       '@graphql-tools/executor-legacy-ws': 1.1.19(bufferutil@4.0.9)(graphql@16.11.0)(utf-8-validate@5.0.10)
       '@graphql-tools/utils': 10.9.1(graphql@16.11.0)
       '@graphql-tools/wrap': 10.1.3(graphql@16.11.0)
@@ -10110,11 +10331,6 @@ snapshots:
     dependencies:
       minipass: 7.1.2
 
-  '@jridgewell/gen-mapping@0.3.12':
-    dependencies:
-      '@jridgewell/sourcemap-codec': 1.5.4
-      '@jridgewell/trace-mapping': 0.3.29
-
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
@@ -10127,14 +10343,7 @@ snapshots:
       '@jridgewell/gen-mapping': 0.3.13
       '@jridgewell/trace-mapping': 0.3.31
 
-  '@jridgewell/sourcemap-codec@1.5.4': {}
-
   '@jridgewell/sourcemap-codec@1.5.5': {}
-
-  '@jridgewell/trace-mapping@0.3.29':
-    dependencies:
-      '@jridgewell/resolve-uri': 3.1.2
-      '@jridgewell/sourcemap-codec': 1.5.4
 
   '@jridgewell/trace-mapping@0.3.31':
     dependencies:
@@ -10306,7 +10515,7 @@ snapshots:
       debug: 4.4.3
       lodash: 4.17.21
       pony-cause: 2.1.11
-      semver: 7.7.2
+      semver: 7.7.3
       uuid: 9.0.1
     transitivePeerDependencies:
       - supports-color
@@ -10330,7 +10539,7 @@ snapshots:
       '@types/debug': 4.1.12
       debug: 4.4.3
       pony-cause: 2.1.11
-      semver: 7.7.2
+      semver: 7.7.3
       uuid: 9.0.1
     transitivePeerDependencies:
       - supports-color
@@ -10344,7 +10553,7 @@ snapshots:
       '@types/debug': 4.1.12
       debug: 4.4.3
       pony-cause: 2.1.11
-      semver: 7.7.2
+      semver: 7.7.3
       uuid: 9.0.1
     transitivePeerDependencies:
       - supports-color
@@ -11797,7 +12006,7 @@ snapshots:
 
   '@sentry/core@10.27.0': {}
 
-  '@sentry/nextjs@10.27.0(@opentelemetry/context-async-hooks@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/core@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.2.0(@opentelemetry/api@1.9.0))(next@15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)(webpack@5.101.0)':
+  '@sentry/nextjs@10.27.0(@opentelemetry/context-async-hooks@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/core@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.2.0(@opentelemetry/api@1.9.0))(next@15.5.2(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)(webpack@5.101.0)':
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/semantic-conventions': 1.38.0
@@ -11936,7 +12145,7 @@ snapshots:
       '@parcel/watcher': 2.5.1
       '@tailwindcss/node': 4.1.11
       '@tailwindcss/oxide': 4.1.11
-      enhanced-resolve: 5.18.2
+      enhanced-resolve: 5.18.3
       mri: 1.2.0
       picocolors: 1.1.1
       tailwindcss: 4.1.11
@@ -11944,8 +12153,8 @@ snapshots:
   '@tailwindcss/node@4.1.11':
     dependencies:
       '@ampproject/remapping': 2.3.0
-      enhanced-resolve: 5.18.2
-      jiti: 2.5.1
+      enhanced-resolve: 5.18.3
+      jiti: 2.6.1
       lightningcss: 1.30.1
       magic-string: 0.30.17
       source-map-js: 1.2.1
@@ -12222,7 +12431,7 @@ snapshots:
 
   '@tsconfig/node16@1.0.4': {}
 
-  '@turbo/gen@2.5.8(@types/node@24.10.0)(typescript@5.8.3)':
+  '@turbo/gen@2.5.8(@types/node@22.17.0)(typescript@5.8.3)':
     dependencies:
       '@turbo/workspaces': 2.5.8
       commander: 10.0.1
@@ -12232,7 +12441,7 @@ snapshots:
       node-plop: 0.26.3
       picocolors: 1.0.1
       proxy-agent: 6.5.0
-      ts-node: 10.9.2(@types/node@24.10.0)(typescript@5.8.3)
+      ts-node: 10.9.2(@types/node@22.17.0)(typescript@5.8.3)
       update-check: 1.5.4
       validate-npm-package-name: 5.0.1
     transitivePeerDependencies:
@@ -12312,7 +12521,7 @@ snapshots:
   '@types/glob@7.2.0':
     dependencies:
       '@types/minimatch': 6.0.0
-      '@types/node': 24.7.1
+      '@types/node': 24.10.0
 
   '@types/hast@3.0.4':
     dependencies:
@@ -12344,17 +12553,13 @@ snapshots:
 
   '@types/minimatch@6.0.0':
     dependencies:
-      minimatch: 9.0.5
+      minimatch: 10.1.1
 
   '@types/ms@2.1.0': {}
 
   '@types/mysql@2.15.27':
     dependencies:
       '@types/node': 24.10.0
-
-  '@types/node@20.19.9':
-    dependencies:
-      undici-types: 6.21.0
 
   '@types/node@22.17.0':
     dependencies:
@@ -12363,10 +12568,6 @@ snapshots:
   '@types/node@24.10.0':
     dependencies:
       undici-types: 7.16.0
-
-  '@types/node@24.7.1':
-    dependencies:
-      undici-types: 7.14.0
 
   '@types/pg-pool@2.0.6':
     dependencies:
@@ -12392,7 +12593,7 @@ snapshots:
 
   '@types/through@0.0.33':
     dependencies:
-      '@types/node': 24.7.1
+      '@types/node': 24.10.0
 
   '@types/tinycolor2@1.4.6': {}
 
@@ -12408,7 +12609,7 @@ snapshots:
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 24.7.1
+      '@types/node': 24.10.0
 
   '@typescript-eslint/eslint-plugin@8.38.0(@typescript-eslint/parser@8.38.0(eslint@9.32.0(jiti@2.6.1))(typescript@5.8.3))(eslint@9.32.0(jiti@2.6.1))(typescript@5.8.3)':
     dependencies:
@@ -12433,7 +12634,7 @@ snapshots:
       '@typescript-eslint/types': 8.38.0
       '@typescript-eslint/typescript-estree': 8.38.0(typescript@5.8.3)
       '@typescript-eslint/visitor-keys': 8.38.0
-      debug: 4.4.1
+      debug: 4.4.3
       eslint: 9.32.0(jiti@2.6.1)
       typescript: 5.8.3
     transitivePeerDependencies:
@@ -12477,11 +12678,11 @@ snapshots:
       '@typescript-eslint/tsconfig-utils': 8.38.0(typescript@5.8.3)
       '@typescript-eslint/types': 8.38.0
       '@typescript-eslint/visitor-keys': 8.38.0
-      debug: 4.4.1
+      debug: 4.4.3
       fast-glob: 3.3.3
       is-glob: 4.0.3
       minimatch: 9.0.5
-      semver: 7.7.2
+      semver: 7.7.3
       ts-api-utils: 2.1.0(typescript@5.8.3)
       typescript: 5.8.3
     transitivePeerDependencies:
@@ -12532,7 +12733,7 @@ snapshots:
     dependencies:
       '@vanilla-extract/css': 1.17.3
 
-  '@vercel/analytics@1.5.0(next@15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)':
+  '@vercel/analytics@1.5.0(next@15.5.2(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)':
     optionalDependencies:
       next: 15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       react: 19.1.1
@@ -13499,13 +13700,6 @@ snapshots:
 
   brorand@1.1.0: {}
 
-  browserslist@4.25.1:
-    dependencies:
-      caniuse-lite: 1.0.30001731
-      electron-to-chromium: 1.5.192
-      node-releases: 2.0.19
-      update-browserslist-db: 1.1.3(browserslist@4.25.1)
-
   browserslist@4.27.0:
     dependencies:
       baseline-browser-mapping: 2.8.25
@@ -14099,8 +14293,6 @@ snapshots:
       '@noble/curves': 1.9.6
       '@noble/hashes': 1.8.0
 
-  electron-to-chromium@1.5.192: {}
-
   electron-to-chromium@1.5.248: {}
 
   elliptic@6.6.1:
@@ -14136,11 +14328,6 @@ snapshots:
       - utf-8-validate
 
   engine.io-parser@5.2.3: {}
-
-  enhanced-resolve@5.18.2:
-    dependencies:
-      graceful-fs: 4.2.11
-      tapable: 2.2.2
 
   enhanced-resolve@5.18.3:
     dependencies:
@@ -14389,7 +14576,7 @@ snapshots:
       ajv: 6.12.6
       chalk: 4.1.2
       cross-spawn: 7.0.6
-      debug: 4.4.1
+      debug: 4.4.3
       escape-string-regexp: 4.0.0
       eslint-scope: 8.4.0
       eslint-visitor-keys: 4.2.1
@@ -14786,17 +14973,17 @@ snapshots:
 
   graphemer@1.4.0: {}
 
-  graphql-config@5.1.5(@types/node@20.19.9)(bufferutil@4.0.9)(crossws@0.3.5)(graphql@16.11.0)(typescript@5.8.3)(utf-8-validate@5.0.10):
+  graphql-config@5.1.5(@types/node@22.17.0)(bufferutil@4.0.9)(crossws@0.3.5)(graphql@16.11.0)(typescript@5.8.3)(utf-8-validate@5.0.10):
     dependencies:
       '@graphql-tools/graphql-file-loader': 8.0.22(graphql@16.11.0)
       '@graphql-tools/json-file-loader': 8.0.20(graphql@16.11.0)
       '@graphql-tools/load': 8.1.2(graphql@16.11.0)
       '@graphql-tools/merge': 9.1.1(graphql@16.11.0)
-      '@graphql-tools/url-loader': 8.0.33(@types/node@20.19.9)(bufferutil@4.0.9)(crossws@0.3.5)(graphql@16.11.0)(utf-8-validate@5.0.10)
+      '@graphql-tools/url-loader': 8.0.33(@types/node@22.17.0)(bufferutil@4.0.9)(crossws@0.3.5)(graphql@16.11.0)(utf-8-validate@5.0.10)
       '@graphql-tools/utils': 10.9.1(graphql@16.11.0)
       cosmiconfig: 8.3.6(typescript@5.8.3)
       graphql: 16.11.0
-      jiti: 2.5.1
+      jiti: 2.6.1
       minimatch: 9.0.5
       string-env-interpolation: 1.0.1
       tslib: 2.8.1
@@ -14822,6 +15009,14 @@ snapshots:
     dependencies:
       graphql: 16.11.0
       tslib: 2.8.1
+
+  graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)):
+    dependencies:
+      graphql: 16.11.0
+    optionalDependencies:
+      crossws: 0.3.5
+      ws: 8.18.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+    optional: true
 
   graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.3(bufferutil@4.0.9)(utf-8-validate@5.0.10)):
     dependencies:
@@ -15265,8 +15460,6 @@ snapshots:
 
   jiti@1.21.7: {}
 
-  jiti@2.5.1: {}
-
   jiti@2.6.1: {}
 
   jose@5.10.0: {}
@@ -15337,10 +15530,10 @@ snapshots:
 
   keyvaluestorage-interface@1.0.0: {}
 
-  knip@5.64.3(@types/node@24.7.1)(typescript@5.8.3):
+  knip@5.64.3(@types/node@22.17.0)(typescript@5.8.3):
     dependencies:
       '@nodelib/fs.walk': 1.2.8
-      '@types/node': 24.7.1
+      '@types/node': 22.17.0
       fast-glob: 3.3.3
       formatly: 0.3.0
       jiti: 2.6.1
@@ -15515,7 +15708,7 @@ snapshots:
 
   magic-string@0.30.17:
     dependencies:
-      '@jridgewell/sourcemap-codec': 1.5.4
+      '@jridgewell/sourcemap-codec': 1.5.5
 
   magic-string@0.30.8:
     dependencies:
@@ -15703,9 +15896,9 @@ snapshots:
 
   merge2@1.4.1: {}
 
-  meros@1.3.1(@types/node@20.19.9):
+  meros@1.3.1(@types/node@22.17.0):
     optionalDependencies:
-      '@types/node': 20.19.9
+      '@types/node': 22.17.0
 
   mersenne-twister@1.1.0: {}
 
@@ -16059,8 +16252,6 @@ snapshots:
       lodash.get: 4.4.2
       mkdirp: 0.5.6
       resolve: 1.22.10
-
-  node-releases@2.0.19: {}
 
   node-releases@2.0.27: {}
 
@@ -17036,7 +17227,8 @@ snapshots:
 
   semver@7.6.2: {}
 
-  semver@7.7.2: {}
+  semver@7.7.2:
+    optional: true
 
   semver@7.7.3: {}
 
@@ -17377,7 +17569,7 @@ snapshots:
 
   sucrase@3.35.0:
     dependencies:
-      '@jridgewell/gen-mapping': 0.3.12
+      '@jridgewell/gen-mapping': 0.3.13
       commander: 4.1.1
       glob: 12.0.0
       lines-and-columns: 1.2.4
@@ -17423,8 +17615,6 @@ snapshots:
   tailwindcss@4.1.11: {}
 
   tailwindcss@4.1.14: {}
-
-  tapable@2.2.2: {}
 
   tapable@2.3.0: {}
 
@@ -17534,14 +17724,14 @@ snapshots:
 
   ts-log@2.2.7: {}
 
-  ts-node@10.9.2(@types/node@24.10.0)(typescript@5.8.3):
+  ts-node@10.9.2(@types/node@22.17.0)(typescript@5.8.3):
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
       '@tsconfig/node10': 1.0.11
       '@tsconfig/node12': 1.0.11
       '@tsconfig/node14': 1.0.3
       '@tsconfig/node16': 1.0.4
-      '@types/node': 24.10.0
+      '@types/node': 22.17.0
       acorn: 8.15.0
       acorn-walk: 8.3.4
       arg: 4.1.3
@@ -17566,7 +17756,7 @@ snapshots:
       cac: 6.7.14
       chokidar: 4.0.3
       consola: 3.4.2
-      debug: 4.4.1
+      debug: 4.4.3
       esbuild: 0.25.8
       fix-dts-default-cjs-exports: 1.0.1
       joycon: 3.1.1
@@ -17588,50 +17778,23 @@ snapshots:
       - tsx
       - yaml
 
-  turbo-darwin-64@2.5.6:
-    optional: true
-
   turbo-darwin-64@2.6.0:
-    optional: true
-
-  turbo-darwin-arm64@2.5.6:
     optional: true
 
   turbo-darwin-arm64@2.6.0:
     optional: true
 
-  turbo-linux-64@2.5.6:
-    optional: true
-
   turbo-linux-64@2.6.0:
-    optional: true
-
-  turbo-linux-arm64@2.5.6:
     optional: true
 
   turbo-linux-arm64@2.6.0:
     optional: true
 
-  turbo-windows-64@2.5.6:
-    optional: true
-
   turbo-windows-64@2.6.0:
-    optional: true
-
-  turbo-windows-arm64@2.5.6:
     optional: true
 
   turbo-windows-arm64@2.6.0:
     optional: true
-
-  turbo@2.5.6:
-    optionalDependencies:
-      turbo-darwin-64: 2.5.6
-      turbo-darwin-arm64: 2.5.6
-      turbo-linux-64: 2.5.6
-      turbo-linux-arm64: 2.5.6
-      turbo-windows-64: 2.5.6
-      turbo-windows-arm64: 2.5.6
 
   turbo@2.6.0:
     optionalDependencies:
@@ -17732,8 +17895,6 @@ snapshots:
 
   undici-types@6.21.0: {}
 
-  undici-types@7.14.0: {}
-
   undici-types@7.16.0: {}
 
   unified@11.0.5:
@@ -17794,12 +17955,6 @@ snapshots:
       ufo: 1.6.1
     optionalDependencies:
       idb-keyval: 6.2.2
-
-  update-browserslist-db@1.1.3(browserslist@4.25.1):
-    dependencies:
-      browserslist: 4.25.1
-      escalade: 3.2.0
-      picocolors: 1.1.1
 
   update-browserslist-db@1.1.4(browserslist@4.27.0):
     dependencies:
