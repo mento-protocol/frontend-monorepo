@@ -21,7 +21,7 @@ function CoinInput({
 
     // Convert comma to dot for decimal separator
     if (currentValue.includes(",")) {
-      currentValue = currentValue.replace(",", ".");
+      currentValue = currentValue.replace(/,/g, ".");
       eventForCallback = {
         ...e,
         target: { ...e.target, value: currentValue },
