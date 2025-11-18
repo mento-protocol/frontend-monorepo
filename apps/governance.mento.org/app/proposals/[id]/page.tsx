@@ -11,12 +11,35 @@ const GET_PROPOSAL_METADATA = `
   }
 `;
 
+/**
+ * Safely sanitize text for metadata extraction, removing all HTML tags including <script> tags
+ * Server-safe implementation that doesn't require DOM APIs
+ */
 function sanitizeMetaText(input: string): string {
-  return input
+  if (!input) return "";
+
+  // Remove dangerous script tags and event handlers first (case-insensitive)
+  let sanitized = input
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+    .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, "")
+    .replace(/on\w+\s*=\s*["'][^"']*["']/gi, "") // Remove event handlers like onclick="..."
+    .replace(/on\w+\s*=\s*[^\s>]*/gi, "") // Remove event handlers without quotes
+    .replace(/javascript:/gi, "") // Remove javascript: protocol
+    .replace(/data:text\/html/gi, ""); // Remove data URIs with HTML
+
+  // Extract anchor tag content BEFORE removing all tags to preserve link text
+  // This must happen before the general tag removal to preserve content within <a> tags
+  sanitized = sanitized.replace(/<a[^>]*>(.*?)<\/a>/gi, "$1");
+
+  // Remove all HTML tags (including nested and malformed ones)
+  // This regex handles cases like <script>, <SCRIPT>, <script >, etc.
+  sanitized = sanitized.replace(/<[^>]*>/g, "");
+
+  // Extract text content by removing markdown and remaining HTML entities
+  return sanitized
     .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/<a[^>]*>(.*?)<\/a>/gi, "$1")
-    .replace(/<[^>]*>/g, "")
+    .replace(/&[#\w]+;/g, " ") // Replace HTML entities with space
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/\*(.*?)\*/g, "$1")
     .replace(/_(.*?)_/g, "$1")
