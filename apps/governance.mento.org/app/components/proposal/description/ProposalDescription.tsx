@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import DOMPurify from "dompurify";
+import { BASE_ALLOWED_TAGS, ALLOWED_ATTR } from "@/lib/sanitization";
 
 function decodeHtmlEntities(text: string): string {
   const textArea = document.createElement("textarea");
@@ -16,27 +17,8 @@ function sanitizeHtml(html: string): string {
   const decoded = decodeHtmlEntities(html);
   // Then sanitize to remove any dangerous content like <script> tags
   return DOMPurify.sanitize(decoded, {
-    ALLOWED_TAGS: [
-      "p",
-      "br",
-      "strong",
-      "em",
-      "u",
-      "h1",
-      "h2",
-      "h3",
-      "h4",
-      "h5",
-      "h6",
-      "ul",
-      "ol",
-      "li",
-      "a",
-      "blockquote",
-      "code",
-      "pre",
-    ],
-    ALLOWED_ATTR: ["href", "target", "rel"],
+    ALLOWED_TAGS: BASE_ALLOWED_TAGS,
+    ALLOWED_ATTR,
   });
 }
 

@@ -34,6 +34,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAccount } from "@repo/web3/wagmi";
 import { ConnectButton } from "@repo/web3";
 import {
+  BASE_ALLOWED_TAGS,
+  ADDITIONAL_ALLOWED_TAGS,
+  ALLOWED_ATTR,
+} from "@/lib/sanitization";
+import {
   CreateProposalProvider,
   CreateProposalStep,
   useCreateProposal,
@@ -472,28 +477,8 @@ const CollapsibleHtmlContent = ({ htmlContent }: { htmlContent: string }) => {
         ref={contentRef}
         dangerouslySetInnerHTML={{
           __html: DOMPurify.sanitize(htmlContent, {
-            ALLOWED_TAGS: [
-              "p",
-              "br",
-              "strong",
-              "em",
-              "u",
-              "h1",
-              "h2",
-              "h3",
-              "h4",
-              "h5",
-              "h6",
-              "ul",
-              "ol",
-              "li",
-              "a",
-              "blockquote",
-              "code",
-              "pre",
-              "hr",
-            ],
-            ALLOWED_ATTR: ["href", "target", "rel"],
+            ALLOWED_TAGS: [...BASE_ALLOWED_TAGS, ...ADDITIONAL_ALLOWED_TAGS.hr],
+            ALLOWED_ATTR,
           }),
         }}
         data-testid="proposalDetailsContent"

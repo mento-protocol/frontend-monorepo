@@ -27,6 +27,10 @@ function sanitizeMetaText(input: string): string {
     .replace(/javascript:/gi, "") // Remove javascript: protocol
     .replace(/data:text\/html/gi, ""); // Remove data URIs with HTML
 
+  // Extract anchor tag content BEFORE removing all tags to preserve link text
+  // This must happen before the general tag removal to preserve content within <a> tags
+  sanitized = sanitized.replace(/<a[^>]*>(.*?)<\/a>/gi, "$1");
+
   // Remove all HTML tags (including nested and malformed ones)
   // This regex handles cases like <script>, <SCRIPT>, <script >, etc.
   sanitized = sanitized.replace(/<[^>]*>/g, "");

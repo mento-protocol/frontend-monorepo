@@ -46,6 +46,8 @@ jobs:
 
     steps:
       - name: Check out code
+        # Using commit SHA instead of version tag for security: pins to a specific commit
+        # to prevent supply chain attacks if a version tag is compromised or moved
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
         with:
           fetch-depth: 2
