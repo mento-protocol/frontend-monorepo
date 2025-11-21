@@ -16,6 +16,7 @@ import type { SwapDirection } from "@/features/swap/types";
 import {
   calcExchangeRate,
   invertExchangeRate,
+  isValidTokenPair,
   parseInputExchangeAmount,
 } from "@/features/swap/utils";
 import { fromWei } from "@/utils/amount";
@@ -69,11 +70,15 @@ export function useSwapQuote(
       debouncedAmount != null &&
       debouncedAmount !== "" &&
       Number(debouncedAmount) > 0;
-    const isValidTokenPair =
-      tokenInSymbol !== tokenOutSymbol && !!fromToken && !!toToken;
-    const isQueryEnabled = isValidAmount && isValidTokenPair;
+    const isValidPair = isValidTokenPair(
+      tokenInSymbol,
+      tokenOutSymbol,
+      fromToken,
+      toToken,
+    );
+    const isQueryEnabled = isValidAmount && isValidPair;
 
-    return { isValidAmount, isValidTokenPair, isQueryEnabled };
+    return { isValidAmount, isValidTokenPair: isValidPair, isQueryEnabled };
   }, [debouncedAmount, tokenInSymbol, tokenOutSymbol, fromToken, toToken]);
 
   // Memoize query key to improve cache efficiency
