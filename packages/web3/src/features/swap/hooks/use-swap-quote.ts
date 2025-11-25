@@ -244,6 +244,17 @@ export function useSwapQuote(
     // (ethers errors sometimes have the revert reason in error.reason)
     const errorMsg =
       error.message || (error as { reason?: string }).reason || String(error);
+
+    // Check if this is a trading suspension error - if so, skip showing toast
+    // since the trading suspension check hook already handles it
+    const isTradingSuspensionError = errorMsg.includes("Trading is suspended");
+
+    if (isTradingSuspensionError) {
+      // Still log the error but don't show toast (trading suspension check handles it)
+      logger.error(error);
+      return null;
+    }
+
     return getToastErrorMessage(errorMsg, {
       fromTokenSymbol: fromToken?.symbol,
       toTokenSymbol: toToken?.symbol,

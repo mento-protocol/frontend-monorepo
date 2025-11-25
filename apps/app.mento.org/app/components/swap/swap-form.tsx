@@ -514,14 +514,16 @@ export default function SwapForm() {
 
   // Show trading suspension error toast and dismiss it when switching to a tradable pair
   useEffect(() => {
-    const hadError = prevTradingSuspensionErrorRef.current !== null;
+    const prevError = prevTradingSuspensionErrorRef.current;
     const hasError = tradingSuspensionError !== null;
+    const errorChanged = prevError !== tradingSuspensionError;
 
-    if (hasError) {
+    // Only show toast if error changed (not on every render)
+    if (hasError && errorChanged) {
       toast.error(tradingSuspensionError, {
         duration: 20000,
       });
-    } else if (hadError && !hasError) {
+    } else if (prevError !== null && !hasError) {
       // Dismiss error toast when switching from suspended to tradable pair
       toast.dismiss();
     }
