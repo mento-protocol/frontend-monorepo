@@ -159,9 +159,9 @@ export const LockList = () => {
   const explorerUrl = currentChain.blockExplorers?.default?.url;
   const now = new Date();
 
-  const activeLocks = (locks ?? []).filter(
-    (l) => now < l.expiration && !l.replacedBy,
-  );
+  const activeLocks = (locks ?? [])
+    .filter((l) => now < l.expiration && !l.replacedBy)
+    .sort((a, b) => +new Date(a.expiration) - +new Date(b.expiration));
   const pastLocks = (locks ?? [])
     .filter((l) => now >= l.expiration && !l.replacedBy)
     .sort((a, b) => +new Date(a.expiration) - +new Date(b.expiration));
