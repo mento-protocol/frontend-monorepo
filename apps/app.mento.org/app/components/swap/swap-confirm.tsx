@@ -132,8 +132,6 @@ export function SwapConfirm() {
     skipApprove,
   });
 
-  // USD values are now calculated by useOptimizedSwapQuote hook
-
   // Calculate sell USD value with fallback
   const sellUSDValue = useMemo(() => {
     // First check if we have a value from formValues

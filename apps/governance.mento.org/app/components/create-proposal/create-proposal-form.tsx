@@ -3,6 +3,7 @@ import { useProposals, useProposalThreshold } from "@/contracts/governor";
 import { formatUnitsWithThousandSeparators, useTokens } from "@repo/web3";
 import TurndownService from "turndown";
 import ReactMarkdown from "react-markdown";
+import DOMPurify from "dompurify";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -33,13 +34,34 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAccount } from "@repo/web3/wagmi";
 import { ConnectButton } from "@repo/web3";
 import {
+  BASE_ALLOWED_TAGS,
+  ADDITIONAL_ALLOWED_TAGS,
+  ALLOWED_ATTR,
+} from "@/lib/sanitization";
+import {
   CreateProposalProvider,
   CreateProposalStep,
   useCreateProposal,
 } from "./create-proposal-provider";
 
+/**
+ * Safely extract text content from HTML, removing all tags including <script> tags
+ * Uses DOMPurify to ensure dangerous content is removed before text extraction
+ */
+function extractTextFromHtml(html: string): string {
+  // DOMPurify with ALLOWED_TAGS: [] removes all HTML tags including script tags
+  // This is the primary and most reliable sanitization method
+  const sanitized = DOMPurify.sanitize(html, { ALLOWED_TAGS: [] });
+
+  // Extract text content - DOMPurify already removed all tags, so this is just
+  // for extracting the text content. No need for additional regex filtering since
+  // DOMPurify handles all edge cases including malformed tags, script tags with
+  // spaces, etc.
+  return sanitized.trim();
+}
+
 const isTextInvalid = (html: string) => {
-  const text = html.replace(/<[^>]*>/g, "").trim();
+  const text = extractTextFromHtml(html);
   return text.length < 100;
 };
 
@@ -157,7 +179,7 @@ const ProposalDetailsStep = () => {
   const rawProposalDescription = useMemo(() => {
     // For validation, we need to check the length of the text content
     // Since we're storing markdown in newProposal.description, we need to check the HTML content
-    return htmlContent.replace(/<[^>]*>/g, "");
+    return extractTextFromHtml(htmlContent);
   }, [htmlContent]);
 
   return (
@@ -453,7 +475,12 @@ const CollapsibleHtmlContent = ({ htmlContent }: { htmlContent: string }) => {
     >
       <div
         ref={contentRef}
-        dangerouslySetInnerHTML={{ __html: htmlContent }}
+        dangerouslySetInnerHTML={{
+          __html: DOMPurify.sanitize(htmlContent, {
+            ALLOWED_TAGS: [...BASE_ALLOWED_TAGS, ...ADDITIONAL_ALLOWED_TAGS.hr],
+            ALLOWED_ATTR,
+          }),
+        }}
         data-testid="proposalDetailsContent"
       />
       {showButton && open && (

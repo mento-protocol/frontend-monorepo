@@ -307,7 +307,7 @@ export const CreateProposalProvider = ({
       {creationState === "ready" ? children : <Loader />}
       <CreateProposalTxDialog
         title="Create New Proposal"
-        message="Please sign the transaction in your wallet to publish your proposal onchain. You will be redirected to the proposal page once the transaction is successful."
+        message="Please sign the proposal creation transaction in your wallet. You will be redirected to the proposal page once the transaction is successful."
         isOpen={isTxDialogOpen}
         onClose={() => setTxDialogOpen(false)}
         retry={retry}

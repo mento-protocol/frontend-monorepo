@@ -35,23 +35,21 @@
     "dev": "pnpm dev:js",
     "dev:js": "tsup --watch",
     "generate:component": "turbo gen react-component",
-    "lint": "eslint . --max-warnings 100"
+    "lint": "eslint . --max-warnings 100",
+    "watch": "pnpm dev:js"
   },
   "dependencies": {
     "@ethersproject/address": "^5.8.0",
     "@ethersproject/units": "^5.8.0",
-    "@mento-protocol/mento-sdk": "^1.15.4",
+    "@mento-protocol/mento-sdk": "^1.15.5",
     "@metamask/jazzicon": "https://github.com/jmrossy/jazzicon#7a8df28",
     "@repo/typescript-config": "workspace:*",
     "@repo/ui": "workspace:*",
     "bignumber.js": "^9.3.0",
-    "decimal.js-light": "^2.5.1",
     "ethers": "^5.8.0",
     "jotai": "^2.12.5",
-    "jsbi": "^4.3.2",
     "lucide-react": "^0.488.0",
-    "react-hook-form": "^7.58.1",
-    "toformat": "^2.0.0"
+    "react-hook-form": "^7.58.1"
   },
   "devDependencies": {
     "react": "^19.1.0",

@@ -5,17 +5,17 @@
   "type": "module",
   "scripts": {
     "build": "next build --turbopack",
-    "dev": "next dev --turbopack --port 3000",
+    "dev": "concurrently \"pnpm --filter @repo/web3 watch\" \"pnpm --filter @repo/ui watch\" \"next dev --turbopack --port 3000\" --names \"web3,ui,next\" --prefix-colors \"bgBlue,bgGreen,bgMagenta\"",
     "lint": "npx @trunkio/launcher check .",
     "start": "next start"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.0.1",
-    "@mento-protocol/mento-sdk": "^1.15.4",
+    "@mento-protocol/mento-sdk": "^1.15.5",
     "@rainbow-me/rainbowkit": "^2.2.8",
     "@repo/ui": "workspace:*",
     "@repo/web3": "workspace:*",
-    "@sentry/nextjs": "^9.30.0",
+    "@sentry/nextjs": "^10.27.0",
     "@t3-oss/env-nextjs": "^0.13.4",
     "@tanstack/react-query": "^5.83.0",
     "@vercel/analytics": "^1.5.0",
@@ -40,12 +40,10 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^9.1.2",
     "eslint": "^9.29.0",
     "pino-pretty": "^13.1.2",
     "postcss": "^8.5.3",
     "typescript": "^5.8.3"
-  },
-  "volta": {
-    "node": "18.20.7"
   }
 }
