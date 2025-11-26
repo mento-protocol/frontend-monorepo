@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  isAddress,
   createPublicClient,
   http,
   AbiFunction,
   PublicClient,
+  type Address,
 } from "viem";
 import { celo } from "viem/chains";
+import { validateAddress } from "@repo/web3";
 import { getImplementationAddress } from "./getImplementationAddress";
 import {
   fetchAbi,
@@ -35,7 +36,10 @@ export async function GET(request: NextRequest) {
 
     const address = addressParam.toLowerCase();
 
-    if (!isAddress(address)) {
+    try {
+      validateAddress(address, "contract ABI API");
+    } catch (error) {
+      console.error(`Invalid address format: ${address}`, error);
       return NextResponse.json(
         { error: "Invalid address format" },
         { status: 400 },
@@ -91,7 +95,7 @@ export async function GET(request: NextRequest) {
       if (isProxy) {
         const implementationAddress = await getImplementationAddress(
           publicClient,
-          address,
+          address as Address,
         );
 
         if (implementationAddress) {
