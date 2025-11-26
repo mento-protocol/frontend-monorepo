@@ -558,6 +558,11 @@ export default function SwapForm() {
       }
     }
 
+    // Clear waiting flag when trading is suspended (no quote will be fetched)
+    if (isTradingSuspended && isWaitingForQuote) {
+      setIsWaitingForQuote(false);
+    }
+
     // Clear waiting flag when we have a valid quote and fetching is done
     if (
       isWaitingForQuote &&
@@ -575,11 +580,14 @@ export default function SwapForm() {
     isWaitingForQuote,
     quote,
     quoteFetching,
+    isTradingSuspended,
   ]);
 
   // Button loading state: show loading when quote is being fetched or waiting after token change
+  // Don't show loading when trading is suspended (no quote will be fetched)
   const isButtonLoading = useMemo(
     () =>
+      !isTradingSuspended &&
       (quoteFetching || isWaitingForQuote) &&
       hasAmount &&
       !!tokenInSymbol &&
@@ -590,6 +598,7 @@ export default function SwapForm() {
       hasAmount,
       tokenInSymbol,
       tokenOutSymbol,
+      isTradingSuspended,
     ],
   );
 
