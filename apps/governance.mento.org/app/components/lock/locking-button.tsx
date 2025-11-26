@@ -12,6 +12,7 @@ import {
 } from "@/contracts/locking/config";
 import { LockWithExpiration } from "@/contracts/types";
 import { useCurrentChain } from "@/hooks/use-current-chain";
+import { useLockAmountsFromWithdrawals } from "@/hooks/use-lock-amounts-from-withdrawals";
 import { Button, cn, toast } from "@repo/ui";
 import { isValidAddress, useContracts } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
@@ -58,6 +59,24 @@ export const LockingButton = ({
   const currentChain = useCurrentChain();
   const contracts = useContracts();
   const { currentWeek: currentLockingWeek } = useLockingWeek();
+
+  // Get accurate remaining amounts accounting for withdrawals
+  const locksForWithdrawalCalc = useMemo(
+    () => (targetLock ? [targetLock] : []),
+    [targetLock],
+  );
+  const { lockAmountsMap } = useLockAmountsFromWithdrawals({
+    locks: locksForWithdrawalCalc,
+    address,
+  });
+
+  // Get the current remaining amount for this lock (after withdrawals)
+  const currentRemainingAmount = useMemo(() => {
+    if (!targetLock?.lockId) return undefined;
+    const amounts = lockAmountsMap.get(targetLock.lockId);
+    return amounts?.remainingMento;
+  }, [targetLock?.lockId, lockAmountsMap]);
+
   const [isTxDialogOpen, setIsTxDialogOpen] = useState(false);
   const [hasApprovedForCurrentRelock, setHasApprovedForCurrentRelock] =
     useState(false);
@@ -100,6 +119,16 @@ export const LockingButton = ({
       return BigInt(0);
     }
   }, [amount, isAmountFormatValid]);
+
+  // Calculate the total amount needed for relock approval
+  // The contract's rebalance function may need to transfer more than just the additional amount
+  // when there's vested tokens that have been withdrawn. Approve the new total to be safe.
+  // Use currentRemainingAmount if available, otherwise fall back to lock.amount
+  const approvalAmountForRelock = useMemo(() => {
+    if (!targetLock?.amount) return parsedAmount;
+    const baseAmount = currentRemainingAmount ?? BigInt(targetLock.amount);
+    return parsedAmount + baseAmount;
+  }, [parsedAmount, targetLock?.amount, currentRemainingAmount]);
 
   const isExtendingDuration = useMemo(() => {
     if (!targetLock?.expiration || !unlockDate) return false;
@@ -170,6 +199,7 @@ export const LockingButton = ({
     newSlope,
     additionalAmountToLock: parsedAmount,
     newDelegate: nextDelegate as `0x${string}`,
+    currentRemainingAmount,
     onConfirmation: () => {
       const explorerUrl = currentChain.blockExplorers?.default?.url;
       const explorerTxUrl = explorerUrl
@@ -274,7 +304,7 @@ export const LockingButton = ({
     if (needsApprovalForRelock) {
       approve.approveMento({
         target: contracts.Locking.address,
-        amount: parsedAmount,
+        amount: approvalAmountForRelock,
         onConfirmation: () => {
           setHasApprovedForCurrentRelock(true);
           submitRelock();
@@ -292,7 +322,7 @@ export const LockingButton = ({
     targetLock,
     approve,
     relock,
-    parsedAmount,
+    approvalAmountForRelock,
     contracts.Locking.address,
     needsApprovalForRelock,
   ]);

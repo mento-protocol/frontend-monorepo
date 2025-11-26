@@ -60,6 +60,8 @@ export const CreateLockProvider = ({
   const { watch, reset: resetForm } = useFormContext();
   const [isTxDialogOpen, setIsTxDialogOpen] = React.useState(false);
   const [createLockError, setCreateLockError] = React.useState(false);
+  const [hasApprovedForCurrentLock, setHasApprovedForCurrentLock] =
+    React.useState(false);
 
   const { address, chainId } = useAccount();
   const currentChain = useCurrentChain();
@@ -212,6 +214,7 @@ export const CreateLockProvider = ({
     approve.reset();
     setIsTxDialogOpen(true);
     setCreateLockError(false);
+    setHasApprovedForCurrentLock(false);
 
     // Always require approval when locking tokens
     if (parsedAmount > BigInt(0)) {
@@ -219,6 +222,7 @@ export const CreateLockProvider = ({
         target: contracts.Locking.address,
         amount: parsedAmount,
         onConfirmation: () => {
+          setHasApprovedForCurrentLock(true);
           lockMento();
         },
         onError: (error) => {
@@ -243,6 +247,7 @@ export const CreateLockProvider = ({
   const reset = React.useCallback(() => {
     setIsTxDialogOpen(false);
     setCreateLockError(false);
+    setHasApprovedForCurrentLock(false);
     approve.reset();
     lock.reset();
   }, [approve, lock]);
@@ -336,14 +341,13 @@ export const CreateLockProvider = ({
   ]);
 
   const TxMessage = () => {
+    const isApprovalPhase =
+      (approve.isAwaitingUserSignature || approve.isConfirming) &&
+      !hasApprovedForCurrentLock;
+
     return (
       <div className="flex min-h-4 flex-col gap-4">
-        {CreateLockApprovalStatus ===
-        CREATE_LOCK_APPROVAL_STATUS.NOT_APPROVED ? (
-          <span>Approve MENTO</span>
-        ) : (
-          <span>Lock MENTO</span>
-        )}
+        {isApprovalPhase ? <span>Approve MENTO</span> : <span>Lock MENTO</span>}
         {CreateLockTxStatus === CREATE_LOCK_TX_STATUS.AWAITING_SIGNATURE ? (
           <>Continue in wallet</>
         ) : CreateLockTxStatus === CREATE_LOCK_TX_STATUS.CONFIRMING_LOCK_TX ||

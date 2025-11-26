@@ -16,6 +16,8 @@ interface RelockMentoParams {
   newSlope: number;
   newCliff?: number;
   lock?: LockWithExpiration;
+  /** The current remaining amount in the lock after withdrawals. If not provided, falls back to lock.amount */
+  currentRemainingAmount?: bigint;
   onConfirmation?: () => void;
 }
 
@@ -25,6 +27,7 @@ export const useRelockMento = ({
   newCliff,
   newDelegate,
   newSlope,
+  currentRemainingAmount,
   onConfirmation,
 }: RelockMentoParams) => {
   const contracts = useContracts();
@@ -54,10 +57,10 @@ export const useRelockMento = ({
       return null;
     }
 
-    // Calculate new total for this specific lock (not all locks)
-    const currentLockAmount = BigInt(lock.amount);
-    const newTotalLockedAmount =
-      (additionalAmountToLock ?? 0n) + currentLockAmount;
+    // Use currentRemainingAmount if provided (accounts for withdrawals),
+    // otherwise fall back to lock.amount (original amount from subgraph)
+    const baseAmount = currentRemainingAmount ?? BigInt(lock.amount);
+    const newTotalLockedAmount = (additionalAmountToLock ?? 0n) + baseAmount;
 
     return [
       lock.lockId,
@@ -67,7 +70,14 @@ export const useRelockMento = ({
       newSlope,
       newCliff ?? lock.cliff,
     ] as const;
-  }, [lock, additionalAmountToLock, newCliff, newDelegate, newSlope]);
+  }, [
+    lock,
+    additionalAmountToLock,
+    newCliff,
+    newDelegate,
+    newSlope,
+    currentRemainingAmount,
+  ]);
 
   const lockingConfig = React.useMemo(() => {
     if (!lockingArgs) return null;

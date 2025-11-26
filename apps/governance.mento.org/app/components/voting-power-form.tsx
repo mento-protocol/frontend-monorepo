@@ -66,28 +66,24 @@ export default function VotingPowerForm() {
       };
     }
 
-    // 2) Total ve = wallet balanceOf (current effective voting power)
+    // Total ve = wallet balanceOf (current effective voting power) - source of truth
     const totalVe = Number(formatUnits(veMentoBalance.value, 18));
 
-    // 3) Own ve from hook (locks I own and delegate to myself)
-    const own = ownVe;
+    // Derive received veMENTO from on-chain balance for accuracy
+    // balanceOf = ownVe (kept for self) + receivedVe (from others)
+    // Note: delegatedOutVe is NOT in balanceOf - it's in the delegate's balance
+    const derivedReceivedVe = Math.max(0, totalVe - ownVe);
 
-    // 4) Received ve from hook (locks others own but delegate to me)
-    const received = receivedVe;
-
-    // 5) Delegated out ve from hook (locks I own but delegate to others)
-    const delegated = delegatedOutVe;
-
-    // 6) Withdrawable principal from contract (keeps button and summary in sync)
+    // Withdrawable principal from contract (keeps button and summary in sync)
     const withdrawableMento = Number(
       formatUnits(availableToWithdraw ?? 0n, 18),
     );
 
     return {
       lockedMento: Number(formatUnits(lockedAmount, 18)),
-      ownVe: own,
-      receivedVe: received,
-      delegatedOutVe: delegated,
+      ownVe,
+      receivedVe: derivedReceivedVe,
+      delegatedOutVe,
       totalVe,
       withdrawableMento,
     };
@@ -98,7 +94,6 @@ export default function VotingPowerForm() {
     availableToWithdraw,
     lockedAmount,
     delegatedOutVe,
-    receivedVe,
     ownVe,
   ]);
 
@@ -299,7 +294,7 @@ export default function VotingPowerForm() {
                       size="lg"
                       className="w-full"
                     >
-                      Create your First Lock
+                      Create a new lock
                     </Button>
                   </div>
                 )}
