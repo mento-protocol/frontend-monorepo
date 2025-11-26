@@ -1,6 +1,7 @@
 import { chainIdToChain } from "@/config/chains";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { logger } from "@/utils";
+import { toViemAddress, validateAddress } from "@/utils/addresses";
 import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
 import { toast } from "@repo/ui";
 import { useQuery } from "@tanstack/react-query";
@@ -63,7 +64,7 @@ export function useApproveTransaction({
   const [approveTxHash, setApproveTxHash] = useState<Address | null>(null);
 
   const { data, error: sendPrepError } = useEstimateGas({
-    to: txRequest?.to as Address | undefined,
+    to: toViemAddress(txRequest?.to),
     data: txRequest?.data as Hex | undefined,
   });
 
@@ -148,9 +149,10 @@ export function useApproveTransaction({
     }
 
     try {
+      validateAddress(txRequest.to, "approval transaction");
       const hash = await sendTransactionAsync({
         gas: data,
-        to: txRequest?.to as Address,
+        to: txRequest.to as Address,
         data: txRequest?.data as Hex,
       });
 

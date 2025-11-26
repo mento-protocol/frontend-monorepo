@@ -3,6 +3,7 @@ import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import type { SwapDirection } from "@/features/swap/types";
 import { parseInputExchangeAmount } from "@/features/swap/utils";
 import { fromWei } from "@/utils/amount";
+import { validateAddress } from "@/utils/addresses";
 import { logger } from "@/utils/logger";
 import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
 import { useQuery } from "@tanstack/react-query";
@@ -206,6 +207,8 @@ export function useGasEstimation({
           account: address as Address,
           method: isSwapIn ? "swapIn" : "swapOut",
         });
+
+        validateAddress(txRequest.to, "gas estimation");
 
         let estimatedGas: ethers.BigNumber;
 
