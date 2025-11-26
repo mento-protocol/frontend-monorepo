@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
     try {
       validateAddress(address, "contract info API");
     } catch (error) {
-      console.error(`Invalid address format: ${address}`, error);
+      console.error("Invalid address format: %s", address, error);
       return NextResponse.json(
         { error: "Invalid address format" },
         { status: 400 },
