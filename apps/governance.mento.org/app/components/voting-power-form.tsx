@@ -48,7 +48,7 @@ export default function VotingPowerForm() {
     useLockedAmount();
 
   // Use shared hook to compute delegated, received, and own veMENTO totals
-  const { delegatedOutVe, receivedVe, ownVe } = useVeMentoDelegationSummary({
+  const { delegatedOutVe, ownVe } = useVeMentoDelegationSummary({
     locks,
     address,
   });
