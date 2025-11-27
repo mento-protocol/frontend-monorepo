@@ -56,6 +56,7 @@ export const useApprove = () => {
               onConfirmation?.();
             } catch (error) {
               console.error(error);
+              onError?.(error as WriteContractErrorType);
             }
           },
           onError,

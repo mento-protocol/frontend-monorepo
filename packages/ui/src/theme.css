@@ -149,6 +149,13 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-executed: var(--executed);
+  --color-defeated: var(--defeated);
+  --color-succeeded: var(--succeeded);
+  --color-canceled: var(--canceled);
+  --color-pending: var(--pending);
+  --color-queued: var(--queued);
+  --color-active: var(--active);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

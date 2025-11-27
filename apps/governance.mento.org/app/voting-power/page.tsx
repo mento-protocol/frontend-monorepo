@@ -1,3 +1,5 @@
+import { LockList } from "@/components/lock-list";
+import { VoteTitle } from "@/components/voting/vote-title";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -8,7 +10,7 @@ import {
 } from "@repo/ui";
 import VotingPowerForm from "../components/voting-power-form";
 
-export default function CreateProposalPage() {
+export default function VotingPowerPage() {
   return (
     <main className="md:px-22 relative w-full px-4 py-8 md:py-16">
       <Breadcrumb className="mb-6">
@@ -22,13 +24,9 @@ export default function CreateProposalPage() {
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
-      <h1
-        className="mb-8 text-3xl font-medium md:mb-16 md:text-6xl"
-        data-testid="yourVotingPowerTitleLabel"
-      >
-        Your voting power
-      </h1>
+      <VoteTitle />
       <VotingPowerForm />
+      <LockList />
     </main>
   );
 }

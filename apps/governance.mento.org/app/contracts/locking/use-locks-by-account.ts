@@ -1,12 +1,12 @@
 import { getSubgraphApiName } from "@/config";
-import { useEnsureChainId } from "@repo/web3";
+import { LockWithExpiration } from "@/contracts/types";
 import {
   GetLocksQueryResult,
   useGetLocksQuery,
 } from "@/graphql/subgraph/generated/subgraph";
-import { LockWithExpiration } from "@/contracts/types";
-import LockingHelper from "./locking-helper";
+import { useEnsureChainId } from "@repo/web3";
 import { useMemo } from "react";
+import LockingHelper from "./locking-helper";
 import { useLockingWeek } from "./use-locking-week";
 
 interface UseLocksProps {
@@ -20,6 +20,7 @@ export const useLocksByAccount = ({
 } => {
   const { currentWeek: currentLockingWeek } = useLockingWeek();
   const ensuredChainId = useEnsureChainId();
+
   const { data, ...rest } = useGetLocksQuery({
     refetchWritePolicy: "overwrite",
     fetchPolicy: "network-only",
@@ -35,9 +36,25 @@ export const useLocksByAccount = ({
 
   const locks = useMemo(() => {
     if (!data) {
-      return [];
+      return [] as LockWithExpiration[];
     }
-    return data?.locks.map((lock) => ({
+
+    // Build a set of lockIds that were replaced by a newer lock
+    const replacedIds = new Set<string>();
+    for (const l of data.locks) {
+      const replaced = l?.replaces?.lockId;
+      if (replaced !== undefined && replaced !== null) {
+        replacedIds.add(String(replaced));
+      }
+    }
+
+    // Keep only active/latest locks: exclude items that have a replacedBy pointer
+    // OR are referenced in another lock's `replaces`
+    const activeLocks = data.locks.filter(
+      (l) => !l.replacedBy && !replacedIds.has(String(l.lockId)),
+    );
+
+    const mapped = activeLocks.map((lock) => ({
       ...lock,
       expiration: LockingHelper.calculateExpirationDate(
         Number(currentLockingWeek),
@@ -45,7 +62,12 @@ export const useLocksByAccount = ({
         lock.slope,
         lock.cliff,
       ),
-    }));
+    })) as LockWithExpiration[];
+
+    // Sort newest first by lockId (desc)
+    mapped.sort((a, b) => Number(b.lockId) - Number(a.lockId));
+
+    return mapped;
   }, [data, currentLockingWeek]) as LockWithExpiration[];
 
   return {

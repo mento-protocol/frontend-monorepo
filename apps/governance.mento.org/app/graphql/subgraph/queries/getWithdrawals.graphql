@@ -1,0 +1,25 @@
+query getWithdrawals($address: Bytes) {
+  withdraws(
+    first: 1000
+    where: { owner_: { id: $address } }
+    orderBy: timestamp
+    orderDirection: desc
+  ) {
+    id
+    amount
+    timestamp
+    emitter {
+      id
+    }
+    locking {
+      id
+    }
+    owner {
+      id
+    }
+    transaction {
+      id
+      timestamp
+    }
+  }
+}

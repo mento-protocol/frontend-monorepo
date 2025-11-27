@@ -1,6 +1,6 @@
 import { LockingABI, useContracts } from "@repo/web3";
 import { LockWithExpiration } from "@/contracts/types";
-import React, { useCallback } from "react";
+import React, { useCallback, useRef } from "react";
 import { Address } from "viem";
 import {
   useSimulateContract,
@@ -16,6 +16,8 @@ interface RelockMentoParams {
   newSlope: number;
   newCliff?: number;
   lock?: LockWithExpiration;
+  /** The current remaining amount in the lock after withdrawals. If not provided, falls back to lock.amount */
+  currentRemainingAmount?: bigint;
   onConfirmation?: () => void;
 }
 
@@ -25,10 +27,14 @@ export const useRelockMento = ({
   newCliff,
   newDelegate,
   newSlope,
+  currentRemainingAmount,
   onConfirmation,
 }: RelockMentoParams) => {
   const contracts = useContracts();
   const { refetch: refetchLockedBalance } = useLockedAmount();
+  const onErrorRef = useRef<
+    ((error?: WriteContractErrorType) => void) | undefined
+  >(undefined);
 
   const {
     writeContract,
@@ -51,19 +57,27 @@ export const useRelockMento = ({
       return null;
     }
 
-    // Calculate new total for this specific lock (not all locks)
-    const currentLockAmount = BigInt(lock.amount);
-    const newTotalLockedAmount =
-      (additionalAmountToLock ?? 0n) + currentLockAmount;
+    // Use currentRemainingAmount if provided (accounts for withdrawals),
+    // otherwise fall back to lock.amount (original amount from subgraph)
+    const baseAmount = currentRemainingAmount ?? BigInt(lock.amount);
+    const newTotalLockedAmount = (additionalAmountToLock ?? 0n) + baseAmount;
 
     return [
       lock.lockId,
-      newDelegate ?? lock.owner?.id,
+      // Default to existing delegate to preserve current delegation unless explicitly changed
+      (newDelegate ?? lock?.delegate?.id ?? lock.owner?.id) as Address,
       newTotalLockedAmount,
       newSlope,
       newCliff ?? lock.cliff,
     ] as const;
-  }, [lock, additionalAmountToLock, newCliff, newDelegate, newSlope]);
+  }, [
+    lock,
+    additionalAmountToLock,
+    newCliff,
+    newDelegate,
+    newSlope,
+    currentRemainingAmount,
+  ]);
 
   const lockingConfig = React.useMemo(() => {
     if (!lockingArgs) return null;
@@ -78,10 +92,14 @@ export const useRelockMento = ({
 
   const simulation = useSimulateContract(lockingConfig ?? {});
 
-  const { isLoading: isConfirming, isSuccess: isConfirmed } =
-    useWaitForTransactionReceipt({
-      hash: data,
-    });
+  const {
+    isLoading: isConfirming,
+    isSuccess: isConfirmed,
+    isError: isReceiptError,
+    error: receiptError,
+  } = useWaitForTransactionReceipt({
+    hash: data,
+  });
 
   React.useEffect(() => {
     if (isConfirmed && onConfirmation) {
@@ -107,6 +125,13 @@ export const useRelockMento = ({
     }
   }, [isConfirmed, onConfirmation, restWrite, refetchLockedBalance]);
 
+  // Handle transaction receipt errors
+  React.useEffect(() => {
+    if (isReceiptError && receiptError && onErrorRef.current) {
+      onErrorRef.current(receiptError as WriteContractErrorType);
+    }
+  }, [isReceiptError, receiptError]);
+
   const relockMento = useCallback(
     ({
       onSuccess,
@@ -122,6 +147,9 @@ export const useRelockMento = ({
         onError?.(error as WriteContractErrorType);
         return;
       }
+
+      // Store onError callback for use in receipt error effect
+      onErrorRef.current = onError;
 
       writeContract(lockingConfig, {
         onSuccess,

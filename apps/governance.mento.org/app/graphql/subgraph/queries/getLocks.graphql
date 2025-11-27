@@ -1,5 +1,12 @@
-query getLocks($address: String) {
-  locks(first: 1000, where: { owner: $address }) {
+query getLocks($address: Bytes) {
+  locks(
+    first: 1000
+    where: {
+      or: [{ owner_: { id: $address } }, { delegate_: { id: $address } }]
+    }
+    orderBy: lockId
+    orderDirection: desc
+  ) {
     lockId
     owner {
       id
@@ -20,6 +27,10 @@ query getLocks($address: String) {
     lockCreate {
       id
       timestamp
+      transaction {
+        id
+        timestamp
+      }
     }
     delegate {
       id
