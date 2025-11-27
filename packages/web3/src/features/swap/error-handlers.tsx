@@ -12,7 +12,7 @@ interface SwapErrorOptions {
 /**
  * Error message strings used for swap error detection
  */
-const SWAP_ERROR_MESSAGES = {
+export const SWAP_ERROR_MESSAGES = {
   OVERFLOW_X1Y1: "overflow x1y1",
   FIXIDITY_TOO_LARGE: "can't create fixidity number larger than",
   TRADING_SUSPENDED: "Trading is suspended",

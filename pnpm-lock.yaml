@@ -87,7 +87,7 @@ importers:
         version: 5.83.0(react@19.1.1)
       '@vercel/analytics':
         specifier: ^1.5.0
-        version: 1.5.0(next@15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)
+        version: 1.5.0(next@15.5.2(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)
       ethers:
         specifier: ^5.8.0
         version: 5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
@@ -199,7 +199,7 @@ importers:
         version: 5.0.5
       '@vercel/analytics':
         specifier: ^1.5.0
-        version: 1.5.0(next@15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)
+        version: 1.5.0(next@15.5.2(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0
@@ -317,7 +317,7 @@ importers:
         version: 0.13.8(typescript@5.8.3)(zod@4.1.12)
       '@vercel/analytics':
         specifier: ^1.5.0
-        version: 1.5.0(next@15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)
+        version: 1.5.0(next@15.5.2(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)
       lucide-react:
         specifier: ^0.488.0
         version: 0.488.0(react@19.1.1)
@@ -631,8 +631,8 @@ importers:
         specifier: ^5.8.0
         version: 5.8.0
       '@mento-protocol/mento-sdk':
-        specifier: ^1.15.5
-        version: 1.15.5(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))
+        specifier: ^1.16.1-beta.0
+        version: 1.16.1-beta.0(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))
       '@metamask/jazzicon':
         specifier: https://github.com/jmrossy/jazzicon#7a8df28
         version: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28
@@ -1924,6 +1924,12 @@ packages:
 
   '@mento-protocol/mento-sdk@1.15.5':
     resolution: {integrity: sha512-sk74OLi05NMNbdqRw0AzdZU7dd8R/DzYg/wIfVgPbdQU0AeduWxl6uFNaN5Azkv+MAmoyH8g6PqmpIrBJkmsfQ==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      ethers: ^5.7
+
+  '@mento-protocol/mento-sdk@1.16.1-beta.0':
+    resolution: {integrity: sha512-GN6agFLadjM3je3lqc5MSFf4SFiutYgS+k2RAvVzHZHgQH/xg93xXpduYH1i+1/EZqg9qx4S8KxpYjvUiJqLjA==}
     engines: {node: '>=22'}
     peerDependencies:
       ethers: ^5.7
@@ -10160,6 +10166,12 @@ snapshots:
       ethers: 5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
       mento-router-ts: 0.2.0
 
+  '@mento-protocol/mento-sdk@1.16.1-beta.0(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))':
+    dependencies:
+      '@mento-protocol/mento-core-ts': 2.6.5-rc3
+      ethers: 5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+      mento-router-ts: 0.2.0
+
   '@metamask/eth-json-rpc-provider@1.0.1':
     dependencies:
       '@metamask/json-rpc-engine': 7.3.3
@@ -12532,7 +12544,7 @@ snapshots:
     dependencies:
       '@vanilla-extract/css': 1.17.3
 
-  '@vercel/analytics@1.5.0(next@15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)':
+  '@vercel/analytics@1.5.0(next@15.5.2(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)':
     optionalDependencies:
       next: 15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       react: 19.1.1
