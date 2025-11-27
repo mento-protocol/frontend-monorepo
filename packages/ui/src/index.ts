@@ -48,6 +48,7 @@ export * from "./components/ui/checkbox";
 export * from "./components/ui/separator";
 export * from "./components/ui/skeleton";
 export * from "./components/copy-to-clipboard";
+export * from "./components/debug-popup";
 
 // Also export any utility functions or types that might be needed
 export * from "./lib/index";

@@ -7,14 +7,16 @@ import { SwapConfirm } from "./components/swap/swap-confirm";
 import SwapForm from "./components/swap/swap-form";
 import { confirmViewAtom } from "@repo/web3";
 
-import { Button, cn, IconCheck, Toaster } from "@repo/ui";
+import { Button, cn, DebugPopup, IconCheck, Toaster } from "@repo/ui";
 
 export default function SwapPage() {
   const [confirmView, setConfirmView] = useAtom(confirmViewAtom);
+  const shouldEnableDebug = process.env.NEXT_PUBLIC_ENABLE_DEBUG === "true";
 
   return (
     <>
       <div className="flex h-full w-full flex-wrap items-center justify-center">
+        {shouldEnableDebug && <DebugPopup />}
         <Toaster
           position="top-right"
           duration={5000}
