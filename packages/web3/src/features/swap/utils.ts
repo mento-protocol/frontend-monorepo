@@ -1,4 +1,4 @@
-import { getTokenDecimals } from "@/config/tokens";
+import { getTokenBySymbol, getTokenDecimals } from "@/config/tokens";
 import { type NumberT, parseAmountWithDefault, toWei } from "@/utils/amount";
 import { logger } from "@/utils/logger";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
@@ -97,3 +97,26 @@ export const formatWithMaxDecimals = (
     return truncated.toFixed(maxDecimals).replace(/\.?0+$/, "");
   }
 };
+
+/**
+ * Validates if a token pair is valid for swapping
+ * @param tokenInSymbol - The input token symbol
+ * @param tokenOutSymbol - The output token symbol
+ * @param fromToken - The token object for tokenInSymbol (from getTokenBySymbol)
+ * @param toToken - The token object for tokenOutSymbol (from getTokenBySymbol)
+ * @returns true if the pair is valid for swapping
+ */
+export function isValidTokenPair(
+  tokenInSymbol: string | undefined,
+  tokenOutSymbol: string | undefined,
+  fromToken: ReturnType<typeof getTokenBySymbol> | null,
+  toToken: ReturnType<typeof getTokenBySymbol> | null,
+): boolean {
+  return (
+    !!tokenInSymbol &&
+    !!tokenOutSymbol &&
+    tokenInSymbol !== tokenOutSymbol &&
+    !!fromToken &&
+    !!toToken
+  );
+}
