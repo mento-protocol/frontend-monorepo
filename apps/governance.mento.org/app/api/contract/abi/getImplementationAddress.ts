@@ -33,7 +33,7 @@ export async function getImplementationAddress(
           args: [],
         });
 
-        if (isValidAddress(result)) {
+        if (result && isValidAddress(result)) {
           return result as Address;
         }
       } catch {

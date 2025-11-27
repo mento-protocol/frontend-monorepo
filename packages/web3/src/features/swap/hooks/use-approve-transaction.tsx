@@ -64,7 +64,7 @@ export function useApproveTransaction({
   const [approveTxHash, setApproveTxHash] = useState<Address | null>(null);
 
   const { data, error: sendPrepError } = useEstimateGas({
-    to: toViemAddress(txRequest?.to),
+    to: toViemAddress(txRequest?.to as string),
     data: txRequest?.data as Hex | undefined,
   });
 

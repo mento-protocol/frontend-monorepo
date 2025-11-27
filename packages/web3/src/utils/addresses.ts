@@ -1,39 +1,28 @@
-import { getAddress, isAddress } from "@ethersproject/address";
-import { type Address } from "viem";
+import { getAddress } from "@ethersproject/address";
+import { type Address, isAddress } from "viem";
 import { logger } from "./logger";
 
-export function isValidAddress(address: unknown): address is string {
-  // Need to catch because ethers' isAddress throws in some cases (bad checksum)
-  try {
-    if (typeof address !== "string" || address.trim() === "") {
-      return false;
-    }
-    const isValid = isAddress(address);
-    return !!isValid;
-  } catch (error) {
-    logger.warn("Invalid address", error, address);
-    return false;
-  }
-}
+// To declare once and reuse everywhere
+export const isValidAddress = isAddress;
 
 export function validateAddress(
-  address: unknown,
+  address: string | undefined,
   context: string,
 ): asserts address is string {
-  if (!isValidAddress(address)) {
+  if (!isValidAddress(address as string)) {
     const errorMsg = `Invalid address for ${context}: ${address}`;
     logger.error(errorMsg);
     throw new Error(errorMsg);
   }
 }
 
-export function normalizeAddress(address: string | unknown) {
-  validateAddress(address, "normalize");
+export function normalizeAddress(address: string) {
+  validateAddress(address, "normalizeAddress");
   return getAddress(address);
 }
 
-export function shortenAddress(address: string | unknown, capitalize = true) {
-  validateAddress(address, "shorten");
+export function shortenAddress(address: string, capitalize = true) {
+  validateAddress(address, "shortenAddress");
   const normalizedAddress = normalizeAddress(address);
   const addressStr = typeof address === "string" ? address : normalizedAddress;
 
@@ -48,9 +37,9 @@ export function capitalizeAddress(address: string) {
   return "0x" + address.substring(2).toUpperCase();
 }
 
-export function areAddressesEqual(a1: string | unknown, a2: string | unknown) {
-  validateAddress(a1, "compare");
-  validateAddress(a2, "compare");
+export function areAddressesEqual(a1: string, a2: string) {
+  validateAddress(a1, "areAddressesEqual");
+  validateAddress(a2, "areAddressesEqual");
   return getAddress(a1) === getAddress(a2);
 }
 
@@ -62,6 +51,6 @@ export function ensureLeading0x(input: string) {
   return input.startsWith("0x") ? input : `0x${input}`;
 }
 
-export function toViemAddress(address: unknown): Address | undefined {
-  return isValidAddress(address) ? (address as Address) : undefined;
+export function toViemAddress(address: string): Address | undefined {
+  return isValidAddress(address) ? address : undefined;
 }
