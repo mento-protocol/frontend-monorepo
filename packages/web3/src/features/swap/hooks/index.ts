@@ -8,3 +8,4 @@ export * from "./use-token-balance";
 export * from "./use-token-options";
 export * from "./use-trading-limits";
 export * from "./use-tradable-pairs";
+export * from "./use-trading-suspension-check";

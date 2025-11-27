@@ -5,6 +5,7 @@ import { SwapDirection } from "@/features/swap/types";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
 import { logger } from "@/utils/logger";
 import { retryAsync } from "@/utils/retry";
+import { validateAddress } from "@/utils/addresses";
 import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
 import { toast } from "@repo/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -125,6 +126,7 @@ export function useSwapTransaction(
       if (chainId === undefined) {
         throw new Error("Chain ID is undefined");
       }
+      validateAddress(txRequest.to, "swap transaction");
       const txHash = await retryAsync(async () => {
         return await sendTransactionAsync({
           to: txRequest.to as Address,
