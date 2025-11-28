@@ -3,11 +3,11 @@ import "@rainbow-me/rainbowkit/styles.css";
 
 import type { PropsWithChildren } from "react";
 
+import { useSentryWalletContext } from "@/hooks/use-sentry-wallet-context";
 import { Web3Provider } from "@repo/web3";
 import { State } from "@repo/web3/wagmi";
-import { useEffect, useState } from "react";
 import { ErrorBoundary } from "@sentry/nextjs";
-import { useSentryWalletContext } from "@/hooks/use-sentry-wallet-context";
+import { useEffect, useState } from "react";
 
 function useIsSsr() {
   const [isSsr, setIsSsr] = useState(true);

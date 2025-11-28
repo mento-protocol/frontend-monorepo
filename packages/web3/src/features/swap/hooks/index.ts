@@ -1,4 +1,3 @@
-export * from "./use-allowance";
 export * from "./use-approve-transaction";
 export * from "./use-gas-estimation";
 export * from "./use-swap-allowance";
@@ -9,3 +8,4 @@ export * from "./use-token-balance";
 export * from "./use-token-options";
 export * from "./use-trading-limits";
 export * from "./use-tradable-pairs";
+export * from "./use-trading-suspension-check";

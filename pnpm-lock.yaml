@@ -2221,6 +2221,12 @@ packages:
     peerDependencies:
       ethers: ^5.7
 
+  '@mento-protocol/mento-sdk@1.16.1-beta.0':
+    resolution: {integrity: sha512-GN6agFLadjM3je3lqc5MSFf4SFiutYgS+k2RAvVzHZHgQH/xg93xXpduYH1i+1/EZqg9qx4S8KxpYjvUiJqLjA==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      ethers: ^5.7
+
   '@metamask/eth-json-rpc-provider@1.0.1':
     resolution: {integrity: sha512-whiUMPlAOrVGmX8aKYVPvlKyG4CpQXiNNyt74vE1xb5sPvmx5oA7B/kOi/JdBvhGQq97U1/AVdXEdk2zkP8qyA==}
     engines: {node: '>=14.0.0'}
@@ -10364,6 +10370,12 @@ snapshots:
   '@mento-protocol/mento-core-ts@2.6.5-rc3': {}
 
   '@mento-protocol/mento-sdk@1.15.5(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))':
+    dependencies:
+      '@mento-protocol/mento-core-ts': 2.6.5-rc3
+      ethers: 5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+      mento-router-ts: 0.2.0
+
+  '@mento-protocol/mento-sdk@1.16.1-beta.0(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))':
     dependencies:
       '@mento-protocol/mento-core-ts': 2.6.5-rc3
       ethers: 5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)

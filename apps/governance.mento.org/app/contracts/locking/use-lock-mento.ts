@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { LockingABI, useContracts } from "@repo/web3";
 import { Address } from "viem";
@@ -10,6 +10,9 @@ export const useLockMento = ({
   onLockConfirmation?: () => void;
 }) => {
   const contracts = useContracts();
+  const onErrorRef = useRef<
+    ((error?: WriteContractErrorType) => void) | undefined
+  >(undefined);
   const {
     writeContract,
     isPending: isAwaitingUserSignature,
@@ -17,11 +20,15 @@ export const useLockMento = ({
     ...restWrite
   } = useWriteContract();
 
-  const { isLoading: isConfirming, isSuccess: isConfirmed } =
-    useWaitForTransactionReceipt({
-      hash: data,
-      confirmations: 10,
-    });
+  const {
+    isLoading: isConfirming,
+    isSuccess: isConfirmed,
+    isError: isReceiptError,
+    error: receiptError,
+  } = useWaitForTransactionReceipt({
+    hash: data,
+    confirmations: 10,
+  });
 
   useEffect(() => {
     if (isConfirmed && onLockConfirmation) {
@@ -43,6 +50,13 @@ export const useLockMento = ({
     }
   }, [isConfirmed, onLockConfirmation, restWrite]);
 
+  // Handle transaction receipt errors
+  useEffect(() => {
+    if (isReceiptError && receiptError && onErrorRef.current) {
+      onErrorRef.current(receiptError as WriteContractErrorType);
+    }
+  }, [isReceiptError, receiptError]);
+
   const lockMento = useCallback(
     ({
       account,
@@ -61,6 +75,9 @@ export const useLockMento = ({
       onSuccess?: () => void;
       onError?: (error?: WriteContractErrorType) => void;
     }) => {
+      // Store onError callback for use in receipt error effect
+      onErrorRef.current = onError;
+
       writeContract(
         {
           address: contracts.Locking.address,

@@ -1,6 +1,10 @@
 "use client";
 import { useProposals, useProposalThreshold } from "@/contracts/governor";
-import { formatUnitsWithThousandSeparators, useTokens } from "@repo/web3";
+import {
+  formatUnitsWithThousandSeparators,
+  useTokens,
+  isValidAddress,
+} from "@repo/web3";
 import TurndownService from "turndown";
 import ReactMarkdown from "react-markdown";
 import DOMPurify from "dompurify";
@@ -317,9 +321,9 @@ const ExecutionCodeStep = () => {
           return `Transaction #${i + 1} is missing the 'data' property`;
         }
 
-        // Check address format (basic check for 0x prefix)
-        if (typeof tx.address !== "string" || !tx.address.startsWith("0x")) {
-          return `Transaction #${i + 1} has invalid address format. Must be a hex string starting with 0x`;
+        // Check address format using proper validation
+        if (!isValidAddress(tx.address)) {
+          return `Transaction #${i + 1} has invalid address format. Must be a valid Ethereum address`;
         }
 
         // Check data format (basic check for 0x prefix)

@@ -42,6 +42,7 @@ import {
   useTokenOptions,
   useTradablePairs,
   useTradingLimits,
+  useTradingSuspensionCheck,
 } from "@repo/web3";
 import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { useAtom } from "jotai";
@@ -90,6 +91,7 @@ export default function SwapForm() {
 
   const amountRef = useRef<HTMLInputElement>(null);
   const quoteRef = useRef<HTMLInputElement>(null);
+  const prevTradingSuspensionErrorRef = useRef<string | null>(null);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -141,6 +143,12 @@ export default function SwapForm() {
     tokenOutSymbol,
     chainId,
   );
+
+  // Check for trading suspension
+  const {
+    isSuspended: isTradingSuspended,
+    isLoading: isSuspensionCheckLoading,
+  } = useTradingSuspensionCheck(tokenInSymbol, tokenOutSymbol);
 
   // Balance validation
   const validateBalance = useCallback(
@@ -422,7 +430,14 @@ export default function SwapForm() {
   // Check for balance error
   const [balanceError, setBalanceError] = useState<string | null>(null);
 
-  const canQuote = !!hasAmount && !errors.amount && !limitsLoading;
+  // Trading suspension error message
+  const tradingSuspensionError = useMemo(() => {
+    if (!isTradingSuspended) return null;
+    return `Trading temporarily paused for ${tokenInSymbol} -> ${tokenOutSymbol}. Unable to determine accurate exchange rate now. Please try again later.`;
+  }, [isTradingSuspended, tokenInSymbol, tokenOutSymbol]);
+
+  const canQuote =
+    !!hasAmount && !errors.amount && !limitsLoading && !isTradingSuspended; // Don't fetch quotes for suspended pairs
 
   const {
     isFetching: quoteFetching,
@@ -497,6 +512,25 @@ export default function SwapForm() {
     }
   }, [tradingLimitError]);
 
+  // Show trading suspension error toast and dismiss it when switching to a tradable pair
+  useEffect(() => {
+    const prevError = prevTradingSuspensionErrorRef.current;
+    const hasError = tradingSuspensionError !== null;
+    const errorChanged = prevError !== tradingSuspensionError;
+
+    // Only show toast if error changed (not on every render)
+    if (hasError && errorChanged) {
+      toast.error(tradingSuspensionError, {
+        duration: 20000,
+      });
+    } else if (prevError !== null && !hasError) {
+      // Dismiss error toast when switching from suspended to tradable pair
+      toast.dismiss();
+    }
+
+    prevTradingSuspensionErrorRef.current = tradingSuspensionError;
+  }, [tradingSuspensionError]);
+
   // Override loading state when we have validation errors
   const isLoading =
     quoteFetching && canQuote && !tradingLimitError && !limitsLoading;
@@ -524,6 +558,11 @@ export default function SwapForm() {
       }
     }
 
+    // Clear waiting flag when trading is suspended (no quote will be fetched)
+    if (isTradingSuspended && isWaitingForQuote) {
+      setIsWaitingForQuote(false);
+    }
+
     // Clear waiting flag when we have a valid quote and fetching is done
     if (
       isWaitingForQuote &&
@@ -541,11 +580,14 @@ export default function SwapForm() {
     isWaitingForQuote,
     quote,
     quoteFetching,
+    isTradingSuspended,
   ]);
 
   // Button loading state: show loading when quote is being fetched or waiting after token change
+  // Don't show loading when trading is suspended (no quote will be fetched)
   const isButtonLoading = useMemo(
     () =>
+      !isTradingSuspended &&
       (quoteFetching || isWaitingForQuote) &&
       hasAmount &&
       !!tokenInSymbol &&
@@ -556,6 +598,7 @@ export default function SwapForm() {
       hasAmount,
       tokenInSymbol,
       tokenOutSymbol,
+      isTradingSuspended,
     ],
   );
 
@@ -1004,6 +1047,7 @@ export default function SwapForm() {
             data-testid={defineButtonLocator({
               balanceError,
               tradingLimitError,
+              isTradingSuspended,
               shouldApprove,
               tokenInSymbol: tokenInSymbol,
               tokenOutSymbol: tokenOutSymbol,
@@ -1031,6 +1075,8 @@ export default function SwapForm() {
               isApprovalProcessing ||
               !!tradingLimitError ||
               !!balanceError ||
+              isTradingSuspended || // Disable when trading is suspended
+              isSuspensionCheckLoading || // Disable while checking suspension
               (isError && hasAmount && canQuote) // Disable when unable to fetch quote
             }
           >
@@ -1040,6 +1086,8 @@ export default function SwapForm() {
               "Select token to sell"
             ) : !tokenOutSymbol ? (
               "Select token to buy"
+            ) : isTradingSuspended ? (
+              `Trading suspended for ${tokenInSymbol} -> ${tokenOutSymbol}`
             ) : tradingLimitError ? (
               "Swap exceeds trading limits"
             ) : balanceError ? (
@@ -1069,17 +1117,21 @@ export default function SwapForm() {
 function defineButtonLocator({
   balanceError,
   tradingLimitError,
+  isTradingSuspended,
   shouldApprove,
   tokenInSymbol,
   tokenOutSymbol,
 }: {
   balanceError: string | null;
   tradingLimitError: string | null;
+  isTradingSuspended: boolean;
   shouldApprove: string | boolean;
   tokenInSymbol: string;
   tokenOutSymbol: string;
 }) {
   switch (true) {
+    case Boolean(isTradingSuspended):
+      return "tradingSuspendedButton";
     case Boolean(balanceError && !tradingLimitError):
       return "insufficientBalanceButton";
     case Boolean(tradingLimitError):

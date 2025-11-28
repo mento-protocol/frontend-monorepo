@@ -1,4 +1,5 @@
-import { Address, isAddress, PublicClient } from "viem";
+import { Address, PublicClient } from "viem";
+import { isValidAddress } from "@repo/web3";
 
 // Function to get implementation address from proxy contract
 export async function getImplementationAddress(
@@ -32,7 +33,7 @@ export async function getImplementationAddress(
           args: [],
         });
 
-        if (result && isAddress(result as string)) {
+        if (result && isValidAddress(result)) {
           return result as Address;
         }
       } catch {
