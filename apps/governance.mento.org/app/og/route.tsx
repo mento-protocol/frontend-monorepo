@@ -18,20 +18,18 @@ export async function GET(request: Request) {
   }
 
   return new ImageResponse(
-    (
-      /* eslint-disable react/no-unknown-property */
-      <div tw="flex w-full h-full items-center justify-center text-white relative">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="https://klbko5u0yg957qmk.public.blob.vercel-storage.com/shared/placeholder-og.png"
-          alt=""
-          tw="w-full h-full"
-        />
-        <div tw="absolute bottom-[36%] -translate-x-1/2 -translate-y-1/2 flex text-center items-center flex-col">
-          <h1 tw="text-3xl font-bold max-w-2xl px-12 mb-12">{title}</h1>
-        </div>
+    /* eslint-disable react/no-unknown-property */
+    <div tw="flex w-full h-full items-center justify-center text-white relative">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="https://klbko5u0yg957qmk.public.blob.vercel-storage.com/shared/placeholder-og.png"
+        alt=""
+        tw="w-full h-full"
+      />
+      <div tw="absolute bottom-[36%] -translate-x-1/2 -translate-y-1/2 flex text-center items-center flex-col">
+        <h1 tw="text-3xl font-bold max-w-2xl px-12 mb-12">{title}</h1>
       </div>
-    ),
+    </div>,
     /* eslint-enable react/no-unknown-property */
     {
       width: WIDTH,

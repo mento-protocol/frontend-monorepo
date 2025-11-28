@@ -37,14 +37,14 @@ lint:
   enabled:
     # === CORE DEVELOPMENT LINTERS ===
     - taplo@0.10.0
-    - eslint@9.37.0 # JavaScript/TypeScript linting (uses our existing configs)
-    - prettier@3.6.2 # Code formatting with Tailwind CSS class sorting
+    - eslint@9.39.1 # JavaScript/TypeScript linting (uses our existing configs)
+    - prettier@3.7.1 # Code formatting with Tailwind CSS class sorting
     - git-diff-check # Validates git diffs for common issues
 
     # === CONFIGURATION & DOCUMENTATION ===
     - yamllint@1.37.1 # YAML configuration file linting
-    - markdownlint@0.45.0 # Markdown documentation linting
-    - markdown-link-check@3.14.1 # Validates that markdown links are not broken
+    - markdownlint@0.46.0 # Markdown documentation linting
+    - markdown-link-check@3.14.2 # Validates that markdown links are not broken
     - dotenv-linter@3.3.0 # Environment file validation (.env files)
 
     # === SHELL SCRIPTING ===
@@ -52,7 +52,7 @@ lint:
     - shfmt@3.6.0 # Shell script formatting
 
     # === SECURITY SCANNING ===
-    - checkov@3.2.483 # Infrastructure as Code security scanning
+    - checkov@3.2.495 # Infrastructure as Code security scanning
     - gitleaks@8.28.0 # Detects secrets in git history and commits
     - trufflehog@3.90.8 # Advanced secret detection with high accuracy
     - osv-scanner@2.2.3 # Vulnerability scanning for dependencies
@@ -65,7 +65,7 @@ lint:
     - svgo@4.0.0 # SVG optimization and cleanup
 
     # === CODE QUALITY & ORGANIZATION ===
-    - sort-package-json@3.4.0 # Automatically sorts package.json files
+    - sort-package-json@3.5.0 # Automatically sorts package.json files
     - pre-commit-hooks@4.6.0 # Standard pre-commit validations (trailing whitespace, etc.)
     - dustilock@1.2.0 # Dependency integrity checking
 
