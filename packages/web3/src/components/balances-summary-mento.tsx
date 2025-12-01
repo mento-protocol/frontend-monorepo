@@ -1,12 +1,19 @@
 "use client";
 
-import { useAddTokens, useTokens } from "@repo/web3";
 import { NumbersService } from "@/utils/numbers";
 import { IconMento } from "@repo/ui";
+import { useAddTokens, useTokens } from "@repo/web3";
 
 export function BalancesSummaryMento() {
   const { mentoBalance, veMentoBalance } = useTokens();
   const { addMento, addVeMento } = useAddTokens();
+
+  const totalVotingPower =
+    Number(veMentoBalance.formatted) > 1
+      ? NumbersService.parseNumericValue(veMentoBalance.formatted, 1)
+      : Number(veMentoBalance.formatted).toLocaleString(undefined, {
+          maximumFractionDigits: 3,
+        });
 
   return (
     <div className="flex w-full flex-col">
@@ -34,7 +41,7 @@ export function BalancesSummaryMento() {
           <span>{veMentoBalance.symbol}</span>
         </div>
         <div className="flex flex-row items-center justify-center font-medium">
-          {NumbersService.parseNumericValue(veMentoBalance.formatted, 1)}
+          {totalVotingPower}
         </div>
       </div>
     </div>

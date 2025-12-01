@@ -1,21 +1,23 @@
-import { Button, toast } from "@repo/ui";
 import {
-  useAllowance,
   useApprove,
   useLockInfo,
   useLockingWeek,
   useRelockMento,
 } from "@/contracts";
-import { useContracts } from "@repo/web3";
 import {
   LOCKING_AMOUNT_FORM_KEY,
+  LOCKING_DELEGATE_ADDRESS_FORM_KEY,
+  LOCKING_DELEGATE_ENABLED_FORM_KEY,
   LOCKING_UNLOCK_DATE_FORM_KEY,
 } from "@/contracts/locking/config";
 import { LockWithExpiration } from "@/contracts/types";
 import { useCurrentChain } from "@/hooks/use-current-chain";
+import { useLockAmountsFromWithdrawals } from "@/hooks/use-lock-amounts-from-withdrawals";
+import { Button, cn, toast } from "@repo/ui";
+import { isValidAddress, useContracts } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
 import { differenceInWeeks, isAfter } from "date-fns";
-import React from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useFormContext } from "react-hook-form";
 import { parseEther } from "viem";
 import { TxDialog } from "../tx-dialog/tx-dialog";
@@ -25,19 +27,60 @@ import {
   useCreateLock,
 } from "./create-lock-provider";
 
-export const LockingButton = () => {
+interface LockingButtonProps {
+  lockToUpdate?: LockWithExpiration;
+  className?: string;
+  onLockUpdated?: () => void;
+}
+
+export const LockingButton = ({
+  lockToUpdate,
+  className,
+  onLockUpdated,
+}: LockingButtonProps) => {
   const { address } = useAccount();
   const { createLock, CreateLockTxStatus, CreateLockApprovalStatus } =
     useCreateLock();
-  const {
-    lock,
-    hasActiveLock,
-    refetch: refetchLockInfo,
-  } = useLockInfo(address);
+  const { refetch: refetchLockInfo } = useLockInfo(address);
+
+  // Use the specific lock to update or fall back to the user's primary lock
+  const targetLock = lockToUpdate;
+
+  // Determine if we have enough info to relock this specific lock regardless of expiration
+  const canRelockTarget = useMemo(() => {
+    return !!(
+      targetLock &&
+      targetLock.lockId &&
+      targetLock.owner?.id &&
+      targetLock.cliff !== undefined &&
+      targetLock.amount !== undefined
+    );
+  }, [targetLock]);
   const currentChain = useCurrentChain();
   const contracts = useContracts();
   const { currentWeek: currentLockingWeek } = useLockingWeek();
-  const [isTxDialogOpen, setIsTxDialogOpen] = React.useState(false);
+
+  // Get accurate remaining amounts accounting for withdrawals
+  const locksForWithdrawalCalc = useMemo(
+    () => (targetLock ? [targetLock] : []),
+    [targetLock],
+  );
+  const { lockAmountsMap } = useLockAmountsFromWithdrawals({
+    locks: locksForWithdrawalCalc,
+    address,
+  });
+
+  // Get the current remaining amount for this lock (after withdrawals)
+  const currentRemainingAmount = useMemo(() => {
+    if (!targetLock?.lockId) return undefined;
+    const amounts = lockAmountsMap.get(targetLock.lockId);
+    return amounts?.remainingMento;
+  }, [targetLock?.lockId, lockAmountsMap]);
+
+  const [isTxDialogOpen, setIsTxDialogOpen] = useState(false);
+  const [hasApprovedForCurrentRelock, setHasApprovedForCurrentRelock] =
+    useState(false);
+  const [relockError, setRelockError] = useState(false);
 
   const {
     watch,
@@ -48,32 +91,67 @@ export const LockingButton = () => {
 
   const amount = watch(LOCKING_AMOUNT_FORM_KEY);
   const unlockDate = watch(LOCKING_UNLOCK_DATE_FORM_KEY);
-  const parsedAmount = React.useMemo(() => {
-    if (!amount || amount === "") return BigInt(0);
-    return parseEther(amount);
+  const delegateEnabled = watch(LOCKING_DELEGATE_ENABLED_FORM_KEY);
+  const delegateAddressInput = watch(LOCKING_DELEGATE_ADDRESS_FORM_KEY);
+
+  const isAmountFormatValid = useMemo(() => {
+    if (amount === undefined || amount === null) return true;
+    const s = String(amount).trim();
+    if (s === "") return true;
+    const re = /^(?:\d+)(?:\.\d{1,18})?$/;
+    return re.test(s);
   }, [amount]);
 
-  const isExtendingDuration = React.useMemo(() => {
-    if (!hasActiveLock || !lock?.expiration || !unlockDate) return false;
-    const currentExpiration = new Date(lock.expiration);
+  const parsedAmount = useMemo(() => {
+    try {
+      if (!amount || amount === "") return BigInt(0);
+      const normalized = String(amount).trim();
+      if (normalized === "" || normalized === "0") return BigInt(0);
+      if (!isAmountFormatValid) return BigInt(0);
+      const parsed = parseEther(normalized as string);
+      // Ensure parsed amount is either 0 or >= 1 MENTO
+      const minAmount = parseEther("1");
+      if (parsed > 0n && parsed < minAmount) {
+        return BigInt(0); // Invalid amount that rounds below minimum
+      }
+      return parsed;
+    } catch {
+      return BigInt(0);
+    }
+  }, [amount, isAmountFormatValid]);
+
+  // Calculate the total amount needed for relock approval
+  // The contract's rebalance function may need to transfer more than just the additional amount
+  // when there's vested tokens that have been withdrawn. Approve the new total to be safe.
+  // Use currentRemainingAmount if available, otherwise fall back to lock.amount
+  const approvalAmountForRelock = useMemo(() => {
+    if (!targetLock?.amount) return parsedAmount;
+    const baseAmount = currentRemainingAmount ?? BigInt(targetLock.amount);
+    return parsedAmount + baseAmount;
+  }, [parsedAmount, targetLock?.amount, currentRemainingAmount]);
+
+  const isExtendingDuration = useMemo(() => {
+    if (!targetLock?.expiration || !unlockDate) return false;
+    const currentExpiration = new Date(targetLock.expiration);
     const selectedDate = new Date(unlockDate);
     return isAfter(selectedDate.setHours(0, 0, 0, 0), currentExpiration);
-  }, [hasActiveLock, lock?.expiration, unlockDate]);
+  }, [targetLock?.expiration, unlockDate]);
 
-  const isAddingAmount = React.useMemo(() => {
-    if (!hasActiveLock || !amount || amount === "" || amount === "0")
-      return false;
+  const isAddingAmount = useMemo(() => {
+    if (!isAmountFormatValid) return false;
+    if (!amount || amount === "" || amount === "0") return false;
     return parsedAmount > BigInt(0);
-  }, [hasActiveLock, amount, parsedAmount]);
+  }, [amount, parsedAmount, isAmountFormatValid]);
 
   const isBalanceInsufficient = errors[LOCKING_AMOUNT_FORM_KEY]?.type === "max";
+  const isBelowMinimum = errors[LOCKING_AMOUNT_FORM_KEY]?.type === "min";
 
-  const newSlope = React.useMemo(() => {
-    if (!unlockDate || !lock || !hasActiveLock || !currentLockingWeek) return 0;
+  const newSlope = useMemo(() => {
+    if (!unlockDate || !targetLock || !currentLockingWeek) return 0;
 
-    const lockTime = lock?.time ?? 0;
-    const lockSlope = lock?.slope ?? 0;
-    const lockExpiration = lock?.expiration;
+    const lockTime = Number(targetLock?.time ?? 0);
+    const lockSlope = Number(targetLock?.slope ?? 0);
+    const lockExpiration = targetLock?.expiration;
 
     if (!lockExpiration) return 0;
 
@@ -84,12 +162,44 @@ export const LockingButton = () => {
     const currentRemainingSlope = Math.max(0, lockSlope - weeksPassed);
 
     return Math.max(totalWeeksToUnlock, currentRemainingSlope);
-  }, [currentLockingWeek, lock, unlockDate, hasActiveLock]);
+  }, [currentLockingWeek, targetLock, unlockDate]);
+
+  const requestedDelegate: string | undefined = useMemo(() => {
+    if (
+      delegateEnabled &&
+      delegateAddressInput &&
+      isValidAddress(delegateAddressInput)
+    ) {
+      return delegateAddressInput;
+    }
+    // If delegation is disabled, delegate to self
+    if (!delegateEnabled) {
+      return address;
+    }
+    return undefined;
+  }, [delegateAddressInput, delegateEnabled, address]);
+
+  const nextDelegate = useMemo(() => {
+    const currentDelegate = targetLock?.delegate?.id as string | undefined;
+    if (requestedDelegate && requestedDelegate !== currentDelegate) {
+      return requestedDelegate;
+    }
+    return currentDelegate || address;
+  }, [requestedDelegate, address, targetLock]);
+
+  const isChangingDelegate = useMemo(() => {
+    if (!targetLock) return false;
+    const currentDelegate = (targetLock.delegate?.id ?? "").toLowerCase();
+    const newDelegate = (nextDelegate ?? "").toLowerCase();
+    return currentDelegate !== newDelegate;
+  }, [targetLock, nextDelegate]);
 
   const relock = useRelockMento({
-    lock,
+    lock: targetLock,
     newSlope,
     additionalAmountToLock: parsedAmount,
+    newDelegate: nextDelegate as `0x${string}`,
+    currentRemainingAmount,
     onConfirmation: () => {
       const explorerUrl = currentChain.blockExplorers?.default?.url;
       const explorerTxUrl = explorerUrl
@@ -131,36 +241,27 @@ export const LockingButton = () => {
       setTimeout(() => {
         refetchLockInfo();
       }, 10000);
+
+      onLockUpdated?.();
     },
   });
 
   // Approval setup for relock
   const approve = useApprove();
-  const allowance = useAllowance({
-    owner: address,
-    spender: contracts.Locking.address,
-  });
 
   // Check if approval is needed for relock
-  const needsApprovalForRelock = React.useMemo(() => {
-    if (!hasActiveLock || !lock) return false;
+  const needsApprovalForRelock = useMemo(() => {
+    if (!targetLock) return false;
 
-    // Calculate the actual amount that will be transferred
-    // The contract will transfer: newTotal - currentLockAmount
-    const currentLockAmount = BigInt(lock.amount || 0);
-    const newTotalAmount = parsedAmount + currentLockAmount;
-    const actualTransferAmount = newTotalAmount - currentLockAmount;
+    // If we've already approved for this relock, don't require approval again
+    if (hasApprovedForCurrentRelock) return false;
 
-    // No approval needed if not adding any tokens
-    if (actualTransferAmount === BigInt(0)) return false;
-
-    // Check if current allowance is sufficient for the actual transfer
-    if (!allowance.data) return true;
-    return allowance.data < actualTransferAmount;
-  }, [allowance.data, parsedAmount, hasActiveLock, lock]);
+    // Always require approval when adding tokens
+    return parsedAmount > BigInt(0);
+  }, [parsedAmount, targetLock, hasApprovedForCurrentRelock]);
 
   // Combined status for relock flow
-  const isRelocking = React.useMemo(() => {
+  const isRelocking = useMemo(() => {
     return (
       approve.isAwaitingUserSignature ||
       approve.isConfirming ||
@@ -175,8 +276,8 @@ export const LockingButton = () => {
   ]);
 
   // Handler for relock
-  const handleRelock = React.useCallback(() => {
-    if (!lock) {
+  const handleRelock = useCallback(() => {
+    if (!targetLock) {
       toast.error("Cannot update lock: lock information is missing");
       return;
     }
@@ -184,6 +285,8 @@ export const LockingButton = () => {
     relock.reset();
     approve.reset();
     setIsTxDialogOpen(true);
+    setHasApprovedForCurrentRelock(false);
+    setRelockError(false);
 
     const submitRelock = () => {
       relock.relockMento({
@@ -193,98 +296,134 @@ export const LockingButton = () => {
         onError: (error) => {
           console.error("Relock failed", error);
           toast.error("Failed to update lock");
+          setRelockError(true);
         },
       });
     };
 
     if (needsApprovalForRelock) {
-      // Approve the actual amount that will be transferred
-      const actualTransferAmount = parsedAmount; // This is the additional amount being added
       approve.approveMento({
         target: contracts.Locking.address,
-        amount: actualTransferAmount,
-        onConfirmation: submitRelock,
+        amount: approvalAmountForRelock,
+        onConfirmation: () => {
+          setHasApprovedForCurrentRelock(true);
+          submitRelock();
+        },
         onError: (error) => {
           console.error("Approval failed", error);
           toast.error("Failed to approve MENTO");
+          setRelockError(true);
         },
       });
     } else {
       submitRelock();
     }
   }, [
-    lock,
-    needsApprovalForRelock,
+    targetLock,
     approve,
     relock,
-    parsedAmount,
+    approvalAmountForRelock,
     contracts.Locking.address,
+    needsApprovalForRelock,
   ]);
 
-  const buttonLocator = React.useMemo(() => {
+  const buttonLocator = useMemo(() => {
     return getButtonLocator({
       address: address ?? "",
       amount,
-      hasActiveLock,
+      canRelockTarget,
       isExtendingDuration,
       isBalanceInsufficient,
-      lock,
+      lock: targetLock,
       needsApprovalForRelock,
       isAddingAmount,
+      isChangingDelegate,
       CreateLockApprovalStatus,
     });
   }, [
     address,
     amount,
-    hasActiveLock,
+    canRelockTarget,
     isExtendingDuration,
     isBalanceInsufficient,
-    lock,
+    targetLock,
     needsApprovalForRelock,
     isAddingAmount,
+    isChangingDelegate,
     CreateLockApprovalStatus,
   ]);
-  const content = React.useMemo(() => {
+  const content = useMemo(() => {
     // Not connected
     if (!address) {
       return <>Connect wallet</>;
     }
 
-    // Both topping up and extending duration are now supported for the first lock
-    if (!amount || amount === "" || amount === "0") {
-      // Allow empty or 0 amount if user is extending lock duration
-      if (hasActiveLock && isExtendingDuration) {
+    if (!isAmountFormatValid) {
+      if (canRelockTarget && isExtendingDuration) {
         return <>Extend lock</>;
       }
       return <>Enter amount</>;
     }
 
-    // Amount exceeds balance
+    if (
+      !amount ||
+      amount === "" ||
+      amount === "0" ||
+      parsedAmount === BigInt(0)
+    ) {
+      if (canRelockTarget && isExtendingDuration) {
+        return <>Extend lock</>;
+      }
+      if (canRelockTarget && isChangingDelegate) {
+        // Check if delegating to self
+        const isDelegatingToSelf =
+          nextDelegate?.toLowerCase() === address?.toLowerCase();
+        return isDelegatingToSelf ? (
+          <>Delegate to self</>
+        ) : (
+          <>Change delegate</>
+        );
+      }
+      return <>Enter amount</>;
+    }
+
     if (isBalanceInsufficient) {
       return <>Insufficient balance</>;
     }
 
-    // Has active lock - relock flow
-    if (hasActiveLock && lock?.expiration && lock.expiration > new Date()) {
-      // Approval needed for relock
+    if (isBelowMinimum) {
+      return <>Minimum 1 MENTO</>;
+    }
+
+    if (canRelockTarget) {
       if (needsApprovalForRelock) {
         return <>Approve MENTO</>;
       }
-
-      // Determine button text based on what's changing
-      if (isExtendingDuration && isAddingAmount) {
+      if (isExtendingDuration && isAddingAmount && isChangingDelegate) {
+        return <>Top up, extend and change delegate</>;
+      } else if (isExtendingDuration && isAddingAmount) {
         return <>Top up and extend lock</>;
+      } else if (isExtendingDuration && isChangingDelegate) {
+        return <>Extend and change delegate</>;
       } else if (isExtendingDuration && !isAddingAmount) {
         return <>Extend lock</>;
+      } else if (isAddingAmount && isChangingDelegate) {
+        return <>Top up and change delegate</>;
       } else if (!isExtendingDuration && isAddingAmount) {
         return <>Top up lock</>;
+      } else if (isChangingDelegate) {
+        // Check if delegating to self
+        const isDelegatingToSelf =
+          nextDelegate?.toLowerCase() === address?.toLowerCase();
+        return isDelegatingToSelf ? (
+          <>Delegate to self</>
+        ) : (
+          <>Change delegate</>
+        );
       }
-
-      // Fallback (shouldn't reach here in normal flow)
       return <>Top up lock</>;
     }
 
-    // New lock flow - approval needed
     if (CreateLockApprovalStatus === CREATE_LOCK_APPROVAL_STATUS.NOT_APPROVED) {
       return <>Approve MENTO</>;
     }
@@ -295,31 +434,35 @@ export const LockingButton = () => {
     amount,
     isBalanceInsufficient,
     CreateLockApprovalStatus,
-    hasActiveLock,
+    canRelockTarget,
     needsApprovalForRelock,
     isExtendingDuration,
     isAddingAmount,
-    lock?.expiration,
+    isChangingDelegate,
+    isAmountFormatValid,
+    isBelowMinimum,
+    parsedAmount,
+    nextDelegate,
   ]);
 
-  const shouldButtonBeDisabled = React.useMemo(() => {
-    // Basic checks
-    if (!address || !isValid || isBalanceInsufficient) {
+  const shouldButtonBeDisabled = useMemo(() => {
+    if (!address || !isValid || isBalanceInsufficient || isBelowMinimum) {
       return true;
     }
 
-    // Check amount requirements
-    const isAmountEmpty = !amount || amount === "" || amount === "0";
+    if (!isAmountFormatValid) {
+      return true;
+    }
+
+    const isAmountEmpty =
+      !amount || amount === "" || amount === "0" || parsedAmount === BigInt(0);
     if (isAmountEmpty) {
-      // Allow empty or 0 amount only if user is extending lock duration
-      if (!(hasActiveLock && isExtendingDuration)) {
+      if (!(canRelockTarget && (isExtendingDuration || isChangingDelegate))) {
         return true;
       }
     }
 
-    // Has active lock - relock flow checks
-    if (hasActiveLock && lock?.expiration && lock.expiration > new Date()) {
-      // Disable during relock transaction
+    if (canRelockTarget) {
       if (isRelocking) {
         return true;
       }
@@ -327,7 +470,11 @@ export const LockingButton = () => {
       return false;
     }
 
-    // New lock flow - disable during transaction
+    // New lock flow: require unlock date
+    if (!canRelockTarget && !unlockDate) {
+      return true;
+    }
+
     if (
       CreateLockTxStatus === CREATE_LOCK_TX_STATUS.CONFIRMING_APPROVE_TX ||
       CreateLockTxStatus === CREATE_LOCK_TX_STATUS.AWAITING_SIGNATURE ||
@@ -342,20 +489,25 @@ export const LockingButton = () => {
     amount,
     isValid,
     isBalanceInsufficient,
-    hasActiveLock,
+    canRelockTarget,
+    parsedAmount,
     isRelocking,
     CreateLockTxStatus,
     isExtendingDuration,
-    lock,
+    isChangingDelegate,
+    isAmountFormatValid,
+    isBelowMinimum,
+    unlockDate,
   ]);
-  const relockTxStatus = React.useMemo(() => {
-    if (approve.error || relock.error) return "ERROR";
+  const relockTxStatus = useMemo(() => {
+    if (relockError || approve.error || relock.error) return "ERROR";
     if (approve.isAwaitingUserSignature || relock.isAwaitingUserSignature)
       return "AWAITING_SIGNATURE";
     if (approve.isConfirming) return "CONFIRMING_APPROVE_TX";
     if (relock.isConfirming) return "CONFIRMING_RELOCK_TX";
     return "UNKNOWN";
   }, [
+    relockError,
     approve.error,
     approve.isAwaitingUserSignature,
     approve.isConfirming,
@@ -365,38 +517,94 @@ export const LockingButton = () => {
   ]);
 
   // Transaction dialog message component
-  const TxMessage = React.useCallback(() => {
+  const TxMessage = useCallback(() => {
+    const isApprovalActive =
+      (approve.isAwaitingUserSignature || approve.isConfirming) &&
+      !hasApprovedForCurrentRelock;
+    const isAwaiting =
+      approve.isAwaitingUserSignature || relock.isAwaitingUserSignature;
+    const isConfirming = approve.isConfirming || relock.isConfirming;
+
     return (
       <div className="flex min-h-4 flex-col gap-4">
-        {relockTxStatus === "AWAITING_SIGNATURE" ? (
+        <span data-testid="actionLabel">
+          {isApprovalActive
+            ? "Approve MENTO"
+            : isExtendingDuration && isAddingAmount && isChangingDelegate
+              ? "Top up, extend and change delegate"
+              : isExtendingDuration && isAddingAmount
+                ? "Top up and extend lock"
+                : isExtendingDuration && isChangingDelegate
+                  ? "Extend and change delegate"
+                  : isExtendingDuration && !isAddingAmount
+                    ? "Extend lock"
+                    : isAddingAmount && isChangingDelegate
+                      ? "Top up and change delegate"
+                      : isChangingDelegate
+                        ? nextDelegate?.toLowerCase() === address?.toLowerCase()
+                          ? "Delegate to self"
+                          : "Change delegate"
+                        : "Top up lock"}
+        </span>
+        {isAwaiting ? (
           <>Continue in wallet</>
-        ) : relockTxStatus === "CONFIRMING_APPROVE_TX" ||
-          relockTxStatus === "CONFIRMING_RELOCK_TX" ? (
+        ) : isConfirming ? (
           <>Confirming...</>
         ) : null}
       </div>
     );
-  }, [relockTxStatus]);
+  }, [
+    approve.isAwaitingUserSignature,
+    approve.isConfirming,
+    relock.isAwaitingUserSignature,
+    relock.isConfirming,
+    hasApprovedForCurrentRelock,
+    isExtendingDuration,
+    isAddingAmount,
+    isChangingDelegate,
+    address,
+    nextDelegate,
+  ]);
+
+  // Toast notifications for relock approval errors
+  useEffect(() => {
+    if (approve.error && isTxDialogOpen) {
+      if (approve.error.message?.includes("User rejected request")) {
+        toast.error("Transaction rejected");
+      } else {
+        toast.error("Transaction failed");
+      }
+    }
+  }, [approve.error, isTxDialogOpen]);
+
+  // Toast notifications for relock transaction errors
+  useEffect(() => {
+    if (relock.error && isTxDialogOpen) {
+      if (relock.error.message?.includes("User rejected request")) {
+        toast.error("Transaction rejected");
+      } else {
+        toast.error("Transaction failed");
+      }
+    }
+  }, [relock.error, isTxDialogOpen]);
 
   // Reset function for dialog
-  const resetRelockState = React.useCallback(() => {
+  const resetRelockState = useCallback(() => {
     setIsTxDialogOpen(false);
     approve.reset();
     relock.reset();
+    setHasApprovedForCurrentRelock(false);
+    setRelockError(false);
   }, [approve, relock]);
 
   return (
     <>
       <Button
-        className="w-full"
+        className={cn("w-full", className)}
         disabled={shouldButtonBeDisabled}
-        onClick={(e: React.MouseEvent) => {
+        onClick={(e) => {
           handleSubmit(() => {
-            if (
-              hasActiveLock &&
-              lock?.expiration &&
-              lock.expiration > new Date()
-            ) {
+            if (canRelockTarget) {
               handleRelock();
             } else {
               createLock();
@@ -404,7 +612,7 @@ export const LockingButton = () => {
           })(e);
         }}
         size="lg"
-        clipped="default"
+        clipped="lg"
         data-testid={buttonLocator}
       >
         {content}
@@ -415,7 +623,7 @@ export const LockingButton = () => {
         isOpen={isTxDialogOpen}
         onClose={resetRelockState}
         error={relockTxStatus === "ERROR"}
-        title="Top Up Lock"
+        title="Update Lock"
         retry={handleRelock}
         message={<TxMessage />}
         dataTestId="relock-tx-dialog"
@@ -429,34 +637,55 @@ export const LockingButton = () => {
 function getButtonLocator({
   address,
   amount,
-  hasActiveLock,
+  canRelockTarget,
   isExtendingDuration,
   isBalanceInsufficient,
   lock,
   needsApprovalForRelock,
   isAddingAmount,
+  isChangingDelegate,
   CreateLockApprovalStatus,
 }: {
   address: string;
   amount: string;
-  hasActiveLock: boolean;
+  canRelockTarget: boolean;
   isExtendingDuration: boolean;
   isBalanceInsufficient: boolean;
   lock: LockWithExpiration | undefined;
   needsApprovalForRelock: boolean;
   isAddingAmount: boolean;
+  isChangingDelegate: boolean;
   CreateLockApprovalStatus: CREATE_LOCK_APPROVAL_STATUS;
 }) {
+  const isAmountFormatValid = (() => {
+    if (amount === undefined || amount === null) return true;
+    const s = String(amount).trim();
+    if (s === "") return true;
+    const re = /^(?:\d+)(?:\.\d{1,18})?$/;
+    return re.test(s);
+  })();
+
   // Not connected
   if (!address) {
     return "connectWalletButton";
   }
 
+  // Invalid amount format
+  if (!isAmountFormatValid) {
+    if (canRelockTarget && isExtendingDuration) {
+      return "extendLockButton";
+    }
+    return "enterAmountButton";
+  }
+
   // Both topping up and extending duration are now supported for the first lock
   if (!amount || amount === "" || amount === "0") {
-    // Allow empty or 0 amount if user is extending lock duration
-    if (hasActiveLock && isExtendingDuration) {
+    // Allow empty or 0 amount if user is extending lock duration or changing delegate
+    if (canRelockTarget && isExtendingDuration) {
       return "extendLockButton";
+    }
+    if (canRelockTarget && isChangingDelegate) {
+      return "changeDelegateButton";
     }
     return "enterAmountButton";
   }
@@ -467,19 +696,27 @@ function getButtonLocator({
   }
 
   // Has active lock - relock flow
-  if (hasActiveLock && lock?.expiration && lock.expiration > new Date()) {
+  if (canRelockTarget && lock?.expiration && lock.expiration > new Date()) {
     // Approval needed for relock
     if (needsApprovalForRelock) {
       return "approveMentoButton";
     }
 
     // Determine button text based on what's changing
-    if (isExtendingDuration && isAddingAmount) {
+    if (isExtendingDuration && isAddingAmount && isChangingDelegate) {
+      return "topUpExtendAndChangeDelegateButton";
+    } else if (isExtendingDuration && isAddingAmount) {
       return "topUpAndExtendLockButton";
+    } else if (isExtendingDuration && isChangingDelegate) {
+      return "extendAndChangeDelegateButton";
     } else if (isExtendingDuration && !isAddingAmount) {
       return "extendLockButton";
+    } else if (isAddingAmount && isChangingDelegate) {
+      return "topUpAndChangeDelegateButton";
     } else if (!isExtendingDuration && isAddingAmount) {
       return "topUpLockButton";
+    } else if (isChangingDelegate) {
+      return "changeDelegateButton";
     }
 
     // Fallback (shouldn't reach here in normal flow)

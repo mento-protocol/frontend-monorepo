@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isAddress } from "viem";
 import { env } from "@/env.mjs";
+import { validateAddress } from "@repo/web3";
 import { ContractInfo } from "../types";
 import {
   fetchFromBlockchainExplorer,
@@ -49,7 +49,10 @@ export async function GET(request: NextRequest) {
 
     const address = addressParam.toLowerCase();
 
-    if (!isAddress(address)) {
+    try {
+      validateAddress(address, "contract info API");
+    } catch (error) {
+      console.error("Invalid address format: %s", address, error);
       return NextResponse.json(
         { error: "Invalid address format" },
         { status: 400 },

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useEffect } from "react";
-import { isAddress } from "viem";
+import { isValidAddress } from "@repo/web3";
 import { Transaction, DecodedTransaction } from "../types/transaction";
 import { useAllResolvedMappings } from "../hooks/useAddressResolver";
 import { getContractInfo } from "../services/address-resolver-service";
@@ -137,7 +137,7 @@ function findFullAddresses(text: string): AddressReplacement[] {
   return matches
     .filter((match) => {
       const address = match[0];
-      return address.length === 42 && isAddress(address);
+      return address.length === 42 && isValidAddress(address);
     })
     .map((match) => createReplacement(match, match[0]));
 }

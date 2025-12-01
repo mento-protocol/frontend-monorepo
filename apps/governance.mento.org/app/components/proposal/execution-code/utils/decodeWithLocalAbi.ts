@@ -153,33 +153,6 @@ const PROTOCOL_ABI = parseAbi([
   "function setParameter(bytes32 key, uint256 value)",
 ]);
 
-// SortedOracles functions
-// const SORTED_ORACLES_ABI = parseAbi([
-//   // Oracle management
-//   "function addOracle(address token, address oracleAddress)",
-//   "function removeOracle(address token, address oracleAddress, uint256 index)",
-
-//   // Reporting
-//   "function report(address token, uint256 value, address lesserKey, address greaterKey)",
-//   "function removeExpiredReports(address token, uint256 n)",
-
-//   // Configuration
-//   "function setReportExpiry(uint256 _reportExpirySeconds)",
-//   "function setTokenReportExpiry(address _token, uint256 _reportExpirySeconds)",
-//   "function setBreakerBox(address newBreakerBox)",
-
-//   // Equivalent token management
-//   "function setEquivalentToken(address token, address equivalentToken)",
-//   "function deleteEquivalentToken(address token)",
-
-//   // Initialization
-//   "function initialize(uint256 _reportExpirySeconds)",
-
-//   // Ownership
-//   "function transferOwnership(address newOwner)",
-//   "function renounceOwnership()",
-// ]);
-
 // Proxy Admin functions
 const PROXY_ADMIN_ABI = parseAbi([
   // Proxy management

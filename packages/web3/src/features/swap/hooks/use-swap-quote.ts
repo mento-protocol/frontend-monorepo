@@ -16,6 +16,7 @@ import type { SwapDirection } from "@/features/swap/types";
 import {
   calcExchangeRate,
   invertExchangeRate,
+  isValidTokenPair,
   parseInputExchangeAmount,
 } from "@/features/swap/utils";
 import { fromWei } from "@/utils/amount";
@@ -69,11 +70,15 @@ export function useSwapQuote(
       debouncedAmount != null &&
       debouncedAmount !== "" &&
       Number(debouncedAmount) > 0;
-    const isValidTokenPair =
-      tokenInSymbol !== tokenOutSymbol && !!fromToken && !!toToken;
-    const isQueryEnabled = isValidAmount && isValidTokenPair;
+    const isValidPair = isValidTokenPair(
+      tokenInSymbol,
+      tokenOutSymbol,
+      fromToken,
+      toToken,
+    );
+    const isQueryEnabled = isValidAmount && isValidPair;
 
-    return { isValidAmount, isValidTokenPair, isQueryEnabled };
+    return { isValidAmount, isValidTokenPair: isValidPair, isQueryEnabled };
   }, [debouncedAmount, tokenInSymbol, tokenOutSymbol, fromToken, toToken]);
 
   // Memoize query key to improve cache efficiency
@@ -239,6 +244,17 @@ export function useSwapQuote(
     // (ethers errors sometimes have the revert reason in error.reason)
     const errorMsg =
       error.message || (error as { reason?: string }).reason || String(error);
+
+    // Check if this is a trading suspension error - if so, skip showing toast
+    // since the trading suspension check hook already handles it
+    const isTradingSuspensionError = errorMsg.includes("Trading is suspended");
+
+    if (isTradingSuspensionError) {
+      // Still log the error but don't show toast (trading suspension check handles it)
+      logger.error(error);
+      return null;
+    }
+
     return getToastErrorMessage(errorMsg, {
       fromTokenSymbol: fromToken?.symbol,
       toTokenSymbol: toToken?.symbol,
