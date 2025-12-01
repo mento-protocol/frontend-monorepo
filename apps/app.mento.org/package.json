@@ -11,7 +11,7 @@
     "start": "next start"
   },
   "dependencies": {
-    "@hookform/resolvers": "catalog:",
+    "@hookform/resolvers": "^5.0.1",
     "@mento-protocol/mento-sdk": "catalog:",
     "@rainbow-me/rainbowkit": "catalog:",
     "@repo/ui": "workspace:*",

@@ -10,17 +10,17 @@
     "./react-shared": "./react-shared.js"
   },
   "dependencies": {
-    "eslint-config-turbo": "catalog:"
+    "eslint-config-turbo": "^2.5.1"
   },
   "devDependencies": {
     "@eslint/js": "catalog:",
-    "@next/eslint-plugin-next": "catalog:",
+    "@next/eslint-plugin-next": "^15.3.0",
     "eslint": "catalog:",
     "eslint-config-prettier": "catalog:",
-    "eslint-plugin-only-warn": "catalog:",
-    "eslint-plugin-react": "catalog:",
-    "eslint-plugin-react-hooks": "catalog:",
-    "globals": "catalog:",
+    "eslint-plugin-only-warn": "^1.1.0",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^16.0.0",
     "typescript": "catalog:",
     "typescript-eslint": "catalog:"
   }

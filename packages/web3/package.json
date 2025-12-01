@@ -39,13 +39,13 @@
     "watch": "pnpm dev:js"
   },
   "dependencies": {
-    "@ethersproject/address": "catalog:",
-    "@ethersproject/units": "catalog:",
+    "@ethersproject/address": "^5.8.0",
+    "@ethersproject/units": "^5.8.0",
     "@mento-protocol/mento-sdk": "catalog:",
     "@metamask/jazzicon": "catalog:",
     "@repo/typescript-config": "workspace:*",
     "@repo/ui": "workspace:*",
-    "bignumber.js": "catalog:",
+    "bignumber.js": "^9.3.0",
     "ethers": "catalog:",
     "jotai": "catalog:",
     "lucide-react": "catalog:",

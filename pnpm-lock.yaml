@@ -6,99 +6,15 @@ settings:
 
 catalogs:
   default:
-    '@apollo/client':
-      specifier: ^3.13.9
-      version: 3.13.9
-    '@apollo/client-integration-nextjs':
-      specifier: ^0.12.3
-      version: 0.12.3
     '@eslint/js':
       specifier: ^9.32.0
       version: 9.32.0
-    '@ethersproject/address':
-      specifier: ^5.8.0
-      version: 5.8.0
-    '@ethersproject/units':
-      specifier: ^5.8.0
-      version: 5.8.0
-    '@graphql-codegen/add':
-      specifier: ^6.0.0
-      version: 6.0.0
-    '@graphql-codegen/cli':
-      specifier: ^5.0.2
-      version: 5.0.7
-    '@graphql-codegen/typescript':
-      specifier: ^5.0.2
-      version: 5.0.2
-    '@graphql-codegen/typescript-apollo-client-helpers':
-      specifier: ^3.0.0
-      version: 3.0.1
-    '@graphql-codegen/typescript-operations':
-      specifier: ^5.0.2
-      version: 5.0.2
-    '@graphql-codegen/typescript-react-apollo':
-      specifier: ^4.3.2
-      version: 4.3.3
-    '@hookform/resolvers':
-      specifier: ^5.0.1
-      version: 5.2.1
     '@mento-protocol/mento-sdk':
       specifier: ^1.17.0
       version: 1.17.0
     '@metamask/jazzicon':
       specifier: https://github.com/jmrossy/jazzicon#7a8df28
       version: 2.1.0
-    '@next/eslint-plugin-next':
-      specifier: ^15.3.0
-      version: 15.4.5
-    '@radix-ui/react-accordion':
-      specifier: ^1.2.11
-      version: 1.2.11
-    '@radix-ui/react-checkbox':
-      specifier: ^1.3.2
-      version: 1.3.2
-    '@radix-ui/react-collapsible':
-      specifier: ^1.1.11
-      version: 1.1.11
-    '@radix-ui/react-dialog':
-      specifier: ^1.1.14
-      version: 1.1.14
-    '@radix-ui/react-dropdown-menu':
-      specifier: ^2.1.15
-      version: 2.1.15
-    '@radix-ui/react-label':
-      specifier: ^2.1.7
-      version: 2.1.7
-    '@radix-ui/react-navigation-menu':
-      specifier: ^1.2.13
-      version: 1.2.13
-    '@radix-ui/react-popover':
-      specifier: ^1.1.14
-      version: 1.1.14
-    '@radix-ui/react-radio-group':
-      specifier: ^1.3.7
-      version: 1.3.7
-    '@radix-ui/react-scroll-area':
-      specifier: ^1.2.9
-      version: 1.2.9
-    '@radix-ui/react-select':
-      specifier: ^2.2.4
-      version: 2.2.5
-    '@radix-ui/react-separator':
-      specifier: ^1.1.7
-      version: 1.1.7
-    '@radix-ui/react-slider':
-      specifier: ^1.3.5
-      version: 1.3.5
-    '@radix-ui/react-slot':
-      specifier: ^1.2.3
-      version: 1.2.3
-    '@radix-ui/react-tabs':
-      specifier: ^1.1.12
-      version: 1.1.12
-    '@radix-ui/react-tooltip':
-      specifier: ^1.2.7
-      version: 1.2.7
     '@rainbow-me/rainbowkit':
       specifier: ^2.2.8
       version: 2.2.8
@@ -108,48 +24,9 @@ catalogs:
     '@t3-oss/env-nextjs':
       specifier: ^0.13.8
       version: 0.13.8
-    '@tailwindcss/cli':
-      specifier: ^4.1.4
-      version: 4.1.11
     '@tailwindcss/postcss':
       specifier: ^4.1.5
       version: 4.1.11
-    '@tailwindcss/typography':
-      specifier: ^0.5.19
-      version: 0.5.19
-    '@tiptap/core':
-      specifier: ^2.22.3
-      version: 2.26.1
-    '@tiptap/extension-link':
-      specifier: ^2.22.3
-      version: 2.26.1
-    '@tiptap/extension-placeholder':
-      specifier: ^2.22.3
-      version: 2.26.1
-    '@tiptap/extension-text-align':
-      specifier: ^2.22.3
-      version: 2.26.1
-    '@tiptap/extension-text-style':
-      specifier: ^2.22.3
-      version: 2.26.1
-    '@tiptap/extension-typography':
-      specifier: ^2.22.3
-      version: 2.26.1
-    '@tiptap/extension-underline':
-      specifier: ^2.22.3
-      version: 2.26.1
-    '@tiptap/pm':
-      specifier: ^2.22.3
-      version: 2.26.1
-    '@tiptap/react':
-      specifier: ^2.22.3
-      version: 2.26.1
-    '@tiptap/starter-kit':
-      specifier: ^2.22.3
-      version: 2.26.1
-    '@turbo/gen':
-      specifier: ^2.5.8
-      version: 2.5.8
     '@types/node':
       specifier: ^22.14.1
       version: 22.17.0
@@ -159,42 +36,12 @@ catalogs:
     '@types/react-dom':
       specifier: ^19.1.2
       version: 19.1.7
-    '@types/turndown':
-      specifier: ^5.0.5
-      version: 5.0.5
     '@vercel/analytics':
       specifier: ^1.5.0
       version: 1.5.0
-    animejs:
-      specifier: ^4.0.2
-      version: 4.1.2
-    bignumber.js:
-      specifier: ^9.3.0
-      version: 9.3.1
-    class-variance-authority:
-      specifier: ^0.7.1
-      version: 0.7.1
-    clsx:
-      specifier: ^2.1.1
-      version: 2.1.1
-    cmdk:
-      specifier: ^1.1.1
-      version: 1.1.1
     concurrently:
       specifier: ^9.1.2
       version: 9.2.0
-    date-fns:
-      specifier: ^4.1.0
-      version: 4.1.0
-    date-fns-tz:
-      specifier: ^3.2.0
-      version: 3.2.0
-    dompurify:
-      specifier: ^3.3.0
-      version: 3.3.0
-    dotenv:
-      specifier: ^17.2.3
-      version: 17.2.3
     esbuild-plugin-preserve-directives:
       specifier: ^0.0.11
       version: 0.0.11
@@ -204,33 +51,12 @@ catalogs:
     eslint-config-prettier:
       specifier: ^10.1.2
       version: 10.1.8
-    eslint-config-turbo:
-      specifier: ^2.5.1
-      version: 2.5.5
-    eslint-plugin-only-warn:
-      specifier: ^1.1.0
-      version: 1.1.0
-    eslint-plugin-react:
-      specifier: ^7.37.5
-      version: 7.37.5
-    eslint-plugin-react-hooks:
-      specifier: ^5.2.0
-      version: 5.2.0
     ethers:
       specifier: ^5.8.0
       version: 5.8.0
-    globals:
-      specifier: ^16.0.0
-      version: 16.3.0
-    graphql:
-      specifier: ^16.11.0
-      version: 16.11.0
     jotai:
       specifier: ^2.12.5
       version: 2.12.5
-    knip:
-      specifier: ^5.64.3
-      version: 5.64.3
     lucide-react:
       specifier: ^0.488.0
       version: 0.488.0
@@ -243,66 +69,30 @@ catalogs:
     postcss:
       specifier: ^8.5.3
       version: 8.5.6
-    prettier:
-      specifier: ^3.5.3
-      version: 3.6.2
-    prettier-plugin-tailwindcss:
-      specifier: ^0.6.11
-      version: 0.6.14
     react:
       specifier: ^19.1.0
       version: 19.1.1
-    react-day-picker:
-      specifier: ^9.7.0
-      version: 9.8.1
     react-dom:
       specifier: ^19.1.0
       version: 19.1.1
     react-hook-form:
       specifier: ^7.59.0
       version: 7.61.1
-    react-markdown:
-      specifier: ^10.1.0
-      version: 10.1.0
-    recharts:
-      specifier: ^2.15.3
-      version: 2.15.4
-    remark-gfm:
-      specifier: ^4.0.1
-      version: 4.0.1
     sonner:
       specifier: ^2.0.3
       version: 2.0.6
-    spacetime:
-      specifier: ^7.10.0
-      version: 7.10.0
-    tailwind-merge:
-      specifier: ^3.2.0
-      version: 3.3.1
     tailwindcss:
       specifier: ^4.1.14
       version: 4.1.14
     tsup:
       specifier: ^8.5.0
       version: 8.5.0
-    turbo:
-      specifier: ^2.5.6
-      version: 2.6.1
-    turndown:
-      specifier: ^7.2.0
-      version: 7.2.0
-    tw-animate-css:
-      specifier: ^1.4.0
-      version: 1.4.0
     typescript:
       specifier: ^5.8.3
       version: 5.8.3
     typescript-eslint:
       specifier: ^8.38.0
       version: 8.38.0
-    vaul:
-      specifier: ^1.1.2
-      version: 1.1.2
     viem:
       specifier: ^2.37.11
       version: 2.37.11
@@ -344,16 +134,16 @@ importers:
         specifier: 'catalog:'
         version: 10.1.8(eslint@9.32.0(jiti@2.6.1))
       knip:
-        specifier: 'catalog:'
+        specifier: ^5.64.3
         version: 5.64.3(@types/node@22.17.0)(typescript@5.8.3)
       prettier:
-        specifier: 'catalog:'
+        specifier: ^3.5.3
         version: 3.6.2
       prettier-plugin-tailwindcss:
-        specifier: 'catalog:'
+        specifier: ^0.6.11
         version: 0.6.14(prettier@3.6.2)
       turbo:
-        specifier: 'catalog:'
+        specifier: ^2.5.6
         version: 2.6.1
       typescript:
         specifier: 'catalog:'
@@ -365,7 +155,7 @@ importers:
   apps/app.mento.org:
     dependencies:
       '@hookform/resolvers':
-        specifier: 'catalog:'
+        specifier: ^5.0.1
         version: 5.2.1(react-hook-form@7.61.1(react@19.1.1))
       '@mento-protocol/mento-sdk':
         specifier: 'catalog:'
@@ -468,10 +258,10 @@ importers:
   apps/governance.mento.org:
     dependencies:
       '@apollo/client':
-        specifier: 'catalog:'
+        specifier: ^3.13.9
         version: 3.13.9(@types/react@19.1.9)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.3(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@apollo/client-integration-nextjs':
-        specifier: 'catalog:'
+        specifier: ^0.12.3
         version: 0.12.3(@apollo/client@3.13.9(@types/react@19.1.9)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.11.0)(ws@8.18.3(bufferutil@4.0.9)(utf-8-validate@5.0.10)))(graphql@16.11.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(@types/react@19.1.9)(graphql@16.11.0)(next@15.5.2(@babel/core@7.28.0)(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@metamask/jazzicon':
         specifier: 'catalog:'
@@ -492,28 +282,28 @@ importers:
         specifier: 'catalog:'
         version: 0.13.8(typescript@5.8.3)(zod@4.1.12)
       '@tailwindcss/typography':
-        specifier: 'catalog:'
+        specifier: ^0.5.19
         version: 0.5.19(tailwindcss@4.1.14)
       '@tanstack/react-query':
         specifier: ^5.83.0
         version: 5.83.0(react@19.1.1)
       '@types/turndown':
-        specifier: 'catalog:'
+        specifier: ^5.0.5
         version: 5.0.5
       '@vercel/analytics':
         specifier: 'catalog:'
         version: 1.5.0(next@15.5.2(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)
       date-fns:
-        specifier: 'catalog:'
+        specifier: ^4.1.0
         version: 4.1.0
       date-fns-tz:
-        specifier: 'catalog:'
+        specifier: ^3.2.0
         version: 3.2.0(date-fns@4.1.0)
       dompurify:
-        specifier: 'catalog:'
+        specifier: ^3.3.0
         version: 3.3.0
       graphql:
-        specifier: 'catalog:'
+        specifier: ^16.11.0
         version: 16.11.0
       lucide-react:
         specifier: 'catalog:'
@@ -534,19 +324,19 @@ importers:
         specifier: 'catalog:'
         version: 7.61.1(react@19.1.1)
       react-markdown:
-        specifier: 'catalog:'
+        specifier: ^10.1.0
         version: 10.1.0(@types/react@19.1.9)(react@19.1.1)
       remark-gfm:
-        specifier: 'catalog:'
+        specifier: ^4.0.1
         version: 4.0.1
       spacetime:
-        specifier: 'catalog:'
+        specifier: ^7.10.0
         version: 7.10.0
       tailwindcss:
         specifier: 'catalog:'
         version: 4.1.14
       turndown:
-        specifier: 'catalog:'
+        specifier: ^7.2.0
         version: 7.2.0
       viem:
         specifier: 'catalog:'
@@ -559,22 +349,22 @@ importers:
         version: 4.1.12
     devDependencies:
       '@graphql-codegen/add':
-        specifier: 'catalog:'
+        specifier: ^6.0.0
         version: 6.0.0(graphql@16.11.0)
       '@graphql-codegen/cli':
-        specifier: 'catalog:'
+        specifier: ^5.0.2
         version: 5.0.7(@parcel/watcher@2.5.1)(@types/node@22.17.0)(bufferutil@4.0.9)(crossws@0.3.5)(enquirer@2.4.1)(graphql@16.11.0)(typescript@5.8.3)(utf-8-validate@5.0.10)
       '@graphql-codegen/typescript':
-        specifier: 'catalog:'
+        specifier: ^5.0.2
         version: 5.0.2(graphql@16.11.0)
       '@graphql-codegen/typescript-apollo-client-helpers':
-        specifier: 'catalog:'
+        specifier: ^3.0.0
         version: 3.0.1(graphql@16.11.0)
       '@graphql-codegen/typescript-operations':
-        specifier: 'catalog:'
+        specifier: ^5.0.2
         version: 5.0.2(graphql@16.11.0)
       '@graphql-codegen/typescript-react-apollo':
-        specifier: 'catalog:'
+        specifier: ^4.3.2
         version: 4.3.3(graphql@16.11.0)
       '@repo/eslint-config':
         specifier: workspace:*
@@ -595,7 +385,7 @@ importers:
         specifier: 'catalog:'
         version: 19.1.7(@types/react@19.1.9)
       dotenv:
-        specifier: 'catalog:'
+        specifier: ^17.2.3
         version: 17.2.3
       pino-pretty:
         specifier: 'catalog:'
@@ -720,14 +510,14 @@ importers:
   packages/eslint-config:
     dependencies:
       eslint-config-turbo:
-        specifier: 'catalog:'
+        specifier: ^2.5.1
         version: 2.5.5(eslint@9.32.0(jiti@2.6.1))(turbo@2.6.1)
     devDependencies:
       '@eslint/js':
         specifier: 'catalog:'
         version: 9.32.0
       '@next/eslint-plugin-next':
-        specifier: 'catalog:'
+        specifier: ^15.3.0
         version: 15.4.5
       eslint:
         specifier: 'catalog:'
@@ -736,16 +526,16 @@ importers:
         specifier: 'catalog:'
         version: 10.1.8(eslint@9.32.0(jiti@2.6.1))
       eslint-plugin-only-warn:
-        specifier: 'catalog:'
+        specifier: ^1.1.0
         version: 1.1.0
       eslint-plugin-react:
-        specifier: 'catalog:'
+        specifier: ^7.37.5
         version: 7.37.5(eslint@9.32.0(jiti@2.6.1))
       eslint-plugin-react-hooks:
-        specifier: 'catalog:'
+        specifier: ^5.2.0
         version: 5.2.0(eslint@9.32.0(jiti@2.6.1))
       globals:
-        specifier: 'catalog:'
+        specifier: ^16.0.0
         version: 16.3.0
       typescript:
         specifier: 'catalog:'
@@ -759,94 +549,94 @@ importers:
   packages/ui:
     dependencies:
       '@radix-ui/react-accordion':
-        specifier: 'catalog:'
+        specifier: ^1.2.11
         version: 1.2.11(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-checkbox':
-        specifier: 'catalog:'
+        specifier: ^1.3.2
         version: 1.3.2(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-collapsible':
-        specifier: 'catalog:'
+        specifier: ^1.1.11
         version: 1.1.11(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-dialog':
-        specifier: 'catalog:'
+        specifier: ^1.1.14
         version: 1.1.14(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-dropdown-menu':
-        specifier: 'catalog:'
+        specifier: ^2.1.15
         version: 2.1.15(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-label':
-        specifier: 'catalog:'
+        specifier: ^2.1.7
         version: 2.1.7(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-navigation-menu':
-        specifier: 'catalog:'
+        specifier: ^1.2.13
         version: 1.2.13(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-popover':
-        specifier: 'catalog:'
+        specifier: ^1.1.14
         version: 1.1.14(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-radio-group':
-        specifier: 'catalog:'
+        specifier: ^1.3.7
         version: 1.3.7(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-scroll-area':
-        specifier: 'catalog:'
+        specifier: ^1.2.9
         version: 1.2.9(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-select':
-        specifier: 'catalog:'
+        specifier: ^2.2.4
         version: 2.2.5(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-separator':
-        specifier: 'catalog:'
+        specifier: ^1.1.7
         version: 1.1.7(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-slider':
-        specifier: 'catalog:'
+        specifier: ^1.3.5
         version: 1.3.5(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-slot':
-        specifier: 'catalog:'
+        specifier: ^1.2.3
         version: 1.2.3(@types/react@19.1.9)(react@19.1.1)
       '@radix-ui/react-tabs':
-        specifier: 'catalog:'
+        specifier: ^1.1.12
         version: 1.1.12(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-tooltip':
-        specifier: 'catalog:'
+        specifier: ^1.2.7
         version: 1.2.7(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@tiptap/core':
-        specifier: 'catalog:'
+        specifier: ^2.22.3
         version: 2.26.1(@tiptap/pm@2.26.1)
       '@tiptap/extension-link':
-        specifier: 'catalog:'
+        specifier: ^2.22.3
         version: 2.26.1(@tiptap/core@2.26.1(@tiptap/pm@2.26.1))(@tiptap/pm@2.26.1)
       '@tiptap/extension-placeholder':
-        specifier: 'catalog:'
+        specifier: ^2.22.3
         version: 2.26.1(@tiptap/core@2.26.1(@tiptap/pm@2.26.1))(@tiptap/pm@2.26.1)
       '@tiptap/extension-text-align':
-        specifier: 'catalog:'
+        specifier: ^2.22.3
         version: 2.26.1(@tiptap/core@2.26.1(@tiptap/pm@2.26.1))
       '@tiptap/extension-text-style':
-        specifier: 'catalog:'
+        specifier: ^2.22.3
         version: 2.26.1(@tiptap/core@2.26.1(@tiptap/pm@2.26.1))
       '@tiptap/extension-typography':
-        specifier: 'catalog:'
+        specifier: ^2.22.3
         version: 2.26.1(@tiptap/core@2.26.1(@tiptap/pm@2.26.1))
       '@tiptap/extension-underline':
-        specifier: 'catalog:'
+        specifier: ^2.22.3
         version: 2.26.1(@tiptap/core@2.26.1(@tiptap/pm@2.26.1))
       '@tiptap/pm':
-        specifier: 'catalog:'
+        specifier: ^2.22.3
         version: 2.26.1
       '@tiptap/react':
-        specifier: 'catalog:'
+        specifier: ^2.22.3
         version: 2.26.1(@tiptap/core@2.26.1(@tiptap/pm@2.26.1))(@tiptap/pm@2.26.1)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@tiptap/starter-kit':
-        specifier: 'catalog:'
+        specifier: ^2.22.3
         version: 2.26.1
       animejs:
-        specifier: 'catalog:'
+        specifier: ^4.0.2
         version: 4.1.2
       class-variance-authority:
-        specifier: 'catalog:'
+        specifier: ^0.7.1
         version: 0.7.1
       clsx:
-        specifier: 'catalog:'
+        specifier: ^2.1.1
         version: 2.1.1
       cmdk:
-        specifier: 'catalog:'
+        specifier: ^1.1.1
         version: 1.1.1(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       lucide-react:
         specifier: 'catalog:'
@@ -858,7 +648,7 @@ importers:
         specifier: 'catalog:'
         version: 19.1.1
       react-day-picker:
-        specifier: 'catalog:'
+        specifier: ^9.7.0
         version: 9.8.1(react@19.1.1)
       react-dom:
         specifier: 'catalog:'
@@ -867,22 +657,22 @@ importers:
         specifier: 'catalog:'
         version: 7.61.1(react@19.1.1)
       recharts:
-        specifier: 'catalog:'
+        specifier: ^2.15.3
         version: 2.15.4(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       sonner:
         specifier: 'catalog:'
         version: 2.0.6(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       tailwind-merge:
-        specifier: 'catalog:'
+        specifier: ^3.2.0
         version: 3.3.1
       tailwindcss:
         specifier: 'catalog:'
         version: 4.1.14
       tw-animate-css:
-        specifier: 'catalog:'
+        specifier: ^1.4.0
         version: 1.4.0
       vaul:
-        specifier: 'catalog:'
+        specifier: ^1.1.2
         version: 1.1.2(@types/react-dom@19.1.7(@types/react@19.1.9))(@types/react@19.1.9)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
     devDependencies:
       '@repo/eslint-config':
@@ -892,13 +682,13 @@ importers:
         specifier: workspace:*
         version: link:../typescript-config
       '@tailwindcss/cli':
-        specifier: 'catalog:'
+        specifier: ^4.1.4
         version: 4.1.11
       '@tailwindcss/postcss':
         specifier: 'catalog:'
         version: 4.1.11
       '@turbo/gen':
-        specifier: 'catalog:'
+        specifier: ^2.5.8
         version: 2.5.8(@types/node@24.10.0)(typescript@5.8.3)
       '@types/react':
         specifier: 'catalog:'
@@ -928,10 +718,10 @@ importers:
   packages/web3:
     dependencies:
       '@ethersproject/address':
-        specifier: 'catalog:'
+        specifier: ^5.8.0
         version: 5.8.0
       '@ethersproject/units':
-        specifier: 'catalog:'
+        specifier: ^5.8.0
         version: 5.8.0
       '@mento-protocol/mento-sdk':
         specifier: 'catalog:'
@@ -961,7 +751,7 @@ importers:
         specifier: 'catalog:'
         version: 19.1.7(@types/react@19.1.9)
       bignumber.js:
-        specifier: 'catalog:'
+        specifier: ^9.3.0
         version: 9.3.1
       esbuild-plugin-preserve-directives:
         specifier: 'catalog:'
@@ -2217,12 +2007,6 @@ packages:
 
   '@mento-protocol/mento-sdk@1.17.0':
     resolution: {integrity: sha512-usSbNo9ntKXQoOQUqQArPrnxCX7b7A7Hd3Da4cUVMt+QReCL/JyPg79NGIq+midjD4eC5ORA/W3YKx9TCQX3mA==}
-    engines: {node: '>=22'}
-    peerDependencies:
-      ethers: ^5.7
-
-  '@mento-protocol/mento-sdk@1.16.1-beta.0':
-    resolution: {integrity: sha512-GN6agFLadjM3je3lqc5MSFf4SFiutYgS+k2RAvVzHZHgQH/xg93xXpduYH1i+1/EZqg9qx4S8KxpYjvUiJqLjA==}
     engines: {node: '>=22'}
     peerDependencies:
       ethers: ^5.7
@@ -10370,12 +10154,6 @@ snapshots:
   '@mento-protocol/mento-core-ts@2.6.5-rc3': {}
 
   '@mento-protocol/mento-sdk@1.17.0(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))':
-    dependencies:
-      '@mento-protocol/mento-core-ts': 2.6.5-rc3
-      ethers: 5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
-      mento-router-ts: 0.2.0
-
-  '@mento-protocol/mento-sdk@1.16.1-beta.0(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))':
     dependencies:
       '@mento-protocol/mento-core-ts': 2.6.5-rc3
       ethers: 5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
