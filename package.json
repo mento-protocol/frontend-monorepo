@@ -12,6 +12,8 @@
     "dev:governance.mento.org": "turbo run dev --filter=governance.mento.org",
     "dev:reserve.mento.org": "turbo run dev --filter=reserve.mento.org",
     "dev:ui.mento.org": "turbo run dev --filter=ui.mento.org",
+    "fork:mainnet": "anvil --fork-url https://forno.celo.org --port 8545",
+    "fork:testnet": "anvil --fork-url https://forno.celo-sepolia.celo-testnet.org --port 8545",
     "format": "npx @trunkio/launcher fmt",
     "format:check": "npx @trunkio/launcher check --filter=prettier",
     "health": "sh ./scripts/healthcheck.sh",
@@ -19,9 +21,7 @@
     "lint": "npx @trunkio/launcher check",
     "lint:fix": "npx @trunkio/launcher check --fix",
     "rebuild": "pnpm run clean && turbo run build",
-    "test": "turbo run test",
-    "fork:mainnet": "anvil --fork-url https://forno.celo.org --port 8545",
-    "fork:testnet": "anvil --fork-url https://forno.celo-sepolia.celo-testnet.org --port 8545",
+    "test": "turbo run test"
   },
   "resolutions": {
     "brace-expansion": ">=2.0.2",
