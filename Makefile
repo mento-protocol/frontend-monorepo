@@ -1,4 +1,4 @@
-.PHONY: help mainnet-fork-with-block-explorer testnet-fork-with-block-explorer mainnet-fork-only testnet-fork-only stop-all-services
+.PHONY: help mainnet-fork-setup testnet-fork-setup mainnet-fork-only testnet-fork-only block-explorer-only stop-all-services
 
 # Default target - show help
 help:
