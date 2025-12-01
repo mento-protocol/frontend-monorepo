@@ -4,13 +4,19 @@
   "scripts": {
     "build": "turbo run build",
     "check-types": "turbo run check-types",
+    "clean": "rm -rf .turbo && turbo run clean",
     "dev": "turbo run dev",
+    "dev:app.mento.org": "turbo run dev --filter=app.mento.org",
+    "dev:governance.mento.org": "turbo run dev --filter=governance.mento.org",
+    "dev:reserve.mento.org": "turbo run dev --filter=reserve.mento.org",
+    "dev:ui.mento.org": "turbo run dev --filter=ui.mento.org",
     "format": "npx @trunkio/launcher fmt",
     "format:check": "npx @trunkio/launcher check --filter=prettier",
     "health": "sh ./scripts/healthcheck.sh",
     "knip": "knip",
     "lint": "npx @trunkio/launcher check",
     "lint:fix": "npx @trunkio/launcher check --fix",
+    "rebuild": "pnpm run clean && turbo run build",
     "test": "turbo run test"
   },
   "resolutions": {
@@ -18,19 +24,19 @@
     "esbuild": ">=0.25.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.32.0",
+    "@eslint/js": "catalog:",
     "@repo/eslint-config": "workspace:*",
-    "@types/node": "^24.7.1",
-    "eslint": "^9.31.0",
-    "eslint-config-prettier": "^10.1.8",
+    "@types/node": "catalog:",
+    "eslint": "catalog:",
+    "eslint-config-prettier": "catalog:",
     "knip": "^5.64.3",
     "prettier": "^3.5.3",
     "prettier-plugin-tailwindcss": "^0.6.11",
     "turbo": "^2.5.6",
-    "typescript": "^5.8.3",
-    "typescript-eslint": "^8.38.0"
+    "typescript": "catalog:",
+    "typescript-eslint": "catalog:"
   },
-  "packageManager": "pnpm@10.17.1",
+  "packageManager": "pnpm@10.24.0",
   "engines": {
     "node": ">=22"
   },

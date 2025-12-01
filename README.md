@@ -150,6 +150,78 @@ To build a specific application:
 pnpm build --filter <app-name>
 ```
 
+### Dependency Management with PNPM Catalog
+
+This monorepo uses [PNPM's catalog feature](https://pnpm.io/catalogs) to centralize dependency version management. This ensures all packages and apps use consistent versions of shared dependencies, reducing conflicts and simplifying updates.
+
+#### How It Works
+
+The catalog is defined in `pnpm-workspace.yaml` under the `catalog` section. Instead of specifying version numbers directly in each `package.json`, we reference the catalog using `"catalog:"`.
+
+**Example in `package.json`:**
+
+```json
+{
+  "dependencies": {
+    "react": "catalog:",
+    "jotai": "catalog:",
+    "@tanstack/react-query": "catalog:"
+  }
+}
+```
+
+The actual versions are defined once in `pnpm-workspace.yaml`:
+
+```yaml
+catalog:
+  "react": ^19.1.0
+  "jotai": ^2.12.5
+  "@tanstack/react-query": ^5.83.0
+```
+
+#### Adding a New Dependency
+
+When adding a new dependency that should be shared across packages:
+
+1. **Add the dependency to the catalog** in `pnpm-workspace.yaml`:
+
+   ```yaml
+   catalog:
+     "new-package": ^1.0.0
+   ```
+
+2. **Reference it in your `package.json`**:
+
+   ```json
+   {
+     "dependencies": {
+       "new-package": "catalog:"
+     }
+   }
+   ```
+
+3. **Run `pnpm install`** to update the lockfile.
+
+#### Updating a Dependency Version
+
+To update a dependency version across the entire monorepo:
+
+1. **Update the version in `pnpm-workspace.yaml`**:
+
+   ```yaml
+   catalog:
+     "react": ^19.2.0 # Updated from ^19.1.0
+   ```
+
+2. **Run `pnpm install`** to update all packages using this dependency.
+
+All packages referencing `"react": "catalog:"` will automatically use the new version.
+
+#### When to Use Catalog vs Direct Versions
+
+- **Use catalog (`"catalog:"`)**: For dependencies shared across multiple packages/apps (React, TypeScript, common utilities, etc.)
+- **Use direct versions**: For app-specific dependencies that aren't shared (e.g., a Next.js plugin only used in one app)
+
 ### Working with Shared UI Components
 
 The UI package is located in `packages/ui/` and contains reusable components built with shadcn/ui.
@@ -280,7 +352,7 @@ This repository has Signed Remote Caching enabled (`"signature": true` in `turbo
 <!-- This link is working, idk what markdownlint's problem is here 🤷‍♂️ -->
 <!-- markdown-link-check-disable -->
 
-- [ ] Add [syncpack](https://www.npmjs.com/package/syncpack) for consistent dependency versions across all monorepo packages
+- [x] ~~Add [syncpack](https://www.npmjs.com/package/syncpack) for consistent dependency versions across all monorepo packages~~ (Now using PNPM catalog)
 <!-- markdown-link-check-enable -->
 - [ ] Finetune builds. There's probably ways to make the builds of both packages and apps smaller and/or more performant.
 - [ ] Make VS Code's "Go To Definition" on a component jump to the actual TypeScript source file instead of the compiled JS file in ./dist
