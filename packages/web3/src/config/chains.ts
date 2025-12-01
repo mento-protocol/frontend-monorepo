@@ -72,19 +72,23 @@ export const Celo: MentoChain = {
 } as const satisfies Chain;
 
 function isForkModeEnabled(): boolean {
-  // Check environment variable (works during build and SSR)
+  if (typeof window === "undefined") {
+    // During SSR, check environment variable
+    return process.env.NEXT_PUBLIC_USE_FORK === "true";
+  }
+
+  // In browser, check localStorage first, then environment variable
+  const storedValue = localStorage.getItem("mento_use_fork");
+  if (storedValue !== null) {
+    return storedValue === "true";
+  }
+
+  // Check environment variable as fallback
   if (process.env.NEXT_PUBLIC_USE_FORK === "true") {
     return true;
   }
 
-  // Check localStorage (works in browser for runtime toggling)
-  if (typeof window !== "undefined") {
-    const storedValue = localStorage.getItem("mento_use_fork");
-    if (storedValue !== null) {
-      return storedValue === "true";
-    }
-  }
-
+  // Default to false (fork mode disabled)
   return false;
 }
 
