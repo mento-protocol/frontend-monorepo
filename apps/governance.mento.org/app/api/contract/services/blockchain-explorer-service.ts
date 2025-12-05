@@ -1,4 +1,5 @@
 import { env } from "@/env.mjs";
+import { getAddress, isAddress } from "viem";
 
 export type BlockchainExplorerSource = "blockscout" | "celoscan";
 
@@ -20,6 +21,20 @@ interface ContractSourceCodeItem {
 
 export interface ContractSourceCodeResponse {
   result: ContractSourceCodeItem[];
+}
+
+// Blockscout API response for smart contracts
+export interface BlockscoutSmartContractResponse {
+  name: string;
+  source_code: string;
+  abi: string | unknown[];
+  compiler_version: string;
+  optimization_enabled: boolean;
+  optimizations_runs: number;
+  evm_version: string;
+  license_type: string;
+  proxy_type: string | null;
+  implementations: Array<{ name: string; address_hash: string }> | null;
 }
 
 // In-memory cache for all blockchain explorer API responses
@@ -94,13 +109,24 @@ export async function fetchFromBlockchainExplorer<T>(
 
       let url: string;
 
+      // Normalize address - Blockscout prefers lowercase, Celoscan prefers checksummed
+      let normalizedAddress: string;
+      if (source === "blockscout") {
+        // Blockscout API works better with lowercase addresses
+        normalizedAddress = address.toLowerCase();
+      } else {
+        // Celoscan/Etherscan prefers checksummed addresses
+        normalizedAddress = isAddress(address) ? getAddress(address) : address;
+      }
+
       if (source === "blockscout") {
         // Blockscout doesn't require an API key
-        url = `${env.NEXT_PUBLIC_BLOCKSCOUT_API_URL}?module=contract&action=${endpoint}&address=${address}`;
+        const baseUrl = env.NEXT_PUBLIC_BLOCKSCOUT_API_URL;
+        url = `${baseUrl}/smart-contracts/${normalizedAddress}`;
       } else {
-        // Celoscan requires an API key - use Etherscan V2 API (Celo chain ID: 42220)
+        // Celoscan requires an API key - use Etherscan API (Celo chain ID: 42220)
         if (!apiKey) throw new Error("API key is required for Celoscan");
-        url = `${env.NEXT_PUBLIC_ETHERSCAN_API_URL}?chainid=42220&module=contract&action=${endpoint}&address=${address}&apikey=${apiKey}`;
+        url = `${env.NEXT_PUBLIC_ETHERSCAN_API_URL}?chainid=42220&module=contract&action=${endpoint}&address=${normalizedAddress}&apikey=${apiKey}`;
       }
 
       const response = await fetch(url, {
@@ -108,30 +134,122 @@ export async function fetchFromBlockchainExplorer<T>(
           Accept: "application/json",
           "User-Agent": "MentoGovernance/1.0",
         },
+        redirect: "follow", // Explicitly follow redirects
       });
+
+      // Debug logging for Blockscout errors
+      if (source === "blockscout" && !response.ok) {
+        console.log(`Blockscout API call failed: ${url}`);
+        console.log(
+          `Response status: ${response.status} ${response.statusText}`,
+        );
+      }
 
       if (response.ok) {
         const data = await response.json();
-        if (data.status === "1" && data.result) {
+
+        // Handle Blockscout API response
+        if (source === "blockscout") {
+          // For getabi, return the response directly (it has abi field)
+          if (endpoint === "getabi") {
+            if (data.abi && Array.isArray(data.abi)) {
+              // Cache the successful response
+              responseCache.set(cacheKey, { data, timestamp: Date.now() });
+              return data as T;
+            } else {
+              // Contract not found/verified
+              console.log(
+                `Contract not found/verified on Blockscout: ${normalizedAddress} (${data.message || "no message"})`,
+              );
+            }
+          }
+          // For getsourcecode, return response directly
+          else if (endpoint === "getsourcecode") {
+            const blockscoutResponse = data as BlockscoutSmartContractResponse;
+            if (
+              blockscoutResponse.name &&
+              blockscoutResponse.source_code !== undefined
+            ) {
+              // Cache and return response directly
+              responseCache.set(cacheKey, {
+                data: blockscoutResponse,
+                timestamp: Date.now(),
+              });
+              return blockscoutResponse as T;
+            } else {
+              // Contract not found/verified
+              console.log(
+                `Contract not found/verified on Blockscout: ${normalizedAddress} (${data.message || "no message"})`,
+              );
+            }
+          }
+        }
+        // Handle Celoscan API responses (Etherscan-compatible format)
+        else if (data.status === "1" && data.result) {
           // Cache the successful response
           responseCache.set(cacheKey, { data, timestamp: Date.now() });
           return data as T;
         } else {
-          // Safely log error without using user input in format string
-          console.warn(`API returned error status`, {
-            endpoint,
-            source,
-            status: data.status,
-            message: data.message || "Unknown error",
-          });
+          // Log when contracts are not found/verified (expected behavior)
+          // Blockscout returns status "0" with various messages like "Contract source code not verified"
+          // Celoscan returns status "0" with message "NOTOK"
+          if (data.status === "0" || data.status === 0) {
+            console.log(
+              `Contract not found/verified on ${source}: ${normalizedAddress} (${data.message || "no message"})`,
+            );
+          } else {
+            // Log actual errors
+            console.warn(`API returned error status`, {
+              endpoint,
+              source,
+              address: normalizedAddress,
+              status: data.status,
+              message: data.message || "Unknown error",
+            });
+          }
         }
       } else {
-        console.warn(`API returned HTTP error`, {
-          endpoint,
-          source,
-          status: response.status,
-          statusText: response.statusText,
-        });
+        // For Blockscout, check if it's a 400 that might actually be a "not found"
+        if (source === "blockscout") {
+          // Try to parse the response body even for 400 errors
+          const errorText = await response.text().catch(() => "");
+          try {
+            const errorData = JSON.parse(errorText);
+            // If it's a valid JSON response with status "0", treat it as "not found"
+            if (errorData.status === "0" || errorData.status === 0) {
+              console.log(
+                `Contract not found/verified on Blockscout: ${normalizedAddress} (${errorData.message || "no message"})`,
+              );
+            } else {
+              // Log unexpected Blockscout errors
+              console.warn(`Blockscout API error`, {
+                endpoint,
+                address: normalizedAddress,
+                status: response.status,
+                errorData,
+              });
+            }
+          } catch {
+            // If response isn't JSON, log it as an error
+            console.warn(`Blockscout API returned non-JSON error`, {
+              endpoint,
+              address: normalizedAddress,
+              status: response.status,
+              errorText: errorText.substring(0, 200),
+            });
+          }
+        } else {
+          // Log other HTTP errors
+          const errorText = await response.text().catch(() => "");
+          console.warn(`API returned HTTP error`, {
+            endpoint,
+            source,
+            address: normalizedAddress,
+            status: response.status,
+            statusText: response.statusText,
+            errorBody: errorText.substring(0, 200), // Limit error body length
+          });
+        }
       }
       return null;
     } catch (error) {
@@ -162,6 +280,23 @@ export async function fetchAbi(
   source: BlockchainExplorerSource,
   apiKey?: string,
 ): Promise<unknown[] | null> {
+  // Blockscout API returns ABI directly in the response
+  if (source === "blockscout") {
+    const response = await fetchFromBlockchainExplorer<{ abi: unknown[] }>(
+      "getabi",
+      address,
+      source,
+      apiKey,
+    );
+
+    if (response?.abi && Array.isArray(response.abi)) {
+      return response.abi;
+    }
+
+    return null;
+  }
+
+  // Celoscan/Etherscan API returns ABI as a JSON string in result field
   const response = await fetchFromBlockchainExplorer<{ result: string }>(
     "getabi",
     address,

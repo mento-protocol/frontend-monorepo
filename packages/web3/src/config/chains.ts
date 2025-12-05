@@ -4,21 +4,45 @@ import { celoSepolia } from "viem/chains";
 import { celo } from "wagmi/chains";
 import { MentoChain, MentoChainContracts } from "../types";
 
+const useFork = isForkModeEnabled();
+
 export enum ChainId {
   CeloSepolia = 11142220,
   Celo = 42220,
 }
 
-export const CELO_EXPLORER_URL = "https://celoscan.io";
-export const CELO_SEPOLIA_EXPLORER_URL = "https://sepolia.celoscan.io";
+const LOCAL_FORK_EXPLORER = {
+  name: "Otterscan (Local Fork)",
+  url: "http://localhost:5100",
+};
+export const CELO_EXPLORER = {
+  name: "Celo Explorer",
+  url: "https://celoscan.io",
+};
+export const CELO_SEPOLIA_EXPLORER = {
+  name: "Celo Sepolia Explorer",
+  url: "https://sepolia.celoscan.io",
+  apiUrl: "https://sepolia.celoscan.io/api",
+};
 
 export const CeloSepolia: MentoChain = {
   ...celoSepolia,
+  id: ChainId.CeloSepolia,
+  nativeCurrency: {
+    decimals: 18,
+    name: "CELO",
+    symbol: "CELO",
+  },
   blockExplorers: {
+    default: useFork ? LOCAL_FORK_EXPLORER : CELO_SEPOLIA_EXPLORER,
+  },
+  rpcUrls: {
     default: {
-      name: "Celo Sepolia Explorer",
-      url: CELO_SEPOLIA_EXPLORER_URL,
-      apiUrl: `${CELO_SEPOLIA_EXPLORER_URL}/api`,
+      http: [
+        useFork
+          ? "http://localhost:8545"
+          : "https://forno.celo-sepolia.celo-testnet.org",
+      ],
     },
   },
   contracts: {
@@ -29,15 +53,16 @@ export const CeloSepolia: MentoChain = {
 
 export const Celo: MentoChain = {
   ...celo,
-  blockExplorers: {
-    default: {
-      name: "Celo Explorer",
-      url: CELO_EXPLORER_URL,
-    },
+  id: ChainId.Celo,
+  nativeCurrency: {
+    decimals: 18,
+    name: "CELO",
+    symbol: "CELO",
   },
+  blockExplorers: { default: useFork ? LOCAL_FORK_EXPLORER : CELO_EXPLORER },
   rpcUrls: {
     default: {
-      http: ["https://forno.celo.org"],
+      http: [useFork ? "http://localhost:8545" : "https://forno.celo.org"],
     },
   },
   contracts: {
@@ -45,6 +70,27 @@ export const Celo: MentoChain = {
     ...transformToChainContracts(addresses[celo.id]),
   },
 } as const satisfies Chain;
+
+function isForkModeEnabled(): boolean {
+  if (typeof window === "undefined") {
+    // During SSR, check environment variable
+    return process.env.NEXT_PUBLIC_USE_FORK === "true";
+  }
+
+  // In browser, check localStorage first, then environment variable
+  const storedValue = localStorage.getItem("mento_use_fork");
+  if (storedValue !== null) {
+    return storedValue === "true";
+  }
+
+  // Check environment variable as fallback
+  if (process.env.NEXT_PUBLIC_USE_FORK === "true") {
+    return true;
+  }
+
+  // Default to false (fork mode disabled)
+  return false;
+}
 
 export const chainIdToChain: Record<number, MentoChain> = {
   [ChainId.CeloSepolia]: CeloSepolia,

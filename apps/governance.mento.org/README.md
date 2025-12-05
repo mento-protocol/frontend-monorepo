@@ -223,7 +223,7 @@ ETHERSCAN_API_KEY=your_api_key_here
 
 # API endpoints
 NEXT_PUBLIC_ETHERSCAN_API_URL=https://api.celoscan.io/api
-NEXT_PUBLIC_BLOCKSCOUT_API_URL=https://explorer.celo.org/api
+NEXT_PUBLIC_BLOCKSCOUT_API_URL=https://celo.blockscout.com/api
 ```
 
 ### Performance Considerations

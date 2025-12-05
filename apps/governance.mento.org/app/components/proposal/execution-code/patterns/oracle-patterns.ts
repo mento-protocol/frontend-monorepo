@@ -9,9 +9,10 @@ export const oraclePatterns: PatternRegistry = {
   "addOracle(address,address)": createPattern(
     (contract, args) => {
       const [token, oracle] = args;
-      // Use sync resolution for rate feeds from local registry
-      const rateFeedName = addressResolverService.resolveFromCache(
+      // Use context-aware resolution: when contract is SortedOracles, prioritize rateFeeds
+      const rateFeedName = addressResolverService.resolveFromCacheWithContext(
         String(token!.value),
+        contract.address, // Pass contract address as context
       ).name;
       const oracleAddress = String(oracle!.value);
       const oracleDisplay = getAddressNameFromCache(oracleAddress);
@@ -24,9 +25,10 @@ export const oraclePatterns: PatternRegistry = {
   "removeOracle(address,address,uint256)": createPattern(
     (contract, args) => {
       const [token, oracle] = args;
-      // Use sync resolution for rate feeds from local registry
-      const rateFeedName = addressResolverService.resolveFromCache(
+      // Use context-aware resolution: when contract is SortedOracles, prioritize rateFeeds
+      const rateFeedName = addressResolverService.resolveFromCacheWithContext(
         String(token!.value),
+        contract.address, // Pass contract address as context
       ).name;
       const oracleAddress = String(oracle!.value);
       const oracleDisplay = getAddressNameFromCache(oracleAddress);

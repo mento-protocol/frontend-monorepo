@@ -4,7 +4,10 @@ import { useMemo, useEffect } from "react";
 import { isValidAddress } from "@repo/web3";
 import { Transaction, DecodedTransaction } from "../types/transaction";
 import { useAllResolvedMappings } from "../hooks/useAddressResolver";
-import { getContractInfo } from "../services/address-resolver-service";
+import {
+  getContractInfo,
+  getAddressNameFromCache,
+} from "../services/address-resolver-service";
 
 interface AddressReplacement {
   match: string;
@@ -128,7 +131,7 @@ function findFriendlyNameMatches(
 }
 
 /**
- * Find full Ethereum addresses in text
+ * Find full Ethereum addresses in text and resolve them to friendly names
  */
 function findFullAddresses(text: string): AddressReplacement[] {
   const potentialAddressRegex = /0x[a-fA-F0-9]{4,40}/g;
@@ -139,7 +142,28 @@ function findFullAddresses(text: string): AddressReplacement[] {
       const address = match[0];
       return address.length === 42 && isValidAddress(address);
     })
-    .map((match) => createReplacement(match, match[0]));
+    .map((match) => {
+      const address = match[0];
+      // Try to resolve address to friendly name (checks cache which includes API-resolved names)
+      const contractInfo = getContractInfo(address);
+      const cachedName = getAddressNameFromCache(address);
+
+      // Prefer friendly name from local registry, then cached name (includes API), then fallback to address
+      const displayName =
+        contractInfo?.friendlyName ||
+        contractInfo?.name ||
+        (cachedName !== address ? cachedName : null) ||
+        contractInfo?.symbol ||
+        address;
+
+      // Create replacement with friendly name as display text, but link to address
+      return {
+        match: displayName,
+        address,
+        start: match.index,
+        end: match.index + match[0].length,
+      };
+    });
 }
 
 /**

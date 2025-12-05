@@ -170,6 +170,106 @@ const PROXY_ADMIN_ABI = parseAbi([
   "function renounceOwnership()",
 ]);
 
+// StableToken ABI (from implementation contract)
+const STABLETOKEN_ABI = parseAbi([
+  // ERC20 functions
+  "function transfer(address to, uint256 amount) returns (bool)",
+  "function approve(address spender, uint256 amount) returns (bool)",
+  "function transferFrom(address from, address to, uint256 amount) returns (bool)",
+  "function allowance(address owner, address spender) view returns (uint256)",
+  "function balanceOf(address account) view returns (uint256)",
+  "function totalSupply() view returns (uint256)",
+  "function name() view returns (string)",
+  "function symbol() view returns (string)",
+  "function decimals() view returns (uint8)",
+
+  // EIP-2612 Permit
+  "function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)",
+  "function nonces(address owner) view returns (uint256)",
+  "function DOMAIN_SEPARATOR() view returns (bytes32)",
+
+  // StableToken specific functions
+  "function mint(address to, uint256 value) returns (bool)",
+  "function burn(uint256 value) returns (bool)",
+  "function transferWithComment(address to, uint256 value, string comment) returns (bool)",
+
+  // Broker and Exchange
+  "function broker() view returns (address)",
+  "function exchange() view returns (address)",
+  "function setBroker(address _broker)",
+  "function setExchange(address _exchange)",
+
+  // Validators
+  "function validators() view returns (address)",
+  "function setValidators(address _validators)",
+
+  // Gas fee management
+  "function creditGasFees(address from, address feeRecipient, address gatewayFeeRecipient, address communityFund, uint256 refund, uint256 tipTxFee, uint256 gatewayFee, uint256 baseTxFee)",
+  "function debitGasFees(address from, uint256 value)",
+
+  // Allowance management
+  "function increaseAllowance(address spender, uint256 addedValue) returns (bool)",
+  "function decreaseAllowance(address spender, uint256 subtractedValue) returns (bool)",
+
+  // Ownership
+  "function owner() view returns (address)",
+  "function transferOwnership(address newOwner)",
+  "function renounceOwnership()",
+  "event OwnershipTransferred(address indexed previousOwner, address indexed newOwner)",
+
+  // Renamer functions (from StableTokenV2Renamer)
+  "function setName(string newName)",
+  "function setSymbol(string newSymbol)",
+  "function slot1() view returns (address)",
+
+  // Initialization
+  "function initialize(string _name, string _symbol, uint8, address, uint256, uint256, address[] initialBalanceAddresses, uint256[] initialBalanceValues, string)",
+  "function initializeV2(address _broker, address _validators, address _exchange)",
+]);
+
+// Proxy ABI (for proxy contracts like StableToken proxies)
+const PROXY_ABI = parseAbi([
+  // View functions
+  "function _getImplementation() view returns (address)",
+  "function _getOwner() view returns (address)",
+
+  // Proxy management functions
+  "function _setImplementation(address implementation)",
+  "function _setAndInitializeImplementation(address implementation, bytes callbackData) payable",
+  "function _transferOwnership(address newOwner)",
+]);
+
+// SortedOracles ABI
+const SORTED_ORACLES_ABI = parseAbi([
+  // Oracle management
+  "function addOracle(address token, address oracleAddress)",
+  "function removeOracle(address token, address oracleAddress, uint256 index)",
+
+  // Token report expiry
+  "function setTokenReportExpiry(address token, uint256 _reportExpirySeconds)",
+
+  // Equivalent token
+  "function setEquivalentToken(address token, address equivalentToken)",
+
+  // View functions
+  "function getOracles(address token) view returns (address[])",
+  "function getRates(address token) view returns (uint256[], address[])",
+  "function getMedianRate(address token) view returns (uint256)",
+  "function getMedianTimestamp(address token) view returns (uint256)",
+  "function isOldestOracleExpired(address token) view returns (bool)",
+  "function numRates(address token) view returns (uint256)",
+  "function numTimestamps(address token) view returns (uint256)",
+  "function medianRate(address token) view returns (uint256)",
+  "function medianTimestamp(address token) view returns (uint256)",
+  "function reportExpirySeconds(address token) view returns (uint256)",
+  "function equivalentToken(address token) view returns (address)",
+
+  // Ownership
+  "function owner() view returns (address)",
+  "function transferOwnership(address newOwner)",
+  "function renounceOwnership()",
+]);
+
 // Combine all known ABIs
 export const KNOWN_ABIS = [
   ...ERC20_ABI,
@@ -178,6 +278,8 @@ export const KNOWN_ABIS = [
   ...VEMENTO_ABI,
   ...RESERVE_ABI,
   ...PROTOCOL_ABI,
-  // ...SORTED_ORACLES_ABI,
+  ...SORTED_ORACLES_ABI,
   ...PROXY_ADMIN_ABI,
+  ...STABLETOKEN_ABI,
+  ...PROXY_ABI,
 ];
