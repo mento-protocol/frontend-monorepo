@@ -1,21 +1,49 @@
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/env.mjs";
-import { validateAddress } from "@repo/web3";
+import { isAddress } from "viem";
 import { ContractInfo } from "../types";
 import {
   fetchFromBlockchainExplorer,
   BlockchainExplorerSource,
   ContractSourceCodeResponse,
+  BlockscoutSmartContractResponse,
 } from "../services/blockchain-explorer-service";
 
 /**
  * Extract contract name from source code response
  */
 function extractContractName(
-  response: ContractSourceCodeResponse,
+  response: ContractSourceCodeResponse | BlockscoutSmartContractResponse,
   source: BlockchainExplorerSource,
 ): ContractInfo | null {
-  const result = response.result[0];
+  // Handle Blockscout format
+  if (source === "blockscout") {
+    const blockscoutResponse = response as BlockscoutSmartContractResponse;
+    if (!blockscoutResponse.name) {
+      return null;
+    }
+
+    const contractInfo: ContractInfo = {
+      name: blockscoutResponse.name,
+      source,
+    };
+
+    // Check if this is a proxy contract
+    if (
+      blockscoutResponse.proxy_type &&
+      blockscoutResponse.implementations?.[0]
+    ) {
+      contractInfo.isProxy = true;
+      contractInfo.implementationAddress =
+        blockscoutResponse.implementations[0].address_hash;
+    }
+
+    return contractInfo;
+  }
+
+  // Handle Celoscan format (Etherscan-compatible)
+  const celoscanResponse = response as ContractSourceCodeResponse;
+  const result = celoscanResponse.result[0];
 
   if (!result || !result.ContractName) {
     return null;
@@ -49,10 +77,7 @@ export async function GET(request: NextRequest) {
 
     const address = addressParam.toLowerCase();
 
-    try {
-      validateAddress(address, "contract info API");
-    } catch (error) {
-      console.error("Invalid address format: %s", address, error);
+    if (!isAddress(address)) {
       return NextResponse.json(
         { error: "Invalid address format" },
         { status: 400 },
@@ -75,25 +100,18 @@ export async function GET(request: NextRequest) {
 
     // Try Celoscan first
     let source: BlockchainExplorerSource = "celoscan";
-    let sourceCodeResponse =
-      await fetchFromBlockchainExplorer<ContractSourceCodeResponse>(
-        "getsourcecode",
-        address,
-        source,
-        etherscanApiKey,
-      );
+    let sourceCodeResponse = await fetchFromBlockchainExplorer<
+      ContractSourceCodeResponse | BlockscoutSmartContractResponse
+    >("getsourcecode", address, source, etherscanApiKey);
 
     // Fallback to Blockscout
     if (!sourceCodeResponse) {
       console.log(
         `Etherscan: No source code found for ${address}, falling back to Blockscout API`,
       );
-      sourceCodeResponse =
-        await fetchFromBlockchainExplorer<ContractSourceCodeResponse>(
-          "getsourcecode",
-          address,
-          "blockscout",
-        );
+      sourceCodeResponse = await fetchFromBlockchainExplorer<
+        ContractSourceCodeResponse | BlockscoutSmartContractResponse
+      >("getsourcecode", address, "blockscout");
       source = "blockscout";
     }
 

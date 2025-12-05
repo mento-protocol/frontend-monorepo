@@ -5,9 +5,9 @@ import {
   AbiFunction,
   PublicClient,
   type Address,
+  isAddress,
 } from "viem";
 import { celo } from "viem/chains";
-import { validateAddress } from "@repo/web3";
 import { getImplementationAddress } from "./getImplementationAddress";
 import {
   fetchAbi,
@@ -36,10 +36,7 @@ export async function GET(request: NextRequest) {
 
     const address = addressParam.toLowerCase();
 
-    try {
-      validateAddress(address, "contract ABI API");
-    } catch (error) {
-      console.error("Invalid address format: %s", address, error);
+    if (!isAddress(address)) {
       return NextResponse.json(
         { error: "Invalid address format" },
         { status: 400 },
