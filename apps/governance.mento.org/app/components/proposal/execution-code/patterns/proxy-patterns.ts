@@ -1,6 +1,10 @@
 import type { PatternRegistry } from "./types";
 import { createPattern } from "./base-pattern";
-import { getAddressNameFromCache } from "../../services/address-resolver-service";
+import {
+  getAddressNameFromCache,
+  getContractInfo,
+} from "../../services/address-resolver-service";
+import { removeProxySuffix } from "../utils/removeProxySuffix";
 
 export const proxyPatterns: PatternRegistry = {
   "changeProxyAdmin(address,address)": createPattern(
@@ -34,5 +38,23 @@ export const proxyPatterns: PatternRegistry = {
     },
     3,
     "upgradeAndCall",
+  ),
+
+  "_setImplementation(address)": createPattern(
+    (contract, args) => {
+      const [implementation] = args;
+      const contractInfo = getContractInfo(contract.address);
+      const contractName = removeProxySuffix(
+        contractInfo?.friendlyName ||
+          contractInfo?.name ||
+          getAddressNameFromCache(contract.address),
+      );
+      // Include the implementation address in the description so AddressParser can make it a link
+      // The address will be resolved to its friendly name (if available) and become clickable
+      const implAddress = String(implementation!.value);
+      return `Set implementation for ${contractName} to ${implAddress}`;
+    },
+    1,
+    "_setImplementation",
   ),
 };

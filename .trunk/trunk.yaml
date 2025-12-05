@@ -38,7 +38,7 @@ lint:
     # === CORE DEVELOPMENT LINTERS ===
     - taplo@0.10.0
     - eslint@9.39.1 # JavaScript/TypeScript linting (uses our existing configs)
-    - prettier@3.7.1 # Code formatting with Tailwind CSS class sorting
+    - prettier@3.7.4 # Code formatting with Tailwind CSS class sorting
     - git-diff-check # Validates git diffs for common issues
 
     # === CONFIGURATION & DOCUMENTATION ===
@@ -71,6 +71,8 @@ lint:
 
 # Git hooks and automated actions
 actions:
+  disabled:
+    - trunk-check-pre-push # Disabled in favor of trunk-check-all-pre-push which checks all files
   definitions:
     - id: check-types-pre-push
       display_name: Check Types Pre-Push
@@ -84,10 +86,16 @@ actions:
       run: pnpm run knip
       triggers:
         - git_hooks: [pre-push]
+    - id: trunk-check-all-pre-push
+      display_name: Trunk Check All Pre-Push
+      description: Run `trunk check --all` before pushing code to check all files
+      run: trunk check --all
+      triggers:
+        - git_hooks: [pre-push]
 
   enabled:
     - trunk-fmt-pre-commit # Auto-format files when committing
-    - trunk-check-pre-push # Run checks before pushing
+    - trunk-check-all-pre-push # Run comprehensive checks on all files before pushing
     - check-types-pre-push # Run type checking before pushing
     - check-knip-pre-push # Run knip before pushing
     - trunk-announce # Show announcements for new features
