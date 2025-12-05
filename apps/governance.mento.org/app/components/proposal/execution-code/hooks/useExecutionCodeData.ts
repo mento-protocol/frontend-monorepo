@@ -6,6 +6,8 @@ import type {
 } from "../../types/transaction";
 import { fetchTransactionData } from "../utils/fetchTransactionData";
 import { processTransaction } from "../transaction-translator";
+import { decodeTransaction } from "../utils/decodeTransaction";
+import { addressResolverService } from "../../services/address-resolver-service";
 
 interface UseExecutionCodeDataResult {
   // For SimpleView
@@ -45,6 +47,35 @@ export function useExecutionCodeData(
         const { abiMap, contractNameMap } =
           await fetchTransactionData(transactions);
         setContractNames(contractNameMap);
+
+        // Pre-fetch implementation addresses from _setImplementation calls
+        // This ensures they're in the cache when patterns run
+        const implementationAddresses = new Set<string>();
+        await Promise.all(
+          transactions.map(async (tx) => {
+            if (tx.data && tx.data.length >= 10) {
+              const decoded = await decodeTransaction(tx, abiMap);
+              if (
+                decoded?.functionName === "_setImplementation" &&
+                decoded.args?.[0]?.value
+              ) {
+                const implAddress = String(decoded.args[0].value);
+                if (implAddress.startsWith("0x") && implAddress.length === 42) {
+                  implementationAddresses.add(implAddress.toLowerCase());
+                }
+              }
+            }
+          }),
+        );
+
+        // Pre-resolve implementation addresses to populate cache
+        await Promise.all(
+          Array.from(implementationAddresses).map((address) =>
+            addressResolverService.resolve(address).catch(() => {
+              // Silently fail - will fall back to formatted address
+            }),
+          ),
+        );
 
         // Process all transactions efficiently in one pass
         const processedTransactions = await Promise.all(

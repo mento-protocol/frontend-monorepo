@@ -91,4 +91,29 @@ export const tokenPatterns: PatternRegistry = {
     2,
     "delegateTo",
   ),
+
+  // Renamer functions (from StableTokenV2Renamer)
+  "setName(string)": createPattern(
+    (contract, args) => {
+      const [newName] = args;
+      const token = getContractInfo(contract.address);
+      const contractName =
+        token?.name || getAddressNameFromCache(contract.address);
+      return `Set name for ${contractName} to "${String(newName!.value)}"`;
+    },
+    1,
+    "setName",
+  ),
+
+  "setSymbol(string)": createPattern(
+    (contract, args) => {
+      const [newSymbol] = args;
+      const token = getContractInfo(contract.address);
+      const contractName =
+        token?.name || getAddressNameFromCache(contract.address);
+      return `Set symbol for ${contractName} to "${String(newSymbol!.value)}"`;
+    },
+    1,
+    "setSymbol",
+  ),
 };

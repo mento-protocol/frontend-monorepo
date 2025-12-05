@@ -38,7 +38,7 @@ lint:
     # === CORE DEVELOPMENT LINTERS ===
     - taplo@0.10.0
     - eslint@9.39.1 # JavaScript/TypeScript linting (uses our existing configs)
-    - prettier@3.7.1 # Code formatting with Tailwind CSS class sorting
+    - prettier@3.7.4 # Code formatting with Tailwind CSS class sorting
     - git-diff-check # Validates git diffs for common issues
 
     # === CONFIGURATION & DOCUMENTATION ===

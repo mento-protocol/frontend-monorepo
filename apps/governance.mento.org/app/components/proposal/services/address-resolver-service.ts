@@ -112,6 +112,17 @@ class AddressResolverService {
    * Synchronously resolve address using only local registry (for immediate use)
    */
   resolveFromCache(address: string | null | undefined): ResolvedAddress {
+    return this.resolveFromCacheWithContext(address);
+  }
+
+  /**
+   * Synchronously resolve address using only local registry with context awareness
+   * When contextContract is SortedOracles, prioritizes rateFeeds over other categories
+   */
+  resolveFromCacheWithContext(
+    address: string | null | undefined,
+    contextContract?: string | null | undefined,
+  ): ResolvedAddress {
     if (!address) {
       return {
         address: "",
@@ -121,11 +132,42 @@ class AddressResolverService {
     }
 
     const normalizedAddress = normalizeAddress(address);
+    const normalizedContext = contextContract
+      ? normalizeAddress(contextContract)
+      : null;
+
+    // Check if context is SortedOracles
+    const isSortedOraclesContext =
+      normalizedContext &&
+      this.localRegistry[normalizedContext]?.name === "SortedOracles";
 
     // Check cache first
     const cached = this.cache.get(normalizedAddress);
     if (cached && Date.now() - cached.timestamp < this.CACHE_DURATION) {
       return cached.resolved;
+    }
+
+    // If context is SortedOracles, prioritize rateFeeds
+    if (isSortedOraclesContext) {
+      const rateFeedName =
+        contractsConfig.rateFeeds[
+          normalizedAddress as keyof typeof contractsConfig.rateFeeds
+        ];
+      if (rateFeedName) {
+        const resolved: ResolvedAddress = {
+          address: normalizedAddress,
+          name: rateFeedName,
+          source: "local",
+        };
+
+        // Cache the result
+        this.cache.set(normalizedAddress, {
+          resolved,
+          timestamp: Date.now(),
+        });
+
+        return resolved;
+      }
     }
 
     // Check local registry
@@ -320,20 +362,50 @@ class AddressResolverService {
 
   /**
    * Create the local contract registry from the JSON config
+   * Prioritizes specific categories (tokens, governance, etc.) over generic ones (rateFeeds)
    */
   private createLocalRegistry(): Record<string, ContractInfo> {
     const registry: Record<string, ContractInfo> = {};
 
-    Object.entries(contractsConfig).forEach(([categoryName, category]) => {
+    // Define category priority: higher priority categories should be processed first
+    // rateFeeds has lowest priority since addresses can appear in multiple categories
+    const categoryPriority: Record<string, number> = {
+      tokens: 1,
+      governance: 2,
+      oracles: 3,
+      treasury: 4,
+      multisigs: 5,
+      community: 6,
+      rateFeeds: 7, // Lowest priority - only used if address not found elsewhere
+    };
+
+    // Sort categories by priority
+    const sortedCategories = Object.entries(contractsConfig).sort(
+      ([catA], [catB]) => {
+        const priorityA = categoryPriority[catA] || 999;
+        const priorityB = categoryPriority[catB] || 999;
+        return priorityA - priorityB;
+      },
+    );
+
+    // Process categories in priority order
+    sortedCategories.forEach(([categoryName, category]) => {
       Object.entries(category).forEach(([address, info]) => {
+        const normalizedAddress = normalizeAddress(address);
+
+        // Skip if address already exists (higher priority category already set it)
+        if (registry[normalizedAddress]) {
+          return;
+        }
+
         if (categoryName === "rateFeeds") {
           // Handle rate feeds which are just string names
-          registry[normalizeAddress(address)] = {
+          registry[normalizedAddress] = {
             name: info as string,
           };
         } else {
           // Handle regular contract info objects
-          registry[normalizeAddress(address)] = info as ContractInfo;
+          registry[normalizedAddress] = info as ContractInfo;
         }
       });
     });
