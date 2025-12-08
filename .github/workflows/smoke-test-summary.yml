@@ -30,7 +30,7 @@ jobs:
     steps:
       - name: Find PR for this commit
         id: find-pr
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v7
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const sha = '${{ inputs.deployment_sha }}';
@@ -50,7 +50,7 @@ jobs:
 
       - name: Post PR Comment
         if: steps.find-pr.outputs.pr_number
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v7
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const prNumber = ${{ steps.find-pr.outputs.pr_number }};
