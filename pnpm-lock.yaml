@@ -607,8 +607,8 @@ importers:
         specifier: ^2.22.3
         version: 2.26.1(@tiptap/core@2.26.1(@tiptap/pm@3.13.0))(@tiptap/pm@3.13.0)
       '@tiptap/extension-text-align':
-        specifier: ^2.22.3
-        version: 2.26.1(@tiptap/core@2.26.1(@tiptap/pm@3.13.0))
+        specifier: ^3.13.0
+        version: 3.13.0(@tiptap/core@2.26.1(@tiptap/pm@3.13.0))
       '@tiptap/extension-text-style':
         specifier: ^2.22.3
         version: 2.26.1(@tiptap/core@2.26.1(@tiptap/pm@3.13.0))
@@ -3659,10 +3659,10 @@ packages:
     peerDependencies:
       '@tiptap/core': ^2.7.0
 
-  '@tiptap/extension-text-align@2.26.1':
-    resolution: {integrity: sha512-x6mpNGELy2QtSPBoQqNgiXO9PjZoB+O2EAfXA9YRiBDSIRNOrw+7vOVpi+IgzswFmhMNgIYUVfQRud4FHUCNew==}
+  '@tiptap/extension-text-align@3.13.0':
+    resolution: {integrity: sha512-hebIus9tdXWb+AmhO+LTeUxZLdb0tqwdeaL/0wYxJQR5DeCTlJe6huXacMD/BkmnlEpRhxzQH0FrmXAd0d4Wgg==}
     peerDependencies:
-      '@tiptap/core': ^2.7.0
+      '@tiptap/core': ^3.13.0
 
   '@tiptap/extension-text-style@2.26.1':
     resolution: {integrity: sha512-t9Nc/UkrbCfnSHEUi1gvUQ2ZPzvfdYFT5TExoV2DTiUCkhG6+mecT5bTVFGW3QkPmbToL+nFhGn4ZRMDD0SP3Q==}
@@ -4378,8 +4378,8 @@ packages:
     resolution: {integrity: sha512-2NovHVesVF5TXefsGX1yzx1xgr7+m9JQenvz6FQY3qd+YXkKkYiv+vTCc7OriP9mcDZpTC5mAOYN4ocd29+erA==}
     hasBin: true
 
-  baseline-browser-mapping@2.9.3:
-    resolution: {integrity: sha512-8QdH6czo+G7uBsNo0GiUfouPN1lRzKdJTGnKXwe12gkFbnnOUaUKGN55dMkfy+mnxmvjwl9zcI4VncczcVXDhA==}
+  baseline-browser-mapping@2.9.4:
+    resolution: {integrity: sha512-ZCQ9GEWl73BVm8bu5Fts8nt7MHdbt5vY9bP6WGnUh+r3l8M7CgfyTlwsgCbMC66BNxPr6Xoce3j66Ms5YUQTNA==}
     hasBin: true
 
   basic-ftp@5.0.5:
@@ -12198,7 +12198,7 @@ snapshots:
     dependencies:
       '@tiptap/core': 2.26.1(@tiptap/pm@3.13.0)
 
-  '@tiptap/extension-text-align@2.26.1(@tiptap/core@2.26.1(@tiptap/pm@3.13.0))':
+  '@tiptap/extension-text-align@3.13.0(@tiptap/core@2.26.1(@tiptap/pm@3.13.0))':
     dependencies:
       '@tiptap/core': 2.26.1(@tiptap/pm@3.13.0)
 
@@ -13547,7 +13547,7 @@ snapshots:
 
   baseline-browser-mapping@2.8.25: {}
 
-  baseline-browser-mapping@2.9.3: {}
+  baseline-browser-mapping@2.9.4: {}
 
   basic-ftp@5.0.5: {}
 
@@ -13591,7 +13591,7 @@ snapshots:
 
   browserslist@4.28.1:
     dependencies:
-      baseline-browser-mapping: 2.9.3
+      baseline-browser-mapping: 2.9.4
       caniuse-lite: 1.0.30001759
       electron-to-chromium: 1.5.266
       node-releases: 2.0.27
