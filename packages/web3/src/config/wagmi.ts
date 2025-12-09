@@ -55,8 +55,9 @@ export const wagmiConfig: Config = createConfig({
 
   connectors,
   transports: {
-    [celo.id]: http(),
-    [celoSepolia.id]: http(),
+    // Use local API proxy to avoid CORS issues with public RPC endpoints
+    [celo.id]: http(`/api/rpc?chainId=${celo.id}`),
+    [celoSepolia.id]: http(`/api/rpc?chainId=${celoSepolia.id}`),
   },
   ssr: true,
   storage: createStorage({

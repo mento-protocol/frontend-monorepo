@@ -5,20 +5,6 @@ const nextConfig: NextConfig = {
   /* Performance Optimizations */
   // Enable React Server Components (default in App Router)
   reactStrictMode: true,
-  // Whitelist x-vercel-protection-bypass header for CORS (used by automated tests)
-  async headers() {
-    return [
-      {
-        source: "/:path*",
-        headers: [
-          {
-            key: "Access-Control-Allow-Headers",
-            value: "x-vercel-protection-bypass",
-          },
-        ],
-      },
-    ];
-  },
 
   // Image optimization config
   images: {

@@ -6,6 +6,7 @@ export const wagmiSsrConfig = createConfig({
   chains: allChains as readonly [Chain, ...Chain[]],
   connectors: [],
   transports: {
+    // Server-side can use direct RPC URLs (no CORS in server-to-server)
     [celo.id]: http(),
     [celoSepolia.id]: http(),
   },
