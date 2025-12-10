@@ -1,20 +1,28 @@
-import { useState, useEffect } from "react";
+import { useSyncExternalStore, useCallback } from "react";
 
 // @public comment is to suppress invalid knip warning https://knip.dev/reference/jsdoc-tsdoc-tags#public
 /** @public */
 export function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(false);
+  const subscribe = useCallback(
+    (callback: () => void) => {
+      const media = window.matchMedia(query);
+      media.addEventListener("change", callback);
+      window.addEventListener("resize", callback);
+      return () => {
+        media.removeEventListener("change", callback);
+        window.removeEventListener("resize", callback);
+      };
+    },
+    [query],
+  );
 
-  useEffect(() => {
-    const media = window.matchMedia(query);
+  const getSnapshot = useCallback(() => {
+    return window.matchMedia(query).matches;
+  }, [query]);
 
-    if (media.matches !== matches) {
-      setMatches(media.matches);
-    }
-    const listener = () => setMatches(media.matches);
-    window.addEventListener("resize", listener);
-    return () => window.removeEventListener("resize", listener);
-  }, [matches, query]);
+  const getServerSnapshot = useCallback(() => {
+    return false;
+  }, []);
 
-  return matches;
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }

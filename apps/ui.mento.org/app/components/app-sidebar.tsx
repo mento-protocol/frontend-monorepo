@@ -11,7 +11,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 
 import {
   Collapsible,
@@ -28,6 +28,7 @@ import {
   SidebarHeader,
   SidebarInput,
   SidebarMenu,
+  useIsSsr,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -107,33 +108,50 @@ const componentCategories = [
   },
 ];
 
+// Subscriptions for localStorage sync
+const emptySubscribe = () => () => {};
+
+function getLocalStorageValue(key: string, defaultValue: string): string {
+  if (typeof window === "undefined") return defaultValue;
+  try {
+    return localStorage.getItem(key) ?? defaultValue;
+  } catch {
+    return defaultValue;
+  }
+}
+
 export function CustomAppSidebar() {
-  const [isClient, setIsClient] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [openCategories, setOpenCategories] = useState<Set<string>>(new Set());
   const router = useRouter();
   const pathname = usePathname();
 
-  // Initialize client-side state after hydration
-  useEffect(() => {
-    setIsClient(true);
+  // Use useIsSsr to detect if we're on the server
+  const isSsr = useIsSsr();
+  const isClient = !isSsr;
 
-    // Load search query from localStorage
-    try {
-      const savedQuery = localStorage.getItem("sidebarSearchQuery") || "";
-      setSearchQuery(savedQuery);
-    } catch (e) {
-      console.error("Failed to load search query", e);
-    }
+  // Use useSyncExternalStore for localStorage values
+  const initialSearchQuery = useSyncExternalStore(
+    emptySubscribe,
+    () => getLocalStorageValue("sidebarSearchQuery", ""),
+    () => "",
+  );
 
-    // Load open categories from localStorage
-    try {
-      const saved = localStorage.getItem("sidebarOpenCategories");
-      setOpenCategories(saved ? new Set(JSON.parse(saved)) : new Set());
-    } catch (e) {
-      console.error("Failed to load sidebar state", e);
-    }
-  }, []);
+  const initialOpenCategories = useSyncExternalStore(
+    emptySubscribe,
+    () => {
+      try {
+        const saved = localStorage.getItem("sidebarOpenCategories");
+        return saved ? JSON.parse(saved) : [];
+      } catch {
+        return [];
+      }
+    },
+    () => [],
+  );
+
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
+  const [openCategories, setOpenCategories] = useState<Set<string>>(
+    () => new Set(initialOpenCategories),
+  );
 
   // Handle category click - navigate and expand
   const handleCategoryClick = (category: (typeof componentCategories)[0]) => {
