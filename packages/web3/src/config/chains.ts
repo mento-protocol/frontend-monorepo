@@ -41,7 +41,7 @@ export const CeloSepolia: MentoChain = {
       http: [
         useFork
           ? "http://localhost:8545"
-          : "https://forno.celo-sepolia.celo-testnet.org",
+          : "/api/rpc?chainId=11142220",
       ],
     },
   },
@@ -62,7 +62,11 @@ export const Celo: MentoChain = {
   blockExplorers: { default: useFork ? LOCAL_FORK_EXPLORER : CELO_EXPLORER },
   rpcUrls: {
     default: {
-      http: [useFork ? "http://localhost:8545" : "https://forno.celo.org"],
+      http: [
+        useFork
+          ? "http://localhost:8545"
+          : "/api/rpc?chainId=42220",
+      ],
     },
   },
   contracts: {
