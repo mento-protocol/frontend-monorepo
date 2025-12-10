@@ -74,7 +74,7 @@ export const useProposals = () => {
     }
 
     return proposalBuild;
-  }, [chainData, graphData?.proposals]);
+  }, [chainData, graphData]);
 
   const proposalExists = useCallback(
     (id: string) => {

@@ -59,7 +59,7 @@ export function useLockAmountsFromWithdrawals({
     }
 
     return calculateLockAmountsFromWithdrawals(locks, data.withdraws, address);
-  }, [locks, address, data?.withdraws]);
+  }, [locks, address, data]);
 
   // Create a map for easy lookup by lockId
   const lockAmountsMap = useMemo(() => {

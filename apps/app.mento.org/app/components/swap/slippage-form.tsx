@@ -2,8 +2,9 @@
 import { formValuesAtom } from "@repo/web3";
 import { Button, cn, Input } from "@repo/ui";
 import { useAtom } from "jotai";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
+const defaultSlippage = "0.5";
 const slippageOptions = [
   { value: "0.5", label: "0.5%" },
   { value: "1", label: "1%" },
@@ -12,17 +13,16 @@ const slippageOptions = [
 
 export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
   const [formValues, setFormValues] = useAtom(formValuesAtom);
-  const [slippage, setSlippage] = useState<string>("");
-  const [customSlippage, setCustomSlippage] = useState<string>("");
 
-  useEffect(() => {
-    const initialSlippage = formValues?.slippage || "0.5";
-    setSlippage(initialSlippage);
+  const initialSlippage = formValues?.slippage || defaultSlippage;
+  const isCustomInitial = !slippageOptions.some(
+    (option) => option.value === initialSlippage,
+  );
 
-    if (!slippageOptions.some((option) => option.value === initialSlippage)) {
-      setCustomSlippage(initialSlippage);
-    }
-  }, [formValues?.slippage]);
+  const [slippage, setSlippage] = useState<string>(initialSlippage);
+  const [customSlippage, setCustomSlippage] = useState<string>(
+    isCustomInitial ? initialSlippage : "",
+  );
 
   const handleSlippageSelect = (value: string) => {
     setSlippage(value);

@@ -5,7 +5,7 @@ import { useVeMentoDelegationSummary } from "@/hooks/use-ve-mento-delegation-sum
 import { Button } from "@repo/ui";
 import { ChevronsRight, Zap } from "lucide-react";
 import Link from "next/link";
-import { useState, useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { formatUnits } from "viem";
 import { useAccount } from "@repo/web3/wagmi";
 
@@ -28,20 +28,17 @@ export const VotingPowerCard = () => {
     return ownVe + receivedVe;
   }, [ownVe, receivedVe]);
 
-  const [expirationDate, setExpirationDate] = useState<string | null>(null);
-
-  useEffect(() => {
+  // Derive expiration date directly instead of using state
+  const expirationDate = useMemo(() => {
     if (!hasLock || !lock?.expiration) {
-      setExpirationDate(null);
-      return;
+      return null;
     }
 
     const now = new Date();
     if (lock.expiration < now) {
-      setExpirationDate("Fully unlocked");
-    } else {
-      setExpirationDate(lock.expiration.toLocaleDateString());
+      return "Fully unlocked";
     }
+    return lock.expiration.toLocaleDateString();
   }, [hasLock, lock]);
 
   return (

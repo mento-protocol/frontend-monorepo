@@ -1,7 +1,14 @@
 "use client";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { cn, IconLoading, TokenIcon } from "@repo/ui";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import * as z from "zod";
@@ -454,7 +461,9 @@ export default function SwapForm() {
   );
 
   useEffect(() => {
-    setTradingLimitError(null);
+    startTransition(() => {
+      setTradingLimitError(null);
+    });
   }, [amount, quote]);
 
   // Check balance in real-time
@@ -491,7 +500,9 @@ export default function SwapForm() {
       tokenOutSymbol,
     );
 
-    setTradingLimitError((v) => (v === violation ? v : violation));
+    startTransition(() => {
+      setTradingLimitError((v) => (v === violation ? v : violation));
+    });
   }, [
     amount,
     quote,
@@ -554,13 +565,17 @@ export default function SwapForm() {
       prevTokenPairRef.current = { tokenInSymbol, tokenOutSymbol };
       // Start waiting when tokens change and we have inputs
       if (hasAmount && !!tokenInSymbol && !!tokenOutSymbol) {
-        setIsWaitingForQuote(true);
+        startTransition(() => {
+          setIsWaitingForQuote(true);
+        });
       }
     }
 
     // Clear waiting flag when trading is suspended (no quote will be fetched)
     if (isTradingSuspended && isWaitingForQuote) {
-      setIsWaitingForQuote(false);
+      startTransition(() => {
+        setIsWaitingForQuote(false);
+      });
     }
 
     // Clear waiting flag when we have a valid quote and fetching is done
@@ -571,7 +586,9 @@ export default function SwapForm() {
       Number(quote) > 0 &&
       !quoteFetching
     ) {
-      setIsWaitingForQuote(false);
+      startTransition(() => {
+        setIsWaitingForQuote(false);
+      });
     }
   }, [
     tokenInSymbol,
@@ -782,7 +799,9 @@ export default function SwapForm() {
       } else if (lastChangedToken === "to") {
         form.setValue("tokenInSymbol", "", { shouldValidate: false });
       }
-      setLastChangedToken(null);
+      startTransition(() => {
+        setLastChangedToken(null);
+      });
     }
   }, [
     tokenInSymbol,

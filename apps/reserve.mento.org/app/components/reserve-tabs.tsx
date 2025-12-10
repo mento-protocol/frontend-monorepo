@@ -1,7 +1,7 @@
 "use client";
 
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@repo/ui";
-import { useState, useEffect } from "react";
+import { useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ReserveHoldingsContent } from "../reserve-holdings/components/reserve-holdings-content";
 import { StablecoinSupplyContent } from "../stablecoin-supply/components/stablecoin-supply-content";
@@ -34,23 +34,18 @@ export function ReserveTabs({
 }: ReserveTabsProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState(TabType.stablecoinSupply);
 
-  // Initialize tab from URL parameter
-  useEffect(() => {
-    const tabParam = searchParams.get("tab");
-    if (
-      tabParam === TabType.reserveHoldings ||
-      tabParam === TabType.stablecoinSupply ||
-      tabParam === TabType.reserveAddresses
-    ) {
-      setActiveTab(tabParam as TabType);
-    }
-  }, [searchParams]);
+  // Derive active tab from URL params using useSyncExternalStore pattern
+  const emptySubscribe = () => () => {};
+
+  const activeTab = useSyncExternalStore(
+    emptySubscribe,
+    () => getTabFromSearchParams(searchParams),
+    () => TabType.stablecoinSupply,
+  );
 
   const handleTabChange = (value: string) => {
-    setActiveTab(value as TabType);
-    // Update URL without full page navigation
+    // Update URL without full page navigation - tab state is derived from URL
     const newUrl = value === TabType.stablecoinSupply ? "/" : `/?tab=${value}`;
     router.replace(newUrl, { scroll: false });
   };
@@ -110,4 +105,16 @@ export function ReserveTabs({
       </TabsContent>
     </Tabs>
   );
+}
+
+function getTabFromSearchParams(searchParams: URLSearchParams): TabType {
+  const tabParam = searchParams.get("tab");
+  if (
+    tabParam === TabType.reserveHoldings ||
+    tabParam === TabType.stablecoinSupply ||
+    tabParam === TabType.reserveAddresses
+  ) {
+    return tabParam;
+  }
+  return TabType.stablecoinSupply;
 }

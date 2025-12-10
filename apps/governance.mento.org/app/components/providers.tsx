@@ -4,18 +4,10 @@ import "@rainbow-me/rainbowkit/styles.css";
 import type { PropsWithChildren } from "react";
 
 import { useSentryWalletContext } from "@/hooks/use-sentry-wallet-context";
+import { useIsSsr } from "@repo/ui";
 import { Web3Provider } from "@repo/web3";
 import { State } from "@repo/web3/wagmi";
 import { ErrorBoundary } from "@sentry/nextjs";
-import { useEffect, useState } from "react";
-
-function useIsSsr() {
-  const [isSsr, setIsSsr] = useState(true);
-  useEffect(() => {
-    setIsSsr(false);
-  }, []);
-  return isSsr;
-}
 
 function SafeHydrate({ children }: PropsWithChildren<unknown>) {
   const isSsr = useIsSsr();

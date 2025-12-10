@@ -34,7 +34,7 @@ import {
 } from "@repo/ui";
 import { ArrowLeft, ArrowRight, HelpCircle } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { useAccount } from "@repo/web3/wagmi";
 import { ConnectButton } from "@repo/web3";
 import {
@@ -340,7 +340,9 @@ const ExecutionCodeStep = () => {
 
   // Validate initial value on component mount
   useEffect(() => {
-    setValidationError(validateExecutionCode(newProposal.code));
+    startTransition(() => {
+      setValidationError(validateExecutionCode(newProposal.code));
+    });
   }, [newProposal.code]);
 
   const handleCodeChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -598,7 +600,9 @@ const ReviewStep = () => {
   useEffect(() => {
     // Convert markdown to HTML for display
     const previewHtml = markdownToHtml(newProposal.description);
-    setHtmlContent(previewHtml);
+    startTransition(() => {
+      setHtmlContent(previewHtml);
+    });
   }, [newProposal.description]);
 
   const scrollToTop = () => {
@@ -666,11 +670,13 @@ function CreateProposalSteps() {
 
   useEffect(() => {
     if (isConnected && proposalThreshold && veMentoBalance && mentoBalance) {
-      if (veMentoBalance.value < proposalThreshold) {
-        setNotEnough(true);
-      } else {
-        setNotEnough(false);
-      }
+      startTransition(() => {
+        if (veMentoBalance.value < proposalThreshold) {
+          setNotEnough(true);
+        } else {
+          setNotEnough(false);
+        }
+      });
     }
   }, [isConnected, veMentoBalance, proposalThreshold, mentoBalance]);
 
