@@ -1,6 +1,6 @@
 import { GovernorABI } from "@repo/web3";
 import { useContracts, useEnsureChainId } from "@repo/web3";
-import { useReadContract } from "wagmi";
+import { useReadContract } from "@repo/web3/wagmi";
 
 // Used for getting the quorum at a specific block
 export const useQuorum = (blockNumber: bigint) => {

@@ -1,4 +1,7 @@
-import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import {
+  useWriteContract,
+  useWaitForTransactionReceipt,
+} from "@repo/web3/wagmi";
 import { LockingABI, useContracts, useEnsureChainId } from "@repo/web3";
 import React, { useCallback } from "react";
 import { WriteContractErrorType } from "viem";

@@ -11,7 +11,7 @@ import {
 } from "@/graphql/subgraph/generated/subgraph";
 
 import { useCallback, useMemo } from "react";
-import { useReadContracts } from "wagmi";
+import { useReadContracts } from "@repo/web3/wagmi";
 
 export const useProposals = () => {
   const ensuredChainId = useEnsureChainId();

@@ -5,7 +5,7 @@ import {
   useEnsureChainId,
 } from "@repo/web3";
 import { useMemo } from "react";
-import { useReadContracts } from "wagmi";
+import { useReadContracts } from "@repo/web3/wagmi";
 
 function convertSecondsToDays(
   durationInSeconds: string | bigint | number,

@@ -1,6 +1,6 @@
 import { getWatchdogMultisigAddress } from "@/config";
 import { GnosisSafeABI, useEnsureChainId } from "@repo/web3";
-import { useAccount, useReadContract } from "wagmi";
+import { useAccount, useReadContract } from "@repo/web3/wagmi";
 
 interface UseIsWatchdogResult {
   /** True if connected AS the Safe itself (via WalletConnect) OR as one of its signers */

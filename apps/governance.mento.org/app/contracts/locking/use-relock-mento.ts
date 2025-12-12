@@ -6,8 +6,8 @@ import {
   useSimulateContract,
   useWaitForTransactionReceipt,
   useWriteContract,
-} from "wagmi";
-import { WriteContractErrorType } from "wagmi/actions";
+  type WriteContractErrorType,
+} from "@repo/web3/wagmi";
 import { useLockedAmount } from "./use-locked-amount";
 
 interface RelockMentoParams {

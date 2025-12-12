@@ -5,7 +5,7 @@ import { LockingABI, useContracts } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
 import React, { ReactNode, createContext, useContext } from "react";
 import { Address, parseEther } from "viem";
-import { useReadContract } from "wagmi";
+import { useReadContract } from "@repo/web3/wagmi";
 
 import {
   DEFAULT_LOCKING_CLIFF,
