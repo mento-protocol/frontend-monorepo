@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useChainId } from "wagmi";
+import { useChainId } from "@repo/web3/wagmi";
 import { getWatchdogMultisigAddress, getSafeServiceUrl } from "@/config";
 import { encodeFunctionData } from "viem";
 import { TimelockControllerABI, useContracts } from "@repo/web3";

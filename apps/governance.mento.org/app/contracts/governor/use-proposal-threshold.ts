@@ -1,5 +1,5 @@
 import { GovernorABI, useContracts, useEnsureChainId } from "@repo/web3";
-import { useReadContract } from "wagmi";
+import { useReadContract } from "@repo/web3/wagmi";
 
 export const useProposalThreshold = () => {
   const ensuredChainId = useEnsureChainId();

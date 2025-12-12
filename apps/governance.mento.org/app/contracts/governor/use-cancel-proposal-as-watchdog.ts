@@ -5,7 +5,7 @@ import {
   useChainId,
   useWaitForTransactionReceipt,
   useWriteContract,
-} from "wagmi";
+} from "@repo/web3/wagmi";
 import {
   getWatchdogMultisigAddress,
   getSafeUrl,

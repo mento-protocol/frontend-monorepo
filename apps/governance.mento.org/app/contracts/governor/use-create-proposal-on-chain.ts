@@ -11,8 +11,10 @@ import {
   stringToBytes,
   toHex,
 } from "viem";
-import { useWriteContract } from "wagmi";
-import { WriteContractErrorType } from "wagmi/actions";
+import {
+  useWriteContract,
+  type WriteContractErrorType,
+} from "@repo/web3/wagmi";
 
 export type TransactionItem = {
   address: Address;

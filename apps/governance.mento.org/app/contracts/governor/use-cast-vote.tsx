@@ -9,8 +9,8 @@ import {
   useAccount,
   useWaitForTransactionReceipt,
   useWriteContract,
-} from "wagmi";
-import { WriteContractErrorType } from "wagmi/actions";
+  type WriteContractErrorType,
+} from "@repo/web3/wagmi";
 
 export const useCastVote = () => {
   const queryClient = useQueryClient();

@@ -4,11 +4,9 @@ import {
   useConfig,
   useWaitForTransactionReceipt,
   useWriteContract,
-} from "wagmi";
-import {
   waitForTransactionReceipt,
-  WriteContractErrorType,
-} from "wagmi/actions";
+  type WriteContractErrorType,
+} from "@repo/web3/wagmi";
 import { useContracts } from "@repo/web3";
 
 interface ApproveParams {

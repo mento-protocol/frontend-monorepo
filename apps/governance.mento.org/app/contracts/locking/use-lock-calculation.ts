@@ -6,7 +6,7 @@ import {
 } from "@repo/web3";
 import { Lock } from "@/graphql/subgraph/generated/subgraph";
 import { formatUnits, parseUnits } from "viem";
-import { useReadContract } from "wagmi";
+import { useReadContract } from "@repo/web3/wagmi";
 
 interface ILockHook {
   lock: Pick<Lock, "slope" | "cliff"> & { amount: string };

@@ -1,6 +1,6 @@
 import { LockingABI } from "@repo/web3";
 import { useContracts, useEnsureChainId } from "@repo/web3";
-import { useAccount, useReadContract } from "wagmi";
+import { useAccount, useReadContract } from "@repo/web3/wagmi";
 
 export const useLockedAmount = () => {
   const {

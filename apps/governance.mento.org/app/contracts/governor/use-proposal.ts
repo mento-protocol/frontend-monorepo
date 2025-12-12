@@ -12,7 +12,7 @@ import {
 import { useContracts, useEnsureChainId } from "@repo/web3";
 import { NetworkStatus } from "@apollo/client";
 import { useMemo } from "react";
-import { useReadContract } from "wagmi";
+import { useReadContract } from "@repo/web3/wagmi";
 export const ProposalQueryKey = "proposal";
 
 export const useProposal = (proposalId: bigint) => {

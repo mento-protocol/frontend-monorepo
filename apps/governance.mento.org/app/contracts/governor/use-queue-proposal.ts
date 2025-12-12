@@ -1,7 +1,10 @@
 import { useCallback } from "react";
-import { useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import {
+  useWaitForTransactionReceipt,
+  useWriteContract,
+  type WriteContractErrorType,
+} from "@repo/web3/wagmi";
 import { GovernorABI, useContracts } from "@repo/web3";
-import { WriteContractErrorType } from "wagmi/actions";
 import { useQueryClient } from "@tanstack/react-query";
 import { ProposalQueryKey } from "@/contracts/governor/use-proposal";
 
