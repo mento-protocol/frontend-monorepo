@@ -100,7 +100,7 @@ export default function SwapForm() {
       amount: formValues?.amount || "",
       quote: formValues?.quote || "",
       tokenInSymbol: formValues?.tokenInSymbol || "CELO",
-      tokenOutSymbol: formValues?.tokenOutSymbol || "cUSD",
+      tokenOutSymbol: formValues?.tokenOutSymbol || "USDm",
       slippage: formValues?.slippage || "0.5",
     },
     mode: "onChange", // Important for field-level validation
@@ -604,11 +604,11 @@ export default function SwapForm() {
 
   const sellUSDValue = useMemo(() => {
     if (formDirection === "in") {
-      return tokenInSymbol === "cUSD"
+      return tokenInSymbol === "USDm"
         ? amount || "0"
         : fromTokenUSDValue || "0";
     } else {
-      return tokenInSymbol === "cUSD"
+      return tokenInSymbol === "USDm"
         ? formQuote || "0"
         : fromTokenUSDValue || "0";
     }
@@ -616,11 +616,11 @@ export default function SwapForm() {
 
   const buyUSDValue = useMemo(() => {
     if (formDirection === "in") {
-      return tokenOutSymbol === "cUSD"
+      return tokenOutSymbol === "USDm"
         ? formQuote || "0"
         : toTokenUSDValue || "0";
     } else {
-      return tokenOutSymbol === "cUSD" ? amount || "0" : toTokenUSDValue || "0";
+      return tokenOutSymbol === "USDm" ? amount || "0" : toTokenUSDValue || "0";
     }
   }, [formDirection, tokenOutSymbol, amount, formQuote, toTokenUSDValue]);
 

@@ -29,7 +29,7 @@ export function SwapConfirm() {
 
   const amount = String(formValues?.amount || "");
   const direction = (formValues?.direction || "in") as SwapDirection;
-  const tokenInSymbol = formValues?.tokenInSymbol || TokenSymbol.cUSD;
+  const tokenInSymbol = formValues?.tokenInSymbol || TokenSymbol.USDm;
   const tokenOutSymbol = formValues?.tokenOutSymbol || TokenSymbol.CELO;
   const slippage = String(formValues?.slippage || "0.5");
 
@@ -143,12 +143,12 @@ export function SwapConfirm() {
     // Fallback to calculating it ourselves
     if (direction === "in") {
       // selling from-token
-      return tokenInSymbol === "cUSD"
+      return tokenInSymbol === "USDm"
         ? amount || "0"
         : fromTokenUSDValue || "0";
     } else {
       // still selling from-token (but user typed in Buy first)
-      return tokenInSymbol === "cUSD" ? quote || "0" : fromTokenUSDValue || "0";
+      return tokenInSymbol === "USDm" ? quote || "0" : fromTokenUSDValue || "0";
     }
   }, [
     formValues?.sellUSDValue,
@@ -169,10 +169,10 @@ export function SwapConfirm() {
 
     // Fallback to calculating it ourselves
     if (direction === "in") {
-      return tokenOutSymbol === "cUSD" ? quote || "0" : toTokenUSDValue || "0";
+      return tokenOutSymbol === "USDm" ? quote || "0" : toTokenUSDValue || "0";
     } else {
       // we're buying the to-token
-      return tokenOutSymbol === "cUSD" ? amount || "0" : toTokenUSDValue || "0";
+      return tokenOutSymbol === "USDm" ? amount || "0" : toTokenUSDValue || "0";
     }
   }, [
     formValues?.buyUSDValue,
