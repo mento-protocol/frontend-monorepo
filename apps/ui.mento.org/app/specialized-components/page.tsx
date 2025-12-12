@@ -31,13 +31,13 @@ export default function SpecializedComponentsPage() {
         <CoinCard className="h-fit">
           <CoinCardHeader className="justify-between">
             <CoinCardHeaderGroup>
-              <CoinCardSymbol>cUSD</CoinCardSymbol>
-              <CoinCardName>Celo Dollar</CoinCardName>
+              <CoinCardSymbol>USDm</CoinCardSymbol>
+              <CoinCardName>Mento Dollar</CoinCardName>
             </CoinCardHeaderGroup>
             <CoinCardLogo>
               <Image
-                src="/tokens/cUSD.svg"
-                alt="Celo Dollar"
+                src="/tokens/USDm.svg"
+                alt="Mento Dollar"
                 width={32}
                 height={32}
                 className="h-8 w-8"
