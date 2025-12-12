@@ -34,9 +34,11 @@ const nextConfig: NextConfig = {
     };
 
     // Add alias to prevent webpack from trying to resolve these modules
+    // and to fix zod/v4/core resolution for @hookform/resolvers
     config.resolve.alias = {
       ...config.resolve.alias,
       "@react-native-async-storage/async-storage": false,
+      "zod/v4/core": require.resolve("zod/v4/core"),
     };
 
     return config;
