@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "next build --turbopack",
+    "build": "next build",
     "clean": "rm -rf .next && rm -rf .turbo",
     "dev": "next dev --turbopack --port 3001",
     "lint": "npx @trunkio/launcher check",
