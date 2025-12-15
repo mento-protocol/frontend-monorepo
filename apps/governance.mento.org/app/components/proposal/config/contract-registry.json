@@ -12,93 +12,93 @@
     },
     "0x765DE816845861e75A25fCA122bb6898B8B1282a": {
       "name": "StableTokenUSD",
-      "symbol": "cUSD",
+      "symbol": "USDm",
       "decimals": 18,
-      "friendlyName": "Celo Dollar"
+      "friendlyName": "Mento Dollar"
     },
     "0xD8763CBa276a3738E6DE85b4b3bF5FDed6D6cA73": {
       "name": "StableTokenEUR",
-      "symbol": "cEUR",
+      "symbol": "EURm",
       "decimals": 18,
-      "friendlyName": "Celo Euro"
+      "friendlyName": "Mento Euro"
     },
     "0xe8537a3d056DA446677B9E9d6c5dB704EaAb4787": {
       "name": "StableTokenBRL",
-      "symbol": "cREAL",
+      "symbol": "BRLm",
       "decimals": 18,
-      "friendlyName": "Celo Real"
+      "friendlyName": "Mento Brazilian Real"
     },
     "0x73F93dcc49cB8A239e2032663e9475dd5ef29A08": {
       "name": "StableTokenXOF",
-      "symbol": "cXOF",
+      "symbol": "XOFm",
       "decimals": 18,
-      "friendlyName": "Celo XOF"
+      "friendlyName": "Mento West African CFA franc"
     },
     "0x456a3D042C0DbD3db53D5489e98dFb038553B0d0": {
       "name": "StableTokenKES",
-      "symbol": "cKES",
+      "symbol": "KESm",
       "decimals": 18,
-      "friendlyName": "Celo KES"
+      "friendlyName": "Mento Kenyan Shilling"
     },
     "0x105d4A9306D2E55a71d2Eb95B81553AE1dC20d7B": {
       "name": "StableTokenPHP",
-      "symbol": "cPHP",
+      "symbol": "PHPm",
       "decimals": 18,
-      "friendlyName": "Celo PHP"
+      "friendlyName": "Mento Philippine Peso"
     },
     "0x8a567e2ae79ca692bd748ab832081c45de4041ea": {
       "name": "StableTokenCOP",
-      "symbol": "cCOP",
+      "symbol": "COPm",
       "decimals": 18,
-      "friendlyName": "Celo COP"
+      "friendlyName": "Mento Colombian Peso"
     },
     "0xfAeA5F3404bbA20D3cc2f8C4B0A888F55a3c7313": {
       "name": "StableTokenGHS",
-      "symbol": "cGHS",
+      "symbol": "GHSm",
       "decimals": 18,
-      "friendlyName": "Celo GHS"
+      "friendlyName": "Mento Ghanaian Cedi"
     },
     "0xCCF663b1fF11028f0b19058d0f7B674004a40746": {
       "name": "StableTokenGBP",
-      "symbol": "cGBP",
+      "symbol": "GBPm",
       "decimals": 18,
-      "friendlyName": "Celo GBP"
+      "friendlyName": "Mento British Pound"
     },
     "0x4c35853A3B4e647fD266f4de678dCc8fEC410BF6": {
       "name": "StableTokenZAR",
-      "symbol": "cZAR",
+      "symbol": "ZARm",
       "decimals": 18,
-      "friendlyName": "Celo ZAR"
+      "friendlyName": "Mento South African Rand"
     },
     "0xff4Ab19391af240c311c54200a492233052B6325": {
       "name": "StableTokenCAD",
-      "symbol": "cCAD",
+      "symbol": "CADm",
       "decimals": 18,
-      "friendlyName": "Celo CAD"
+      "friendlyName": "Mento Canadian Dollar"
     },
     "0x7175504C455076F15c04A2F90a8e352281F492F9": {
       "name": "StableTokenAUD",
-      "symbol": "cAUD",
+      "symbol": "AUDm",
       "decimals": 18,
-      "friendlyName": "Celo AUD"
+      "friendlyName": "Mento Australian Dollar"
     },
     "0xb55a79F398E759E43C95b979163f30eC87Ee131D": {
       "name": "StableTokenCHF",
-      "symbol": "cCHF",
+      "symbol": "CHFm",
       "decimals": 18,
-      "friendlyName": "Celo CHF"
+      "friendlyName": "Mento Swiss Franc"
     },
     "0xc45eCF20f3CD864B32D9794d6f76814aE8892e20": {
       "name": "StableTokenJPY",
-      "symbol": "cJPY",
+      "symbol": "JPYm",
       "decimals": 18,
-      "friendlyName": "Celo JPY"
+      "friendlyName": "Mento Japanese Yen"
     },
     "0xE2702Bd97ee33c88c8f6f92DA3B733608aa76F71": {
       "name": "StableTokenNGN",
-      "symbol": "cNGN",
+      "symbol": "NGNm",
       "decimals": 18,
-      "friendlyName": "Celo NGN"
+      "friendlyName": "Mento Nigerian Naira"
     }
   },
   "governance": {
