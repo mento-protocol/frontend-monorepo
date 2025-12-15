@@ -15,6 +15,7 @@ export {
   useChainId,
   useDisconnect,
   useReadContracts,
+  useSimulateContract,
   useSwitchChain,
   useWaitForTransactionReceipt,
   useWriteContract,
@@ -25,4 +26,8 @@ export {
 } from "wagmi";
 
 // Action utilities that are not exported by the core package
-export { waitForTransaction } from "wagmi/actions";
+export {
+  waitForTransaction,
+  waitForTransactionReceipt,
+  type WriteContractErrorType,
+} from "wagmi/actions";
