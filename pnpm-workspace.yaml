@@ -29,7 +29,7 @@ catalog:
   "@metamask/jazzicon": https://github.com/jmrossy/jazzicon#7a8df28
   "tsup": ^8.5.0
   # BE
-  "@mento-protocol/mento-sdk": ^1.17.1-beta.0
+  "@mento-protocol/mento-sdk": ^1.19.0
   "pino-pretty": ^13.1.2
   # Shared
   "typescript": ^5.8.3
