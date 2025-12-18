@@ -290,7 +290,7 @@ export function useTokenUSDValue(
   tokenSymbol: TokenSymbol,
   amount: string | number,
 ) {
-  const isStablecoin = useMemo(() => tokenSymbol === "cUSD", [tokenSymbol]);
+  const isStablecoin = useMemo(() => tokenSymbol === "USDm", [tokenSymbol]);
   const hasValidAmount = useMemo(
     () => amount && amount !== "" && Number(amount) > 0,
     [amount],
@@ -301,7 +301,7 @@ export function useTokenUSDValue(
     hasValidAmount ? amount : "",
     "in",
     tokenSymbol,
-    TokenSymbol.cUSD,
+    TokenSymbol.USDm,
     {
       skipDebugLogs: true,
     },

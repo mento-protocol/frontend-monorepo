@@ -24,10 +24,10 @@ export function ReserveHoldingsContent({
 
   const TOKEN_COLORS: { [key: string]: string } = {
     CELO: "#7006FC",
-    CUSD: "#9A4EFD",
-    CEUR: "#C69BFF",
-    CREAL: "#3D42CD",
-    EXOF: "#7579FF",
+    USDM: "#9A4EFD",
+    EURM: "#C69BFF",
+    BRLM: "#3D42CD",
+    XOFM: "#7579FF",
     BTC: "#FFFFFF",
     ETH: "#66FFB8",
     SUSDS: "#99FFCF",

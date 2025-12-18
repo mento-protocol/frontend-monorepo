@@ -106,8 +106,8 @@ export function useSwapTransaction(
         logger.debug("SwapOut parameters:", {
           fromToken: fromTokenAddr,
           toToken: toTokenAddr,
-          exactBuyAmount, // This should be 4.55 cKES in wei
-          maxSellAmount: thresholdAmountInWei, // This should be 149.964 cCOP + slippage in wei
+          exactBuyAmount,
+          maxSellAmount: thresholdAmountInWei,
         });
 
         txRequest = await sdk.swapOut(

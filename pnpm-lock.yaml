@@ -10,8 +10,8 @@ catalogs:
       specifier: ^9.32.0
       version: 9.39.1
     '@mento-protocol/mento-sdk':
-      specifier: ^1.17.0
-      version: 1.17.0
+      specifier: ^1.19.0
+      version: 1.19.0
     '@metamask/jazzicon':
       specifier: https://github.com/jmrossy/jazzicon#7a8df28
       version: 2.1.0
@@ -160,7 +160,7 @@ importers:
         version: 5.2.2(react-hook-form@7.68.0(react@19.2.3))
       '@mento-protocol/mento-sdk':
         specifier: 'catalog:'
-        version: 1.17.0(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))
+        version: 1.19.0(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))
       '@rainbow-me/rainbowkit':
         specifier: 'catalog:'
         version: 2.2.10(@tanstack/react-query@5.90.12(react@19.2.3))(@types/react@19.2.7)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(typescript@5.9.3)(viem@2.41.2(bufferutil@4.0.9)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.1.13))(wagmi@2.19.5(@tanstack/query-core@5.90.12)(@tanstack/react-query@5.90.12(react@19.2.3))(@types/react@19.2.7)(bufferutil@4.0.9)(fastestsmallesttextencoderdecoder@1.0.22)(react@19.2.3)(typescript@5.9.3)(utf-8-validate@5.0.10)(viem@2.41.2(bufferutil@4.0.9)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.1.13))(ws@8.18.3(bufferutil@4.0.9)(utf-8-validate@5.0.10))(zod@4.1.13))
@@ -399,7 +399,7 @@ importers:
     dependencies:
       '@mento-protocol/mento-sdk':
         specifier: 'catalog:'
-        version: 1.17.0(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))
+        version: 1.19.0(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))
       '@repo/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -729,7 +729,7 @@ importers:
         version: 5.8.0
       '@mento-protocol/mento-sdk':
         specifier: 'catalog:'
-        version: 1.17.0(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))
+        version: 1.19.0(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))
       '@metamask/jazzicon':
         specifier: 'catalog:'
         version: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28
@@ -2020,8 +2020,8 @@ packages:
   '@mento-protocol/mento-core-ts@2.6.5-rc3':
     resolution: {integrity: sha512-BMVPXKIFBw8BOoNWBODhDi6odIIBBU16guTzkNnDheFaeiExyBVIe+HpVc7vjvWgMbhESuDpN9tDmvzyjiN8Dg==}
 
-  '@mento-protocol/mento-sdk@1.17.0':
-    resolution: {integrity: sha512-usSbNo9ntKXQoOQUqQArPrnxCX7b7A7Hd3Da4cUVMt+QReCL/JyPg79NGIq+midjD4eC5ORA/W3YKx9TCQX3mA==}
+  '@mento-protocol/mento-sdk@1.19.0':
+    resolution: {integrity: sha512-+D94LFomVDdsKchyG/+dDmv7/UfGiBCiYR35bMLqwi13u700lKDb2c1y0B4njKLdBadOVglDBkslMneFVASSkw==}
     engines: {node: '>=22'}
     peerDependencies:
       ethers: ^5.7
@@ -10621,7 +10621,7 @@ snapshots:
 
   '@mento-protocol/mento-core-ts@2.6.5-rc3': {}
 
-  '@mento-protocol/mento-sdk@1.17.0(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))':
+  '@mento-protocol/mento-sdk@1.19.0(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))':
     dependencies:
       '@mento-protocol/mento-core-ts': 2.6.5-rc3
       ethers: 5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
