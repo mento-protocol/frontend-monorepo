@@ -115,12 +115,13 @@ async function getReserveComposition(): Promise<ReserveCompositionAPI> {
   const result: ExternalCompositionResponse = await response.json();
 
   // Convert the result to the ReserveCompositionAPI interface
-  const convertedResult: ReserveCompositionAPI = result.composition.map(
-    (item) => ({
+  // Filter out assets with zero percentage
+  const convertedResult: ReserveCompositionAPI = result.composition
+    .filter((item) => item.percentage > 0)
+    .map((item) => ({
       symbol: item.symbol as ReserveAssetSymbol,
       percent: item.percentage,
-    }),
-  );
+    }));
 
   return convertedResult;
 }
@@ -177,6 +178,7 @@ async function getReserveHoldings(): Promise<HoldingsApi> {
     totalReserveValue: result.total_holdings_usd,
     otherAssets: result.assets
       .filter((asset) => asset.symbol !== "CELO")
+      .filter((asset) => Number(asset.totalBalance) > 0 || asset.usdValue > 0)
       .map((asset) => ({
         symbol: asset.symbol as ReserveAssetSymbol,
         units: Number(asset.totalBalance),
