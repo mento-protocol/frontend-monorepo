@@ -11,7 +11,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import {
   Collapsible,
@@ -116,36 +116,28 @@ export function CustomAppSidebar() {
   const isSsr = useIsSsr();
   const isClient = !isSsr;
 
-  // State for search and open categories (initialized with defaults, synced from localStorage after mount)
-  const [searchQuery, setSearchQuery] = useState("");
-  const [openCategories, setOpenCategories] = useState<Set<string>>(
-    () => new Set(),
-  );
-
-  // Sync localStorage values to state after mount
-  useEffect(() => {
+  // State for search and open categories (lazy initialized from localStorage)
+  const [searchQuery, setSearchQuery] = useState(() => {
+    if (typeof window === "undefined") return "";
     try {
-      const savedQuery = localStorage.getItem("sidebarSearchQuery");
-      if (savedQuery) setSearchQuery(savedQuery);
-    } catch (error) {
-      console.error("Failed to get search query from localStorage", error);
+      return localStorage.getItem("sidebarSearchQuery") ?? "";
+    } catch {
+      return "";
     }
-
+  });
+  const [openCategories, setOpenCategories] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
     try {
-      const savedCategories = localStorage.getItem("sidebarOpenCategories");
-      if (savedCategories) {
-        const parsed = JSON.parse(savedCategories);
-        if (Array.isArray(parsed)) {
-          setOpenCategories(new Set(parsed));
-        }
+      const saved = localStorage.getItem("sidebarOpenCategories");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return new Set(parsed);
       }
-    } catch (error) {
-      console.error(
-        "Failed to get sidebar open categories from localStorage",
-        error,
-      );
+    } catch {
+      // Ignore localStorage errors
     }
-  }, []);
+    return new Set();
+  });
 
   // Handle category click - navigate and expand
   const handleCategoryClick = (category: (typeof componentCategories)[0]) => {

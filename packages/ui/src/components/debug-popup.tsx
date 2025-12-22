@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import faviconImage from "../assets/favicon-32x32.png";
 
@@ -20,16 +20,14 @@ const FORK_MODE_KEY = "mento_use_fork";
 export function DebugPopup() {
   const [isVisible, setIsVisible] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
-  const [useFork, setUseFork] = useState(false);
-
-  useEffect(() => {
+  const [useFork, setUseFork] = useState(() => {
+    if (typeof window === "undefined") return false;
     try {
-      const stored = localStorage.getItem(FORK_MODE_KEY);
-      if (stored === "true") setUseFork(true);
-    } catch (error) {
-      console.error("Failed to get fork mode from localStorage", error);
+      return localStorage.getItem(FORK_MODE_KEY) === "true";
+    } catch {
+      return false;
     }
-  }, []);
+  });
 
   useHotkeys("ctrl+m+d", () => setIsVisible((previous) => !previous), {
     preventDefault: true,
