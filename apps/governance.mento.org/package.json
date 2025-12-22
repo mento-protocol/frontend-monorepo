@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@apollo/client": "^3.13.9",
-    "@apollo/client-integration-nextjs": "^0.12.3",
+    "@apollo/client-integration-nextjs": "^0.14.3",
     "@metamask/jazzicon": "catalog:",
     "@rainbow-me/rainbowkit": "catalog:",
     "@repo/ui": "workspace:*",

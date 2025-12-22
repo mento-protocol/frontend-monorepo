@@ -10,7 +10,7 @@
     "./react-shared": "./react-shared.js"
   },
   "dependencies": {
-    "eslint-config-turbo": "^2.5.1"
+    "eslint-config-turbo": "^2.7.1"
   },
   "devDependencies": {
     "@eslint/js": "catalog:",
