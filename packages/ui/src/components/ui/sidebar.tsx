@@ -599,6 +599,27 @@ function SidebarMenuBadge({
   );
 }
 
+// Predefined widths for skeleton items
+const SKELETON_WIDTHS = [
+  "50%",
+  "65%",
+  "75%",
+  "60%",
+  "80%",
+  "70%",
+  "55%",
+  "85%",
+];
+
+// Simple hash function to convert a string id to a numeric index
+function hashStringToIndex(str: string, max: number): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash) % max;
+}
+
 function SidebarMenuSkeleton({
   className,
   showIcon = false,
@@ -606,10 +627,9 @@ function SidebarMenuSkeleton({
 }: React.ComponentProps<"div"> & {
   showIcon?: boolean;
 }) {
-  // Random width between 50 to 90%.
-  const width = React.useMemo(() => {
-    return `${Math.floor(Math.random() * 40) + 50}%`;
-  }, []);
+  // Use React.useId for a stable, unique identifier per component instance
+  const id = React.useId();
+  const width = SKELETON_WIDTHS[hashStringToIndex(id, SKELETON_WIDTHS.length)];
 
   return (
     <div
