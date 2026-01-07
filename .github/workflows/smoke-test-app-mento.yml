@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   test:
-    if: github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && contains(github.event.deployment_status.target_url, 'appmento')
+    if: github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && contains(github.event.deployment_status.target_url, 'appmento') && github.event.deployment.ref != 'main'
     uses: mento-protocol/mento-automation-tests/.github/workflows/app-mento-smoke-test.yml@main
     with:
       CUSTOM_URL: ${{ github.event.deployment_status.environment_url }}
@@ -19,7 +19,7 @@ jobs:
 
   summary:
     needs: test
-    if: always() && github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && contains(github.event.deployment_status.target_url, 'appmento')
+    if: always() && github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && contains(github.event.deployment_status.target_url, 'appmento') && github.event.deployment.ref != 'main'
     uses: ./.github/workflows/smoke-test-summary.yml
     with:
       test_result: ${{ needs.test.result }}
