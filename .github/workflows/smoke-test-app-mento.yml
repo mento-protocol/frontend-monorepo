@@ -9,39 +9,14 @@ permissions:
   id-token: write
 
 jobs:
-  check-changes:
-    if: github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && contains(github.event.deployment_status.target_url, 'appmento') && github.event.deployment.ref != 'main'
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.check.outputs.should_run }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.deployment.sha }}
-          fetch-depth: 0
-
-      - name: Check for relevant changes
-        id: check
-        run: |
-          git fetch origin main
-          CHANGED_FILES=$(git diff --name-only origin/main..HEAD)
-
-          SHOULD_RUN=false
-          while IFS= read -r file; do
-            if [[ "$file" == apps/* ]] || [[ "$file" == packages/* ]] || [[ "$file" == "package.json" ]] || [[ "$file" == "pnpm-workspace.yaml" ]]; then
-              SHOULD_RUN=true
-              break
-            fi
-          done <<< "$CHANGED_FILES"
-
-          echo "should_run=$SHOULD_RUN" >> $GITHUB_OUTPUT
-          echo "Changed files:"
-          echo "$CHANGED_FILES"
-          echo "Should run: $SHOULD_RUN"
+  test-eligibility:
+    uses: ./.github/workflows/smoke-test-eligibility.yml
+    with:
+      target_url_pattern: appmento
 
   test:
-    needs: check-changes
-    if: needs.check-changes.outputs.should_run == 'true'
+    needs: test-eligibility
+    if: needs.test-eligibility.outputs.should_run == 'true'
     uses: mento-protocol/mento-automation-tests/.github/workflows/app-mento-smoke-test.yml@main
     with:
       CUSTOM_URL: ${{ github.event.deployment_status.environment_url }}
@@ -49,8 +24,8 @@ jobs:
     secrets: inherit
 
   summary:
-    needs: [check-changes, test]
-    if: always() && needs.check-changes.outputs.should_run == 'true'
+    needs: [test-eligibility, test]
+    if: always() && needs.test-eligibility.outputs.should_run == 'true'
     uses: ./.github/workflows/smoke-test-summary.yml
     with:
       test_result: ${{ needs.test.result }}
