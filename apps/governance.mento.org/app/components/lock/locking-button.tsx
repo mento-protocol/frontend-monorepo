@@ -128,7 +128,7 @@ export const LockingButton = ({
       : BigInt(0);
     const totalAmount = parsedAmount + baseAmount;
     return totalAmount >= minLockAmount;
-  }, [parsedAmount, targetLock?.amount, currentRemainingAmount, minLockAmount]);
+  }, [parsedAmount, currentRemainingAmount, minLockAmount, targetLock]);
 
   // Calculate the total amount needed for relock approval
   // The contract's rebalance function may need to transfer more than just the additional amount
@@ -502,6 +502,7 @@ export const LockingButton = ({
     isAmountFormatValid,
     isBelowMinimum,
     unlockDate,
+    isTotalAmountValid,
   ]);
   const relockTxStatus = useMemo(() => {
     if (relockError || approve.error || relock.error)
