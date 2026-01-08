@@ -1,0 +1,47 @@
+name: Smoke Test Eligibility
+
+on:
+  workflow_call:
+    inputs:
+      target_url_pattern:
+        description: Pattern to match in deployment target URL
+        required: true
+        type: string
+    outputs:
+      should_run:
+        description: Whether the smoke test should run
+        value: ${{ jobs.check-changes.outputs.should_run }}
+
+permissions:
+  contents: read
+
+jobs:
+  check-changes:
+    if: github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && contains(github.event.deployment_status.target_url, inputs.target_url_pattern) && github.event.deployment.ref != 'main'
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.deployment.sha }}
+          fetch-depth: 0
+
+      - name: Check for relevant changes to run a smoke test
+        id: check
+        run: |
+          git fetch origin main
+          CHANGED_FILES=$(git diff --name-only origin/main..HEAD)
+
+          SHOULD_RUN=false
+          while IFS= read -r file; do
+            if [[ "$file" == apps/* ]] || [[ "$file" == packages/* ]] || [[ "$file" == "package.json" ]] || [[ "$file" == "pnpm-workspace.yaml" ]]; then
+              SHOULD_RUN=true
+              break
+            fi
+          done <<< "$CHANGED_FILES"
+
+          echo "should_run=$SHOULD_RUN" >> $GITHUB_OUTPUT
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          echo "Should run a smoke test: $SHOULD_RUN"

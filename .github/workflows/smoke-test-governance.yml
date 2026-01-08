@@ -9,8 +9,14 @@ permissions:
   id-token: write
 
 jobs:
+  test-eligibility:
+    uses: ./.github/workflows/smoke-test-eligibility.yml
+    with:
+      target_url_pattern: governancemento
+
   test:
-    if: github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && contains(github.event.deployment_status.target_url, 'governancemento')
+    needs: test-eligibility
+    if: needs.test-eligibility.outputs.should_run == 'true'
     uses: mento-protocol/mento-automation-tests/.github/workflows/governance-smoke-test.yml@main
     with:
       CUSTOM_URL: ${{ github.event.deployment_status.environment_url }}
@@ -18,8 +24,8 @@ jobs:
     secrets: inherit
 
   summary:
-    needs: test
-    if: always() && github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && contains(github.event.deployment_status.target_url, 'governancemento')
+    needs: [test-eligibility, test]
+    if: always() && needs.test-eligibility.outputs.should_run == 'true'
     uses: ./.github/workflows/smoke-test-summary.yml
     with:
       test_result: ${{ needs.test.result }}
