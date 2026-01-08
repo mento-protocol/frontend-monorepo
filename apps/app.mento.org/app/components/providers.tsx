@@ -1,15 +1,11 @@
 "use client";
 import "@rainbow-me/rainbowkit/styles.css";
-
 import { ThemeProvider as NextThemesProvider } from "next-themes";
-
 import type { PropsWithChildren } from "react";
-
 import { ErrorBoundary } from "./errors";
 import { AppLayout } from "./layout/app-layout";
 
-import { useIsSsr } from "@/lib/utils/ssr";
-
+import { useIsSsr } from "@repo/ui";
 import { Web3Provider } from "@repo/web3";
 import { State } from "@repo/web3/wagmi";
 import { useSentryWalletContext } from "@/hooks/use-sentry-wallet-context";
