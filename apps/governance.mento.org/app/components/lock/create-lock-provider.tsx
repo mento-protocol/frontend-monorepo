@@ -20,9 +20,10 @@ import { differenceInWeeks } from "date-fns";
 import { useFormContext } from "react-hook-form";
 import { TxDialog } from "../tx-dialog/tx-dialog";
 
-export enum CREATE_LOCK_TX_STATUS {
+export enum LOCK_TX_STATUS {
   CONFIRMING_LOCK_TX = "CONFIRMING_LOCK_TX",
   CONFIRMING_APPROVE_TX = "CONFIRMING_APPROVE_TX",
+  CONFIRMING_RELOCK_TX = "CONFIRMING_RELOCK_TX",
   AWAITING_SIGNATURE = "AWAITING_SIGNATURE",
   UNKNOWN = "UNKNOWN",
   ERROR = "ERROR",
@@ -40,7 +41,7 @@ interface ICreateLockContext {
   retry: () => void;
   approve: ReturnType<typeof useApprove>;
   lock: ReturnType<typeof useCreateLockOnChain>;
-  CreateLockTxStatus: CREATE_LOCK_TX_STATUS;
+  CreateLockTxStatus: LOCK_TX_STATUS;
   CreateLockApprovalStatus: CREATE_LOCK_APPROVAL_STATUS;
 }
 
@@ -180,14 +181,13 @@ export const CreateLockProvider = ({
 
   const CreateLockTxStatus = React.useMemo(() => {
     if (createLockError || approve.error || lock.error)
-      return CREATE_LOCK_TX_STATUS.ERROR;
+      return LOCK_TX_STATUS.ERROR;
     if (approve.isAwaitingUserSignature || lock.isAwaitingUserSignature)
-      return CREATE_LOCK_TX_STATUS.AWAITING_SIGNATURE;
-    if (approve.isConfirming)
-      return CREATE_LOCK_TX_STATUS.CONFIRMING_APPROVE_TX;
-    if (lock.isConfirming) return CREATE_LOCK_TX_STATUS.CONFIRMING_LOCK_TX;
+      return LOCK_TX_STATUS.AWAITING_SIGNATURE;
+    if (approve.isConfirming) return LOCK_TX_STATUS.CONFIRMING_APPROVE_TX;
+    if (lock.isConfirming) return LOCK_TX_STATUS.CONFIRMING_LOCK_TX;
 
-    return CREATE_LOCK_TX_STATUS.UNKNOWN;
+    return LOCK_TX_STATUS.UNKNOWN;
   }, [
     createLockError,
     approve.error,
@@ -348,10 +348,10 @@ export const CreateLockProvider = ({
     return (
       <div className="flex min-h-4 flex-col gap-4">
         {isApprovalPhase ? <span>Approve MENTO</span> : <span>Lock MENTO</span>}
-        {CreateLockTxStatus === CREATE_LOCK_TX_STATUS.AWAITING_SIGNATURE ? (
+        {CreateLockTxStatus === LOCK_TX_STATUS.AWAITING_SIGNATURE ? (
           <>Continue in wallet</>
-        ) : CreateLockTxStatus === CREATE_LOCK_TX_STATUS.CONFIRMING_LOCK_TX ||
-          CreateLockTxStatus === CREATE_LOCK_TX_STATUS.CONFIRMING_APPROVE_TX ? (
+        ) : CreateLockTxStatus === LOCK_TX_STATUS.CONFIRMING_LOCK_TX ||
+          CreateLockTxStatus === LOCK_TX_STATUS.CONFIRMING_APPROVE_TX ? (
           <>Confirming...</>
         ) : null}
       </div>
@@ -378,19 +378,19 @@ export const CreateLockProvider = ({
           setIsTxDialogOpen(false);
           reset();
         }}
-        error={CreateLockTxStatus === CREATE_LOCK_TX_STATUS.ERROR}
+        error={CreateLockTxStatus === LOCK_TX_STATUS.ERROR}
         title="Create Lock"
         retry={retry}
         message={<TxMessage />}
         preventClose={
-          CreateLockTxStatus === CREATE_LOCK_TX_STATUS.AWAITING_SIGNATURE ||
-          CreateLockTxStatus === CREATE_LOCK_TX_STATUS.CONFIRMING_APPROVE_TX ||
-          CreateLockTxStatus === CREATE_LOCK_TX_STATUS.CONFIRMING_LOCK_TX
+          CreateLockTxStatus === LOCK_TX_STATUS.AWAITING_SIGNATURE ||
+          CreateLockTxStatus === LOCK_TX_STATUS.CONFIRMING_APPROVE_TX ||
+          CreateLockTxStatus === LOCK_TX_STATUS.CONFIRMING_LOCK_TX
         }
         isPending={
-          CreateLockTxStatus === CREATE_LOCK_TX_STATUS.AWAITING_SIGNATURE ||
-          CreateLockTxStatus === CREATE_LOCK_TX_STATUS.CONFIRMING_APPROVE_TX ||
-          CreateLockTxStatus === CREATE_LOCK_TX_STATUS.CONFIRMING_LOCK_TX
+          CreateLockTxStatus === LOCK_TX_STATUS.AWAITING_SIGNATURE ||
+          CreateLockTxStatus === LOCK_TX_STATUS.CONFIRMING_APPROVE_TX ||
+          CreateLockTxStatus === LOCK_TX_STATUS.CONFIRMING_LOCK_TX
         }
       />
     </CreateLockContext.Provider>
