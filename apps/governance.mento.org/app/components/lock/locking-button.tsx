@@ -38,6 +38,7 @@ export const LockingButton = ({
   className,
   onLockUpdated,
 }: LockingButtonProps) => {
+  const minLockAmount = parseEther("1");
   const { address } = useAccount();
   const { createLock, CreateLockTxStatus, CreateLockApprovalStatus } =
     useCreateLock();
@@ -119,6 +120,15 @@ export const LockingButton = ({
       return BigInt(0);
     }
   }, [amount, isAmountFormatValid]);
+
+  // Check if the total amount is >= 1 MENTO
+  const isTotalAmountValid = useMemo(() => {
+    const baseAmount = targetLock
+      ? (currentRemainingAmount ?? BigInt(targetLock.amount))
+      : BigInt(0);
+    const totalAmount = parsedAmount + baseAmount;
+    return totalAmount >= minLockAmount;
+  }, [parsedAmount, targetLock?.amount, currentRemainingAmount, minLockAmount]);
 
   // Calculate the total amount needed for relock approval
   // The contract's rebalance function may need to transfer more than just the additional amount
@@ -446,7 +456,13 @@ export const LockingButton = ({
   ]);
 
   const shouldButtonBeDisabled = useMemo(() => {
-    if (!address || !isValid || isBalanceInsufficient || isBelowMinimum) {
+    if (
+      !address ||
+      !isValid ||
+      isBalanceInsufficient ||
+      isBelowMinimum ||
+      !isTotalAmountValid
+    ) {
       return true;
     }
 
