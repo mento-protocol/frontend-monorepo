@@ -123,7 +123,7 @@ export const LockingButton = ({
 
   // Check if the total amount is >= 1 MENTO
   const isTotalAmountValid = useMemo(() => {
-    const baseAmount = targetLock
+    const baseAmount = targetLock?.amount
       ? (currentRemainingAmount ?? BigInt(targetLock.amount))
       : BigInt(0);
     const totalAmount = parsedAmount + baseAmount;
