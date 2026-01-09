@@ -66,7 +66,7 @@ export const getSafeUrl = (
 /**
  * Safe Transaction Service API URLs
  */
-export const SAFE_SERVICE_URLS = {
+const SAFE_SERVICE_URLS = {
   [celo.id]: "https://safe-transaction-celo.safe.global",
   [celoSepolia.id]: "https://safe-transaction-celo-testnet.safe.global",
 } as const;
