@@ -11,7 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area.js";
 import { useDebounce } from "@/hooks/use-debounce.js";
 import { cn } from "@/lib/utils.js";
 import type { Editor } from "@tiptap/core";
-import { FloatingMenu } from "@tiptap/react";
+import { FloatingMenu } from "@tiptap/react/menus";
 import {
   AlignCenter,
   AlignLeft,
@@ -420,24 +420,19 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
         }
         return true;
       }}
-      tippyOptions={{
+      options={{
         placement: "bottom-start",
-        interactive: true,
-        appendTo: () => document.body,
-        onHide: () => {
-          setIsOpen(false);
-          setSelectedIndex(-1);
-        },
+        offset: 4,
       }}
     >
       <Command
         role="listbox"
         ref={commandRef}
-        className="bg-popover z-50 w-72 overflow-hidden rounded-lg border shadow-lg"
+        className="w-72 shadow-lg z-50 overflow-hidden rounded-lg border bg-popover"
       >
         <ScrollArea className="max-h-[330px]">
           <CommandList>
-            <CommandEmpty className="text-muted-foreground py-3 text-center text-sm">
+            <CommandEmpty className="py-3 text-sm text-center text-muted-foreground">
               No results found
             </CommandEmpty>
 
@@ -445,7 +440,7 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
               <CommandGroup
                 key={`${group.group}-${groupIndex}`}
                 heading={
-                  <div className="text-muted-foreground px-2 py-1.5 text-xs font-medium">
+                  <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
                     {group.group}
                   </div>
                 }
@@ -463,7 +458,7 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
                       value={`${group.group}-${item.title}`}
                       onSelect={() => executeCommand(item.command)}
                       className={cn(
-                        "aria-selected:bg-accent/50 gap-3",
+                        "gap-3 aria-selected:bg-accent/50",
                         flatIndex === selectedIndex ? "bg-accent/50" : "",
                       )}
                       aria-selected={flatIndex === selectedIndex}
@@ -472,18 +467,18 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
                       }}
                       tabIndex={flatIndex === selectedIndex ? 0 : -1}
                     >
-                      <div className="bg-background flex h-9 w-9 items-center justify-center rounded-md border">
+                      <div className="h-9 w-9 flex items-center justify-center rounded-md border bg-background">
                         <item.icon className="h-4 w-4" />
                       </div>
                       <div className="flex flex-1 flex-col">
                         <span className="text-sm font-medium">
                           {item.title}
                         </span>
-                        <span className="text-muted-foreground text-xs">
+                        <span className="text-xs text-muted-foreground">
                           {item.description}
                         </span>
                       </div>
-                      <kbd className="bg-muted text-muted-foreground ml-auto flex h-5 items-center rounded px-1.5 text-xs">
+                      <kbd className="h-5 rounded px-1.5 text-xs ml-auto flex items-center bg-muted text-muted-foreground">
                         ↵
                       </kbd>
                     </CommandItem>

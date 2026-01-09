@@ -35,7 +35,7 @@
     "eslint-config-prettier": "catalog:",
     "knip": "^5.80.2",
     "prettier": "^3.7.4",
-    "prettier-plugin-tailwindcss": "^0.6.14",
+    "prettier-plugin-tailwindcss": "^0.7.2",
     "turbo": "^2.7.3",
     "typescript": "catalog:",
     "typescript-eslint": "catalog:"
@@ -76,7 +76,7 @@
       "next": "^15.5.9",
       "preact": ">=10.28.2",
       "tmp": ">=0.2.4",
-      "wagmi": "^2.16.9",
+      "wagmi": "^2.14.16",
       "zod": "^4.1.13"
     }
   }

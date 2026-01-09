@@ -9,6 +9,7 @@ export interface ChartSegment {
   name: string;
   value: number;
   color: string;
+  [key: string]: unknown;
 }
 
 export interface ReserveChartProps {
@@ -90,7 +91,7 @@ export function ReserveChart({
 
   return (
     <div className={`relative ${className || "mx-auto aspect-square h-full"}`}>
-      <div className="bg-card pointer-events-none absolute left-1/2 top-1/2 z-0 h-fit w-fit -translate-x-1/2 -translate-y-1/2 rounded-full p-8">
+      <div className="p-8 pointer-events-none absolute top-1/2 left-1/2 z-0 h-fit w-fit -translate-x-1/2 -translate-y-1/2 rounded-full bg-card">
         <svg
           width="45"
           height="45"
@@ -120,27 +121,28 @@ export function ReserveChart({
             onMouseLeave={() => {
               handleActiveChanged(undefined);
             }}
-            activeIndex={
-              activeSegmentInternal
-                ? data.findIndex((d) => d.name === activeSegmentInternal)
-                : undefined
-            }
-            activeShape={({ outerRadius = 0, ...props }: PieSectorDataItem) => {
-              return (
-                <g>
-                  <Sector
-                    {...props}
-                    outerRadius={outerRadius + 10}
-                    fill={props.payload.payload.color}
-                  />
-                  <Sector
-                    {...props}
-                    outerRadius={outerRadius + 15}
-                    innerRadius={outerRadius + 9}
-                    fill={props.payload.payload.color}
-                  />
-                </g>
-              );
+            shape={(props: PieSectorDataItem & { isActive?: boolean }) => {
+              const { outerRadius = 0, isActive, ...rest } = props;
+              const isActiveSegment =
+                isActive || rest.name === activeSegmentInternal;
+              if (isActiveSegment) {
+                return (
+                  <g>
+                    <Sector
+                      {...rest}
+                      outerRadius={outerRadius + 10}
+                      fill={props.payload?.color}
+                    />
+                    <Sector
+                      {...rest}
+                      outerRadius={outerRadius + 15}
+                      innerRadius={outerRadius + 9}
+                      fill={props.payload?.color}
+                    />
+                  </g>
+                );
+              }
+              return <Sector {...rest} outerRadius={outerRadius} />;
             }}
           >
             {data.map((entry) => (
@@ -161,11 +163,6 @@ export function ReserveChart({
             onMouseLeave={() => {
               handleActiveChanged(undefined);
             }}
-            activeIndex={
-              activeSegmentInternal
-                ? data.findIndex((d) => d.name === activeSegmentInternal)
-                : undefined
-            }
           >
             {data.map((entry) => (
               <Cell
@@ -178,11 +175,11 @@ export function ReserveChart({
       </ChartContainer>
 
       {value && (
-        <div className="mx-auto mt-4 flex w-fit flex-row items-center justify-start gap-2 bg-[var(--new-muted-color)] p-2 text-white">
+        <div className="mt-4 gap-2 p-2 text-white mx-auto flex w-fit flex-row items-center justify-start bg-[var(--new-muted-color)]">
           <img
             src={`/tokens/${tokenName}.svg`}
             alt={tokenName}
-            className="inline-block h-8 w-8"
+            className="h-8 w-8 inline-block"
             width={32}
             height={32}
           />
