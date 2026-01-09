@@ -21,13 +21,13 @@ import Image from "next/image";
 
 export default function SpecializedComponentsPage() {
   return (
-    <div className="flex w-full flex-col gap-8 p-6">
+    <div className="gap-8 p-6 flex w-full flex-col">
       <div className="space-y-2">
-        <h1 className="text-3xl font-bold">Specialized Components</h1>
+        <h1 className="font-bold text-3xl">Specialized Components</h1>
         <p className="text-muted-foreground">Domain-specific UI components</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+      <div className="gap-6 md:grid-cols-2 grid grid-cols-1">
         <CoinCard className="h-fit">
           <CoinCardHeader className="justify-between">
             <CoinCardHeaderGroup>
@@ -58,13 +58,13 @@ export default function SpecializedComponentsPage() {
             <CardDescription>Status indicators for proposals</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex flex-wrap gap-2">
+            <div className="gap-2 flex flex-wrap">
               <ProposalStatus variant="active">Active</ProposalStatus>
               <ProposalStatus variant="succeeded">Succeeded</ProposalStatus>
               <ProposalStatus variant="defeated">Defeated</ProposalStatus>
               <ProposalStatus variant="pending">Pending</ProposalStatus>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="gap-2 flex flex-wrap">
               <ProposalStatus variant="queued">Queued</ProposalStatus>
               <ProposalStatus variant="executed">Executed</ProposalStatus>
               <ProposalStatus variant="canceled">Canceled</ProposalStatus>

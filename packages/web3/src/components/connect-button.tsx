@@ -85,8 +85,8 @@ function ConnectedDropdown({
             variant="outline"
             size="sm"
             className={cn(
-              "h-9 justify-start gap-2 px-4 py-2 font-medium",
-              "text-accent-foreground border-border-secondary",
+              "h-9 gap-2 px-4 py-2 font-medium justify-start",
+              "border-border-secondary text-accent-foreground",
               fullWidth ? "w-full" : "w-42",
             )}
           >
@@ -111,7 +111,7 @@ function ConnectedDropdown({
           <DropdownMenuItem
             onClick={onClickCopy}
             className={cn(
-              "cursor-pointer gap-3 py-3",
+              "gap-3 py-3 cursor-pointer",
               "focus:bg-accent focus:text-accent-foreground",
             )}
           >
@@ -125,7 +125,7 @@ function ConnectedDropdown({
           <DropdownMenuItem
             onClick={onClickChangeNetwork}
             className={cn(
-              "cursor-pointer gap-3 py-3",
+              "gap-3 py-3 cursor-pointer",
               "focus:bg-accent focus:text-accent-foreground",
             )}
           >
@@ -140,7 +140,7 @@ function ConnectedDropdown({
             <DropdownMenuItem
               onClick={openAccountModal}
               className={cn(
-                "cursor-pointer gap-3 py-3",
+                "gap-3 py-3 cursor-pointer",
                 "focus:bg-accent focus:text-accent-foreground",
               )}
             >
@@ -156,7 +156,7 @@ function ConnectedDropdown({
           <DropdownMenuItem
             onClick={() => disconnect()}
             className={cn(
-              "cursor-pointer gap-3 py-3",
+              "gap-3 py-3 cursor-pointer",
               "text-destructive",
               "focus:text-destructive-foreground",
             )}

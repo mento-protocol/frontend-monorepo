@@ -71,7 +71,7 @@ export const HeadingsToolbar = React.forwardRef<
               variant="ghost"
               size="sm"
               className={cn(
-                "h-8 w-max gap-1 px-3 font-normal",
+                "h-8 gap-1 px-3 font-normal w-max",
                 editor?.isActive("heading") && "bg-accent",
                 className,
               )}
@@ -90,7 +90,7 @@ export const HeadingsToolbar = React.forwardRef<
                 )
               }
               className={cn(
-                "flex h-fit items-center gap-2",
+                "gap-2 flex h-fit items-center",
                 !editor?.isActive("heading") && "bg-accent",
               )}
             >
@@ -105,7 +105,7 @@ export const HeadingsToolbar = React.forwardRef<
                   )
                 }
                 className={cn(
-                  "flex items-center gap-2",
+                  "gap-2 flex items-center",
                   editor?.isActive("heading", { level }) && "bg-accent",
                 )}
               >

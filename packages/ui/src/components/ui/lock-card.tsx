@@ -59,7 +59,7 @@ function LockCardHeader({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="coin-card-header"
       className={cn(
-        "flex flex-row items-start justify-between px-4",
+        "px-4 flex flex-row items-start justify-between",
         className,
       )}
       {...props}
@@ -84,7 +84,7 @@ function LockCardSymbol({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-symbol"
-      className={cn("text-foreground text-2xl font-medium", className)}
+      className={cn("text-2xl font-medium text-foreground", className)}
       {...props}
     />
   );
@@ -94,7 +94,7 @@ function LockCardName({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-name"
-      className={cn("text-muted-foreground text-base leading-5", className)}
+      className={cn("text-base leading-5 text-muted-foreground", className)}
       {...props}
     />
   );
@@ -111,7 +111,7 @@ function LockCardFooter({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="card-footer"
       className={cn(
-        "flex flex-row items-center gap-2 px-4 md:gap-6",
+        "gap-2 px-4 md:gap-6 flex flex-row items-center",
         className,
       )}
       {...props}
@@ -123,7 +123,7 @@ function LockCardOrigin({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="coin-card-origin"
-      className={cn("flex flex-col gap-2", className)}
+      className={cn("gap-2 flex flex-col", className)}
       {...props}
     />
   );
@@ -159,10 +159,10 @@ function LockCardSupply({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="coin-card-supply"
-      className={cn("flex flex-col gap-2", className)}
+      className={cn("gap-2 flex flex-col", className)}
     >
-      <span className="text-muted-foreground text-sm">Supply:</span>
-      <span className="text-sm leading-none md:text-base">
+      <span className="text-sm text-muted-foreground">Supply:</span>
+      <span className="text-sm md:text-base leading-none">
         {props.children}
       </span>
     </div>
@@ -187,7 +187,7 @@ function LockCardAmount({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="lock-card-amount"
-      className={cn("text-foreground text-2xl font-medium", className)}
+      className={cn("text-2xl font-medium text-foreground", className)}
       {...props}
     />
   );
@@ -197,7 +197,7 @@ function LockCardToken({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="lock-card-token"
-      className={cn("text-muted-foreground text-base", className)}
+      className={cn("text-base text-muted-foreground", className)}
       {...props}
     />
   );
@@ -210,7 +210,7 @@ function LockCardDelegationLabel({
   return (
     <div
       data-slot="lock-card-delegation-label"
-      className={cn("text-muted-foreground mb-1 text-sm", className)}
+      className={cn("mb-1 text-sm text-muted-foreground", className)}
       {...props}
     />
   );
@@ -223,7 +223,7 @@ function LockCardDelegationAddress({
   return (
     <div
       data-slot="lock-card-delegation-address"
-      className={cn("text-foreground font-mono text-sm", className)}
+      className={cn("font-mono text-sm text-foreground", className)}
       {...props}
     />
   );
@@ -243,7 +243,7 @@ function LockCardRow({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="lock-card-row"
-      className={cn("grid grid-cols-2 gap-5", className)}
+      className={cn("gap-5 grid grid-cols-2", className)}
       {...props}
     />
   );
@@ -253,7 +253,7 @@ function LockCardField({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="lock-card-field"
-      className={cn("flex flex-col gap-1", className)}
+      className={cn("gap-1 flex flex-col", className)}
       {...props}
     />
   );
@@ -266,7 +266,7 @@ function LockCardFieldLabel({
   return (
     <div
       data-slot="lock-card-field-label"
-      className={cn("text-muted-foreground text-sm", className)}
+      className={cn("text-sm text-muted-foreground", className)}
       {...props}
     />
   );
@@ -279,7 +279,7 @@ function LockCardFieldValue({
   return (
     <div
       data-slot="lock-card-field-value"
-      className={cn("text-foreground font-medium", className)}
+      className={cn("font-medium text-foreground", className)}
       {...props}
     />
   );
@@ -289,7 +289,7 @@ function LockCardActions({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="lock-card-actions"
-      className={cn("mt-auto px-4 pb-2", className)}
+      className={cn("px-4 pb-2 mt-auto", className)}
       {...props}
     />
   );
@@ -302,7 +302,7 @@ function LockCardButton({
   return (
     <Button
       data-slot="lock-card-button"
-      className={cn(className, "w-full text-sm")}
+      className={cn(className, "text-sm w-full")}
       variant="abstain"
       clipped="default"
       {...props}
@@ -314,7 +314,7 @@ function LockCardNotice({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="lock-card-notice"
-      className={cn("text-muted-foreground px-4 pb-4 text-xs", className)}
+      className={cn("px-4 pb-4 text-xs text-muted-foreground", className)}
       {...props}
     />
   );

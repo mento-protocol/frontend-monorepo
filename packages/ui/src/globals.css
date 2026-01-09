@@ -44,11 +44,11 @@ body > [data-rk] {
 }
 
 .border-primary {
-  @apply !border-primary !border;
+  @apply !border !border-primary;
 }
 
 .border-input {
-  @apply !border-input !border;
+  @apply !border !border-input;
 }
 
 html,
@@ -58,7 +58,7 @@ body {
 
 @layer base {
   * {
-    @apply outline-ring/50 border-border;
+    @apply border-border outline-ring/50;
   }
 
   body {
@@ -67,11 +67,11 @@ body {
 }
 
 .toast {
-  @apply bg-card! rounded-none! border-none!;
+  @apply rounded-none! border-none! bg-card!;
   .description {
     @apply text-muted-foreground!;
     a {
-      @apply text-muted-foreground! underline! !font-normal;
+      @apply !font-normal text-muted-foreground! underline!;
     }
   }
   .icon svg {

@@ -20,7 +20,7 @@ function ThemeSwitch() {
         className={cn(
           "peer/sun relative z-10 flex h-[30px] w-[30px] flex-row items-center justify-center transition-colors",
           theme === "light"
-            ? "bg-card text-foreground peer-hover/moon:text-muted-foreground peer-hover/moon:bg-transparent"
+            ? "bg-card text-foreground peer-hover/moon:bg-transparent peer-hover/moon:text-muted-foreground"
             : "text-muted-foreground hover:text-foreground",
         )}
       >
@@ -31,7 +31,7 @@ function ThemeSwitch() {
           "peer/moon relative z-10 flex h-[30px] w-[30px] flex-row items-center justify-center transition-colors",
           theme === "light"
             ? "text-muted-foreground hover:text-foreground"
-            : "text-foreground peer-hover/sun:text-muted-foreground bg-[#6F667A] peer-hover/sun:bg-transparent",
+            : "bg-[#6F667A] text-foreground peer-hover/sun:bg-transparent peer-hover/sun:text-muted-foreground",
         )}
       >
         <Moon className="size-4 transition-all" />
@@ -43,7 +43,7 @@ function ThemeSwitch() {
 export function Header() {
   return (
     <header className="relative z-10">
-      <div className="flex h-20 flex-row items-center justify-between gap-6">
+      <div className="h-20 gap-6 flex flex-row items-center justify-between">
         <a
           href="https://www.mento.org"
           className="flex items-center"
@@ -53,7 +53,7 @@ export function Header() {
         >
           <Logo />
         </a>
-        <div className="flex flex-row items-center justify-between gap-2 px-4 md:px-6">
+        <div className="gap-2 px-4 md:px-6 flex flex-row items-center justify-between">
           <ThemeSwitch />
           <ConnectButton />
         </div>

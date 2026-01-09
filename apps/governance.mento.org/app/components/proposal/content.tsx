@@ -92,7 +92,7 @@ export const ProposalContent = () => {
     <>
       <ProposalHeader proposal={proposal} votingDeadline={votingDeadline} />
 
-      <div className="flex flex-col gap-8 xl:w-full xl:flex-row xl:gap-10">
+      <div className="gap-8 xl:w-full xl:flex-row xl:gap-10 flex flex-col">
         <div className="xl:w-2/3">
           <VoteCard
             proposal={proposal}

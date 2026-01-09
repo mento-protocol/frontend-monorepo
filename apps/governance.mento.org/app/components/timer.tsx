@@ -90,18 +90,18 @@ export const Timer = ({ until }: TimerProps) => {
   };
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="gap-2 flex items-center">
       {timeLeft.isFinished ? (
-        <div className="flex items-center gap-1">
+        <div className="gap-1 flex items-center">
           <TimerIcon size={16} />
-          <div className="flex items-center gap-2">
+          <div className="gap-2 flex items-center">
             <span>Finished</span>
             <span className="text-muted-foreground">{formatFinishDate()}</span>
           </div>
         </div>
       ) : (
         <>
-          <span className="flex items-center gap-1">
+          <span className="gap-1 flex items-center">
             <TimerIcon size={16} />
             Time left:
           </span>

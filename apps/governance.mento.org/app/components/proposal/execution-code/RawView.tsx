@@ -10,12 +10,12 @@ export function RawView({ transactions }: RawViewProps) {
 
   return (
     <div className="relative">
-      <pre className="bg-muted overflow-x-auto rounded-lg p-4">
-        <code className="whitespace-pre-wrap break-words text-sm">
+      <pre className="p-4 overflow-x-auto rounded-lg bg-muted">
+        <code className="text-sm break-words whitespace-pre-wrap">
           {jsonString}
         </code>
       </pre>
-      <div className="absolute right-2 top-2">
+      <div className="right-2 top-2 absolute">
         <CopyToClipboard
           text={jsonString}
           toastMsg="Copied execution code to clipboard"

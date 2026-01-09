@@ -106,7 +106,7 @@ export const AlignmentTooolbar = () => {
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger disabled={isDisabled} asChild>
-            <Button variant="ghost" size="sm" className="h-8 w-max font-normal">
+            <Button variant="ghost" size="sm" className="h-8 font-normal w-max">
               <span className="mr-2">
                 {alignmentOptions[findIndex(currentTextAlign())]?.icon}
               </span>
@@ -135,7 +135,7 @@ export const AlignmentTooolbar = () => {
               {option.name}
 
               {option.value === currentTextAlign() && (
-                <Check className="ml-auto h-4 w-4" />
+                <Check className="h-4 w-4 ml-auto" />
               )}
             </DropdownMenuItem>
           ))}

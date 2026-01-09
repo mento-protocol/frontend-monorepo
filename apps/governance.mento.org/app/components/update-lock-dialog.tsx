@@ -69,13 +69,13 @@ export function UpdateLockDialog({
               }}
             />
 
-            <div className="mb-2 flex justify-between text-sm">
+            <div className="mb-2 text-sm flex justify-between">
               <span className="text-muted-foreground">You receive veMENTO</span>
               <span data-testid="updateLockVeMentoReceiveLabel">
                 {formattedVeMentoReceived} veMENTO
               </span>
             </div>
-            <div className="flex gap-5">
+            <div className="gap-5 flex">
               <DialogClose asChild>
                 <Button variant="abstain" className="h-12 flex-1" clipped="lg">
                   Cancel

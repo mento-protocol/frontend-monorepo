@@ -27,7 +27,7 @@ function PaginationContent({
   return (
     <ul
       data-slot="pagination-content"
-      className={cn("flex flex-row items-center gap-3", className)}
+      className={cn("gap-3 flex flex-row items-center", className)}
       {...props}
     />
   );
@@ -58,7 +58,7 @@ function PaginationLink({
           variant: isActive ? "outline" : "ghost",
           size,
         }),
-        "flex h-12 w-12 flex-row items-center justify-center hover:bg-[var(--dark-background)]",
+        "h-12 w-12 flex flex-row items-center justify-center hover:bg-[var(--dark-background)]",
         className,
       )}
       {...props}
@@ -106,7 +106,7 @@ function PaginationEllipsis({
     <span
       aria-hidden
       data-slot="pagination-ellipsis"
-      className={cn("flex size-9 items-center justify-center", className)}
+      className={cn("size-9 flex items-center justify-center", className)}
       {...props}
     >
       <MoreHorizontalIcon className="size-4" />

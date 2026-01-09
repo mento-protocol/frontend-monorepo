@@ -53,19 +53,19 @@ export function DebugPopup() {
 
   return (
     <div
-      className="fixed bottom-4 right-4 z-[9999] flex flex-col items-end gap-2 font-sans"
+      className="bottom-4 right-4 gap-2 fixed z-[9999] flex flex-col items-end font-sans"
       data-testid="debug-popup-button"
     >
       {isOpen && (
         <div
-          className="mb-2 rounded-lg border border-gray-300 bg-white p-4 shadow-lg dark:border-gray-700 dark:bg-gray-900"
+          className="mb-2 border-gray-300 bg-white p-4 shadow-lg dark:border-gray-700 dark:bg-gray-900 rounded-lg border"
           data-testid="debug-popup-container"
         >
           <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">
             Debug Settings
           </h3>
 
-          <div className="mb-4 flex items-center justify-between gap-4">
+          <div className="mb-4 gap-4 flex items-center justify-between">
             <div className="flex flex-col">
               <label
                 htmlFor="fork-mode-toggle"
@@ -81,12 +81,12 @@ export function DebugPopup() {
               role="switch"
               aria-checked={useFork}
               onClick={handleToggleFork}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+              className={`h-6 w-11 focus:ring-blue-500 relative inline-flex items-center rounded-full transition-colors focus:ring-2 focus:ring-offset-2 focus:outline-none ${
                 useFork ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-600"
               }`}
             >
               <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                className={`h-4 w-4 bg-white inline-block transform rounded-full transition-transform ${
                   useFork ? "translate-x-6" : "translate-x-1"
                 }`}
               />
@@ -97,7 +97,7 @@ export function DebugPopup() {
 
       <button
         onClick={() => setIsOpen((previous) => !previous)}
-        className="flex h-14 w-14 items-center justify-center rounded-full bg-purple-600 shadow-xl transition-all hover:scale-105 hover:shadow-2xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 dark:bg-purple-600"
+        className="h-14 w-14 bg-purple-600 shadow-xl hover:shadow-2xl focus:ring-purple-500 dark:bg-purple-600 flex items-center justify-center rounded-full transition-all hover:scale-105 focus:ring-2 focus:ring-offset-2 focus:outline-none"
         aria-label="Toggle debug menu"
         type="button"
       >

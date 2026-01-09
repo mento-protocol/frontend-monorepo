@@ -46,13 +46,13 @@ export function Datepicker({
   }, [open, date]);
 
   return (
-    <div className="flex flex-row items-center gap-3 md:flex-col md:items-end">
+    <div className="gap-3 md:flex-col md:items-end flex flex-row items-center">
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
             variant="outline"
             id="date"
-            className="w-40 justify-between font-normal"
+            className="w-40 font-normal justify-between"
             data-testid={dataTestId}
           >
             {date ? formatter(date) : "Select date"}
@@ -60,7 +60,7 @@ export function Datepicker({
           </Button>
         </PopoverTrigger>
         <PopoverContent
-          className="w-auto overflow-hidden p-0"
+          className="p-0 w-auto overflow-hidden"
           align="start"
           side="bottom"
           avoidCollisions={false}

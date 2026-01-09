@@ -208,22 +208,22 @@ export function SwapConfirm() {
   const isSell = direction === "in";
 
   return (
-    <div className="flex h-full flex-col gap-6">
-      <div className="flex w-full flex-row items-center justify-between md:w-[520px]">
-        <div className="bg-incard md:h-50 md:w-50 flex aspect-square h-32 flex-col items-center justify-center gap-2 md:aspect-auto">
+    <div className="gap-6 flex h-full flex-col">
+      <div className="md:w-[520px] flex w-full flex-row items-center justify-between">
+        <div className="md:h-50 md:w-50 h-32 gap-2 md:aspect-auto flex aspect-square flex-col items-center justify-center bg-incard">
           <TokenIcon
             token={fromToken}
-            className="h-10 w-10 bg-transparent md:h-14 md:w-14"
+            className="h-10 w-10 md:h-14 md:w-14 bg-transparent"
             size={56}
           />
           <span
-            className="text-center text-xl font-medium md:text-3xl"
+            className="text-xl font-medium md:text-3xl text-center"
             data-testid="sellAmountLabel"
           >
             {formatWithMaxDecimals(fromAmount)}
           </span>
           <span
-            className="text-muted-foreground text-sm md:text-base"
+            className="text-sm md:text-base text-muted-foreground"
             data-testid="sellUsdAmountLabel"
           >
             ~$
@@ -232,26 +232,26 @@ export function SwapConfirm() {
               : formatWithMaxDecimals(buyUSDValue)}
           </span>
         </div>
-        <div className="text-muted-foreground md:w-30 relative hidden h-full items-center justify-center p-0 md:flex">
-          <div className="swap-deco-1 bg-incard absolute left-0 top-0 block h-10 w-10"></div>
-          <div className="swap-deco-2 bg-incard left-15 absolute top-5 block h-5 w-5"></div>
-          <div className="swap-deco-3 bg-primary absolute left-10 top-10 block h-5 w-5"></div>
-          <div className="swap-deco-4 bg-incard top-15 absolute left-5 block h-5 w-5"></div>
-          <div className="swap-deco-5 bg-incard absolute left-10 top-20 flex h-10 w-10 flex-row items-center justify-center">
+        <div className="md:w-30 p-0 md:flex relative hidden h-full items-center justify-center text-muted-foreground">
+          <div className="swap-deco-1 left-0 top-0 h-10 w-10 absolute block bg-incard"></div>
+          <div className="swap-deco-2 left-15 top-5 h-5 w-5 absolute block bg-incard"></div>
+          <div className="swap-deco-3 left-10 top-10 h-5 w-5 absolute block bg-primary"></div>
+          <div className="swap-deco-4 top-15 left-5 h-5 w-5 absolute block bg-incard"></div>
+          <div className="swap-deco-5 left-10 top-20 h-10 w-10 absolute flex flex-row items-center justify-center bg-incard">
             <ArrowRight size={24} className="shrink-0" />
           </div>
-          <div className="swap-deco-6 bg-incard top-35 absolute right-10 block h-5 w-5"></div>
-          <div className="swap-deco-7 bg-primary absolute right-0 top-40 block h-10 w-10"></div>
-          <div className="swap-deco-8 bg-incard right-15 absolute top-40 block h-5 w-5"></div>
+          <div className="swap-deco-6 top-35 right-10 h-5 w-5 absolute block bg-incard"></div>
+          <div className="swap-deco-7 right-0 top-40 h-10 w-10 absolute block bg-primary"></div>
+          <div className="swap-deco-8 right-15 top-40 h-5 w-5 absolute block bg-incard"></div>
         </div>
-        <div className="bg-incard md:h-50 md:w-50 flex aspect-square h-32 flex-col items-center justify-center gap-2 md:aspect-auto">
+        <div className="md:h-50 md:w-50 h-32 gap-2 md:aspect-auto flex aspect-square flex-col items-center justify-center bg-incard">
           <TokenIcon
             token={toToken}
-            className="size-10 bg-transparent md:size-14"
+            className="size-10 md:size-14 bg-transparent"
             size={56}
           />
           <span
-            className="text-center text-xl font-medium md:text-3xl"
+            className="text-xl font-medium md:text-3xl text-center"
             data-testid="buyAmountLabel"
           >
             {formatWithMaxDecimals(toAmount)}
@@ -268,7 +268,7 @@ export function SwapConfirm() {
         </div>
       </div>
 
-      <div className="flex w-full flex-col items-start justify-start space-y-2">
+      <div className="space-y-2 flex w-full flex-col items-start justify-start">
         <div className="flex w-full flex-row items-center justify-between">
           <span className="text-muted-foreground">Rate</span>
           <span data-testid="rateLabel">{`${rate && Number(rate) > 0 ? Number(rate).toFixed(4) : "0"} ${tokenInSymbol} ~ 1 ${tokenOutSymbol}`}</span>
@@ -282,7 +282,7 @@ export function SwapConfirm() {
             <span data-testid="gasFeesLabel">
               ~{formatWithMaxDecimals(gasEstimate.totalFeeFormatted)} CELO
               {gasEstimate.totalFeeUSD && (
-                <span className="text-muted-foreground ml-1">
+                <span className="ml-1 text-muted-foreground">
                   (${formatWithMaxDecimals(gasEstimate.totalFeeUSD)})
                 </span>
               )}

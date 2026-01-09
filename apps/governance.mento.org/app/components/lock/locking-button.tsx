@@ -533,7 +533,7 @@ export const LockingButton = ({
     const isConfirming = approve.isConfirming || relock.isConfirming;
 
     return (
-      <div className="flex min-h-4 flex-col gap-4">
+      <div className="min-h-4 gap-4 flex flex-col">
         <span data-testid="actionLabel">
           {getButtonText({
             isApprovalActive,

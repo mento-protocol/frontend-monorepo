@@ -48,7 +48,7 @@ const ProgressSegment = ({
               !filled && "bg-muted",
               mode === "vote" && "h-1 w-1",
               mode === "time" && "h-2 w-2",
-              selected && "bg-foreground h-3 w-3",
+              selected && "h-3 w-3 bg-foreground",
             ],
       )}
     />
@@ -200,8 +200,8 @@ export const ProgressBar = ({
       <div
         className={cn("space-y-4", quorumNotMet && "quorum-not-met", className)}
       >
-        <div className="flex flex-col justify-between gap-2 text-sm xl:flex-row">
-          <div className="flex items-center gap-2">
+        <div className="gap-2 text-sm xl:flex-row flex flex-col justify-between">
+          <div className="gap-2 flex items-center">
             <span
               className={cn(quorumNotMet ? "text-foreground" : "text-success")}
             >
@@ -218,7 +218,7 @@ export const ProgressBar = ({
           </div>
 
           {(data as VoteData).abstain && (
-            <div className="flex items-center gap-2">
+            <div className="gap-2 flex items-center">
               <span className="text-foreground">Abstain:</span>
               <span className="text-foreground">
                 {(data as VoteData).abstain?.value}
@@ -229,7 +229,7 @@ export const ProgressBar = ({
             </div>
           )}
 
-          <div className="flex items-center gap-2">
+          <div className="gap-2 flex items-center">
             <span
               className={cn(
                 quorumNotMet ? "text-foreground" : "text-destructive",
@@ -252,7 +252,7 @@ export const ProgressBar = ({
 
         <div
           ref={containerRef}
-          className="flex items-center gap-1.5 overflow-hidden"
+          className="gap-1.5 flex items-center overflow-hidden"
         >
           {segments.map((segment, index) => (
             <ProgressSegment
@@ -280,7 +280,7 @@ export const ProgressBar = ({
 
     return (
       <div className={cn("space-y-4", className)}>
-        <div className="flex justify-between text-sm">
+        <div className="text-sm flex justify-between">
           <span className="text-muted-foreground">
             {(data as TimeData).labels.start}
           </span>
@@ -294,7 +294,7 @@ export const ProgressBar = ({
 
         <div
           ref={containerRef}
-          className="flex items-center gap-3 overflow-hidden"
+          className="gap-3 flex items-center overflow-hidden"
         >
           {Array.from({ length: segmentCount }).map((_, index) => (
             <ProgressSegment
@@ -309,7 +309,7 @@ export const ProgressBar = ({
         </div>
 
         {(data as TimeData).valueLabel && (
-          <div className="text-center font-medium">
+          <div className="font-medium text-center">
             {(data as TimeData).valueLabel}
           </div>
         )}

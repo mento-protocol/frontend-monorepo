@@ -662,7 +662,7 @@ export default function SwapForm() {
         toast.success(
           <>
             <h4>Approve Successful</h4>
-            <span className="text-muted-foreground mt-2 block">
+            <span className="mt-2 block text-muted-foreground">
               Token allowance for swap approved
             </span>
             {explorerUrl && (
@@ -797,11 +797,11 @@ export default function SwapForm() {
     <Form {...form}>
       <form
         onSubmit={form.handleSubmit(onSubmit)}
-        className="flex h-full max-w-3xl flex-col gap-6"
+        className="max-w-3xl gap-6 flex h-full flex-col"
       >
-        <div className="flex flex-col gap-0">
+        <div className="gap-0 flex flex-col">
           <div
-            className="bg-incard border-border dark:border-input maybe-hover:border-border-secondary focus-within:!border-primary dark:focus-within:!border-primary grid grid-cols-12 gap-4 border p-4 transition-colors"
+            className="maybe-hover:border-border-secondary gap-4 p-4 grid grid-cols-12 border border-border bg-incard transition-colors focus-within:!border-primary dark:border-input dark:focus-within:!border-primary"
             onClick={() => {
               amountRef.current?.focus();
             }}
@@ -888,7 +888,7 @@ export default function SwapForm() {
                       Balance: {fromTokenBalance}{" "}
                       <button
                         type="button"
-                        className="cursor-pointer border-none bg-transparent p-0 text-inherit underline"
+                        className="p-0 cursor-pointer border-none bg-transparent text-inherit underline"
                         onClick={handleUseMaxBalance}
                       >
                         MAX
@@ -901,7 +901,7 @@ export default function SwapForm() {
             </div>
           </div>
 
-          <div className="dark:border-input border-border flex w-full items-center justify-center border-x">
+          <div className="flex w-full items-center justify-center border-x border-border dark:border-input">
             <Button
               data-testid="swapInputsButton"
               variant="outline"
@@ -920,7 +920,7 @@ export default function SwapForm() {
           </div>
 
           <div
-            className="bg-incard border-border dark:border-input maybe-hover:border-border-secondary focus-within:!border-primary dark:focus-within:!border-primary grid grid-cols-12 gap-4 border p-4 transition-colors"
+            className="maybe-hover:border-border-secondary gap-4 p-4 grid grid-cols-12 border border-border bg-incard transition-colors focus-within:!border-primary dark:border-input dark:focus-within:!border-primary"
             onClick={() => {
               quoteRef.current?.focus();
             }}
@@ -1031,9 +1031,9 @@ export default function SwapForm() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-2">
+        <div className="gap-2 flex flex-col">
           {rate && (
-            <div className="flex w-full flex-col items-start justify-start space-y-2">
+            <div className="space-y-2 flex w-full flex-col items-start justify-start">
               <div className="flex w-full flex-row items-center justify-between">
                 <span className="text-muted-foreground">Rate</span>
                 <span data-testid="rateLabel">{`${rate && Number(rate) > 0 ? Number(rate).toFixed(4) : "0"} ${tokenInSymbol} ~ 1 ${tokenOutSymbol}`}</span>

@@ -46,7 +46,7 @@ export const MentoTokenInfo = () => {
       <AccordionItem value="item-1" className="border-none">
         <AccordionTrigger>General</AccordionTrigger>
         <AccordionContent>
-          <div className="flex flex-col gap-4 text-sm">
+          <div className="gap-4 text-sm flex flex-col">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Label</span>
               <span>{networkLabel}</span>
@@ -62,7 +62,7 @@ export const MentoTokenInfo = () => {
       <AccordionItem value="item-2" className="border-none">
         <AccordionTrigger>Parameters</AccordionTrigger>
         <AccordionContent>
-          <div className="flex flex-col gap-4 text-sm">
+          <div className="gap-4 text-sm flex flex-col">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Proposal threshold</span>
               <span>
@@ -104,7 +104,7 @@ export const MentoTokenInfo = () => {
           Contract Addresses
         </AccordionTrigger>
         <AccordionContent>
-          <div className="flex flex-col gap-4 text-sm">
+          <div className="gap-4 text-sm flex flex-col">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Governor</span>
               <ContractAddressDisplay
@@ -164,19 +164,19 @@ const ContractAddressDisplay = ({
   const addressUrl = explorerUrl ? `${explorerUrl}/address/${address}` : null;
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="gap-2 flex items-center">
       {addressUrl ? (
         <a
           href={addressUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-muted-foreground text-sm hover:underline"
+          className="text-sm text-muted-foreground hover:underline"
           data-testid={dataTestId}
         >
           {formatAddress(address)}
         </a>
       ) : (
-        <span className="text-muted-foreground text-sm">
+        <span className="text-sm text-muted-foreground">
           {formatAddress(address)}
         </span>
       )}

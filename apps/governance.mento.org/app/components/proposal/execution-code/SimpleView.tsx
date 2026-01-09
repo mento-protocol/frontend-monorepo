@@ -26,7 +26,7 @@ export function SimpleView({
   return (
     <ul className="space-y-3">
       {summaries.map((summary, index) => (
-        <li key={index} className="flex items-start gap-2">
+        <li key={index} className="gap-2 flex items-start">
           <span className="text-muted-foreground">•</span>
           <FormattedTransactionText
             text={summary.description}
