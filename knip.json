@@ -11,19 +11,13 @@
       "project": "app/**/*.{mjs,tsx,ts}"
     },
     "apps/app.mento.org": {
-      "ignoreDependencies": ["tailwindcss", "pino-pretty"]
+      "ignoreDependencies": ["pino-pretty"]
     },
     "apps/governance.mento.org": {
       "entry": ["app/middleware.ts"],
-      "ignoreDependencies": [
-        "tailwindcss",
-        "@tailwindcss/typography",
-        "pino-pretty"
-      ]
+      "ignoreDependencies": ["pino-pretty"]
     },
-    "apps/reserve.mento.org": {
-      "ignoreDependencies": ["tailwindcss"]
-    },
+    "apps/reserve.mento.org": {},
     "packages/*": {
       "project": "**/*.{ts,tsx}"
     },

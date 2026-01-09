@@ -24,13 +24,13 @@ import {
 
 export default function InteractiveComponentsPage() {
   return (
-    <div className="flex w-full flex-col gap-8 p-6">
+    <div className="gap-8 p-6 flex w-full flex-col">
       <div className="space-y-2">
-        <h1 className="text-3xl font-bold">Interactive Components</h1>
+        <h1 className="font-bold text-3xl">Interactive Components</h1>
         <p className="text-muted-foreground">Dialogs, popovers, and tooltips</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+      <div className="gap-6 md:grid-cols-2 lg:grid-cols-3 grid grid-cols-1">
         {/* Dialog */}
         <Card>
           <CardHeader>
@@ -69,7 +69,7 @@ export default function InteractiveComponentsPage() {
               <PopoverContent>
                 <div className="space-y-2">
                   <h4 className="font-medium">Popover Content</h4>
-                  <p className="text-muted-foreground text-sm">
+                  <p className="text-sm text-muted-foreground">
                     This is popover content with some information.
                   </p>
                 </div>

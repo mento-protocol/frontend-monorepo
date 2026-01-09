@@ -51,13 +51,13 @@ const tokenSymbols = [
 
 export default function BasicComponentsPage() {
   return (
-    <div className="flex w-full flex-col gap-8 p-6">
+    <div className="gap-8 p-6 flex w-full flex-col">
       <div className="space-y-2">
-        <h1 className="text-3xl font-bold">Basic Components</h1>
+        <h1 className="font-bold text-3xl">Basic Components</h1>
         <p className="text-muted-foreground">Fundamental UI building blocks</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+      <div className="gap-6 md:grid-cols-2 lg:grid-cols-3 grid grid-cols-1">
         {/* Buttons */}
         <Card>
           <CardHeader>
@@ -65,7 +65,7 @@ export default function BasicComponentsPage() {
             <CardDescription>Various button styles and states</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex flex-wrap gap-2">
+            <div className="gap-2 flex flex-wrap">
               <Button clipped="default">Default</Button>
               <Button variant="secondary" clipped="default">
                 Secondary
@@ -74,7 +74,7 @@ export default function BasicComponentsPage() {
                 Outline
               </Button>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="gap-2 flex flex-wrap">
               <Button variant="ghost" clipped="default">
                 Ghost
               </Button>
@@ -85,7 +85,7 @@ export default function BasicComponentsPage() {
                 Destructive
               </Button>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="gap-2 flex flex-wrap">
               <Button size="sm" clipped="sm">
                 Small
               </Button>
@@ -107,7 +107,7 @@ export default function BasicComponentsPage() {
               Switch between light and dark modes
             </CardDescription>
           </CardHeader>
-          <CardContent className="flex items-center justify-center py-6">
+          <CardContent className="py-6 flex items-center justify-center">
             <ModeToggle />
           </CardContent>
         </Card>
@@ -119,7 +119,7 @@ export default function BasicComponentsPage() {
             <CardDescription>Status indicators and labels</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex flex-wrap gap-2">
+            <div className="gap-2 flex flex-wrap">
               <Badge>Default</Badge>
               <Badge variant="secondary">Secondary</Badge>
               <Badge variant="outline">Outline</Badge>
@@ -133,11 +133,11 @@ export default function BasicComponentsPage() {
           <CardHeader>
             <CardTitle>Icons</CardTitle>
           </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <span className="text-muted-foreground text-sm">
+          <CardContent className="gap-4 flex flex-col">
+            <span className="text-sm text-muted-foreground">
               Custom UI icons
             </span>
-            <div className="flex items-center gap-4">
+            <div className="gap-4 flex items-center">
               <IconCheck className="h-6 w-6" />
               <IconDiscord className="h-6 w-6" />
               <IconGithub className="h-6 w-6" />
@@ -146,8 +146,8 @@ export default function BasicComponentsPage() {
               <IconMento width={24} height={24} />
               <IconX className="h-6 w-6" />
             </div>
-            <span className="text-muted-foreground text-sm">Token icons</span>
-            <div className="flex flex-wrap items-center gap-4">
+            <span className="text-sm text-muted-foreground">Token icons</span>
+            <div className="gap-4 flex flex-wrap items-center">
               {tokenSymbols.map((token) => (
                 <Tooltip key={token}>
                   <TooltipTrigger>

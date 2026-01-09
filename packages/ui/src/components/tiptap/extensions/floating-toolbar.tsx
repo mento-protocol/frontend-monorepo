@@ -1,6 +1,7 @@
 "use client";
 
-import { BubbleMenu, type Editor } from "@tiptap/react";
+import { BubbleMenu } from "@tiptap/react/menus";
+import type { Editor } from "@tiptap/react";
 import { BoldToolbar } from "@/components/tiptap/toolbars/bold.js";
 import { ItalicToolbar } from "@/components/tiptap/toolbars/italic.js";
 import { UnderlineToolbar } from "@/components/tiptap/toolbars/underline.js";
@@ -29,9 +30,20 @@ export function FloatingToolbar({ editor }: { editor: Editor | null }) {
     };
 
     const el = editor.options.element;
-    el.addEventListener("contextmenu", handleContextMenu);
+    // In tiptap 3.x, element can be Element | { mount: HTMLElement } | function
+    const domElement =
+      el instanceof Element
+        ? el
+        : typeof el === "object" && "mount" in el
+          ? el.mount
+          : null;
 
-    return () => el.removeEventListener("contextmenu", handleContextMenu);
+    if (!domElement) return;
+
+    domElement.addEventListener("contextmenu", handleContextMenu);
+
+    return () =>
+      domElement.removeEventListener("contextmenu", handleContextMenu);
   }, [editor, isMobile]);
 
   if (!editor) return null;
@@ -40,22 +52,21 @@ export function FloatingToolbar({ editor }: { editor: Editor | null }) {
     return (
       <TooltipProvider>
         <BubbleMenu
-          tippyOptions={{
-            duration: 100,
+          options={{
             placement: "bottom",
-            offset: [0, 10],
+            offset: 10,
           }}
           shouldShow={() => {
             // Show toolbar when editor is focused and has selection
             return editor.isEditable && editor.isFocused;
           }}
           editor={editor}
-          className="bg-background mx-0 w-full min-w-full rounded-sm border shadow-sm"
+          className="mx-0 shadow-sm w-full min-w-full rounded-sm border bg-background"
         >
           <ToolbarProvider editor={editor}>
-            <ScrollArea className="h-fit w-full py-0.5">
-              <div className="flex items-center gap-0.5 px-2">
-                <div className="flex items-center gap-0.5 p-1">
+            <ScrollArea className="py-0.5 h-fit w-full">
+              <div className="gap-0.5 px-2 flex items-center">
+                <div className="gap-0.5 p-1 flex items-center">
                   {/* Primary formatting */}
                   <BoldToolbar />
                   <ItalicToolbar />

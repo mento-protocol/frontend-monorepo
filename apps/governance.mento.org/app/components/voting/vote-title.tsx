@@ -24,12 +24,12 @@ export const VoteTitle = () => {
   return (
     <div className="mb-8 md:mb-16">
       <h1
-        className="mb-1 text-3xl font-medium md:mb-3 md:text-6xl"
+        className="mb-1 font-medium md:mb-3 md:text-6xl text-3xl"
         data-testid="yourVotingPowerTitleLabel"
       >
         Your voting power
       </h1>
-      <span className="text-muted-foreground text-xl font-medium md:text-3xl">
+      <span className="text-xl font-medium md:text-3xl text-muted-foreground">
         {totalVotingPower.toLocaleString(undefined, {
           maximumFractionDigits: 3,
         })}{" "}

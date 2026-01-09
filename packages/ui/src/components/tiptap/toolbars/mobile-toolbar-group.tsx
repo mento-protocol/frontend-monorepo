@@ -33,7 +33,7 @@ export const MobileToolbarGroup = ({
         <Button
           variant="ghost"
           size="sm"
-          className={cn("h-8 w-max gap-1 px-3 font-normal", className)}
+          className={cn("h-8 gap-1 px-3 font-normal w-max", className)}
         >
           {label}
           <ChevronDown className="h-4 w-4" />
@@ -43,7 +43,7 @@ export const MobileToolbarGroup = ({
         <DrawerHeader>
           <DrawerTitle className="text-start">{label}</DrawerTitle>
         </DrawerHeader>
-        <div className="flex flex-col p-4">
+        <div className="p-4 flex flex-col">
           {React.Children.map(children, (child) =>
             React.isValidElement(child)
               ? React.cloneElement(child, { closeDrawer } as {
@@ -69,7 +69,7 @@ export const MobileToolbarItem = ({
 }) => (
   <button
     className={cn(
-      "hover:bg-accent flex w-full items-center rounded-md px-4 py-2 text-sm transition-colors",
+      "px-4 py-2 text-sm flex w-full items-center rounded-md transition-colors hover:bg-accent",
       active && "bg-accent",
     )}
     onClick={(e) => {

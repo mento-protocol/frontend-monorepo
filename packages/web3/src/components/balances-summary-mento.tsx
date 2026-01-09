@@ -20,27 +20,27 @@ export function BalancesSummaryMento() {
       <div
         title="Click to add MENTO to your wallet"
         onClick={addMento}
-        className="flex w-full cursor-pointer flex-row justify-between px-2 py-3"
+        className="px-2 py-3 flex w-full cursor-pointer flex-row justify-between"
       >
-        <div className="flex flex-row items-center font-medium">
+        <div className="font-medium flex flex-row items-center">
           <IconMento className="mr-2" height={24} width={24} />
           <span>{mentoBalance.symbol}</span>
         </div>
-        <div className="flex flex-row items-center justify-center font-medium">
+        <div className="font-medium flex flex-row items-center justify-center">
           {NumbersService.parseNumericValue(mentoBalance.formatted, 1)}
         </div>
       </div>
-      <hr className="border-border mx-auto w-[calc(100%_-_32px)]" />
+      <hr className="mx-auto w-[calc(100%_-_32px)] border-border" />
       <div
         title="Click to add veMENTO to your wallet"
         onClick={addVeMento}
-        className="flex w-full cursor-pointer flex-row justify-between px-2 py-3"
+        className="px-2 py-3 flex w-full cursor-pointer flex-row justify-between"
       >
-        <div className="flex flex-row items-center font-medium">
+        <div className="font-medium flex flex-row items-center">
           <IconMento className="mr-2" height={24} width={24} />
           <span>{veMentoBalance.symbol}</span>
         </div>
-        <div className="flex flex-row items-center justify-center font-medium">
+        <div className="font-medium flex flex-row items-center justify-center">
           {totalVotingPower}
         </div>
       </div>

@@ -31,13 +31,13 @@ export function AddressGroup({
   return (
     <div
       key={`${group.network}-${group.category}-${index}`}
-      className="flex-1 bg-[#15111b] p-4 md:p-8"
+      className="p-4 md:p-8 flex-1 bg-[#15111b]"
     >
-      <h3 className="mb-6 text-xl font-medium leading-tight text-[#f7f6fa] md:mb-8 md:text-2xl">
+      <h3 className="mb-6 text-xl font-medium leading-tight md:mb-8 md:text-2xl text-[#f7f6fa]">
         {titleOverride || `${group.category} on`}{" "}
         {group.network === "celo" ? "Celo" : "Ethereum"}
       </h3>
-      <div className="flex flex-col gap-6">
+      <div className="gap-6 flex flex-col">
         {group.addresses.map((address, addressIndex) => (
           <AddressItem
             key={`${address.address}-${addressIndex}`}

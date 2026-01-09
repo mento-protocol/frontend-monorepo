@@ -194,7 +194,7 @@ const ProposalDetailsStep = () => {
       >
         Proposal Details
       </h2>
-      <p className="text-muted-foreground text-sm">
+      <p className="text-sm text-muted-foreground">
         Provide crucial information about your proposal. This will be public
         once your proposal goes live.{" "}
       </p>
@@ -204,7 +204,7 @@ const ProposalDetailsStep = () => {
           <TabsTrigger value="preview">Preview</TabsTrigger>
         </TabsList>
         <TabsContent value="write" className="pt-8">
-          <div className="mb-6 flex flex-col gap-1">
+          <div className="mb-6 gap-1 flex flex-col">
             <Label>Title</Label>
             <Input
               placeholder="Start typing..."
@@ -216,7 +216,7 @@ const ProposalDetailsStep = () => {
             />
             <p
               className={cn(
-                "text-destructive mt-1 text-sm opacity-0 transition-opacity",
+                "mt-1 text-sm text-destructive opacity-0 transition-opacity",
                 !isTitleUnique ? "opacity-100" : "opacity-0",
               )}
               data-testid="titleError"
@@ -225,7 +225,7 @@ const ProposalDetailsStep = () => {
             </p>
           </div>
           <div
-            className="mb-8 flex flex-col gap-1"
+            className="mb-8 gap-1 flex flex-col"
             data-testid="proposalDescriptionInput"
           >
             <Label>Description</Label>
@@ -235,7 +235,7 @@ const ProposalDetailsStep = () => {
             />
 
             <p
-              className={`text-muted-foreground mt-1 text-sm transition-opacity ${rawProposalDescription.length < 100 ? "opacity-100" : "opacity-0"}`}
+              className={`mt-1 text-sm text-muted-foreground transition-opacity ${rawProposalDescription.length < 100 ? "opacity-100" : "opacity-0"}`}
             >
               The description must be at least 100 characters long. Write{" "}
               {100 - rawProposalDescription.length} more characters.
@@ -244,7 +244,7 @@ const ProposalDetailsStep = () => {
         </TabsContent>
         <TabsContent value="preview" className="pt-8">
           <h2
-            className="mb-2 max-w-2xl overflow-hidden text-ellipsis text-2xl font-medium md:mb-4 md:text-5xl"
+            className="mb-2 max-w-2xl text-2xl font-medium md:mb-4 md:text-5xl overflow-hidden text-ellipsis"
             data-testid="previewLabel"
             title={newProposal.title}
           >
@@ -256,9 +256,9 @@ const ProposalDetailsStep = () => {
         </TabsContent>
       </Tabs>
 
-      <div className="flex w-full items-center gap-4 md:justify-end">
+      <div className="gap-4 md:justify-end flex w-full items-center">
         <Button
-          className="h-10 w-full min-w-[188px] md:ml-auto md:w-fit"
+          className="h-10 md:ml-auto md:w-fit w-full min-w-[188px]"
           clipped="sm"
           onClick={handleNextClick}
           disabled={
@@ -357,12 +357,12 @@ const ExecutionCodeStep = () => {
   const tooltipContent = (
     <div className="max-w-xs">
       <p className="mb-1 font-medium">Execution Code Requirements:</p>
-      <ul className="list-disc space-y-1 pl-4">
+      <ul className="space-y-1 pl-4 list-disc">
         <li>Must be a valid JSON array</li>
         <li>Must contain at least one transaction object</li>
         <li>
           Each transaction must have:
-          <ul className="mt-1 list-disc pl-4">
+          <ul className="mt-1 pl-4 list-disc">
             <li>address: Contract address (0x...)</li>
             <li>value: Number or BigInt</li>
             <li>data: Hex string (0x...)</li>
@@ -374,7 +374,7 @@ const ExecutionCodeStep = () => {
 
   return (
     <div>
-      <div className="mb-2 flex items-center gap-2 md:mb-4">
+      <div className="mb-2 gap-2 md:mb-4 flex items-center">
         <h2
           className="text-lg font-medium md:text-3xl"
           data-testid="executionCodeStageLabel"
@@ -383,31 +383,31 @@ const ExecutionCodeStep = () => {
         </h2>
         <Tooltip>
           <TooltipTrigger asChild>
-            <HelpCircle className="text-muted-foreground h-5 w-5 cursor-help" />
+            <HelpCircle className="h-5 w-5 cursor-help text-muted-foreground" />
           </TooltipTrigger>
           <TooltipContent side="right" className="w-80">
             {tooltipContent}
           </TooltipContent>
         </Tooltip>
       </div>
-      <p className="text-muted-foreground mb-8 text-sm">
+      <p className="mb-8 text-sm text-muted-foreground">
         Paste your proposal&apos;s execution code in JSON format into the field
         below. If your proposal does not need execution code, simply leave it as
         is.
       </p>
-      <div className="mb-4 flex flex-col gap-1">
+      <div className="mb-4 gap-1 flex flex-col">
         <Label>Execution Code</Label>
         <Textarea
-          className="max-h-[66vh] min-h-44"
+          className="min-h-44 max-h-[66vh]"
           placeholder="Start typing..."
           value={newProposal.code}
           onChange={handleCodeChange}
           data-testid="executionCodeInput"
         />
       </div>
-      <div className="flex flex-col items-center gap-4 md:flex-row-reverse md:justify-between">
+      <div className="gap-4 md:flex-row-reverse md:justify-between flex flex-col items-center">
         <Button
-          className="h-10 w-full md:w-48"
+          className="h-10 md:w-48 w-full"
           clipped="default"
           onClick={() => {
             setStep(CreateProposalStep.preview);
@@ -422,7 +422,7 @@ const ExecutionCodeStep = () => {
           {!validationError && <ArrowRight />}
         </Button>
         <Button
-          className="h-10 w-full md:w-48"
+          className="h-10 md:w-48 w-full"
           clipped="default"
           variant="abstain"
           onClick={() => {
@@ -471,7 +471,7 @@ const CollapsibleHtmlContent = ({ htmlContent }: { htmlContent: string }) => {
   return (
     <div
       className={cn(
-        "prose prose-invert relative min-h-20 w-full",
+        "prose prose-invert min-h-20 relative w-full",
         open
           ? "max-h-none overflow-visible"
           : "max-h-[300px] overflow-x-hidden overflow-y-visible",
@@ -499,7 +499,7 @@ const CollapsibleHtmlContent = ({ htmlContent }: { htmlContent: string }) => {
         </div>
       )}
       {showButton && !open && (
-        <div className="to-card absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-b from-transparent pb-8 pt-16">
+        <div className="inset-x-0 bottom-0 pb-8 pt-16 absolute flex justify-center bg-gradient-to-b from-transparent to-card">
           <Button
             onClick={() => setOpen(true)}
             variant="text"
@@ -554,13 +554,13 @@ const CollapsibleJsonCode = ({ jsonString }: { jsonString: string }) => {
   return (
     <div
       className={cn(
-        "relative min-h-20",
+        "min-h-20 relative",
         open ? "max-h-none overflow-visible" : "max-h-[400px] overflow-hidden",
       )}
     >
       <pre
         ref={contentRef}
-        className="border-border text-muted-foreground overflow-x-auto rounded-lg border p-4 text-sm"
+        className="p-4 text-sm overflow-x-auto rounded-lg border border-border text-muted-foreground"
       >
         <code data-testid="executionCodeContent">{formatJson(jsonString)}</code>
       </pre>
@@ -576,7 +576,7 @@ const CollapsibleJsonCode = ({ jsonString }: { jsonString: string }) => {
         </div>
       )}
       {showButton && !open && (
-        <div className="to-card absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-b from-transparent pb-8 pt-16">
+        <div className="inset-x-0 bottom-0 pb-8 pt-16 absolute flex justify-center bg-gradient-to-b from-transparent to-card">
           <Button
             onClick={() => setOpen(true)}
             variant="text"
@@ -608,26 +608,26 @@ const ReviewStep = () => {
   return (
     <div>
       <h2
-        className="mb-2 max-w-2xl overflow-hidden text-ellipsis text-lg font-medium md:mb-4 md:text-3xl"
+        className="mb-2 max-w-2xl text-lg font-medium md:mb-4 md:text-3xl overflow-hidden text-ellipsis"
         data-testid="reviewStageLabel"
         title={newProposal.title}
       >
         {newProposal.title}
       </h2>
-      <p className="text-muted-foreground mb-8 text-sm">
+      <p className="mb-8 text-sm text-muted-foreground">
         You&apos;re successfully finished all the steps. Now, take a moment to
         go over your proposal and then submit it.
       </p>
-      <hr className="border-border mb-8" />
+      <hr className="mb-8 border-border" />
       <CollapsibleHtmlContent htmlContent={htmlContent} />
-      <hr className="border-border my-8" />
+      <hr className="my-8 border-border" />
       <h2 className="mb-2 text-lg font-medium md:mb-4 md:text-3xl">
         Execution Code
       </h2>
       <CollapsibleJsonCode jsonString={newProposal.code} />
-      <div className="mt-4 flex flex-col items-center gap-4 md:flex-row-reverse md:justify-between">
+      <div className="mt-4 gap-4 md:flex-row-reverse md:justify-between flex flex-col items-center">
         <Button
-          className="h-10 w-full md:w-auto"
+          className="h-10 md:w-auto w-full"
           clipped="default"
           onClick={() => {
             submitProposal();
@@ -638,7 +638,7 @@ const ReviewStep = () => {
           Create Proposal <ArrowRight />
         </Button>
         <Button
-          className="h-10 w-full md:w-auto"
+          className="h-10 md:w-auto w-full"
           clipped="default"
           variant="abstain"
           onClick={() => {
@@ -688,7 +688,7 @@ function CreateProposalSteps() {
         <h2 className="mb-4 text-lg font-medium md:text-3xl">
           Not enough veMENTO
         </h2>
-        <p className="text-muted-foreground mb-8 text-sm">
+        <p className="mb-8 text-sm text-muted-foreground">
           You have{" "}
           <span className="text-foreground">
             {formatUnitsWithThousandSeparators(
@@ -728,7 +728,7 @@ function CreateProposalSteps() {
     return (
       <>
         <h2 className="mb-4 text-lg font-medium md:text-3xl">Connect Wallet</h2>
-        <p className="text-muted-foreground mb-8 text-sm">
+        <p className="mb-8 text-sm text-muted-foreground">
           Connect your wallet to create new proposal.
         </p>
         <ConnectButton fullWidth size="lg" />
@@ -806,11 +806,11 @@ function ProposalBreadcrumb() {
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
-      <div className="text-muted-foreground flex items-center gap-4 text-sm">
-        <div className="flex items-center gap-2">
+      <div className="gap-4 text-sm flex items-center text-muted-foreground">
+        <div className="gap-2 flex items-center">
           <span
             className={cn(
-              "bg-muted-foreground/50 block h-1 w-1",
+              "h-1 w-1 block bg-muted-foreground/50",
               isConnected &&
                 step === CreateProposalStep.content &&
                 "bg-primary",
@@ -818,18 +818,18 @@ function ProposalBreadcrumb() {
           />
           <span
             className={cn(
-              "bg-muted-foreground/50 block h-1 w-1",
+              "h-1 w-1 block bg-muted-foreground/50",
               step === CreateProposalStep.execution && "bg-primary",
             )}
           />
           <span
             className={cn(
-              "bg-muted-foreground/50 block h-1 w-1",
+              "h-1 w-1 block bg-muted-foreground/50",
               step === CreateProposalStep.preview && "bg-primary",
             )}
           />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="gap-2 flex items-center">
           <span>Step</span>
           <span
             className={cn(
@@ -848,8 +848,8 @@ function ProposalBreadcrumb() {
 export default function CreateProposalForm() {
   return (
     <CreateProposalProvider>
-      <Card className="border-border pt-0">
-        <CardHeader className="bg-card-header flex h-16 items-center">
+      <Card className="pt-0 border-border">
+        <CardHeader className="h-16 flex items-center bg-card-header">
           <ProposalBreadcrumb />
         </CardHeader>
         <CardContent>

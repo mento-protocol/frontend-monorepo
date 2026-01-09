@@ -34,7 +34,7 @@ export const ProposalDescription = ({
   }, [description]);
 
   return (
-    <Card className="border-border mt-4">
+    <Card className="mt-4 border-border">
       <CardHeader>
         <CardTitle className="text-2xl">Proposal Description</CardTitle>
       </CardHeader>

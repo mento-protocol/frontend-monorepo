@@ -171,11 +171,11 @@ export const LockList = () => {
       {(loading || amountsLoading) && (
         <>
           <Skeleton className="mb-5 h-10 w-60 rounded-md" />
-          <div className="flex w-full flex-wrap gap-4">
+          <div className="gap-4 flex w-full flex-wrap">
             {Array.from({ length: 3 }).map((_, i) => (
               <Skeleton
                 key={i}
-                className="h-64 w-full rounded-md md:max-w-[330px]"
+                className="h-64 md:max-w-[330px] w-full rounded-md"
               />
             ))}
           </div>
@@ -184,7 +184,7 @@ export const LockList = () => {
       {!loading && activeLocks.length > 0 && (
         <>
           <h2 className="mb-8 text-2xl font-medium">Your Current Locks</h2>
-          <div className="flex flex-wrap gap-4">
+          <div className="gap-4 flex flex-wrap">
             {activeLocks.map((lock, index) => {
               const badgeType = getBadgeType(lock);
               const delegationInfo = getDelegationInfo(lock, badgeType);
@@ -261,12 +261,12 @@ export const LockList = () => {
                       )}
                       <LockCardField>
                         <LockCardFieldLabel>Expires</LockCardFieldLabel>
-                        <LockCardFieldValue className="flex items-center gap-1">
+                        <LockCardFieldValue className="gap-1 flex items-center">
                           {formatDate(lock.expiration)}
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <Info className="text-muted-foreground ml-1 size-4" />
+                                <Info className="ml-1 size-4 text-muted-foreground" />
                               </TooltipTrigger>
                               <TooltipContent>
                                 <div className="space-y-1">
@@ -308,13 +308,13 @@ export const LockList = () => {
                             {delegationInfo.label}
                           </LockCardDelegationLabel>
                           <LockCardDelegationAddress>
-                            <div className="flex items-center gap-2">
+                            <div className="gap-2 flex items-center">
                               <Identicon
                                 address={delegationInfo.address}
                                 size={16}
                               />
                               <a
-                                className="text-muted-foreground text-sm"
+                                className="text-sm text-muted-foreground"
                                 href={`${explorerUrl}/address/${delegationInfo.address}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
@@ -366,7 +366,7 @@ export const LockList = () => {
       {pastLocks.length > 0 && (
         <>
           <h2 className="my-8 mt-12 text-2xl font-medium">Your Past Locks</h2>
-          <div className="flex flex-wrap gap-4">
+          <div className="gap-4 flex flex-wrap">
             {pastLocks.map((lock) => {
               const badgeType = getBadgeType(lock);
               const delegationInfo = getDelegationInfo(lock, badgeType);
@@ -409,13 +409,13 @@ export const LockList = () => {
                             {delegationInfo.label}
                           </LockCardDelegationLabel>
                           <LockCardDelegationAddress>
-                            <div className="flex items-center gap-2">
+                            <div className="gap-2 flex items-center">
                               <Identicon
                                 address={delegationInfo.address}
                                 size={16}
                               />
                               <a
-                                className="text-muted-foreground text-sm"
+                                className="text-sm text-muted-foreground"
                                 href={`${explorerUrl}/address/${delegationInfo.address}`}
                                 target="_blank"
                                 rel="noopener noreferrer"

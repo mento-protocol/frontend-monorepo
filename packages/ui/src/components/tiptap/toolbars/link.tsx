@@ -54,7 +54,7 @@ const LinkToolbar = React.forwardRef<HTMLButtonElement, ButtonProps>(
                 variant="ghost"
                 size="sm"
                 className={cn(
-                  "h-8 w-max px-3 font-normal",
+                  "h-8 px-3 font-normal w-max",
                   editor?.isActive("link") && "bg-accent",
                   className,
                 )}
@@ -80,7 +80,7 @@ const LinkToolbar = React.forwardRef<HTMLButtonElement, ButtonProps>(
         >
           <div className="relative" onClick={(e) => e.stopPropagation()}>
             <PopoverClose
-              className="absolute right-3 top-3"
+              className="right-3 top-3 absolute"
               onClick={() => setOpen(false)}
             >
               <X className="h-4 w-4" />
@@ -90,7 +90,7 @@ const LinkToolbar = React.forwardRef<HTMLButtonElement, ButtonProps>(
               <p className="text-gray-11 text-sm">
                 Attach a link to the selected text
               </p>
-              <div className="mt-3 flex flex-col items-end justify-end gap-3">
+              <div className="mt-3 gap-3 flex flex-col items-end justify-end">
                 <Input
                   value={link}
                   onChange={(e) => {
@@ -106,7 +106,7 @@ const LinkToolbar = React.forwardRef<HTMLButtonElement, ButtonProps>(
                   placeholder="https://example.com"
                   autoFocus
                 />
-                <div className="flex items-center gap-3">
+                <div className="gap-3 flex items-center">
                   {editor?.getAttributes("link").href && (
                     <Button
                       type="reset"

@@ -220,12 +220,12 @@ export function CustomAppSidebar() {
   return (
     <Sidebar>
       <SidebarHeader>
-        <SidebarGroupLabel className="flex h-16 items-center gap-2">
+        <SidebarGroupLabel className="h-16 gap-2 flex items-center">
           <Logo className="!h-12 !w-12" />
-          <span className="text-foreground text-lg">UI Components</span>
+          <span className="text-lg text-foreground">UI Components</span>
         </SidebarGroupLabel>
-        <div className="relative px-2">
-          <Search className="text-muted-foreground absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2" />
+        <div className="px-2 relative">
+          <Search className="left-4 h-4 w-4 absolute top-1/2 -translate-y-1/2 text-muted-foreground" />
           <SidebarInput
             placeholder="Search components..."
             value={searchQuery}
@@ -253,7 +253,7 @@ export function CustomAppSidebar() {
               {!isClient ? (
                 // Show loading state on server-side to prevent layout shift
                 <SidebarMenuItem>
-                  <div className="text-muted-foreground px-2 py-4 text-center text-sm">
+                  <div className="px-2 py-4 text-sm text-center text-muted-foreground">
                     Loading...
                   </div>
                 </SidebarMenuItem>
@@ -281,7 +281,7 @@ export function CustomAppSidebar() {
                           <span>{category.title}</span>
                         </SidebarMenuButton>
                         <CollapsibleTrigger asChild>
-                          <button className="hover:bg-accent flex h-8 w-8 items-center justify-center rounded-md">
+                          <button className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-accent">
                             <ChevronDown className="h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
                           </button>
                         </CollapsibleTrigger>
@@ -309,7 +309,7 @@ export function CustomAppSidebar() {
 
               {isClient && filteredCategories.length === 0 && searchQuery && (
                 <SidebarMenuItem>
-                  <div className="text-muted-foreground px-2 py-4 text-center text-sm">
+                  <div className="px-2 py-4 text-sm text-center text-muted-foreground">
                     No components found matching &quot;{searchQuery}&quot;
                   </div>
                 </SidebarMenuItem>
@@ -319,7 +319,7 @@ export function CustomAppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="flex p-4">
+      <SidebarFooter className="p-4 flex">
         <ModeToggle />
       </SidebarFooter>
     </Sidebar>

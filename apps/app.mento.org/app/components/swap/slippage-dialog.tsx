@@ -28,7 +28,7 @@ export function SlippageDialog() {
           className="h-8 p-2 text-base"
         >
           <SlidersHorizontal
-            className="text-muted-foreground h-5 w-5"
+            className="h-5 w-5 text-muted-foreground"
             size={20}
           />
           {formValues?.slippage}%

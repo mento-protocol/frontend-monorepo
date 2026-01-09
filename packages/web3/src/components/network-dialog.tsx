@@ -58,37 +58,37 @@ export function NetworkDialog({ isOpen, close }: Props) {
         </DialogHeader>
 
         <div className="inline-flex w-full items-end justify-between">
-          <div className="font-inter inline-flex w-full flex-col items-center justify-start gap-4 rounded-xl py-3 sm:py-4">
-            <div className="inline-flex w-full items-end justify-between px-3 sm:px-4">
-              <div className="text-muted-foreground text-[14px] font-normal leading-tight sm:text-[15px]">
+          <div className="font-inter gap-4 py-3 sm:py-4 inline-flex w-full flex-col items-center justify-start rounded-xl">
+            <div className="px-3 sm:px-4 inline-flex w-full items-end justify-between">
+              <div className="font-normal leading-tight sm:text-[15px] text-[14px] text-muted-foreground">
                 Connected to:
               </div>
               <div
-                className="text-foreground text-right text-[15px] font-medium leading-tight opacity-90"
+                className="font-medium leading-tight text-right text-[15px] text-foreground opacity-90"
                 data-testid={`${baseLocator}_currentNetwork`}
               >
                 {currentChain?.name || "Unknown"}
               </div>
             </div>
-            <div className="border-border h-[0px] w-full border-t" />
-            <div className="inline-flex w-full items-end justify-between px-3 sm:px-4">
-              <div className="text-muted-foreground text-[14px] font-normal leading-tight sm:text-[15px]">
+            <div className="h-[0px] w-full border-t border-border" />
+            <div className="px-3 sm:px-4 inline-flex w-full items-end justify-between">
+              <div className="font-normal leading-tight sm:text-[15px] text-[14px] text-muted-foreground">
                 Block Number:
               </div>
               <div
-                className="text-foreground text-right text-[14px] font-medium leading-tight opacity-90 sm:text-[15px]"
+                className="font-medium leading-tight sm:text-[15px] text-right text-[14px] text-foreground opacity-90"
                 data-testid={`${baseLocator}_currentBlockNumber`}
               >
                 {latestBlock?.number || "Unknown"}
               </div>
             </div>
-            <div className="border-border h-[0px] w-full border-t" />
-            <div className="inline-flex w-full items-end justify-between px-3 sm:px-4">
-              <div className="text-muted-foreground text-[14px] font-normal leading-tight sm:text-[15px]">
+            <div className="h-[0px] w-full border-t border-border" />
+            <div className="px-3 sm:px-4 inline-flex w-full items-end justify-between">
+              <div className="font-normal leading-tight sm:text-[15px] text-[14px] text-muted-foreground">
                 Node Rpc Url:
               </div>
               <div
-                className="text-foreground text-right text-[14px] font-medium leading-tight opacity-90 sm:text-[15px]"
+                className="font-medium leading-tight sm:text-[15px] text-right text-[14px] text-foreground opacity-90"
                 data-testid={`${baseLocator}_currentNodeRpcUrl`}
               >
                 {shortenUrl(currentChain?.rpcUrls?.default?.http[0]) ||
@@ -98,9 +98,9 @@ export function NetworkDialog({ isOpen, close }: Props) {
           </div>
         </div>
 
-        <div className="border-border h-[0px] w-full border-t" />
+        <div className="h-[0px] w-full border-t border-border" />
 
-        <div className="font-inter inline-flex w-full items-start justify-center gap-2">
+        <div className="font-inter gap-2 inline-flex w-full items-start justify-center">
           {allChains.map((c) => (
             <Button
               type="button"

@@ -346,7 +346,7 @@ export const CreateLockProvider = ({
       !hasApprovedForCurrentLock;
 
     return (
-      <div className="flex min-h-4 flex-col gap-4">
+      <div className="min-h-4 gap-4 flex flex-col">
         {isApprovalPhase ? <span>Approve MENTO</span> : <span>Lock MENTO</span>}
         {CreateLockTxStatus === LOCK_TX_STATUS.AWAITING_SIGNATURE ? (
           <>Continue in wallet</>

@@ -37,7 +37,7 @@ function CoinCardHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="coin-card-header"
-      className={cn("flex flex-row items-start gap-6 px-4", className)}
+      className={cn("gap-6 px-4 flex flex-row items-start", className)}
       {...props}
     />
   );
@@ -70,7 +70,7 @@ function CoinCardName({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-name"
-      className={cn("text-muted-foreground text-sm leading-5", className)}
+      className={cn("text-sm leading-5 text-muted-foreground", className)}
       {...props}
     />
   );
@@ -87,7 +87,7 @@ function CoinCardFooter({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="card-footer"
       className={cn(
-        "flex flex-row items-center gap-2 px-4 md:gap-6",
+        "gap-2 px-4 md:gap-6 flex flex-row items-center",
         className,
       )}
       {...props}
@@ -99,7 +99,7 @@ function CoinCardOrigin({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="coin-card-origin"
-      className={cn("flex flex-col gap-2", className)}
+      className={cn("gap-2 flex flex-col", className)}
       {...props}
     />
   );
@@ -135,10 +135,10 @@ function CoinCardSupply({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="coin-card-supply"
-      className={cn("flex flex-col gap-2", className)}
+      className={cn("gap-2 flex flex-col", className)}
     >
-      <span className="text-muted-foreground text-sm">Supply:</span>
-      <span className="text-sm leading-none md:text-base">
+      <span className="text-sm text-muted-foreground">Supply:</span>
+      <span className="text-sm md:text-base leading-none">
         {props.children}
       </span>
     </div>

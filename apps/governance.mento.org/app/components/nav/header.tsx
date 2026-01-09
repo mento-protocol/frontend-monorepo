@@ -18,8 +18,8 @@ export function Header() {
 
   return (
     <header className="relative z-10">
-      <div className="flex h-20 flex-row items-center justify-between gap-6">
-        <div className="flex flex-row items-center justify-start gap-10">
+      <div className="h-20 gap-6 flex flex-row items-center justify-between">
+        <div className="gap-10 flex flex-row items-center justify-start">
           <a
             href="https://www.mento.org"
             className="flex items-center"
@@ -29,7 +29,7 @@ export function Header() {
           >
             <Logo />
           </a>
-          <NavigationMenu className="hidden md:flex">
+          <NavigationMenu className="md:flex hidden">
             <NavigationMenuList className="gap-6">
               <NavigationMenuItem>
                 <NavigationMenuLink
@@ -69,7 +69,7 @@ export function Header() {
             </NavigationMenuList>
           </NavigationMenu>
         </div>
-        <div className="flex flex-row items-center justify-between gap-2 px-4 md:px-6">
+        <div className="gap-2 px-4 md:px-6 flex flex-row items-center justify-between">
           <ConnectButton balanceMode="mento" />
         </div>
       </div>

@@ -16,7 +16,7 @@ export function AppLayout({ children }: PropsWithChildren) {
   return (
     <>
       <Header />
-      <main className="relative z-20 my-auto h-full overflow-hidden pt-20 md:h-screen md:p-4 xl:h-[calc(100vh-80px)]">
+      <main className="pt-20 md:h-screen md:p-4 xl:h-[calc(100vh-80px)] relative z-20 my-auto h-full overflow-hidden">
         {children}
       </main>
       <Footer />
@@ -26,7 +26,7 @@ export function AppLayout({ children }: PropsWithChildren) {
           alt="Mento Background"
           width={1440}
           height={720}
-          className="fixed left-0 top-0 z-0 h-full w-full object-cover"
+          className="left-0 top-0 fixed z-0 h-full w-full object-cover"
         />
       ) : (
         <Image
@@ -34,7 +34,7 @@ export function AppLayout({ children }: PropsWithChildren) {
           alt="Mento Background"
           width={1440}
           height={720}
-          className="fixed left-0 top-0 z-0 h-full w-full object-cover"
+          className="left-0 top-0 fixed z-0 h-full w-full object-cover"
         />
       )}
       <PollingWorker />

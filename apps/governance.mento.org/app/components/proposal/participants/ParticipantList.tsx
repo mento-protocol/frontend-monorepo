@@ -47,11 +47,11 @@ export function ParticipantList({ participants }: ParticipantListProps) {
 
   return (
     <div className="flex flex-col">
-      <div className="mb-2 flex items-center justify-between py-3">
-        <div className="flex items-center gap-2">
+      <div className="mb-2 py-3 flex items-center justify-between">
+        <div className="gap-2 flex items-center">
           <span className="text-sm">{formattedWeight} Votes</span>
         </div>
-        <span className="text-muted-foreground text-sm">
+        <span className="text-sm text-muted-foreground">
           {participants.length} addresses
         </span>
       </div>
@@ -61,14 +61,14 @@ export function ParticipantList({ participants }: ParticipantListProps) {
           .map((participant) => (
             <div
               key={participant.address}
-              className="group flex items-center justify-between border-b border-[var(--border)] py-4 last:border-0"
+              className="group py-4 flex items-center justify-between border-b border-[var(--border)] last:border-0"
             >
-              <div className="flex items-center gap-2">
+              <div className="gap-2 flex items-center">
                 <Identicon address={participant.address} size={16} />
-                <div className="h-auto !bg-transparent p-0">
+                <div className="p-0 h-auto !bg-transparent">
                   <a
                     href={`${explorerUrl}/address/${participant.address}`}
-                    className="flex items-center gap-1"
+                    className="gap-1 flex items-center"
                     target="_blank"
                     rel="noopener noreferrer"
                   >
@@ -99,7 +99,7 @@ export function ParticipantList({ participants }: ParticipantListProps) {
             </div>
           ))
       ) : (
-        <p className="py-4 text-center text-sm text-[var(--muted-foreground)]">
+        <p className="py-4 text-sm text-center text-[var(--muted-foreground)]">
           No votes yet
         </p>
       )}

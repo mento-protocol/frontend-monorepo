@@ -39,7 +39,7 @@ export const CopyToClipboard = ({
       variant="ghost"
       size="icon"
       className={cn(
-        "text-secondary-active hover:text-secondary-active/75 h-5 w-5 hover:!bg-transparent",
+        "h-5 w-5 text-secondary-active hover:!bg-transparent hover:text-secondary-active/75",
         className,
       )}
       onClick={handleCopyAddress}

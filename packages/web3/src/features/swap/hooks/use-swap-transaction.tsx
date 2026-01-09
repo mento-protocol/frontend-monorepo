@@ -191,7 +191,7 @@ export function useSwapTransaction(
         toast.success(
           <>
             <h4>Swap Successful</h4>
-            <span className="text-muted-foreground mt-2 block">
+            <span className="mt-2 block text-muted-foreground">
               {successMessage}
             </span>
             {explorerUrl && (

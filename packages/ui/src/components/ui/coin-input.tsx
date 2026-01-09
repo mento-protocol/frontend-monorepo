@@ -129,12 +129,12 @@ function CoinInput({
       type={type}
       data-slot="input"
       className={cn(
-        "flex h-9 w-full min-w-0 rounded-none bg-transparent text-base outline-none transition-[color,box-shadow]",
-        "placeholder:text-muted-foreground text-[32px] placeholder:text-[32px]",
+        "h-9 min-w-0 text-base flex w-full rounded-none bg-transparent transition-[color,box-shadow] outline-none",
+        "text-[32px] placeholder:text-[32px] placeholder:text-muted-foreground",
         "selection:bg-primary/20 selection:text-primary-foreground",
-        "file:text-foreground file:inline-flex file:h-7 file:bg-transparent file:text-sm file:font-medium",
+        "file:h-7 file:text-sm file:font-medium file:inline-flex file:bg-transparent file:text-foreground",
         "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
-        "aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
+        "aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40",
         "px-0 py-1",
         className,
       )}

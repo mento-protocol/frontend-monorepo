@@ -431,8 +431,8 @@ export const LockFormFields = forwardRef<
 
   return (
     <>
-      <div className="bg-incard border-border dark:border-input maybe-hover:border-border-secondary focus-within:!border-primary dark:focus-within:!border-primary mb-8 flex grid-cols-12 flex-col items-start gap-4 border p-4 transition-colors md:grid md:min-h-[120px]">
-        <div className="col-span-7 flex flex-col gap-2">
+      <div className="maybe-hover:border-border-secondary mb-8 gap-4 p-4 md:grid md:min-h-[120px] flex grid-cols-12 flex-col items-start border border-border bg-incard transition-colors focus-within:!border-primary dark:border-input dark:focus-within:!border-primary">
+        <div className="gap-2 col-span-7 flex flex-col">
           <Label>{amountLabel}</Label>
           <CoinInput
             data-testid={amountInputTestId}
@@ -450,19 +450,19 @@ export const LockFormFields = forwardRef<
               });
             }}
           />
-          <div className="text-muted-foreground flex items-center gap-1 text-xs">
+          <div className="gap-1 text-xs flex items-center text-muted-foreground">
             <span>Balance: {formattedMentoBalance}</span>
             <button
               type="button"
-              className="cursor-pointer border-none bg-transparent p-0 text-inherit underline"
+              className="p-0 cursor-pointer border-none bg-transparent text-inherit underline"
               onClick={handleMaxClick}
             >
               MAX
             </button>
           </div>
 
-          <div className="mt-3 flex flex-col gap-2">
-            <div className="flex items-center gap-2">
+          <div className="mt-3 gap-2 flex flex-col">
+            <div className="gap-2 flex items-center">
               <Checkbox
                 id={`delegateEnabled-${delegateFieldId}`}
                 checked={!!delegateEnabled}
@@ -508,7 +508,7 @@ export const LockFormFields = forwardRef<
             )}
 
             {lock?.delegate?.id && isDelegatedToOther && (
-              <span className="text-muted-foreground text-xs">
+              <span className="text-xs text-muted-foreground">
                 Currently delegated to:{" "}
                 {`${lock.delegate.id.slice(0, 6)}...${lock.delegate.id.slice(-4)}`}
               </span>
@@ -516,7 +516,7 @@ export const LockFormFields = forwardRef<
           </div>
         </div>
 
-        <div className="col-span-5 flex flex-col justify-end gap-2 md:items-end">
+        <div className="gap-2 md:items-end col-span-5 flex flex-col justify-end">
           <Label>Lock until</Label>
           <Controller
             control={control}
@@ -542,9 +542,9 @@ export const LockFormFields = forwardRef<
       </div>
 
       <div className="mb-8">
-        <div className="text-muted-foreground mb-4 flex items-center justify-between text-sm">
+        <div className="mb-4 text-sm flex items-center justify-between text-muted-foreground">
           <span>{sliderLabels.startLabel}</span>
-          <span className="text-foreground font-medium">
+          <span className="font-medium text-foreground">
             {lockDurationDisplay}
           </span>
           <span>{sliderLabels.endLabel}</span>

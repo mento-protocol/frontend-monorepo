@@ -47,29 +47,29 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${aspekta.className} max-w-screen dark overflow-x-hidden antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${aspekta.className} dark max-w-screen overflow-x-hidden antialiased`}
       >
         <Providers>
-          <main className="relative w-full pb-4">
+          <main className="pb-4 relative w-full">
             <Image
               src={`${env.NEXT_PUBLIC_STORAGE_URL}/reserve/hero-mobile.png`}
               alt="Mento Reserve"
               width={320}
               height={168}
-              className="my-8 w-full md:hidden"
+              className="my-8 md:hidden w-full"
             />
             <Image
               src={`${env.NEXT_PUBLIC_STORAGE_URL}/reserve/hero.png`}
               alt="Mento Reserve"
               width={1280}
               height={640}
-              className="absolute -bottom-[50px] -top-20 left-1/3 right-0 -z-10 hidden h-[660px] w-auto object-cover md:block 2xl:left-auto 2xl:right-0"
+              className="-top-20 right-0 md:block 2xl:left-auto 2xl:right-0 absolute -bottom-[50px] left-1/3 -z-10 hidden h-[660px] w-auto object-cover"
             />
             <section className="xl:px-22 max-w-2xl px-4 pb-0 md:pt-20">
               <h1 className="text-4xl font-medium md:text-6xl">
                 Mento Reserve
               </h1>
-              <p className="text-muted-foreground mt-2 max-w-[440px]">
+              <p className="mt-2 max-w-[440px] text-muted-foreground">
                 A diversified portfolio of crypto assets supporting the ability
                 of the Mento Platform to expand and contract the supply of Mento
                 stablecoins.

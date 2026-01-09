@@ -8,7 +8,7 @@ function ProposalList({ className, ...props }: React.ComponentProps<"ul">) {
     <ul
       data-slot="proposal-list"
       className={cn(
-        "flex w-full flex-col items-start justify-start gap-0",
+        "gap-0 flex w-full flex-col items-start justify-start",
         className,
       )}
       {...props}
@@ -42,7 +42,7 @@ function ProposalListItemIndex({
     <div
       data-slot="proposal-list-item-index"
       className={cn(
-        "flex h-full w-full shrink-0 flex-col items-center justify-center bg-[var(--dark-background)] text-sm text-[var(--index)] lg:w-12",
+        "text-sm lg:w-12 flex h-full w-full shrink-0 flex-col items-center justify-center bg-[var(--dark-background)] text-[var(--index)]",
         className,
       )}
       {...props}
@@ -60,7 +60,7 @@ function ProposalListItemBody({
     <div
       data-slot="proposal-list-item-body"
       className={cn(
-        "flex flex-col items-start justify-start gap-2 p-3 xl:flex xl:w-full xl:!flex-row xl:items-center xl:!gap-8 xl:p-8",
+        "gap-2 p-3 xl:flex xl:w-full xl:!flex-row xl:items-center xl:!gap-8 xl:p-8 flex flex-col items-start justify-start",
         className,
       )}
     >

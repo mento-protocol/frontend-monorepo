@@ -24,16 +24,16 @@ export function BalancesSummary() {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col space-y-2">
-        <p className="text-muted-foreground text-sm">Loading balances...</p>
+      <div className="space-y-2 flex flex-col">
+        <p className="text-sm text-muted-foreground">Loading balances...</p>
       </div>
     );
   }
 
   if (isError) {
     return (
-      <div className="flex flex-col space-y-2">
-        <p className="text-destructive text-sm">Error fetching balances.</p>
+      <div className="space-y-2 flex flex-col">
+        <p className="text-sm text-destructive">Error fetching balances.</p>
       </div>
     );
   }
@@ -44,8 +44,8 @@ export function BalancesSummary() {
     tokenSymbols.every((symbol) => balances[symbol] === "0")
   ) {
     return (
-      <div className="flex flex-col space-y-2">
-        <p className="text-muted-foreground text-sm">No balances to display</p>
+      <div className="space-y-2 flex flex-col">
+        <p className="text-sm text-muted-foreground">No balances to display</p>
       </div>
     );
   }
@@ -72,7 +72,7 @@ export function BalancesSummary() {
             formattedBalance !== "0" && (
               <div
                 key={symbol}
-                className="text-foreground flex items-center gap-3 px-4 py-1 text-sm font-medium"
+                className="gap-3 px-4 py-1 text-sm font-medium flex items-center text-foreground"
                 data-testid={`walletSettings_${tokenData.symbol}_balance`}
               >
                 <TokenIcon token={tokenData} className="h-6 w-6 p-1" />

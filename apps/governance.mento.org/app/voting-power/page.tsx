@@ -12,7 +12,7 @@ import VotingPowerForm from "../components/voting-power-form";
 
 export default function VotingPowerPage() {
   return (
-    <main className="md:px-22 relative w-full px-4 py-8 md:py-16">
+    <main className="md:px-22 px-4 py-8 md:py-16 relative w-full">
       <Breadcrumb className="mb-6">
         <BreadcrumbList>
           <BreadcrumbItem>

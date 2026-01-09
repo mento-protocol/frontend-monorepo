@@ -66,13 +66,14 @@ export function makeClient() {
     };
   });
 
+  const cache = new InMemoryCache({
+    typePolicies: {
+      Proposal: ProposalPolicy,
+    },
+  });
+
   return new ApolloClient({
-    // use the `NextSSRInMemoryCache`, not the normal `InMemoryCache`
-    cache: new InMemoryCache({
-      typePolicies: {
-        Proposal: ProposalPolicy,
-      },
-    }),
+    cache,
     link:
       typeof window === "undefined"
         ? ApolloLink.from([

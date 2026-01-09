@@ -84,22 +84,22 @@ export const ProposalHeader = ({
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
-      <div className="mb-12 flex flex-col gap-5">
+      <div className="mb-12 gap-5 flex flex-col">
         <h1
-          className="text-3xl font-medium md:text-6xl"
+          className="font-medium md:text-6xl text-3xl"
           data-testid="proposalTitleLabel"
           title={proposal.metadata?.title}
         >
           {proposal.metadata?.title}
         </h1>
-        <div className="flex flex-wrap items-center gap-2 md:gap-8">
+        <div className="gap-2 md:gap-8 flex flex-wrap items-center">
           <ProposalStatus
             variant={getStatusVariant()}
             data-testid="proposalStateLabel"
           />
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground text-sm">Proposed by:</span>
-            <div className="flex items-center gap-1">
+          <div className="gap-2 flex items-center">
+            <span className="text-sm text-muted-foreground">Proposed by:</span>
+            <div className="gap-1 flex items-center">
               <Identicon
                 address={proposal.proposer.id}
                 size={16}
@@ -114,8 +114,8 @@ export const ProposalHeader = ({
             </div>
             <CopyToClipboard text={proposal.proposer.id} />
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground text-sm">Proposed on:</span>
+          <div className="gap-2 flex items-center">
+            <span className="text-sm text-muted-foreground">Proposed on:</span>
             {proposedOn && proposal.proposalCreated[0]?.transaction.id ? (
               <TransactionLink
                 className="text-sm underline-offset-4 hover:underline"
@@ -129,8 +129,8 @@ export const ProposalHeader = ({
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground text-sm">
+          <div className="gap-2 flex items-center">
+            <span className="text-sm text-muted-foreground">
               Voting deadline:
             </span>
             <span className="text-sm">

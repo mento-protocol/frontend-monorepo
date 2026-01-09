@@ -2,7 +2,7 @@
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import TextAlign from "@tiptap/extension-text-align";
-import TextStyle from "@tiptap/extension-text-style";
+import { TextStyle } from "@tiptap/extension-text-style";
 import Typography from "@tiptap/extension-typography";
 import Underline from "@tiptap/extension-underline";
 import { EditorContent, type Extension, useEditor } from "@tiptap/react";
@@ -90,7 +90,7 @@ export function RichTextEditor({
   // but only if it's different from current content to avoid infinite loops
   React.useEffect(() => {
     if (editor && value !== undefined && editor.getHTML() !== value) {
-      editor.commands.setContent(value, false); // false = don't emit update event
+      editor.commands.setContent(value, { emitUpdate: false });
     }
   }, [editor, value]);
 
@@ -98,7 +98,7 @@ export function RichTextEditor({
 
   return (
     <div
-      className={cn("relative w-full pb-[60px] sm:pb-0", className)}
+      className={cn("sm:pb-0 relative w-full pb-[60px]", className)}
       onClick={(e) => {
         // Only focus if clicking on the editor container itself, not on floating menus
         const target = e.target as HTMLElement;
@@ -116,7 +116,7 @@ export function RichTextEditor({
       <TipTapFloatingMenu editor={editor} />
       <EditorContent
         editor={editor}
-        className="bg-input/30 border-input min-h-[400px] w-full min-w-full cursor-text border sm:p-5"
+        className="sm:p-5 min-h-[400px] w-full min-w-full cursor-text border border-input bg-input/30"
       />
     </div>
   );
