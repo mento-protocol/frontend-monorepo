@@ -70,7 +70,7 @@
     "react-dom": "catalog:",
     "react-hook-form": "catalog:",
     "react-hotkeys-hook": "^5.2.1",
-    "recharts": "^2.15.3",
+    "recharts": "^3.6.0",
     "sonner": "catalog:",
     "tailwind-merge": "^3.2.0",
     "tailwindcss": "catalog:",
