@@ -54,7 +54,7 @@
     "@tiptap/extension-placeholder": "^2.22.3",
     "@tiptap/extension-text-align": "^3.13.0",
     "@tiptap/extension-text-style": "^2.22.3",
-    "@tiptap/extension-typography": "^2.22.3",
+    "@tiptap/extension-typography": "^3.15.3",
     "@tiptap/extension-underline": "^2.22.3",
     "@tiptap/pm": "^3.13.0",
     "@tiptap/react": "^2.22.3",
