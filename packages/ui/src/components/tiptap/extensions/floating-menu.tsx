@@ -175,9 +175,12 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
   const [search, setSearch] = useState("");
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const debouncedSearch = useDebounce(search, 150);
+  const menuContainerRef = useRef<HTMLDivElement>(null);
   const commandRef = useRef<HTMLDivElement>(null);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  // Track when menu was dismissed via click-outside to prevent immediate re-open
+  const dismissedByClickOutsideRef = useRef(false);
 
   // Check if we should show the slash command menu
   const checkSlashCommand = useCallback(() => {
@@ -198,21 +201,34 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
       $from.parentOffset === currentLineText.length;
 
     if (isSlashCommand) {
+      // Don't re-open if we just dismissed via click-outside
+      if (dismissedByClickOutsideRef.current) {
+        return;
+      }
+
       const query = currentLineText.slice(1).trim();
       setSearch(query);
 
       // Get cursor position for menu placement (above the slash)
       const coords = editor.view.coordsAtPos($from.pos);
-      const editorRect = editor.view.dom.getBoundingClientRect();
+
+      // Get the parent container with position: relative (where the menu is positioned)
+      // This accounts for the toolbar height between the container and EditorContent
+      const containerElement = editor.view.dom.closest(".relative");
+      const containerRect =
+        containerElement?.getBoundingClientRect() ??
+        editor.view.dom.getBoundingClientRect();
 
       // Position above the cursor - we'll use a CSS transform to move it up by its own height
       setPosition({
-        top: coords.top - editorRect.top,
-        left: coords.left - editorRect.left,
+        top: coords.top - containerRect.top,
+        left: coords.left - containerRect.left,
       });
 
       setIsOpen(true);
     } else {
+      // Clear the dismissed flag when the slash command is no longer present
+      dismissedByClickOutsideRef.current = false;
       if (isOpen) {
         setIsOpen(false);
         setSearch("");
@@ -349,7 +365,9 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
 
         case "Escape":
           preventDefault();
+          dismissedByClickOutsideRef.current = true;
           setIsOpen(false);
+          setSearch("");
           setSelectedIndex(-1);
           break;
       }
@@ -415,10 +433,55 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
     }
   }, [selectedIndex]);
 
+  // Close menu when clicking outside of both the menu and the editor
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+
+      // Check if click is inside the menu container
+      if (menuContainerRef.current?.contains(target)) {
+        return;
+      }
+
+      // Check if click is inside the editor
+      if (editor?.view?.dom?.contains(target)) {
+        return;
+      }
+
+      // Also check the parent container (toolbar, etc.)
+      const editorContainer = editor?.view?.dom?.closest(".relative");
+      if (editorContainer?.contains(target)) {
+        // Click is in the editor container but outside the editor content
+        // This could be on the toolbar - still close the menu
+        dismissedByClickOutsideRef.current = true;
+        setIsOpen(false);
+        setSearch("");
+        setSelectedIndex(-1);
+        return;
+      }
+
+      // Click is outside both menu and editor, close the menu
+      dismissedByClickOutsideRef.current = true;
+      setIsOpen(false);
+      setSearch("");
+      setSelectedIndex(-1);
+    };
+
+    // Use mousedown to close before focus changes
+    document.addEventListener("mousedown", handleClickOutside);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isOpen, editor]);
+
   if (!isOpen) return null;
 
   return (
     <div
+      ref={menuContainerRef}
       className="absolute z-50"
       style={{
         top: position.top,
