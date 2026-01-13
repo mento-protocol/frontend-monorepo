@@ -1,0 +1,11 @@
+# OSV Scanner configuration
+# See: https://google.github.io/osv-scanner/configuration/
+
+# Temporarily ignore vulnerabilities that have no fix available yet
+[[IgnoredVulns]]
+id = "GHSA-848j-6mx2-7j84"
+# Vulnerability published 2026-01-08, no fix available in elliptic package yet
+# This is a transitive dependency - we cannot directly update it
+# TODO: Remove this ignore once elliptic releases a patched version
+ignoreUntil = 2026-04-13T00:00:00Z
+reason = "No fix available - elliptic 6.6.1 is the latest version. Transitive dependency."
