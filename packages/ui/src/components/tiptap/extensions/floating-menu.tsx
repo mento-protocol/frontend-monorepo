@@ -11,7 +11,6 @@ import { ScrollArea } from "@/components/ui/scroll-area.js";
 import { useDebounce } from "@/hooks/use-debounce.js";
 import { cn } from "@/lib/utils.js";
 import type { Editor } from "@tiptap/core";
-import { FloatingMenu } from "@tiptap/react";
 import {
   AlignCenter,
   AlignLeft,
@@ -28,7 +27,14 @@ import {
   Quote,
   TextQuote,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 interface CommandItemType {
   title: string;
@@ -167,10 +173,91 @@ const groups: CommandGroupType[] = [
 export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const debouncedSearch = useDebounce(search, 300);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const debouncedSearch = useDebounce(search, 150);
+  const menuContainerRef = useRef<HTMLDivElement>(null);
   const commandRef = useRef<HTMLDivElement>(null);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  // Track when menu was dismissed via click-outside to prevent immediate re-open
+  const dismissedByClickOutsideRef = useRef(false);
+
+  // Check if we should show the slash command menu
+  const checkSlashCommand = useCallback(() => {
+    if (!editor) return;
+
+    const { state } = editor;
+    const { $from } = state.selection;
+    const currentLineText = $from.parent.textBetween(
+      0,
+      $from.parentOffset,
+      "\n",
+      " ",
+    );
+
+    const isSlashCommand =
+      currentLineText.startsWith("/") &&
+      $from.parent.type.name !== "codeBlock" &&
+      $from.parentOffset === currentLineText.length;
+
+    if (isSlashCommand) {
+      // Don't re-open if we just dismissed via click-outside
+      if (dismissedByClickOutsideRef.current) {
+        return;
+      }
+
+      const query = currentLineText.slice(1).trim();
+      setSearch(query);
+
+      // Get cursor position for menu placement (above the slash)
+      const coords = editor.view.coordsAtPos($from.pos);
+
+      // Get the parent container with position: relative (where the menu is positioned)
+      // This accounts for the toolbar height between the container and EditorContent
+      const containerElement = editor.view.dom.closest(".relative");
+      const containerRect =
+        containerElement?.getBoundingClientRect() ??
+        editor.view.dom.getBoundingClientRect();
+
+      // Position above the cursor - we'll use a CSS transform to move it up by its own height
+      setPosition({
+        top: coords.top - containerRect.top,
+        left: coords.left - containerRect.left,
+      });
+
+      setIsOpen(true);
+    } else {
+      // Clear the dismissed flag when the slash command is no longer present
+      dismissedByClickOutsideRef.current = false;
+      if (isOpen) {
+        setIsOpen(false);
+        setSearch("");
+        setSelectedIndex(-1);
+      }
+    }
+  }, [editor, isOpen]);
+
+  // Subscribe to editor updates
+  useEffect(() => {
+    if (!editor) return;
+
+    const handleUpdate = () => {
+      checkSlashCommand();
+    };
+
+    editor.on("transaction", handleUpdate);
+    editor.on("selectionUpdate", handleUpdate);
+
+    return () => {
+      editor.off("transaction", handleUpdate);
+      editor.off("selectionUpdate", handleUpdate);
+    };
+  }, [editor, checkSlashCommand]);
+
+  // Also check on mount in case we already have a slash
+  useLayoutEffect(() => {
+    checkSlashCommand();
+  }, [checkSlashCommand]);
 
   const filteredGroups = useMemo(
     () =>
@@ -218,21 +305,11 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
           .run();
 
         // Use requestAnimationFrame to ensure the editor has processed the deletion
-        // before executing the command - this is crucial for Enter key to work properly
         requestAnimationFrame(() => {
-          // Double check that editor still has focus before executing command
           if (!editor.view.hasFocus()) {
-            console.debug(
-              "[Slash Command] Refocusing editor before command execution",
-            );
             editor.commands.focus();
           }
-
-          // Small delay to ensure focus is properly set
           setTimeout(() => {
-            console.debug(
-              "[Slash Command] Executing command after focus check",
-            );
             commandFn(editor);
           }, 0);
         });
@@ -275,34 +352,22 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
 
         case "Enter": {
           preventDefault();
-          console.debug("[Slash Command] Enter pressed", {
-            selectedIndex,
-            flatFilteredItemsLength: flatFilteredItems.length,
-            isOpen,
-          });
-
           let targetIndex = selectedIndex;
-
           if (targetIndex === -1 && flatFilteredItems.length > 0) {
             targetIndex = 0;
           }
-
           const selectedItem = flatFilteredItems[targetIndex];
           if (targetIndex >= 0 && selectedItem) {
-            console.debug("[Slash Command] Executing command", {
-              title: selectedItem.title,
-              targetIndex,
-            });
             executeCommand(selectedItem.command);
-          } else {
-            console.warn("[Slash Command] No item selected");
           }
           break;
         }
 
         case "Escape":
           preventDefault();
+          dismissedByClickOutsideRef.current = true;
           setIsOpen(false);
+          setSearch("");
           setSelectedIndex(-1);
           break;
       }
@@ -318,28 +383,17 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
       if (!isOpen) return;
 
       if (["Enter", "ArrowUp", "ArrowDown", "Escape"].includes(e.key)) {
-        // Ensure we catch the event before any other handlers
         e.stopImmediatePropagation();
         handleKeyDown(e);
       }
     };
 
-    // Use both capture and passive:false to ensure we get the event first
     editorElement.addEventListener("keydown", handleEditorKeyDown, {
       capture: true,
       passive: false,
     });
 
-    // Also add to document to catch events that might bubble up
-    const handleDocumentKeyDown = (e: KeyboardEvent) => {
-      if (!isOpen || !editor.view.hasFocus()) return;
-
-      if (e.key === "Enter" && isOpen) {
-        handleEditorKeyDown(e);
-      }
-    };
-
-    document.addEventListener("keydown", handleDocumentKeyDown, {
+    document.addEventListener("keydown", handleEditorKeyDown, {
       capture: true,
       passive: false,
     });
@@ -348,7 +402,7 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
       editorElement.removeEventListener("keydown", handleEditorKeyDown, {
         capture: true,
       });
-      document.removeEventListener("keydown", handleDocumentKeyDown, {
+      document.removeEventListener("keydown", handleEditorKeyDown, {
         capture: true,
       });
     };
@@ -379,65 +433,70 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
     }
   }, [selectedIndex]);
 
+  // Close menu when clicking outside of both the menu and the editor
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+
+      // Check if click is inside the menu container
+      if (menuContainerRef.current?.contains(target)) {
+        return;
+      }
+
+      // Check if click is inside the editor
+      if (editor?.view?.dom?.contains(target)) {
+        return;
+      }
+
+      // Also check the parent container (toolbar, etc.)
+      const editorContainer = editor?.view?.dom?.closest(".relative");
+      if (editorContainer?.contains(target)) {
+        // Click is in the editor container but outside the editor content
+        // This could be on the toolbar - still close the menu
+        dismissedByClickOutsideRef.current = true;
+        setIsOpen(false);
+        setSearch("");
+        setSelectedIndex(-1);
+        return;
+      }
+
+      // Click is outside both menu and editor, close the menu
+      dismissedByClickOutsideRef.current = true;
+      setIsOpen(false);
+      setSearch("");
+      setSelectedIndex(-1);
+    };
+
+    // Use mousedown to close before focus changes
+    document.addEventListener("mousedown", handleClickOutside);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isOpen, editor]);
+
+  if (!isOpen) return null;
+
   return (
-    <FloatingMenu
-      editor={editor}
-      shouldShow={({ state }) => {
-        if (!editor) return false;
-
-        const { $from } = state.selection;
-        const currentLineText = $from.parent.textBetween(
-          0,
-          $from.parentOffset,
-          "\n",
-          " ",
-        );
-
-        const isSlashCommand =
-          currentLineText.startsWith("/") &&
-          $from.parent.type.name !== "codeBlock" &&
-          $from.parentOffset === currentLineText.length;
-
-        if (!isSlashCommand) {
-          if (isOpen) {
-            console.debug("[Slash Command] Closing - not a slash command");
-            setIsOpen(false);
-          }
-          return false;
-        }
-
-        const query = currentLineText.slice(1).trim();
-        if (query !== search) {
-          console.debug("[Slash Command] Query changed", {
-            from: search,
-            to: query,
-          });
-          setSearch(query);
-        }
-        if (!isOpen) {
-          console.debug("[Slash Command] Opening menu");
-          setIsOpen(true);
-        }
-        return true;
-      }}
-      tippyOptions={{
-        placement: "bottom-start",
-        interactive: true,
-        appendTo: () => document.body,
-        onHide: () => {
-          setIsOpen(false);
-          setSelectedIndex(-1);
-        },
+    <div
+      ref={menuContainerRef}
+      className="absolute z-50"
+      style={{
+        top: position.top,
+        left: position.left,
+        transform: "translateY(-100%)", // Move up by menu height
       }}
     >
       <Command
         role="listbox"
         ref={commandRef}
-        className="bg-popover z-50 w-72 overflow-hidden rounded-lg border shadow-lg"
+        className="w-72 shadow-lg overflow-hidden rounded-lg border bg-popover"
       >
         <ScrollArea className="max-h-[330px]">
           <CommandList>
-            <CommandEmpty className="text-muted-foreground py-3 text-center text-sm">
+            <CommandEmpty className="py-3 text-sm text-center text-muted-foreground">
               No results found
             </CommandEmpty>
 
@@ -445,7 +504,7 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
               <CommandGroup
                 key={`${group.group}-${groupIndex}`}
                 heading={
-                  <div className="text-muted-foreground px-2 py-1.5 text-xs font-medium">
+                  <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
                     {group.group}
                   </div>
                 }
@@ -463,7 +522,7 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
                       value={`${group.group}-${item.title}`}
                       onSelect={() => executeCommand(item.command)}
                       className={cn(
-                        "aria-selected:bg-accent/50 gap-3",
+                        "gap-3 aria-selected:bg-accent/50",
                         flatIndex === selectedIndex ? "bg-accent/50" : "",
                       )}
                       aria-selected={flatIndex === selectedIndex}
@@ -472,18 +531,18 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
                       }}
                       tabIndex={flatIndex === selectedIndex ? 0 : -1}
                     >
-                      <div className="bg-background flex h-9 w-9 items-center justify-center rounded-md border">
+                      <div className="h-9 w-9 flex items-center justify-center rounded-md border bg-background">
                         <item.icon className="h-4 w-4" />
                       </div>
                       <div className="flex flex-1 flex-col">
                         <span className="text-sm font-medium">
                           {item.title}
                         </span>
-                        <span className="text-muted-foreground text-xs">
+                        <span className="text-xs text-muted-foreground">
                           {item.description}
                         </span>
                       </div>
-                      <kbd className="bg-muted text-muted-foreground ml-auto flex h-5 items-center rounded px-1.5 text-xs">
+                      <kbd className="h-5 rounded px-1.5 text-xs ml-auto flex items-center bg-muted text-muted-foreground">
                         ↵
                       </kbd>
                     </CommandItem>
@@ -494,6 +553,6 @@ export function TipTapFloatingMenu({ editor }: { editor: Editor }) {
           </CommandList>
         </ScrollArea>
       </Command>
-    </FloatingMenu>
+    </div>
   );
 }

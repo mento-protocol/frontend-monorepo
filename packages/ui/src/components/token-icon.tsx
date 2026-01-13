@@ -30,7 +30,7 @@ function TokenIconBase({ token, className, size = 20 }: Props) {
 
   if (!token) {
     return (
-      <div className="bg-muted-foreground grid aspect-square h-5 w-5 place-content-center rounded-full text-xs">
+      <div className="h-5 w-5 text-xs grid aspect-square place-content-center rounded-full bg-muted-foreground">
         ?
       </div>
     );
@@ -53,10 +53,10 @@ function TokenIconBase({ token, className, size = 20 }: Props) {
 
   return (
     <div
-      className="bg-background flex items-center justify-center"
+      className="flex items-center justify-center bg-background"
       style={{ width: size, height: size }}
     >
-      <div className="text-foreground font-semibold">{symbol}</div>
+      <div className="font-semibold text-foreground">{symbol}</div>
     </div>
   );
 }

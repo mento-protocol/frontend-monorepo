@@ -93,8 +93,8 @@ export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
   };
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 pt-6">
-      <div className="flex flex-1 flex-row flex-wrap items-center gap-4">
+    <div className="max-w-4xl space-y-6 pt-6 mx-auto">
+      <div className="gap-4 flex flex-1 flex-row flex-wrap items-center">
         {slippageOptions.map((option) => (
           <Button
             data-testid={`slippageOption_${option.value}`}
@@ -104,7 +104,7 @@ export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
               slippage === option.value &&
                 isPresetSelected &&
                 "!border-1 !border-[var(--primary)]",
-              "hover:border-1 min-w-28 hover:!border-[var(--primary-hover)]",
+              "min-w-28 hover:border-1 hover:!border-[var(--primary-hover)]",
             )}
             onClick={() => handleSlippageSelect(option.value)}
             type="button"
@@ -116,7 +116,7 @@ export default function SlippageForm({ onSubmit }: { onSubmit: () => void }) {
           <Input
             data-testid="customSlippageInput"
             placeholder="Custom"
-            className="hover:!border-primary h-10 min-w-28 transition-colors"
+            className="h-10 min-w-28 transition-colors hover:!border-primary"
             value={customSlippage}
             onChange={handleCustomSlippageChange}
             onKeyDown={handleKeyDown}

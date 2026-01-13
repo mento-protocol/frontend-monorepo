@@ -30,21 +30,21 @@ export function AddressItem({
   return (
     <div
       key={`${address.address}-${addressIndex}`}
-      className="flex flex-col gap-0"
+      className="gap-0 flex flex-col"
     >
       {address.label && (
-        <span className="text-muted-foreground text-sm font-medium">
+        <span className="text-sm font-medium text-muted-foreground">
           {address.label}
         </span>
       )}
-      <div className="flex items-center gap-3">
+      <div className="gap-3 flex items-center">
         <a
           href={
             getDebankUrl ? getDebankUrl(address.address, group.network) : "#"
           }
           target="_blank"
           rel="noopener noreferrer"
-          className="break-all text-base leading-relaxed text-[#8c35fd] underline transition-colors hover:text-[#a855f7]"
+          className="text-base leading-relaxed break-all text-[#8c35fd] underline transition-colors hover:text-[#a855f7]"
           title="View DeFi portfolio and positions on DeBank"
         >
           {address.address}

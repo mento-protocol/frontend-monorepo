@@ -70,22 +70,22 @@ export function ReserveHoldingsContent({
 
   return (
     <>
-      <div className="flex flex-col gap-2 md:mt-12 md:grid md:grid-cols-12">
-        <div className="bg-card mb-2 flex h-full flex-1 flex-col p-6 pb-20 md:col-span-6 md:mb-0 xl:col-span-4">
-          <h2 className="relative z-10 hidden text-2xl font-medium md:block">
+      <div className="gap-2 md:mt-12 md:grid md:grid-cols-12 flex flex-col">
+        <div className="mb-2 p-6 pb-20 md:col-span-6 md:mb-0 xl:col-span-4 flex h-full flex-1 flex-col bg-card">
+          <h2 className="text-2xl font-medium md:block relative z-10 hidden">
             Reserve Holdings
           </h2>
           <ReserveChart
             data={chartData}
             centerText={centerChartText}
             activeSegment={active}
-            className="my-auto h-[288px] justify-center self-center lg:h-[320px] xl:h-[360px] 2xl:h-[480px] min-[2500px]:!h-[640px]"
+            className="lg:h-[320px] xl:h-[360px] 2xl:h-[480px] my-auto h-[288px] justify-center self-center min-[2500px]:!h-[640px]"
             onActiveChanged={(name) => {
               setActive(name);
             }}
           />
         </div>
-        <div className="flex flex-wrap gap-2 md:col-span-6 xl:col-span-8">
+        <div className="gap-2 md:col-span-6 xl:col-span-8 flex flex-wrap">
           {(() => {
             const celoDetails = reserveHoldings.celo.unfrozen;
             const celoComp = reserveComposition.find(
@@ -98,14 +98,14 @@ export function ReserveHoldingsContent({
               <>
                 <div
                   key={`${celoDetails.symbol}-unfrozen`}
-                  className={`${celoDetails.symbol === active ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} grid w-full grid-cols-2 gap-4 border-l-4 p-4 xl:grid-cols-12`}
+                  className={`${celoDetails.symbol === active ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} gap-4 p-4 xl:grid-cols-12 grid w-full grid-cols-2 border-l-4`}
                   style={{
                     borderLeftColor: getTokenColor(celoDetails.symbol),
                   }}
                   onMouseEnter={() => setActive(celoDetails.symbol)}
                   onMouseLeave={() => setActive(undefined)}
                 >
-                  <div className="col-span-2 flex flex-row items-center justify-start gap-4 text-xl font-medium xl:col-span-3">
+                  <div className="gap-4 text-xl font-medium xl:col-span-3 col-span-2 flex flex-row items-center justify-start">
                     <Image
                       src={celoIcon}
                       alt={celoDetails.symbol}
@@ -115,19 +115,19 @@ export function ReserveHoldingsContent({
                     />
                     {celoDetails.symbol}
                   </div>
-                  <div className="col-span-1 flex flex-row items-center justify-start gap-2 text-sm text-white xl:col-span-4">
+                  <div className="gap-2 text-sm text-white xl:col-span-4 col-span-1 flex flex-row items-center justify-start">
                     {celoDetails.units.toLocaleString(undefined, {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
                     })}
                   </div>
-                  <div className="text-muted-foreground col-span-1 flex flex-row items-center justify-start gap-2 text-sm xl:col-span-3">
+                  <div className="gap-2 text-sm xl:col-span-3 col-span-1 flex flex-row items-center justify-start text-muted-foreground">
                     {celoDetails.value.toLocaleString("en-US", {
                       style: "currency",
                       currency: "USD",
                     })}
                   </div>
-                  <div className="text-muted-foreground col-span-2 flex flex-row items-center justify-start gap-2 text-sm lg:justify-end lg:pr-4 xl:col-span-2">
+                  <div className="gap-2 text-sm lg:justify-end lg:pr-4 xl:col-span-2 col-span-2 flex flex-row items-center justify-start text-muted-foreground">
                     {celoComp && <>{celoComp.percent.toFixed(2)}%</>}
                   </div>
                 </div>
@@ -145,14 +145,14 @@ export function ReserveHoldingsContent({
             return (
               <div
                 key={asset.symbol}
-                className={`${asset.symbol === active ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} grid w-full grid-cols-2 gap-4 border-l-4 p-4 xl:grid-cols-12`}
+                className={`${asset.symbol === active ? "bg-accent hover:bg-accent" : "bg-card hover:bg-accent"} gap-4 p-4 xl:grid-cols-12 grid w-full grid-cols-2 border-l-4`}
                 style={{
                   borderLeftColor: getTokenColor(asset.symbol),
                 }}
                 onMouseEnter={() => setActive(asset.symbol)}
                 onMouseLeave={() => setActive(undefined)}
               >
-                <div className="col-span-2 flex flex-row items-center justify-start gap-4 text-xl font-medium xl:col-span-3">
+                <div className="gap-4 text-xl font-medium xl:col-span-3 col-span-2 flex flex-row items-center justify-start">
                   <Image
                     src={iconPath}
                     alt={asset.symbol}
@@ -165,19 +165,19 @@ export function ReserveHoldingsContent({
                   />
                   {asset.symbol}
                 </div>
-                <div className="col-span-1 flex flex-row items-center justify-start gap-2 text-sm text-white xl:col-span-4">
+                <div className="gap-2 text-sm text-white xl:col-span-4 col-span-1 flex flex-row items-center justify-start">
                   {asset.units.toLocaleString(undefined, {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
                   })}
                 </div>
-                <div className="text-muted-foreground col-span-1 flex flex-row items-center justify-start gap-2 text-sm xl:col-span-3">
+                <div className="gap-2 text-sm xl:col-span-3 col-span-1 flex flex-row items-center justify-start text-muted-foreground">
                   {asset.value.toLocaleString("en-US", {
                     style: "currency",
                     currency: "USD",
                   })}
                 </div>
-                <div className="text-muted-foreground col-span-2 flex flex-row items-center justify-start gap-2 text-sm lg:justify-end lg:pr-4 xl:col-span-2">
+                <div className="gap-2 text-sm lg:justify-end lg:pr-4 xl:col-span-2 col-span-2 flex flex-row items-center justify-start text-muted-foreground">
                   {assetComp && <>{assetComp.percent.toFixed(2)}%</>}
                 </div>
               </div>

@@ -16,6 +16,24 @@ interface ToolbarProviderProps {
 }
 
 export const ToolbarProvider = ({ editor, children }: ToolbarProviderProps) => {
+  // Force re-render when editor selection/transaction changes
+  const [, forceUpdate] = React.useReducer((x: number) => x + 1, 0);
+
+  React.useEffect(() => {
+    if (!editor) return;
+
+    // Subscribe to editor updates to force toolbar re-renders
+    const handleUpdate = () => forceUpdate();
+
+    editor.on("selectionUpdate", handleUpdate);
+    editor.on("transaction", handleUpdate);
+
+    return () => {
+      editor.off("selectionUpdate", handleUpdate);
+      editor.off("transaction", handleUpdate);
+    };
+  }, [editor]);
+
   const executeWithFocus = React.useCallback(
     (command: () => void) => {
       command();

@@ -57,12 +57,12 @@ export const ProposalStats = () => {
   return (
     <section className="xl:px-22 max-w-2xl px-4 md:p-20">
       <h1 className="text-4xl font-medium md:text-6xl">Mento Governance</h1>
-      <p className="text-muted-foreground mt-2 max-w-[440px]">
+      <p className="mt-2 max-w-[440px] text-muted-foreground">
         Participate in the governance process of the Mento Platform.
       </p>
       <div className="mb-8 mt-8 lg:mb-16 lg:mt-16 xl:mb-0">
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground flex flex-row items-center justify-start gap-2">
+          <span className="gap-2 flex flex-row items-center justify-start text-muted-foreground">
             Total Proposals
             <Tooltip>
               <TooltipTrigger>
@@ -78,9 +78,9 @@ export const ProposalStats = () => {
           </span>
           <span className="leading-0 text-lg">{proposalCount}</span>
         </div>
-        <hr className="my-3 border-[var(--border)] lg:my-4" />
+        <hr className="my-3 lg:my-4 border-[var(--border)]" />
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground flex flex-row items-center justify-start gap-2">
+          <span className="gap-2 flex flex-row items-center justify-start text-muted-foreground">
             Active Proposals
             <Tooltip>
               <TooltipTrigger>
@@ -96,9 +96,9 @@ export const ProposalStats = () => {
           </span>
           <span className="leading-0 text-lg">{activeProposalCount}</span>
         </div>
-        <hr className="my-3 border-[var(--border)] lg:my-4" />
+        <hr className="my-3 lg:my-4 border-[var(--border)]" />
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground flex flex-row items-center justify-start gap-2">
+          <span className="gap-2 flex flex-row items-center justify-start text-muted-foreground">
             Voters
             <Tooltip>
               <TooltipTrigger>
@@ -114,9 +114,9 @@ export const ProposalStats = () => {
           </span>
           <span className="leading-0 text-lg">{activeVoters}</span>
         </div>
-        <hr className="my-3 border-[var(--border)] lg:my-4" />
+        <hr className="my-3 lg:my-4 border-[var(--border)]" />
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground flex flex-row items-center justify-start gap-2">
+          <span className="gap-2 flex flex-row items-center justify-start text-muted-foreground">
             Total veMento Voting Power
             <Tooltip>
               <TooltipTrigger>

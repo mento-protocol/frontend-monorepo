@@ -59,7 +59,7 @@ export function ReserveTabs({
     <Tabs
       value={activeTab}
       onValueChange={handleTabChange}
-      className="mb-8 w-full gap-0"
+      className="mb-8 gap-0 w-full"
     >
       <TabsList>
         <TabsTrigger value={TabType.stablecoinSupply}>
@@ -75,9 +75,9 @@ export function ReserveTabs({
 
       <TabsContent
         value={TabType.stablecoinSupply}
-        className="relative before:absolute before:left-1/2 before:top-0 before:z-0 before:h-20 before:w-screen before:-translate-x-1/2 before:bg-gradient-to-b before:from-[#15111B] before:to-[#070010]"
+        className="before:top-0 before:h-20 relative before:absolute before:left-1/2 before:z-0 before:w-screen before:-translate-x-1/2 before:bg-gradient-to-b before:from-[#15111B] before:to-[#070010]"
       >
-        <h2 className="relative z-10 my-6 hidden text-2xl font-medium md:mb-8 md:mt-12 md:block">
+        <h2 className="my-6 text-2xl font-medium md:mb-8 md:mt-12 md:block relative z-10 hidden">
           Stablecoin Supply
         </h2>
         <div className="relative z-10">
@@ -87,7 +87,7 @@ export function ReserveTabs({
 
       <TabsContent
         value={TabType.reserveHoldings}
-        className="relative before:absolute before:left-1/2 before:top-0 before:z-0 before:h-20 before:w-screen before:-translate-x-1/2 before:bg-gradient-to-b before:from-[#15111B] before:to-[#070010]"
+        className="before:top-0 before:h-20 relative before:absolute before:left-1/2 before:z-0 before:w-screen before:-translate-x-1/2 before:bg-gradient-to-b before:from-[#15111B] before:to-[#070010]"
       >
         <div className="relative z-10">
           <ReserveHoldingsContent
@@ -99,9 +99,9 @@ export function ReserveTabs({
 
       <TabsContent
         value={TabType.reserveAddresses}
-        className="relative before:absolute before:left-1/2 before:top-0 before:z-0 before:h-20 before:w-screen before:-translate-x-1/2 before:bg-gradient-to-b before:from-[#15111B] before:to-[#070010]"
+        className="before:top-0 before:h-20 relative before:absolute before:left-1/2 before:z-0 before:w-screen before:-translate-x-1/2 before:bg-gradient-to-b before:from-[#15111B] before:to-[#070010]"
       >
-        <h2 className="relative z-10 my-6 hidden text-2xl font-medium md:mb-8 md:mt-12 md:block">
+        <h2 className="my-6 text-2xl font-medium md:mb-8 md:mt-12 md:block relative z-10 hidden">
           Reserve Addresses
         </h2>
         <div className="relative z-10">

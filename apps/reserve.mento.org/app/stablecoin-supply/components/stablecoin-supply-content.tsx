@@ -29,7 +29,7 @@ export function StablecoinSupplyContent({
   stableCoinStats,
 }: StablecoinSupplyContentProps) {
   return (
-    <div className="flex h-full flex-wrap gap-2 md:gap-4">
+    <div className="gap-2 md:gap-4 flex h-full flex-wrap">
       {stableCoinStats.tokens.map((token) => (
         <CoinCard key={token.symbol}>
           <CoinCardHeader className="justify-between">

@@ -2,47 +2,44 @@ packages:
   - apps/*
   - packages/*
 
+catalog:
+  "@eslint/js": ^9.39.2
+  "@mento-protocol/mento-sdk": ^1.19.0
+  "@metamask/jazzicon": github:jmrossy/jazzicon#7a8df28
+  "@rainbow-me/rainbowkit": ^2.2.10
+  "@sentry/nextjs": ^10.32.1
+  "@t3-oss/env-nextjs": ^0.13.10
+  "@tailwindcss/postcss": ^4.1.18
+  "@tanstack/react-query": ^5.90.16
+  "@types/node": ^25.0.3
+  "@types/react": ^19.2.7
+  "@types/react-dom": ^19.2.3
+  "@vercel/analytics": ^1.6.1
+  concurrently: ^9.2.1
+  esbuild-plugin-preserve-directives: ^0.0.11
+  eslint: ^9.39.2
+  eslint-config-prettier: ^10.1.8
+  ethers: ^5.7.2
+  jotai: ^2.16.1
+  lucide-react: ^0.562.0
+  next: ^16.1.1
+  next-themes: ^0.4.6
+  pino-pretty: ^13.1.3
+  postcss: ^8.5.6
+  react: ^19.2.3
+  react-dom: ^19.2.3
+  react-hook-form: ^7.70.0
+  sonner: ^2.0.7
+  tailwindcss: ^4.1.18
+  tsup: ^8.5.1
+  typescript: ^5.9.3
+  typescript-eslint: ^8.52.0
+  viem: ^2.44.0
+  wagmi: ^2.16.9
+  zod: ^4.3.5
+
 onlyBuiltDependencies:
   - "@parcel/watcher"
   - core-js-pure
   - esbuild
   - sharp
-
-catalog:
-  # FE
-  "react": ^19.1.0
-  "react-dom": ^19.1.0
-  "next": ^15.5.9
-  "@rainbow-me/rainbowkit": ^2.2.8
-  "@types/react": ^19.1.2
-  "@types/react-dom": ^19.1.2
-  "@vercel/analytics": ^1.5.0
-  "lucide-react": ^0.488.0
-  "next-themes": ^0.4.6
-  "sonner": ^2.0.3
-  "tailwindcss": ^4.1.14
-  "@tailwindcss/postcss": ^4.1.5
-  "jotai": ^2.12.5
-  "@t3-oss/env-nextjs": ^0.13.8
-  "@sentry/nextjs": ^10.27.0
-  "react-hook-form": ^7.59.0
-  "@metamask/jazzicon": https://github.com/jmrossy/jazzicon#7a8df28
-  "tsup": ^8.5.0
-  # BE
-  "@mento-protocol/mento-sdk": ^1.19.0
-  "pino-pretty": ^13.1.2
-  # Shared
-  "typescript": ^5.8.3
-  "@tanstack/react-query": ^5.83.0
-  "@types/node": ^22.14.1
-  "concurrently": ^9.1.2
-  "eslint": ^9.31.0
-  "@eslint/js": ^9.32.0
-  "esbuild-plugin-preserve-directives": ^0.0.11
-  "eslint-config-prettier": ^10.1.2
-  "typescript-eslint": ^8.38.0
-  "postcss": ^8.5.3
-  "zod": ^4.1.13
-  "ethers": ^5.8.0
-  "wagmi": ^2.16.9
-  "viem": ^2.37.11

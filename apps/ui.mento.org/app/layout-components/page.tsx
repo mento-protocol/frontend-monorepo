@@ -25,13 +25,13 @@ export default function LayoutComponentsPage() {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <div className="flex w-full flex-col gap-8 p-6">
+    <div className="gap-8 p-6 flex w-full flex-col">
       <div className="space-y-2">
-        <h1 className="text-3xl font-bold">Layout Components</h1>
+        <h1 className="font-bold text-3xl">Layout Components</h1>
         <p className="text-muted-foreground">Organize and structure content</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="gap-6 lg:grid-cols-2 grid grid-cols-1">
         {/* Tabs */}
         <Card>
           <CardHeader>
@@ -96,7 +96,7 @@ export default function LayoutComponentsPage() {
                   <span className="text-xs">{isOpen ? "Hide" : "Show"}</span>
                 </Button>
               </CollapsibleTrigger>
-              <CollapsibleContent className="mt-4 rounded border p-4">
+              <CollapsibleContent className="mt-4 rounded p-4 border">
                 <p>This content can be collapsed and expanded.</p>
               </CollapsibleContent>
             </Collapsible>

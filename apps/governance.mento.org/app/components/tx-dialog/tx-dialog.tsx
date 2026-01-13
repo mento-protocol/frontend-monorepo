@@ -47,11 +47,11 @@ export const TxDialog = ({
         <DialogHeader>
           <DialogTitle className="text-center">{title}</DialogTitle>
         </DialogHeader>
-        <div className="text-muted-foreground mt-2 text-center text-sm">
+        <div className="mt-2 text-sm text-center text-muted-foreground">
           {error ? <ErrorMessage /> : <PendingMessage message={message} />}
         </div>
         {error && (
-          <div className="mt-4 flex flex-row justify-center gap-2">
+          <div className="mt-4 gap-2 flex flex-row justify-center">
             <Button variant="outline" onClick={onClose}>
               Back
             </Button>
@@ -71,7 +71,7 @@ const PendingMessage = ({ message }: { message: React.ReactNode }) => {
   return (
     <>
       {message}
-      <IconLoading className="mx-auto my-8" />
+      <IconLoading className="my-8 mx-auto" />
     </>
   );
 };

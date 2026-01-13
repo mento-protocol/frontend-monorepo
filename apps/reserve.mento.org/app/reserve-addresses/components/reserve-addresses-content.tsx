@@ -82,8 +82,8 @@ export function ReserveAddressesContent({
   };
 
   return (
-    <div className="flex h-full flex-col gap-4 md:gap-8">
-      <div className="flex flex-col gap-2">
+    <div className="gap-4 md:gap-8 flex h-full flex-col">
+      <div className="gap-2 flex flex-col">
         <AddressSection
           groups={reserveAddresses.addresses.filter(
             (group) => group.category === "Mento Reserve",

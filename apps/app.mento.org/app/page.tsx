@@ -38,16 +38,16 @@ export default function SwapPage() {
           offset={{ top: "80px" }}
           mobileOffset={{ top: "96px" }}
         />
-        <div className="relative mb-6 w-full max-w-[568px]">
-          <div className="top-decorations before:bg-primary after:bg-card after:-top-15 hidden before:absolute before:-left-5 before:-top-5 before:block before:h-5 before:w-5 after:absolute after:left-0 after:block after:h-10 after:w-10 md:block"></div>
+        <div className="mb-6 relative w-full max-w-[568px]">
+          <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
           <div
             className={cn(
-              "bg-card relative z-50 flex flex-col space-y-6 p-6 md:h-[510px]",
+              "space-y-6 p-6 md:h-[510px] relative z-50 flex flex-col bg-card",
               confirmView ? "h-[calc(100vh-160px)]" : "h-[510px]",
             )}
           >
-            <div className="flex flex-row items-center justify-between gap-6">
-              <h2 className="flex items-center gap-2 font-medium md:text-2xl">
+            <div className="gap-6 flex flex-row items-center justify-between">
+              <h2 className="gap-2 font-medium md:text-2xl flex items-center">
                 {confirmView ? (
                   <Button
                     data-testid="backButton"
@@ -67,13 +67,13 @@ export default function SwapPage() {
           </div>
           <div
             className={cn(
-              "fixed inset-0 z-40 backdrop-blur-lg transition-all duration-300",
+              "inset-0 backdrop-blur-lg fixed z-40 transition-all duration-300",
               confirmView
-                ? "pointer-events-auto bg-black/50 opacity-100"
+                ? "bg-black/50 pointer-events-auto opacity-100"
                 : "pointer-events-none bg-transparent opacity-0",
             )}
           />
-          <div className="bottom-decorations before:bg-card after:bg-card after:-bottom-15 hidden before:absolute before:-bottom-5 before:-right-5 before:block before:h-5 before:w-5 before:invert after:absolute after:right-0 after:block after:h-10 after:w-10 md:block"></div>
+          <div className="bottom-decorations after:-bottom-15 before:-bottom-5 before:-right-5 before:h-5 before:w-5 after:right-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-card before:invert after:absolute after:block after:bg-card"></div>
         </div>
       </div>
     </>

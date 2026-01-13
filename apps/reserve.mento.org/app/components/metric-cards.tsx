@@ -14,9 +14,9 @@ export function MetricCards({ reserveStats }: MetricCardsProps) {
   return (
     <div className="mb-8 mt-8 lg:mb-16 lg:mt-16 xl:mb-0">
       <div className="flex items-center justify-between">
-        <span className="text-muted-foreground flex flex-row items-center justify-start gap-2">
+        <span className="gap-2 flex flex-row items-center justify-start text-muted-foreground">
           <Popover>
-            <PopoverTrigger className="flex flex-row items-center justify-start gap-2">
+            <PopoverTrigger className="gap-2 flex flex-row items-center justify-start">
               Total Supply
               <IconInfo />
             </PopoverTrigger>
@@ -35,11 +35,11 @@ export function MetricCards({ reserveStats }: MetricCardsProps) {
           })}
         </span>
       </div>
-      <hr className="my-3 border-[var(--border)] lg:my-4" />
+      <hr className="my-3 lg:my-4 border-[var(--border)]" />
       <div className="flex items-center justify-between">
-        <span className="text-muted-foreground flex flex-row items-center justify-start gap-2">
+        <span className="gap-2 flex flex-row items-center justify-start text-muted-foreground">
           <Popover>
-            <PopoverTrigger className="flex flex-row items-center justify-start gap-2">
+            <PopoverTrigger className="gap-2 flex flex-row items-center justify-start">
               Reserve Holdings
               <IconInfo />
             </PopoverTrigger>
@@ -59,11 +59,11 @@ export function MetricCards({ reserveStats }: MetricCardsProps) {
           })}
         </span>
       </div>
-      <hr className="my-3 border-[var(--border)] lg:my-4" />
+      <hr className="my-3 lg:my-4 border-[var(--border)]" />
       <div className="flex items-center justify-between">
-        <span className="text-muted-foreground flex flex-row items-center justify-start gap-2">
+        <span className="gap-2 flex flex-row items-center justify-start text-muted-foreground">
           <Popover>
-            <PopoverTrigger className="flex flex-row items-center justify-start gap-2">
+            <PopoverTrigger className="gap-2 flex flex-row items-center justify-start">
               Collateralization ratio
               <IconInfo />
             </PopoverTrigger>

@@ -29,7 +29,7 @@ interface ParticipantsProps {
 
 export const Participants = ({ proposal }: ParticipantsProps) => {
   return (
-    <Card className="bord max-h-[420px] w-full gap-3 overflow-hidden border-none">
+    <Card className="bord gap-3 max-h-[420px] w-full overflow-hidden border-none">
       <CardHeader>
         <CardTitle className="text-2xl">Participants</CardTitle>
       </CardHeader>

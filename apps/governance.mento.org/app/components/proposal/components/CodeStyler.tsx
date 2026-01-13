@@ -32,7 +32,7 @@ export function CodeStyler({
     elements.push(
       <code
         key={`code-${baseKey}-${keyCounter++}`}
-        className="bg-muted rounded px-1 py-0.5 font-mono text-sm"
+        className="rounded px-1 py-0.5 font-mono text-sm bg-muted"
       >
         {match[0]}
       </code>,

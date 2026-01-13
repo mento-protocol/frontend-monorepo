@@ -136,9 +136,9 @@ export const ProposalList = () => {
           </Link>
         )}
       </ProposalCardHeader>
-      <ProposalCardBody className="relative flex min-h-40 flex-col">
+      <ProposalCardBody className="min-h-40 relative flex flex-col">
         {paginatedProposals.length === 0 && isLoading ? (
-          <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-4">
+          <div className="gap-4 absolute top-1/2 left-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center">
             <IconLoading />
           </div>
         ) : (
@@ -189,22 +189,22 @@ export const ProposalList = () => {
                       {metadata.title}
                     </h3>
                   </Link>
-                  <div className="w-full xl:ml-auto xl:max-w-[192px]">
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-sm leading-5 xl:h-8 xl:text-sm">
-                        <span className="block h-1 w-1 bg-[var(--approved)]"></span>
+                  <div className="xl:ml-auto xl:max-w-[192px] w-full">
+                    <div className="gap-2 grid grid-cols-3">
+                      <div className="gap-2 py-1 text-sm leading-5 xl:h-8 xl:text-sm flex flex-row items-center justify-center bg-[var(--dark-background)]">
+                        <span className="h-1 w-1 block bg-[var(--approved)]"></span>
                         {NumbersService.parseNumericValue(
                           Number(formatUnits(votes.for.total, 18)),
                         )}
                       </div>
-                      <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-sm leading-5 xl:h-8 xl:text-sm">
-                        <span className="block h-1 w-1 bg-[var(--rejected)]"></span>
+                      <div className="gap-2 py-1 text-sm leading-5 xl:h-8 xl:text-sm flex flex-row items-center justify-center bg-[var(--dark-background)]">
+                        <span className="h-1 w-1 block bg-[var(--rejected)]"></span>
                         {NumbersService.parseNumericValue(
                           Number(formatUnits(votes.against.total, 18)),
                         )}
                       </div>
-                      <div className="flex flex-row items-center justify-center gap-2 bg-[var(--dark-background)] py-1 text-sm leading-5 xl:h-8 xl:text-sm">
-                        <span className="block h-1 w-1 bg-[var(--abstained)]"></span>
+                      <div className="gap-2 py-1 text-sm leading-5 xl:h-8 xl:text-sm flex flex-row items-center justify-center bg-[var(--dark-background)]">
+                        <span className="h-1 w-1 block bg-[var(--abstained)]"></span>
                         {NumbersService.parseNumericValue(
                           Number(formatUnits(votes.abstain.total, 18)),
                         )}
@@ -235,7 +235,7 @@ export const ProposalList = () => {
                 if (pageNumber === DOTS) {
                   return (
                     <PaginationItem key={`${pageNumber}-${index}`}>
-                      <span className="flex h-10 w-10 items-center justify-center">
+                      <span className="h-10 w-10 flex items-center justify-center">
                         ...
                       </span>
                     </PaginationItem>

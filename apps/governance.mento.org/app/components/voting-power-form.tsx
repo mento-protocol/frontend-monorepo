@@ -154,8 +154,8 @@ export default function VotingPowerForm() {
           refetchLockedAmount();
         }}
       >
-        <div className="flex flex-col gap-8 md:gap-20 lg:flex-row">
-          <Card className="border-border w-full lg:min-w-[420px] xl:max-w-[60%]">
+        <div className="gap-8 md:gap-20 lg:flex-row flex flex-col">
+          <Card className="lg:min-w-[420px] xl:max-w-[60%] w-full border-border">
             <CardHeader className="text-2xl font-medium">Lock MENTO</CardHeader>
             <CardContent>
               <LockFormFields
@@ -171,7 +171,7 @@ export default function VotingPowerForm() {
                   setIsCalculating(isCalculating);
                 }}
               />
-              <div className="mb-2 mt-8 flex justify-between text-sm">
+              <div className="mb-2 mt-8 text-sm flex justify-between">
                 <span className="text-muted-foreground">
                   You receive veMENTO
                 </span>
@@ -185,7 +185,7 @@ export default function VotingPowerForm() {
             </CardFooter>
           </Card>
 
-          <Card className="border-border w-full md:h-[480px] md:min-w-[494px] xl:max-w-[40%]">
+          <Card className="md:h-[480px] md:min-w-[494px] xl:max-w-[40%] w-full border-border">
             <CardHeader className="text-2xl font-medium">
               Locks Summary
             </CardHeader>
@@ -198,7 +198,7 @@ export default function VotingPowerForm() {
                 {isLoading && <IconLoading />}
 
                 {!isLoading && (
-                  <div className="flex flex-col gap-4">
+                  <div className="gap-4 flex flex-col">
                     {/* Locked MENTO */}
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">
@@ -227,7 +227,7 @@ export default function VotingPowerForm() {
                     {summary.delegatedOutVe > 0 && (
                       <>
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
+                          <div className="gap-2 flex items-center">
                             <span className="text-muted-foreground">
                               Delegated veMENTO
                             </span>
@@ -244,7 +244,7 @@ export default function VotingPowerForm() {
                     {summary.receivedVe > 0 && (
                       <>
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
+                          <div className="gap-2 flex items-center">
                             <span className="text-muted-foreground">
                               Received veMENTO
                             </span>
@@ -284,9 +284,9 @@ export default function VotingPowerForm() {
                   </div>
                 )}
               </CardContent>
-              <CardFooter className="mt-auto flex flex-col gap-4">
+              <CardFooter className="gap-4 mt-auto flex flex-col">
                 {!isLoading && hasNoLocks && (
-                  <div className="flex w-full flex-col justify-end gap-4">
+                  <div className="gap-4 flex w-full flex-col justify-end">
                     <Button
                       type="button"
                       onClick={() => lockFormRef.current?.focusAmountInput()}

@@ -30,15 +30,15 @@ export default function FormComponentsPage() {
   const [date, setDate] = useState<Date | undefined>(new Date());
 
   return (
-    <div className="flex w-full flex-col gap-8 p-6">
+    <div className="gap-8 p-6 flex w-full flex-col">
       <div className="space-y-2">
-        <h1 className="text-3xl font-bold">Form Components</h1>
+        <h1 className="font-bold text-3xl">Form Components</h1>
         <p className="text-muted-foreground">
           Input controls and form elements
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+      <div className="gap-6 md:grid-cols-2 lg:grid-cols-3 grid grid-cols-1">
         {/* Input & Textarea */}
         <Card>
           <CardHeader>
@@ -64,7 +64,7 @@ export default function FormComponentsPage() {
             <CardDescription>Checkboxes and radio buttons</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center space-x-2">
+            <div className="space-x-2 flex items-center">
               <Checkbox
                 id="checkbox-demo"
                 checked={checkboxChecked}
@@ -76,11 +76,11 @@ export default function FormComponentsPage() {
             </div>
 
             <RadioGroup value={radioValue} onValueChange={setRadioValue}>
-              <div className="flex items-center space-x-2">
+              <div className="space-x-2 flex items-center">
                 <RadioGroupItem value="option1" id="r1" />
                 <Label htmlFor="r1">Option 1</Label>
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="space-x-2 flex items-center">
                 <RadioGroupItem value="option2" id="r2" />
                 <Label htmlFor="r2">Option 2</Label>
               </div>

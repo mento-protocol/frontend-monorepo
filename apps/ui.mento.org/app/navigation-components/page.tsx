@@ -21,15 +21,15 @@ import {
 
 export default function NavigationComponentsPage() {
   return (
-    <div className="flex w-full flex-col gap-8 p-6">
+    <div className="gap-8 p-6 flex w-full flex-col">
       <div className="space-y-2">
-        <h1 className="text-3xl font-bold">Navigation Components</h1>
+        <h1 className="font-bold text-3xl">Navigation Components</h1>
         <p className="text-muted-foreground">
           Navigation and wayfinding elements
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="gap-6 lg:grid-cols-2 grid grid-cols-1">
         {/* Breadcrumb */}
         <Card>
           <CardHeader>

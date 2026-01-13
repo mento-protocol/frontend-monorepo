@@ -754,7 +754,7 @@ export const VoteCard = ({
         // Show disabled buttons for finished proposals
         if (hasVoted) {
           return (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="gap-4 md:grid-cols-3 grid grid-cols-1">
               {isVotedForApprove && (
                 <Button
                   variant="approve"
@@ -815,7 +815,7 @@ export const VoteCard = ({
         }
         if (canExecute) {
           return (
-            <div className="flex flex-col gap-4">
+            <div className="gap-4 flex flex-col">
               <Button
                 variant="default"
                 size="lg"
@@ -848,7 +848,7 @@ export const VoteCard = ({
         }
         // Show disabled button during veto period or cancel button for watchdog
         return (
-          <div className="flex flex-col gap-4">
+          <div className="gap-4 flex flex-col">
             <Button
               variant="default"
               size="lg"
@@ -908,7 +908,7 @@ export const VoteCard = ({
           );
         }
         return (
-          <div className="flex flex-col gap-4">
+          <div className="gap-4 flex flex-col">
             <Button
               variant="default"
               size="lg"
@@ -963,7 +963,7 @@ export const VoteCard = ({
         // Show disabled buttons for pending proposals
         return (
           <>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="gap-4 md:grid-cols-3 grid grid-cols-1">
               <Button variant="approve" size="lg" disabled>
                 Voting Not Started
               </Button>
@@ -1011,7 +1011,7 @@ export const VoteCard = ({
         }
         return (
           <>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="gap-4 md:grid-cols-3 grid grid-cols-1">
               <Button
                 variant="approve"
                 size="lg"
@@ -1115,7 +1115,7 @@ export const VoteCard = ({
 
     if (loadingStates.includes(currentState)) {
       return (
-        <div className="flex flex-col items-center gap-4">
+        <div className="gap-4 flex flex-col items-center">
           <IconLoading />
           <p
             className="text-muted-foreground"
@@ -1129,7 +1129,7 @@ export const VoteCard = ({
             !isAwaitingExecuteSignature &&
             !isAwaitingQueueSignature && (
               <p
-                className="text-muted-foreground text-sm"
+                className="text-sm text-muted-foreground"
                 data-testid="waitingForConfirmationDescriptionLabel"
               >
                 You are voting{" "}
@@ -1143,7 +1143,7 @@ export const VoteCard = ({
             )}
           {currentState === "signing" && isAwaitingExecuteSignature && (
             <p
-              className="text-muted-foreground text-sm"
+              className="text-sm text-muted-foreground"
               data-testid="waitingForExecutionDescriptionLabel"
             >
               You are executing this proposal
@@ -1151,7 +1151,7 @@ export const VoteCard = ({
           )}
           {currentState === "signing" && isAwaitingQueueSignature && (
             <p
-              className="text-muted-foreground text-sm"
+              className="text-sm text-muted-foreground"
               data-testid="waitingForQueueDescriptionLabel"
             >
               You are queueing this proposal for execution
@@ -1185,11 +1185,11 @@ export const VoteCard = ({
   return (
     <Card className={cardClassName}>
       {showHeader && (
-        <CardHeader className="bg-incard mb-0 flex flex-col items-start justify-between gap-2 p-4 md:flex-row md:items-center xl:px-8 xl:py-6">
-          <div className="flex flex-col gap-2 text-sm md:flex-row md:items-center md:gap-8">
+        <CardHeader className="mb-0 gap-2 p-4 md:flex-row md:items-center xl:px-8 xl:py-6 flex flex-col items-start justify-between bg-incard">
+          <div className="gap-2 text-sm md:flex-row md:items-center md:gap-8 flex flex-col">
             {isCanceled && proposal.proposalCanceled?.[0] ? (
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1">
+              <div className="gap-2 flex items-center">
+                <div className="gap-1 flex items-center">
                   <XCircleIcon size={16} />
                   <span>Cancelled:</span>
                 </div>
@@ -1219,7 +1219,7 @@ export const VoteCard = ({
               <Timer until={votingDeadline} />
             ) : null}
 
-            <div className="flex items-center gap-2">
+            <div className="gap-2 flex items-center">
               {!hasQuorum ? (
                 <XCircleIcon size={16} className="text-white" />
               ) : (
@@ -1227,7 +1227,7 @@ export const VoteCard = ({
               )}
               <span>{quorumLabel}</span>
               <span
-                className="text-muted-foreground text-sm"
+                className="text-sm text-muted-foreground"
                 data-testid="quorumReachedLabel"
               >
                 Min. {quorumNeededFormatted} veMENTO
@@ -1236,7 +1236,7 @@ export const VoteCard = ({
           </div>
 
           {!hasVoted && currentState === "ready" && isConnected && (
-            <div className="flex items-center gap-2 text-sm">
+            <div className="gap-2 text-sm flex items-center">
               <span>Your Voting Power:</span>
               <span className="text-muted-foreground">
                 {formattedVeMentoBalance} veMENTO
@@ -1245,7 +1245,7 @@ export const VoteCard = ({
           )}
 
           {hasVoted && currentState !== "ready" && isConnected && (
-            <div className="flex items-center gap-2 text-sm">
+            <div className="gap-2 text-sm flex items-center">
               <span>Total Votes:</span>
               <span
                 className="text-muted-foreground"
@@ -1261,7 +1261,7 @@ export const VoteCard = ({
       <CardContent
         className={
           ["loading", "signing", "confirming"].includes(currentState)
-            ? "flex items-center justify-center py-16"
+            ? "py-16 flex items-center justify-center"
             : "space-y-8 p-4 xl:p-8"
         }
       >
@@ -1271,7 +1271,7 @@ export const VoteCard = ({
           <>
             <div className="space-y-4">
               <CardTitle
-                className="flex items-center gap-2 text-3xl font-medium text-white"
+                className="gap-2 font-medium text-white flex items-center text-3xl"
                 data-testid="voteStatus"
               >
                 {isApproved && <CircleCheck size={32} />}
@@ -1281,7 +1281,7 @@ export const VoteCard = ({
               </CardTitle>
 
               {description && (
-                <CardDescription className="text-muted-foreground space-y-1 text-lg">
+                <CardDescription className="space-y-1 text-lg text-muted-foreground">
                   {description}
                 </CardDescription>
               )}
@@ -1294,7 +1294,7 @@ export const VoteCard = ({
             <div
               className={
                 currentState === "insufficient-mento"
-                  ? "mt-8 flex flex-col gap-4"
+                  ? "mt-8 gap-4 flex flex-col"
                   : "mt-8"
               }
             >
@@ -1305,7 +1305,7 @@ export const VoteCard = ({
               (currentState === "ready" ||
                 currentState === "succeeded" ||
                 currentState === "queued") && (
-                <div className="flex w-full flex-col items-center justify-center gap-1 text-sm text-red-500">
+                <div className="gap-1 text-sm text-red-500 flex w-full flex-col items-center justify-center">
                   {(
                     error?.message ||
                     executeError?.message ||

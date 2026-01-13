@@ -121,14 +121,14 @@ export default function TokenDialog({
       >
         <DialogHeader>
           <DialogClose>
-            <DialogTitle className="flex items-center gap-2 text-lg font-normal">
+            <DialogTitle className="gap-2 text-lg font-normal flex items-center">
               <ChevronLeft />
               {title}
             </DialogTitle>
           </DialogClose>
         </DialogHeader>
         <div className="relative">
-          <Search className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+          <Search className="left-3 h-4 w-4 absolute top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
             name="search"
             autoFocus
@@ -141,13 +141,13 @@ export default function TokenDialog({
 
         {isLoadingTradablePairs && filterByTokenSymbol ? (
           <div
-            className="flex items-center justify-center py-8"
+            className="py-8 flex items-center justify-center"
             data-testid="loader"
           >
             <IconLoading />
           </div>
         ) : (
-          <ScrollArea className="h-[calc(100vh-20rem)] pr-3">
+          <ScrollArea className="pr-3 h-[calc(100vh-20rem)]">
             {filteredTokens.map((token, index) => (
               <Fragment key={token.symbol}>
                 {!token.isValidPair ? (
@@ -156,7 +156,7 @@ export default function TokenDialog({
                       <TooltipTrigger asChild>
                         <div
                           className={cn(
-                            "hover:bg-accent group flex w-full items-center justify-between p-2 text-left opacity-50 hover:cursor-pointer",
+                            "group p-2 flex w-full items-center justify-between text-left opacity-50 hover:cursor-pointer hover:bg-accent",
                             value === token.symbol && "bg-accent",
                           )}
                           data-testid={`tokenOption_${token.symbol}_invalid`}
@@ -169,8 +169,8 @@ export default function TokenDialog({
                             }
                           }}
                         >
-                          <div className="flex items-center gap-2">
-                            <div className="group relative grid h-10 w-10 place-content-center">
+                          <div className="gap-2 flex items-center">
+                            <div className="group h-10 w-10 relative grid place-content-center">
                               <TokenIcon
                                 token={{
                                   address: token.address,
@@ -178,21 +178,21 @@ export default function TokenDialog({
                                   name: token.name,
                                   decimals: token.decimals || 18,
                                 }}
-                                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 group-hover:opacity-0"
+                                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 group-hover:opacity-0"
                                 size={24}
                               />
-                              <div className="bg-primary text-primary-foreground absolute grid h-10 w-10 place-items-center opacity-0 group-hover:opacity-100">
+                              <div className="h-10 w-10 absolute grid place-items-center bg-primary text-primary-foreground opacity-0 group-hover:opacity-100">
                                 <ChevronsRight />
                               </div>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="gap-2 flex items-center">
                               <div
                                 className="font-medium"
                                 data-testid={`invalidToken`}
                               >
                                 {token.symbol}
                               </div>
-                              <div className="text-muted-foreground text-xs">
+                              <div className="text-xs text-muted-foreground">
                                 {token.name}
                               </div>
                             </div>
@@ -218,7 +218,7 @@ export default function TokenDialog({
                 ) : (
                   <div
                     className={cn(
-                      "hover:bg-accent group flex w-full items-center justify-between p-2 text-left hover:cursor-pointer",
+                      "group p-2 flex w-full items-center justify-between text-left hover:cursor-pointer hover:bg-accent",
                       value === token.symbol && "bg-accent",
                     )}
                     data-testid={`tokenOption_${token.symbol}`}
@@ -231,8 +231,8 @@ export default function TokenDialog({
                       }
                     }}
                   >
-                    <div className="flex items-center gap-2">
-                      <div className="group relative grid h-10 w-10 place-content-center">
+                    <div className="gap-2 flex items-center">
+                      <div className="group h-10 w-10 relative grid place-content-center">
                         <TokenIcon
                           token={{
                             address: token.address,
@@ -240,18 +240,18 @@ export default function TokenDialog({
                             name: token.name,
                             decimals: token.decimals || 18,
                           }}
-                          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 group-hover:opacity-0"
+                          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 group-hover:opacity-0"
                           size={24}
                         />
-                        <div className="bg-primary text-primary-foreground absolute grid h-10 w-10 place-items-center opacity-0 group-hover:opacity-100">
+                        <div className="h-10 w-10 absolute grid place-items-center bg-primary text-primary-foreground opacity-0 group-hover:opacity-100">
                           <ChevronsRight />
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="gap-2 flex items-center">
                         <div className="font-medium" data-testid={`validToken`}>
                           {token.symbol}
                         </div>
-                        <div className="text-muted-foreground text-xs">
+                        <div className="text-xs text-muted-foreground">
                           {token.name}
                         </div>
                       </div>

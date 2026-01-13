@@ -20,7 +20,7 @@ export function AddressSection({
 }: AddressSectionProps) {
   return (
     <>
-      <div className="flex flex-col gap-2 md:flex-row">
+      <div className="gap-2 md:flex-row flex flex-col">
         {groups.map((group, index) => {
           const titleOverride =
             group.category === "Mento Reserve" ? "Mento Reserve on" : undefined;

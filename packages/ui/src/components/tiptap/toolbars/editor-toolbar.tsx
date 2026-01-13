@@ -18,11 +18,11 @@ import { UnderlineToolbar } from "./underline.js";
 
 export const EditorToolbar = ({ editor }: { editor: Editor }) => {
   return (
-    <div className="bg-input/30 border-input mb-1 w-full border border-b">
+    <div className="mb-1 w-full border border-b border-input bg-input/30">
       <ToolbarProvider editor={editor}>
         <TooltipProvider>
-          <ScrollArea className="h-fit py-0.5">
-            <div className="text-muted-foreground flex items-center gap-1 px-2">
+          <ScrollArea className="py-0.5 h-fit">
+            <div className="gap-1 px-2 flex items-center text-muted-foreground">
               <HeadingsToolbar />
               <BlockquoteToolbar />
               <CodeToolbar />

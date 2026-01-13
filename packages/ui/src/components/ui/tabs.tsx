@@ -12,7 +12,7 @@ function Tabs({
   return (
     <TabsPrimitive.Root
       data-slot="tabs"
-      className={cn("flex flex-col gap-2", className)}
+      className={cn("gap-2 flex flex-col", className)}
       {...props}
     />
   );
@@ -26,7 +26,7 @@ function TabsList({
     <TabsPrimitive.List
       data-slot="tabs-list"
       className={cn(
-        "flex w-full items-center justify-start gap-x-8 border-b border-[var(--border)]",
+        "gap-x-8 flex w-full items-center justify-start border-b border-[var(--border)]",
         className,
       )}
       {...props}
@@ -42,10 +42,10 @@ function TabsTrigger({
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
       className={cn(
-        "inline-flex items-center justify-center whitespace-nowrap px-0 py-3 font-medium",
-        "cursor-pointer text-sm md:text-base",
+        "px-0 py-3 font-medium inline-flex items-center justify-center whitespace-nowrap",
+        "text-sm md:text-base cursor-pointer",
         "ring-offset-background transition-colors",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2",
+        "focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 focus-visible:outline-none",
         "disabled:pointer-events-none disabled:opacity-50",
         "border-b-2 border-transparent text-[var(--muted-foreground)]", // Base styles for border and inactive text
         "data-[state=active]:border-[var(--primary)] data-[state=active]:text-[var(--foreground)]", // Active state overrides

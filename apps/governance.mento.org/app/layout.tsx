@@ -56,13 +56,13 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${aspekta.className} max-w-screen dark overflow-x-hidden antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${aspekta.className} dark max-w-screen overflow-x-hidden antialiased`}
       >
         <ClientProviders initialState={initialState}>
           <ApolloProvider>
             <Header />
             {children}
-            <section className="xl:px-22 mb-8 w-full px-4 md:mb-20 md:px-20">
+            <section className="xl:px-22 mb-8 px-4 md:mb-20 md:px-20 w-full">
               <CommunityCard />
             </section>
             <Footer type="governance" />
