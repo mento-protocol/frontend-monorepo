@@ -35,7 +35,7 @@ catalog:
   typescript: ^5.9.3
   typescript-eslint: ^8.52.0
   viem: ^2.44.0
-  wagmi: ^2.14.16
+  wagmi: ^2.16.9
   zod: ^4.3.5
 
 onlyBuiltDependencies:
