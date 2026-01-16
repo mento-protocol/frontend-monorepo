@@ -23,6 +23,7 @@ import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import {
   chainIdToChain,
   confirmViewAtom,
+  ConnectButton,
   formatBalance,
   formatWithMaxDecimals,
   formValuesAtom,
@@ -43,7 +44,7 @@ import {
   useTradingLimits,
   useTradingSuspensionCheck,
 } from "@repo/web3";
-import { useAccount, useChainId, useConnectModal } from "@repo/web3/wagmi";
+import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { useAtom } from "jotai";
 import { ArrowUpDown, ChevronDown, OctagonAlert } from "lucide-react";
 import TokenDialog from "./token-dialog";
@@ -78,7 +79,6 @@ const tokenButtonClassName =
 
 export default function SwapForm() {
   const { address, isConnected } = useAccount();
-  const { openConnectModal } = useConnectModal();
   const chainId = useChainId() ?? 42220; // Default to Celo mainnet
   const [formValues, setFormValues] = useAtom(formValuesAtom);
   const [, setConfirmView] = useAtom(confirmViewAtom);
@@ -1107,15 +1107,12 @@ export default function SwapForm() {
             )}
           </Button>
         ) : (
-          <Button
-            className="w-full"
+          <ConnectButton
             size="lg"
-            clipped="lg"
-            type="button"
-            onClick={() => openConnectModal?.()}
-          >
-            Connect
-          </Button>
+            text="Connect"
+            fullWidth
+            shouldShowAddress={false}
+          />
         )}
       </form>
     </Form>
