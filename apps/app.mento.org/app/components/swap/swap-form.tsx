@@ -797,7 +797,7 @@ export default function SwapForm() {
     <Form {...form}>
       <form
         onSubmit={form.handleSubmit(onSubmit)}
-        className="max-w-3xl gap-6 flex flex-col"
+        className="max-w-3xl gap-6 flex h-full flex-col"
       >
         <div className="gap-0 flex flex-col">
           <div
@@ -1052,7 +1052,7 @@ export default function SwapForm() {
               tokenInSymbol: tokenInSymbol,
               tokenOutSymbol: tokenOutSymbol,
             })}
-            className="w-full"
+            className="mt-auto w-full"
             size="lg"
             clipped="lg"
             type="submit"
