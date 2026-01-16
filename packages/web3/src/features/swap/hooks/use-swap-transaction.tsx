@@ -214,10 +214,30 @@ export function useSwapTransaction(
       setConfirmView(false);
 
       // Invalidate account balances to ensure UI shows updated balances
+      // Wrapped in async function with error handling to prevent unhandled rejections
+      // when the user disconnects their wallet immediately after a successful swap
       if (accountAddress && chainId) {
-        queryClient.invalidateQueries({
-          queryKey: ["accountBalances", { address: accountAddress, chainId }],
-        });
+        (async () => {
+          try {
+            // Cancel any in-flight balance queries first
+            await queryClient.cancelQueries({
+              queryKey: [
+                "accountBalances",
+                { address: accountAddress, chainId },
+              ],
+            });
+            // Then invalidate to trigger a fresh fetch
+            await queryClient.invalidateQueries({
+              queryKey: [
+                "accountBalances",
+                { address: accountAddress, chainId },
+              ],
+            });
+          } catch (error) {
+            // This can happen if the user disconnects their wallet immediately after swap
+            logger.debug("Balance refresh failed:", error);
+          }
+        })();
       }
     }
   }, [
