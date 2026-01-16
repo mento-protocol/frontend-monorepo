@@ -1107,7 +1107,12 @@ export default function SwapForm() {
             )}
           </Button>
         ) : (
-          <ConnectButton size="lg" text="Connect" fullWidth />
+          <ConnectButton
+            size="lg"
+            text="Connect"
+            fullWidth
+            shouldShowAddress={false}
+          />
         )}
       </form>
     </Form>
