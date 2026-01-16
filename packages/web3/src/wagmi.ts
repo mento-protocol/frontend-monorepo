@@ -25,6 +25,9 @@ export {
   type State,
 } from "wagmi";
 
+// RainbowKit hooks
+export { useConnectModal } from "@rainbow-me/rainbowkit";
+
 // Action utilities that are not exported by the core package
 export {
   waitForTransaction,
