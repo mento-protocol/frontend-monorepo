@@ -23,7 +23,6 @@ import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import {
   chainIdToChain,
   confirmViewAtom,
-  ConnectButton,
   formatBalance,
   formatWithMaxDecimals,
   formValuesAtom,
@@ -44,7 +43,7 @@ import {
   useTradingLimits,
   useTradingSuspensionCheck,
 } from "@repo/web3";
-import { useAccount, useChainId } from "@repo/web3/wagmi";
+import { useAccount, useChainId, useConnectModal } from "@repo/web3/wagmi";
 import { useAtom } from "jotai";
 import { ArrowUpDown, ChevronDown, OctagonAlert } from "lucide-react";
 import TokenDialog from "./token-dialog";
@@ -79,6 +78,7 @@ const tokenButtonClassName =
 
 export default function SwapForm() {
   const { address, isConnected } = useAccount();
+  const { openConnectModal } = useConnectModal();
   const chainId = useChainId() ?? 42220; // Default to Celo mainnet
   const [formValues, setFormValues] = useAtom(formValuesAtom);
   const [, setConfirmView] = useAtom(confirmViewAtom);
@@ -797,7 +797,7 @@ export default function SwapForm() {
     <Form {...form}>
       <form
         onSubmit={form.handleSubmit(onSubmit)}
-        className="max-w-3xl gap-6 flex h-full flex-col"
+        className="max-w-3xl gap-6 flex flex-col"
       >
         <div className="gap-0 flex flex-col">
           <div
@@ -1052,7 +1052,7 @@ export default function SwapForm() {
               tokenInSymbol: tokenInSymbol,
               tokenOutSymbol: tokenOutSymbol,
             })}
-            className="mt-auto w-full"
+            className="w-full"
             size="lg"
             clipped="lg"
             type="submit"
@@ -1107,7 +1107,15 @@ export default function SwapForm() {
             )}
           </Button>
         ) : (
-          <ConnectButton size="lg" text="Connect" fullWidth />
+          <Button
+            className="w-full"
+            size="lg"
+            clipped="lg"
+            type="button"
+            onClick={() => openConnectModal?.()}
+          >
+            Connect
+          </Button>
         )}
       </form>
     </Form>
