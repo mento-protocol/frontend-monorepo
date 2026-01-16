@@ -44,10 +44,15 @@ export function PollingWorker() {
       setLatestBlock(null);
     }
 
+    // This can fail if the user disconnects or RPC has issues
     if (address && isConnected && chainId) {
-      queryClient.invalidateQueries({
-        queryKey: ["accountBalances", { address, chainId }],
-      });
+      try {
+        await queryClient.invalidateQueries({
+          queryKey: ["accountBalances", { address, chainId }],
+        });
+      } catch (error) {
+        logger.debug("Balance refresh failed during polling:", error);
+      }
     }
   }, [address, isConnected, chainId, queryClient, status, setLatestBlock]);
 
