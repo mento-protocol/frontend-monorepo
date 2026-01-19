@@ -217,7 +217,13 @@ export function ConnectButton({
                 className,
               )}
             >
-              {!connected ? (
+              {connected && shouldShowAddress ? (
+                <ConnectedDropdown
+                  account={account}
+                  fullWidth={!!fullWidth}
+                  balanceMode={balanceMode}
+                />
+              ) : (
                 <Button
                   size={size === "lg" ? "lg" : "sm"}
                   onClick={() => {
@@ -230,12 +236,6 @@ export function ConnectButton({
                 >
                   {text}
                 </Button>
-              ) : (
-                <ConnectedDropdown
-                  account={account}
-                  fullWidth={!!fullWidth}
-                  balanceMode={balanceMode}
-                />
               )}
             </div>
           );
