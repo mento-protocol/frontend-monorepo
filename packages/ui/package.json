@@ -69,7 +69,7 @@
     "react-day-picker": "^9.13.0",
     "react-dom": "catalog:",
     "react-hook-form": "catalog:",
-    "react-hotkeys-hook": "^5.2.1",
+    "react-hotkeys-hook": "^5.2.3",
     "recharts": "^3.6.0",
     "sonner": "catalog:",
     "tailwind-merge": "^3.4.0",
