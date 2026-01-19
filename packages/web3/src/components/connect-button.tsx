@@ -38,6 +38,7 @@ type ConnectButtonProps = ButtonProps & {
   text?: string;
   fullWidth?: boolean;
   balanceMode?: "all" | "mento";
+  shouldShowAddress?: boolean;
 };
 
 interface ConnectedDropdownProps {
@@ -186,6 +187,7 @@ export function ConnectButton({
   text = "Connect Wallet",
   fullWidth,
   balanceMode = "all",
+  shouldShowAddress = true,
 }: ConnectButtonProps) {
   const { address, isConnected } = useAccount();
   const { openConnectModal } = useConnectModal();
@@ -215,7 +217,13 @@ export function ConnectButton({
                 className,
               )}
             >
-              {!connected ? (
+              {connected && shouldShowAddress ? (
+                <ConnectedDropdown
+                  account={account}
+                  fullWidth={!!fullWidth}
+                  balanceMode={balanceMode}
+                />
+              ) : (
                 <Button
                   size={size === "lg" ? "lg" : "sm"}
                   onClick={() => {
@@ -228,12 +236,6 @@ export function ConnectButton({
                 >
                   {text}
                 </Button>
-              ) : (
-                <ConnectedDropdown
-                  account={account}
-                  fullWidth={!!fullWidth}
-                  balanceMode={balanceMode}
-                />
               )}
             </div>
           );
@@ -251,7 +253,7 @@ export function ConnectButton({
         className,
       )}
     >
-      {address && isConnected ? (
+      {address && isConnected && shouldShowAddress ? (
         <ConnectedDropdown
           account={{ address }}
           fullWidth={!!fullWidth}
