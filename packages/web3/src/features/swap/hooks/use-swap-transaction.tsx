@@ -8,6 +8,7 @@ import { retryAsync } from "@/utils/retry";
 import { validateAddress } from "@/utils/addresses";
 import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
 import { toast } from "@repo/ui";
+import * as Sentry from "@sentry/nextjs";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
 import { useAtom, useSetAtom } from "jotai";
@@ -235,7 +236,7 @@ export function useSwapTransaction(
             });
           } catch (error) {
             // This can happen if the user disconnects their wallet immediately after swap
-            logger.debug("Balance refresh failed:", error);
+            Sentry.captureException(`Balance refresh failed: ${error}`);
           }
         })();
       }

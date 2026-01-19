@@ -9,6 +9,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useSetAtom } from "jotai";
 import { useCallback, useEffect } from "react";
 import { useAccount, useChainId } from "wagmi";
+import * as Sentry from "@sentry/nextjs";
 
 const FAST_INTERVAL = 15_000; // 15 seconds, block time
 
@@ -51,7 +52,7 @@ export function PollingWorker() {
           queryKey: ["accountBalances", { address, chainId }],
         });
       } catch (error) {
-        logger.debug("Balance refresh failed during polling:", error);
+        Sentry.captureException(`Balance refresh failed: ${error}`);
       }
     }
   }, [address, isConnected, chainId, queryClient, status, setLatestBlock]);
