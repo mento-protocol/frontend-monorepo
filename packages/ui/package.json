@@ -82,7 +82,7 @@
     "@repo/typescript-config": "workspace:*",
     "@tailwindcss/cli": "^4.1.18",
     "@tailwindcss/postcss": "catalog:",
-    "@turbo/gen": "^2.7.3",
+    "@turbo/gen": "^2.7.5",
     "@types/react": "catalog:",
     "concurrently": "catalog:",
     "esbuild": "^0.27.2",
