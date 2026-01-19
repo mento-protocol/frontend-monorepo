@@ -57,6 +57,7 @@
   },
   "peerDependencies": {
     "@rainbow-me/rainbowkit": "catalog:",
+    "@sentry/nextjs": "catalog:",
     "@tanstack/react-query": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",

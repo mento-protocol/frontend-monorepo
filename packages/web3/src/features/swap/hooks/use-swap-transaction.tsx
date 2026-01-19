@@ -8,6 +8,7 @@ import { retryAsync } from "@/utils/retry";
 import { validateAddress } from "@/utils/addresses";
 import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
 import { toast } from "@repo/ui";
+import * as Sentry from "@sentry/nextjs";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
 import { useAtom, useSetAtom } from "jotai";
@@ -214,10 +215,30 @@ export function useSwapTransaction(
       setConfirmView(false);
 
       // Invalidate account balances to ensure UI shows updated balances
+      // Wrapped in async function with error handling to prevent unhandled rejections
+      // when the user disconnects their wallet immediately after a successful swap
       if (accountAddress && chainId) {
-        queryClient.invalidateQueries({
-          queryKey: ["accountBalances", { address: accountAddress, chainId }],
-        });
+        (async () => {
+          try {
+            // Cancel any in-flight balance queries first
+            await queryClient.cancelQueries({
+              queryKey: [
+                "accountBalances",
+                { address: accountAddress, chainId },
+              ],
+            });
+            // Then invalidate to trigger a fresh fetch
+            await queryClient.invalidateQueries({
+              queryKey: [
+                "accountBalances",
+                { address: accountAddress, chainId },
+              ],
+            });
+          } catch (error) {
+            // This can happen if the user disconnects their wallet immediately after swap
+            Sentry.captureException(`Balance refresh failed: ${error}`);
+          }
+        })();
       }
     }
   }, [

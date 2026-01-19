@@ -9,6 +9,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useSetAtom } from "jotai";
 import { useCallback, useEffect } from "react";
 import { useAccount, useChainId } from "wagmi";
+import * as Sentry from "@sentry/nextjs";
 
 const FAST_INTERVAL = 15_000; // 15 seconds, block time
 
@@ -44,10 +45,15 @@ export function PollingWorker() {
       setLatestBlock(null);
     }
 
+    // This can fail if the user disconnects or RPC has issues
     if (address && isConnected && chainId) {
-      queryClient.invalidateQueries({
-        queryKey: ["accountBalances", { address, chainId }],
-      });
+      try {
+        await queryClient.invalidateQueries({
+          queryKey: ["accountBalances", { address, chainId }],
+        });
+      } catch (error) {
+        Sentry.captureException(`Balance refresh failed: ${error}`);
+      }
     }
   }, [address, isConnected, chainId, queryClient, status, setLatestBlock]);
 
