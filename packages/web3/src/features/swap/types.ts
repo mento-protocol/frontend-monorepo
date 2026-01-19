@@ -1,14 +1,11 @@
 import type { TokenSymbol } from "@mento-protocol/mento-sdk";
 import type { AccountBalances } from "../accounts/use-account-balances";
 
-export type SwapDirection = "in" | "out";
-
 export interface SwapFormValues {
   tokenInSymbol?: TokenSymbol;
   tokenOutSymbol?: TokenSymbol;
   amount?: string;
   quote?: string;
-  direction?: SwapDirection;
   slippage: string;
   buyUSDValue?: string;
   sellUSDValue?: string;

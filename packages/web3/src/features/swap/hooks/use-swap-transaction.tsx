@@ -1,7 +1,6 @@
 import { chainIdToChain } from "@/config/chains";
 import { getTokenBySymbol } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
-import { SwapDirection } from "@/features/swap/types";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
 import { logger } from "@/utils/logger";
 import { retryAsync } from "@/utils/retry";
@@ -23,13 +22,11 @@ export function useSwapTransaction(
   toToken: TokenSymbol,
   amountInWei: string,
   thresholdAmountInWei: string,
-  direction: SwapDirection,
   accountAddress?: Address,
   isApproveConfirmed?: boolean,
   swapValues?: {
     fromAmount: string;
     toAmount: string;
-    toAmountWei?: string; // Add this to receive the exact buy amount for swapOut
   },
 ): {
   sendSwapTx: () => Promise<Address>;
@@ -66,9 +63,11 @@ export function useSwapTransaction(
         throw new Error("Swap prerequisites not met");
       }
       logger.debug("Preparing swap transaction...");
+
       const sdk = await getMentoSdk(chainId);
-      const fromTokenAddr = getTokenAddress(fromToken, chainId);
-      const toTokenAddr = getTokenAddress(toToken, chainId);
+
+      const fromTokenAddr = getTokenAddress(chainId, fromToken);
+      const toTokenAddr = getTokenAddress(chainId, toToken);
       if (!fromTokenAddr) {
         throw new Error(
           `${fromToken} token address not found on chain ${chainId}`,
@@ -79,65 +78,31 @@ export function useSwapTransaction(
           `${toToken} token address not found on chain ${chainId}`,
         );
       }
-      const tradablePair = await getTradablePairForTokens(
-        chainId,
-        fromToken,
-        toToken,
+
+      const route = await getTradablePairForTokens(chainId, fromToken, toToken);
+
+      const swapDetails = await sdk.swap.buildSwapParams(
+        fromTokenAddr as `0x${string}`,
+        toTokenAddr as `0x${string}`,
+        BigInt(amountInWei), // exact amount of fromToken to sell
+        accountAddress,
+        { slippageTolerance: parseFloat(formValues?.slippage || "0.5") },
+        route,
       );
 
-      let txRequest;
-      if (direction === "in") {
-        // swapIn: sell exact amount of fromToken, receive at least minAmountOut of toToken
-        txRequest = await sdk.swapIn(
-          fromTokenAddr,
-          toTokenAddr,
-          amountInWei, // exact amount of fromToken to sell
-          thresholdAmountInWei, // minimum amount of toToken to receive
-          tradablePair,
-        );
-      } else {
-        // swapOut: buy exact amount of toToken, sell at most maxAmountIn of fromToken
-        // CRITICAL: For swapOut, the parameter order is different!
-        // We need the exact buy amount from swapValues
-        const exactBuyAmount = swapValues?.toAmountWei;
-        if (!exactBuyAmount) {
-          throw new Error("Missing toAmountWei for swapOut");
-        }
-
-        logger.debug("SwapOut parameters:", {
-          fromToken: fromTokenAddr,
-          toToken: toTokenAddr,
-          exactBuyAmount,
-          maxSellAmount: thresholdAmountInWei,
-        });
-
-        txRequest = await sdk.swapOut(
-          fromTokenAddr,
-          toTokenAddr,
-          exactBuyAmount, // exact amount of toToken to buy
-          thresholdAmountInWei, // maximum amount of fromToken to sell
-          tradablePair,
-        );
-      }
-
-      logger.debug("Sending swap transaction...", { txRequest });
+      logger.debug("Sending swap transaction...", { swapDetails });
 
       // Rely on the connected wallet's active chain. Passing `chainId` here breaks when it is undefined.
       // See https://github.com/wagmi-dev/wagmi/issues/1879 – supply only tx fields;
       if (chainId === undefined) {
         throw new Error("Chain ID is undefined");
       }
-      validateAddress(txRequest.to, "swap transaction");
+      validateAddress(swapDetails.params.to, "swap transaction");
       const txHash = await retryAsync(async () => {
         return await sendTransactionAsync({
-          to: txRequest.to as Address,
-          data: txRequest.data as `0x${string}` | undefined,
-          value: txRequest.value
-            ? BigInt(txRequest.value.toString())
-            : undefined,
-          gas: txRequest.gasLimit
-            ? BigInt(txRequest.gasLimit.toString())
-            : undefined,
+          to: swapDetails.params.to as Address,
+          data: swapDetails.params.data as `0x${string}`,
+          value: BigInt(swapDetails.params.value || 0),
         });
       });
 

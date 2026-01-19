@@ -23,11 +23,13 @@ export async function isSwappable(
 
   const { getMentoSdk } = await import("@/features/sdk");
   const sdk = await getMentoSdk(chainId);
-  const tradablePairs = await sdk.getTradablePairs();
-  if (!tradablePairs) return false;
 
-  const token1Address = getTokenAddress(token1, chainId);
-  const token2Address = getTokenAddress(token2, chainId);
+  const routes = await sdk.routes.getRoutes({ cached: true });
+  if (!routes || routes.length === 0) return false;
+
+  const token1Address = getTokenAddress(chainId, token1);
+  const token2Address = getTokenAddress(chainId, token2);
+
   if (!token1Address) {
     throw new Error(`${token1} token address not found on chain ${chainId}`);
   }
@@ -35,11 +37,12 @@ export async function isSwappable(
     throw new Error(`${token2} token address not found on chain ${chainId}`);
   }
 
-  return tradablePairs.some(
-    (pair) =>
-      pair.find((asset) => asset.address === token1Address) &&
-      pair.find((asset) => asset.address === token2Address),
-  );
+  return routes.some((route) => {
+    const [addr1, addr2] = route.tokens.map((t) => t.address.toLowerCase());
+    const t1 = token1Address.toLowerCase();
+    const t2 = token2Address.toLowerCase();
+    return (addr1 === t1 && addr2 === t2) || (addr1 === t2 && addr2 === t1);
+  });
 }
 
 export async function getSwappableTokenOptions(
@@ -88,7 +91,7 @@ export function getTokenBySymbol(
 ): Token | null {
   if (!chainId) return null;
 
-  const token = findTokenBySymbol(symbol, chainId);
+  const token = findTokenBySymbol(chainId, symbol);
   if (!token) return null;
 
   return {
@@ -110,7 +113,7 @@ export function getTokenDecimals(
 ): number {
   if (!chainId) return 18;
 
-  const token = findTokenBySymbol(symbol, chainId);
+  const token = findTokenBySymbol(chainId, symbol);
   return token?.decimals ?? 18;
 }
 

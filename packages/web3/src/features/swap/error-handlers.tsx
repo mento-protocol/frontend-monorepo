@@ -1,5 +1,5 @@
 import { JSX } from "react";
-import { addresses } from "@mento-protocol/mento-sdk";
+import { getContractAddress } from "@mento-protocol/mento-sdk";
 import { getExplorerUrl } from "@/utils/chain";
 
 interface SwapErrorOptions {
@@ -59,7 +59,7 @@ export function getToastErrorMessage(
       message:
         toTokenSymbol && chainId
           ? () => {
-              const reserveAddress = addresses[chainId]?.Reserve;
+              const reserveAddress = getContractAddress(chainId, "Reserve");
               const explorerUrl = getExplorerUrl(chainId);
               const reserveUrl = reserveAddress
                 ? `${explorerUrl}/address/${reserveAddress}`

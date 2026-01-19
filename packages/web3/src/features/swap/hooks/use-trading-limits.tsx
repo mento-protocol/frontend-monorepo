@@ -36,12 +36,12 @@ export function useTradingLimits(
 
       // Check limits for both tokens
       const tokenInAddress = getTokenAddress(
-        tokenInSymbol as TokenSymbol,
         chainId,
+        tokenInSymbol as TokenSymbol,
       );
       const tokenOutAddress = getTokenAddress(
-        tokenOutSymbol as TokenSymbol,
         chainId,
+        tokenOutSymbol as TokenSymbol,
       );
 
       if (!tokenInAddress) {

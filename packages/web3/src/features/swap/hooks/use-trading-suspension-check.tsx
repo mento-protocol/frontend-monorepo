@@ -45,8 +45,8 @@ export function useTradingSuspensionCheck(
         return { isSuspended: false };
       }
 
-      const fromTokenAddr = getTokenAddress(tokenInSymbol, chainId);
-      const toTokenAddr = getTokenAddress(tokenOutSymbol, chainId);
+      const fromTokenAddr = getTokenAddress(chainId, tokenInSymbol);
+      const toTokenAddr = getTokenAddress(chainId, tokenOutSymbol);
 
       if (!fromTokenAddr || !toTokenAddr) {
         console.warn(`[Trading Suspension Check] Token addresses not found:`, {

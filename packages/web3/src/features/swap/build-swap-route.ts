@@ -1,33 +1,35 @@
 import { getTokenByAddress } from "@/config/tokens";
-import type { TradablePair } from "@mento-protocol/mento-sdk";
+import type { Route } from "@mento-protocol/mento-sdk";
 
 /**
  * Builds a human-readable swap route string by tracing the path from input to output token
  * For debugging purposes.
  */
 export function buildSwapRoute(
-  tradablePair: TradablePair,
+  route: Route,
   fromTokenAddr: string,
   toTokenAddr: string,
   chainId: number,
 ): string {
-  const { path, assets } = tradablePair;
+  const { path, tokens } = route;
 
   // Helper function to get token symbol by address
   const getTokenSymbol = (address: string): string => {
     try {
-      // First try to get symbol from local token configuration (most reliable)
+      // First try to get symbol from route tokens
+      const routeToken = tokens.find(
+        (t) => t.address.toLowerCase() === address.toLowerCase(),
+      );
+      if (routeToken) return routeToken.symbol;
+
+      // Fall back to local token configuration
       const token = getTokenByAddress(address as `0x${string}`, chainId);
       if (token) return token.symbol;
     } catch {
       // Ignore errors
     }
 
-    // Fall back to tradablePair assets if not found in local config
-    const asset = assets.find(
-      (a) => a.address.toLowerCase() === address.toLowerCase(),
-    );
-    return asset?.symbol || `${address.slice(0, 6)}...`;
+    return `${address.slice(0, 6)}...`;
   };
 
   // For direct swaps (single hop)
@@ -37,32 +39,18 @@ export function buildSwapRoute(
     return `${fromSymbol} => ${toSymbol}`;
   }
 
-  // For multi-hop swaps, trace the path
+  // For multi-hop swaps, trace the path through pools
   let currentToken = fromTokenAddr.toLowerCase();
-  const route: string[] = [getTokenSymbol(currentToken)];
+  const routeSteps: string[] = [getTokenSymbol(currentToken)];
 
-  for (const hop of path) {
-    const [addr0, addr1] = hop.assets.map((addr) => addr.toLowerCase());
+  for (const pool of path) {
+    // Determine next token in the path
+    const nextToken =
+      currentToken === pool.token0.toLowerCase() ? pool.token1 : pool.token0;
 
-    // Determine which asset is the next token in the path
-    let nextToken = currentToken;
-    if (currentToken === addr0 && addr1) {
-      nextToken = addr1;
-    } else if (currentToken === addr1 && addr0) {
-      nextToken = addr0;
-    } else {
-      // This shouldn't happen in a valid path, but handle it gracefully
-      console.warn(
-        `Path discontinuity at token ${currentToken} in hop [${addr0}, ${addr1}]`,
-      );
-      if (addr0 && addr1) {
-        nextToken = addr0 === currentToken ? addr1 : addr0;
-      }
-    }
-
-    route.push(getTokenSymbol(nextToken));
-    currentToken = nextToken;
+    routeSteps.push(getTokenSymbol(nextToken));
+    currentToken = nextToken.toLowerCase();
   }
 
-  return route.join(" => ");
+  return routeSteps.join(" => ");
 }

@@ -1,6 +1,5 @@
 import { NativeTokenSymbol } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
-import type { SwapDirection } from "@/features/swap/types";
 import { parseInputExchangeAmount } from "@/features/swap/utils";
 import { fromWei } from "@/utils/amount";
 import { validateAddress } from "@/utils/addresses";
@@ -16,7 +15,6 @@ interface GasEstimationParams {
   quote: string;
   tokenInSymbol: TokenSymbol;
   tokenOutSymbol: TokenSymbol;
-  direction: SwapDirection;
   address?: string;
   chainId: number;
   slippage: string;
@@ -37,7 +35,6 @@ export function useGasEstimation({
   quote,
   tokenInSymbol,
   tokenOutSymbol,
-  direction,
   address,
   chainId,
   slippage,
@@ -53,7 +50,6 @@ export function useGasEstimation({
       quote,
       tokenInSymbol,
       tokenOutSymbol,
-      direction,
       address,
       chainId,
       slippage,
@@ -76,16 +72,15 @@ export function useGasEstimation({
         // This gives us a baseline gas cost without needing approval
         if (!skipApprove && tokenInSymbol !== NativeTokenSymbol) {
           // Estimate gas for a simple transfer as a baseline
-          const fromTokenAddr = getTokenAddress(tokenInSymbol, chainId);
+          const fromTokenAddr = getTokenAddress(chainId, tokenInSymbol);
           if (!fromTokenAddr) {
             throw new Error(
               `${tokenInSymbol} token address not found on chain ${chainId}`,
             );
           }
 
-          // For swapOut, we need to check allowance for the quote amount (fromToken)
-          // For swapIn, we check allowance for the amount (fromToken)
-          const valueToCheck = direction === "out" ? quote : amount;
+          // swapIn - check allowance for the amount (fromToken)
+          const valueToCheck = amount;
 
           const transferData = ethers.utils.defaultAbiCoder.encode(
             ["address", "uint256"],
@@ -123,8 +118,8 @@ export function useGasEstimation({
 
         // If approval is not needed, estimate the actual swap
         const sdk = await getMentoSdk(chainId);
-        const fromTokenAddr = getTokenAddress(tokenInSymbol, chainId);
-        const toTokenAddr = getTokenAddress(tokenOutSymbol, chainId);
+        const fromTokenAddr = getTokenAddress(chainId, tokenInSymbol);
+        const toTokenAddr = getTokenAddress(chainId, tokenOutSymbol);
         if (!fromTokenAddr) {
           throw new Error(
             `${tokenInSymbol} token address not found on chain ${chainId}`,
@@ -141,57 +136,30 @@ export function useGasEstimation({
           tokenOutSymbol,
         );
 
-        // Parse amounts based on direction
-        let amountWeiBN: ethers.BigNumber;
-        let quoteWeiBN: ethers.BigNumber;
-
-        if (direction === "in") {
-          // swapIn: amount is fromToken (sell), quote is toToken (receive)
-          const amountInWei = parseInputExchangeAmount(
-            amount,
-            tokenInSymbol,
-            chainId,
-          );
-          const quoteInWei = parseInputExchangeAmount(
-            quote,
-            tokenOutSymbol,
-            chainId,
-          );
-          amountWeiBN = ethers.BigNumber.from(amountInWei);
-          quoteWeiBN = ethers.BigNumber.from(quoteInWei);
-        } else {
-          // swapOut: quote is fromToken (sell), amount is toToken (receive)
-          const amountInWei = parseInputExchangeAmount(
-            amount,
-            tokenOutSymbol,
-            chainId,
-          );
-          const quoteInWei = parseInputExchangeAmount(
-            quote,
-            tokenInSymbol,
-            chainId,
-          );
-          amountWeiBN = ethers.BigNumber.from(amountInWei);
-          quoteWeiBN = ethers.BigNumber.from(quoteInWei);
-        }
+        // swapIn: amount is fromToken (sell), quote is toToken (receive)
+        const amountInWei = parseInputExchangeAmount(
+          amount,
+          tokenInSymbol,
+          chainId,
+        );
+        const quoteInWei = parseInputExchangeAmount(
+          quote,
+          tokenOutSymbol,
+          chainId,
+        );
+        const amountWeiBN = ethers.BigNumber.from(amountInWei);
+        const quoteWeiBN = ethers.BigNumber.from(quoteInWei);
 
         // Calculate threshold with slippage
         const slippageBps = Math.floor(parseFloat(slippage) * 100);
-        let thresholdAmountBN: ethers.BigNumber;
-
-        if (direction === "in") {
-          thresholdAmountBN = quoteWeiBN.mul(10000 - slippageBps).div(10000);
-        } else {
-          thresholdAmountBN = quoteWeiBN.mul(10000 + slippageBps).div(10000);
-        }
+        const thresholdAmountBN = quoteWeiBN
+          .mul(10000 - slippageBps)
+          .div(10000);
 
         // Build transaction for gas estimation
-        const isSwapIn = direction === "in";
-        const swapFn = isSwapIn ? sdk.swapIn.bind(sdk) : sdk.swapOut.bind(sdk);
+        const swapFn = sdk.swapIn.bind(sdk);
 
-        // Use correct amount parameter based on direction
-        // For swapIn: amountWeiBN is the exact sell amount (fromToken)
-        // For swapOut: amountWeiBN is the exact buy amount (toToken)
+        // amountWeiBN is the exact sell amount (fromToken)
         const exactAmount = amountWeiBN;
 
         const txRequest = await swapFn(
@@ -205,7 +173,7 @@ export function useGasEstimation({
         logger.info("Gas estimation tx request:", {
           to: txRequest.to,
           account: address as Address,
-          method: isSwapIn ? "swapIn" : "swapOut",
+          method: "swapIn",
         });
 
         validateAddress(txRequest.to, "gas estimation");
