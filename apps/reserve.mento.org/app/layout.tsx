@@ -59,7 +59,7 @@ export default function RootLayout({
               className="my-8 md:hidden w-full"
             />
             <Image
-              src={`${env.NEXT_PUBLIC_STORAGE_URL}/reserve/hero.png`}
+              src={`${env.NEXT_PUBLIC_STORAGE_URL}/reserve/new-hero.png`}
               alt="Mento Reserve"
               width={1280}
               height={640}
