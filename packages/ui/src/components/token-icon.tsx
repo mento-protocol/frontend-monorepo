@@ -3,8 +3,8 @@ import { memo, useMemo, useState } from "react";
 interface Token {
   address: string;
   symbol: string;
-  name: string;
-  decimals: number;
+  name?: string;
+  decimals?: number;
 }
 
 interface Props {

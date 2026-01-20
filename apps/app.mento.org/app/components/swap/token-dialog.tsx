@@ -70,7 +70,7 @@ export default function TokenDialog({
     .filter(
       (token) =>
         token.symbol.toLowerCase().includes(search.toLowerCase()) ||
-        token.name.toLowerCase().includes(search.toLowerCase()),
+        token.name?.toLowerCase().includes(search.toLowerCase()),
     )
     .filter((token) => token.symbol !== excludeTokenSymbol)
     .map((token) => {
