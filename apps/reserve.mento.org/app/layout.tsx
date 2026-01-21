@@ -52,10 +52,12 @@ export default function RootLayout({
         <Providers>
           <main className="pb-4 relative w-full">
             <Image
-              src={`${env.NEXT_PUBLIC_STORAGE_URL}/reserve/hero-mobile.png`}
+              src={`${env.NEXT_PUBLIC_STORAGE_URL}/reserve/new-hero-mobile.png`}
               alt="Mento Reserve"
-              width={320}
-              height={168}
+              width={768}
+              height={403}
+              quality={100}
+              sizes="100vw"
               className="my-8 md:hidden w-full"
             />
             <Image
