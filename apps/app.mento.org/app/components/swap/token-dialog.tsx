@@ -75,7 +75,7 @@ export default function TokenDialog({
     .filter((token) => token.symbol !== excludeTokenSymbol)
     .map((token) => {
       const balanceValue = balancesFromHook?.[token.symbol as TokenSymbol];
-      const balance = formatBalance(balanceValue ?? "0", token.decimals ?? 18);
+      const balance = formatBalance(balanceValue ?? "0", token.decimals);
 
       // Check if this token is a valid pair with the filterByTokenSymbol
       // Show as valid if: no filter, still loading, or token is in the valid list
@@ -176,7 +176,7 @@ export default function TokenDialog({
                                   address: token.address,
                                   symbol: token.symbol,
                                   name: token.name,
-                                  decimals: token.decimals ?? 18,
+                                  decimals: token.decimals,
                                 }}
                                 className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 group-hover:opacity-0"
                                 size={24}
