@@ -238,7 +238,7 @@ export default function TokenDialog({
                             address: token.address,
                             symbol: token.symbol,
                             name: token.name,
-                            decimals: token.decimals ?? 18,
+                            decimals: token.decimals,
                           }}
                           className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 group-hover:opacity-0"
                           size={24}
