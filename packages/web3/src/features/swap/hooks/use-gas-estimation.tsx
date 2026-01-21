@@ -157,67 +157,59 @@ export function useGasEstimation({
           .div(10000);
 
         // Build transaction for gas estimation
-        const swapFn = sdk.swapIn.bind(sdk);
-
-        // amountWeiBN is the exact sell amount (fromToken)
-        const exactAmount = amountWeiBN;
-
-        const txRequest = await swapFn(
+        const { swap } = await sdk.swap.buildSwapTransaction(
           fromTokenAddr,
           toTokenAddr,
-          exactAmount,
-          thresholdAmountBN,
+          BigInt(amountWeiBN.toString()),
+          address, // recipient
+          address, // owner
+          { slippageTolerance: parseFloat(slippage) },
           tradablePair,
         );
+        const txRequest = swap.params;
 
         logger.info("Gas estimation tx request:", {
           to: txRequest.to,
           account: address as Address,
-          method: "swapIn",
+          method: "swap.buildSwapTransaction",
         });
 
         validateAddress(txRequest.to, "gas estimation");
 
         let estimatedGas: ethers.BigNumber;
 
-        // Use SDK's gas limit if available
-        if (txRequest.gasLimit) {
-          estimatedGas = ethers.BigNumber.from(txRequest.gasLimit);
-          logger.info("Using SDK provided gas limit:", estimatedGas.toString());
-        } else {
-          // Try to estimate gas
-          try {
-            const gasEstimate = await publicClient.estimateGas({
-              account: address as Address,
-              to: txRequest.to as Address,
-              data: txRequest.data as Hex | undefined,
-              value: txRequest.value
-                ? BigInt(txRequest.value.toString())
-                : undefined,
-            });
+        // Try to estimate gas
+        try {
+          const gasEstimate = await publicClient.estimateGas({
+            account: address as Address,
+            to: txRequest.to as Address,
+            data: txRequest.data as Hex | undefined,
+            value: txRequest.value
+              ? BigInt(txRequest.value.toString())
+              : undefined,
+          });
 
-            const gasEstimateBN = ethers.BigNumber.from(gasEstimate);
-            estimatedGas = gasEstimateBN.mul(120).div(100);
-            logger.info("Estimated gas with buffer:", estimatedGas.toString());
-          } catch (estimateError: unknown) {
-            const errorMessage =
-              estimateError instanceof Error
-                ? estimateError.message
-                : String(estimateError);
+          const gasEstimateBN = ethers.BigNumber.from(gasEstimate);
+          estimatedGas = gasEstimateBN.mul(120).div(100);
+          logger.info("Estimated gas with buffer:", estimatedGas.toString());
+        } catch (estimateError: unknown) {
+          const errorMessage =
+            estimateError instanceof Error
+              ? estimateError.message
+              : String(estimateError);
 
-            // If estimation fails, check if it's due to approval
-            if (
-              errorMessage.includes("SafeERC20") ||
-              errorMessage.includes("low-level call failed")
-            ) {
-              logger.warn("Gas estimation failed due to missing approval");
-              // Return a reasonable estimate for UI display
-              estimatedGas = ethers.BigNumber.from("250000");
-            } else {
-              // Other errors - use fallback
-              logger.warn("Gas estimation failed:", errorMessage);
-              estimatedGas = ethers.BigNumber.from("300000");
-            }
+          // If estimation fails, check if it's due to approval
+          if (
+            errorMessage.includes("SafeERC20") ||
+            errorMessage.includes("low-level call failed")
+          ) {
+            logger.warn("Gas estimation failed due to missing approval");
+            // Return a reasonable estimate for UI display
+            estimatedGas = ethers.BigNumber.from("250000");
+          } else {
+            // Other errors - use fallback
+            logger.warn("Gas estimation failed:", errorMessage);
+            estimatedGas = ethers.BigNumber.from("300000");
           }
         }
 

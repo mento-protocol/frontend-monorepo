@@ -62,7 +62,7 @@ export function useTradingSuspensionCheck(
       try {
         const mento = await getMentoSdk(chainId);
 
-        const isTradable = await mento.isPairTradable(
+        const isTradable = await mento.trading.isPairTradable(
           fromTokenAddr,
           toTokenAddr,
         );
