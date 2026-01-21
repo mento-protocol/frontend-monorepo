@@ -74,8 +74,8 @@ export default function TokenDialog({
     )
     .filter((token) => token.symbol !== excludeTokenSymbol)
     .map((token) => {
-      const balanceValue = balancesFromHook?.[token.symbol];
-      const balance = formatBalance(balanceValue ?? "0", token.decimals);
+      const balanceValue = balancesFromHook?.[token.symbol as TokenSymbol];
+      const balance = formatBalance(balanceValue ?? "0", token.decimals ?? 18);
 
       // Check if this token is a valid pair with the filterByTokenSymbol
       // Show as valid if: no filter, still loading, or token is in the valid list
@@ -101,8 +101,8 @@ export default function TokenDialog({
       return 0;
     });
 
-  const handleTokenSelect = (TokenSymbol: TokenSymbol) => {
-    onValueChange(TokenSymbol);
+  const handleTokenSelect = (tokenSymbol: TokenSymbol) => {
+    onValueChange(tokenSymbol);
     setIsOpen(false);
   };
 
@@ -161,11 +161,11 @@ export default function TokenDialog({
                           )}
                           data-testid={`tokenOption_${token.symbol}_invalid`}
                           onClick={() => {
-                            handleTokenSelect(token.symbol);
+                            handleTokenSelect(token.symbol as TokenSymbol);
                           }}
                           onKeyUp={(e) => {
                             if (e.key === "Enter") {
-                              handleTokenSelect(token.symbol);
+                              handleTokenSelect(token.symbol as TokenSymbol);
                             }
                           }}
                         >
@@ -176,7 +176,7 @@ export default function TokenDialog({
                                   address: token.address,
                                   symbol: token.symbol,
                                   name: token.name,
-                                  decimals: token.decimals || 18,
+                                  decimals: token.decimals ?? 18,
                                 }}
                                 className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 group-hover:opacity-0"
                                 size={24}
@@ -223,11 +223,11 @@ export default function TokenDialog({
                     )}
                     data-testid={`tokenOption_${token.symbol}`}
                     onClick={() => {
-                      handleTokenSelect(token.symbol);
+                      handleTokenSelect(token.symbol as TokenSymbol);
                     }}
                     onKeyUp={(e) => {
                       if (e.key === "Enter") {
-                        handleTokenSelect(token.symbol);
+                        handleTokenSelect(token.symbol as TokenSymbol);
                       }
                     }}
                   >
@@ -238,7 +238,7 @@ export default function TokenDialog({
                             address: token.address,
                             symbol: token.symbol,
                             name: token.name,
-                            decimals: token.decimals || 18,
+                            decimals: token.decimals ?? 18,
                           }}
                           className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 group-hover:opacity-0"
                           size={24}
