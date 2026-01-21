@@ -20,7 +20,7 @@
 
 **Warnings**:
 
-```
+```bash
 DEPRECATION WARNING: disableLogger is deprecated. Use webpack.treeshake.removeDebugLogging instead.
 DEPRECATION WARNING: automaticVercelMonitors is deprecated. Use webpack.automaticVercelMonitors instead.
 DEPRECATION WARNING: reactComponentAnnotation is deprecated. Use webpack.reactComponentAnnotation instead.

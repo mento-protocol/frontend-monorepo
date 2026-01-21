@@ -1,6 +1,5 @@
 import { ERC20_ABI } from "@/config/constants";
 import { getProvider } from "@/features/providers";
-import { getTradablePairForTokens } from "@/features/sdk";
 import {
   getContractAddress,
   getTokenAddress,

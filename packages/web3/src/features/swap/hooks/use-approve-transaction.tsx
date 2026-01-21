@@ -1,5 +1,4 @@
 import { chainIdToChain } from "@/config/chains";
-import { getTradablePairForTokens } from "@/features/sdk";
 import { logger } from "@/utils";
 import { toViemAddress, validateAddress } from "@/utils/addresses";
 import {
