@@ -1,5 +1,5 @@
-import "./globals.css";
 import "@repo/ui/globals.css";
+import "./globals.css";
 
 import localFont from "next/font/local";
 import { Analytics } from "@vercel/analytics/react";

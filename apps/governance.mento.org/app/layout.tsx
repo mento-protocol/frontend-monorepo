@@ -62,9 +62,7 @@ export default async function RootLayout({
           <ApolloProvider>
             <Header />
             {children}
-            <section className="xl:px-22 mb-8 px-4 md:mb-20 md:px-20 w-full">
-              <CommunityCard />
-            </section>
+            <CommunityCard />
             <Footer type="governance" />
           </ApolloProvider>
         </ClientProviders>
