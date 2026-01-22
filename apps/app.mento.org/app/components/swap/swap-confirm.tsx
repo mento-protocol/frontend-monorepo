@@ -32,14 +32,8 @@ export function SwapConfirm() {
   const { data: balancesFromHook } = useAccountBalances({ address, chainId });
   const { allTokenOptions } = useTokenOptions(undefined, balancesFromHook);
 
-  const {
-    amountWei,
-    quote,
-    quoteWei,
-    rate,
-    fromTokenUSDValue,
-    toTokenUSDValue,
-  } = useOptimizedSwapQuote(amount, tokenInSymbol, tokenOutSymbol);
+  const { amountWei, quote, rate, fromTokenUSDValue, toTokenUSDValue } =
+    useOptimizedSwapQuote(amount, tokenInSymbol, tokenOutSymbol);
 
   // Always direction "in" - selling exact amount of fromToken (swapIn)
   const swapValues = useMemo(() => {
