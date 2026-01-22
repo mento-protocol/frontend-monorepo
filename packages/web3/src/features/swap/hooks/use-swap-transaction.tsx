@@ -21,7 +21,6 @@ export function useSwapTransaction(
   fromToken: TokenSymbol,
   toToken: TokenSymbol,
   amountInWei: string,
-  thresholdAmountInWei: string,
   accountAddress?: Address,
   isApproveConfirmed?: boolean,
   swapValues?: {
@@ -56,8 +55,7 @@ export function useSwapTransaction(
       if (
         !accountAddress ||
         !isApproveConfirmed ||
-        new BigNumber(amountInWei).lte(0) ||
-        new BigNumber(thresholdAmountInWei).lte(0)
+        new BigNumber(amountInWei).lte(0)
       ) {
         logger.debug("Skipping swap transaction: prerequisites not met.");
         throw new Error("Swap prerequisites not met");

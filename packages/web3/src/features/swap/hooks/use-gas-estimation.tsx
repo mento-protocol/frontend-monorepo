@@ -142,19 +142,7 @@ export function useGasEstimation({
           tokenInSymbol,
           chainId,
         );
-        const quoteInWei = parseInputExchangeAmount(
-          quote,
-          tokenOutSymbol,
-          chainId,
-        );
         const amountWeiBN = ethers.BigNumber.from(amountInWei);
-        const quoteWeiBN = ethers.BigNumber.from(quoteInWei);
-
-        // Calculate threshold with slippage
-        const slippageBps = Math.floor(parseFloat(slippage) * 100);
-        const thresholdAmountBN = quoteWeiBN
-          .mul(10000 - slippageBps)
-          .div(10000);
 
         // Build transaction for gas estimation
         const { swap } = await sdk.swap.buildSwapTransaction(

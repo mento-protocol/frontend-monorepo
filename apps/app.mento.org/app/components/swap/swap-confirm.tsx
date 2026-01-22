@@ -5,7 +5,6 @@ import { Button, IconLoading, TokenIcon } from "@repo/ui";
 import {
   formatWithMaxDecimals,
   formValuesAtom,
-  getMinBuyAmount,
   logger,
   useAccountBalances,
   useGasEstimation,
@@ -44,24 +43,14 @@ export function SwapConfirm() {
 
   // Always direction "in" - selling exact amount of fromToken (swapIn)
   const swapValues = useMemo(() => {
-    const computedFromAmountWei = amountWei;
-    // Minimum amount of toToken we're willing to receive
-    const computedThresholdAmountWei = getMinBuyAmount(
-      quoteWei,
-      slippage,
-    ).toFixed(0);
-
     return {
       fromAmount: amount,
-      fromAmountWei: computedFromAmountWei,
+      fromAmountWei: amountWei,
       toAmount: quote,
-      toAmountWei: quoteWei,
-      thresholdAmountInWei: computedThresholdAmountWei,
     };
-  }, [amount, amountWei, quote, quoteWei, slippage]);
+  }, [amount, amountWei, quote]);
 
-  const { fromAmount, fromAmountWei, toAmount, thresholdAmountInWei } =
-    swapValues;
+  const { fromAmount, fromAmountWei, toAmount } = swapValues;
 
   const { sendSwapTx, isSwapTxLoading, isSwapTxReceiptLoading } =
     useSwapTransaction(
@@ -69,7 +58,6 @@ export function SwapConfirm() {
       tokenInSymbol,
       tokenOutSymbol,
       fromAmountWei,
-      thresholdAmountInWei,
       address,
       true,
       {
