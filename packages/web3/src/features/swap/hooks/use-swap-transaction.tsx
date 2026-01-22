@@ -273,7 +273,7 @@ export function useSwapTransaction(
  * Converts swap transaction errors to user-friendly toast messages.
  * Handles transaction-specific errors like user rejection, insufficient funds, etc.
  */
-function getSwapTransactionErrorMessage(error: Error | string): string {
+export function getSwapTransactionErrorMessage(error: Error | string): string {
   const errorMessage =
     typeof error === "string" ? error : String(error.message ?? error);
 
