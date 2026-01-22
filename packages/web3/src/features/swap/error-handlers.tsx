@@ -33,6 +33,14 @@ export const SWAP_ERROR_MESSAGES = {
   FX_MARKET_CLOSED_SELECTOR: "0xa407143a",
 } as const;
 
+export const USER_ERROR_MESSAGES = {
+  TRADING_PAUSED: "Trading temporarily paused.  Please try again later.",
+  SWAP_REJECTED_BY_USER: "Swap transaction rejected by user.",
+  INSUFFICIENT_FUNDS: "Insufficient funds for transaction.",
+  TRANSACTION_FAILED: "Transaction failed on blockchain.",
+  UNKNOWN_ERROR: "Unable to complete swap transaction",
+} as const;
+
 export const SWAP_INSUFFICIENT_LIQUIDITY_LABEL =
   SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY_TEXT;
 export const SWAP_INSUFFICIENT_LIQUIDITY_MESSAGE =
@@ -77,32 +85,42 @@ export function getToastErrorMessage(
     insufficientLiquidityFallbackUrl,
   }: Omit<SwapErrorOptions, "type"> = {},
 ): string | JSX.Element {
+  const checkedErrorMessage = extractFullErrorString(swapErrorMessage);
+
   const errorChecks = [
     {
-      condition: swapErrorMessage.includes(SWAP_ERROR_MESSAGES.OVERFLOW_X1Y1),
+      condition: checkedErrorMessage.includes(SWAP_ERROR_MESSAGES.OVERFLOW_X1Y1),
       message: "Amount in is too large",
     },
     {
-      condition: swapErrorMessage.includes(
+      condition: checkedErrorMessage.includes(
         SWAP_ERROR_MESSAGES.FIXIDITY_TOO_LARGE,
       ),
       message: "Amount out is too large",
     },
     {
-      condition: isReferenceRateUnavailableError(swapErrorMessage),
-      message: `Trading temporarily paused. Unable to determine accurate ${fromTokenSymbol} to ${toTokenSymbol} exchange rate now. Please try again later.`,
+      condition:
+        isReferenceRateUnavailableError(checkedErrorMessage) ||
+        checkedErrorMessage.includes(SWAP_ERROR_MESSAGES.NO_VALID_MEDIAN) ||
+        checkedErrorMessage.includes(
+          SWAP_ERROR_MESSAGES.TRADING_SUSPENDED_REFERENCE_RATE,
+        ),
+      message:
+        fromTokenSymbol && toTokenSymbol
+          ? `Trading temporarily paused. Unable to determine accurate ${fromTokenSymbol} to ${toTokenSymbol} exchange rate now. Please try again later.`
+          : USER_ERROR_MESSAGES.TRADING_PAUSED,
     },
     {
       condition:
-        swapErrorMessage.includes(SWAP_ERROR_MESSAGES.NO_ROUTE_FOUND) ||
-        swapErrorMessage.includes(SWAP_ERROR_MESSAGES.NO_TRADABLE_PATH),
+        checkedErrorMessage.includes(SWAP_ERROR_MESSAGES.NO_ROUTE_FOUND) ||
+        checkedErrorMessage.includes(SWAP_ERROR_MESSAGES.NO_TRADABLE_PATH),
       message:
         fromTokenSymbol && toTokenSymbol
           ? `No route found for ${fromTokenSymbol} to ${toTokenSymbol}. Please select a different token pair.`
           : "No route found for the selected token pair.",
     },
     {
-      condition: swapErrorMessage.includes(
+      condition: checkedErrorMessage.includes(
         SWAP_ERROR_MESSAGES.INSUFFICIENT_RESERVE_BALANCE,
       ),
       message:
@@ -134,11 +152,13 @@ export function getToastErrorMessage(
     },
     {
       condition:
-        swapErrorMessage.includes(SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY) ||
-        swapErrorMessage.includes(
+        checkedErrorMessage.includes(
+          SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY,
+        ) ||
+        checkedErrorMessage.includes(
           SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY_TEXT,
         ) ||
-        swapErrorMessage.includes(
+        checkedErrorMessage.includes(
           SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY_NAME,
         ),
       message: getInsufficientLiquidityNoticeContent({
@@ -146,7 +166,7 @@ export function getToastErrorMessage(
       }),
     },
     {
-      condition: isFxMarketClosedError(swapErrorMessage),
+      condition: isFxMarketClosedError(checkedErrorMessage),
       message:
         "FX market is currently closed. Trading will resume when the market reopens.",
     },

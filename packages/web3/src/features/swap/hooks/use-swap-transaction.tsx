@@ -3,16 +3,17 @@ import { getTokenBySymbol } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import {
   extractFullErrorString,
-  getToastErrorMessage,
   getInsufficientLiquidityNoticeContent,
+  getToastErrorMessage,
   isFxMarketClosedError,
   isInsufficientLiquidityError,
   isReferenceRateUnavailableError,
   SWAP_INSUFFICIENT_LIQUIDITY_LABEL,
+  USER_ERROR_MESSAGES,
 } from "@/features/swap/error-handlers";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
-import { logger } from "@/utils/logger";
 import { validateAddress } from "@/utils/addresses";
+import { logger } from "@/utils/logger";
 import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
 import { toast } from "@repo/ui";
 import * as Sentry from "@sentry/nextjs";
@@ -105,7 +106,7 @@ export function useSwapTransaction(
       const swapDetails = await sdk.swap.buildSwapParams(
         fromTokenAddr as `0x${string}`,
         toTokenAddr as `0x${string}`,
-        BigInt(amountInWei), // exact amount of fromToken to sell
+        BigInt(amountInWei),
         accountAddress,
         {
           slippageTolerance: parseFloat(formValues?.slippage || "0.3"),
@@ -116,8 +117,6 @@ export function useSwapTransaction(
 
       logger.debug("Sending swap transaction...", { swapDetails });
 
-      // Rely on the connected wallet's active chain. Passing `chainId` here breaks when it is undefined.
-      // See https://github.com/wagmi-dev/wagmi/issues/1879 – supply only tx fields;
       if (chainId === undefined) {
         throw new Error("Chain ID is undefined");
       }
@@ -158,7 +157,6 @@ export function useSwapTransaction(
         hash: txHash,
       });
 
-      // Return the transaction hash so that onSuccess receives it
       return txHash;
     },
     onError: (error: Error) => {
@@ -209,7 +207,6 @@ export function useSwapTransaction(
         const fromTokenSymbol = fromTokenObj?.symbol || "Token";
         const toTokenSymbol = toTokenObj?.symbol || "Token";
 
-        // Format amounts for display
         const fromAmountFormatted = formatWithMaxDecimals(
           swapValues.fromAmount,
           4,
@@ -248,20 +245,15 @@ export function useSwapTransaction(
       });
       setConfirmView(false);
 
-      // Invalidate account balances to ensure UI shows updated balances
-      // Wrapped in async function with error handling to prevent unhandled rejections
-      // when the user disconnects their wallet immediately after a successful swap
       if (accountAddress && chainId) {
         (async () => {
           try {
-            // Cancel any in-flight balance queries first
             await queryClient.cancelQueries({
               queryKey: [
                 "accountBalances",
                 { address: accountAddress, chainId },
               ],
             });
-            // Then invalidate to trigger a fresh fetch
             await queryClient.invalidateQueries({
               queryKey: [
                 "accountBalances",
@@ -269,7 +261,6 @@ export function useSwapTransaction(
               ],
             });
           } catch (error) {
-            // This can happen if the user disconnects their wallet immediately after swap
             Sentry.captureException(`Balance refresh failed: ${error}`);
           }
         })();
@@ -309,7 +300,7 @@ export function useSwapTransaction(
  * Converts swap transaction errors to user-friendly toast messages.
  * Handles transaction-specific errors like user rejection, insufficient funds, etc.
  */
-function getSwapTransactionErrorMessage(
+export function getSwapTransactionErrorMessage(
   error: Error | string,
   {
     fromTokenSymbol,
@@ -323,6 +314,7 @@ function getSwapTransactionErrorMessage(
   insufficientLiquidityFallbackUrl?: string,
 ): string | JSX.Element {
   const errorMessage = extractFullErrorString(error);
+
   if (isInsufficientLiquidityError(errorMessage)) {
     return getInsufficientLiquidityNoticeContent({
       insufficientLiquidityFallbackUrl,
@@ -342,26 +334,26 @@ function getSwapTransactionErrorMessage(
 
   switch (true) {
     case /user\s+rejected/i.test(errorMessage):
-      return "Swap transaction rejected by user.";
+      return USER_ERROR_MESSAGES.SWAP_REJECTED_BY_USER;
     case /denied\s+transaction\s+signature/i.test(errorMessage):
-      return "Swap transaction rejected by user.";
+      return USER_ERROR_MESSAGES.SWAP_REJECTED_BY_USER;
     case /request\s+rejected/i.test(errorMessage):
-      return "Swap transaction rejected by user.";
+      return USER_ERROR_MESSAGES.SWAP_REJECTED_BY_USER;
     case errorMessage.includes("No route found for tokens") ||
       errorMessage.includes("tradable path"):
       return "No route found for the selected token pair.";
     case errorMessage.includes("Slippage tolerance"):
       return "Slippage exceeds the maximum supported value.";
     case errorMessage.includes("insufficient funds"):
-      return "Insufficient funds for transaction.";
+      return USER_ERROR_MESSAGES.INSUFFICIENT_FUNDS;
     case errorMessage.includes("Transaction failed"):
-      return "Transaction failed on blockchain.";
+      return USER_ERROR_MESSAGES.TRANSACTION_FAILED;
     case isReferenceRateUnavailableError(errorMessage):
-      return "Trading temporarily paused. Please try again later.";
+      return USER_ERROR_MESSAGES.TRADING_PAUSED;
     case isFxMarketClosedError(errorMessage):
       return "FX market is currently closed. Please try again when the market reopens.";
     default:
       logger.warn(`Unhandled swap error for toast: ${errorMessage}`);
-      return "Unable to complete swap transaction";
+      return USER_ERROR_MESSAGES.UNKNOWN_ERROR;
   }
 }
