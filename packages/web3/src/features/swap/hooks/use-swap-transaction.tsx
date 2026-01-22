@@ -16,6 +16,7 @@ import { useEffect } from "react";
 import type { Address } from "viem";
 import { useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
 import { confirmViewAtom, formValuesAtom } from "../swap-atoms";
+import { SWAP_ERROR_MESSAGES, USER_ERROR_MESSAGES } from "../error-handlers";
 
 export function useSwapTransaction(
   chainId: number,
@@ -273,23 +274,26 @@ export function useSwapTransaction(
  * Handles transaction-specific errors like user rejection, insufficient funds, etc.
  */
 function getSwapTransactionErrorMessage(error: Error | string): string {
-  const errorMessage = error instanceof Error ? error.message : error;
+  const errorMessage =
+    typeof error === "string" ? error : String(error.message ?? error);
 
   switch (true) {
-    case errorMessage.includes(`Trading is suspended for this reference rate`):
-      return "Trading temporarily paused.  " + "Please try again later.";
+    case errorMessage.includes(
+      SWAP_ERROR_MESSAGES.TRADING_SUSPENDED_REFERENCE_RATE,
+    ):
+      return USER_ERROR_MESSAGES.TRADING_PAUSED;
     case /user\s+rejected/i.test(errorMessage):
-      return "Swap transaction rejected by user.";
+      return USER_ERROR_MESSAGES.SWAP_REJECTED_BY_USER;
     case /denied\s+transaction\s+signature/i.test(errorMessage):
-      return "Swap transaction rejected by user.";
+      return USER_ERROR_MESSAGES.SWAP_REJECTED_BY_USER;
     case /request\s+rejected/i.test(errorMessage):
-      return "Swap transaction rejected by user.";
+      return USER_ERROR_MESSAGES.SWAP_REJECTED_BY_USER;
     case errorMessage.includes("insufficient funds"):
-      return "Insufficient funds for transaction.";
+      return USER_ERROR_MESSAGES.INSUFFICIENT_FUNDS;
     case errorMessage.includes("Transaction failed"):
-      return "Transaction failed on blockchain.";
+      return USER_ERROR_MESSAGES.TRANSACTION_FAILED;
     default:
       logger.warn(`Unhandled swap error for toast: ${errorMessage}`);
-      return "Unable to complete swap transaction";
+      return USER_ERROR_MESSAGES.UNKNOWN_ERROR;
   }
 }

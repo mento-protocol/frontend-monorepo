@@ -22,6 +22,14 @@ export const SWAP_ERROR_MESSAGES = {
   INSUFFICIENT_RESERVE_BALANCE: "Insufficient balance in reserve",
 } as const;
 
+export const USER_ERROR_MESSAGES = {
+  TRADING_PAUSED: "Trading temporarily paused.  " + "Please try again later.",
+  SWAP_REJECTED_BY_USER: "Swap transaction rejected by user.",
+  INSUFFICIENT_FUNDS: "Insufficient funds for transaction.",
+  TRANSACTION_FAILED: "Transaction failed on blockchain.",
+  UNKNOWN_ERROR: "Unable to complete swap transaction",
+} as const;
+
 /**
  * Converts swap error messages to user-friendly toast messages
  */
@@ -33,27 +41,33 @@ export function getToastErrorMessage(
     chainId,
   }: Omit<SwapErrorOptions, "type"> = {},
 ): string | (() => JSX.Element) {
+  const checkedErrorMessage =
+    typeof swapErrorMessage === "string"
+      ? swapErrorMessage
+      : String(swapErrorMessage);
   const errorChecks = [
     {
-      condition: swapErrorMessage.includes(SWAP_ERROR_MESSAGES.OVERFLOW_X1Y1),
+      condition: checkedErrorMessage.includes(
+        SWAP_ERROR_MESSAGES.OVERFLOW_X1Y1,
+      ),
       message: "Amount in is too large",
     },
     {
-      condition: swapErrorMessage.includes(
+      condition: checkedErrorMessage.includes(
         SWAP_ERROR_MESSAGES.FIXIDITY_TOO_LARGE,
       ),
       message: "Amount out is too large",
     },
     {
       condition:
-        swapErrorMessage.includes(SWAP_ERROR_MESSAGES.NO_VALID_MEDIAN) ||
-        swapErrorMessage.includes(
+        checkedErrorMessage.includes(SWAP_ERROR_MESSAGES.NO_VALID_MEDIAN) ||
+        checkedErrorMessage.includes(
           SWAP_ERROR_MESSAGES.TRADING_SUSPENDED_REFERENCE_RATE,
         ),
       message: `Trading temporarily paused. Unable to determine accurate ${fromTokenSymbol} to ${toTokenSymbol} exchange rate now. Please try again later.`,
     },
     {
-      condition: swapErrorMessage.includes(
+      condition: checkedErrorMessage.includes(
         SWAP_ERROR_MESSAGES.INSUFFICIENT_RESERVE_BALANCE,
       ),
       message:
