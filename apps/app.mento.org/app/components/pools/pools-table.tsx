@@ -9,7 +9,7 @@ interface PoolsTableProps {
 
 function SkeletonRow() {
   return (
-    <div className="gap-4 px-4 py-4 grid grid-cols-[2fr_2fr_1.5fr_1.5fr_1.5fr] items-center rounded-lg border border-border bg-card">
+    <div className="gap-4 px-4 py-4 grid grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,1.5fr)_minmax(0,1.5fr)] items-center rounded-lg border border-border bg-card">
       <div className="gap-3 flex items-center">
         <div className="-space-x-2 flex">
           <Skeleton className="h-8 w-8 rounded-full" />
@@ -34,12 +34,14 @@ export function PoolsTable({ pools, isLoading }: PoolsTableProps) {
   return (
     <div className="space-y-3">
       {/* Header */}
-      <div className="gap-4 px-4 py-3 grid grid-cols-[2fr_2fr_1.5fr_1.5fr_1.5fr] rounded-lg border border-border bg-card">
+      <div className="gap-4 px-4 py-3 grid grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,1.5fr)_minmax(0,1.5fr)] rounded-lg border border-border bg-card">
         <span className="text-sm font-medium text-muted-foreground">Pool</span>
         <span className="text-sm font-medium text-muted-foreground">
           Reserves
         </span>
-        <span className="text-sm font-medium text-muted-foreground">Fees</span>
+        <span className="text-sm font-medium pl-4 text-muted-foreground">
+          Fees
+        </span>
         <span className="text-sm font-medium text-muted-foreground">
           Price alignment
         </span>

@@ -49,11 +49,14 @@ export function PoolsView() {
   return (
     <div className="max-w-5xl space-y-6 w-full">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold">Pools</h1>
-        <p className="text-sm text-muted-foreground">
-          Explore pools, view on-chain metrics, and provide liquidity.
-        </p>
+      <div className="relative">
+        <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
+        <div className="p-6 bg-card">
+          <h1 className="text-2xl font-bold">Pools</h1>
+          <p className="text-sm text-muted-foreground">
+            Explore pools, view on-chain metrics, and provide liquidity.
+          </p>
+        </div>
       </div>
 
       {/* Filter row */}
@@ -90,9 +93,12 @@ export function PoolsView() {
 
       {/* Legacy footer note */}
       {hasLegacyPools && (
-        <div className="px-4 py-3 text-sm rounded-lg border border-border bg-card text-muted-foreground">
-          Legacy pools are planned for migration to FPMM. Liquidity actions are
-          not available for these pools.
+        <div className="relative">
+          <div className="px-4 py-3 text-sm bg-card text-muted-foreground">
+            Legacy pools are planned for migration to FPMM. Liquidity actions
+            are not available for these pools.
+          </div>
+          <div className="bottom-decorations after:-bottom-15 before:-bottom-5 before:-right-5 before:h-5 before:w-5 after:right-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-card before:invert after:absolute after:block after:bg-card"></div>
         </div>
       )}
     </div>

@@ -42,7 +42,7 @@ function PriceAlignmentBadge({
 
 export function PoolRow({ pool }: PoolRowProps) {
   return (
-    <div className="gap-4 px-4 py-4 grid grid-cols-[2fr_2fr_1.5fr_1.5fr_1.5fr] items-center rounded-lg border border-border bg-card">
+    <div className="gap-4 px-4 py-4 grid grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,1.5fr)_minmax(0,1.5fr)] items-center rounded-lg border border-border bg-card">
       {/* Pool */}
       <div className="gap-3 flex items-center">
         <div className="-space-x-2 flex">
@@ -78,34 +78,43 @@ export function PoolRow({ pool }: PoolRowProps) {
       <div className="gap-1.5 flex flex-col">
         <div className="text-sm flex justify-between text-muted-foreground">
           <span>
-            {pool.reserves.token0} {pool.token0.symbol}
+            {pool.reserves.token0}{" "}
+            <span className="font-medium">{pool.token0.symbol}</span>
           </span>
           <span>
-            {pool.reserves.token1} {pool.token1.symbol}
+            {pool.reserves.token1}{" "}
+            <span className="font-medium">{pool.token1.symbol}</span>
           </span>
         </div>
         <div className="h-1.5 flex w-full overflow-hidden rounded-full">
           <div
-            className="bg-(--chart-1)"
+            className="bg-primary"
             style={{ width: `${pool.reserves.token0Ratio * 100}%` }}
           />
           <div
-            className="bg-(--chart-2)"
+            className="bg-primary/30"
             style={{ width: `${(1 - pool.reserves.token0Ratio) * 100}%` }}
           />
         </div>
       </div>
 
       {/* Fees */}
-      <div className="flex flex-col">
+      <div className="pl-4 flex flex-col">
         <span className="text-sm font-medium">
           {pool.fees.total.toFixed(2)}%
         </span>
-        <span className="text-xs text-muted-foreground">
-          {pool.fees.label === "fee"
-            ? `LP ${pool.fees.lp.toFixed(2)}% \u00B7 Proto ${pool.fees.protocol.toFixed(2)}%`
-            : "Spread"}
-        </span>
+        {pool.fees.label === "fee" ? (
+          <>
+            <span className="text-xs text-muted-foreground">
+              LP {pool.fees.lp.toFixed(2)}%
+            </span>
+            <span className="text-xs text-muted-foreground">
+              Protocol {pool.fees.protocol.toFixed(2)}%
+            </span>
+          </>
+        ) : (
+          <span className="text-xs text-muted-foreground">Spread</span>
+        )}
       </div>
 
       {/* Price alignment */}
