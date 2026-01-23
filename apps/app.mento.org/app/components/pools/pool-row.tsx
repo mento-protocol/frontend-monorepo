@@ -1,5 +1,7 @@
 import { Badge, Button, TokenIcon, cn } from "@repo/ui";
 import type { PoolDisplay } from "@repo/web3";
+import { useAccount, useReadContract } from "@repo/web3/wagmi";
+import { erc20Abi, type Address } from "viem";
 
 interface PoolRowProps {
   pool: PoolDisplay;
@@ -41,6 +43,19 @@ function PriceAlignmentBadge({
 }
 
 export function PoolRow({ pool }: PoolRowProps) {
+  const { address } = useAccount();
+  const { data: lpBalance } = useReadContract({
+    address: pool.poolAddr as Address,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: address ? [address] : undefined,
+    query: {
+      enabled: pool.poolType === "FPMM" && !!address,
+    },
+  });
+
+  const hasLPTokens = lpBalance !== undefined && lpBalance > 0n;
+
   return (
     <div className="gap-4 px-4 py-4 grid grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,1.5fr)_minmax(0,1.5fr)] items-center rounded-lg border border-border bg-card">
       {/* Pool */}
@@ -129,9 +144,11 @@ export function PoolRow({ pool }: PoolRowProps) {
             <Button size="sm" className="h-8">
               Deposit
             </Button>
-            <Button size="sm" variant="outline" className="h-8">
-              Manage
-            </Button>
+            {hasLPTokens && (
+              <Button size="sm" variant="outline" className="h-8">
+                Manage
+              </Button>
+            )}
           </>
         ) : (
           <Button size="sm" className="h-8">
