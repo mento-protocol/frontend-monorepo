@@ -1,13 +1,17 @@
 import { chainIdToChain } from "@/config/chains";
-import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { logger } from "@/utils";
 import { toViemAddress, validateAddress } from "@/utils/addresses";
-import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
+import {
+  TokenSymbol,
+  getTokenAddress,
+  getContractAddress,
+} from "@mento-protocol/mento-sdk";
 import { toast } from "@repo/ui";
 import { useQuery } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Address, Hex, TransactionReceipt } from "viem";
+import { encodeFunctionData } from "viem";
 import {
   useEstimateGas,
   useSendTransaction,
@@ -40,24 +44,34 @@ export function useApproveTransaction({
     ],
     queryFn: async () => {
       if (!accountAddress || new BigNumber(amountInWei).lte(0)) return null;
-      const sdk = await getMentoSdk(chainId);
-      const tokenInAddr = getTokenAddress(tokenInSymbol, chainId);
+
+      const tokenInAddr = getTokenAddress(chainId, tokenInSymbol);
       if (!tokenInAddr) {
         throw new Error(
           `${tokenInSymbol} token address not found on chain ${chainId}`,
         );
       }
-      const tradablePair = await getTradablePairForTokens(
-        chainId,
-        tokenInSymbol,
-        tokenOutSymbol,
-      );
-      const txRequest = await sdk.increaseTradingAllowance(
-        tokenInAddr,
-        amountInWei,
-        tradablePair,
-      );
-      return { ...txRequest, to: tokenInAddr };
+
+      const spender = getContractAddress(chainId, "Router");
+
+      const data = encodeFunctionData({
+        abi: [
+          {
+            name: "approve",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "spender", type: "address" },
+              { name: "amount", type: "uint256" },
+            ],
+            outputs: [{ type: "bool" }],
+          },
+        ],
+        functionName: "approve",
+        args: [spender as Address, BigInt(amountInWei)],
+      });
+
+      return { to: tokenInAddr, data };
     },
   });
 

@@ -1,5 +1,5 @@
 import { JSX } from "react";
-import { addresses } from "@mento-protocol/mento-sdk";
+import { getContractAddress } from "@mento-protocol/mento-sdk";
 import { getExplorerUrl } from "@/utils/chain";
 
 interface SwapErrorOptions {
@@ -20,6 +20,7 @@ export const SWAP_ERROR_MESSAGES = {
     "Trading is suspended for this reference rate",
   NO_VALID_MEDIAN: "no valid median",
   INSUFFICIENT_RESERVE_BALANCE: "Insufficient balance in reserve",
+  INSUFFICIENT_LIQUIDITY: "0xbb55fd27",
 } as const;
 
 /**
@@ -59,7 +60,7 @@ export function getToastErrorMessage(
       message:
         toTokenSymbol && chainId
           ? () => {
-              const reserveAddress = addresses[chainId]?.Reserve;
+              const reserveAddress = getContractAddress(chainId, "Reserve");
               const explorerUrl = getExplorerUrl(chainId);
               const reserveUrl = reserveAddress
                 ? `${explorerUrl}/address/${reserveAddress}`
@@ -82,6 +83,12 @@ export function getToastErrorMessage(
               );
             }
           : "The Reserve does not have enough tokens to execute this swap. Please try a smaller amount or try again later.",
+    },
+    {
+      condition: swapErrorMessage.includes(
+        SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY,
+      ),
+      message: "Insufficient liquidity for this swap. Try a smaller amount.",
     },
   ];
 
@@ -109,6 +116,8 @@ export function shouldRetrySwapError(
   if (errorMessage.includes(SWAP_ERROR_MESSAGES.FIXIDITY_TOO_LARGE))
     return false;
   if (errorMessage.includes(SWAP_ERROR_MESSAGES.INSUFFICIENT_RESERVE_BALANCE))
+    return false;
+  if (errorMessage.includes(SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY))
     return false;
 
   return failureCount < 2;

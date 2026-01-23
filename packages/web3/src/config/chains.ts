@@ -62,7 +62,11 @@ export const Celo: MentoChain = {
   blockExplorers: { default: useFork ? LOCAL_FORK_EXPLORER : CELO_EXPLORER },
   rpcUrls: {
     default: {
-      http: [useFork ? "http://localhost:8545" : "https://forno.celo.org"],
+      http: [
+        useFork
+          ? "http://celo-devnet.mento.org"
+          : "http://celo-devnet.mento.org",
+      ],
     },
   },
   contracts: {

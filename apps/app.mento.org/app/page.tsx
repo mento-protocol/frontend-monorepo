@@ -2,7 +2,7 @@
 
 import { useAtom } from "jotai";
 import { ArrowLeft } from "lucide-react";
-import { SlippageDialog } from "./components/swap/slippage-dialog";
+import { SwapSettingsPopover } from "./components/swap/swap-settings-popover";
 import { SwapConfirm } from "./components/swap/swap-confirm";
 import SwapForm from "./components/swap/swap-form";
 import { confirmViewAtom } from "@repo/web3";
@@ -61,7 +61,7 @@ export default function SwapPage() {
                 ) : null}
                 {confirmView ? "Confirm Swap" : "Swap"}
               </h2>
-              <SlippageDialog />
+              <SwapSettingsPopover />
             </div>
             {confirmView ? <SwapConfirm /> : <SwapForm />}
           </div>

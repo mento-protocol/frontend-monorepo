@@ -1,6 +1,5 @@
 import { NativeTokenSymbol } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
-import type { SwapDirection } from "@/features/swap/types";
 import { parseInputExchangeAmount } from "@/features/swap/utils";
 import { fromWei } from "@/utils/amount";
 import { validateAddress } from "@/utils/addresses";
@@ -16,10 +15,10 @@ interface GasEstimationParams {
   quote: string;
   tokenInSymbol: TokenSymbol;
   tokenOutSymbol: TokenSymbol;
-  direction: SwapDirection;
   address?: string;
   chainId: number;
   slippage: string;
+  deadlineMinutes?: string;
   skipApprove?: boolean; // Add this to know if approval is needed
   enabled?: boolean;
 }
@@ -37,10 +36,10 @@ export function useGasEstimation({
   quote,
   tokenInSymbol,
   tokenOutSymbol,
-  direction,
   address,
   chainId,
   slippage,
+  deadlineMinutes = "20",
   skipApprove,
   enabled = true,
 }: GasEstimationParams) {
@@ -53,7 +52,6 @@ export function useGasEstimation({
       quote,
       tokenInSymbol,
       tokenOutSymbol,
-      direction,
       address,
       chainId,
       slippage,
@@ -76,16 +74,15 @@ export function useGasEstimation({
         // This gives us a baseline gas cost without needing approval
         if (!skipApprove && tokenInSymbol !== NativeTokenSymbol) {
           // Estimate gas for a simple transfer as a baseline
-          const fromTokenAddr = getTokenAddress(tokenInSymbol, chainId);
+          const fromTokenAddr = getTokenAddress(chainId, tokenInSymbol);
           if (!fromTokenAddr) {
             throw new Error(
               `${tokenInSymbol} token address not found on chain ${chainId}`,
             );
           }
 
-          // For swapOut, we need to check allowance for the quote amount (fromToken)
-          // For swapIn, we check allowance for the amount (fromToken)
-          const valueToCheck = direction === "out" ? quote : amount;
+          // swapIn - check allowance for the amount (fromToken)
+          const valueToCheck = amount;
 
           const transferData = ethers.utils.defaultAbiCoder.encode(
             ["address", "uint256"],
@@ -123,8 +120,8 @@ export function useGasEstimation({
 
         // If approval is not needed, estimate the actual swap
         const sdk = await getMentoSdk(chainId);
-        const fromTokenAddr = getTokenAddress(tokenInSymbol, chainId);
-        const toTokenAddr = getTokenAddress(tokenOutSymbol, chainId);
+        const fromTokenAddr = getTokenAddress(chainId, tokenInSymbol);
+        const toTokenAddr = getTokenAddress(chainId, tokenOutSymbol);
         if (!fromTokenAddr) {
           throw new Error(
             `${tokenInSymbol} token address not found on chain ${chainId}`,
@@ -141,115 +138,77 @@ export function useGasEstimation({
           tokenOutSymbol,
         );
 
-        // Parse amounts based on direction
-        let amountWeiBN: ethers.BigNumber;
-        let quoteWeiBN: ethers.BigNumber;
-
-        if (direction === "in") {
-          // swapIn: amount is fromToken (sell), quote is toToken (receive)
-          const amountInWei = parseInputExchangeAmount(
-            amount,
-            tokenInSymbol,
-            chainId,
-          );
-          const quoteInWei = parseInputExchangeAmount(
-            quote,
-            tokenOutSymbol,
-            chainId,
-          );
-          amountWeiBN = ethers.BigNumber.from(amountInWei);
-          quoteWeiBN = ethers.BigNumber.from(quoteInWei);
-        } else {
-          // swapOut: quote is fromToken (sell), amount is toToken (receive)
-          const amountInWei = parseInputExchangeAmount(
-            amount,
-            tokenOutSymbol,
-            chainId,
-          );
-          const quoteInWei = parseInputExchangeAmount(
-            quote,
-            tokenInSymbol,
-            chainId,
-          );
-          amountWeiBN = ethers.BigNumber.from(amountInWei);
-          quoteWeiBN = ethers.BigNumber.from(quoteInWei);
-        }
-
-        // Calculate threshold with slippage
-        const slippageBps = Math.floor(parseFloat(slippage) * 100);
-        let thresholdAmountBN: ethers.BigNumber;
-
-        if (direction === "in") {
-          thresholdAmountBN = quoteWeiBN.mul(10000 - slippageBps).div(10000);
-        } else {
-          thresholdAmountBN = quoteWeiBN.mul(10000 + slippageBps).div(10000);
-        }
+        // swapIn: amount is fromToken (sell), quote is toToken (receive)
+        const amountInWei = parseInputExchangeAmount(
+          amount,
+          tokenInSymbol,
+          chainId,
+        );
+        const amountWeiBN = ethers.BigNumber.from(amountInWei);
 
         // Build transaction for gas estimation
-        const isSwapIn = direction === "in";
-        const swapFn = isSwapIn ? sdk.swapIn.bind(sdk) : sdk.swapOut.bind(sdk);
+        const deadlineSeconds = parseInt(deadlineMinutes, 10) * 60;
+        const block = await publicClient.getBlock();
+        const deadline = block.timestamp + BigInt(deadlineSeconds);
 
-        // Use correct amount parameter based on direction
-        // For swapIn: amountWeiBN is the exact sell amount (fromToken)
-        // For swapOut: amountWeiBN is the exact buy amount (toToken)
-        const exactAmount = amountWeiBN;
-
-        const txRequest = await swapFn(
+        const { swap } = await sdk.swap.buildSwapTransaction(
           fromTokenAddr,
           toTokenAddr,
-          exactAmount,
-          thresholdAmountBN,
+          BigInt(amountWeiBN.toString()),
+          address, // recipient
+          address, // owner
+          { slippageTolerance: parseFloat(slippage), deadline },
           tradablePair,
         );
+        const txRequest = swap.params;
 
         logger.info("Gas estimation tx request:", {
           to: txRequest.to,
           account: address as Address,
-          method: isSwapIn ? "swapIn" : "swapOut",
+          method: "swap.buildSwapTransaction",
         });
 
         validateAddress(txRequest.to, "gas estimation");
 
         let estimatedGas: ethers.BigNumber;
 
-        // Use SDK's gas limit if available
-        if (txRequest.gasLimit) {
-          estimatedGas = ethers.BigNumber.from(txRequest.gasLimit);
-          logger.info("Using SDK provided gas limit:", estimatedGas.toString());
-        } else {
-          // Try to estimate gas
-          try {
-            const gasEstimate = await publicClient.estimateGas({
-              account: address as Address,
-              to: txRequest.to as Address,
-              data: txRequest.data as Hex | undefined,
-              value: txRequest.value
-                ? BigInt(txRequest.value.toString())
-                : undefined,
-            });
+        // Try to estimate gas
+        try {
+          const gasEstimate = await publicClient.estimateGas({
+            account: address as Address,
+            to: txRequest.to as Address,
+            data: txRequest.data as Hex | undefined,
+            value: txRequest.value
+              ? BigInt(txRequest.value.toString())
+              : undefined,
+          });
 
-            const gasEstimateBN = ethers.BigNumber.from(gasEstimate);
-            estimatedGas = gasEstimateBN.mul(120).div(100);
-            logger.info("Estimated gas with buffer:", estimatedGas.toString());
-          } catch (estimateError: unknown) {
-            const errorMessage =
-              estimateError instanceof Error
-                ? estimateError.message
-                : String(estimateError);
+          const gasEstimateBN = ethers.BigNumber.from(gasEstimate);
+          estimatedGas = gasEstimateBN.mul(120).div(100);
+          logger.info("Estimated gas with buffer:", estimatedGas.toString());
+        } catch (estimateError: unknown) {
+          const errorMessage =
+            estimateError instanceof Error
+              ? estimateError.message
+              : String(estimateError);
 
-            // If estimation fails, check if it's due to approval
-            if (
-              errorMessage.includes("SafeERC20") ||
-              errorMessage.includes("low-level call failed")
-            ) {
-              logger.warn("Gas estimation failed due to missing approval");
-              // Return a reasonable estimate for UI display
-              estimatedGas = ethers.BigNumber.from("250000");
-            } else {
-              // Other errors - use fallback
-              logger.warn("Gas estimation failed:", errorMessage);
-              estimatedGas = ethers.BigNumber.from("300000");
-            }
+          // Insufficient liquidity - surface to UI instead of falling back
+          if (errorMessage.includes("0xbb55fd27")) {
+            throw new Error("Insufficient liquidity for this swap.");
+          }
+
+          // If estimation fails, check if it's due to approval
+          if (
+            errorMessage.includes("SafeERC20") ||
+            errorMessage.includes("low-level call failed")
+          ) {
+            logger.warn("Gas estimation failed due to missing approval");
+            // Return a reasonable estimate for UI display
+            estimatedGas = ethers.BigNumber.from("250000");
+          } else {
+            // Other errors - use fallback
+            logger.warn("Gas estimation failed:", errorMessage);
+            estimatedGas = ethers.BigNumber.from("300000");
           }
         }
 
@@ -272,9 +231,17 @@ export function useGasEstimation({
           totalFeeUSD,
         };
       } catch (error: unknown) {
-        logger.error("Gas estimation error:", {
-          error: error instanceof Error ? error.message : String(error),
-        });
+        const errorMsg = error instanceof Error ? error.message : String(error);
+
+        // Insufficient liquidity - re-throw to surface in UI
+        if (
+          errorMsg.includes("0xbb55fd27") ||
+          errorMsg.includes("Insufficient liquidity")
+        ) {
+          throw error;
+        }
+
+        logger.error("Gas estimation error:", { error: errorMsg });
 
         // Return a reasonable estimate instead of null
         // This allows the UI to show an approximate fee
@@ -298,7 +265,11 @@ export function useGasEstimation({
     enabled: enabled && !!address && !!amount && !!quote && !!publicClient,
     staleTime: 10000,
     gcTime: 30000,
-    retry: 1,
+    retry: (failureCount, error) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes("Insufficient liquidity")) return false;
+      return failureCount < 1;
+    },
     retryDelay: 1000,
     refetchInterval: false,
     refetchOnWindowFocus: false,

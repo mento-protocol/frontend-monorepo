@@ -45,8 +45,8 @@ export function useTradingSuspensionCheck(
         return { isSuspended: false };
       }
 
-      const fromTokenAddr = getTokenAddress(tokenInSymbol, chainId);
-      const toTokenAddr = getTokenAddress(tokenOutSymbol, chainId);
+      const fromTokenAddr = getTokenAddress(chainId, tokenInSymbol);
+      const toTokenAddr = getTokenAddress(chainId, tokenOutSymbol);
 
       if (!fromTokenAddr || !toTokenAddr) {
         console.warn(`[Trading Suspension Check] Token addresses not found:`, {
@@ -62,7 +62,7 @@ export function useTradingSuspensionCheck(
       try {
         const mento = await getMentoSdk(chainId);
 
-        const isTradable = await mento.isPairTradable(
+        const isTradable = await mento.trading.isPairTradable(
           fromTokenAddr,
           toTokenAddr,
         );

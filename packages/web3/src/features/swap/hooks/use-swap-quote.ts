@@ -1,6 +1,5 @@
 import { toast } from "@repo/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ethers } from "ethers";
 import { useCallback, useEffect, useMemo } from "react";
 import { useChainId } from "wagmi";
 
@@ -12,10 +11,8 @@ import {
   getToastErrorMessage,
   shouldRetrySwapError,
 } from "@/features/swap/error-handlers";
-import type { SwapDirection } from "@/features/swap/types";
 import {
   calcExchangeRate,
-  invertExchangeRate,
   isValidTokenPair,
   parseInputExchangeAmount,
 } from "@/features/swap/utils";
@@ -41,11 +38,11 @@ interface UseSwapQuoteOptions {
 }
 
 /**
- * Core hook for fetching swap quotes between two tokens
+ * Core hook for fetching swap quotes between two tokens.
+ * Only supports exact input swaps (selling exact amount of tokenIn to receive tokenOut).
  */
 export function useSwapQuote(
   amount: string | number,
-  direction: SwapDirection,
   tokenInSymbol: TokenSymbol,
   tokenOutSymbol: TokenSymbol,
   options: UseSwapQuoteOptions = {},
@@ -88,10 +85,9 @@ export function useSwapQuote(
       debouncedAmount,
       tokenInSymbol,
       tokenOutSymbol,
-      direction,
       chainId,
     ],
-    [debouncedAmount, tokenInSymbol, tokenOutSymbol, direction, chainId],
+    [debouncedAmount, tokenInSymbol, tokenOutSymbol, chainId],
   );
 
   // Memoize swap intent for logging
@@ -103,10 +99,7 @@ export function useSwapQuote(
     if (!fromToken || !toToken) return null;
 
     if (!skipDebugLogs) {
-      const swapIntent =
-        direction === "in"
-          ? `${debouncedAmount} ${tokenInSymbol} to ${tokenOutSymbol}`
-          : `${tokenInSymbol} to ${debouncedAmount} ${tokenOutSymbol}`;
+      const swapIntent = `${debouncedAmount} ${tokenInSymbol} to ${tokenOutSymbol}`;
 
       // Check if this is a refetch by looking for existing data
       const existingData = queryClient.getQueryData(queryKey);
@@ -117,8 +110,8 @@ export function useSwapQuote(
       );
     }
 
-    const fromTokenAddr = getTokenAddress(tokenInSymbol, chainId);
-    const toTokenAddr = getTokenAddress(tokenOutSymbol, chainId);
+    const fromTokenAddr = getTokenAddress(chainId, tokenInSymbol);
+    const toTokenAddr = getTokenAddress(chainId, tokenOutSymbol);
     if (!fromTokenAddr) {
       throw new Error(
         `${tokenInSymbol} token address not found on chain ${chainId}`,
@@ -129,21 +122,16 @@ export function useSwapQuote(
         `${tokenOutSymbol} token address not found on chain ${chainId}`,
       );
     }
-    const isSwapIn = direction === "in";
 
-    const amountWei = parseInputExchangeAmount(
-      amount,
-      isSwapIn ? tokenInSymbol : tokenOutSymbol,
-      chainId,
-    );
+    const amountWei = parseInputExchangeAmount(amount, tokenInSymbol, chainId);
 
-    const amountWeiBN = ethers.BigNumber.from(amountWei);
-    const amountDecimals = isSwapIn ? fromToken?.decimals : toToken?.decimals;
-    const quoteDecimals = isSwapIn ? toToken?.decimals : fromToken?.decimals;
+    const amountBigInt = BigInt(amountWei);
+    const amountDecimals = fromToken?.decimals;
+    const quoteDecimals = toToken?.decimals;
 
-    if (amountWeiBN.lte(0)) return null;
+    if (amountBigInt <= 0n) return null;
 
-    const [mento, tradablePair] = await Promise.all([
+    const [mento, route] = await Promise.all([
       getMentoSdk(chainId),
       getTradablePairForTokens(chainId, tokenInSymbol, tokenOutSymbol),
     ]);
@@ -154,46 +142,33 @@ export function useSwapQuote(
       const isRefetch = !!existingData;
 
       if (!isRefetch) {
-        const route = buildSwapRoute(
-          tradablePair,
+        const routeStr = buildSwapRoute(
+          route,
           fromTokenAddr,
           toTokenAddr,
           chainId,
         );
-        console.log(`Swap route: ${route}`);
+        console.log(`Swap route: ${routeStr}`);
       }
     }
 
-    const quoteWei = (
-      isSwapIn
-        ? await mento.getAmountOut(
-            fromTokenAddr,
-            toTokenAddr,
-            amountWeiBN,
-            tradablePair,
-          )
-        : await mento.getAmountIn(
-            fromTokenAddr,
-            toTokenAddr,
-            amountWeiBN,
-            tradablePair,
-          )
-    ).toString();
-
-    const quote = fromWei(quoteWei, quoteDecimals);
-    const rateIn = calcExchangeRate(
-      amountWei,
-      amountDecimals,
-      quoteWei,
-      quoteDecimals,
+    const quoteWei = await mento.quotes.getAmountOut(
+      fromTokenAddr,
+      toTokenAddr,
+      amountBigInt,
+      route,
     );
-    const rate = isSwapIn ? rateIn : invertExchangeRate(rateIn);
+
+    const quote = fromWei(quoteWei.toString(), quoteDecimals ?? 18);
+    const rate = calcExchangeRate(
+      amountWei,
+      amountDecimals ?? 18,
+      quoteWei.toString(),
+      quoteDecimals ?? 18,
+    );
 
     if (!skipDebugLogs) {
-      const quoteLog =
-        direction === "in"
-          ? `${debouncedAmount} ${tokenInSymbol} => ${quote} ${tokenOutSymbol}`
-          : `${quote} ${tokenInSymbol} => ${debouncedAmount} ${tokenOutSymbol}`;
+      const quoteLog = `${debouncedAmount} ${tokenInSymbol} => ${quote} ${tokenOutSymbol}`;
 
       // Check if this is a refetch for the result log too
       const existingData = queryClient.getQueryData(queryKey);
@@ -205,8 +180,8 @@ export function useSwapQuote(
     }
 
     return {
-      amountWei,
-      quoteWei,
+      amountWei: amountBigInt.toString(),
+      quoteWei: quoteWei.toString(),
       quote,
       rate,
     };
@@ -216,7 +191,6 @@ export function useSwapQuote(
     tokenInSymbol,
     tokenOutSymbol,
     chainId,
-    direction,
     amount,
     debouncedAmount,
     queryClient,
@@ -299,7 +273,6 @@ export function useTokenUSDValue(
   // Always call useSwapQuote, but disable it when not needed
   const { quote } = useSwapQuote(
     hasValidAmount ? amount : "",
-    "in",
     tokenSymbol,
     TokenSymbol.USDm,
     {
@@ -319,30 +292,20 @@ export function useTokenUSDValue(
 }
 
 /**
- * Hook that optimizes swap quotes and USD value calculations
- * Reduces the number of useSwapQuote calls from 3 to 1 when possible
+ * Hook that optimizes swap quotes and USD value calculations.
+ * Reduces the number of useSwapQuote calls from 3 to 1 when possible.
+ * Only supports exact input swaps (selling exact amount to receive output).
  */
 export function useOptimizedSwapQuote(
   amount: string | number,
-  direction: SwapDirection,
   tokenInSymbol: TokenSymbol,
   tokenOutSymbol: TokenSymbol,
 ) {
-  const mainQuote = useSwapQuote(
-    amount,
-    direction,
-    tokenInSymbol,
-    tokenOutSymbol,
-  );
+  const mainQuote = useSwapQuote(amount, tokenInSymbol, tokenOutSymbol);
 
-  // Calculate USD values more efficiently
-  const { fromAmount, toAmount } = useMemo(
-    () => ({
-      fromAmount: direction === "in" ? amount : mainQuote.quote,
-      toAmount: direction === "in" ? mainQuote.quote : amount,
-    }),
-    [direction, amount, mainQuote.quote],
-  );
+  // Calculate USD values - amount is always the input, quote is always the output
+  const fromAmount = amount;
+  const toAmount = mainQuote.quote;
 
   const fromTokenUSDValue = useTokenUSDValue(tokenInSymbol, fromAmount);
   const toTokenUSDValue = useTokenUSDValue(tokenOutSymbol, toAmount);
