@@ -2,6 +2,7 @@ export * from "./accounts";
 export * from "./blocks";
 export * from "./contracts";
 export * from "./polling";
+export * from "./pools";
 export * from "./providers";
 export * from "./sdk";
 export * from "./swap";

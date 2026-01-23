@@ -77,14 +77,17 @@ export function useTradingSuspensionCheck(
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         const isNoExchangeError = errorMessage.includes("No exchange found");
+        const isFXMarketClosed =
+          errorMessage.includes("FX market is currently closed") ||
+          errorMessage.includes("FXMarketClosed");
 
         console.error(
           `[Trading Suspension Check] Error checking isPairTradable(${tokenInSymbol} -> ${tokenOutSymbol}):`,
           err,
         );
 
-        // If no exchange is found, treat it as suspended since trading can't happen without an exchange
-        if (isNoExchangeError) {
+        // If no exchange is found or FX market is closed, treat as suspended
+        if (isNoExchangeError || isFXMarketClosed) {
           return {
             isSuspended: true,
           };

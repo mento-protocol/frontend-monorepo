@@ -21,6 +21,7 @@ export const SWAP_ERROR_MESSAGES = {
   NO_VALID_MEDIAN: "no valid median",
   INSUFFICIENT_RESERVE_BALANCE: "Insufficient balance in reserve",
   INSUFFICIENT_LIQUIDITY: "0xbb55fd27",
+  FX_MARKET_CLOSED: "FX market is currently closed",
 } as const;
 
 /**
@@ -90,6 +91,13 @@ export function getToastErrorMessage(
       ),
       message: "Insufficient liquidity for this swap. Try a smaller amount.",
     },
+    {
+      condition: swapErrorMessage.includes(
+        SWAP_ERROR_MESSAGES.FX_MARKET_CLOSED,
+      ),
+      message:
+        "FX market is currently closed. Trading will resume when the market reopens.",
+    },
   ];
 
   const matchedError = errorChecks.find((check) => check.condition);
@@ -119,6 +127,7 @@ export function shouldRetrySwapError(
     return false;
   if (errorMessage.includes(SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY))
     return false;
+  if (errorMessage.includes(SWAP_ERROR_MESSAGES.FX_MARKET_CLOSED)) return false;
 
   return failureCount < 2;
 }

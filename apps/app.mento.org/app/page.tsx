@@ -9,6 +9,7 @@ import { confirmViewAtom } from "@repo/web3";
 import { activeTabAtom } from "@/atoms/navigation";
 
 import { Button, cn, DebugPopup, IconCheck, Toaster } from "@repo/ui";
+import { PoolsView } from "./components/pools/pools-view";
 
 export default function SwapPage() {
   const [confirmView, setConfirmView] = useAtom(confirmViewAtom);
@@ -79,13 +80,7 @@ export default function SwapPage() {
             <div className="bottom-decorations after:-bottom-15 before:-bottom-5 before:-right-5 before:h-5 before:w-5 after:right-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-card before:invert after:absolute after:block after:bg-card"></div>
           </div>
         )}
-        {activeTab === "pool" && (
-          <div className="mb-6 relative w-full max-w-[568px]">
-            <div className="space-y-6 p-6 md:h-[510px] relative z-50 flex h-[510px] flex-col items-center justify-center bg-card">
-              <span className="text-muted-foreground">Coming soon</span>
-            </div>
-          </div>
-        )}
+        {activeTab === "pool" && <PoolsView />}
         {activeTab === "borrow" && (
           <div className="mb-6 relative w-full max-w-[568px]">
             <div className="space-y-6 p-6 md:h-[510px] relative z-50 flex h-[510px] flex-col items-center justify-center bg-card">
