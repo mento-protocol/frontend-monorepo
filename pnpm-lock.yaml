@@ -6,9 +6,15 @@ settings:
 
 catalogs:
   default:
+    '@eslint/js':
+      specifier: ^9.39.2
+      version: 9.39.2
     '@mento-protocol/mento-sdk':
       specifier: ^3.0.0-beta.6
       version: 3.0.0-beta.6
+    '@metamask/jazzicon':
+      specifier: github:jmrossy/jazzicon#7a8df28
+      version: 2.1.0
     '@rainbow-me/rainbowkit':
       specifier: ^2.2.10
       version: 2.2.10
@@ -36,9 +42,18 @@ catalogs:
     concurrently:
       specifier: ^9.2.1
       version: 9.2.1
+    esbuild-plugin-preserve-directives:
+      specifier: ^0.0.11
+      version: 0.0.11
     eslint:
       specifier: ^9.39.2
       version: 9.39.2
+    eslint-config-prettier:
+      specifier: ^10.1.8
+      version: 10.1.8
+    ethers:
+      specifier: ^5.7.2
+      version: 5.8.0
     jotai:
       specifier: ^2.16.1
       version: 2.16.1
@@ -69,9 +84,15 @@ catalogs:
     tailwindcss:
       specifier: ^4.1.18
       version: 4.1.18
+    tsup:
+      specifier: ^8.5.1
+      version: 8.5.1
     typescript:
       specifier: ^5.9.3
       version: 5.9.3
+    typescript-eslint:
+      specifier: ^8.52.0
+      version: 8.52.0
     viem:
       specifier: ^2.44.0
       version: 2.44.0
@@ -79,7 +100,6 @@ catalogs:
 overrides:
   brace-expansion: '>=2.0.2'
   esbuild: '>=0.25.0'
-  lodash: ^4.17.23
   '@eslint/plugin-kit@<0.3.4': '>=0.3.4'
   '@metamask/sdk@>=0.16.0 <=0.33.0': '>=0.33.1'
   '@metamask/sdk-communication-layer@>=0.16.0 <=0.33.0': '>=0.33.1'
@@ -91,6 +111,8 @@ overrides:
   hono@<4.11.4: '>=4.11.4'
   js-yaml@<4.1.1: '>=4.1.1'
   linkifyjs: ^4.3.2
+  diff: '>=5.2.0'
+  lodash: ^4.17.23
   mdast-util-to-hast: ^13.2.1
   next: ^15.5.9
   preact: '>=10.28.2'
@@ -164,7 +186,7 @@ importers:
         version: 5.90.16(react@19.2.3)
       '@vercel/analytics':
         specifier: 'catalog:'
-        version: 1.6.1(next@15.5.9(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react@19.2.3)
+        version: 1.6.1(next@15.5.9(@opentelemetry/api@1.9.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react@19.2.3)
       jotai:
         specifier: 'catalog:'
         version: 2.16.1(@babel/core@7.28.5)(@babel/template@7.27.2)(@types/react@19.2.7)(react@19.2.3)
@@ -5492,8 +5514,8 @@ packages:
   devlop@1.1.0:
     resolution: {integrity: sha512-RWmIqhcFf1lRYBvNmr7qTNuyCt/7/ns2jbpp1+PalgE/rDQcBT0fioSMUpJ93irlUhC5hrg4cYqe6U+0ImW0rA==}
 
-  diff@4.0.2:
-    resolution: {integrity: sha512-58lmxKSA4BNyLz+HHMUzlOEpg09FV+ev6ZMe3vJihgdxzgcwZ8VoEEPmALCZG9LmqfVoNMMKpttIYTVG6uDY7A==}
+  diff@8.0.3:
+    resolution: {integrity: sha512-qejHi7bcSD4hQAZE0tNAawRK1ZtafHDmMTMkrrIGgSLl7hTnQHmKCeB45xAcbfTqK2zowkM3j3bHt/4b/ARbYQ==}
     engines: {node: '>=0.3.1'}
 
   dijkstrajs@1.0.3:
@@ -13918,11 +13940,6 @@ snapshots:
     dependencies:
       '@vanilla-extract/css': 1.17.3
 
-  '@vercel/analytics@1.6.1(next@15.5.9(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react@19.2.3)':
-    optionalDependencies:
-      next: 15.5.9(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-      react: 19.2.3
-
   '@vercel/analytics@1.6.1(next@15.5.9(@opentelemetry/api@1.9.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react@19.2.3)':
     optionalDependencies:
       next: 15.5.9(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -15494,7 +15511,7 @@ snapshots:
     dependencies:
       dequal: 2.0.3
 
-  diff@4.0.2: {}
+  diff@8.0.3: {}
 
   dijkstrajs@1.0.3: {}
 
@@ -16729,7 +16746,7 @@ snapshots:
     dependencies:
       ws: 8.18.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)
 
-  isows@1.0.7(ws@8.18.3(bufferutil@4.1.0)(utf-8-validate@5.0.10)):
+  isows@1.0.7(ws@8.18.3):
     dependencies:
       ws: 8.18.3(bufferutil@4.1.0)(utf-8-validate@5.0.10)
 
@@ -17466,7 +17483,7 @@ snapshots:
       acorn: 8.15.0
       pathe: 2.0.3
       pkg-types: 1.3.1
-      ufo: 1.6.2
+      ufo: 1.6.3
 
   modern-ahocorasick@1.1.0: {}
 
@@ -19114,7 +19131,7 @@ snapshots:
       acorn-walk: 8.3.4
       arg: 4.1.3
       create-require: 1.1.1
-      diff: 4.0.2
+      diff: 8.0.3
       make-error: 1.3.6
       typescript: 5.9.3
       v8-compile-cache-lib: 3.0.1
@@ -19483,7 +19500,7 @@ snapshots:
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
       abitype: 1.2.3(typescript@5.9.3)(zod@4.3.5)
-      isows: 1.0.7(ws@8.18.3(bufferutil@4.1.0)(utf-8-validate@5.0.10))
+      isows: 1.0.7(ws@8.18.3)
       ox: 0.11.3(typescript@5.9.3)(zod@4.3.5)
       ws: 8.18.3(bufferutil@4.1.0)(utf-8-validate@5.0.10)
     optionalDependencies:

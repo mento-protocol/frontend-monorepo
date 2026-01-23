@@ -223,6 +223,8 @@ export function useSwapTransaction(
     accountAddress,
     chainId,
     formValues?.slippage,
+    formValues?.isAutoSlippage,
+    formValues?.deadlineMinutes,
     fromToken,
     isSwapTxConfirmed,
     queryClient,

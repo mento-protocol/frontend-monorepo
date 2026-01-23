@@ -68,6 +68,7 @@
       "@metamask/sdk-communication-layer@>=0.16.0 <=0.33.0": ">=0.33.1",
       "@tanstack/react-query": "^5.83.0",
       "color-string@<1.5.5": ">=1.5.5",
+      "diff": ">=5.2.0",
       "form-data@<2.5.4": ">=2.5.4",
       "glob@<11.1.0": ">=11.1.0",
       "h3@<1.15.5": ">=1.15.5",
