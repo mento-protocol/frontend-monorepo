@@ -192,6 +192,11 @@ export function useGasEstimation({
               ? estimateError.message
               : String(estimateError);
 
+          // Insufficient liquidity - surface to UI instead of falling back
+          if (errorMessage.includes("0xbb55fd27")) {
+            throw new Error("Insufficient liquidity for this swap.");
+          }
+
           // If estimation fails, check if it's due to approval
           if (
             errorMessage.includes("SafeERC20") ||
@@ -226,9 +231,17 @@ export function useGasEstimation({
           totalFeeUSD,
         };
       } catch (error: unknown) {
-        logger.error("Gas estimation error:", {
-          error: error instanceof Error ? error.message : String(error),
-        });
+        const errorMsg = error instanceof Error ? error.message : String(error);
+
+        // Insufficient liquidity - re-throw to surface in UI
+        if (
+          errorMsg.includes("0xbb55fd27") ||
+          errorMsg.includes("Insufficient liquidity")
+        ) {
+          throw error;
+        }
+
+        logger.error("Gas estimation error:", { error: errorMsg });
 
         // Return a reasonable estimate instead of null
         // This allows the UI to show an approximate fee
@@ -252,7 +265,11 @@ export function useGasEstimation({
     enabled: enabled && !!address && !!amount && !!quote && !!publicClient,
     staleTime: 10000,
     gcTime: 30000,
-    retry: 1,
+    retry: (failureCount, error) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes("Insufficient liquidity")) return false;
+      return failureCount < 1;
+    },
     retryDelay: 1000,
     refetchInterval: false,
     refetchOnWindowFocus: false,

@@ -71,7 +71,11 @@ export function SwapConfirm() {
     address,
   });
 
-  const { data: gasEstimate, isLoading: isGasEstimating } = useGasEstimation({
+  const {
+    data: gasEstimate,
+    isLoading: isGasEstimating,
+    error: gasError,
+  } = useGasEstimation({
     amount,
     quote,
     tokenInSymbol,
@@ -82,6 +86,10 @@ export function SwapConfirm() {
     deadlineMinutes,
     skipApprove,
   });
+
+  const isInsufficientLiquidity =
+    gasError instanceof Error &&
+    gasError.message.includes("Insufficient liquidity");
 
   // Calculate sell USD value with fallback
   const sellUSDValue = useMemo(() => {
@@ -232,13 +240,21 @@ export function SwapConfirm() {
         disabled={
           isSwapTxLoading ||
           isSwapTxReceiptLoading ||
+          isGasEstimating ||
+          isInsufficientLiquidity ||
           !rate ||
           !amountWei ||
           !address ||
           !isConnected
         }
       >
-        {isSwapTxLoading || isSwapTxReceiptLoading ? <IconLoading /> : "Swap"}
+        {isSwapTxLoading || isSwapTxReceiptLoading ? (
+          <IconLoading />
+        ) : isInsufficientLiquidity ? (
+          "Insufficient liquidity"
+        ) : (
+          "Swap"
+        )}
       </Button>
     </div>
   );

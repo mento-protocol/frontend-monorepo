@@ -262,6 +262,8 @@ function getSwapTransactionErrorMessage(error: Error | string): string {
       return "Swap transaction rejected by user.";
     case /request\s+rejected/i.test(errorMessage):
       return "Swap transaction rejected by user.";
+    case errorMessage.includes("0xbb55fd27"):
+      return "Insufficient liquidity for this swap. Try a smaller amount.";
     case errorMessage.includes("insufficient funds"):
       return "Insufficient funds for transaction.";
     case errorMessage.includes("Transaction failed"):
