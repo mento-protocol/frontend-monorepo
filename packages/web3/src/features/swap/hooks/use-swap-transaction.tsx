@@ -86,7 +86,10 @@ export function useSwapTransaction(
 
       const deadlineSeconds =
         parseInt(formValues?.deadlineMinutes || "20", 10) * 60;
-      const block = await publicClient!.getBlock();
+      if (!publicClient) {
+        throw new Error("Public client not available");
+      }
+      const block = await publicClient.getBlock();
       const deadline = block.timestamp + BigInt(deadlineSeconds);
 
       const swapDetails = await sdk.swap.buildSwapParams(
