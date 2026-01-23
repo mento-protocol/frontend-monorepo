@@ -13,7 +13,11 @@ import BigNumber from "bignumber.js";
 import { useAtom, useSetAtom } from "jotai";
 import { useEffect } from "react";
 import type { Address } from "viem";
-import { useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
+import {
+  usePublicClient,
+  useSendTransaction,
+  useWaitForTransactionReceipt,
+} from "wagmi";
 import { confirmViewAtom, formValuesAtom } from "../swap-atoms";
 
 export function useSwapTransaction(
@@ -39,6 +43,7 @@ export function useSwapTransaction(
 } {
   const [formValues, setFormValues] = useAtom(formValuesAtom);
   const setConfirmView = useSetAtom(confirmViewAtom);
+  const publicClient = usePublicClient({ chainId });
 
   const { data: swapTxHash, sendTransactionAsync } = useSendTransaction();
 
@@ -79,12 +84,20 @@ export function useSwapTransaction(
 
       const route = await getTradablePairForTokens(chainId, fromToken, toToken);
 
+      const deadlineSeconds =
+        parseInt(formValues?.deadlineMinutes || "20", 10) * 60;
+      const block = await publicClient!.getBlock();
+      const deadline = block.timestamp + BigInt(deadlineSeconds);
+
       const swapDetails = await sdk.swap.buildSwapParams(
         fromTokenAddr as `0x${string}`,
         toTokenAddr as `0x${string}`,
         BigInt(amountInWei), // exact amount of fromToken to sell
         accountAddress,
-        { slippageTolerance: parseFloat(formValues?.slippage || "0.5") },
+        {
+          slippageTolerance: parseFloat(formValues?.slippage || "0.5"),
+          deadline,
+        },
         route,
       );
 
@@ -174,6 +187,8 @@ export function useSwapTransaction(
 
       setFormValues({
         slippage: formValues?.slippage || "0.5",
+        isAutoSlippage: formValues?.isAutoSlippage ?? true,
+        deadlineMinutes: formValues?.deadlineMinutes || "20",
       });
       setConfirmView(false);
 

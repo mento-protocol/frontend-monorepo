@@ -28,6 +28,7 @@ export function SwapConfirm() {
   const tokenInSymbol = formValues?.tokenInSymbol || TokenSymbol.USDm;
   const tokenOutSymbol = formValues?.tokenOutSymbol || TokenSymbol.CELO;
   const slippage = String(formValues?.slippage || "0.5");
+  const deadlineMinutes = String(formValues?.deadlineMinutes || "20");
 
   const { data: balancesFromHook } = useAccountBalances({ address, chainId });
   const { allTokenOptions } = useTokenOptions(undefined, balancesFromHook);
@@ -78,6 +79,7 @@ export function SwapConfirm() {
     address: address || "",
     chainId,
     slippage,
+    deadlineMinutes,
     skipApprove,
   });
 
@@ -209,6 +211,11 @@ export function SwapConfirm() {
         <div className="flex w-full flex-row items-center justify-between">
           <span className="text-muted-foreground">Slippage</span>
           <span data-testid="slippageLabel">{slippage}%</span>
+        </div>
+
+        <div className="flex w-full flex-row items-center justify-between">
+          <span className="text-muted-foreground">Deadline</span>
+          <span data-testid="deadlineLabel">{deadlineMinutes} minutes</span>
         </div>
       </div>
 

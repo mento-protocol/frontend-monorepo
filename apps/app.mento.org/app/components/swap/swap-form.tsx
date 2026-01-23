@@ -614,7 +614,9 @@ export default function SwapForm() {
         const currentFormValues = form.getValues();
         const formData: SwapFormValues = {
           ...currentFormValues,
-          slippage: currentFormValues.slippage || "0.5",
+          slippage: formValues?.slippage || currentFormValues.slippage || "0.5",
+          isAutoSlippage: formValues?.isAutoSlippage,
+          deadlineMinutes: formValues?.deadlineMinutes,
           tokenInSymbol,
           tokenOutSymbol,
           buyUSDValue,
@@ -667,7 +669,9 @@ export default function SwapForm() {
       } else {
         const formData: SwapFormValues = {
           ...values,
-          slippage: form.getValues("slippage") || "0.5",
+          slippage: formValues?.slippage || form.getValues("slippage") || "0.5",
+          isAutoSlippage: formValues?.isAutoSlippage,
+          deadlineMinutes: formValues?.deadlineMinutes,
           tokenInSymbol,
           tokenOutSymbol,
           buyUSDValue,

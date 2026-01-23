@@ -3,6 +3,8 @@ import type { SwapFormValues, ToCeloRates } from "./types";
 
 const initialFormValues: SwapFormValues | null = {
   slippage: "0.5",
+  isAutoSlippage: true,
+  deadlineMinutes: "20",
 };
 
 const initialToCeloRates: ToCeloRates = {};

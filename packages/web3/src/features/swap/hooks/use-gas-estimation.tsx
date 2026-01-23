@@ -18,6 +18,7 @@ interface GasEstimationParams {
   address?: string;
   chainId: number;
   slippage: string;
+  deadlineMinutes?: string;
   skipApprove?: boolean; // Add this to know if approval is needed
   enabled?: boolean;
 }
@@ -38,6 +39,7 @@ export function useGasEstimation({
   address,
   chainId,
   slippage,
+  deadlineMinutes = "20",
   skipApprove,
   enabled = true,
 }: GasEstimationParams) {
@@ -145,13 +147,17 @@ export function useGasEstimation({
         const amountWeiBN = ethers.BigNumber.from(amountInWei);
 
         // Build transaction for gas estimation
+        const deadlineSeconds = parseInt(deadlineMinutes, 10) * 60;
+        const block = await publicClient.getBlock();
+        const deadline = block.timestamp + BigInt(deadlineSeconds);
+
         const { swap } = await sdk.swap.buildSwapTransaction(
           fromTokenAddr,
           toTokenAddr,
           BigInt(amountWeiBN.toString()),
           address, // recipient
           address, // owner
-          { slippageTolerance: parseFloat(slippage) },
+          { slippageTolerance: parseFloat(slippage), deadline },
           tradablePair,
         );
         const txRequest = swap.params;
