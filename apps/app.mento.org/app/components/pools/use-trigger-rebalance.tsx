@@ -5,6 +5,8 @@ import {
 import { toast } from "@repo/ui";
 import { parseAbi, type Address } from "viem";
 import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useChainId } from "wagmi";
 
 const REBALANCE_ABI = parseAbi(["function rebalance(address pool) external"]);
 
@@ -14,6 +16,8 @@ interface TriggerRebalanceParams {
 }
 
 export function useTriggerRebalance() {
+  const queryClient = useQueryClient();
+  const chainId = useChainId();
   const {
     writeContract,
     data: hash,
@@ -38,9 +42,15 @@ export function useTriggerRebalance() {
         toast.success("Rebalance completed successfully", {
           duration: 3000,
         });
+
+        if (chainId) {
+          queryClient.invalidateQueries({
+            queryKey: ["pools-list", chainId],
+          });
+        }
       }
     }
-  }, [isConfirmed, receipt]);
+  }, [isConfirmed, receipt, chainId, queryClient]);
 
   const triggerRebalance = ({
     strategyAddress,
