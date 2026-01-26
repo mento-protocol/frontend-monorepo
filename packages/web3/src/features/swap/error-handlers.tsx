@@ -92,9 +92,9 @@ export function getToastErrorMessage(
       message: "Insufficient liquidity for this swap. Try a smaller amount.",
     },
     {
-      condition: swapErrorMessage.includes(
-        SWAP_ERROR_MESSAGES.FX_MARKET_CLOSED,
-      ),
+      condition:
+        swapErrorMessage.includes(SWAP_ERROR_MESSAGES.FX_MARKET_CLOSED) ||
+        swapErrorMessage.includes("FXMarketClosed"),
       message:
         "FX market is currently closed. Trading will resume when the market reopens.",
     },
@@ -127,7 +127,11 @@ export function shouldRetrySwapError(
     return false;
   if (errorMessage.includes(SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY))
     return false;
-  if (errorMessage.includes(SWAP_ERROR_MESSAGES.FX_MARKET_CLOSED)) return false;
+  if (
+    errorMessage.includes(SWAP_ERROR_MESSAGES.FX_MARKET_CLOSED) ||
+    errorMessage.includes("FXMarketClosed")
+  )
+    return false;
 
   return failureCount < 2;
 }

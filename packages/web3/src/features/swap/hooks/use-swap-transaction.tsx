@@ -273,7 +273,8 @@ function getSwapTransactionErrorMessage(error: Error | string): string {
       return "Insufficient funds for transaction.";
     case errorMessage.includes("Transaction failed"):
       return "Transaction failed on blockchain.";
-    case errorMessage.includes("FX market is currently closed"):
+    case errorMessage.includes("FX market is currently closed") ||
+      errorMessage.includes("FXMarketClosed"):
       return "FX market is currently closed. Please try again when the market reopens.";
     default:
       logger.warn(`Unhandled swap error for toast: ${errorMessage}`);
