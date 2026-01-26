@@ -18,10 +18,14 @@ function getPriceAlignmentStatus(
   inBand: boolean,
   priceDifferencePercent: number,
   thresholdAbovePercent: number,
+  thresholdBelowPercent: number,
 ): PriceAlignmentStatus {
   if (inBand) return "in-band";
   // Out of band: check severity relative to threshold
-  if (Math.abs(priceDifferencePercent) < thresholdAbovePercent * 2)
+  // Use the appropriate threshold based on deviation direction
+  const relevantThreshold =
+    priceDifferencePercent > 0 ? thresholdAbovePercent : thresholdBelowPercent;
+  if (Math.abs(priceDifferencePercent) < relevantThreshold * 2)
     return "warning";
   return "rebalance-likely";
 }
@@ -88,6 +92,7 @@ export function usePoolsList() {
                     details.rebalancing.inBand,
                     details.pricing.priceDifferencePercent,
                     details.rebalancing.rebalanceThresholdAbovePercent,
+                    details.rebalancing.rebalanceThresholdBelowPercent,
                   ),
                   priceDifferencePercent:
                     details.pricing.priceDifferencePercent,

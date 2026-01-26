@@ -54,23 +54,30 @@ export function Header() {
   const navRef = useRef<HTMLElement>(null);
   const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 });
 
-  // Update indicator position when active tab changes
+  // Update indicator position when active tab changes or window resizes
   useEffect(() => {
-    if (!navRef.current) return;
+    const updateIndicatorPosition = () => {
+      if (!navRef.current) return;
 
-    const activeButton = navRef.current.querySelector(
-      `[data-tab="${activeTab}"]`,
-    ) as HTMLButtonElement;
+      const activeButton = navRef.current.querySelector(
+        `[data-tab="${activeTab}"]`,
+      ) as HTMLButtonElement;
 
-    if (activeButton) {
-      const navRect = navRef.current.getBoundingClientRect();
-      const buttonRect = activeButton.getBoundingClientRect();
+      if (activeButton) {
+        const navRect = navRef.current.getBoundingClientRect();
+        const buttonRect = activeButton.getBoundingClientRect();
 
-      setIndicatorStyle({
-        left: buttonRect.left - navRect.left,
-        width: buttonRect.width,
-      });
-    }
+        setIndicatorStyle({
+          left: buttonRect.left - navRect.left,
+          width: buttonRect.width,
+        });
+      }
+    };
+
+    updateIndicatorPosition();
+
+    window.addEventListener("resize", updateIndicatorPosition);
+    return () => window.removeEventListener("resize", updateIndicatorPosition);
   }, [activeTab]);
 
   return (

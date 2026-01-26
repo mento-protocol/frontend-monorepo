@@ -13,7 +13,7 @@ const filterTabs: { value: PoolFilterType; label: string }[] = [
 ];
 
 export function PoolsView() {
-  const { data: pools = [], isLoading } = usePoolsList();
+  const { data: pools = [], isLoading, isError, error } = usePoolsList();
   const [filter, setFilter] = useState<PoolFilterType>("all");
   const [search, setSearch] = useState("");
 
@@ -90,8 +90,22 @@ export function PoolsView() {
         </div>
       </div>
 
+      {/* Error state */}
+      {isError && (
+        <div className="p-6 bg-card text-center">
+          <p className="text-destructive">
+            Failed to load pools. Please check your connection and try again.
+          </p>
+          {error && (
+            <p className="mt-2 text-sm text-muted-foreground">
+              {error instanceof Error ? error.message : String(error)}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Table */}
-      <PoolsTable pools={filteredPools} isLoading={isLoading} />
+      {!isError && <PoolsTable pools={filteredPools} isLoading={isLoading} />}
 
       {/* Legacy footer note */}
       {hasLegacyPools && (
