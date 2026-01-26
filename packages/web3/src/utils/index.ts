@@ -1,5 +1,4 @@
 export * from "./abi";
-export * from "./address";
 export * from "./addresses";
 export * from "./amount";
 export * from "./blockscout";
