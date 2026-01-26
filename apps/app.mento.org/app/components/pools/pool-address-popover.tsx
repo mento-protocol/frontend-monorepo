@@ -6,7 +6,7 @@ import {
   PopoverTrigger,
   CopyToClipboard,
 } from "@repo/ui";
-import { useExplorerUrl, formatAddress } from "@repo/web3";
+import { useExplorerUrl, shortenAddress } from "@repo/web3";
 import type { PoolDisplay } from "@repo/web3";
 import { Info, ExternalLink } from "lucide-react";
 
@@ -26,7 +26,7 @@ function AddressRow({ label, address, explorerUrl }: AddressRowProps) {
       <span className="text-xs font-medium text-foreground">{label}</span>
       <div className="gap-2 flex items-center">
         <span className="text-xs font-mono text-muted-foreground">
-          {formatAddress(address)}
+          {shortenAddress(address, false)}
         </span>
         <div className="gap-1 flex items-center">
           <CopyToClipboard

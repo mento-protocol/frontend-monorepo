@@ -77,7 +77,11 @@ export function usePoolsList() {
                 protocol: details.fees.protocolFeePercent,
                 label: "fee",
               };
-              if (details.pricing && details.rebalancing.inBand !== null) {
+              if (
+                details.pricing &&
+                details.rebalancing &&
+                details.rebalancing.inBand !== null
+              ) {
                 priceAlignment = {
                   status: getPriceAlignmentStatus(
                     details.rebalancing.inBand,

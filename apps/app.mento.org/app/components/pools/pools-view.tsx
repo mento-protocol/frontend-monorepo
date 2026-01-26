@@ -32,6 +32,8 @@ export function PoolsView() {
         (p) =>
           p.token0.symbol.toLowerCase().includes(query) ||
           p.token1.symbol.toLowerCase().includes(query) ||
+          p.token0.name.toLowerCase().includes(query) ||
+          p.token1.name.toLowerCase().includes(query) ||
           p.poolAddr.toLowerCase().includes(query),
       );
     }
