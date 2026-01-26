@@ -39,7 +39,19 @@ export function PoolDetailsAccordion({ pool }: PoolDetailsAccordionProps) {
   };
 
   const formatPrice = (price: number, pair: string) => {
-    return `${price.toFixed(3)} ${pair}`;
+    // Adaptive precision based on price magnitude
+    let decimals: number;
+    if (price < 0.001) {
+      decimals = 8; // Very small: 0.00000123
+    } else if (price < 0.01) {
+      decimals = 6; // Small: 0.001234
+    } else if (price < 1) {
+      decimals = 5; // Medium-small: 0.12345
+    } else {
+      decimals = 4; // Normal/large: 1.2345
+    }
+
+    return `${price.toFixed(decimals)} ${pair}`;
   };
 
   return (
