@@ -117,7 +117,10 @@ export function SwapSettingsPopover() {
           <Settings className="h-5 w-5 text-muted-foreground" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 space-y-4 pb-3">
+      <PopoverContent
+        align="end"
+        className="w-80 space-y-4 pb-3 [&>span]:hidden"
+      >
         {/* Max Slippage Row */}
         <div className="flex items-center justify-between">
           <div className="gap-1.5 flex items-center">

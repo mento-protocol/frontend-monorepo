@@ -66,6 +66,8 @@ export function usePoolsList() {
 
             let fees: PoolDisplay["fees"];
             let priceAlignment: PoolDisplay["priceAlignment"];
+            let pricing: PoolDisplay["pricing"];
+            let rebalancing: PoolDisplay["rebalancing"];
 
             if (details.poolType === "FPMM") {
               fees = {
@@ -83,6 +85,31 @@ export function usePoolsList() {
                   ),
                   priceDifferencePercent:
                     details.pricing.priceDifferencePercent,
+                };
+
+                // Add pricing details for FPMM pools
+                pricing = {
+                  oraclePrice: details.pricing.oraclePrice,
+                  poolPrice: details.pricing.reservePrice,
+                  deviationBps: Number(details.pricing.priceDifferenceBps),
+                  isPoolPriceAbove:
+                    details.pricing.reservePriceAboveOraclePrice,
+                };
+
+                // Add rebalancing details
+                rebalancing = {
+                  incentivePercent:
+                    details.rebalancing.rebalanceIncentivePercent,
+                  thresholdAboveBps: Number(
+                    details.rebalancing.rebalanceThresholdAboveBps,
+                  ),
+                  thresholdBelowBps: Number(
+                    details.rebalancing.rebalanceThresholdBelowBps,
+                  ),
+                  canRebalance:
+                    !details.rebalancing.inBand &&
+                    details.rebalancing.liquidityStrategy !== null,
+                  liquidityStrategy: details.rebalancing.liquidityStrategy,
                 };
               } else {
                 priceAlignment = { status: "market-closed" };
@@ -104,11 +131,13 @@ export function usePoolsList() {
                 symbol: token0Info.symbol,
                 address: details.token0,
                 decimals: token0Info.decimals,
+                name: token0Info.name,
               },
               token1: {
                 symbol: token1Info.symbol,
                 address: details.token1,
                 decimals: token1Info.decimals,
+                name: token1Info.name,
               },
               reserves: {
                 token0: reserve0Formatted,
@@ -117,6 +146,8 @@ export function usePoolsList() {
               },
               fees,
               priceAlignment,
+              ...(pricing && { pricing }),
+              ...(rebalancing && { rebalancing }),
             };
 
             return poolDisplay;
