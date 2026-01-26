@@ -114,7 +114,7 @@ export function usePoolsList() {
                   ),
                   canRebalance:
                     !details.rebalancing.inBand &&
-                    details.rebalancing.liquidityStrategy !== null,
+                    !!details.rebalancing.liquidityStrategy,
                   liquidityStrategy: details.rebalancing.liquidityStrategy,
                 };
               } else {
