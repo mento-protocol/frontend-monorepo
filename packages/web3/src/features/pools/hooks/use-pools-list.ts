@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useChainId } from "wagmi";
 import type { Address } from "viem";
 import type { PoolDisplay, PriceAlignmentStatus } from "../types";
+import { POOL_REFETCH_INTERVAL } from "@/config/constants";
 
 function formatCompactNumber(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -168,7 +169,8 @@ export function usePoolsList() {
 
       return enrichedPools.filter((p): p is PoolDisplay => p !== null);
     },
-    staleTime: 60_000,
+    staleTime: POOL_REFETCH_INTERVAL,
+    refetchInterval: POOL_REFETCH_INTERVAL,
     gcTime: 5 * 60_000,
   });
 }
