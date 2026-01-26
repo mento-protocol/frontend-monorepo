@@ -20,7 +20,8 @@ function getPriceAlignmentStatus(
 ): PriceAlignmentStatus {
   if (inBand) return "in-band";
   // Out of band: check severity relative to threshold
-  if (priceDifferencePercent < thresholdAbovePercent * 2) return "warning";
+  if (Math.abs(priceDifferencePercent) < thresholdAbovePercent * 2)
+    return "warning";
   return "rebalance-likely";
 }
 
