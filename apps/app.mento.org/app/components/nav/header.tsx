@@ -7,6 +7,7 @@ import { useAtom } from "jotai";
 import { Button, cn, Logo } from "@repo/ui";
 import { Moon, Sun } from "lucide-react";
 import { type AppTab, activeTabAtom } from "@/atoms/navigation";
+import { useRef, useEffect, useState } from "react";
 
 function ThemeSwitch() {
   const { theme, setTheme } = useTheme();
@@ -50,6 +51,27 @@ const tabs: { value: AppTab; label: string }[] = [
 
 export function Header() {
   const [activeTab, setActiveTab] = useAtom(activeTabAtom);
+  const navRef = useRef<HTMLElement>(null);
+  const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 });
+
+  // Update indicator position when active tab changes
+  useEffect(() => {
+    if (!navRef.current) return;
+
+    const activeButton = navRef.current.querySelector(
+      `[data-tab="${activeTab}"]`,
+    ) as HTMLButtonElement;
+
+    if (activeButton) {
+      const navRect = navRef.current.getBoundingClientRect();
+      const buttonRect = activeButton.getBoundingClientRect();
+
+      setIndicatorStyle({
+        left: buttonRect.left - navRect.left,
+        width: buttonRect.width,
+      });
+    }
+  }, [activeTab]);
 
   return (
     <header className="relative z-10">
@@ -63,22 +85,33 @@ export function Header() {
         >
           <Logo />
         </a>
-        <nav className="gap-6 absolute left-1/2 flex -translate-x-1/2 items-center">
-          {tabs.map((tab) => (
-            <button
-              key={tab.value}
-              onClick={() => setActiveTab(tab.value)}
-              className={cn(
-                "pb-1 text-md font-medium cursor-pointer border-0 border-b-2 transition-colors outline-none",
-                activeTab === tab.value
-                  ? "border-b-primary text-foreground"
-                  : "border-b-transparent text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </nav>
+        <div className="absolute left-1/2 -translate-x-1/2">
+          <nav ref={navRef} className="gap-6 relative flex items-center">
+            {tabs.map((tab) => (
+              <button
+                key={tab.value}
+                data-tab={tab.value}
+                onClick={() => setActiveTab(tab.value)}
+                className={cn(
+                  "pb-1 text-md font-medium relative z-10 cursor-pointer transition-colors outline-none",
+                  activeTab === tab.value
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+            {/* Sliding underline indicator */}
+            <div
+              className="bottom-0 h-0.5 ease-out absolute bg-primary transition-all duration-300"
+              style={{
+                left: `${indicatorStyle.left}px`,
+                width: `${indicatorStyle.width}px`,
+              }}
+            />
+          </nav>
+        </div>
         <div className="gap-2 px-4 md:px-6 flex flex-row items-center justify-between">
           <ThemeSwitch />
           <ConnectButton />
