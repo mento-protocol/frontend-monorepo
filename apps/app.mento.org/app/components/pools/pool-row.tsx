@@ -4,6 +4,7 @@ import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, type Address } from "viem";
 import { PoolAddressPopover } from "./pool-address-popover";
 import { PoolDetailsAccordion } from "./pool-details-accordion";
+import { LiquidityDrawer } from "./liquidity-drawer";
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 
@@ -49,6 +50,10 @@ function PriceAlignmentBadge({
 export function PoolRow({ pool }: PoolRowProps) {
   const { address } = useAccount();
   const [isExpanded, setIsExpanded] = useState(false);
+  const [drawerState, setDrawerState] = useState<{
+    isOpen: boolean;
+    mode: "deposit" | "manage" | null;
+  }>({ isOpen: false, mode: null });
 
   const { data: lpBalance } = useReadContract({
     address: pool.poolAddr as Address,
@@ -179,7 +184,10 @@ export function PoolRow({ pool }: PoolRowProps) {
               <Button
                 size="sm"
                 className="h-8"
-                onClick={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDrawerState({ isOpen: true, mode: "deposit" });
+                }}
               >
                 Deposit
               </Button>
@@ -188,7 +196,10 @@ export function PoolRow({ pool }: PoolRowProps) {
                   size="sm"
                   variant="outline"
                   className="h-8"
-                  onClick={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDrawerState({ isOpen: true, mode: "manage" });
+                  }}
                 >
                   Manage
                 </Button>
@@ -218,6 +229,19 @@ export function PoolRow({ pool }: PoolRowProps) {
             <PoolDetailsAccordion pool={pool} />
           </div>
         </div>
+      )}
+
+      {/* Liquidity management drawer */}
+      {drawerState.mode && (
+        <LiquidityDrawer
+          pool={pool}
+          isOpen={drawerState.isOpen}
+          onOpenChange={(open) =>
+            setDrawerState((prev) => ({ isOpen: open, mode: prev.mode }))
+          }
+          mode={drawerState.mode}
+          hasLPTokens={hasLPTokens}
+        />
       )}
     </div>
   );
