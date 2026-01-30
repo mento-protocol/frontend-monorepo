@@ -4,7 +4,6 @@ import {
   getAddressNameFromCache,
   getContractInfo,
 } from "../../services/address-resolver-service";
-import { removeProxySuffix } from "../utils/removeProxySuffix";
 
 export const proxyPatterns: PatternRegistry = {
   "changeProxyAdmin(address,address)": createPattern(
@@ -44,11 +43,10 @@ export const proxyPatterns: PatternRegistry = {
     (contract, args) => {
       const [implementation] = args;
       const contractInfo = getContractInfo(contract.address);
-      const contractName = removeProxySuffix(
+      const contractName =
         contractInfo?.friendlyName ||
-          contractInfo?.name ||
-          getAddressNameFromCache(contract.address),
-      );
+        contractInfo?.name ||
+        getAddressNameFromCache(contract.address);
       // Include the implementation address in the description so AddressParser can make it a link
       // The address will be resolved to its friendly name (if available) and become clickable
       const implAddress = String(implementation!.value);

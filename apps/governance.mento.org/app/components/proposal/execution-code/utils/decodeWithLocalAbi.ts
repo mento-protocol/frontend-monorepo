@@ -1,4 +1,4 @@
-import { parseAbi } from "viem";
+import { parseAbi, type Abi } from "viem";
 // ABI fallback is now handled in ExecutionCode component
 
 // Common ERC20 ABI (Complete)
@@ -270,8 +270,104 @@ const SORTED_ORACLES_ABI = parseAbi([
   "function renounceOwnership()",
 ]);
 
+// BiPoolManager ABI (manages two-asset virtual pools)
+// PoolExchange struct contains PoolConfig which contains FixidityLib.Fraction (a single uint256)
+// The nested struct encoding is: ((uint256),address,uint256,uint256,uint256) for PoolConfig
+// Note: createExchange signatures may not decode all on-chain calldata due to
+// complex struct encoding variations. Known limitation from selector 0x271eb2e4.
+const BI_POOL_MANAGER_ABI = parseAbi([
+  // Exchange management - with nested Fraction struct
+  "function createExchange((address,address,address,uint256,uint256,uint256,((uint256),address,uint256,uint256,uint256))) returns (bytes32)",
+  // Alternative encoding without nested Fraction (flattened)
+  "function createExchange((address,address,address,uint256,uint256,uint256,(uint256,address,uint256,uint256,uint256))) returns (bytes32)",
+  "function destroyExchange(bytes32 exchangeId, uint256 exchangeIdIndex) returns (bool destroyed)",
+
+  // View functions
+  "function getPoolExchange(bytes32 exchangeId) view returns ((address,address,address,uint256,uint256,uint256,(uint256,address,uint256,uint256,uint256)))",
+  "function getExchangeIds() view returns (bytes32[])",
+  "function broker() view returns (address)",
+  "function reserve() view returns (address)",
+  "function sortedOracles() view returns (address)",
+  "function breakerBox() view returns (address)",
+
+  // Swap functions
+  "function swapIn(bytes32 exchangeId, address tokenIn, address tokenOut, uint256 amountIn) returns (uint256 amountOut)",
+  "function swapOut(bytes32 exchangeId, address tokenIn, address tokenOut, uint256 amountOut) returns (uint256 amountIn)",
+  "function getAmountOut(bytes32 exchangeId, address tokenIn, address tokenOut, uint256 amountIn) view returns (uint256 amountOut)",
+  "function getAmountIn(bytes32 exchangeId, address tokenIn, address tokenOut, uint256 amountOut) view returns (uint256 amountIn)",
+
+  // Setters
+  "function setBroker(address newBroker)",
+  "function setReserve(address newReserve)",
+  "function setSortedOracles(address newSortedOracles)",
+  "function setBreakerBox(address newBreakerBox)",
+  "function setPricingModules(bytes32[] identifiers, address[] addresses)",
+  // setSpread is available in BiPoolManager v2.6.5+ (0xc016174b60519bdc24433d4ed2cff6c1efac7881)
+  "function setSpread(bytes32 exchangeId, uint256 spread)",
+
+  // Ownership
+  "function owner() view returns (address)",
+  "function transferOwnership(address newOwner)",
+  "function renounceOwnership()",
+]);
+
+// ValueDeltaBreaker ABI (circuit breaker for stable asset pairs)
+// Note: setRateChangeThreshold is SINGULAR for individual rate feed configuration
+const VALUE_DELTA_BREAKER_ABI = parseAbi([
+  // Configuration - singular versions for individual rate feeds
+  "function setRateChangeThreshold(address rateFeedID, uint256 rateChangeThreshold)",
+  "function setReferenceValue(address rateFeedID, uint256 referenceValue)",
+  "function setCooldownTime(address rateFeedID, uint256 cooldownTime)",
+
+  // Configuration - plural versions for batch updates
+  "function setReferenceValues(address[] rateFeedIDs, uint256[] _referenceValues)",
+  "function setCooldownTimes(address[] rateFeedIDs, uint256[] cooldownTime)",
+  "function setDefaultCooldownTime(uint256 cooldownTime)",
+  "function setDefaultRateChangeThreshold(uint256 _rateChangeTreshold)",
+  "function setRateChangeThresholds(address[] rateFeedIDs, uint256[] rateChangeThresholds)",
+  "function setSortedOracles(address _sortedOracles)",
+  "function setBreakerBox(address _breakerBox)",
+
+  // View functions
+  "function sortedOracles() view returns (address)",
+  "function breakerBox() view returns (address)",
+  "function referenceValues(address) view returns (uint256)",
+  "function getCoolDown(address rateFeedID) view returns (uint256)",
+  "function defaultCooldownTime() view returns (uint256)",
+  "function defaultRateChangeThreshold() view returns (uint256)",
+  "function rateChangeThreshold(address) view returns (uint256)",
+
+  // Ownership
+  "function owner() view returns (address)",
+  "function transferOwnership(address newOwner)",
+  "function renounceOwnership()",
+]);
+
+// BreakerBox ABI (manages circuit breakers for oracles)
+const BREAKER_BOX_ABI = parseAbi([
+  // Breaker management
+  "function addBreaker(address breaker, uint8 tradingMode)",
+  "function removeBreaker(address breaker)",
+  "function toggleBreaker(address breaker, address rateFeedID, bool enable)",
+  "function addRateFeed(address rateFeedID)",
+  "function removeRateFeed(address rateFeedID)",
+  "function setRateFeedTradingMode(address rateFeedID, uint8 tradingMode)",
+
+  // View functions
+  "function sortedOracles() view returns (address)",
+  "function getBreakers() view returns (address[])",
+  "function isBreaker(address) view returns (bool)",
+  "function getRateFeedTradingMode(address rateFeedID) view returns (uint8)",
+  "function checkAndSetBreakers(address rateFeedID) returns (uint8)",
+
+  // Ownership
+  "function owner() view returns (address)",
+  "function transferOwnership(address newOwner)",
+  "function renounceOwnership()",
+]);
+
 // Combine all known ABIs
-export const KNOWN_ABIS = [
+export const KNOWN_ABIS: Abi = [
   ...ERC20_ABI,
   ...MENTO_TOKEN_ABI,
   ...GOVERNANCE_ABI,
@@ -282,4 +378,7 @@ export const KNOWN_ABIS = [
   ...PROXY_ADMIN_ABI,
   ...STABLETOKEN_ABI,
   ...PROXY_ABI,
+  ...BI_POOL_MANAGER_ABI,
+  ...VALUE_DELTA_BREAKER_ABI,
+  ...BREAKER_BOX_ABI,
 ];
