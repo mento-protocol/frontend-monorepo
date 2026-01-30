@@ -275,7 +275,7 @@ const SORTED_ORACLES_ABI = parseAbi([
 // The nested struct encoding is: ((uint256),address,uint256,uint256,uint256) for PoolConfig
 // Note: createExchange signatures may not decode all on-chain calldata due to
 // complex struct encoding variations. Known limitation from selector 0x271eb2e4.
-const BIPOOLMANAGER_ABI = parseAbi([
+const BI_POOL_MANAGER_ABI = parseAbi([
   // Exchange management - with nested Fraction struct
   "function createExchange((address,address,address,uint256,uint256,uint256,((uint256),address,uint256,uint256,uint256))) returns (bytes32)",
   // Alternative encoding without nested Fraction (flattened)
@@ -378,7 +378,7 @@ export const KNOWN_ABIS: Abi = [
   ...PROXY_ADMIN_ABI,
   ...STABLETOKEN_ABI,
   ...PROXY_ABI,
-  ...BIPOOLMANAGER_ABI,
+  ...BI_POOL_MANAGER_ABI,
   ...VALUE_DELTA_BREAKER_ABI,
   ...BREAKER_BOX_ABI,
 ];

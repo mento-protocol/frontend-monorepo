@@ -72,7 +72,8 @@ export default withSentryConfig(nextConfig, {
   // side errors will fail.
   tunnelRoute: "/monitoring",
 
-  // Webpack-specific options (moved from deprecated top-level)
+  // Webpack-specific options (new location for these options)
+  // Note: These options are not supported with Turbopack, only webpack builds
   webpack: {
     // Capture React component names to see which component a user clicked on in Session Replays
     reactComponentAnnotation: {

@@ -47,7 +47,7 @@ function formatFixidityAsPercentage(value: bigint | string | number): string {
   // FixidityLib: 1e24 = 100%
   // To get percentage: (value / 1e24) * 100
   // We use BigInt math to avoid precision loss, then convert to number for formatting
-  const percentageScaled = (numValue * 10000n) / BigInt(1e24);
+  const percentageScaled = (numValue * 10000n) / 10n ** 24n;
   const percentage = Number(percentageScaled) / 100;
 
   // Format with appropriate decimal places
