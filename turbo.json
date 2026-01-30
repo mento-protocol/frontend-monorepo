@@ -23,6 +23,10 @@
       "outputs": [".tsbuildinfo", "tsconfig.tsbuildinfo"],
       "cache": true
     },
+    "test": {
+      "cache": false,
+      "outputs": ["coverage/**"]
+    },
     "dev": {
       "dependsOn": ["^build"],
       "cache": false,
