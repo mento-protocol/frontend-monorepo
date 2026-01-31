@@ -4,7 +4,7 @@ _Provide a clear and concise summary of what this pull request changes and why. 
 
 ## Other changes
 
-_Describe any minor or "drive-by" changes here. (e.g., Updated the `zod` package dependancy)_
+_Describe any minor or "drive-by" changes here. (e.g., Updated the `zod` package dependency)_
 
 ## Testing
 
