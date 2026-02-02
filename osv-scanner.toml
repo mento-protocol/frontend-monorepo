@@ -5,3 +5,12 @@
 [[IgnoredVulns]]
 id = "GHSA-5f7q-jpqc-wp7h"
 reason = "PPR (Partial Prerendering) is not used in this project — the vulnerable endpoint is never exposed"
+
+# GHSA-848j-6mx2-7j84: Elliptic uses a cryptographic primitive with a risky implementation (CVE-2025-14505)
+# Transitive dependency via @ethersproject/signing-key (ethers v5). No patched version of
+# elliptic exists yet. The flaw involves incorrect ECDSA 'k' byte-length computation; practical
+# risk is low since we only use ethers for client-side read operations and contract interactions,
+# not server-side key signing.
+[[IgnoredVulns]]
+id = "GHSA-848j-6mx2-7j84"
+reason = "No patch available — transitive dep of ethers v5 (@ethersproject/signing-key). Low practical risk for client-side usage"
