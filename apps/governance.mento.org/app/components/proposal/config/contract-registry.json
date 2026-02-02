@@ -126,6 +126,17 @@
       "friendlyName": "SortedOracles"
     }
   },
+  "protocol": {
+    "0x22d9db95e6ae61c104a7b6f6c78d7993b94ec901": {
+      "name": "BiPoolManagerProxy",
+      "friendlyName": "BiPoolManagerProxy",
+      "isProxy": true
+    },
+    "0xc016174b60519bdc24433d4ed2cff6c1efac7881": {
+      "name": "BiPoolManagerWithSetSpread",
+      "friendlyName": "BiPoolManager (with setSpread)"
+    }
+  },
   "treasury": {
     "0x9380fA34Fd9e4Fd14c06305fd7B6199089eD4eb9": {
       "name": "Mento Reserve",

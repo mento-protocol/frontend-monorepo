@@ -4,6 +4,7 @@ import { governancePatterns } from "./governance-patterns";
 import { reservePatterns } from "./reserve-patterns";
 import { proxyPatterns } from "./proxy-patterns";
 import { utilityPatterns } from "./utility-patterns";
+import { protocolPatterns } from "./protocol-patterns";
 import type { PatternRegistry, PatternManager, PatternCategory } from "./types";
 // Combine all pattern categories
 const patternCategories: Record<string, PatternCategory> = {
@@ -30,6 +31,10 @@ const patternCategories: Record<string, PatternCategory> = {
   utility: {
     name: "Utility Functions",
     patterns: utilityPatterns,
+  },
+  protocol: {
+    name: "Protocol Management",
+    patterns: protocolPatterns,
   },
 };
 
