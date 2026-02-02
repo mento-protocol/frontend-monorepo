@@ -1,0 +1,12 @@
+---
+globs: *.tsx,*.css
+alwaysApply: false
+---
+- Always follow Vercel’s Web Interface Guidelines:
+  - https://vercel.com/design/guidelines
+  - Pay particular attention to: keyboard operability, clear focus styles, URL-as-state, optimistic updates, and forms/validation behavior.
+
+- When editing UI code:
+  - Prefer semantic HTML and native elements before ARIA.
+  - Ensure forms follow the “Don’t block typing”, “Don’t pre-disable submit”, and error-placement rules.
+  - For async states, keep button labels and add loading indicators with minimum visible duration.
