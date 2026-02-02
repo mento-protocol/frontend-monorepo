@@ -29,6 +29,7 @@ lint:
         - "**/dist/**" # Skip build/distribution directories
         - "**/build/**" # Skip build directories
         - "**/.turbo/**" # Skip Turborepo cache
+        - .cursor/rules/.next-docs/** # Skip Next.js docs (auto-generated reference docs)
     - linters: [trufflehog]
       paths:
         - packages/**/assets/** # Skip secret scanning on asset files (icons, etc.)
