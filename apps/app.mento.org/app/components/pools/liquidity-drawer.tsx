@@ -20,9 +20,13 @@ export function LiquidityDrawer({
 }: LiquidityDrawerProps) {
   return (
     <Sheet open={isOpen} onOpenChange={onOpenChange}>
-      <SheetContent side="left" className="sm:max-w-lg">
+      <SheetContent side="left" className="sm:max-w-lg bg-card">
         <LiquidityDrawerHeader pool={pool} />
-        <LiquidityDrawerTabs mode={mode} hasLPTokens={hasLPTokens} />
+        <LiquidityDrawerTabs
+          mode={mode}
+          hasLPTokens={hasLPTokens}
+          pool={pool}
+        />
       </SheetContent>
     </Sheet>
   );
