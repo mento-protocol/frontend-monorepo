@@ -1,7 +1,0 @@
-# GHSA-5f7q-jpqc-wp7h: Next.js Unbounded Memory Consumption via PPR Resume Endpoint
-# Suppressed because we do not use PPR (Partial Prerendering) — it is an experimental
-# opt-in feature and is not enabled in any of our next.config files.
-# No stable 15.x patch exists; fix requires 15.6.0-canary.61+ or Next 16.1.5+.
-[[IgnoredVulns]]
-id = "GHSA-5f7q-jpqc-wp7h"
-reason = "PPR (Partial Prerendering) is not used in this project — the vulnerable endpoint is never exposed"
