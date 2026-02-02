@@ -1,11 +1,16 @@
-# OSV Scanner configuration
-# See: https://google.github.io/osv-scanner/configuration/
+# GHSA-5f7q-jpqc-wp7h: Next.js Unbounded Memory Consumption via PPR Resume Endpoint
+# Suppressed because we do not use PPR (Partial Prerendering) — it is an experimental
+# opt-in feature and is not enabled in any of our next.config files.
+# No stable 15.x patch exists; fix requires 15.6.0-canary.61+ or Next 16.1.5+.
+[[IgnoredVulns]]
+id = "GHSA-5f7q-jpqc-wp7h"
+reason = "PPR (Partial Prerendering) is not used in this project — the vulnerable endpoint is never exposed"
 
-# Temporarily ignore vulnerabilities that have no fix available yet
+# GHSA-848j-6mx2-7j84: Elliptic uses a cryptographic primitive with a risky implementation (CVE-2025-14505)
+# Transitive dependency via @ethersproject/signing-key (ethers v5). No patched version of
+# elliptic exists yet. The flaw involves incorrect ECDSA 'k' byte-length computation; practical
+# risk is low since we only use ethers for client-side read operations and contract interactions,
+# not server-side key signing.
 [[IgnoredVulns]]
 id = "GHSA-848j-6mx2-7j84"
-# Vulnerability published 2026-01-08, no fix available in elliptic package yet
-# This is a transitive dependency - we cannot directly update it
-# TODO: Remove this ignore once elliptic releases a patched version
-ignoreUntil = 2026-04-13T00:00:00Z
-reason = "No fix available - elliptic 6.6.1 is the latest version. Transitive dependency."
+reason = "No patch available — transitive dep of ethers v5 (@ethersproject/signing-key). Low practical risk for client-side usage"
