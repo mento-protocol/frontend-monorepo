@@ -31,7 +31,9 @@ jobs:
         id: check
         run: |
           git fetch origin main
-          CHANGED_FILES=$(git diff --name-only origin/main..HEAD)
+          # Use merge-base to find only changes introduced in this PR, not differences from being behind main
+          MERGE_BASE=$(git merge-base origin/main HEAD)
+          CHANGED_FILES=$(git diff --name-only $MERGE_BASE..HEAD)
 
           SHOULD_RUN=false
           while IFS= read -r file; do
