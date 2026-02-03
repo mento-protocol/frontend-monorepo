@@ -37,6 +37,8 @@ catalog:
   viem: ^2.44.4
   wagmi: ^2.16.9
   zod: ^4.3.5
+  vitest: ^3.2.4
+  "@vitest/coverage-v8": ^3.2.4
 
 onlyBuiltDependencies:
   - "@parcel/watcher"

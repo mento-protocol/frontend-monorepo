@@ -22,8 +22,26 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
-    exclude: ["node_modules", "dist", ".next", "build"],
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/.next/**",
+      "**/build/**",
+      "**/.trunk/**",
+    ],
     globals: false,
     passWithNoTests: true,
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "json", "html"],
+      exclude: [
+        "**/node_modules",
+        "**/dist",
+        "**/.next",
+        "**/.turbo",
+        "**/.trunk",
+        "**/coverage/**",
+      ],
+    },
   },
 });

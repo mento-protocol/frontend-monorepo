@@ -21,7 +21,8 @@
     "lint": "npx @trunkio/launcher check",
     "lint:fix": "npx @trunkio/launcher check --fix",
     "rebuild": "pnpm run clean && turbo run build",
-    "test": "turbo run test"
+    "test": "turbo run test",
+    "test:coverage": "turbo run test:coverage"
   },
   "resolutions": {
     "brace-expansion": ">=2.0.2",
@@ -31,6 +32,7 @@
     "@eslint/js": "catalog:",
     "@repo/eslint-config": "workspace:*",
     "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "eslint": "catalog:",
     "eslint-config-prettier": "catalog:",
     "knip": "^5.82.1",
@@ -39,7 +41,7 @@
     "turbo": "^2.7.5",
     "typescript": "catalog:",
     "typescript-eslint": "catalog:",
-    "vitest": "^3.2.4"
+    "vitest": "catalog:"
   },
   "packageManager": "pnpm@10.24.0",
   "engines": {
