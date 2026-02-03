@@ -8,6 +8,6 @@
     "./shared": "./vitest.shared.js"
   },
   "devDependencies": {
-    "vitest": "^3.2.4"
+    "vitest": "catalog:"
   }
 }
