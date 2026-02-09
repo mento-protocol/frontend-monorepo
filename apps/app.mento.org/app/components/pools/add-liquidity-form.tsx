@@ -378,14 +378,6 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
               </span>
               <span className="font-medium">{sharePercent}%</span>
             </div>
-
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Fees</span>
-              <span className="font-medium">
-                LP {pool.fees.lp.toFixed(2)}% + Proto{" "}
-                {pool.fees.protocol.toFixed(2)}%
-              </span>
-            </div>
           </div>
         </div>
 

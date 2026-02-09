@@ -1,5 +1,7 @@
 import { Badge, TokenIcon, cn } from "@repo/ui";
 import type { PoolDisplay } from "@repo/web3";
+import { useAccount, useReadContract } from "@repo/web3/wagmi";
+import { erc20Abi, formatUnits, type Address } from "viem";
 
 interface LiquidityDrawerHeaderProps {
   pool: PoolDisplay;
@@ -41,6 +43,23 @@ function PriceAlignmentBadge({
 }
 
 export function LiquidityDrawerHeader({ pool }: LiquidityDrawerHeaderProps) {
+  const { address } = useAccount();
+
+  const { data: lpBalance } = useReadContract({
+    address: pool.poolAddr as Address,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: address ? [address] : undefined,
+    query: { enabled: !!address },
+  });
+
+  const formattedLpBalance = lpBalance
+    ? Number(formatUnits(lpBalance, 18)).toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })
+    : null;
+
   return (
     <div className="gap-4 p-6 pt-4 flex flex-col border-b border-border">
       {/* Token pair and badges */}
@@ -84,30 +103,40 @@ export function LiquidityDrawerHeader({ pool }: LiquidityDrawerHeaderProps) {
       </div>
 
       {/* Stats strip */}
-      <div className="-mx-6 px-6 py-3 text-xs flex items-center bg-muted/30">
-        {/* Reserves */}
-        <div className="gap-1.5 flex items-center">
-          <span className="text-muted-foreground">Reserves:</span>
-          <span className="font-medium">
-            {pool.reserves.token0} {pool.token0.symbol} · {pool.reserves.token1}{" "}
-            {pool.token1.symbol}
-          </span>
-        </div>
-
-        {/* Fees */}
-        <div className="gap-1.5 ml-4 flex items-center">
-          <span className="text-muted-foreground">Fees:</span>
-          <span className="font-medium">{pool.fees.total.toFixed(2)}%</span>
-        </div>
-
-        {/* Deviation */}
-        {pool.priceAlignment.priceDifferencePercent !== undefined && (
-          <div className="gap-1.5 ml-4 flex items-center">
-            <span className="text-muted-foreground">Deviation:</span>
+      <div className="-mx-6 px-6 py-3 gap-2 text-xs flex flex-col bg-muted/30">
+        <div className="flex items-center">
+          {/* Reserves */}
+          <div className="gap-1.5 flex items-center">
+            <span className="text-muted-foreground">Reserves:</span>
             <span className="font-medium">
-              {pool.priceAlignment.priceDifferencePercent > 0 ? "+" : ""}
-              {pool.priceAlignment.priceDifferencePercent.toFixed(0)} bps
+              {pool.reserves.token0} {pool.token0.symbol} ·{" "}
+              {pool.reserves.token1} {pool.token1.symbol}
             </span>
+          </div>
+
+          {/* Fees */}
+          <div className="gap-1.5 ml-4 flex items-center">
+            <span className="text-muted-foreground">Fees:</span>
+            <span className="font-medium">{pool.fees.total.toFixed(2)}%</span>
+          </div>
+
+          {/* Deviation */}
+          {pool.priceAlignment.priceDifferencePercent !== undefined && (
+            <div className="gap-1.5 ml-4 flex items-center">
+              <span className="text-muted-foreground">Deviation:</span>
+              <span className="font-medium">
+                {pool.priceAlignment.priceDifferencePercent > 0 ? "+" : ""}
+                {pool.priceAlignment.priceDifferencePercent.toFixed(0)} bps
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* LP token balance */}
+        {formattedLpBalance && (
+          <div className="gap-1.5 flex items-center">
+            <span className="text-muted-foreground">Your LP tokens</span>
+            <span className="font-medium">{formattedLpBalance} LP</span>
           </div>
         )}
       </div>
