@@ -61,9 +61,9 @@ export function usePoolsList() {
             }
 
             const reserve0Value =
-              Number(details.reserve0) / Number(details.decimals0);
+              Number(details.reserve0) / Number(details.scalingFactor0);
             const reserve1Value =
-              Number(details.reserve1) / Number(details.decimals1);
+              Number(details.reserve1) / Number(details.scalingFactor1);
             const reserve0Formatted = formatCompactNumber(reserve0Value);
             const reserve1Formatted = formatCompactNumber(reserve1Value);
             const totalReserves = reserve0Value + reserve1Value;

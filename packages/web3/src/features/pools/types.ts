@@ -49,3 +49,6 @@ export interface PoolDisplay {
     liquidityStrategy: string | null;
   };
 }
+
+export const SLIPPAGE_OPTIONS = [0.1, 0.3, 0.5, 1.0] as const;
+export type SlippageOption = (typeof SLIPPAGE_OPTIONS)[number];

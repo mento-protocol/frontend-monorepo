@@ -187,6 +187,8 @@ export function useGasEstimation({
           estimatedGas = gasEstimateBN.mul(120).div(100);
           logger.info("Estimated gas with buffer:", estimatedGas.toString());
         } catch (estimateError: unknown) {
+          logger.error("Gas estimation tx response:", estimateError);
+
           const errorMessage =
             estimateError instanceof Error
               ? estimateError.message

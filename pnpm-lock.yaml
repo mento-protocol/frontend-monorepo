@@ -730,8 +730,8 @@ importers:
         specifier: ^5.8.0
         version: 5.8.0
       '@mento-protocol/mento-sdk':
-        specifier: 3.0.0-beta.11
-        version: 3.0.0-beta.11(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.3.5)
+        specifier: 3.0.0-beta.15
+        version: 3.0.0-beta.15(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.3.5)
       '@metamask/jazzicon':
         specifier: 'catalog:'
         version: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28
@@ -2158,8 +2158,8 @@ packages:
   '@mento-protocol/mento-core-ts@0.2.3':
     resolution: {integrity: sha512-Fjj0t2a6xqpHTbhfafioqjkY9ZDBsq3oy/DkRizihDI2zul/PFQJfQwyy7WDSSc/cNAflevBeSJyqTPTv9HD/Q==}
 
-  '@mento-protocol/mento-sdk@3.0.0-beta.11':
-    resolution: {integrity: sha512-oxVLNaZtZN6vQoiDDOeHtA9o5oyiOFbxpk9BhqRfQZE+WGwU8+PiQ7McT3bNU4qWMmIOTPgeSwEbHBtaQYnCnA==}
+  '@mento-protocol/mento-sdk@3.0.0-beta.15':
+    resolution: {integrity: sha512-YQ3XVjUP9rS5G0/zxXobxnCBL/uxnHtznFfCbSC+WzQXYftAqaR4zXgBdqzjjXprdsXP5QLuXFsEbCRshYUbgg==}
     engines: {node: '>=18', pnpm: '>=9'}
 
   '@mento-protocol/mento-sdk@3.0.0-beta.6':
@@ -10998,7 +10998,7 @@ snapshots:
 
   '@mento-protocol/mento-core-ts@0.2.3': {}
 
-  '@mento-protocol/mento-sdk@3.0.0-beta.11(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.3.5)':
+  '@mento-protocol/mento-sdk@3.0.0-beta.15(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.3.5)':
     dependencies:
       '@mento-protocol/mento-core-ts': 0.2.3
       bignumber.js: 9.3.1
@@ -16746,7 +16746,7 @@ snapshots:
     dependencies:
       ws: 8.18.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)
 
-  isows@1.0.7(ws@8.18.3(bufferutil@4.1.0)(utf-8-validate@5.0.10)):
+  isows@1.0.7(ws@8.18.3):
     dependencies:
       ws: 8.18.3(bufferutil@4.1.0)(utf-8-validate@5.0.10)
 
@@ -19500,7 +19500,7 @@ snapshots:
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
       abitype: 1.2.3(typescript@5.9.3)(zod@4.3.5)
-      isows: 1.0.7(ws@8.18.3(bufferutil@4.1.0)(utf-8-validate@5.0.10))
+      isows: 1.0.7(ws@8.18.3)
       ox: 0.11.3(typescript@5.9.3)(zod@4.3.5)
       ws: 8.18.3(bufferutil@4.1.0)(utf-8-validate@5.0.10)
     optionalDependencies:
