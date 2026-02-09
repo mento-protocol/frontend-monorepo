@@ -1,7 +1,6 @@
 import { getMentoSdk } from "@/features/sdk";
 import { toWei } from "@/utils/amount";
 import { useDebounce } from "@/utils/debounce";
-import { logger } from "@/utils/logger";
 import { useQuery } from "@tanstack/react-query";
 import { useChainId } from "wagmi";
 import type { ChainId } from "@/config/chains";
