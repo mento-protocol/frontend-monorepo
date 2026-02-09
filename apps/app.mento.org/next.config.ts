@@ -11,10 +11,6 @@ const storageHostname = env.NEXT_PUBLIC_STORAGE_URL.replace(
 );
 
 const nextConfig: NextConfig = {
-  // We use trunk to lint the code in a separate step, disable eslint during build for faster builds
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   images: {
     remotePatterns: [
       {
