@@ -46,7 +46,7 @@
   },
   "devDependencies": {
     "@graphql-codegen/add": "^6.0.0",
-    "@graphql-codegen/cli": "^6.1.0",
+    "@graphql-codegen/cli": "^6.1.1",
     "@graphql-codegen/typescript": "^5.0.7",
     "@graphql-codegen/typescript-apollo-client-helpers": "^3.0.1",
     "@graphql-codegen/typescript-operations": "^5.0.7",
@@ -57,7 +57,7 @@
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "dotenv": "^17.2.3",
+    "dotenv": "^17.2.4",
     "pino-pretty": "catalog:",
     "typescript": "catalog:"
   }
