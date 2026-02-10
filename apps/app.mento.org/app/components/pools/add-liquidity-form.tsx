@@ -19,7 +19,119 @@ import {
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, parseUnits, type Address } from "viem";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { ChevronDown, Check, Info, AlertTriangle } from "lucide-react";
+import {
+  ChevronDown,
+  Check,
+  Info,
+  AlertTriangle,
+  ExternalLink,
+} from "lucide-react";
+
+function formatBalance(balance: string): string {
+  const num = parseFloat(balance);
+  if (num >= 1_000_000) return (num / 1_000_000).toFixed(2) + "M";
+  if (num >= 1_000) return (num / 1_000).toFixed(2) + "K";
+  return num.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+}
+
+function formatLP(liquidity: bigint | undefined): string {
+  if (!liquidity || liquidity === 0n) return "0.00";
+  return Number(formatUnits(liquidity, 18)).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  });
+}
+
+function calcPoolShare(
+  liquidity: bigint | undefined,
+  totalSupply: bigint | undefined,
+): string {
+  if (!liquidity || !totalSupply || totalSupply === 0n) return "0.00";
+  return (
+    (Number(liquidity) / (Number(totalSupply) + Number(liquidity))) *
+    100
+  ).toFixed(4);
+}
+
+function TokenAmountInput({
+  token,
+  balance,
+  amount,
+  onChange,
+  onMax,
+  insufficient,
+}: {
+  token: { address: string; symbol: string };
+  balance: string;
+  amount: string;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onMax: () => void;
+  insufficient: boolean;
+}) {
+  return (
+    <div className="gap-2 flex flex-col">
+      <div className="gap-2 flex items-center justify-between">
+        <div className="gap-2 flex items-center">
+          <TokenIcon
+            token={{ address: token.address, symbol: token.symbol }}
+            size={24}
+            className="rounded-full"
+          />
+          <span className="font-medium">{token.symbol}</span>
+        </div>
+        <div className="text-sm text-muted-foreground">
+          Balance: {formatBalance(balance)}{" "}
+          <button
+            className="font-medium cursor-pointer text-primary hover:underline"
+            onClick={onMax}
+          >
+            MAX
+          </button>
+        </div>
+      </div>
+      <Input
+        type="text"
+        inputMode="decimal"
+        value={amount}
+        onChange={onChange}
+        placeholder="0"
+        className={`h-12 text-base ${insufficient ? "border-destructive" : ""}`}
+      />
+      {insufficient && (
+        <p className="text-xs text-destructive">
+          Insufficient {token.symbol} balance
+        </p>
+      )}
+    </div>
+  );
+}
+
+function LPPreview({
+  estimatedLP,
+  sharePercent,
+}: {
+  estimatedLP: string;
+  sharePercent: string;
+}) {
+  return (
+    <div className="gap-3 flex flex-col">
+      <h3 className="font-semibold">Preview</h3>
+      <div className="gap-2 text-sm flex flex-col">
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Estimated LP tokens</span>
+          <span className="font-medium">{estimatedLP} LP</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Approx share of pool</span>
+          <span className="font-medium">{sharePercent}%</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface AddLiquidityFormProps {
   pool: PoolDisplay;
@@ -364,57 +476,13 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
 
   // === Preview calculations ===
 
-  // Balanced
-  const estimatedLP =
-    quote?.liquidity && quote.liquidity > 0n
-      ? Number(formatUnits(quote.liquidity, 18)).toLocaleString(undefined, {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 4,
-        })
-      : "0.00";
-
-  const sharePercent =
-    quote?.liquidity && quote.totalSupply && quote.totalSupply > 0n
-      ? (
-          (Number(quote.liquidity) /
-            (Number(quote.totalSupply) + Number(quote.liquidity))) *
-          100
-        ).toFixed(4)
-      : "0.00";
-
-  // Single-token
-  const zapEstimatedLP =
-    zapQuote?.expectedLiquidity && zapQuote.expectedLiquidity > 0n
-      ? Number(formatUnits(zapQuote.expectedLiquidity, 18)).toLocaleString(
-          undefined,
-          {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 4,
-          },
-        )
-      : "0.00";
-
-  const zapSharePercent =
-    zapQuote?.expectedLiquidity &&
-    zapQuote.totalSupply &&
-    zapQuote.totalSupply > 0n
-      ? (
-          (Number(zapQuote.expectedLiquidity) /
-            (Number(zapQuote.totalSupply) +
-              Number(zapQuote.expectedLiquidity))) *
-          100
-        ).toFixed(4)
-      : "0.00";
-
-  const formatBalance = (balance: string) => {
-    const num = parseFloat(balance);
-    if (num >= 1000000) return (num / 1000000).toFixed(2) + "M";
-    if (num >= 1000) return (num / 1000).toFixed(2) + "K";
-    return num.toLocaleString(undefined, {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
-    });
-  };
+  const estimatedLP = formatLP(quote?.liquidity);
+  const sharePercent = calcPoolShare(quote?.liquidity, quote?.totalSupply);
+  const zapEstimatedLP = formatLP(zapQuote?.expectedLiquidity);
+  const zapSharePercent = calcPoolShare(
+    zapQuote?.expectedLiquidity,
+    zapQuote?.totalSupply,
+  );
 
   // Amount presets for single-token mode
   const handleAmountPreset = (preset: "0.1" | "1" | "all") => {
@@ -430,8 +498,8 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
   };
 
   return (
-    <div className="p-6 flex flex-1 flex-col">
-      <div className="gap-6 flex flex-1 flex-col">
+    <div className="min-h-0 flex flex-1 flex-col">
+      <div className="gap-6 px-6 pt-6 min-h-0 flex flex-1 flex-col overflow-y-auto">
         {/* Deposit mode toggle */}
         <div className="gap-2 grid grid-cols-2">
           <button
@@ -458,109 +526,29 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
 
         {mode === "balanced" ? (
           <>
-            {/* Token 0 input */}
-            <div className="gap-2 flex flex-col">
-              <div className="gap-2 flex items-center justify-between">
-                <div className="gap-2 flex items-center">
-                  <TokenIcon
-                    token={{
-                      address: pool.token0.address,
-                      symbol: pool.token0.symbol,
-                    }}
-                    size={24}
-                    className="rounded-full"
-                  />
-                  <span className="font-medium">{pool.token0.symbol}</span>
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  Balance: {formatBalance(formattedToken0Balance)}{" "}
-                  <button
-                    className="font-medium cursor-pointer text-primary hover:underline"
-                    onClick={handleMax0}
-                  >
-                    MAX
-                  </button>
-                </div>
-              </div>
-              <Input
-                type="text"
-                inputMode="decimal"
-                value={token0Amount}
-                onChange={handleToken0Change}
-                placeholder="0"
-                className={`h-12 text-base ${insufficientToken0 ? "border-destructive" : ""}`}
-              />
-              {insufficientToken0 && (
-                <p className="text-xs text-destructive">
-                  Insufficient {pool.token0.symbol} balance
-                </p>
-              )}
-            </div>
-
-            {/* Token 1 input */}
-            <div className="gap-2 flex flex-col">
-              <div className="gap-2 flex items-center justify-between">
-                <div className="gap-2 flex items-center">
-                  <TokenIcon
-                    token={{
-                      address: pool.token1.address,
-                      symbol: pool.token1.symbol,
-                    }}
-                    size={24}
-                    className="rounded-full"
-                  />
-                  <span className="font-medium">{pool.token1.symbol}</span>
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  Balance: {formatBalance(formattedToken1Balance)}{" "}
-                  <button
-                    className="font-medium cursor-pointer text-primary hover:underline"
-                    onClick={handleMax1}
-                  >
-                    MAX
-                  </button>
-                </div>
-              </div>
-              <Input
-                type="text"
-                inputMode="decimal"
-                value={token1Amount}
-                onChange={handleToken1Change}
-                placeholder="0"
-                className={`h-12 text-base ${insufficientToken1 ? "border-destructive" : ""}`}
-              />
-              {insufficientToken1 && (
-                <p className="text-xs text-destructive">
-                  Insufficient {pool.token1.symbol} balance
-                </p>
-              )}
-            </div>
+            <TokenAmountInput
+              token={pool.token0}
+              balance={formattedToken0Balance}
+              amount={token0Amount}
+              onChange={handleToken0Change}
+              onMax={handleMax0}
+              insufficient={insufficientToken0}
+            />
+            <TokenAmountInput
+              token={pool.token1}
+              balance={formattedToken1Balance}
+              amount={token1Amount}
+              onChange={handleToken1Change}
+              onMax={handleMax1}
+              insufficient={insufficientToken1}
+            />
 
             {/* Info text */}
             <p className="text-xs text-muted-foreground">
               Amounts are based on the current pool ratio.
             </p>
 
-            {/* Preview section */}
-            <div className="gap-3 flex flex-col">
-              <h3 className="font-semibold">Preview</h3>
-
-              <div className="gap-2 text-sm flex flex-col">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">
-                    Estimated LP tokens
-                  </span>
-                  <span className="font-medium">{estimatedLP} LP</span>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">
-                    Approx share of pool
-                  </span>
-                  <span className="font-medium">{sharePercent}%</span>
-                </div>
-              </div>
-            </div>
+            <LPPreview estimatedLP={estimatedLP} sharePercent={sharePercent} />
           </>
         ) : (
           <>
@@ -670,26 +658,10 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
               </span>
             </div>
 
-            {/* Preview section */}
-            <div className="gap-3 flex flex-col">
-              <h3 className="font-semibold">Preview</h3>
-
-              <div className="gap-2 text-sm flex flex-col">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">
-                    Estimated LP tokens
-                  </span>
-                  <span className="font-medium">{zapEstimatedLP} LP</span>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">
-                    Approx share of pool
-                  </span>
-                  <span className="font-medium">{zapSharePercent}%</span>
-                </div>
-              </div>
-            </div>
+            <LPPreview
+              estimatedLP={zapEstimatedLP}
+              sharePercent={zapSharePercent}
+            />
           </>
         )}
 
@@ -734,7 +706,7 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
       </div>
 
       {/* Bottom section */}
-      <div className="gap-4 mt-auto flex flex-col">
+      <div className="gap-4 px-6 pb-6 pt-4 mt-auto flex shrink-0 flex-col">
         <Button
           size="lg"
           className="w-full"
@@ -752,19 +724,7 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
             rel="noopener noreferrer"
             className="gap-1 flex cursor-pointer items-center text-muted-foreground transition-colors hover:text-foreground"
           >
-            <svg
-              className="h-3.5 w-3.5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-              />
-            </svg>
+            <ExternalLink className="h-3.5 w-3.5" />
             View pool on explorer
           </a>
           <a
@@ -773,19 +733,7 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
             rel="noopener noreferrer"
             className="gap-1 flex cursor-pointer items-center text-muted-foreground transition-colors hover:text-foreground"
           >
-            <svg
-              className="h-3.5 w-3.5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-              />
-            </svg>
+            <ExternalLink className="h-3.5 w-3.5" />
             Read FPMM mechanics
           </a>
         </div>

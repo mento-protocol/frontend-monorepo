@@ -6,6 +6,7 @@ import type { Address } from "viem";
 import { useChainId } from "wagmi";
 import type { ChainId } from "@/config/chains";
 import type { PoolDisplay } from "../types";
+import { LP_TOTAL_SUPPLY_HOLDER } from "../types";
 
 export interface LiquidityQuoteResult {
   amountA: bigint;
@@ -81,7 +82,7 @@ export function useLiquidityQuote({
       // Get LP token total supply for share calculation
       const lpBalance = await sdk.liquidity.getLPTokenBalance(
         pool.poolAddr,
-        "0x0000000000000000000000000000000000000001",
+        LP_TOTAL_SUPPLY_HOLDER,
       );
 
       return {

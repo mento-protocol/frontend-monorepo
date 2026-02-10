@@ -2,44 +2,10 @@ import { Badge, TokenIcon, cn } from "@repo/ui";
 import type { PoolDisplay } from "@repo/web3";
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, type Address } from "viem";
+import { PriceAlignmentBadge } from "./price-alignment-badge";
 
 interface LiquidityDrawerHeaderProps {
   pool: PoolDisplay;
-}
-
-function PriceAlignmentBadge({
-  status,
-}: {
-  status: PoolDisplay["priceAlignment"]["status"];
-}) {
-  switch (status) {
-    case "in-band":
-      return (
-        <Badge className="border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-400 flex items-center justify-center">
-          In band
-        </Badge>
-      );
-    case "warning":
-      return (
-        <Badge className="border-yellow-200 bg-yellow-50 text-yellow-700 dark:border-yellow-800 dark:bg-yellow-950 dark:text-yellow-400 flex items-center justify-center">
-          Warning
-        </Badge>
-      );
-    case "rebalance-likely":
-      return (
-        <Badge className="border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-400 flex items-center justify-center">
-          Rebalance likely
-        </Badge>
-      );
-    case "market-closed":
-      return (
-        <Badge className="flex items-center justify-center border-border bg-muted/50 text-muted-foreground">
-          Market closed
-        </Badge>
-      );
-    default:
-      return <span className="text-muted-foreground">&mdash;</span>;
-  }
 }
 
 export function LiquidityDrawerHeader({ pool }: LiquidityDrawerHeaderProps) {

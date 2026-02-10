@@ -1,50 +1,16 @@
-import { Badge, Button, TokenIcon, cn } from "@repo/ui";
+import { Button, TokenIcon, cn, Badge } from "@repo/ui";
 import type { PoolDisplay } from "@repo/web3";
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, type Address } from "viem";
 import { PoolAddressPopover } from "./pool-address-popover";
 import { PoolDetailsAccordion } from "./pool-details-accordion";
 import { LiquidityDrawer } from "./liquidity-drawer";
+import { PriceAlignmentBadge } from "./price-alignment-badge";
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 
 interface PoolRowProps {
   pool: PoolDisplay;
-}
-
-function PriceAlignmentBadge({
-  status,
-}: {
-  status: PoolDisplay["priceAlignment"]["status"];
-}) {
-  switch (status) {
-    case "in-band":
-      return (
-        <Badge className="border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-400">
-          In band
-        </Badge>
-      );
-    case "warning":
-      return (
-        <Badge className="border-yellow-200 bg-yellow-50 text-yellow-700 dark:border-yellow-800 dark:bg-yellow-950 dark:text-yellow-400">
-          Warning
-        </Badge>
-      );
-    case "rebalance-likely":
-      return (
-        <Badge className="border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-400">
-          Rebalance likely
-        </Badge>
-      );
-    case "market-closed":
-      return (
-        <Badge className="border-border bg-muted/50 text-muted-foreground">
-          Market closed
-        </Badge>
-      );
-    default:
-      return <span className="text-muted-foreground">&mdash;</span>;
-  }
 }
 
 export function PoolRow({ pool }: PoolRowProps) {
@@ -66,12 +32,17 @@ export function PoolRow({ pool }: PoolRowProps) {
   });
 
   const hasLPTokens = lpBalance !== undefined && lpBalance > 0n;
+  const isLegacy = pool.poolType === "Legacy";
   const canExpand =
-    (pool.poolType === "FPMM" && pool.pricing && pool.rebalancing) ||
-    pool.poolType === "Legacy";
+    pool.poolType === "FPMM" && !!pool.pricing && !!pool.rebalancing;
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card">
+    <div
+      className={cn(
+        "overflow-hidden rounded-lg border border-border bg-card",
+        isLegacy && "opacity-60",
+      )}
+    >
       <div
         className={cn(
           "gap-4 px-4 py-4 grid grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,1.5fr)_minmax(0,1.5fr)] items-center",
@@ -81,14 +52,13 @@ export function PoolRow({ pool }: PoolRowProps) {
       >
         {/* Pool */}
         <div className="gap-3 flex items-center">
-          {canExpand && (
-            <ChevronDown
-              className={cn(
-                "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
-                isExpanded && "rotate-180",
-              )}
-            />
-          )}
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 shrink-0 transition-transform",
+              canExpand ? "text-muted-foreground" : "invisible",
+              isExpanded && "rotate-180",
+            )}
+          />
           <div className="-space-x-2 flex">
             <TokenIcon
               token={{
@@ -179,39 +149,19 @@ export function PoolRow({ pool }: PoolRowProps) {
 
         {/* Actions */}
         <div className="gap-2 flex items-center justify-end">
-          {pool.poolType === "FPMM" ? (
-            <>
-              <Button
-                size="sm"
-                className="h-8"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDrawerState({ isOpen: true, mode: "deposit" });
-                }}
-              >
-                Deposit
-              </Button>
-              {hasLPTokens && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDrawerState({ isOpen: true, mode: "manage" });
-                  }}
-                >
-                  Manage
-                </Button>
-              )}
-            </>
-          ) : (
+          {pool.poolType === "FPMM" && (
             <Button
               size="sm"
               className="h-8"
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                setDrawerState({
+                  isOpen: true,
+                  mode: hasLPTokens ? "manage" : "deposit",
+                });
+              }}
             >
-              Swap
+              {hasLPTokens ? "Manage" : "Deposit"}
             </Button>
           )}
         </div>

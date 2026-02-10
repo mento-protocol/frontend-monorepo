@@ -11,16 +11,17 @@ import {
   useSendTransaction,
   useWaitForTransactionReceipt,
 } from "wagmi";
-import type { PoolDisplay, SlippageOption } from "../types";
+import type { PoolDisplay, SlippageOption, TransactionParams } from "../types";
+import { getTransactionErrorMessage } from "../types";
 
 interface ZapInBuildResult {
   approval: {
     token: string;
     amount: bigint;
-    params: { to: string; data: string; value: string };
+    params: TransactionParams;
   } | null;
   zapIn: {
-    params: { to: string; data: string; value: string };
+    params: TransactionParams;
     poolAddress: string;
     tokenIn: string;
     amountIn: bigint;
@@ -100,10 +101,12 @@ export function useZapInTransaction(pool: PoolDisplay) {
         setTxHash(hash);
         return hash;
       } catch (err) {
-        const msg = getZapInErrorMessage(
-          err instanceof Error ? err.message : String(err),
+        toast.error(
+          getTransactionErrorMessage(
+            err instanceof Error ? err.message : String(err),
+            "Unable to complete zap-in transaction.",
+          ),
         );
-        toast.error(msg);
         logger.error("Zap-in transaction failed:", err);
         throw err;
       }
@@ -141,18 +144,4 @@ export function useZapInTransaction(pool: PoolDisplay) {
     zapTxHash: txHash,
     reset,
   };
-}
-
-function getZapInErrorMessage(msg: string): string {
-  if (
-    /user\s+rejected/i.test(msg) ||
-    /denied\s+transaction/i.test(msg) ||
-    /request\s+rejected/i.test(msg)
-  ) {
-    return "Transaction rejected.";
-  }
-  if (/insufficient/i.test(msg)) {
-    return "Insufficient funds for this transaction.";
-  }
-  return "Unable to complete zap-in transaction.";
 }

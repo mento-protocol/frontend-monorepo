@@ -11,21 +11,20 @@ import {
   useSendTransaction,
   useWaitForTransactionReceipt,
 } from "wagmi";
-import type { PoolDisplay, SlippageOption } from "../types";
+import type { PoolDisplay, SlippageOption, TransactionParams } from "../types";
+import { getTransactionErrorMessage } from "../types";
+
+interface ApprovalResult {
+  token: string;
+  amount: bigint;
+  params: TransactionParams;
+}
 
 interface BuildResult {
-  approvalA: {
-    token: string;
-    amount: bigint;
-    params: { to: string; data: string; value: string };
-  } | null;
-  approvalB: {
-    token: string;
-    amount: bigint;
-    params: { to: string; data: string; value: string };
-  } | null;
+  approvalA: ApprovalResult | null;
+  approvalB: ApprovalResult | null;
   addLiquidity: {
-    params: { to: string; data: string; value: string };
+    params: TransactionParams;
     expectedLiquidity: bigint;
     amountADesired: bigint;
     amountBDesired: bigint;
@@ -106,10 +105,12 @@ export function useAddLiquidityTransaction(pool: PoolDisplay) {
         setTxHash(hash);
         return hash;
       } catch (err) {
-        const msg = getAddLiquidityErrorMessage(
-          err instanceof Error ? err.message : String(err),
+        toast.error(
+          getTransactionErrorMessage(
+            err instanceof Error ? err.message : String(err),
+            "Unable to complete add liquidity transaction.",
+          ),
         );
-        toast.error(msg);
         logger.error("Add liquidity transaction failed:", err);
         throw err;
       }
@@ -147,18 +148,4 @@ export function useAddLiquidityTransaction(pool: PoolDisplay) {
     addTxHash: txHash,
     reset,
   };
-}
-
-function getAddLiquidityErrorMessage(msg: string): string {
-  if (
-    /user\s+rejected/i.test(msg) ||
-    /denied\s+transaction/i.test(msg) ||
-    /request\s+rejected/i.test(msg)
-  ) {
-    return "Transaction rejected.";
-  }
-  if (/insufficient/i.test(msg)) {
-    return "Insufficient funds for this transaction.";
-  }
-  return "Unable to complete add liquidity transaction.";
 }

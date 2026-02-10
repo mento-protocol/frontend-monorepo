@@ -3,11 +3,13 @@ import { toast } from "@repo/ui";
 import { useState } from "react";
 import type { Address, Hex } from "viem";
 import { useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
+import type { TransactionParams } from "../types";
+import { getTransactionErrorMessage } from "../types";
 
 interface ApprovalInput {
   token: string;
   amount: bigint;
-  params: { to: string; data: string; value: string };
+  params: TransactionParams;
 }
 
 export function useLiquidityApproval(tokenSymbol: string) {
@@ -27,10 +29,12 @@ export function useLiquidityApproval(tokenSymbol: string) {
       setTxHash(hash);
       return hash;
     } catch (err) {
-      const message = getApprovalErrorMessage(
-        err instanceof Error ? err.message : String(err),
+      toast.error(
+        getTransactionErrorMessage(
+          err instanceof Error ? err.message : String(err),
+          "Unable to complete approval transaction.",
+        ),
       );
-      toast.error(message);
       logger.error(`${tokenSymbol} approval failed:`, err);
       throw err;
     }
@@ -48,18 +52,4 @@ export function useLiquidityApproval(tokenSymbol: string) {
     approvalHash: txHash,
     reset: resetApproval,
   };
-}
-
-function getApprovalErrorMessage(msg: string): string {
-  if (
-    /user\s+rejected/i.test(msg) ||
-    /denied\s+transaction/i.test(msg) ||
-    /request\s+rejected/i.test(msg)
-  ) {
-    return "Approval transaction rejected.";
-  }
-  if (/insufficient\s+funds/i.test(msg)) {
-    return "Insufficient funds for approval.";
-  }
-  return "Unable to complete approval transaction.";
 }
