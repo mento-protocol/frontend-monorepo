@@ -49,3 +49,35 @@ export interface PoolDisplay {
     liquidityStrategy: string | null;
   };
 }
+
+export const SLIPPAGE_OPTIONS = [0.1, 0.3, 0.5, 1.0] as const;
+export type SlippageOption = (typeof SLIPPAGE_OPTIONS)[number];
+
+/** Shared shape for SDK-built transaction params (approval, addLiquidity, zapIn). */
+export interface TransactionParams {
+  to: string;
+  data: string;
+  value: string;
+}
+
+/** Dummy address used with getLPTokenBalance to retrieve totalSupply only. */
+export const LP_TOTAL_SUPPLY_HOLDER =
+  "0x0000000000000000000000000000000000000001" as const;
+
+/** Maps raw wallet/chain error messages to user-friendly strings. */
+export function getTransactionErrorMessage(
+  rawMessage: string,
+  fallback = "Unable to complete transaction.",
+): string {
+  if (
+    /user\s+rejected/i.test(rawMessage) ||
+    /denied\s+transaction/i.test(rawMessage) ||
+    /request\s+rejected/i.test(rawMessage)
+  ) {
+    return "Transaction rejected.";
+  }
+  if (/insufficient/i.test(rawMessage)) {
+    return "Insufficient funds for this transaction.";
+  }
+  return fallback;
+}
