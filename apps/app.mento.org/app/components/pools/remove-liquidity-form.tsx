@@ -152,7 +152,8 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
       resetTx();
       lpApproval.reset();
     }
-  }, [isConfirmed, resetTx, lpApproval]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConfirmed]);
 
   // Reset form on zap-out success
   useEffect(() => {
@@ -161,7 +162,8 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
       resetZapOutTx();
       zapOutApproval.reset();
     }
-  }, [isZapOutConfirmed, resetZapOutTx, zapOutApproval]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isZapOutConfirmed]);
 
   // === Button state ===
 
