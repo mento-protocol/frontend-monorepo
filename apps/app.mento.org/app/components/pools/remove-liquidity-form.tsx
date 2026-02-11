@@ -552,13 +552,6 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
                     {selectedToken.symbol}
                   </span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Fees</span>
-                  <span className="font-medium">
-                    LP {pool.fees.lp}% + Proto {pool.fees.protocol}%{" "}
-                    <span className="text-muted-foreground">(swap incl.)</span>
-                  </span>
-                </div>
               </div>
             </div>
 
