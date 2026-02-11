@@ -463,7 +463,15 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     if (!quote) return;
     if (buttonState.action === "approve-a" && buildResult?.approvalA) {
       await approvalA.sendApproval(buildResult.approvalA);
-      await buildTransaction(quote.amountA, quote.amountB, address, slippage);
+      const freshBuild = await buildTransaction(
+        quote.amountA,
+        quote.amountB,
+        address,
+        slippage,
+      );
+      if (freshBuild && !freshBuild.approvalB) {
+        await sendAddLiquidity(freshBuild);
+      }
     } else if (buttonState.action === "approve-b" && buildResult?.approvalB) {
       await approvalB.sendApproval(buildResult.approvalB);
       const freshBuild = await buildTransaction(
