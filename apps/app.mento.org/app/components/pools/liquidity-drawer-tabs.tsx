@@ -1,6 +1,7 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui";
 import type { PoolDisplay } from "@repo/web3";
 import { AddLiquidityForm } from "./add-liquidity-form";
+import { RemoveLiquidityForm } from "./remove-liquidity-form";
 
 interface LiquidityDrawerTabsProps {
   mode: "deposit" | "manage";
@@ -30,9 +31,7 @@ export function LiquidityDrawerTabs({
         <AddLiquidityForm pool={pool} />
       </TabsContent>
       <TabsContent value="remove" className="min-h-0 flex flex-1 flex-col">
-        <div className="p-6 flex items-center justify-center text-center text-muted-foreground">
-          Coming soon
-        </div>
+        <RemoveLiquidityForm pool={pool} />
       </TabsContent>
     </Tabs>
   );
