@@ -7,10 +7,17 @@ import {
   PopoverTrigger,
 } from "@repo/ui";
 import type { PoolDisplay, SlippageOption } from "@repo/web3";
-import { SLIPPAGE_OPTIONS } from "@repo/web3";
+import {
+  SLIPPAGE_OPTIONS,
+  useRemoveLiquidityQuote,
+  useRemoveLiquidityTransaction,
+  useZapOutQuote,
+  useZapOutTransaction,
+  useLiquidityApproval,
+} from "@repo/web3";
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
-import { erc20Abi, formatUnits, type Address } from "viem";
-import { useState } from "react";
+import { erc20Abi, formatUnits, parseUnits, type Address } from "viem";
+import { useState, useEffect } from "react";
 import { ChevronDown, Check, ExternalLink, ArrowRight } from "lucide-react";
 
 function formatBalance(balance: string): string {
@@ -20,6 +27,17 @@ function formatBalance(balance: string): string {
   return num.toLocaleString(undefined, {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
+  });
+}
+
+function formatTokenAmount(
+  amount: bigint | undefined,
+  decimals: number,
+): string {
+  if (!amount || amount === 0n) return "0.0000";
+  return Number(formatUnits(amount, decimals)).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
   });
 }
 
@@ -52,10 +70,100 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
   const formattedLpBalance = lpBalance ? formatUnits(lpBalance, 18) : "0";
 
   const hasAmount = Number(lpAmount) > 0;
+  const lpAmountWei = hasAmount ? parseUnits(lpAmount, 18) : 0n;
   const insufficientLp =
-    hasAmount &&
-    lpBalance !== undefined &&
-    BigInt(Math.floor(Number(lpAmount) * 1e18)) > lpBalance;
+    hasAmount && lpBalance !== undefined && lpAmountWei > lpBalance;
+
+  // === Balanced quote hook (also used for underlying breakdown in single mode) ===
+  const { data: quote, isFetching: isQuoting } = useRemoveLiquidityQuote({
+    pool,
+    lpAmount,
+  });
+
+  // === Balanced transaction hook ===
+  const {
+    buildTransaction,
+    buildResult,
+    isBuilding,
+    sendRemoveLiquidity,
+    isSending,
+    isConfirming,
+    isConfirmed,
+    reset: resetTx,
+  } = useRemoveLiquidityTransaction(pool);
+
+  // === LP token approval hook ===
+  const lpApproval = useLiquidityApproval("LP");
+
+  // === Zap-out (single-token) hooks ===
+  const { data: zapOutQuote, isFetching: isZapOutQuoting } = useZapOutQuote({
+    pool,
+    tokenOut: receiveToken,
+    lpAmount: mode === "single" ? lpAmount : "",
+    slippage,
+  });
+
+  const {
+    buildTransaction: buildZapOutTransaction,
+    buildResult: zapOutBuildResult,
+    isBuilding: isZapOutBuilding,
+    sendZapOut,
+    isSending: isZapOutSending,
+    isConfirming: isZapOutConfirming,
+    isConfirmed: isZapOutConfirmed,
+    reset: resetZapOutTx,
+  } = useZapOutTransaction(pool);
+
+  const zapOutApproval = useLiquidityApproval("LP");
+
+  // Build balanced transaction when we have a valid quote and wallet
+  useEffect(() => {
+    if (mode !== "balanced") return;
+    if (!address || !quote || !hasAmount) return;
+    const liquidity = parseUnits(lpAmount, 18);
+    buildTransaction(liquidity, address, address, slippage);
+  }, [quote, address, slippage, lpAmount, buildTransaction, mode, hasAmount]);
+
+  // Build zap-out transaction when quote arrives
+  useEffect(() => {
+    if (mode !== "single" || !address || !zapOutQuote || !hasAmount) return;
+    const liquidity = parseUnits(lpAmount, 18);
+    buildZapOutTransaction(
+      receiveToken as Address,
+      liquidity,
+      address,
+      slippage,
+    );
+  }, [
+    zapOutQuote,
+    address,
+    slippage,
+    lpAmount,
+    receiveToken,
+    mode,
+    hasAmount,
+    buildZapOutTransaction,
+  ]);
+
+  // Reset form on balanced success
+  useEffect(() => {
+    if (isConfirmed) {
+      setLpAmount("");
+      resetTx();
+      lpApproval.reset();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConfirmed]);
+
+  // Reset form on zap-out success
+  useEffect(() => {
+    if (isZapOutConfirmed) {
+      setLpAmount("");
+      resetZapOutTx();
+      zapOutApproval.reset();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isZapOutConfirmed]);
 
   // === Button state ===
 
@@ -64,25 +172,116 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
     if (!hasAmount) return { text: "Enter amount", disabled: true };
     if (insufficientLp)
       return { text: "Insufficient LP balance", disabled: true };
-    if (mode === "single")
+
+    if (mode === "single") {
+      if (isZapOutBuilding || isZapOutQuoting)
+        return { text: "Preparing...", disabled: true };
+      if (!zapOutBuildResult) return { text: "Preparing...", disabled: true };
+
+      if (zapOutBuildResult.approval && !zapOutApproval.isApproved) {
+        if (zapOutApproval.isApproving)
+          return { text: "Approving LP token...", disabled: true };
+        return {
+          text: "Approve LP Token",
+          disabled: false,
+          action: "zap-out-approve" as const,
+        };
+      }
+
+      if (isZapOutSending || isZapOutConfirming)
+        return { text: "Removing liquidity...", disabled: true };
+
       return {
-        text: `Remove as ${selectedToken.symbol} (auto-swap)`,
-        disabled: true,
+        text: `Remove as ${selectedToken.symbol}`,
+        disabled: false,
+        action: "zap-out" as const,
       };
-    return { text: "Remove liquidity", disabled: true };
+    }
+
+    // Balanced mode
+    if (isBuilding || isQuoting)
+      return { text: "Preparing...", disabled: true };
+    if (!buildResult) return { text: "Preparing...", disabled: true };
+
+    if (buildResult.approval && !lpApproval.isApproved) {
+      if (lpApproval.isApproving)
+        return { text: "Approving LP token...", disabled: true };
+      return {
+        text: "Approve LP Token",
+        disabled: false,
+        action: "approve-lp" as const,
+      };
+    }
+
+    if (isSending || isConfirming)
+      return { text: "Removing liquidity...", disabled: true };
+
+    return {
+      text: "Remove Liquidity",
+      disabled: false,
+      action: "remove" as const,
+    };
   };
 
   const buttonState = getButtonState();
+
+  const handleAction = async () => {
+    if (!address) return;
+
+    // Zap-out actions
+    if (
+      buttonState.action === "zap-out-approve" &&
+      zapOutBuildResult?.approval
+    ) {
+      await zapOutApproval.sendApproval(zapOutBuildResult.approval);
+      const liquidity = parseUnits(lpAmount, 18);
+      const freshBuild = await buildZapOutTransaction(
+        receiveToken as Address,
+        liquidity,
+        address,
+        slippage,
+      );
+      if (freshBuild) await sendZapOut(freshBuild);
+      return;
+    }
+    if (buttonState.action === "zap-out" && zapOutBuildResult) {
+      await sendZapOut(zapOutBuildResult);
+      return;
+    }
+
+    // Balanced actions
+    if (!buildResult) return;
+
+    if (buttonState.action === "approve-lp" && buildResult.approval) {
+      await lpApproval.sendApproval(buildResult.approval);
+      const liquidity = parseUnits(lpAmount, 18);
+      const freshBuild = await buildTransaction(
+        liquidity,
+        address,
+        address,
+        slippage,
+      );
+      if (freshBuild) {
+        await sendRemoveLiquidity(freshBuild);
+      }
+      return;
+    }
+
+    if (buttonState.action === "remove") {
+      await sendRemoveLiquidity(buildResult);
+    }
+  };
 
   // === Preset handlers ===
 
   const handlePreset = (fraction: number) => {
     if (!lpBalance) return;
     if (fraction === 1) {
-      setLpAmount(formattedLpBalance);
+      setLpAmount(formatUnits(lpBalance, 18));
     } else {
-      const amount = Number(formattedLpBalance) * fraction;
-      setLpAmount(amount.toString());
+      const fractionalBalance =
+        (lpBalance * BigInt(Math.round(fraction * 1000))) / 1000n;
+      setLpAmount(formatUnits(fractionalBalance, 18));
     }
   };
 
@@ -208,7 +407,9 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
                     />
                     <span>{pool.token0.symbol}</span>
                   </div>
-                  <span className="font-medium">0.0000</span>
+                  <span className="font-medium">
+                    {formatTokenAmount(quote?.amount0, pool.token0.decimals)}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="gap-2 flex items-center">
@@ -222,7 +423,9 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
                     />
                     <span>{pool.token1.symbol}</span>
                   </div>
-                  <span className="font-medium">0.0000</span>
+                  <span className="font-medium">
+                    {formatTokenAmount(quote?.amount1, pool.token1.decimals)}
+                  </span>
                 </div>
               </div>
             </div>
@@ -283,7 +486,12 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
                 <span className="text-muted-foreground">
                   Estimated {selectedToken.symbol}
                 </span>
-                <span className="font-medium">0.0000</span>
+                <span className="font-medium">
+                  {formatTokenAmount(
+                    zapOutQuote?.expectedTokenOut,
+                    selectedToken.decimals,
+                  )}
+                </span>
               </div>
               <div className="border-t border-border" />
               <div className="gap-1 text-sm flex flex-col">
@@ -294,13 +502,17 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
                   <span className="text-muted-foreground">
                     {pool.token0.symbol}
                   </span>
-                  <span className="font-medium">0.0000</span>
+                  <span className="font-medium">
+                    {formatTokenAmount(quote?.amount0, pool.token0.decimals)}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">
                     {pool.token1.symbol}
                   </span>
-                  <span className="font-medium">0.0000</span>
+                  <span className="font-medium">
+                    {formatTokenAmount(quote?.amount1, pool.token1.decimals)}
+                  </span>
                 </div>
                 <div className="gap-1 mt-1 text-xs flex items-center text-muted-foreground">
                   Auto-swap: {otherToken.symbol}
@@ -319,7 +531,11 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
                     Estimated received
                   </span>
                   <span className="font-medium">
-                    0.0000 {selectedToken.symbol}
+                    {formatTokenAmount(
+                      zapOutQuote?.expectedTokenOut,
+                      selectedToken.decimals,
+                    )}{" "}
+                    {selectedToken.symbol}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -327,14 +543,15 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
                     Minimum received
                   </span>
                   <span className="font-medium">
-                    0.0000 {selectedToken.symbol}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Fees</span>
-                  <span className="font-medium">
-                    LP 0.25% + Proto 0.05%{" "}
-                    <span className="text-muted-foreground">(swap incl.)</span>
+                    {formatTokenAmount(
+                      zapOutQuote?.expectedTokenOut
+                        ? (zapOutQuote.expectedTokenOut *
+                            BigInt(Math.round((1 - slippage / 100) * 10000))) /
+                            10000n
+                        : undefined,
+                      selectedToken.decimals,
+                    )}{" "}
+                    {selectedToken.symbol}
                   </span>
                 </div>
               </div>
@@ -390,7 +607,12 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
 
       {/* Bottom section */}
       <div className="gap-4 px-6 pb-6 pt-4 mt-auto flex shrink-0 flex-col">
-        <Button size="lg" className="w-full" disabled={buttonState.disabled}>
+        <Button
+          size="lg"
+          className="w-full"
+          disabled={buttonState.disabled}
+          onClick={handleAction}
+        >
           {buttonState.text}
         </Button>
 

@@ -5,3 +5,7 @@ export * from "./hooks/use-liquidity-approval";
 export * from "./hooks/use-add-liquidity-transaction";
 export * from "./hooks/use-zap-in-quote";
 export * from "./hooks/use-zap-in-transaction";
+export * from "./hooks/use-remove-liquidity-quote";
+export * from "./hooks/use-remove-liquidity-transaction";
+export * from "./hooks/use-zap-out-quote";
+export * from "./hooks/use-zap-out-transaction";
