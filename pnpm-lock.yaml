@@ -732,8 +732,8 @@ importers:
         specifier: ^5.8.0
         version: 5.8.0
       '@mento-protocol/mento-sdk':
-        specifier: 3.0.0-beta.15
-        version: 3.0.0-beta.15(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.3.5)
+        specifier: 3.0.0-beta.16
+        version: 3.0.0-beta.16(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.3.5)
       '@metamask/jazzicon':
         specifier: 'catalog:'
         version: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28
@@ -2160,8 +2160,8 @@ packages:
   '@mento-protocol/mento-core-ts@0.2.3':
     resolution: {integrity: sha512-Fjj0t2a6xqpHTbhfafioqjkY9ZDBsq3oy/DkRizihDI2zul/PFQJfQwyy7WDSSc/cNAflevBeSJyqTPTv9HD/Q==}
 
-  '@mento-protocol/mento-sdk@3.0.0-beta.15':
-    resolution: {integrity: sha512-YQ3XVjUP9rS5G0/zxXobxnCBL/uxnHtznFfCbSC+WzQXYftAqaR4zXgBdqzjjXprdsXP5QLuXFsEbCRshYUbgg==}
+  '@mento-protocol/mento-sdk@3.0.0-beta.16':
+    resolution: {integrity: sha512-tJ7EPWmhetpvr2MmHgnofV2kX6YyJyCcnx5Py2z7BnM7G4oF5WS5H0dQZpNDZdHNGP2EwwyROw8QfQYU7gAgOg==}
     engines: {node: '>=18', pnpm: '>=9'}
 
   '@mento-protocol/mento-sdk@3.0.0-beta.6':
@@ -11000,7 +11000,7 @@ snapshots:
 
   '@mento-protocol/mento-core-ts@0.2.3': {}
 
-  '@mento-protocol/mento-sdk@3.0.0-beta.15(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.3.5)':
+  '@mento-protocol/mento-sdk@3.0.0-beta.16(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.3.5)':
     dependencies:
       '@mento-protocol/mento-core-ts': 0.2.3
       bignumber.js: 9.3.1

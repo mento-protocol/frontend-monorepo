@@ -128,6 +128,10 @@ export function useAddLiquidityTransaction(pool: PoolDisplay) {
       queryClient.invalidateQueries({
         queryKey: ["pools-list", chainId],
       });
+      queryClient.invalidateQueries({
+        predicate: (query) =>
+          JSON.stringify(query.queryKey).toLowerCase().includes("balanceof"),
+      });
     }
   }, [isConfirmed, receipt, pool, chainId, queryClient]);
 

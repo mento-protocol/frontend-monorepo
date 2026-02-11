@@ -23,7 +23,7 @@ const statusConfig: Record<
     className:
       "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-400",
     tooltip:
-      "Pool price has deviated significantly from the oracle. A rebalance trade will adjust reserves back toward the oracle price, earning the caller an incentive.",
+      "Pool price has deviated significantly from the oracle. A rebalance will adjust reserves back toward the oracle price.",
   },
   "market-closed": {
     label: "Market closed",

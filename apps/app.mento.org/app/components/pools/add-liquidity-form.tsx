@@ -364,8 +364,9 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
         };
       if (isZapBuilding || isZapQuoting)
         return { text: "Preparing...", disabled: true };
+      if (!zapBuildResult) return { text: "Preparing...", disabled: true };
 
-      if (zapBuildResult?.approval && !zapApproval.isApproved) {
+      if (zapBuildResult.approval && !zapApproval.isApproved) {
         if (zapApproval.isApproving)
           return {
             text: `Approving ${zapToken.symbol}...`,
@@ -451,8 +452,11 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
         slippage,
       );
       if (freshBuild) await sendZapIn(freshBuild);
-    } else if (buttonState.action === "zap" && zapBuildResult) {
+      return;
+    }
+    if (buttonState.action === "zap" && zapBuildResult) {
       await sendZapIn(zapBuildResult);
+      return;
     }
 
     // Balanced actions
