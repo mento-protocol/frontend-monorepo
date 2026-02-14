@@ -4,6 +4,7 @@ import { ProposalState } from "@/graphql/subgraph/generated/subgraph";
 import { useProposals, useProposalThreshold } from "@/contracts/governor";
 import {
   Button,
+  Checkbox,
   IconChevron,
   IconLoading,
   Pagination,
@@ -86,6 +87,7 @@ export const ProposalList = () => {
     useProposalThreshold();
 
   const [currentPage, setCurrentPage] = useState(1);
+  const [showCanceled, setShowCanceled] = useState(false);
 
   const canCreateProposal = useMemo(() => {
     if (isBalanceLoading || isLoadingProposalThreshold) return false;
@@ -107,8 +109,15 @@ export const ProposalList = () => {
     );
   }, [proposals]);
 
-  const totalPages = Math.ceil(sortedProposals.length / ITEMS_PER_PAGE);
-  const paginatedProposals = sortedProposals.slice(
+  const filteredProposals = useMemo(() => {
+    if (showCanceled) return sortedProposals;
+    return sortedProposals.filter(
+      (proposal) => proposal.state !== ProposalState.Canceled,
+    );
+  }, [sortedProposals, showCanceled]);
+
+  const totalPages = Math.ceil(filteredProposals.length / ITEMS_PER_PAGE);
+  const paginatedProposals = filteredProposals.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE,
   );
@@ -126,8 +135,20 @@ export const ProposalList = () => {
 
   return (
     <ProposalCard>
-      <ProposalCardHeader>
-        <h2 className="text-2xl font-semibold">Proposals</h2>
+      <ProposalCardHeader className="lg:items-center">
+        <div className="flex items-center gap-4">
+          <h2 className="text-2xl font-semibold">Proposals</h2>
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-white/70">
+            <Checkbox
+              checked={showCanceled}
+              onCheckedChange={(checked) => {
+                setShowCanceled(checked === true);
+                setCurrentPage(1);
+              }}
+            />
+            Show Canceled
+          </label>
+        </div>
         {canCreateProposal && (
           <Link href="/create-proposal">
             <Button clipped="lg" size="md">
@@ -174,7 +195,7 @@ export const ProposalList = () => {
               <ProposalListItem key={index}>
                 <ProposalListItemIndex
                   index={
-                    sortedProposals.length -
+                    filteredProposals.length -
                     1 -
                     ((currentPage - 1) * ITEMS_PER_PAGE + index)
                   }
