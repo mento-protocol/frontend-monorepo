@@ -36,6 +36,9 @@
     "dev:js": "tsup --watch",
     "generate:component": "turbo gen react-component",
     "lint": "eslint . --max-warnings 100",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
     "watch": "pnpm dev:js"
   },
   "dependencies": {
@@ -45,6 +48,7 @@
     "@metamask/jazzicon": "catalog:",
     "@repo/typescript-config": "workspace:*",
     "@repo/ui": "workspace:*",
+    "@repo/vitest-config": "workspace:*",
     "bignumber.js": "^9.3.1",
     "ethers": "catalog:",
     "jotai": "catalog:",

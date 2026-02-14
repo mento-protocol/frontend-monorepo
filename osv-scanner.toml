@@ -17,3 +17,13 @@ id = "GHSA-xxjr-mmjv-4gpg"
 # TODO: Remove this ignore once lodash releases a patched version
 ignoreUntil = 2026-02-22T00:00:00Z
 reason = "No fix available - lodash 4.17.21 is the latest version. Transitive dependency from @metamask/utils."
+
+[[IgnoredVulns]]
+id = "GHSA-5f7q-jpqc-wp7h"
+# False positive: OSV database uses semver range 15.0.0-canary.0 to 15.6.0-canary.61 but per
+# GitHub advisory only canary versions were affected - stable 15.x releases are patched.
+# See: https://github.com/vercel/next.js/security/advisories/GHSA-5f7q-jpqc-wp7h
+# The advisory explicitly lists 15.5.9 and all stable releases as patched versions.
+# TODO: Remove once OSV fixes their semver range to only include canary versions
+ignoreUntil = 2026-03-30T00:00:00Z
+reason = "False positive - stable Next.js 15.x releases are patched per GitHub advisory. Only canary versions were affected."

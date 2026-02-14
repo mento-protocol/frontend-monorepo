@@ -21,7 +21,8 @@
     "lint": "npx @trunkio/launcher check",
     "lint:fix": "npx @trunkio/launcher check --fix",
     "rebuild": "pnpm run clean && turbo run build",
-    "test": "turbo run test"
+    "test": "turbo run test",
+    "test:coverage": "turbo run test:coverage"
   },
   "resolutions": {
     "brace-expansion": ">=2.0.2",
@@ -31,6 +32,7 @@
     "@eslint/js": "catalog:",
     "@repo/eslint-config": "workspace:*",
     "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "eslint": "catalog:",
     "eslint-config-prettier": "catalog:",
     "knip": "^5.82.1",
@@ -38,7 +40,8 @@
     "prettier-plugin-tailwindcss": "^0.7.2",
     "turbo": "^2.7.5",
     "typescript": "catalog:",
-    "typescript-eslint": "catalog:"
+    "typescript-eslint": "catalog:",
+    "vitest": "catalog:"
   },
   "packageManager": "pnpm@10.24.0",
   "engines": {
@@ -72,11 +75,10 @@
       "form-data@<2.5.4": ">=2.5.4",
       "glob@<11.1.0": ">=11.1.0",
       "h3@<1.15.5": ">=1.15.5",
-      "hono@<4.11.4": ">=4.11.4",
+      "hono@<4.11.7": ">=4.11.7",
       "js-yaml@<4.1.1": ">=4.1.1",
       "linkifyjs": "^4.3.2",
       "mdast-util-to-hast": "^13.2.1",
-      "next": "^15.5.9",
       "preact": ">=10.28.2",
       "tmp": ">=0.2.4",
       "wagmi": "^2.16.9",

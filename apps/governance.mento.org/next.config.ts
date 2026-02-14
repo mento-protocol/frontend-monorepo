@@ -3,10 +3,6 @@ import type { NextConfig } from "next";
 import { env } from "@/env.mjs";
 
 const nextConfig: NextConfig = {
-  // We use trunk to lint the code in a separate step, disable eslint during build for faster builds
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   images: {
     remotePatterns: [
       {
@@ -66,23 +62,29 @@ export default withSentryConfig(nextConfig, {
   // Upload a larger set of source maps for prettier stack traces (increases build time)
   widenClientFileUpload: true,
 
-  // Capture React component names to see which component a user clicked on in Session Replays
-  reactComponentAnnotation: {
-    enabled: true,
-  },
-
   // Route browser requests to Sentry through a Next.js rewrite to circumvent ad-blockers.
   // This can increase your server load as well as your hosting bill.
   // Note: Check that the configured route will not match with your Next.js middleware, otherwise reporting of client-
   // side errors will fail.
   tunnelRoute: "/monitoring",
 
-  // Automatically tree-shake Sentry logger statements to reduce bundle size
-  disableLogger: true,
+  // Webpack-specific options (new location for these options)
+  // Note: These options are not supported with Turbopack, only webpack builds
+  webpack: {
+    // Capture React component names to see which component a user clicked on in Session Replays
+    reactComponentAnnotation: {
+      enabled: true,
+    },
 
-  // Enables automatic instrumentation of Vercel Cron Monitors. (Does not yet work with App Router route handlers.)
-  // See the following for more information:
-  // https://docs.sentry.io/product/crons/
-  // https://vercel.com/docs/cron-jobs
-  automaticVercelMonitors: true,
+    // Automatically tree-shake Sentry logger statements to reduce bundle size
+    treeshake: {
+      removeDebugLogging: true,
+    },
+
+    // Enables automatic instrumentation of Vercel Cron Monitors. (Does not yet work with App Router route handlers.)
+    // See the following for more information:
+    // https://docs.sentry.io/product/crons/
+    // https://vercel.com/docs/cron-jobs
+    automaticVercelMonitors: true,
+  },
 });
