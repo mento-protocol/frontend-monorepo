@@ -136,9 +136,9 @@ export const ProposalList = () => {
   return (
     <ProposalCard>
       <ProposalCardHeader className="lg:items-center">
-        <div className="flex items-center gap-4">
+        <div className="gap-4 flex items-center">
           <h2 className="text-2xl font-semibold">Proposals</h2>
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-white/70">
+          <label className="gap-2 text-sm text-white/70 flex cursor-pointer items-center">
             <Checkbox
               checked={showCanceled}
               onCheckedChange={(checked) => {
