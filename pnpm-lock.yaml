@@ -101,9 +101,11 @@ overrides:
   brace-expansion: '>=2.0.2'
   esbuild: '>=0.25.0'
   '@eslint/plugin-kit@<0.3.4': '>=0.3.4'
+  '@isaacs/brace-expansion@<=5.0.0': '>=5.0.1'
   '@metamask/sdk@>=0.16.0 <=0.33.0': '>=0.33.1'
   '@metamask/sdk-communication-layer@>=0.16.0 <=0.33.0': '>=0.33.1'
   '@tanstack/react-query': ^5.83.0
+  axios@>=1.13.0 <1.13.5: '>=1.13.5'
   color-string@<1.5.5: '>=1.5.5'
   diff: '>=5.2.0'
   form-data@<2.5.4: '>=2.5.4'
@@ -113,14 +115,13 @@ overrides:
   js-yaml@<4.1.1: '>=4.1.1'
   linkifyjs: ^4.3.2
   lodash: ^4.17.23
+  markdown-it@<14.1.1: '>=14.1.1'
   mdast-util-to-hast: ^13.2.1
   next: ^15.5.10
   preact: '>=10.28.2'
   tmp: '>=0.2.4'
   wagmi: ^2.16.9
   zod: ^4.1.13
-  '@isaacs/brace-expansion@<=5.0.0': '>=5.0.1'
-  axios@>=1.13.0 <1.13.5: '>=1.13.5'
 
 importers:
 
@@ -6829,8 +6830,8 @@ packages:
     resolution: {integrity: sha512-8y/eV9QQZCiyn1SprXSrCmqJN0yNRATe+PO8ztwqrvrbdRLA3eYJF0yaR0YayLWkMbsQSKWS9N2gPcGEc4UsZg==}
     engines: {node: '>=0.10.0'}
 
-  markdown-it@14.1.0:
-    resolution: {integrity: sha512-a54IwgWPaeBCAAsv13YgmALOF1elABB08FxO9i+r4VFk5Vl4pKokRPeX8u5TCgSsPi6ec1otfLjdOpVcgbpshg==}
+  markdown-it@14.1.1:
+    resolution: {integrity: sha512-BuU2qnTti9YKgK5N+IeMubp14ZUKUUw7yeJbkjtosvHiP0AZ5c8IAgEMk79D0eC8F23r4Ac/q8cAIFdm2FtyoA==}
     hasBin: true
 
   markdown-table@3.0.4:
@@ -17052,7 +17053,7 @@ snapshots:
 
   map-cache@0.2.2: {}
 
-  markdown-it@14.1.0:
+  markdown-it@14.1.1:
     dependencies:
       argparse: 2.0.1
       entities: 4.5.0
@@ -18130,7 +18131,7 @@ snapshots:
   prosemirror-markdown@1.13.2:
     dependencies:
       '@types/markdown-it': 14.1.2
-      markdown-it: 14.1.0
+      markdown-it: 14.1.1
       prosemirror-model: 1.25.4
 
   prosemirror-menu@1.2.5:
