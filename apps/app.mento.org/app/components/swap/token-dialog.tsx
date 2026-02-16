@@ -23,7 +23,7 @@ import {
 import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import { ChevronLeft, ChevronsRight, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 interface TokenDialogProps {
   value: string;
@@ -43,6 +43,147 @@ interface TokenEntry {
   decimals: number;
   balance: string;
   isValidPair: boolean;
+}
+
+export default function TokenDialog({
+  value,
+  onValueChange,
+  trigger,
+  title = "Select asset to sell",
+  tokenInSymbol,
+  excludeTokenSymbol,
+  filterByTokenSymbol,
+  onClose,
+}: TokenDialogProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const { address } = useAccount();
+  const chainId = useChainId();
+
+  const { data: balancesFromHook } = useAccountBalances({ address, chainId });
+
+  const { tokenOptions, allTokenOptions } = useTokenOptions(
+    tokenInSymbol,
+    balancesFromHook,
+  );
+
+  const { data: tradableTokenSymbols, isLoading: isLoadingTradablePairs } =
+    useTradablePairs(filterByTokenSymbol);
+
+  const filteredTokens = (tokenInSymbol ? tokenOptions : allTokenOptions)
+    .filter(
+      (token) =>
+        token.symbol.toLowerCase().includes(search.toLowerCase()) ||
+        token.name?.toLowerCase().includes(search.toLowerCase()),
+    )
+    .filter((token) => token.symbol !== excludeTokenSymbol)
+    .map((token) => {
+      const balanceValue = balancesFromHook?.[token.symbol as TokenSymbol];
+      const balance = formatBalance(balanceValue ?? "0", token.decimals);
+
+      const isValidPair =
+        !filterByTokenSymbol ||
+        isLoadingTradablePairs ||
+        !tradableTokenSymbols ||
+        tradableTokenSymbols.includes(token.symbol as TokenSymbol);
+
+      return {
+        ...token,
+        balance: formatWithMaxDecimals(balance),
+        isValidPair,
+      };
+    })
+    .sort((a, b) => {
+      if (a.isValidPair && !b.isValidPair) return -1;
+      if (!a.isValidPair && b.isValidPair) return 1;
+      return 0;
+    });
+
+  const validTokens = filteredTokens.filter((t) => t.isValidPair);
+  const unavailableTokens = filteredTokens.filter((t) => !t.isValidPair);
+
+  const showSectionHeaders = !isLoadingTradablePairs;
+
+  const handleTokenSelect = (tokenSymbol: TokenSymbol) => {
+    onValueChange(tokenSymbol);
+    setIsOpen(false);
+  };
+
+  return (
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        setIsOpen(open);
+        if (!open && onClose) onClose();
+      }}
+    >
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent
+        className="!pb-0 sm:max-w-md"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
+        <DialogHeader>
+          <DialogClose>
+            <DialogTitle className="gap-2 text-lg font-normal flex items-center">
+              <ChevronLeft />
+              {title}
+            </DialogTitle>
+          </DialogClose>
+        </DialogHeader>
+        <div className="relative">
+          <Search className="left-3 h-4 w-4 absolute top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            name="search"
+            autoFocus
+            placeholder="Search..."
+            className="h-12 !pl-12"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+
+        {isLoadingTradablePairs && filterByTokenSymbol ? (
+          <div
+            className="py-8 flex items-center justify-center"
+            data-testid="loader"
+          >
+            <IconLoading />
+          </div>
+        ) : (
+          <ScrollArea className="pr-3 h-[calc(100vh-20rem)]">
+            {showSectionHeaders && validTokens.length > 0 && (
+              <SectionHeader label="Available Assets" className="pt-3" />
+            )}
+            {validTokens.map((token, index) => (
+              <TokenRow
+                key={token.symbol}
+                token={token}
+                isSelected={value === token.symbol}
+                isLast={index === validTokens.length - 1}
+                onSelect={() => handleTokenSelect(token.symbol as TokenSymbol)}
+                testId={`tokenOption_${token.symbol}`}
+              />
+            ))}
+
+            {showSectionHeaders && unavailableTokens.length > 0 && (
+              <SectionHeader label="No route available" className="pt-4" />
+            )}
+            {unavailableTokens.map((token, index) => (
+              <TokenRow
+                key={token.symbol}
+                token={token}
+                isSelected={value === token.symbol}
+                isLast={index === unavailableTokens.length - 1}
+                onSelect={() => handleTokenSelect(token.symbol as TokenSymbol)}
+                testId={`tokenOption_${token.symbol}_invalid`}
+                className="opacity-50"
+              />
+            ))}
+          </ScrollArea>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function SectionHeader({
@@ -122,151 +263,5 @@ function TokenRow({
       </div>
       {!isLast && <hr className="border-[var(--border)]" />}
     </>
-  );
-}
-
-export default function TokenDialog({
-  value,
-  onValueChange,
-  trigger,
-  title = "Select asset to sell",
-  tokenInSymbol,
-  excludeTokenSymbol,
-  filterByTokenSymbol,
-  onClose,
-}: TokenDialogProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const { address } = useAccount();
-  const chainId = useChainId();
-
-  const { data: balancesFromHook } = useAccountBalances({ address, chainId });
-
-  const { tokenOptions, allTokenOptions } = useTokenOptions(
-    tokenInSymbol,
-    balancesFromHook,
-  );
-
-  const { data: tradableTokenSymbols, isLoading: isLoadingTradablePairs } =
-    useTradablePairs(filterByTokenSymbol);
-
-  const filteredTokens = (tokenInSymbol ? tokenOptions : allTokenOptions)
-    .filter(
-      (token) =>
-        token.symbol.toLowerCase().includes(search.toLowerCase()) ||
-        token.name?.toLowerCase().includes(search.toLowerCase()),
-    )
-    .filter((token) => token.symbol !== excludeTokenSymbol)
-    .map((token) => {
-      const balanceValue = balancesFromHook?.[token.symbol as TokenSymbol];
-      const balance = formatBalance(balanceValue ?? "0", token.decimals);
-
-      const isValidPair =
-        !filterByTokenSymbol ||
-        isLoadingTradablePairs ||
-        !tradableTokenSymbols ||
-        tradableTokenSymbols.includes(token.symbol as TokenSymbol);
-
-      return {
-        ...token,
-        balance: formatWithMaxDecimals(balance),
-        isValidPair,
-      };
-    })
-    .sort((a, b) => {
-      if (a.isValidPair && !b.isValidPair) return -1;
-      if (!a.isValidPair && b.isValidPair) return 1;
-      return 0;
-    });
-
-  const { validTokens, unavailableTokens } = useMemo(
-    () => ({
-      validTokens: filteredTokens.filter((t) => t.isValidPair),
-      unavailableTokens: filteredTokens.filter((t) => !t.isValidPair),
-    }),
-    [filteredTokens],
-  );
-
-  const showSectionHeaders = !isLoadingTradablePairs;
-
-  const handleTokenSelect = (tokenSymbol: TokenSymbol) => {
-    onValueChange(tokenSymbol);
-    setIsOpen(false);
-  };
-
-  return (
-    <Dialog
-      open={isOpen}
-      onOpenChange={(open) => {
-        setIsOpen(open);
-        if (!open && onClose) onClose();
-      }}
-    >
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent
-        className="!pb-0 sm:max-w-md"
-        onOpenAutoFocus={(e) => e.preventDefault()}
-      >
-        <DialogHeader>
-          <DialogClose>
-            <DialogTitle className="gap-2 text-lg font-normal flex items-center">
-              <ChevronLeft />
-              {title}
-            </DialogTitle>
-          </DialogClose>
-        </DialogHeader>
-        <div className="relative">
-          <Search className="left-3 h-4 w-4 absolute top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            name="search"
-            autoFocus
-            placeholder="Search..."
-            className="h-12 !pl-12"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-
-        {isLoadingTradablePairs && filterByTokenSymbol ? (
-          <div
-            className="py-8 flex items-center justify-center"
-            data-testid="loader"
-          >
-            <IconLoading />
-          </div>
-        ) : (
-          <ScrollArea className="pr-3 h-[calc(100vh-20rem)]">
-            {showSectionHeaders && validTokens.length > 0 && (
-              <SectionHeader label="Available Assets" className="pt-3" />
-            )}
-            {validTokens.map((token, index) => (
-              <TokenRow
-                key={token.symbol}
-                token={token}
-                isSelected={value === token.symbol}
-                isLast={index === validTokens.length - 1}
-                onSelect={() => handleTokenSelect(token.symbol as TokenSymbol)}
-                testId={`tokenOption_${token.symbol}`}
-              />
-            ))}
-
-            {showSectionHeaders && unavailableTokens.length > 0 && (
-              <SectionHeader label="No direct route" className="pt-4" />
-            )}
-            {unavailableTokens.map((token, index) => (
-              <TokenRow
-                key={token.symbol}
-                token={token}
-                isSelected={value === token.symbol}
-                isLast={index === unavailableTokens.length - 1}
-                onSelect={() => handleTokenSelect(token.symbol as TokenSymbol)}
-                testId={`tokenOption_${token.symbol}_invalid`}
-                className="opacity-50"
-              />
-            ))}
-          </ScrollArea>
-        )}
-      </DialogContent>
-    </Dialog>
   );
 }
