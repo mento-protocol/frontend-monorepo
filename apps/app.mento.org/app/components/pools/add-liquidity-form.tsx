@@ -212,8 +212,40 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     reset: resetTx,
   } = useAddLiquidityTransaction(pool);
 
-  const approvalA = useLiquidityApproval(pool.token0.symbol);
-  const approvalB = useLiquidityApproval(pool.token1.symbol);
+  const approvalB = useLiquidityApproval(pool.token1.symbol, async () => {
+    if (!address || !quote) return;
+    try {
+      const freshBuild = await buildTransaction(
+        quote.amountA,
+        quote.amountB,
+        address,
+        slippage,
+      );
+      if (freshBuild) await sendAddLiquidity(freshBuild);
+    } catch {
+      // Errors are handled in the hooks via toasts
+    }
+  });
+
+  const approvalA = useLiquidityApproval(pool.token0.symbol, async () => {
+    if (!address || !quote) return;
+    try {
+      const freshBuild = await buildTransaction(
+        quote.amountA,
+        quote.amountB,
+        address,
+        slippage,
+      );
+      if (!freshBuild) return;
+      if (freshBuild.approvalB) {
+        await approvalB.sendApproval(freshBuild.approvalB);
+      } else {
+        await sendAddLiquidity(freshBuild);
+      }
+    } catch {
+      // Errors are handled in the hooks via toasts
+    }
+  });
 
   // Build transaction when we have a valid quote and wallet
   useEffect(() => {
@@ -262,7 +294,21 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     reset: resetZapTx,
   } = useZapInTransaction(pool);
 
-  const zapApproval = useLiquidityApproval(zapToken.symbol);
+  const zapApproval = useLiquidityApproval(zapToken.symbol, async () => {
+    if (!address) return;
+    try {
+      const amountInWei = parseUnits(zapAmount, zapToken.decimals);
+      const freshBuild = await buildZapTransaction(
+        zapTokenIn as Address,
+        amountInWei,
+        address,
+        slippage,
+      );
+      if (freshBuild) await sendZapIn(freshBuild);
+    } catch {
+      // Errors are handled in the hooks via toasts
+    }
+  });
 
   // Build zap transaction when quote arrives
   useEffect(() => {
@@ -439,48 +485,34 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
   const handleAction = async () => {
     if (!address) return;
 
-    // Zap actions
-    if (buttonState.action === "zap-approve" && zapBuildResult?.approval) {
-      await zapApproval.sendApproval(zapBuildResult.approval);
-      const amountInWei = parseUnits(zapAmount, zapToken.decimals);
-      const freshBuild = await buildZapTransaction(
-        zapTokenIn as Address,
-        amountInWei,
-        address,
-        slippage,
-      );
-      if (freshBuild) await sendZapIn(freshBuild);
-      return;
-    }
-    if (buttonState.action === "zap" && zapBuildResult) {
-      await sendZapIn(zapBuildResult);
-      return;
-    }
-
-    // Balanced actions
-    if (!quote) return;
-    if (buttonState.action === "approve-a" && buildResult?.approvalA) {
-      await approvalA.sendApproval(buildResult.approvalA);
-      const freshBuild = await buildTransaction(
-        quote.amountA,
-        quote.amountB,
-        address,
-        slippage,
-      );
-      if (freshBuild && !freshBuild.approvalB) {
-        await sendAddLiquidity(freshBuild);
+    try {
+      // Zap: send approval (onApproved callback handles the rest) or send directly
+      if (
+        (buttonState.action === "zap-approve" ||
+          buttonState.action === "zap") &&
+        zapBuildResult
+      ) {
+        if (zapBuildResult.approval && !zapApproval.isApproved) {
+          await zapApproval.sendApproval(zapBuildResult.approval);
+        } else {
+          await sendZapIn(zapBuildResult);
+        }
+        return;
       }
-    } else if (buttonState.action === "approve-b" && buildResult?.approvalB) {
-      await approvalB.sendApproval(buildResult.approvalB);
-      const freshBuild = await buildTransaction(
-        quote.amountA,
-        quote.amountB,
-        address,
-        slippage,
-      );
-      if (freshBuild) await sendAddLiquidity(freshBuild);
-    } else if (buttonState.action === "add" && buildResult) {
-      await sendAddLiquidity(buildResult);
+
+      // Balanced: send first needed approval (onApproved callbacks chain the rest)
+      if (!quote || !buildResult) return;
+
+      if (buildResult.approvalA && !approvalA.isApproved) {
+        await approvalA.sendApproval(buildResult.approvalA);
+      } else if (buildResult.approvalB && !approvalB.isApproved) {
+        await approvalB.sendApproval(buildResult.approvalB);
+      } else {
+        await sendAddLiquidity(buildResult);
+      }
+    } catch {
+      // Errors are already handled (toasts) in the hooks.
+      // Catching here prevents unhandled rejections and stops the chain gracefully.
     }
   };
 

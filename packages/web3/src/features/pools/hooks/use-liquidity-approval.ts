@@ -1,6 +1,6 @@
 import { logger } from "@/utils/logger";
 import { toast } from "@repo/ui";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Address, Hex } from "viem";
 import { useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
 import type { TransactionParams } from "../types";
@@ -12,12 +12,26 @@ interface ApprovalInput {
   params: TransactionParams;
 }
 
-export function useLiquidityApproval(tokenSymbol: string) {
+export function useLiquidityApproval(
+  tokenSymbol: string,
+  onApproved?: () => void,
+) {
   const [txHash, setTxHash] = useState<Address | undefined>();
   const { sendTransactionAsync, isPending, reset } = useSendTransaction();
 
   const { isLoading: isConfirming, isSuccess: isConfirmed } =
     useWaitForTransactionReceipt({ hash: txHash });
+
+  const onApprovedRef = useRef(onApproved);
+  useEffect(() => {
+    onApprovedRef.current = onApproved;
+  }, [onApproved]);
+
+  useEffect(() => {
+    if (isConfirmed && onApprovedRef.current) {
+      onApprovedRef.current();
+    }
+  }, [isConfirmed]);
 
   const sendApproval = async (approval: ApprovalInput) => {
     try {
