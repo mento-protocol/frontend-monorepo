@@ -81,6 +81,7 @@ export default function SwapForm() {
   const [formValues, setFormValues] = useAtom(formValuesAtom);
   const [, setConfirmView] = useAtom(confirmViewAtom);
   const [isApprovalProcessing, setIsApprovalProcessing] = useState(false);
+  const [direction, setDirection] = useState<"in" | "out">("in");
 
   const { data: balancesFromHook } = useAccountBalances({ address, chainId });
   const balances = balancesFromHook || defaultEmptyBalances;
@@ -90,6 +91,7 @@ export default function SwapForm() {
   const amountRef = useRef<HTMLInputElement>(null);
   const quoteRef = useRef<HTMLInputElement>(null);
   const prevTradingSuspensionErrorRef = useRef<string | null>(null);
+  const latestRateRef = useRef<number | null>(null);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -341,6 +343,12 @@ export default function SwapForm() {
     form.setValue("tokenOutSymbol", currentTokenInSymbol);
     form.setValue("amount", currentAmount);
     form.setValue("quote", "");
+    setDirection("in");
+    if (latestRateRef.current && latestRateRef.current > 0) {
+      latestRateRef.current = 1 / latestRateRef.current;
+    } else {
+      latestRateRef.current = null;
+    }
   };
 
   const handleUseMaxBalance = () => {
@@ -356,6 +364,7 @@ export default function SwapForm() {
       false,
     );
     form.setValue("amount", formattedAmountWithMaxDecimals);
+    setDirection("in");
 
     if (tokenInSymbol === "CELO") {
       toast.success("Max balance used", {
@@ -404,6 +413,14 @@ export default function SwapForm() {
     tokenInSymbol,
     tokenOutSymbol,
   );
+
+  useEffect(() => {
+    const numAmount = Number(amount);
+    const numQuote = Number(quote);
+    if (numAmount > 0 && numQuote > 0) {
+      latestRateRef.current = numAmount / numQuote;
+    }
+  }, [rate, amount, quote]);
 
   useEffect(() => {
     setTradingLimitError(null);
@@ -552,7 +569,6 @@ export default function SwapForm() {
     ],
   );
 
-  // Direction is always "in" - selling exact amount of tokenIn to receive tokenOut
   const sellUSDValue = useMemo(() => {
     return tokenInSymbol === "USDm" ? amount || "0" : fromTokenUSDValue || "0";
   }, [tokenInSymbol, amount, fromTokenUSDValue]);
@@ -632,7 +648,7 @@ export default function SwapForm() {
     });
 
   useEffect(() => {
-    if (quote !== undefined) {
+    if (quote !== undefined && direction !== "out") {
       const formattedQuote = formatWithMaxDecimals(quote, 4, false);
       if (formQuote !== formattedQuote) {
         form.setValue("quote", formattedQuote, {
@@ -640,7 +656,7 @@ export default function SwapForm() {
         });
       }
     }
-  }, [quote, form, formQuote]);
+  }, [quote, form, formQuote, direction]);
 
   // Show error toasts based on form errors
   useEffect(() => {
@@ -759,6 +775,9 @@ export default function SwapForm() {
                           const val =
                             typeof e === "string" ? e : e.target.value;
                           field.onChange(val);
+                          if (direction !== "in") {
+                            setDirection("in");
+                          }
                         }}
                         onBlur={field.onBlur}
                       />
@@ -861,12 +880,49 @@ export default function SwapForm() {
                         data-testid="buyAmountInput"
                         placeholder="0"
                         value={
-                          formQuote && formQuote !== "0" && formQuote !== "0.00"
-                            ? formQuote
-                            : ""
+                          direction === "out"
+                            ? (field.value ?? "")
+                            : formQuote &&
+                                formQuote !== "0" &&
+                                formQuote !== "0.00"
+                              ? formQuote
+                              : ""
                         }
-                        readOnly
-                        disabled
+                        onChange={(e) => {
+                          const val =
+                            typeof e === "string" ? e : e.target.value;
+                          field.onChange(val);
+                          if (direction !== "out") {
+                            setDirection("out");
+                          }
+
+                          const currentRate = latestRateRef.current;
+                          if (
+                            currentRate &&
+                            currentRate > 0 &&
+                            val &&
+                            Number(val) > 0
+                          ) {
+                            const estimatedSell = Number(val) * currentRate;
+                            form.setValue(
+                              "amount",
+                              formatWithMaxDecimals(
+                                String(estimatedSell),
+                                4,
+                                false,
+                              ),
+                              { shouldValidate: true },
+                            );
+                          } else if (val && Number(val) > 0) {
+                            form.setValue("amount", val, {
+                              shouldValidate: true,
+                            });
+                          } else {
+                            form.setValue("amount", "", {
+                              shouldValidate: true,
+                            });
+                          }
+                        }}
                         onBlur={field.onBlur}
                       />
                     </FormControl>
