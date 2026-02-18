@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Address, Hex } from "viem";
 import { useChainId, usePublicClient, useSendTransaction } from "wagmi";
+import { showLiquiditySuccessToast } from "../liquidity-toast";
 import type { PoolDisplay, SlippageOption, TransactionParams } from "../types";
 import { getTransactionErrorMessage } from "../types";
 
@@ -59,9 +60,13 @@ export function useZapOutTransaction(pool: PoolDisplay) {
         setIsConfirmed(true);
 
         if (receipt.status === "success") {
-          toast.success(
-            `Successfully removed liquidity from ${pool.token0.symbol}/${pool.token1.symbol} pool.`,
-          );
+          showLiquiditySuccessToast({
+            action: "removed",
+            token0Symbol: pool.token0.symbol,
+            token1Symbol: pool.token1.symbol,
+            txHash: receipt.transactionHash,
+            chainId,
+          });
           queryClient.invalidateQueries({
             queryKey: ["pools-list", chainId],
           });
