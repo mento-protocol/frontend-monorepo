@@ -13,7 +13,7 @@
     "start": "next start"
   },
   "dependencies": {
-    "@apollo/client": "^3.14.0",
+    "@apollo/client": "^4.1.4",
     "@apollo/client-integration-nextjs": "^0.12.3",
     "@metamask/jazzicon": "catalog:",
     "@rainbow-me/rainbowkit": "catalog:",
