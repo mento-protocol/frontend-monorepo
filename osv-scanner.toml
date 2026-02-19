@@ -1,29 +1,9 @@
-# OSV Scanner configuration
-# See: https://google.github.io/osv-scanner/configuration/
+[[IgnoredVulns]]
+id = "GHSA-2g4f-4pwh-qvx6"
+ignoreUntil = 2026-04-19
+reason = "ajv 6.12.6 — fix only in 8.18.0 (major version jump); no 6.x patch available"
 
-# Temporarily ignore vulnerabilities that have no fix available yet
 [[IgnoredVulns]]
 id = "GHSA-848j-6mx2-7j84"
-# Vulnerability published 2026-01-08, no fix available in elliptic package yet
-# This is a transitive dependency - we cannot directly update it
-# TODO: Remove this ignore once elliptic releases a patched version
-ignoreUntil = 2026-02-13T00:00:00Z
-reason = "No fix available - elliptic 6.6.1 is the latest version. Transitive dependency."
-
-[[IgnoredVulns]]
-id = "GHSA-xxjr-mmjv-4gpg"
-# Prototype Pollution vulnerability in lodash _.unset and _.omit functions
-# lodash 4.17.21 is the latest version and is a transitive dependency of @metamask/utils
-# TODO: Remove this ignore once lodash releases a patched version
-ignoreUntil = 2026-02-22T00:00:00Z
-reason = "No fix available - lodash 4.17.21 is the latest version. Transitive dependency from @metamask/utils."
-
-[[IgnoredVulns]]
-id = "GHSA-5f7q-jpqc-wp7h"
-# False positive: OSV database uses semver range 15.0.0-canary.0 to 15.6.0-canary.61 but per
-# GitHub advisory only canary versions were affected - stable 15.x releases are patched.
-# See: https://github.com/vercel/next.js/security/advisories/GHSA-5f7q-jpqc-wp7h
-# The advisory explicitly lists 15.5.9 and all stable releases as patched versions.
-# TODO: Remove once OSV fixes their semver range to only include canary versions
-ignoreUntil = 2026-03-30T00:00:00Z
-reason = "False positive - stable Next.js 15.x releases are patched per GitHub advisory. Only canary versions were affected."
+ignoreUntil = 2026-04-19
+reason = "elliptic 6.6.1 — no patched version released by maintainer"
