@@ -136,7 +136,7 @@ export const ProposalList = () => {
   return (
     <ProposalCard>
       <ProposalCardHeader className="lg:items-center">
-        <div className="flex w-full items-center justify-between lg:w-auto">
+        <div className="lg:w-auto flex w-full items-center justify-between">
           <h2 className="text-2xl font-semibold">Proposals</h2>
           {canCreateProposal && (
             <Link href="/create-proposal" className="lg:hidden">
@@ -158,7 +158,7 @@ export const ProposalList = () => {
             Show Canceled
           </label>
           {canCreateProposal && (
-            <Link href="/create-proposal" className="hidden lg:block">
+            <Link href="/create-proposal" className="lg:block hidden">
               <Button clipped="lg" size="md">
                 Create New Proposal <IconChevron />
               </Button>
