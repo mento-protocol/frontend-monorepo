@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { Search } from "lucide-react";
 import { Input, cn } from "@repo/ui";
 import { usePoolsList, type PoolFilterType } from "@repo/web3";
-import { PoolsTable } from "./pools-table";
+import { PoolsTable, PoolsTableHeader } from "./pools-table";
 
 const filterTabs: { value: PoolFilterType; label: string }[] = [
   { value: "all", label: "All Pools" },
@@ -49,9 +49,9 @@ export function PoolsView() {
   );
 
   return (
-    <div className="max-w-5xl space-y-6 w-full">
+    <div className="max-w-5xl min-h-0 flex h-full w-full flex-col">
       {/* Header */}
-      <div className="relative">
+      <div className="relative shrink-0">
         <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
         <div className="p-6 bg-card">
           <h1 className="font-medium md:text-2xl">Pool</h1>
@@ -62,7 +62,7 @@ export function PoolsView() {
       </div>
 
       {/* Filter row */}
-      <div className="gap-4 flex items-center justify-between">
+      <div className="mt-6 gap-4 flex shrink-0 items-center justify-between">
         <div className="flex items-center">
           {filterTabs.map((tab) => (
             <button
@@ -82,34 +82,42 @@ export function PoolsView() {
         <div className="relative">
           <Search className="left-3 h-4 w-4 absolute top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search by name, symbol or address"
+            placeholder="Search by name, symbol or pool address"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-9 w-64 pl-9"
+            className="h-9 w-76 pl-9"
           />
         </div>
       </div>
 
-      {/* Error state */}
-      {isError && (
-        <div className="p-6 bg-card text-center">
-          <p className="text-destructive">
-            Failed to load pools. Please check your connection and try again.
-          </p>
-          {error && (
-            <p className="mt-2 text-sm text-muted-foreground">
-              {error instanceof Error ? error.message : String(error)}
+      {/* Table header — pinned */}
+      <div className="mt-6 shrink-0">
+        <PoolsTableHeader />
+      </div>
+
+      {/* Scrollable content */}
+      <div className="mt-3 space-y-3 min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+        {/* Error state */}
+        {isError && (
+          <div className="p-6 bg-card text-center">
+            <p className="text-destructive">
+              Failed to load pools. Please check your connection and try again.
             </p>
-          )}
-        </div>
-      )}
+            {error && (
+              <p className="mt-2 text-sm text-muted-foreground">
+                {error instanceof Error ? error.message : String(error)}
+              </p>
+            )}
+          </div>
+        )}
 
-      {/* Table */}
-      {!isError && <PoolsTable pools={filteredPools} isLoading={isLoading} />}
+        {/* Table */}
+        {!isError && <PoolsTable pools={filteredPools} isLoading={isLoading} />}
+      </div>
 
-      {/* Legacy footer note */}
+      {/* Legacy footer note — pinned at bottom */}
       {hasLegacyPools && (
-        <div className="relative">
+        <div className="mt-6 relative shrink-0">
           <div className="px-4 py-3 text-sm bg-card text-muted-foreground">
             Legacy pools are planned for migration to FPMM. Liquidity actions
             are not available for these pools.

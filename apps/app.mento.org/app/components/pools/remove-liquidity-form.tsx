@@ -2,9 +2,11 @@ import {
   Button,
   TokenIcon,
   Input,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@repo/ui";
 import type { PoolDisplay, SlippageOption } from "@repo/web3";
 import {
@@ -18,7 +20,7 @@ import {
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, parseUnits, type Address } from "viem";
 import { useState, useEffect } from "react";
-import { ChevronDown, Check, ExternalLink, ArrowRight } from "lucide-react";
+import { ExternalLink, ArrowRight } from "lucide-react";
 
 function formatBalance(balance: string): string {
   const num = parseFloat(balance);
@@ -26,7 +28,7 @@ function formatBalance(balance: string): string {
   if (num >= 1_000) return (num / 1_000).toFixed(2) + "K";
   return num.toLocaleString(undefined, {
     minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 4,
   });
 }
 
@@ -51,7 +53,6 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
   const [lpAmount, setLpAmount] = useState("");
   const [receiveToken, setReceiveToken] = useState<string>(pool.token0.address);
   const [slippage, setSlippage] = useState<SlippageOption>(0.3);
-  const [slippageOpen, setSlippageOpen] = useState(false);
 
   const selectedToken =
     receiveToken === pool.token0.address ? pool.token0 : pool.token1;
@@ -337,13 +338,7 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
               <span className="font-medium">LP Tokens</span>
             </div>
             <div className="text-sm text-muted-foreground">
-              Balance: {formatBalance(formattedLpBalance)}{" "}
-              <button
-                className="font-medium cursor-pointer text-primary hover:underline"
-                onClick={() => setLpAmount(formattedLpBalance)}
-              >
-                MAX
-              </button>
+              Balance: {formatBalance(formattedLpBalance)}
             </div>
           </div>
           <Input
@@ -362,73 +357,95 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
         </div>
 
         {/* Percentage presets */}
-        <div className="gap-2 flex">
+        <div className="gap-2 grid grid-cols-4">
           <button
             onClick={() => handlePreset(0.25)}
-            className="px-3 py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background transition-colors hover:bg-muted/50"
+            className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
           >
             25%
           </button>
           <button
             onClick={() => handlePreset(0.5)}
-            className="px-3 py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background transition-colors hover:bg-muted/50"
+            className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
           >
             50%
           </button>
           <button
             onClick={() => handlePreset(0.75)}
-            className="px-3 py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background transition-colors hover:bg-muted/50"
+            className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
           >
             75%
           </button>
           <button
             onClick={() => handlePreset(1)}
-            className="px-3 py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background transition-colors hover:bg-muted/50"
+            className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
           >
-            All
+            100%
           </button>
         </div>
 
         {mode === "balanced" ? (
           <>
-            {/* You will receive — balanced */}
-            <div className="gap-3 flex flex-col">
-              <h3 className="font-semibold">You will receive</h3>
-              <div className="gap-2 text-sm flex flex-col">
-                <div className="flex items-center justify-between">
-                  <div className="gap-2 flex items-center">
-                    <TokenIcon
-                      token={{
-                        address: pool.token0.address,
-                        symbol: pool.token0.symbol,
-                      }}
-                      size={24}
-                      className="rounded-full"
-                    />
-                    <span>{pool.token0.symbol}</span>
+            {/* Slippage Tolerance */}
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Slippage Tolerance %</span>
+              <Select
+                value={String(slippage)}
+                onValueChange={(v) => setSlippage(Number(v) as SlippageOption)}
+              >
+                <SelectTrigger className="w-auto">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SLIPPAGE_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={String(option)}>
+                      {option}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Preview — balanced */}
+            {hasAmount && quote && (
+              <div className="gap-3 flex flex-col">
+                <h3 className="font-semibold">Preview</h3>
+                <div className="gap-2 text-sm flex flex-col">
+                  <div className="flex items-center justify-between">
+                    <div className="gap-2 flex items-center">
+                      <TokenIcon
+                        token={{
+                          address: pool.token0.address,
+                          symbol: pool.token0.symbol,
+                        }}
+                        size={24}
+                        className="rounded-full"
+                      />
+                      <span>{pool.token0.symbol}</span>
+                    </div>
+                    <span className="font-medium">
+                      {formatTokenAmount(quote?.amount0, pool.token0.decimals)}
+                    </span>
                   </div>
-                  <span className="font-medium">
-                    {formatTokenAmount(quote?.amount0, pool.token0.decimals)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="gap-2 flex items-center">
-                    <TokenIcon
-                      token={{
-                        address: pool.token1.address,
-                        symbol: pool.token1.symbol,
-                      }}
-                      size={24}
-                      className="rounded-full"
-                    />
-                    <span>{pool.token1.symbol}</span>
+                  <div className="flex items-center justify-between">
+                    <div className="gap-2 flex items-center">
+                      <TokenIcon
+                        token={{
+                          address: pool.token1.address,
+                          symbol: pool.token1.symbol,
+                        }}
+                        size={24}
+                        className="rounded-full"
+                      />
+                      <span>{pool.token1.symbol}</span>
+                    </div>
+                    <span className="font-medium">
+                      {formatTokenAmount(quote?.amount1, pool.token1.decimals)}
+                    </span>
                   </div>
-                  <span className="font-medium">
-                    {formatTokenAmount(quote?.amount1, pool.token1.decimals)}
-                  </span>
                 </div>
               </div>
-            </div>
+            )}
           </>
         ) : (
           <>
@@ -477,85 +494,116 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
               </div>
             </div>
 
-            {/* You will receive — single token breakdown */}
-            <div className="gap-3 p-3 flex flex-col rounded-md border border-border">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold">You will receive</span>
-              </div>
-              <div className="text-sm flex items-center justify-between">
-                <span className="text-muted-foreground">
-                  Estimated {selectedToken.symbol}
-                </span>
-                <span className="font-medium">
-                  {formatTokenAmount(
-                    zapOutQuote?.expectedTokenOut,
-                    selectedToken.decimals,
-                  )}
-                </span>
-              </div>
-              <div className="border-t border-border" />
-              <div className="gap-1 text-sm flex flex-col">
-                <span className="text-xs text-muted-foreground">
-                  Underlying remove:
-                </span>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">
-                    {pool.token0.symbol}
-                  </span>
-                  <span className="font-medium">
-                    {formatTokenAmount(quote?.amount0, pool.token0.decimals)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">
-                    {pool.token1.symbol}
-                  </span>
-                  <span className="font-medium">
-                    {formatTokenAmount(quote?.amount1, pool.token1.decimals)}
-                  </span>
-                </div>
-                <div className="gap-1 mt-1 text-xs flex items-center text-muted-foreground">
-                  Auto-swap: {otherToken.symbol}
-                  <ArrowRight className="h-3 w-3" />
-                  {selectedToken.symbol}
-                </div>
-              </div>
+            {/* Slippage Tolerance */}
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Slippage Tolerance %</span>
+              <Select
+                value={String(slippage)}
+                onValueChange={(v) => setSlippage(Number(v) as SlippageOption)}
+              >
+                <SelectTrigger className="w-auto">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SLIPPAGE_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={String(option)}>
+                      {option}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
-            {/* Preview */}
-            <div className="gap-3 flex flex-col">
-              <h3 className="font-semibold">Preview</h3>
-              <div className="gap-2 text-sm flex flex-col">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">
-                    Estimated received
-                  </span>
-                  <span className="font-medium">
-                    {formatTokenAmount(
-                      zapOutQuote?.expectedTokenOut,
-                      selectedToken.decimals,
-                    )}{" "}
-                    {selectedToken.symbol}
-                  </span>
+            {/* Preview — single token */}
+            {hasAmount && zapOutQuote && (
+              <>
+                <div className="gap-3 p-3 flex flex-col rounded-md border border-border">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold">Preview</span>
+                  </div>
+                  <div className="text-sm flex items-center justify-between">
+                    <span className="text-muted-foreground">
+                      Estimated {selectedToken.symbol}
+                    </span>
+                    <span className="font-medium">
+                      {formatTokenAmount(
+                        zapOutQuote?.expectedTokenOut,
+                        selectedToken.decimals,
+                      )}
+                    </span>
+                  </div>
+                  <div className="border-t border-border" />
+                  <div className="gap-1 text-sm flex flex-col">
+                    <span className="text-xs text-muted-foreground">
+                      Underlying remove:
+                    </span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">
+                        {pool.token0.symbol}
+                      </span>
+                      <span className="font-medium">
+                        {formatTokenAmount(
+                          quote?.amount0,
+                          pool.token0.decimals,
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">
+                        {pool.token1.symbol}
+                      </span>
+                      <span className="font-medium">
+                        {formatTokenAmount(
+                          quote?.amount1,
+                          pool.token1.decimals,
+                        )}
+                      </span>
+                    </div>
+                    <div className="gap-1 mt-1 text-xs flex items-center text-muted-foreground">
+                      Auto-swap: {otherToken.symbol}
+                      <ArrowRight className="h-3 w-3" />
+                      {selectedToken.symbol}
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">
-                    Minimum received
-                  </span>
-                  <span className="font-medium">
-                    {formatTokenAmount(
-                      zapOutQuote?.expectedTokenOut
-                        ? (zapOutQuote.expectedTokenOut *
-                            BigInt(Math.round((1 - slippage / 100) * 10000))) /
-                            10000n
-                        : undefined,
-                      selectedToken.decimals,
-                    )}{" "}
-                    {selectedToken.symbol}
-                  </span>
+
+                <div className="gap-3 flex flex-col">
+                  <h3 className="font-semibold">Preview</h3>
+                  <div className="gap-2 text-sm flex flex-col">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">
+                        Estimated received
+                      </span>
+                      <span className="font-medium">
+                        {formatTokenAmount(
+                          zapOutQuote?.expectedTokenOut,
+                          selectedToken.decimals,
+                        )}{" "}
+                        {selectedToken.symbol}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">
+                        Minimum received
+                      </span>
+                      <span className="font-medium">
+                        {formatTokenAmount(
+                          zapOutQuote?.expectedTokenOut
+                            ? (zapOutQuote.expectedTokenOut *
+                                BigInt(
+                                  Math.round((1 - slippage / 100) * 10000),
+                                )) /
+                                10000n
+                            : undefined,
+                          selectedToken.decimals,
+                        )}{" "}
+                        {selectedToken.symbol}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
+              </>
+            )}
 
             {/* Info text */}
             <p className="text-xs text-muted-foreground">
@@ -564,51 +612,13 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
             </p>
           </>
         )}
-
-        {/* Slippage tolerance */}
-        <div className="gap-2 flex flex-col">
-          <div className="flex items-center justify-between">
-            <label className="text-sm font-medium">Slippage tolerance</label>
-            <Popover open={slippageOpen} onOpenChange={setSlippageOpen}>
-              <PopoverTrigger asChild>
-                <button className="gap-2 px-3 py-1.5 text-sm font-medium flex cursor-pointer items-center rounded-md border border-border bg-background transition-colors hover:bg-muted/50">
-                  {slippage}%
-                  <ChevronDown className="h-3 w-3" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="p-1 w-auto">
-                <div className="flex flex-col">
-                  {SLIPPAGE_OPTIONS.map((option) => (
-                    <button
-                      key={option}
-                      onClick={() => {
-                        setSlippage(option);
-                        setSlippageOpen(false);
-                      }}
-                      className="gap-2 px-3 py-1.5 text-sm flex cursor-pointer items-center rounded-sm transition-colors hover:bg-muted"
-                    >
-                      {option === slippage && <Check className="h-3 w-3" />}
-                      <span
-                        className={option === slippage ? "font-medium" : ""}
-                      >
-                        {option}%
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Used to set minimum amounts for zap swaps and liquidity mint/burn.
-          </p>
-        </div>
       </div>
 
-      {/* Bottom section */}
+      {/* Bottom section — pinned */}
       <div className="gap-4 px-6 pb-6 pt-4 mt-auto flex shrink-0 flex-col">
         <Button
           size="lg"
+          clipped="lg"
           className="w-full"
           disabled={buttonState.disabled}
           onClick={handleAction}

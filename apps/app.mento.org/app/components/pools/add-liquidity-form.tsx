@@ -2,9 +2,11 @@ import {
   Button,
   TokenIcon,
   Input,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@repo/ui";
 import type { PoolDisplay, SlippageOption } from "@repo/web3";
 import {
@@ -19,13 +21,7 @@ import {
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, parseUnits, type Address } from "viem";
 import { useState, useEffect, useCallback, useRef } from "react";
-import {
-  ChevronDown,
-  Check,
-  Info,
-  AlertTriangle,
-  ExternalLink,
-} from "lucide-react";
+import { Info, AlertTriangle, ExternalLink } from "lucide-react";
 
 function formatBalance(balance: string): string {
   const num = parseFloat(balance);
@@ -33,7 +29,7 @@ function formatBalance(balance: string): string {
   if (num >= 1_000) return (num / 1_000).toFixed(2) + "K";
   return num.toLocaleString(undefined, {
     minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 4,
   });
 }
 
@@ -144,7 +140,6 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
   const [token1Amount, setToken1Amount] = useState("");
   const [lastEditedToken, setLastEditedToken] = useState<0 | 1>(0);
   const [slippage, setSlippage] = useState<SlippageOption>(0.3);
-  const [slippageOpen, setSlippageOpen] = useState(false);
 
   // Single-token (zap) state
   const [zapTokenIn, setZapTokenIn] = useState<string>(pool.token0.address);
@@ -496,16 +491,11 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     zapQuote?.totalSupply,
   );
 
-  // Amount presets for single-token mode
-  const handleAmountPreset = (preset: "0.1" | "1" | "all") => {
-    if (preset === "all") {
-      setZapAmount(formattedZapBalance);
-    } else {
-      const pct = Number(preset) / 100;
-      const bal = parseFloat(formattedZapBalance);
-      if (bal > 0) {
-        setZapAmount((bal * pct).toString());
-      }
+  const handleAmountPreset = (pctString: string) => {
+    const pct = Number(pctString) / 100;
+    const bal = parseFloat(formattedZapBalance);
+    if (bal > 0) {
+      setZapAmount((bal * pct).toString());
     }
   };
 
@@ -560,7 +550,33 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
               Amounts are based on the current pool ratio.
             </p>
 
-            <LPPreview estimatedLP={estimatedLP} sharePercent={sharePercent} />
+            {/* Slippage Tolerance */}
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Slippage Tolerance %</span>
+              <Select
+                value={String(slippage)}
+                onValueChange={(v) => setSlippage(Number(v) as SlippageOption)}
+              >
+                <SelectTrigger className="w-auto">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SLIPPAGE_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={String(option)}>
+                      {option}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Preview */}
+            {hasAmounts && quote && (
+              <LPPreview
+                estimatedLP={estimatedLP}
+                sharePercent={sharePercent}
+              />
+            )}
           </>
         ) : (
           <>
@@ -591,22 +607,25 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
                     size={24}
                     className="rounded-full"
                   />
-                  <select
+                  <Select
                     value={zapTokenIn}
-                    onChange={(e) => {
-                      setZapTokenIn(e.target.value);
+                    onValueChange={(v) => {
+                      setZapTokenIn(v);
                       setZapAmount("");
                     }}
-                    className="font-medium pr-4 cursor-pointer appearance-none border-none bg-transparent outline-none"
                   >
-                    <option value={pool.token0.address}>
-                      {pool.token0.symbol}
-                    </option>
-                    <option value={pool.token1.address}>
-                      {pool.token1.symbol}
-                    </option>
-                  </select>
-                  <ChevronDown className="h-3 w-3 -ml-3 pointer-events-none text-muted-foreground" />
+                    <SelectTrigger className="p-0 font-medium w-auto border-none bg-transparent shadow-none">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={pool.token0.address}>
+                        {pool.token0.symbol}
+                      </SelectItem>
+                      <SelectItem value={pool.token1.address}>
+                        {pool.token1.symbol}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="text-sm text-muted-foreground">
                   Balance: {formatBalance(formattedZapBalance)}{" "}
@@ -634,31 +653,32 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
             </div>
 
             {/* Amount presets */}
-            <div className="gap-2 flex">
+            <div className="gap-2 grid grid-cols-3">
               <button
                 onClick={() => handleAmountPreset("0.1")}
-                className="px-3 py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background transition-colors hover:bg-muted/50"
+                className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
               >
                 0.1%
               </button>
               <button
                 onClick={() => handleAmountPreset("1")}
-                className="px-3 py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background transition-colors hover:bg-muted/50"
+                className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
               >
                 1%
               </button>
-              <button
-                disabled
-                className="px-3 py-1.5 text-xs font-medium rounded-md border border-border bg-background text-muted-foreground"
-              >
-                Custom
-              </button>
-              <button
-                onClick={() => handleAmountPreset("all")}
-                className="px-3 py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background transition-colors hover:bg-muted/50"
-              >
-                All
-              </button>
+              <Input
+                type="text"
+                inputMode="decimal"
+                placeholder="Custom %"
+                className="py-1.5 text-xs font-medium h-auto text-center"
+                onChange={(e) => {
+                  const pct = parseFloat(e.target.value);
+                  if (!isNaN(pct) && pct > 0) {
+                    const bal = parseFloat(formattedZapBalance);
+                    if (bal > 0) setZapAmount(((bal * pct) / 100).toString());
+                  }
+                }}
+              />
             </div>
 
             {/* Warning */}
@@ -670,57 +690,42 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
               </span>
             </div>
 
-            <LPPreview
-              estimatedLP={zapEstimatedLP}
-              sharePercent={zapSharePercent}
-            />
+            {/* Slippage Tolerance */}
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Slippage Tolerance %</span>
+              <Select
+                value={String(slippage)}
+                onValueChange={(v) => setSlippage(Number(v) as SlippageOption)}
+              >
+                <SelectTrigger className="w-auto">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SLIPPAGE_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={String(option)}>
+                      {option}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Preview */}
+            {hasZapAmount && zapQuote && (
+              <LPPreview
+                estimatedLP={zapEstimatedLP}
+                sharePercent={zapSharePercent}
+              />
+            )}
           </>
         )}
-
-        {/* Slippage tolerance */}
-        <div className="gap-2 flex flex-col">
-          <div className="flex items-center justify-between">
-            <label className="text-sm font-medium">Slippage tolerance</label>
-            <Popover open={slippageOpen} onOpenChange={setSlippageOpen}>
-              <PopoverTrigger asChild>
-                <button className="gap-2 px-3 py-1.5 text-sm font-medium flex cursor-pointer items-center rounded-md border border-border bg-background transition-colors hover:bg-muted/50">
-                  {slippage}%
-                  <ChevronDown className="h-3 w-3" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="p-1 w-auto">
-                <div className="flex flex-col">
-                  {SLIPPAGE_OPTIONS.map((option) => (
-                    <button
-                      key={option}
-                      onClick={() => {
-                        setSlippage(option);
-                        setSlippageOpen(false);
-                      }}
-                      className="gap-2 px-3 py-1.5 text-sm flex cursor-pointer items-center rounded-sm transition-colors hover:bg-muted"
-                    >
-                      {option === slippage && <Check className="h-3 w-3" />}
-                      <span
-                        className={option === slippage ? "font-medium" : ""}
-                      >
-                        {option}%
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Used to set minimum amounts for liquidity mint/burn.
-          </p>
-        </div>
       </div>
 
       {/* Bottom section */}
       <div className="gap-4 px-6 pb-6 pt-4 mt-auto flex shrink-0 flex-col">
         <Button
           size="lg"
+          clipped="lg"
           className="w-full"
           disabled={buttonState.disabled}
           onClick={handleAction}

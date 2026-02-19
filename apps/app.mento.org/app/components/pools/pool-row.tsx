@@ -45,7 +45,7 @@ export function PoolRow({ pool }: PoolRowProps) {
     >
       <div
         className={cn(
-          "gap-4 px-4 py-4 grid grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,1.5fr)_minmax(0,1.5fr)] items-center",
+          "gap-4 px-4 py-4 grid min-h-[84px] grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,1.5fr)_minmax(0,1.5fr)] items-center",
           canExpand && "cursor-pointer transition-colors hover:bg-muted/30",
         )}
         onClick={() => canExpand && setIsExpanded(!isExpanded)}

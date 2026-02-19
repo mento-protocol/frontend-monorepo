@@ -18,7 +18,12 @@ export default function SwapPage() {
 
   return (
     <>
-      <div className="flex h-full w-full flex-wrap items-center justify-center">
+      <div
+        className={cn(
+          "flex h-full w-full justify-center",
+          activeTab === "pool" ? "pt-8" : "flex-wrap items-center",
+        )}
+      >
         {shouldEnableDebug && <DebugPopup />}
         <Toaster
           position="top-right"
