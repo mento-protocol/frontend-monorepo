@@ -136,8 +136,17 @@ export const ProposalList = () => {
   return (
     <ProposalCard>
       <ProposalCardHeader className="lg:items-center">
-        <h2 className="text-2xl font-semibold">Proposals</h2>
-        <div className="gap-4 flex w-full items-start justify-between lg:w-auto lg:items-center lg:justify-normal">
+        <div className="flex w-full items-center justify-between lg:w-auto">
+          <h2 className="text-2xl font-semibold">Proposals</h2>
+          {canCreateProposal && (
+            <Link href="/create-proposal" className="lg:hidden">
+              <Button clipped="lg" size="md">
+                Create New Proposal <IconChevron />
+              </Button>
+            </Link>
+          )}
+        </div>
+        <div className="gap-4 flex items-center">
           <label className="gap-2 text-sm text-white/70 flex cursor-pointer items-center">
             <Checkbox
               checked={showCanceled}
@@ -149,7 +158,7 @@ export const ProposalList = () => {
             Show Canceled
           </label>
           {canCreateProposal && (
-            <Link href="/create-proposal">
+            <Link href="/create-proposal" className="hidden lg:block">
               <Button clipped="lg" size="md">
                 Create New Proposal <IconChevron />
               </Button>
