@@ -53,3 +53,5 @@ yarn-error.log*
 *.zip
 
 .claude/skills/
+# AI Pentesting
+deliverables
