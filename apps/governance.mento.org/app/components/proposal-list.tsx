@@ -137,7 +137,7 @@ export const ProposalList = () => {
     <ProposalCard>
       <ProposalCardHeader className="lg:items-center">
         <h2 className="text-2xl font-semibold">Proposals</h2>
-        <div className="gap-4 lg:self-center flex items-center self-end">
+        <div className="gap-4 flex items-center">
           <label className="gap-2 text-sm text-white/70 flex cursor-pointer items-center">
             <Checkbox
               checked={showCanceled}
