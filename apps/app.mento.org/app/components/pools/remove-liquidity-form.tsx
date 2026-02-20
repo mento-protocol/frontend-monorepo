@@ -19,7 +19,7 @@ import {
 } from "@repo/web3";
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, parseUnits, type Address } from "viem";
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ChangeEvent } from "react";
 import { ExternalLink, ArrowRight } from "lucide-react";
 
 function formatBalance(balance: string): string {
@@ -275,14 +275,34 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
 
   // === Preset handlers ===
 
+  const [customPct, setCustomPct] = useState("");
+
   const handlePreset = (fraction: number) => {
     if (!lpBalance) return;
-    if (fraction === 1) {
+    if (fraction >= 1) {
       setLpAmount(formatUnits(lpBalance, 18));
     } else {
       const fractionalBalance =
         (lpBalance * BigInt(Math.round(fraction * 1000))) / 1000n;
       setLpAmount(formatUnits(fractionalBalance, 18));
+    }
+  };
+
+  const handleCustomPctChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (!lpBalance) return;
+    let raw = e.target.value.replace(/[^0-9.]/g, "");
+    const num = parseFloat(raw);
+    if (!isNaN(num) && num > 100) raw = "100";
+    setCustomPct(raw);
+    const pct = parseFloat(raw);
+    if (!isNaN(pct) && pct > 0) {
+      if (pct >= 100) {
+        setLpAmount(formatUnits(lpBalance, 18));
+      } else {
+        const fractionalBalance =
+          (lpBalance * BigInt(Math.round((pct / 100) * 1000))) / 1000n;
+        setLpAmount(formatUnits(fractionalBalance, 18));
+      }
     }
   };
 
@@ -338,7 +358,13 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
               <span className="font-medium">LP Tokens</span>
             </div>
             <div className="text-sm text-muted-foreground">
-              Balance: {formatBalance(formattedLpBalance)}
+              Balance: {formatBalance(formattedLpBalance)}{" "}
+              <button
+                className="font-medium cursor-pointer text-primary hover:underline"
+                onClick={() => handlePreset(1)}
+              >
+                MAX
+              </button>
             </div>
           </div>
           <Input
@@ -376,12 +402,24 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
           >
             75%
           </button>
-          <button
-            onClick={() => handlePreset(1)}
-            className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
-          >
-            100%
-          </button>
+          <div className="py-1.5 flex items-center justify-center overflow-hidden rounded-md border border-border bg-background">
+            <input
+              type="text"
+              inputMode="decimal"
+              placeholder="Custom %"
+              value={customPct}
+              className="min-w-0 text-xs font-medium w-full shrink bg-transparent text-center outline-none placeholder:text-muted-foreground"
+              onChange={handleCustomPctChange}
+              style={
+                customPct
+                  ? { width: `${customPct.length}ch`, flexShrink: 0 }
+                  : undefined
+              }
+            />
+            {customPct && (
+              <span className="text-xs font-medium shrink-0">%</span>
+            )}
+          </div>
         </div>
 
         {mode === "balanced" ? (
@@ -408,7 +446,7 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
 
             {/* Preview — balanced */}
             {hasAmount && quote && (
-              <div className="gap-3 flex flex-col">
+              <div className="gap-3 p-3 flex flex-col rounded-md border border-border">
                 <h3 className="font-semibold">Preview</h3>
                 <div className="gap-2 text-sm flex flex-col">
                   <div className="flex items-center justify-between">
@@ -516,93 +554,47 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
 
             {/* Preview — single token */}
             {hasAmount && zapOutQuote && (
-              <>
-                <div className="gap-3 p-3 flex flex-col rounded-md border border-border">
+              <div className="gap-3 p-3 flex flex-col rounded-md border border-border">
+                <h3 className="font-semibold">Preview</h3>
+                <div className="text-sm flex items-center justify-between">
+                  <span className="text-muted-foreground">
+                    Estimated {selectedToken.symbol}
+                  </span>
+                  <span className="font-medium">
+                    {formatTokenAmount(
+                      zapOutQuote?.expectedTokenOut,
+                      selectedToken.decimals,
+                    )}
+                  </span>
+                </div>
+                <div className="border-t border-border" />
+                <div className="gap-1 text-sm flex flex-col">
+                  <span className="text-xs text-muted-foreground">
+                    Underlying remove:
+                  </span>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold">Preview</span>
-                  </div>
-                  <div className="text-sm flex items-center justify-between">
                     <span className="text-muted-foreground">
-                      Estimated {selectedToken.symbol}
+                      {pool.token0.symbol}
                     </span>
                     <span className="font-medium">
-                      {formatTokenAmount(
-                        zapOutQuote?.expectedTokenOut,
-                        selectedToken.decimals,
-                      )}
+                      {formatTokenAmount(quote?.amount0, pool.token0.decimals)}
                     </span>
                   </div>
-                  <div className="border-t border-border" />
-                  <div className="gap-1 text-sm flex flex-col">
-                    <span className="text-xs text-muted-foreground">
-                      Underlying remove:
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">
+                      {pool.token1.symbol}
                     </span>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">
-                        {pool.token0.symbol}
-                      </span>
-                      <span className="font-medium">
-                        {formatTokenAmount(
-                          quote?.amount0,
-                          pool.token0.decimals,
-                        )}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">
-                        {pool.token1.symbol}
-                      </span>
-                      <span className="font-medium">
-                        {formatTokenAmount(
-                          quote?.amount1,
-                          pool.token1.decimals,
-                        )}
-                      </span>
-                    </div>
-                    <div className="gap-1 mt-1 text-xs flex items-center text-muted-foreground">
-                      Auto-swap: {otherToken.symbol}
-                      <ArrowRight className="h-3 w-3" />
-                      {selectedToken.symbol}
-                    </div>
+                    <span className="font-medium">
+                      {formatTokenAmount(quote?.amount1, pool.token1.decimals)}
+                    </span>
+                  </div>
+                  <div className="gap-1 mt-1 text-xs flex items-center text-muted-foreground">
+                    Auto-swap: {otherToken.symbol}
+                    <ArrowRight className="h-3 w-3" />
+                    {selectedToken.symbol}
                   </div>
                 </div>
-
-                <div className="gap-3 flex flex-col">
-                  <h3 className="font-semibold">Preview</h3>
-                  <div className="gap-2 text-sm flex flex-col">
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">
-                        Estimated received
-                      </span>
-                      <span className="font-medium">
-                        {formatTokenAmount(
-                          zapOutQuote?.expectedTokenOut,
-                          selectedToken.decimals,
-                        )}{" "}
-                        {selectedToken.symbol}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">
-                        Minimum received
-                      </span>
-                      <span className="font-medium">
-                        {formatTokenAmount(
-                          zapOutQuote?.expectedTokenOut
-                            ? (zapOutQuote.expectedTokenOut *
-                                BigInt(
-                                  Math.round((1 - slippage / 100) * 10000),
-                                )) /
-                                10000n
-                            : undefined,
-                          selectedToken.decimals,
-                        )}{" "}
-                        {selectedToken.symbol}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </>
+              </div>
             )}
 
             {/* Info text */}

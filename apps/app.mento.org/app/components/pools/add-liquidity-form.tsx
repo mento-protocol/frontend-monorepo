@@ -20,7 +20,13 @@ import {
 } from "@repo/web3";
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, parseUnits, type Address } from "viem";
-import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type ChangeEvent,
+} from "react";
 import { Info, AlertTriangle, ExternalLink } from "lucide-react";
 
 function formatBalance(balance: string): string {
@@ -113,7 +119,7 @@ function LPPreview({
   sharePercent: string;
 }) {
   return (
-    <div className="gap-3 flex flex-col">
+    <div className="gap-3 p-3 flex flex-col rounded-md border border-border">
       <h3 className="font-semibold">Preview</h3>
       <div className="gap-2 text-sm flex flex-col">
         <div className="flex items-center justify-between">
@@ -491,11 +497,33 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     zapQuote?.totalSupply,
   );
 
+  const [customPct, setCustomPct] = useState("");
+
   const handleAmountPreset = (pctString: string) => {
-    const pct = Number(pctString) / 100;
+    const pct = Number(pctString);
     const bal = parseFloat(formattedZapBalance);
     if (bal > 0) {
-      setZapAmount((bal * pct).toString());
+      if (pct >= 100) {
+        setZapAmount(formattedZapBalance);
+      } else {
+        setZapAmount(((bal * pct) / 100).toString());
+      }
+    }
+  };
+
+  const handleCustomPctChange = (e: ChangeEvent<HTMLInputElement>) => {
+    let raw = e.target.value.replace(/[^0-9.]/g, "");
+    const num = parseFloat(raw);
+    if (!isNaN(num) && num > 100) raw = "100";
+    setCustomPct(raw);
+    const pct = parseFloat(raw);
+    if (!isNaN(pct) && pct > 0) {
+      const bal = parseFloat(formattedZapBalance);
+      if (bal > 0) {
+        pct >= 100
+          ? setZapAmount(formattedZapBalance)
+          : setZapAmount(((bal * pct) / 100).toString());
+      }
     }
   };
 
@@ -598,35 +626,45 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
             {/* Token selector + input */}
             <div className="gap-2 flex flex-col">
               <div className="gap-2 flex items-center justify-between">
-                <div className="gap-2 flex items-center">
-                  <TokenIcon
-                    token={{
-                      address: zapToken.address,
-                      symbol: zapToken.symbol,
-                    }}
-                    size={24}
-                    className="rounded-full"
-                  />
-                  <Select
-                    value={zapTokenIn}
-                    onValueChange={(v) => {
-                      setZapTokenIn(v);
-                      setZapAmount("");
-                    }}
-                  >
-                    <SelectTrigger className="p-0 font-medium w-auto border-none bg-transparent shadow-none">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={pool.token0.address}>
+                <Select
+                  value={zapTokenIn}
+                  onValueChange={(v) => {
+                    setZapTokenIn(v);
+                    setZapAmount("");
+                  }}
+                >
+                  <SelectTrigger className="gap-2 p-0 font-medium w-auto border-none bg-transparent shadow-none">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={pool.token0.address}>
+                      <div className="gap-2 flex items-center">
+                        <TokenIcon
+                          token={{
+                            address: pool.token0.address,
+                            symbol: pool.token0.symbol,
+                          }}
+                          size={20}
+                          className="rounded-full"
+                        />
                         {pool.token0.symbol}
-                      </SelectItem>
-                      <SelectItem value={pool.token1.address}>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value={pool.token1.address}>
+                      <div className="gap-2 flex items-center">
+                        <TokenIcon
+                          token={{
+                            address: pool.token1.address,
+                            symbol: pool.token1.symbol,
+                          }}
+                          size={20}
+                          className="rounded-full"
+                        />
                         {pool.token1.symbol}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
                 <div className="text-sm text-muted-foreground">
                   Balance: {formatBalance(formattedZapBalance)}{" "}
                   <button
@@ -666,19 +704,24 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
               >
                 1%
               </button>
-              <Input
-                type="text"
-                inputMode="decimal"
-                placeholder="Custom %"
-                className="py-1.5 text-xs font-medium h-auto text-center"
-                onChange={(e) => {
-                  const pct = parseFloat(e.target.value);
-                  if (!isNaN(pct) && pct > 0) {
-                    const bal = parseFloat(formattedZapBalance);
-                    if (bal > 0) setZapAmount(((bal * pct) / 100).toString());
+              <div className="py-1.5 flex items-center justify-center overflow-hidden rounded-md border border-border bg-background">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Custom %"
+                  value={customPct}
+                  className="min-w-0 text-xs font-medium w-full shrink bg-transparent text-center outline-none placeholder:text-muted-foreground"
+                  onChange={handleCustomPctChange}
+                  style={
+                    customPct
+                      ? { width: `${customPct.length}ch`, flexShrink: 0 }
+                      : undefined
                   }
-                }}
-              />
+                />
+                {customPct && (
+                  <span className="text-xs font-medium shrink-0">%</span>
+                )}
+              </div>
             </div>
 
             {/* Warning */}
