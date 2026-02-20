@@ -9,6 +9,7 @@ import {
 import { useExplorerUrl, shortenAddress } from "@repo/web3";
 import type { PoolDisplay } from "@repo/web3";
 import { Info, ExternalLink } from "lucide-react";
+import { useState, useRef, useCallback } from "react";
 
 interface PoolAddressPopoverProps {
   pool: PoolDisplay;
@@ -51,20 +52,35 @@ function AddressRow({ label, address, explorerUrl }: AddressRowProps) {
 
 export function PoolAddressPopover({ pool }: PoolAddressPopoverProps) {
   const explorerUrl = useExplorerUrl();
+  const [open, setOpen] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout>>(null);
+
+  const handleOpen = useCallback(() => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    setOpen(true);
+  }, []);
+
+  const handleClose = useCallback(() => {
+    closeTimer.current = setTimeout(() => setOpen(false), 150);
+  }, []);
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
-          className="p-0.5 rounded-sm transition-colors hover:bg-muted"
+        <span
+          className="cursor-help"
           aria-label="View pool and token addresses"
+          onMouseEnter={handleOpen}
+          onMouseLeave={handleClose}
         >
           <Info className="h-4 w-4 text-muted-foreground" />
-        </button>
+        </span>
       </PopoverTrigger>
       <PopoverContent
         align="start"
         className="space-y-2.5 w-fit [&>span]:hidden"
+        onMouseEnter={handleOpen}
+        onMouseLeave={handleClose}
       >
         <AddressRow
           label="Pool"
