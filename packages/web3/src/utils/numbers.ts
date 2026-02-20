@@ -41,6 +41,16 @@ export abstract class NumbersService {
   }
 }
 
+export function formatCompactBalance(balance: string): string {
+  const num = parseFloat(balance);
+  if (num >= MILLION) return (num / MILLION).toFixed(2) + "M";
+  if (num >= THOUSAND) return (num / THOUSAND).toFixed(2) + "K";
+  return num.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+}
+
 export const formatUnitsWithRadix = (
   value: bigint,
   decimals: number,

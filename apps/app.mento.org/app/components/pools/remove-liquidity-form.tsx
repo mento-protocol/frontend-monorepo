@@ -15,21 +15,12 @@ import {
   useZapOutTransaction,
   useLiquidityApproval,
   tryParseUnits,
+  formatCompactBalance,
 } from "@repo/web3";
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, parseUnits, type Address } from "viem";
 import { useState, useEffect } from "react";
 import { ChevronDown, Check, ExternalLink, ArrowRight } from "lucide-react";
-
-function formatBalance(balance: string): string {
-  const num = parseFloat(balance);
-  if (num >= 1_000_000) return (num / 1_000_000).toFixed(2) + "M";
-  if (num >= 1_000) return (num / 1_000).toFixed(2) + "K";
-  return num.toLocaleString(undefined, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  });
-}
 
 function formatTokenAmount(
   amount: bigint | undefined,
@@ -338,7 +329,7 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
               <span className="font-medium">LP Tokens</span>
             </div>
             <div className="text-sm text-muted-foreground">
-              Balance: {formatBalance(formattedLpBalance)}{" "}
+              Balance: {formatCompactBalance(formattedLpBalance)}{" "}
               <button
                 className="font-medium cursor-pointer text-primary hover:underline"
                 onClick={() => setLpAmount(formattedLpBalance)}
