@@ -14,6 +14,7 @@ import {
   useZapOutQuote,
   useZapOutTransaction,
   useLiquidityApproval,
+  tryParseUnits,
 } from "@repo/web3";
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, parseUnits, type Address } from "viem";
@@ -70,9 +71,9 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
   const formattedLpBalance = lpBalance ? formatUnits(lpBalance, 18) : "0";
 
   const hasAmount = Number(lpAmount) > 0;
-  const lpAmountWei = hasAmount ? parseUnits(lpAmount, 18) : 0n;
+  const lpAmountWei = hasAmount ? tryParseUnits(lpAmount, 18) : null;
   const insufficientLp =
-    hasAmount && lpBalance !== undefined && lpAmountWei > lpBalance;
+    lpAmountWei !== null && lpBalance !== undefined && lpAmountWei > lpBalance;
 
   // === Balanced quote hook (also used for underlying breakdown in single mode) ===
   const { data: quote, isFetching: isQuoting } = useRemoveLiquidityQuote({

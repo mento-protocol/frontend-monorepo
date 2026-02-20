@@ -61,7 +61,7 @@ export function useZapInQuote({
         pool.poolAddr,
         tokenIn,
         amountInWei,
-        0.5,
+        slippage,
         { slippageTolerance: slippage },
       );
 

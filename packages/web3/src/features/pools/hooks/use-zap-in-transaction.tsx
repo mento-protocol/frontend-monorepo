@@ -2,37 +2,21 @@ import type { ChainId } from "@/config/chains";
 import { getMentoSdk } from "@/features/sdk";
 import { logger } from "@/utils/logger";
 import { toast } from "@repo/ui";
+import type { ZapInTransaction } from "@mento-protocol/mento-sdk";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Address, Hex } from "viem";
 import { useChainId, usePublicClient, useSendTransaction } from "wagmi";
 import { showLiquiditySuccessToast } from "../liquidity-toast";
-import type { PoolDisplay, SlippageOption, TransactionParams } from "../types";
+import type { PoolDisplay, SlippageOption } from "../types";
 import { getTransactionErrorMessage } from "../types";
-
-interface ZapInBuildResult {
-  approval: {
-    token: string;
-    amount: bigint;
-    params: TransactionParams;
-  } | null;
-  zapIn: {
-    params: TransactionParams;
-    poolAddress: string;
-    tokenIn: string;
-    amountIn: bigint;
-    amountInA: bigint;
-    amountInB: bigint;
-    expectedLiquidity: bigint;
-  };
-}
 
 export function useZapInTransaction(pool: PoolDisplay) {
   const chainId = useChainId() as ChainId;
   const publicClient = usePublicClient({ chainId });
   const queryClient = useQueryClient();
 
-  const [buildResult, setBuildResult] = useState<ZapInBuildResult | null>(null);
+  const [buildResult, setBuildResult] = useState<ZapInTransaction | null>(null);
   const [isBuilding, setIsBuilding] = useState(false);
   const [txHash, setTxHash] = useState<Address | undefined>();
   const [isConfirming, setIsConfirming] = useState(false);
@@ -96,7 +80,7 @@ export function useZapInTransaction(pool: PoolDisplay) {
       amountIn: bigint,
       recipient: Address,
       slippage: SlippageOption,
-    ): Promise<ZapInBuildResult | null> => {
+    ): Promise<ZapInTransaction | null> => {
       setIsBuilding(true);
       try {
         const sdk = await getMentoSdk(chainId);
@@ -109,14 +93,14 @@ export function useZapInTransaction(pool: PoolDisplay) {
           pool.poolAddr,
           tokenIn,
           amountIn,
-          0.5,
+          slippage,
           recipient,
           recipient,
           { slippageTolerance: slippage, deadline },
         );
 
-        setBuildResult(result as unknown as ZapInBuildResult);
-        return result as unknown as ZapInBuildResult;
+        setBuildResult(result);
+        return result;
       } catch (err) {
         logger.error("Failed to build zap-in transaction:", err);
         setBuildResult(null);
@@ -129,7 +113,7 @@ export function useZapInTransaction(pool: PoolDisplay) {
   );
 
   const sendZapIn = useCallback(
-    async (build: ZapInBuildResult) => {
+    async (build: ZapInTransaction) => {
       try {
         const hash = await sendTransactionAsync({
           to: build.zapIn.params.to as Address,

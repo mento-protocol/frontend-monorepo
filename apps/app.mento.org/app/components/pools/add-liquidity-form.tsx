@@ -15,6 +15,7 @@ import {
   useAddLiquidityTransaction,
   useZapInQuote,
   useZapInTransaction,
+  tryParseUnits,
 } from "@repo/web3";
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, parseUnits, type Address } from "viem";
@@ -376,23 +377,30 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
 
   // Balanced mode
   const hasAmounts = Number(token0Amount) > 0 && Number(token1Amount) > 0;
+  const parsedToken0 = hasAmounts
+    ? tryParseUnits(token0Amount, pool.token0.decimals)
+    : null;
+  const parsedToken1 = hasAmounts
+    ? tryParseUnits(token1Amount, pool.token1.decimals)
+    : null;
   const insufficientToken0 =
-    hasAmounts &&
+    parsedToken0 !== null &&
     token0Balance !== undefined &&
-    Number(token0Amount) > 0 &&
-    parseUnits(token0Amount || "0", pool.token0.decimals) > token0Balance;
+    parsedToken0 > token0Balance;
   const insufficientToken1 =
-    hasAmounts &&
+    parsedToken1 !== null &&
     token1Balance !== undefined &&
-    Number(token1Amount) > 0 &&
-    parseUnits(token1Amount || "0", pool.token1.decimals) > token1Balance;
+    parsedToken1 > token1Balance;
 
   // Single-token mode
   const hasZapAmount = Number(zapAmount) > 0;
+  const parsedZap = hasZapAmount
+    ? tryParseUnits(zapAmount, zapToken.decimals)
+    : null;
   const insufficientZap =
-    hasZapAmount &&
+    parsedZap !== null &&
     zapTokenBalance !== undefined &&
-    parseUnits(zapAmount || "0", zapToken.decimals) > zapTokenBalance;
+    parsedZap > zapTokenBalance;
 
   // === Button state ===
 
@@ -531,11 +539,10 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     if (preset === "all") {
       setZapAmount(formattedZapBalance);
     } else {
-      const pct = Number(preset) / 100;
-      const bal = parseFloat(formattedZapBalance);
-      if (bal > 0) {
-        setZapAmount((bal * pct).toString());
-      }
+      if (!zapTokenBalance || zapTokenBalance === 0n) return;
+      const scaledPct = BigInt(Math.round(Number(preset) * 10));
+      const fractionalBalance = (zapTokenBalance * scaledPct) / 1000n;
+      setZapAmount(formatUnits(fractionalBalance, zapToken.decimals));
     }
   };
 

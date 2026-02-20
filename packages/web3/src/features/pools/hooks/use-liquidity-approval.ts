@@ -1,16 +1,10 @@
 import { logger } from "@/utils/logger";
 import { toast } from "@repo/ui";
+import type { TokenApproval } from "@mento-protocol/mento-sdk";
 import { useEffect, useRef, useState } from "react";
 import type { Address, Hex } from "viem";
 import { useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
-import type { TransactionParams } from "../types";
 import { getTransactionErrorMessage } from "../types";
-
-interface ApprovalInput {
-  token: string;
-  amount: bigint;
-  params: TransactionParams;
-}
 
 export function useLiquidityApproval(
   tokenSymbol: string,
@@ -33,7 +27,7 @@ export function useLiquidityApproval(
     }
   }, [isConfirmed]);
 
-  const sendApproval = async (approval: ApprovalInput) => {
+  const sendApproval = async (approval: TokenApproval) => {
     try {
       const hash = await sendTransactionAsync({
         to: approval.params.to as Address,
