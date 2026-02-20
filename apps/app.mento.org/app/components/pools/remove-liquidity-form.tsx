@@ -16,6 +16,7 @@ import {
   useZapOutQuote,
   useZapOutTransaction,
   useLiquidityApproval,
+  ConnectButton,
 } from "@repo/web3";
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, parseUnits, type Address } from "viem";
@@ -169,7 +170,6 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
   // === Button state ===
 
   const getButtonState = () => {
-    if (!address) return { text: "Connect Wallet", disabled: true };
     if (!hasAmount) return { text: "Enter amount", disabled: true };
     if (insufficientLp)
       return { text: "Insufficient LP balance", disabled: true };
@@ -608,15 +608,19 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
 
       {/* Bottom section — pinned */}
       <div className="gap-4 px-6 pb-6 pt-4 mt-auto flex shrink-0 flex-col">
-        <Button
-          size="lg"
-          clipped="lg"
-          className="w-full"
-          disabled={buttonState.disabled}
-          onClick={handleAction}
-        >
-          {buttonState.text}
-        </Button>
+        {!address ? (
+          <ConnectButton size="lg" text="Connect Wallet" fullWidth />
+        ) : (
+          <Button
+            size="lg"
+            clipped="lg"
+            className="w-full"
+            disabled={buttonState.disabled}
+            onClick={handleAction}
+          >
+            {buttonState.text}
+          </Button>
+        )}
 
         {/* Footer links */}
         <div className="gap-4 text-sm flex items-center justify-between">

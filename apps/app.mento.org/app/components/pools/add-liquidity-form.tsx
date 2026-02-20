@@ -17,6 +17,7 @@ import {
   useAddLiquidityTransaction,
   useZapInQuote,
   useZapInTransaction,
+  ConnectButton,
 } from "@repo/web3";
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, parseUnits, type Address } from "viem";
@@ -354,8 +355,6 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
   // === Button state ===
 
   const getButtonState = () => {
-    if (!address) return { text: "Connect Wallet", disabled: true };
-
     if (mode === "single") {
       if (!hasZapAmount) return { text: "Enter amount", disabled: true };
       if (insufficientZap)
@@ -520,9 +519,11 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     if (!isNaN(pct) && pct > 0) {
       const bal = parseFloat(formattedZapBalance);
       if (bal > 0) {
-        pct >= 100
-          ? setZapAmount(formattedZapBalance)
-          : setZapAmount(((bal * pct) / 100).toString());
+        if (pct >= 100) {
+          setZapAmount(formattedZapBalance);
+        } else {
+          setZapAmount(((bal * pct) / 100).toString());
+        }
       }
     }
   };
@@ -766,15 +767,19 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
 
       {/* Bottom section */}
       <div className="gap-4 px-6 pb-6 pt-4 mt-auto flex shrink-0 flex-col">
-        <Button
-          size="lg"
-          clipped="lg"
-          className="w-full"
-          disabled={buttonState.disabled}
-          onClick={handleAction}
-        >
-          {buttonState.text}
-        </Button>
+        {!address ? (
+          <ConnectButton size="lg" text="Connect Wallet" fullWidth />
+        ) : (
+          <Button
+            size="lg"
+            clipped="lg"
+            className="w-full"
+            disabled={buttonState.disabled}
+            onClick={handleAction}
+          >
+            {buttonState.text}
+          </Button>
+        )}
 
         {/* Footer links */}
         <div className="gap-4 text-sm flex items-center justify-between">
