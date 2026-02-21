@@ -65,7 +65,7 @@ export default function SwapPage() {
                   ) : null}
                   {confirmView ? "Confirm Swap" : "Swap"}
                 </h2>
-                <SwapSettingsPopover />
+                {!confirmView && <SwapSettingsPopover />}
               </div>
               {confirmView ? <SwapConfirm /> : <SwapForm />}
             </div>

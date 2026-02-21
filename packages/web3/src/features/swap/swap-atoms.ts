@@ -5,6 +5,7 @@ const initialFormValues: SwapFormValues | null = {
   slippage: "0.5",
   isAutoSlippage: true,
   deadlineMinutes: "20",
+  isAutoDeadline: true,
 };
 
 const initialToCeloRates: ToCeloRates = {};

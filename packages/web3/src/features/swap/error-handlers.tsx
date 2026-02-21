@@ -105,19 +105,37 @@ export function getToastErrorMessage(
 }
 
 /**
+ * Extracts a comprehensive error string that includes nested cause/data/signature
+ * fields from viem errors, ensuring custom error selectors are not lost.
+ */
+export function extractFullErrorString(error: unknown): string {
+  if (!error) return "";
+  if (typeof error === "string") return error;
+
+  const err = error as Record<string, unknown>;
+  const cause = err.cause as Record<string, unknown> | undefined;
+
+  return [
+    (err.message as string) ?? "",
+    (err.reason as string) ?? "",
+    (err.shortMessage as string) ?? "",
+    (cause?.message as string) ?? "",
+    (cause?.data as string) ?? "",
+    (cause?.signature as string) ?? "",
+    (err.name as string) ?? "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
  * Determines if an error should be retried in React Query
  */
 export function shouldRetrySwapError(
   failureCount: number,
   error: unknown,
 ): boolean {
-  // Don't retry on certain errors
-  // Extract error message, checking both message and reason properties
-  // (ethers errors sometimes have the revert reason in error.reason)
-  const errorMessage =
-    error instanceof Error
-      ? error.message || (error as { reason?: string }).reason || String(error)
-      : String(error);
+  const errorMessage = extractFullErrorString(error);
   if (errorMessage.includes(SWAP_ERROR_MESSAGES.TRADING_SUSPENDED))
     return false;
   if (errorMessage.includes(SWAP_ERROR_MESSAGES.OVERFLOW_X1Y1)) return false;
