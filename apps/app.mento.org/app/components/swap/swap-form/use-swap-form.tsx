@@ -340,11 +340,13 @@ export function useSwapForm() {
     const numericBuy = Number(formattedAmountWithMaxDecimals);
     if (currentRate && currentRate > 0 && numericBuy > 0) {
       const estimatedSell = numericBuy * currentRate;
-      form.setValue(
-        "amount",
-        formatWithMaxDecimals(String(estimatedSell), 4, false),
-        { shouldValidate: true },
-      );
+      if (Number.isFinite(estimatedSell) && estimatedSell < 1e18) {
+        form.setValue(
+          "amount",
+          formatWithMaxDecimals(String(estimatedSell), 4, false),
+          { shouldValidate: true },
+        );
+      }
     }
   };
 
@@ -386,15 +388,56 @@ export function useSwapForm() {
     tokenOutSymbol,
   );
 
+  // Seed quote: fetch initial rate with amountIn=1 when no rate is available yet
+  const needsSeedRate =
+    !latestRateRef.current &&
+    direction === "out" &&
+    !!tokenInSymbol &&
+    !!tokenOutSymbol &&
+    !isTradingSuspended &&
+    !canQuote;
+
+  const { quote: seedQuote } = useOptimizedSwapQuote(
+    needsSeedRate ? "1" : "",
+    tokenInSymbol,
+    tokenOutSymbol,
+  );
+
   // ── Side effects ────────────────────────────────────────────────────
 
   useEffect(() => {
     const numAmount = Number(amount);
     const numQuote = Number(quote);
     if (numAmount > 0 && numQuote > 0) {
-      latestRateRef.current = numAmount / numQuote;
+      const newRate = numAmount / numQuote;
+      if (Number.isFinite(newRate) && newRate < 1e18) {
+        latestRateRef.current = newRate;
+      }
     }
   }, [rate, amount, quote]);
+
+  // Bootstrap rate from seed quote (amountIn=1), then calculate sell amount
+  useEffect(() => {
+    if (latestRateRef.current || direction !== "out") return;
+    const numSeedQuote = Number(seedQuote);
+    if (numSeedQuote <= 0) return;
+
+    const seedRate = 1 / numSeedQuote;
+    if (!Number.isFinite(seedRate) || seedRate >= 1e18) return;
+    latestRateRef.current = seedRate;
+
+    const buyAmount = Number(formQuote);
+    if (buyAmount > 0) {
+      const estimatedSell = buyAmount * seedRate;
+      if (Number.isFinite(estimatedSell) && estimatedSell < 1e18) {
+        form.setValue(
+          "amount",
+          formatWithMaxDecimals(String(estimatedSell), 4, false),
+          { shouldValidate: true },
+        );
+      }
+    }
+  }, [seedQuote, direction, formQuote, form]);
 
   useEffect(() => {
     setTradingLimitError(null);

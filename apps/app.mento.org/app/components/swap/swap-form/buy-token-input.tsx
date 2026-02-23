@@ -62,14 +62,14 @@ export function BuyTokenInput({
       const currentRate = latestRateRef.current;
       if (currentRate && currentRate > 0 && value && Number(value) > 0) {
         const estimatedSell = Number(value) * currentRate;
-        form.setValue(
-          "amount",
-          formatWithMaxDecimals(String(estimatedSell), 4, false),
-          { shouldValidate: true },
-        );
-      } else if (value && Number(value) > 0) {
-        form.setValue("amount", value, { shouldValidate: true });
-      } else {
+        if (Number.isFinite(estimatedSell) && estimatedSell < 1e18) {
+          form.setValue(
+            "amount",
+            formatWithMaxDecimals(String(estimatedSell), 4, false),
+            { shouldValidate: true },
+          );
+        }
+      } else if (!value || Number(value) <= 0) {
         form.setValue("amount", "", { shouldValidate: true });
       }
     },
