@@ -49,9 +49,9 @@ export function PoolsView() {
   );
 
   return (
-    <div className="max-w-5xl min-h-0 flex h-full w-full flex-col">
+    <div className="max-w-5xl space-y-6 mb-6 w-full">
       {/* Header */}
-      <div className="relative shrink-0">
+      <div className="relative">
         <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
         <div className="p-6 bg-card">
           <h1 className="font-medium md:text-2xl">Pool</h1>
@@ -62,7 +62,7 @@ export function PoolsView() {
       </div>
 
       {/* Filter row */}
-      <div className="mt-6 gap-4 flex shrink-0 items-center justify-between">
+      <div className="gap-4 flex items-center justify-between">
         <div className="flex items-center">
           {filterTabs.map((tab) => (
             <button
@@ -90,13 +90,13 @@ export function PoolsView() {
         </div>
       </div>
 
-      {/* Table header — pinned */}
-      <div className="mt-6 shrink-0">
+      {/* Table header */}
+      <div>
         <PoolsTableHeader />
       </div>
 
-      {/* Scrollable content */}
-      <div className="mt-3 space-y-3 min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+      {/* Content */}
+      <div className="space-y-3">
         {/* Error state */}
         {isError && (
           <div className="p-6 bg-card text-center">
