@@ -21,7 +21,9 @@ export default function SwapPage() {
       <div
         className={cn(
           "flex h-full w-full justify-center",
-          activeTab === "pool" ? "pt-8" : "flex-wrap items-center",
+          activeTab === "pool"
+            ? "pt-22 flex-col items-center"
+            : "flex-wrap items-center",
         )}
       >
         {shouldEnableDebug && <DebugPopup />}

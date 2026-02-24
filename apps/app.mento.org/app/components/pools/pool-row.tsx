@@ -52,13 +52,14 @@ export function PoolRow({ pool }: PoolRowProps) {
       >
         {/* Pool */}
         <div className="gap-3 flex items-center">
-          <ChevronDown
-            className={cn(
-              "h-4 w-4 shrink-0 transition-transform",
-              canExpand ? "text-muted-foreground" : "invisible",
-              isExpanded && "rotate-180",
-            )}
-          />
+          {canExpand && (
+            <ChevronDown
+              className={cn(
+                "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                isExpanded && "rotate-180",
+              )}
+            />
+          )}
           <div className="-space-x-2 flex">
             <TokenIcon
               token={{

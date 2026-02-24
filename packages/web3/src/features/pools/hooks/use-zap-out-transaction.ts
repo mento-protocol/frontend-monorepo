@@ -141,6 +141,7 @@ export function useZapOutTransaction(pool: PoolDisplay) {
           getTransactionErrorMessage(
             err instanceof Error ? err.message : String(err),
             "Unable to complete zap-out transaction.",
+            "Remove liquidity",
           ),
         );
         logger.error("Zap-out transaction failed:", err);

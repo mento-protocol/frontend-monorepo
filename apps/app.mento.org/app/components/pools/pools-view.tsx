@@ -113,18 +113,18 @@ export function PoolsView() {
 
         {/* Table */}
         {!isError && <PoolsTable pools={filteredPools} isLoading={isLoading} />}
-      </div>
 
-      {/* Legacy footer note — pinned at bottom */}
-      {hasLegacyPools && (
-        <div className="mt-6 relative shrink-0">
-          <div className="px-4 py-3 text-sm bg-card text-muted-foreground">
-            Legacy pools are planned for migration to FPMM. Liquidity actions
-            are not available for these pools.
+        {/* Legacy footer note — after the last pool */}
+        {hasLegacyPools && (
+          <div className="relative">
+            <div className="px-4 py-3 text-sm bg-card text-muted-foreground">
+              Legacy pools are planned for migration to FPMM. Liquidity actions
+              are not available for these pools.
+            </div>
+            <div className="bottom-decorations after:-bottom-15 before:-bottom-5 before:-right-5 before:h-5 before:w-5 after:right-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-card before:invert after:absolute after:block after:bg-card"></div>
           </div>
-          <div className="bottom-decorations after:-bottom-15 before:-bottom-5 before:-right-5 before:h-5 before:w-5 after:right-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-card before:invert after:absolute after:block after:bg-card"></div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
