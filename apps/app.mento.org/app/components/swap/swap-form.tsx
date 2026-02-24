@@ -103,6 +103,29 @@ export default function SwapForm() {
     mode: "onChange", // Important for field-level validation
   });
 
+  const [lastChangedToken, setLastChangedToken] = useState<
+    "from" | "to" | null
+  >(null);
+
+  // Reset form fields after a successful swap (formValues.amount is cleared)
+  useEffect(() => {
+    if (!formValues?.amount && !formValues?.tokenInSymbol) {
+      setLastChangedToken(null);
+      form.reset({
+        amount: "",
+        quote: "",
+        tokenInSymbol: "CELO",
+        tokenOutSymbol: "USDm",
+        slippage: formValues?.slippage || "0.5",
+      });
+    }
+  }, [
+    formValues?.amount,
+    formValues?.tokenInSymbol,
+    formValues?.slippage,
+    form,
+  ]);
+
   const tokenInSymbol = useWatch({
     control: form.control,
     name: "tokenInSymbol",
@@ -397,6 +420,7 @@ export default function SwapForm() {
     quote,
     rate,
     isError,
+    quoteErrorMessage,
     fromTokenUSDValue,
     toTokenUSDValue,
   } = useOptimizedSwapQuote(
@@ -404,6 +428,12 @@ export default function SwapForm() {
     tokenInSymbol,
     tokenOutSymbol,
   );
+
+  useEffect(() => {
+    if (isError) {
+      setConfirmView(false);
+    }
+  }, [isError, setConfirmView]);
 
   useEffect(() => {
     setTradingLimitError(null);
@@ -538,6 +568,7 @@ export default function SwapForm() {
   const isButtonLoading = useMemo(
     () =>
       !isTradingSuspended &&
+      !isError &&
       (quoteFetching || isWaitingForQuote) &&
       hasAmount &&
       !!tokenInSymbol &&
@@ -549,6 +580,7 @@ export default function SwapForm() {
       tokenInSymbol,
       tokenOutSymbol,
       isTradingSuspended,
+      isError,
     ],
   );
 
@@ -689,16 +721,14 @@ export default function SwapForm() {
     }
   };
 
+  const hasValidQuote = !!quote && Number(quote) > 0;
+
   const shouldApprove =
-    !skipApprove && hasAmount && quote && !isLoading && !balanceError;
+    !skipApprove && hasAmount && hasValidQuote && !isLoading && !balanceError;
 
   // Get tradable pairs for both tokens
   const { data: fromTokenTradablePairs } = useTradablePairs(tokenInSymbol);
   const { data: toTokenTradablePairs } = useTradablePairs(tokenOutSymbol);
-
-  const [lastChangedToken, setLastChangedToken] = useState<
-    "from" | "to" | null
-  >(null);
 
   // Handle token pair validation - reset opposite token if an invalid pair is selected
   useEffect(() => {
@@ -959,18 +989,18 @@ export default function SwapForm() {
               !hasAmount ||
               !tokenOutSymbol ||
               !tokenInSymbol ||
-              !quote || // Require quote to be fetched
+              !hasValidQuote ||
               !!(
                 errors.amount && errors.amount.message !== "Amount is required"
               ) ||
-              isButtonLoading || // Disable button when quote is loading
+              isButtonLoading ||
               isApproveTxLoading ||
               isApprovalProcessing ||
               !!tradingLimitError ||
               !!balanceError ||
-              isTradingSuspended || // Disable when trading is suspended
-              isSuspensionCheckLoading || // Disable while checking suspension
-              (isError && hasAmount && canQuote) // Disable when unable to fetch quote
+              isTradingSuspended ||
+              isSuspensionCheckLoading ||
+              isError
             }
           >
             {isButtonLoading ? ( // Show loading when quote is being fetched
@@ -979,14 +1009,18 @@ export default function SwapForm() {
               "Select token to sell"
             ) : !tokenOutSymbol ? (
               "Select token to buy"
+            ) : isError ? (
+              quoteErrorMessage?.includes("FX market") ? (
+                "FX market is closed"
+              ) : (
+                (quoteErrorMessage ?? "Unable to fetch quote")
+              )
             ) : isTradingSuspended ? (
               `Trading suspended for ${tokenInSymbol} -> ${tokenOutSymbol}`
             ) : tradingLimitError ? (
               "Swap exceeds trading limits"
             ) : balanceError ? (
               "Insufficient balance"
-            ) : isError && hasAmount && canQuote ? (
-              "Unable to fetch quote"
             ) : errors.amount?.message &&
               errors.amount?.message !== "Amount is required" ? (
               errors.amount?.message

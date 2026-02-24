@@ -22,6 +22,7 @@ export const SWAP_ERROR_MESSAGES = {
   INSUFFICIENT_RESERVE_BALANCE: "Insufficient balance in reserve",
   INSUFFICIENT_LIQUIDITY: "0xbb55fd27",
   FX_MARKET_CLOSED: "FX market is currently closed",
+  FX_MARKET_CLOSED_SELECTOR: "0xa407143a",
 } as const;
 
 /**
@@ -94,7 +95,10 @@ export function getToastErrorMessage(
     {
       condition:
         swapErrorMessage.includes(SWAP_ERROR_MESSAGES.FX_MARKET_CLOSED) ||
-        swapErrorMessage.includes("FXMarketClosed"),
+        swapErrorMessage.includes("FXMarketClosed") ||
+        swapErrorMessage.includes(
+          SWAP_ERROR_MESSAGES.FX_MARKET_CLOSED_SELECTOR,
+        ),
       message:
         "FX market is currently closed. Trading will resume when the market reopens.",
     },
@@ -147,7 +151,8 @@ export function shouldRetrySwapError(
     return false;
   if (
     errorMessage.includes(SWAP_ERROR_MESSAGES.FX_MARKET_CLOSED) ||
-    errorMessage.includes("FXMarketClosed")
+    errorMessage.includes("FXMarketClosed") ||
+    errorMessage.includes(SWAP_ERROR_MESSAGES.FX_MARKET_CLOSED_SELECTOR)
   )
     return false;
 

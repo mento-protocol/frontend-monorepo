@@ -248,17 +248,23 @@ export function useSwapQuote(
     }
   }, [errorMessage, error]);
 
+  const quoteErrorMessage = useMemo(() => {
+    if (!errorMessage) return null;
+    return typeof errorMessage === "string" ? errorMessage : null;
+  }, [errorMessage]);
+
   return useMemo(
     () => ({
       isFetching,
-      isError,
+      isError: isError || !!error,
+      quoteErrorMessage,
       amountWei: data?.amountWei || "0",
       quoteWei: data?.quoteWei || "0",
       quote: data?.quote || "0",
       rate: data?.rate,
       refetch,
     }),
-    [isFetching, isError, data, refetch],
+    [isFetching, isError, error, quoteErrorMessage, data, refetch],
   );
 }
 
