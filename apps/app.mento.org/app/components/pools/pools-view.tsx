@@ -49,7 +49,7 @@ export function PoolsView() {
   );
 
   return (
-    <div className="max-w-5xl space-y-6 mb-6 w-full">
+    <div className="max-w-5xl space-y-6 mb-6 min-h-[550px] w-full">
       {/* Header */}
       <div className="relative">
         <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
