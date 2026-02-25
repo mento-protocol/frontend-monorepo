@@ -98,7 +98,7 @@ export function useSwapTransaction(
         BigInt(amountInWei), // exact amount of fromToken to sell
         accountAddress,
         {
-          slippageTolerance: parseFloat(formValues?.slippage || "0.5"),
+          slippageTolerance: parseFloat(formValues?.slippage || "0.3"),
           deadline,
         },
         route,
@@ -191,7 +191,7 @@ export function useSwapTransaction(
       }
 
       setFormValues({
-        slippage: formValues?.slippage || "0.5",
+        slippage: formValues?.slippage || "0.3",
         isAutoSlippage: formValues?.isAutoSlippage ?? true,
         deadlineMinutes: formValues?.deadlineMinutes || "20",
       });

@@ -14,8 +14,13 @@ import {
 import { useAtom } from "jotai";
 import { Info, Settings } from "lucide-react";
 
-const DEFAULT_SLIPPAGE = "0.5";
-const DEFAULT_DEADLINE = "20";
+const DEFAULT_SLIPPAGE = "0.3";
+const DEFAULT_DEADLINE = "5";
+
+const MIN_SLIPPAGE = 0.1;
+const MAX_SLIPPAGE = 1.0;
+const MIN_DEADLINE = 1;
+const MAX_DEADLINE = 20;
 
 export function SwapSettingsPopover() {
   const [formValues, setFormValues] = useAtom(formValuesAtom);
@@ -53,7 +58,7 @@ export function SwapSettingsPopover() {
     }
 
     const numValue = Number.parseFloat(value);
-    if (numValue >= 0 && numValue <= 2) {
+    if (numValue >= 0 && numValue <= MAX_SLIPPAGE) {
       update({ slippage: value, isAutoSlippage: value === DEFAULT_SLIPPAGE });
     }
   };
@@ -65,7 +70,7 @@ export function SwapSettingsPopover() {
     if (value.endsWith(".")) {
       value = value.slice(0, -1);
     }
-    if (value === "" || Number.parseFloat(value) === 0) {
+    if (value === "" || Number.parseFloat(value) < MIN_SLIPPAGE) {
       update({ isAutoSlippage: true, slippage: DEFAULT_SLIPPAGE });
       return;
     }
@@ -105,7 +110,7 @@ export function SwapSettingsPopover() {
     }
 
     const numValue = Number.parseInt(value, 10);
-    if (numValue <= 180) {
+    if (numValue <= MAX_DEADLINE) {
       update({
         deadlineMinutes: value,
         isAutoDeadline: value === DEFAULT_DEADLINE,
@@ -116,7 +121,7 @@ export function SwapSettingsPopover() {
   const handleDeadlineBlur = () => {
     if (isAutoDeadline) return;
 
-    if (deadline === "" || Number.parseInt(deadline, 10) < 1) {
+    if (deadline === "" || Number.parseInt(deadline, 10) < MIN_DEADLINE) {
       update({ isAutoDeadline: true, deadlineMinutes: DEFAULT_DEADLINE });
     }
   };
@@ -162,7 +167,8 @@ export function SwapSettingsPopover() {
                 <Info className="h-3.5 w-3.5 cursor-help text-muted-foreground" />
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-[200px]">
-                Max price change you accept for a swap. Up to 2%.
+                Max price change you accept for a swap. {MIN_SLIPPAGE}% –{" "}
+                {MAX_SLIPPAGE}%.
               </TooltipContent>
             </Tooltip>
           </div>
@@ -185,7 +191,7 @@ export function SwapSettingsPopover() {
                 onBlur={handleSlippageBlur}
                 maxLength={4}
                 className="h-7 w-16 pr-5 text-xs text-right text-foreground"
-                placeholder="0.5"
+                placeholder="0.3"
               />
               <span className="right-1.5 text-xs pointer-events-none absolute top-1/2 -translate-y-1/2 text-muted-foreground">
                 %
@@ -202,7 +208,8 @@ export function SwapSettingsPopover() {
                 <Info className="h-3.5 w-3.5 cursor-help text-muted-foreground" />
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-[200px]">
-                Time before a pending swap reverts. Up to 180 minutes.
+                Time before a pending swap reverts. {MIN_DEADLINE} –{" "}
+                {MAX_DEADLINE} minutes.
               </TooltipContent>
             </Tooltip>
           </div>
@@ -224,7 +231,7 @@ export function SwapSettingsPopover() {
                 onKeyDown={handleDeadlineKeyDown}
                 onBlur={handleDeadlineBlur}
                 className="h-7 w-16 pr-5 text-xs text-right text-foreground"
-                placeholder="20"
+                placeholder="5"
               />
               <span className="right-1.5 text-xs pointer-events-none absolute top-1/2 -translate-y-1/2 text-muted-foreground">
                 m
