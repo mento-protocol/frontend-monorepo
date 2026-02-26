@@ -73,7 +73,7 @@ type FormValues = z.infer<typeof formSchema>;
 const defaultEmptyBalances = {};
 
 const tokenButtonClassName =
-  "ring-offset-background placeholder:text-muted-foreground focus:ring-ring bg-outlier hover:border-border-secondary mt-[22px] flex h-10 w-full max-w-32 min-w-[116px] items-center justify-between gap-2 rounded-none border-solid border-1 border-[var(--border)] px-3 py-2 text-sm transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50";
+  "ring-offset-background placeholder:text-muted-foreground focus:ring-ring bg-outlier hover:border-border-secondary mt-[22px] flex h-10 w-32 items-center justify-between gap-2 rounded-none border-solid border-1 border-[var(--border)] px-3 py-2 text-sm transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50";
 
 export default function SwapForm() {
   const { address, isConnected } = useAccount();
@@ -807,7 +807,7 @@ export default function SwapForm() {
                             />
 
                             <span>{field.value || "Select"}</span>
-                            <ChevronDown className="h-4 w-4 opacity-50" />
+                            <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
                           </button>
                         }
                       />
@@ -914,7 +914,7 @@ export default function SwapForm() {
                               size={20}
                             />
                             <span>{field.value || "Select"}</span>
-                            <ChevronDown className="h-4 w-4 opacity-50" />
+                            <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
                           </button>
                         }
                       />

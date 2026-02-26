@@ -18,7 +18,7 @@ export default function SwapPage() {
 
   return (
     <>
-      <div className="flex h-full w-full flex-wrap items-center justify-center">
+      <div className="md:items-center flex h-full w-full flex-wrap items-start justify-center">
         {shouldEnableDebug && <DebugPopup />}
         <Toaster
           position="top-right"
@@ -47,7 +47,7 @@ export default function SwapPage() {
             <div
               className={cn(
                 "space-y-6 p-6 md:h-[510px] relative z-50 flex flex-col bg-card",
-                confirmView ? "h-[calc(100vh-160px)]" : "h-[510px]",
+                confirmView ? "md:h-[510px] h-auto" : "h-[510px]",
               )}
             >
               <div className="gap-6 flex flex-row items-center justify-between">

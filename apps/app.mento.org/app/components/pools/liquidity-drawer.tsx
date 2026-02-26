@@ -20,7 +20,7 @@ export function LiquidityDrawer({
 }: LiquidityDrawerProps) {
   return (
     <Sheet open={isOpen} onOpenChange={onOpenChange}>
-      <SheetContent side="left" className="sm:max-w-lg bg-card">
+      <SheetContent side="left" className="sm:max-w-lg w-[92%] bg-card">
         <LiquidityDrawerHeader pool={pool} />
         <LiquidityDrawerTabs
           mode={mode}

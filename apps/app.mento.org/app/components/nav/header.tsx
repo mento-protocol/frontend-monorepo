@@ -82,17 +82,28 @@ export function Header() {
 
   return (
     <header className="relative z-10">
-      <div className="h-20 gap-6 flex flex-row items-center justify-between">
-        <a
-          href="https://www.mento.org"
-          className="flex items-center"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Mento.org"
-        >
-          <Logo />
-        </a>
-        <div className="absolute left-1/2 -translate-x-1/2">
+      <div className="md:flex-row md:h-20 md:items-center md:justify-between flex flex-col">
+        <div className="h-16 md:h-20 flex w-full flex-row items-center justify-between">
+          <a
+            href="https://www.mento.org"
+            className="flex items-center"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Mento.org"
+          >
+            <Logo />
+          </a>
+          <div className="gap-2 px-4 md:px-6 flex flex-row items-center justify-between">
+            <ThemeSwitch />
+            <div className="md:hidden">
+              <ConnectButton text="Connect" />
+            </div>
+            <div className="md:block hidden">
+              <ConnectButton />
+            </div>
+          </div>
+        </div>
+        <div className="pt-2 pb-3 md:pt-0 md:absolute md:left-1/2 md:-translate-x-1/2 md:pb-0 flex justify-center">
           <nav ref={navRef} className="gap-6 relative flex items-center">
             {tabs.map((tab) => (
               <button
@@ -118,10 +129,6 @@ export function Header() {
               }}
             />
           </nav>
-        </div>
-        <div className="gap-2 px-4 md:px-6 flex flex-row items-center justify-between">
-          <ThemeSwitch />
-          <ConnectButton />
         </div>
       </div>
     </header>

@@ -69,34 +69,32 @@ export function LiquidityDrawerHeader({ pool }: LiquidityDrawerHeaderProps) {
       </div>
 
       {/* Stats strip */}
-      <div className="-mx-6 px-6 py-3 gap-2 text-xs flex flex-col bg-muted/30">
-        <div className="flex items-center">
-          {/* Reserves */}
+      <div className="-mx-6 px-6 py-3 gap-y-2 gap-x-4 text-xs grid grid-cols-2 bg-muted/30">
+        {/* Reserves */}
+        <div className="gap-1.5 flex items-center">
+          <span className="text-muted-foreground">Reserves:</span>
+          <span className="font-medium">
+            {pool.reserves.token0} {pool.token0.symbol} · {pool.reserves.token1}{" "}
+            {pool.token1.symbol}
+          </span>
+        </div>
+
+        {/* Fees */}
+        <div className="gap-1.5 flex items-center">
+          <span className="text-muted-foreground">Fees:</span>
+          <span className="font-medium">{pool.fees.total.toFixed(2)}%</span>
+        </div>
+
+        {/* Deviation */}
+        {pool.priceAlignment.priceDifferencePercent !== undefined && (
           <div className="gap-1.5 flex items-center">
-            <span className="text-muted-foreground">Reserves:</span>
+            <span className="text-muted-foreground">Deviation:</span>
             <span className="font-medium">
-              {pool.reserves.token0} {pool.token0.symbol} ·{" "}
-              {pool.reserves.token1} {pool.token1.symbol}
+              {pool.priceAlignment.priceDifferencePercent > 0 ? "+" : ""}
+              {pool.priceAlignment.priceDifferencePercent.toFixed(0)} bps
             </span>
           </div>
-
-          {/* Fees */}
-          <div className="gap-1.5 ml-4 flex items-center">
-            <span className="text-muted-foreground">Fees:</span>
-            <span className="font-medium">{pool.fees.total.toFixed(2)}%</span>
-          </div>
-
-          {/* Deviation */}
-          {pool.priceAlignment.priceDifferencePercent !== undefined && (
-            <div className="gap-1.5 ml-4 flex items-center">
-              <span className="text-muted-foreground">Deviation:</span>
-              <span className="font-medium">
-                {pool.priceAlignment.priceDifferencePercent > 0 ? "+" : ""}
-                {pool.priceAlignment.priceDifferencePercent.toFixed(0)} bps
-              </span>
-            </div>
-          )}
-        </div>
+        )}
 
         {/* LP token balance */}
         {formattedLpBalance && (

@@ -139,8 +139,8 @@ export function SwapConfirm() {
 
   return (
     <div className="gap-6 flex h-full flex-col">
-      <div className="md:w-[520px] flex w-full flex-row items-center justify-between">
-        <div className="md:h-50 md:w-50 h-32 gap-2 md:aspect-auto flex aspect-square flex-col items-center justify-center bg-incard">
+      <div className="md:w-[520px] gap-3 flex w-full flex-row items-center justify-between">
+        <div className="md:h-50 md:w-50 h-32 gap-2 md:aspect-auto md:flex-none flex flex-1 flex-col items-center justify-center bg-incard">
           <TokenIcon
             token={fromToken}
             className="h-10 w-10 md:h-14 md:w-14 bg-transparent"
@@ -171,7 +171,7 @@ export function SwapConfirm() {
           <div className="swap-deco-7 right-0 top-40 h-10 w-10 absolute block bg-primary"></div>
           <div className="swap-deco-8 right-15 top-40 h-5 w-5 absolute block bg-incard"></div>
         </div>
-        <div className="md:h-50 md:w-50 h-32 gap-2 md:aspect-auto flex aspect-square flex-col items-center justify-center bg-incard">
+        <div className="md:h-50 md:w-50 h-32 gap-2 md:aspect-auto md:flex-none flex flex-1 flex-col items-center justify-center bg-incard">
           <TokenIcon
             token={toToken}
             className="size-10 md:size-14 bg-transparent"
@@ -184,7 +184,7 @@ export function SwapConfirm() {
             {formatWithMaxDecimals(toAmount)}
           </span>
           <span
-            className="text-muted-foreground"
+            className="text-sm md:text-base text-muted-foreground"
             data-testid="buyUsdAmountLabel"
           >
             ~${formatWithMaxDecimals(buyUSDValue)}
@@ -234,7 +234,7 @@ export function SwapConfirm() {
             : "swapButton"
         }
         onClick={onSubmit}
-        className="mt-auto w-full"
+        className="mt-6 md:mt-auto w-full"
         size="lg"
         clipped="lg"
         disabled={
