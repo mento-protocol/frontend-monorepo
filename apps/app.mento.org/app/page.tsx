@@ -8,7 +8,7 @@ import SwapForm from "./components/swap/swap-form";
 import { confirmViewAtom } from "@repo/web3";
 import { activeTabAtom } from "@/atoms/navigation";
 
-import { Button, cn, DebugPopup, IconCheck, Toaster } from "@repo/ui";
+import { Button, cn, DebugPopup } from "@repo/ui";
 import { PoolsView } from "./components/pools/pools-view";
 
 export default function SwapPage() {
@@ -20,27 +20,6 @@ export default function SwapPage() {
     <>
       <div className="md:items-center flex h-full w-full flex-wrap items-start justify-center">
         {shouldEnableDebug && <DebugPopup />}
-        <Toaster
-          position="top-right"
-          duration={5000}
-          icons={{
-            success: <IconCheck className="text-success" />,
-          }}
-          closeButton
-          toastOptions={{
-            classNames: {
-              toast: "toast",
-              title: "title",
-              description: "description",
-              actionButton: "action-button",
-              cancelButton: "cancel-button",
-              closeButton: "close-button",
-              icon: "icon",
-            },
-          }}
-          offset={{ top: "80px" }}
-          mobileOffset={{ top: "96px" }}
-        />
         {activeTab === "swap" && (
           <div className="mb-6 px-4 md:px-0 relative w-full max-w-[568px]">
             <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>

@@ -5,6 +5,7 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
+  toast,
 } from "@repo/ui";
 import type { PoolDisplay, SlippageOption } from "@repo/web3";
 import {
@@ -151,6 +152,7 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
       setLpAmount("");
       resetTx();
       lpApproval.reset();
+      toast.success("Liquidity removed successfully", { duration: 5000 });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConfirmed]);
@@ -161,6 +163,7 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
       setLpAmount("");
       resetZapOutTx();
       zapOutApproval.reset();
+      toast.success("Liquidity removed successfully", { duration: 5000 });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isZapOutConfirmed]);
@@ -228,47 +231,57 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
   const handleAction = async () => {
     if (!address) return;
 
-    // Zap-out actions
-    if (
-      buttonState.action === "zap-out-approve" &&
-      zapOutBuildResult?.approval
-    ) {
-      await zapOutApproval.sendApproval(zapOutBuildResult.approval);
-      const liquidity = parseUnits(lpAmount, 18);
-      const freshBuild = await buildZapOutTransaction(
-        receiveToken as Address,
-        liquidity,
-        address,
-        slippage,
-      );
-      if (freshBuild) await sendZapOut(freshBuild);
-      return;
-    }
-    if (buttonState.action === "zap-out" && zapOutBuildResult) {
-      await sendZapOut(zapOutBuildResult);
-      return;
-    }
-
-    // Balanced actions
-    if (!buildResult) return;
-
-    if (buttonState.action === "approve-lp" && buildResult.approval) {
-      await lpApproval.sendApproval(buildResult.approval);
-      const liquidity = parseUnits(lpAmount, 18);
-      const freshBuild = await buildTransaction(
-        liquidity,
-        address,
-        address,
-        slippage,
-      );
-      if (freshBuild) {
-        await sendRemoveLiquidity(freshBuild);
+    try {
+      // Zap-out actions
+      if (
+        buttonState.action === "zap-out-approve" &&
+        zapOutBuildResult?.approval
+      ) {
+        await zapOutApproval.sendApproval(zapOutBuildResult.approval);
+        const liquidity = parseUnits(lpAmount, 18);
+        const freshBuild = await buildZapOutTransaction(
+          receiveToken as Address,
+          liquidity,
+          address,
+          slippage,
+        );
+        if (freshBuild) await sendZapOut(freshBuild);
+        return;
       }
-      return;
-    }
+      if (buttonState.action === "zap-out" && zapOutBuildResult) {
+        await sendZapOut(zapOutBuildResult);
+        return;
+      }
 
-    if (buttonState.action === "remove") {
-      await sendRemoveLiquidity(buildResult);
+      // Balanced actions
+      if (!buildResult) return;
+
+      if (buttonState.action === "approve-lp" && buildResult.approval) {
+        await lpApproval.sendApproval(buildResult.approval);
+        const liquidity = parseUnits(lpAmount, 18);
+        const freshBuild = await buildTransaction(
+          liquidity,
+          address,
+          address,
+          slippage,
+        );
+        if (freshBuild) {
+          await sendRemoveLiquidity(freshBuild);
+        }
+        return;
+      }
+
+      if (buttonState.action === "remove") {
+        await sendRemoveLiquidity(buildResult);
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Transaction failed";
+      const isRejected = message.toLowerCase().includes("reject");
+      toast.error(isRejected ? "Transaction rejected" : "Transaction failed", {
+        description: isRejected ? undefined : message,
+        duration: 5000,
+      });
     }
   };
 

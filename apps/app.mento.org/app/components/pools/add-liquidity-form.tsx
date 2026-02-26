@@ -5,6 +5,7 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
+  toast,
 } from "@repo/ui";
 import type { PoolDisplay, SlippageOption } from "@repo/web3";
 import {
@@ -231,6 +232,7 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
       resetTx();
       approvalA.reset();
       approvalB.reset();
+      toast.success("Liquidity added successfully", { duration: 5000 });
     }
   }, [isConfirmed, resetTx, approvalA, approvalB]);
 
@@ -293,6 +295,7 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
       setZapAmount("");
       resetZapTx();
       zapApproval.reset();
+      toast.success("Liquidity added successfully", { duration: 5000 });
     }
   }, [isZapConfirmed, resetZapTx, zapApproval]);
 
@@ -439,48 +442,58 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
   const handleAction = async () => {
     if (!address) return;
 
-    // Zap actions
-    if (buttonState.action === "zap-approve" && zapBuildResult?.approval) {
-      await zapApproval.sendApproval(zapBuildResult.approval);
-      const amountInWei = parseUnits(zapAmount, zapToken.decimals);
-      const freshBuild = await buildZapTransaction(
-        zapTokenIn as Address,
-        amountInWei,
-        address,
-        slippage,
-      );
-      if (freshBuild) await sendZapIn(freshBuild);
-      return;
-    }
-    if (buttonState.action === "zap" && zapBuildResult) {
-      await sendZapIn(zapBuildResult);
-      return;
-    }
-
-    // Balanced actions
-    if (!quote) return;
-    if (buttonState.action === "approve-a" && buildResult?.approvalA) {
-      await approvalA.sendApproval(buildResult.approvalA);
-      const freshBuild = await buildTransaction(
-        quote.amountA,
-        quote.amountB,
-        address,
-        slippage,
-      );
-      if (freshBuild && !freshBuild.approvalB) {
-        await sendAddLiquidity(freshBuild);
+    try {
+      // Zap actions
+      if (buttonState.action === "zap-approve" && zapBuildResult?.approval) {
+        await zapApproval.sendApproval(zapBuildResult.approval);
+        const amountInWei = parseUnits(zapAmount, zapToken.decimals);
+        const freshBuild = await buildZapTransaction(
+          zapTokenIn as Address,
+          amountInWei,
+          address,
+          slippage,
+        );
+        if (freshBuild) await sendZapIn(freshBuild);
+        return;
       }
-    } else if (buttonState.action === "approve-b" && buildResult?.approvalB) {
-      await approvalB.sendApproval(buildResult.approvalB);
-      const freshBuild = await buildTransaction(
-        quote.amountA,
-        quote.amountB,
-        address,
-        slippage,
-      );
-      if (freshBuild) await sendAddLiquidity(freshBuild);
-    } else if (buttonState.action === "add" && buildResult) {
-      await sendAddLiquidity(buildResult);
+      if (buttonState.action === "zap" && zapBuildResult) {
+        await sendZapIn(zapBuildResult);
+        return;
+      }
+
+      // Balanced actions
+      if (!quote) return;
+      if (buttonState.action === "approve-a" && buildResult?.approvalA) {
+        await approvalA.sendApproval(buildResult.approvalA);
+        const freshBuild = await buildTransaction(
+          quote.amountA,
+          quote.amountB,
+          address,
+          slippage,
+        );
+        if (freshBuild && !freshBuild.approvalB) {
+          await sendAddLiquidity(freshBuild);
+        }
+      } else if (buttonState.action === "approve-b" && buildResult?.approvalB) {
+        await approvalB.sendApproval(buildResult.approvalB);
+        const freshBuild = await buildTransaction(
+          quote.amountA,
+          quote.amountB,
+          address,
+          slippage,
+        );
+        if (freshBuild) await sendAddLiquidity(freshBuild);
+      } else if (buttonState.action === "add" && buildResult) {
+        await sendAddLiquidity(buildResult);
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Transaction failed";
+      const isRejected = message.toLowerCase().includes("reject");
+      toast.error(isRejected ? "Transaction rejected" : "Transaction failed", {
+        description: isRejected ? undefined : message,
+        duration: 5000,
+      });
     }
   };
 

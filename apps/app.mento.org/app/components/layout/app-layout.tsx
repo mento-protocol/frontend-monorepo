@@ -1,6 +1,6 @@
 "use client";
 
-import { Footer } from "@repo/ui";
+import { Footer, IconCheck, Toaster } from "@repo/ui";
 import { Header } from "@/components/nav/header";
 import { PollingWorker } from "@repo/web3";
 import type { PropsWithChildren } from "react";
@@ -15,6 +15,28 @@ export function AppLayout({ children }: PropsWithChildren) {
 
   return (
     <>
+      <Toaster
+        position="top-right"
+        duration={5000}
+        icons={{
+          success: <IconCheck className="text-success" />,
+        }}
+        closeButton
+        toastOptions={{
+          classNames: {
+            toast: "toast",
+            title: "title",
+            description: "description",
+            actionButton: "action-button",
+            cancelButton: "cancel-button",
+            closeButton: "close-button",
+            icon: "icon",
+          },
+        }}
+        offset={{ top: "80px" }}
+        mobileOffset={{ top: "96px" }}
+        style={{ zIndex: 9999 }}
+      />
       <Header />
       <main className="pt-6 md:pt-20 md:h-screen md:p-4 xl:h-[calc(100vh-80px)] relative z-20 my-auto h-full overflow-hidden">
         {children}
