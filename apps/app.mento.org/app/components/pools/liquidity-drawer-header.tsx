@@ -69,12 +69,12 @@ export function LiquidityDrawerHeader({ pool }: LiquidityDrawerHeaderProps) {
       </div>
 
       {/* Stats strip */}
-      <div className="-mx-6 px-6 py-3 gap-y-2 gap-x-4 text-xs grid grid-cols-2 bg-muted/30">
+      <div className="-mx-6 px-6 py-3 gap-y-2 gap-x-6 text-xs grid grid-cols-[3fr_2fr] bg-muted/30">
         {/* Reserves */}
-        <div className="gap-1.5 flex items-center">
-          <span className="text-muted-foreground">Reserves:</span>
-          <span className="font-medium">
-            {pool.reserves.token0} {pool.token0.symbol} · {pool.reserves.token1}{" "}
+        <div className="gap-1.5 flex items-center whitespace-nowrap">
+          <span className="shrink-0 text-muted-foreground">Reserves:</span>
+          <span className="font-medium truncate">
+            {pool.reserves.token0} {pool.token0.symbol} / {pool.reserves.token1}{" "}
             {pool.token1.symbol}
           </span>
         </div>
@@ -98,9 +98,9 @@ export function LiquidityDrawerHeader({ pool }: LiquidityDrawerHeaderProps) {
 
         {/* LP token balance */}
         {formattedLpBalance && (
-          <div className="gap-1.5 flex items-center">
+          <div className="gap-1 flex items-center">
             <span className="text-muted-foreground">Your LP tokens</span>
-            <span className="font-medium">{formattedLpBalance} LP</span>
+            <span className="font-medium">{formattedLpBalance}</span>
           </div>
         )}
       </div>

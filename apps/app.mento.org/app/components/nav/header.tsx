@@ -103,7 +103,7 @@ export function Header() {
             </div>
           </div>
         </div>
-        <div className="pt-2 pb-3 md:pt-0 md:absolute md:left-1/2 md:-translate-x-1/2 md:pb-0 flex justify-center">
+        <div className="pt-10 pb-3 md:pt-0 md:absolute md:left-1/2 md:-translate-x-1/2 md:pb-0 flex justify-center">
           <nav ref={navRef} className="gap-6 relative flex items-center">
             {tabs.map((tab) => (
               <button

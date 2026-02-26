@@ -42,7 +42,7 @@ export default function SwapPage() {
           mobileOffset={{ top: "96px" }}
         />
         {activeTab === "swap" && (
-          <div className="mb-6 relative w-full max-w-[568px]">
+          <div className="mb-6 px-4 md:px-0 relative w-full max-w-[568px]">
             <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
             <div
               className={cn(
@@ -82,7 +82,7 @@ export default function SwapPage() {
         )}
         {activeTab === "pool" && <PoolsView />}
         {activeTab === "borrow" && (
-          <div className="mb-6 relative w-full max-w-[568px]">
+          <div className="mb-6 px-4 md:px-0 relative w-full max-w-[568px]">
             <div className="space-y-6 p-6 md:h-[510px] relative z-50 flex h-[510px] flex-col items-center justify-center bg-card">
               <span className="text-muted-foreground">Coming soon</span>
             </div>
