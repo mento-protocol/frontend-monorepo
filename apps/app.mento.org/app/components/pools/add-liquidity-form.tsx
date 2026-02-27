@@ -501,29 +501,31 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
   const [customPct, setCustomPct] = useState("");
 
   const handleAmountPreset = (pctString: string) => {
+    if (!zapTokenBalance) return;
     const pct = Number(pctString);
-    const bal = parseFloat(formattedZapBalance);
-    if (bal > 0) {
-      if (pct >= 100) {
-        setZapAmount(formattedZapBalance);
-      } else {
-        setZapAmount(((bal * pct) / 100).toString());
-      }
+    if (pct >= 100) {
+      setZapAmount(formattedZapBalance);
+    } else {
+      const fractionalBalance =
+        (zapTokenBalance * BigInt(Math.round((pct / 100) * 1_000_000))) /
+        1_000_000n;
+      setZapAmount(formatUnits(fractionalBalance, zapToken.decimals));
     }
   };
 
   const handleCustomPctChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (!zapTokenBalance) return;
     const raw = sanitizePercentInput(e.target.value);
     setCustomPct(raw);
     const pct = parseFloat(raw);
     if (!isNaN(pct) && pct > 0) {
-      const bal = parseFloat(formattedZapBalance);
-      if (bal > 0) {
-        if (pct >= 100) {
-          setZapAmount(formattedZapBalance);
-        } else {
-          setZapAmount(((bal * pct) / 100).toString());
-        }
+      if (pct >= 100) {
+        setZapAmount(formattedZapBalance);
+      } else {
+        const fractionalBalance =
+          (zapTokenBalance * BigInt(Math.round((pct / 100) * 1_000_000))) /
+          1_000_000n;
+        setZapAmount(formatUnits(fractionalBalance, zapToken.decimals));
       }
     }
   };
