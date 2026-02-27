@@ -29,6 +29,10 @@ import {
   type ChangeEvent,
 } from "react";
 import { Info, AlertTriangle, ExternalLink } from "lucide-react";
+import {
+  sanitizePercentInput,
+  sanitizePercentOnBlur,
+} from "@/lib/utils/percent-input";
 
 function formatBalance(balance: string): string {
   const num = parseFloat(balance);
@@ -509,9 +513,7 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
   };
 
   const handleCustomPctChange = (e: ChangeEvent<HTMLInputElement>) => {
-    let raw = e.target.value.replace(/[^0-9.]/g, "");
-    const num = parseFloat(raw);
-    if (!isNaN(num) && num > 100) raw = "100";
+    const raw = sanitizePercentInput(e.target.value);
     setCustomPct(raw);
     const pct = parseFloat(raw);
     if (!isNaN(pct) && pct > 0) {
@@ -521,6 +523,23 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
           setZapAmount(formattedZapBalance);
         } else {
           setZapAmount(((bal * pct) / 100).toString());
+        }
+      }
+    }
+  };
+
+  const handleCustomPctBlur = () => {
+    const corrected = sanitizePercentOnBlur(customPct);
+    if (corrected === null) return;
+    setCustomPct(corrected);
+    const val = parseFloat(corrected);
+    if (!isNaN(val) && val > 0) {
+      const bal = parseFloat(formattedZapBalance);
+      if (bal > 0) {
+        if (val >= 100) {
+          setZapAmount(formattedZapBalance);
+        } else {
+          setZapAmount(((bal * val) / 100).toString());
         }
       }
     }
@@ -707,10 +726,12 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
                 <input
                   type="text"
                   inputMode="decimal"
+                  maxLength={6}
                   placeholder="Custom %"
                   value={customPct}
                   className="min-w-0 text-xs font-medium w-full shrink bg-transparent text-center outline-none placeholder:text-muted-foreground"
                   onChange={handleCustomPctChange}
+                  onBlur={handleCustomPctBlur}
                   style={
                     customPct
                       ? { width: `${customPct.length}ch`, flexShrink: 0 }

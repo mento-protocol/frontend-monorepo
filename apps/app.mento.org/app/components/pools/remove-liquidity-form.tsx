@@ -22,6 +22,10 @@ import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, parseUnits, type Address } from "viem";
 import { useState, useEffect, type ChangeEvent } from "react";
 import { ExternalLink, ArrowRight } from "lucide-react";
+import {
+  sanitizePercentInput,
+  sanitizePercentOnBlur,
+} from "@/lib/utils/percent-input";
 
 function formatBalance(balance: string): string {
   const num = parseFloat(balance);
@@ -290,19 +294,34 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
 
   const handleCustomPctChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (!lpBalance) return;
-    let raw = e.target.value.replace(/[^0-9.]/g, "");
-    const num = parseFloat(raw);
-    if (!isNaN(num) && num > 100) raw = "100";
+    const raw = sanitizePercentInput(e.target.value);
     setCustomPct(raw);
     const pct = parseFloat(raw);
-    if (!isNaN(pct) && pct > 0) {
-      if (pct >= 100) {
-        setLpAmount(formatUnits(lpBalance, 18));
-      } else {
-        const fractionalBalance =
-          (lpBalance * BigInt(Math.round((pct / 100) * 1000))) / 1000n;
-        setLpAmount(formatUnits(fractionalBalance, 18));
-      }
+    if (isNaN(pct) || pct <= 0) {
+      setLpAmount("0");
+    } else if (pct >= 100) {
+      setLpAmount(formatUnits(lpBalance, 18));
+    } else {
+      const fractionalBalance =
+        (lpBalance * BigInt(Math.round((pct / 100) * 1000))) / 1000n;
+      setLpAmount(formatUnits(fractionalBalance, 18));
+    }
+  };
+
+  const handleCustomPctBlur = () => {
+    if (!lpBalance) return;
+    const corrected = sanitizePercentOnBlur(customPct);
+    if (corrected === null) return;
+    setCustomPct(corrected);
+    const val = parseFloat(corrected);
+    if (isNaN(val) || val <= 0) {
+      setLpAmount("0");
+    } else if (val >= 100) {
+      setLpAmount(formatUnits(lpBalance, 18));
+    } else {
+      const fractionalBalance =
+        (lpBalance * BigInt(Math.round((val / 100) * 1000))) / 1000n;
+      setLpAmount(formatUnits(fractionalBalance, 18));
     }
   };
 
@@ -406,10 +425,12 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
             <input
               type="text"
               inputMode="decimal"
+              maxLength={6}
               placeholder="Custom %"
               value={customPct}
               className="min-w-0 text-xs font-medium w-full shrink bg-transparent text-center outline-none placeholder:text-muted-foreground"
               onChange={handleCustomPctChange}
+              onBlur={handleCustomPctBlur}
               style={
                 customPct
                   ? { width: `${customPct.length}ch`, flexShrink: 0 }

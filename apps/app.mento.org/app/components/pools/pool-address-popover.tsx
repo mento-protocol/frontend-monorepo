@@ -9,7 +9,7 @@ import {
 import { useExplorerUrl, shortenAddress } from "@repo/web3";
 import type { PoolDisplay } from "@repo/web3";
 import { Info, ExternalLink } from "lucide-react";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 
 interface PoolAddressPopoverProps {
   pool: PoolDisplay;
@@ -64,17 +64,29 @@ export function PoolAddressPopover({ pool }: PoolAddressPopoverProps) {
     closeTimer.current = setTimeout(() => setOpen(false), 150);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (closeTimer.current) {
+        clearTimeout(closeTimer.current);
+        closeTimer.current = null;
+      }
+    };
+  }, []);
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <span
-          className="cursor-help"
+        <button
+          type="button"
+          className="p-0 inline-flex cursor-help appearance-none border-0 bg-transparent"
           aria-label="View pool and token addresses"
           onMouseEnter={handleOpen}
           onMouseLeave={handleClose}
+          onFocus={handleOpen}
+          onBlur={handleClose}
         >
           <Info className="h-4 w-4 text-muted-foreground" />
-        </span>
+        </button>
       </PopoverTrigger>
       <PopoverContent
         align="start"
