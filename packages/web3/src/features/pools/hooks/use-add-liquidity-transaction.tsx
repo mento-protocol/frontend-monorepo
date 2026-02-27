@@ -11,6 +11,7 @@ import {
   useSendTransaction,
   useWaitForTransactionReceipt,
 } from "wagmi";
+import { showLiquiditySuccessToast } from "../liquidity-toast";
 import type { PoolDisplay, SlippageOption, TransactionParams } from "../types";
 import { getTransactionErrorMessage } from "../types";
 
@@ -119,12 +120,15 @@ export function useAddLiquidityTransaction(pool: PoolDisplay) {
     [sendTransactionAsync],
   );
 
-  // On confirmation: toast + invalidate queries
   useEffect(() => {
     if (isConfirmed && receipt?.status === "success") {
-      toast.success(
-        `Successfully added liquidity to ${pool.token0.symbol}/${pool.token1.symbol} pool.`,
-      );
+      showLiquiditySuccessToast({
+        action: "added",
+        token0Symbol: pool.token0.symbol,
+        token1Symbol: pool.token1.symbol,
+        txHash: receipt.transactionHash,
+        chainId,
+      });
 
       queryClient.invalidateQueries({
         queryKey: ["pools-list", chainId],

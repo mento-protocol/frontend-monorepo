@@ -11,6 +11,7 @@ import {
   useSendTransaction,
   useWaitForTransactionReceipt,
 } from "wagmi";
+import { showLiquiditySuccessToast } from "../liquidity-toast";
 import type { PoolDisplay, SlippageOption, TransactionParams } from "../types";
 import { getTransactionErrorMessage } from "../types";
 
@@ -121,9 +122,13 @@ export function useRemoveLiquidityTransaction(pool: PoolDisplay) {
 
   useEffect(() => {
     if (isConfirmed && receipt?.status === "success") {
-      toast.success(
-        `Successfully removed liquidity from ${pool.token0.symbol}/${pool.token1.symbol} pool.`,
-      );
+      showLiquiditySuccessToast({
+        action: "removed",
+        token0Symbol: pool.token0.symbol,
+        token1Symbol: pool.token1.symbol,
+        txHash: receipt.transactionHash,
+        chainId,
+      });
 
       queryClient.invalidateQueries({
         queryKey: ["pools-list", chainId],
