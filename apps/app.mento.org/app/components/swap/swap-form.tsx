@@ -21,6 +21,7 @@ import { CoinInput } from "@repo/ui";
 
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import {
+  CELO_EXPLORER,
   chainIdToChain,
   confirmViewAtom,
   ConnectButton,
@@ -589,8 +590,10 @@ export default function SwapForm() {
       accountAddress: address,
       onSuccess: (receipt) => {
         logger.info("Approval transaction confirmed");
-        const explorerUrl =
-          chainIdToChain[chainId]?.blockExplorers?.default.url;
+        const chain = chainIdToChain[chainId];
+        const explorerUrl = chain?.blockExplorers?.default.url;
+        const explorerName =
+          chain?.blockExplorers?.default?.name || CELO_EXPLORER.name;
         toast.success(
           <>
             <h4>Approve Successful</h4>
@@ -604,7 +607,7 @@ export default function SwapForm() {
                 rel="noopener noreferrer"
                 className="text-muted-foreground underline"
               >
-                View Transaction on CeloScan
+                View Transaction on {explorerName}
               </a>
             )}
           </>,

@@ -1,3 +1,4 @@
+import { chainIdToChain, CELO_EXPLORER } from "@/config/chains";
 import { getExplorerUrl } from "@/utils/chain";
 import { toast } from "@repo/ui";
 
@@ -15,6 +16,9 @@ export function showLiquiditySuccessToast({
   chainId: number;
 }) {
   const explorerUrl = getExplorerUrl(chainId);
+  const chain = chainIdToChain[chainId];
+  const explorerName =
+    chain?.blockExplorers?.default?.name || CELO_EXPLORER.name;
   const title = action === "added" ? "Liquidity Added" : "Liquidity Removed";
   const message = `You've ${action} liquidity ${action === "added" ? "for" : "from"} ${token0Symbol}/${token1Symbol} pool.`;
 
@@ -29,7 +33,7 @@ export function showLiquiditySuccessToast({
           rel="noopener noreferrer"
           className="text-muted-foreground underline"
         >
-          View Transaction on CeloScan
+          View Transaction on {explorerName}
         </a>
       )}
     </>,

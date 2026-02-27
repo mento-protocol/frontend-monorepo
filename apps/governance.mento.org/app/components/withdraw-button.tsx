@@ -32,6 +32,8 @@ export const WithdrawButton = ({ onWithdrawSuccess }: WithdrawButtonProps) => {
   const handleWithdrawSuccess = React.useCallback(
     (txHash?: `0x${string}`) => {
       const explorerUrl = currentChain.blockExplorers?.default?.url;
+      const explorerName =
+        currentChain.blockExplorers?.default?.name || "Block Explorer";
       const explorerTxUrl =
         txHash && explorerUrl ? `${explorerUrl}/tx/${txHash}` : null;
 
@@ -47,7 +49,7 @@ export const WithdrawButton = ({ onWithdrawSuccess }: WithdrawButtonProps) => {
                 rel="noopener noreferrer"
                 className="text-muted-foreground underline"
               >
-                View Transaction on CeloScan
+                View Transaction on {explorerName}
               </a>
             </>
           )}

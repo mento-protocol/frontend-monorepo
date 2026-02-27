@@ -1,4 +1,4 @@
-import { chainIdToChain } from "@/config/chains";
+import { chainIdToChain, CELO_EXPLORER } from "@/config/chains";
 import { getTokenBySymbol } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
@@ -154,6 +154,8 @@ export function useSwapTransaction(
       if (swapValues) {
         const chain = chainIdToChain[chainId];
         const explorerUrl = chain?.blockExplorers?.default.url;
+        const explorerName =
+          chain?.blockExplorers?.default?.name || CELO_EXPLORER.name;
         const fromTokenObj = getTokenBySymbol(fromToken, chainId);
         const toTokenObj = getTokenBySymbol(toToken, chainId);
         const fromTokenSymbol = fromTokenObj?.symbol || "Token";
@@ -181,7 +183,7 @@ export function useSwapTransaction(
                 rel="noopener noreferrer"
                 className="text-muted-foreground underline"
               >
-                View Transaction on CeloScan
+                View Transaction on {explorerName}
               </a>
             )}
           </>,
