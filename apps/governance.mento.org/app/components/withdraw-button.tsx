@@ -69,6 +69,7 @@ export const WithdrawButton = ({ onWithdrawSuccess }: WithdrawButtonProps) => {
     },
     [
       currentChain.blockExplorers?.default?.url,
+      currentChain.blockExplorers?.default?.name,
       refetchAvailableToWithdraw,
       refetch,
       onWithdrawSuccess,
