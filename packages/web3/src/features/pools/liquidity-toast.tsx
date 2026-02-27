@@ -20,7 +20,7 @@ export function showLiquiditySuccessToast({
   const explorerName =
     chain?.blockExplorers?.default?.name || CELO_EXPLORER.name;
   const title = action === "added" ? "Liquidity Added" : "Liquidity Removed";
-  const message = `You've ${action} liquidity ${action === "added" ? "for" : "from"} ${token0Symbol}/${token1Symbol} pool.`;
+  const message = `You've ${action} liquidity ${action === "added" ? "to" : "from"} the ${token0Symbol}/${token1Symbol} pool.`;
 
   toast.success(
     <>
