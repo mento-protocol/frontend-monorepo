@@ -15,7 +15,6 @@ reason = "PPR (Partial Prerendering) is not used in this project — the vulnera
 id = "GHSA-848j-6mx2-7j84"
 reason = "No patch available — transitive dep of ethers v5 (@ethersproject/signing-key). Low practical risk for client-side usage"
 
-<<<<<<< HEAD
 # GHSA-2g4f-4pwh-qvx6: ajv ReDoS when using `$data` option
 # ajv@6.12.6 is the latest on the v6 line. Pinned by eslint which requires ^6.12.4.
 # Dev-only dependency (linting toolchain). The ReDoS requires the `$data` option which
