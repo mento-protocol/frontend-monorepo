@@ -369,13 +369,13 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
   // === Validation ===
 
   // Balanced mode
-  const hasAmounts = Number(token0Amount) > 0 && Number(token1Amount) > 0;
-  const parsedToken0 = hasAmounts
-    ? tryParseUnits(token0Amount, pool.token0.decimals)
-    : null;
-  const parsedToken1 = hasAmounts
-    ? tryParseUnits(token1Amount, pool.token1.decimals)
-    : null;
+  const parsedToken0 = tryParseUnits(token0Amount, pool.token0.decimals);
+  const parsedToken1 = tryParseUnits(token1Amount, pool.token1.decimals);
+  const hasAmounts =
+    parsedToken0 !== null &&
+    parsedToken0 > 0n &&
+    parsedToken1 !== null &&
+    parsedToken1 > 0n;
   const insufficientToken0 =
     parsedToken0 !== null &&
     token0Balance !== undefined &&
@@ -386,10 +386,8 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     parsedToken1 > token1Balance;
 
   // Single-token mode
-  const hasZapAmount = Number(zapAmount) > 0;
-  const parsedZap = hasZapAmount
-    ? tryParseUnits(zapAmount, zapToken.decimals)
-    : null;
+  const parsedZap = tryParseUnits(zapAmount, zapToken.decimals);
+  const hasZapAmount = parsedZap !== null && parsedZap > 0n;
   const insufficientZap =
     parsedZap !== null &&
     zapTokenBalance !== undefined &&
@@ -496,20 +494,33 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
         if (zapBuildResult.approval && !zapApproval.isApproved) {
           await zapApproval.sendApproval(zapBuildResult.approval);
         } else {
-          await sendZapIn(zapBuildResult);
+          const amountInWei = parseUnits(zapAmount, zapToken.decimals);
+          const freshZap = await buildZapTransaction(
+            zapTokenIn as Address,
+            amountInWei,
+            address,
+            slippage,
+          );
+          if (freshZap) await sendZapIn(freshZap);
         }
         return;
       }
 
       // Balanced: send first needed approval (onApproved callbacks chain the rest)
-      if (!quote || !buildResult) return;
+      if (!quote) return;
 
-      if (buildResult.approvalA && !approvalA.isApproved) {
+      if (buildResult?.approvalA && !approvalA.isApproved) {
         await approvalA.sendApproval(buildResult.approvalA);
-      } else if (buildResult.approvalB && !approvalB.isApproved) {
+      } else if (buildResult?.approvalB && !approvalB.isApproved) {
         await approvalB.sendApproval(buildResult.approvalB);
       } else {
-        await sendAddLiquidity(buildResult);
+        const freshBuild = await buildTransaction(
+          quote.amountA,
+          quote.amountB,
+          address,
+          slippage,
+        );
+        if (freshBuild) await sendAddLiquidity(freshBuild);
       }
     } catch {
       // Errors are already handled (toasts) in the hooks.

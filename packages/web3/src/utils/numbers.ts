@@ -42,20 +42,34 @@ export abstract class NumbersService {
 }
 
 export function formatCompactBalance(balance: string): string {
-  const num = parseFloat(balance);
-  if (!Number.isFinite(num)) {
-    if (Number.isNaN(num)) return "0";
-    return num > 0 ? "∞" : "−∞";
+  const trimmed = balance.trim();
+  if (!trimmed || trimmed === "NaN") return "0";
+
+  const sign = trimmed.startsWith("-") ? "-" : "";
+  const unsigned = sign ? trimmed.slice(1) : trimmed;
+
+  // Count integer digits to choose the suffix without parseFloat precision loss.
+  // Split on "." to isolate the integer part, then strip leading zeros.
+  const intPart = (unsigned.split(".")[0] || "0").replace(/^0+/, "") || "0";
+  const intDigits = intPart.length;
+
+  // For M/K: divide the string value by the suffix scale, then parseFloat the
+  // small result so we never lose precision on the original large number.
+  if (intDigits >= 7) {
+    const scaled = parseFloat(unsigned) / MILLION;
+    return sign + scaled.toFixed(2) + "M";
+  }
+  if (intDigits >= 4) {
+    const scaled = parseFloat(unsigned) / THOUSAND;
+    return sign + scaled.toFixed(2) + "K";
   }
 
-  const sign = num < 0 ? "-" : "";
-  const abs = Math.abs(num);
+  const num = parseFloat(unsigned);
+  if (!Number.isFinite(num)) return "0";
 
-  if (abs >= MILLION) return sign + (abs / MILLION).toFixed(2) + "M";
-  if (abs >= THOUSAND) return sign + (abs / THOUSAND).toFixed(2) + "K";
   return (
     sign +
-    abs.toLocaleString(undefined, {
+    num.toLocaleString(undefined, {
       minimumFractionDigits: 0,
       maximumFractionDigits: 2,
     })
