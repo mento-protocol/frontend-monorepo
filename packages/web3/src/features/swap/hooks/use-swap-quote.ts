@@ -238,13 +238,14 @@ export function useSwapQuote(
   useEffect(() => {
     if (!errorMessage) return;
 
+    logger.error(error);
+
     const now = Date.now();
     const elapsed = now - lastToastTimeRef.current;
 
     if (lastToastTimeRef.current === 0 || elapsed >= TOAST_THROTTLE_MS) {
       lastToastTimeRef.current = now;
       toast.error(errorMessage, { id: "swap-quote-error" });
-      logger.error(error);
     }
   }, [errorMessage, error]);
 

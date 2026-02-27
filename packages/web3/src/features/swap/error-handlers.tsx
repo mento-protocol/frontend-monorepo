@@ -119,12 +119,25 @@ export function extractFullErrorString(error: unknown): string {
   const err = error as Record<string, unknown>;
   const cause = err.cause as Record<string, unknown> | undefined;
 
+  const serializeCauseData = (data: unknown): string => {
+    if (!data) return "";
+    if (typeof data === "string") return data;
+    if (typeof data !== "object") return String(data);
+    const obj = data as Record<string, unknown>;
+    if (Array.isArray(obj.args)) return (obj.args as unknown[]).join(", ");
+    try {
+      return JSON.stringify(data);
+    } catch {
+      return "";
+    }
+  };
+
   return [
     (err.message as string) ?? "",
     (err.reason as string) ?? "",
     (err.shortMessage as string) ?? "",
     (cause?.message as string) ?? "",
-    (cause?.data as string) ?? "",
+    serializeCauseData(cause?.data),
     (cause?.signature as string) ?? "",
     (err.name as string) ?? "",
   ]
