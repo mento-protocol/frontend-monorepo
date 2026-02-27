@@ -11,6 +11,7 @@ import {
   useSendTransaction,
   useWaitForTransactionReceipt,
 } from "wagmi";
+import { showLiquiditySuccessToast } from "../liquidity-toast";
 import type { PoolDisplay, SlippageOption, TransactionParams } from "../types";
 import { getTransactionErrorMessage } from "../types";
 
@@ -20,26 +21,29 @@ interface ApprovalResult {
   params: TransactionParams;
 }
 
-interface BuildResult {
-  approvalA: ApprovalResult | null;
-  approvalB: ApprovalResult | null;
-  addLiquidity: {
+interface RemoveLiquidityBuildResult {
+  approval: ApprovalResult | null;
+  removeLiquidity: {
     params: TransactionParams;
-    expectedLiquidity: bigint;
-    amountADesired: bigint;
-    amountBDesired: bigint;
-    amountAMin: bigint;
-    amountBMin: bigint;
+    poolAddress: string;
+    token0: string;
+    token1: string;
+    liquidity: bigint;
+    amount0Min: bigint;
+    amount1Min: bigint;
+    expectedAmount0: bigint;
+    expectedAmount1: bigint;
     deadline: bigint;
   };
 }
 
-export function useAddLiquidityTransaction(pool: PoolDisplay) {
+export function useRemoveLiquidityTransaction(pool: PoolDisplay) {
   const chainId = useChainId() as ChainId;
   const publicClient = usePublicClient({ chainId });
   const queryClient = useQueryClient();
 
-  const [buildResult, setBuildResult] = useState<BuildResult | null>(null);
+  const [buildResult, setBuildResult] =
+    useState<RemoveLiquidityBuildResult | null>(null);
   const [isBuilding, setIsBuilding] = useState(false);
   const [txHash, setTxHash] = useState<Address | undefined>();
 
@@ -57,11 +61,11 @@ export function useAddLiquidityTransaction(pool: PoolDisplay) {
 
   const buildTransaction = useCallback(
     async (
-      amountA: bigint,
-      amountB: bigint,
+      liquidity: bigint,
       recipient: Address,
+      owner: Address,
       slippage: SlippageOption,
-    ): Promise<BuildResult | null> => {
+    ): Promise<RemoveLiquidityBuildResult | null> => {
       setIsBuilding(true);
       try {
         const sdk = await getMentoSdk(chainId);
@@ -70,21 +74,18 @@ export function useAddLiquidityTransaction(pool: PoolDisplay) {
         const block = await publicClient.getBlock();
         const deadline = block.timestamp + BigInt(20 * 60);
 
-        const result = await sdk.liquidity.buildAddLiquidityTransaction(
+        const result = await sdk.liquidity.buildRemoveLiquidityTransaction(
           pool.poolAddr as Address,
-          pool.token0.address as Address,
-          amountA,
-          pool.token1.address as Address,
-          amountB,
+          liquidity,
           recipient,
-          recipient,
+          owner,
           { slippageTolerance: slippage, deadline },
         );
 
-        setBuildResult(result as unknown as BuildResult);
-        return result as unknown as BuildResult;
+        setBuildResult(result as unknown as RemoveLiquidityBuildResult);
+        return result as unknown as RemoveLiquidityBuildResult;
       } catch (err) {
-        logger.error("Failed to build add liquidity transaction:", err);
+        logger.error("Failed to build remove liquidity transaction:", err);
         setBuildResult(null);
         return null;
       } finally {
@@ -94,13 +95,13 @@ export function useAddLiquidityTransaction(pool: PoolDisplay) {
     [chainId, pool, publicClient],
   );
 
-  const sendAddLiquidity = useCallback(
-    async (build: BuildResult) => {
+  const sendRemoveLiquidity = useCallback(
+    async (build: RemoveLiquidityBuildResult) => {
       try {
         const hash = await sendTransactionAsync({
-          to: build.addLiquidity.params.to as Address,
-          data: build.addLiquidity.params.data as Hex,
-          value: BigInt(build.addLiquidity.params.value || 0),
+          to: build.removeLiquidity.params.to as Address,
+          data: build.removeLiquidity.params.data as Hex,
+          value: BigInt(build.removeLiquidity.params.value || 0),
         });
         setTxHash(hash);
         return hash;
@@ -108,22 +109,25 @@ export function useAddLiquidityTransaction(pool: PoolDisplay) {
         toast.error(
           getTransactionErrorMessage(
             err instanceof Error ? err.message : String(err),
-            "Unable to complete add liquidity transaction.",
+            "Unable to complete remove liquidity transaction.",
           ),
         );
-        logger.error("Add liquidity transaction failed:", err);
+        logger.error("Remove liquidity transaction failed:", err);
         throw err;
       }
     },
     [sendTransactionAsync],
   );
 
-  // On confirmation: toast + invalidate queries
   useEffect(() => {
     if (isConfirmed && receipt?.status === "success") {
-      toast.success(
-        `Successfully added liquidity to ${pool.token0.symbol}/${pool.token1.symbol} pool.`,
-      );
+      showLiquiditySuccessToast({
+        action: "removed",
+        token0Symbol: pool.token0.symbol,
+        token1Symbol: pool.token1.symbol,
+        txHash: receipt.transactionHash,
+        chainId,
+      });
 
       queryClient.invalidateQueries({
         queryKey: ["pools-list", chainId],
@@ -145,11 +149,11 @@ export function useAddLiquidityTransaction(pool: PoolDisplay) {
     buildTransaction,
     buildResult,
     isBuilding,
-    sendAddLiquidity,
+    sendRemoveLiquidity,
     isSending,
     isConfirming,
     isConfirmed,
-    addTxHash: txHash,
+    removeTxHash: txHash,
     reset,
   };
 }
