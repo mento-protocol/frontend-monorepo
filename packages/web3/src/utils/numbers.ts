@@ -43,12 +43,23 @@ export abstract class NumbersService {
 
 export function formatCompactBalance(balance: string): string {
   const num = parseFloat(balance);
-  if (num >= MILLION) return (num / MILLION).toFixed(2) + "M";
-  if (num >= THOUSAND) return (num / THOUSAND).toFixed(2) + "K";
-  return num.toLocaleString(undefined, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  });
+  if (!Number.isFinite(num)) {
+    if (Number.isNaN(num)) return "0";
+    return num > 0 ? "∞" : "−∞";
+  }
+
+  const sign = num < 0 ? "-" : "";
+  const abs = Math.abs(num);
+
+  if (abs >= MILLION) return sign + (abs / MILLION).toFixed(2) + "M";
+  if (abs >= THOUSAND) return sign + (abs / THOUSAND).toFixed(2) + "K";
+  return (
+    sign +
+    abs.toLocaleString(undefined, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    })
+  );
 }
 
 export const formatUnitsWithRadix = (

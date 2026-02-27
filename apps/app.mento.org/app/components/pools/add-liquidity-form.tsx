@@ -108,8 +108,6 @@ function LPPreview({
   estimatedLP: string;
   sharePercent: string;
 }) {
-  console.log("estimatedLP", estimatedLP);
-  console.log("sharePercent", sharePercent);
   return (
     <div className="gap-3 flex flex-col">
       <h3 className="font-semibold">Preview</h3>

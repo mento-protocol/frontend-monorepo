@@ -32,9 +32,6 @@ lint:
     - linters: [trufflehog]
       paths:
         - packages/**/assets/** # Skip secret scanning on asset files (icons, etc.)
-    - linters: [osv-scanner]
-      paths:
-        - pnpm-lock.yaml # ajv v6.12.6 ReDoS (GHSA-2g4f-4pwh-qvx6) — no fix available in the v6 line
 
   # All enabled linters - organized by category for clarity
   enabled:
