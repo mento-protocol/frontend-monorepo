@@ -535,11 +535,13 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
                     Minimum received
                   </span>
                   <span className="font-medium">
+                    {/* Use the SDK's slippage-adjusted minimums from the build result
+                        instead of recalculating independently, so the displayed value
+                        matches what the contract actually enforces on-chain. */}
                     {formatTokenAmount(
-                      zapOutQuote?.expectedTokenOut
-                        ? (zapOutQuote.expectedTokenOut *
-                            BigInt(Math.round((1 - slippage / 100) * 10000))) /
-                            10000n
+                      zapOutBuildResult
+                        ? zapOutBuildResult.zapOut.zapParams.amountOutMinA +
+                            zapOutBuildResult.zapOut.zapParams.amountOutMinB
                         : undefined,
                       selectedToken.decimals,
                     )}{" "}

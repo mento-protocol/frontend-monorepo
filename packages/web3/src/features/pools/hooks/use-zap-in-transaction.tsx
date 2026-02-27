@@ -93,7 +93,7 @@ export function useZapInTransaction(pool: PoolDisplay) {
           pool.poolAddr,
           tokenIn,
           amountIn,
-          slippage,
+          0.5, // amountInSplit: fraction of input to swap
           recipient,
           recipient,
           { slippageTolerance: slippage, deadline },

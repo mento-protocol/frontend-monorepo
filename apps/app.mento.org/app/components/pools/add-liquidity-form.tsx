@@ -42,10 +42,12 @@ function calcPoolShare(
   totalSupply: bigint | undefined,
 ): string {
   if (!liquidity || !totalSupply || totalSupply === 0n) return "0.00";
-  return (
-    (Number(liquidity) / (Number(totalSupply) + Number(liquidity))) *
-    100
-  ).toFixed(4);
+  // Compute share in BigInt space to avoid Number overflow on 18-decimal LP values.
+  // Multiply by 1M first to preserve 4 decimal places after integer division,
+  // then convert the small result to Number for formatting.
+  const bps = (liquidity * 1_000_000n) / (totalSupply + liquidity);
+  const pct = Number(bps) / 10_000;
+  return pct.toFixed(4);
 }
 
 function TokenAmountInput({
@@ -106,6 +108,8 @@ function LPPreview({
   estimatedLP: string;
   sharePercent: string;
 }) {
+  console.log("estimatedLP", estimatedLP);
+  console.log("sharePercent", sharePercent);
   return (
     <div className="gap-3 flex flex-col">
       <h3 className="font-semibold">Preview</h3>
