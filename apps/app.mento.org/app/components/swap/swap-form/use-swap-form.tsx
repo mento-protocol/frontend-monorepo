@@ -51,6 +51,7 @@ export function useSwapForm() {
   const amountRef = useRef<HTMLInputElement>(null);
   const quoteRef = useRef<HTMLInputElement>(null);
   const prevTradingSuspensionErrorRef = useRef<string | null>(null);
+  const suspensionToastIdRef = useRef<string | number | null>(null);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -240,8 +241,8 @@ export function useSwapForm() {
       const parsedAmount = parseAmount(value);
       if (!parsedAmount) return true;
 
-      const numericAmount = Number(parsedAmount.toString());
-      const numericQuote = Number(formQuote);
+      const numericAmount = Number(parsedAmount.toString()) || 0;
+      const numericQuote = Number(formQuote) || 0;
 
       const violation = checkTradingLimitViolation(
         numericAmount,
@@ -292,10 +293,9 @@ export function useSwapForm() {
   const handleUseMaxBalance = () => {
     const maxAmountInWei =
       balances[tokenInSymbol as keyof typeof balances] || "0";
-    const maxAmountBigInt = BigInt(maxAmountInWei);
     const decimals = getTokenDecimals(tokenInSymbol, chainId);
 
-    const formattedAmount = formatBalance(maxAmountBigInt.toString(), decimals);
+    const formattedAmount = formatBalance(maxAmountInWei, decimals);
     const formattedAmountWithMaxDecimals = formatWithMaxDecimals(
       formattedAmount,
       4,
@@ -410,9 +410,17 @@ export function useSwapForm() {
     const errorChanged = prevError !== tradingSuspensionError;
 
     if (hasError && errorChanged) {
-      toast.error(tradingSuspensionError, { duration: 20000 });
+      if (suspensionToastIdRef.current) {
+        toast.dismiss(suspensionToastIdRef.current);
+      }
+      suspensionToastIdRef.current = toast.error(tradingSuspensionError, {
+        duration: 20000,
+      });
     } else if (prevError !== null && !hasError) {
-      toast.dismiss();
+      if (suspensionToastIdRef.current) {
+        toast.dismiss(suspensionToastIdRef.current);
+        suspensionToastIdRef.current = null;
+      }
     }
 
     prevTradingSuspensionErrorRef.current = tradingSuspensionError;
@@ -507,55 +515,54 @@ export function useSwapForm() {
     address,
   });
 
-  const { sendApproveTx, isApproveTxLoading, approveTxHash } =
-    useApproveTransaction({
-      chainId,
-      tokenInSymbol,
-      tokenOutSymbol,
-      amountInWei,
-      accountAddress: address,
-      onSuccess: (receipt) => {
-        logger.info("Approval transaction confirmed");
-        const chain = chainIdToChain[chainId];
-        const explorerUrl = chain?.blockExplorers?.default.url;
-        const explorerName =
-          chain?.blockExplorers?.default?.name || CELO_EXPLORER.name;
-        toast.success(
-          <>
-            <h4>Approve Successful</h4>
-            <span className="mt-2 block text-muted-foreground">
-              Token allowance for swap approved
-            </span>
-            {explorerUrl && (
-              <a
-                href={`${explorerUrl}/tx/${receipt.transactionHash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-muted-foreground underline"
-              >
-                View Transaction on {explorerName}
-              </a>
-            )}
-          </>,
-        );
-        setIsApprovalProcessing(false);
+  const { sendApproveTx, isApproveTxLoading } = useApproveTransaction({
+    chainId,
+    tokenInSymbol,
+    tokenOutSymbol,
+    amountInWei,
+    accountAddress: address,
+    onSuccess: (receipt) => {
+      logger.info("Approval transaction confirmed");
+      const chain = chainIdToChain[chainId];
+      const explorerUrl = chain?.blockExplorers?.default.url;
+      const explorerName =
+        chain?.blockExplorers?.default?.name || CELO_EXPLORER.name;
+      toast.success(
+        <>
+          <h4>Approve Successful</h4>
+          <span className="mt-2 block text-muted-foreground">
+            Token allowance for swap approved
+          </span>
+          {explorerUrl && (
+            <a
+              href={`${explorerUrl}/tx/${receipt.transactionHash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-muted-foreground underline"
+            >
+              View Transaction on {explorerName}
+            </a>
+          )}
+        </>,
+      );
+      setIsApprovalProcessing(false);
 
-        const currentFormValues = form.getValues();
-        const formData: SwapFormValues = {
-          ...currentFormValues,
-          slippage: formValues?.slippage || currentFormValues.slippage || "0.5",
-          isAutoSlippage: formValues?.isAutoSlippage,
-          deadlineMinutes: formValues?.deadlineMinutes,
-          tokenInSymbol,
-          tokenOutSymbol,
-          buyUSDValue,
-          sellUSDValue,
-        };
+      const currentFormValues = form.getValues();
+      const formData: SwapFormValues = {
+        ...currentFormValues,
+        slippage: formValues?.slippage || currentFormValues.slippage || "0.5",
+        isAutoSlippage: formValues?.isAutoSlippage,
+        deadlineMinutes: formValues?.deadlineMinutes,
+        tokenInSymbol,
+        tokenOutSymbol,
+        buyUSDValue,
+        sellUSDValue,
+      };
 
-        setFormValues(formData);
-        setConfirmView(true);
-      },
-    });
+      setFormValues(formData);
+      setConfirmView(true);
+    },
+  });
 
   useEffect(() => {
     if (quote !== undefined) {
@@ -591,7 +598,7 @@ export function useSwapForm() {
         }
 
         logger.info("Waiting for approval transaction", {
-          hash: approveTxHash,
+          hash,
         });
       } else {
         const formData: SwapFormValues = {
