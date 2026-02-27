@@ -48,19 +48,48 @@ export function formatCompactBalance(balance: string): string {
   const sign = trimmed.startsWith("-") ? "-" : "";
   const unsigned = sign ? trimmed.slice(1) : trimmed;
 
+  // Normalize scientific-notation strings (e.g. "1e10") to plain decimal so
+  // the digit count below reflects the true integer magnitude.
+  let forCounting = unsigned;
+  if (/[eE]/.test(unsigned)) {
+    const n = Number(unsigned);
+    if (Number.isFinite(n) && n >= 1) {
+      forCounting = n.toFixed(0);
+    }
+  }
+
   // Count integer digits to choose the suffix without parseFloat precision loss.
   // Split on "." to isolate the integer part, then strip leading zeros.
-  const intPart = (unsigned.split(".")[0] || "0").replace(/^0+/, "") || "0";
+  const intPart = (forCounting.split(".")[0] || "0").replace(/^0+/, "") || "0";
   const intDigits = intPart.length;
 
-  // For M/K: divide the string value by the suffix scale, then parseFloat the
-  // small result so we never lose precision on the original large number.
+  // parseFloat(unsigned) can lose precision for integers beyond
+  // Number.MAX_SAFE_INTEGER (~9e15). For values with <=15 integer digits we
+  // use standard floating-point division; for larger values we fall back to
+  // BigInt-based scaling. We also guard against malformed inputs that would
+  // produce NaN or Infinity.
   if (intDigits >= 7) {
-    const scaled = parseFloat(unsigned) / MILLION;
-    return sign + scaled.toFixed(2) + "M";
+    if (intDigits <= 15) {
+      const scaled = parseFloat(unsigned) / MILLION;
+      if (!Number.isFinite(scaled)) return "0";
+      return sign + scaled.toFixed(2) + "M";
+    }
+
+    try {
+      const big = BigInt(intPart);
+      const scaledX100 = (big * 100n) / BigInt(MILLION);
+      const whole = scaledX100 / 100n;
+      const frac = scaledX100 % 100n;
+      return (
+        sign + whole.toString() + "." + frac.toString().padStart(2, "0") + "M"
+      );
+    } catch {
+      return "0";
+    }
   }
   if (intDigits >= 4) {
     const scaled = parseFloat(unsigned) / THOUSAND;
+    if (!Number.isFinite(scaled)) return "0";
     return sign + scaled.toFixed(2) + "K";
   }
 
