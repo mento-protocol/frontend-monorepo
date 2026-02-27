@@ -1,12 +1,12 @@
 import {
   Button,
   TokenIcon,
-  Input,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
+  CoinInput,
 } from "@repo/ui";
 import type { PoolDisplay, SlippageOption } from "@repo/web3";
 import {
@@ -367,13 +367,13 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
               </button>
             </div>
           </div>
-          <Input
-            type="text"
-            inputMode="decimal"
+          <CoinInput
             value={lpAmount}
-            onChange={(e) => setLpAmount(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setLpAmount(e.target.value)
+            }
             placeholder="0"
-            className={`h-12 text-base ${insufficientLp ? "border-destructive" : ""}`}
+            className={`shadow-xs h-10 px-3 text-sm placeholder:text-sm border border-input focus-within:border-primary focus:border-primary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${insufficientLp ? "border-destructive" : ""}`}
           />
           {insufficientLp && (
             <p className="text-xs text-destructive">

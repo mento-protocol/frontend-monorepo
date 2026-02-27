@@ -1,12 +1,12 @@
 import {
   Button,
   TokenIcon,
-  Input,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
+  CoinInput,
 } from "@repo/ui";
 import type { PoolDisplay, SlippageOption } from "@repo/web3";
 import {
@@ -95,13 +95,11 @@ function TokenAmountInput({
           </button>
         </div>
       </div>
-      <Input
-        type="text"
-        inputMode="decimal"
+      <CoinInput
         value={amount}
         onChange={onChange}
         placeholder="0"
-        className={`h-12 text-base ${insufficient ? "border-destructive" : ""}`}
+        className={`shadow-xs h-10 px-3 text-sm placeholder:text-sm border border-input focus-within:border-primary focus:border-primary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${insufficient ? "border-destructive" : ""}`}
       />
       {insufficient && (
         <p className="text-xs text-destructive">
@@ -676,13 +674,13 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
                   </button>
                 </div>
               </div>
-              <Input
-                type="text"
-                inputMode="decimal"
+              <CoinInput
                 value={zapAmount}
-                onChange={(e) => setZapAmount(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setZapAmount(e.target.value)
+                }
                 placeholder="0"
-                className={`h-12 text-base ${insufficientZap ? "border-destructive" : ""}`}
+                className={`shadow-xs h-10 px-3 text-sm placeholder:text-sm border border-input focus-within:border-primary focus:border-primary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${insufficientZap ? "border-destructive" : ""}`}
               />
               {insufficientZap && (
                 <p className="text-xs text-destructive">
