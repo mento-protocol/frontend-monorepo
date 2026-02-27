@@ -12,7 +12,7 @@ export function showLiquiditySuccessToast({
   action: "added" | "removed";
   token0Symbol: string;
   token1Symbol: string;
-  txHash?: string;
+  txHash: string;
   chainId: number;
 }) {
   const explorerUrl = getExplorerUrl(chainId);
