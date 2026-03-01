@@ -1,5 +1,6 @@
 import { formatUnits, parseUnits } from "@ethersproject/units";
 import BigNumber from "bignumber.js";
+import { parseUnits as viemParseUnits } from "viem";
 import {
   DISPLAY_DECIMALS,
   MIN_ROUNDED_VALUE,
@@ -81,4 +82,13 @@ export function parseAmountWithDefault(
   defaultValue: NumberT,
 ): BigNumber {
   return parseAmount(value) ?? new BigNumber(defaultValue);
+}
+
+export function tryParseUnits(value: string, decimals: number): bigint | null {
+  try {
+    return viemParseUnits(value, decimals);
+  } catch (err) {
+    logger.warn("Failed to parse units", { value, decimals, err });
+    return null;
+  }
 }

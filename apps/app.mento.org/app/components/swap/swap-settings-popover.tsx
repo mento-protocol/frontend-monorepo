@@ -56,7 +56,7 @@ export function SwapSettingsPopover() {
     }
 
     const numValue = Number.parseFloat(value);
-    if (numValue >= 0 && numValue <= 49) {
+    if (numValue >= 0.01 && numValue <= 49) {
       updateFormValues({
         slippage: value,
         isAutoSlippage: false,
