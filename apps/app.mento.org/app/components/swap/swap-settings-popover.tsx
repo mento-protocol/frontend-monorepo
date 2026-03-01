@@ -110,7 +110,7 @@ export function SwapSettingsPopover() {
     }
 
     const numValue = Number.parseInt(value, 10);
-    if (numValue <= MAX_DEADLINE) {
+    if (numValue >= MIN_DEADLINE && numValue <= MAX_DEADLINE) {
       update({
         deadlineMinutes: value,
         isAutoDeadline: value === DEFAULT_DEADLINE,

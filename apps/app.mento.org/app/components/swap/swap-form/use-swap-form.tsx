@@ -60,7 +60,7 @@ export function useSwapForm() {
       quote: formValues?.quote || "",
       tokenInSymbol: formValues?.tokenInSymbol || "CELO",
       tokenOutSymbol: formValues?.tokenOutSymbol || "USDm",
-      slippage: formValues?.slippage || "0.5",
+      slippage: formValues?.slippage || "0.3",
     },
     mode: "onChange",
   });
@@ -291,8 +291,9 @@ export function useSwapForm() {
   };
 
   const handleUseMaxBalance = () => {
-    let maxAmountInWei =
-      balances[tokenInSymbol as keyof typeof balances] || "0";
+    let maxAmountInWei: string = String(
+      balances[tokenInSymbol as keyof typeof balances] || "0",
+    );
     const decimals = getTokenDecimals(tokenInSymbol, chainId);
 
     if (tokenInSymbol === "CELO") {
@@ -567,7 +568,7 @@ export function useSwapForm() {
       const currentFormValues = form.getValues();
       const formData: SwapFormValues = {
         ...currentFormValues,
-        slippage: formValues?.slippage || currentFormValues.slippage || "0.5",
+        slippage: formValues?.slippage || currentFormValues.slippage || "0.3",
         isAutoSlippage: formValues?.isAutoSlippage,
         deadlineMinutes: formValues?.deadlineMinutes,
         tokenInSymbol,
@@ -620,7 +621,7 @@ export function useSwapForm() {
       } else {
         const formData: SwapFormValues = {
           ...values,
-          slippage: formValues?.slippage || form.getValues("slippage") || "0.5",
+          slippage: formValues?.slippage || form.getValues("slippage") || "0.3",
           isAutoSlippage: formValues?.isAutoSlippage,
           deadlineMinutes: formValues?.deadlineMinutes,
           tokenInSymbol,
@@ -660,7 +661,7 @@ export function useSwapForm() {
         quote: "",
         tokenInSymbol: "CELO",
         tokenOutSymbol: "USDm",
-        slippage: formValues?.slippage || "0.5",
+        slippage: formValues?.slippage || "0.3",
       });
     }
   }, [
