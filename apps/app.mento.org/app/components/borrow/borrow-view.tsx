@@ -7,6 +7,7 @@ import { FlowDialog } from "./shared/flow-dialog";
 import { BorrowDashboard } from "./dashboard/borrow-dashboard";
 import { OpenTroveForm } from "./open-trove/open-trove-form";
 import { ManageTroveView } from "./manage-trove/manage-trove-view";
+import { EarnView } from "./earn/earn-view";
 import { borrowViewAtom } from "./atoms/borrow-navigation";
 
 export function BorrowView() {
@@ -34,11 +35,7 @@ export function BorrowView() {
       {typeof view === "object" && view.view === "manage-trove" && (
         <ManageTroveView troveId={view.troveId} />
       )}
-      {view === "earn" && (
-        <div className="p-6 bg-card text-center text-muted-foreground">
-          Stability Pool — coming soon
-        </div>
-      )}
+      {view === "earn" && <EarnView />}
       {view === "redeem" && (
         <div className="p-6 bg-card text-center text-muted-foreground">
           Redeem — coming soon
