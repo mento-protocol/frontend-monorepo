@@ -1,1 +1,1 @@
-// Borrow hooks — barrel export
+export { useBorrowService } from "./use-borrow-service";
