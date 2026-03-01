@@ -6,7 +6,7 @@ const statusConfig: Record<
   { label: string; className: string; tooltip?: string }
 > = {
   "in-band": {
-    label: "In band",
+    label: "In Band",
     className:
       "border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-400",
     tooltip: "Pool price is within the acceptable range of the oracle price.",
@@ -26,7 +26,7 @@ const statusConfig: Record<
       "Pool price has deviated significantly from the oracle. A rebalance will adjust reserves back toward the oracle price.",
   },
   "market-closed": {
-    label: "Market closed",
+    label: "Market Closed",
     className: "border-border bg-muted/50 text-muted-foreground",
   },
 };

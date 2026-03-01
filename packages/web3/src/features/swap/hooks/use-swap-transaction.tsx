@@ -84,7 +84,7 @@ export function useSwapTransaction(
       const route = await getTradablePairForTokens(chainId, fromToken, toToken);
 
       const deadlineSeconds =
-        parseInt(formValues?.deadlineMinutes || "20", 10) * 60;
+        parseInt(formValues?.deadlineMinutes || "5", 10) * 60;
       if (!publicClient) {
         throw new Error("Public client not available");
       }
@@ -97,7 +97,7 @@ export function useSwapTransaction(
         BigInt(amountInWei), // exact amount of fromToken to sell
         accountAddress,
         {
-          slippageTolerance: parseFloat(formValues?.slippage || "0.5"),
+          slippageTolerance: parseFloat(formValues?.slippage || "0.3"),
           deadline,
         },
         route,
@@ -188,9 +188,10 @@ export function useSwapTransaction(
       }
 
       setFormValues({
-        slippage: formValues?.slippage || "0.5",
+        slippage: formValues?.slippage || "0.3",
         isAutoSlippage: formValues?.isAutoSlippage ?? true,
-        deadlineMinutes: formValues?.deadlineMinutes || "20",
+        deadlineMinutes: formValues?.deadlineMinutes || "5",
+        isAutoDeadline: formValues?.isAutoDeadline ?? true,
       });
       setConfirmView(false);
 
@@ -227,6 +228,7 @@ export function useSwapTransaction(
     formValues?.slippage,
     formValues?.isAutoSlippage,
     formValues?.deadlineMinutes,
+    formValues?.isAutoDeadline,
     fromToken,
     isSwapTxConfirmed,
     queryClient,

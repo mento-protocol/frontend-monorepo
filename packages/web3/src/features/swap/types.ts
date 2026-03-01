@@ -9,6 +9,7 @@ export interface SwapFormValues {
   slippage: string;
   isAutoSlippage?: boolean;
   deadlineMinutes?: string;
+  isAutoDeadline?: boolean;
   buyUSDValue?: string;
   sellUSDValue?: string;
 }

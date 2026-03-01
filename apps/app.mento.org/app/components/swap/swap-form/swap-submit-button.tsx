@@ -11,7 +11,6 @@ interface SwapSubmitButtonProps {
   hasAmount: boolean;
   tokenInSymbol: string;
   tokenOutSymbol: string;
-  quote: string | undefined;
   errors: { amount?: { message?: string } };
   isButtonLoading: boolean;
   isApproveTxLoading: boolean;
@@ -21,7 +20,8 @@ interface SwapSubmitButtonProps {
   isTradingSuspended: boolean;
   isSuspensionCheckLoading: boolean;
   isError: boolean;
-  canQuote: boolean;
+  quoteErrorMessage: string | null;
+  hasValidQuote: boolean;
   shouldApprove: string | boolean;
   allTokenOptions: TokenWithBalance[];
 }
@@ -31,7 +31,6 @@ export function SwapSubmitButton({
   hasAmount,
   tokenInSymbol,
   tokenOutSymbol,
-  quote,
   errors,
   isButtonLoading,
   isApproveTxLoading,
@@ -41,7 +40,8 @@ export function SwapSubmitButton({
   isTradingSuspended,
   isSuspensionCheckLoading,
   isError,
-  canQuote,
+  quoteErrorMessage,
+  hasValidQuote,
   shouldApprove,
   allTokenOptions,
 }: SwapSubmitButtonProps) {
@@ -74,7 +74,7 @@ export function SwapSubmitButton({
         !hasAmount ||
         !tokenOutSymbol ||
         !tokenInSymbol ||
-        !quote ||
+        !hasValidQuote ||
         !!(errors.amount && errors.amount.message !== "Amount is required") ||
         isButtonLoading ||
         isApproveTxLoading ||
@@ -83,7 +83,7 @@ export function SwapSubmitButton({
         !!balanceError ||
         isTradingSuspended ||
         isSuspensionCheckLoading ||
-        (isError && hasAmount && canQuote)
+        isError
       }
     >
       {isButtonLoading ? (
@@ -92,14 +92,18 @@ export function SwapSubmitButton({
         "Select token to sell"
       ) : !tokenOutSymbol ? (
         "Select token to buy"
+      ) : isError ? (
+        quoteErrorMessage?.includes("FX market") ? (
+          "FX market is closed"
+        ) : (
+          (quoteErrorMessage ?? "Unable to fetch quote")
+        )
       ) : isTradingSuspended ? (
         `Trading suspended for ${tokenInSymbol} -> ${tokenOutSymbol}`
       ) : tradingLimitError ? (
         "Swap exceeds trading limits"
       ) : balanceError ? (
         "Insufficient balance"
-      ) : isError && hasAmount && canQuote ? (
-        "Unable to fetch quote"
       ) : errors.amount?.message &&
         errors.amount?.message !== "Amount is required" ? (
         errors.amount?.message

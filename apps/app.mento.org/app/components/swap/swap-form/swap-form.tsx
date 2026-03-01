@@ -54,7 +54,6 @@ export default function SwapForm() {
           hasAmount={swap.hasAmount}
           tokenInSymbol={swap.tokenInSymbol}
           tokenOutSymbol={swap.tokenOutSymbol}
-          quote={swap.quote}
           errors={swap.errors}
           isButtonLoading={swap.isButtonLoading}
           isApproveTxLoading={swap.isApproveTxLoading}
@@ -64,7 +63,8 @@ export default function SwapForm() {
           isTradingSuspended={swap.isTradingSuspended}
           isSuspensionCheckLoading={swap.isSuspensionCheckLoading}
           isError={swap.isError}
-          canQuote={swap.canQuote}
+          quoteErrorMessage={swap.quoteErrorMessage}
+          hasValidQuote={swap.hasValidQuote}
           shouldApprove={swap.shouldApprove}
           allTokenOptions={swap.allTokenOptions}
         />

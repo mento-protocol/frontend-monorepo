@@ -60,7 +60,7 @@ export function useSwapForm() {
       quote: formValues?.quote || "",
       tokenInSymbol: formValues?.tokenInSymbol || "CELO",
       tokenOutSymbol: formValues?.tokenOutSymbol || "USDm",
-      slippage: formValues?.slippage || "0.5",
+      slippage: formValues?.slippage || "0.3",
     },
     mode: "onChange",
   });
@@ -291,8 +291,9 @@ export function useSwapForm() {
   };
 
   const handleUseMaxBalance = () => {
-    let maxAmountInWei =
-      balances[tokenInSymbol as keyof typeof balances] || "0";
+    let maxAmountInWei: string = String(
+      balances[tokenInSymbol as keyof typeof balances] || "0",
+    );
     const decimals = getTokenDecimals(tokenInSymbol, chainId);
 
     if (tokenInSymbol === "CELO") {
@@ -350,6 +351,7 @@ export function useSwapForm() {
     quote,
     rate,
     isError,
+    quoteErrorMessage,
     fromTokenUSDValue,
     toTokenUSDValue,
   } = useOptimizedSwapQuote(
@@ -359,6 +361,12 @@ export function useSwapForm() {
   );
 
   // ── Side effects ────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (isError) {
+      setConfirmView(false);
+    }
+  }, [isError, setConfirmView]);
 
   useEffect(() => {
     setTradingLimitError(null);
@@ -482,6 +490,7 @@ export function useSwapForm() {
   const isButtonLoading = useMemo(
     () =>
       !isTradingSuspended &&
+      !isError &&
       (quoteFetching || isWaitingForQuote) &&
       hasAmount &&
       !!tokenInSymbol &&
@@ -493,6 +502,7 @@ export function useSwapForm() {
       tokenInSymbol,
       tokenOutSymbol,
       isTradingSuspended,
+      isError,
     ],
   );
 
@@ -558,7 +568,7 @@ export function useSwapForm() {
       const currentFormValues = form.getValues();
       const formData: SwapFormValues = {
         ...currentFormValues,
-        slippage: formValues?.slippage || currentFormValues.slippage || "0.5",
+        slippage: formValues?.slippage || currentFormValues.slippage || "0.3",
         isAutoSlippage: formValues?.isAutoSlippage,
         deadlineMinutes: formValues?.deadlineMinutes,
         tokenInSymbol,
@@ -611,7 +621,7 @@ export function useSwapForm() {
       } else {
         const formData: SwapFormValues = {
           ...values,
-          slippage: formValues?.slippage || form.getValues("slippage") || "0.5",
+          slippage: formValues?.slippage || form.getValues("slippage") || "0.3",
           isAutoSlippage: formValues?.isAutoSlippage,
           deadlineMinutes: formValues?.deadlineMinutes,
           tokenInSymbol,
@@ -628,8 +638,10 @@ export function useSwapForm() {
     }
   };
 
+  const hasValidQuote = !!quote && Number(quote) > 0;
+
   const shouldApprove =
-    !skipApprove && hasAmount && quote && !isLoading && !balanceError;
+    !skipApprove && hasAmount && hasValidQuote && !isLoading && !balanceError;
 
   // ── Token pair validation ───────────────────────────────────────────
 
@@ -639,6 +651,25 @@ export function useSwapForm() {
   const [lastChangedToken, setLastChangedToken] = useState<
     "from" | "to" | null
   >(null);
+
+  // Reset form fields after a successful swap (formValues.amount is cleared)
+  useEffect(() => {
+    if (!formValues?.amount && !formValues?.tokenInSymbol) {
+      setLastChangedToken(null);
+      form.reset({
+        amount: "",
+        quote: "",
+        tokenInSymbol: "CELO",
+        tokenOutSymbol: "USDm",
+        slippage: formValues?.slippage || "0.3",
+      });
+    }
+  }, [
+    formValues?.amount,
+    formValues?.tokenInSymbol,
+    formValues?.slippage,
+    form,
+  ]);
 
   useEffect(() => {
     if (!tokenInSymbol || !tokenOutSymbol || !lastChangedToken) return;
@@ -695,7 +726,9 @@ export function useSwapForm() {
     quote,
     rate,
     isError,
+    quoteErrorMessage,
     canQuote,
+    hasValidQuote,
 
     // Validation
     validateAmount,
