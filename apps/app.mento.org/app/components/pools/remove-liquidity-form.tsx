@@ -7,6 +7,10 @@ import {
   SelectTrigger,
   SelectValue,
   CoinInput,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  toast,
 } from "@repo/ui";
 import type { PoolDisplay, SlippageOption } from "@repo/web3";
 import {
@@ -17,25 +21,17 @@ import {
   useZapOutTransaction,
   useLiquidityApproval,
   ConnectButton,
+  tryParseUnits,
+  formatCompactBalance,
 } from "@repo/web3";
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, parseUnits, type Address } from "viem";
-import { useState, useEffect, type ChangeEvent } from "react";
-import { ExternalLink, ArrowRight } from "lucide-react";
+import { useState, useEffect, useRef, type ChangeEvent } from "react";
+import { ChevronDown, Check, ExternalLink, ArrowRight } from "lucide-react";
 import {
   sanitizePercentInput,
   sanitizePercentOnBlur,
 } from "@/lib/utils/percent-input";
-
-function formatBalance(balance: string): string {
-  const num = parseFloat(balance);
-  if (num >= 1_000_000) return (num / 1_000_000).toFixed(2) + "M";
-  if (num >= 1_000) return (num / 1_000).toFixed(2) + "K";
-  return num.toLocaleString(undefined, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 4,
-  });
-}
 
 function formatTokenAmount(
   amount: bigint | undefined,
@@ -75,10 +71,10 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
 
   const formattedLpBalance = lpBalance ? formatUnits(lpBalance, 18) : "0";
 
-  const hasAmount = Number(lpAmount) > 0;
-  const lpAmountWei = hasAmount ? parseUnits(lpAmount, 18) : 0n;
+  const lpAmountWei = tryParseUnits(lpAmount, 18);
+  const hasAmount = lpAmountWei !== null && lpAmountWei > 0n;
   const insufficientLp =
-    hasAmount && lpBalance !== undefined && lpAmountWei > lpBalance;
+    lpAmountWei !== null && lpBalance !== undefined && lpAmountWei > lpBalance;
 
   // === Balanced quote hook (also used for underlying breakdown in single mode) ===
   const { data: quote, isFetching: isQuoting } = useRemoveLiquidityQuote({
@@ -98,8 +94,27 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
     reset: resetTx,
   } = useRemoveLiquidityTransaction(pool);
 
-  // === LP token approval hook ===
-  const lpApproval = useLiquidityApproval("LP");
+  const pendingLpAmountRef = useRef(lpAmount);
+  const pendingSlippageRef = useRef(slippage);
+  const pendingReceiveTokenRef = useRef(receiveToken);
+  const lpApproval = useLiquidityApproval("LP", async () => {
+    if (!address) return;
+    try {
+      const liquidity = parseUnits(pendingLpAmountRef.current, 18);
+      const freshBuild = await buildTransaction(
+        liquidity,
+        address,
+        address,
+        pendingSlippageRef.current,
+      );
+      if (freshBuild) await sendRemoveLiquidity(freshBuild);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("User rejected") && !msg.includes("denied")) {
+        toast.error("Something went wrong. Please try again.");
+      }
+    }
+  });
 
   // === Zap-out (single-token) hooks ===
   const { data: zapOutQuote, isFetching: isZapOutQuoting } = useZapOutQuote({
@@ -120,7 +135,24 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
     reset: resetZapOutTx,
   } = useZapOutTransaction(pool);
 
-  const zapOutApproval = useLiquidityApproval("LP");
+  const zapOutApproval = useLiquidityApproval("LP", async () => {
+    if (!address) return;
+    try {
+      const liquidity = parseUnits(pendingLpAmountRef.current, 18);
+      const freshBuild = await buildZapOutTransaction(
+        pendingReceiveTokenRef.current as Address,
+        liquidity,
+        address,
+        pendingSlippageRef.current,
+      );
+      if (freshBuild) await sendZapOut(freshBuild);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("User rejected") && !msg.includes("denied")) {
+        toast.error("Something went wrong. Please try again.");
+      }
+    }
+  });
 
   // Build balanced transaction when we have a valid quote and wallet
   useEffect(() => {
@@ -233,47 +265,54 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
   const handleAction = async () => {
     if (!address) return;
 
-    // Zap-out actions
-    if (
-      buttonState.action === "zap-out-approve" &&
-      zapOutBuildResult?.approval
-    ) {
-      await zapOutApproval.sendApproval(zapOutBuildResult.approval);
-      const liquidity = parseUnits(lpAmount, 18);
-      const freshBuild = await buildZapOutTransaction(
-        receiveToken as Address,
-        liquidity,
-        address,
-        slippage,
-      );
-      if (freshBuild) await sendZapOut(freshBuild);
-      return;
-    }
-    if (buttonState.action === "zap-out" && zapOutBuildResult) {
-      await sendZapOut(zapOutBuildResult);
-      return;
-    }
+    pendingLpAmountRef.current = lpAmount;
+    pendingSlippageRef.current = slippage;
+    pendingReceiveTokenRef.current = receiveToken;
 
-    // Balanced actions
-    if (!buildResult) return;
-
-    if (buttonState.action === "approve-lp" && buildResult.approval) {
-      await lpApproval.sendApproval(buildResult.approval);
-      const liquidity = parseUnits(lpAmount, 18);
-      const freshBuild = await buildTransaction(
-        liquidity,
-        address,
-        address,
-        slippage,
-      );
-      if (freshBuild) {
-        await sendRemoveLiquidity(freshBuild);
+    try {
+      if (
+        (buttonState.action === "zap-out-approve" ||
+          buttonState.action === "zap-out") &&
+        zapOutBuildResult
+      ) {
+        if (zapOutBuildResult.approval && !zapOutApproval.isApproved) {
+          await zapOutApproval.sendApproval(zapOutBuildResult.approval);
+        } else {
+          const liquidity = parseUnits(lpAmount, 18);
+          const freshBuild = await buildZapOutTransaction(
+            receiveToken as Address,
+            liquidity,
+            address,
+            slippage,
+          );
+          if (freshBuild) await sendZapOut(freshBuild);
+        }
+        return;
       }
-      return;
-    }
 
-    if (buttonState.action === "remove") {
-      await sendRemoveLiquidity(buildResult);
+      if (!buildResult) return;
+
+      if (buildResult.approval && !lpApproval.isApproved) {
+        await lpApproval.sendApproval(buildResult.approval);
+      } else {
+        const liquidity = parseUnits(lpAmount, 18);
+        const freshBuild = await buildTransaction(
+          liquidity,
+          address,
+          address,
+          slippage,
+        );
+        if (freshBuild) await sendRemoveLiquidity(freshBuild);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const isHandledByHook =
+        msg.includes("User rejected") ||
+        msg.includes("User denied") ||
+        msg.includes("denied transaction");
+      if (!isHandledByHook) {
+        toast.error("Something went wrong. Please try again.");
+      }
     }
   };
 
@@ -377,7 +416,7 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
               <span className="font-medium">LP Tokens</span>
             </div>
             <div className="text-sm text-muted-foreground">
-              Balance: {formatBalance(formattedLpBalance)}{" "}
+              Balance: {formatCompactBalance(formattedLpBalance)}{" "}
               <button
                 className="font-medium cursor-pointer text-primary hover:underline"
                 onClick={() => handlePreset(1)}
@@ -593,27 +632,18 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
                   <span className="text-xs text-muted-foreground">
                     Underlying remove:
                   </span>
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">
-                      {pool.token0.symbol}
-                    </span>
-                    <span className="font-medium">
-                      {formatTokenAmount(quote?.amount0, pool.token0.decimals)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">
-                      {pool.token1.symbol}
-                    </span>
-                    <span className="font-medium">
-                      {formatTokenAmount(quote?.amount1, pool.token1.decimals)}
-                    </span>
-                  </div>
-                  <div className="gap-1 mt-1 text-xs flex items-center text-muted-foreground">
-                    Auto-swap: {otherToken.symbol}
-                    <ArrowRight className="h-3 w-3" />
+                  <span className="font-medium">
+                    {/* Both amountOutMin values are in the output token's units
+                        (both routes terminate at tokenOut). */}
+                    {formatTokenAmount(
+                      zapOutBuildResult
+                        ? zapOutBuildResult.zapOut.zapParams.amountOutMinA +
+                            zapOutBuildResult.zapOut.zapParams.amountOutMinB
+                        : undefined,
+                      selectedToken.decimals,
+                    )}{" "}
                     {selectedToken.symbol}
-                  </div>
+                  </span>
                 </div>
               </div>
             )}

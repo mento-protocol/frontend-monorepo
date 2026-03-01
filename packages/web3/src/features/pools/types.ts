@@ -53,12 +53,7 @@ export interface PoolDisplay {
 export const SLIPPAGE_OPTIONS = [0.1, 0.3, 0.5, 1.0] as const;
 export type SlippageOption = (typeof SLIPPAGE_OPTIONS)[number];
 
-/** Shared shape for SDK-built transaction params (approval, addLiquidity, zapIn). */
-export interface TransactionParams {
-  to: string;
-  data: string;
-  value: string;
-}
+export type { CallParams as TransactionParams } from "@mento-protocol/mento-sdk";
 
 /** Dummy address used with getLPTokenBalance to retrieve totalSupply only. */
 export const LP_TOTAL_SUPPLY_HOLDER =

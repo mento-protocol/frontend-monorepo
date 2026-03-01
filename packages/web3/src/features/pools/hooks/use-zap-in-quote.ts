@@ -1,7 +1,7 @@
 import { getMentoSdk } from "@/features/sdk";
-import { toWei } from "@/utils/amount";
 import { useDebounce } from "@/utils/debounce";
 import { useQuery } from "@tanstack/react-query";
+import { parseUnits } from "viem";
 import { useChainId } from "wagmi";
 import type { ChainId } from "@/config/chains";
 import type { PoolDisplay, SlippageOption } from "../types";
@@ -53,15 +53,13 @@ export function useZapInQuote({
           ? pool.token0.decimals
           : pool.token1.decimals;
 
-      const amountInWei = BigInt(
-        toWei(debouncedAmount, tokenDecimals).toFixed(0),
-      );
+      const amountInWei = parseUnits(debouncedAmount, tokenDecimals);
 
       const quote = await sdk.liquidity.quoteZapIn(
         pool.poolAddr,
         tokenIn,
         amountInWei,
-        0.5,
+        0.5, // amountInSplit: fraction of input to swap
         { slippageTolerance: slippage },
       );
 

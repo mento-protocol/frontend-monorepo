@@ -2,6 +2,7 @@ import type { ChainId } from "@/config/chains";
 import { getMentoSdk } from "@/features/sdk";
 import { logger } from "@/utils/logger";
 import { toast } from "@repo/ui";
+import type { AddLiquidityTransaction } from "@mento-protocol/mento-sdk";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import type { Address, Hex } from "viem";
@@ -12,35 +13,16 @@ import {
   useWaitForTransactionReceipt,
 } from "wagmi";
 import { showLiquiditySuccessToast } from "../liquidity-toast";
-import type { PoolDisplay, SlippageOption, TransactionParams } from "../types";
+import type { PoolDisplay, SlippageOption } from "../types";
 import { getTransactionErrorMessage } from "../types";
-
-interface ApprovalResult {
-  token: string;
-  amount: bigint;
-  params: TransactionParams;
-}
-
-interface BuildResult {
-  approvalA: ApprovalResult | null;
-  approvalB: ApprovalResult | null;
-  addLiquidity: {
-    params: TransactionParams;
-    expectedLiquidity: bigint;
-    amountADesired: bigint;
-    amountBDesired: bigint;
-    amountAMin: bigint;
-    amountBMin: bigint;
-    deadline: bigint;
-  };
-}
 
 export function useAddLiquidityTransaction(pool: PoolDisplay) {
   const chainId = useChainId() as ChainId;
   const publicClient = usePublicClient({ chainId });
   const queryClient = useQueryClient();
 
-  const [buildResult, setBuildResult] = useState<BuildResult | null>(null);
+  const [buildResult, setBuildResult] =
+    useState<AddLiquidityTransaction | null>(null);
   const [isBuilding, setIsBuilding] = useState(false);
   const [txHash, setTxHash] = useState<Address | undefined>();
 
@@ -62,7 +44,7 @@ export function useAddLiquidityTransaction(pool: PoolDisplay) {
       amountB: bigint,
       recipient: Address,
       slippage: SlippageOption,
-    ): Promise<BuildResult | null> => {
+    ): Promise<AddLiquidityTransaction | null> => {
       setIsBuilding(true);
       try {
         const sdk = await getMentoSdk(chainId);
@@ -82,8 +64,8 @@ export function useAddLiquidityTransaction(pool: PoolDisplay) {
           { slippageTolerance: slippage, deadline },
         );
 
-        setBuildResult(result as unknown as BuildResult);
-        return result as unknown as BuildResult;
+        setBuildResult(result);
+        return result;
       } catch (err) {
         logger.error("Failed to build add liquidity transaction:", err);
         setBuildResult(null);
@@ -96,7 +78,7 @@ export function useAddLiquidityTransaction(pool: PoolDisplay) {
   );
 
   const sendAddLiquidity = useCallback(
-    async (build: BuildResult) => {
+    async (build: AddLiquidityTransaction) => {
       try {
         const hash = await sendTransactionAsync({
           to: build.addLiquidity.params.to as Address,

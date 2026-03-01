@@ -2,35 +2,21 @@ import type { ChainId } from "@/config/chains";
 import { getMentoSdk } from "@/features/sdk";
 import { logger } from "@/utils/logger";
 import { toast } from "@repo/ui";
+import type { ZapOutTransaction } from "@mento-protocol/mento-sdk";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Address, Hex } from "viem";
 import { useChainId, usePublicClient, useSendTransaction } from "wagmi";
 import { showLiquiditySuccessToast } from "../liquidity-toast";
-import type { PoolDisplay, SlippageOption, TransactionParams } from "../types";
+import type { PoolDisplay, SlippageOption } from "../types";
 import { getTransactionErrorMessage } from "../types";
-
-interface ZapOutBuildResult {
-  approval: {
-    token: string;
-    amount: bigint;
-    params: TransactionParams;
-  } | null;
-  zapOut: {
-    params: TransactionParams;
-    poolAddress: string;
-    tokenOut: string;
-    liquidity: bigint;
-    expectedTokenOut: bigint;
-  };
-}
 
 export function useZapOutTransaction(pool: PoolDisplay) {
   const chainId = useChainId() as ChainId;
   const publicClient = usePublicClient({ chainId });
   const queryClient = useQueryClient();
 
-  const [buildResult, setBuildResult] = useState<ZapOutBuildResult | null>(
+  const [buildResult, setBuildResult] = useState<ZapOutTransaction | null>(
     null,
   );
   const [isBuilding, setIsBuilding] = useState(false);
@@ -99,7 +85,7 @@ export function useZapOutTransaction(pool: PoolDisplay) {
       liquidity: bigint,
       recipient: Address,
       slippage: SlippageOption,
-    ): Promise<ZapOutBuildResult | null> => {
+    ): Promise<ZapOutTransaction | null> => {
       setIsBuilding(true);
       try {
         const sdk = await getMentoSdk(chainId);
@@ -117,8 +103,8 @@ export function useZapOutTransaction(pool: PoolDisplay) {
           { slippageTolerance: slippage, deadline },
         );
 
-        setBuildResult(result as unknown as ZapOutBuildResult);
-        return result as unknown as ZapOutBuildResult;
+        setBuildResult(result);
+        return result;
       } catch (err) {
         logger.error("Failed to build zap-out transaction:", err);
         setBuildResult(null);
@@ -131,7 +117,7 @@ export function useZapOutTransaction(pool: PoolDisplay) {
   );
 
   const sendZapOut = useCallback(
-    async (build: ZapOutBuildResult) => {
+    async (build: ZapOutTransaction) => {
       try {
         const hash = await sendTransactionAsync({
           to: build.zapOut.params.to as Address,

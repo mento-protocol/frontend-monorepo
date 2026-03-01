@@ -7,6 +7,10 @@ import {
   SelectTrigger,
   SelectValue,
   CoinInput,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  toast,
 } from "@repo/ui";
 import type { PoolDisplay, SlippageOption } from "@repo/web3";
 import {
@@ -18,6 +22,8 @@ import {
   useZapInQuote,
   useZapInTransaction,
   ConnectButton,
+  tryParseUnits,
+  formatCompactBalance,
 } from "@repo/web3";
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, parseUnits, type Address } from "viem";
@@ -34,16 +40,6 @@ import {
   sanitizePercentOnBlur,
 } from "@/lib/utils/percent-input";
 
-function formatBalance(balance: string): string {
-  const num = parseFloat(balance);
-  if (num >= 1_000_000) return (num / 1_000_000).toFixed(2) + "M";
-  if (num >= 1_000) return (num / 1_000).toFixed(2) + "K";
-  return num.toLocaleString(undefined, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 4,
-  });
-}
-
 function formatLP(liquidity: bigint | undefined): string {
   if (!liquidity || liquidity === 0n) return "0.00";
   return Number(formatUnits(liquidity, 18)).toLocaleString(undefined, {
@@ -57,10 +53,12 @@ function calcPoolShare(
   totalSupply: bigint | undefined,
 ): string {
   if (!liquidity || !totalSupply || totalSupply === 0n) return "0.00";
-  return (
-    (Number(liquidity) / (Number(totalSupply) + Number(liquidity))) *
-    100
-  ).toFixed(4);
+  // Compute share in BigInt space to avoid Number overflow on 18-decimal LP values.
+  // Multiply by 1M first to preserve 4 decimal places after integer division,
+  // then convert the small result to Number for formatting.
+  const bps = (liquidity * 1_000_000n) / (totalSupply + liquidity);
+  const pct = Number(bps) / 10_000;
+  return pct.toFixed(4);
 }
 
 function TokenAmountInput({
@@ -90,7 +88,7 @@ function TokenAmountInput({
           <span className="font-medium">{token.symbol}</span>
         </div>
         <div className="text-sm text-muted-foreground">
-          Balance: {formatBalance(balance)}{" "}
+          Balance: {formatCompactBalance(balance)}{" "}
           <button
             className="font-medium cursor-pointer text-primary hover:underline"
             onClick={onMax}
@@ -218,8 +216,52 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     reset: resetTx,
   } = useAddLiquidityTransaction(pool);
 
-  const approvalA = useLiquidityApproval(pool.token0.symbol);
-  const approvalB = useLiquidityApproval(pool.token1.symbol);
+  const pendingQuoteRef = useRef(quote);
+  const pendingSlippageRef = useRef(slippage);
+
+  // approvalB declared first — approvalA's onApproved chains into it.
+  const approvalB = useLiquidityApproval(pool.token1.symbol, async () => {
+    if (!address || !pendingQuoteRef.current) return;
+    try {
+      const q = pendingQuoteRef.current;
+      const freshBuild = await buildTransaction(
+        q.amountA,
+        q.amountB,
+        address,
+        pendingSlippageRef.current,
+      );
+      if (freshBuild) await sendAddLiquidity(freshBuild);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("User rejected") && !msg.includes("denied")) {
+        toast.error("Something went wrong. Please try again.");
+      }
+    }
+  });
+
+  const approvalA = useLiquidityApproval(pool.token0.symbol, async () => {
+    if (!address || !pendingQuoteRef.current) return;
+    try {
+      const q = pendingQuoteRef.current;
+      const freshBuild = await buildTransaction(
+        q.amountA,
+        q.amountB,
+        address,
+        pendingSlippageRef.current,
+      );
+      if (!freshBuild) return;
+      if (freshBuild.approvalB) {
+        await approvalB.sendApproval(freshBuild.approvalB);
+      } else {
+        await sendAddLiquidity(freshBuild);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("User rejected") && !msg.includes("denied")) {
+        toast.error("Something went wrong. Please try again.");
+      }
+    }
+  });
 
   // Build transaction when we have a valid quote and wallet
   useEffect(() => {
@@ -268,7 +310,31 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     reset: resetZapTx,
   } = useZapInTransaction(pool);
 
-  const zapApproval = useLiquidityApproval(zapToken.symbol);
+  const pendingZapAmountRef = useRef(zapAmount);
+  const pendingZapTokenInRef = useRef(zapTokenIn);
+  const pendingZapDecimalsRef = useRef(zapToken.decimals);
+
+  const zapApproval = useLiquidityApproval(zapToken.symbol, async () => {
+    if (!address) return;
+    try {
+      const amountInWei = parseUnits(
+        pendingZapAmountRef.current,
+        pendingZapDecimalsRef.current,
+      );
+      const freshBuild = await buildZapTransaction(
+        pendingZapTokenInRef.current as Address,
+        amountInWei,
+        address,
+        pendingSlippageRef.current,
+      );
+      if (freshBuild) await sendZapIn(freshBuild);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("User rejected") && !msg.includes("denied")) {
+        toast.error("Something went wrong. Please try again.");
+      }
+    }
+  });
 
   // Build zap transaction when quote arrives
   useEffect(() => {
@@ -335,24 +401,29 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
   // === Validation ===
 
   // Balanced mode
-  const hasAmounts = Number(token0Amount) > 0 && Number(token1Amount) > 0;
+  const parsedToken0 = tryParseUnits(token0Amount, pool.token0.decimals);
+  const parsedToken1 = tryParseUnits(token1Amount, pool.token1.decimals);
+  const hasAmounts =
+    parsedToken0 !== null &&
+    parsedToken0 > 0n &&
+    parsedToken1 !== null &&
+    parsedToken1 > 0n;
   const insufficientToken0 =
-    hasAmounts &&
+    parsedToken0 !== null &&
     token0Balance !== undefined &&
-    Number(token0Amount) > 0 &&
-    parseUnits(token0Amount || "0", pool.token0.decimals) > token0Balance;
+    parsedToken0 > token0Balance;
   const insufficientToken1 =
-    hasAmounts &&
+    parsedToken1 !== null &&
     token1Balance !== undefined &&
-    Number(token1Amount) > 0 &&
-    parseUnits(token1Amount || "0", pool.token1.decimals) > token1Balance;
+    parsedToken1 > token1Balance;
 
   // Single-token mode
-  const hasZapAmount = Number(zapAmount) > 0;
+  const parsedZap = tryParseUnits(zapAmount, zapToken.decimals);
+  const hasZapAmount = parsedZap !== null && parsedZap > 0n;
   const insufficientZap =
-    hasZapAmount &&
+    parsedZap !== null &&
     zapTokenBalance !== undefined &&
-    parseUnits(zapAmount || "0", zapToken.decimals) > zapTokenBalance;
+    parsedZap > zapTokenBalance;
 
   // === Button state ===
 
@@ -443,48 +514,58 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
   const handleAction = async () => {
     if (!address) return;
 
-    // Zap actions
-    if (buttonState.action === "zap-approve" && zapBuildResult?.approval) {
-      await zapApproval.sendApproval(zapBuildResult.approval);
-      const amountInWei = parseUnits(zapAmount, zapToken.decimals);
-      const freshBuild = await buildZapTransaction(
-        zapTokenIn as Address,
-        amountInWei,
-        address,
-        slippage,
-      );
-      if (freshBuild) await sendZapIn(freshBuild);
-      return;
-    }
-    if (buttonState.action === "zap" && zapBuildResult) {
-      await sendZapIn(zapBuildResult);
-      return;
-    }
-
-    // Balanced actions
-    if (!quote) return;
-    if (buttonState.action === "approve-a" && buildResult?.approvalA) {
-      await approvalA.sendApproval(buildResult.approvalA);
-      const freshBuild = await buildTransaction(
-        quote.amountA,
-        quote.amountB,
-        address,
-        slippage,
-      );
-      if (freshBuild && !freshBuild.approvalB) {
-        await sendAddLiquidity(freshBuild);
+    try {
+      if (
+        (buttonState.action === "zap-approve" ||
+          buttonState.action === "zap") &&
+        zapBuildResult
+      ) {
+        if (zapBuildResult.approval && !zapApproval.isApproved) {
+          pendingZapAmountRef.current = zapAmount;
+          pendingZapTokenInRef.current = zapTokenIn;
+          pendingZapDecimalsRef.current = zapToken.decimals;
+          pendingSlippageRef.current = slippage;
+          await zapApproval.sendApproval(zapBuildResult.approval);
+        } else {
+          const amountInWei = parseUnits(zapAmount, zapToken.decimals);
+          const freshZap = await buildZapTransaction(
+            zapTokenIn as Address,
+            amountInWei,
+            address,
+            slippage,
+          );
+          if (freshZap) await sendZapIn(freshZap);
+        }
+        return;
       }
-    } else if (buttonState.action === "approve-b" && buildResult?.approvalB) {
-      await approvalB.sendApproval(buildResult.approvalB);
-      const freshBuild = await buildTransaction(
-        quote.amountA,
-        quote.amountB,
-        address,
-        slippage,
-      );
-      if (freshBuild) await sendAddLiquidity(freshBuild);
-    } else if (buttonState.action === "add" && buildResult) {
-      await sendAddLiquidity(buildResult);
+
+      if (!quote) return;
+
+      pendingQuoteRef.current = quote;
+      pendingSlippageRef.current = slippage;
+
+      if (buildResult?.approvalA && !approvalA.isApproved) {
+        await approvalA.sendApproval(buildResult.approvalA);
+      } else if (buildResult?.approvalB && !approvalB.isApproved) {
+        await approvalB.sendApproval(buildResult.approvalB);
+      } else {
+        const freshBuild = await buildTransaction(
+          quote.amountA,
+          quote.amountB,
+          address,
+          slippage,
+        );
+        if (freshBuild) await sendAddLiquidity(freshBuild);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const isHandledByHook =
+        msg.includes("User rejected") ||
+        msg.includes("User denied") ||
+        msg.includes("denied transaction");
+      if (!isHandledByHook) {
+        toast.error("Something went wrong. Please try again.");
+      }
     }
   };
 
@@ -506,9 +587,9 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     if (pct >= 100) {
       setZapAmount(formattedZapBalance);
     } else {
-      const fractionalBalance =
-        (zapTokenBalance * BigInt(Math.round((pct / 100) * 1_000_000))) /
-        1_000_000n;
+      if (!zapTokenBalance || zapTokenBalance === 0n) return;
+      const scaledPct = BigInt(Math.round(pct * 10));
+      const fractionalBalance = (zapTokenBalance * scaledPct) / 1000n;
       setZapAmount(formatUnits(fractionalBalance, zapToken.decimals));
     }
   };
@@ -686,7 +767,7 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
                   </SelectContent>
                 </Select>
                 <div className="text-sm text-muted-foreground">
-                  Balance: {formatBalance(formattedZapBalance)}{" "}
+                  Balance: {formatCompactBalance(formattedZapBalance)}{" "}
                   <button
                     className="font-medium cursor-pointer text-primary hover:underline"
                     onClick={() => setZapAmount(formattedZapBalance)}
