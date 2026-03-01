@@ -24,6 +24,8 @@ export const env = createEnv({
       .optional()
       .default("false"),
     NEXT_PUBLIC_USE_FORK: z.enum(["true", "false"]).optional().default("false"),
+    NEXT_PUBLIC_BANNER_TEXT: z.string().optional().default(""),
+    NEXT_PUBLIC_BANNER_LINK: z.string().url().optional(),
   },
   /*
    * Due to how Next.js bundles environment variables on Edge and Client,
@@ -38,5 +40,7 @@ export const env = createEnv({
     NEXT_PUBLIC_SENTRY_DSN_SWAP: process.env.NEXT_PUBLIC_SENTRY_DSN_SWAP,
     NEXT_PUBLIC_ENABLE_DEBUG: process.env.NEXT_PUBLIC_ENABLE_DEBUG,
     NEXT_PUBLIC_USE_FORK: process.env.NEXT_PUBLIC_USE_FORK,
+    NEXT_PUBLIC_BANNER_TEXT: process.env.NEXT_PUBLIC_BANNER_TEXT,
+    NEXT_PUBLIC_BANNER_LINK: process.env.NEXT_PUBLIC_BANNER_LINK,
   },
 });
