@@ -3,19 +3,32 @@ import type { PoolDisplay } from "@repo/web3";
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, type Address } from "viem";
 import { PoolAddressPopover } from "./pool-address-popover";
-import { LiquidityDrawer } from "./liquidity-drawer";
-import { useState } from "react";
 
 interface PoolRowProps {
   pool: PoolDisplay;
+  onSelect: (pool: PoolDisplay, mode: "deposit" | "manage") => void;
 }
 
-export function PoolRow({ pool }: PoolRowProps) {
+function parseReserveValue(compactValue: string): number {
+  const value = compactValue.trim().toUpperCase();
+  if (!value) return 0;
+
+  if (value.endsWith("M")) {
+    const parsed = Number(value.slice(0, -1));
+    return Number.isFinite(parsed) ? parsed * 1_000_000 : 0;
+  }
+
+  if (value.endsWith("K")) {
+    const parsed = Number(value.slice(0, -1));
+    return Number.isFinite(parsed) ? parsed * 1_000 : 0;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function PoolRow({ pool, onSelect }: PoolRowProps) {
   const { address } = useAccount();
-  const [drawerState, setDrawerState] = useState<{
-    isOpen: boolean;
-    mode: "deposit" | "manage" | null;
-  }>({ isOpen: false, mode: null });
 
   const { data: lpBalance } = useReadContract({
     address: pool.poolAddr as Address,
@@ -29,6 +42,10 @@ export function PoolRow({ pool }: PoolRowProps) {
 
   const hasLPTokens = lpBalance !== undefined && lpBalance > 0n;
   const isLegacy = pool.poolType === "Legacy";
+  const hasLiquidity =
+    parseReserveValue(pool.reserves.token0) +
+      parseReserveValue(pool.reserves.token1) >
+    0;
 
   return (
     <div
@@ -82,12 +99,9 @@ export function PoolRow({ pool }: PoolRowProps) {
               <Button
                 size="sm"
                 className="h-8"
-                onClick={() => {
-                  setDrawerState({
-                    isOpen: true,
-                    mode: hasLPTokens ? "manage" : "deposit",
-                  });
-                }}
+                onClick={() =>
+                  onSelect(pool, hasLPTokens ? "manage" : "deposit")
+                }
               >
                 {hasLPTokens ? "Manage" : "Deposit"}
               </Button>
@@ -107,16 +121,25 @@ export function PoolRow({ pool }: PoolRowProps) {
               <span className="font-semibold">{pool.token1.symbol}</span>
             </span>
           </div>
-          <div className="h-1.5 flex w-full overflow-hidden rounded-full">
-            <div
-              className="bg-primary"
-              style={{ width: `${pool.reserves.token0Ratio * 100}%` }}
-            />
-            <div
-              className="bg-primary/30"
-              style={{ width: `${(1 - pool.reserves.token0Ratio) * 100}%` }}
-            />
-          </div>
+          {hasLiquidity ? (
+            <div className="h-1.5 flex w-full overflow-hidden rounded-full">
+              <div
+                className="bg-primary"
+                style={{ width: `${pool.reserves.token0Ratio * 100}%` }}
+              />
+              <div
+                className="bg-primary/30"
+                style={{ width: `${(1 - pool.reserves.token0Ratio) * 100}%` }}
+              />
+            </div>
+          ) : (
+            <div className="gap-1 flex flex-col">
+              <div className="h-1.5 w-full rounded-full bg-muted/70" />
+              <span className="text-[11px] text-muted-foreground">
+                No liquidity yet
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Fees */}
@@ -145,31 +168,13 @@ export function PoolRow({ pool }: PoolRowProps) {
             <Button
               size="sm"
               className="h-8"
-              onClick={() => {
-                setDrawerState({
-                  isOpen: true,
-                  mode: hasLPTokens ? "manage" : "deposit",
-                });
-              }}
+              onClick={() => onSelect(pool, hasLPTokens ? "manage" : "deposit")}
             >
               {hasLPTokens ? "Manage" : "Deposit"}
             </Button>
           )}
         </div>
       </div>
-
-      {/* Liquidity management drawer */}
-      {drawerState.mode && (
-        <LiquidityDrawer
-          pool={pool}
-          isOpen={drawerState.isOpen}
-          onOpenChange={(open) =>
-            setDrawerState((prev) => ({ isOpen: open, mode: prev.mode }))
-          }
-          mode={drawerState.mode}
-          hasLPTokens={hasLPTokens}
-        />
-      )}
     </div>
   );
 }

@@ -50,9 +50,6 @@ function calcPoolShare(
   totalSupply: bigint | undefined,
 ): string {
   if (!liquidity || !totalSupply || totalSupply === 0n) return "0.00";
-  // Compute share in BigInt space to avoid Number overflow on 18-decimal LP values.
-  // Multiply by 1M first to preserve 4 decimal places after integer division,
-  // then convert the small result to Number for formatting.
   const bps = (liquidity * 1_000_000n) / (totalSupply + liquidity);
   const pct = Number(bps) / 10_000;
   return pct.toFixed(4);
@@ -105,30 +102,6 @@ function TokenAmountInput({
           Insufficient {token.symbol} balance
         </p>
       )}
-    </div>
-  );
-}
-
-function LPPreview({
-  estimatedLP,
-  sharePercent,
-}: {
-  estimatedLP: string;
-  sharePercent: string;
-}) {
-  return (
-    <div className="gap-3 p-3 flex flex-col rounded-md border border-border">
-      <h3 className="font-semibold">Preview</h3>
-      <div className="gap-2 text-sm flex flex-col">
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Estimated LP tokens</span>
-          <span className="font-medium">{estimatedLP} LP</span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Approx share of pool</span>
-          <span className="font-medium">{sharePercent}%</span>
-        </div>
-      </div>
     </div>
   );
 }
@@ -623,252 +596,254 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
   };
 
   return (
-    <div className="min-h-0 flex flex-1 flex-col">
-      <div className="gap-6 px-6 pt-6 min-h-0 flex flex-1 flex-col overflow-y-auto">
-        {/* Deposit mode toggle */}
-        <div className="gap-2 grid grid-cols-2">
-          <button
-            onClick={() => setMode("balanced")}
-            className={`shadow-sm px-4 py-2.5 text-sm font-medium cursor-pointer rounded-md border ${
-              mode === "balanced"
-                ? "border-border bg-background text-foreground"
-                : "border-transparent bg-transparent text-muted-foreground"
-            }`}
-          >
-            Balanced (2 tokens)
-          </button>
-          <button
-            onClick={() => setMode("single")}
-            className={`shadow-sm px-4 py-2.5 text-sm font-medium cursor-pointer rounded-md border ${
-              mode === "single"
-                ? "border-border bg-background text-foreground"
-                : "border-transparent bg-transparent text-muted-foreground"
-            }`}
-          >
-            Single token (auto-swap)
-          </button>
-        </div>
+    <div className="md:flex-row flex flex-col">
+      {/* Left Column — Inputs */}
+      <div className="min-w-0 p-6 md:border-r flex-1 border-border">
+        <div className="gap-6 flex flex-col">
+          {/* Deposit mode toggle */}
+          <div className="gap-2 grid grid-cols-2">
+            <button
+              onClick={() => setMode("balanced")}
+              className={`shadow-sm px-4 py-2.5 text-sm font-medium cursor-pointer rounded-md border ${
+                mode === "balanced"
+                  ? "border-border bg-background text-foreground"
+                  : "border-transparent bg-transparent text-muted-foreground"
+              }`}
+            >
+              Balanced (2 tokens)
+            </button>
+            <button
+              onClick={() => setMode("single")}
+              className={`shadow-sm px-4 py-2.5 text-sm font-medium cursor-pointer rounded-md border ${
+                mode === "single"
+                  ? "border-border bg-background text-foreground"
+                  : "border-transparent bg-transparent text-muted-foreground"
+              }`}
+            >
+              Single token (auto-swap)
+            </button>
+          </div>
 
-        {mode === "balanced" ? (
-          <>
-            <TokenAmountInput
-              token={pool.token0}
-              balance={formattedToken0Balance}
-              amount={token0Amount}
-              onChange={handleToken0Change}
-              onMax={handleMax0}
-              insufficient={insufficientToken0}
-            />
-            <TokenAmountInput
-              token={pool.token1}
-              balance={formattedToken1Balance}
-              amount={token1Amount}
-              onChange={handleToken1Change}
-              onMax={handleMax1}
-              insufficient={insufficientToken1}
-            />
-
-            {/* Info text */}
-            <p className="text-xs text-muted-foreground">
-              Amounts are based on the current pool ratio.
-            </p>
-
-            {/* Slippage Tolerance */}
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">Slippage Tolerance %</span>
-              <Select
-                value={String(slippage)}
-                onValueChange={(v) => setSlippage(Number(v) as SlippageOption)}
-              >
-                <SelectTrigger className="w-auto">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SLIPPAGE_OPTIONS.map((option) => (
-                    <SelectItem key={option} value={String(option)}>
-                      {option}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Preview */}
-            {hasAmounts && quote && (
-              <LPPreview
-                estimatedLP={estimatedLP}
-                sharePercent={sharePercent}
+          {mode === "balanced" ? (
+            <>
+              <TokenAmountInput
+                token={pool.token0}
+                balance={formattedToken0Balance}
+                amount={token0Amount}
+                onChange={handleToken0Change}
+                onMax={handleMax0}
+                insufficient={insufficientToken0}
               />
-            )}
-          </>
-        ) : (
-          <>
-            {/* How it works */}
-            <div className="gap-2 p-3 flex flex-col rounded-md border border-border bg-muted/30">
-              <div className="gap-1.5 text-sm font-medium flex items-center">
-                <Info className="h-4 w-4" />
-                How it works
-              </div>
-              <ul className="gap-1 ml-5 text-xs flex list-disc flex-col text-muted-foreground">
-                <li>
-                  A portion of your input will be swapped to balance the pool
-                </li>
-                <li>Both tokens will then be added as liquidity</li>
-                <li>Swap uses current pool price and fees</li>
-              </ul>
-            </div>
+              <TokenAmountInput
+                token={pool.token1}
+                balance={formattedToken1Balance}
+                amount={token1Amount}
+                onChange={handleToken1Change}
+                onMax={handleMax1}
+                insufficient={insufficientToken1}
+              />
 
-            {/* Token selector + input */}
-            <div className="gap-2 flex flex-col">
-              <div className="gap-2 flex items-center justify-between">
-                <Select
-                  value={zapTokenIn}
-                  onValueChange={(v) => {
-                    setZapTokenIn(v);
-                    setZapAmount("");
-                  }}
-                >
-                  <SelectTrigger className="gap-2 p-0 font-medium w-auto border-none bg-transparent shadow-none">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={pool.token0.address}>
-                      <div className="gap-2 flex items-center">
-                        <TokenIcon
-                          token={{
-                            address: pool.token0.address,
-                            symbol: pool.token0.symbol,
-                          }}
-                          size={20}
-                          className="rounded-full"
-                        />
-                        {pool.token0.symbol}
-                      </div>
-                    </SelectItem>
-                    <SelectItem value={pool.token1.address}>
-                      <div className="gap-2 flex items-center">
-                        <TokenIcon
-                          token={{
-                            address: pool.token1.address,
-                            symbol: pool.token1.symbol,
-                          }}
-                          size={20}
-                          className="rounded-full"
-                        />
-                        {pool.token1.symbol}
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                <div className="text-sm text-muted-foreground">
-                  Balance: {formatCompactBalance(formattedZapBalance)}{" "}
-                  <button
-                    className="font-medium cursor-pointer text-primary hover:underline"
-                    onClick={() => setZapAmount(formattedZapBalance)}
-                  >
-                    MAX
-                  </button>
+              {/* Info text */}
+              <p className="text-xs text-muted-foreground">
+                Amounts are based on the current pool ratio.
+              </p>
+            </>
+          ) : (
+            <>
+              {/* How it works */}
+              <div className="gap-2 p-3 flex flex-col rounded-md border border-border bg-muted/30">
+                <div className="gap-1.5 text-sm font-medium flex items-center">
+                  <Info className="h-4 w-4" />
+                  How it works
                 </div>
+                <ul className="gap-1 ml-5 text-xs flex list-disc flex-col text-muted-foreground">
+                  <li>
+                    A portion of your input will be swapped to balance the pool
+                  </li>
+                  <li>Both tokens will then be added as liquidity</li>
+                  <li>Swap uses current pool price and fees</li>
+                </ul>
               </div>
-              <CoinInput
-                value={zapAmount}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setZapAmount(e.target.value)
-                }
-                placeholder="0"
-                className={`shadow-xs h-10 px-3 text-sm placeholder:text-sm border border-input focus-within:border-primary focus:border-primary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${insufficientZap ? "border-destructive" : ""}`}
-              />
-              {insufficientZap && (
-                <p className="text-xs text-destructive">
-                  Insufficient {zapToken.symbol} balance
-                </p>
-              )}
-            </div>
 
-            {/* Amount presets */}
-            <div className="gap-2 grid grid-cols-3">
-              <button
-                onClick={() => handleAmountPreset("0.1")}
-                className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
-              >
-                0.1%
-              </button>
-              <button
-                onClick={() => handleAmountPreset("1")}
-                className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
-              >
-                1%
-              </button>
-              <div className="py-1.5 flex items-center justify-center overflow-hidden rounded-md border border-border bg-background">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  maxLength={6}
-                  placeholder="Custom %"
-                  value={customPct}
-                  className="min-w-0 text-xs font-medium w-full shrink bg-transparent text-center outline-none placeholder:text-muted-foreground"
-                  onChange={handleCustomPctChange}
-                  onBlur={handleCustomPctBlur}
-                  style={
-                    customPct
-                      ? { width: `${customPct.length}ch`, flexShrink: 0 }
-                      : undefined
+              {/* Token selector + input */}
+              <div className="gap-2 flex flex-col">
+                <div className="gap-2 flex items-center justify-between">
+                  <Select
+                    value={zapTokenIn}
+                    onValueChange={(v) => {
+                      setZapTokenIn(v);
+                      setZapAmount("");
+                    }}
+                  >
+                    <SelectTrigger className="gap-2 p-0 font-medium w-auto border-none bg-transparent shadow-none">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={pool.token0.address}>
+                        <div className="gap-2 flex items-center">
+                          <TokenIcon
+                            token={{
+                              address: pool.token0.address,
+                              symbol: pool.token0.symbol,
+                            }}
+                            size={20}
+                            className="rounded-full"
+                          />
+                          {pool.token0.symbol}
+                        </div>
+                      </SelectItem>
+                      <SelectItem value={pool.token1.address}>
+                        <div className="gap-2 flex items-center">
+                          <TokenIcon
+                            token={{
+                              address: pool.token1.address,
+                              symbol: pool.token1.symbol,
+                            }}
+                            size={20}
+                            className="rounded-full"
+                          />
+                          {pool.token1.symbol}
+                        </div>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <div className="text-sm text-muted-foreground">
+                    Balance: {formatCompactBalance(formattedZapBalance)}{" "}
+                    <button
+                      className="font-medium cursor-pointer text-primary hover:underline"
+                      onClick={() => setZapAmount(formattedZapBalance)}
+                    >
+                      MAX
+                    </button>
+                  </div>
+                </div>
+                <CoinInput
+                  value={zapAmount}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setZapAmount(e.target.value)
                   }
+                  placeholder="0"
+                  className={`shadow-xs h-10 px-3 text-sm placeholder:text-sm border border-input focus-within:border-primary focus:border-primary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${insufficientZap ? "border-destructive" : ""}`}
                 />
-                {customPct && (
-                  <span className="text-xs font-medium shrink-0">%</span>
+                {insufficientZap && (
+                  <p className="text-xs text-destructive">
+                    Insufficient {zapToken.symbol} balance
+                  </p>
                 )}
               </div>
-            </div>
 
-            {/* Warning */}
-            <div className="gap-2 p-3 border-yellow-500/20 bg-yellow-50/50 text-xs text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-400 flex items-start rounded-md border">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>
-                Single-token liquidity uses an automatic swap and may result in
-                slightly higher fees than providing both tokens.
-              </span>
-            </div>
+              {/* Amount presets */}
+              <div className="gap-2 grid grid-cols-3">
+                <button
+                  onClick={() => handleAmountPreset("0.1")}
+                  className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
+                >
+                  0.1%
+                </button>
+                <button
+                  onClick={() => handleAmountPreset("1")}
+                  className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
+                >
+                  1%
+                </button>
+                <div className="py-1.5 flex items-center justify-center overflow-hidden rounded-md border border-border bg-background">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    maxLength={6}
+                    placeholder="Custom %"
+                    value={customPct}
+                    className="min-w-0 text-xs font-medium w-full shrink bg-transparent text-center outline-none placeholder:text-muted-foreground"
+                    onChange={handleCustomPctChange}
+                    onBlur={handleCustomPctBlur}
+                    style={
+                      customPct
+                        ? { width: `${customPct.length}ch`, flexShrink: 0 }
+                        : undefined
+                    }
+                  />
+                  {customPct && (
+                    <span className="text-xs font-medium shrink-0">%</span>
+                  )}
+                </div>
+              </div>
 
-            {/* Slippage Tolerance */}
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">Slippage Tolerance %</span>
-              <Select
-                value={String(slippage)}
-                onValueChange={(v) => setSlippage(Number(v) as SlippageOption)}
-              >
-                <SelectTrigger className="w-auto">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SLIPPAGE_OPTIONS.map((option) => (
-                    <SelectItem key={option} value={String(option)}>
-                      {option}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Preview */}
-            {hasZapAmount && zapQuote && (
-              <LPPreview
-                estimatedLP={zapEstimatedLP}
-                sharePercent={zapSharePercent}
-              />
-            )}
-          </>
-        )}
+              {/* Warning */}
+              <div className="gap-2 p-3 border-yellow-500/20 bg-yellow-50/50 text-xs text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-400 flex items-start rounded-md border">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  Single-token liquidity uses an automatic swap and may result
+                  in slightly higher fees than providing both tokens.
+                </span>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Bottom section */}
-      <div className="gap-4 px-6 pb-6 pt-4 mt-auto flex shrink-0 flex-col">
+      {/* Right Column — Summary & Action */}
+      <div className="md:w-80 p-6 flex shrink-0 flex-col">
+        <h3 className="text-sm font-semibold mb-4 text-foreground">Summary</h3>
+
+        {/* Summary metrics */}
+        <div className="space-y-3 flex-1">
+          <div className="text-sm flex justify-between">
+            <span className="text-muted-foreground">Est. LP tokens</span>
+            <span className="font-medium">
+              {mode === "balanced" ? estimatedLP : zapEstimatedLP} LP
+            </span>
+          </div>
+          <div className="text-sm flex justify-between">
+            <span className="text-muted-foreground">LP fee</span>
+            <span className="font-medium">{pool.fees.lp.toFixed(2)}%</span>
+          </div>
+          <div className="text-sm flex justify-between">
+            <span className="text-muted-foreground">Protocol fee</span>
+            <span className="font-medium">
+              {pool.fees.protocol.toFixed(2)}%
+            </span>
+          </div>
+          {mode === "single" && (
+            <div className="text-sm flex justify-between">
+              <span className="text-muted-foreground">Swap included</span>
+              <span className="font-medium text-amber-600">Yes</span>
+            </div>
+          )}
+        </div>
+
+        {/* Slippage Tolerance */}
+        <div className="pt-4 mt-4 mb-4 border-t border-border">
+          <div className="mb-1 flex items-center justify-between">
+            <label className="text-xs text-muted-foreground">
+              Slippage tolerance
+            </label>
+            <Select
+              value={String(slippage)}
+              onValueChange={(v) => setSlippage(Number(v) as SlippageOption)}
+            >
+              <SelectTrigger className="h-7 text-xs w-[90px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SLIPPAGE_OPTIONS.map((option) => (
+                  <SelectItem key={option} value={String(option)}>
+                    {option}%
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Used to set minimum amounts for zap swaps and liquidity mint/burn.
+          </p>
+        </div>
+
+        {/* CTA */}
         {!address ? (
           <ConnectButton size="lg" text="Connect Wallet" fullWidth />
         ) : (
           <Button
             size="lg"
-            clipped="lg"
             className="w-full"
             disabled={buttonState.disabled}
             onClick={handleAction}
@@ -878,24 +853,24 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
         )}
 
         {/* Footer links */}
-        <div className="gap-4 text-sm flex items-center justify-between">
+        <div className="mt-3 flex items-center justify-between">
           <a
             href={`https://explorer.celo.org/mainnet/address/${pool.poolAddr}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="gap-1 flex cursor-pointer items-center text-muted-foreground transition-colors hover:text-foreground"
+            className="gap-1 flex items-center text-[11px] text-muted-foreground transition-colors hover:text-foreground"
           >
-            <ExternalLink className="h-3.5 w-3.5" />
-            View pool on explorer
+            <ExternalLink className="h-3 w-3" />
+            View on explorer
           </a>
           <a
             href="https://docs.mento.org/mento/overview/core-concepts/fixed-price-market-makers-fpmms"
             target="_blank"
             rel="noopener noreferrer"
-            className="gap-1 flex cursor-pointer items-center text-muted-foreground transition-colors hover:text-foreground"
+            className="gap-1 flex items-center text-[11px] text-muted-foreground transition-colors hover:text-foreground"
           >
-            <ExternalLink className="h-3.5 w-3.5" />
-            Read FPMM mechanics
+            FPMM mechanics
+            <ExternalLink className="h-3 w-3" />
           </a>
         </div>
       </div>

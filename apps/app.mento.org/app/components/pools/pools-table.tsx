@@ -5,6 +5,7 @@ import { PoolRow } from "./pool-row";
 interface PoolsTableProps {
   pools: PoolDisplay[];
   isLoading: boolean;
+  onSelectPool: (pool: PoolDisplay, mode: "deposit" | "manage") => void;
 }
 
 function SkeletonRow() {
@@ -29,7 +30,11 @@ function SkeletonRow() {
   );
 }
 
-export function PoolsTable({ pools, isLoading }: PoolsTableProps) {
+export function PoolsTable({
+  pools,
+  isLoading,
+  onSelectPool,
+}: PoolsTableProps) {
   return (
     <div className="space-y-3">
       {/* Header - hidden on mobile */}
@@ -56,7 +61,9 @@ export function PoolsTable({ pools, isLoading }: PoolsTableProps) {
           No pools found
         </div>
       ) : (
-        pools.map((pool) => <PoolRow key={pool.poolAddr} pool={pool} />)
+        pools.map((pool) => (
+          <PoolRow key={pool.poolAddr} pool={pool} onSelect={onSelectPool} />
+        ))
       )}
     </div>
   );

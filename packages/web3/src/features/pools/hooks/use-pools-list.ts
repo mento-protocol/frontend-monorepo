@@ -68,7 +68,7 @@ export function usePoolsList() {
             const reserve1Formatted = formatCompactNumber(reserve1Value);
             const totalReserves = reserve0Value + reserve1Value;
             const token0Ratio =
-              totalReserves > 0 ? reserve0Value / totalReserves : 0.5;
+              totalReserves > 0 ? reserve0Value / totalReserves : 0;
 
             let fees: PoolDisplay["fees"];
             let priceAlignment: PoolDisplay["priceAlignment"];

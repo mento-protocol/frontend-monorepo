@@ -378,220 +378,47 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
   };
 
   return (
-    <div className="min-h-0 flex flex-1 flex-col">
-      <div className="gap-6 px-6 pt-6 min-h-0 flex flex-1 flex-col overflow-y-auto">
-        {/* Mode toggle */}
-        <div className="gap-2 grid grid-cols-2">
-          <button
-            onClick={() => setMode("balanced")}
-            className={`shadow-sm px-4 py-2.5 text-sm font-medium cursor-pointer rounded-md border ${
-              mode === "balanced"
-                ? "border-border bg-background text-foreground"
-                : "border-transparent bg-transparent text-muted-foreground"
-            }`}
-          >
-            Balanced (2 tokens)
-          </button>
-          <button
-            onClick={() => setMode("single")}
-            className={`shadow-sm px-4 py-2.5 text-sm font-medium cursor-pointer rounded-md border ${
-              mode === "single"
-                ? "border-border bg-background text-foreground"
-                : "border-transparent bg-transparent text-muted-foreground"
-            }`}
-          >
-            Single token (auto-swap)
-          </button>
-        </div>
-
-        {/* LP token input */}
-        <div className="gap-2 flex flex-col">
-          <div className="gap-2 flex items-center justify-between">
-            <div className="gap-2 flex items-center">
-              <div className="-space-x-2 flex">
-                <TokenIcon
-                  token={{
-                    address: pool.token0.address,
-                    symbol: pool.token0.symbol,
-                  }}
-                  size={24}
-                  className="relative z-10 rounded-full"
-                />
-                <TokenIcon
-                  token={{
-                    address: pool.token1.address,
-                    symbol: pool.token1.symbol,
-                  }}
-                  size={24}
-                  className="rounded-full"
-                />
-              </div>
-              <span className="font-medium">LP Tokens</span>
-            </div>
-            <div className="text-sm text-muted-foreground">
-              Balance: {formatCompactBalance(formattedLpBalance)}{" "}
-              <button
-                className="font-medium cursor-pointer text-primary hover:underline"
-                onClick={() => handlePreset(1)}
-              >
-                MAX
-              </button>
-            </div>
+    <div className="md:flex-row flex flex-col">
+      {/* Left Column — Inputs */}
+      <div className="min-w-0 p-6 md:border-r flex-1 border-border">
+        <div className="gap-6 flex flex-col">
+          {/* Mode toggle */}
+          <div className="gap-2 grid grid-cols-2">
+            <button
+              onClick={() => setMode("balanced")}
+              className={`shadow-sm px-4 py-2.5 text-sm font-medium cursor-pointer rounded-md border ${
+                mode === "balanced"
+                  ? "border-border bg-background text-foreground"
+                  : "border-transparent bg-transparent text-muted-foreground"
+              }`}
+            >
+              Balanced (2 tokens)
+            </button>
+            <button
+              onClick={() => setMode("single")}
+              className={`shadow-sm px-4 py-2.5 text-sm font-medium cursor-pointer rounded-md border ${
+                mode === "single"
+                  ? "border-border bg-background text-foreground"
+                  : "border-transparent bg-transparent text-muted-foreground"
+              }`}
+            >
+              Single token (auto-swap)
+            </button>
           </div>
-          <CoinInput
-            value={lpAmount}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setLpAmount(e.target.value)
-            }
-            placeholder="0"
-            className={`shadow-xs h-10 px-3 text-sm placeholder:text-sm border border-input focus-within:border-primary focus:border-primary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${insufficientLp ? "border-destructive" : ""}`}
-          />
-          {insufficientLp && (
-            <p className="text-xs text-destructive">
-              Insufficient LP token balance
-            </p>
-          )}
-        </div>
 
-        {/* Percentage presets */}
-        <div className="gap-2 grid grid-cols-4">
-          <button
-            onClick={() => handlePreset(0.25)}
-            className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
-          >
-            25%
-          </button>
-          <button
-            onClick={() => handlePreset(0.5)}
-            className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
-          >
-            50%
-          </button>
-          <button
-            onClick={() => handlePreset(0.75)}
-            className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
-          >
-            75%
-          </button>
-          <div className="py-1.5 flex items-center justify-center overflow-hidden rounded-md border border-border bg-background">
-            <input
-              type="text"
-              inputMode="decimal"
-              maxLength={6}
-              placeholder="Custom %"
-              value={customPct}
-              className="min-w-0 text-xs font-medium w-full shrink bg-transparent text-center outline-none placeholder:text-muted-foreground"
-              onChange={handleCustomPctChange}
-              onBlur={handleCustomPctBlur}
-              style={
-                customPct
-                  ? { width: `${customPct.length}ch`, flexShrink: 0 }
-                  : undefined
-              }
-            />
-            {customPct && (
-              <span className="text-xs font-medium shrink-0">%</span>
-            )}
-          </div>
-        </div>
-
-        {mode === "balanced" ? (
-          <>
-            {/* Slippage Tolerance */}
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">Slippage Tolerance %</span>
-              <Select
-                value={String(slippage)}
-                onValueChange={(v) => setSlippage(Number(v) as SlippageOption)}
-              >
-                <SelectTrigger className="w-auto">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SLIPPAGE_OPTIONS.map((option) => (
-                    <SelectItem key={option} value={String(option)}>
-                      {option}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Preview — balanced */}
-            {hasAmount && quote && (
-              <div className="gap-3 p-3 flex flex-col rounded-md border border-border">
-                <h3 className="font-semibold">Preview</h3>
-                <div className="gap-2 text-sm flex flex-col">
-                  <div className="flex items-center justify-between">
-                    <div className="gap-2 flex items-center">
-                      <TokenIcon
-                        token={{
-                          address: pool.token0.address,
-                          symbol: pool.token0.symbol,
-                        }}
-                        size={24}
-                        className="rounded-full"
-                      />
-                      <span>{pool.token0.symbol}</span>
-                    </div>
-                    <span className="font-medium">
-                      {formatTokenAmount(quote?.amount0, pool.token0.decimals)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="gap-2 flex items-center">
-                      <TokenIcon
-                        token={{
-                          address: pool.token1.address,
-                          symbol: pool.token1.symbol,
-                        }}
-                        size={24}
-                        className="rounded-full"
-                      />
-                      <span>{pool.token1.symbol}</span>
-                    </div>
-                    <span className="font-medium">
-                      {formatTokenAmount(quote?.amount1, pool.token1.decimals)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </>
-        ) : (
-          <>
-            {/* Receive as — single token selector */}
-            <div className="gap-2 flex flex-col">
-              <label className="text-sm text-muted-foreground">
-                Receive as
-              </label>
-              <div className="gap-2 grid grid-cols-2">
-                <button
-                  onClick={() => setReceiveToken(pool.token0.address)}
-                  className={`gap-2 px-4 py-2.5 text-sm font-medium flex cursor-pointer items-center justify-center rounded-md border ${
-                    receiveToken === pool.token0.address
-                      ? "border-border bg-background text-foreground"
-                      : "border-transparent bg-transparent text-muted-foreground"
-                  }`}
-                >
+          {/* LP token input */}
+          <div className="gap-2 flex flex-col">
+            <div className="gap-2 flex items-center justify-between">
+              <div className="gap-2 flex items-center">
+                <div className="-space-x-2 flex">
                   <TokenIcon
                     token={{
                       address: pool.token0.address,
                       symbol: pool.token0.symbol,
                     }}
                     size={24}
-                    className="rounded-full"
+                    className="relative z-10 rounded-full"
                   />
-                  {pool.token0.symbol}
-                </button>
-                <button
-                  onClick={() => setReceiveToken(pool.token1.address)}
-                  className={`gap-2 px-4 py-2.5 text-sm font-medium flex cursor-pointer items-center justify-center rounded-md border ${
-                    receiveToken === pool.token1.address
-                      ? "border-border bg-background text-foreground"
-                      : "border-transparent bg-transparent text-muted-foreground"
-                  }`}
-                >
                   <TokenIcon
                     token={{
                       address: pool.token1.address,
@@ -600,85 +427,318 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
                     size={24}
                     className="rounded-full"
                   />
-                  {pool.token1.symbol}
+                </div>
+                <span className="font-medium">LP Tokens</span>
+              </div>
+              <div className="text-sm text-muted-foreground">
+                Balance: {formatCompactBalance(formattedLpBalance)}{" "}
+                <button
+                  className="font-medium cursor-pointer text-primary hover:underline"
+                  onClick={() => handlePreset(1)}
+                >
+                  MAX
                 </button>
               </div>
             </div>
+            <CoinInput
+              value={lpAmount}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setLpAmount(e.target.value)
+              }
+              placeholder="0"
+              className={`shadow-xs h-10 px-3 text-sm placeholder:text-sm border border-input focus-within:border-primary focus:border-primary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${insufficientLp ? "border-destructive" : ""}`}
+            />
+            {insufficientLp && (
+              <p className="text-xs text-destructive">
+                Insufficient LP token balance
+              </p>
+            )}
+          </div>
 
-            {/* Slippage Tolerance */}
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">Slippage Tolerance %</span>
-              <Select
-                value={String(slippage)}
-                onValueChange={(v) => setSlippage(Number(v) as SlippageOption)}
-              >
-                <SelectTrigger className="w-auto">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SLIPPAGE_OPTIONS.map((option) => (
-                    <SelectItem key={option} value={String(option)}>
-                      {option}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          {/* Percentage presets */}
+          <div className="gap-2 grid grid-cols-4">
+            <button
+              onClick={() => handlePreset(0.25)}
+              className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
+            >
+              25%
+            </button>
+            <button
+              onClick={() => handlePreset(0.5)}
+              className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
+            >
+              50%
+            </button>
+            <button
+              onClick={() => handlePreset(0.75)}
+              className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
+            >
+              75%
+            </button>
+            <div className="py-1.5 flex items-center justify-center overflow-hidden rounded-md border border-border bg-background">
+              <input
+                type="text"
+                inputMode="decimal"
+                maxLength={6}
+                placeholder="Custom %"
+                value={customPct}
+                className="min-w-0 text-xs font-medium w-full shrink bg-transparent text-center outline-none placeholder:text-muted-foreground"
+                onChange={handleCustomPctChange}
+                onBlur={handleCustomPctBlur}
+                style={
+                  customPct
+                    ? { width: `${customPct.length}ch`, flexShrink: 0 }
+                    : undefined
+                }
+              />
+              {customPct && (
+                <span className="text-xs font-medium shrink-0">%</span>
+              )}
             </div>
+          </div>
 
-            {/* Preview — single token */}
-            {hasAmount && zapOutQuote && (
-              <div className="gap-3 p-3 flex flex-col rounded-md border border-border">
-                <h3 className="font-semibold">Preview</h3>
-                <div className="text-sm flex items-center justify-between">
-                  <span className="text-muted-foreground">
-                    Estimated {selectedToken.symbol}
-                  </span>
-                  <span className="font-medium">
-                    {formatTokenAmount(
-                      zapOutQuote?.expectedTokenOut,
-                      selectedToken.decimals,
-                    )}
-                  </span>
+          {mode === "balanced" ? (
+            <>
+              {/* Preview — balanced: "You will receive" */}
+              {hasAmount && quote && (
+                <div className="pt-4 border-t border-border">
+                  <h3 className="font-medium mb-3 text-sm">You will receive</h3>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="gap-2 flex items-center">
+                        <TokenIcon
+                          token={{
+                            address: pool.token0.address,
+                            symbol: pool.token0.symbol,
+                          }}
+                          size={24}
+                          className="rounded-full"
+                        />
+                        <span className="text-sm">{pool.token0.symbol}</span>
+                      </div>
+                      <span className="font-medium">
+                        {formatTokenAmount(
+                          quote?.amount0,
+                          pool.token0.decimals,
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="gap-2 flex items-center">
+                        <TokenIcon
+                          token={{
+                            address: pool.token1.address,
+                            symbol: pool.token1.symbol,
+                          }}
+                          size={24}
+                          className="rounded-full"
+                        />
+                        <span className="text-sm">{pool.token1.symbol}</span>
+                      </div>
+                      <span className="font-medium">
+                        {formatTokenAmount(
+                          quote?.amount1,
+                          pool.token1.decimals,
+                        )}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div className="border-t border-border" />
-                <div className="gap-1 text-sm flex flex-col">
-                  <span className="text-xs text-muted-foreground">
-                    Underlying remove:
-                  </span>
-                  <span className="font-medium">
-                    {/* Both amountOutMin values are in the output token's units
-                        (both routes terminate at tokenOut). */}
-                    {formatTokenAmount(
-                      zapOutBuildResult
-                        ? zapOutBuildResult.zapOut.zapParams.amountOutMinA +
-                            zapOutBuildResult.zapOut.zapParams.amountOutMinB
-                        : undefined,
-                      selectedToken.decimals,
-                    )}{" "}
-                    {selectedToken.symbol}
-                  </span>
+              )}
+            </>
+          ) : (
+            <>
+              {/* Receive as — single token selector */}
+              <div className="gap-2 flex flex-col">
+                <label className="text-sm text-muted-foreground">
+                  Receive as
+                </label>
+                <div className="gap-2 grid grid-cols-2">
+                  <button
+                    onClick={() => setReceiveToken(pool.token0.address)}
+                    className={`gap-2 px-4 py-2.5 text-sm font-medium flex cursor-pointer items-center justify-center rounded-md border ${
+                      receiveToken === pool.token0.address
+                        ? "border-border bg-background text-foreground"
+                        : "border-transparent bg-transparent text-muted-foreground"
+                    }`}
+                  >
+                    <TokenIcon
+                      token={{
+                        address: pool.token0.address,
+                        symbol: pool.token0.symbol,
+                      }}
+                      size={24}
+                      className="rounded-full"
+                    />
+                    {pool.token0.symbol}
+                  </button>
+                  <button
+                    onClick={() => setReceiveToken(pool.token1.address)}
+                    className={`gap-2 px-4 py-2.5 text-sm font-medium flex cursor-pointer items-center justify-center rounded-md border ${
+                      receiveToken === pool.token1.address
+                        ? "border-border bg-background text-foreground"
+                        : "border-transparent bg-transparent text-muted-foreground"
+                    }`}
+                  >
+                    <TokenIcon
+                      token={{
+                        address: pool.token1.address,
+                        symbol: pool.token1.symbol,
+                      }}
+                      size={24}
+                      className="rounded-full"
+                    />
+                    {pool.token1.symbol}
+                  </button>
                 </div>
               </div>
-            )}
 
-            {/* Info text */}
-            <p className="text-xs text-muted-foreground">
-              Liquidity is removed into both pool tokens first, then one side is
-              swapped so you receive a single token.
-            </p>
-          </>
-        )}
+              {/* Preview — single token: breakdown */}
+              {hasAmount && zapOutQuote && (
+                <div className="gap-3 p-3 flex flex-col rounded-md border border-border bg-muted/30">
+                  <p className="text-sm font-medium text-foreground">
+                    You will receive
+                  </p>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">
+                        Estimated {selectedToken.symbol}
+                      </span>
+                      <span className="font-medium">
+                        {formatTokenAmount(
+                          zapOutQuote?.expectedTokenOut,
+                          selectedToken.decimals,
+                        )}
+                      </span>
+                    </div>
+                    <div className="my-2 h-px bg-border" />
+                    <p className="text-muted-foreground">Underlying remove:</p>
+                    <div className="pl-2 flex justify-between">
+                      <span className="text-muted-foreground">
+                        Min output ({selectedToken.symbol})
+                      </span>
+                      <span>
+                        {formatTokenAmount(
+                          zapOutBuildResult
+                            ? zapOutBuildResult.zapOut.zapParams.amountOutMinA +
+                                zapOutBuildResult.zapOut.zapParams.amountOutMinB
+                            : undefined,
+                          selectedToken.decimals,
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Info text */}
+              <p className="text-xs text-muted-foreground">
+                Liquidity is removed into both pool tokens first, then one side
+                is swapped so you receive a single token.
+              </p>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Bottom section — pinned */}
-      <div className="gap-4 px-6 pb-6 pt-4 mt-auto flex shrink-0 flex-col">
+      {/* Right Column — Summary & Action */}
+      <div className="md:w-80 p-6 flex shrink-0 flex-col">
+        <h3 className="text-sm font-semibold mb-4 text-foreground">Summary</h3>
+
+        {/* Summary metrics */}
+        <div className="space-y-3 flex-1">
+          {mode === "balanced" ? (
+            <>
+              <div className="text-sm flex justify-between">
+                <span className="text-muted-foreground">
+                  Receive {pool.token0.symbol}
+                </span>
+                <span className="font-medium">
+                  {hasAmount && quote
+                    ? formatTokenAmount(quote.amount0, pool.token0.decimals)
+                    : "0.0000"}
+                </span>
+              </div>
+              <div className="text-sm flex justify-between">
+                <span className="text-muted-foreground">
+                  Receive {pool.token1.symbol}
+                </span>
+                <span className="font-medium">
+                  {hasAmount && quote
+                    ? formatTokenAmount(quote.amount1, pool.token1.decimals)
+                    : "0.0000"}
+                </span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="text-sm flex justify-between">
+                <span className="text-muted-foreground">Estimated output</span>
+                <span className="font-medium">
+                  {hasAmount && zapOutQuote
+                    ? formatTokenAmount(
+                        zapOutQuote.expectedTokenOut,
+                        selectedToken.decimals,
+                      )
+                    : "0.0000"}{" "}
+                  {selectedToken.symbol}
+                </span>
+              </div>
+              <div className="text-sm flex justify-between">
+                <span className="text-muted-foreground">Min received</span>
+                <span className="font-medium">
+                  {hasAmount && zapOutBuildResult
+                    ? formatTokenAmount(
+                        zapOutBuildResult.zapOut.zapParams.amountOutMinA +
+                          zapOutBuildResult.zapOut.zapParams.amountOutMinB,
+                        selectedToken.decimals,
+                      )
+                    : "0.0000"}{" "}
+                  {selectedToken.symbol}
+                </span>
+              </div>
+            </>
+          )}
+          <div className="text-sm flex justify-between">
+            <span className="text-muted-foreground">LP fee</span>
+            <span className="font-medium">{pool.fees.lp.toFixed(2)}%</span>
+          </div>
+        </div>
+
+        {/* Slippage Tolerance */}
+        <div className="pt-4 mt-4 mb-4 border-t border-border">
+          <div className="mb-1 flex items-center justify-between">
+            <label className="text-xs text-muted-foreground">
+              Slippage tolerance
+            </label>
+            <Select
+              value={String(slippage)}
+              onValueChange={(v) => setSlippage(Number(v) as SlippageOption)}
+            >
+              <SelectTrigger className="h-7 text-xs w-[90px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SLIPPAGE_OPTIONS.map((option) => (
+                  <SelectItem key={option} value={String(option)}>
+                    {option}%
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Used to set minimum amounts for zap swaps and liquidity mint/burn.
+          </p>
+        </div>
+
+        {/* CTA */}
         {!address ? (
           <ConnectButton size="lg" text="Connect Wallet" fullWidth />
         ) : (
           <>
             <Button
               size="lg"
-              clipped="lg"
               className="w-full"
               disabled={buttonState.disabled}
               onClick={handleAction}
@@ -686,7 +746,7 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
               {buttonState.text}
             </Button>
             {mode === "single" && zapOutBuildError && (
-              <p className="text-xs leading-5 text-center text-muted-foreground">
+              <p className="text-xs leading-5 mt-2 text-center text-muted-foreground">
                 {zapOutBuildError}
               </p>
             )}
@@ -694,24 +754,24 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
         )}
 
         {/* Footer links */}
-        <div className="gap-4 text-sm flex items-center justify-between">
+        <div className="mt-3 flex items-center justify-between">
           <a
             href={`https://explorer.celo.org/mainnet/address/${pool.poolAddr}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="gap-1 flex cursor-pointer items-center text-muted-foreground transition-colors hover:text-foreground"
+            className="gap-1 flex items-center text-[11px] text-muted-foreground transition-colors hover:text-foreground"
           >
-            <ExternalLink className="h-3.5 w-3.5" />
-            View pool on explorer
+            <ExternalLink className="h-3 w-3" />
+            View on explorer
           </a>
           <a
             href="https://docs.mento.org/mento/overview/core-concepts/fixed-price-market-makers-fpmms"
             target="_blank"
             rel="noopener noreferrer"
-            className="gap-1 flex cursor-pointer items-center text-muted-foreground transition-colors hover:text-foreground"
+            className="gap-1 flex items-center text-[11px] text-muted-foreground transition-colors hover:text-foreground"
           >
-            <ExternalLink className="h-3.5 w-3.5" />
-            Read FPMM mechanics
+            FPMM mechanics
+            <ExternalLink className="h-3 w-3" />
           </a>
         </div>
       </div>
