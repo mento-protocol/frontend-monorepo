@@ -25,6 +25,7 @@
     "next": "catalog:",
     "next-themes": "catalog:",
     "react": "catalog:",
+    "recharts": "^3.6.0",
     "react-dom": "catalog:",
     "react-hook-form": "catalog:",
     "sonner": "catalog:",
