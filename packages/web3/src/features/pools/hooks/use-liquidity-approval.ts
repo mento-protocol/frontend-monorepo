@@ -43,6 +43,7 @@ export function useLiquidityApproval(
         getTransactionErrorMessage(
           err instanceof Error ? err.message : String(err),
           "Unable to complete approval transaction.",
+          `${tokenSymbol} approval`,
         ),
       );
       logger.error(`${tokenSymbol} approval failed:`, err);

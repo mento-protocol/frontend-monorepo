@@ -128,6 +128,7 @@ export function useZapInTransaction(pool: PoolDisplay) {
           getTransactionErrorMessage(
             err instanceof Error ? err.message : String(err),
             "Unable to complete zap-in transaction.",
+            "Add liquidity",
           ),
         );
         logger.error("Zap-in transaction failed:", err);

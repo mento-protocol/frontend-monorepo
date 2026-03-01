@@ -92,6 +92,7 @@ export function useAddLiquidityTransaction(pool: PoolDisplay) {
           getTransactionErrorMessage(
             err instanceof Error ? err.message : String(err),
             "Unable to complete add liquidity transaction.",
+            "Add liquidity",
           ),
         );
         logger.error("Add liquidity transaction failed:", err);

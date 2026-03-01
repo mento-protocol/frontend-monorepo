@@ -89,6 +89,7 @@ export function useRemoveLiquidityTransaction(pool: PoolDisplay) {
           getTransactionErrorMessage(
             err instanceof Error ? err.message : String(err),
             "Unable to complete remove liquidity transaction.",
+            "Remove liquidity",
           ),
         );
         logger.error("Remove liquidity transaction failed:", err);
