@@ -1,5 +1,6 @@
 export * from "./accounts";
 export * from "./blocks";
+export * from "./borrow";
 export * from "./contracts";
 export * from "./polling";
 export * from "./pools";
