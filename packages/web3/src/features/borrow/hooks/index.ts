@@ -10,6 +10,8 @@ export { useLoanDetails } from "./use-loan-details";
 export { useNextOwnerIndex } from "./use-next-owner-index";
 export { usePredictUpfrontFee } from "./use-predict-upfront-fee";
 export { useRedemptionRisk } from "./use-redemption-risk";
+export { useStabilityPool } from "./use-stability-pool";
+export { useStabilityPoolStats } from "./use-stability-pool-stats";
 export { useSystemParams } from "./use-system-params";
 export { useTroveData } from "./use-trove-data";
 export { useUserTroves } from "./use-user-troves";
