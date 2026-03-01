@@ -8,6 +8,7 @@ export { useInterestRateChartData } from "./use-interest-rate-chart-data";
 export type { InterestRateChartPoint } from "./use-interest-rate-chart-data";
 export { useLoanDetails } from "./use-loan-details";
 export { useNextOwnerIndex } from "./use-next-owner-index";
+export { useOpenTrove } from "./use-open-trove";
 export { usePredictUpfrontFee } from "./use-predict-upfront-fee";
 export { useRedemptionRisk } from "./use-redemption-risk";
 export { useStabilityPool } from "./use-stability-pool";
