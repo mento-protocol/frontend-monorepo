@@ -346,8 +346,16 @@ export default function SwapForm() {
   const handleUseMaxBalance = () => {
     const maxAmountInWei =
       balances[tokenInSymbol as keyof typeof balances] || "0";
-    const maxAmountBigInt = BigInt(maxAmountInWei);
+    let maxAmountBigInt = BigInt(maxAmountInWei);
     const decimals = getTokenDecimals(tokenInSymbol, chainId);
+
+    // Reserve gas when using MAX on native CELO to prevent "insufficient funds for gas" errors
+    if (tokenInSymbol === "CELO") {
+      const gasReserveWei = BigInt("10000000000000000"); // 0.01 CELO
+      if (maxAmountBigInt > gasReserveWei) {
+        maxAmountBigInt = maxAmountBigInt - gasReserveWei;
+      }
+    }
 
     const formattedAmount = formatBalance(maxAmountBigInt.toString(), decimals);
     const formattedAmountWithMaxDecimals = formatWithMaxDecimals(
@@ -360,7 +368,7 @@ export default function SwapForm() {
     if (tokenInSymbol === "CELO") {
       toast.success("Max balance used", {
         duration: 5000,
-        description: () => <>Consider keeping some CELO for transaction fees</>,
+        description: () => <>0.01 CELO reserved for transaction fees</>,
         icon: <OctagonAlert strokeWidth={1.5} size={18} className="mt-0.5" />,
       });
     }

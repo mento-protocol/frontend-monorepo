@@ -174,9 +174,9 @@ export default function TokenDialog({
                 token={token}
                 isSelected={value === token.symbol}
                 isLast={index === unavailableTokens.length - 1}
-                onSelect={() => handleTokenSelect(token.symbol as TokenSymbol)}
+                onSelect={() => {}}
                 testId={`tokenOption_${token.symbol}_invalid`}
-                className="opacity-50"
+                className="pointer-events-none opacity-50"
               />
             ))}
           </ScrollArea>
