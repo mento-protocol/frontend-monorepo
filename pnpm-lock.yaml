@@ -124,6 +124,7 @@ overrides:
   next: ^15.5.10
   preact: '>=10.28.2'
   rollup@>=4.0.0 <4.59.0: '>=4.59.0'
+  serialize-javascript@<7.0.0: '>=7.0.0'
   tmp: '>=0.2.4'
   wagmi: ^2.16.9
   zod: ^4.1.13
@@ -270,10 +271,10 @@ importers:
     dependencies:
       '@apollo/client':
         specifier: ^3.14.0
-        version: 3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+        version: 3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@apollo/client-integration-nextjs':
         specifier: ^0.12.3
-        version: 0.12.3(@apollo/client@3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/react@19.2.7)(graphql@16.12.0)(next@15.5.11(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+        version: 0.12.3(@apollo/client@3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/react@19.2.7)(graphql@16.12.0)(next@15.5.11(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@metamask/jazzicon':
         specifier: 'catalog:'
         version: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28
@@ -7737,9 +7738,6 @@ packages:
   radix3@1.1.2:
     resolution: {integrity: sha512-b484I/7b8rDEdSDKckSSBA8knMpcdsXudlE/LNL639wFoHKwLbEkQFZHWEYwDC0wa0FKUcCY+GAF73Z7wxNVFA==}
 
-  randombytes@2.1.0:
-    resolution: {integrity: sha512-vYl3iOX+4CKUWuxGi9Ukhie6fsqXqS9FE2Zaic4tNFD2N2QQaXOMFbuKK4QmDHC0JO6B1Zp41J0LpT0oR68amQ==}
-
   rc@1.2.8:
     resolution: {integrity: sha512-y3bGgqKj3QBdxLbLkomlohkvsA8gdAiUQlSBJnBhfn+BPxg4bc62d8TcBW15wavDfgexCgccckhcZvywyQYPOw==}
     hasBin: true
@@ -8059,8 +8057,9 @@ packages:
   sentence-case@3.0.4:
     resolution: {integrity: sha512-8LS0JInaQMCRoQ7YUytAo/xUu5W2XnQxV2HI/6uM6U7CITS1RqPElr30V6uIqyMKM9lJGRVFy5/4CuzcixNYSg==}
 
-  serialize-javascript@6.0.2:
-    resolution: {integrity: sha512-Saa1xPByTTq2gdeFZYLLo+RFE35NHZkAbqZeWNd3BpzppeVisAqpDjcp8dyf6uIvEqJRd46jemmyA4iFIeVk8g==}
+  serialize-javascript@7.0.3:
+    resolution: {integrity: sha512-h+cZ/XXarqDgCjo+YSyQU/ulDEESGGf8AMK9pPNmhNSl/FzPl6L8pMp1leca5z6NuG6tvV/auC8/43tmovowww==}
+    engines: {node: '>=20.0.0'}
 
   set-blocking@2.0.0:
     resolution: {integrity: sha512-KiKBS8AnWGEyLzofFfmvKwpdPzqiy16LvQfK3yv/fVH7Bj13/wl3JSR1J+rfgRE9q7xUJK4qvgS8raSOeLUehw==}
@@ -9153,10 +9152,10 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@apollo/client-integration-nextjs@0.12.3(@apollo/client@3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/react@19.2.7)(graphql@16.12.0)(next@15.5.11(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+  '@apollo/client-integration-nextjs@0.12.3(@apollo/client@3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/react@19.2.7)(graphql@16.12.0)(next@15.5.11(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
     dependencies:
-      '@apollo/client': 3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-      '@apollo/client-react-streaming': 0.12.3(@apollo/client@3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/react@19.2.7)(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@apollo/client': 3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@apollo/client-react-streaming': 0.12.3(@apollo/client@3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/react@19.2.7)(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       next: 15.5.11(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       react: 19.2.3
     transitivePeerDependencies:
@@ -9164,9 +9163,9 @@ snapshots:
       - graphql
       - react-dom
 
-  '@apollo/client-react-streaming@0.12.3(@apollo/client@3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/react@19.2.7)(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+  '@apollo/client-react-streaming@0.12.3(@apollo/client@3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/react@19.2.7)(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
     dependencies:
-      '@apollo/client': 3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@apollo/client': 3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@types/react-dom': 19.2.3(@types/react@19.2.7)
       '@wry/equality': 0.5.7
       graphql: 16.12.0
@@ -9176,7 +9175,7 @@ snapshots:
     transitivePeerDependencies:
       - '@types/react'
 
-  '@apollo/client@3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+  '@apollo/client@3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
     dependencies:
       '@graphql-typed-document-node/core': 3.2.0(graphql@16.12.0)
       '@wry/caches': 1.0.1
@@ -9193,7 +9192,7 @@ snapshots:
       tslib: 2.8.1
       zen-observable-ts: 1.2.5
     optionalDependencies:
-      graphql-ws: 6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))
+      graphql-ws: 6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10))
       react: 19.2.3
       react-dom: 19.2.3(react@19.2.3)
     transitivePeerDependencies:
@@ -16277,6 +16276,14 @@ snapshots:
       graphql: 16.12.0
       tslib: 2.8.1
 
+  graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10)):
+    dependencies:
+      graphql: 16.12.0
+    optionalDependencies:
+      crossws: 0.3.5
+      ws: 7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10)
+    optional: true
+
   graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)):
     dependencies:
       graphql: 16.12.0
@@ -18210,10 +18217,6 @@ snapshots:
 
   radix3@1.1.2: {}
 
-  randombytes@2.1.0:
-    dependencies:
-      safe-buffer: 5.2.1
-
   rc@1.2.8:
     dependencies:
       deep-extend: 0.6.0
@@ -18615,9 +18618,7 @@ snapshots:
       tslib: 2.8.1
       upper-case-first: 2.0.2
 
-  serialize-javascript@6.0.2:
-    dependencies:
-      randombytes: 2.1.0
+  serialize-javascript@7.0.3: {}
 
   set-blocking@2.0.0: {}
 
@@ -19000,7 +19001,7 @@ snapshots:
       '@jridgewell/trace-mapping': 0.3.31
       jest-worker: 27.5.1
       schema-utils: 4.3.3
-      serialize-javascript: 6.0.2
+      serialize-javascript: 7.0.3
       terser: 5.44.1
       webpack: 5.104.1(esbuild@0.27.2)
     optionalDependencies:
@@ -19011,7 +19012,7 @@ snapshots:
       '@jridgewell/trace-mapping': 0.3.31
       jest-worker: 27.5.1
       schema-utils: 4.3.3
-      serialize-javascript: 6.0.2
+      serialize-javascript: 7.0.3
       terser: 5.44.1
       webpack: 5.104.1
 
