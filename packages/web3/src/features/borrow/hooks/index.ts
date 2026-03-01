@@ -19,6 +19,7 @@ export { useSpDeposit } from "./use-sp-deposit";
 export { useSpWithdraw } from "./use-sp-withdraw";
 export { useStabilityPool } from "./use-stability-pool";
 export { useStabilityPoolStats } from "./use-stability-pool-stats";
+export { useSurplusCollateral } from "./use-surplus-collateral";
 export { useSystemParams } from "./use-system-params";
 export { useTroveData } from "./use-trove-data";
 export { useUserTroves } from "./use-user-troves";

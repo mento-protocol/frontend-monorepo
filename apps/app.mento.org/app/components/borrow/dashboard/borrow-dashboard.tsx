@@ -5,9 +5,12 @@ import { Button } from "@repo/ui";
 import {
   useUserTroves,
   useStabilityPool,
+  useSurplusCollateral,
+  useClaimCollateral,
   selectedDebtTokenAtom,
+  formatCollateralAmount,
 } from "@repo/web3";
-import { useAccount } from "@repo/web3/wagmi";
+import { useAccount, useConfig } from "@repo/web3/wagmi";
 import { DebtTokenSelector } from "../shared/debt-token-selector";
 import { PositionCard } from "./position-card";
 import { StabilityCard } from "./stability-card";
@@ -15,6 +18,7 @@ import { borrowViewAtom } from "../atoms/borrow-navigation";
 
 export function BorrowDashboard() {
   const { address, isConnected } = useAccount();
+  const wagmiConfig = useConfig();
   const debtToken = useAtomValue(selectedDebtTokenAtom);
   const setBorrowView = useSetAtom(borrowViewAtom);
 
@@ -24,14 +28,17 @@ export function BorrowDashboard() {
     isError: trovesError,
   } = useUserTroves(debtToken.symbol);
 
-  const {
-    data: spPosition,
-    isLoading: spLoading,
-  } = useStabilityPool(debtToken.symbol);
+  const { data: spPosition, isLoading: spLoading } = useStabilityPool(
+    debtToken.symbol,
+  );
+
+  const { data: surplusAmount } = useSurplusCollateral(debtToken.symbol);
+  const claimCollateral = useClaimCollateral();
 
   const isLoading = trovesLoading || spLoading;
   const hasTroves = troves && troves.length > 0;
   const hasSpDeposit = spPosition && spPosition.deposit > 0n;
+  const hasSurplus = surplusAmount != null && surplusAmount > 0n;
   const hasPositions = hasTroves || hasSpDeposit;
 
   if (!isConnected) {
@@ -52,7 +59,7 @@ export function BorrowDashboard() {
     );
   }
 
-  if (!hasPositions) {
+  if (!hasPositions && !hasSurplus) {
     return (
       <EmptyState
         onOpenTrove={() => setBorrowView("open-trove")}
@@ -63,8 +70,33 @@ export function BorrowDashboard() {
 
   return (
     <div className="space-y-4">
+      {/* Claim collateral banner */}
+      {hasSurplus && (
+        <div className="p-4 flex items-center justify-between rounded-lg border border-primary/20 bg-primary/5">
+          <div>
+            <p className="font-medium">Surplus Collateral Available</p>
+            <p className="text-sm text-muted-foreground">
+              You have {formatCollateralAmount(surplusAmount)} available to
+              claim from a liquidated position.
+            </p>
+          </div>
+          <Button
+            onClick={() =>
+              claimCollateral.mutate({
+                symbol: debtToken.symbol,
+                wagmiConfig,
+                account: address!,
+              })
+            }
+            disabled={claimCollateral.isPending}
+          >
+            {claimCollateral.isPending ? "Claiming…" : "Claim Collateral"}
+          </Button>
+        </div>
+      )}
+
       {/* Action buttons */}
-      <div className="flex gap-3">
+      <div className="gap-3 flex">
         <Button onClick={() => setBorrowView("open-trove")}>Open Trove</Button>
         <Button variant="outline" onClick={() => setBorrowView("earn")}>
           Earn
@@ -73,7 +105,7 @@ export function BorrowDashboard() {
 
       {/* Trove positions */}
       {hasTroves && (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="gap-4 md:grid-cols-2 grid">
           {troves.map((position) => (
             <PositionCard
               key={position.troveId}
@@ -86,7 +118,7 @@ export function BorrowDashboard() {
 
       {/* Stability Pool position */}
       {hasSpDeposit && (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="gap-4 md:grid-cols-2 grid">
           <StabilityCard position={spPosition} debtToken={debtToken} />
         </div>
       )}
@@ -106,7 +138,7 @@ function NotConnectedState() {
 
 function LoadingState() {
   return (
-    <div className="grid gap-4 md:grid-cols-2">
+    <div className="gap-4 md:grid-cols-2 grid">
       {[1, 2].map((i) => (
         <div key={i} className="h-48 animate-pulse rounded-lg bg-muted" />
       ))}
@@ -122,11 +154,11 @@ function EmptyState({
   onEarn: () => void;
 }) {
   return (
-    <div className="p-8 bg-card text-center space-y-4">
+    <div className="p-8 space-y-4 bg-card text-center">
       <p className="text-muted-foreground">
         You don&apos;t have any active positions yet.
       </p>
-      <div className="flex justify-center gap-3">
+      <div className="gap-3 flex justify-center">
         <Button onClick={onOpenTrove}>Open Your First Trove</Button>
         <Button variant="outline" onClick={onEarn}>
           Deposit into Stability Pool
