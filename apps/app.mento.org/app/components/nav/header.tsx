@@ -43,11 +43,16 @@ function ThemeSwitch() {
   );
 }
 
-const tabs: { value: AppTab; label: string }[] = [
+const allTabs: { value: AppTab; label: string }[] = [
   { value: "swap", label: "Swap" },
   { value: "pool", label: "Pool" },
   { value: "borrow", label: "Borrow" },
 ];
+
+const shouldEnableBorrow = process.env.NEXT_PUBLIC_ENABLE_BORROW === "true";
+const tabs = shouldEnableBorrow
+  ? allTabs
+  : allTabs.filter((tab) => tab.value !== "borrow");
 
 export function Header() {
   const [activeTab, setActiveTab] = useAtom(activeTabAtom);
