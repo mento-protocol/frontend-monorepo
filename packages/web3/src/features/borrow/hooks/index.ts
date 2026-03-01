@@ -3,6 +3,7 @@ export { useBorrowService } from "./use-borrow-service";
 export { useBranchStats } from "./use-branch-stats";
 export { useCollateralPrice } from "./use-collateral-price";
 export { useInterestRateBrackets } from "./use-interest-rate-brackets";
+export { useLoanDetails } from "./use-loan-details";
 export { useNextOwnerIndex } from "./use-next-owner-index";
 export { usePredictUpfrontFee } from "./use-predict-upfront-fee";
 export { useSystemParams } from "./use-system-params";
