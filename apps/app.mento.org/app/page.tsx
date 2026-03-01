@@ -10,6 +10,7 @@ import { activeTabAtom } from "@/atoms/navigation";
 
 import { Button, cn, DebugPopup } from "@repo/ui";
 import { PoolsView } from "./components/pools/pools-view";
+import { BorrowView } from "./components/borrow/borrow-view";
 
 export default function SwapPage() {
   const [confirmView, setConfirmView] = useAtom(confirmViewAtom);
@@ -64,13 +65,7 @@ export default function SwapPage() {
           </div>
         )}
         {activeTab === "pool" && <PoolsView />}
-        {shouldEnableBorrow && activeTab === "borrow" && (
-          <div className="mb-6 px-4 md:px-0 relative w-full max-w-[568px]">
-            <div className="space-y-6 p-6 md:h-[510px] relative z-50 flex h-[510px] flex-col items-center justify-center bg-card">
-              <span className="text-muted-foreground">Coming soon</span>
-            </div>
-          </div>
-        )}
+        {shouldEnableBorrow && activeTab === "borrow" && <BorrowView />}
       </div>
     </>
   );
