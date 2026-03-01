@@ -1,5 +1,7 @@
+export { useAdjustInterestRate } from "./use-adjust-interest-rate";
 export { useAdjustTrove } from "./use-adjust-trove";
 export { useBorrowAllowance } from "./use-borrow-allowance";
+export { useClaimCollateral } from "./use-claim-collateral";
 export { useCloseTrove } from "./use-close-trove";
 export { useBorrowService } from "./use-borrow-service";
 export { useBranchStats } from "./use-branch-stats";
