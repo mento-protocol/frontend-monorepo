@@ -4,6 +4,8 @@ export { useBranchStats } from "./use-branch-stats";
 export { useCollateralPrice } from "./use-collateral-price";
 export { useDebtSuggestions } from "./use-debt-suggestions";
 export { useInterestRateBrackets } from "./use-interest-rate-brackets";
+export { useInterestRateChartData } from "./use-interest-rate-chart-data";
+export type { InterestRateChartPoint } from "./use-interest-rate-chart-data";
 export { useLoanDetails } from "./use-loan-details";
 export { useNextOwnerIndex } from "./use-next-owner-index";
 export { usePredictUpfrontFee } from "./use-predict-upfront-fee";
