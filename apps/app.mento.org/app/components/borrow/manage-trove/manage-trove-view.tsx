@@ -22,6 +22,9 @@ import {
   formatInterestRate,
 } from "@repo/web3";
 import { TroveMetrics } from "../shared/trove-metrics";
+import { AdjustForm } from "./adjust-form";
+import { RateForm } from "./rate-form";
+import { CloseForm } from "./close-form";
 import { borrowViewAtom } from "../atoms/borrow-navigation";
 
 interface ManageTroveViewProps {
@@ -114,19 +117,19 @@ export function ManageTroveView({ troveId }: ManageTroveViewProps) {
               <TabsTrigger value="close">Close</TabsTrigger>
             </TabsList>
             <TabsContent value="adjust">
-              <div className="py-8 text-center text-muted-foreground">
-                Adjust trove form — coming soon
-              </div>
+              {troveData && (
+                <AdjustForm troveId={troveId} troveData={troveData} />
+              )}
             </TabsContent>
             <TabsContent value="interest-rate">
-              <div className="py-8 text-center text-muted-foreground">
-                Interest rate change form — coming soon
-              </div>
+              {troveData && (
+                <RateForm troveId={troveId} troveData={troveData} />
+              )}
             </TabsContent>
             <TabsContent value="close">
-              <div className="py-8 text-center text-muted-foreground">
-                Close trove form — coming soon
-              </div>
+              {troveData && (
+                <CloseForm troveId={troveId} troveData={troveData} />
+              )}
             </TabsContent>
           </Tabs>
         </CardContent>
