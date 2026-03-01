@@ -74,7 +74,7 @@ export function PoolAddressPopover({ pool }: PoolAddressPopoverProps) {
   }, []);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open}>
       <PopoverTrigger asChild>
         <button
           type="button"

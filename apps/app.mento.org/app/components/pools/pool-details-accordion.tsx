@@ -55,7 +55,7 @@ export function PoolDetailsAccordion({ pool }: PoolDetailsAccordionProps) {
   };
 
   return (
-    <div className="px-4 py-4 md:px-6 md:py-5 space-y-5 md:space-y-6 border-t border-border bg-muted/60">
+    <div className="px-4 py-4 md:px-6 md:py-5 space-y-5 md:space-y-6 border-t border-border bg-muted/60 ring-1 ring-border/50">
       <div className="gap-5 md:gap-8 md:grid-cols-2 grid grid-cols-1">
         {/* Left column: Pricing & Oracle */}
         <div>

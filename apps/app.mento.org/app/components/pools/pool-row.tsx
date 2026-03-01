@@ -3,10 +3,7 @@ import type { PoolDisplay } from "@repo/web3";
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, type Address } from "viem";
 import { PoolAddressPopover } from "./pool-address-popover";
-import { PoolDetailsAccordion } from "./pool-details-accordion";
 import { LiquidityDrawer } from "./liquidity-drawer";
-import { PriceAlignmentBadge } from "./price-alignment-badge";
-import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 
 interface PoolRowProps {
@@ -15,7 +12,6 @@ interface PoolRowProps {
 
 export function PoolRow({ pool }: PoolRowProps) {
   const { address } = useAccount();
-  const [isExpanded, setIsExpanded] = useState(false);
   const [drawerState, setDrawerState] = useState<{
     isOpen: boolean;
     mode: "deposit" | "manage" | null;
@@ -33,8 +29,6 @@ export function PoolRow({ pool }: PoolRowProps) {
 
   const hasLPTokens = lpBalance !== undefined && lpBalance > 0n;
   const isLegacy = pool.poolType === "Legacy";
-  const canExpand =
-    pool.poolType === "FPMM" && !!pool.pricing && !!pool.rebalancing;
 
   return (
     <div
@@ -43,23 +37,9 @@ export function PoolRow({ pool }: PoolRowProps) {
         isLegacy && "opacity-60",
       )}
     >
-      <div
-        className={cn(
-          "gap-4 px-4 py-4 md:grid md:grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,1.5fr)_minmax(0,1.5fr)] md:items-center flex flex-col",
-          canExpand && "cursor-pointer transition-colors hover:bg-muted/30",
-        )}
-        onClick={() => canExpand && setIsExpanded(!isExpanded)}
-      >
+      <div className="gap-4 md:gap-8 px-4 py-4 md:grid md:grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)] md:items-center flex flex-col">
         {/* Pool info + action (mobile: row with action on right) */}
         <div className="gap-3 flex items-center">
-          {canExpand && (
-            <ChevronDown
-              className={cn(
-                "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
-                isExpanded && "rotate-180",
-              )}
-            />
-          )}
           <div className="-space-x-2 flex">
             <TokenIcon
               token={{
@@ -83,9 +63,7 @@ export function PoolRow({ pool }: PoolRowProps) {
               <span className="text-sm font-medium">
                 {pool.token0.symbol} / {pool.token1.symbol}
               </span>
-              <div onClick={(e) => e.stopPropagation()}>
-                <PoolAddressPopover pool={pool} />
-              </div>
+              <PoolAddressPopover pool={pool} />
             </div>
             <Badge
               variant="secondary"
@@ -104,8 +82,7 @@ export function PoolRow({ pool }: PoolRowProps) {
               <Button
                 size="sm"
                 className="h-8"
-                onClick={(e) => {
-                  e.stopPropagation();
+                onClick={() => {
                   setDrawerState({
                     isOpen: true,
                     mode: hasLPTokens ? "manage" : "deposit",
@@ -142,36 +119,24 @@ export function PoolRow({ pool }: PoolRowProps) {
           </div>
         </div>
 
-        {/* Fees + Price alignment (mobile: side by side) */}
-        <div className="md:contents flex items-center justify-between">
-          <div className="md:pl-4 flex flex-col">
-            <span className="text-xs md:hidden text-muted-foreground">
-              Fees
-            </span>
-            <span className="text-sm font-medium">
-              {pool.fees.total.toFixed(2)}%
-            </span>
-            {pool.fees.label === "fee" ? (
-              <>
-                <span className="text-xs text-muted-foreground">
-                  LP {pool.fees.lp.toFixed(2)}%
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  Protocol {pool.fees.protocol.toFixed(2)}%
-                </span>
-              </>
-            ) : (
-              <span className="text-xs text-muted-foreground">Spread</span>
-            )}
-          </div>
-
-          {/* Price alignment */}
-          <div>
-            <span className="text-xs md:hidden mb-1 block text-muted-foreground">
-              Price alignment
-            </span>
-            <PriceAlignmentBadge status={pool.priceAlignment.status} />
-          </div>
+        {/* Fees */}
+        <div className="flex flex-col">
+          <span className="text-xs md:hidden text-muted-foreground">Fees</span>
+          <span className="text-sm font-medium">
+            {pool.fees.total.toFixed(2)}%
+          </span>
+          {pool.fees.label === "fee" ? (
+            <>
+              <span className="text-xs text-muted-foreground">
+                LP {pool.fees.lp.toFixed(2)}%
+              </span>
+              <span className="text-xs text-muted-foreground">
+                Protocol {pool.fees.protocol.toFixed(2)}%
+              </span>
+            </>
+          ) : (
+            <span className="text-xs text-muted-foreground">Spread</span>
+          )}
         </div>
 
         {/* Actions - desktop only */}
@@ -180,8 +145,7 @@ export function PoolRow({ pool }: PoolRowProps) {
             <Button
               size="sm"
               className="h-8"
-              onClick={(e) => {
-                e.stopPropagation();
+              onClick={() => {
                 setDrawerState({
                   isOpen: true,
                   mode: hasLPTokens ? "manage" : "deposit",
@@ -193,20 +157,6 @@ export function PoolRow({ pool }: PoolRowProps) {
           )}
         </div>
       </div>
-
-      {/* Expandable details section */}
-      {canExpand && (
-        <div
-          className={cn(
-            "ease-in-out grid transition-all duration-300",
-            isExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
-          )}
-        >
-          <div className="overflow-hidden">
-            <PoolDetailsAccordion pool={pool} />
-          </div>
-        </div>
-      )}
 
       {/* Liquidity management drawer */}
       {drawerState.mode && (

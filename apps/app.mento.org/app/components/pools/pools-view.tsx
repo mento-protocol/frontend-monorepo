@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { Search } from "lucide-react";
 import { Input, cn } from "@repo/ui";
 import { usePoolsList, type PoolFilterType } from "@repo/web3";
-import { PoolsTable, PoolsTableHeader } from "./pools-table";
+import { PoolsTable } from "./pools-table";
 
 const filterTabs: { value: PoolFilterType; label: string }[] = [
   { value: "all", label: "All Pools" },
@@ -88,11 +88,6 @@ export function PoolsView() {
             className="h-9 md:w-64 pl-9 w-full"
           />
         </div>
-      </div>
-
-      {/* Table header */}
-      <div>
-        <PoolsTableHeader />
       </div>
 
       {/* Content */}
