@@ -8,6 +8,10 @@ import {
   CardHeader,
   CardTitle,
   CardAction,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
 } from "@repo/ui";
 import {
   selectedDebtTokenAtom,
@@ -18,6 +22,9 @@ import {
 } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
 import { borrowViewAtom } from "../atoms/borrow-navigation";
+import { DepositForm } from "./deposit-form";
+import { WithdrawForm } from "./withdraw-form";
+import { ClaimRewards } from "./claim-rewards";
 
 export function EarnView() {
   const { address, isConnected } = useAccount();
@@ -133,15 +140,41 @@ export function EarnView() {
         </Card>
       )}
 
-      {/* Placeholder areas for deposit and withdraw (wired in US-005) */}
-      <div className="gap-4 md:grid-cols-2 grid">
-        <div className="p-6 bg-card text-center text-muted-foreground">
-          Deposit form — coming in US-005
-        </div>
-        <div className="p-6 bg-card text-center text-muted-foreground">
-          Withdraw form — coming in US-005
-        </div>
-      </div>
+      {/* Deposit / Withdraw Tabs */}
+      {isConnected && (
+        <Card>
+          <CardContent>
+            <Tabs defaultValue="deposit">
+              <TabsList>
+                <TabsTrigger value="deposit">Deposit</TabsTrigger>
+                <TabsTrigger value="withdraw">Withdraw</TabsTrigger>
+              </TabsList>
+              <TabsContent value="deposit">
+                <DepositForm
+                  deposit={spPosition?.deposit ?? null}
+                  collateralGain={spPosition?.collateralGain ?? null}
+                  debtTokenGain={spPosition?.debtTokenGain ?? null}
+                />
+              </TabsContent>
+              <TabsContent value="withdraw">
+                <WithdrawForm
+                  deposit={spPosition?.deposit ?? null}
+                  collateralGain={spPosition?.collateralGain ?? null}
+                  debtTokenGain={spPosition?.debtTokenGain ?? null}
+                />
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Claim Rewards — always visible when rewards exist */}
+      {isConnected && spPosition && (
+        <ClaimRewards
+          collateralGain={spPosition.collateralGain}
+          debtTokenGain={spPosition.debtTokenGain}
+        />
+      )}
     </div>
   );
 }
