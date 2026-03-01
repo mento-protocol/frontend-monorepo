@@ -45,16 +45,6 @@ function formatLP(liquidity: bigint | undefined): string {
   });
 }
 
-function calcPoolShare(
-  liquidity: bigint | undefined,
-  totalSupply: bigint | undefined,
-): string {
-  if (!liquidity || !totalSupply || totalSupply === 0n) return "0.00";
-  const bps = (liquidity * 1_000_000n) / (totalSupply + liquidity);
-  const pct = Number(bps) / 10_000;
-  return pct.toFixed(4);
-}
-
 function TokenAmountInput({
   token,
   balance,
@@ -538,12 +528,7 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
   // === Preview calculations ===
 
   const estimatedLP = formatLP(quote?.liquidity);
-  const sharePercent = calcPoolShare(quote?.liquidity, quote?.totalSupply);
   const zapEstimatedLP = formatLP(zapQuote?.expectedLiquidity);
-  const zapSharePercent = calcPoolShare(
-    zapQuote?.expectedLiquidity,
-    zapQuote?.totalSupply,
-  );
 
   const [customPct, setCustomPct] = useState("");
 
