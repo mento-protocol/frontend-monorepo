@@ -215,7 +215,7 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 11,
-      "passes": false,
+      "passes": true,
       "notes": "useAdjustInterestRate accepts { symbol, troveId, newRate, maxUpfrontFee, wagmiConfig, account }. newRate is bigint (18-decimal). Interest rate stored as annualInterestRate on BorrowPosition."
     },
     {
@@ -236,7 +236,7 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 12,
-      "passes": false,
+      "passes": true,
       "notes": "useCloseTrove accepts { symbol, troveId, wagmiConfig, account }. The hook handles debt token approval internally (approves BorrowerOperations with maxUint256). FlowDialog 'Back to Dashboard' button navigates automatically."
     },
     {

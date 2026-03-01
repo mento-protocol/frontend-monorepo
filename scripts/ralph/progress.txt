@@ -197,3 +197,37 @@
   - Toggle button groups work well as two `<button>` elements with `rounded-l-md`/`rounded-r-md` and conditional `bg-primary` styling
   - `maxUpfrontFee` should be 0n when not borrowing more (no fee on repayment or collateral-only changes)
 ---
+
+## 2026-03-01 - US-011
+- Created `RateForm` component in `apps/app.mento.org/app/components/borrow/manage-trove/rate-form.tsx`
+- Shows current interest rate prominently (formatted with `formatInterestRate`)
+- New rate input via Slider + manual text input (same pattern as open-trove `InterestRateInput`)
+- Before → After comparison panel: interest rate and annual cost (debt * rate / 10^18)
+- Redemption risk indicator via `RiskBadge` for the new rate
+- Fee estimate via `usePredictUpfrontFee(0n, newRate, symbol)` — pass 0n borrowAmount for rate-only changes
+- Submit wired to `useAdjustInterestRate` with `{ symbol, troveId, newRate, maxUpfrontFee, wagmiConfig, account }`
+- Disabled states: wallet not connected, rate unchanged, below minimum rate, pending mutation
+- Files changed: `rate-form.tsx` (new)
+- **Learnings for future iterations:**
+  - `useAdjustInterestRate` accepts `{ symbol, troveId, newRate, maxUpfrontFee, wagmiConfig, account }` — `account` is `address` from `useAccount()`
+  - For rate-change fee estimates, pass `0n` as `borrowAmount` to `usePredictUpfrontFee` — the hook still needs a valid `interestRate` param
+  - `bigintRateToNumber` and `parseRateToBigint` helpers are identical across InterestRateInput and RateForm — could be extracted to a shared util if more rate components are added
+  - Trunk auto-formats on commit — Tailwind class reordering and minor whitespace changes are expected
+---
+
+## 2026-03-01 - US-012
+- Created `CloseForm` component in `apps/app.mento.org/app/components/borrow/manage-trove/close-form.tsx`
+- Shows summary panel: total debt to repay (from `troveData.debt`) and collateral to receive back (`troveData.collateral`)
+- Wallet balance check: reads debt token ERC-20 balance via `useReadContract`, shows warning when insufficient to repay
+- Clear confirmation text: "You will repay £X and receive Y USDm"
+- Close Trove button with `variant="destructive"` (red/warning styling)
+- Button disabled states: wallet not connected, no debt, insufficient balance, pending mutation
+- On submit: calls `closeTrove.mutate({ symbol, troveId, wagmiConfig, account })`
+- Files changed: `close-form.tsx` (new)
+- **Learnings for future iterations:**
+  - `useCloseTrove` accepts `{ symbol, troveId, wagmiConfig, account }` — simpler than other hooks, no params object
+  - The hook handles debt token approval internally (approves BorrowerOperations with maxUint256) — no need for separate approval step in UI
+  - `troveData.debt` from `useTroveData` includes the total debt (recorded + accrued interest + redistribution gains) — use directly for display
+  - Debt token address resolved via `getTokenAddress(chainId, debtToken.symbol as TokenSymbol)` — same pattern as collateral but with the debt token symbol
+  - Button `variant="destructive"` from @repo/ui provides red styling for irreversible actions
+---
