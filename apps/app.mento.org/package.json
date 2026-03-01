@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
-    "@mento-protocol/mento-sdk": "^3.0.0-beta.17",
+    "@mento-protocol/mento-sdk": "^3.0.0-beta.18",
     "@rainbow-me/rainbowkit": "catalog:",
     "@repo/ui": "workspace:*",
     "@repo/web3": "workspace:*",

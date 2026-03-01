@@ -566,9 +566,9 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
 
   const estimatedLP = formatLP(quote?.liquidity);
   const sharePercent = calcPoolShare(quote?.liquidity, quote?.totalSupply);
-  const zapEstimatedLP = formatLP(zapQuote?.expectedLiquidity);
+  const zapEstimatedLP = formatLP(zapQuote?.estimatedMinLiquidity);
   const zapSharePercent = calcPoolShare(
-    zapQuote?.expectedLiquidity,
+    zapQuote?.estimatedMinLiquidity,
     zapQuote?.totalSupply,
   );
 
