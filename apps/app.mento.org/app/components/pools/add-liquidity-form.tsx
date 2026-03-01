@@ -230,7 +230,7 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
       if (freshBuild) await sendAddLiquidity(freshBuild);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (!msg.includes("User rejected") && !msg.includes("denied")) {
+      if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
         toast.error("Something went wrong. Please try again.");
       }
     }
@@ -254,7 +254,7 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (!msg.includes("User rejected") && !msg.includes("denied")) {
+      if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
         toast.error("Something went wrong. Please try again.");
       }
     }
@@ -327,7 +327,7 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
       if (freshBuild) await sendZapIn(freshBuild);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (!msg.includes("User rejected") && !msg.includes("denied")) {
+      if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
         toast.error("Something went wrong. Please try again.");
       }
     }
@@ -335,15 +335,9 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
 
   // Build zap transaction when quote arrives
   useEffect(() => {
-    if (
-      mode !== "single" ||
-      !address ||
-      !zapQuote ||
-      !zapAmount ||
-      Number(zapAmount) <= 0
-    )
-      return;
-    const amountInWei = parseUnits(zapAmount, zapToken.decimals);
+    if (mode !== "single" || !address || !zapQuote || !zapAmount) return;
+    const amountInWei = tryParseUnits(zapAmount, zapToken.decimals);
+    if (!amountInWei || amountInWei <= 0n) return;
     buildZapTransaction(zapTokenIn as Address, amountInWei, address, slippage);
   }, [
     zapQuote,
@@ -557,9 +551,9 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const isHandledByHook =
-        msg.includes("User rejected") ||
-        msg.includes("User denied") ||
-        msg.includes("denied transaction");
+        /user\s+rejected/i.test(msg) ||
+        /user\s+denied/i.test(msg) ||
+        /denied\s+transaction/i.test(msg);
       if (!isHandledByHook) {
         toast.error("Something went wrong. Please try again.");
       }
@@ -609,18 +603,19 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
   };
 
   const handleCustomPctBlur = () => {
+    if (!zapTokenBalance) return;
     const corrected = sanitizePercentOnBlur(customPct);
     if (corrected === null) return;
     setCustomPct(corrected);
     const val = parseFloat(corrected);
     if (!isNaN(val) && val > 0) {
-      const bal = parseFloat(formattedZapBalance);
-      if (bal > 0) {
-        if (val >= 100) {
-          setZapAmount(formattedZapBalance);
-        } else {
-          setZapAmount(((bal * val) / 100).toString());
-        }
+      if (val >= 100) {
+        setZapAmount(formattedZapBalance);
+      } else {
+        const fractionalBalance =
+          (zapTokenBalance * BigInt(Math.round((val / 100) * 1_000_000))) /
+          1_000_000n;
+        setZapAmount(formatUnits(fractionalBalance, zapToken.decimals));
       }
     }
   };

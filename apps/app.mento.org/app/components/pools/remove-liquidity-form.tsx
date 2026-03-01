@@ -105,7 +105,7 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
       if (freshBuild) await sendRemoveLiquidity(freshBuild);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (!msg.includes("User rejected") && !msg.includes("denied")) {
+      if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
         toast.error("Something went wrong. Please try again.");
       }
     }
@@ -143,7 +143,7 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
       if (freshBuild) await sendZapOut(freshBuild);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (!msg.includes("User rejected") && !msg.includes("denied")) {
+      if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
         toast.error("Something went wrong. Please try again.");
       }
     }
@@ -302,9 +302,9 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const isHandledByHook =
-        msg.includes("User rejected") ||
-        msg.includes("User denied") ||
-        msg.includes("denied transaction");
+        /user\s+rejected/i.test(msg) ||
+        /user\s+denied/i.test(msg) ||
+        /denied\s+transaction/i.test(msg);
       if (!isHandledByHook) {
         toast.error("Something went wrong. Please try again.");
       }
@@ -321,7 +321,7 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
       setLpAmount(formatUnits(lpBalance, 18));
     } else {
       const fractionalBalance =
-        (lpBalance * BigInt(Math.round(fraction * 1000))) / 1000n;
+        (lpBalance * BigInt(Math.round(fraction * 1_000_000))) / 1_000_000n;
       setLpAmount(formatUnits(fractionalBalance, 18));
     }
   };
@@ -337,7 +337,7 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
       setLpAmount(formatUnits(lpBalance, 18));
     } else {
       const fractionalBalance =
-        (lpBalance * BigInt(Math.round((pct / 100) * 1000))) / 1000n;
+        (lpBalance * BigInt(Math.round((pct / 100) * 1_000_000))) / 1_000_000n;
       setLpAmount(formatUnits(fractionalBalance, 18));
     }
   };
@@ -354,7 +354,7 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
       setLpAmount(formatUnits(lpBalance, 18));
     } else {
       const fractionalBalance =
-        (lpBalance * BigInt(Math.round((val / 100) * 1000))) / 1000n;
+        (lpBalance * BigInt(Math.round((val / 100) * 1_000_000))) / 1_000_000n;
       setLpAmount(formatUnits(fractionalBalance, 18));
     }
   };
