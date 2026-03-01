@@ -1,1 +1,1 @@
-// Stability pool — barrel export
+export { stabilityPoolAbi } from "./abi";
