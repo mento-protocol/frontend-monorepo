@@ -5,6 +5,7 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
+  toast,
 } from "@repo/ui";
 import type { PoolDisplay, SlippageOption } from "@repo/web3";
 import {
@@ -206,29 +207,38 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     reset: resetTx,
   } = useAddLiquidityTransaction(pool);
 
+  const pendingQuoteRef = useRef(quote);
+  const pendingSlippageRef = useRef(slippage);
+
+  // approvalB declared first — approvalA's onApproved chains into it.
   const approvalB = useLiquidityApproval(pool.token1.symbol, async () => {
-    if (!address || !quote) return;
+    if (!address || !pendingQuoteRef.current) return;
     try {
+      const q = pendingQuoteRef.current;
       const freshBuild = await buildTransaction(
-        quote.amountA,
-        quote.amountB,
+        q.amountA,
+        q.amountB,
         address,
-        slippage,
+        pendingSlippageRef.current,
       );
       if (freshBuild) await sendAddLiquidity(freshBuild);
-    } catch {
-      // Errors are handled in the hooks via toasts
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("User rejected") && !msg.includes("denied")) {
+        toast.error("Something went wrong. Please try again.");
+      }
     }
   });
 
   const approvalA = useLiquidityApproval(pool.token0.symbol, async () => {
-    if (!address || !quote) return;
+    if (!address || !pendingQuoteRef.current) return;
     try {
+      const q = pendingQuoteRef.current;
       const freshBuild = await buildTransaction(
-        quote.amountA,
-        quote.amountB,
+        q.amountA,
+        q.amountB,
         address,
-        slippage,
+        pendingSlippageRef.current,
       );
       if (!freshBuild) return;
       if (freshBuild.approvalB) {
@@ -236,8 +246,11 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
       } else {
         await sendAddLiquidity(freshBuild);
       }
-    } catch {
-      // Errors are handled in the hooks via toasts
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("User rejected") && !msg.includes("denied")) {
+        toast.error("Something went wrong. Please try again.");
+      }
     }
   });
 
@@ -288,19 +301,29 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     reset: resetZapTx,
   } = useZapInTransaction(pool);
 
+  const pendingZapAmountRef = useRef(zapAmount);
+  const pendingZapTokenInRef = useRef(zapTokenIn);
+  const pendingZapDecimalsRef = useRef(zapToken.decimals);
+
   const zapApproval = useLiquidityApproval(zapToken.symbol, async () => {
     if (!address) return;
     try {
-      const amountInWei = parseUnits(zapAmount, zapToken.decimals);
+      const amountInWei = parseUnits(
+        pendingZapAmountRef.current,
+        pendingZapDecimalsRef.current,
+      );
       const freshBuild = await buildZapTransaction(
-        zapTokenIn as Address,
+        pendingZapTokenInRef.current as Address,
         amountInWei,
         address,
-        slippage,
+        pendingSlippageRef.current,
       );
       if (freshBuild) await sendZapIn(freshBuild);
-    } catch {
-      // Errors are handled in the hooks via toasts
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("User rejected") && !msg.includes("denied")) {
+        toast.error("Something went wrong. Please try again.");
+      }
     }
   });
 
@@ -485,13 +508,16 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     if (!address) return;
 
     try {
-      // Zap: send approval (onApproved callback handles the rest) or send directly
       if (
         (buttonState.action === "zap-approve" ||
           buttonState.action === "zap") &&
         zapBuildResult
       ) {
         if (zapBuildResult.approval && !zapApproval.isApproved) {
+          pendingZapAmountRef.current = zapAmount;
+          pendingZapTokenInRef.current = zapTokenIn;
+          pendingZapDecimalsRef.current = zapToken.decimals;
+          pendingSlippageRef.current = slippage;
           await zapApproval.sendApproval(zapBuildResult.approval);
         } else {
           const amountInWei = parseUnits(zapAmount, zapToken.decimals);
@@ -506,8 +532,10 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
         return;
       }
 
-      // Balanced: send first needed approval (onApproved callbacks chain the rest)
       if (!quote) return;
+
+      pendingQuoteRef.current = quote;
+      pendingSlippageRef.current = slippage;
 
       if (buildResult?.approvalA && !approvalA.isApproved) {
         await approvalA.sendApproval(buildResult.approvalA);
@@ -522,9 +550,15 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
         );
         if (freshBuild) await sendAddLiquidity(freshBuild);
       }
-    } catch {
-      // Errors are already handled (toasts) in the hooks.
-      // Catching here prevents unhandled rejections and stops the chain gracefully.
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const isHandledByHook =
+        msg.includes("User rejected") ||
+        msg.includes("User denied") ||
+        msg.includes("denied transaction");
+      if (!isHandledByHook) {
+        toast.error("Something went wrong. Please try again.");
+      }
     }
   };
 

@@ -21,8 +21,10 @@ export function useLiquidityApproval(
     onApprovedRef.current = onApproved;
   }, [onApproved]);
 
+  const hasFiredRef = useRef(false);
   useEffect(() => {
-    if (isConfirmed && onApprovedRef.current) {
+    if (isConfirmed && onApprovedRef.current && !hasFiredRef.current) {
+      hasFiredRef.current = true;
       onApprovedRef.current();
     }
   }, [isConfirmed]);
@@ -50,6 +52,7 @@ export function useLiquidityApproval(
 
   const resetApproval = () => {
     setTxHash(undefined);
+    hasFiredRef.current = false;
     reset();
   };
 
