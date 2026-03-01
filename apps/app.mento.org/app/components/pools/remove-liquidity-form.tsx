@@ -122,6 +122,7 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
   const {
     buildTransaction: buildZapOutTransaction,
     buildResult: zapOutBuildResult,
+    buildError: zapOutBuildError,
     isBuilding: isZapOutBuilding,
     sendZapOut,
     isSending: isZapOutSending,
@@ -144,7 +145,13 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
-        toast.error("Something went wrong. Please try again.");
+        if (/no viable zap-out route/i.test(msg)) {
+          toast.error(
+            "No viable zap-out route for this amount. Reduce amount or use balanced mode.",
+          );
+        } else {
+          toast.error("Something went wrong. Please try again.");
+        }
       }
     }
   });
@@ -208,6 +215,9 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
       return { text: "Insufficient LP balance", disabled: true };
 
     if (mode === "single") {
+      if (zapOutBuildError) {
+        return { text: "Route unavailable", disabled: true };
+      }
       if (isZapOutBuilding || isZapOutQuoting)
         return { text: "Preparing...", disabled: true };
       if (!zapOutBuildResult) return { text: "Preparing...", disabled: true };
@@ -308,7 +318,13 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
         /user\s+denied/i.test(msg) ||
         /denied\s+transaction/i.test(msg);
       if (!isHandledByHook) {
-        toast.error("Something went wrong. Please try again.");
+        if (/no viable zap-out route/i.test(msg)) {
+          toast.error(
+            "No viable zap-out route for this amount. Reduce amount or use balanced mode.",
+          );
+        } else {
+          toast.error("Something went wrong. Please try again.");
+        }
       }
     }
   };
@@ -659,15 +675,22 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
         {!address ? (
           <ConnectButton size="lg" text="Connect Wallet" fullWidth />
         ) : (
-          <Button
-            size="lg"
-            clipped="lg"
-            className="w-full"
-            disabled={buttonState.disabled}
-            onClick={handleAction}
-          >
-            {buttonState.text}
-          </Button>
+          <>
+            <Button
+              size="lg"
+              clipped="lg"
+              className="w-full"
+              disabled={buttonState.disabled}
+              onClick={handleAction}
+            >
+              {buttonState.text}
+            </Button>
+            {mode === "single" && zapOutBuildError && (
+              <p className="text-xs leading-5 text-center text-muted-foreground">
+                {zapOutBuildError}
+              </p>
+            )}
+          </>
         )}
 
         {/* Footer links */}

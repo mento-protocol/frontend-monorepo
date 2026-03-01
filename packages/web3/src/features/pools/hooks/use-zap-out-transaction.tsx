@@ -19,6 +19,7 @@ export function useZapOutTransaction(pool: PoolDisplay) {
   const [buildResult, setBuildResult] = useState<ZapOutTransaction | null>(
     null,
   );
+  const [buildError, setBuildError] = useState<string | null>(null);
   const [isBuilding, setIsBuilding] = useState(false);
   const [txHash, setTxHash] = useState<Address | undefined>();
   const [isConfirming, setIsConfirming] = useState(false);
@@ -87,6 +88,7 @@ export function useZapOutTransaction(pool: PoolDisplay) {
       slippage: SlippageOption,
     ): Promise<ZapOutTransaction | null> => {
       setIsBuilding(true);
+      setBuildError(null);
       try {
         const sdk = await getMentoSdk(chainId);
 
@@ -104,8 +106,17 @@ export function useZapOutTransaction(pool: PoolDisplay) {
         );
 
         setBuildResult(result);
+        setBuildError(null);
         return result;
       } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (/no viable zap-out route/i.test(message)) {
+          setBuildError(
+            "No route for this amount. Reduce amount or use balanced mode.",
+          );
+        } else {
+          setBuildError(null);
+        }
         logger.error("Failed to build zap-out transaction:", err);
         setBuildResult(null);
         return null;
@@ -144,6 +155,7 @@ export function useZapOutTransaction(pool: PoolDisplay) {
 
   const reset = useCallback(() => {
     setBuildResult(null);
+    setBuildError(null);
     setTxHash(undefined);
     setIsConfirming(false);
     setIsConfirmed(false);
@@ -154,6 +166,7 @@ export function useZapOutTransaction(pool: PoolDisplay) {
   return {
     buildTransaction,
     buildResult,
+    buildError,
     isBuilding,
     sendZapOut,
     isSending,

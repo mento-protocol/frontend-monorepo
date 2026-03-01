@@ -10,8 +10,8 @@ catalogs:
       specifier: ^9.39.2
       version: 9.39.2
     '@mento-protocol/mento-sdk':
-      specifier: ^3.0.0-beta.6
-      version: 3.0.0-beta.17
+      specifier: 3.0.0-beta.20
+      version: 3.0.0-beta.20
     '@metamask/jazzicon':
       specifier: github:jmrossy/jazzicon#7a8df28
       version: 2.1.0
@@ -173,8 +173,8 @@ importers:
         specifier: ^5.2.2
         version: 5.2.2(react-hook-form@7.70.0(react@19.2.3))
       '@mento-protocol/mento-sdk':
-        specifier: ^3.0.0-beta.17
-        version: 3.0.0-beta.17(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.3.5)
+        specifier: 'catalog:'
+        version: 3.0.0-beta.20(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.3.5)
       '@rainbow-me/rainbowkit':
         specifier: 'catalog:'
         version: 2.2.10(@tanstack/react-query@5.90.16(react@19.2.3))(@types/react@19.2.7)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(typescript@5.9.3)(viem@2.44.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.3.5))(wagmi@2.19.5(@tanstack/query-core@5.90.16)(@tanstack/react-query@5.90.16(react@19.2.3))(@types/react@19.2.7)(bufferutil@4.1.0)(immer@11.1.3)(react@19.2.3)(typescript@5.9.3)(utf-8-validate@5.0.10)(viem@2.44.0(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.3.5))(zod@4.3.5))
@@ -271,10 +271,10 @@ importers:
     dependencies:
       '@apollo/client':
         specifier: ^3.14.0
-        version: 3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+        version: 3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@apollo/client-integration-nextjs':
         specifier: ^0.12.3
-        version: 0.12.3(@apollo/client@3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/react@19.2.7)(graphql@16.12.0)(next@15.5.11(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+        version: 0.12.3(@apollo/client@3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/react@19.2.7)(graphql@16.12.0)(next@15.5.11(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@metamask/jazzicon':
         specifier: 'catalog:'
         version: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28
@@ -410,7 +410,7 @@ importers:
     dependencies:
       '@mento-protocol/mento-sdk':
         specifier: 'catalog:'
-        version: 3.0.0-beta.17(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.3.5)
+        version: 3.0.0-beta.20(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.3.5)
       '@repo/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -740,7 +740,7 @@ importers:
         version: 5.8.0
       '@mento-protocol/mento-sdk':
         specifier: 'catalog:'
-        version: 3.0.0-beta.17(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.3.5)
+        version: 3.0.0-beta.20(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.3.5)
       '@metamask/jazzicon':
         specifier: 'catalog:'
         version: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28
@@ -2159,8 +2159,8 @@ packages:
   '@mento-protocol/mento-core-ts@0.2.3':
     resolution: {integrity: sha512-Fjj0t2a6xqpHTbhfafioqjkY9ZDBsq3oy/DkRizihDI2zul/PFQJfQwyy7WDSSc/cNAflevBeSJyqTPTv9HD/Q==}
 
-  '@mento-protocol/mento-sdk@3.0.0-beta.17':
-    resolution: {integrity: sha512-MpoD4HnEQ7DYfsnpM6M3dgnu7ReG4dFHf7f3OBgcgkMA5ohLV2tciyXxsWKbrOCeIIZoDqp9zPyJOTSHXdiqow==}
+  '@mento-protocol/mento-sdk@3.0.0-beta.20':
+    resolution: {integrity: sha512-odN8olP9o+1NJfnQXXGTxySIXDr67rlftgBynWaEhLmh0DN+SH7r+nh1j3Mdlo8okfJcTk9w7fyCBKpDqQO36Q==}
     engines: {node: '>=18', pnpm: '>=9'}
 
   '@metamask/eth-json-rpc-provider@1.0.1':
@@ -9152,10 +9152,10 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@apollo/client-integration-nextjs@0.12.3(@apollo/client@3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/react@19.2.7)(graphql@16.12.0)(next@15.5.11(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+  '@apollo/client-integration-nextjs@0.12.3(@apollo/client@3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/react@19.2.7)(graphql@16.12.0)(next@15.5.11(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
     dependencies:
-      '@apollo/client': 3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-      '@apollo/client-react-streaming': 0.12.3(@apollo/client@3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/react@19.2.7)(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@apollo/client': 3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@apollo/client-react-streaming': 0.12.3(@apollo/client@3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/react@19.2.7)(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       next: 15.5.11(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       react: 19.2.3
     transitivePeerDependencies:
@@ -9163,9 +9163,9 @@ snapshots:
       - graphql
       - react-dom
 
-  '@apollo/client-react-streaming@0.12.3(@apollo/client@3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/react@19.2.7)(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+  '@apollo/client-react-streaming@0.12.3(@apollo/client@3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/react@19.2.7)(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
     dependencies:
-      '@apollo/client': 3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@apollo/client': 3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@types/react-dom': 19.2.3(@types/react@19.2.7)
       '@wry/equality': 0.5.7
       graphql: 16.12.0
@@ -9175,7 +9175,7 @@ snapshots:
     transitivePeerDependencies:
       - '@types/react'
 
-  '@apollo/client@3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+  '@apollo/client@3.14.0(@types/react@19.2.7)(graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)))(graphql@16.12.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
     dependencies:
       '@graphql-typed-document-node/core': 3.2.0(graphql@16.12.0)
       '@wry/caches': 1.0.1
@@ -9192,7 +9192,7 @@ snapshots:
       tslib: 2.8.1
       zen-observable-ts: 1.2.5
     optionalDependencies:
-      graphql-ws: 6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10))
+      graphql-ws: 6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))
       react: 19.2.3
       react-dom: 19.2.3(react@19.2.3)
     transitivePeerDependencies:
@@ -10987,7 +10987,7 @@ snapshots:
 
   '@mento-protocol/mento-core-ts@0.2.3': {}
 
-  '@mento-protocol/mento-sdk@3.0.0-beta.17(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.3.5)':
+  '@mento-protocol/mento-sdk@3.0.0-beta.20(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.3.5)':
     dependencies:
       '@mento-protocol/mento-core-ts': 0.2.3
       bignumber.js: 9.3.1
@@ -16276,14 +16276,6 @@ snapshots:
       graphql: 16.12.0
       tslib: 2.8.1
 
-  graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10)):
-    dependencies:
-      graphql: 16.12.0
-    optionalDependencies:
-      crossws: 0.3.5
-      ws: 7.5.10(bufferutil@4.1.0)(utf-8-validate@5.0.10)
-    optional: true
-
   graphql-ws@6.0.6(crossws@0.3.5)(graphql@16.12.0)(ws@8.19.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)):
     dependencies:
       graphql: 16.12.0
@@ -16731,7 +16723,7 @@ snapshots:
     dependencies:
       ws: 8.18.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)
 
-  isows@1.0.7(ws@8.18.3):
+  isows@1.0.7(ws@8.18.3(bufferutil@4.1.0)(utf-8-validate@5.0.10)):
     dependencies:
       ws: 8.18.3(bufferutil@4.1.0)(utf-8-validate@5.0.10)
 
@@ -19479,7 +19471,7 @@ snapshots:
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
       abitype: 1.2.3(typescript@5.9.3)(zod@4.3.5)
-      isows: 1.0.7(ws@8.18.3)
+      isows: 1.0.7(ws@8.18.3(bufferutil@4.1.0)(utf-8-validate@5.0.10))
       ox: 0.11.3(typescript@5.9.3)(zod@4.3.5)
       ws: 8.18.3(bufferutil@4.1.0)(utf-8-validate@5.0.10)
     optionalDependencies:
