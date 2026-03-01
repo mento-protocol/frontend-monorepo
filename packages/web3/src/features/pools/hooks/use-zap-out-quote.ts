@@ -7,9 +7,9 @@ import type { ChainId } from "@/config/chains";
 import type { PoolDisplay, SlippageOption } from "../types";
 
 export interface ZapOutQuoteResult {
-  expectedTokenOut: bigint;
-  amountOutMinA: bigint;
-  amountOutMinB: bigint;
+  estimatedMinTokenOut: bigint;
+  amountOutFromA: bigint;
+  amountOutFromB: bigint;
   amountAMin: bigint;
   amountBMin: bigint;
 }
@@ -51,13 +51,16 @@ export function useZapOutQuote({
         pool.poolAddr as Address,
         tokenOut,
         liquidityWei,
-        { slippageTolerance: slippage },
+        {
+          slippageTolerance: slippage,
+          deadline: BigInt(Math.floor(Date.now() / 1000) + 20 * 60),
+        },
       );
 
       return {
-        expectedTokenOut: quote.expectedTokenOut,
-        amountOutMinA: quote.amountOutMinA,
-        amountOutMinB: quote.amountOutMinB,
+        estimatedMinTokenOut: quote.estimatedMinTokenOut,
+        amountOutFromA: quote.amountOutFromA,
+        amountOutFromB: quote.amountOutFromB,
         amountAMin: quote.amountAMin,
         amountBMin: quote.amountBMin,
       };

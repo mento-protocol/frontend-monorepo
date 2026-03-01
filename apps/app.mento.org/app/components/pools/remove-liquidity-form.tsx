@@ -606,7 +606,7 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
                       </span>
                       <span className="font-medium">
                         {formatTokenAmount(
-                          zapOutQuote?.expectedTokenOut,
+                          zapOutQuote?.estimatedMinTokenOut,
                           selectedToken.decimals,
                         )}
                       </span>
@@ -677,7 +677,7 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
                 <span className="font-medium">
                   {hasAmount && zapOutQuote
                     ? formatTokenAmount(
-                        zapOutQuote.expectedTokenOut,
+                        zapOutQuote.estimatedMinTokenOut,
                         selectedToken.decimals,
                       )
                     : "0.0000"}{" "}

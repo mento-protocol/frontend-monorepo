@@ -8,7 +8,7 @@ import type { PoolDisplay, SlippageOption } from "../types";
 import { LP_TOTAL_SUPPLY_HOLDER } from "../types";
 
 export interface ZapInQuoteResult {
-  expectedLiquidity: bigint;
+  estimatedMinLiquidity: bigint;
   amountOutMinA: bigint;
   amountOutMinB: bigint;
   amountAMin: bigint;
@@ -60,7 +60,10 @@ export function useZapInQuote({
         tokenIn,
         amountInWei,
         0.5, // amountInSplit: fraction of input to swap
-        { slippageTolerance: slippage },
+        {
+          slippageTolerance: slippage,
+          deadline: BigInt(Math.floor(Date.now() / 1000) + 20 * 60),
+        },
       );
 
       // Get LP token total supply for share calculation
@@ -70,7 +73,7 @@ export function useZapInQuote({
       );
 
       return {
-        expectedLiquidity: quote.expectedLiquidity,
+        estimatedMinLiquidity: quote.estimatedMinLiquidity,
         amountOutMinA: quote.amountOutMinA,
         amountOutMinB: quote.amountOutMinB,
         amountAMin: quote.amountAMin,

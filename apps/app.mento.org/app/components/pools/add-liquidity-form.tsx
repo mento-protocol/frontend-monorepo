@@ -528,7 +528,7 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
   // === Preview calculations ===
 
   const estimatedLP = formatLP(quote?.liquidity);
-  const zapEstimatedLP = formatLP(zapQuote?.expectedLiquidity);
+  const zapEstimatedLP = formatLP(zapQuote?.estimatedMinLiquidity);
 
   const [customPct, setCustomPct] = useState("");
 
