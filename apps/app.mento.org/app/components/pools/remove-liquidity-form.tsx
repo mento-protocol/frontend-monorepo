@@ -1,10 +1,13 @@
 import {
   Button,
   TokenIcon,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   CoinInput,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
+  toast,
 } from "@repo/ui";
 import type { PoolDisplay, SlippageOption } from "@repo/web3";
 import {
@@ -14,21 +17,18 @@ import {
   useZapOutQuote,
   useZapOutTransaction,
   useLiquidityApproval,
+  ConnectButton,
+  tryParseUnits,
+  formatCompactBalance,
 } from "@repo/web3";
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, parseUnits, type Address } from "viem";
-import { useState, useEffect } from "react";
-import { ChevronDown, Check, ExternalLink, ArrowRight } from "lucide-react";
-
-function formatBalance(balance: string): string {
-  const num = parseFloat(balance);
-  if (num >= 1_000_000) return (num / 1_000_000).toFixed(2) + "M";
-  if (num >= 1_000) return (num / 1_000).toFixed(2) + "K";
-  return num.toLocaleString(undefined, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  });
-}
+import { useState, useEffect, useRef, type ChangeEvent } from "react";
+import { ExternalLink } from "lucide-react";
+import {
+  sanitizePercentInput,
+  sanitizePercentOnBlur,
+} from "@/lib/utils/percent-input";
 
 function formatTokenAmount(
   amount: bigint | undefined,
@@ -51,12 +51,9 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
   const [lpAmount, setLpAmount] = useState("");
   const [receiveToken, setReceiveToken] = useState<string>(pool.token0.address);
   const [slippage, setSlippage] = useState<SlippageOption>(0.3);
-  const [slippageOpen, setSlippageOpen] = useState(false);
 
   const selectedToken =
     receiveToken === pool.token0.address ? pool.token0 : pool.token1;
-  const otherToken =
-    receiveToken === pool.token0.address ? pool.token1 : pool.token0;
 
   // Fetch LP token balance (LP token is the pool contract itself)
   const { data: lpBalance } = useReadContract({
@@ -69,10 +66,10 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
 
   const formattedLpBalance = lpBalance ? formatUnits(lpBalance, 18) : "0";
 
-  const hasAmount = Number(lpAmount) > 0;
-  const lpAmountWei = hasAmount ? parseUnits(lpAmount, 18) : 0n;
+  const lpAmountWei = tryParseUnits(lpAmount, 18);
+  const hasAmount = lpAmountWei !== null && lpAmountWei > 0n;
   const insufficientLp =
-    hasAmount && lpBalance !== undefined && lpAmountWei > lpBalance;
+    lpAmountWei !== null && lpBalance !== undefined && lpAmountWei > lpBalance;
 
   // === Balanced quote hook (also used for underlying breakdown in single mode) ===
   const { data: quote, isFetching: isQuoting } = useRemoveLiquidityQuote({
@@ -92,8 +89,27 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
     reset: resetTx,
   } = useRemoveLiquidityTransaction(pool);
 
-  // === LP token approval hook ===
-  const lpApproval = useLiquidityApproval("LP");
+  const pendingLpAmountRef = useRef(lpAmount);
+  const pendingSlippageRef = useRef(slippage);
+  const pendingReceiveTokenRef = useRef(receiveToken);
+  const lpApproval = useLiquidityApproval("LP", async () => {
+    if (!address) return;
+    try {
+      const liquidity = parseUnits(pendingLpAmountRef.current, 18);
+      const freshBuild = await buildTransaction(
+        liquidity,
+        address,
+        address,
+        pendingSlippageRef.current,
+      );
+      if (freshBuild) await sendRemoveLiquidity(freshBuild);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
+        toast.error("Something went wrong. Please try again.");
+      }
+    }
+  });
 
   // === Zap-out (single-token) hooks ===
   const { data: zapOutQuote, isFetching: isZapOutQuoting } = useZapOutQuote({
@@ -114,7 +130,24 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
     reset: resetZapOutTx,
   } = useZapOutTransaction(pool);
 
-  const zapOutApproval = useLiquidityApproval("LP");
+  const zapOutApproval = useLiquidityApproval("LP", async () => {
+    if (!address) return;
+    try {
+      const liquidity = parseUnits(pendingLpAmountRef.current, 18);
+      const freshBuild = await buildZapOutTransaction(
+        pendingReceiveTokenRef.current as Address,
+        liquidity,
+        address,
+        pendingSlippageRef.current,
+      );
+      if (freshBuild) await sendZapOut(freshBuild);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
+        toast.error("Something went wrong. Please try again.");
+      }
+    }
+  });
 
   // Build balanced transaction when we have a valid quote and wallet
   useEffect(() => {
@@ -168,7 +201,6 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
   // === Button state ===
 
   const getButtonState = () => {
-    if (!address) return { text: "Connect Wallet", disabled: true };
     if (!hasAmount) return { text: "Enter amount", disabled: true };
     if (insufficientLp)
       return { text: "Insufficient LP balance", disabled: true };
@@ -228,59 +260,101 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
   const handleAction = async () => {
     if (!address) return;
 
-    // Zap-out actions
-    if (
-      buttonState.action === "zap-out-approve" &&
-      zapOutBuildResult?.approval
-    ) {
-      await zapOutApproval.sendApproval(zapOutBuildResult.approval);
-      const liquidity = parseUnits(lpAmount, 18);
-      const freshBuild = await buildZapOutTransaction(
-        receiveToken as Address,
-        liquidity,
-        address,
-        slippage,
-      );
-      if (freshBuild) await sendZapOut(freshBuild);
-      return;
-    }
-    if (buttonState.action === "zap-out" && zapOutBuildResult) {
-      await sendZapOut(zapOutBuildResult);
-      return;
-    }
+    pendingLpAmountRef.current = lpAmount;
+    pendingSlippageRef.current = slippage;
+    pendingReceiveTokenRef.current = receiveToken;
 
-    // Balanced actions
-    if (!buildResult) return;
-
-    if (buttonState.action === "approve-lp" && buildResult.approval) {
-      await lpApproval.sendApproval(buildResult.approval);
-      const liquidity = parseUnits(lpAmount, 18);
-      const freshBuild = await buildTransaction(
-        liquidity,
-        address,
-        address,
-        slippage,
-      );
-      if (freshBuild) {
-        await sendRemoveLiquidity(freshBuild);
+    try {
+      if (
+        (buttonState.action === "zap-out-approve" ||
+          buttonState.action === "zap-out") &&
+        zapOutBuildResult
+      ) {
+        if (zapOutBuildResult.approval && !zapOutApproval.isApproved) {
+          await zapOutApproval.sendApproval(zapOutBuildResult.approval);
+        } else {
+          const liquidity = parseUnits(lpAmount, 18);
+          const freshBuild = await buildZapOutTransaction(
+            receiveToken as Address,
+            liquidity,
+            address,
+            slippage,
+          );
+          if (freshBuild) await sendZapOut(freshBuild);
+        }
+        return;
       }
-      return;
-    }
 
-    if (buttonState.action === "remove") {
-      await sendRemoveLiquidity(buildResult);
+      if (!buildResult) return;
+
+      if (buildResult.approval && !lpApproval.isApproved) {
+        await lpApproval.sendApproval(buildResult.approval);
+      } else {
+        const liquidity = parseUnits(lpAmount, 18);
+        const freshBuild = await buildTransaction(
+          liquidity,
+          address,
+          address,
+          slippage,
+        );
+        if (freshBuild) await sendRemoveLiquidity(freshBuild);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const isHandledByHook =
+        /user\s+rejected/i.test(msg) ||
+        /user\s+denied/i.test(msg) ||
+        /denied\s+transaction/i.test(msg);
+      if (!isHandledByHook) {
+        toast.error("Something went wrong. Please try again.");
+      }
     }
   };
 
   // === Preset handlers ===
 
+  const [customPct, setCustomPct] = useState("");
+
   const handlePreset = (fraction: number) => {
     if (!lpBalance) return;
-    if (fraction === 1) {
+    if (fraction >= 1) {
       setLpAmount(formatUnits(lpBalance, 18));
     } else {
       const fractionalBalance =
-        (lpBalance * BigInt(Math.round(fraction * 1000))) / 1000n;
+        (lpBalance * BigInt(Math.round(fraction * 1_000_000))) / 1_000_000n;
+      setLpAmount(formatUnits(fractionalBalance, 18));
+    }
+  };
+
+  const handleCustomPctChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (!lpBalance) return;
+    const raw = sanitizePercentInput(e.target.value);
+    setCustomPct(raw);
+    const pct = parseFloat(raw);
+    if (isNaN(pct) || pct <= 0) {
+      setLpAmount("0");
+    } else if (pct >= 100) {
+      setLpAmount(formatUnits(lpBalance, 18));
+    } else {
+      const fractionalBalance =
+        (lpBalance * BigInt(Math.round((pct / 100) * 1_000_000))) / 1_000_000n;
+      setLpAmount(formatUnits(fractionalBalance, 18));
+    }
+  };
+
+  const handleCustomPctBlur = () => {
+    if (!lpBalance) return;
+    const corrected = sanitizePercentOnBlur(customPct);
+    if (corrected === null) return;
+    setCustomPct(corrected);
+    const val = parseFloat(corrected);
+    if (isNaN(val) || val <= 0) {
+      setLpAmount("0");
+    } else if (val >= 100) {
+      setLpAmount(formatUnits(lpBalance, 18));
+    } else {
+      const fractionalBalance =
+        (lpBalance * BigInt(Math.round((val / 100) * 1_000_000))) / 1_000_000n;
       setLpAmount(formatUnits(fractionalBalance, 18));
     }
   };
@@ -337,10 +411,10 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
               <span className="font-medium">LP Tokens</span>
             </div>
             <div className="text-sm text-muted-foreground">
-              Balance: {formatBalance(formattedLpBalance)}{" "}
+              Balance: {formatCompactBalance(formattedLpBalance)}{" "}
               <button
                 className="font-medium cursor-pointer text-primary hover:underline"
-                onClick={() => setLpAmount(formattedLpBalance)}
+                onClick={() => handlePreset(1)}
               >
                 MAX
               </button>
@@ -362,73 +436,109 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
         </div>
 
         {/* Percentage presets */}
-        <div className="gap-2 flex">
+        <div className="gap-2 grid grid-cols-4">
           <button
             onClick={() => handlePreset(0.25)}
-            className="px-3 py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background transition-colors hover:bg-muted/50"
+            className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
           >
             25%
           </button>
           <button
             onClick={() => handlePreset(0.5)}
-            className="px-3 py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background transition-colors hover:bg-muted/50"
+            className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
           >
             50%
           </button>
           <button
             onClick={() => handlePreset(0.75)}
-            className="px-3 py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background transition-colors hover:bg-muted/50"
+            className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
           >
             75%
           </button>
-          <button
-            onClick={() => handlePreset(1)}
-            className="px-3 py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background transition-colors hover:bg-muted/50"
-          >
-            All
-          </button>
+          <div className="py-1.5 flex items-center justify-center overflow-hidden rounded-md border border-border bg-background">
+            <input
+              type="text"
+              inputMode="decimal"
+              maxLength={6}
+              placeholder="Custom %"
+              value={customPct}
+              className="min-w-0 text-xs font-medium w-full shrink bg-transparent text-center outline-none placeholder:text-muted-foreground"
+              onChange={handleCustomPctChange}
+              onBlur={handleCustomPctBlur}
+              style={
+                customPct
+                  ? { width: `${customPct.length}ch`, flexShrink: 0 }
+                  : undefined
+              }
+            />
+            {customPct && (
+              <span className="text-xs font-medium shrink-0">%</span>
+            )}
+          </div>
         </div>
 
         {mode === "balanced" ? (
           <>
-            {/* You will receive — balanced */}
-            <div className="gap-3 flex flex-col">
-              <h3 className="font-semibold">You will receive</h3>
-              <div className="gap-2 text-sm flex flex-col">
-                <div className="flex items-center justify-between">
-                  <div className="gap-2 flex items-center">
-                    <TokenIcon
-                      token={{
-                        address: pool.token0.address,
-                        symbol: pool.token0.symbol,
-                      }}
-                      size={24}
-                      className="rounded-full"
-                    />
-                    <span>{pool.token0.symbol}</span>
+            {/* Slippage Tolerance */}
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Slippage Tolerance %</span>
+              <Select
+                value={String(slippage)}
+                onValueChange={(v) => setSlippage(Number(v) as SlippageOption)}
+              >
+                <SelectTrigger className="w-auto">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SLIPPAGE_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={String(option)}>
+                      {option}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Preview — balanced */}
+            {hasAmount && quote && (
+              <div className="gap-3 p-3 flex flex-col rounded-md border border-border">
+                <h3 className="font-semibold">Preview</h3>
+                <div className="gap-2 text-sm flex flex-col">
+                  <div className="flex items-center justify-between">
+                    <div className="gap-2 flex items-center">
+                      <TokenIcon
+                        token={{
+                          address: pool.token0.address,
+                          symbol: pool.token0.symbol,
+                        }}
+                        size={24}
+                        className="rounded-full"
+                      />
+                      <span>{pool.token0.symbol}</span>
+                    </div>
+                    <span className="font-medium">
+                      {formatTokenAmount(quote?.amount0, pool.token0.decimals)}
+                    </span>
                   </div>
-                  <span className="font-medium">
-                    {formatTokenAmount(quote?.amount0, pool.token0.decimals)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="gap-2 flex items-center">
-                    <TokenIcon
-                      token={{
-                        address: pool.token1.address,
-                        symbol: pool.token1.symbol,
-                      }}
-                      size={24}
-                      className="rounded-full"
-                    />
-                    <span>{pool.token1.symbol}</span>
+                  <div className="flex items-center justify-between">
+                    <div className="gap-2 flex items-center">
+                      <TokenIcon
+                        token={{
+                          address: pool.token1.address,
+                          symbol: pool.token1.symbol,
+                        }}
+                        size={24}
+                        className="rounded-full"
+                      />
+                      <span>{pool.token1.symbol}</span>
+                    </div>
+                    <span className="font-medium">
+                      {formatTokenAmount(quote?.amount1, pool.token1.decimals)}
+                    </span>
                   </div>
-                  <span className="font-medium">
-                    {formatTokenAmount(quote?.amount1, pool.token1.decimals)}
-                  </span>
                 </div>
               </div>
-            </div>
+            )}
           </>
         ) : (
           <>
@@ -477,77 +587,53 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
               </div>
             </div>
 
-            {/* You will receive — single token breakdown */}
-            <div className="gap-3 p-3 flex flex-col rounded-md border border-border">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold">You will receive</span>
-              </div>
-              <div className="text-sm flex items-center justify-between">
-                <span className="text-muted-foreground">
-                  Estimated {selectedToken.symbol}
-                </span>
-                <span className="font-medium">
-                  {formatTokenAmount(
-                    zapOutQuote?.expectedTokenOut,
-                    selectedToken.decimals,
-                  )}
-                </span>
-              </div>
-              <div className="border-t border-border" />
-              <div className="gap-1 text-sm flex flex-col">
-                <span className="text-xs text-muted-foreground">
-                  Underlying remove:
-                </span>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">
-                    {pool.token0.symbol}
-                  </span>
-                  <span className="font-medium">
-                    {formatTokenAmount(quote?.amount0, pool.token0.decimals)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">
-                    {pool.token1.symbol}
-                  </span>
-                  <span className="font-medium">
-                    {formatTokenAmount(quote?.amount1, pool.token1.decimals)}
-                  </span>
-                </div>
-                <div className="gap-1 mt-1 text-xs flex items-center text-muted-foreground">
-                  Auto-swap: {otherToken.symbol}
-                  <ArrowRight className="h-3 w-3" />
-                  {selectedToken.symbol}
-                </div>
-              </div>
+            {/* Slippage Tolerance */}
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Slippage Tolerance %</span>
+              <Select
+                value={String(slippage)}
+                onValueChange={(v) => setSlippage(Number(v) as SlippageOption)}
+              >
+                <SelectTrigger className="w-auto">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SLIPPAGE_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={String(option)}>
+                      {option}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
-            {/* Preview */}
-            <div className="gap-3 flex flex-col">
-              <h3 className="font-semibold">Preview</h3>
-              <div className="gap-2 text-sm flex flex-col">
-                <div className="flex items-center justify-between">
+            {/* Preview — single token */}
+            {hasAmount && zapOutQuote && (
+              <div className="gap-3 p-3 flex flex-col rounded-md border border-border">
+                <h3 className="font-semibold">Preview</h3>
+                <div className="text-sm flex items-center justify-between">
                   <span className="text-muted-foreground">
-                    Estimated received
+                    Estimated {selectedToken.symbol}
                   </span>
                   <span className="font-medium">
                     {formatTokenAmount(
                       zapOutQuote?.expectedTokenOut,
                       selectedToken.decimals,
-                    )}{" "}
-                    {selectedToken.symbol}
+                    )}
                   </span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">
-                    Minimum received
+                <div className="border-t border-border" />
+                <div className="gap-1 text-sm flex flex-col">
+                  <span className="text-xs text-muted-foreground">
+                    Underlying remove:
                   </span>
                   <span className="font-medium">
+                    {/* Both amountOutMin values are in the output token's units
+                        (both routes terminate at tokenOut). */}
                     {formatTokenAmount(
-                      zapOutQuote?.expectedTokenOut
-                        ? (zapOutQuote.expectedTokenOut *
-                            BigInt(Math.round((1 - slippage / 100) * 10000))) /
-                            10000n
+                      zapOutBuildResult
+                        ? zapOutBuildResult.zapOut.zapParams.amountOutMinA +
+                            zapOutBuildResult.zapOut.zapParams.amountOutMinB
                         : undefined,
                       selectedToken.decimals,
                     )}{" "}
@@ -555,7 +641,7 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
                   </span>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Info text */}
             <p className="text-xs text-muted-foreground">
@@ -564,57 +650,23 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
             </p>
           </>
         )}
-
-        {/* Slippage tolerance */}
-        <div className="gap-2 flex flex-col">
-          <div className="flex items-center justify-between">
-            <label className="text-sm font-medium">Slippage tolerance</label>
-            <Popover open={slippageOpen} onOpenChange={setSlippageOpen}>
-              <PopoverTrigger asChild>
-                <button className="gap-2 px-3 py-1.5 text-sm font-medium flex cursor-pointer items-center rounded-md border border-border bg-background transition-colors hover:bg-muted/50">
-                  {slippage}%
-                  <ChevronDown className="h-3 w-3" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="p-1 w-auto">
-                <div className="flex flex-col">
-                  {SLIPPAGE_OPTIONS.map((option) => (
-                    <button
-                      key={option}
-                      onClick={() => {
-                        setSlippage(option);
-                        setSlippageOpen(false);
-                      }}
-                      className="gap-2 px-3 py-1.5 text-sm flex cursor-pointer items-center rounded-sm transition-colors hover:bg-muted"
-                    >
-                      {option === slippage && <Check className="h-3 w-3" />}
-                      <span
-                        className={option === slippage ? "font-medium" : ""}
-                      >
-                        {option}%
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Used to set minimum amounts for zap swaps and liquidity mint/burn.
-          </p>
-        </div>
       </div>
 
-      {/* Bottom section */}
+      {/* Bottom section — pinned */}
       <div className="gap-4 px-6 pb-6 pt-4 mt-auto flex shrink-0 flex-col">
-        <Button
-          size="lg"
-          className="w-full"
-          disabled={buttonState.disabled}
-          onClick={handleAction}
-        >
-          {buttonState.text}
-        </Button>
+        {!address ? (
+          <ConnectButton size="lg" text="Connect Wallet" fullWidth />
+        ) : (
+          <Button
+            size="lg"
+            clipped="lg"
+            className="w-full"
+            disabled={buttonState.disabled}
+            onClick={handleAction}
+          >
+            {buttonState.text}
+          </Button>
+        )}
 
         {/* Footer links */}
         <div className="gap-4 text-sm flex items-center justify-between">

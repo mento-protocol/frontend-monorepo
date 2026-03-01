@@ -45,20 +45,21 @@ export function PoolRow({ pool }: PoolRowProps) {
     >
       <div
         className={cn(
-          "gap-4 px-4 py-4 grid grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,1.5fr)_minmax(0,1.5fr)] items-center",
+          "gap-4 px-4 py-4 grid min-h-[84px] grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,1.5fr)_minmax(0,1.5fr)] items-center",
           canExpand && "cursor-pointer transition-colors hover:bg-muted/30",
         )}
         onClick={() => canExpand && setIsExpanded(!isExpanded)}
       >
         {/* Pool */}
         <div className="gap-3 flex items-center">
-          <ChevronDown
-            className={cn(
-              "h-4 w-4 shrink-0 transition-transform",
-              canExpand ? "text-muted-foreground" : "invisible",
-              isExpanded && "rotate-180",
-            )}
-          />
+          {canExpand && (
+            <ChevronDown
+              className={cn(
+                "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                isExpanded && "rotate-180",
+              )}
+            />
+          )}
           <div className="-space-x-2 flex">
             <TokenIcon
               token={{

@@ -66,10 +66,17 @@ export function useTriggerRebalance() {
       {
         onError: (error) => {
           console.error("Rebalance error:", error);
-          toast.error("Failed to trigger rebalance", {
-            description: error.message,
-            duration: 5000,
-          });
+          const isRejection =
+            /user\s+rejected/i.test(error.message) ||
+            /denied\s+transaction/i.test(error.message) ||
+            /request\s+rejected/i.test(error.message);
+          toast.error(
+            isRejection ? "Rebalance rejected." : "Failed to trigger rebalance",
+            {
+              description: isRejection ? undefined : error.message,
+              duration: 5000,
+            },
+          );
         },
       },
     );

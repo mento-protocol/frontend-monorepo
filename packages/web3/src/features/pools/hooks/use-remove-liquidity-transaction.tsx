@@ -2,6 +2,7 @@ import type { ChainId } from "@/config/chains";
 import { getMentoSdk } from "@/features/sdk";
 import { logger } from "@/utils/logger";
 import { toast } from "@repo/ui";
+import type { RemoveLiquidityTransaction } from "@mento-protocol/mento-sdk";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import type { Address, Hex } from "viem";
@@ -12,30 +13,8 @@ import {
   useWaitForTransactionReceipt,
 } from "wagmi";
 import { showLiquiditySuccessToast } from "../liquidity-toast";
-import type { PoolDisplay, SlippageOption, TransactionParams } from "../types";
+import type { PoolDisplay, SlippageOption } from "../types";
 import { getTransactionErrorMessage } from "../types";
-
-interface ApprovalResult {
-  token: string;
-  amount: bigint;
-  params: TransactionParams;
-}
-
-interface RemoveLiquidityBuildResult {
-  approval: ApprovalResult | null;
-  removeLiquidity: {
-    params: TransactionParams;
-    poolAddress: string;
-    token0: string;
-    token1: string;
-    liquidity: bigint;
-    amount0Min: bigint;
-    amount1Min: bigint;
-    expectedAmount0: bigint;
-    expectedAmount1: bigint;
-    deadline: bigint;
-  };
-}
 
 export function useRemoveLiquidityTransaction(pool: PoolDisplay) {
   const chainId = useChainId() as ChainId;
@@ -43,7 +22,7 @@ export function useRemoveLiquidityTransaction(pool: PoolDisplay) {
   const queryClient = useQueryClient();
 
   const [buildResult, setBuildResult] =
-    useState<RemoveLiquidityBuildResult | null>(null);
+    useState<RemoveLiquidityTransaction | null>(null);
   const [isBuilding, setIsBuilding] = useState(false);
   const [txHash, setTxHash] = useState<Address | undefined>();
 
@@ -65,7 +44,7 @@ export function useRemoveLiquidityTransaction(pool: PoolDisplay) {
       recipient: Address,
       owner: Address,
       slippage: SlippageOption,
-    ): Promise<RemoveLiquidityBuildResult | null> => {
+    ): Promise<RemoveLiquidityTransaction | null> => {
       setIsBuilding(true);
       try {
         const sdk = await getMentoSdk(chainId);
@@ -82,8 +61,8 @@ export function useRemoveLiquidityTransaction(pool: PoolDisplay) {
           { slippageTolerance: slippage, deadline },
         );
 
-        setBuildResult(result as unknown as RemoveLiquidityBuildResult);
-        return result as unknown as RemoveLiquidityBuildResult;
+        setBuildResult(result);
+        return result;
       } catch (err) {
         logger.error("Failed to build remove liquidity transaction:", err);
         setBuildResult(null);
@@ -96,7 +75,7 @@ export function useRemoveLiquidityTransaction(pool: PoolDisplay) {
   );
 
   const sendRemoveLiquidity = useCallback(
-    async (build: RemoveLiquidityBuildResult) => {
+    async (build: RemoveLiquidityTransaction) => {
       try {
         const hash = await sendTransactionAsync({
           to: build.removeLiquidity.params.to as Address,
@@ -110,6 +89,7 @@ export function useRemoveLiquidityTransaction(pool: PoolDisplay) {
           getTransactionErrorMessage(
             err instanceof Error ? err.message : String(err),
             "Unable to complete remove liquidity transaction.",
+            "Remove liquidity",
           ),
         );
         logger.error("Remove liquidity transaction failed:", err);

@@ -3,7 +3,6 @@ import { getTokenBySymbol } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
 import { logger } from "@/utils/logger";
-import { retryAsync } from "@/utils/retry";
 import { validateAddress } from "@/utils/addresses";
 import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
 import { toast } from "@repo/ui";
@@ -112,12 +111,10 @@ export function useSwapTransaction(
         throw new Error("Chain ID is undefined");
       }
       validateAddress(swapDetails.params.to, "swap transaction");
-      const txHash = await retryAsync(async () => {
-        return await sendTransactionAsync({
-          to: swapDetails.params.to as Address,
-          data: swapDetails.params.data as `0x${string}`,
-          value: BigInt(swapDetails.params.value || 0),
-        });
+      const txHash = await sendTransactionAsync({
+        to: swapDetails.params.to as Address,
+        data: swapDetails.params.data as `0x${string}`,
+        value: BigInt(swapDetails.params.value || 0),
       });
 
       logger.debug("Transaction sent, waiting for confirmation...", {
