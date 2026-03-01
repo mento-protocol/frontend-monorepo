@@ -45,6 +45,8 @@
 - Shared components in `shared/` — `debt-token-selector.tsx`, `flow-dialog.tsx`, `flow-step.tsx`, `risk-badge.tsx`, `trove-metrics.tsx`
 - Available read hooks: `useSystemParams`, `useCollateralPrice`, `useLoanDetails`, `useDebtSuggestions`, `useInterestRateChartData`, `useRedemptionRisk`, `usePredictUpfrontFee`, `useNextOwnerIndex`, `useTroveData`, `useUserTroves`, `useBorrowAllowance`, `useBranchStats`, `useInterestRateBrackets`
 - Available write hooks: `useOpenTrove`, `useAdjustTrove`, `useCloseTrove`, `useAdjustInterestRate`, `useClaimCollateral`, `useSpDeposit`, `useSpWithdraw`
+- Available read hooks (additional): `useSurplusCollateral` — reads claimable surplus from `CollSurplusPool.getCollateral(address)` on-chain
+- `CollSurplusPool` ABI not in SDK — define minimal inline ABI when reading surplus balance directly
 - `useOpenTrove` accepts `{ symbol, params: OpenTroveParams, wagmiConfig, account }` — OpenTroveParams: `{ owner, ownerIndex, collAmount, boldAmount, annualInterestRate, maxUpfrontFee }`
 - `useAdjustTrove` accepts `{ symbol, params: AdjustTroveParams, wagmiConfig, account }` — AdjustTroveParams: `{ troveId, collChange, isCollIncrease, debtChange, isDebtIncrease, maxUpfrontFee }`
 - `useCloseTrove` accepts `{ symbol, troveId, wagmiConfig, account }`
@@ -230,4 +232,35 @@
   - `troveData.debt` from `useTroveData` includes the total debt (recorded + accrued interest + redistribution gains) — use directly for display
   - Debt token address resolved via `getTokenAddress(chainId, debtToken.symbol as TokenSymbol)` — same pattern as collateral but with the debt token symbol
   - Button `variant="destructive"` from @repo/ui provides red styling for irreversible actions
+---
+
+## 2026-03-01 - US-013
+- Wired `ManageTroveView` into `borrow-view.tsx` by replacing the "coming soon" placeholder for the `manage-trove` view
+- Wired actual form components into `manage-trove-view.tsx` tabs: `AdjustForm` in Adjust tab, `RateForm` in Interest Rate tab, `CloseForm` in Close tab
+- Each form receives `troveId` and `troveData` props, guarded by `{troveData && ...}` to handle loading state
+- Files changed: `borrow-view.tsx` (updated), `manage-trove-view.tsx` (updated)
+- **Learnings for future iterations:**
+  - All manage-trove form components (`AdjustForm`, `RateForm`, `CloseForm`) share the same prop interface: `{ troveId: string, troveData: BorrowPosition }` — consistent pattern
+  - Wiring views is minimal: import component + replace placeholder `<div>` — no changes needed to navigation atoms or dashboard
+  - Tab content should guard on `troveData` existence since `useTroveData` may still be loading when tabs render
+  - Manual browser verification needed — no browser testing tools available
+---
+
+## 2026-03-01 - US-014
+- Created `useSurplusCollateral` hook in `packages/web3/src/features/borrow/hooks/use-surplus-collateral.ts`
+- Reads claimable surplus collateral from the `CollSurplusPool` contract via `getCollateral(address)` view call
+- Resolves `collSurplusPool` address from SDK address registry (same pattern as `useStabilityPoolAddress`)
+- Updated `borrow-dashboard.tsx` to show a claim collateral banner when surplus > 0
+- Banner shows formatted surplus amount and "Claim Collateral" button wired to `useClaimCollateral` hook
+- Empty state now also checks for surplus — user with only surplus collateral sees the main dashboard (not empty state)
+- Added `useSurplusCollateral` export to hooks barrel (`hooks/index.ts`)
+- Files changed: `use-surplus-collateral.ts` (new), `hooks/index.ts` (updated), `borrow-dashboard.tsx` (updated)
+- **Learnings for future iterations:**
+  - `CollSurplusPool` contract has `getCollateral(address)` view function — returns surplus collateral balance as `uint256` (18-decimal bigint)
+  - No ABI file for `CollSurplusPool` exists in the SDK — define a minimal inline ABI in the hook
+  - `collSurplusPool` address is available from `resolveAddressesFromRegistry` return object (alongside `stabilityPool`, `borrowerOperations`, etc.)
+  - Surplus collateral is independent of trove status — a user can have surplus even after their trove is fully closed by liquidation
+  - `useClaimCollateral` triggers the flow dialog automatically via `borrowFlowAtom` — no manual dialog management needed
+  - When checking for positions, surplus collateral should be treated as a separate "has something" condition — prevents showing empty state to users who have claimable surplus
+  - Manual browser verification needed — no browser testing tools available
 ---

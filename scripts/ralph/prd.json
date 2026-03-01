@@ -254,7 +254,7 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 13,
-      "passes": false,
+      "passes": true,
       "notes": "borrow-view.tsx discriminates manage-trove via typeof view === 'object'. Position card already sets borrowViewAtom to { view: 'manage-trove', troveId }. ManageTroveView was created in US-009 with placeholder tabs — now wire the real forms."
     },
     {
@@ -272,7 +272,7 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 14,
-      "passes": false,
+      "passes": true,
       "notes": "useClaimCollateral accepts { symbol, wagmiConfig, account }. Single-step flow — sdk.buildClaimCollateralTransaction(symbol). This may be hard to test visually since it requires a liquidated trove with surplus — just ensure the UI renders conditionally and the hook is wired correctly."
     }
   ]
