@@ -59,3 +59,25 @@
   - Pool share math reuse from `stability-card.tsx`: `Number((deposit * 10000n) / total) / 100` for 2-decimal percentage
   - Trunk auto-formats Tailwind classes on commit — confirmed again, no manual sorting needed
 ---
+
+## 2026-03-01 - US-002
+- Created `deposit-form.tsx` — Stability Pool deposit form with balance display, max button, claim rewards checkbox, and submit logic
+- Files changed:
+  - `apps/app.mento.org/app/components/borrow/earn/deposit-form.tsx` (new)
+- **Learnings for future iterations:**
+  - `useConfig()` from `wagmi` (not `@repo/web3/wagmi`) provides the `wagmiConfig` needed for mutation hooks
+  - Debt token address follows same pattern as collateral: `getTokenAddress(chainId, debtToken.symbol as TokenSymbol)`
+  - `useState` initial value for `doClaim` must be derived from props at component mount — doesn't react to prop changes (acceptable for form UX)
+  - Trunk auto-formats Tailwind class ordering in committed files — confirmed again
+---
+
+## 2026-03-01 - US-003
+- Created `withdraw-form.tsx` — Stability Pool withdraw form with deposit balance display, max button, claim rewards checkbox, and submit logic
+- Mirrors deposit form pattern but uses current deposit as max (not wallet balance) and calls `useSpWithdraw()` instead of `useSpDeposit()`
+- Files changed:
+  - `apps/app.mento.org/app/components/borrow/earn/withdraw-form.tsx` (new)
+- **Learnings for future iterations:**
+  - Withdraw form is structurally identical to deposit form — main differences: max source (deposit vs wallet balance), hook used, error message text
+  - `useSpWithdraw` is single-step (no approval needed) unlike `useSpDeposit` (two-step with allowance check)
+  - No need to import ERC-20 abi, chainId, or SDK token address utils for withdraw — only the deposit amount from props is needed
+---
