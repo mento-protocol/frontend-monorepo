@@ -15,6 +15,8 @@ export { useNextOwnerIndex } from "./use-next-owner-index";
 export { useOpenTrove } from "./use-open-trove";
 export { usePredictUpfrontFee } from "./use-predict-upfront-fee";
 export { useRedemptionRisk } from "./use-redemption-risk";
+export { useSpDeposit } from "./use-sp-deposit";
+export { useSpWithdraw } from "./use-sp-withdraw";
 export { useStabilityPool } from "./use-stability-pool";
 export { useStabilityPoolStats } from "./use-stability-pool-stats";
 export { useSystemParams } from "./use-system-params";
