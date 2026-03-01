@@ -92,3 +92,18 @@
   - Pattern reuse: rewards display block (collateral gain + yield gain) is identical across deposit-form, withdraw-form, and claim-rewards — could be extracted to a shared component in future
   - `ClaimRewards` takes only `collateralGain` and `debtTokenGain` props (no `deposit` needed unlike deposit/withdraw forms)
 ---
+
+## 2026-03-01 - US-005
+- Wired earn view with all Stability Pool forms: DepositForm, WithdrawForm in Tabs, ClaimRewards outside tabs
+- Replaced placeholder divs with `Tabs` (Deposit/Withdraw) from @repo/ui
+- ClaimRewards rendered directly (no Card wrapper) since component returns null when no rewards — avoids empty Card shell
+- SP position data (`deposit`, `collateralGain`, `debtTokenGain`) passed from `useStabilityPool` to all child forms
+- borrow-view.tsx already had EarnView wired from US-001, no changes needed there
+- Files changed:
+  - `apps/app.mento.org/app/components/borrow/earn/earn-view.tsx` (updated)
+- **Learnings for future iterations:**
+  - ClaimRewards returns null when no rewards — don't wrap in Card/container or you get an empty shell
+  - Tabs only need `defaultValue` prop for uncontrolled usage — no state management needed
+  - The earn view forms (deposit/withdraw/claim) all read `selectedDebtTokenAtom` internally so no need to pass debtToken as prop
+  - All Phase 4 Stability Pool stories (US-001 through US-005) are now complete
+---
