@@ -1,6 +1,6 @@
 import { toast } from "@repo/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useChainId } from "wagmi";
 
 import { SWAP_QUOTE_REFETCH_INTERVAL } from "@/config/constants";
@@ -8,6 +8,7 @@ import { getTokenBySymbol } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { buildSwapRoute } from "@/features/swap/build-swap-route";
 import {
+  extractFullErrorString,
   getToastErrorMessage,
   shouldRetrySwapError,
 } from "@/features/swap/error-handlers";
@@ -20,6 +21,8 @@ import { fromWei } from "@/utils/amount";
 import { useDebounce } from "@/utils/debounce";
 import { logger } from "@/utils/logger";
 import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
+
+const TOAST_THROTTLE_MS = 10_000;
 
 interface ISwapError {
   message: string;
@@ -214,17 +217,11 @@ export function useSwapQuote(
   // Memoize error handling to prevent unnecessary effect runs
   const errorMessage = useMemo(() => {
     if (!error) return null;
-    // Extract error message, checking both message and reason properties
-    // (ethers errors sometimes have the revert reason in error.reason)
-    const errorMsg =
-      error.message || (error as { reason?: string }).reason || String(error);
 
-    // Check if this is a trading suspension error - if so, skip showing toast
-    // since the trading suspension check hook already handles it
-    const isTradingSuspensionError = errorMsg.includes("Trading is suspended");
+    const errorMsg = extractFullErrorString(error);
 
-    if (isTradingSuspensionError) {
-      // Still log the error but don't show toast (trading suspension check handles it)
+    // Skip toast for trading suspension - handled by useTradingSuspensionCheck
+    if (errorMsg.includes("Trading is suspended")) {
       logger.error(error);
       return null;
     }
@@ -236,24 +233,39 @@ export function useSwapQuote(
     });
   }, [error, fromToken?.symbol, toToken?.symbol, chainId]);
 
+  const lastToastTimeRef = useRef(0);
+
   useEffect(() => {
-    if (errorMessage) {
-      toast.error(errorMessage);
-      logger.error(error);
+    if (!errorMessage) return;
+
+    logger.error(error);
+
+    const now = Date.now();
+    const elapsed = now - lastToastTimeRef.current;
+
+    if (lastToastTimeRef.current === 0 || elapsed >= TOAST_THROTTLE_MS) {
+      lastToastTimeRef.current = now;
+      toast.error(errorMessage, { id: "swap-quote-error" });
     }
   }, [errorMessage, error]);
+
+  const quoteErrorMessage = useMemo(() => {
+    if (!errorMessage) return null;
+    return typeof errorMessage === "string" ? errorMessage : null;
+  }, [errorMessage]);
 
   return useMemo(
     () => ({
       isFetching,
-      isError,
+      isError: isError || !!error,
+      quoteErrorMessage,
       amountWei: data?.amountWei || "0",
       quoteWei: data?.quoteWei || "0",
       quote: data?.quote || "0",
       rate: data?.rate,
       refetch,
     }),
-    [isFetching, isError, data, refetch],
+    [isFetching, isError, error, quoteErrorMessage, data, refetch],
   );
 }
 

@@ -30,6 +30,26 @@ function SkeletonRow() {
   );
 }
 
+export function PoolsTableHeader() {
+  return (
+    <div className="gap-4 px-4 py-3 grid grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,1.5fr)_minmax(0,1.5fr)] rounded-lg border border-border bg-card">
+      <span className="text-sm font-medium text-muted-foreground">Pool</span>
+      <span className="text-sm font-medium text-muted-foreground">
+        Reserves
+      </span>
+      <span className="text-sm font-medium pl-4 text-muted-foreground">
+        Fees
+      </span>
+      <span className="text-sm font-medium text-muted-foreground">
+        Price Alignment
+      </span>
+      <span className="text-sm font-medium text-right text-muted-foreground">
+        Actions
+      </span>
+    </div>
+  );
+}
+
 export function PoolsTable({ pools, isLoading }: PoolsTableProps) {
   return (
     <div className="space-y-3">

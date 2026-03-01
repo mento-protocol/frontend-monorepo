@@ -2,9 +2,10 @@ import { atom } from "jotai";
 import type { SwapFormValues, ToCeloRates } from "./types";
 
 const initialFormValues: SwapFormValues | null = {
-  slippage: "0.5",
+  slippage: "0.3",
   isAutoSlippage: true,
-  deadlineMinutes: "20",
+  deadlineMinutes: "5",
+  isAutoDeadline: true,
 };
 
 const initialToCeloRates: ToCeloRates = {};

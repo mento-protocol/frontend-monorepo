@@ -1,10 +1,12 @@
 import {
   Button,
   TokenIcon,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   CoinInput,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
   toast,
 } from "@repo/ui";
 import type { PoolDisplay, SlippageOption } from "@repo/web3";
@@ -16,27 +18,24 @@ import {
   useAddLiquidityTransaction,
   useZapInQuote,
   useZapInTransaction,
+  ConnectButton,
+  tryParseUnits,
+  formatCompactBalance,
 } from "@repo/web3";
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, parseUnits, type Address } from "viem";
-import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  ChevronDown,
-  Check,
-  Info,
-  AlertTriangle,
-  ExternalLink,
-} from "lucide-react";
-
-function formatBalance(balance: string): string {
-  const num = parseFloat(balance);
-  if (num >= 1_000_000) return (num / 1_000_000).toFixed(2) + "M";
-  if (num >= 1_000) return (num / 1_000).toFixed(2) + "K";
-  return num.toLocaleString(undefined, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  });
-}
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type ChangeEvent,
+} from "react";
+import { Info, AlertTriangle, ExternalLink } from "lucide-react";
+import {
+  sanitizePercentInput,
+  sanitizePercentOnBlur,
+} from "@/lib/utils/percent-input";
 
 function formatLP(liquidity: bigint | undefined): string {
   if (!liquidity || liquidity === 0n) return "0.00";
@@ -51,10 +50,12 @@ function calcPoolShare(
   totalSupply: bigint | undefined,
 ): string {
   if (!liquidity || !totalSupply || totalSupply === 0n) return "0.00";
-  return (
-    (Number(liquidity) / (Number(totalSupply) + Number(liquidity))) *
-    100
-  ).toFixed(4);
+  // Compute share in BigInt space to avoid Number overflow on 18-decimal LP values.
+  // Multiply by 1M first to preserve 4 decimal places after integer division,
+  // then convert the small result to Number for formatting.
+  const bps = (liquidity * 1_000_000n) / (totalSupply + liquidity);
+  const pct = Number(bps) / 10_000;
+  return pct.toFixed(4);
 }
 
 function TokenAmountInput({
@@ -84,7 +85,7 @@ function TokenAmountInput({
           <span className="font-medium">{token.symbol}</span>
         </div>
         <div className="text-sm text-muted-foreground">
-          Balance: {formatBalance(balance)}{" "}
+          Balance: {formatCompactBalance(balance)}{" "}
           <button
             className="font-medium cursor-pointer text-primary hover:underline"
             onClick={onMax}
@@ -116,7 +117,7 @@ function LPPreview({
   sharePercent: string;
 }) {
   return (
-    <div className="gap-3 flex flex-col">
+    <div className="gap-3 p-3 flex flex-col rounded-md border border-border">
       <h3 className="font-semibold">Preview</h3>
       <div className="gap-2 text-sm flex flex-col">
         <div className="flex items-center justify-between">
@@ -143,7 +144,6 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
   const [token1Amount, setToken1Amount] = useState("");
   const [lastEditedToken, setLastEditedToken] = useState<0 | 1>(0);
   const [slippage, setSlippage] = useState<SlippageOption>(0.3);
-  const [slippageOpen, setSlippageOpen] = useState(false);
 
   // Single-token (zap) state
   const [zapTokenIn, setZapTokenIn] = useState<string>(pool.token0.address);
@@ -213,8 +213,52 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     reset: resetTx,
   } = useAddLiquidityTransaction(pool);
 
-  const approvalA = useLiquidityApproval(pool.token0.symbol);
-  const approvalB = useLiquidityApproval(pool.token1.symbol);
+  const pendingQuoteRef = useRef(quote);
+  const pendingSlippageRef = useRef(slippage);
+
+  // approvalB declared first — approvalA's onApproved chains into it.
+  const approvalB = useLiquidityApproval(pool.token1.symbol, async () => {
+    if (!address || !pendingQuoteRef.current) return;
+    try {
+      const q = pendingQuoteRef.current;
+      const freshBuild = await buildTransaction(
+        q.amountA,
+        q.amountB,
+        address,
+        pendingSlippageRef.current,
+      );
+      if (freshBuild) await sendAddLiquidity(freshBuild);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
+        toast.error("Something went wrong. Please try again.");
+      }
+    }
+  });
+
+  const approvalA = useLiquidityApproval(pool.token0.symbol, async () => {
+    if (!address || !pendingQuoteRef.current) return;
+    try {
+      const q = pendingQuoteRef.current;
+      const freshBuild = await buildTransaction(
+        q.amountA,
+        q.amountB,
+        address,
+        pendingSlippageRef.current,
+      );
+      if (!freshBuild) return;
+      if (freshBuild.approvalB) {
+        await approvalB.sendApproval(freshBuild.approvalB);
+      } else {
+        await sendAddLiquidity(freshBuild);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
+        toast.error("Something went wrong. Please try again.");
+      }
+    }
+  });
 
   // Build transaction when we have a valid quote and wallet
   useEffect(() => {
@@ -264,19 +308,37 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     reset: resetZapTx,
   } = useZapInTransaction(pool);
 
-  const zapApproval = useLiquidityApproval(zapToken.symbol);
+  const pendingZapAmountRef = useRef(zapAmount);
+  const pendingZapTokenInRef = useRef(zapTokenIn);
+  const pendingZapDecimalsRef = useRef(zapToken.decimals);
+
+  const zapApproval = useLiquidityApproval(zapToken.symbol, async () => {
+    if (!address) return;
+    try {
+      const amountInWei = parseUnits(
+        pendingZapAmountRef.current,
+        pendingZapDecimalsRef.current,
+      );
+      const freshBuild = await buildZapTransaction(
+        pendingZapTokenInRef.current as Address,
+        amountInWei,
+        address,
+        pendingSlippageRef.current,
+      );
+      if (freshBuild) await sendZapIn(freshBuild);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
+        toast.error("Something went wrong. Please try again.");
+      }
+    }
+  });
 
   // Build zap transaction when quote arrives
   useEffect(() => {
-    if (
-      mode !== "single" ||
-      !address ||
-      !zapQuote ||
-      !zapAmount ||
-      Number(zapAmount) <= 0
-    )
-      return;
-    const amountInWei = parseUnits(zapAmount, zapToken.decimals);
+    if (mode !== "single" || !address || !zapQuote || !zapAmount) return;
+    const amountInWei = tryParseUnits(zapAmount, zapToken.decimals);
+    if (!amountInWei || amountInWei <= 0n) return;
     buildZapTransaction(zapTokenIn as Address, amountInWei, address, slippage);
   }, [
     zapQuote,
@@ -332,30 +394,33 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
   // === Validation ===
 
   // Balanced mode
-  const hasAmounts = Number(token0Amount) > 0 && Number(token1Amount) > 0;
+  const parsedToken0 = tryParseUnits(token0Amount, pool.token0.decimals);
+  const parsedToken1 = tryParseUnits(token1Amount, pool.token1.decimals);
+  const hasAmounts =
+    parsedToken0 !== null &&
+    parsedToken0 > 0n &&
+    parsedToken1 !== null &&
+    parsedToken1 > 0n;
   const insufficientToken0 =
-    hasAmounts &&
+    parsedToken0 !== null &&
     token0Balance !== undefined &&
-    Number(token0Amount) > 0 &&
-    parseUnits(token0Amount || "0", pool.token0.decimals) > token0Balance;
+    parsedToken0 > token0Balance;
   const insufficientToken1 =
-    hasAmounts &&
+    parsedToken1 !== null &&
     token1Balance !== undefined &&
-    Number(token1Amount) > 0 &&
-    parseUnits(token1Amount || "0", pool.token1.decimals) > token1Balance;
+    parsedToken1 > token1Balance;
 
   // Single-token mode
-  const hasZapAmount = Number(zapAmount) > 0;
+  const parsedZap = tryParseUnits(zapAmount, zapToken.decimals);
+  const hasZapAmount = parsedZap !== null && parsedZap > 0n;
   const insufficientZap =
-    hasZapAmount &&
+    parsedZap !== null &&
     zapTokenBalance !== undefined &&
-    parseUnits(zapAmount || "0", zapToken.decimals) > zapTokenBalance;
+    parsedZap > zapTokenBalance;
 
   // === Button state ===
 
   const getButtonState = () => {
-    if (!address) return { text: "Connect Wallet", disabled: true };
-
     if (mode === "single") {
       if (!hasZapAmount) return { text: "Enter amount", disabled: true };
       if (insufficientZap)
@@ -443,39 +508,40 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     if (!address) return;
 
     try {
-      // Zap actions
-      if (buttonState.action === "zap-approve" && zapBuildResult?.approval) {
-        await zapApproval.sendApproval(zapBuildResult.approval);
-        const amountInWei = parseUnits(zapAmount, zapToken.decimals);
-        const freshBuild = await buildZapTransaction(
-          zapTokenIn as Address,
-          amountInWei,
-          address,
-          slippage,
-        );
-        if (freshBuild) await sendZapIn(freshBuild);
-        return;
-      }
-      if (buttonState.action === "zap" && zapBuildResult) {
-        await sendZapIn(zapBuildResult);
+      if (
+        (buttonState.action === "zap-approve" ||
+          buttonState.action === "zap") &&
+        zapBuildResult
+      ) {
+        if (zapBuildResult.approval && !zapApproval.isApproved) {
+          pendingZapAmountRef.current = zapAmount;
+          pendingZapTokenInRef.current = zapTokenIn;
+          pendingZapDecimalsRef.current = zapToken.decimals;
+          pendingSlippageRef.current = slippage;
+          await zapApproval.sendApproval(zapBuildResult.approval);
+        } else {
+          const amountInWei = parseUnits(zapAmount, zapToken.decimals);
+          const freshZap = await buildZapTransaction(
+            zapTokenIn as Address,
+            amountInWei,
+            address,
+            slippage,
+          );
+          if (freshZap) await sendZapIn(freshZap);
+        }
         return;
       }
 
-      // Balanced actions
       if (!quote) return;
-      if (buttonState.action === "approve-a" && buildResult?.approvalA) {
+
+      pendingQuoteRef.current = quote;
+      pendingSlippageRef.current = slippage;
+
+      if (buildResult?.approvalA && !approvalA.isApproved) {
         await approvalA.sendApproval(buildResult.approvalA);
-        const freshBuild = await buildTransaction(
-          quote.amountA,
-          quote.amountB,
-          address,
-          slippage,
-        );
-        if (freshBuild && !freshBuild.approvalB) {
-          await sendAddLiquidity(freshBuild);
-        }
-      } else if (buttonState.action === "approve-b" && buildResult?.approvalB) {
+      } else if (buildResult?.approvalB && !approvalB.isApproved) {
         await approvalB.sendApproval(buildResult.approvalB);
+      } else {
         const freshBuild = await buildTransaction(
           quote.amountA,
           quote.amountB,
@@ -483,17 +549,16 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
           slippage,
         );
         if (freshBuild) await sendAddLiquidity(freshBuild);
-      } else if (buttonState.action === "add" && buildResult) {
-        await sendAddLiquidity(buildResult);
       }
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Transaction failed";
-      const isRejected = message.toLowerCase().includes("reject");
-      toast.error(isRejected ? "Transaction rejected" : "Transaction failed", {
-        description: isRejected ? undefined : message,
-        duration: 5000,
-      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const isHandledByHook =
+        /user\s+rejected/i.test(msg) ||
+        /user\s+denied/i.test(msg) ||
+        /denied\s+transaction/i.test(msg);
+      if (!isHandledByHook) {
+        toast.error("Something went wrong. Please try again.");
+      }
     }
   };
 
@@ -507,15 +572,52 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     zapQuote?.totalSupply,
   );
 
-  // Amount presets for single-token mode
-  const handleAmountPreset = (preset: "0.1" | "1" | "all") => {
-    if (preset === "all") {
+  const [customPct, setCustomPct] = useState("");
+
+  const handleAmountPreset = (pctString: string) => {
+    if (!zapTokenBalance) return;
+    const pct = Number(pctString);
+    if (pct >= 100) {
       setZapAmount(formattedZapBalance);
     } else {
-      const pct = Number(preset) / 100;
-      const bal = parseFloat(formattedZapBalance);
-      if (bal > 0) {
-        setZapAmount((bal * pct).toString());
+      if (!zapTokenBalance || zapTokenBalance === 0n) return;
+      const scaledPct = BigInt(Math.round(pct * 10));
+      const fractionalBalance = (zapTokenBalance * scaledPct) / 1000n;
+      setZapAmount(formatUnits(fractionalBalance, zapToken.decimals));
+    }
+  };
+
+  const handleCustomPctChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (!zapTokenBalance) return;
+    const raw = sanitizePercentInput(e.target.value);
+    setCustomPct(raw);
+    const pct = parseFloat(raw);
+    if (!isNaN(pct) && pct > 0) {
+      if (pct >= 100) {
+        setZapAmount(formattedZapBalance);
+      } else {
+        const fractionalBalance =
+          (zapTokenBalance * BigInt(Math.round((pct / 100) * 1_000_000))) /
+          1_000_000n;
+        setZapAmount(formatUnits(fractionalBalance, zapToken.decimals));
+      }
+    }
+  };
+
+  const handleCustomPctBlur = () => {
+    if (!zapTokenBalance) return;
+    const corrected = sanitizePercentOnBlur(customPct);
+    if (corrected === null) return;
+    setCustomPct(corrected);
+    const val = parseFloat(corrected);
+    if (!isNaN(val) && val > 0) {
+      if (val >= 100) {
+        setZapAmount(formattedZapBalance);
+      } else {
+        const fractionalBalance =
+          (zapTokenBalance * BigInt(Math.round((val / 100) * 1_000_000))) /
+          1_000_000n;
+        setZapAmount(formatUnits(fractionalBalance, zapToken.decimals));
       }
     }
   };
@@ -571,7 +673,33 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
               Amounts are based on the current pool ratio.
             </p>
 
-            <LPPreview estimatedLP={estimatedLP} sharePercent={sharePercent} />
+            {/* Slippage Tolerance */}
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Slippage Tolerance %</span>
+              <Select
+                value={String(slippage)}
+                onValueChange={(v) => setSlippage(Number(v) as SlippageOption)}
+              >
+                <SelectTrigger className="w-auto">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SLIPPAGE_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={String(option)}>
+                      {option}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Preview */}
+            {hasAmounts && quote && (
+              <LPPreview
+                estimatedLP={estimatedLP}
+                sharePercent={sharePercent}
+              />
+            )}
           </>
         ) : (
           <>
@@ -593,34 +721,47 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
             {/* Token selector + input */}
             <div className="gap-2 flex flex-col">
               <div className="gap-2 flex items-center justify-between">
-                <div className="gap-2 flex items-center">
-                  <TokenIcon
-                    token={{
-                      address: zapToken.address,
-                      symbol: zapToken.symbol,
-                    }}
-                    size={24}
-                    className="rounded-full"
-                  />
-                  <select
-                    value={zapTokenIn}
-                    onChange={(e) => {
-                      setZapTokenIn(e.target.value);
-                      setZapAmount("");
-                    }}
-                    className="font-medium pr-4 cursor-pointer appearance-none border-none bg-transparent outline-none"
-                  >
-                    <option value={pool.token0.address}>
-                      {pool.token0.symbol}
-                    </option>
-                    <option value={pool.token1.address}>
-                      {pool.token1.symbol}
-                    </option>
-                  </select>
-                  <ChevronDown className="h-3 w-3 -ml-3 pointer-events-none text-muted-foreground" />
-                </div>
+                <Select
+                  value={zapTokenIn}
+                  onValueChange={(v) => {
+                    setZapTokenIn(v);
+                    setZapAmount("");
+                  }}
+                >
+                  <SelectTrigger className="gap-2 p-0 font-medium w-auto border-none bg-transparent shadow-none">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={pool.token0.address}>
+                      <div className="gap-2 flex items-center">
+                        <TokenIcon
+                          token={{
+                            address: pool.token0.address,
+                            symbol: pool.token0.symbol,
+                          }}
+                          size={20}
+                          className="rounded-full"
+                        />
+                        {pool.token0.symbol}
+                      </div>
+                    </SelectItem>
+                    <SelectItem value={pool.token1.address}>
+                      <div className="gap-2 flex items-center">
+                        <TokenIcon
+                          token={{
+                            address: pool.token1.address,
+                            symbol: pool.token1.symbol,
+                          }}
+                          size={20}
+                          className="rounded-full"
+                        />
+                        {pool.token1.symbol}
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
                 <div className="text-sm text-muted-foreground">
-                  Balance: {formatBalance(formattedZapBalance)}{" "}
+                  Balance: {formatCompactBalance(formattedZapBalance)}{" "}
                   <button
                     className="font-medium cursor-pointer text-primary hover:underline"
                     onClick={() => setZapAmount(formattedZapBalance)}
@@ -645,31 +786,39 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
             </div>
 
             {/* Amount presets */}
-            <div className="gap-2 flex">
+            <div className="gap-2 grid grid-cols-3">
               <button
                 onClick={() => handleAmountPreset("0.1")}
-                className="px-3 py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background transition-colors hover:bg-muted/50"
+                className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
               >
                 0.1%
               </button>
               <button
                 onClick={() => handleAmountPreset("1")}
-                className="px-3 py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background transition-colors hover:bg-muted/50"
+                className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
               >
                 1%
               </button>
-              <button
-                disabled
-                className="px-3 py-1.5 text-xs font-medium rounded-md border border-border bg-background text-muted-foreground"
-              >
-                Custom
-              </button>
-              <button
-                onClick={() => handleAmountPreset("all")}
-                className="px-3 py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background transition-colors hover:bg-muted/50"
-              >
-                All
-              </button>
+              <div className="py-1.5 flex items-center justify-center overflow-hidden rounded-md border border-border bg-background">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  maxLength={6}
+                  placeholder="Custom %"
+                  value={customPct}
+                  className="min-w-0 text-xs font-medium w-full shrink bg-transparent text-center outline-none placeholder:text-muted-foreground"
+                  onChange={handleCustomPctChange}
+                  onBlur={handleCustomPctBlur}
+                  style={
+                    customPct
+                      ? { width: `${customPct.length}ch`, flexShrink: 0 }
+                      : undefined
+                  }
+                />
+                {customPct && (
+                  <span className="text-xs font-medium shrink-0">%</span>
+                )}
+              </div>
             </div>
 
             {/* Warning */}
@@ -681,63 +830,52 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
               </span>
             </div>
 
-            <LPPreview
-              estimatedLP={zapEstimatedLP}
-              sharePercent={zapSharePercent}
-            />
+            {/* Slippage Tolerance */}
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Slippage Tolerance %</span>
+              <Select
+                value={String(slippage)}
+                onValueChange={(v) => setSlippage(Number(v) as SlippageOption)}
+              >
+                <SelectTrigger className="w-auto">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SLIPPAGE_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={String(option)}>
+                      {option}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Preview */}
+            {hasZapAmount && zapQuote && (
+              <LPPreview
+                estimatedLP={zapEstimatedLP}
+                sharePercent={zapSharePercent}
+              />
+            )}
           </>
         )}
-
-        {/* Slippage tolerance */}
-        <div className="gap-2 flex flex-col">
-          <div className="flex items-center justify-between">
-            <label className="text-sm font-medium">Slippage tolerance</label>
-            <Popover open={slippageOpen} onOpenChange={setSlippageOpen}>
-              <PopoverTrigger asChild>
-                <button className="gap-2 px-3 py-1.5 text-sm font-medium flex cursor-pointer items-center rounded-md border border-border bg-background transition-colors hover:bg-muted/50">
-                  {slippage}%
-                  <ChevronDown className="h-3 w-3" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="p-1 w-auto">
-                <div className="flex flex-col">
-                  {SLIPPAGE_OPTIONS.map((option) => (
-                    <button
-                      key={option}
-                      onClick={() => {
-                        setSlippage(option);
-                        setSlippageOpen(false);
-                      }}
-                      className="gap-2 px-3 py-1.5 text-sm flex cursor-pointer items-center rounded-sm transition-colors hover:bg-muted"
-                    >
-                      {option === slippage && <Check className="h-3 w-3" />}
-                      <span
-                        className={option === slippage ? "font-medium" : ""}
-                      >
-                        {option}%
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Used to set minimum amounts for liquidity mint/burn.
-          </p>
-        </div>
       </div>
 
       {/* Bottom section */}
       <div className="gap-4 px-6 pb-6 pt-4 mt-auto flex shrink-0 flex-col">
-        <Button
-          size="lg"
-          className="w-full"
-          disabled={buttonState.disabled}
-          onClick={handleAction}
-        >
-          {buttonState.text}
-        </Button>
+        {!address ? (
+          <ConnectButton size="lg" text="Connect Wallet" fullWidth />
+        ) : (
+          <Button
+            size="lg"
+            clipped="lg"
+            className="w-full"
+            disabled={buttonState.disabled}
+            onClick={handleAction}
+          >
+            {buttonState.text}
+          </Button>
+        )}
 
         {/* Footer links */}
         <div className="gap-4 text-sm flex items-center justify-between">

@@ -104,11 +104,19 @@ export function useApproveTransaction({
   const isSendingRef = useRef(false);
   const lastErrorKeyRef = useRef<string | null>(null);
   const lastErrorAtRef = useRef<number>(0);
+  const onSuccessRef = useRef(onSuccess);
+  onSuccessRef.current = onSuccess;
+  const onSuccessFiredForHashRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (txPrepError || sendPrepError?.message) {
       logger.error(txPrepError || sendPrepError?.message);
-    } else if (isConfirmed && txReceipt && sendTxHash && !onSuccess) {
+    } else if (
+      isConfirmed &&
+      txReceipt &&
+      sendTxHash &&
+      !onSuccessRef.current
+    ) {
       logger.info(`Approval confirmed: ${sendTxHash}`);
       const currentChainConfig = chainIdToChain[chainId];
       const explorerBaseUrl = currentChainConfig?.blockExplorers?.default?.url;
@@ -136,21 +144,20 @@ export function useApproveTransaction({
         </>,
       );
     }
-  }, [
-    txPrepError,
-    sendPrepError,
-    isConfirmed,
-    txReceipt,
-    sendTxHash,
-    chainId,
-    onSuccess,
-  ]);
+  }, [txPrepError, sendPrepError, isConfirmed, txReceipt, sendTxHash, chainId]);
 
   useEffect(() => {
-    if (isApproveTxConfirmed && onSuccess) {
-      onSuccess(approveTxReceipt);
+    if (
+      isApproveTxConfirmed &&
+      approveTxReceipt &&
+      onSuccessRef.current &&
+      approveTxHash &&
+      onSuccessFiredForHashRef.current !== approveTxHash
+    ) {
+      onSuccessFiredForHashRef.current = approveTxHash;
+      onSuccessRef.current(approveTxReceipt);
     }
-  }, [isApproveTxConfirmed, approveTxReceipt, onSuccess]);
+  }, [isApproveTxConfirmed, approveTxReceipt, approveTxHash]);
 
   const sendApproveTx = useCallback(async () => {
     if (isSendingRef.current || isPending) return null;

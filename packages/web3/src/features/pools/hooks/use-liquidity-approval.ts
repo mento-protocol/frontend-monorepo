@@ -1,25 +1,35 @@
 import { logger } from "@/utils/logger";
 import { toast } from "@repo/ui";
-import { useState } from "react";
+import type { TokenApproval } from "@mento-protocol/mento-sdk";
+import { useEffect, useRef, useState } from "react";
 import type { Address, Hex } from "viem";
 import { useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
-import type { TransactionParams } from "../types";
 import { getTransactionErrorMessage } from "../types";
 
-interface ApprovalInput {
-  token: string;
-  amount: bigint;
-  params: TransactionParams;
-}
-
-export function useLiquidityApproval(tokenSymbol: string) {
+export function useLiquidityApproval(
+  tokenSymbol: string,
+  onApproved?: () => void,
+) {
   const [txHash, setTxHash] = useState<Address | undefined>();
   const { sendTransactionAsync, isPending, reset } = useSendTransaction();
 
   const { isLoading: isConfirming, isSuccess: isConfirmed } =
     useWaitForTransactionReceipt({ hash: txHash });
 
-  const sendApproval = async (approval: ApprovalInput) => {
+  const onApprovedRef = useRef(onApproved);
+  useEffect(() => {
+    onApprovedRef.current = onApproved;
+  }, [onApproved]);
+
+  const hasFiredRef = useRef(false);
+  useEffect(() => {
+    if (isConfirmed && onApprovedRef.current && !hasFiredRef.current) {
+      hasFiredRef.current = true;
+      onApprovedRef.current();
+    }
+  }, [isConfirmed]);
+
+  const sendApproval = async (approval: TokenApproval) => {
     try {
       const hash = await sendTransactionAsync({
         to: approval.params.to as Address,
@@ -33,6 +43,7 @@ export function useLiquidityApproval(tokenSymbol: string) {
         getTransactionErrorMessage(
           err instanceof Error ? err.message : String(err),
           "Unable to complete approval transaction.",
+          `${tokenSymbol} approval`,
         ),
       );
       logger.error(`${tokenSymbol} approval failed:`, err);
@@ -42,6 +53,7 @@ export function useLiquidityApproval(tokenSymbol: string) {
 
   const resetApproval = () => {
     setTxHash(undefined);
+    hasFiredRef.current = false;
     reset();
   };
 

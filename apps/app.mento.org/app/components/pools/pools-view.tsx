@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { Search } from "lucide-react";
 import { Input, cn } from "@repo/ui";
 import { usePoolsList, type PoolFilterType } from "@repo/web3";
-import { PoolsTable } from "./pools-table";
+import { PoolsTable, PoolsTableHeader } from "./pools-table";
 
 const filterTabs: { value: PoolFilterType; label: string }[] = [
   { value: "all", label: "All Pools" },
@@ -49,7 +49,7 @@ export function PoolsView() {
   );
 
   return (
-    <div className="max-w-5xl space-y-6 px-4 pt-6 md:px-0 md:pt-0 w-full">
+    <div className="max-w-5xl space-y-6 px-4 pt-6 md:px-0 md:pt-0 mb-6 min-h-[550px] w-full">
       {/* Header */}
       <div className="relative">
         <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
@@ -82,7 +82,7 @@ export function PoolsView() {
         <div className="relative">
           <Search className="left-3 h-4 w-4 absolute top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search by name, symbol or address"
+            placeholder="Search by name, symbol or pool address"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="h-9 md:w-64 pl-9 w-full"
@@ -90,33 +90,41 @@ export function PoolsView() {
         </div>
       </div>
 
-      {/* Error state */}
-      {isError && (
-        <div className="p-6 bg-card text-center">
-          <p className="text-destructive">
-            Failed to load pools. Please check your connection and try again.
-          </p>
-          {error && (
-            <p className="mt-2 text-sm text-muted-foreground">
-              {error instanceof Error ? error.message : String(error)}
+      {/* Table header */}
+      <div>
+        <PoolsTableHeader />
+      </div>
+
+      {/* Content */}
+      <div className="space-y-3">
+        {/* Error state */}
+        {isError && (
+          <div className="p-6 bg-card text-center">
+            <p className="text-destructive">
+              Failed to load pools. Please check your connection and try again.
             </p>
-          )}
-        </div>
-      )}
-
-      {/* Table */}
-      {!isError && <PoolsTable pools={filteredPools} isLoading={isLoading} />}
-
-      {/* Legacy footer note */}
-      {hasLegacyPools && (
-        <div className="relative">
-          <div className="px-4 py-3 text-sm bg-card text-muted-foreground">
-            Legacy pools are planned for migration to FPMM. Liquidity actions
-            are not available for these pools.
+            {error && (
+              <p className="mt-2 text-sm text-muted-foreground">
+                {error instanceof Error ? error.message : String(error)}
+              </p>
+            )}
           </div>
-          <div className="bottom-decorations after:-bottom-15 before:-bottom-5 before:-right-5 before:h-5 before:w-5 after:right-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-card before:invert after:absolute after:block after:bg-card"></div>
-        </div>
-      )}
+        )}
+
+        {/* Table */}
+        {!isError && <PoolsTable pools={filteredPools} isLoading={isLoading} />}
+
+        {/* Legacy footer note — after the last pool */}
+        {hasLegacyPools && (
+          <div className="relative">
+            <div className="px-4 py-3 text-sm bg-card text-muted-foreground">
+              Legacy pools are planned for migration to FPMM. Liquidity actions
+              are not available for these pools.
+            </div>
+            <div className="bottom-decorations after:-bottom-15 before:-bottom-5 before:-right-5 before:h-5 before:w-5 after:right-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-card before:invert after:absolute after:block after:bg-card"></div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

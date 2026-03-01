@@ -14,7 +14,7 @@ export function PoolDetailsAccordion({ pool }: PoolDetailsAccordionProps) {
   // Handle Legacy pools differently
   if (pool.poolType === "Legacy") {
     return (
-      <div className="px-6 py-5 border-t border-border bg-muted/60">
+      <div className="px-6 py-5 bg-gray-50 border-t border-border dark:bg-[oklch(0.16_0.028_303)]">
         <p className="text-sm leading-relaxed text-muted-foreground">
           This is a legacy pool using the virtual AMM model. It will be migrated
           to FPMM in the future. Migration target: {pool.token0.symbol} /{" "}
@@ -135,9 +135,12 @@ export function PoolDetailsAccordion({ pool }: PoolDetailsAccordionProps) {
               <Button
                 onClick={handleRebalance}
                 disabled={!pool.rebalancing.canRebalance || isPending}
-                className="w-full"
+                variant="outline"
+                size="lg"
+                clipped="lg"
+                className="dark:bg-white/5 w-full border-border/80 bg-background/60 dark:border-border"
               >
-                {isPending ? "Triggering..." : "Trigger rebalance"}
+                {isPending ? "Rebalancing..." : "Rebalance"}
               </Button>
               {pool.rebalancing.canRebalance && (
                 <p className="text-xs mt-2 text-muted-foreground">
