@@ -7,9 +7,6 @@ import {
   SelectTrigger,
   SelectValue,
   CoinInput,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
   toast,
 } from "@repo/ui";
 import type { PoolDisplay, SlippageOption } from "@repo/web3";
@@ -27,7 +24,7 @@ import {
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, parseUnits, type Address } from "viem";
 import { useState, useEffect, useRef, type ChangeEvent } from "react";
-import { ChevronDown, Check, ExternalLink, ArrowRight } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import {
   sanitizePercentInput,
   sanitizePercentOnBlur,
@@ -57,8 +54,6 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
 
   const selectedToken =
     receiveToken === pool.token0.address ? pool.token0 : pool.token1;
-  const otherToken =
-    receiveToken === pool.token0.address ? pool.token1 : pool.token0;
 
   // Fetch LP token balance (LP token is the pool contract itself)
   const { data: lpBalance } = useReadContract({

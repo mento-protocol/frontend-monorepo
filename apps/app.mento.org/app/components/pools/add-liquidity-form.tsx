@@ -7,9 +7,6 @@ import {
   SelectTrigger,
   SelectValue,
   CoinInput,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
   toast,
 } from "@repo/ui";
 import type { PoolDisplay, SlippageOption } from "@repo/web3";
