@@ -11,7 +11,6 @@ interface SwapSubmitButtonProps {
   hasAmount: boolean;
   tokenInSymbol: string;
   tokenOutSymbol: string;
-  quote: string | undefined;
   errors: { amount?: { message?: string } };
   isButtonLoading: boolean;
   isApproveTxLoading: boolean;
@@ -22,7 +21,6 @@ interface SwapSubmitButtonProps {
   isSuspensionCheckLoading: boolean;
   isError: boolean;
   quoteErrorMessage: string | null;
-  canQuote: boolean;
   hasValidQuote: boolean;
   shouldApprove: string | boolean;
   allTokenOptions: TokenWithBalance[];
@@ -33,7 +31,6 @@ export function SwapSubmitButton({
   hasAmount,
   tokenInSymbol,
   tokenOutSymbol,
-  quote,
   errors,
   isButtonLoading,
   isApproveTxLoading,
@@ -44,7 +41,6 @@ export function SwapSubmitButton({
   isSuspensionCheckLoading,
   isError,
   quoteErrorMessage,
-  canQuote,
   hasValidQuote,
   shouldApprove,
   allTokenOptions,
