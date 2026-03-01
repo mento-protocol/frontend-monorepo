@@ -8,7 +8,7 @@ import SwapForm from "./components/swap/swap-form";
 import { confirmViewAtom } from "@repo/web3";
 import { activeTabAtom } from "@/atoms/navigation";
 
-import { Button, cn, DebugPopup, IconCheck, Toaster } from "@repo/ui";
+import { Button, cn, DebugPopup } from "@repo/ui";
 import { PoolsView } from "./components/pools/pools-view";
 
 export default function SwapPage() {
@@ -18,36 +18,15 @@ export default function SwapPage() {
 
   return (
     <>
-      <div className="flex h-full w-full flex-wrap items-center justify-center">
+      <div className="md:items-center flex h-full w-full flex-wrap items-start justify-center">
         {shouldEnableDebug && <DebugPopup />}
-        <Toaster
-          position="top-right"
-          duration={5000}
-          icons={{
-            success: <IconCheck className="text-success" />,
-          }}
-          closeButton
-          toastOptions={{
-            classNames: {
-              toast: "toast",
-              title: "title",
-              description: "description",
-              actionButton: "action-button",
-              cancelButton: "cancel-button",
-              closeButton: "close-button",
-              icon: "icon",
-            },
-          }}
-          offset={{ top: "80px" }}
-          mobileOffset={{ top: "96px" }}
-        />
         {activeTab === "swap" && (
-          <div className="mb-6 relative w-full max-w-[568px]">
+          <div className="mb-6 px-4 md:px-0 relative w-full max-w-[568px]">
             <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
             <div
               className={cn(
                 "space-y-6 p-6 md:h-[510px] relative z-50 flex flex-col bg-card",
-                confirmView ? "h-[calc(100vh-160px)]" : "h-[510px]",
+                confirmView ? "md:h-[510px] h-auto" : "h-[510px]",
               )}
             >
               <div className="gap-6 flex flex-row items-center justify-between">
@@ -85,7 +64,7 @@ export default function SwapPage() {
         )}
         {activeTab === "pool" && <PoolsView />}
         {activeTab === "borrow" && (
-          <div className="mb-6 relative w-full max-w-[568px]">
+          <div className="mb-6 px-4 md:px-0 relative w-full max-w-[568px]">
             <div className="space-y-6 p-6 md:h-[510px] relative z-50 flex h-[510px] flex-col items-center justify-center bg-card">
               <span className="text-muted-foreground">Coming soon</span>
             </div>

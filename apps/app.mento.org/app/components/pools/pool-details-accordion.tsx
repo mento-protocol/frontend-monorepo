@@ -55,14 +55,15 @@ export function PoolDetailsAccordion({ pool }: PoolDetailsAccordionProps) {
   };
 
   return (
-    <div className="px-6 py-5 space-y-6 bg-gray-50 border-t border-border dark:bg-[oklch(0.16_0.028_303)]">
-      {/* Two column layout */}
-      <div className="gap-8 grid grid-cols-2">
+    <div className="px-4 py-4 md:px-6 md:py-5 space-y-5 md:space-y-6 border-t border-border bg-muted/60">
+      <div className="gap-5 md:gap-8 md:grid-cols-2 grid grid-cols-1">
         {/* Left column: Pricing & Oracle */}
         <div>
-          <h3 className="text-base font-semibold mb-4">Pricing & Oracle</h3>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
+          <h3 className="text-sm md:text-base font-semibold mb-3 md:mb-4">
+            Pricing & Oracle
+          </h3>
+          <div className="space-y-2 md:space-y-3">
+            <div className="gap-2 flex flex-wrap items-baseline justify-between">
               <span className="text-sm text-muted-foreground">
                 Oracle Price:
               </span>
@@ -74,7 +75,7 @@ export function PoolDetailsAccordion({ pool }: PoolDetailsAccordionProps) {
               </span>
             </div>
 
-            <div className="flex items-center justify-between">
+            <div className="gap-2 flex flex-wrap items-baseline justify-between">
               <span className="text-sm text-muted-foreground">Pool Price:</span>
               <span className="text-sm">
                 {formatPrice(
@@ -84,7 +85,7 @@ export function PoolDetailsAccordion({ pool }: PoolDetailsAccordionProps) {
               </span>
             </div>
 
-            <div className="flex items-center justify-between">
+            <div className="gap-2 flex flex-wrap items-baseline justify-between">
               <span className="text-sm text-muted-foreground">Deviation:</span>
               <div className="gap-2 flex items-center">
                 <span className="text-sm">
@@ -99,7 +100,7 @@ export function PoolDetailsAccordion({ pool }: PoolDetailsAccordionProps) {
               </div>
             </div>
 
-            <div className="pt-2 text-xs text-muted-foreground">
+            <div className="pt-1 md:pt-2 text-xs text-muted-foreground">
               {pool.pricing.isPoolPriceAbove
                 ? "Pool price above oracle"
                 : "Pool price below oracle"}
@@ -109,9 +110,11 @@ export function PoolDetailsAccordion({ pool }: PoolDetailsAccordionProps) {
 
         {/* Right column: Rebalancing */}
         <div>
-          <h3 className="text-base font-semibold mb-4">Rebalancing</h3>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
+          <h3 className="text-sm md:text-base font-semibold mb-3 md:mb-4">
+            Rebalancing
+          </h3>
+          <div className="space-y-2 md:space-y-3">
+            <div className="gap-2 flex flex-wrap items-baseline justify-between">
               <span className="text-sm text-muted-foreground">
                 Rebalance incentive:
               </span>
@@ -120,7 +123,7 @@ export function PoolDetailsAccordion({ pool }: PoolDetailsAccordionProps) {
               </span>
             </div>
 
-            <div className="flex items-center justify-between">
+            <div className="gap-2 flex flex-wrap items-baseline justify-between">
               <span className="text-sm text-muted-foreground">Thresholds:</span>
               <span className="text-sm">
                 +{pool.rebalancing.thresholdAboveBps} bps / -
@@ -128,7 +131,7 @@ export function PoolDetailsAccordion({ pool }: PoolDetailsAccordionProps) {
               </span>
             </div>
 
-            <div className="pt-3">
+            <div className="pt-2 md:pt-3">
               <Button
                 onClick={handleRebalance}
                 disabled={!pool.rebalancing.canRebalance || isPending}

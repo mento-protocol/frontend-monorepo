@@ -139,8 +139,8 @@ export function SwapConfirm() {
 
   return (
     <div className="gap-6 flex h-full flex-col">
-      <div className="md:w-[520px] flex w-full flex-row items-center justify-between">
-        <div className="md:h-50 md:w-50 h-32 gap-2 md:aspect-auto flex aspect-square flex-col items-center justify-center bg-incard">
+      <div className="md:w-[520px] gap-2 flex w-full flex-row items-center justify-between">
+        <div className="md:h-50 md:w-50 h-32 gap-2 flex flex-1 flex-col items-center justify-center bg-incard">
           <TokenIcon
             token={fromToken}
             className="h-10 w-10 md:h-14 md:w-14 bg-transparent"
@@ -159,19 +159,21 @@ export function SwapConfirm() {
             ~${formatWithMaxDecimals(sellUSDValue)}
           </span>
         </div>
-        <div className="md:w-30 p-0 md:flex relative hidden h-full items-center justify-center text-muted-foreground">
-          <div className="swap-deco-1 left-0 top-0 h-10 w-10 absolute block bg-incard"></div>
-          <div className="swap-deco-2 left-15 top-5 h-5 w-5 absolute block bg-incard"></div>
-          <div className="swap-deco-3 left-10 top-10 h-5 w-5 absolute block bg-primary"></div>
-          <div className="swap-deco-4 top-15 left-5 h-5 w-5 absolute block bg-incard"></div>
-          <div className="swap-deco-5 left-10 top-20 h-10 w-10 absolute flex flex-row items-center justify-center bg-incard">
-            <ArrowRight size={24} className="shrink-0" />
+        <div className="w-20 md:w-30 h-32 md:h-50 relative flex overflow-hidden text-muted-foreground">
+          <div className="top-0 left-0 h-50 w-30 md:scale-100 absolute origin-top-left scale-[0.64]">
+            <div className="swap-deco-1 left-0 top-0 h-10 w-10 absolute block bg-incard"></div>
+            <div className="swap-deco-2 left-15 top-5 h-5 w-5 absolute block bg-incard"></div>
+            <div className="swap-deco-3 left-10 top-10 h-5 w-5 absolute block bg-primary"></div>
+            <div className="swap-deco-4 top-15 left-5 h-5 w-5 absolute block bg-incard"></div>
+            <div className="swap-deco-5 left-10 top-20 h-10 w-10 absolute flex flex-row items-center justify-center bg-incard">
+              <ArrowRight size={24} className="shrink-0" />
+            </div>
+            <div className="swap-deco-6 top-35 right-10 h-5 w-5 absolute block bg-incard"></div>
+            <div className="swap-deco-7 right-0 top-40 h-10 w-10 absolute block bg-primary"></div>
+            <div className="swap-deco-8 right-15 top-40 h-5 w-5 absolute block bg-incard"></div>
           </div>
-          <div className="swap-deco-6 top-35 right-10 h-5 w-5 absolute block bg-incard"></div>
-          <div className="swap-deco-7 right-0 top-40 h-10 w-10 absolute block bg-primary"></div>
-          <div className="swap-deco-8 right-15 top-40 h-5 w-5 absolute block bg-incard"></div>
         </div>
-        <div className="md:h-50 md:w-50 h-32 gap-2 md:aspect-auto flex aspect-square flex-col items-center justify-center bg-incard">
+        <div className="md:h-50 md:w-50 h-32 gap-2 flex flex-1 flex-col items-center justify-center bg-incard">
           <TokenIcon
             token={toToken}
             className="size-10 md:size-14 bg-transparent"
@@ -184,7 +186,7 @@ export function SwapConfirm() {
             {formatWithMaxDecimals(toAmount)}
           </span>
           <span
-            className="text-muted-foreground"
+            className="text-sm md:text-base text-muted-foreground"
             data-testid="buyUsdAmountLabel"
           >
             ~${formatWithMaxDecimals(buyUSDValue)}
@@ -192,14 +194,17 @@ export function SwapConfirm() {
         </div>
       </div>
 
-      <div className="space-y-2 flex w-full flex-col items-start justify-start">
+      <div className="space-y-2 text-sm md:text-base flex w-full flex-col items-start justify-start">
         <div className="flex w-full flex-row items-center justify-between">
-          <span className="text-muted-foreground">Rate</span>
-          <span data-testid="rateLabel">{`${rate && Number(rate) > 0 ? Number(rate).toFixed(4) : "0"} ${tokenInSymbol} ~ 1 ${tokenOutSymbol}`}</span>
+          <span className="shrink-0 text-muted-foreground">Rate</span>
+          <span
+            className="text-right"
+            data-testid="rateLabel"
+          >{`${rate && Number(rate) > 0 ? Number(rate).toFixed(4) : "0"} ${tokenInSymbol} ~ 1 ${tokenOutSymbol}`}</span>
         </div>
 
         <div className="flex w-full flex-row items-center justify-between">
-          <span className="text-muted-foreground">Gas Fees</span>
+          <span className="shrink-0 text-muted-foreground">Gas Fees</span>
           {isGasEstimating ? (
             <span className="text-muted-foreground">Calculating...</span>
           ) : gasEstimate ? (
@@ -217,12 +222,12 @@ export function SwapConfirm() {
         </div>
 
         <div className="flex w-full flex-row items-center justify-between">
-          <span className="text-muted-foreground">Slippage</span>
+          <span className="shrink-0 text-muted-foreground">Slippage</span>
           <span data-testid="slippageLabel">{slippage}%</span>
         </div>
 
         <div className="flex w-full flex-row items-center justify-between">
-          <span className="text-muted-foreground">Deadline</span>
+          <span className="shrink-0 text-muted-foreground">Deadline</span>
           <span data-testid="deadlineLabel">{deadlineMinutes} minutes</span>
         </div>
       </div>
@@ -234,7 +239,7 @@ export function SwapConfirm() {
             : "swapButton"
         }
         onClick={onSubmit}
-        className="mt-auto w-full"
+        className="mt-6 md:mt-auto w-full"
         size="lg"
         clipped="lg"
         disabled={

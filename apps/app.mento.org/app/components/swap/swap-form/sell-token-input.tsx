@@ -115,7 +115,7 @@ export function SellTokenInput({
                         size={20}
                       />
                       <span>{field.value || "Select"}</span>
-                      <ChevronDown className="h-4 w-4 opacity-50" />
+                      <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
                     </button>
                   }
                 />

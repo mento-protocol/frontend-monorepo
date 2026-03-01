@@ -45,12 +45,12 @@ export function PoolRow({ pool }: PoolRowProps) {
     >
       <div
         className={cn(
-          "gap-4 px-4 py-4 grid min-h-[84px] grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,1.5fr)_minmax(0,1.5fr)] items-center",
+          "gap-4 px-4 py-4 md:grid md:grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,1.5fr)_minmax(0,1.5fr)] md:items-center flex flex-col",
           canExpand && "cursor-pointer transition-colors hover:bg-muted/30",
         )}
         onClick={() => canExpand && setIsExpanded(!isExpanded)}
       >
-        {/* Pool */}
+        {/* Pool info + action (mobile: row with action on right) */}
         <div className="gap-3 flex items-center">
           {canExpand && (
             <ChevronDown
@@ -98,6 +98,24 @@ export function PoolRow({ pool }: PoolRowProps) {
               {pool.poolType === "FPMM" ? "FPMM" : "LEGACY"}
             </Badge>
           </div>
+          {/* Action button - mobile only, aligned to right */}
+          <div className="md:hidden ml-auto">
+            {pool.poolType === "FPMM" && (
+              <Button
+                size="sm"
+                className="h-8"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDrawerState({
+                    isOpen: true,
+                    mode: hasLPTokens ? "manage" : "deposit",
+                  });
+                }}
+              >
+                {hasLPTokens ? "Manage" : "Deposit"}
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Reserves */}
@@ -124,32 +142,40 @@ export function PoolRow({ pool }: PoolRowProps) {
           </div>
         </div>
 
-        {/* Fees */}
-        <div className="pl-4 flex flex-col">
-          <span className="text-sm font-medium">
-            {pool.fees.total.toFixed(2)}%
-          </span>
-          {pool.fees.label === "fee" ? (
-            <>
-              <span className="text-xs text-muted-foreground">
-                LP {pool.fees.lp.toFixed(2)}%
-              </span>
-              <span className="text-xs text-muted-foreground">
-                Protocol {pool.fees.protocol.toFixed(2)}%
-              </span>
-            </>
-          ) : (
-            <span className="text-xs text-muted-foreground">Spread</span>
-          )}
+        {/* Fees + Price alignment (mobile: side by side) */}
+        <div className="md:contents flex items-center justify-between">
+          <div className="md:pl-4 flex flex-col">
+            <span className="text-xs md:hidden text-muted-foreground">
+              Fees
+            </span>
+            <span className="text-sm font-medium">
+              {pool.fees.total.toFixed(2)}%
+            </span>
+            {pool.fees.label === "fee" ? (
+              <>
+                <span className="text-xs text-muted-foreground">
+                  LP {pool.fees.lp.toFixed(2)}%
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  Protocol {pool.fees.protocol.toFixed(2)}%
+                </span>
+              </>
+            ) : (
+              <span className="text-xs text-muted-foreground">Spread</span>
+            )}
+          </div>
+
+          {/* Price alignment */}
+          <div>
+            <span className="text-xs md:hidden mb-1 block text-muted-foreground">
+              Price alignment
+            </span>
+            <PriceAlignmentBadge status={pool.priceAlignment.status} />
+          </div>
         </div>
 
-        {/* Price alignment */}
-        <div>
-          <PriceAlignmentBadge status={pool.priceAlignment.status} />
-        </div>
-
-        {/* Actions */}
-        <div className="gap-2 flex items-center justify-end">
+        {/* Actions - desktop only */}
+        <div className="gap-2 md:flex hidden items-center justify-end">
           {pool.poolType === "FPMM" && (
             <Button
               size="sm"

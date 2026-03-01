@@ -49,7 +49,7 @@ export function PoolsView() {
   );
 
   return (
-    <div className="max-w-5xl space-y-6 mb-6 min-h-[550px] w-full">
+    <div className="max-w-5xl space-y-6 px-4 pt-6 md:px-0 md:pt-0 mb-6 min-h-[550px] w-full">
       {/* Header */}
       <div className="relative">
         <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
@@ -62,14 +62,14 @@ export function PoolsView() {
       </div>
 
       {/* Filter row */}
-      <div className="gap-4 flex items-center justify-between">
-        <div className="flex items-center">
+      <div className="gap-4 md:flex-row md:items-center md:justify-between flex flex-col">
+        <div className="md:justify-start md:w-auto flex w-full items-center justify-center">
           {filterTabs.map((tab) => (
             <button
               key={tab.value}
               onClick={() => setFilter(tab.value)}
               className={cn(
-                "px-4 py-2 text-sm font-medium border-0 transition-colors outline-none",
+                "md:flex-none px-4 py-2 text-sm font-medium flex-1 border-0 transition-colors outline-none",
                 filter === tab.value
                   ? "bg-card text-foreground"
                   : "text-muted-foreground hover:text-foreground",
@@ -85,7 +85,7 @@ export function PoolsView() {
             placeholder="Search by name, symbol or pool address"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-9 w-76 pl-9"
+            className="h-9 md:w-64 pl-9 w-full"
           />
         </div>
       </div>
