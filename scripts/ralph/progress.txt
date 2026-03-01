@@ -81,3 +81,14 @@
   - `useSpWithdraw` is single-step (no approval needed) unlike `useSpDeposit` (two-step with allowance check)
   - No need to import ERC-20 abi, chainId, or SDK token address utils for withdraw — only the deposit amount from props is needed
 ---
+
+## 2026-03-01 - US-004
+- Created `claim-rewards.tsx` — standalone claim rewards component that calls `spWithdraw` with `amount: 0n` and `doClaim: true`
+- Component returns `null` when no rewards exist (hidden entirely per AC)
+- Files changed:
+  - `apps/app.mento.org/app/components/borrow/earn/claim-rewards.tsx` (new)
+- **Learnings for future iterations:**
+  - Claim-only is the simplest SP component — no input, no amount parsing, just a button + rewards display
+  - Pattern reuse: rewards display block (collateral gain + yield gain) is identical across deposit-form, withdraw-form, and claim-rewards — could be extracted to a shared component in future
+  - `ClaimRewards` takes only `collateralGain` and `debtTokenGain` props (no `deposit` needed unlike deposit/withdraw forms)
+---
