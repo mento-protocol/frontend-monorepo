@@ -61,8 +61,19 @@ export function PoolAddressPopover({ pool }: PoolAddressPopoverProps) {
   }, []);
 
   const handleClose = useCallback(() => {
-    closeTimer.current = setTimeout(() => setOpen(false), 150);
+    closeTimer.current = setTimeout(() => setOpen(false), 300);
   }, []);
+
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (nextOpen) {
+        handleOpen();
+      } else {
+        handleClose();
+      }
+    },
+    [handleOpen, handleClose],
+  );
 
   useEffect(() => {
     return () => {

@@ -53,7 +53,7 @@ export function LiquidityPanel({ pool, mode, onClose }: LiquidityPanelProps) {
         <div className="gap-4 flex items-center">
           <button
             onClick={onClose}
-            className="gap-1.5 text-sm flex items-center text-muted-foreground transition-colors hover:text-foreground"
+            className="gap-1.5 text-sm flex cursor-pointer items-center text-muted-foreground transition-colors hover:text-foreground"
           >
             <ArrowLeft className="h-4 w-4" />
             Back to pools
@@ -122,7 +122,7 @@ export function LiquidityPanel({ pool, mode, onClose }: LiquidityPanelProps) {
           <button
             onClick={() => setActiveTab("add")}
             className={cn(
-              "py-3 text-sm font-medium relative transition-colors",
+              "py-3 text-sm font-medium relative cursor-pointer transition-colors",
               activeTab === "add"
                 ? "text-primary"
                 : "text-muted-foreground hover:text-foreground",
@@ -137,7 +137,7 @@ export function LiquidityPanel({ pool, mode, onClose }: LiquidityPanelProps) {
             onClick={() => !isRemoveDisabled && setActiveTab("remove")}
             disabled={isRemoveDisabled}
             className={cn(
-              "py-3 text-sm font-medium relative transition-colors",
+              "py-3 text-sm font-medium relative cursor-pointer transition-colors",
               isRemoveDisabled
                 ? "cursor-not-allowed text-muted-foreground/50"
                 : activeTab === "remove"
