@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
   Card,
@@ -20,12 +21,42 @@ import {
   formatCollateralAmount,
   formatDebtAmount,
   formatInterestRate,
+  formatLtv,
+  formatPrice,
 } from "@repo/web3";
-import { TroveMetrics } from "../shared/trove-metrics";
+import { Copy, Check } from "lucide-react";
+import { RiskBadge } from "../shared/risk-badge";
 import { AdjustForm } from "./adjust-form";
 import { RateForm } from "./rate-form";
 import { CloseForm } from "./close-form";
 import { borrowViewAtom } from "../atoms/borrow-navigation";
+
+const STATUS_LABELS: Record<string, string> = {
+  healthy: "Healthy",
+  "at-risk": "At Risk",
+  liquidatable: "Liquidatable",
+  underwater: "Underwater",
+};
+
+function Metric({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="gap-0.5 flex flex-col">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="text-sm font-medium">{children}</span>
+    </div>
+  );
+}
+
+function shortenId(id: string): string {
+  if (id.length <= 14) return id;
+  return `${id.slice(0, 8)}...${id.slice(-6)}`;
+}
 
 interface ManageTroveViewProps {
   troveId: string;
@@ -34,10 +65,13 @@ interface ManageTroveViewProps {
 export function ManageTroveView({ troveId }: ManageTroveViewProps) {
   const debtToken = useAtomValue(selectedDebtTokenAtom);
   const setBorrowView = useSetAtom(borrowViewAtom);
-  const { data: troveData, isLoading } = useTroveData(
-    troveId,
-    debtToken.symbol,
-  );
+  const [copied, setCopied] = useState(false);
+  const {
+    data: troveData,
+    isLoading,
+    isError,
+    error,
+  } = useTroveData(troveId, debtToken.symbol);
 
   const loanDetails = useLoanDetails(
     troveData?.collateral ?? null,
@@ -63,6 +97,35 @@ export function ManageTroveView({ troveId }: ManageTroveViewProps) {
     );
   }
 
+  if (isError) {
+    return (
+      <div className="space-y-4">
+        <Button
+          variant="ghost"
+          onClick={() => setBorrowView("dashboard")}
+          className="px-0"
+        >
+          &larr; Back to Dashboard
+        </Button>
+        <Card>
+          <CardHeader>
+            <CardTitle>Failed to load trove</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-sm text-destructive">
+              Could not fetch data for trove #{troveId}.
+            </p>
+            {error instanceof Error && (
+              <p className="text-xs break-all text-muted-foreground">
+                {error.message}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <Button
@@ -73,43 +136,66 @@ export function ManageTroveView({ troveId }: ManageTroveViewProps) {
         &larr; Back to Dashboard
       </Button>
 
+      {/* Summary card — compact overview */}
       <Card>
-        <CardHeader>
-          <CardTitle>Trove #{troveId}</CardTitle>
+        <CardHeader className="pb-3">
+          <div className="gap-1.5 flex items-center">
+            <CardTitle className="shrink-0">Trove</CardTitle>
+            <span className="text-xs font-mono text-muted-foreground">
+              {shortenId(troveId)}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(troveId);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              }}
+              className="p-0.5 rounded text-muted-foreground transition-colors hover:text-foreground"
+              aria-label="Copy trove ID"
+            >
+              {copied ? (
+                <Check className="h-3.5 w-3.5 text-green-600" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
+              )}
+            </button>
+          </div>
         </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Current trove summary */}
-          {troveData && (
-            <div className="space-y-4">
-              <div className="gap-4 sm:grid-cols-3 grid grid-cols-2">
-                <div className="gap-1 flex flex-col">
-                  <span className="text-xs text-muted-foreground">
-                    Collateral
-                  </span>
-                  <span className="text-sm font-medium">
-                    {formatCollateralAmount(troveData.collateral)}
-                  </span>
-                </div>
-                <div className="gap-1 flex flex-col">
-                  <span className="text-xs text-muted-foreground">Debt</span>
-                  <span className="text-sm font-medium">
-                    {formatDebtAmount(troveData.debt, debtToken)}
-                  </span>
-                </div>
-                <div className="gap-1 flex flex-col">
-                  <span className="text-xs text-muted-foreground">
-                    Interest Rate
-                  </span>
-                  <span className="text-sm font-medium">
-                    {formatInterestRate(troveData.annualInterestRate)}
-                  </span>
-                </div>
-              </div>
-              <TroveMetrics loanDetails={loanDetails} debtToken={debtToken} />
+        {troveData && (
+          <CardContent>
+            <div className="gap-4 sm:grid-cols-6 grid grid-cols-3">
+              <Metric label="Collateral">
+                {formatCollateralAmount(troveData.collateral)}
+              </Metric>
+              <Metric label="Debt">
+                {formatDebtAmount(troveData.debt, debtToken)}
+              </Metric>
+              <Metric label="Interest Rate">
+                {formatInterestRate(troveData.annualInterestRate)}
+              </Metric>
+              <Metric label="LTV">
+                <span className="gap-1.5 flex items-center">
+                  {formatLtv(loanDetails?.ltv ?? null)}
+                  <RiskBadge risk={loanDetails?.liquidationRisk ?? null} />
+                </span>
+              </Metric>
+              <Metric label="Liq. Price">
+                {formatPrice(loanDetails?.liquidationPrice ?? null, debtToken)}
+              </Metric>
+              <Metric label="Status">
+                {loanDetails?.status
+                  ? (STATUS_LABELS[loanDetails.status] ?? loanDetails.status)
+                  : "—"}
+              </Metric>
             </div>
-          )}
+          </CardContent>
+        )}
+      </Card>
 
-          {/* Tab navigation */}
+      {/* Form card — tabs + action forms */}
+      <Card>
+        <CardContent className="pt-6">
           <Tabs defaultValue="adjust">
             <TabsList>
               <TabsTrigger value="adjust">Adjust</TabsTrigger>

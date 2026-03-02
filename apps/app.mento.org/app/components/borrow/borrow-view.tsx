@@ -13,7 +13,7 @@ export function BorrowView() {
   const view = useAtomValue(borrowViewAtom);
 
   return (
-    <div className="max-w-5xl space-y-6 px-4 pt-6 md:px-0 md:pt-0 mb-6 min-h-[550px] w-full">
+    <div className="max-w-5xl space-y-6 px-4 pt-6 md:px-0 md:pt-0 pb-16 min-h-[550px] w-full">
       {/* Header */}
       <div className="relative">
         <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
