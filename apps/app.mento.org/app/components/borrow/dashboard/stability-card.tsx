@@ -30,21 +30,21 @@ export function StabilityCard({ position, debtToken }: StabilityCardProps) {
 
   return (
     <Card
-      className="cursor-pointer transition-shadow hover:shadow-md"
+      className="hover:shadow-md cursor-pointer transition-shadow"
       onClick={handleClick}
     >
       <CardHeader>
         <CardTitle>Stability Pool</CardTitle>
         {poolShare !== null && (
           <CardAction>
-            <span className="text-muted-foreground text-xs">
+            <span className="text-xs text-muted-foreground">
               {poolShare.toFixed(2)}% of pool
             </span>
           </CardAction>
         )}
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="gap-4 grid grid-cols-2">
           <Metric label="Deposit">
             {formatDebtAmount(position.deposit, debtToken)}
           </Metric>
@@ -68,8 +68,8 @@ function Metric({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-muted-foreground text-xs">{label}</span>
+    <div className="gap-1 flex flex-col">
+      <span className="text-xs text-muted-foreground">{label}</span>
       <span className="text-sm font-medium">{children}</span>
     </div>
   );

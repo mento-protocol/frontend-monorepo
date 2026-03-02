@@ -21,8 +21,7 @@ export function useInterestRateChartData(
     return brackets.map((bracket) => ({
       rate: Number((bracket.rate * 10000n) / DECIMALS) / 100,
       debt: Number(bracket.totalDebt / DECIMALS),
-      isCurrentRate:
-        currentRate != null && bracket.rate === currentRate,
+      isCurrentRate: currentRate != null && bracket.rate === currentRate,
     }));
   }, [brackets, currentRate]);
 }

@@ -36,8 +36,7 @@ export function useClaimCollateral() {
           {
             id: "claim-collateral",
             label: "Claim Collateral",
-            buildTx: async () =>
-              sdk.buildClaimCollateralTransaction(symbol),
+            buildTx: async () => sdk.buildClaimCollateralTransaction(symbol),
           },
         ],
       );

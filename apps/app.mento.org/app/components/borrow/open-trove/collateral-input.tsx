@@ -15,10 +15,9 @@ export function CollateralInput({ value, onChange }: CollateralInputProps) {
   const { address } = useAccount();
   const chainId = useChainId();
 
-  const collateralAddress = getTokenAddress(
-    chainId,
-    "USDm" as TokenSymbol,
-  ) as Address | undefined;
+  const collateralAddress = getTokenAddress(chainId, "USDm" as TokenSymbol) as
+    | Address
+    | undefined;
 
   const { data: balance } = useReadContract({
     address: collateralAddress,
@@ -39,9 +38,9 @@ export function CollateralInput({ value, onChange }: CollateralInputProps) {
   };
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="gap-2 flex flex-col">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <div className="gap-2 flex items-center">
           <span className="text-sm font-medium">Collateral</span>
           <span className="text-sm text-muted-foreground">USDm</span>
         </div>
@@ -49,7 +48,7 @@ export function CollateralInput({ value, onChange }: CollateralInputProps) {
           Balance: {formatCompactBalance(formattedBalance)}{" "}
           <button
             type="button"
-            className="cursor-pointer font-medium text-primary hover:underline"
+            className="font-medium cursor-pointer text-primary hover:underline"
             onClick={handleMax}
           >
             MAX

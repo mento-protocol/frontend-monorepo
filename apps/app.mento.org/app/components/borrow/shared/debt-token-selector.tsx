@@ -23,11 +23,21 @@ interface DebtTokenOption {
 const DEBT_TOKEN_OPTIONS: DebtTokenOption[] = [
   { config: DEBT_TOKEN_CONFIGS.GBPm!, comingSoon: false },
   {
-    config: { symbol: "CHFm", currencySymbol: "Fr", currencyCode: "CHF", locale: "de-CH" },
+    config: {
+      symbol: "CHFm",
+      currencySymbol: "Fr",
+      currencyCode: "CHF",
+      locale: "de-CH",
+    },
     comingSoon: true,
   },
   {
-    config: { symbol: "JPYm", currencySymbol: "¥", currencyCode: "JPY", locale: "ja-JP" },
+    config: {
+      symbol: "JPYm",
+      currencySymbol: "¥",
+      currencyCode: "JPY",
+      locale: "ja-JP",
+    },
     comingSoon: true,
   },
 ];
@@ -57,10 +67,10 @@ export function DebtTokenSelector() {
             value={option.config.symbol}
             disabled={option.comingSoon}
           >
-            <span className="flex items-center gap-2">
+            <span className="gap-2 flex items-center">
               {option.config.symbol}
               {option.comingSoon && (
-                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
                   Soon
                 </Badge>
               )}

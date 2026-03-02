@@ -53,9 +53,7 @@ export function formatPrice(
   return `${formatted} per USDm`;
 }
 
-export function formatInterestRate(
-  rate: bigint | null | undefined,
-): string {
+export function formatInterestRate(rate: bigint | null | undefined): string {
   if (rate == null) return PLACEHOLDER;
   const pct = bigintToNumber(rate) * 100;
   return `${pct.toFixed(2)}%`;

@@ -135,7 +135,7 @@ export function FlowStep({ step, isActive }: FlowStepProps) {
 
   return (
     <div
-      className={`flex items-start gap-3 rounded-md px-3 py-2 ${
+      className={`gap-3 px-3 py-2 flex items-start rounded-md ${
         isActive ? "bg-muted/50" : ""
       }`}
     >
@@ -143,7 +143,7 @@ export function FlowStep({ step, isActive }: FlowStepProps) {
         <StatusIcon status={step.status} />
       </div>
 
-      <div className="flex min-w-0 flex-col gap-0.5">
+      <div className="min-w-0 gap-0.5 flex flex-col">
         <span
           className={`text-sm font-medium ${
             step.status === "idle" ? "text-muted-foreground" : "text-foreground"

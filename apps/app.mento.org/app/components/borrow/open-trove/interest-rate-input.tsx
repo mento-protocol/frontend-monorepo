@@ -79,13 +79,13 @@ export function InterestRateInput({
   };
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="gap-3 flex flex-col">
       <div className="flex items-center justify-between">
         <span className="text-sm font-medium">Annual Interest Rate</span>
         <RiskBadge risk={redemptionRisk} />
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="gap-3 flex items-center">
         <Slider
           min={minRatePct}
           max={MAX_RATE_PCT}
@@ -94,27 +94,25 @@ export function InterestRateInput({
           onValueChange={handleSliderChange}
           className="flex-1"
         />
-        <div className="flex items-center gap-1">
+        <div className="gap-1 flex items-center">
           <input
             type="text"
             inputMode="decimal"
             value={value}
             onChange={handleInputChange}
             placeholder={minRatePct.toFixed(1)}
-            className="h-8 w-16 rounded-md border border-input bg-background px-2 text-right text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-hidden"
+            className="h-8 w-16 px-2 text-sm shadow-xs rounded-md border border-input bg-background text-right focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-hidden"
           />
           <span className="text-sm text-muted-foreground">%</span>
         </div>
       </div>
 
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
+      <div className="text-xs flex items-center justify-between text-muted-foreground">
         <span>
           Min: {formatInterestRate(systemParams?.minAnnualInterestRate ?? null)}
         </span>
         {annualCost !== null && (
-          <span>
-            Annual cost: {formatDebtAmount(annualCost, debtToken)}
-          </span>
+          <span>Annual cost: {formatDebtAmount(annualCost, debtToken)}</span>
         )}
       </div>
     </div>

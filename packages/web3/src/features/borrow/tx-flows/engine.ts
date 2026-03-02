@@ -108,10 +108,11 @@ export async function executeFlow(
         return { ...prev, steps, currentStepIndex: i + 1 };
       });
     } catch (error) {
-      const errName =
-        error instanceof Error ? error.constructor.name : null;
+      const errName = error instanceof Error ? error.constructor.name : null;
       const errMessage =
-        error instanceof Error ? error.message : String(error ?? "Unknown error");
+        error instanceof Error
+          ? error.message
+          : String(error ?? "Unknown error");
 
       // Mark step as error and stop
       setFlowAtom((prev) => {

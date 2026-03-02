@@ -64,11 +64,7 @@ export function useSpDeposit() {
                 spAddress,
               );
               if (allowance >= amount) return null;
-              return sdk.buildDebtApprovalParams(
-                symbol,
-                spAddress,
-                maxUint256,
-              );
+              return sdk.buildDebtApprovalParams(symbol, spAddress, maxUint256);
             },
           },
           {

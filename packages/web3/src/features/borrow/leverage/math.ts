@@ -27,7 +27,9 @@ function collateralRatioToLeverageRatio(cr: bigint): bigint {
  * Uses integer math via ×1000 to avoid floating-point precision issues.
  */
 function leverageFactorToBigint(leverageFactor: number): bigint {
-  return (BigInt(Math.round(leverageFactor * 1000)) * DECIMAL_PRECISION) / 1000n;
+  return (
+    (BigInt(Math.round(leverageFactor * 1000)) * DECIMAL_PRECISION) / 1000n
+  );
 }
 
 /**
@@ -50,8 +52,7 @@ export function getOpenLeveragedTroveParams(
   const leverageRatio = leverageFactorToBigint(leverageFactor);
   const flashLoanAmount =
     (collAmount * (leverageRatio - DECIMAL_PRECISION)) / DECIMAL_PRECISION;
-  const expectedBoldAmount =
-    (flashLoanAmount * price) / DECIMAL_PRECISION;
+  const expectedBoldAmount = (flashLoanAmount * price) / DECIMAL_PRECISION;
   const maxNetDebt =
     (expectedBoldAmount * SLIPPAGE_NUMERATOR) / SLIPPAGE_DENOMINATOR;
 
@@ -92,8 +93,7 @@ export function getLeverUpTroveParams(
 
   const flashLoanAmount =
     (currentCollAmount * leverageRatio) / currentLR - currentCollAmount;
-  const expectedBoldAmount =
-    (flashLoanAmount * price) / DECIMAL_PRECISION;
+  const expectedBoldAmount = (flashLoanAmount * price) / DECIMAL_PRECISION;
   const maxNetDebtIncrease =
     (expectedBoldAmount * SLIPPAGE_NUMERATOR) / SLIPPAGE_DENOMINATOR;
 
@@ -133,8 +133,7 @@ export function getLeverDownTroveParams(
 
   const flashLoanAmount =
     currentCollAmount - (currentCollAmount * leverageRatio) / currentLR;
-  const expectedBoldAmount =
-    (flashLoanAmount * price) / DECIMAL_PRECISION;
+  const expectedBoldAmount = (flashLoanAmount * price) / DECIMAL_PRECISION;
   const minBoldDebt =
     (expectedBoldAmount * (SLIPPAGE_DENOMINATOR - CLOSE_SLIPPAGE_PERCENT)) /
     SLIPPAGE_DENOMINATOR;
@@ -159,9 +158,7 @@ export function getCloseFlashLoanAmount(
   slippagePercent: bigint = CLOSE_SLIPPAGE_PERCENT,
 ): bigint {
   return (
-    (entireDebt * DECIMAL_PRECISION) /
-    price *
-    (100n + slippagePercent) /
+    (((entireDebt * DECIMAL_PRECISION) / price) * (100n + slippagePercent)) /
     100n
   );
 }

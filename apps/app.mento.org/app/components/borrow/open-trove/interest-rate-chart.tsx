@@ -1,13 +1,18 @@
 "use client";
 
 import { type ChartConfig, ChartContainer } from "@repo/ui";
-import {
-  useInterestRateChartData,
-  selectedDebtTokenAtom,
-} from "@repo/web3";
+import { useInterestRateChartData, selectedDebtTokenAtom } from "@repo/web3";
 import { useAtomValue } from "jotai";
 import { parseUnits } from "viem";
-import { BarChart, Bar, XAxis, YAxis, Cell, CartesianGrid, Tooltip } from "recharts";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Cell,
+  CartesianGrid,
+  Tooltip,
+} from "recharts";
 
 interface InterestRateChartProps {
   selectedRate: string;
@@ -48,14 +53,14 @@ export function InterestRateChart({ selectedRate }: InterestRateChartProps) {
 
   if (!chartData || chartData.length === 0) {
     return (
-      <div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
+      <div className="text-sm flex h-[200px] items-center justify-center text-muted-foreground">
         No interest rate data available
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="gap-2 flex flex-col">
       <span className="text-sm font-medium">Rate Distribution</span>
       <ChartContainer config={chartConfig} className="h-[200px] w-full">
         <BarChart

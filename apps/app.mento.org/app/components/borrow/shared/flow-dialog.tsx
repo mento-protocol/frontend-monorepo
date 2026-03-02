@@ -64,7 +64,7 @@ export function FlowDialog() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-1">
+        <div className="gap-1 flex flex-col">
           {flow.steps.map((step, i) => (
             <FlowStep
               key={step.id}
@@ -77,9 +77,7 @@ export function FlowDialog() {
         {(allDone || errored) && (
           <DialogFooter>
             {allDone && (
-              <Button onClick={handleBackToDashboard}>
-                Back to Dashboard
-              </Button>
+              <Button onClick={handleBackToDashboard}>Back to Dashboard</Button>
             )}
             {errored && (
               <Button variant="outline" onClick={handleTryAgain}>
