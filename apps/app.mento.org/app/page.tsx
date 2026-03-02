@@ -16,7 +16,6 @@ export default function SwapPage() {
   const [confirmView, setConfirmView] = useAtom(confirmViewAtom);
   const activeTab = useAtomValue(activeTabAtom);
   const shouldEnableDebug = process.env.NEXT_PUBLIC_ENABLE_DEBUG === "true";
-  const shouldEnableBorrow = process.env.NEXT_PUBLIC_ENABLE_BORROW === "true";
 
   return (
     <>
@@ -65,7 +64,7 @@ export default function SwapPage() {
           </div>
         )}
         {activeTab === "pool" && <PoolsView />}
-        {shouldEnableBorrow && activeTab === "borrow" && <BorrowView />}
+        {activeTab === "borrow" && <BorrowView />}
       </div>
     </>
   );

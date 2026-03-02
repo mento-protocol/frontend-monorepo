@@ -24,10 +24,6 @@ export const env = createEnv({
       .optional()
       .default("false"),
     NEXT_PUBLIC_USE_FORK: z.enum(["true", "false"]).optional().default("false"),
-    NEXT_PUBLIC_ENABLE_BORROW: z
-      .enum(["true", "false"])
-      .optional()
-      .default("false"),
     NEXT_PUBLIC_BANNER_TEXT: z.string().optional().default(""),
     NEXT_PUBLIC_BANNER_LINK: z.string().url().optional(),
     NEXT_PUBLIC_RPC_URL: z.string().url().optional(),
@@ -45,7 +41,6 @@ export const env = createEnv({
     NEXT_PUBLIC_SENTRY_DSN_SWAP: process.env.NEXT_PUBLIC_SENTRY_DSN_SWAP,
     NEXT_PUBLIC_ENABLE_DEBUG: process.env.NEXT_PUBLIC_ENABLE_DEBUG,
     NEXT_PUBLIC_USE_FORK: process.env.NEXT_PUBLIC_USE_FORK,
-    NEXT_PUBLIC_ENABLE_BORROW: process.env.NEXT_PUBLIC_ENABLE_BORROW,
     NEXT_PUBLIC_BANNER_TEXT: process.env.NEXT_PUBLIC_BANNER_TEXT,
     NEXT_PUBLIC_BANNER_LINK: process.env.NEXT_PUBLIC_BANNER_LINK,
     NEXT_PUBLIC_RPC_URL: process.env.NEXT_PUBLIC_RPC_URL,
