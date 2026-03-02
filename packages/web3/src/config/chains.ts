@@ -39,11 +39,7 @@ export const CeloSepolia: MentoChain = {
   },
   rpcUrls: {
     default: {
-      http: [
-        useFork
-          ? "http://localhost:8545"
-          : "https://forno.celo-sepolia.celo-testnet.org",
-      ],
+      http: [getCeloSepoliaRpcUrl()],
     },
   },
   contracts: {
@@ -99,6 +95,25 @@ function getCustomRpcUrl(): string | undefined {
     if (stored) return stored;
   }
   return process.env.NEXT_PUBLIC_RPC_URL || undefined;
+}
+
+function getCeloSepoliaRpcUrl(): string {
+  let url: string;
+  let source: string;
+
+  if (useFork) {
+    url = "http://localhost:8545";
+    source = "fork mode";
+  } else if (customRpcUrl) {
+    url = customRpcUrl;
+    source = "custom RPC (NEXT_PUBLIC_RPC_URL / localStorage)";
+  } else {
+    url = "https://forno.celo-sepolia.celo-testnet.org";
+    source = "default";
+  }
+
+  console.log(`[mento] Celo Sepolia RPC: ${url} (${source})`);
+  return url;
 }
 
 function getCeloRpcUrl(): string {

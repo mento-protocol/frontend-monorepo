@@ -1,13 +1,13 @@
-import { Chain, celo, celoSepolia } from "viem/chains";
+import { Chain } from "viem/chains";
 import { cookieStorage, createConfig, createStorage, http } from "wagmi";
-import { allChains } from "./chains";
+import { Celo, CeloSepolia, allChains } from "./chains";
 
 export const wagmiSsrConfig = createConfig({
   chains: allChains as readonly [Chain, ...Chain[]],
   connectors: [],
   transports: {
-    [celo.id]: http(),
-    [celoSepolia.id]: http(),
+    [Celo.id]: http(Celo.rpcUrls.default.http[0]),
+    [CeloSepolia.id]: http(CeloSepolia.rpcUrls.default.http[0]),
   },
   ssr: true,
   storage: createStorage({ storage: cookieStorage }),
