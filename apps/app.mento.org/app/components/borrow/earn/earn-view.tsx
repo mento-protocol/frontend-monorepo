@@ -7,7 +7,6 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  CardAction,
   Tabs,
   TabsList,
   TabsTrigger,
@@ -51,96 +50,63 @@ export function EarnView() {
         &larr; Back to Dashboard
       </Button>
 
+      {/* Header: Pool info + stats row */}
       <Card>
         <CardHeader>
-          <CardTitle>Stability Pool</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            Deposit {debtToken.symbol} to earn rewards from liquidations and
-            protocol yield.
-          </p>
-        </CardContent>
-      </Card>
-
-      {/* Pool Statistics */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Pool Statistics</CardTitle>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Stability Pool</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Deposit {debtToken.symbol} to earn rewards from liquidations and
+                protocol yield.
+              </p>
+            </div>
+            {poolShare !== null && (
+              <span className="text-xs shrink-0 text-muted-foreground">
+                {poolShare.toFixed(2)}% of pool
+              </span>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="h-8 w-32 animate-pulse rounded bg-muted" />
+            <div className="gap-4 md:grid-cols-4 grid grid-cols-2">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-10 animate-pulse rounded bg-muted" />
+              ))}
+            </div>
           ) : (
-            <div className="gap-1 flex flex-col">
-              <span className="text-xs text-muted-foreground">
-                Total Deposits
-              </span>
-              <span className="text-sm font-medium">
+            <div className="gap-4 md:grid-cols-4 grid grid-cols-2">
+              <Metric label="Total Deposits">
                 {formatDebtAmount(totalDeposits ?? null, debtToken)}
-              </span>
+              </Metric>
+              {hasDeposit ? (
+                <>
+                  <Metric label="Your Deposit">
+                    {formatDebtAmount(spPosition.deposit, debtToken)}
+                  </Metric>
+                  <Metric label="Collateral Gain">
+                    {formatCollateralAmount(spPosition.collateralGain)}
+                  </Metric>
+                  <Metric label={`${debtToken.symbol} Yield`}>
+                    {formatDebtAmount(spPosition.debtTokenGain, debtToken)}
+                  </Metric>
+                </>
+              ) : isConnected ? (
+                <span className="md:col-span-3 text-sm col-span-1 self-center text-muted-foreground">
+                  No deposit yet — deposit below to start earning.
+                </span>
+              ) : (
+                <span className="md:col-span-3 text-sm col-span-1 self-center text-muted-foreground">
+                  Connect your wallet to view your position.
+                </span>
+              )}
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* User Position / States */}
-      {!isConnected ? (
-        <Card>
-          <CardContent className="p-8 text-center">
-            <p className="text-muted-foreground">
-              Connect your wallet to view your Stability Pool position.
-            </p>
-          </CardContent>
-        </Card>
-      ) : isLoading ? (
-        <Card>
-          <CardContent>
-            <div className="gap-4 grid grid-cols-2">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-10 animate-pulse rounded bg-muted" />
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      ) : hasDeposit ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Your Position</CardTitle>
-            {poolShare !== null && (
-              <CardAction>
-                <span className="text-xs text-muted-foreground">
-                  {poolShare.toFixed(2)}% of pool
-                </span>
-              </CardAction>
-            )}
-          </CardHeader>
-          <CardContent>
-            <div className="gap-4 grid grid-cols-2">
-              <Metric label="Deposit">
-                {formatDebtAmount(spPosition.deposit, debtToken)}
-              </Metric>
-              <Metric label="Collateral Gain">
-                {formatCollateralAmount(spPosition.collateralGain)}
-              </Metric>
-              <Metric label={`${debtToken.symbol} Yield`}>
-                {formatDebtAmount(spPosition.debtTokenGain, debtToken)}
-              </Metric>
-            </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
-          <CardContent className="p-8 text-center">
-            <p className="text-muted-foreground">
-              You have no Stability Pool deposit yet. Deposit {debtToken.symbol}{" "}
-              below to start earning.
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Deposit / Withdraw Tabs */}
+      {/* Deposit / Withdraw + Claim Rewards */}
       {isConnected && (
         <Card>
           <CardContent>
@@ -164,16 +130,16 @@ export function EarnView() {
                 />
               </TabsContent>
             </Tabs>
+
+            {/* Claim Rewards inline */}
+            {spPosition && (
+              <ClaimRewards
+                collateralGain={spPosition.collateralGain}
+                debtTokenGain={spPosition.debtTokenGain}
+              />
+            )}
           </CardContent>
         </Card>
-      )}
-
-      {/* Claim Rewards — always visible when rewards exist */}
-      {isConnected && spPosition && (
-        <ClaimRewards
-          collateralGain={spPosition.collateralGain}
-          debtTokenGain={spPosition.debtTokenGain}
-        />
       )}
     </div>
   );

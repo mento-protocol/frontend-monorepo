@@ -45,7 +45,7 @@ export function ClaimRewards({
   };
 
   return (
-    <div className="gap-3 flex flex-col">
+    <div className="gap-3 mt-4 pt-4 flex flex-col border-t border-border">
       <span className="text-sm font-medium">Pending Rewards</span>
       <div className="gap-2 rounded p-3 text-xs flex flex-col border border-border bg-muted/50">
         <div className="flex justify-between">
