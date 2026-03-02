@@ -25,6 +25,7 @@ export function BorrowDashboard() {
     data: troves,
     isLoading: trovesLoading,
     isError: trovesError,
+    error: trovesErrorDetail,
   } = useUserTroves(debtToken.symbol);
 
   const { data: spPosition, isLoading: spLoading } = useStabilityPool(
@@ -54,6 +55,11 @@ export function BorrowDashboard() {
         <p className="text-destructive">
           Failed to load positions. Please check your connection and try again.
         </p>
+        {trovesErrorDetail instanceof Error && (
+          <p className="mt-2 text-xs break-all text-muted-foreground">
+            {trovesErrorDetail.message}
+          </p>
+        )}
       </div>
     );
   }

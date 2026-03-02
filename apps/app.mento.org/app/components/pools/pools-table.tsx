@@ -36,9 +36,9 @@ export function PoolsTable({
   onSelectPool,
 }: PoolsTableProps) {
   return (
-    <div className="space-y-3">
+    <div className="min-h-0 flex flex-1 flex-col">
       {/* Header - hidden on mobile */}
-      <div className="gap-8 px-4 py-3 md:grid hidden grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)] rounded-lg border border-border bg-card">
+      <div className="gap-8 px-4 py-3 md:grid hidden shrink-0 grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)] rounded-lg border border-border bg-card">
         <span className="text-sm font-medium text-muted-foreground">Pool</span>
         <span className="text-sm font-medium text-muted-foreground">
           Reserves
@@ -49,22 +49,24 @@ export function PoolsTable({
         </span>
       </div>
 
-      {/* Rows */}
-      {isLoading ? (
-        <>
-          <SkeletonRow />
-          <SkeletonRow />
-          <SkeletonRow />
-        </>
-      ) : pools.length === 0 ? (
-        <div className="py-12 flex items-center justify-center rounded-lg border border-border bg-card text-muted-foreground">
-          No pools found
-        </div>
-      ) : (
-        pools.map((pool) => (
-          <PoolRow key={pool.poolAddr} pool={pool} onSelect={onSelectPool} />
-        ))
-      )}
+      {/* Scrollable rows */}
+      <div className="mt-3 space-y-3 min-h-0 flex-1 overflow-y-auto">
+        {isLoading ? (
+          <>
+            <SkeletonRow />
+            <SkeletonRow />
+            <SkeletonRow />
+          </>
+        ) : pools.length === 0 ? (
+          <div className="py-12 flex items-center justify-center rounded-lg border border-border bg-card text-muted-foreground">
+            No pools found
+          </div>
+        ) : (
+          pools.map((pool) => (
+            <PoolRow key={pool.poolAddr} pool={pool} onSelect={onSelectPool} />
+          ))
+        )}
+      </div>
     </div>
   );
 }

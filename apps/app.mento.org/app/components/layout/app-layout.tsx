@@ -38,12 +38,14 @@ export function AppLayout({ children }: PropsWithChildren) {
         mobileOffset={{ top: "96px" }}
         style={{ zIndex: 9999 }}
       />
-      <Banner />
-      <Header />
-      <main className="pt-6 md:pt-20 md:h-screen md:p-4 xl:h-[calc(100vh-80px)] relative z-20 my-auto h-full overflow-hidden">
-        {children}
-      </main>
-      <Footer />
+      <div className="flex h-screen flex-col overflow-hidden">
+        <Banner />
+        <Header />
+        <main className="p-4 pt-6 md:pt-20 relative z-20 flex-1 overflow-hidden">
+          {children}
+        </main>
+        <Footer />
+      </div>
       {theme === "dark" ? (
         <Image
           src={`${env.NEXT_PUBLIC_STORAGE_URL}/app/bg-swap-dark.png`}
