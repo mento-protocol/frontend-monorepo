@@ -90,10 +90,6 @@ function mapTroveStatus(statusNum: number): TroveStatus {
   }
 }
 
-export function formatTroveId(troveId: bigint): string {
-  return `0x${troveId.toString(16)}`;
-}
-
 export function parseBorrowPositionSafe(
   troveId: bigint,
   latestDataRaw: LatestTroveDataLike,
