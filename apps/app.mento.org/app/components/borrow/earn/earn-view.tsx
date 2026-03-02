@@ -27,7 +27,7 @@ import { WithdrawForm } from "./withdraw-form";
 import { ClaimRewards } from "./claim-rewards";
 
 export function EarnView() {
-  const { address, isConnected } = useAccount();
+  const { isConnected } = useAccount();
   const debtToken = useAtomValue(selectedDebtTokenAtom);
   const setBorrowView = useSetAtom(borrowViewAtom);
 

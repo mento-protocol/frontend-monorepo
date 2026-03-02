@@ -1,7 +1,6 @@
 import type { DebtTokenConfig } from "./types";
 
 const DECIMALS = 18;
-const ONE = 10n ** BigInt(DECIMALS);
 const PLACEHOLDER = "—";
 
 function bigintToNumber(value: bigint, decimals = DECIMALS): number {

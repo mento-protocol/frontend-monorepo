@@ -1,7 +1,6 @@
 "use client";
 
 import { useAtomValue } from "jotai";
-import { selectedDebtTokenAtom } from "@repo/web3";
 import { DebtTokenSelector } from "./shared/debt-token-selector";
 import { FlowDialog } from "./shared/flow-dialog";
 import { BorrowDashboard } from "./dashboard/borrow-dashboard";

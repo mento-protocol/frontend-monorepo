@@ -23,7 +23,6 @@ interface DepositFormProps {
 }
 
 export function DepositForm({
-  deposit,
   collateralGain,
   debtTokenGain,
 }: DepositFormProps) {

@@ -11,7 +11,6 @@ import {
   formatCollateralAmount,
 } from "@repo/web3";
 import { useAccount, useConfig } from "@repo/web3/wagmi";
-import { DebtTokenSelector } from "../shared/debt-token-selector";
 import { PositionCard } from "./position-card";
 import { StabilityCard } from "./stability-card";
 import { borrowViewAtom } from "../atoms/borrow-navigation";

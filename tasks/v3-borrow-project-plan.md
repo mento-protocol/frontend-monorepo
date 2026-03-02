@@ -544,7 +544,7 @@ export async function waitForTx(
 
 ---
 
-## 6. Phase 0 — Foundation ✅
+## 6. Phase 0 — Foundation
 
 > **Goal:** Scaffolding, feature flag, SDK integration, stability pool ABI
 >
@@ -623,7 +623,7 @@ The following Phase 0 tasks from the previous plan are **eliminated**:
 
 ---
 
-## 7. Phase 1 — Read Path ✅
+## 7. Phase 1 — Read Path
 
 > **Goal:** Dashboard showing positions, read-only trove + SP data
 >
@@ -677,7 +677,7 @@ The following Phase 0 tasks from the previous plan are **eliminated**:
 
 ---
 
-## 8. Phase 2 — Write Hooks + Transaction Flow Engine ✅
+## 8. Phase 2 — Transaction Flow Engine
 
 > **Goal:** Write hooks for all trove operations, multi-step flow orchestration, UI feedback
 >
@@ -771,7 +771,7 @@ The following Phase 0 tasks from the previous plan are **eliminated**:
 
 ---
 
-## 9. Phase 3 — Core Trove Operations ✅
+## 9. Phase 3 — Core Trove Operations
 
 > **Goal:** Open, adjust, and close troves using SDK transaction builders
 >
