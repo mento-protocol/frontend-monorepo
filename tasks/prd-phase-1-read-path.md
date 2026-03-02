@@ -308,7 +308,7 @@ Phase 1 builds the read-only data layer and dashboard UI for the Mento V3 Borrow
 
 ### Hook dependency chain
 
-```
+```text
 useSystemParams (immutable)
 useCollateralPrice (60s poll)
 useUserTroves (15s poll) ──→ position cards

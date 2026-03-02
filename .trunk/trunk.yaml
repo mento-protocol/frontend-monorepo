@@ -32,6 +32,9 @@ lint:
     - linters: [trufflehog]
       paths:
         - packages/**/assets/** # Skip secret scanning on asset files (icons, etc.)
+    - linters: [ALL]
+      paths:
+        - scripts/ralph/** # Ralph autonomous agent tooling — externally managed
 
   # All enabled linters - organized by category for clarity
   enabled:

@@ -50,7 +50,7 @@ Phase 0 lays the groundwork for the Mento V3 Borrow section within `app.mento.or
 **Acceptance Criteria:**
 
 - [ ] Directory structure created:
-  ```
+  ```text
   packages/web3/src/features/borrow/
   ├── sdk.ts                        # BorrowService factory (placeholder)
   ├── hooks/
@@ -78,7 +78,7 @@ Phase 0 lays the groundwork for the Mento V3 Borrow section within `app.mento.or
 **Acceptance Criteria:**
 
 - [ ] Directory structure created:
-  ```
+  ```text
   apps/app.mento.org/app/components/borrow/
   ├── borrow-view.tsx               # Main borrow tab container
   └── atoms/

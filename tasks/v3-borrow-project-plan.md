@@ -1,3 +1,5 @@
+<!-- markdownlint-disable MD024 -->
+
 # Mento V3 Borrow Section — Project Plan
 
 > **Base branch:** `feat/borrow` (branched from `feat/v3`)
@@ -43,7 +45,7 @@ leveraged/multiply positions.
 
 ### How it fits into the monorepo
 
-```
+```text
 apps/app.mento.org          — Existing swap + pool app; borrow tab added here
 packages/web3               — Thin integration layer: hooks wrapping SDK + Stability Pool
 packages/ui                 — Extend as needed with borrow-specific components
@@ -74,7 +76,7 @@ each sub-view is a self-contained component.
 
 ### Layer diagram
 
-```
+```text
 ┌──────────────────────────────────────────────────────────┐
 │  UI Layer (apps/app.mento.org/app/components/borrow/)    │
 │  Built with @repo/ui (shadcn + Tailwind)                 │
@@ -103,7 +105,7 @@ each sub-view is a self-contained component.
 The SDK covers trove operations end-to-end, so `packages/web3/src/features/borrow/`
 is a **thin integration layer** — primarily React hooks and the tx flow engine.
 
-```
+```text
 packages/web3/src/features/borrow/
 ├── sdk.ts                        # BorrowService singleton/factory
 ├── stability-pool/               # NOT in SDK — built from scratch
@@ -314,7 +316,7 @@ export function useBorrowService(): BorrowService {
 BOLD has one debt token (BOLD) and N collateral branches. Mento has M debt
 tokens and N collateral types per debt token.
 
-```
+```text
 BOLD:   1 debt token  ×  N branches  =  N  contract sets
 Mento:  M debt tokens ×  N branches  =  M×N contract sets
 ```
