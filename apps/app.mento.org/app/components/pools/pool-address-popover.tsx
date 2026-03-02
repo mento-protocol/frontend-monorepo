@@ -85,7 +85,7 @@ export function PoolAddressPopover({ pool }: PoolAddressPopoverProps) {
   }, []);
 
   return (
-    <Popover open={open}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -93,6 +93,7 @@ export function PoolAddressPopover({ pool }: PoolAddressPopoverProps) {
           aria-label="View pool and token addresses"
           onMouseEnter={handleOpen}
           onMouseLeave={handleClose}
+          onClick={(e) => e.preventDefault()}
           onFocus={handleOpen}
           onBlur={handleClose}
         >
@@ -101,6 +102,7 @@ export function PoolAddressPopover({ pool }: PoolAddressPopoverProps) {
       </PopoverTrigger>
       <PopoverContent
         align="start"
+        sideOffset={0}
         className="space-y-2.5 w-fit [&>span]:hidden"
         onMouseEnter={handleOpen}
         onMouseLeave={handleClose}
