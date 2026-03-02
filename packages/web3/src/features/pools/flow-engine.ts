@@ -136,7 +136,7 @@ export async function executeLiquidityFlow(
         return { ...prev, steps, currentStepIndex: i + 1 };
       });
     } catch (error) {
-      const errMessage =
+      const rawMessage =
         error instanceof Error
           ? error.message
           : String(error ?? "Unknown error");
@@ -144,12 +144,23 @@ export async function executeLiquidityFlow(
       // If user rejected, clear the flow entirely
       if (
         /user\s+rejected|denied\s+transaction|request\s+rejected/i.test(
-          errMessage,
+          rawMessage,
         )
       ) {
         setFlowAtom(null);
         return { success: false, txHashes };
       }
+
+      // Log full error for debugging, show friendly message to user
+      console.error(`[LiquidityFlow] Step "${def.label}" failed:`, error);
+
+      const friendlyMessage = /reverted/i.test(rawMessage)
+        ? "Transaction was reverted. Please check your inputs and try again."
+        : /insufficient\s+funds/i.test(rawMessage)
+          ? "Insufficient funds to complete this transaction."
+          : /nonce/i.test(rawMessage)
+            ? "Transaction conflict. Please try again."
+            : "Something went wrong. Please try again.";
 
       // Mark step as error and stop
       setFlowAtom((prev) => {
@@ -158,7 +169,7 @@ export async function executeLiquidityFlow(
         steps[i] = {
           ...steps[i]!,
           status: "error",
-          error: { message: errMessage },
+          error: { message: friendlyMessage },
         };
         return { ...prev, steps };
       });
