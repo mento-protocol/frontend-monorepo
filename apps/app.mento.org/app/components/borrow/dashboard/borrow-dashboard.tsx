@@ -4,7 +4,6 @@ import { useAtomValue, useSetAtom } from "jotai";
 import { Button } from "@repo/ui";
 import {
   useUserTroves,
-  useStabilityPool,
   useSurplusCollateral,
   useClaimCollateral,
   selectedDebtTokenAtom,
@@ -12,7 +11,6 @@ import {
 } from "@repo/web3";
 import { useAccount, useConfig } from "@repo/web3/wagmi";
 import { PositionCard } from "./position-card";
-import { StabilityCard } from "./stability-card";
 import { borrowViewAtom } from "../atoms/borrow-navigation";
 
 export function BorrowDashboard() {
@@ -28,18 +26,12 @@ export function BorrowDashboard() {
     error: trovesErrorDetail,
   } = useUserTroves(debtToken.symbol);
 
-  const { data: spPosition, isLoading: spLoading } = useStabilityPool(
-    debtToken.symbol,
-  );
-
   const { data: surplusAmount } = useSurplusCollateral(debtToken.symbol);
   const claimCollateral = useClaimCollateral();
 
-  const isLoading = trovesLoading || spLoading;
+  const isLoading = trovesLoading;
   const hasTroves = troves && troves.length > 0;
-  const hasSpDeposit = spPosition && spPosition.deposit > 0n;
   const hasSurplus = surplusAmount != null && surplusAmount > 0n;
-  const hasPositions = hasTroves || hasSpDeposit;
 
   if (!isConnected) {
     return <NotConnectedState />;
@@ -64,7 +56,7 @@ export function BorrowDashboard() {
     );
   }
 
-  if (!hasPositions && !hasSurplus) {
+  if (!hasTroves && !hasSurplus) {
     return (
       <EmptyState
         onOpenTrove={() => setBorrowView("open-trove")}
@@ -118,13 +110,6 @@ export function BorrowDashboard() {
               debtToken={debtToken}
             />
           ))}
-        </div>
-      )}
-
-      {/* Stability Pool position */}
-      {hasSpDeposit && (
-        <div className="gap-4 md:grid-cols-2 grid">
-          <StabilityCard position={spPosition} debtToken={debtToken} />
         </div>
       )}
     </div>

@@ -3,15 +3,15 @@ import type { RiskLevel } from "@repo/web3";
 
 const RISK_CONFIG: Record<RiskLevel, { label: string; className: string }> = {
   low: {
-    label: "Low",
+    label: "Low Liquidation Risk",
     className: "bg-green-100 text-green-800 border-green-200",
   },
   medium: {
-    label: "Medium",
+    label: "Med Liquidation Risk",
     className: "bg-amber-100 text-amber-800 border-amber-200",
   },
   high: {
-    label: "High",
+    label: "High Liquidation Risk",
     className: "bg-red-100 text-red-800 border-red-200",
   },
 };

@@ -44,7 +44,7 @@ export function StabilityCard({ position, debtToken }: StabilityCardProps) {
         )}
       </CardHeader>
       <CardContent>
-        <div className="gap-4 grid grid-cols-2">
+        <div className="gap-x-6 gap-y-3 grid grid-cols-3">
           <Metric label="Deposit">
             {formatDebtAmount(position.deposit, debtToken)}
           </Metric>
@@ -68,7 +68,7 @@ function Metric({
   children: React.ReactNode;
 }) {
   return (
-    <div className="gap-1 flex flex-col">
+    <div className="gap-0.5 flex flex-col">
       <span className="text-xs text-muted-foreground">{label}</span>
       <span className="text-sm font-medium">{children}</span>
     </div>
