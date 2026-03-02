@@ -1,0 +1,344 @@
+{
+  "project": "Mento V3 Borrow",
+  "branchName": "feat/borrow",
+  "description": "Phase 1 Read Path — React Query hooks for all borrow data reads, Stability Pool reads, derived computation hooks, and a dashboard UI showing positions and SP deposits",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Create use-system-params read hook",
+      "description": "As a developer, I need a hook that fetches immutable system parameters (MCR, CCR, minDebt) so the UI can display limits and validate inputs.",
+      "acceptanceCriteria": [
+        "Create packages/web3/src/features/borrow/hooks/use-system-params.ts",
+        "Uses useQuery from @tanstack/react-query with query key ['borrow', 'systemParams', symbol]",
+        "Calls sdk.getSystemParams(symbol) via useBorrowService() hook from Phase 0",
+        "Long stale time since these are immutable contract parameters (staleTime: Infinity or 1 hour)",
+        "Accepts symbol parameter (default 'GBPm')",
+        "Enabled only when sdk is not null: enabled: !!sdk",
+        "Returns standard React Query object: { data: SystemParams | undefined, isLoading, error }",
+        "Export from hooks/index.ts barrel",
+        "Typecheck passes (pnpm check-types)"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Create use-collateral-price read hook",
+      "description": "As a developer, I need a hook that fetches the current collateral price for computing LTV, liquidation price, and formatting prices.",
+      "acceptanceCriteria": [
+        "Create packages/web3/src/features/borrow/hooks/use-collateral-price.ts",
+        "Uses useQuery with query key ['borrow', 'collateralPrice', symbol]",
+        "Calls sdk.getCollateralPrice(symbol) — returns price as bigint (18 decimals)",
+        "Polls at 60-second intervals (refetchInterval: 60_000)",
+        "Enabled only when sdk is not null",
+        "Returns { data: bigint | undefined, isLoading, error }",
+        "Export from hooks/index.ts barrel",
+        "Typecheck passes (pnpm check-types)"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "Create use-user-troves read hook",
+      "description": "As a developer, I need a hook that fetches all trove positions for the connected wallet so the dashboard can list them.",
+      "acceptanceCriteria": [
+        "Create packages/web3/src/features/borrow/hooks/use-user-troves.ts",
+        "Uses useQuery with query key ['borrow', 'userTroves', symbol, account]",
+        "Calls sdk.getUserTroves(symbol, account) — returns array of BorrowPosition",
+        "Uses useAccount() from wagmi to get connected address",
+        "Refetches on 15-second interval (refetchInterval: 15_000)",
+        "Enabled only when sdk is not null AND account is defined",
+        "Returns { data: BorrowPosition[] | undefined, isLoading, error }",
+        "Export from hooks/index.ts barrel",
+        "Typecheck passes (pnpm check-types)"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Create use-trove-data read hook",
+      "description": "As a developer, I need a hook that fetches detailed data for a single trove, used by the manage-trove view.",
+      "acceptanceCriteria": [
+        "Create packages/web3/src/features/borrow/hooks/use-trove-data.ts",
+        "Uses useQuery with query key ['borrow', 'troveData', symbol, troveId]",
+        "Calls sdk.getTroveData(symbol, troveId) — returns BorrowPosition",
+        "Refetches on 15-second interval",
+        "Enabled only when sdk is not null AND troveId is provided",
+        "Returns { data: BorrowPosition | undefined, isLoading, error }",
+        "Export from hooks/index.ts barrel",
+        "Typecheck passes (pnpm check-types)"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "Create use-branch-stats read hook",
+      "description": "As a developer, I need a hook for branch-level aggregate stats (total collateral, total debt, average interest rate) for the dashboard.",
+      "acceptanceCriteria": [
+        "Create packages/web3/src/features/borrow/hooks/use-branch-stats.ts",
+        "Uses useQuery with query key ['borrow', 'branchStats', symbol]",
+        "Calls sdk.getBranchStats(symbol) — returns aggregate data",
+        "Also fetches sdk.getAverageInterestRate(symbol) and includes it in the returned data",
+        "Refetches on 60-second interval",
+        "Enabled only when sdk is not null",
+        "Export from hooks/index.ts barrel",
+        "Typecheck passes (pnpm check-types)"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Create use-interest-rate-brackets read hook",
+      "description": "As a developer, I need a hook that fetches the interest rate bracket distribution for chart rendering and redemption risk.",
+      "acceptanceCriteria": [
+        "Create packages/web3/src/features/borrow/hooks/use-interest-rate-brackets.ts",
+        "Uses useQuery with query key ['borrow', 'interestRateBrackets', symbol]",
+        "Calls sdk.getInterestRateBrackets(symbol) — returns InterestRateBracket[]",
+        "Refetches on 60-second interval",
+        "Enabled only when sdk is not null",
+        "Export from hooks/index.ts barrel",
+        "Typecheck passes (pnpm check-types)"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Create use-borrow-allowance and use-next-owner-index hooks",
+      "description": "As a developer, I need hooks for token allowance checks and next trove index, used by write flows in Phase 2.",
+      "acceptanceCriteria": [
+        "Create packages/web3/src/features/borrow/hooks/use-borrow-allowance.ts",
+        "useBorrowAllowance(symbol, account) calls sdk.getCollateralAllowance() and sdk.getDebtAllowance() — returns { collateralAllowance: bigint, debtAllowance: bigint }",
+        "Uses useQuery with query key ['borrow', 'allowance', symbol, account]",
+        "Create packages/web3/src/features/borrow/hooks/use-next-owner-index.ts",
+        "useNextOwnerIndex(symbol, owner) calls sdk.getNextOwnerIndex(symbol, owner) — returns next trove index",
+        "Uses useQuery with query key ['borrow', 'nextOwnerIndex', symbol, owner]",
+        "Both enabled only when sdk not null and account defined",
+        "Export both from hooks/index.ts barrel",
+        "Typecheck passes (pnpm check-types)"
+      ],
+      "priority": 7,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Create use-predict-upfront-fee hook",
+      "description": "As a developer, I need a hook that predicts the upfront fee for opening a trove, shown in the open-trove form summary.",
+      "acceptanceCriteria": [
+        "Create packages/web3/src/features/borrow/hooks/use-predict-upfront-fee.ts",
+        "usePredictUpfrontFee(symbol, borrowAmount, interestRateIndex) calls the SDK method (e.g., sdk.predictOpenTroveUpfrontFee())",
+        "Uses debounced inputs — follow the useDebounce(amount, 350) pattern from swap hooks (use-swap-quote.ts)",
+        "Uses useQuery with query key ['borrow', 'upfrontFee', symbol, debouncedBorrowAmount, interestRateIndex]",
+        "Enabled only when sdk not null and borrowAmount > 0",
+        "Returns { data: bigint | undefined, isLoading }",
+        "Export from hooks/index.ts barrel",
+        "Typecheck passes (pnpm check-types)"
+      ],
+      "priority": 8,
+      "passes": true,
+      "notes": "Check if the swap feature has a useDebounce utility that can be reused, or create one in the borrow hooks."
+    },
+    {
+      "id": "US-009",
+      "title": "Create use-loan-details derived hook",
+      "description": "As a developer, I need a derived hook that combines collateral price with SDK math to compute LTV, liquidation price, and risk level.",
+      "acceptanceCriteria": [
+        "Create packages/web3/src/features/borrow/hooks/use-loan-details.ts",
+        "useLoanDetails(collAmount, debtAmount, interestRate, symbol) combines useCollateralPrice + SDK getLoanDetails() math",
+        "Returns LoanDetails type (LTV, liquidation price, risk level, max debt, status) — all computed client-side",
+        "Uses useMemo — this is pure client-side calculation from existing query data, NOT a useQuery call",
+        "Recomputes when any input changes (collAmount, debtAmount, interestRate, price)",
+        "Handles null/undefined price gracefully (returns null fields in LoanDetails)",
+        "Export from hooks/index.ts barrel",
+        "Typecheck passes (pnpm check-types)"
+      ],
+      "priority": 9,
+      "passes": true,
+      "notes": "SDK getLoanDetails() is a pure math function — call it directly with the price from useCollateralPrice."
+    },
+    {
+      "id": "US-010",
+      "title": "Create use-debt-suggestions and use-redemption-risk derived hooks",
+      "description": "As a developer, I need derived hooks for suggesting safe debt amounts and assessing redemption risk at a given interest rate.",
+      "acceptanceCriteria": [
+        "Create packages/web3/src/features/borrow/hooks/use-debt-suggestions.ts",
+        "useDebtSuggestions(collAmount, symbol) combines useLoanDetails + SDK calculateDebtSuggestions() — returns suggested debt amounts at different risk levels",
+        "Uses useMemo for client-side computation (not useQuery)",
+        "Create packages/web3/src/features/borrow/hooks/use-redemption-risk.ts",
+        "useRedemptionRisk(interestRate, symbol) combines useInterestRateBrackets + SDK getRedemptionRisk() — returns risk level for a given rate",
+        "Uses useMemo for client-side computation",
+        "Export both from hooks/index.ts barrel",
+        "Typecheck passes (pnpm check-types)"
+      ],
+      "priority": 10,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "Create use-interest-rate-chart-data derived hook",
+      "description": "As a developer, I need a hook that transforms interest rate bracket data into chart-friendly format for the open-trove form.",
+      "acceptanceCriteria": [
+        "Create packages/web3/src/features/borrow/hooks/use-interest-rate-chart-data.ts",
+        "useInterestRateChartData(symbol) consumes useInterestRateBrackets and transforms to chart-friendly format",
+        "Output: array of { rate: number, debt: number } (JS numbers for chart libraries) or similar shape",
+        "Optionally accepts currentRate param to highlight user's position in the distribution",
+        "Uses useMemo for the transformation",
+        "Export from hooks/index.ts barrel",
+        "Typecheck passes (pnpm check-types)"
+      ],
+      "priority": 11,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Create use-stability-pool and use-stability-pool-stats hooks",
+      "description": "As a developer, I need hooks that read Stability Pool data via direct contract calls (not in SDK) so the dashboard can show SP positions.",
+      "acceptanceCriteria": [
+        "Create packages/web3/src/features/borrow/hooks/use-stability-pool.ts",
+        "Uses useReadContract or useReadContracts from wagmi with stabilityPoolAbi from Phase 0",
+        "Reads for connected user: getCompoundedBoldDeposit(account), getDepositorCollGain(account), getDepositorYieldGain(account)",
+        "Returns StabilityPoolPosition type: { deposit, collateralGain, debtTokenGain }",
+        "Resolve StabilityPool contract address via SDK address resolution if possible, or hardcode for GBPm initially (document approach)",
+        "Create packages/web3/src/features/borrow/hooks/use-stability-pool-stats.ts",
+        "useStabilityPoolStats(symbol) reads getTotalBoldDeposits() — returns total pool size as bigint",
+        "User position hook: enabled when account connected, refetch 30s interval",
+        "Pool stats hook: always enabled when sdk not null, refetch 30s interval",
+        "Export both from hooks/index.ts barrel",
+        "Typecheck passes (pnpm check-types)"
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": "StabilityPool address resolved via SDK getBorrowRegistry + resolveAddressesFromRegistry. Internal useStabilityPoolAddress hook caches with staleTime: Infinity."
+    },
+    {
+      "id": "US-013",
+      "title": "Create deployment atom and debt token selector component",
+      "description": "As a user, I want to select which debt token to view (GBPm now, CHFm/JPYm later) so the dashboard shows the right data.",
+      "acceptanceCriteria": [
+        "Create packages/web3/src/features/borrow/atoms/deployment-atoms.ts",
+        "selectedDebtTokenAtom — Jotai atom holding selected DebtTokenConfig, defaults to GBPm from DEBT_TOKEN_CONFIGS",
+        "Export from atoms/index.ts barrel",
+        "Create apps/app.mento.org/app/components/borrow/shared/debt-token-selector.tsx",
+        "Renders dropdown or segmented control showing available debt tokens",
+        "GBPm is active/selectable; CHFm and JPYm show 'Coming soon' badge and are disabled",
+        "Selecting a token updates selectedDebtTokenAtom",
+        "Uses @repo/ui components (Select, Button) where appropriate",
+        "Typecheck passes (pnpm check-types)",
+        "Verify in browser using dev-browser skill: selector shows GBPm selected, other options disabled"
+      ],
+      "priority": 13,
+      "passes": true,
+      "notes": "DEBT_TOKEN_CONFIGS is Record<string, DebtTokenConfig> — use non-null assertion (!) when accessing by key."
+    },
+    {
+      "id": "US-014",
+      "title": "Create risk badge component",
+      "description": "As a user, I want to see a color-coded risk badge on my positions so I can quickly assess their health.",
+      "acceptanceCriteria": [
+        "Create apps/app.mento.org/app/components/borrow/shared/risk-badge.tsx",
+        "Accepts risk: RiskLevel | null prop (from SDK: 'low' | 'medium' | 'high')",
+        "Renders colored badge: Low = green, Medium = amber/yellow, High = red",
+        "When null, renders nothing or a muted 'N/A' state",
+        "Uses existing Tailwind color utilities and @repo/ui Badge component if available",
+        "Compact size suitable for cards and table rows",
+        "Typecheck passes (pnpm check-types)",
+        "Verify in browser using dev-browser skill: badge renders correctly with all three states"
+      ],
+      "priority": 14,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-015",
+      "title": "Create trove metrics display component",
+      "description": "As a user, I want to see key trove metrics (LTV, liquidation price, interest rate) in a consistent format across views.",
+      "acceptanceCriteria": [
+        "Create apps/app.mento.org/app/components/borrow/shared/trove-metrics.tsx",
+        "Accepts loanDetails: LoanDetails | null and debtToken: DebtTokenConfig props",
+        "Displays: LTV (via formatLtv), liquidation price (via formatPrice), interest rate (via formatInterestRate), status",
+        "Each metric is a label + value pair in a grid or flex layout",
+        "Uses risk badge component for the risk level",
+        "Handles loading/null state gracefully (shows skeleton or '—' placeholder)",
+        "Uses formatting utilities from Phase 0 (formatLtv, formatPrice, formatInterestRate from @repo/web3)",
+        "Typecheck passes (pnpm check-types)",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 15,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-016",
+      "title": "Create position card component",
+      "description": "As a user, I want each trove position shown as a card on the dashboard with key metrics at a glance.",
+      "acceptanceCriteria": [
+        "Create apps/app.mento.org/app/components/borrow/dashboard/position-card.tsx",
+        "Accepts position: BorrowPosition and debtToken: DebtTokenConfig props",
+        "Displays: collateral amount (formatCollateralAmount), debt amount (formatDebtAmount), LTV with risk badge, liquidation price, interest rate",
+        "Uses useLoanDetails derived hook to compute LTV and risk from position data",
+        "Uses useCollateralPrice hook for price data",
+        "Clicking the card updates borrowViewAtom to { view: 'manage-trove', troveId: position.troveId }",
+        "Uses @repo/ui Card component for consistent styling",
+        "Typecheck passes (pnpm check-types)",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 16,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-017",
+      "title": "Create stability card component",
+      "description": "As a user, I want to see my Stability Pool deposit as a card on the dashboard with pending rewards.",
+      "acceptanceCriteria": [
+        "Create apps/app.mento.org/app/components/borrow/dashboard/stability-card.tsx",
+        "Accepts position: StabilityPoolPosition and debtToken: DebtTokenConfig props",
+        "Displays: deposit amount (formatDebtAmount), collateral gain (formatCollateralAmount), debt token yield gain",
+        "Shows pool share percentage if total pool size available (from useStabilityPoolStats)",
+        "Clicking the card updates borrowViewAtom to 'earn'",
+        "Uses @repo/ui Card component for consistent styling",
+        "Typecheck passes (pnpm check-types)",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 17,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-018",
+      "title": "Create borrow dashboard view",
+      "description": "As a user, I want to see all my borrow positions and SP deposits on a dashboard when I click the Borrow tab.",
+      "acceptanceCriteria": [
+        "Create apps/app.mento.org/app/components/borrow/dashboard/borrow-dashboard.tsx",
+        "Uses useUserTroves hook to fetch open troves for connected wallet",
+        "Uses useStabilityPool hook to fetch SP position for connected wallet",
+        "Renders a position card for each active trove",
+        "Renders a stability card if user has an SP deposit (deposit > 0)",
+        "Shows debt token selector at the top",
+        "Shows 'Open Trove' and 'Earn' action buttons/CTAs",
+        "Empty state when no positions: friendly message + CTA to open first trove or deposit into SP",
+        "Loading state: skeleton or shimmer placeholders while data fetches",
+        "Not-connected state: message prompting wallet connection",
+        "Update borrow-view.tsx to render <BorrowDashboard /> when borrowViewAtom is 'dashboard' (replacing Phase 0 placeholder)",
+        "Typecheck passes (pnpm check-types)",
+        "Verify in browser using dev-browser skill: dashboard renders empty state when no positions, or shows cards when positions exist"
+      ],
+      "priority": 18,
+      "passes": true,
+      "notes": "Follow pools-view.tsx layout pattern: max-w-5xl container with top-decorations, bg-card styling."
+    }
+  ]
+}

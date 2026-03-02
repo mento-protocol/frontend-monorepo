@@ -10,6 +10,7 @@ export * from "./components/ui/card";
 export * from "./components/ui/coin-card";
 export * from "./components/ui/lock-card";
 export * from "./components/ui/community-card";
+export * from "./components/ui/chart";
 export * from "./components/ui/reserve-chart";
 export * from "./components/ui/sidebar";
 export * from "./components/ui/tabs";

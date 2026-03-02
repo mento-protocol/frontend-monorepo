@@ -55,15 +55,14 @@ export function useZapInQuote({
 
       const amountInWei = parseUnits(debouncedAmount, tokenDecimals);
 
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
+
       const quote = await sdk.liquidity.quoteZapIn(
         pool.poolAddr,
         tokenIn,
         amountInWei,
         0.5, // amountInSplit: fraction of input to swap
-        {
-          slippageTolerance: slippage,
-          deadline: BigInt(Math.floor(Date.now() / 1000) + 20 * 60),
-        },
+        { slippageTolerance: slippage, deadline },
       );
 
       // Get LP token total supply for share calculation

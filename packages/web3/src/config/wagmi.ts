@@ -1,5 +1,5 @@
 import { connectorsForWallets } from "@rainbow-me/rainbowkit";
-import { Chain, celo, celoSepolia } from "viem/chains";
+import { Chain } from "viem/chains";
 import {
   Config,
   cookieStorage,
@@ -16,7 +16,7 @@ import {
   valoraWallet,
   walletConnectWallet,
 } from "@rainbow-me/rainbowkit/wallets";
-import { allChains } from ".";
+import { Celo, CeloSepolia, allChains } from "./chains";
 
 // Avoid creating WalletConnect connectors during SSR because they rely on
 // browser-only APIs like `indexedDB`.
@@ -55,8 +55,8 @@ export const wagmiConfig: Config = createConfig({
 
   connectors,
   transports: {
-    [celo.id]: http(),
-    [celoSepolia.id]: http(),
+    [Celo.id]: http(Celo.rpcUrls.default.http[0]),
+    [CeloSepolia.id]: http(CeloSepolia.rpcUrls.default.http[0]),
   },
   ssr: true,
   storage: createStorage({

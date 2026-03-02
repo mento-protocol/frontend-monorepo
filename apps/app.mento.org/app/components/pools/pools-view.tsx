@@ -81,7 +81,7 @@ export function PoolsView() {
   }
 
   return (
-    <div className="max-w-5xl space-y-6 px-4 pt-6 md:px-0 md:pt-0 mb-6 min-h-[550px] w-full">
+    <div className="max-w-5xl space-y-4 px-4 pt-6 md:px-0 md:pt-0 flex h-full w-full flex-col overflow-hidden">
       {/* Header */}
       <div className="relative">
         <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
@@ -123,7 +123,7 @@ export function PoolsView() {
       </div>
 
       {/* Content */}
-      <div className="space-y-3">
+      <div className="space-y-3 min-h-0 flex flex-1 flex-col">
         {/* Error state */}
         {isError && (
           <div className="p-6 bg-card text-center">

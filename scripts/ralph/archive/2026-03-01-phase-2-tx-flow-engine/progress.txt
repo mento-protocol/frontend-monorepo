@@ -1,0 +1,204 @@
+## Codebase Patterns
+- Feature flags use `z.enum(["true", "false"]).optional().default("false")` pattern in `env.mjs` with matching `runtimeEnv` entry
+- app.mento.org has no `check-types` script; run `tsc --noEmit` from its directory or `pnpm check-types` from root (covers packages only)
+- SDK version `^3.0.0-beta.18`; managed via pnpm workspace catalog in `pnpm-workspace.yaml`
+- Features barrel is at `packages/web3/src/features/index.ts` — add new features alphabetically
+- `BorrowService` constructor: `new BorrowService(publicClient: PublicClient, chainId: number)`
+- `useBorrowService()` returns `BorrowService | null` — always guard with `enabled: !!sdk` in useQuery hooks
+- Borrow hooks barrel at `packages/web3/src/features/borrow/hooks/index.ts` — exports alphabetically
+- Borrow component directory: `apps/app.mento.org/app/components/borrow/` — dashboard/, shared/, atoms/
+- `borrow-view.tsx` is the top-level router for the borrow tab — reads `borrowViewAtom` and renders sub-views
+- `BorrowView` union discrimination: use `typeof view === "object"` for the `manage-trove` variant, string comparison for the rest
+- Borrow navigation atom at `components/borrow/atoms/borrow-navigation.ts` — uses `BorrowView` type from `@repo/web3`
+- Imperative tx utils use `wagmi/actions` (`sendTransaction`, `estimateGas`, `waitForTransactionReceipt`); `Config` type from `"wagmi"`
+- SDK `CallParams` strings must be cast: `to` → `Address`, `data` → `Hex`, `value` → `BigInt(value || 0)`
+- `sendSdkTransaction` and `waitForTx` at `features/borrow/tx-flows/send-tx.ts` — already built in Phase 0
+- SDK pure math functions: import from `@mento-protocol/mento-sdk/dist/services/borrow/borrowMath`
+- SDK borrow helpers (e.g., `resolveAddressesFromRegistry`): import from `@mento-protocol/mento-sdk/dist/services/borrow/borrowHelpers`
+- `getBorrowRegistry(chainId, symbol)` is exported from top-level `@mento-protocol/mento-sdk`
+- StabilityPool ABI at `features/borrow/stability-pool/abi.ts` — exported as `stabilityPoolAbi` (camelCase)
+- StabilityPool address resolved via `useStabilityPoolAddress` internal hook — `getBorrowRegistry` + `resolveAddressesFromRegistry`, cached with `staleTime: Infinity`
+- Formatting utils in `features/borrow/format.ts`: `formatDebtAmount`, `formatCollateralAmount`, `formatPrice`, `formatInterestRate`, `formatLtv` — all accept `bigint | null | undefined`
+- `DEBT_TOKEN_CONFIGS` in `features/borrow/types.ts` — typed as `Record<string, DebtTokenConfig>` so use `!` assertion when accessing by key
+- Bigint values in React Query keys must be `.toString()` converted — bigints aren't JSON-serializable
+- Shared `useDebounce` utility at `packages/web3/src/utils/debounce.ts` — reuse it, don't create per-feature copies
+- @repo/ui `Select` pattern: `Select` > `SelectTrigger` > `SelectValue` + `SelectContent` > `SelectItem` (Radix-based)
+- @repo/ui `Badge` variants: `default`, `secondary`, `destructive`, `outline`
+- @repo/ui Card composable pattern: `Card` > `CardHeader` > `CardTitle` + `CardAction`, `CardContent` for body
+- SDK borrow types: `BorrowPosition`, `LoanDetails`, `SystemParams`, `CallParams`, `OpenTroveParams`, `AdjustTroveParams`, `InterestRateBracket`, `TroveStatus`, `RiskLevel`
+- Derived hooks use `useMemo` (not useQuery) — they compute from existing query data, not fetch new data
+- For contract reads NOT covered by BorrowService, use wagmi `useReadContract`/`useReadContracts` with the ABI directly
+- Swap write hooks pattern: `useMutation` + `useQueryClient()` for invalidation + toast on success — follow for borrow write hooks
+- `atomWithStorage` from `jotai/utils` — use for localStorage-persisted atoms (e.g., flow state surviving page refresh)
+- Write hook template: `useMutation` + `executeFlow(wagmiConfig, setFlowAtom, flowId, operation, account, stepDefs)` + `onSuccess` invalidates + toast
+- Approval step pattern: `buildTx` checks allowance, returns `null` if sufficient (engine auto-skips), returns `sdk.buildCollateralApprovalParams(symbol, amount)` if not
+- Debt token approval: `sdk.getDebtAllowance(symbol, owner, spender)` and `sdk.buildDebtApprovalParams(symbol, spender, amount)` — both require explicit spender (BorrowerOperations address)
+- Resolve BorrowerOperations address imperatively: `getChainId(wagmiConfig)` + `getPublicClient(wagmiConfig)` from `wagmi/actions`, then `getBorrowRegistry` + `resolveAddressesFromRegistry`
+- `borrowViewAtom` lives in app layer (`components/borrow/atoms/borrow-navigation.ts`), NOT in packages/web3 — hooks in web3 cannot import it; navigation must be handled by calling components
+
+- SP tx builders use `encodeFunctionData` from viem with the local `stabilityPoolAbi` — no SDK dependency needed for SP writes
+- App components use `@repo/web3` dist — rebuild web3 package (`pnpm --filter @repo/web3 build`) after adding new exports before running app tsc
+- FlowStep component uses inline SVGs for status icons — no external icon library dependency (Tailwind `animate-spin` for spinner)
+- Block explorer tx link pattern: `${useExplorerUrl()}/tx/${txHash}` — `useExplorerUrl` from `@repo/web3`
+- `FlowDialog` is self-managing — just render `<FlowDialog />` in borrow-view, no props needed; visible when `borrowFlowAtom` is not null
+- `@repo/ui` Dialog components: `Dialog`, `DialogContent`, `DialogHeader`, `DialogTitle`, `DialogDescription`, `DialogFooter` — Radix-based, use `open` prop for programmatic control
+- `buildSpDeposit` encodes `provideToSP(uint256, bool)`, `buildSpWithdraw` encodes `withdrawFromSP(uint256, bool)`
+- SP write hooks resolve SP address imperatively inside mutationFn using `getBorrowRegistry` + `resolveAddressesFromRegistry` — `addresses.stabilityPool`
+- Debt token approval for SP deposit: spender is SP address (not BorrowerOperations) — `sdk.getDebtAllowance(symbol, owner, spAddress)` and `sdk.buildDebtApprovalParams(symbol, spAddress, maxUint256)`
+
+---
+
+## 2026-03-01 - US-011
+- Integrated `FlowDialog` into `borrow-view.tsx` — single import + render at the end of the layout div
+- FlowDialog is a "fire and forget" component — self-manages visibility via `borrowFlowAtom`
+- Renders on top of any borrow sub-view (dashboard, open-trove, manage, earn) since it's a Radix Dialog (portal-based overlay)
+- "Back to Dashboard" clears flow atom + sets borrowViewAtom to "dashboard"
+- "Try Again" clears flow atom only (user stays on current view to re-submit)
+- Files changed: `apps/app.mento.org/app/components/borrow/borrow-view.tsx` (updated)
+- **Learnings for future iterations:**
+  - FlowDialog just needs to be rendered once in the top-level borrow view — no props needed, no state wiring
+  - Radix Dialog with `open` prop uses a portal, so it overlays regardless of DOM position
+  - The `selectedDebtTokenAtom` import in borrow-view.tsx is currently unused — may be needed for future sub-views
+---
+
+## 2026-03-01 - US-010
+- Created `FlowDialog` component in `apps/app.mento.org/app/components/borrow/shared/flow-dialog.tsx`
+- Uses `@repo/ui` Dialog (Radix-based) with `open` prop controlled by `borrowFlowAtom` (visible when not null)
+- Reads `borrowFlowAtom` via `useAtom` for both reading and clearing
+- Shows operation name as dialog title, renders `FlowStep` for each step in the flow
+- Three states: in-progress (wallet prompt message), success (all confirmed + "Back to Dashboard" button), error (error message + "Try Again" button)
+- "Back to Dashboard" clears `borrowFlowAtom` to null and sets `borrowViewAtom` to "dashboard"
+- "Try Again" clears `borrowFlowAtom` to null (user re-submits from form)
+- Dialog dismissible via close button or clicking outside (sets atom to null)
+- Files changed: `apps/app.mento.org/app/components/borrow/shared/flow-dialog.tsx` (new)
+- **Learnings for future iterations:**
+  - `Dialog` from `@repo/ui` is Radix-based — use `open` prop (no `DialogTrigger` needed) for programmatic visibility
+  - `onOpenChange` fires when user clicks overlay or presses Escape — use it to clear the atom
+  - `borrowViewAtom` is in the app layer — safe to import from `../atoms/borrow-navigation` in app components
+  - `showCloseButton` prop on `DialogContent` adds the X button automatically
+---
+
+## 2026-03-01 - US-009
+- Created `FlowStep` component in `apps/app.mento.org/app/components/borrow/shared/flow-step.tsx`
+- Renders each transaction step with status icons: idle (circle outline, muted), pending (spinner), confirming (spinner + tx link), confirmed (green check), error (red X)
+- Inline SVG icons — no external icon library dependency, uses Tailwind `animate-spin` for spinner animation
+- When `txHash` present, renders as link to block explorer via `useExplorerUrl()` from `@repo/web3`
+- Error state shows `error.message` below the step label in red text
+- Compact vertical layout with `isActive` prop for subtle background highlight
+- Files changed: `apps/app.mento.org/app/components/borrow/shared/flow-step.tsx` (new)
+- **Learnings for future iterations:**
+  - `@repo/web3` resolves from `dist/` — must rebuild package (`pnpm --filter @repo/web3 build`) before app tsc can see new type exports
+  - `FlowStep` type is exported via chain: `atoms/flow-atoms.ts` → `atoms/index.ts` → `borrow/index.ts` → `features/index.ts` → `@repo/web3`
+  - Named the component `FlowStep` same as the type — import type as `FlowStepType` to avoid name collision
+  - App-layer components import types from `@repo/web3`, not from internal package paths
+---
+
+## 2026-03-01 - US-008
+- Created `useSpDeposit` write hook — two-step flow: (1) check debt token allowance for SP address, approve with maxUint256 if insufficient, (2) buildSpDeposit → send → wait
+- Created `useSpWithdraw` write hook — single-step flow: buildSpWithdraw → send → wait (no approval needed)
+- Both hooks resolve SP address imperatively inside mutationFn using `getBorrowRegistry` + `resolveAddressesFromRegistry`
+- Both accept `{ symbol, amount, doClaim, wagmiConfig, account }` and use `executeFlow` for consistent flow atom updates
+- On success: both invalidate `['borrow', 'stabilityPool']` and `['borrow', 'stabilityPoolStats']` queries + show toast
+- Updated hooks barrel with alphabetically ordered exports
+- Files changed: `packages/web3/src/features/borrow/hooks/use-sp-deposit.ts` (new), `packages/web3/src/features/borrow/hooks/use-sp-withdraw.ts` (new), `hooks/index.ts` (updated barrel)
+- **Learnings for future iterations:**
+  - For SP deposit, the debt token spender is the StabilityPool address (not BorrowerOperations) — different from close-trove which approves BorrowerOperations
+  - SP withdraw needs no approval step — withdrawing returns funds to you, no token transfer from user needed
+  - `resolveAddressesFromRegistry` returns an object with `stabilityPool` field — cast to string for use as address
+  - `useSpWithdraw` doesn't need `useBorrowService()` since it only uses `buildSpWithdraw` from the local tx-builders (no SDK calls)
+---
+
+## 2026-03-01 - US-007
+- Created `buildSpDeposit(spAddress, amount, doClaim)` and `buildSpWithdraw(spAddress, amount, doClaim)` functions
+- Both use viem `encodeFunctionData` with `stabilityPoolAbi` to encode function calls
+- Return `CallParams` compatible with `sendSdkTransaction` (strings for to/data/value)
+- Updated `stability-pool/index.ts` barrel to export both functions
+- Files changed: `packages/web3/src/features/borrow/stability-pool/tx-builders.ts` (new), `stability-pool/index.ts` (updated barrel)
+- **Learnings for future iterations:**
+  - `encodeFunctionData` returns a `Hex` string — directly compatible with `CallParams.data` field
+  - SP ABI functions: `provideToSP(uint256, bool)` for deposit, `withdrawFromSP(uint256, bool)` for withdraw
+  - `doClaim` param controls whether accumulated gains (collateral + yield) are claimed during the deposit/withdraw
+  - No need to import from SDK for SP writes — the ABI + viem encoding handles it all
+---
+
+## 2026-03-01 - US-006
+- Created `useAdjustInterestRate` write hook — single-step flow: `sdk.buildAdjustInterestRateTransaction(symbol, troveId, newRate, maxUpfrontFee)` → send → wait
+- Created `useClaimCollateral` write hook — single-step flow: `sdk.buildClaimCollateralTransaction(symbol)` → send → wait
+- Both hooks use `executeFlow` for consistent flow atom updates (single step definition each)
+- `useAdjustInterestRate` accepts `{ symbol, troveId, newRate, maxUpfrontFee, wagmiConfig, account }`, invalidates `troveData`, `userTroves`, `interestRateBrackets`
+- `useClaimCollateral` accepts `{ symbol, wagmiConfig, account }`, invalidates `userTroves`
+- Both show toast on success
+- Updated hooks barrel with alphabetically ordered exports
+- Files changed: `packages/web3/src/features/borrow/hooks/use-adjust-interest-rate.ts` (new), `packages/web3/src/features/borrow/hooks/use-claim-collateral.ts` (new), `hooks/index.ts` (updated barrel)
+- **Learnings for future iterations:**
+  - Single-step flows use the same `executeFlow` pattern — just pass one step definition instead of multiple
+  - `buildAdjustInterestRateTransaction` takes 4 args: `symbol, troveId, newRate, maxUpfrontFee`
+  - `buildClaimCollateralTransaction` takes 1 arg: `symbol`
+  - No approval step needed for either — interest rate change operates on an existing trove, and claim collateral retrieves surplus
+---
+
+## 2026-03-01 - US-005
+- Created `useCloseTrove` write hook using `useMutation` + `executeFlow` for multi-step tx flow
+- Two-step flow: (1) check debt token allowance for BorrowerOperations address, approve with maxUint256 if insufficient, (2) build and send close trove transaction via `sdk.buildCloseTroveTransaction(symbol, troveId)`
+- Resolves BorrowerOperations address imperatively inside mutationFn using `getChainId` + `getPublicClient` from wagmi/actions, then `getBorrowRegistry` + `resolveAddressesFromRegistry`
+- Added `account` param to mutation input since it's needed for executeFlow and getDebtAllowance
+- Debt approval check fetches trove data to compare against current debt; approves maxUint256 if insufficient (covers interest accrual)
+- On success: invalidates `['borrow', 'userTroves']`, `['borrow', 'troveData']`, `['borrow', 'branchStats']` queries and shows toast
+- Navigation to dashboard on close should be handled by the calling component (borrowViewAtom is in app layer, not accessible from packages/web3)
+- Files changed: `packages/web3/src/features/borrow/hooks/use-close-trove.ts` (new), `hooks/index.ts` (updated barrel)
+- **Learnings for future iterations:**
+  - `sdk.getDebtAllowance(symbol, owner, spender)` requires explicit spender unlike `getCollateralAllowance` — use BorrowerOperations address
+  - `sdk.buildDebtApprovalParams(symbol, spender, amount)` also requires explicit spender
+  - To resolve BorrowerOperations address in mutationFn: use `getChainId(wagmiConfig)` + `getPublicClient(wagmiConfig)` from `wagmi/actions`, then SDK registry functions
+  - `BorrowContractAddresses` has `borrowerOperations`, `troveManager`, `stabilityPool`, `collToken`, `debtToken`, etc.
+  - Use `maxUint256` from viem for debt approval amount — avoids issues with interest accrual between allowance check and close
+---
+
+## 2026-03-01 - US-004
+- Created `useAdjustTrove` write hook using `useMutation` + `executeFlow` for multi-step tx flow
+- Two-step flow: (1) approve collateral if adding and allowance insufficient (skipped via null if removing collateral, collChange is 0, or allowance sufficient), (2) build and send adjust trove transaction via `sdk.buildAdjustTroveTransaction(symbol, params)`
+- Added `account` param to mutation input since `AdjustTroveParams` doesn't include owner — needed for executeFlow and allowance check
+- On success: invalidates `['borrow', 'userTroves']`, `['borrow', 'troveData']`, `['borrow', 'allowance']`, `['borrow', 'branchStats']` queries and shows toast
+- Files changed: `packages/web3/src/features/borrow/hooks/use-adjust-trove.ts` (new), `hooks/index.ts` (updated barrel)
+- **Learnings for future iterations:**
+  - `AdjustTroveParams` from SDK has: `troveId`, `collChange`, `isCollIncrease`, `debtChange`, `isDebtIncrease`, `maxUpfrontFee` — no `owner` field, so account must be passed separately
+  - For conditional approval in adjust: check both `isCollIncrease` flag AND `collChange > 0` before checking allowance
+  - Pattern is identical to open-trove hook — just different params type, flow operation name, and query invalidation keys
+---
+
+## 2026-03-01 - US-003
+- Created `useOpenTrove` write hook using `useMutation` + `executeFlow` for multi-step tx flow
+- Two-step flow: (1) check collateral allowance and approve if insufficient (skipped via null return if sufficient), (2) build and send open trove transaction
+- Uses `useBorrowService()` for SDK access, `useSetAtom(borrowFlowAtom)` for real-time flow state updates
+- On success: invalidates `['borrow', 'userTroves']`, `['borrow', 'allowance']`, `['borrow', 'branchStats']` queries and shows toast
+- Files changed: `packages/web3/src/features/borrow/hooks/use-open-trove.ts` (new), `hooks/index.ts` (updated barrel)
+- **Learnings for future iterations:**
+  - `sdk.getCollateralAllowance(symbol, owner)` takes only 2 args — SDK resolves the spender (borrowerOps) internally
+  - `sdk.buildCollateralApprovalParams(symbol, amount)` takes only 2 args — SDK resolves the spender internally
+  - Write hook pattern: `useMutation` + `useQueryClient()` for invalidation + `useSetAtom(borrowFlowAtom)` + `executeFlow` for orchestration + `toast` from `@repo/ui`
+  - `executeFlow` handles all atom state transitions; the hook just defines step definitions and handles success/error callbacks
+  - When `buildTx` returns null, engine marks the step as "Skipped" — use this for conditional approval steps
+---
+
+## 2026-03-01 - US-002
+- Created `executeFlow` function that orchestrates multi-step transaction flows with real-time atom updates
+- Created `FlowStepDefinition` type for defining flow steps with `buildTx` returning `CallParams | null`
+- Engine iterates steps sequentially: idle → pending → confirming (with txHash) → confirmed, stops on error
+- Steps where `buildTx` returns null are skipped and marked confirmed with "Skipped" label
+- Returns `{ success: boolean, txHashes: string[] }`
+- Files changed: `packages/web3/src/features/borrow/tx-flows/engine.ts` (new), `tx-flows/index.ts` (updated barrel)
+- **Learnings for future iterations:**
+  - `SetFlowAtom` type accepts both direct values and updater functions — use updater form `(prev) => ...` for atomic state transitions
+  - Engine uses `sendSdkTransaction` + `waitForTx` from the same `tx-flows/` directory — keep tx infrastructure co-located
+  - Error normalization is handled by `sendSdkTransaction` already, so engine just reads `error.message` and `error.constructor.name`
+---
+
+## 2026-03-01 - US-001
+- Created `BorrowFlowState` and `FlowStep` types with all required fields
+- Created `borrowFlowAtom` using `atomWithStorage` from jotai/utils with localStorage key `mento:borrow:flow`
+- Exported atom and types from atoms barrel
+- Files changed: `packages/web3/src/features/borrow/atoms/flow-atoms.ts` (new), `atoms/index.ts` (updated)
+- **Learnings for future iterations:**
+  - `atomWithStorage` from `jotai/utils` works with jotai v2.16.x — no extra package needed
+  - Atoms barrel re-exports through `borrow/index.ts` → `features/index.ts` chain automatically
+---

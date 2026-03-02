@@ -74,7 +74,7 @@ export function PoolAddressPopover({ pool }: PoolAddressPopoverProps) {
   }, []);
 
   return (
-    <Popover open={open}>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -90,9 +90,12 @@ export function PoolAddressPopover({ pool }: PoolAddressPopoverProps) {
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className="space-y-2.5 w-fit [&>span]:hidden"
+        sideOffset={8}
+        className="space-y-2.5 w-fit animate-none [&>span]:hidden"
         onMouseEnter={handleOpen}
         onMouseLeave={handleClose}
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onInteractOutside={(e) => e.preventDefault()}
       >
         <AddressRow
           label="Pool"
