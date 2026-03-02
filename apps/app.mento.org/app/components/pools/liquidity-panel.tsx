@@ -6,6 +6,7 @@ import { useState, useEffect } from "react";
 import { ArrowLeft } from "lucide-react";
 import { AddLiquidityForm } from "./add-liquidity-form";
 import { RemoveLiquidityForm } from "./remove-liquidity-form";
+import { LiquidityFlowDialog } from "./liquidity-flow-dialog";
 
 interface LiquidityPanelProps {
   pool: PoolDisplay;
@@ -164,6 +165,8 @@ export function LiquidityPanel({ pool, mode, onClose }: LiquidityPanelProps) {
       ) : (
         <RemoveLiquidityForm pool={pool} />
       )}
+
+      <LiquidityFlowDialog />
     </div>
   );
 }

@@ -14,15 +14,23 @@ import {
   SLIPPAGE_OPTIONS,
   useLiquidityQuote,
   getProportionalAmount,
-  useLiquidityApproval,
   useAddLiquidityTransaction,
   useZapInQuote,
   useZapInTransaction,
   ConnectButton,
   tryParseUnits,
   formatCompactBalance,
+  executeLiquidityFlow,
+  liquidityFlowAtom,
+  showLiquiditySuccessToast,
+  type LiquidityFlowStepDefinition,
 } from "@repo/web3";
-import { useAccount, useReadContract } from "@repo/web3/wagmi";
+import {
+  useAccount,
+  useReadContract,
+  useConfig,
+  useChainId,
+} from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, parseUnits, type Address } from "viem";
 import {
   useState,
@@ -36,6 +44,8 @@ import {
   sanitizePercentInput,
   sanitizePercentOnBlur,
 } from "@/lib/utils/percent-input";
+import { useSetAtom } from "jotai";
+import { useQueryClient } from "@tanstack/react-query";
 
 function formatLP(liquidity: bigint | undefined): string {
   if (!liquidity || liquidity === 0n) return "0.00";
@@ -102,11 +112,17 @@ interface AddLiquidityFormProps {
 
 export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
   const { address } = useAccount();
+  const wagmiConfig = useConfig();
+  const chainId = useChainId();
+  const queryClient = useQueryClient();
+  const setFlow = useSetAtom(liquidityFlowAtom);
+
   const [mode, setMode] = useState<"balanced" | "single">("balanced");
   const [token0Amount, setToken0Amount] = useState("");
   const [token1Amount, setToken1Amount] = useState("");
   const [lastEditedToken, setLastEditedToken] = useState<0 | 1>(0);
   const [slippage, setSlippage] = useState<SlippageOption>(0.3);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Single-token (zap) state
   const [zapTokenIn, setZapTokenIn] = useState<string>(pool.token0.address);
@@ -165,63 +181,8 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     });
   }, [quote, lastEditedToken, pool, mode]);
 
-  const {
-    buildTransaction,
-    buildResult,
-    isBuilding,
-    sendAddLiquidity,
-    isSending,
-    isConfirming,
-    isConfirmed,
-    reset: resetTx,
-  } = useAddLiquidityTransaction(pool);
-
-  const pendingQuoteRef = useRef(quote);
-  const pendingSlippageRef = useRef(slippage);
-
-  // approvalB declared first — approvalA's onApproved chains into it.
-  const approvalB = useLiquidityApproval(pool.token1.symbol, async () => {
-    if (!address || !pendingQuoteRef.current) return;
-    try {
-      const q = pendingQuoteRef.current;
-      const freshBuild = await buildTransaction(
-        q.amountA,
-        q.amountB,
-        address,
-        pendingSlippageRef.current,
-      );
-      if (freshBuild) await sendAddLiquidity(freshBuild);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
-        toast.error("Something went wrong. Please try again.");
-      }
-    }
-  });
-
-  const approvalA = useLiquidityApproval(pool.token0.symbol, async () => {
-    if (!address || !pendingQuoteRef.current) return;
-    try {
-      const q = pendingQuoteRef.current;
-      const freshBuild = await buildTransaction(
-        q.amountA,
-        q.amountB,
-        address,
-        pendingSlippageRef.current,
-      );
-      if (!freshBuild) return;
-      if (freshBuild.approvalB) {
-        await approvalB.sendApproval(freshBuild.approvalB);
-      } else {
-        await sendAddLiquidity(freshBuild);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
-        toast.error("Something went wrong. Please try again.");
-      }
-    }
-  });
+  const { buildTransaction, buildResult, isBuilding } =
+    useAddLiquidityTransaction(pool);
 
   // Build transaction when we have a valid quote and wallet
   useEffect(() => {
@@ -230,17 +191,6 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
       return;
     buildTransaction(quote.amountA, quote.amountB, address, slippage);
   }, [quote, address, slippage, buildTransaction, mode]);
-
-  // Reset form on success
-  useEffect(() => {
-    if (isConfirmed) {
-      setToken0Amount("");
-      setToken1Amount("");
-      resetTx();
-      approvalA.reset();
-      approvalB.reset();
-    }
-  }, [isConfirmed, resetTx, approvalA, approvalB]);
 
   // === Single-token (zap) hooks ===
 
@@ -263,38 +213,7 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     buildTransaction: buildZapTransaction,
     buildResult: zapBuildResult,
     isBuilding: isZapBuilding,
-    sendZapIn,
-    isSending: isZapSending,
-    isConfirming: isZapConfirming,
-    isConfirmed: isZapConfirmed,
-    reset: resetZapTx,
   } = useZapInTransaction(pool);
-
-  const pendingZapAmountRef = useRef(zapAmount);
-  const pendingZapTokenInRef = useRef(zapTokenIn);
-  const pendingZapDecimalsRef = useRef(zapToken.decimals);
-
-  const zapApproval = useLiquidityApproval(zapToken.symbol, async () => {
-    if (!address) return;
-    try {
-      const amountInWei = parseUnits(
-        pendingZapAmountRef.current,
-        pendingZapDecimalsRef.current,
-      );
-      const freshBuild = await buildZapTransaction(
-        pendingZapTokenInRef.current as Address,
-        amountInWei,
-        address,
-        pendingSlippageRef.current,
-      );
-      if (freshBuild) await sendZapIn(freshBuild);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
-        toast.error("Something went wrong. Please try again.");
-      }
-    }
-  });
 
   // Build zap transaction when quote arrives
   useEffect(() => {
@@ -312,15 +231,6 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     mode,
     buildZapTransaction,
   ]);
-
-  // Reset on zap confirmation
-  useEffect(() => {
-    if (isZapConfirmed) {
-      setZapAmount("");
-      resetZapTx();
-      zapApproval.reset();
-    }
-  }, [isZapConfirmed, resetZapTx, zapApproval]);
 
   // === Input handlers ===
 
@@ -382,6 +292,8 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
   // === Button state ===
 
   const getButtonState = () => {
+    if (isSubmitting) return { text: "Confirm in wallet...", disabled: true };
+
     if (mode === "single") {
       if (!hasZapAmount) return { text: "Enter amount", disabled: true };
       if (insufficientZap)
@@ -392,28 +304,7 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
       if (isZapBuilding || isZapQuoting)
         return { text: "Preparing...", disabled: true };
       if (!zapBuildResult) return { text: "Preparing...", disabled: true };
-
-      if (zapBuildResult.approval && !zapApproval.isApproved) {
-        if (zapApproval.isApproving)
-          return {
-            text: `Approving ${zapToken.symbol}...`,
-            disabled: true,
-          };
-        return {
-          text: `Approve ${zapToken.symbol}`,
-          disabled: false,
-          action: "zap-approve" as const,
-        };
-      }
-
-      if (isZapSending || isZapConfirming)
-        return { text: "Adding liquidity...", disabled: true };
-
-      return {
-        text: "Add Liquidity",
-        disabled: false,
-        action: "zap" as const,
-      };
+      return { text: "Add Liquidity", disabled: false };
     }
 
     // Balanced mode
@@ -430,96 +321,154 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
       };
     if (isBuilding || isQuoting)
       return { text: "Preparing...", disabled: true };
+    if (!buildResult) return { text: "Preparing...", disabled: true };
 
-    if (buildResult?.approvalA && !approvalA.isApproved) {
-      if (approvalA.isApproving)
-        return {
-          text: `Approving ${pool.token0.symbol}...`,
-          disabled: true,
-        };
-      return {
-        text: `Approve ${pool.token0.symbol}`,
-        disabled: false,
-        action: "approve-a" as const,
-      };
-    }
-
-    if (buildResult?.approvalB && !approvalB.isApproved) {
-      if (approvalB.isApproving)
-        return {
-          text: `Approving ${pool.token1.symbol}...`,
-          disabled: true,
-        };
-      return {
-        text: `Approve ${pool.token1.symbol}`,
-        disabled: false,
-        action: "approve-b" as const,
-      };
-    }
-
-    if (isSending || isConfirming)
-      return { text: "Adding liquidity...", disabled: true };
-
-    return { text: "Add Liquidity", disabled: false, action: "add" as const };
+    return { text: "Add Liquidity", disabled: false };
   };
 
   const buttonState = getButtonState();
 
+  const invalidateQueries = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["pools-list", chainId] });
+    queryClient.invalidateQueries({
+      predicate: (query) =>
+        JSON.stringify(query.queryKey).toLowerCase().includes("balanceof"),
+    });
+  }, [queryClient, chainId]);
+
   const handleAction = async () => {
     if (!address) return;
+    setIsSubmitting(true);
 
     try {
-      if (
-        (buttonState.action === "zap-approve" ||
-          buttonState.action === "zap") &&
-        zapBuildResult
-      ) {
-        if (zapBuildResult.approval && !zapApproval.isApproved) {
-          pendingZapAmountRef.current = zapAmount;
-          pendingZapTokenInRef.current = zapTokenIn;
-          pendingZapDecimalsRef.current = zapToken.decimals;
-          pendingSlippageRef.current = slippage;
-          await zapApproval.sendApproval(zapBuildResult.approval);
-        } else {
-          const amountInWei = parseUnits(zapAmount, zapToken.decimals);
-          const freshZap = await buildZapTransaction(
-            zapTokenIn as Address,
-            amountInWei,
-            address,
-            slippage,
-          );
-          if (freshZap) await sendZapIn(freshZap);
+      if (mode === "single" && zapBuildResult) {
+        // --- Zap-in flow ---
+        const capturedZapAmount = zapAmount;
+        const capturedZapTokenIn = zapTokenIn;
+        const capturedZapDecimals = zapToken.decimals;
+        const capturedSlippage = slippage;
+
+        const steps: LiquidityFlowStepDefinition[] = [];
+
+        if (zapBuildResult.approval) {
+          const approvalParams = zapBuildResult.approval.params;
+          steps.push({
+            id: "approve-token",
+            label: `Approve ${zapToken.symbol}`,
+            buildTx: async () => approvalParams,
+          });
         }
-        return;
-      }
 
-      if (!quote) return;
+        steps.push({
+          id: "zap-in",
+          label: "Add Liquidity",
+          buildTx: async () => {
+            const amountInWei = parseUnits(
+              capturedZapAmount,
+              capturedZapDecimals,
+            );
+            const freshBuild = await buildZapTransaction(
+              capturedZapTokenIn as Address,
+              amountInWei,
+              address,
+              capturedSlippage,
+            );
+            if (!freshBuild) throw new Error("Failed to build transaction");
+            return freshBuild.zapIn.params;
+          },
+        });
 
-      pendingQuoteRef.current = quote;
-      pendingSlippageRef.current = slippage;
-
-      if (buildResult?.approvalA && !approvalA.isApproved) {
-        await approvalA.sendApproval(buildResult.approvalA);
-      } else if (buildResult?.approvalB && !approvalB.isApproved) {
-        await approvalB.sendApproval(buildResult.approvalB);
-      } else {
-        const freshBuild = await buildTransaction(
-          quote.amountA,
-          quote.amountB,
-          address,
-          slippage,
+        const result = await executeLiquidityFlow(
+          wagmiConfig,
+          setFlow,
+          "Add Liquidity",
+          steps,
         );
-        if (freshBuild) await sendAddLiquidity(freshBuild);
+
+        if (result.success) {
+          const lastTxHash = result.txHashes[result.txHashes.length - 1];
+          if (lastTxHash) {
+            showLiquiditySuccessToast({
+              action: "added",
+              token0Symbol: pool.token0.symbol,
+              token1Symbol: pool.token1.symbol,
+              txHash: lastTxHash,
+              chainId,
+            });
+          }
+          invalidateQueries();
+          setZapAmount("");
+        }
+      } else if (mode === "balanced" && quote && buildResult) {
+        // --- Balanced add flow ---
+        const capturedQuote = quote;
+        const capturedSlippage = slippage;
+
+        const steps: LiquidityFlowStepDefinition[] = [];
+
+        if (buildResult.approvalA) {
+          const approvalParams = buildResult.approvalA.params;
+          steps.push({
+            id: "approve-a",
+            label: `Approve ${pool.token0.symbol}`,
+            buildTx: async () => approvalParams,
+          });
+        }
+
+        if (buildResult.approvalB) {
+          const approvalParams = buildResult.approvalB.params;
+          steps.push({
+            id: "approve-b",
+            label: `Approve ${pool.token1.symbol}`,
+            buildTx: async () => approvalParams,
+          });
+        }
+
+        steps.push({
+          id: "add-liquidity",
+          label: "Add Liquidity",
+          buildTx: async () => {
+            const freshBuild = await buildTransaction(
+              capturedQuote.amountA,
+              capturedQuote.amountB,
+              address,
+              capturedSlippage,
+            );
+            if (!freshBuild) throw new Error("Failed to build transaction");
+            return freshBuild.addLiquidity.params;
+          },
+        });
+
+        const result = await executeLiquidityFlow(
+          wagmiConfig,
+          setFlow,
+          "Add Liquidity",
+          steps,
+        );
+
+        if (result.success) {
+          const lastTxHash = result.txHashes[result.txHashes.length - 1];
+          if (lastTxHash) {
+            showLiquiditySuccessToast({
+              action: "added",
+              token0Symbol: pool.token0.symbol,
+              token1Symbol: pool.token1.symbol,
+              txHash: lastTxHash,
+              chainId,
+            });
+          }
+          invalidateQueries();
+          setToken0Amount("");
+          setToken1Amount("");
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const isHandledByHook =
-        /user\s+rejected/i.test(msg) ||
-        /user\s+denied/i.test(msg) ||
-        /denied\s+transaction/i.test(msg);
-      if (!isHandledByHook) {
+      if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
         toast.error("Something went wrong. Please try again.");
       }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
