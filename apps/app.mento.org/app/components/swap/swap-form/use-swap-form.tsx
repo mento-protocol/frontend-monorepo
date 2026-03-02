@@ -652,21 +652,22 @@ export function useSwapForm() {
     "from" | "to" | null
   >(null);
 
-  // Reset form fields after a successful swap (formValues.amount is cleared)
+  // Reset form fields after a successful swap (formValues.amount is cleared but tokens preserved)
   useEffect(() => {
-    if (!formValues?.amount && !formValues?.tokenInSymbol) {
+    if (!formValues?.amount && formValues?.tokenInSymbol) {
       setLastChangedToken(null);
       form.reset({
         amount: "",
         quote: "",
-        tokenInSymbol: "CELO",
-        tokenOutSymbol: "USDm",
+        tokenInSymbol: formValues.tokenInSymbol,
+        tokenOutSymbol: formValues.tokenOutSymbol || "USDm",
         slippage: formValues?.slippage || "0.3",
       });
     }
   }, [
     formValues?.amount,
     formValues?.tokenInSymbol,
+    formValues?.tokenOutSymbol,
     formValues?.slippage,
     form,
   ]);

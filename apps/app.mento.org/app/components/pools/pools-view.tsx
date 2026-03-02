@@ -1,10 +1,15 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { Search } from "lucide-react";
 import { Input, cn } from "@repo/ui";
-import { usePoolsList, type PoolFilterType } from "@repo/web3";
-import { PoolsTable, PoolsTableHeader } from "./pools-table";
+import {
+  usePoolsList,
+  type PoolFilterType,
+  type PoolDisplay,
+} from "@repo/web3";
+import { PoolsTable } from "./pools-table";
+import { LiquidityPanel } from "./liquidity-panel";
 
 const filterTabs: { value: PoolFilterType; label: string }[] = [
   { value: "all", label: "All Pools" },
@@ -16,6 +21,21 @@ export function PoolsView() {
   const { data: pools = [], isLoading, isError, error } = usePoolsList();
   const [filter, setFilter] = useState<PoolFilterType>("all");
   const [search, setSearch] = useState("");
+  const [selectedPool, setSelectedPool] = useState<{
+    pool: PoolDisplay;
+    mode: "deposit" | "manage";
+  } | null>(null);
+
+  const handleSelectPool = useCallback(
+    (pool: PoolDisplay, mode: "deposit" | "manage") => {
+      setSelectedPool({ pool, mode });
+    },
+    [],
+  );
+
+  const handleClosePanel = useCallback(() => {
+    setSelectedPool(null);
+  }, []);
 
   const filteredPools = useMemo(() => {
     let result = pools;
@@ -47,6 +67,18 @@ export function PoolsView() {
       filteredPools.some((p) => p.poolType === "Legacy"),
     [filteredPools, filter],
   );
+
+  if (selectedPool) {
+    return (
+      <div className="max-w-5xl px-4 pt-6 md:px-0 md:pt-0 mb-6 min-h-[550px] w-full">
+        <LiquidityPanel
+          pool={selectedPool.pool}
+          mode={selectedPool.mode}
+          onClose={handleClosePanel}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-5xl space-y-6 px-4 pt-6 md:px-0 md:pt-0 mb-6 min-h-[550px] w-full">
@@ -90,11 +122,6 @@ export function PoolsView() {
         </div>
       </div>
 
-      {/* Table header */}
-      <div>
-        <PoolsTableHeader />
-      </div>
-
       {/* Content */}
       <div className="space-y-3">
         {/* Error state */}
@@ -112,7 +139,13 @@ export function PoolsView() {
         )}
 
         {/* Table */}
-        {!isError && <PoolsTable pools={filteredPools} isLoading={isLoading} />}
+        {!isError && (
+          <PoolsTable
+            pools={filteredPools}
+            isLoading={isLoading}
+            onSelectPool={handleSelectPool}
+          />
+        )}
 
         {/* Legacy footer note — after the last pool */}
         {hasLegacyPools && (

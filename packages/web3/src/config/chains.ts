@@ -5,6 +5,7 @@ import { celo } from "wagmi/chains";
 import { MentoChain, MentoChainContracts } from "../types";
 
 const useFork = isForkModeEnabled();
+const customRpcUrl = getCustomRpcUrl();
 
 export enum ChainId {
   CeloSepolia = 11142220,
@@ -62,11 +63,7 @@ export const Celo: MentoChain = {
   blockExplorers: { default: useFork ? LOCAL_FORK_EXPLORER : CELO_EXPLORER },
   rpcUrls: {
     default: {
-      http: [
-        useFork
-          ? "http://celo-devnet.mento.org"
-          : "http://celo-devnet.mento.org",
-      ],
+      http: [getCeloRpcUrl()],
     },
   },
   contracts: {
@@ -94,6 +91,33 @@ function isForkModeEnabled(): boolean {
 
   // Default to false (fork mode disabled)
   return false;
+}
+
+function getCustomRpcUrl(): string | undefined {
+  if (typeof window !== "undefined") {
+    const stored = localStorage.getItem("mento_custom_rpc_url");
+    if (stored) return stored;
+  }
+  return process.env.NEXT_PUBLIC_RPC_URL || undefined;
+}
+
+function getCeloRpcUrl(): string {
+  let url: string;
+  let source: string;
+
+  if (useFork) {
+    url = "http://localhost:8545";
+    source = "fork mode";
+  } else if (customRpcUrl) {
+    url = customRpcUrl;
+    source = "custom RPC (NEXT_PUBLIC_RPC_URL / localStorage)";
+  } else {
+    url = "https://forno.celo.org";
+    source = "default";
+  }
+
+  console.log(`[mento] Celo RPC: ${url} (${source})`);
+  return url;
 }
 
 export const chainIdToChain: Record<number, MentoChain> = {

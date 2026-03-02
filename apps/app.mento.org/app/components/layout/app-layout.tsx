@@ -2,6 +2,7 @@
 
 import { Footer, IconCheck, Toaster } from "@repo/ui";
 import { Header } from "@/components/nav/header";
+import { Banner } from "@/components/layout/banner";
 import { PollingWorker } from "@repo/web3";
 import type { PropsWithChildren } from "react";
 import Image from "next/image";
@@ -37,6 +38,7 @@ export function AppLayout({ children }: PropsWithChildren) {
         mobileOffset={{ top: "96px" }}
         style={{ zIndex: 9999 }}
       />
+      <Banner />
       <Header />
       <main className="pt-6 md:pt-20 md:h-screen md:p-4 xl:h-[calc(100vh-80px)] relative z-20 my-auto h-full overflow-hidden">
         {children}

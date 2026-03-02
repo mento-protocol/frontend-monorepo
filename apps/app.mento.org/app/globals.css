@@ -1,1 +1,15 @@
 @import "tailwindcss";
+
+/* Keep the scrollbar gutter stable so opening Radix Select/Dialog
+   (which uses react-remove-scroll) doesn't shift the page layout. */
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
+/* react-remove-scroll-bar adds margin-right to body to compensate for
+   the removed scrollbar, but scrollbar-gutter already handles this.
+   Override with higher specificity to prevent double-compensation. */
+html body[data-scroll-locked] {
+  margin-right: 0 !important;
+}

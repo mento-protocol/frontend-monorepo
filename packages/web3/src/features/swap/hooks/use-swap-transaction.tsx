@@ -188,6 +188,8 @@ export function useSwapTransaction(
       }
 
       setFormValues({
+        tokenInSymbol: fromToken,
+        tokenOutSymbol: toToken,
         slippage: formValues?.slippage || "0.3",
         isAutoSlippage: formValues?.isAutoSlippage ?? true,
         deadlineMinutes: formValues?.deadlineMinutes || "5",
