@@ -1,9 +1,12 @@
 # Mento V3 Borrow Section — Project Plan
 
-> **Base branch:** `feat/v3`
+> **Base branch:** `feat/borrow` (branched from `feat/v3`)
 > **Feature flag:** `NEXT_PUBLIC_ENABLE_BORROW` (always `"true"` in development)
 > **Source reference:** [Liquity V2 / BOLD](https://github.com/mento-protocol/bold) (Mento fork)
+> **SDK version:** `@mento-protocol/mento-sdk@^3.0.0-beta.18` — BorrowService (complete, beta published)
+> **Previous agent plan:** SDK work is complete (beta published); this plan covers web3 hooks → app UI
 > **Date:** 2026-03-01
+> **Last updated:** 2026-03-01 — Phase 0 + Phase 1 + Phase 2 + Phase 3 + Phase 4 complete
 
 ---
 
@@ -11,19 +14,20 @@
 
 1. [Overview](#1-overview)
 2. [Architecture](#2-architecture)
-3. [Data Model](#3-data-model)
-4. [Technical Decisions](#4-technical-decisions)
-5. [Phase 0 — Foundation](#5-phase-0--foundation)
-6. [Phase 1 — Read Path (Dashboard + Positions)](#6-phase-1--read-path)
-7. [Phase 2 — Transaction Flow Engine](#7-phase-2--transaction-flow-engine)
-8. [Phase 3 — Core Trove Operations](#8-phase-3--core-trove-operations)
-9. [Phase 4 — Stability Pool](#9-phase-4--stability-pool)
-10. [Phase 5 — Leverage / Multiply](#10-phase-5--leverage--multiply)
-11. [Phase 6 — Multi-Debt Expansion](#11-phase-6--multi-debt-expansion)
-12. [Cross-Cutting Concerns](#12-cross-cutting-concerns)
-13. [What We Drop from BOLD](#13-what-we-drop-from-bold)
-14. [Risk Register](#14-risk-register)
-15. [Reference: BOLD → Mento Mapping](#15-reference-bold--mento-mapping)
+3. [Mento SDK BorrowService — What It Gives Us](#3-mento-sdk-borrowservice--what-it-gives-us)
+4. [Data Model](#4-data-model)
+5. [Technical Decisions](#5-technical-decisions)
+6. [Phase 0 — Foundation](#6-phase-0--foundation)
+7. [Phase 1 — Read Path (Dashboard + Positions)](#7-phase-1--read-path)
+8. [Phase 2 — Transaction Flow Engine](#8-phase-2--transaction-flow-engine)
+9. [Phase 3 — Core Trove Operations](#9-phase-3--core-trove-operations)
+10. [Phase 4 — Stability Pool](#10-phase-4--stability-pool)
+11. [Phase 5 — Leverage / Multiply](#11-phase-5--leverage--multiply)
+12. [Phase 6 — Multi-Debt Expansion](#12-phase-6--multi-debt-expansion)
+13. [Cross-Cutting Concerns](#13-cross-cutting-concerns)
+14. [What We Drop from BOLD](#14-what-we-drop-from-bold)
+15. [Risk Register](#15-risk-register)
+16. [Reference: BOLD → Mento Mapping](#16-reference-bold--mento-mapping)
 
 ---
 
@@ -41,8 +45,9 @@ leveraged/multiply positions.
 
 ```
 apps/app.mento.org          — Existing swap + pool app; borrow tab added here
-packages/web3               — New `features/borrow/` module for chain logic
+packages/web3               — Thin integration layer: hooks wrapping SDK + Stability Pool
 packages/ui                 — Extend as needed with borrow-specific components
+@mento-protocol/mento-sdk   — BorrowService handles all trove chain logic
 ```
 
 The borrow tab already exists in the header navigation (`header.tsx` line 49)
@@ -78,113 +83,231 @@ each sub-view is a self-contained component.
 │  View Logic (Jotai atoms + React hooks)                  │
 │  borrowViewAtom, form atoms, flow atoms                  │
 ├──────────────────────────────────────────────────────────┤
-│  Domain Logic (packages/web3/src/features/borrow/)       │
-│  Pure math, types, hooks, tx-flows                       │
-│  Extracted from BOLD: liquity-math.ts, liquity-utils.ts  │
+│  Integration Layer (packages/web3/src/features/borrow/)  │
+│  React hooks wrapping SDK calls                          │
+│  Tx flow engine (Jotai-based)                            │
+│  Stability Pool (not in SDK — built from scratch)        │
+├──────────────────────────────────────────────────────────┤
+│  Mento SDK — BorrowService                               │
+│  Transaction building, reads, math, approvals, hints     │
+│  All ABIs, address resolution, multi-deployment          │
 ├──────────────────────────────────────────────────────────┤
 │  Chain Layer (wagmi + viem)                               │
-│  ABIs, contract config, price feeds                      │
 │  Shared wagmi provider from @repo/web3                   │
+│  SDK uses viem PublicClient internally                   │
 └──────────────────────────────────────────────────────────┘
 ```
 
 ### Package structure
 
+The SDK covers trove operations end-to-end, so `packages/web3/src/features/borrow/`
+is a **thin integration layer** — primarily React hooks and the tx flow engine.
+
 ```
 packages/web3/src/features/borrow/
-├── config/
-│   ├── deployments.ts          # DebtTokenId → contract addresses per chain
-│   ├── abis/                   # Mento V3 contract ABIs
-│   │   ├── BorrowerOperations.ts
-│   │   ├── TroveManager.ts
-│   │   ├── StabilityPool.ts
-│   │   ├── CollateralRegistry.ts
-│   │   ├── ActivePool.ts
-│   │   ├── SortedTroves.ts
-│   │   ├── HintHelpers.ts
-│   │   ├── MultiTroveGetter.ts
-│   │   ├── FXPriceFeed.ts
-│   │   ├── PriceFeed.ts
-│   │   ├── TroveNFT.ts
-│   │   ├── SystemParams.ts
-│   │   └── Erc20.ts
-│   └── constants.ts            # MIN_DEBT, gas compensation, LTV limits, etc.
-├── math/
-│   ├── loan-details.ts         # getLoanDetails, getLtv, getLiquidationPrice
-│   ├── risk.ts                 # getLiquidationRisk, getRedemptionRisk
-│   └── leverage.ts             # getOpenLeveragedTroveParams, getLeverUpTroveParams
+├── sdk.ts                        # BorrowService singleton/factory
+├── stability-pool/               # NOT in SDK — built from scratch
+│   ├── abi.ts                    # StabilityPool ABI
+│   ├── hooks.ts                  # use-stability-pool, use-sp-stats
+│   └── tx-builders.ts            # SP transaction builders
 ├── hooks/
-│   ├── use-deployment.ts       # Current deployment context (GBPm contracts)
-│   ├── use-trove.ts            # Single trove read by ID
-│   ├── use-troves-by-account.ts  # All troves for connected wallet
-│   ├── use-branch-stats.ts     # TVL, total debt, avg interest rate
-│   ├── use-stability-pool.ts   # SP balance, rewards, yield
-│   ├── use-price-feed.ts       # FX price from OracleAdapter
-│   ├── use-hint-helpers.ts     # Sorted trove insertion hints
-│   ├── use-system-params.ts    # Read SystemParams contract
-│   └── use-leverage-slippage.ts  # DEX slippage check (Phase 5)
+│   │  # --- Read hooks (thin wrappers around SDK via React Query) ---
+│   ├── use-borrow-service.ts     # SDK BorrowService access hook
+│   ├── use-trove-data.ts         # sdk.getTroveData(symbol, troveId)
+│   ├── use-user-troves.ts        # sdk.getUserTroves(symbol, owner)
+│   ├── use-system-params.ts      # sdk.getSystemParams(symbol)
+│   ├── use-collateral-price.ts   # sdk.getCollateralPrice(symbol)
+│   ├── use-branch-stats.ts       # sdk.getBranchStats(symbol) + getAverageInterestRate()
+│   ├── use-interest-rate-brackets.ts  # sdk.getInterestRateBrackets(symbol)
+│   ├── use-predict-upfront-fee.ts     # sdk.predictOpenTroveUpfrontFee() etc.
+│   ├── use-borrow-allowance.ts   # sdk.getCollateralAllowance() / getDebtAllowance()
+│   ├── use-next-owner-index.ts   # sdk.getNextOwnerIndex(symbol, owner)
+│   │  # --- Derived/computed hooks (SDK reads + SDK math, no direct contract calls) ---
+│   ├── use-loan-details.ts       # use-collateral-price + SDK getLoanDetails() math
+│   ├── use-debt-suggestions.ts   # use-loan-details + SDK calculateDebtSuggestions()
+│   ├── use-interest-rate-chart-data.ts  # Transforms rate brackets into chart format
+│   ├── use-redemption-risk.ts    # rate brackets + SDK getRedemptionRisk()
+│   │  # --- Write hooks (SDK build*Transaction → wagmi sendTransaction) ---
+│   ├── use-open-trove.ts         # approve → sdk.buildOpenTroveTransaction() → send
+│   ├── use-adjust-trove.ts       # approve? → sdk.buildAdjustTroveTransaction() → send
+│   ├── use-close-trove.ts        # approve? → sdk.buildCloseTroveTransaction() → send
+│   ├── use-adjust-interest-rate.ts  # sdk.buildAdjustInterestRateTransaction() → send
+│   ├── use-claim-collateral.ts   # sdk.buildClaimCollateralTransaction() → send
+│   ├── use-borrow-approval.ts    # sdk.buildCollateralApprovalParams() → send
+│   │  # --- Stability Pool hooks (not in SDK) ---
+│   ├── use-stability-pool.ts     # Direct contract reads
+│   ├── use-sp-deposit.ts         # Direct StabilityPool.provideToSP() → send
+│   ├── use-sp-withdraw.ts        # Direct StabilityPool.withdrawFromSP() → send
+│   └── index.ts
 ├── tx-flows/
-│   ├── engine.ts               # Flow state machine (Jotai atoms)
-│   ├── types.ts                # FlowDeclaration, FlowStep, FlowStatus
-│   ├── open-trove.ts
-│   ├── adjust-trove.ts
-│   ├── close-trove.ts
-│   ├── change-interest-rate.ts
-│   ├── stability-deposit.ts
-│   ├── stability-withdraw.ts
-│   ├── claim-sp-rewards.ts
-│   ├── claim-coll-surplus.ts
-│   ├── redeem.ts
-│   ├── open-leverage.ts        # Phase 5
-│   └── adjust-leverage.ts      # Phase 5
+│   ├── engine.ts                 # Flow state machine (Jotai atoms)
+│   ├── types.ts                  # FlowDeclaration, FlowStep, FlowStatus
+│   └── send-tx.ts                # CallParams → wagmi sendTransaction bridge
 ├── atoms/
-│   ├── deployment-atoms.ts     # Selected debt token, resolved contracts
-│   ├── trove-form-atoms.ts     # Open/adjust trove form state
-│   ├── earn-form-atoms.ts      # Stability pool form state
-│   └── flow-atoms.ts           # Current tx flow state
-├── types.ts                    # DebtTokenId, BranchId, Trove, Position, etc.
-└── index.ts                    # Public API exports
+│   ├── deployment-atoms.ts       # Selected debt token symbol
+│   ├── trove-form-atoms.ts       # Open/adjust trove form state
+│   ├── earn-form-atoms.ts        # Stability pool form state
+│   └── flow-atoms.ts             # Current tx flow state
+├── leverage/                     # Phase 5 — not in SDK
+│   └── math.ts                   # Flash loan calculations (from BOLD)
+├── types.ts                      # Frontend-specific types (extends SDK types)
+└── index.ts                      # Public API exports
 
 apps/app.mento.org/app/components/borrow/
-├── borrow-view.tsx             # Main borrow tab container (view router)
+├── borrow-view.tsx            # Main borrow tab container (view router)
 ├── dashboard/
-│   ├── borrow-dashboard.tsx    # Position overview
-│   ├── position-card.tsx       # Single trove summary card
-│   └── stability-card.tsx      # SP position summary card
+│   ├── borrow-dashboard.tsx   # Position overview
+│   ├── position-card.tsx      # Single trove summary card
+│   └── stability-card.tsx     # SP position summary card
 ├── open-trove/
-│   ├── open-trove-form.tsx     # Main form
+│   ├── open-trove-form.tsx    # Main form (3 sections: collateral, debt, rate)
 │   ├── collateral-input.tsx
 │   ├── debt-input.tsx
-│   ├── interest-rate-input.tsx
-│   └── loan-summary.tsx        # LTV, liquidation price, risk badge
+│   ├── interest-rate-input.tsx  # Manual/delegate/batch manager modes
+│   ├── interest-rate-chart.tsx  # Mini bar chart of debt distribution by rate
+│   └── loan-summary.tsx       # LTV, liquidation price, risk badge
 ├── manage-trove/
-│   ├── manage-trove-view.tsx   # Tab container (adjust | rate | close)
+│   ├── manage-trove-view.tsx  # Tab container (adjust | rate | close)
 │   ├── adjust-form.tsx
 │   ├── rate-form.tsx
 │   └── close-form.tsx
 ├── earn/
-│   ├── earn-view.tsx           # Stability pool main view
+│   ├── earn-view.tsx          # Stability pool main view
 │   ├── deposit-form.tsx
 │   └── withdraw-form.tsx
 ├── redeem/
 │   └── redeem-form.tsx
-├── leverage/                   # Phase 5
+├── leverage/                  # Phase 5
 │   ├── leverage-form.tsx
 │   └── leverage-slider.tsx
 ├── shared/
-│   ├── debt-token-selector.tsx # GBPm / CHFm / JPYm selector
-│   ├── flow-dialog.tsx         # Multi-step tx progress modal
-│   ├── flow-step.tsx           # Individual step status display
-│   ├── risk-badge.tsx          # Low / Medium / High risk indicator
-│   ├── currency-display.tsx    # FX-aware price formatting
-│   └── trove-metrics.tsx       # Reusable LTV, CR, liquidation price display
+│   ├── debt-token-selector.tsx
+│   ├── flow-dialog.tsx        # Multi-step tx progress modal
+│   ├── flow-step.tsx
+│   ├── risk-badge.tsx
+│   ├── currency-display.tsx   # FX-aware price formatting
+│   └── trove-metrics.tsx      # Reusable LTV, CR, liquidation price display
 └── atoms/
-    └── borrow-navigation.ts    # borrowViewAtom + sub-view state
+    └── borrow-navigation.ts   # borrowViewAtom + sub-view state
 ```
 
 ---
 
-## 3. Data Model
+## 3. Mento SDK BorrowService — What It Gives Us
+
+The SDK's `feat/trove-management` branch provides a comprehensive `BorrowService`
+(~2,600 LOC) that eliminates most chain interaction work. This is the single
+biggest simplification to the project plan.
+
+### SDK provides (we DON'T build)
+
+| Capability                 | SDK Method                                      | Notes                                  |
+| -------------------------- | ----------------------------------------------- | -------------------------------------- |
+| **Open trove**             | `buildOpenTroveTransaction()`                   | Returns `CallParams` (to, data, value) |
+| **Adjust trove**           | `buildAdjustTroveTransaction()`                 | Handles coll+debt changes              |
+| **Close trove**            | `buildCloseTroveTransaction()`                  |                                        |
+| **Add collateral**         | `buildAddCollTransaction()`                     | Convenience wrapper                    |
+| **Withdraw collateral**    | `buildWithdrawCollTransaction()`                |                                        |
+| **Borrow more**            | `buildBorrowMoreTransaction()`                  |                                        |
+| **Repay debt**             | `buildRepayDebtTransaction()`                   |                                        |
+| **Change interest rate**   | `buildAdjustInterestRateTransaction()`          |                                        |
+| **Claim surplus**          | `buildClaimCollateralTransaction()`             |                                        |
+| **Batch managers**         | `buildSetBatchManagerTransaction()` etc.        | Join/leave/switch                      |
+| **Interest delegates**     | `buildSetInterestDelegateTransaction()` etc.    |                                        |
+| **Approve collateral**     | `buildCollateralApprovalParams()`               | ERC20 approve calldata                 |
+| **Approve debt token**     | `buildDebtApprovalParams()`                     |                                        |
+| **Approve gas token**      | `buildGasCompensationApprovalParams()`          |                                        |
+| **Check allowances**       | `getCollateralAllowance()` etc.                 |                                        |
+| **Read trove**             | `getTroveData(symbol, troveId)`                 | Returns `BorrowPosition`               |
+| **List user troves**       | `getUserTroves(symbol, owner)`                  | All troves for address                 |
+| **Collateral price**       | `getCollateralPrice(symbol)`                    | From oracle                            |
+| **System params**          | `getSystemParams(symbol)`                       | MCR, CCR, minDebt, etc.                |
+| **Branch stats**           | `getBranchStats(symbol)`                        | Total coll, total debt                 |
+| **Interest brackets**      | `getInterestRateBrackets(symbol)`               | Rate distribution                      |
+| **Avg interest rate**      | `getAverageInterestRate(symbol)`                | Weighted average                       |
+| **Fee predictions**        | `predictOpenTroveUpfrontFee()` etc.             | For all operations                     |
+| **Shutdown check**         | `isSystemShutDown(symbol)`                      |                                        |
+| **Next owner index**       | `getNextOwnerIndex(symbol, owner)`              |                                        |
+| **Math: LTV**              | `getLtv()`                                      | Pure function                          |
+| **Math: Liquidation**      | `getLiquidationPrice()`, `getLiquidationRisk()` |                                        |
+| **Math: Redemption**       | `getRedemptionRisk()`                           |                                        |
+| **Math: Loan details**     | `getLoanDetails()`                              | Full computed metrics                  |
+| **Math: Debt suggestions** | `calculateDebtSuggestions()`                    | 30/60/80% presets                      |
+| **Hint computation**       | Internal — used by tx builders                  | We don't call this                     |
+| **Address resolution**     | Via `AddressesRegistry` per debt token          | Lazy + cached                          |
+| **ABIs**                   | All 10+ contract ABIs exported                  |                                        |
+| **Multi-deployment**       | `borrowRegistries[chainId][symbol]`             | GBPm on Celo mainnet                   |
+
+### SDK does NOT provide (we MUST build)
+
+| Capability                        | Approach                                            |
+| --------------------------------- | --------------------------------------------------- |
+| **Stability Pool operations**     | Direct contract calls with SP ABI from BOLD         |
+| **Redemptions**                   | Direct contract call to CollateralRegistry          |
+| **Leverage / Multiply**           | Flash loan math from BOLD + Zapper contract calls   |
+| **Transaction signing/sending**   | Bridge SDK's `CallParams` → wagmi `sendTransaction` |
+| **Gas estimation**                | `publicClient.estimateGas()` on SDK's CallParams    |
+| **Multi-step flow orchestration** | Jotai-based tx flow engine                          |
+| **All UI components**             | Rewrite with @repo/ui (shadcn/Tailwind)             |
+| **FX-aware price formatting**     | Currency display component                          |
+
+### SDK integration pattern
+
+```typescript
+// 1. Create BorrowService from viem PublicClient
+import { BorrowService } from "@mento-protocol/mento-sdk";
+
+const borrowService = new BorrowService(publicClient, chainId);
+
+// 2. Read data — pass debt token symbol, SDK resolves all addresses
+const troves = await borrowService.getUserTroves("GBPm", userAddress);
+const params = await borrowService.getSystemParams("GBPm");
+const price = await borrowService.getCollateralPrice("GBPm");
+
+// 3. Build transactions — SDK returns CallParams { to, data, value }
+const openTx = await borrowService.buildOpenTroveTransaction("GBPm", {
+  owner: userAddress,
+  ownerIndex: 0,
+  collAmount: parseEther("1000"),
+  boldAmount: parseEther("500"),
+  annualInterestRate: parseEther("0.05"),   // 5%
+  maxUpfrontFee: parseEther("100"),
+});
+
+// 4. Send via wagmi — bridge CallParams to wallet
+const hash = await walletClient.sendTransaction({
+  to: openTx.to as Address,
+  data: openTx.data as Hex,
+  value: BigInt(openTx.value),
+});
+
+// 5. Use SDK math for display
+const loanDetails = getLoanDetails(collateral, debt, price, mcr, ...);
+```
+
+### `use-borrow-service` hook
+
+```typescript
+// packages/web3/src/features/borrow/hooks/use-borrow-service.ts
+import { BorrowService } from "@mento-protocol/mento-sdk";
+import { usePublicClient } from "wagmi";
+
+let cachedService: BorrowService | null = null;
+
+export function useBorrowService(): BorrowService {
+  const publicClient = usePublicClient();
+  // BorrowService caches deployment context internally,
+  // so we only need one instance per public client
+  if (!cachedService || /* client changed */) {
+    cachedService = new BorrowService(publicClient, chainId);
+  }
+  return cachedService;
+}
+```
+
+---
+
+## 4. Data Model
 
 ### The 2D problem
 
@@ -196,110 +319,109 @@ BOLD:   1 debt token  ×  N branches  =  N  contract sets
 Mento:  M debt tokens ×  N branches  =  M×N contract sets
 ```
 
-Each debt token (GBPm, CHFm, JPYm) is a completely independent Liquity
-deployment with its own `CollateralRegistry`, `BorrowerOperations`,
-`TroveManager`, `StabilityPool`, etc. The "BOLD token" in each deployment
-is the Mento `StableTokenV3` (GBPm/CHFm/JPYm).
-
-### Key types
+The SDK handles this via `borrowRegistries`:
 
 ```typescript
-// Which stable are we minting?
-type DebtTokenId = "GBPm" | "CHFm" | "JPYm";
-
-// Which collateral within a deployment?
-type BranchId = number; // 0 = USDm, future: 1 = EURm, etc.
-
-// A full deployment = all contracts for one debt token
-interface Deployment {
-  debtTokenId: DebtTokenId;
-  debtTokenAddress: Address;
-  debtTokenSymbol: string;
-  debtTokenCurrencySymbol: string; // "£", "Fr.", "¥"
-  collateralRegistry: Address;
-  hintHelpers: Address;
-  multiTroveGetter: Address;
-  branches: BranchConfig[];
-}
-
-interface BranchConfig {
-  branchId: BranchId;
-  collateralSymbol: string;      // "USDm"
-  collateralAddress: Address;
-  borrowerOperations: Address;
-  troveManager: Address;
-  stabilityPool: Address;
-  sortedTroves: Address;
-  activePool: Address;
-  priceFeed: Address;            // FXPriceFeed
-  troveNFT: Address;
-  systemParams: Address;
-}
-
-// Identifies a specific trove globally
-interface TroveKey {
-  deploymentId: DebtTokenId;
-  branchId: BranchId;
-  troveId: bigint;
-}
-```
-
-### Contract resolution
-
-```typescript
-// Get all contracts for GBPm
-const deployment = getDeployment("GBPm", chainId);
-
-// Get branch-specific contract
-const borrowerOps = deployment.branches[0].borrowerOperations;
-
-// Read from the price feed
-const price = useReadContract({
-  address: deployment.branches[0].priceFeed,
-  abi: FXPriceFeedAbi,
-  functionName: "fetchPrice",
-});
-```
-
-### Initial config (GBPm on Celo)
-
-```typescript
-// packages/web3/src/features/borrow/config/deployments.ts
-// Addresses TBD — will come from Mento SDK V3 once available
-// For now: local config, migrated to SDK when CDPLiquidityStrategy addresses ship
-
-const deployments: Record<ChainId, Deployment[]> = {
-  [ChainId.CELO]: [
-    {
-      debtTokenId: "GBPm",
-      debtTokenAddress: "0x...",     // StableTokenV3 for GBP
-      debtTokenSymbol: "GBPm",
-      debtTokenCurrencySymbol: "£",
-      collateralRegistry: "0x...",
-      hintHelpers: "0x...",
-      multiTroveGetter: "0x...",
-      branches: [{
-        branchId: 0,
-        collateralSymbol: "USDm",
-        collateralAddress: "0x...",
-        borrowerOperations: "0x...",
-        troveManager: "0x...",
-        stabilityPool: "0x...",
-        sortedTroves: "0x...",
-        activePool: "0x...",
-        priceFeed: "0x...",          // FXPriceFeed (USD/GBP)
-        troveNFT: "0x...",
-        systemParams: "0x...",
-      }],
-    },
-  ],
-  [ChainId.CELO_SEPOLIA]: [/* testnet addresses */],
+// In SDK: src/core/constants/borrowRegistries.ts
+borrowRegistries = {
+  [ChainId.CELO]: {
+    GBPm: "0x7C88934470A7297C7B63654d78ccC6B61eEf79E1", // AddressesRegistry
+  },
 };
+```
+
+Each registry address points to an `AddressesRegistry` contract that resolves
+all 19 contract addresses for that deployment. The SDK reads and caches this
+lazily on first use.
+
+### Key types (from SDK)
+
+The SDK exports these types — we use them directly, no need to redefine:
+
+```typescript
+// From @mento-protocol/mento-sdk
+interface BorrowPosition {
+  troveId: string;
+  collateral: bigint;
+  debt: bigint;
+  annualInterestRate: bigint;
+  status: TroveStatus; // "active" | "closedByOwner" | "closedByLiquidation" | "zombie" | "nonExistent"
+  interestBatchManager: string | null;
+  lastDebtUpdateTime: number;
+  redistBoldDebtGain: bigint;
+  redistCollGain: bigint;
+  accruedInterest: bigint;
+  recordedDebt: bigint;
+  accruedBatchManagementFee: bigint;
+}
+
+interface LoanDetails {
+  collateral: bigint | null;
+  collateralUsd: bigint | null;
+  collPrice: bigint | null;
+  debt: bigint | null;
+  interestRate: bigint | null;
+  ltv: bigint | null;
+  maxLtv: bigint;
+  maxLtvAllowed: bigint; // 91.6% of maxLtv
+  liquidationPrice: bigint | null;
+  liquidationRisk: RiskLevel | null; // "low" | "medium" | "high"
+  maxDebt: bigint | null;
+  maxDebtAllowed: bigint | null;
+  status: "healthy" | "at-risk" | "liquidatable" | "underwater" | null;
+}
+
+interface SystemParams {
+  mcr: bigint; // Min collateral ratio (e.g., 1.1e18 = 110%)
+  ccr: bigint; // Critical collateral ratio
+  scr: bigint; // System collateral ratio
+  bcr: bigint; // Batch collateral ratio
+  minDebt: bigint;
+  ethGasCompensation: bigint;
+  minAnnualInterestRate: bigint;
+}
+
+interface CallParams {
+  to: string; // Contract address
+  data: string; // Encoded calldata (hex)
+  value: string; // Native value in wei (hex)
+}
+```
+
+### Frontend-specific types
+
+We only need to define what the SDK doesn't cover:
+
+```typescript
+// packages/web3/src/features/borrow/types.ts
+
+// Debt token metadata for UI (currency formatting, icons, etc.)
+interface DebtTokenConfig {
+  symbol: string; // "GBPm"
+  currencySymbol: string; // "£"
+  currencyCode: string; // "GBP"
+  locale: string; // "en-GB"
+}
+
+// Sub-view navigation
+type BorrowView =
+  | "dashboard"
+  | "open-trove"
+  | { view: "manage-trove"; troveId: string }
+  | "earn"
+  | "redeem";
+
+// Stability Pool position (not in SDK)
+interface StabilityPoolPosition {
+  deposit: bigint;
+  collateralGain: bigint; // USDm from liquidations
+  debtTokenGain: bigint; // GBPm yield
+}
 ```
 
 ---
 
-## 4. Technical Decisions
+## 5. Technical Decisions
 
 ### A. TransactionFlow → Jotai atoms
 
@@ -307,13 +429,11 @@ BOLD's `TransactionFlow` is a React Context + localStorage system (~700 LOC).
 We reimplement the same state machine as Jotai atoms:
 
 ```typescript
-// Core flow atom
 const borrowFlowAtom = atomWithStorage<BorrowFlowState | null>(
   "mento:borrow:flow",
-  null
+  null,
 );
 
-// Flow state
 interface BorrowFlowState {
   flowId: string;
   account: Address;
@@ -325,7 +445,12 @@ interface BorrowFlowState {
 interface FlowStep {
   id: string;
   label: string;
-  status: "idle" | "awaiting-commit" | "awaiting-verify" | "confirmed" | "error";
+  status:
+    | "idle"
+    | "awaiting-commit"
+    | "awaiting-verify"
+    | "confirmed"
+    | "error";
   txHash?: string;
   error?: { name: string | null; message: string };
 }
@@ -340,39 +465,43 @@ localStorage for free.
 
 ### B. Subgraph — Hybrid approach (direct reads for MVP)
 
-MVP uses **direct contract reads only**:
+MVP uses **direct contract reads only** via SDK:
 
-- `MultiTroveGetter` for batch-reading all troves for an account
-- `useReadContract` / `useReadContracts` for individual position data
-- Event-based enumeration as fallback
+- `BorrowService.getUserTroves()` enumerates via TroveNFT ownership
+- `BorrowService.getTroveData()` for individual trove reads
+- `BorrowService.getBranchStats()` for aggregate data
 
 Subgraph integration is a **separate workstream** tracked independently.
-When available, it will be used for:
+When available, it will be used for historical data, batch manager discovery,
+and faster position enumeration.
 
-- Historical interest rate data
-- Batch manager/delegate discovery
-- Redemption history
-- Faster position enumeration
+### C. Contract addresses — From SDK
 
-### C. Contract addresses — Local config, migrate to SDK
+The SDK's `feat/trove-management` branch already includes the GBPm
+AddressesRegistry address on Celo mainnet:
 
-The Mento SDK V3 (`feat/sdk-v3` branch) doesn't yet include Liquity deployment
-addresses. The `CDPLiquidityStrategy` address is a placeholder (`0x...0002`).
+```typescript
+// SDK: borrowRegistries[ChainId.CELO].GBPm
+"0x7C88934470A7297C7B63654d78ccC6B61eEf79E1";
+```
 
-**Current plan:**
-1. Define addresses in `packages/web3/src/features/borrow/config/deployments.ts`
-2. When SDK V3 ships with Liquity addresses, refactor to use
-   `mento.getContractAddress("BorrowerOperations_GBPm")` or equivalent
-3. The `deployments.ts` abstraction makes this swap trivial — only one file changes
+The registry contract resolves all 19 contract addresses automatically.
+No local address config needed. When CHFm/JPYm deploy, the SDK adds their
+registry addresses and our frontend picks them up on SDK upgrade.
+
+**Action needed:** Ensure the `feat/trove-management` SDK branch is published
+to npm (or use a git dependency) before development starts.
 
 ### D. Feature flag
 
 ```typescript
 // apps/app.mento.org/app/env.mjs
-NEXT_PUBLIC_ENABLE_BORROW: z.enum(["true", "false"]).optional().default("false"),
-
-// .env.development (always on)
-NEXT_PUBLIC_ENABLE_BORROW="true"
+NEXT_PUBLIC_ENABLE_BORROW: (z
+  .enum(["true", "false"])
+  .optional()
+  .default("false"),
+  // .env.development (always on)
+  (NEXT_PUBLIC_ENABLE_BORROW = "true"));
 
 // Production: off until launch
 // Vercel env: NEXT_PUBLIC_ENABLE_BORROW="false"
@@ -382,293 +511,338 @@ The borrow tab visibility in the header and the borrow view in `page.tsx` both
 check this flag. When `"false"`, the tab is hidden and the borrow components
 are never imported (tree-shaken out of the production bundle).
 
+### E. SDK → wagmi bridge (`send-tx.ts`)
+
+The SDK returns `CallParams` (encoded calldata). We need a thin bridge to
+send them via wagmi:
+
+```typescript
+// packages/web3/src/features/borrow/tx-flows/send-tx.ts
+import { sendTransaction, waitForTransactionReceipt } from "@wagmi/core";
+
+export async function sendSdkTransaction(
+  wagmiConfig: Config,
+  callParams: CallParams,
+  gasHeadroom = 0.25,
+): Promise<Hash> {
+  const hash = await sendTransaction(wagmiConfig, {
+    to: callParams.to as Address,
+    data: callParams.data as Hex,
+    value: BigInt(callParams.value),
+    // Gas estimation with headroom handled by wagmi
+  });
+  return hash;
+}
+
+export async function waitForTx(
+  wagmiConfig: Config,
+  hash: Hash,
+): Promise<TransactionReceipt> {
+  return waitForTransactionReceipt(wagmiConfig, { hash });
+}
+```
+
 ---
 
-## 5. Phase 0 — Foundation
+## 6. Phase 0 — Foundation ✅
 
-> **Goal:** Scaffolding, feature flag, pure logic extraction, ABIs, deployment config
+> **Goal:** Scaffolding, feature flag, SDK integration, stability pool ABI
 >
-> **Separate PRD:** `tasks/prd-phase-0-foundation.md`
+> **Status:** Complete (2026-03-01) — all 11 tasks done
+>
+> **PRD:** `tasks/prd-phase-0-foundation.md`
 
 ### Tasks
 
-- [ ] **P0-1: Create `feat/v3` branch** from `main`
-- [ ] **P0-2: Add feature flag** `NEXT_PUBLIC_ENABLE_BORROW` to `env.mjs`
-  - Add to `createEnv` schema (client, default `"false"`)
-  - Add to `.env.example`
-  - Set `"true"` in `.env.development` (or `.env.local`)
-  - Guard borrow tab in `header.tsx` — only show when flag is `"true"`
-  - Guard borrow section in `page.tsx` — only render when flag is `"true"`
-- [ ] **P0-3: Scaffold `packages/web3/src/features/borrow/`**
-  - Create directory structure per architecture section
-  - Add `index.ts` with public exports
-  - Ensure `tsup` build includes the new module
-- [ ] **P0-4: Scaffold `apps/app.mento.org/app/components/borrow/`**
-  - Create directory structure
-  - `borrow-view.tsx` — initial placeholder that replaces "Coming soon"
-  - `atoms/borrow-navigation.ts` — `borrowViewAtom`
-- [ ] **P0-5: Extract pure math** from BOLD's `liquity-math.ts`
-  - `loan-details.ts`: `getLoanDetails()`, `getLtv()`, `getLiquidationPrice()`
-  - `risk.ts`: `getLiquidationRisk()`, `getRedemptionRisk()`
-  - Remove BOLD-specific dependencies (env imports, branch lookups)
-  - Add unit tests for extracted functions
-- [ ] **P0-6: Extract leverage math** from BOLD's `liquity-leverage.ts`
-  - `leverage.ts`: `getOpenLeveragedTroveParams()`, `getLeverUpTroveParams()`,
-    `getLeverDownTroveParams()`, `getCloseFlashLoanAmount()`
-  - Keep as pure functions, parameterize prices/amounts
-- [ ] **P0-7: Copy and adapt ABIs**
-  - Copy from `bold/frontend/app/src/abi/`
-  - Add `FXPriceFeed` ABI (new in Mento V3)
-  - Add `SystemParams` ABI (new in Mento V3)
-  - Verify `BorrowerOperations`, `TroveManager`, `StabilityPool` ABIs match
-    deployed Mento V3 contracts
-- [ ] **P0-8: Create deployment config**
-  - `deployments.ts` with `Deployment` and `BranchConfig` types
-  - GBPm config for Celo mainnet (addresses TBD, use placeholders initially)
-  - GBPm config for Celo Sepolia (if testnet deployment exists)
-  - `getDeployment(debtTokenId, chainId)` helper function
-  - `getDeployments(chainId)` to list all available deployments
-- [ ] **P0-9: Create type definitions**
-  - `types.ts`: `DebtTokenId`, `BranchId`, `TroveKey`, `Trove`, `Position`,
-    `StabilityPoolPosition`, `LoanDetails`, `RiskLevel`
-- [ ] **P0-10: Create `use-price-feed` hook**
-  - Read `FXPriceFeed.fetchPrice()` via wagmi `useReadContract`
-  - Handle `isShutdown` state
-  - FX-aware price formatting utility (`formatFxPrice(price, currencySymbol)`)
-  - Polling interval: 60s (same as BOLD)
-- [ ] **P0-11: Create `use-system-params` hook**
-  - Read `SystemParams` contract for MIN_DEBT, MCR, CCR, etc.
-  - Cache as these are immutable per deployment
+- [x] **P0-1: Create `feat/borrow` branch** from `feat/v3`
+- [x] **P0-2: Add feature flag** `NEXT_PUBLIC_ENABLE_BORROW` to `env.mjs`
+  - Added to `createEnv` schema (client, default `"false"`) + `runtimeEnv`
+  - Added to `.env.example` and `.env.local`
+  - Added to `turbo.json` globalEnv for cache invalidation
+  - Gated borrow tab in `header.tsx` — filters tab array when flag is `"false"`
+  - Gated borrow section in `page.tsx` — `shouldEnableBorrow` check
+- [x] **P0-3: Add SDK dependency**
+  - Updated `@mento-protocol/mento-sdk` to `^3.0.0-beta.18` (workspace catalog + app override)
+  - Fixed breaking changes in liquidity types from SDK upgrade (deadline, renamed fields)
+  - `BorrowService` importable and constructible
+- [x] **P0-4: Scaffold `packages/web3/src/features/borrow/`**
+  - Created full directory structure with barrel exports
+  - `sdk.ts` — BorrowService factory with Map-based cache by chainId
+  - Added to features barrel (`features/index.ts`) alphabetically
+  - `tsup` build passes
+- [x] **P0-5: Scaffold `apps/app.mento.org/app/components/borrow/`**
+  - `borrow-view.tsx` — placeholder view matching pools-view layout pattern
+  - `atoms/borrow-navigation.ts` — `borrowViewAtom` with `BorrowView` type
+  - Replaced "Coming soon" in `page.tsx` with `<BorrowView />`
+- [x] **P0-6: Create `use-borrow-service` hook**
+  - Uses `usePublicClient({ chainId })` + `useChainId()` + `useMemo`
+  - Returns `BorrowService | null`
+  - Delegates to `getBorrowService()` factory in `sdk.ts`
+- [x] **P0-7: Create `send-tx` bridge**
+  - `sendSdkTransaction()` — gas estimation + 25% headroom + wagmi sendTransaction
+  - `waitForTx()` — wraps `waitForTransactionReceipt`
+  - Error normalization (user rejection, revert with reason, insufficient funds)
+  - **Note:** This also completes Phase 2's P2-1
+- [x] **P0-8: Copy Stability Pool ABI** from BOLD
+  - Copied from `bold/frontend/app/src/abi/StabilityPool.ts`
+  - Placed in `stability-pool/abi.ts` as `stabilityPoolAbi` typed const
+  - Includes: `provideToSP`, `withdrawFromSP`, `getDepositorCollGain`, `getDepositorYieldGain`, `getTotalBoldDeposits`, `getCompoundedBoldDeposit`
+- [x] **P0-9: Extract leverage math** from BOLD's `liquity-leverage.ts`
+  - `leverage/math.ts`: 4 pure bigint functions (no BOLD imports, no Dnum)
+  - `getOpenLeveragedTroveParams()`, `getLeverUpTroveParams()`, `getLeverDownTroveParams()`, `getCloseFlashLoanAmount()`
+- [x] **P0-10: Define frontend-specific types**
+  - `types.ts`: `DebtTokenConfig`, `BorrowView`, `StabilityPoolPosition`, `DEBT_TOKEN_CONFIGS`
+  - Re-exports SDK types: `BorrowPosition`, `LoanDetails`, `SystemParams`, `CallParams`, `OpenTroveParams`, `AdjustTroveParams`, `InterestRateBracket`, `TroveStatus`, `RiskLevel`
+- [x] **P0-11: Create FX-aware currency display utility**
+  - `format.ts`: `formatDebtAmount`, `formatCollateralAmount`, `formatPrice`, `formatInterestRate`, `formatLtv`
+  - Uses `Intl.NumberFormat` with locale from `DebtTokenConfig`
+  - All functions handle `null`/`undefined` → `"—"` placeholder
+
+### What we NO LONGER need (SDK provides)
+
+The following Phase 0 tasks from the previous plan are **eliminated**:
+
+| Previous task                        | Now provided by                                                                                                                           |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| P0-5: Extract pure math from BOLD    | SDK: `getLoanDetails()`, `getLtv()`, `getLiquidationPrice()`, `getLiquidationRisk()`, `getRedemptionRisk()`, `calculateDebtSuggestions()` |
+| P0-7: Copy and adapt ABIs            | SDK exports all 10+ ABIs. Only StabilityPool ABI needed separately                                                                        |
+| P0-8: Create deployment config       | SDK: `borrowRegistries` + `AddressesRegistry` auto-resolution                                                                             |
+| P0-9: Create type definitions        | SDK exports: `BorrowPosition`, `LoanDetails`, `SystemParams`, `OpenTroveParams`, etc.                                                     |
+| P0-10: Create use-price-feed hook    | SDK: `getCollateralPrice(symbol)`                                                                                                         |
+| P0-11: Create use-system-params hook | SDK: `getSystemParams(symbol)`                                                                                                            |
 
 ### Acceptance criteria
 
 - Feature flag works: borrow tab visible in dev, hidden in prod
-- Pure math functions extracted with tests passing
-- ABIs compile without TypeScript errors
-- Deployment config resolves contracts for GBPm
-- Price feed hook returns a valid FX rate on Celo testnet/fork
+- `useBorrowService()` returns a working SDK instance
+- `sdk.getUserTroves("GBPm", address)` returns data on Celo mainnet/fork
+- `sdk.getSystemParams("GBPm")` returns valid MCR, CCR, minDebt
+- `sendSdkTransaction()` successfully sends a test tx on Celo fork
+- StabilityPool ABI compiles without TypeScript errors
+- Currency formatting produces correct output for GBP
 
 ---
 
-## 6. Phase 1 — Read Path
+## 7. Phase 1 — Read Path ✅
 
 > **Goal:** Dashboard showing positions, read-only trove + SP data
 >
-> **Separate PRD:** `tasks/prd-phase-1-read-path.md`
+> **Status:** Complete (2026-03-01) — all tasks done
+>
+> **PRD:** `tasks/prd-phase-1-read-path.md`
 
 ### Tasks
 
-- [ ] **P1-1: `use-deployment` hook**
-  - Provides current deployment context based on selected debt token
-  - Returns `Deployment` object with all resolved addresses
-  - Atom: `selectedDebtTokenAtom` (defaults to "GBPm")
-- [ ] **P1-2: `use-troves-by-account` hook**
-  - Use `MultiTroveGetter` contract for batch reads (no subgraph dependency)
-  - Returns all troves owned by connected wallet across branches
-  - Includes: troveId, collateral, debt, interest rate, status
-  - Computes derived data via `getLoanDetails()` math
-- [ ] **P1-3: `use-trove` hook**
-  - Read single trove by ID
-  - Full detail: collateral, debt, interest rate, status, pending rewards
-  - Real-time updates on block change
-- [ ] **P1-4: `use-stability-pool` hook**
-  - Read user's SP deposit balance
-  - Read pending rewards (collateral gains + debt token yield)
-  - Read pool stats (total deposits, current yield rate)
-- [ ] **P1-5: `use-branch-stats` hook**
-  - Total value locked (TVL) per branch
-  - Total debt
-  - Average interest rate
-  - Number of active troves
-- [ ] **P1-6: Dashboard view (`borrow-dashboard.tsx`)**
-  - List of open trove positions (position cards)
-  - List of SP positions (stability cards)
-  - Empty state with CTA to open first trove or deposit into SP
-  - "Open Trove" and "Earn" action buttons
-  - Debt token selector (functional but single-option for now)
-- [ ] **P1-7: Position card component**
-  - Collateral amount + symbol (USDm)
-  - Debt amount + symbol (GBPm)
-  - LTV with color-coded risk badge
-  - Liquidation price
-  - Interest rate
-  - Click → navigate to manage-trove view
-- [ ] **P1-8: Stability card component**
-  - Deposit amount (GBPm)
-  - Pending rewards (USDm gains + GBPm yield)
-  - Pool share percentage
-  - Click → navigate to earn view
-- [ ] **P1-9: Debt token selector**
-  - Dropdown or segmented control: GBPm (active), CHFm (coming soon), JPYm (coming soon)
-  - Drives `selectedDebtTokenAtom`
-  - Disabled options show "Coming soon" badge
-- [ ] **P1-10: Currency display component**
-  - FX-aware formatting: `£1,234.56`, `Fr.1'234.56`, `¥123,456`
-  - Handles locale-specific number formatting
-  - Shows FX rate tooltip (e.g., "1 GBPm ≈ £1.00 ≈ $1.27")
-- [ ] **P1-11: Risk badge component**
-  - Low (green), Medium (amber), High (red)
-  - Based on LTV relative to max LTV (using extracted risk math)
+- [x] **P1-1: Read hooks** (thin React Query wrappers around SDK)
+      All follow identical pattern: `useQuery` + `useBorrowService()` + `enabled: !!sdk`
+  - `use-system-params.ts` — `staleTime: Infinity` (immutable contract params)
+  - `use-collateral-price.ts` — `refetchInterval: 60_000`
+  - `use-user-troves.ts` — `refetchInterval: 15_000`, guarded by `!!address`
+  - `use-trove-data.ts` — `refetchInterval: 15_000`, guarded by `!!troveId`
+  - `use-branch-stats.ts` — `Promise.all` for `getBranchStats` + `getAverageInterestRate`
+  - `use-interest-rate-brackets.ts` — `refetchInterval: 60_000`
+  - `use-borrow-allowance.ts` — collateral + debt allowance (SDK resolves spender internally for collateral; debt needs explicit spender)
+  - `use-next-owner-index.ts` — returns `number` (not bigint)
+  - `use-predict-upfront-fee.ts` — uses `useDebounce(amount, 350)` from shared utils; bigints `.toString()` in query keys
+- [x] **P1-2: Derived hooks** (combine SDK reads with SDK math via `useMemo`)
+  - `use-loan-details.ts` — `useCollateralPrice` + `getLoanDetails()` from `@mento-protocol/mento-sdk/dist/services/borrow/borrowMath`
+  - `use-debt-suggestions.ts` — `useLoanDetails` + `calculateDebtSuggestions(maxDebt, minDebt)`
+  - `use-interest-rate-chart-data.ts` — transforms brackets to `{ rate: number, debt: number, isCurrentRate: boolean }[]`
+  - `use-redemption-risk.ts` — sums `debtInFront` from brackets below user's rate, calls `getRedemptionRisk()`
+  - **Key learning:** SDK pure math functions import from deep path `@mento-protocol/mento-sdk/dist/services/borrow/borrowMath`
+- [x] **P1-3: Stability Pool hooks** (direct contract reads — not in SDK)
+  - Created internal `useStabilityPoolAddress` helper — resolves via `getBorrowRegistry` + `resolveAddressesFromRegistry`, cached `staleTime: Infinity`
+  - `use-stability-pool.ts` — wagmi `useReadContracts` batch read: `getCompoundedBoldDeposit`, `getDepositorCollGain`, `getDepositorYieldGain`
+  - `use-stability-pool-stats.ts` — wagmi `useReadContract` for `getTotalBoldDeposits()`
+  - **Key learning:** SDK borrow helpers import from `@mento-protocol/mento-sdk/dist/services/borrow/borrowHelpers`
+- [x] **P1-7: Dashboard view** (`borrow-dashboard.tsx`)
+  - Three states: not-connected, loading (shimmer), empty (CTAs)
+  - Renders PositionCards and StabilityCard
+  - `borrow-view.tsx` now routes all BorrowView states (dashboard, open-trove, manage-trove, earn, redeem)
+  - DebtTokenSelector in header, persistent across views
+- [x] **P1-8: Position card** — Card composable (CardHeader+CardAction+CardContent), RiskBadge in action slot, click → `{ view: 'manage-trove', troveId }`
+- [x] **P1-9: Stability card** — pool share calculation, click → `"earn"`, shows collateral gain + yield
+- [x] **P1-10: Debt token selector** — Radix Select, GBPm active, CHFm/JPYm disabled with "Soon" Badge
+- [x] **P1-11: Risk badge + Trove metrics**
+  - RiskBadge: Low=green, Medium=amber, High=red, null=N/A outline
+  - TroveMetrics: 4-metric responsive grid (2 cols mobile, 4 cols desktop)
 
 ### Acceptance criteria
 
 - Connected wallet sees all open troves on dashboard
-- Position metrics (LTV, liquidation price) are accurate
+- Position metrics (LTV, liquidation price) match SDK calculations
 - SP position shows correct deposit and pending rewards
-- All amounts display in the correct local currency
+- All amounts display in the correct local currency (£)
 - Empty state guides new users to open a trove
 
 ---
 
-## 7. Phase 2 — Transaction Flow Engine
+## 8. Phase 2 — Write Hooks + Transaction Flow Engine ✅
 
-> **Goal:** Jotai-based multi-step transaction orchestration with persistence
+> **Goal:** Write hooks for all trove operations, multi-step flow orchestration, UI feedback
 >
-> **Separate PRD:** `tasks/prd-phase-2-tx-flow-engine.md`
+> **Status:** Complete (2026-03-01) — all tasks done
+>
+> **PRD:** `tasks/prd-phase-2-tx-flow-engine.md`
 
 ### Tasks
 
-- [ ] **P2-1: Flow state machine** (`tx-flows/engine.ts`)
-  - Jotai atoms: `borrowFlowAtom`, `flowActionsAtom`
-  - States: `idle → awaiting-commit → awaiting-verify → confirmed | error`
-  - localStorage persistence via `atomWithStorage` (key: `mento:borrow:flow`)
-  - Recovery: on mount, if step is `awaiting-verify`, resume verification
-  - Auto-advance: when step confirms, advance to next step
-  - Discard: clear flow state and return to previous view
-- [ ] **P2-2: Flow type system** (`tx-flows/types.ts`)
-  - `FlowDeclaration<TRequest>`: title, steps, getSteps, parseRequest
-  - `FlowStepDefinition`: name, commit(ctx), verify(ctx, hash)
-  - `FlowContext`: account, contracts, wagmiConfig, writeContract, readContract
-  - Flow registry: `Record<string, FlowDeclaration<any>>`
-- [ ] **P2-3: `writeContract` wrapper**
-  - Gas estimation with headroom (25% buffer, min 100k)
-  - Error normalization (user rejection, gas estimation failure, revert)
-  - Returns tx hash
-- [ ] **P2-4: Approval/permit utilities**
-  - `checkAllowance(token, spender, amount)` — read current allowance
-  - `buildApproveStep(token, spender, amount)` — ERC20 approve step
-  - Permit support for StableTokenV3 (if ERC-2612 is supported)
-  - Fallback to standard approve if permit fails
-- [ ] **P2-5: Hint helpers integration** (`hooks/use-hint-helpers.ts`)
-  - `getTroveOperationHints(branchId, interestRate)` via HintHelpers contract
-  - Used by open-trove and adjust-trove flows for gas-efficient insertion
-- [ ] **P2-6: Flow dialog component** (`shared/flow-dialog.tsx`)
-  - Modal overlay showing multi-step progress
-  - Step indicators (pending / active / complete / error)
-  - Current step action button (triggers commit)
-  - Error state with retry button
-  - Success state with link back to dashboard
-  - Follows the same card-based visual language as the pools liquidity drawer
-- [ ] **P2-7: Flow step component** (`shared/flow-step.tsx`)
-  - Individual step display: icon + label + status
-  - Animated transitions between states
-  - Shows tx hash link to block explorer when available
-- [ ] **P2-8: Integration with `borrow-view.tsx`**
-  - Flow dialog opens when a tx flow is started
-  - On completion, returns to the originating view
-  - Back navigation warning if flow is in progress
+- [x] **P2-1: `send-tx` bridge** (`tx-flows/send-tx.ts`) — ✅ Completed in Phase 0 (P0-7)
+  - `sendSdkTransaction(wagmiConfig, callParams)` — bridges SDK `CallParams` to wagmi
+  - `waitForTx(wagmiConfig, hash)` — wraps `waitForTransactionReceipt`
+  - Error normalization (user rejection, revert, gas failure)
+  - Gas estimation with headroom (25% buffer)
+- [x] **P2-2: Flow state atom** (`atoms/flow-atoms.ts`)
+  - `BorrowFlowState` + `FlowStep` types with full state machine
+  - `borrowFlowAtom` — `atomWithStorage` from `jotai/utils`, key `mento:borrow:flow`, persisted to localStorage
+  - Status flow: `idle → pending → confirming (with txHash) → confirmed | error`
+- [x] **P2-3: Flow execution engine** (`tx-flows/engine.ts`)
+  - `executeFlow(wagmiConfig, setFlowAtom, flowId, operation, account, stepDefs)` — orchestrates multi-step tx flows
+  - `FlowStepDefinition` type: `{ id, label, buildTx: () => Promise<CallParams | null> }` — null means skip
+  - Engine iterates steps sequentially, updates atom at each state transition
+  - Skipped steps (null buildTx) auto-marked confirmed with "Skipped" label
+  - Returns `{ success: boolean, txHashes: string[] }`
+- [x] **P2-4: Write hooks** (one per operation, all use `useMutation` + `executeFlow`)
+  - `use-open-trove.ts` — two-step: check collateral allowance → approve if insufficient (null = skip) → `sdk.buildOpenTroveTransaction(symbol, params)`
+  - `use-adjust-trove.ts` — two-step: approve collateral if adding AND allowance insufficient → `sdk.buildAdjustTroveTransaction(symbol, params)` (account passed separately — `AdjustTroveParams` has no owner)
+  - `use-close-trove.ts` — two-step: check debt token allowance for BorrowerOperations → approve with `maxUint256` → `sdk.buildCloseTroveTransaction(symbol, troveId)` (resolves BorrowerOps via `getChainId` + `getPublicClient` from `wagmi/actions` → SDK registry)
+  - `use-adjust-interest-rate.ts` — single-step: `sdk.buildAdjustInterestRateTransaction(symbol, troveId, newRate, maxUpfrontFee)`
+  - `use-claim-collateral.ts` — single-step: `sdk.buildClaimCollateralTransaction(symbol)`
+  - Each invalidates relevant query keys on success + shows toast
+  - **Key learnings:**
+    - Collateral approval: SDK resolves spender internally (2 args: `symbol, amount`)
+    - Debt approval: requires explicit spender (BorrowerOperations address) — `sdk.getDebtAllowance(symbol, owner, spender)` + `sdk.buildDebtApprovalParams(symbol, spender, amount)`
+    - Use `maxUint256` from viem for debt approval to cover interest accrual
+    - `borrowViewAtom` in app layer — navigation handled by calling components, not hooks
+- [x] **P2-5: Stability Pool transaction builders + write hooks**
+  - `buildSpDeposit(spAddress, amount, doClaim)` — viem `encodeFunctionData` with `stabilityPoolAbi` → `provideToSP(uint256, bool)`
+  - `buildSpWithdraw(spAddress, amount, doClaim)` — encodes `withdrawFromSP(uint256, bool)`
+  - `useSpDeposit` — two-step: check debt token allowance for SP address → approve with `maxUint256` → buildSpDeposit
+  - `useSpWithdraw` — single-step: buildSpWithdraw (no approval needed)
+  - SP address resolved imperatively inside mutationFn via `getBorrowRegistry` + `resolveAddressesFromRegistry` → `addresses.stabilityPool`
+  - **Note:** This also completes Phase 4's P4-2 (SP transaction builders)
+- [x] **P2-6: Flow step component** (`shared/flow-step.tsx`)
+  - Inline SVG status icons: idle (circle), pending (spinner), confirming (spinner + tx link), confirmed (green check), error (red X)
+  - Block explorer links via `useExplorerUrl()` from `@repo/web3`
+  - Tailwind `animate-spin` for spinner, no external icon library
+- [x] **P2-7: Flow dialog component** (`shared/flow-dialog.tsx`)
+  - Uses `@repo/ui` Dialog (Radix-based) with `open` prop controlled by `borrowFlowAtom`
+  - Three states: in-progress (wallet prompt), success (all confirmed + "Back to Dashboard"), error (message + "Try Again")
+  - Self-managing: visible when `borrowFlowAtom` not null, hidden when null
+  - "Back to Dashboard" clears flow atom + sets `borrowViewAtom` to "dashboard"
+  - "Try Again" clears flow atom (user re-submits from form)
+- [x] **P2-8: Integration with `borrow-view.tsx`**
+  - `<FlowDialog />` rendered once in borrow-view — no props needed, self-manages via atom
+  - Radix Dialog uses portal, overlays regardless of DOM position
+  - Must rebuild web3 package (`pnpm --filter @repo/web3 build`) before app tsc can see new exports
+
+### What the SDK handles internally (no hooks needed)
+
+| Capability         | SDK handles it                                       |
+| ------------------ | ---------------------------------------------------- |
+| Hint computation   | Internal to `build*Transaction()`                    |
+| Calldata encoding  | `encodeFunctionData()` in `BorrowTransactionService` |
+| Address resolution | Lazy via `AddressesRegistry`                         |
+| Input validation   | `BorrowValidation` module                            |
 
 ### Acceptance criteria
 
-- Flow engine handles the full lifecycle: start → multi-step → complete
-- Page reload during `awaiting-verify` correctly resumes verification
-- Error in any step allows retry without restarting the entire flow
-- Approve + execute two-step pattern works correctly
-- Flow dialog matches Mento design language
+- Each write hook handles the full approve → execute → verify lifecycle
+- Page reload during confirmation correctly resumes waiting for receipt
+- Error in any step allows retry
+- Toast notifications on success/error
+- Flow dialog shows progress for multi-step operations
+- All queries invalidated correctly after mutations
 
 ### BOLD reference files
 
-| BOLD source | What to extract |
-|---|---|
-| `services/TransactionFlow.tsx` | State machine logic, step execution pattern |
-| `comps/FlowButton/FlowButton.tsx` | Flow trigger pattern |
-| `screens/TransactionsScreen/TransactionStatus.tsx` | Step status display logic |
-| `permit.ts` | ERC-2612 permit implementation |
-| `liquity-utils.ts` → `getTroveOperationHints()` | Hint helper calls |
+| BOLD source                                        | What to reference                         |
+| -------------------------------------------------- | ----------------------------------------- |
+| `services/TransactionFlow.tsx`                     | State machine states and recovery pattern |
+| `screens/TransactionsScreen/TransactionStatus.tsx` | Step status display logic                 |
+
+### Monorepo reference files (follow these patterns)
+
+| File                                                                | Pattern to follow                      |
+| ------------------------------------------------------------------- | -------------------------------------- |
+| `packages/web3/src/features/swap/hooks/use-swap-transaction.tsx`    | Write hook with approve → send → toast |
+| `packages/web3/src/features/swap/hooks/use-approve-transaction.tsx` | Approval hook pattern                  |
+| `apps/app.mento.org/app/components/pools/add-liquidity-form.tsx`    | Multi-step form + tx submission        |
 
 ---
 
-## 8. Phase 3 — Core Trove Operations
+## 9. Phase 3 — Core Trove Operations ✅
 
-> **Goal:** Open, adjust, and close troves
+> **Goal:** Open, adjust, and close troves using SDK transaction builders
 >
-> **Separate PRD:** `tasks/prd-phase-3-trove-operations.md`
+> **Status:** Complete (2026-03-01) — all tasks done
+>
+> **PRD:** `tasks/prd-phase-3-trove-operations.md`
 
 ### Tasks
 
 #### Open Trove
 
-- [ ] **P3-1: Open trove form** (`open-trove/open-trove-form.tsx`)
-  - Collateral input (USDm amount, shows wallet balance, max button)
-  - Debt input (GBPm amount, shows min debt from SystemParams)
-  - Interest rate input (slider + manual entry, min from SystemParams)
-  - Optional: batch manager / delegate selection (reads from contract)
-  - Real-time loan summary (LTV, liquidation price, risk level)
-  - "Open Trove" button → triggers tx flow
-- [ ] **P3-2: Open trove tx flow** (`tx-flows/open-trove.ts`)
-  - Dynamic steps via `getSteps()`:
-    1. Approve USDm → BorrowerOperations (if allowance insufficient)
-    2. `BorrowerOperations.openTrove()` with computed hints
-  - Request params: collAmount, debtAmount, interestRate, maxUpfrontFee
-  - Verify: wait for tx confirmation, validate trove exists on-chain
-- [ ] **P3-3: Collateral input component** (`open-trove/collateral-input.tsx`)
-  - Token icon + symbol (USDm)
-  - Amount input with balance display
-  - Max button (reserves gas compensation amount)
-  - USD equivalent display
-- [ ] **P3-4: Debt input component** (`open-trove/debt-input.tsx`)
-  - Token icon + symbol (GBPm)
-  - Amount input with min debt indicator
-  - Suggestion chips (e.g., 500, 1000, 5000 GBPm)
-  - Local currency equivalent display
-- [ ] **P3-5: Interest rate input** (`open-trove/interest-rate-input.tsx`)
-  - Slider with min/max from SystemParams
-  - Manual entry field
-  - Rate delegate option (batch manager address input)
-  - Shows annual cost estimate based on debt amount
-- [ ] **P3-6: Loan summary component** (`open-trove/loan-summary.tsx`)
-  - Collateral ratio
-  - LTV
-  - Liquidation price (in FX terms: "£X.XX per USDm")
-  - Risk level badge
-  - One-time fee estimate
-  - Updates in real-time as inputs change
+- [x] **P3-1: Form state atoms** (`atoms/trove-form-atoms.ts`)
+  - `openTroveFormAtom`: `{ collAmount: string, debtAmount: string, interestRate: string }` — plain `atom()`, no persistence
+- [x] **P3-2: Collateral input** (`open-trove/collateral-input.tsx`)
+  - `CoinInput` + USDm balance via `useReadContract` + `erc20Abi` + `getTokenAddress(chainId, "USDm" as TokenSymbol)`
+  - Max button, insufficient balance warning
+  - **Key learning:** `getTokenAddress(chainId, "USDm" as TokenSymbol)` requires `TokenSymbol` cast
+- [x] **P3-3: Debt input** (`open-trove/debt-input.tsx`)
+  - `CoinInput` + min debt from `useSystemParams()` + suggestion chips from `useDebtSuggestions`
+  - **Key learning:** `selectedDebtTokenAtom` holds a `DebtTokenConfig` object (not a string) — use `debtToken.symbol`
+  - **Key learning:** `useDebtSuggestions` returns `{ amount, ltv, risk }[]` — use `risk` as key for chips
+- [x] **P3-4: Interest rate input** (`open-trove/interest-rate-input.tsx`)
+  - Radix Slider synced with manual text input, annual cost estimate, `RiskBadge` for redemption risk
+  - **Key learning:** `SystemParams.minAnnualInterestRate` (not `minInterestRate`) — 18-decimal bigint, convert via `Number(bigint) / 1e16`
+  - **Key learning:** Radix Slider `value` must be an array even for single thumb — `value={[number]}`
+- [x] **P3-5: Interest rate chart** (`open-trove/interest-rate-chart.tsx`)
+  - Recharts `BarChart` via `ChartContainer` from `@repo/ui` — highlights selected rate bar
+  - Exported `ChartContainer` + `ChartConfig` from `@repo/ui` (was internal-only)
+  - Added `recharts` as direct app dependency (was only in `@repo/ui`)
+  - **Key learning:** Recharts `Cell` for per-bar colors, `ChartConfig` uses `satisfies ChartConfig` pattern
+- [x] **P3-6: Loan summary** (`open-trove/loan-summary.tsx`)
+  - Real-time LTV, liquidation price, risk badge, collateral ratio, upfront fee, annual cost
+  - **Key learning:** `LoanDetails` has no `collateralRatio` — compute as `10n ** 36n / ltv`
+  - **Key learning:** Commitlint rejects uppercase subjects — place story ID at end: `feat: add foo (US-006)`
+- [x] **P3-7: Open trove form container** (`open-trove/open-trove-form.tsx`)
+  - Composes all inputs + chart + summary in responsive 2-col grid layout
+  - Submit wired to `useOpenTrove` — builds `OpenTroveParams` with `ownerIndex` from `useNextOwnerIndex`, `maxUpfrontFee` + 5% buffer
+  - Button disabled with descriptive text for each invalid state
+  - **Key learning:** `useOpenTrove` has no separate `account` field — `owner` is inside `params`
+  - **Key learning:** `useNextOwnerIndex(symbol)` derives owner internally
+- [x] **P3-8: Wire open trove into borrow-view**
+  - Replaced placeholder with `<OpenTroveForm />`
 
 #### Manage Trove
 
-- [ ] **P3-7: Manage trove view** (`manage-trove/manage-trove-view.tsx`)
-  - Tab container: Adjust | Rate | Close
-  - Header showing current trove summary
-  - Navigated to from position card click
-- [ ] **P3-8: Adjust trove form** (`manage-trove/adjust-form.tsx`)
-  - Add/remove collateral (toggle direction)
-  - Borrow more / repay debt (toggle direction)
-  - Shows before → after comparison for LTV, liquidation price
-  - "Update Position" button → triggers tx flow
-- [ ] **P3-9: Adjust trove tx flow** (`tx-flows/adjust-trove.ts`)
-  - Dynamic steps:
-    1. Approve collateral (if adding and allowance insufficient)
-    2. `BorrowerOperations.adjustTrove()` with new amounts + hints
-  - Handles all combinations: add coll, remove coll, borrow more, repay
-- [ ] **P3-10: Change interest rate form** (`manage-trove/rate-form.tsx`)
-  - Current rate display
-  - New rate input (slider + manual)
-  - Shows impact on annual cost
-- [ ] **P3-11: Change interest rate tx flow** (`tx-flows/change-interest-rate.ts`)
-  - Single step: `BorrowerOperations.adjustTroveInterestRate()`
-- [ ] **P3-12: Close trove form** (`manage-trove/close-form.tsx`)
-  - Shows total debt to repay (including accrued interest)
-  - Shows collateral to receive back
-  - Wallet balance check (enough debt token to repay?)
-  - "Close Position" button → triggers tx flow
-- [ ] **P3-13: Close trove tx flow** (`tx-flows/close-trove.ts`)
-  - Dynamic steps:
-    1. Approve debt token (if using approve instead of permit)
-    2. `BorrowerOperations.closeTrove()`
-  - Verify: trove no longer exists
-- [ ] **P3-14: Claim collateral surplus flow** (`tx-flows/claim-coll-surplus.ts`)
-  - Shown when user has claimable collateral after redistribution
-  - Single step: `BorrowerOperations.claimCollateral()`
+- [x] **P3-9: Manage trove view** (`manage-trove/manage-trove-view.tsx`)
+  - Tab container (Adjust | Interest Rate | Close) + trove header with `TroveMetrics`
+  - Loading state with `Skeleton` from `@repo/ui`
+  - **Key learning:** `useTroveData(troveId, symbol)` — troveId first, symbol second (opposite of other hooks)
+- [x] **P3-10: Adjust form** (`manage-trove/adjust-form.tsx`)
+  - Add/Remove collateral toggle + Borrow more/Repay toggle
+  - Before → After comparison panel (LTV, liquidation price, collateral, debt)
+  - Submit wired to `useAdjustTrove` — `{ symbol, params: AdjustTroveParams, wagmiConfig, account }`
+  - **Key learning:** `collChange`/`debtChange` are absolute amounts, direction via booleans
+  - **Key learning:** `maxUpfrontFee` should be `0n` when not borrowing more
+- [x] **P3-11: Rate change form** (`manage-trove/rate-form.tsx`)
+  - Current rate display + slider/input for new rate + before/after cost comparison
+  - Redemption risk + fee estimate via `usePredictUpfrontFee(0n, newRate, symbol)`
+  - Submit wired to `useAdjustInterestRate`
+- [x] **P3-12: Close form** (`manage-trove/close-form.tsx`)
+  - Debt repay summary + collateral return + wallet balance check + confirmation text
+  - `Button variant="destructive"` for close action
+  - Submit wired to `useCloseTrove` — hook handles debt approval internally
+- [x] **P3-13: Wire manage-trove into borrow-view + connect tab forms**
+  - All forms share prop interface: `{ troveId: string, troveData: BorrowPosition }`
+  - Tab content guards on `troveData` existence for loading state
+- [x] **P3-14: Claim collateral on dashboard**
+  - Created `useSurplusCollateral` hook — reads `CollSurplusPool.getCollateral(address)` with inline ABI
+  - `collSurplusPool` address from `resolveAddressesFromRegistry`
+  - Dashboard shows claim banner when surplus > 0, wired to `useClaimCollateral`
+  - Surplus treated as separate "has something" condition (prevents false empty state)
 
 ### Acceptance criteria
 
@@ -679,83 +853,69 @@ are never imported (tree-shaken out of the production bundle).
 - All operations show accurate before/after comparisons
 - Min debt, max LTV, and other protocol limits are enforced in the UI
 - Transaction flows handle approval + execution correctly
-
-### BOLD reference files
-
-| BOLD source | What to extract |
-|---|---|
-| `screens/BorrowScreen.tsx` | Open trove form layout + validation logic |
-| `screens/LoanScreen.tsx` | Manage trove tab structure |
-| `tx-flows/openBorrowPosition.tsx` | Open trove step definitions |
-| `tx-flows/updateBorrowPosition.tsx` | Adjust trove step definitions |
-| `tx-flows/closeLoanPosition.tsx` | Close trove step definitions |
-| `tx-flows/updateLoanInterestRate.tsx` | Rate change step definitions |
-| `tx-flows/claimCollateralSurplus.tsx` | Claim surplus step definitions |
-| `comps/InterestRateField/` | Interest rate input with delegate support |
-| `comps/Field/` | Amount input field patterns |
+- Fee estimates display before submission
 
 ---
 
-## 9. Phase 4 — Stability Pool
+## 10. Phase 4 — Stability Pool
 
 > **Goal:** Deposit/withdraw from stability pools, claim rewards
 >
-> **Separate PRD:** `tasks/prd-phase-4-stability-pool.md`
+> **Status:** In progress
+>
+> **PRD:** `tasks/prd-phase-4-stability-pool.md`
 
-### Tasks
+**Note:** The SDK does NOT cover stability pool operations. This phase requires
+direct contract interaction using the StabilityPool ABI copied from BOLD.
 
-- [ ] **P4-1: Earn view** (`earn/earn-view.tsx`)
-  - Pool stats: total deposits, current yield, pool share
-  - User position: deposit amount, pending rewards
-  - Deposit and withdraw forms
-- [ ] **P4-2: Deposit form** (`earn/deposit-form.tsx`)
-  - GBPm amount input with wallet balance
-  - Expected yield display
-  - "Deposit" button → triggers tx flow
-- [ ] **P4-3: Deposit tx flow** (`tx-flows/stability-deposit.ts`)
-  - Steps:
-    1. Approve GBPm → StabilityPool (if needed)
-    2. `StabilityPool.provideToSP(amount, doClaim)`
-  - Option to claim pending rewards in same tx
-- [ ] **P4-4: Withdraw form** (`earn/withdraw-form.tsx`)
-  - Amount input with max = current deposit
-  - Shows rewards that will be claimed
-  - "Withdraw" button → triggers tx flow
-- [ ] **P4-5: Withdraw tx flow** (`tx-flows/stability-withdraw.ts`)
-  - Single step: `StabilityPool.withdrawFromSP(amount)`
-  - Always claims pending rewards
-- [ ] **P4-6: Claim rewards flow** (`tx-flows/claim-sp-rewards.ts`)
-  - Claim without changing deposit amount
-  - `StabilityPool.withdrawFromSP(0)` (triggers reward claim)
-- [ ] **P4-7: SP stats display**
-  - Total GBPm deposited in pool
-  - APR/APY estimate (based on recent yield)
-  - Pool's collateral gains (USDm from liquidations)
+### Tasks (all complete)
 
-### Acceptance criteria
-
-- User can deposit GBPm into the stability pool
-- User can withdraw deposit partially or fully
-- Pending rewards (USDm gains + GBPm yield) display correctly
-- Claiming rewards works standalone and as part of deposit/withdraw
-- Pool statistics are accurate
-
-### BOLD reference files
-
-| BOLD source | What to extract |
-|---|---|
-| `screens/EarnPoolScreen.tsx` | SP screen layout |
-| `tx-flows/earnUpdate.tsx` | Deposit/withdraw step logic |
-| `tx-flows/earnClaimRewards.tsx` | Claim rewards step logic |
-| `comps/EarnPositionSummary/` | SP position display |
+- [x] **P4-1: Stability Pool read hooks** — ✅ Completed in Phase 1 (P1-3)
+  - `useStabilityPool` — batch reads: `getCompoundedBoldDeposit`, `getDepositorCollGain`, `getDepositorYieldGain`
+  - `useStabilityPoolStats` — reads `getTotalBoldDeposits()`
+  - Internal `useStabilityPoolAddress` — resolves SP address via SDK registry, cached
+- [x] **P4-2: Stability Pool transaction builders** — ✅ Completed in Phase 2 (P2-5)
+  - `buildSpDeposit(spAddress, amount, doClaim)` + `buildSpWithdraw(spAddress, amount, doClaim)` — viem `encodeFunctionData` with `stabilityPoolAbi`
+  - `useSpDeposit` + `useSpWithdraw` write hooks — resolve SP address imperatively inside mutationFn
+  - Returns `CallParams` format compatible with `sendSdkTransaction`
+- [x] **P4-3: Earn view container** (`earn/earn-view.tsx`)
+  - Pool stats: total deposits, pool share percentage (bigint math: `deposit * 10000n / total / 100`)
+  - User position: deposit amount, collateral gain (USDm), yield gain (debt token)
+  - Back to Dashboard navigation via `borrowViewAtom`
+  - Not-connected and empty-deposit states
+  - **Key learning:** `useStabilityPool(symbol)` gets account internally — no need to pass address; `useStabilityPoolStats(symbol)` returns `{ data: bigint | undefined }` directly
+- [x] **P4-4: Deposit form** (`earn/deposit-form.tsx`)
+  - Debt token amount input with wallet balance display (ERC-20 `balanceOf` pattern)
+  - Max button fills with formatted wallet balance
+  - `doClaim` checkbox (default true when rewards exist)
+  - Pending rewards summary (collateral gain + yield gain)
+  - Submit calls `spDeposit.mutate({ symbol, amount, doClaim, wagmiConfig, account })`
+  - **Key learning:** `useConfig()` from `wagmi` (not `@repo/web3/wagmi`) provides wagmiConfig
+- [x] **P4-5: Withdraw form** (`earn/withdraw-form.tsx`)
+  - Amount input with max = current deposit balance
+  - `doClaim` checkbox (default true)
+  - Submit calls `spWithdraw.mutate({ symbol, amount, doClaim, wagmiConfig, account })`
+  - Structurally mirrors deposit form; no ERC-20 balance needed — uses deposit from props
+- [x] **P4-6: Claim rewards** (`earn/claim-rewards.tsx`)
+  - Shows pending rewards: collateral gain (USDm) + yield gain (debt token)
+  - Returns `null` when no rewards — hidden entirely
+  - Calls `spWithdraw.mutate({ symbol, amount: 0n, doClaim: true, ... })` — withdraw 0 triggers claim-only
+- [x] **P4-7: Wire earn view into borrow-view**
+  - Replaced placeholder div with `<EarnView />`
+  - Composed: Tabs (Deposit | Withdraw) + ClaimRewards outside tabs
+  - SP position data passed from `useStabilityPool` to child forms
+  - **Key learning:** ClaimRewards returns null when no rewards — don't wrap in Card or you get empty shell; Tabs only need `defaultValue` prop for uncontrolled usage; all earn forms read `selectedDebtTokenAtom` internally
 
 ---
 
-## 10. Phase 5 — Leverage / Multiply
+## 11. Phase 5 — Leverage / Multiply
 
 > **Goal:** Flash-loan-powered leveraged positions
 >
 > **Separate PRD:** `tasks/prd-phase-5-leverage.md`
+
+**Not in SDK.** Leverage requires Zapper contracts + flash loan provider + DEX,
+none of which are in the SDK's BorrowService.
 
 ### Prerequisites (must be confirmed before starting)
 
@@ -767,84 +927,55 @@ are never imported (tree-shaken out of the production bundle).
 ### Tasks
 
 - [ ] **P5-1: Research & confirm prerequisites**
-  - Identify flash loan provider on Celo
-  - Assess DEX liquidity for GBPm/USDm pair
-  - Confirm zapper contract deployment plan
-- [ ] **P5-2: Leverage form** (`leverage/leverage-form.tsx`)
-  - Initial deposit input (USDm)
-  - Leverage factor slider (1.1x to max)
-  - Shows: total exposure, total debt, liquidation price
-  - Interest rate input
-  - Slippage display and warning
-- [ ] **P5-3: Leverage slider component** (`leverage/leverage-slider.tsx`)
-  - Visual slider with factor labels
-  - Suggestion chips (1.5x, 2x, 3x, 5x)
-  - Dynamic max based on collateral ratio limits
-- [ ] **P5-4: Slippage check hook** (`hooks/use-leverage-slippage.ts`)
-  - Calls `ExchangeHelpers.getCollFromBold()` equivalent
-  - Returns actual slippage percentage
-  - Blocks submission if > 5%
-- [ ] **P5-5: Open leverage tx flow** (`tx-flows/open-leverage.ts`)
-  - Steps:
-    1. Approve collateral → Zapper
-    2. `Zapper.openLeveragedTrove(params)` with flash loan
-  - Flash loan amount computed via `getOpenLeveragedTroveParams()`
-- [ ] **P5-6: Adjust leverage tx flow** (`tx-flows/adjust-leverage.ts`)
-  - Lever up: `Zapper.leverUpTrove(params)`
-  - Lever down: `Zapper.leverDownTrove(params)`
-  - Close from collateral: `Zapper.closeTroveFromCollateral(troveId, flashLoanAmount)`
-- [ ] **P5-7: Leverage position display**
-  - Shows leverage factor (e.g., "3.2x")
-  - Total exposure vs initial deposit
-  - Liquidation price at current leverage
-
-### Acceptance criteria
-
-- User can open a leveraged position with a specified multiply factor
-- User can increase or decrease leverage on existing position
-- User can close leveraged position from collateral (no debt token needed)
-- Slippage is checked and displayed before submission
-- All leverage math produces correct results
+- [ ] **P5-2: Leverage form** with slider, slippage display
+- [ ] **P5-3: Slippage check hook** via ExchangeHelpers
+- [ ] **P5-4: Open leverage tx flow** using Zapper contract
+- [ ] **P5-5: Adjust leverage tx flow** (lever up / lever down)
+- [ ] **P5-6: Leverage position display** (factor, total exposure)
 
 ### BOLD reference files
 
-| BOLD source | What to extract |
-|---|---|
-| `liquity-leverage.ts` | All flash loan parameter calculations |
-| `screens/LeverageScreen.tsx` | Leverage form layout |
-| `tx-flows/openLeveragePosition.tsx` | Open leverage step definitions |
-| `tx-flows/updateLeveragePosition.tsx` | Adjust leverage step definitions |
-| `comps/LeverageField/` | Leverage factor input |
+| BOLD source                           | What to extract                                       |
+| ------------------------------------- | ----------------------------------------------------- |
+| `liquity-leverage.ts`                 | Flash loan parameter calculations (extracted in P0-9) |
+| `screens/LeverageScreen.tsx`          | Leverage form layout                                  |
+| `tx-flows/openLeveragePosition.tsx`   | Open leverage step definitions                        |
+| `tx-flows/updateLeveragePosition.tsx` | Adjust leverage step definitions                      |
 
 ---
 
-## 11. Phase 6 — Multi-Debt Expansion
+## 12. Phase 6 — Multi-Debt Expansion
 
 > **Goal:** Add CHFm, JPYm and cross-deployment views
 >
 > **Separate PRD:** `tasks/prd-phase-6-multi-debt.md`
 
+### How the SDK makes this easy
+
+Adding a new debt token is primarily an SDK change:
+
+```typescript
+// SDK: borrowRegistries gets a new entry
+borrowRegistries[ChainId.CELO] = {
+  GBPm: "0x7C88...",
+  CHFm: "0xNEW_REGISTRY...",
+  JPYm: "0xNEW_REGISTRY...",
+};
+```
+
+On the frontend, the only changes are:
+
+1. Update SDK dependency to version with new registries
+2. Add `DebtTokenConfig` entries for CHFm and JPYm (currency symbol, locale)
+3. Enable them in the debt token selector
+
 ### Tasks
 
-- [ ] **P6-1: Add CHFm deployment config**
-  - Contract addresses for CHFm deployment on Celo
-  - FXPriceFeed for USD/CHF
-  - Currency formatting: `Fr.1'234.56`
-- [ ] **P6-2: Add JPYm deployment config**
-  - Contract addresses for JPYm deployment on Celo
-  - FXPriceFeed for USD/JPY
-  - Currency formatting: `¥123,456`
-- [ ] **P6-3: Enable debt token selector**
-  - Remove "Coming soon" badges
-  - Switching debt token updates all hooks and views
-- [ ] **P6-4: Cross-deployment dashboard**
-  - Show positions across all debt tokens in one view
-  - Grouped by debt token with totals
-  - Each position links to the correct deployment's manage view
-- [ ] **P6-5: Per-deployment stability pools**
-  - Each debt token has its own stability pool
-  - Earn view shows the SP for the selected debt token
-  - Dashboard shows all SP positions across debt tokens
+- [ ] **P6-1: Add CHFm config** — `DebtTokenConfig` with `"Fr."`, `"CHF"`, `"de-CH"`
+- [ ] **P6-2: Add JPYm config** — `DebtTokenConfig` with `"¥"`, `"JPY"`, `"ja-JP"`
+- [ ] **P6-3: Enable debt token selector** — remove "Coming soon" badges
+- [ ] **P6-4: Cross-deployment dashboard** — aggregate positions across all debt tokens
+- [ ] **P6-5: Per-deployment stability pools** — SP per debt token
 
 ### Acceptance criteria
 
@@ -855,7 +986,7 @@ are never imported (tree-shaken out of the production bundle).
 
 ---
 
-## 12. Cross-Cutting Concerns
+## 13. Cross-Cutting Concerns
 
 ### Feature flag implementation
 
@@ -885,9 +1016,6 @@ const BorrowView = dynamic(
 );
 ```
 
-This ensures the entire borrow module (components, hooks, ABIs) is tree-shaken
-when the flag is off and lazy-loaded when it's on.
-
 ### FX price display
 
 All price-dependent UI must work in the debt token's local currency:
@@ -903,10 +1031,11 @@ the debt token's currency. For GBPm, this is approximately 0.79 (1 USD ≈ 0.79 
 
 ### Testing strategy
 
-- **Unit tests** for pure math (loan-details, risk, leverage) — these are critical
-- **Unit tests** for tx-flow step builders (request validation, step ordering)
+- **Unit tests** for tx-flow step builders (step ordering, request validation)
+- **Unit tests** for currency formatting
 - **Component tests** for form validation and display logic
 - **Integration tests** on Celo fork (Anvil) for full tx flows
+- SDK's own tests cover math and transaction encoding
 - Use existing vitest setup from `@repo/web3`
 
 ### Accessibility
@@ -918,77 +1047,94 @@ the debt token's currency. For GBPm, this is approximately 0.79 (1 USD ≈ 0.79 
 
 ---
 
-## 13. What We Drop from BOLD
+## 14. What We Drop from BOLD
 
 These BOLD features are **not included** in the Mento borrow section:
 
-| BOLD Feature | Reason |
-|---|---|
-| LQTY staking + governance voting | Mento has its own governance app |
-| sBOLD vault (ERC-4626) | No Mento equivalent |
-| Legacy V1 migration flows | Not applicable |
-| Allocation voting / bribe claiming | Liquity-specific governance |
-| Account statistics screen | Not needed for MVP |
-| PandaCSS UIKit | Replaced by @repo/ui (shadcn/Tailwind) |
-| ConnectKit wallet connection | Replaced by RainbowKit (already in Mento) |
-| ENS resolution | Celo doesn't use ENS |
-| VPN/blocking list | Not needed initially |
-
-This reduces the 20 BOLD tx flows to **11 relevant flows** (9 in Phases 3-4,
-2 more in Phase 5).
-
----
-
-## 14. Risk Register
-
-| # | Risk | Likelihood | Impact | Mitigation |
-|---|---|---|---|---|
-| R1 | FX price display bugs (wrong currency, inverted rate) | Medium | High | Build `currency-display` component first; test with known FX rates; snapshot tests |
-| R2 | Leverage prerequisites not met on Celo (no flash loans/DEX liquidity) | Medium | Medium | Phase 5 is explicitly deferred; research prerequisites in P5-1 before committing |
-| R3 | Mento V3 contracts not yet deployed to mainnet | High | High | Use testnet/fork for development; deployment config is environment-specific |
-| R4 | SDK V3 contract address format changes | Low | Low | Local config abstraction means only `deployments.ts` needs updating |
-| R5 | MultiTroveGetter gas limits on large account positions | Low | Medium | Paginate reads; fall back to individual reads if batch fails |
-| R6 | StableTokenV3 permit differs from ERC-2612 | Medium | Medium | Test permit flow early in Phase 2; fallback to standard approve always available |
-| R7 | Bundle size increase from borrow ABIs and logic | Low | Medium | Dynamic import behind feature flag ensures tree-shaking; monitor with bundle analyzer |
-| R8 | Tab-based nav limits deep linking to specific troves | Medium | Low | Each view stores enough state in atoms for restoration; URL routing can be added later |
+| BOLD Feature                       | Reason                                                        |
+| ---------------------------------- | ------------------------------------------------------------- |
+| LQTY staking + governance voting   | Mento has its own governance app                              |
+| sBOLD vault (ERC-4626)             | No Mento equivalent                                           |
+| Legacy V1 migration flows          | Not applicable                                                |
+| Allocation voting / bribe claiming | Liquity-specific governance                                   |
+| Account statistics screen          | Not needed for MVP                                            |
+| PandaCSS UIKit                     | Replaced by @repo/ui (shadcn/Tailwind)                        |
+| ConnectKit wallet connection       | Replaced by RainbowKit (already in Mento)                     |
+| ENS resolution                     | Celo doesn't use ENS                                          |
+| VPN/blocking list                  | Not needed initially                                          |
+| Custom math library                | SDK provides `getLoanDetails()`, `getLtv()`, risk calcs, etc. |
+| Custom ABI management              | SDK exports all ABIs                                          |
+| Manual address config              | SDK resolves via AddressesRegistry                            |
+| Hint helpers hooks                 | SDK computes hints internally                                 |
 
 ---
 
-## 15. Reference: BOLD → Mento Mapping
+## 15. Risk Register
 
-### File-level mapping
+| #   | Risk                                                                  | Likelihood | Impact | Mitigation                                                                             |
+| --- | --------------------------------------------------------------------- | ---------- | ------ | -------------------------------------------------------------------------------------- |
+| R1  | FX price display bugs (wrong currency, inverted rate)                 | Medium     | High   | Build `currency-display` component first; test with known FX rates; snapshot tests     |
+| R2  | Leverage prerequisites not met on Celo (no flash loans/DEX liquidity) | Medium     | Medium | Phase 5 is explicitly deferred; research prerequisites in P5-1 before committing       |
+| R3  | Mento V3 contracts not yet deployed to mainnet                        | High       | High   | SDK has GBPm registry on mainnet (`0x7C88...`); use testnet/fork if contracts not live |
+| R4  | SDK `feat/trove-management` not published to npm                      | High       | High   | Use git dependency initially; coordinate with SDK team on publish timeline             |
+| R5  | SDK API changes before stabilization                                  | Medium     | Medium | Pin exact version; review SDK changelog before updating                                |
+| R6  | StabilityPool ABI mismatch with deployed contracts                    | Low        | High   | Verify ABI against deployed bytecode before Phase 4                                    |
+| R7  | Bundle size increase from SDK + borrow components                     | Low        | Medium | Dynamic import behind feature flag ensures tree-shaking; monitor with bundle analyzer  |
+| R8  | Tab-based nav limits deep linking to specific troves                  | Medium     | Low    | Each view stores enough state in atoms for restoration; URL routing can be added later |
+| R9  | SDK BorrowService caching stale data                                  | Low        | Medium | React Query handles refetch intervals; SDK caches addresses (immutable) not state      |
 
-| BOLD File | Action | Mento Destination |
-|---|---|---|
-| `liquity-math.ts` | Extract pure functions | `packages/web3/.../borrow/math/loan-details.ts`, `risk.ts` |
-| `liquity-leverage.ts` | Extract pure functions | `packages/web3/.../borrow/math/leverage.ts` |
-| `liquity-utils.ts` | Partial extract | `packages/web3/.../borrow/hooks/`, `types.ts` |
-| `contracts.ts` | Redesign for 2D model | `packages/web3/.../borrow/config/deployments.ts` |
-| `abi/*.ts` | Copy + add FXPriceFeed, SystemParams | `packages/web3/.../borrow/config/abis/` |
-| `services/TransactionFlow.tsx` | Reimplement as Jotai | `packages/web3/.../borrow/tx-flows/engine.ts` |
-| `services/Prices.tsx` | Replace with FXPriceFeed | `packages/web3/.../borrow/hooks/use-price-feed.ts` |
-| `services/Ethereum.tsx` | Drop (use @repo/web3) | N/A |
-| `services/ReactQuery.tsx` | Drop (use @repo/web3) | N/A |
-| `services/StoredState.tsx` | Replace with Jotai atoms | `packages/web3/.../borrow/atoms/` |
-| `tx-flows/*.tsx` | Adapt step logic | `packages/web3/.../borrow/tx-flows/` |
-| `screens/BorrowScreen.tsx` | Rewrite UI | `app/components/borrow/open-trove/` |
-| `screens/LoanScreen.tsx` | Rewrite UI | `app/components/borrow/manage-trove/` |
-| `screens/EarnPoolScreen.tsx` | Rewrite UI | `app/components/borrow/earn/` |
-| `screens/LeverageScreen.tsx` | Rewrite UI (Phase 5) | `app/components/borrow/leverage/` |
-| `subgraph.ts` | Defer (separate workstream) | Future: `packages/web3/.../borrow/hooks/` |
+---
+
+## 16. Reference: BOLD → Mento Mapping
+
+### What comes from where
+
+| Capability                 | Source                 | Notes                                      |
+| -------------------------- | ---------------------- | ------------------------------------------ |
+| Trove transaction building | **SDK**                | `buildOpenTroveTransaction()` etc.         |
+| Trove reads                | **SDK**                | `getTroveData()`, `getUserTroves()`        |
+| System params              | **SDK**                | `getSystemParams()`                        |
+| Price reads                | **SDK**                | `getCollateralPrice()`                     |
+| Loan math                  | **SDK**                | `getLoanDetails()`, `getLtv()`, risk calcs |
+| Fee predictions            | **SDK**                | `predictOpenTroveUpfrontFee()` etc.        |
+| Approvals + allowances     | **SDK**                | `buildCollateralApprovalParams()` etc.     |
+| Hint computation           | **SDK**                | Internal to transaction builders           |
+| ABIs                       | **SDK**                | All exported (except StabilityPool)        |
+| Address resolution         | **SDK**                | Via `AddressesRegistry`                    |
+| Multi-deployment           | **SDK**                | `borrowRegistries[chainId][symbol]`        |
+| Stability Pool ops         | **BOLD** (adapt)       | Copy ABI + build tx encoders               |
+| Leverage math              | **BOLD** (extract)     | `liquity-leverage.ts` pure functions       |
+| Redemptions                | **BOLD** (adapt)       | `CollateralRegistry.redeemCollateral()`    |
+| Tx flow engine             | **BOLD** (reimplement) | State machine → Jotai atoms                |
+| All UI components          | **Rewrite**            | shadcn/@repo/ui, using BOLD as wireframes  |
+| Wallet connection          | **Mento monorepo**     | RainbowKit (existing @repo/web3)           |
+| State management           | **Mento monorepo**     | Jotai (existing pattern)                   |
 
 ### Concept mapping
 
-| BOLD Concept | Mento Equivalent |
-|---|---|
-| BOLD token | StableTokenV3 (GBPm / CHFm / JPYm) |
-| Branch (ETH/rETH/wstETH) | Branch (USDm, future: EURm) |
-| Single CollateralRegistry | One CollateralRegistry per debt token |
-| Chainlink PriceFeed | FXPriceFeed → OracleAdapter |
-| Hardcoded constants (MCR, etc.) | SystemParams contract (configurable) |
-| `BranchId` (0-9) | `DebtTokenId × BranchId` (2D) |
-| `PrefixedTroveId` ("0:0xabc") | `TroveKey { deploymentId, branchId, troveId }` |
-| ConnectKit | RainbowKit |
-| PandaCSS / UIKit | Tailwind / shadcn / @repo/ui |
-| React Context (TransactionFlow) | Jotai atoms |
-| Subgraph (required) | Direct reads (MVP) → Subgraph (later) |
+| BOLD Concept                    | Mento Equivalent                                         |
+| ------------------------------- | -------------------------------------------------------- |
+| BOLD token                      | StableTokenV3 (GBPm / CHFm / JPYm)                       |
+| Branch (ETH/rETH/wstETH)        | Branch (USDm, future: EURm)                              |
+| Single CollateralRegistry       | One CollateralRegistry per debt token                    |
+| Chainlink PriceFeed             | FXPriceFeed → OracleAdapter                              |
+| Hardcoded constants (MCR, etc.) | SystemParams contract (configurable)                     |
+| `BranchId` (0-9)                | SDK uses `COLL_INDEX = 0` (single branch per deployment) |
+| `PrefixedTroveId` ("0:0xabc")   | SDK uses `troveId: string` per debt token symbol         |
+| Manual contract config          | SDK's `AddressesRegistry` auto-resolution                |
+| ConnectKit                      | RainbowKit                                               |
+| PandaCSS / UIKit                | Tailwind / shadcn / @repo/ui                             |
+| React Context (TransactionFlow) | Jotai atoms                                              |
+| Subgraph (required)             | SDK direct reads (MVP) → Subgraph (later)                |
+
+### Effort reduction summary
+
+| Phase                      | Previous estimate | With SDK                   | Savings                                         |
+| -------------------------- | ----------------- | -------------------------- | ----------------------------------------------- |
+| Phase 0 — Foundation       | 11 tasks          | 11 tasks (different scope) | ~40% less code (no ABIs, math, types, config)   |
+| Phase 1 — Read Path        | 11 tasks          | 11 tasks                   | ~50% less code (hooks are thin wrappers)        |
+| Phase 2 — Tx Flow Engine   | 8 tasks           | 6 tasks                    | ~30% less (no hint helpers, approval utilities) |
+| Phase 3 — Trove Operations | 14 tasks          | 14 tasks                   | ~60% less code per flow (SDK builds calldata)   |
+| Phase 4 — Stability Pool   | 7 tasks           | 7 tasks                    | No change (not in SDK)                          |
+| Phase 5 — Leverage         | 7 tasks           | 7 tasks                    | No change (not in SDK)                          |
+| Phase 6 — Multi-Debt       | 5 tasks           | 5 tasks                    | Trivial (SDK handles address resolution)        |
