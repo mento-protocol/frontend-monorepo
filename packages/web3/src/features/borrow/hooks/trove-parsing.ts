@@ -90,7 +90,7 @@ function mapTroveStatus(statusNum: number): TroveStatus {
   }
 }
 
-export function formatTroveId(troveId: bigint): string {
+function formatTroveId(troveId: bigint): string {
   return `0x${troveId.toString(16)}`;
 }
 
