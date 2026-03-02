@@ -239,7 +239,6 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
       resetTx();
       approvalA.reset();
       approvalB.reset();
-      toast.success("Liquidity added successfully", { duration: 5000 });
     }
   }, [isConfirmed, resetTx, approvalA, approvalB]);
 
@@ -320,7 +319,6 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
       setZapAmount("");
       resetZapTx();
       zapApproval.reset();
-      toast.success("Liquidity added successfully", { duration: 5000 });
     }
   }, [isZapConfirmed, resetZapTx, zapApproval]);
 

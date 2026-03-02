@@ -191,7 +191,6 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
       setLpAmount("");
       resetTx();
       lpApproval.reset();
-      toast.success("Liquidity removed successfully", { duration: 5000 });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConfirmed]);
@@ -202,7 +201,6 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
       setLpAmount("");
       resetZapOutTx();
       zapOutApproval.reset();
-      toast.success("Liquidity removed successfully", { duration: 5000 });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isZapOutConfirmed]);
