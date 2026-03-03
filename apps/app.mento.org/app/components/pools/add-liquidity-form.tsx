@@ -42,6 +42,7 @@ import {
   type ChangeEvent,
 } from "react";
 import { Info, AlertTriangle, ExternalLink } from "lucide-react";
+import { getContractAddress } from "@mento-protocol/mento-sdk";
 import {
   sanitizePercentInput,
   sanitizePercentOnBlur,
@@ -127,6 +128,7 @@ export function AddLiquidityForm({
   const explorerUrl = useExplorerUrl();
   const queryClient = useQueryClient();
   const setFlow = useSetAtom(liquidityFlowAtom);
+  const routerAddress = getContractAddress(chainId, "Router") as Address;
 
   const [mode, setMode] = useState<"balanced" | "single">("balanced");
   const [token0Amount, setToken0Amount] = useState("");
@@ -176,11 +178,47 @@ export function AddLiquidityForm({
     ? formatUnits(token1Balance, pool.token1.decimals)
     : "0";
 
+  // Fetch token allowances for Router to avoid unnecessary approval steps.
+  const { data: token0Allowance, refetch: refetchToken0Allowance } =
+    useReadContract({
+      address: pool.token0.address as Address,
+      abi: erc20Abi,
+      functionName: "allowance",
+      args: address ? [address, routerAddress] : undefined,
+      query: {
+        enabled: !!address && !!routerAddress,
+        staleTime: 0,
+        refetchOnMount: true,
+      },
+    });
+
+  const { data: token1Allowance, refetch: refetchToken1Allowance } =
+    useReadContract({
+      address: pool.token1.address as Address,
+      abi: erc20Abi,
+      functionName: "allowance",
+      args: address ? [address, routerAddress] : undefined,
+      query: {
+        enabled: !!address && !!routerAddress,
+        staleTime: 0,
+        refetchOnMount: true,
+      },
+    });
+
   useEffect(() => {
     if (!address || blockNumber === undefined) return;
     void refetchToken0Balance();
     void refetchToken1Balance();
-  }, [address, blockNumber, refetchToken0Balance, refetchToken1Balance]);
+    void refetchToken0Allowance();
+    void refetchToken1Allowance();
+  }, [
+    address,
+    blockNumber,
+    refetchToken0Balance,
+    refetchToken1Balance,
+    refetchToken0Allowance,
+    refetchToken1Allowance,
+  ]);
 
   // === Balanced mode hooks ===
 
@@ -366,6 +404,8 @@ export function AddLiquidityForm({
       }),
       refetchToken0Balance(),
       refetchToken1Balance(),
+      refetchToken0Allowance(),
+      refetchToken1Allowance(),
       onLiquidityUpdated?.(),
     ]);
   }, [
@@ -373,7 +413,26 @@ export function AddLiquidityForm({
     chainId,
     refetchToken0Balance,
     refetchToken1Balance,
+    refetchToken0Allowance,
+    refetchToken1Allowance,
     onLiquidityUpdated,
+  ]);
+
+  const getLatestAllowances = useCallback(async () => {
+    const [token0AllowanceResult, token1AllowanceResult] = await Promise.all([
+      refetchToken0Allowance(),
+      refetchToken1Allowance(),
+    ]);
+
+    return {
+      token0: token0AllowanceResult.data ?? token0Allowance ?? 0n,
+      token1: token1AllowanceResult.data ?? token1Allowance ?? 0n,
+    };
+  }, [
+    refetchToken0Allowance,
+    refetchToken1Allowance,
+    token0Allowance,
+    token1Allowance,
   ]);
 
   const handleAction = async () => {
@@ -396,7 +455,16 @@ export function AddLiquidityForm({
 
         const steps: LiquidityFlowStepDefinition[] = [];
 
-        if (zapBuildResult.approval) {
+        const allowances = await getLatestAllowances();
+        const currentZapAllowance =
+          capturedZapTokenIn.toLowerCase() === pool.token0.address.toLowerCase()
+            ? allowances.token0
+            : allowances.token1;
+
+        if (
+          zapBuildResult.approval &&
+          capturedZapAmount > currentZapAllowance
+        ) {
           const approvalParams = zapBuildResult.approval.params;
           steps.push({
             id: "approve-token",
@@ -452,8 +520,12 @@ export function AddLiquidityForm({
         const capturedSlippage = slippage;
 
         const steps: LiquidityFlowStepDefinition[] = [];
+        const allowances = await getLatestAllowances();
 
-        if (buildResult.approvalA) {
+        if (
+          buildResult.approvalA &&
+          capturedQuote.amountA > allowances.token0
+        ) {
           const approvalParams = buildResult.approvalA.params;
           steps.push({
             id: "approve-a",
@@ -462,7 +534,10 @@ export function AddLiquidityForm({
           });
         }
 
-        if (buildResult.approvalB) {
+        if (
+          buildResult.approvalB &&
+          capturedQuote.amountB > allowances.token1
+        ) {
           const approvalParams = buildResult.approvalB.params;
           steps.push({
             id: "approve-b",
