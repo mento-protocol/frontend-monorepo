@@ -103,9 +103,11 @@ export function PoolAddressPopover({ pool }: PoolAddressPopoverProps) {
       <PopoverContent
         align="start"
         sideOffset={0}
-        className="space-y-2.5 w-fit [&>span]:hidden"
+        className="space-y-2.5 w-fit animate-none [&>span]:hidden"
         onMouseEnter={handleOpen}
         onMouseLeave={handleClose}
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onInteractOutside={(e) => e.preventDefault()}
       >
         <AddressRow
           label="Pool"

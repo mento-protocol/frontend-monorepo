@@ -47,14 +47,13 @@ export function useZapOutQuote({
       const sdk = await getMentoSdk(chainId);
       const liquidityWei = parseUnits(debouncedAmount, 18);
 
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
+
       const quote = await sdk.liquidity.quoteZapOut(
         pool.poolAddr as Address,
         tokenOut,
         liquidityWei,
-        {
-          slippageTolerance: slippage,
-          deadline: BigInt(Math.floor(Date.now() / 1000) + 20 * 60),
-        },
+        { slippageTolerance: slippage, deadline },
       );
 
       return {

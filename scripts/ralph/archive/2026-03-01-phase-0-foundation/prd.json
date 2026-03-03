@@ -1,0 +1,182 @@
+{
+  "project": "Mento V3 Borrow",
+  "branchName": "feat/borrow",
+  "description": "Phase 0 Foundation — Scaffolding, feature flag, SDK integration, Stability Pool ABI, and foundational utilities for the Borrow section of app.mento.org",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Add NEXT_PUBLIC_ENABLE_BORROW feature flag",
+      "description": "As a developer, I need the borrow tab gated behind a feature flag so we can develop without exposing unfinished work in production.",
+      "acceptanceCriteria": [
+        "Add NEXT_PUBLIC_ENABLE_BORROW to apps/app.mento.org/app/env.mjs using same pattern as NEXT_PUBLIC_ENABLE_DEBUG: z.enum(['true', 'false']).optional().default('false')",
+        "Add to .env.example with a comment explaining its purpose",
+        "Set to 'true' in .env.development or .env.local",
+        "Borrow tab in header.tsx (the tabs array around line 49) only renders when flag is 'true'",
+        "Borrow section in page.tsx (the 'Coming soon' block around line 66) only renders when flag is 'true'",
+        "When flag is 'false', the borrow tab is completely hidden from navigation",
+        "Typecheck passes (pnpm check-types)"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Install Mento SDK beta with BorrowService",
+      "description": "As a developer, I need @mento-protocol/mento-sdk (beta with BorrowService) in packages/web3 so borrow hooks can call SDK methods.",
+      "acceptanceCriteria": [
+        "Update @mento-protocol/mento-sdk in packages/web3/package.json to the beta version that includes BorrowService (check npm: npm view @mento-protocol/mento-sdk versions)",
+        "If the SDK uses a catalog: reference, update the version in the workspace catalog (pnpm-workspace.yaml or package.json catalog field)",
+        "pnpm install succeeds without peer dependency conflicts",
+        "import { BorrowService } from '@mento-protocol/mento-sdk' compiles without errors",
+        "Typecheck passes (pnpm check-types)"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "Define frontend-specific borrow types",
+      "description": "As a developer, I need TypeScript types that supplement the SDK so the UI and hooks have consistent type contracts.",
+      "acceptanceCriteria": [
+        "Create file packages/web3/src/features/borrow/types.ts",
+        "Define DebtTokenConfig interface with fields: symbol (string), currencySymbol (string), currencyCode (string), locale (string)",
+        "Define BorrowView type: 'dashboard' | 'open-trove' | { view: 'manage-trove'; troveId: string } | 'earn' | 'redeem'",
+        "Define StabilityPoolPosition interface with fields: deposit (bigint), collateralGain (bigint), debtTokenGain (bigint)",
+        "Create a DEBT_TOKEN_CONFIGS record with at least GBPm defined: { symbol: 'GBPm', currencySymbol: '£', currencyCode: 'GBP', locale: 'en-GB' }",
+        "Re-export SDK types the UI needs (BorrowPosition, LoanDetails, SystemParams, CallParams) — if not exported by SDK, define compatible interfaces",
+        "All types are exported",
+        "Typecheck passes (pnpm check-types)"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Scaffold borrow directories in packages/web3",
+      "description": "As a developer, I need the packages/web3/src/features/borrow/ directory structure created following existing swap/ and pools/ patterns.",
+      "acceptanceCriteria": [
+        "Create directory: packages/web3/src/features/borrow/",
+        "Create sdk.ts — placeholder BorrowService factory (import BorrowService, export a factory function stub)",
+        "Create hooks/index.ts — empty barrel export",
+        "Create atoms/index.ts — empty barrel export",
+        "Create stability-pool/index.ts — empty barrel export",
+        "Create tx-flows/index.ts — empty barrel export",
+        "Create leverage/index.ts — empty barrel export",
+        "Create index.ts — barrel export that re-exports from types.ts and all sub-modules",
+        "Export borrow module from packages/web3/src/index.ts (or the features barrel, following how swap/pools are exported)",
+        "tsup build succeeds: pnpm --filter @repo/web3 build",
+        "Typecheck passes (pnpm check-types)"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "types.ts was created in US-003. This story creates the directory structure around it."
+    },
+    {
+      "id": "US-005",
+      "title": "Scaffold borrow component directory and navigation atom",
+      "description": "As a developer, I need the borrow components directory in the app with a placeholder view and navigation atom, replacing the Coming soon text.",
+      "acceptanceCriteria": [
+        "Create apps/app.mento.org/app/components/borrow/borrow-view.tsx — renders a simple placeholder (e.g. a heading 'Borrow')",
+        "Create apps/app.mento.org/app/components/borrow/atoms/borrow-navigation.ts — exports borrowViewAtom with type BorrowView, initial value 'dashboard'",
+        "Update page.tsx to import and render <BorrowView /> inside the borrow tab conditional (replacing the Coming soon span)",
+        "BorrowView only renders when NEXT_PUBLIC_ENABLE_BORROW is 'true' (uses the feature flag from US-001)",
+        "Typecheck passes (pnpm check-types)",
+        "Verify in browser using dev-browser skill: switching to the Borrow tab shows the new placeholder"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Create useBorrowService hook",
+      "description": "As a developer, I need a useBorrowService() hook that returns a cached BorrowService instance backed by wagmi's public client.",
+      "acceptanceCriteria": [
+        "Create packages/web3/src/features/borrow/hooks/use-borrow-service.ts",
+        "Uses usePublicClient() from wagmi to get the viem PublicClient",
+        "Uses useChainId() from wagmi to detect chain",
+        "Caches BorrowService instance — only recreates when publicClient or chainId changes (useMemo or ref-based cache)",
+        "Returns BorrowService instance (or null if client not ready)",
+        "Also update sdk.ts to contain the factory logic if cleaner separation is needed",
+        "Export from packages/web3/src/features/borrow/hooks/index.ts",
+        "Typecheck passes (pnpm check-types)"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Create send-tx bridge for SDK CallParams",
+      "description": "As a developer, I need sendSdkTransaction() and waitForTx() functions to bridge SDK CallParams to wagmi sendTransaction.",
+      "acceptanceCriteria": [
+        "Create packages/web3/src/features/borrow/tx-flows/send-tx.ts",
+        "sendSdkTransaction(wagmiConfig, callParams, gasHeadroom?) converts SDK CallParams ({to, data, value} as strings/hex) to wagmi format and calls sendTransaction from @wagmi/core",
+        "Default gasHeadroom is 0.25 (25% buffer)",
+        "waitForTx(wagmiConfig, hash) wraps waitForTransactionReceipt and returns TransactionReceipt",
+        "Error normalization: user rejected -> 'Transaction rejected by user', reverted -> 'Transaction reverted: [reason]', insufficient funds -> 'Insufficient funds for transaction', other -> pass through",
+        "Export from packages/web3/src/features/borrow/tx-flows/index.ts",
+        "Typecheck passes (pnpm check-types)"
+      ],
+      "priority": 7,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Extract Stability Pool ABI from BOLD",
+      "description": "As a developer, I need the StabilityPool ABI in our codebase so Phase 1 can build direct-contract read hooks (the SDK does not cover stability pools).",
+      "acceptanceCriteria": [
+        "Copy ABI from /home/sol/projects/bold/frontend/app/src/abi/StabilityPool.ts",
+        "Place at packages/web3/src/features/borrow/stability-pool/abi.ts",
+        "Export as typed const: export const stabilityPoolAbi = [...] as const",
+        "Verify ABI includes key functions: provideToSP, withdrawFromSP, getDepositorCollGain, getDepositorYieldGain, getTotalBoldDeposits, getCompoundedBoldDeposit",
+        "Export from packages/web3/src/features/borrow/stability-pool/index.ts",
+        "Typecheck passes (pnpm check-types)"
+      ],
+      "priority": 8,
+      "passes": true,
+      "notes": "The BOLD reference repo is at /home/sol/projects/bold/. Copy the ABI as-is — it's auto-generated TypeScript. Adapt only the export style if needed."
+    },
+    {
+      "id": "US-009",
+      "title": "Create FX-aware currency formatting utilities",
+      "description": "As a developer, I need formatting functions that display amounts in correct local currency format (e.g. £1,234.56 for GBPm).",
+      "acceptanceCriteria": [
+        "Create packages/web3/src/features/borrow/format.ts",
+        "formatDebtAmount(amount: bigint, debtToken: DebtTokenConfig): string — converts 18-decimal bigint to locale-formatted string with currency symbol (e.g. £1,234.56)",
+        "formatCollateralAmount(amount: bigint): string — formats as '1,234.56 USDm'",
+        "formatPrice(price: bigint, debtToken: DebtTokenConfig): string — formats as '£0.79 per USDm'",
+        "formatInterestRate(rate: bigint): string — converts 18-decimal rate to percentage (e.g. '5.50%')",
+        "formatLtv(ltv: bigint): string — converts 18-decimal ratio to percentage (e.g. '72.3%')",
+        "All functions handle null/undefined input gracefully returning '—' or similar placeholder",
+        "Use Intl.NumberFormat with locale from DebtTokenConfig for locale-aware formatting",
+        "Export from packages/web3/src/features/borrow/index.ts",
+        "Typecheck passes (pnpm check-types)"
+      ],
+      "priority": 9,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Extract leverage math from BOLD",
+      "description": "As a developer, I need leverage/multiply math functions from BOLD extracted as pure functions for Phase 5 use.",
+      "acceptanceCriteria": [
+        "Create packages/web3/src/features/borrow/leverage/math.ts",
+        "Extract from /home/sol/projects/bold/frontend/app/src/liquity-leverage.ts: getOpenLeveragedTroveParams, getLeverUpTroveParams, getLeverDownTroveParams, getCloseFlashLoanAmount",
+        "All functions must be pure — no side effects, no contract calls, no imports from BOLD codebase",
+        "Convert BOLD's Dnum types to bigint parameters (matching SDK conventions)",
+        "Each function has a brief JSDoc comment explaining purpose and parameters",
+        "Export from packages/web3/src/features/borrow/leverage/index.ts",
+        "Typecheck passes (pnpm check-types)"
+      ],
+      "priority": 10,
+      "passes": true,
+      "notes": "BOLD uses Dnum (a decimal number library). When converting, preserve precision by using bigint with 18 decimal places (1e18 = 100%)."
+    }
+  ]
+}

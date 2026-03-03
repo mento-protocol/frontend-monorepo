@@ -16,19 +16,29 @@ import {
   useRemoveLiquidityTransaction,
   useZapOutQuote,
   useZapOutTransaction,
-  useLiquidityApproval,
   ConnectButton,
   tryParseUnits,
   formatCompactBalance,
+  executeLiquidityFlow,
+  liquidityFlowAtom,
+  showLiquiditySuccessToast,
+  type LiquidityFlowStepDefinition,
 } from "@repo/web3";
-import { useAccount, useReadContract } from "@repo/web3/wagmi";
+import {
+  useAccount,
+  useReadContract,
+  useConfig,
+  useChainId,
+} from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, parseUnits, type Address } from "viem";
-import { useState, useEffect, useRef, type ChangeEvent } from "react";
+import { useState, useEffect, type ChangeEvent } from "react";
 import { ExternalLink } from "lucide-react";
 import {
   sanitizePercentInput,
   sanitizePercentOnBlur,
 } from "@/lib/utils/percent-input";
+import { useSetAtom } from "jotai";
+import { useQueryClient } from "@tanstack/react-query";
 
 function formatTokenAmount(
   amount: bigint | undefined,
@@ -47,10 +57,16 @@ interface RemoveLiquidityFormProps {
 
 export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
   const { address } = useAccount();
+  const wagmiConfig = useConfig();
+  const chainId = useChainId();
+  const queryClient = useQueryClient();
+  const setFlow = useSetAtom(liquidityFlowAtom);
+
   const [mode, setMode] = useState<"balanced" | "single">("balanced");
   const [lpAmount, setLpAmount] = useState("");
   const [receiveToken, setReceiveToken] = useState<string>(pool.token0.address);
   const [slippage, setSlippage] = useState<SlippageOption>(0.3);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const selectedToken =
     receiveToken === pool.token0.address ? pool.token0 : pool.token1;
@@ -71,45 +87,15 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
   const insufficientLp =
     lpAmountWei !== null && lpBalance !== undefined && lpAmountWei > lpBalance;
 
-  // === Balanced quote hook (also used for underlying breakdown in single mode) ===
+  // === Balanced quote hook ===
   const { data: quote, isFetching: isQuoting } = useRemoveLiquidityQuote({
     pool,
     lpAmount,
   });
 
-  // === Balanced transaction hook ===
-  const {
-    buildTransaction,
-    buildResult,
-    isBuilding,
-    sendRemoveLiquidity,
-    isSending,
-    isConfirming,
-    isConfirmed,
-    reset: resetTx,
-  } = useRemoveLiquidityTransaction(pool);
-
-  const pendingLpAmountRef = useRef(lpAmount);
-  const pendingSlippageRef = useRef(slippage);
-  const pendingReceiveTokenRef = useRef(receiveToken);
-  const lpApproval = useLiquidityApproval("LP", async () => {
-    if (!address) return;
-    try {
-      const liquidity = parseUnits(pendingLpAmountRef.current, 18);
-      const freshBuild = await buildTransaction(
-        liquidity,
-        address,
-        address,
-        pendingSlippageRef.current,
-      );
-      if (freshBuild) await sendRemoveLiquidity(freshBuild);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
-        toast.error("Something went wrong. Please try again.");
-      }
-    }
-  });
+  // === Balanced transaction hook (build only) ===
+  const { buildTransaction, buildResult, isBuilding } =
+    useRemoveLiquidityTransaction(pool);
 
   // === Zap-out (single-token) hooks ===
   const { data: zapOutQuote, isFetching: isZapOutQuoting } = useZapOutQuote({
@@ -124,37 +110,7 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
     buildResult: zapOutBuildResult,
     buildError: zapOutBuildError,
     isBuilding: isZapOutBuilding,
-    sendZapOut,
-    isSending: isZapOutSending,
-    isConfirming: isZapOutConfirming,
-    isConfirmed: isZapOutConfirmed,
-    reset: resetZapOutTx,
   } = useZapOutTransaction(pool);
-
-  const zapOutApproval = useLiquidityApproval("LP", async () => {
-    if (!address) return;
-    try {
-      const liquidity = parseUnits(pendingLpAmountRef.current, 18);
-      const freshBuild = await buildZapOutTransaction(
-        pendingReceiveTokenRef.current as Address,
-        liquidity,
-        address,
-        pendingSlippageRef.current,
-      );
-      if (freshBuild) await sendZapOut(freshBuild);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
-        if (/no viable zap-out route/i.test(msg)) {
-          toast.error(
-            "No viable zap-out route for this amount. Reduce amount or use balanced mode.",
-          );
-        } else {
-          toast.error("Something went wrong. Please try again.");
-        }
-      }
-    }
-  });
 
   // Build balanced transaction when we have a valid quote and wallet
   useEffect(() => {
@@ -185,31 +141,10 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
     buildZapOutTransaction,
   ]);
 
-  // Reset form on balanced success
-  useEffect(() => {
-    if (isConfirmed) {
-      setLpAmount("");
-      resetTx();
-      lpApproval.reset();
-      toast.success("Liquidity removed successfully", { duration: 5000 });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConfirmed]);
-
-  // Reset form on zap-out success
-  useEffect(() => {
-    if (isZapOutConfirmed) {
-      setLpAmount("");
-      resetZapOutTx();
-      zapOutApproval.reset();
-      toast.success("Liquidity removed successfully", { duration: 5000 });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isZapOutConfirmed]);
-
   // === Button state ===
 
   const getButtonState = () => {
+    if (isSubmitting) return { text: "Confirm in wallet...", disabled: true };
     if (!hasAmount) return { text: "Enter amount", disabled: true };
     if (insufficientLp)
       return { text: "Insufficient LP balance", disabled: true };
@@ -221,24 +156,9 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
       if (isZapOutBuilding || isZapOutQuoting)
         return { text: "Preparing...", disabled: true };
       if (!zapOutBuildResult) return { text: "Preparing...", disabled: true };
-
-      if (zapOutBuildResult.approval && !zapOutApproval.isApproved) {
-        if (zapOutApproval.isApproving)
-          return { text: "Approving LP token...", disabled: true };
-        return {
-          text: "Approve LP Token",
-          disabled: false,
-          action: "zap-out-approve" as const,
-        };
-      }
-
-      if (isZapOutSending || isZapOutConfirming)
-        return { text: "Removing liquidity...", disabled: true };
-
       return {
         text: `Remove as ${selectedToken.symbol}`,
         disabled: false,
-        action: "zap-out" as const,
       };
     }
 
@@ -247,77 +167,135 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
       return { text: "Preparing...", disabled: true };
     if (!buildResult) return { text: "Preparing...", disabled: true };
 
-    if (buildResult.approval && !lpApproval.isApproved) {
-      if (lpApproval.isApproving)
-        return { text: "Approving LP token...", disabled: true };
-      return {
-        text: "Approve LP Token",
-        disabled: false,
-        action: "approve-lp" as const,
-      };
-    }
-
-    if (isSending || isConfirming)
-      return { text: "Removing liquidity...", disabled: true };
-
-    return {
-      text: "Remove Liquidity",
-      disabled: false,
-      action: "remove" as const,
-    };
+    return { text: "Remove Liquidity", disabled: false };
   };
 
   const buttonState = getButtonState();
 
+  const invalidateQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ["pools-list", chainId] });
+    queryClient.invalidateQueries({
+      predicate: (query) =>
+        JSON.stringify(query.queryKey).toLowerCase().includes("balanceof"),
+    });
+  };
+
   const handleAction = async () => {
     if (!address) return;
-
-    pendingLpAmountRef.current = lpAmount;
-    pendingSlippageRef.current = slippage;
-    pendingReceiveTokenRef.current = receiveToken;
+    setIsSubmitting(true);
 
     try {
-      if (
-        (buttonState.action === "zap-out-approve" ||
-          buttonState.action === "zap-out") &&
-        zapOutBuildResult
-      ) {
-        if (zapOutBuildResult.approval && !zapOutApproval.isApproved) {
-          await zapOutApproval.sendApproval(zapOutBuildResult.approval);
-        } else {
-          const liquidity = parseUnits(lpAmount, 18);
-          const freshBuild = await buildZapOutTransaction(
-            receiveToken as Address,
-            liquidity,
-            address,
-            slippage,
-          );
-          if (freshBuild) await sendZapOut(freshBuild);
+      if (mode === "single" && zapOutBuildResult) {
+        // --- Zap-out flow ---
+        const capturedLpAmount = lpAmount;
+        const capturedReceiveToken = receiveToken;
+        const capturedSlippage = slippage;
+
+        const steps: LiquidityFlowStepDefinition[] = [];
+
+        if (zapOutBuildResult.approval) {
+          const approvalParams = zapOutBuildResult.approval.params;
+          steps.push({
+            id: "approve-lp",
+            label: "Approve LP Token",
+            buildTx: async () => approvalParams,
+          });
         }
-        return;
-      }
 
-      if (!buildResult) return;
+        steps.push({
+          id: "zap-out",
+          label: `Remove as ${selectedToken.symbol}`,
+          buildTx: async () => {
+            const liquidity = parseUnits(capturedLpAmount, 18);
+            const freshBuild = await buildZapOutTransaction(
+              capturedReceiveToken as Address,
+              liquidity,
+              address,
+              capturedSlippage,
+            );
+            if (!freshBuild) throw new Error("Failed to build transaction");
+            return freshBuild.zapOut.params;
+          },
+        });
 
-      if (buildResult.approval && !lpApproval.isApproved) {
-        await lpApproval.sendApproval(buildResult.approval);
-      } else {
-        const liquidity = parseUnits(lpAmount, 18);
-        const freshBuild = await buildTransaction(
-          liquidity,
-          address,
-          address,
-          slippage,
+        const result = await executeLiquidityFlow(
+          wagmiConfig,
+          setFlow,
+          "Remove Liquidity",
+          steps,
         );
-        if (freshBuild) await sendRemoveLiquidity(freshBuild);
+
+        if (result.success) {
+          const lastTxHash = result.txHashes[result.txHashes.length - 1];
+          if (lastTxHash) {
+            showLiquiditySuccessToast({
+              action: "removed",
+              token0Symbol: pool.token0.symbol,
+              token1Symbol: pool.token1.symbol,
+              txHash: lastTxHash,
+              chainId,
+            });
+          }
+          invalidateQueries();
+          setLpAmount("");
+        }
+      } else if (mode === "balanced" && buildResult) {
+        // --- Balanced remove flow ---
+        const capturedLpAmount = lpAmount;
+        const capturedSlippage = slippage;
+
+        const steps: LiquidityFlowStepDefinition[] = [];
+
+        if (buildResult.approval) {
+          const approvalParams = buildResult.approval.params;
+          steps.push({
+            id: "approve-lp",
+            label: "Approve LP Token",
+            buildTx: async () => approvalParams,
+          });
+        }
+
+        steps.push({
+          id: "remove-liquidity",
+          label: "Remove Liquidity",
+          buildTx: async () => {
+            const liquidity = parseUnits(capturedLpAmount, 18);
+            const freshBuild = await buildTransaction(
+              liquidity,
+              address,
+              address,
+              capturedSlippage,
+            );
+            if (!freshBuild) throw new Error("Failed to build transaction");
+            return freshBuild.removeLiquidity.params;
+          },
+        });
+
+        const result = await executeLiquidityFlow(
+          wagmiConfig,
+          setFlow,
+          "Remove Liquidity",
+          steps,
+        );
+
+        if (result.success) {
+          const lastTxHash = result.txHashes[result.txHashes.length - 1];
+          if (lastTxHash) {
+            showLiquiditySuccessToast({
+              action: "removed",
+              token0Symbol: pool.token0.symbol,
+              token1Symbol: pool.token1.symbol,
+              txHash: lastTxHash,
+              chainId,
+            });
+          }
+          invalidateQueries();
+          setLpAmount("");
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const isHandledByHook =
-        /user\s+rejected/i.test(msg) ||
-        /user\s+denied/i.test(msg) ||
-        /denied\s+transaction/i.test(msg);
-      if (!isHandledByHook) {
+      if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
         if (/no viable zap-out route/i.test(msg)) {
           toast.error(
             "No viable zap-out route for this amount. Reduce amount or use balanced mode.",
@@ -326,6 +304,8 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
           toast.error("Something went wrong. Please try again.");
         }
       }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 

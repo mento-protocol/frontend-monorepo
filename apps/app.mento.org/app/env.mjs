@@ -25,8 +25,14 @@ export const env = createEnv({
       .default("false"),
     NEXT_PUBLIC_USE_FORK: z.enum(["true", "false"]).optional().default("false"),
     NEXT_PUBLIC_BANNER_TEXT: z.string().optional().default(""),
-    NEXT_PUBLIC_BANNER_LINK: z.string().url().optional(),
-    NEXT_PUBLIC_RPC_URL: z.string().url().optional(),
+    NEXT_PUBLIC_BANNER_LINK: z.preprocess(
+      (val) => (val === "" ? undefined : val),
+      z.string().url().optional(),
+    ),
+    NEXT_PUBLIC_RPC_URL: z.preprocess(
+      (val) => (val === "" ? undefined : val),
+      z.string().url().optional(),
+    ),
   },
   /*
    * Due to how Next.js bundles environment variables on Edge and Client,
