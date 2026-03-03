@@ -185,7 +185,10 @@ export function OpenTroveForm() {
       upfrontFee == null
     )
       return;
-    if (ownerIndex == null) return;
+
+    const nowIndex = Date.now();
+    const safeOwnerIndex =
+      ownerIndex != null ? Math.max(ownerIndex + 1, nowIndex) : nowIndex;
 
     // Add 5% buffer to predicted fee for maxUpfrontFee
     const maxUpfrontFee = upfrontFee + upfrontFee / 20n;
@@ -194,7 +197,7 @@ export function OpenTroveForm() {
       symbol: debtToken.symbol,
       params: {
         owner: address,
-        ownerIndex,
+        ownerIndex: safeOwnerIndex,
         collAmount,
         boldAmount: debtAmount,
         annualInterestRate: rateBigint,

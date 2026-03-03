@@ -157,7 +157,7 @@ function extractRevertReason(
   const customErrorMatch = message.match(
     /custom error ['"]?([A-Za-z0-9_.:]+)['"]?/i,
   );
-  let rawReason =
+  const rawReason =
     reasonMatch?.[1] ??
     reasonMatch?.[2] ??
     reasonMatch?.[3] ??
