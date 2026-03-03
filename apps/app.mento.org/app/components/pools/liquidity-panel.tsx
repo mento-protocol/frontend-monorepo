@@ -1,8 +1,8 @@
 import { Badge, TokenIcon, cn } from "@repo/ui";
 import type { PoolDisplay } from "@repo/web3";
-import { useAccount, useReadContract } from "@repo/web3/wagmi";
+import { useAccount, useReadContract, useBlockNumber } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, type Address } from "viem";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { ArrowLeft } from "lucide-react";
 import { AddLiquidityForm } from "./add-liquidity-form";
 import { RemoveLiquidityForm } from "./remove-liquidity-form";
@@ -18,13 +18,21 @@ type TabMode = "add" | "remove";
 
 export function LiquidityPanel({ pool, mode, onClose }: LiquidityPanelProps) {
   const { address } = useAccount();
+  const { data: blockNumber } = useBlockNumber({
+    watch: !!address,
+    query: { enabled: !!address },
+  });
 
-  const { data: lpBalance } = useReadContract({
+  const { data: lpBalance, refetch: refetchLpBalance } = useReadContract({
     address: pool.poolAddr as Address,
     abi: erc20Abi,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
-    query: { enabled: !!address },
+    query: {
+      enabled: !!address,
+      staleTime: 0,
+      refetchOnMount: true,
+    },
   });
 
   const hasLPTokens = lpBalance !== undefined && lpBalance > 0n;
@@ -44,6 +52,15 @@ export function LiquidityPanel({ pool, mode, onClose }: LiquidityPanelProps) {
       setActiveTab("add");
     }
   }, [hasLPTokens, activeTab]);
+
+  useEffect(() => {
+    if (!address || blockNumber === undefined) return;
+    void refetchLpBalance();
+  }, [address, blockNumber, refetchLpBalance]);
+
+  const handleLiquidityUpdated = useCallback(async () => {
+    await refetchLpBalance();
+  }, [refetchLpBalance]);
 
   const isRemoveDisabled = !hasLPTokens;
 
@@ -161,9 +178,15 @@ export function LiquidityPanel({ pool, mode, onClose }: LiquidityPanelProps) {
 
       {/* Content */}
       {activeTab === "add" ? (
-        <AddLiquidityForm pool={pool} />
+        <AddLiquidityForm
+          pool={pool}
+          onLiquidityUpdated={handleLiquidityUpdated}
+        />
       ) : (
-        <RemoveLiquidityForm pool={pool} />
+        <RemoveLiquidityForm
+          pool={pool}
+          onLiquidityUpdated={handleLiquidityUpdated}
+        />
       )}
 
       <LiquidityFlowDialog />

@@ -22,6 +22,7 @@ import {
   executeLiquidityFlow,
   liquidityFlowAtom,
   showLiquiditySuccessToast,
+  useExplorerUrl,
   type LiquidityFlowStepDefinition,
 } from "@repo/web3";
 import {
@@ -29,8 +30,9 @@ import {
   useReadContract,
   useConfig,
   useChainId,
+  useBlockNumber,
 } from "@repo/web3/wagmi";
-import { erc20Abi, formatUnits, parseUnits, type Address } from "viem";
+import { erc20Abi, formatUnits, type Address } from "viem";
 import { useState, useEffect, type ChangeEvent } from "react";
 import { ExternalLink } from "lucide-react";
 import {
@@ -53,12 +55,21 @@ function formatTokenAmount(
 
 interface RemoveLiquidityFormProps {
   pool: PoolDisplay;
+  onLiquidityUpdated?: () => void | Promise<void>;
 }
 
-export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
+export function RemoveLiquidityForm({
+  pool,
+  onLiquidityUpdated,
+}: RemoveLiquidityFormProps) {
   const { address } = useAccount();
   const wagmiConfig = useConfig();
   const chainId = useChainId();
+  const { data: blockNumber } = useBlockNumber({
+    watch: !!address,
+    query: { enabled: !!address },
+  });
+  const explorerUrl = useExplorerUrl();
   const queryClient = useQueryClient();
   const setFlow = useSetAtom(liquidityFlowAtom);
 
@@ -72,15 +83,24 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
     receiveToken === pool.token0.address ? pool.token0 : pool.token1;
 
   // Fetch LP token balance (LP token is the pool contract itself)
-  const { data: lpBalance } = useReadContract({
+  const { data: lpBalance, refetch: refetchLpBalance } = useReadContract({
     address: pool.poolAddr as Address,
     abi: erc20Abi,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
-    query: { enabled: !!address },
+    query: {
+      enabled: !!address,
+      staleTime: 0,
+      refetchOnMount: true,
+    },
   });
 
   const formattedLpBalance = lpBalance ? formatUnits(lpBalance, 18) : "0";
+
+  useEffect(() => {
+    if (!address || blockNumber === undefined) return;
+    void refetchLpBalance();
+  }, [address, blockNumber, refetchLpBalance]);
 
   const lpAmountWei = tryParseUnits(lpAmount, 18);
   const hasAmount = lpAmountWei !== null && lpAmountWei > 0n;
@@ -115,18 +135,39 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
   // Build balanced transaction when we have a valid quote and wallet
   useEffect(() => {
     if (mode !== "balanced") return;
-    if (!address || !quote || !hasAmount) return;
-    const liquidity = parseUnits(lpAmount, 18);
-    buildTransaction(liquidity, address, address, slippage);
-  }, [quote, address, slippage, lpAmount, buildTransaction, mode, hasAmount]);
+    if (
+      !address ||
+      !quote ||
+      !hasAmount ||
+      lpAmountWei === null ||
+      lpAmountWei <= 0n
+    )
+      return;
+    buildTransaction(lpAmountWei, address, address, slippage);
+  }, [
+    quote,
+    address,
+    slippage,
+    lpAmountWei,
+    buildTransaction,
+    mode,
+    hasAmount,
+  ]);
 
   // Build zap-out transaction when quote arrives
   useEffect(() => {
-    if (mode !== "single" || !address || !zapOutQuote || !hasAmount) return;
-    const liquidity = parseUnits(lpAmount, 18);
+    if (
+      mode !== "single" ||
+      !address ||
+      !zapOutQuote ||
+      !hasAmount ||
+      lpAmountWei === null ||
+      lpAmountWei <= 0n
+    )
+      return;
     buildZapOutTransaction(
       receiveToken as Address,
-      liquidity,
+      lpAmountWei,
       address,
       slippage,
     );
@@ -134,7 +175,7 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
     zapOutQuote,
     address,
     slippage,
-    lpAmount,
+    lpAmountWei,
     receiveToken,
     mode,
     hasAmount,
@@ -172,12 +213,17 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
 
   const buttonState = getButtonState();
 
-  const invalidateQueries = () => {
-    queryClient.invalidateQueries({ queryKey: ["pools-list", chainId] });
-    queryClient.invalidateQueries({
-      predicate: (query) =>
-        JSON.stringify(query.queryKey).toLowerCase().includes("balanceof"),
-    });
+  const refreshLiquidityState = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["pools-list", chainId] }),
+      queryClient.invalidateQueries({ queryKey: ["readContract"] }),
+      queryClient.refetchQueries({
+        queryKey: ["readContract"],
+        type: "active",
+      }),
+      refetchLpBalance(),
+      onLiquidityUpdated?.(),
+    ]);
   };
 
   const handleAction = async () => {
@@ -185,9 +231,22 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
     setIsSubmitting(true);
 
     try {
+      if (lpAmountWei === null || lpAmountWei <= 0n) {
+        throw new Error("Enter a valid LP amount");
+      }
+
+      const latestBalanceResult = await refetchLpBalance();
+      const latestLpBalance = latestBalanceResult.data;
+      if (latestLpBalance !== undefined && lpAmountWei > latestLpBalance) {
+        setLpAmount(formatUnits(latestLpBalance, 18));
+        throw new Error(
+          "Amount exceeds your current LP balance. Click MAX to use the latest value.",
+        );
+      }
+
       if (mode === "single" && zapOutBuildResult) {
         // --- Zap-out flow ---
-        const capturedLpAmount = lpAmount;
+        const capturedLiquidity = lpAmountWei;
         const capturedReceiveToken = receiveToken;
         const capturedSlippage = slippage;
 
@@ -206,10 +265,9 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
           id: "zap-out",
           label: `Remove as ${selectedToken.symbol}`,
           buildTx: async () => {
-            const liquidity = parseUnits(capturedLpAmount, 18);
             const freshBuild = await buildZapOutTransaction(
               capturedReceiveToken as Address,
-              liquidity,
+              capturedLiquidity,
               address,
               capturedSlippage,
             );
@@ -236,12 +294,12 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
               chainId,
             });
           }
-          invalidateQueries();
+          await refreshLiquidityState();
           setLpAmount("");
         }
       } else if (mode === "balanced" && buildResult) {
         // --- Balanced remove flow ---
-        const capturedLpAmount = lpAmount;
+        const capturedLiquidity = lpAmountWei;
         const capturedSlippage = slippage;
 
         const steps: LiquidityFlowStepDefinition[] = [];
@@ -259,9 +317,8 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
           id: "remove-liquidity",
           label: "Remove Liquidity",
           buildTx: async () => {
-            const liquidity = parseUnits(capturedLpAmount, 18);
             const freshBuild = await buildTransaction(
-              liquidity,
+              capturedLiquidity,
               address,
               address,
               capturedSlippage,
@@ -289,7 +346,7 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
               chainId,
             });
           }
-          invalidateQueries();
+          await refreshLiquidityState();
           setLpAmount("");
         }
       }
@@ -720,7 +777,7 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
         {/* Footer links */}
         <div className="mt-3 flex items-center justify-between">
           <a
-            href={`https://explorer.celo.org/mainnet/address/${pool.poolAddr}`}
+            href={`${explorerUrl}/address/${pool.poolAddr}`}
             target="_blank"
             rel="noopener noreferrer"
             className="gap-1 flex items-center text-[11px] text-muted-foreground transition-colors hover:text-foreground"

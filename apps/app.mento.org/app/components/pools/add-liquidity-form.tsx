@@ -23,6 +23,7 @@ import {
   executeLiquidityFlow,
   liquidityFlowAtom,
   showLiquiditySuccessToast,
+  useExplorerUrl,
   type LiquidityFlowStepDefinition,
 } from "@repo/web3";
 import {
@@ -30,8 +31,9 @@ import {
   useReadContract,
   useConfig,
   useChainId,
+  useBlockNumber,
 } from "@repo/web3/wagmi";
-import { erc20Abi, formatUnits, parseUnits, type Address } from "viem";
+import { erc20Abi, formatUnits, type Address } from "viem";
 import {
   useState,
   useEffect,
@@ -108,12 +110,21 @@ function TokenAmountInput({
 
 interface AddLiquidityFormProps {
   pool: PoolDisplay;
+  onLiquidityUpdated?: () => void | Promise<void>;
 }
 
-export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
+export function AddLiquidityForm({
+  pool,
+  onLiquidityUpdated,
+}: AddLiquidityFormProps) {
   const { address } = useAccount();
   const wagmiConfig = useConfig();
   const chainId = useChainId();
+  const { data: blockNumber } = useBlockNumber({
+    watch: !!address,
+    query: { enabled: !!address },
+  });
+  const explorerUrl = useExplorerUrl();
   const queryClient = useQueryClient();
   const setFlow = useSetAtom(liquidityFlowAtom);
 
@@ -132,21 +143,31 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
   const isAutoFilling = useRef(false);
 
   // Fetch token balances
-  const { data: token0Balance } = useReadContract({
-    address: pool.token0.address as Address,
-    abi: erc20Abi,
-    functionName: "balanceOf",
-    args: address ? [address] : undefined,
-    query: { enabled: !!address },
-  });
+  const { data: token0Balance, refetch: refetchToken0Balance } =
+    useReadContract({
+      address: pool.token0.address as Address,
+      abi: erc20Abi,
+      functionName: "balanceOf",
+      args: address ? [address] : undefined,
+      query: {
+        enabled: !!address,
+        staleTime: 0,
+        refetchOnMount: true,
+      },
+    });
 
-  const { data: token1Balance } = useReadContract({
-    address: pool.token1.address as Address,
-    abi: erc20Abi,
-    functionName: "balanceOf",
-    args: address ? [address] : undefined,
-    query: { enabled: !!address },
-  });
+  const { data: token1Balance, refetch: refetchToken1Balance } =
+    useReadContract({
+      address: pool.token1.address as Address,
+      abi: erc20Abi,
+      functionName: "balanceOf",
+      args: address ? [address] : undefined,
+      query: {
+        enabled: !!address,
+        staleTime: 0,
+        refetchOnMount: true,
+      },
+    });
 
   const formattedToken0Balance = token0Balance
     ? formatUnits(token0Balance, pool.token0.decimals)
@@ -154,6 +175,12 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
   const formattedToken1Balance = token1Balance
     ? formatUnits(token1Balance, pool.token1.decimals)
     : "0";
+
+  useEffect(() => {
+    if (!address || blockNumber === undefined) return;
+    void refetchToken0Balance();
+    void refetchToken1Balance();
+  }, [address, blockNumber, refetchToken0Balance, refetchToken1Balance]);
 
   // === Balanced mode hooks ===
 
@@ -212,17 +239,17 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
   const {
     buildTransaction: buildZapTransaction,
     buildResult: zapBuildResult,
+    buildError: zapBuildError,
     isBuilding: isZapBuilding,
   } = useZapInTransaction(pool);
 
-  // Build zap transaction when quote arrives
+  // Build zap transaction whenever the amount is valid for current state.
   useEffect(() => {
-    if (mode !== "single" || !address || !zapQuote || !zapAmount) return;
+    if (mode !== "single" || !address || !zapAmount) return;
     const amountInWei = tryParseUnits(zapAmount, zapToken.decimals);
     if (!amountInWei || amountInWei <= 0n) return;
     buildZapTransaction(zapTokenIn as Address, amountInWei, address, slippage);
   }, [
-    zapQuote,
     address,
     slippage,
     zapAmount,
@@ -301,6 +328,7 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
           text: `Insufficient ${zapToken.symbol} balance`,
           disabled: true,
         };
+      if (zapBuildError) return { text: "Unavailable", disabled: true };
       if (isZapBuilding || isZapQuoting)
         return { text: "Preparing...", disabled: true };
       if (!zapBuildResult) return { text: "Preparing...", disabled: true };
@@ -328,13 +356,25 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
 
   const buttonState = getButtonState();
 
-  const invalidateQueries = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["pools-list", chainId] });
-    queryClient.invalidateQueries({
-      predicate: (query) =>
-        JSON.stringify(query.queryKey).toLowerCase().includes("balanceof"),
-    });
-  }, [queryClient, chainId]);
+  const refreshLiquidityState = useCallback(async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["pools-list", chainId] }),
+      queryClient.invalidateQueries({ queryKey: ["readContract"] }),
+      queryClient.refetchQueries({
+        queryKey: ["readContract"],
+        type: "active",
+      }),
+      refetchToken0Balance(),
+      refetchToken1Balance(),
+      onLiquidityUpdated?.(),
+    ]);
+  }, [
+    queryClient,
+    chainId,
+    refetchToken0Balance,
+    refetchToken1Balance,
+    onLiquidityUpdated,
+  ]);
 
   const handleAction = async () => {
     if (!address) return;
@@ -343,10 +383,16 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     try {
       if (mode === "single" && zapBuildResult) {
         // --- Zap-in flow ---
-        const capturedZapAmount = zapAmount;
+        const capturedZapAmount = parsedZap;
         const capturedZapTokenIn = zapTokenIn;
-        const capturedZapDecimals = zapToken.decimals;
         const capturedSlippage = slippage;
+
+        if (!capturedZapAmount || capturedZapAmount <= 0n) {
+          throw new Error("Invalid zap amount");
+        }
+        if (zapBuildError) {
+          throw new Error(zapBuildError);
+        }
 
         const steps: LiquidityFlowStepDefinition[] = [];
 
@@ -363,17 +409,18 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
           id: "zap-in",
           label: "Add Liquidity",
           buildTx: async () => {
-            const amountInWei = parseUnits(
-              capturedZapAmount,
-              capturedZapDecimals,
-            );
             const freshBuild = await buildZapTransaction(
               capturedZapTokenIn as Address,
-              amountInWei,
+              capturedZapAmount,
               address,
               capturedSlippage,
             );
-            if (!freshBuild) throw new Error("Failed to build transaction");
+            if (!freshBuild) {
+              throw new Error(
+                zapBuildError ||
+                  "No viable zap-in route for this amount. Reduce amount or use balanced mode.",
+              );
+            }
             return freshBuild.zapIn.params;
           },
         });
@@ -396,7 +443,7 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
               chainId,
             });
           }
-          invalidateQueries();
+          await refreshLiquidityState();
           setZapAmount("");
         }
       } else if (mode === "balanced" && quote && buildResult) {
@@ -457,7 +504,7 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
               chainId,
             });
           }
-          invalidateQueries();
+          await refreshLiquidityState();
           setToken0Amount("");
           setToken1Amount("");
         }
@@ -465,7 +512,16 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
-        toast.error("Something went wrong. Please try again.");
+        if (
+          /no viable zap-in route/i.test(msg) ||
+          /route unavailable/i.test(msg)
+        ) {
+          toast.error(
+            "No viable zap-in route for this amount. Reduce amount or use balanced mode.",
+          );
+        } else {
+          toast.error("Something went wrong. Please try again.");
+        }
       }
     } finally {
       setIsSubmitting(false);
@@ -774,20 +830,27 @@ export function AddLiquidityForm({ pool }: AddLiquidityFormProps) {
         {!address ? (
           <ConnectButton size="lg" text="Connect Wallet" fullWidth />
         ) : (
-          <Button
-            size="lg"
-            className="w-full"
-            disabled={buttonState.disabled}
-            onClick={handleAction}
-          >
-            {buttonState.text}
-          </Button>
+          <>
+            <Button
+              size="lg"
+              className="w-full"
+              disabled={buttonState.disabled}
+              onClick={handleAction}
+            >
+              {buttonState.text}
+            </Button>
+            {mode === "single" && zapBuildError && (
+              <p className="text-xs leading-5 mt-2 text-center text-muted-foreground">
+                {zapBuildError}
+              </p>
+            )}
+          </>
         )}
 
         {/* Footer links */}
         <div className="mt-3 flex items-center justify-between">
           <a
-            href={`https://explorer.celo.org/mainnet/address/${pool.poolAddr}`}
+            href={`${explorerUrl}/address/${pool.poolAddr}`}
             target="_blank"
             rel="noopener noreferrer"
             className="gap-1 flex items-center text-[11px] text-muted-foreground transition-colors hover:text-foreground"

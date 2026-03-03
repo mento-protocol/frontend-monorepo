@@ -9,7 +9,7 @@ import {
 import { useExplorerUrl, shortenAddress } from "@repo/web3";
 import type { PoolDisplay } from "@repo/web3";
 import { Info, ExternalLink } from "lucide-react";
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState } from "react";
 
 interface PoolAddressPopoverProps {
   pool: PoolDisplay;
@@ -53,61 +53,22 @@ function AddressRow({ label, address, explorerUrl }: AddressRowProps) {
 export function PoolAddressPopover({ pool }: PoolAddressPopoverProps) {
   const explorerUrl = useExplorerUrl();
   const [open, setOpen] = useState(false);
-  const closeTimer = useRef<ReturnType<typeof setTimeout>>(null);
-
-  const handleOpen = useCallback(() => {
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    setOpen(true);
-  }, []);
-
-  const handleClose = useCallback(() => {
-    closeTimer.current = setTimeout(() => setOpen(false), 300);
-  }, []);
-
-  const handleOpenChange = useCallback(
-    (nextOpen: boolean) => {
-      if (nextOpen) {
-        handleOpen();
-      } else {
-        handleClose();
-      }
-    },
-    [handleOpen, handleClose],
-  );
-
-  useEffect(() => {
-    return () => {
-      if (closeTimer.current) {
-        clearTimeout(closeTimer.current);
-        closeTimer.current = null;
-      }
-    };
-  }, []);
 
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
+    <Popover modal={false} open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
           className="p-0 inline-flex cursor-help appearance-none border-0 bg-transparent"
           aria-label="View pool and token addresses"
-          onMouseEnter={handleOpen}
-          onMouseLeave={handleClose}
-          onClick={(e) => e.preventDefault()}
-          onFocus={handleOpen}
-          onBlur={handleClose}
         >
           <Info className="h-4 w-4 text-muted-foreground" />
         </button>
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        sideOffset={0}
+        sideOffset={6}
         className="space-y-2.5 w-fit animate-none [&>span]:hidden"
-        onMouseEnter={handleOpen}
-        onMouseLeave={handleClose}
-        onPointerDownOutside={(e) => e.preventDefault()}
-        onInteractOutside={(e) => e.preventDefault()}
       >
         <AddressRow
           label="Pool"

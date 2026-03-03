@@ -11,12 +11,37 @@ import { showLiquiditySuccessToast } from "../liquidity-toast";
 import type { PoolDisplay, SlippageOption } from "../types";
 import { getTransactionErrorMessage } from "../types";
 
+function getZapInBuildError(message: string): string | null {
+  if (/no viable zap-in route/i.test(message)) {
+    return "No route for this amount. Reduce amount or use balanced mode.";
+  }
+
+  if (
+    /insufficient liquidity|insufficient reserves|insufficient output amount|\bK\b|overflow|underflow/i.test(
+      message,
+    )
+  ) {
+    return "Pool liquidity is insufficient for this single-token amount.";
+  }
+
+  if (/deadline/i.test(message)) {
+    return "Quote expired. Try again.";
+  }
+
+  return null;
+}
+
+function isAllowanceError(message: string): boolean {
+  return /allowance|insufficient allowance|exceeds allowance/i.test(message);
+}
+
 export function useZapInTransaction(pool: PoolDisplay) {
   const chainId = useChainId() as ChainId;
   const publicClient = usePublicClient({ chainId });
   const queryClient = useQueryClient();
 
   const [buildResult, setBuildResult] = useState<ZapInTransaction | null>(null);
+  const [buildError, setBuildError] = useState<string | null>(null);
   const [isBuilding, setIsBuilding] = useState(false);
   const [txHash, setTxHash] = useState<Address | undefined>();
   const [isConfirming, setIsConfirming] = useState(false);
@@ -54,12 +79,7 @@ export function useZapInTransaction(pool: PoolDisplay) {
           queryClient.invalidateQueries({
             queryKey: ["pools-list", chainId],
           });
-          queryClient.invalidateQueries({
-            predicate: (query) =>
-              JSON.stringify(query.queryKey)
-                .toLowerCase()
-                .includes("balanceof"),
-          });
+          queryClient.invalidateQueries({ queryKey: ["readContract"] });
         } else {
           toast.error(
             "Zap-in transaction reverted on-chain. Try increasing slippage or reducing the amount.",
@@ -82,6 +102,7 @@ export function useZapInTransaction(pool: PoolDisplay) {
       slippage: SlippageOption,
     ): Promise<ZapInTransaction | null> => {
       setIsBuilding(true);
+      setBuildError(null);
       try {
         const sdk = await getMentoSdk(chainId);
 
@@ -99,9 +120,38 @@ export function useZapInTransaction(pool: PoolDisplay) {
           { slippageTolerance: slippage, deadline },
         );
 
+        try {
+          await publicClient.estimateGas({
+            account: recipient,
+            to: result.zapIn.params.to as Address,
+            data: result.zapIn.params.data as Hex,
+            value: BigInt(result.zapIn.params.value || 0),
+          });
+        } catch (estimateErr) {
+          const estimateMessage =
+            estimateErr instanceof Error
+              ? estimateErr.message
+              : String(estimateErr);
+          const parsedError = getZapInBuildError(estimateMessage);
+
+          // Allow pre-approval builds to proceed even though the zap call itself
+          // may fail simulation due missing allowance.
+          if (!(result.approval && isAllowanceError(estimateMessage))) {
+            setBuildError(parsedError || "Route unavailable for this amount.");
+            setBuildResult(null);
+            return null;
+          }
+        }
+
         setBuildResult(result);
+        setBuildError(null);
         return result;
       } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const parsedError = getZapInBuildError(message);
+        setBuildError(
+          parsedError || "Unable to prepare single-token liquidity right now.",
+        );
         logger.error("Failed to build zap-in transaction:", err);
         setBuildResult(null);
         return null;
@@ -140,6 +190,7 @@ export function useZapInTransaction(pool: PoolDisplay) {
 
   const reset = useCallback(() => {
     setBuildResult(null);
+    setBuildError(null);
     setTxHash(undefined);
     setIsConfirming(false);
     setIsConfirmed(false);
@@ -150,6 +201,7 @@ export function useZapInTransaction(pool: PoolDisplay) {
   return {
     buildTransaction,
     buildResult,
+    buildError,
     isBuilding,
     sendZapIn,
     isSending,
