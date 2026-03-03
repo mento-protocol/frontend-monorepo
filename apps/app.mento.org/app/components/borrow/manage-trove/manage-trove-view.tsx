@@ -137,7 +137,10 @@ export function ManageTroveView({ troveId }: ManageTroveViewProps) {
       </Button>
 
       {/* Summary card — compact overview */}
-      <Card>
+      <Card className="relative">
+        <div className="top-4 right-4 absolute">
+          <RiskBadge risk={loanDetails?.liquidationRisk ?? null} />
+        </div>
         <CardHeader className="pb-3">
           <div className="gap-1.5 flex items-center">
             <CardTitle className="shrink-0">Trove</CardTitle>
@@ -174,12 +177,7 @@ export function ManageTroveView({ troveId }: ManageTroveViewProps) {
               <Metric label="Interest Rate">
                 {formatInterestRate(troveData.annualInterestRate)}
               </Metric>
-              <Metric label="LTV">
-                <span className="gap-1.5 flex items-center">
-                  {formatLtv(loanDetails?.ltv ?? null)}
-                  <RiskBadge risk={loanDetails?.liquidationRisk ?? null} />
-                </span>
-              </Metric>
+              <Metric label="LTV">{formatLtv(loanDetails?.ltv ?? null)}</Metric>
               <Metric label="Liq. Price">
                 {formatPrice(loanDetails?.liquidationPrice ?? null, debtToken)}
               </Metric>

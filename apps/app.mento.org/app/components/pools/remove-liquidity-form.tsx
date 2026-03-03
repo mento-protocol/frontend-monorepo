@@ -591,22 +591,6 @@ export function RemoveLiquidityForm({ pool }: RemoveLiquidityFormProps) {
                         )}
                       </span>
                     </div>
-                    <div className="my-2 h-px bg-border" />
-                    <p className="text-muted-foreground">Underlying remove:</p>
-                    <div className="pl-2 flex justify-between">
-                      <span className="text-muted-foreground">
-                        Min output ({selectedToken.symbol})
-                      </span>
-                      <span>
-                        {formatTokenAmount(
-                          zapOutBuildResult
-                            ? zapOutBuildResult.zapOut.zapParams.amountOutMinA +
-                                zapOutBuildResult.zapOut.zapParams.amountOutMinB
-                            : undefined,
-                          selectedToken.decimals,
-                        )}
-                      </span>
-                    </div>
                   </div>
                 </div>
               )}

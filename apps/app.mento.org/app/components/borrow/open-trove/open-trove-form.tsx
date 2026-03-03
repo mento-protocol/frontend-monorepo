@@ -4,6 +4,7 @@ import { Button, Card, CardContent } from "@repo/ui";
 import {
   openTroveFormAtom,
   selectedDebtTokenAtom,
+  useLoanDetails,
   useNextOwnerIndex,
   useOpenTrove,
   usePredictUpfrontFee,
@@ -26,6 +27,9 @@ import { DebtInput } from "./debt-input";
 import { InterestRateInput } from "./interest-rate-input";
 import { InterestRateChart } from "./interest-rate-chart";
 import { LoanSummary } from "./loan-summary";
+
+const MAX_RATE_PCT = 15;
+const MAX_RATE = parseUnits("0.15", 18);
 
 function parseRateToBigint(pctString: string): bigint | null {
   const num = Number(pctString);
@@ -66,9 +70,16 @@ export function OpenTroveForm() {
   );
 
   // Upfront fee for maxUpfrontFee calculation
-  const { data: upfrontFee } = usePredictUpfrontFee(
-    debtAmount,
-    rateBigint ?? 0n,
+  const {
+    data: upfrontFee,
+    isError: upfrontFeeError,
+    isFetching: upfrontFeeFetching,
+  } = usePredictUpfrontFee(debtAmount, rateBigint ?? 0n, debtToken.symbol);
+
+  const loanDetails = useLoanDetails(
+    collAmount > 0n ? collAmount : null,
+    debtAmount > 0n ? debtAmount : null,
+    rateBigint,
     debtToken.symbol,
   );
 
@@ -111,18 +122,41 @@ export function OpenTroveForm() {
     systemParams?.minDebt != null &&
     debtAmount < systemParams.minDebt;
 
+  const belowMinRate =
+    rateBigint != null &&
+    systemParams?.minAnnualInterestRate != null &&
+    rateBigint < systemParams.minAnnualInterestRate;
+
+  const aboveMaxRate = rateBigint != null && rateBigint > MAX_RATE;
+
+  const liquidatablePosition =
+    loanDetails?.status === "liquidatable" ||
+    loanDetails?.status === "underwater";
+
   const inputsEmpty =
     formState.collAmount === "" ||
     formState.debtAmount === "" ||
     formState.interestRate === "";
+
+  const needsUpfrontFee = debtAmount > 0n && rateBigint != null;
 
   const buttonDisabledReason = useMemo(() => {
     if (!isConnected) return "Connect wallet";
     if (inputsEmpty) return "Enter all fields";
     if (collAmount === 0n || debtAmount === 0n) return "Enter valid amounts";
     if (rateBigint === null) return "Enter valid interest rate";
+    if (belowMinRate) return "Interest rate below minimum";
+    if (aboveMaxRate) return `Interest rate above ${MAX_RATE_PCT}%`;
     if (insufficientBalance) return "Insufficient USDm balance";
     if (belowMinDebt) return "Below minimum debt";
+    if (liquidatablePosition) return "Position would be liquidatable";
+    if (needsUpfrontFee && upfrontFee == null) {
+      return upfrontFeeError
+        ? "Unable to quote upfront fee"
+        : upfrontFeeFetching
+          ? "Calculating upfront fee..."
+          : "Upfront fee unavailable";
+    }
     if (openTrove.isPending) return "Opening position...";
     return null;
   }, [
@@ -131,24 +165,39 @@ export function OpenTroveForm() {
     collAmount,
     debtAmount,
     rateBigint,
+    belowMinRate,
+    aboveMaxRate,
     insufficientBalance,
     belowMinDebt,
+    liquidatablePosition,
+    needsUpfrontFee,
+    upfrontFee,
+    upfrontFeeError,
+    upfrontFeeFetching,
     openTrove.isPending,
   ]);
 
   const handleSubmit = () => {
-    if (buttonDisabledReason || !address || rateBigint === null) return;
-    if (ownerIndex == null) return;
+    if (
+      buttonDisabledReason ||
+      !address ||
+      rateBigint === null ||
+      upfrontFee == null
+    )
+      return;
+
+    const nowIndex = Date.now();
+    const safeOwnerIndex =
+      ownerIndex != null ? Math.max(ownerIndex + 1, nowIndex) : nowIndex;
 
     // Add 5% buffer to predicted fee for maxUpfrontFee
-    const maxUpfrontFee =
-      upfrontFee != null ? upfrontFee + upfrontFee / 20n : debtAmount / 100n; // 1% fallback
+    const maxUpfrontFee = upfrontFee + upfrontFee / 20n;
 
     openTrove.mutate({
       symbol: debtToken.symbol,
       params: {
         owner: address,
-        ownerIndex,
+        ownerIndex: safeOwnerIndex,
         collAmount,
         boldAmount: debtAmount,
         annualInterestRate: rateBigint,

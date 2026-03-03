@@ -61,8 +61,19 @@ export function PoolAddressPopover({ pool }: PoolAddressPopoverProps) {
   }, []);
 
   const handleClose = useCallback(() => {
-    closeTimer.current = setTimeout(() => setOpen(false), 150);
+    closeTimer.current = setTimeout(() => setOpen(false), 300);
   }, []);
+
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (nextOpen) {
+        handleOpen();
+      } else {
+        handleClose();
+      }
+    },
+    [handleOpen, handleClose],
+  );
 
   useEffect(() => {
     return () => {
@@ -74,7 +85,7 @@ export function PoolAddressPopover({ pool }: PoolAddressPopoverProps) {
   }, []);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -82,6 +93,7 @@ export function PoolAddressPopover({ pool }: PoolAddressPopoverProps) {
           aria-label="View pool and token addresses"
           onMouseEnter={handleOpen}
           onMouseLeave={handleClose}
+          onClick={(e) => e.preventDefault()}
           onFocus={handleOpen}
           onBlur={handleClose}
         >
@@ -90,7 +102,7 @@ export function PoolAddressPopover({ pool }: PoolAddressPopoverProps) {
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        sideOffset={8}
+        sideOffset={0}
         className="space-y-2.5 w-fit animate-none [&>span]:hidden"
         onMouseEnter={handleOpen}
         onMouseLeave={handleClose}

@@ -1,16 +1,13 @@
 import { toast } from "@repo/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSetAtom } from "jotai";
-import { maxUint256 } from "viem";
 import type { Config } from "wagmi";
 import { getChainId, getPublicClient } from "wagmi/actions";
 import { getBorrowRegistry } from "@mento-protocol/mento-sdk";
 import { resolveAddressesFromRegistry } from "@mento-protocol/mento-sdk/dist/services/borrow/borrowHelpers";
 import { borrowFlowAtom } from "../atoms/flow-atoms";
-import type { CallParams } from "../types";
 import { executeFlow } from "../tx-flows/engine";
 import { buildSpDeposit } from "../stability-pool/tx-builders";
-import { useBorrowService } from "./use-borrow-service";
 
 interface SpDepositMutationParams {
   symbol: string;
@@ -21,7 +18,6 @@ interface SpDepositMutationParams {
 }
 
 export function useSpDeposit() {
-  const sdk = useBorrowService();
   const setFlowAtom = useSetAtom(borrowFlowAtom);
   const queryClient = useQueryClient();
 
@@ -33,8 +29,6 @@ export function useSpDeposit() {
       wagmiConfig,
       account,
     }: SpDepositMutationParams) => {
-      if (!sdk) throw new Error("Borrow service not available");
-
       // Resolve Stability Pool address
       const chainId = getChainId(wagmiConfig);
       const publicClient = getPublicClient(wagmiConfig);
@@ -54,19 +48,6 @@ export function useSpDeposit() {
         "Stability Pool Deposit",
         account,
         [
-          {
-            id: "approve-debt",
-            label: "Approve Debt Token",
-            buildTx: async (): Promise<CallParams | null> => {
-              const allowance = await sdk.getDebtAllowance(
-                symbol,
-                account,
-                spAddress,
-              );
-              if (allowance >= amount) return null;
-              return sdk.buildDebtApprovalParams(symbol, spAddress, maxUint256);
-            },
-          },
           {
             id: "sp-deposit",
             label: "Deposit to Stability Pool",

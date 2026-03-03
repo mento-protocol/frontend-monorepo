@@ -86,7 +86,12 @@ export async function executeFlow(
       });
 
       // Send transaction
-      const txHash = await sendSdkTransaction(wagmiConfig, callParams);
+      const txHash = await sendSdkTransaction(
+        wagmiConfig,
+        callParams,
+        undefined,
+        account,
+      );
 
       // Mark step as confirming with txHash
       setFlowAtom((prev) => {
@@ -96,8 +101,11 @@ export async function executeFlow(
         return { ...prev, steps };
       });
 
-      // Wait for confirmation
-      await waitForTx(wagmiConfig, txHash);
+      // Wait for confirmation and surface on-chain reverts explicitly.
+      const receipt = await waitForTx(wagmiConfig, txHash);
+      if (receipt.status === "reverted") {
+        throw new Error("Transaction reverted on-chain");
+      }
       txHashes.push(txHash);
 
       // Mark step as confirmed

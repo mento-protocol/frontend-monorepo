@@ -14,6 +14,7 @@ import { useBorrowService } from "./use-borrow-service";
 interface CloseTroveMutationParams {
   symbol: string;
   troveId: string;
+  debt: bigint;
   wagmiConfig: Config;
   account: string;
 }
@@ -27,6 +28,7 @@ export function useCloseTrove() {
     mutationFn: async ({
       symbol,
       troveId,
+      debt,
       wagmiConfig,
       account,
     }: CloseTroveMutationParams) => {
@@ -55,14 +57,12 @@ export function useCloseTrove() {
             id: "approve-debt",
             label: "Approve Debt Token",
             buildTx: async (): Promise<CallParams | null> => {
-              const troveData = await sdk.getTroveData(symbol, troveId);
-              const debtNeeded = troveData.debt;
               const allowance = await sdk.getDebtAllowance(
                 symbol,
                 account,
                 borrowerOps,
               );
-              if (allowance >= debtNeeded) return null;
+              if (allowance >= debt) return null;
               return sdk.buildDebtApprovalParams(
                 symbol,
                 borrowerOps,

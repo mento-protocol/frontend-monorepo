@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useSetAtom } from "jotai";
-import { Card, CardContent, CardHeader, CardTitle, CardAction } from "@repo/ui";
+import { Card, CardContent, CardHeader, CardTitle } from "@repo/ui";
 import type { BorrowPosition, DebtTokenConfig } from "@repo/web3";
 import {
   useLoanDetails,
@@ -50,9 +50,12 @@ export function PositionCard({ position, debtToken }: PositionCardProps) {
 
   return (
     <Card
-      className="hover:shadow-md cursor-pointer transition-shadow"
+      className="hover:shadow-md relative cursor-pointer transition-shadow"
       onClick={handleClick}
     >
+      <div className="top-4 right-4 absolute">
+        <RiskBadge risk={loanDetails?.liquidationRisk ?? null} />
+      </div>
       <CardHeader>
         <div className="gap-1.5 flex items-center">
           <CardTitle className="shrink-0">Trove</CardTitle>
@@ -72,9 +75,6 @@ export function PositionCard({ position, debtToken }: PositionCardProps) {
             )}
           </button>
         </div>
-        <CardAction>
-          <RiskBadge risk={loanDetails?.liquidationRisk ?? null} />
-        </CardAction>
       </CardHeader>
       <CardContent>
         <div className="gap-x-6 gap-y-3 grid grid-cols-3">

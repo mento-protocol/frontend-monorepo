@@ -51,7 +51,17 @@ export function FlowDialog() {
   }
 
   return (
-    <Dialog open onOpenChange={(open) => !open && setFlow(null)}>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) {
+          setFlow(null);
+          if (allDone) {
+            setBorrowView("dashboard");
+          }
+        }
+      }}
+    >
       <DialogContent showCloseButton>
         <DialogHeader>
           <DialogTitle>{flow.operation}</DialogTitle>
