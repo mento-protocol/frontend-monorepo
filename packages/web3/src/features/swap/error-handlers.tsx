@@ -18,9 +18,12 @@ export const SWAP_ERROR_MESSAGES = {
   TRADING_SUSPENDED: "Trading is suspended",
   TRADING_SUSPENDED_REFERENCE_RATE:
     "Trading is suspended for this reference rate",
+  NO_ROUTE_FOUND: "No route found for tokens",
+  NO_TRADABLE_PATH: "They may not have a tradable path",
   NO_VALID_MEDIAN: "no valid median",
   INSUFFICIENT_RESERVE_BALANCE: "Insufficient balance in reserve",
   INSUFFICIENT_LIQUIDITY: "0xbb55fd27",
+  INSUFFICIENT_LIQUIDITY_NAME: "InsufficientLiquidity",
   FX_MARKET_CLOSED: "FX market is currently closed",
   FX_MARKET_CLOSED_SELECTOR: "0xa407143a",
 } as const;
@@ -56,6 +59,15 @@ export function getToastErrorMessage(
       message: `Trading temporarily paused. Unable to determine accurate ${fromTokenSymbol} to ${toTokenSymbol} exchange rate now. Please try again later.`,
     },
     {
+      condition:
+        swapErrorMessage.includes(SWAP_ERROR_MESSAGES.NO_ROUTE_FOUND) ||
+        swapErrorMessage.includes(SWAP_ERROR_MESSAGES.NO_TRADABLE_PATH),
+      message:
+        fromTokenSymbol && toTokenSymbol
+          ? `No route found for ${fromTokenSymbol} to ${toTokenSymbol}. Please select a different token pair.`
+          : "No route found for the selected token pair.",
+    },
+    {
       condition: swapErrorMessage.includes(
         SWAP_ERROR_MESSAGES.INSUFFICIENT_RESERVE_BALANCE,
       ),
@@ -87,9 +99,11 @@ export function getToastErrorMessage(
           : "The Reserve does not have enough tokens to execute this swap. Please try a smaller amount or try again later.",
     },
     {
-      condition: swapErrorMessage.includes(
-        SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY,
-      ),
+      condition:
+        swapErrorMessage.includes(SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY) ||
+        swapErrorMessage.includes(
+          SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY_NAME,
+        ),
       message: "Insufficient liquidity for this swap. Try a smaller amount.",
     },
     {
@@ -158,9 +172,14 @@ export function shouldRetrySwapError(
   if (errorMessage.includes(SWAP_ERROR_MESSAGES.OVERFLOW_X1Y1)) return false;
   if (errorMessage.includes(SWAP_ERROR_MESSAGES.FIXIDITY_TOO_LARGE))
     return false;
+  if (errorMessage.includes(SWAP_ERROR_MESSAGES.NO_ROUTE_FOUND)) return false;
+  if (errorMessage.includes(SWAP_ERROR_MESSAGES.NO_TRADABLE_PATH)) return false;
   if (errorMessage.includes(SWAP_ERROR_MESSAGES.INSUFFICIENT_RESERVE_BALANCE))
     return false;
-  if (errorMessage.includes(SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY))
+  if (
+    errorMessage.includes(SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY) ||
+    errorMessage.includes(SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY_NAME)
+  )
     return false;
   if (
     errorMessage.includes(SWAP_ERROR_MESSAGES.FX_MARKET_CLOSED) ||

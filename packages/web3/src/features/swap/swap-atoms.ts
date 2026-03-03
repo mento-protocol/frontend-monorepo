@@ -1,4 +1,5 @@
 import { atom } from "jotai";
+import { atomWithStorage } from "jotai/utils";
 import type { SwapFormValues, ToCeloRates } from "./types";
 
 const initialFormValues: SwapFormValues | null = {
@@ -7,12 +8,16 @@ const initialFormValues: SwapFormValues | null = {
   deadlineMinutes: "5",
   isAutoDeadline: true,
 };
+const SWAP_FORM_VALUES_STORAGE_KEY = "swap-form-values-v1";
 
 const initialToCeloRates: ToCeloRates = {};
 const initialShowSlippage = false;
 const initialConfirmView = false;
 
-export const formValuesAtom = atom<SwapFormValues | null>(initialFormValues);
+export const formValuesAtom = atomWithStorage<SwapFormValues | null>(
+  SWAP_FORM_VALUES_STORAGE_KEY,
+  initialFormValues,
+);
 export const toCeloRatesAtom = atom<ToCeloRates>(initialToCeloRates);
 export const showSlippageAtom = atom<boolean>(initialShowSlippage);
 export const confirmViewAtom = atom<boolean>(initialConfirmView);

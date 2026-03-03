@@ -27,8 +27,8 @@ export function SwapConfirm() {
   const amount = String(formValues?.amount || "");
   const tokenInSymbol = formValues?.tokenInSymbol || TokenSymbol.USDm;
   const tokenOutSymbol = formValues?.tokenOutSymbol || TokenSymbol.CELO;
-  const slippage = String(formValues?.slippage || "0.5");
-  const deadlineMinutes = String(formValues?.deadlineMinutes || "20");
+  const slippage = String(formValues?.slippage || "0.3");
+  const deadlineMinutes = String(formValues?.deadlineMinutes || "5");
 
   const { data: balancesFromHook } = useAccountBalances({ address, chainId });
   const { allTokenOptions } = useTokenOptions(undefined, balancesFromHook);

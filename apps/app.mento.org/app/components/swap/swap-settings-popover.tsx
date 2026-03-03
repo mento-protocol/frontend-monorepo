@@ -18,9 +18,9 @@ const DEFAULT_SLIPPAGE = "0.3";
 const DEFAULT_DEADLINE = "5";
 
 const MIN_SLIPPAGE = 0.1;
-const MAX_SLIPPAGE = 1.0;
+const MAX_SLIPPAGE = 20.0;
 const MIN_DEADLINE = 1;
-const MAX_DEADLINE = 20;
+const MAX_DEADLINE = 180;
 
 export function SwapSettingsPopover() {
   const [formValues, setFormValues] = useAtom(formValuesAtom);
@@ -189,7 +189,7 @@ export function SwapSettingsPopover() {
                 onChange={handleSlippageChange}
                 onKeyDown={handleSlippageKeyDown}
                 onBlur={handleSlippageBlur}
-                maxLength={4}
+                maxLength={5}
                 className="h-7 w-16 pr-5 text-xs text-right text-foreground"
                 placeholder="0.3"
               />

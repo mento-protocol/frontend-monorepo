@@ -11,7 +11,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
 import { useAtom, useSetAtom } from "jotai";
 import { useEffect } from "react";
-import type { Address } from "viem";
+import type { Address, Hex } from "viem";
 import {
   usePublicClient,
   useSendTransaction,
@@ -111,6 +111,40 @@ export function useSwapTransaction(
         throw new Error("Chain ID is undefined");
       }
       validateAddress(swapDetails.params.to, "swap transaction");
+
+      // Preflight estimate to surface revert reasons in-app before wallet submit.
+      try {
+        await publicClient.estimateGas({
+          account: accountAddress,
+          to: swapDetails.params.to as Address,
+          data: swapDetails.params.data as Hex,
+          value: BigInt(swapDetails.params.value || 0),
+        });
+      } catch (estimateError) {
+        const estimateMessage =
+          estimateError instanceof Error
+            ? estimateError.message
+            : String(estimateError);
+
+        if (
+          estimateMessage.includes("0xbb55fd27") ||
+          /insufficient liquidity/i.test(estimateMessage)
+        ) {
+          throw new Error(
+            "Insufficient liquidity for this swap. Try a smaller amount.",
+          );
+        }
+
+        if (
+          estimateMessage.includes("No route found for tokens") ||
+          estimateMessage.includes("tradable path")
+        ) {
+          throw new Error("No route found for this token pair.");
+        }
+
+        throw estimateError;
+      }
+
       const txHash = await sendTransactionAsync({
         to: swapDetails.params.to as Address,
         data: swapDetails.params.data as `0x${string}`,
@@ -140,7 +174,13 @@ export function useSwapTransaction(
   useEffect(() => {
     if (isSwapTxConfirmed) {
       if (swapTxReceipt?.status !== "success") {
-        throw new Error("Transaction failed");
+        logger.error("Swap transaction reverted on-chain", {
+          hash: swapTxHash,
+          receiptStatus: swapTxReceipt?.status,
+        });
+        toast.error("Swap transaction failed on-chain.");
+        setConfirmView(false);
+        return;
       }
 
       logger.info("Swap transaction confirmed successfully", {
@@ -272,6 +312,11 @@ function getSwapTransactionErrorMessage(error: Error | string): string {
       return "Swap transaction rejected by user.";
     case errorMessage.includes("0xbb55fd27"):
       return "Insufficient liquidity for this swap. Try a smaller amount.";
+    case errorMessage.includes("No route found for tokens") ||
+      errorMessage.includes("tradable path"):
+      return "No route found for the selected token pair.";
+    case errorMessage.includes("Slippage tolerance"):
+      return "Slippage exceeds the maximum supported value.";
     case errorMessage.includes("insufficient funds"):
       return "Insufficient funds for transaction.";
     case errorMessage.includes("Transaction failed"):

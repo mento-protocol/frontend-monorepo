@@ -39,7 +39,7 @@ export function useGasEstimation({
   address,
   chainId,
   slippage,
-  deadlineMinutes = "20",
+  deadlineMinutes = "5",
   skipApprove,
   enabled = true,
 }: GasEstimationParams) {
