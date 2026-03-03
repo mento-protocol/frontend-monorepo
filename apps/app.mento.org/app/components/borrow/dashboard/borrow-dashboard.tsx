@@ -6,20 +6,20 @@ import {
   useUserTroves,
   useSurplusCollateral,
   useClaimCollateral,
-  useStabilityPool,
   selectedDebtTokenAtom,
   formatCollateralAmount,
 } from "@repo/web3";
 import { useAccount, useConfig } from "@repo/web3/wagmi";
 import { PositionCard } from "./position-card";
-import { StabilityPoolCard } from "./stability-pool-card";
 import { borrowViewAtom } from "../atoms/borrow-navigation";
+import { activeTabAtom } from "@/atoms/navigation";
 
 export function BorrowDashboard() {
   const { address, isConnected } = useAccount();
   const wagmiConfig = useConfig();
   const debtToken = useAtomValue(selectedDebtTokenAtom);
   const setBorrowView = useSetAtom(borrowViewAtom);
+  const setActiveTab = useSetAtom(activeTabAtom);
 
   const {
     data: troves,
@@ -30,21 +30,16 @@ export function BorrowDashboard() {
 
   const { data: surplusAmount } = useSurplusCollateral(debtToken.symbol);
   const claimCollateral = useClaimCollateral();
-  const { data: spPosition, isLoading: spLoading } = useStabilityPool(
-    debtToken.symbol,
-  );
 
-  const isLoading = trovesLoading || spLoading;
   const hasTroves = troves && troves.length > 0;
   const hasSurplus = surplusAmount != null && surplusAmount > 0n;
-  const hasSpDeposit = spPosition != null && spPosition.deposit > 0n;
-  const hasAnyPosition = hasTroves || hasSurplus || hasSpDeposit;
+  const hasAnyPosition = hasTroves || hasSurplus;
 
   if (!isConnected) {
     return <NotConnectedState />;
   }
 
-  if (isLoading) {
+  if (trovesLoading) {
     return <LoadingState />;
   }
 
@@ -67,7 +62,7 @@ export function BorrowDashboard() {
     return (
       <EmptyState
         onOpenTrove={() => setBorrowView("open-trove")}
-        onEarn={() => setBorrowView("earn")}
+        onEarn={() => setActiveTab("earn")}
       />
     );
   }
@@ -102,9 +97,6 @@ export function BorrowDashboard() {
       {/* Action buttons */}
       <div className="gap-3 flex">
         <Button onClick={() => setBorrowView("open-trove")}>Open Trove</Button>
-        <Button variant="outline" onClick={() => setBorrowView("earn")}>
-          Earn
-        </Button>
       </div>
 
       {/* Position cards */}
@@ -117,9 +109,6 @@ export function BorrowDashboard() {
               debtToken={debtToken}
             />
           ))}
-        {hasSpDeposit && (
-          <StabilityPoolCard position={spPosition} debtToken={debtToken} />
-        )}
       </div>
     </div>
   );

@@ -26,7 +26,6 @@ export type BorrowView =
   | "dashboard"
   | "open-trove"
   | { view: "manage-trove"; troveId: string }
-  | "earn"
   | "redeem";
 
 export interface StabilityPoolPosition {

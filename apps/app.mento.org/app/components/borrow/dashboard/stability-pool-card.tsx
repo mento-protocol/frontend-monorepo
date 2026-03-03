@@ -4,7 +4,7 @@ import { useSetAtom } from "jotai";
 import { Card, CardContent, CardHeader, CardTitle, Badge } from "@repo/ui";
 import type { DebtTokenConfig, StabilityPoolPosition } from "@repo/web3";
 import { formatDebtAmount, formatCollateralAmount } from "@repo/web3";
-import { borrowViewAtom } from "../atoms/borrow-navigation";
+import { activeTabAtom } from "@/atoms/navigation";
 
 interface StabilityPoolCardProps {
   position: StabilityPoolPosition;
@@ -15,7 +15,7 @@ export function StabilityPoolCard({
   position,
   debtToken,
 }: StabilityPoolCardProps) {
-  const setBorrowView = useSetAtom(borrowViewAtom);
+  const setActiveTab = useSetAtom(activeTabAtom);
 
   const hasRewards =
     position.collateralGain > 0n || position.debtTokenGain > 0n;
@@ -23,7 +23,7 @@ export function StabilityPoolCard({
   return (
     <Card
       className="hover:shadow-md relative cursor-pointer transition-shadow"
-      onClick={() => setBorrowView("earn")}
+      onClick={() => setActiveTab("earn")}
     >
       <div className="top-4 right-4 absolute">
         <Badge
