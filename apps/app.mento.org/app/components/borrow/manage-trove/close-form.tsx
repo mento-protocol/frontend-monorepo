@@ -68,6 +68,7 @@ export function CloseForm({ troveId, troveData }: CloseFormProps) {
     closeTrove.mutate({
       symbol: debtToken.symbol,
       troveId,
+      debt: totalDebt,
       wagmiConfig,
       account: address,
     });

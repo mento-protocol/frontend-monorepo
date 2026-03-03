@@ -38,10 +38,10 @@ export function AppLayout({ children }: PropsWithChildren) {
         mobileOffset={{ top: "96px" }}
         style={{ zIndex: 9999 }}
       />
-      <div className="flex h-screen flex-col overflow-hidden">
+      <div className="flex min-h-screen flex-col">
         <Banner />
         <Header />
-        <main className="p-4 pt-6 md:pt-20 relative z-20 flex-1 overflow-hidden">
+        <main className="p-4 pt-6 md:pt-20 relative z-20 flex-1">
           {children}
         </main>
         <Footer />

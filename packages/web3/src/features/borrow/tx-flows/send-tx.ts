@@ -39,12 +39,16 @@ export async function sendSdkTransaction(
 
 /**
  * Waits for a transaction to be mined and returns the receipt.
+ * Uses multiple confirmations to ensure the sequencer has fully processed
+ * the transaction before proceeding (prevents nonce-too-low errors in
+ * multi-step flows on L2s).
  */
 export async function waitForTx(
   wagmiConfig: Config,
   hash: Hex,
+  confirmations: number = 3,
 ): Promise<TransactionReceipt> {
-  return waitForTransactionReceipt(wagmiConfig, { hash });
+  return waitForTransactionReceipt(wagmiConfig, { hash, confirmations });
 }
 
 function normalizeTxError(error: unknown): Error {
