@@ -3,15 +3,52 @@ import { getTokenByAddress } from "@/config/tokens";
 import type { ChainId } from "@/config/chains";
 import { useQuery } from "@tanstack/react-query";
 import { useChainId } from "wagmi";
-import type { Address } from "viem";
+import { formatUnits, type Address } from "viem";
 import type { PoolDisplay, PriceAlignmentStatus } from "../types";
 import { POOL_REFETCH_INTERVAL } from "@/config/constants";
 
+function trimTrailingZeros(value: string): string {
+  return value.replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
+}
+
+function formatCompactWithSuffix(value: number, suffix: "K" | "M"): string {
+  const decimals = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+  return `${trimTrailingZeros(value.toFixed(decimals))}${suffix}`;
+}
+
 function formatCompactNumber(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
-  if (value >= 1) return value.toFixed(0);
-  return value.toFixed(2);
+  if (!Number.isFinite(value) || value <= 0) return "0";
+  if (value >= 1_000_000)
+    return formatCompactWithSuffix(value / 1_000_000, "M");
+  if (value >= 1_000) return formatCompactWithSuffix(value / 1_000, "K");
+  if (value >= 1) {
+    const decimals = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+    return trimTrailingZeros(value.toFixed(decimals));
+  }
+  if (value >= 0.01) return trimTrailingZeros(value.toFixed(2));
+  return "<0.01";
+}
+
+/**
+ * Computes token0 share using bigint arithmetic:
+ * (reserve0 / scaling0) / ((reserve0 / scaling0) + (reserve1 / scaling1))
+ */
+function getToken0Ratio(
+  reserve0: bigint,
+  scaling0: bigint,
+  reserve1: bigint,
+  scaling1: bigint,
+): number {
+  if (reserve0 <= 0n && reserve1 <= 0n) return 0;
+
+  const numerator = reserve0 * scaling1;
+  const denominator = numerator + reserve1 * scaling0;
+  if (denominator === 0n) return 0;
+
+  const PRECISION = 10_000n; // 4 decimals for smooth UI bar updates
+  const scaledRatio = (numerator * PRECISION + denominator / 2n) / denominator;
+  const ratio = Number(scaledRatio) / Number(PRECISION);
+  return Math.max(0, Math.min(1, ratio));
 }
 
 function getPriceAlignmentStatus(
@@ -60,15 +97,21 @@ export function usePoolsList() {
               return null;
             }
 
-            const reserve0Value =
-              Number(details.reserve0) / Number(details.scalingFactor0);
-            const reserve1Value =
-              Number(details.reserve1) / Number(details.scalingFactor1);
+            const reserve0Value = Number(
+              formatUnits(details.reserve0, token0Info.decimals),
+            );
+            const reserve1Value = Number(
+              formatUnits(details.reserve1, token1Info.decimals),
+            );
             const reserve0Formatted = formatCompactNumber(reserve0Value);
             const reserve1Formatted = formatCompactNumber(reserve1Value);
-            const totalReserves = reserve0Value + reserve1Value;
-            const token0Ratio =
-              totalReserves > 0 ? reserve0Value / totalReserves : 0;
+            const token0Ratio = getToken0Ratio(
+              details.reserve0,
+              details.scalingFactor0,
+              details.reserve1,
+              details.scalingFactor1,
+            );
+            const hasLiquidity = details.reserve0 > 0n || details.reserve1 > 0n;
 
             let fees: PoolDisplay["fees"];
             let priceAlignment: PoolDisplay["priceAlignment"];
@@ -154,6 +197,7 @@ export function usePoolsList() {
                 token0: reserve0Formatted,
                 token1: reserve1Formatted,
                 token0Ratio,
+                hasLiquidity,
               },
               fees,
               priceAlignment,

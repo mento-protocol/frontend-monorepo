@@ -9,24 +9,6 @@ interface PoolRowProps {
   onSelect: (pool: PoolDisplay, mode: "deposit" | "manage") => void;
 }
 
-function parseReserveValue(compactValue: string): number {
-  const value = compactValue.trim().toUpperCase();
-  if (!value) return 0;
-
-  if (value.endsWith("M")) {
-    const parsed = Number(value.slice(0, -1));
-    return Number.isFinite(parsed) ? parsed * 1_000_000 : 0;
-  }
-
-  if (value.endsWith("K")) {
-    const parsed = Number(value.slice(0, -1));
-    return Number.isFinite(parsed) ? parsed * 1_000 : 0;
-  }
-
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
 export function PoolRow({ pool, onSelect }: PoolRowProps) {
   const { address } = useAccount();
 
@@ -42,10 +24,10 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
 
   const hasLPTokens = lpBalance !== undefined && lpBalance > 0n;
   const isLegacy = pool.poolType === "Legacy";
-  const hasLiquidity =
-    parseReserveValue(pool.reserves.token0) +
-      parseReserveValue(pool.reserves.token1) >
-    0;
+  const hasLiquidity = pool.reserves.hasLiquidity;
+  const token0Ratio = Math.max(0, Math.min(1, pool.reserves.token0Ratio));
+  const token0Percent = Math.round(token0Ratio * 100);
+  const token1Percent = 100 - token0Percent;
 
   return (
     <div
@@ -126,29 +108,25 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
               <div className="h-2.5 flex w-full overflow-hidden rounded-full">
                 <div
                   className="ease-out bg-primary transition-[width] duration-400"
-                  style={{ width: `${pool.reserves.token0Ratio * 100}%` }}
+                  style={{ width: `${token0Ratio * 100}%` }}
                 />
                 <div
                   className="ease-out bg-primary-border/70 transition-[width] duration-400"
                   style={{
-                    width: `${(1 - pool.reserves.token0Ratio) * 100}%`,
+                    width: `${(1 - token0Ratio) * 100}%`,
                   }}
                 />
               </div>
               <div
                 className="-top-0.5 h-3.5 w-0.5 absolute rounded-sm bg-foreground/70 shadow-[0_0_6px_rgba(255,255,255,0.3)]"
                 style={{
-                  left: `${pool.reserves.token0Ratio * 100}%`,
+                  left: `${token0Ratio * 100}%`,
                   transform: "translateX(-50%)",
                 }}
               />
               <div className="mt-1 font-semibold tracking-wide flex justify-between text-[10px]">
-                <span className="text-primary">
-                  {Math.round(pool.reserves.token0Ratio * 100)}%
-                </span>
-                <span className="text-primary-border">
-                  {Math.round((1 - pool.reserves.token0Ratio) * 100)}%
-                </span>
+                <span className="text-primary">{token0Percent}%</span>
+                <span className="text-primary-border">{token1Percent}%</span>
               </div>
             </div>
           ) : (
