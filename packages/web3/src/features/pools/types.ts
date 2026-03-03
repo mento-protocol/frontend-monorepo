@@ -22,7 +22,7 @@ export interface PoolDisplay {
   reserves: {
     token0: string; // formatted with K/M suffix
     token1: string;
-    token0Ratio: number; // 0-1, token0's share of total reserves (by count)
+    token0Ratio: number; // 0-1, token0's share of total reserves (value-weighted when rate is available)
     hasLiquidity: boolean;
   };
   fees: {

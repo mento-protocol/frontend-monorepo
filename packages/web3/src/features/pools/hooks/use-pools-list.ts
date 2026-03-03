@@ -30,10 +30,10 @@ function formatCompactNumber(value: number): string {
 }
 
 /**
- * Computes token0 share using bigint arithmetic:
+ * Computes token0 share using bigint arithmetic based on token amounts:
  * (reserve0 / scaling0) / ((reserve0 / scaling0) + (reserve1 / scaling1))
  */
-function getToken0Ratio(
+function getToken0AmountRatio(
   reserve0: bigint,
   scaling0: bigint,
   reserve1: bigint,
@@ -47,6 +47,38 @@ function getToken0Ratio(
 
   const PRECISION = 10_000n; // 4 decimals for smooth UI bar updates
   const scaledRatio = (numerator * PRECISION + denominator / 2n) / denominator;
+  const ratio = Number(scaledRatio) / Number(PRECISION);
+  return Math.max(0, Math.min(1, ratio));
+}
+
+/**
+ * Computes token0 share using value-weighted reserves and pool rate.
+ * Assumes reservePriceNum/reservePriceDen represents token1 per token0.
+ *
+ * value0(token1 units) = (reserve0 / scaling0) * (reservePriceNum / reservePriceDen)
+ * value1(token1 units) = (reserve1 / scaling1)
+ */
+function getToken0ValueRatio(
+  reserve0: bigint,
+  scaling0: bigint,
+  reserve1: bigint,
+  scaling1: bigint,
+  reservePriceNum: bigint,
+  reservePriceDen: bigint,
+): number {
+  if (reserve0 <= 0n && reserve1 <= 0n) return 0;
+  if (reservePriceNum <= 0n || reservePriceDen <= 0n) {
+    return getToken0AmountRatio(reserve0, scaling0, reserve1, scaling1);
+  }
+
+  const value0Numerator = reserve0 * scaling1 * reservePriceNum;
+  const value1Numerator = reserve1 * scaling0 * reservePriceDen;
+  const denominator = value0Numerator + value1Numerator;
+  if (denominator === 0n) return 0;
+
+  const PRECISION = 10_000n;
+  const scaledRatio =
+    (value0Numerator * PRECISION + denominator / 2n) / denominator;
   const ratio = Number(scaledRatio) / Number(PRECISION);
   return Math.max(0, Math.min(1, ratio));
 }
@@ -105,12 +137,6 @@ export function usePoolsList() {
             );
             const reserve0Formatted = formatCompactNumber(reserve0Value);
             const reserve1Formatted = formatCompactNumber(reserve1Value);
-            const token0Ratio = getToken0Ratio(
-              details.reserve0,
-              details.scalingFactor0,
-              details.reserve1,
-              details.scalingFactor1,
-            );
             const hasLiquidity = details.reserve0 > 0n || details.reserve1 > 0n;
 
             let fees: PoolDisplay["fees"];
@@ -177,6 +203,23 @@ export function usePoolsList() {
               };
               priceAlignment = { status: "none" };
             }
+
+            const token0Ratio =
+              details.poolType === "FPMM" && details.pricing
+                ? getToken0ValueRatio(
+                    details.reserve0,
+                    details.scalingFactor0,
+                    details.reserve1,
+                    details.scalingFactor1,
+                    details.pricing.reservePriceNum,
+                    details.pricing.reservePriceDen,
+                  )
+                : getToken0AmountRatio(
+                    details.reserve0,
+                    details.scalingFactor0,
+                    details.reserve1,
+                    details.scalingFactor1,
+                  );
 
             const poolDisplay: PoolDisplay = {
               poolAddr: pool.poolAddr,

@@ -1,5 +1,5 @@
-import { atom } from "jotai";
+import { atomWithStorage } from "jotai/utils";
 
 export type AppTab = "swap" | "pool" | "borrow";
 
-export const activeTabAtom = atom<AppTab>("swap");
+export const activeTabAtom = atomWithStorage<AppTab>("active-tab", "swap");
