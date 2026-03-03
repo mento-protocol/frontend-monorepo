@@ -6,11 +6,13 @@ import {
   useUserTroves,
   useSurplusCollateral,
   useClaimCollateral,
+  useStabilityPool,
   selectedDebtTokenAtom,
   formatCollateralAmount,
 } from "@repo/web3";
 import { useAccount, useConfig } from "@repo/web3/wagmi";
 import { PositionCard } from "./position-card";
+import { StabilityPoolCard } from "./stability-pool-card";
 import { borrowViewAtom } from "../atoms/borrow-navigation";
 
 export function BorrowDashboard() {
@@ -28,10 +30,15 @@ export function BorrowDashboard() {
 
   const { data: surplusAmount } = useSurplusCollateral(debtToken.symbol);
   const claimCollateral = useClaimCollateral();
+  const { data: spPosition, isLoading: spLoading } = useStabilityPool(
+    debtToken.symbol,
+  );
 
-  const isLoading = trovesLoading;
+  const isLoading = trovesLoading || spLoading;
   const hasTroves = troves && troves.length > 0;
   const hasSurplus = surplusAmount != null && surplusAmount > 0n;
+  const hasSpDeposit = spPosition != null && spPosition.deposit > 0n;
+  const hasAnyPosition = hasTroves || hasSurplus || hasSpDeposit;
 
   if (!isConnected) {
     return <NotConnectedState />;
@@ -56,7 +63,7 @@ export function BorrowDashboard() {
     );
   }
 
-  if (!hasTroves && !hasSurplus) {
+  if (!hasAnyPosition) {
     return (
       <EmptyState
         onOpenTrove={() => setBorrowView("open-trove")}
@@ -100,18 +107,20 @@ export function BorrowDashboard() {
         </Button>
       </div>
 
-      {/* Trove positions */}
-      {hasTroves && (
-        <div className="gap-4 md:grid-cols-2 grid">
-          {troves.map((position) => (
+      {/* Position cards */}
+      <div className="gap-4 md:grid-cols-2 grid">
+        {hasTroves &&
+          troves.map((position) => (
             <PositionCard
               key={position.troveId}
               position={position}
               debtToken={debtToken}
             />
           ))}
-        </div>
-      )}
+        {hasSpDeposit && (
+          <StabilityPoolCard position={spPosition} debtToken={debtToken} />
+        )}
+      </div>
     </div>
   );
 }
