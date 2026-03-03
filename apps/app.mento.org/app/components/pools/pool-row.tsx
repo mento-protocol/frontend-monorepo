@@ -122,15 +122,34 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
             </span>
           </div>
           {hasLiquidity ? (
-            <div className="h-1.5 flex w-full overflow-hidden rounded-full">
+            <div className="relative">
+              <div className="h-2.5 flex w-full overflow-hidden rounded-full">
+                <div
+                  className="ease-out bg-primary transition-[width] duration-400"
+                  style={{ width: `${pool.reserves.token0Ratio * 100}%` }}
+                />
+                <div
+                  className="ease-out bg-primary-border/70 transition-[width] duration-400"
+                  style={{
+                    width: `${(1 - pool.reserves.token0Ratio) * 100}%`,
+                  }}
+                />
+              </div>
               <div
-                className="bg-primary"
-                style={{ width: `${pool.reserves.token0Ratio * 100}%` }}
+                className="-top-0.5 h-3.5 w-0.5 absolute rounded-sm bg-foreground/70 shadow-[0_0_6px_rgba(255,255,255,0.3)]"
+                style={{
+                  left: `${pool.reserves.token0Ratio * 100}%`,
+                  transform: "translateX(-50%)",
+                }}
               />
-              <div
-                className="bg-primary/30"
-                style={{ width: `${(1 - pool.reserves.token0Ratio) * 100}%` }}
-              />
+              <div className="mt-1 font-semibold tracking-wide flex justify-between text-[10px]">
+                <span className="text-primary">
+                  {Math.round(pool.reserves.token0Ratio * 100)}%
+                </span>
+                <span className="text-primary-border">
+                  {Math.round((1 - pool.reserves.token0Ratio) * 100)}%
+                </span>
+              </div>
             </div>
           ) : (
             <div className="gap-1 flex flex-col">

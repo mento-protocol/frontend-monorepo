@@ -11,6 +11,22 @@ import { showLiquiditySuccessToast } from "../liquidity-toast";
 import type { PoolDisplay, SlippageOption } from "../types";
 import { getTransactionErrorMessage } from "../types";
 
+function getZapOutBuildError(message: string): string {
+  if (/no viable zap-out route|route not found|no route/i.test(message)) {
+    return "No route for this amount. Reduce amount or use balanced mode.";
+  }
+
+  if (
+    /execution reverted|call execution error|insufficient liquidity|insufficient reserves|insufficient output amount|bb55fd27|insufficientliquidity/i.test(
+      message,
+    )
+  ) {
+    return "No viable zap-out route for this amount. Reduce amount or use balanced mode.";
+  }
+
+  return "Unable to prepare single-token removal right now.";
+}
+
 export function useZapOutTransaction(pool: PoolDisplay) {
   const chainId = useChainId() as ChainId;
   const publicClient = usePublicClient({ chainId });
@@ -110,13 +126,7 @@ export function useZapOutTransaction(pool: PoolDisplay) {
         return result;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        if (/no viable zap-out route/i.test(message)) {
-          setBuildError(
-            "No route for this amount. Reduce amount or use balanced mode.",
-          );
-        } else {
-          setBuildError(null);
-        }
+        setBuildError(getZapOutBuildError(message));
         logger.error("Failed to build zap-out transaction:", err);
         setBuildResult(null);
         return null;

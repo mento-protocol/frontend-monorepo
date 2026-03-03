@@ -156,11 +156,15 @@ export async function executeLiquidityFlow(
 
       const friendlyMessage = /reverted/i.test(rawMessage)
         ? "Transaction was reverted. Please check your inputs and try again."
-        : /insufficient\s+funds/i.test(rawMessage)
-          ? "Insufficient funds to complete this transaction."
-          : /nonce/i.test(rawMessage)
-            ? "Transaction conflict. Please try again."
-            : "Something went wrong. Please try again.";
+        : /no viable zap-(in|out) route|no route for this amount|route unavailable|unable to prepare single-token/i.test(
+              rawMessage,
+            )
+          ? "No viable route for this amount. Reduce amount or use balanced mode."
+          : /insufficient\s+funds/i.test(rawMessage)
+            ? "Insufficient funds to complete this transaction."
+            : /nonce/i.test(rawMessage)
+              ? "Transaction conflict. Please try again."
+              : "Something went wrong. Please try again.";
 
       // Mark step as error and stop
       setFlowAtom((prev) => {

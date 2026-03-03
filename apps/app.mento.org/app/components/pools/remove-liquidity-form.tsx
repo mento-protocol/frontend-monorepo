@@ -78,6 +78,8 @@ export function RemoveLiquidityForm({
   const [receiveToken, setReceiveToken] = useState<string>(pool.token0.address);
   const [slippage, setSlippage] = useState<SlippageOption>(0.3);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [zapBuildStateKey, setZapBuildStateKey] = useState<string | null>(null);
+  const [zapBuildReadyKey, setZapBuildReadyKey] = useState<string | null>(null);
 
   const selectedToken =
     receiveToken === pool.token0.address ? pool.token0 : pool.token1;
@@ -104,6 +106,10 @@ export function RemoveLiquidityForm({
 
   const lpAmountWei = tryParseUnits(lpAmount, 18);
   const hasAmount = lpAmountWei !== null && lpAmountWei > 0n;
+  const currentZapBuildKey =
+    mode === "single" && lpAmountWei !== null && lpAmountWei > 0n
+      ? `${receiveToken.toLowerCase()}:${lpAmountWei.toString()}:${slippage}`
+      : null;
   const insufficientLp =
     lpAmountWei !== null && lpBalance !== undefined && lpAmountWei > lpBalance;
 
@@ -154,7 +160,7 @@ export function RemoveLiquidityForm({
     hasAmount,
   ]);
 
-  // Build zap-out transaction when quote arrives
+  // Build zap-out transaction when quote arrives and keep track of build freshness.
   useEffect(() => {
     if (
       mode !== "single" ||
@@ -162,15 +168,32 @@ export function RemoveLiquidityForm({
       !zapOutQuote ||
       !hasAmount ||
       lpAmountWei === null ||
-      lpAmountWei <= 0n
-    )
+      lpAmountWei <= 0n ||
+      currentZapBuildKey === null
+    ) {
+      setZapBuildStateKey(null);
+      setZapBuildReadyKey(null);
       return;
-    buildZapOutTransaction(
-      receiveToken as Address,
-      lpAmountWei,
-      address,
-      slippage,
-    );
+    }
+
+    let cancelled = false;
+
+    void (async () => {
+      const freshBuild = await buildZapOutTransaction(
+        receiveToken as Address,
+        lpAmountWei,
+        address,
+        slippage,
+      );
+
+      if (cancelled) return;
+      setZapBuildStateKey(currentZapBuildKey);
+      setZapBuildReadyKey(freshBuild ? currentZapBuildKey : null);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     zapOutQuote,
     address,
@@ -179,6 +202,7 @@ export function RemoveLiquidityForm({
     receiveToken,
     mode,
     hasAmount,
+    currentZapBuildKey,
     buildZapOutTransaction,
   ]);
 
@@ -191,10 +215,16 @@ export function RemoveLiquidityForm({
       return { text: "Insufficient LP balance", disabled: true };
 
     if (mode === "single") {
+      if (currentZapBuildKey === null)
+        return { text: "Enter amount", disabled: true };
+      if (zapBuildStateKey !== currentZapBuildKey)
+        return { text: "Preparing...", disabled: true };
       if (zapOutBuildError) {
         return { text: "Route unavailable", disabled: true };
       }
       if (isZapOutBuilding || isZapOutQuoting)
+        return { text: "Preparing...", disabled: true };
+      if (zapBuildReadyKey !== currentZapBuildKey)
         return { text: "Preparing...", disabled: true };
       if (!zapOutBuildResult) return { text: "Preparing...", disabled: true };
       return {
@@ -249,6 +279,15 @@ export function RemoveLiquidityForm({
         const capturedLiquidity = lpAmountWei;
         const capturedReceiveToken = receiveToken;
         const capturedSlippage = slippage;
+        const requiresZapApproval = !!zapOutBuildResult.approval;
+        const prebuiltZapOutParams = zapOutBuildResult.zapOut.params;
+
+        if (
+          currentZapBuildKey === null ||
+          zapBuildReadyKey !== currentZapBuildKey
+        ) {
+          throw new Error("Preparing transaction. Please try again.");
+        }
 
         const steps: LiquidityFlowStepDefinition[] = [];
 
@@ -265,13 +304,22 @@ export function RemoveLiquidityForm({
           id: "zap-out",
           label: `Remove as ${selectedToken.symbol}`,
           buildTx: async () => {
+            if (!requiresZapApproval) {
+              return prebuiltZapOutParams;
+            }
+
             const freshBuild = await buildZapOutTransaction(
               capturedReceiveToken as Address,
               capturedLiquidity,
               address,
               capturedSlippage,
             );
-            if (!freshBuild) throw new Error("Failed to build transaction");
+            if (!freshBuild) {
+              throw new Error(
+                zapOutBuildError ||
+                  "No viable zap-out route for this amount. Reduce amount or use balanced mode.",
+              );
+            }
             return freshBuild.zapOut.params;
           },
         });
@@ -296,6 +344,8 @@ export function RemoveLiquidityForm({
           }
           await refreshLiquidityState();
           setLpAmount("");
+          setZapBuildStateKey(null);
+          setZapBuildReadyKey(null);
         }
       } else if (mode === "balanced" && buildResult) {
         // --- Balanced remove flow ---
