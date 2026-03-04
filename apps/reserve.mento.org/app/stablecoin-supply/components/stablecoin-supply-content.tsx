@@ -37,7 +37,7 @@ export function StablecoinSupplyContent({
               <CoinCardSymbol>
                 {(() => {
                   const chainId = ChainId.Celo;
-                  const tokenAddress = getTokenAddress(token.symbol, chainId);
+                  const tokenAddress = getTokenAddress(chainId, token.symbol);
                   if (!tokenAddress) {
                     throw new Error(
                       `${token.symbol} token address not found on chain ${chainId}`,
