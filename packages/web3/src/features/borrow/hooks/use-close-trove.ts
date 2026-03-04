@@ -5,7 +5,7 @@ import { maxUint256 } from "viem";
 import type { Config } from "wagmi";
 import { getChainId, getPublicClient } from "wagmi/actions";
 import { getBorrowRegistry } from "@mento-protocol/mento-sdk";
-import { resolveAddressesFromRegistry } from "@mento-protocol/mento-sdk/dist/services/borrow/borrowHelpers";
+import { resolveAddressesFromRegistry } from "@mento-protocol/mento-sdk";
 import { borrowFlowAtom } from "../atoms/flow-atoms";
 import type { CallParams } from "../types";
 import { executeFlow } from "../tx-flows/engine";

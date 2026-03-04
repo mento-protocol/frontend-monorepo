@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { getLoanDetails } from "@mento-protocol/mento-sdk/dist/services/borrow/borrowMath";
+import { getLoanDetails } from "@mento-protocol/mento-sdk";
 import type { LoanDetails } from "../types";
 import { useCollateralPrice } from "./use-collateral-price";
 import { useSystemParams } from "./use-system-params";

@@ -1,6 +1,8 @@
 import { toast } from "@repo/ui";
-import { getBorrowRegistry } from "@mento-protocol/mento-sdk";
-import { resolveAddressesFromRegistry } from "@mento-protocol/mento-sdk/dist/services/borrow/borrowHelpers";
+import {
+  getBorrowRegistry,
+  resolveAddressesFromRegistry,
+} from "@mento-protocol/mento-sdk";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSetAtom } from "jotai";
 import { erc20Abi, type Address } from "viem";

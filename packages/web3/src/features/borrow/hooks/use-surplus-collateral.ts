@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { getBorrowRegistry } from "@mento-protocol/mento-sdk";
-import { resolveAddressesFromRegistry } from "@mento-protocol/mento-sdk/dist/services/borrow/borrowHelpers";
+import {
+  getBorrowRegistry,
+  resolveAddressesFromRegistry,
+} from "@mento-protocol/mento-sdk";
 import { useAccount, useChainId, usePublicClient } from "wagmi";
 import type { Address } from "viem";
 
