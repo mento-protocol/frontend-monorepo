@@ -9,8 +9,8 @@ import { LP_TOTAL_SUPPLY_HOLDER } from "../types";
 
 export interface ZapInQuoteResult {
   estimatedMinLiquidity: bigint;
-  amountOutMinA: bigint;
-  amountOutMinB: bigint;
+  amountOutFromA: bigint;
+  amountOutFromB: bigint;
   amountAMin: bigint;
   amountBMin: bigint;
   totalSupply: bigint;
@@ -73,8 +73,8 @@ export function useZapInQuote({
 
       return {
         estimatedMinLiquidity: quote.estimatedMinLiquidity,
-        amountOutMinA: quote.amountOutMinA,
-        amountOutMinB: quote.amountOutMinB,
+        amountOutFromA: quote.amountOutFromA,
+        amountOutFromB: quote.amountOutFromB,
         amountAMin: quote.amountAMin,
         amountBMin: quote.amountBMin,
         totalSupply: lpBalance.totalSupply,

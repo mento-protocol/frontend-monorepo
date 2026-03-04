@@ -110,15 +110,15 @@ export function useZapInTransaction(pool: PoolDisplay) {
         const block = await publicClient.getBlock();
         const deadline = block.timestamp + BigInt(20 * 60);
 
-        const result = await sdk.liquidity.buildZapInTransaction(
-          pool.poolAddr,
+        const result = await sdk.liquidity.buildZapInTransaction({
+          poolAddress: pool.poolAddr,
           tokenIn,
           amountIn,
-          0.5, // amountInSplit: fraction of input to swap
+          amountInSplit: 0.5,
           recipient,
-          recipient,
-          { slippageTolerance: slippage, deadline },
-        );
+          owner: recipient,
+          options: { slippageTolerance: slippage, deadline },
+        });
 
         try {
           await publicClient.estimateGas({

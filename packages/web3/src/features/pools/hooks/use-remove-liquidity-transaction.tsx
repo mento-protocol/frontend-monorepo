@@ -53,13 +53,13 @@ export function useRemoveLiquidityTransaction(pool: PoolDisplay) {
         const block = await publicClient.getBlock();
         const deadline = block.timestamp + BigInt(20 * 60);
 
-        const result = await sdk.liquidity.buildRemoveLiquidityTransaction(
-          pool.poolAddr as Address,
+        const result = await sdk.liquidity.buildRemoveLiquidityTransaction({
+          poolAddress: pool.poolAddr as Address,
           liquidity,
           recipient,
           owner,
-          { slippageTolerance: slippage, deadline },
-        );
+          options: { slippageTolerance: slippage, deadline },
+        });
 
         setBuildResult(result);
         return result;
