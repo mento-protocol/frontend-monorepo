@@ -53,9 +53,9 @@ function getToken0AmountRatio(
 
 /**
  * Computes token0 share using value-weighted reserves and pool rate.
- * Assumes reservePriceNum/reservePriceDen represents token1 per token0.
+ * Assumes priceNum/priceDen represents token1 per token0.
  *
- * value0(token1 units) = (reserve0 / scaling0) * (reservePriceNum / reservePriceDen)
+ * value0(token1 units) = (reserve0 / scaling0) * (priceNum / priceDen)
  * value1(token1 units) = (reserve1 / scaling1)
  */
 function getToken0ValueRatio(
@@ -63,16 +63,16 @@ function getToken0ValueRatio(
   scaling0: bigint,
   reserve1: bigint,
   scaling1: bigint,
-  reservePriceNum: bigint,
-  reservePriceDen: bigint,
+  priceNum: bigint,
+  priceDen: bigint,
 ): number {
   if (reserve0 <= 0n && reserve1 <= 0n) return 0;
-  if (reservePriceNum <= 0n || reservePriceDen <= 0n) {
+  if (priceNum <= 0n || priceDen <= 0n) {
     return getToken0AmountRatio(reserve0, scaling0, reserve1, scaling1);
   }
 
-  const value0Numerator = reserve0 * scaling1 * reservePriceNum;
-  const value1Numerator = reserve1 * scaling0 * reservePriceDen;
+  const value0Numerator = reserve0 * scaling1 * priceNum;
+  const value1Numerator = reserve1 * scaling0 * priceDen;
   const denominator = value0Numerator + value1Numerator;
   if (denominator === 0n) return 0;
 
@@ -211,8 +211,8 @@ export function usePoolsList() {
                     details.scalingFactor0,
                     details.reserve1,
                     details.scalingFactor1,
-                    details.pricing.reservePriceNum,
-                    details.pricing.reservePriceDen,
+                    details.pricing.oraclePriceNum,
+                    details.pricing.oraclePriceDen,
                   )
                 : getToken0AmountRatio(
                     details.reserve0,
