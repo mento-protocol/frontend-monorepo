@@ -101,7 +101,7 @@ export function PoolsView() {
               key={tab.value}
               onClick={() => setFilter(tab.value)}
               className={cn(
-                "md:flex-none px-4 py-2 text-sm font-medium flex-1 border-0 transition-colors outline-none",
+                "md:flex-none px-4 py-2 text-sm font-medium flex-1 cursor-pointer border-0 transition-colors outline-none",
                 filter === tab.value
                   ? "bg-card text-foreground"
                   : "text-muted-foreground hover:text-foreground",
@@ -117,7 +117,7 @@ export function PoolsView() {
             placeholder="Search by name, symbol or pool address"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-9 md:w-64 pl-9 w-full"
+            className="h-9 md:w-96 pl-9 w-full"
           />
         </div>
       </div>

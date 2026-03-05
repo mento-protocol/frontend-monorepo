@@ -10,7 +10,7 @@ interface PoolsTableProps {
 
 function SkeletonRow() {
   return (
-    <div className="gap-4 md:gap-8 px-4 py-4 md:grid md:grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)] md:items-center flex flex-col rounded-lg border border-border bg-card">
+    <div className="gap-4 md:gap-8 px-4 py-4 md:grid md:grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,1fr)] md:items-center flex flex-col rounded-lg border border-border bg-card">
       <div className="gap-3 flex items-center">
         <div className="-space-x-2 flex">
           <Skeleton className="h-8 w-8 rounded-full" />
@@ -22,6 +22,7 @@ function SkeletonRow() {
         </div>
       </div>
       <Skeleton className="h-4 w-36" />
+      <Skeleton className="h-4 w-16" />
       <Skeleton className="h-4 w-16" />
       <div className="gap-2 md:justify-end flex">
         <Skeleton className="h-8 w-16" />
@@ -38,12 +39,13 @@ export function PoolsTable({
   return (
     <div className="min-h-0 flex flex-1 flex-col">
       {/* Header - hidden on mobile */}
-      <div className="gap-8 px-4 py-3 md:grid hidden shrink-0 grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)] rounded-lg border border-border bg-card">
+      <div className="gap-8 px-4 py-3 md:grid hidden shrink-0 grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,1fr)] rounded-lg border border-border bg-card">
         <span className="text-sm font-medium text-muted-foreground">Pool</span>
         <span className="text-sm font-medium text-muted-foreground">
           Reserves
         </span>
         <span className="text-sm font-medium text-muted-foreground">Fees</span>
+        <span className="text-sm font-medium text-muted-foreground">TVL</span>
         <span className="text-sm font-medium text-right text-muted-foreground">
           Actions
         </span>

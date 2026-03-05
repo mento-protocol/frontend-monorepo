@@ -36,7 +36,7 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
         isLegacy && "opacity-60",
       )}
     >
-      <div className="gap-4 md:gap-8 px-4 py-4 md:grid md:grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)] md:items-center flex flex-col">
+      <div className="gap-4 md:gap-8 px-4 py-4 md:grid md:grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,1fr)] md:items-center flex flex-col">
         {/* Pool info + action (mobile: row with action on right) */}
         <div className="gap-3 flex items-center">
           <div className="-space-x-2 flex">
@@ -157,6 +157,21 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
           ) : (
             <span className="text-xs text-muted-foreground">Spread</span>
           )}
+        </div>
+
+        {/* TVL */}
+        <div className="flex flex-col">
+          <span className="text-xs md:hidden text-muted-foreground">TVL</span>
+          <span className="text-sm font-medium font-mono tabular-nums">
+            {pool.tvl !== null
+              ? pool.tvl.toLocaleString(undefined, {
+                  style: "currency",
+                  currency: "USD",
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 0,
+                })
+              : "--"}
+          </span>
         </div>
 
         {/* Actions - desktop only */}
