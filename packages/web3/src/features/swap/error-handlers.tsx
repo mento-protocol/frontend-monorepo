@@ -24,6 +24,7 @@ export const SWAP_ERROR_MESSAGES = {
   INSUFFICIENT_RESERVE_BALANCE: "Insufficient balance in reserve",
   INSUFFICIENT_LIQUIDITY: "0xbb55fd27",
   INSUFFICIENT_LIQUIDITY_NAME: "InsufficientLiquidity",
+  INSUFFICIENT_LIQUIDITY_TEXT: "Insufficient liquidity",
   FX_MARKET_CLOSED: "FX market is currently closed",
   FX_MARKET_CLOSED_SELECTOR: "0xa407143a",
 } as const;
@@ -102,6 +103,9 @@ export function getToastErrorMessage(
       condition:
         swapErrorMessage.includes(SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY) ||
         swapErrorMessage.includes(
+          SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY_TEXT,
+        ) ||
+        swapErrorMessage.includes(
           SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY_NAME,
         ),
       message: "Insufficient liquidity for this swap. Try a smaller amount.",
@@ -159,6 +163,21 @@ export function extractFullErrorString(error: unknown): string {
     .join(" ");
 }
 
+export function isInsufficientLiquidityError(error: unknown): boolean {
+  const errorMessage = extractFullErrorString(error).toLowerCase();
+  return (
+    errorMessage.includes(
+      SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY.toLowerCase(),
+    ) ||
+    errorMessage.includes(
+      SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY_NAME.toLowerCase(),
+    ) ||
+    errorMessage.includes(
+      SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY_TEXT.toLowerCase(),
+    )
+  );
+}
+
 /**
  * Determines if an error should be retried in React Query
  */
@@ -176,11 +195,7 @@ export function shouldRetrySwapError(
   if (errorMessage.includes(SWAP_ERROR_MESSAGES.NO_TRADABLE_PATH)) return false;
   if (errorMessage.includes(SWAP_ERROR_MESSAGES.INSUFFICIENT_RESERVE_BALANCE))
     return false;
-  if (
-    errorMessage.includes(SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY) ||
-    errorMessage.includes(SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY_NAME)
-  )
-    return false;
+  if (isInsufficientLiquidityError(errorMessage)) return false;
   if (
     errorMessage.includes(SWAP_ERROR_MESSAGES.FX_MARKET_CLOSED) ||
     errorMessage.includes("FXMarketClosed") ||

@@ -1,7 +1,8 @@
 import { toast } from "@repo/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { useChainId } from "wagmi";
+import { type Address, type ReadContractReturnType } from "viem";
+import { useChainId, usePublicClient } from "wagmi";
 
 import { SWAP_QUOTE_REFETCH_INTERVAL } from "@/config/constants";
 import { getTokenBySymbol } from "@/config/tokens";
@@ -20,7 +21,15 @@ import {
 import { fromWei } from "@/utils/amount";
 import { useDebounce } from "@/utils/debounce";
 import { logger } from "@/utils/logger";
-import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
+import {
+  ROUTER_ABI,
+  TokenSymbol,
+  type Route,
+  encodeRoutePath,
+  getContractAddress,
+  getTokenAddress,
+  type Mento,
+} from "@mento-protocol/mento-sdk";
 
 const TOAST_THROTTLE_MS = 10_000;
 
@@ -38,6 +47,59 @@ interface ISwapData {
 interface UseSwapQuoteOptions {
   skipDebugLogs?: boolean;
   debounceMs?: number;
+  validatePoolLiquidity?: boolean;
+}
+
+function isSameAddress(addressA: string, addressB: string): boolean {
+  return addressA.toLowerCase() === addressB.toLowerCase();
+}
+
+async function validateRouteLiquidity(params: {
+  mento: Mento;
+  route: Route;
+  amounts: ReadContractReturnType<typeof ROUTER_ABI, "getAmountsOut">;
+  routerRoutes: ReturnType<typeof encodeRoutePath>;
+}) {
+  const { mento, route, amounts, routerRoutes } = params;
+
+  if (route.path.length === 0) return;
+  if (amounts.length !== route.path.length + 1) {
+    throw new Error("Unable to validate swap liquidity.");
+  }
+
+  const poolDetails = await Promise.all(
+    route.path.map((pool) => mento.pools.getPoolDetails(pool.poolAddr)),
+  );
+
+  for (const [hopIndex, pool] of route.path.entries()) {
+    const hopTokenOut = routerRoutes[hopIndex]?.to;
+    if (!hopTokenOut) {
+      throw new Error("Unable to validate swap liquidity.");
+    }
+
+    const details = poolDetails[hopIndex];
+    const hopAmountOut = amounts[hopIndex + 1];
+    if (!details || hopAmountOut == null) {
+      throw new Error("Unable to validate swap liquidity.");
+    }
+
+    const reserveOut = isSameAddress(hopTokenOut, pool.token0)
+      ? details.reserve0
+      : isSameAddress(hopTokenOut, pool.token1)
+        ? details.reserve1
+        : null;
+
+    if (reserveOut == null) {
+      throw new Error("Unable to validate swap liquidity.");
+    }
+
+    // Router swaps require output strictly below available reserve.
+    if (hopAmountOut >= reserveOut) {
+      throw new Error(
+        "Insufficient liquidity for this swap. Try a smaller amount.",
+      );
+    }
+  }
 }
 
 /**
@@ -50,8 +112,13 @@ export function useSwapQuote(
   tokenOutSymbol: TokenSymbol,
   options: UseSwapQuoteOptions = {},
 ) {
-  const { skipDebugLogs = false, debounceMs = 350 } = options;
+  const {
+    skipDebugLogs = false,
+    debounceMs = 350,
+    validatePoolLiquidity = true,
+  } = options;
   const chainId = useChainId();
+  const publicClient = usePublicClient({ chainId });
   const queryClient = useQueryClient();
   const debouncedAmount = useDebounce(amount, debounceMs);
 
@@ -76,10 +143,17 @@ export function useSwapQuote(
       fromToken,
       toToken,
     );
-    const isQueryEnabled = isValidAmount && isValidPair;
+    const isQueryEnabled = isValidAmount && isValidPair && !!publicClient;
 
     return { isValidAmount, isValidTokenPair: isValidPair, isQueryEnabled };
-  }, [debouncedAmount, tokenInSymbol, tokenOutSymbol, fromToken, toToken]);
+  }, [
+    debouncedAmount,
+    tokenInSymbol,
+    tokenOutSymbol,
+    fromToken,
+    toToken,
+    publicClient,
+  ]);
 
   // Memoize query key to improve cache efficiency
   const queryKey = useMemo(
@@ -89,8 +163,15 @@ export function useSwapQuote(
       tokenInSymbol,
       tokenOutSymbol,
       chainId,
+      validatePoolLiquidity,
     ],
-    [debouncedAmount, tokenInSymbol, tokenOutSymbol, chainId],
+    [
+      debouncedAmount,
+      tokenInSymbol,
+      tokenOutSymbol,
+      chainId,
+      validatePoolLiquidity,
+    ],
   );
 
   // Memoize swap intent for logging
@@ -139,6 +220,31 @@ export function useSwapQuote(
       getTradablePairForTokens(chainId, tokenInSymbol, tokenOutSymbol),
     ]);
 
+    if (!publicClient) return null;
+
+    const routerRoutes = encodeRoutePath(
+      route.path,
+      fromTokenAddr as Address,
+      toTokenAddr as Address,
+    );
+    const routerAddress = getContractAddress(chainId, "Router");
+
+    const amounts = await publicClient.readContract({
+      address: routerAddress as Address,
+      abi: ROUTER_ABI,
+      functionName: "getAmountsOut",
+      args: [amountBigInt, routerRoutes],
+    });
+
+    if (validatePoolLiquidity) {
+      await validateRouteLiquidity({
+        mento,
+        route,
+        amounts,
+        routerRoutes,
+      });
+    }
+
     // Debug output for swap route (skip for refetches)
     if (!skipDebugLogs) {
       const existingData = queryClient.getQueryData(queryKey);
@@ -155,12 +261,10 @@ export function useSwapQuote(
       }
     }
 
-    const quoteWei = await mento.quotes.getAmountOut(
-      fromTokenAddr,
-      toTokenAddr,
-      amountBigInt,
-      route,
-    );
+    const quoteWei = amounts.at(-1);
+    if (quoteWei == null) {
+      throw new Error("Unable to fetch swap amount");
+    }
 
     const quote = fromWei(quoteWei.toString(), quoteDecimals ?? 18);
     const rate = calcExchangeRate(
@@ -200,6 +304,8 @@ export function useSwapQuote(
     queryKey,
     fromToken,
     toToken,
+    publicClient,
+    validatePoolLiquidity,
   ]);
 
   const { isFetching, isError, error, data, refetch } = useQuery<
@@ -289,6 +395,7 @@ export function useTokenUSDValue(
     TokenSymbol.USDm,
     {
       skipDebugLogs: true,
+      validatePoolLiquidity: false,
     },
   );
 

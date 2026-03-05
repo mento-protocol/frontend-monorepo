@@ -883,12 +883,6 @@ export function AddLiquidityForm({
               {pool.fees.protocol.toFixed(2)}%
             </span>
           </div>
-          {mode === "single" && (
-            <div className="text-sm flex justify-between">
-              <span className="text-muted-foreground">Swap included</span>
-              <span className="font-medium font-mono text-amber-600">Yes</span>
-            </div>
-          )}
         </div>
 
         {/* Slippage Tolerance */}

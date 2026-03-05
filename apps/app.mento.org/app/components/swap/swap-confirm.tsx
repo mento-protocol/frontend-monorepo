@@ -5,6 +5,7 @@ import { Button, IconLoading, TokenIcon } from "@repo/ui";
 import {
   formatWithMaxDecimals,
   formValuesAtom,
+  isInsufficientLiquidityError,
   logger,
   useAccountBalances,
   useGasEstimation,
@@ -33,8 +34,15 @@ export function SwapConfirm() {
   const { data: balancesFromHook } = useAccountBalances({ address, chainId });
   const { allTokenOptions } = useTokenOptions(undefined, balancesFromHook);
 
-  const { amountWei, quote, rate, fromTokenUSDValue, toTokenUSDValue } =
-    useOptimizedSwapQuote(amount, tokenInSymbol, tokenOutSymbol);
+  const {
+    amountWei,
+    quote,
+    rate,
+    isError: isQuoteError,
+    quoteErrorMessage,
+    fromTokenUSDValue,
+    toTokenUSDValue,
+  } = useOptimizedSwapQuote(amount, tokenInSymbol, tokenOutSymbol);
 
   // Always direction "in" - selling exact amount of fromToken (swapIn)
   const swapValues = useMemo(() => {
@@ -87,9 +95,7 @@ export function SwapConfirm() {
     skipApprove,
   });
 
-  const isInsufficientLiquidity =
-    gasError instanceof Error &&
-    gasError.message.includes("Insufficient liquidity");
+  const isInsufficientLiquidity = isInsufficientLiquidityError(gasError);
 
   // Calculate sell USD value with fallback
   const sellUSDValue = useMemo(() => {
@@ -246,6 +252,7 @@ export function SwapConfirm() {
           isSwapTxLoading ||
           isSwapTxReceiptLoading ||
           isGasEstimating ||
+          isQuoteError ||
           isInsufficientLiquidity ||
           !rate ||
           !amountWei ||
@@ -255,6 +262,12 @@ export function SwapConfirm() {
       >
         {isSwapTxLoading || isSwapTxReceiptLoading ? (
           <IconLoading />
+        ) : isQuoteError ? (
+          quoteErrorMessage?.includes("FX market") ? (
+            "FX market is closed"
+          ) : (
+            (quoteErrorMessage ?? "Unable to fetch quote")
+          )
         ) : isInsufficientLiquidity ? (
           "Insufficient liquidity"
         ) : (
