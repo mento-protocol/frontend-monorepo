@@ -744,31 +744,37 @@ export function AddLiquidityForm({
                       setZapAmount("");
                     }}
                   >
-                    <SelectTrigger className="gap-2 p-0 font-medium w-auto border-none bg-transparent shadow-none">
+                    <SelectTrigger className="gap-2 px-3 py-2 font-medium w-auto border border-border bg-transparent shadow-none">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={pool.token0.address}>
-                        <div className="gap-2 flex items-center">
+                      <SelectItem
+                        value={pool.token0.address}
+                        className="py-2.5 pl-3 pr-9"
+                      >
+                        <div className="gap-2.5 flex items-center">
                           <TokenIcon
                             token={{
                               address: pool.token0.address,
                               symbol: pool.token0.symbol,
                             }}
-                            size={20}
+                            size={22}
                             className="rounded-full"
                           />
                           {pool.token0.symbol}
                         </div>
                       </SelectItem>
-                      <SelectItem value={pool.token1.address}>
-                        <div className="gap-2 flex items-center">
+                      <SelectItem
+                        value={pool.token1.address}
+                        className="py-2.5 pl-3 pr-9"
+                      >
+                        <div className="gap-2.5 flex items-center">
                           <TokenIcon
                             token={{
                               address: pool.token1.address,
                               symbol: pool.token1.symbol,
                             }}
-                            size={20}
+                            size={22}
                             className="rounded-full"
                           />
                           {pool.token1.symbol}

@@ -527,56 +527,7 @@ export function RemoveLiquidityForm({
             ))}
           </div>
 
-          {mode === "balanced" ? (
-            <>
-              {/* Preview — balanced: "You will receive" */}
-              {hasAmount && quote && (
-                <div className="pt-4 border-t border-border">
-                  <h3 className="font-medium mb-3 text-sm">You will receive</h3>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="gap-2 flex items-center">
-                        <TokenIcon
-                          token={{
-                            address: pool.token0.address,
-                            symbol: pool.token0.symbol,
-                          }}
-                          size={24}
-                          className="rounded-full"
-                        />
-                        <span className="text-sm">{pool.token0.symbol}</span>
-                      </div>
-                      <span className="font-medium font-mono">
-                        {formatTokenAmount(
-                          quote?.amount0,
-                          pool.token0.decimals,
-                        )}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="gap-2 flex items-center">
-                        <TokenIcon
-                          token={{
-                            address: pool.token1.address,
-                            symbol: pool.token1.symbol,
-                          }}
-                          size={24}
-                          className="rounded-full"
-                        />
-                        <span className="text-sm">{pool.token1.symbol}</span>
-                      </div>
-                      <span className="font-medium font-mono">
-                        {formatTokenAmount(
-                          quote?.amount1,
-                          pool.token1.decimals,
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </>
-          ) : (
+          {mode === "single" && (
             <>
               {/* Receive as — single token selector */}
               <div className="gap-2 flex flex-col">
@@ -589,7 +540,7 @@ export function RemoveLiquidityForm({
                     className={`gap-2 px-4 py-2.5 text-sm font-medium flex cursor-pointer items-center justify-center rounded-md border ${
                       receiveToken === pool.token0.address
                         ? "border-border bg-background text-foreground"
-                        : "border-transparent bg-transparent text-muted-foreground"
+                        : "border-border bg-transparent text-muted-foreground"
                     }`}
                   >
                     <TokenIcon
@@ -607,7 +558,7 @@ export function RemoveLiquidityForm({
                     className={`gap-2 px-4 py-2.5 text-sm font-medium flex cursor-pointer items-center justify-center rounded-md border ${
                       receiveToken === pool.token1.address
                         ? "border-border bg-background text-foreground"
-                        : "border-transparent bg-transparent text-muted-foreground"
+                        : "border-border bg-transparent text-muted-foreground"
                     }`}
                   >
                     <TokenIcon
@@ -622,28 +573,6 @@ export function RemoveLiquidityForm({
                   </button>
                 </div>
               </div>
-
-              {/* Preview — single token: breakdown */}
-              {hasAmount && zapOutQuote && (
-                <div className="gap-3 p-3 flex flex-col rounded-md border border-border bg-muted/30">
-                  <p className="text-sm font-medium text-foreground">
-                    You will receive
-                  </p>
-                  <div className="space-y-1.5 text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">
-                        Estimated {selectedToken.symbol}
-                      </span>
-                      <span className="font-medium font-mono">
-                        {formatTokenAmount(
-                          zapOutQuote?.estimatedMinTokenOut,
-                          selectedToken.decimals,
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {/* Info text */}
               <p className="text-xs text-muted-foreground">
@@ -680,7 +609,8 @@ export function RemoveLiquidityForm({
                 <span className="font-medium font-mono tabular-nums">
                   {hasAmount && quote
                     ? formatTokenAmount(quote.amount0, pool.token0.decimals)
-                    : "0.0000"}
+                    : "0.0000"}{" "}
+                  {pool.token0.symbol}
                 </span>
               </div>
               <div className="text-sm flex items-center justify-between">
@@ -700,38 +630,36 @@ export function RemoveLiquidityForm({
                 <span className="font-medium font-mono tabular-nums">
                   {hasAmount && quote
                     ? formatTokenAmount(quote.amount1, pool.token1.decimals)
-                    : "0.0000"}
+                    : "0.0000"}{" "}
+                  {pool.token1.symbol}
                 </span>
               </div>
             </>
           ) : (
-            <>
-              <div className="text-sm flex justify-between">
-                <span className="text-muted-foreground">Estimated output</span>
-                <span className="font-medium font-mono">
-                  {hasAmount && zapOutQuote
-                    ? formatTokenAmount(
-                        zapOutQuote.estimatedMinTokenOut,
-                        selectedToken.decimals,
-                      )
-                    : "0.0000"}{" "}
-                  {selectedToken.symbol}
+            <div className="text-sm flex items-center justify-between">
+              <div className="gap-1.5 flex items-center">
+                <TokenIcon
+                  token={{
+                    address: selectedToken.address,
+                    symbol: selectedToken.symbol,
+                  }}
+                  size={18}
+                  className="rounded-full"
+                />
+                <span className="text-muted-foreground">
+                  Receive {selectedToken.symbol}
                 </span>
               </div>
-              <div className="text-sm flex justify-between">
-                <span className="text-muted-foreground">Min received</span>
-                <span className="font-medium font-mono">
-                  {hasAmount && zapOutBuildResult
-                    ? formatTokenAmount(
-                        zapOutBuildResult.zapOut.zapParams.amountOutMinA +
-                          zapOutBuildResult.zapOut.zapParams.amountOutMinB,
-                        selectedToken.decimals,
-                      )
-                    : "0.0000"}{" "}
-                  {selectedToken.symbol}
-                </span>
-              </div>
-            </>
+              <span className="font-medium font-mono tabular-nums">
+                {hasAmount && zapOutQuote
+                  ? formatTokenAmount(
+                      zapOutQuote.estimatedMinTokenOut,
+                      selectedToken.decimals,
+                    )
+                  : "0.0000"}{" "}
+                {selectedToken.symbol}
+              </span>
+            </div>
           )}
           <div className="text-sm flex justify-between">
             <span className="text-muted-foreground">LP fee</span>
