@@ -140,7 +140,7 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
         </div>
 
         {/* Fees */}
-        <div className="flex flex-col">
+        <div className="min-h-14 flex flex-col">
           <span className="text-xs md:hidden text-muted-foreground">Fees</span>
           <span className="text-sm font-medium">
             {pool.fees.total.toFixed(2)}%
@@ -160,7 +160,7 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
         </div>
 
         {/* Actions - desktop only */}
-        <div className="gap-2 md:flex hidden items-center justify-end">
+        <div className="gap-2 md:flex min-h-8 hidden items-center justify-end">
           {pool.poolType === "FPMM" && (
             <Button
               size="sm"
