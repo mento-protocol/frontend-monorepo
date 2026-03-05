@@ -94,13 +94,17 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
         {/* Reserves */}
         <div className="gap-1.5 flex flex-col">
           <div className="text-sm flex justify-between text-muted-foreground">
-            <span>
+            <span className="font-mono tabular-nums">
               {pool.reserves.token0}{" "}
-              <span className="font-semibold">{pool.token0.symbol}</span>
+              <span className="font-semibold font-sans">
+                {pool.token0.symbol}
+              </span>
             </span>
-            <span>
+            <span className="font-mono tabular-nums">
               {pool.reserves.token1}{" "}
-              <span className="font-semibold">{pool.token1.symbol}</span>
+              <span className="font-semibold font-sans">
+                {pool.token1.symbol}
+              </span>
             </span>
           </div>
           {hasLiquidity ? (
@@ -142,15 +146,15 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
         {/* Fees */}
         <div className="min-h-14 flex flex-col">
           <span className="text-xs md:hidden text-muted-foreground">Fees</span>
-          <span className="text-sm font-medium">
+          <span className="text-sm font-medium font-mono tabular-nums">
             {pool.fees.total.toFixed(2)}%
           </span>
           {pool.fees.label === "fee" ? (
             <>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-xs font-mono text-muted-foreground tabular-nums">
                 LP {pool.fees.lp.toFixed(2)}%
               </span>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-xs font-mono text-muted-foreground tabular-nums">
                 Protocol {pool.fees.protocol.toFixed(2)}%
               </span>
             </>
