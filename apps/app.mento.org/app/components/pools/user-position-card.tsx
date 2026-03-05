@@ -1,5 +1,4 @@
 import { TokenIcon } from "@repo/ui";
-import { Plus } from "lucide-react";
 import type { PoolDisplay, UserPosition } from "@repo/web3";
 
 interface UserPositionCardProps {
@@ -56,7 +55,7 @@ export function UserPositionCard({ pool, position }: UserPositionCardProps) {
               Your Position
             </span>
 
-            <div className="gap-4 flex flex-1 items-center justify-center">
+            <div className="flex flex-1 items-center justify-evenly">
               {/* Token 0 */}
               <div className="flex flex-col items-center">
                 <TokenIcon
@@ -83,11 +82,6 @@ export function UserPositionCard({ pool, position }: UserPositionCardProps) {
                   {token0.data.usdValue !== null &&
                     formatUsd(token0.data.usdValue)}
                 </span>
-              </div>
-
-              {/* Arrow */}
-              <div className="p-1.5 flex items-center self-center rounded-full border border-border">
-                <Plus className="h-3.5 w-3.5 text-muted-foreground" />
               </div>
 
               {/* Token 1 */}

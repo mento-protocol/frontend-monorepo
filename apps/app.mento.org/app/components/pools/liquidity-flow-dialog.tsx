@@ -196,6 +196,9 @@ export function LiquidityFlowDialog() {
         className="border-0 bg-card"
         showCloseButton={allDone || errored}
         onPointerDownOutside={(e) => {
+          // Allow clicks on toasts (sonner) to pass through
+          const target = e.target as HTMLElement;
+          if (target?.closest("[data-sonner-toast]")) return;
           if (!allDone && !errored) e.preventDefault();
         }}
         onEscapeKeyDown={(e) => {
