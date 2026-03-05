@@ -44,7 +44,7 @@ export function PoolsTable({
         <span className="text-sm font-medium text-muted-foreground">
           Reserves
         </span>
-        <span className="text-sm font-medium text-muted-foreground">Fees</span>
+        <span className="text-sm font-medium text-muted-foreground">Fee</span>
         <span className="text-sm font-medium text-muted-foreground">TVL</span>
         <span className="text-sm font-medium text-right text-muted-foreground">
           Actions

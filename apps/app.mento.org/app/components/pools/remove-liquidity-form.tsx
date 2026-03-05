@@ -49,6 +49,19 @@ function formatTokenAmount(
   });
 }
 
+function getErrorMessage(error: unknown): string {
+  if (!error) return "";
+  if (typeof error === "string") return error;
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+function isZapOutRouteUnavailableError(message: string): boolean {
+  return /no viable zap-out route|route not found|no route for this amount|route unavailable|insufficient liquidity|insufficientliquidity|insufficient reserves|insufficient output amount|bb55fd27|execution reverted|call execution error/i.test(
+    message,
+  );
+}
+
 interface RemoveLiquidityFormProps {
   pool: PoolDisplay;
   onLiquidityUpdated?: () => void | Promise<void>;
@@ -122,7 +135,12 @@ export function RemoveLiquidityForm({
     useRemoveLiquidityTransaction(pool);
 
   // === Zap-out (single-token) hooks ===
-  const { data: zapOutQuote, isFetching: isZapOutQuoting } = useZapOutQuote({
+  const {
+    data: zapOutQuote,
+    isFetching: isZapOutQuoting,
+    isError: isZapOutQuoteError,
+    error: zapOutQuoteError,
+  } = useZapOutQuote({
     pool,
     tokenOut: receiveToken,
     lpAmount: mode === "single" ? lpAmount : "",
@@ -135,6 +153,19 @@ export function RemoveLiquidityForm({
     buildError: zapOutBuildError,
     isBuilding: isZapOutBuilding,
   } = useZapOutTransaction(pool);
+
+  const zapOutQuoteErrorMessage = getErrorMessage(zapOutQuoteError);
+  const zapOutQuoteUiError = isZapOutQuoteError
+    ? isZapOutRouteUnavailableError(zapOutQuoteErrorMessage)
+      ? "No viable zap-out route for this amount. Reduce amount or use balanced mode."
+      : "Unable to quote single-token removal right now."
+    : null;
+  const zapOutUiError = zapOutBuildError ?? zapOutQuoteUiError;
+  const builtZapOutMinTokenOut = (
+    zapOutBuildResult?.zapOut as { estimatedMinTokenOut?: bigint } | undefined
+  )?.estimatedMinTokenOut;
+  const estimatedSingleTokenOut =
+    builtZapOutMinTokenOut ?? zapOutQuote?.estimatedMinTokenOut;
 
   // Build balanced transaction when we have a valid quote and wallet
   useEffect(() => {
@@ -215,12 +246,17 @@ export function RemoveLiquidityForm({
     if (mode === "single") {
       if (currentZapBuildKey === null)
         return { text: "Enter amount", disabled: true };
-      if (zapBuildStateKey !== currentZapBuildKey)
-        return { text: "Preparing...", disabled: true };
-      if (zapOutBuildError) {
-        return { text: "Route unavailable", disabled: true };
-      }
       if (isZapOutBuilding || isZapOutQuoting)
+        return { text: "Preparing...", disabled: true };
+      if (zapOutUiError) {
+        return {
+          text: isZapOutRouteUnavailableError(zapOutUiError)
+            ? "Route unavailable"
+            : "Quote unavailable",
+          disabled: true,
+        };
+      }
+      if (zapBuildStateKey !== currentZapBuildKey)
         return { text: "Preparing...", disabled: true };
       if (zapBuildReadyKey !== currentZapBuildKey)
         return { text: "Preparing...", disabled: true };
@@ -272,13 +308,11 @@ export function RemoveLiquidityForm({
         );
       }
 
-      if (mode === "single" && zapOutBuildResult) {
+      if (mode === "single") {
         // --- Zap-out flow ---
         const capturedLiquidity = lpAmountWei;
         const capturedReceiveToken = receiveToken;
         const capturedSlippage = slippage;
-        const requiresZapApproval = !!zapOutBuildResult.approval;
-        const prebuiltZapOutParams = zapOutBuildResult.zapOut.params;
 
         if (
           currentZapBuildKey === null ||
@@ -286,11 +320,27 @@ export function RemoveLiquidityForm({
         ) {
           throw new Error("Preparing transaction. Please try again.");
         }
+        if (zapOutUiError) {
+          throw new Error(zapOutUiError);
+        }
+
+        const preflightBuild = await buildZapOutTransaction(
+          capturedReceiveToken as Address,
+          capturedLiquidity,
+          address,
+          capturedSlippage,
+        );
+        if (!preflightBuild) {
+          throw new Error(
+            zapOutUiError ||
+              "No viable zap-out route for this amount. Reduce amount or use balanced mode.",
+          );
+        }
 
         const steps: LiquidityFlowStepDefinition[] = [];
 
-        if (zapOutBuildResult.approval) {
-          const approvalParams = zapOutBuildResult.approval.params;
+        if (preflightBuild.approval) {
+          const approvalParams = preflightBuild.approval.params;
           steps.push({
             id: "approve-lp",
             label: "Approve LP Token",
@@ -302,10 +352,6 @@ export function RemoveLiquidityForm({
           id: "zap-out",
           label: `Remove as ${selectedToken.symbol}`,
           buildTx: async () => {
-            if (!requiresZapApproval) {
-              return prebuiltZapOutParams;
-            }
-
             const freshBuild = await buildZapOutTransaction(
               capturedReceiveToken as Address,
               capturedLiquidity,
@@ -401,7 +447,11 @@ export function RemoveLiquidityForm({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
-        if (/no viable zap-out route/i.test(msg)) {
+        if (
+          /no viable zap-out route|no route for this amount|route unavailable|unable to quote single-token/i.test(
+            msg,
+          )
+        ) {
           toast.error(
             "No viable zap-out route for this amount. Reduce amount or use balanced mode.",
           );
@@ -651,9 +701,9 @@ export function RemoveLiquidityForm({
                 </span>
               </div>
               <span className="font-medium font-mono tabular-nums">
-                {hasAmount && zapOutQuote
+                {hasAmount && estimatedSingleTokenOut
                   ? formatTokenAmount(
-                      zapOutQuote.estimatedMinTokenOut,
+                      estimatedSingleTokenOut,
                       selectedToken.decimals,
                     )
                   : "0.0000"}{" "}
@@ -709,9 +759,9 @@ export function RemoveLiquidityForm({
             >
               {buttonState.text}
             </Button>
-            {mode === "single" && zapOutBuildError && (
+            {mode === "single" && zapOutUiError && (
               <p className="text-xs leading-5 mt-2 text-center text-muted-foreground">
-                {zapOutBuildError}
+                {zapOutUiError}
               </p>
             )}
           </>

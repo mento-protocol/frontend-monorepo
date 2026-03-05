@@ -144,23 +144,11 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
         </div>
 
         {/* Fees */}
-        <div className="min-h-14 flex flex-col">
-          <span className="text-xs md:hidden text-muted-foreground">Fees</span>
+        <div className="flex flex-col justify-center">
+          <span className="text-xs md:hidden text-muted-foreground">Fee</span>
           <span className="text-sm font-medium font-mono tabular-nums">
             {pool.fees.total.toFixed(2)}%
           </span>
-          {pool.fees.label === "fee" ? (
-            <>
-              <span className="text-xs font-mono text-muted-foreground tabular-nums">
-                LP {pool.fees.lp.toFixed(2)}%
-              </span>
-              <span className="text-xs font-mono text-muted-foreground tabular-nums">
-                Protocol {pool.fees.protocol.toFixed(2)}%
-              </span>
-            </>
-          ) : (
-            <span className="text-xs text-muted-foreground">Spread</span>
-          )}
         </div>
 
         {/* TVL */}
