@@ -33,12 +33,8 @@ import {
   useBlockNumber,
 } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, type Address } from "viem";
-import { useState, useEffect, type ChangeEvent } from "react";
+import { useState, useEffect } from "react";
 import { ExternalLink } from "lucide-react";
-import {
-  sanitizePercentInput,
-  sanitizePercentOnBlur,
-} from "@/lib/utils/percent-input";
 import { useSetAtom } from "jotai";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -56,11 +52,13 @@ function formatTokenAmount(
 interface RemoveLiquidityFormProps {
   pool: PoolDisplay;
   onLiquidityUpdated?: () => void | Promise<void>;
+  header?: React.ReactNode;
 }
 
 export function RemoveLiquidityForm({
   pool,
   onLiquidityUpdated,
+  header,
 }: RemoveLiquidityFormProps) {
   const { address } = useAccount();
   const wagmiConfig = useConfig();
@@ -418,8 +416,6 @@ export function RemoveLiquidityForm({
 
   // === Preset handlers ===
 
-  const [customPct, setCustomPct] = useState("");
-
   const handlePreset = (fraction: number) => {
     if (!lpBalance) return;
     if (fraction >= 1) {
@@ -431,62 +427,30 @@ export function RemoveLiquidityForm({
     }
   };
 
-  const handleCustomPctChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (!lpBalance) return;
-    const raw = sanitizePercentInput(e.target.value);
-    setCustomPct(raw);
-    const pct = parseFloat(raw);
-    if (isNaN(pct) || pct <= 0) {
-      setLpAmount("0");
-    } else if (pct >= 100) {
-      setLpAmount(formatUnits(lpBalance, 18));
-    } else {
-      const fractionalBalance =
-        (lpBalance * BigInt(Math.round((pct / 100) * 1_000_000))) / 1_000_000n;
-      setLpAmount(formatUnits(fractionalBalance, 18));
-    }
-  };
-
-  const handleCustomPctBlur = () => {
-    if (!lpBalance) return;
-    const corrected = sanitizePercentOnBlur(customPct);
-    if (corrected === null) return;
-    setCustomPct(corrected);
-    const val = parseFloat(corrected);
-    if (isNaN(val) || val <= 0) {
-      setLpAmount("0");
-    } else if (val >= 100) {
-      setLpAmount(formatUnits(lpBalance, 18));
-    } else {
-      const fractionalBalance =
-        (lpBalance * BigInt(Math.round((val / 100) * 1_000_000))) / 1_000_000n;
-      setLpAmount(formatUnits(fractionalBalance, 18));
-    }
-  };
-
   return (
     <div className="md:flex-row flex flex-col">
       {/* Left Column — Inputs */}
-      <div className="min-w-0 p-6 md:border-r flex-1 border-border">
-        <div className="gap-6 flex flex-col">
+      <div className="min-w-0 md:border-r flex-1 border-border">
+        {header}
+        <div className="gap-6 p-6 flex flex-col">
           {/* Mode toggle */}
           <div className="gap-2 grid grid-cols-2">
             <button
               onClick={() => setMode("balanced")}
-              className={`shadow-sm px-4 py-2.5 text-sm font-medium cursor-pointer rounded-md border ${
+              className={`px-4 py-2.5 text-sm font-medium cursor-pointer rounded-md border ${
                 mode === "balanced"
                   ? "border-border bg-background text-foreground"
-                  : "border-transparent bg-transparent text-muted-foreground"
+                  : "border-border bg-transparent text-muted-foreground"
               }`}
             >
               Balanced (2 tokens)
             </button>
             <button
               onClick={() => setMode("single")}
-              className={`shadow-sm px-4 py-2.5 text-sm font-medium cursor-pointer rounded-md border ${
+              className={`px-4 py-2.5 text-sm font-medium cursor-pointer rounded-md border ${
                 mode === "single"
                   ? "border-border bg-background text-foreground"
-                  : "border-transparent bg-transparent text-muted-foreground"
+                  : "border-border bg-transparent text-muted-foreground"
               }`}
             >
               Single token (auto-swap)
@@ -518,7 +482,10 @@ export function RemoveLiquidityForm({
                 <span className="font-medium">LP Tokens</span>
               </div>
               <div className="text-sm text-muted-foreground">
-                Balance: {formatCompactBalance(formattedLpBalance)}{" "}
+                Balance:{" "}
+                <span className="font-medium font-mono text-foreground/80">
+                  {formatCompactBalance(formattedLpBalance)}
+                </span>{" "}
                 <button
                   className="font-medium cursor-pointer text-primary hover:underline"
                   onClick={() => handlePreset(1)}
@@ -533,7 +500,7 @@ export function RemoveLiquidityForm({
                 setLpAmount(e.target.value)
               }
               placeholder="0"
-              className={`shadow-xs h-10 px-3 text-sm placeholder:text-sm border border-input focus-within:border-primary focus:border-primary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${insufficientLp ? "border-destructive" : ""}`}
+              className={`shadow-xs h-10 px-3 text-sm font-mono placeholder:text-sm border border-input focus-within:border-primary focus:border-primary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${insufficientLp ? "border-destructive" : ""}`}
             />
             {insufficientLp && (
               <p className="text-xs text-destructive">
@@ -544,44 +511,20 @@ export function RemoveLiquidityForm({
 
           {/* Percentage presets */}
           <div className="gap-2 grid grid-cols-4">
-            <button
-              onClick={() => handlePreset(0.25)}
-              className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
-            >
-              25%
-            </button>
-            <button
-              onClick={() => handlePreset(0.5)}
-              className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
-            >
-              50%
-            </button>
-            <button
-              onClick={() => handlePreset(0.75)}
-              className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
-            >
-              75%
-            </button>
-            <div className="py-1.5 flex items-center justify-center overflow-hidden rounded-md border border-border bg-background">
-              <input
-                type="text"
-                inputMode="decimal"
-                maxLength={6}
-                placeholder="Custom %"
-                value={customPct}
-                className="min-w-0 text-xs font-medium w-full shrink bg-transparent text-center outline-none placeholder:text-muted-foreground"
-                onChange={handleCustomPctChange}
-                onBlur={handleCustomPctBlur}
-                style={
-                  customPct
-                    ? { width: `${customPct.length}ch`, flexShrink: 0 }
-                    : undefined
-                }
-              />
-              {customPct && (
-                <span className="text-xs font-medium shrink-0">%</span>
-              )}
-            </div>
+            {[
+              { label: "25%", fraction: 0.25 },
+              { label: "50%", fraction: 0.5 },
+              { label: "75%", fraction: 0.75 },
+              { label: "Max", fraction: 1 },
+            ].map(({ label, fraction }) => (
+              <button
+                key={label}
+                onClick={() => handlePreset(fraction)}
+                className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
+              >
+                {label}
+              </button>
+            ))}
           </div>
 
           {mode === "balanced" ? (
@@ -603,7 +546,7 @@ export function RemoveLiquidityForm({
                         />
                         <span className="text-sm">{pool.token0.symbol}</span>
                       </div>
-                      <span className="font-medium">
+                      <span className="font-medium font-mono">
                         {formatTokenAmount(
                           quote?.amount0,
                           pool.token0.decimals,
@@ -622,7 +565,7 @@ export function RemoveLiquidityForm({
                         />
                         <span className="text-sm">{pool.token1.symbol}</span>
                       </div>
-                      <span className="font-medium">
+                      <span className="font-medium font-mono">
                         {formatTokenAmount(
                           quote?.amount1,
                           pool.token1.decimals,
@@ -691,7 +634,7 @@ export function RemoveLiquidityForm({
                       <span className="text-muted-foreground">
                         Estimated {selectedToken.symbol}
                       </span>
-                      <span className="font-medium">
+                      <span className="font-medium font-mono">
                         {formatTokenAmount(
                           zapOutQuote?.estimatedMinTokenOut,
                           selectedToken.decimals,
@@ -720,21 +663,41 @@ export function RemoveLiquidityForm({
         <div className="space-y-3 flex-1">
           {mode === "balanced" ? (
             <>
-              <div className="text-sm flex justify-between">
-                <span className="text-muted-foreground">
-                  Receive {pool.token0.symbol}
-                </span>
-                <span className="font-medium">
+              <div className="text-sm flex items-center justify-between">
+                <div className="gap-1.5 flex items-center">
+                  <TokenIcon
+                    token={{
+                      address: pool.token0.address,
+                      symbol: pool.token0.symbol,
+                    }}
+                    size={18}
+                    className="rounded-full"
+                  />
+                  <span className="text-muted-foreground">
+                    Receive {pool.token0.symbol}
+                  </span>
+                </div>
+                <span className="font-medium font-mono tabular-nums">
                   {hasAmount && quote
                     ? formatTokenAmount(quote.amount0, pool.token0.decimals)
                     : "0.0000"}
                 </span>
               </div>
-              <div className="text-sm flex justify-between">
-                <span className="text-muted-foreground">
-                  Receive {pool.token1.symbol}
-                </span>
-                <span className="font-medium">
+              <div className="text-sm flex items-center justify-between">
+                <div className="gap-1.5 flex items-center">
+                  <TokenIcon
+                    token={{
+                      address: pool.token1.address,
+                      symbol: pool.token1.symbol,
+                    }}
+                    size={18}
+                    className="rounded-full"
+                  />
+                  <span className="text-muted-foreground">
+                    Receive {pool.token1.symbol}
+                  </span>
+                </div>
+                <span className="font-medium font-mono tabular-nums">
                   {hasAmount && quote
                     ? formatTokenAmount(quote.amount1, pool.token1.decimals)
                     : "0.0000"}
@@ -745,7 +708,7 @@ export function RemoveLiquidityForm({
             <>
               <div className="text-sm flex justify-between">
                 <span className="text-muted-foreground">Estimated output</span>
-                <span className="font-medium">
+                <span className="font-medium font-mono">
                   {hasAmount && zapOutQuote
                     ? formatTokenAmount(
                         zapOutQuote.estimatedMinTokenOut,
@@ -757,7 +720,7 @@ export function RemoveLiquidityForm({
               </div>
               <div className="text-sm flex justify-between">
                 <span className="text-muted-foreground">Min received</span>
-                <span className="font-medium">
+                <span className="font-medium font-mono">
                   {hasAmount && zapOutBuildResult
                     ? formatTokenAmount(
                         zapOutBuildResult.zapOut.zapParams.amountOutMinA +
@@ -772,7 +735,9 @@ export function RemoveLiquidityForm({
           )}
           <div className="text-sm flex justify-between">
             <span className="text-muted-foreground">LP fee</span>
-            <span className="font-medium">{pool.fees.lp.toFixed(2)}%</span>
+            <span className="font-medium font-mono">
+              {pool.fees.lp.toFixed(2)}%
+            </span>
           </div>
         </div>
 

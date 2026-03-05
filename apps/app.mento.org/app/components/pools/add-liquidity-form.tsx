@@ -85,7 +85,10 @@ function TokenAmountInput({
           <span className="font-medium">{token.symbol}</span>
         </div>
         <div className="text-sm text-muted-foreground">
-          Balance: {formatCompactBalance(balance)}{" "}
+          Balance:{" "}
+          <span className="font-medium font-mono text-foreground/80">
+            {formatCompactBalance(balance)}
+          </span>{" "}
           <button
             className="font-medium cursor-pointer text-primary hover:underline"
             onClick={onMax}
@@ -98,7 +101,7 @@ function TokenAmountInput({
         value={amount}
         onChange={onChange}
         placeholder="0"
-        className={`shadow-xs h-10 px-3 text-sm placeholder:text-sm border border-input focus-within:border-primary focus:border-primary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${insufficient ? "border-destructive" : ""}`}
+        className={`shadow-xs h-10 px-3 text-sm font-mono placeholder:text-sm border border-input focus-within:border-primary focus:border-primary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${insufficient ? "border-destructive" : ""}`}
       />
       {insufficient && (
         <p className="text-xs text-destructive">
@@ -112,11 +115,13 @@ function TokenAmountInput({
 interface AddLiquidityFormProps {
   pool: PoolDisplay;
   onLiquidityUpdated?: () => void | Promise<void>;
+  header?: React.ReactNode;
 }
 
 export function AddLiquidityForm({
   pool,
   onLiquidityUpdated,
+  header,
 }: AddLiquidityFormProps) {
   const { address } = useAccount();
   const wagmiConfig = useConfig();
@@ -661,26 +666,27 @@ export function AddLiquidityForm({
   return (
     <div className="md:flex-row flex flex-col">
       {/* Left Column — Inputs */}
-      <div className="min-w-0 p-6 md:border-r flex-1 border-border">
-        <div className="gap-6 flex flex-col">
+      <div className="min-w-0 md:border-r flex-1 border-border">
+        {header}
+        <div className="gap-6 p-6 flex flex-col">
           {/* Deposit mode toggle */}
           <div className="gap-2 grid grid-cols-2">
             <button
               onClick={() => setMode("balanced")}
-              className={`shadow-sm px-4 py-2.5 text-sm font-medium cursor-pointer rounded-md border ${
+              className={`px-4 py-2.5 text-sm font-medium cursor-pointer rounded-md border ${
                 mode === "balanced"
                   ? "border-border bg-background text-foreground"
-                  : "border-transparent bg-transparent text-muted-foreground"
+                  : "border-border bg-transparent text-muted-foreground"
               }`}
             >
               Balanced (2 tokens)
             </button>
             <button
               onClick={() => setMode("single")}
-              className={`shadow-sm px-4 py-2.5 text-sm font-medium cursor-pointer rounded-md border ${
+              className={`px-4 py-2.5 text-sm font-medium cursor-pointer rounded-md border ${
                 mode === "single"
                   ? "border-border bg-background text-foreground"
-                  : "border-transparent bg-transparent text-muted-foreground"
+                  : "border-border bg-transparent text-muted-foreground"
               }`}
             >
               Single token (auto-swap)
@@ -771,7 +777,10 @@ export function AddLiquidityForm({
                     </SelectContent>
                   </Select>
                   <div className="text-sm text-muted-foreground">
-                    Balance: {formatCompactBalance(formattedZapBalance)}{" "}
+                    Balance:{" "}
+                    <span className="font-medium font-mono text-foreground/80">
+                      {formatCompactBalance(formattedZapBalance)}
+                    </span>{" "}
                     <button
                       className="font-medium cursor-pointer text-primary hover:underline"
                       onClick={() => setZapAmount(formattedZapBalance)}
@@ -786,7 +795,7 @@ export function AddLiquidityForm({
                     setZapAmount(e.target.value)
                   }
                   placeholder="0"
-                  className={`shadow-xs h-10 px-3 text-sm placeholder:text-sm border border-input focus-within:border-primary focus:border-primary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${insufficientZap ? "border-destructive" : ""}`}
+                  className={`shadow-xs h-10 px-3 text-sm font-mono placeholder:text-sm border border-input focus-within:border-primary focus:border-primary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${insufficientZap ? "border-destructive" : ""}`}
                 />
                 {insufficientZap && (
                   <p className="text-xs text-destructive">
@@ -852,24 +861,26 @@ export function AddLiquidityForm({
         <div className="space-y-3 flex-1">
           <div className="text-sm flex justify-between">
             <span className="text-muted-foreground">Est. LP tokens</span>
-            <span className="font-medium">
+            <span className="font-medium font-mono">
               {mode === "balanced" ? estimatedLP : zapEstimatedLP} LP
             </span>
           </div>
           <div className="text-sm flex justify-between">
             <span className="text-muted-foreground">LP fee</span>
-            <span className="font-medium">{pool.fees.lp.toFixed(2)}%</span>
+            <span className="font-medium font-mono">
+              {pool.fees.lp.toFixed(2)}%
+            </span>
           </div>
           <div className="text-sm flex justify-between">
             <span className="text-muted-foreground">Protocol fee</span>
-            <span className="font-medium">
+            <span className="font-medium font-mono">
               {pool.fees.protocol.toFixed(2)}%
             </span>
           </div>
           {mode === "single" && (
             <div className="text-sm flex justify-between">
               <span className="text-muted-foreground">Swap included</span>
-              <span className="font-medium text-amber-600">Yes</span>
+              <span className="font-medium font-mono text-amber-600">Yes</span>
             </div>
           )}
         </div>

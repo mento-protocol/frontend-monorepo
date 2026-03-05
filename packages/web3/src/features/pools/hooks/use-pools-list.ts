@@ -221,6 +221,16 @@ export function usePoolsList() {
                     details.scalingFactor1,
                   );
 
+            // TVL: use oracle price for FPMM pools (token1 assumed USD-pegged)
+            let tvl: number | null = null;
+            if (
+              details.poolType === "FPMM" &&
+              details.pricing &&
+              hasLiquidity
+            ) {
+              tvl = reserve0Value * details.pricing.oraclePrice + reserve1Value;
+            }
+
             const poolDisplay: PoolDisplay = {
               poolAddr: pool.poolAddr,
               poolType: details.poolType === "FPMM" ? "FPMM" : "Legacy",
@@ -244,6 +254,7 @@ export function usePoolsList() {
               },
               fees,
               priceAlignment,
+              tvl,
               ...(pricing && { pricing }),
               ...(rebalancing && { rebalancing }),
             };
