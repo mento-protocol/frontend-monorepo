@@ -433,6 +433,7 @@ export function AdjustForm({ troveId, troveData }: AdjustFormProps) {
 
       {/* Submit */}
       <Button
+        size="lg"
         className="w-full"
         disabled={buttonDisabledReason !== null}
         onClick={handleSubmit}

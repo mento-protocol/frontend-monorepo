@@ -119,6 +119,7 @@ export function CloseForm({ troveId, troveData }: CloseFormProps) {
       {/* Submit */}
       <Button
         variant="destructive"
+        size="lg"
         className="w-full"
         disabled={buttonDisabledReason !== null}
         onClick={handleSubmit}

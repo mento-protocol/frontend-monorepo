@@ -42,6 +42,7 @@ export function ClaimRewards({
   return (
     <Button
       variant="outline"
+      size="lg"
       className="w-full"
       disabled={!canClaim}
       onClick={handleClaim}

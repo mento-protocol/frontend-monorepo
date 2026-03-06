@@ -160,7 +160,12 @@ export function WithdrawForm({
         </label>
       )}
 
-      <Button disabled={!canSubmit} onClick={handleSubmit}>
+      <Button
+        size="lg"
+        className="w-full"
+        disabled={!canSubmit}
+        onClick={handleSubmit}
+      >
         {getButtonText()}
       </Button>
     </div>
