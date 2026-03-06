@@ -61,7 +61,9 @@ export function InterestRateChart({ selectedRate }: InterestRateChartProps) {
 
   return (
     <div className="gap-2 flex flex-col">
-      <span className="text-sm font-medium">Rate Distribution</span>
+      <span className="font-semibold tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
+        Rate Distribution
+      </span>
       <ChartContainer config={chartConfig} className="h-[200px] w-full">
         <BarChart
           data={chartData}

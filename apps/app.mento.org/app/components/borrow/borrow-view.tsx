@@ -11,13 +11,12 @@ import { borrowViewAtom } from "./atoms/borrow-navigation";
 export function BorrowView() {
   const view = useAtomValue(borrowViewAtom);
 
-  const isManageTrove =
-    typeof view === "object" && view.view === "manage-trove";
+  const showHeader = view === "dashboard" || view === "redeem";
 
   return (
     <div className="max-w-5xl space-y-6 px-4 pt-6 md:px-0 md:pt-0 pb-16 min-h-[550px] w-full">
-      {/* Header — hidden on manage-trove page */}
-      {!isManageTrove && (
+      {/* Header — only shown on dashboard and redeem */}
+      {showHeader && (
         <div className="relative">
           <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
           <div className="p-6 flex items-start justify-between bg-card">
