@@ -25,7 +25,7 @@ import { borrowViewAtom } from "../atoms/borrow-navigation";
 import { CollateralInput } from "./collateral-input";
 import { DebtInput } from "./debt-input";
 import { InterestRateInput } from "./interest-rate-input";
-import { InterestRateChart } from "./interest-rate-chart";
+
 import { LoanSummary } from "./loan-summary";
 import { LTVBar } from "./ltv-bar";
 
@@ -323,7 +323,6 @@ export function OpenTroveForm() {
               onChange={setInterestRate}
               debtAmount={debtAmount}
             />
-            <InterestRateChart selectedRate={formState.interestRate} />
           </div>
         </div>
 
