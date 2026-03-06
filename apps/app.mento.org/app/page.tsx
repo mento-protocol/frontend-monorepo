@@ -27,8 +27,8 @@ export default function SwapPage() {
             <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
             <div
               className={cn(
-                "space-y-6 p-6 md:h-[525px] relative z-50 flex flex-col bg-card",
-                confirmView ? "md:h-[525px] h-auto" : "h-[525px]",
+                "space-y-6 p-6 md:min-h-[525px] relative z-50 flex flex-col bg-card",
+                confirmView ? "md:min-h-[525px] h-auto" : "min-h-[525px]",
               )}
             >
               <div className="gap-6 flex flex-row items-center justify-between">
