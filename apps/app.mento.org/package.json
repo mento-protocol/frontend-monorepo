@@ -27,7 +27,6 @@
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-hook-form": "catalog:",
-    "recharts": "^3.6.0",
     "sonner": "catalog:",
     "tailwindcss": "catalog:",
     "viem": "catalog:",
