@@ -1,9 +1,11 @@
 import { TokenIcon } from "@repo/ui";
 import type { PoolDisplay, UserPosition } from "@repo/web3";
+import { formatUnits } from "viem";
 
 interface UserPositionCardProps {
   pool: PoolDisplay;
   position: UserPosition;
+  lpBalance?: bigint;
 }
 
 function formatUsd(value: number): string {
@@ -41,108 +43,116 @@ function formatPercent(value: number): string {
   );
 }
 
-export function UserPositionCard({ pool, position }: UserPositionCardProps) {
+function formatLpBalance(balance: bigint): string {
+  const num = Number(formatUnits(balance, 18));
+  return num.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: num < 1 ? 6 : 0,
+  });
+}
+
+export function UserPositionCard({
+  pool,
+  position,
+  lpBalance,
+}: UserPositionCardProps) {
   const token0 = { token: pool.token0, data: position.token0 };
   const token1 = { token: pool.token1, data: position.token1 };
 
   return (
-    <div className="mx-6 mt-3 mb-1.5 rounded-xl border border-border bg-muted/30">
-      <div className="px-5 py-4">
-        <div className="gap-5 flex items-stretch">
-          {/* Left: YOUR POSITION + token columns */}
-          <div className="flex flex-1 flex-col">
-            <span className="mb-3 text-sm font-semibold text-foreground">
-              Your Position
-            </span>
+    <div className="p-6 rounded-xl border border-border bg-card">
+      {/* Header row */}
+      <div className="mb-5 flex items-center justify-between">
+        <div className="gap-2.5 flex items-center">
+          <span className="text-sm font-semibold text-muted-foreground">
+            Your Position
+          </span>
+          <span className="h-1.5 w-1.5 bg-green-500 rounded-full shadow-[0_0_6px_rgba(34,197,94,0.5)]" />
+        </div>
+        <span className="px-2.5 py-1 font-semibold font-mono tracking-wider bg-green-500/10 text-green-600 dark:text-green-400 rounded-md text-[11px]">
+          {formatPercent(position.poolSharePercent)} POOL SHARE
+        </span>
+      </div>
 
-            <div className="flex flex-1 items-center justify-evenly">
-              {/* Token 0 */}
-              <div className="flex flex-col items-center">
-                <TokenIcon
-                  token={{
-                    address: token0.token.address,
-                    symbol: token0.token.symbol,
-                  }}
-                  size={36}
-                  className="rounded-full"
-                />
-                <span className="mt-1.5 text-lg font-bold font-mono tabular-nums">
-                  {formatTokenAmount(token0.data.amount)}
-                </span>
-                <span className="text-xs font-medium text-muted-foreground">
-                  {token0.token.symbol}
-                </span>
-                <span className="mt-1 text-[10px] text-muted-foreground">
-                  {token0.data.price !== null && (
-                    <>@ {formatPrice(token0.data.price)}</>
-                  )}
-                  {token0.data.price !== null &&
-                    token0.data.usdValue !== null &&
-                    " · "}
-                  {token0.data.usdValue !== null &&
-                    formatUsd(token0.data.usdValue)}
-                </span>
-              </div>
-
-              {/* Token 1 */}
-              <div className="flex flex-col items-center">
-                <TokenIcon
-                  token={{
-                    address: token1.token.address,
-                    symbol: token1.token.symbol,
-                  }}
-                  size={36}
-                  className="rounded-full"
-                />
-                <span className="mt-1.5 text-lg font-bold font-mono tabular-nums">
-                  {formatTokenAmount(token1.data.amount)}
-                </span>
-                <span className="text-xs font-medium text-muted-foreground">
-                  {token1.token.symbol}
-                </span>
-                <span className="mt-1 text-[10px] text-muted-foreground">
-                  {token1.data.price !== null && (
-                    <>@ {formatPrice(token1.data.price)}</>
-                  )}
-                  {token1.data.price !== null &&
-                    token1.data.usdValue !== null &&
-                    " · "}
-                  {token1.data.usdValue !== null &&
-                    formatUsd(token1.data.usdValue)}
-                </span>
-              </div>
+      {/* Three-column layout */}
+      <div className="gap-6 grid grid-cols-3">
+        {/* Token 0 */}
+        <div className="gap-3.5 flex items-start">
+          <TokenIcon
+            token={{
+              address: token0.token.address,
+              symbol: token0.token.symbol,
+            }}
+            size={36}
+            className="mt-0.5 shrink-0 rounded-full"
+          />
+          <div>
+            <div className="text-xl font-bold tracking-tight tabular-nums">
+              {formatTokenAmount(token0.data.amount)}
             </div>
-          </div>
-
-          {/* Right: Total position value card */}
-          <div className="px-6 py-4 flex flex-col items-center justify-center rounded-lg border border-primary/40 bg-muted/40">
-            <span className="text-sm font-semibold text-foreground">
-              Total Position Value
-            </span>
-            <span className="mt-1 text-2xl font-bold font-mono text-foreground tabular-nums">
-              {position.totalUsdValue !== null
-                ? formatUsd(position.totalUsdValue)
-                : "--"}
-            </span>
-            <div className="mt-2 gap-1 flex flex-col items-center">
-              <div className="gap-1.5 flex items-baseline">
-                <span className="text-xs text-muted-foreground">
-                  Pool Share
+            <div className="mt-0.5 text-xs font-mono text-muted-foreground">
+              {token0.token.symbol}
+              {token0.data.price !== null && (
+                <span className="text-muted-foreground/60">
+                  {" "}
+                  @ {formatPrice(token0.data.price)}
                 </span>
-                <span className="text-sm font-semibold font-mono text-foreground tabular-nums">
-                  {formatPercent(position.poolSharePercent)}
-                </span>
-              </div>
-              <div className="h-1 w-24 overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-primary"
-                  style={{
-                    width: `${Math.min(100, position.poolSharePercent)}%`,
-                  }}
-                />
-              </div>
+              )}
             </div>
+            {token0.data.usdValue !== null && (
+              <div className="text-xs font-mono text-muted-foreground/50">
+                {formatUsd(token0.data.usdValue)}
+              </div>
+            )}
           </div>
+        </div>
+
+        {/* Token 1 */}
+        <div className="gap-3.5 flex items-start">
+          <TokenIcon
+            token={{
+              address: token1.token.address,
+              symbol: token1.token.symbol,
+            }}
+            size={36}
+            className="mt-0.5 shrink-0 rounded-full"
+          />
+          <div>
+            <div className="text-xl font-bold tracking-tight tabular-nums">
+              {formatTokenAmount(token1.data.amount)}
+            </div>
+            <div className="mt-0.5 text-xs font-mono text-muted-foreground">
+              {token1.token.symbol}
+              {token1.data.price !== null && (
+                <span className="text-muted-foreground/60">
+                  {" "}
+                  @ {formatPrice(token1.data.price)}
+                </span>
+              )}
+            </div>
+            {token1.data.usdValue !== null && (
+              <div className="text-xs font-mono text-muted-foreground/50">
+                {formatUsd(token1.data.usdValue)}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Total Position Value */}
+        <div className="text-right">
+          <div className="font-mono tracking-widest mb-1 text-[11px] text-muted-foreground uppercase">
+            Position Value
+          </div>
+          <div className="text-2xl font-bold tracking-tight">
+            {position.totalUsdValue !== null
+              ? formatUsd(position.totalUsdValue)
+              : "--"}
+          </div>
+          {lpBalance !== undefined && lpBalance > 0n && (
+            <div className="mt-1 text-xs font-mono text-muted-foreground/50">
+              {formatLpBalance(lpBalance)} LP tokens
+            </div>
+          )}
         </div>
       </div>
     </div>

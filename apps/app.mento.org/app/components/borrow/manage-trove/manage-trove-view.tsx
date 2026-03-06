@@ -223,7 +223,7 @@ export function ManageTroveView({ troveId }: ManageTroveViewProps) {
       </button>
 
       {/* Trove header */}
-      <div className="gap-4 flex flex-wrap items-center justify-between">
+      <div className="gap-4 px-6 py-5 flex flex-wrap items-center justify-between rounded-xl border border-border bg-card">
         <div className="gap-3 flex items-center">
           {/* Token pair icons */}
           <div className="h-10 w-12 relative">
@@ -311,7 +311,7 @@ export function ManageTroveView({ troveId }: ManageTroveViewProps) {
 
       {/* Stats row */}
       {troveData && (
-        <div className="gap-4 md:grid-cols-5 grid grid-cols-2">
+        <div className="gap-4 md:grid-cols-4 grid grid-cols-2">
           <StatCell
             label="Collateral"
             value={formatCollateralAmount(troveData.collateral)}
@@ -324,7 +324,6 @@ export function ManageTroveView({ troveId }: ManageTroveViewProps) {
             label="Interest Rate"
             value={formatInterestRate(troveData.annualInterestRate)}
           />
-          <StatCell label="LTV" value={formatLtv(loanDetails?.ltv ?? null)} />
           <StatCell
             label="Liq. Price"
             value={formatPrice(

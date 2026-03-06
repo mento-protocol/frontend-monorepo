@@ -35,7 +35,7 @@ import {
 } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, type Address } from "viem";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Info, AlertTriangle, ExternalLink } from "lucide-react";
+import { Info, AlertTriangle } from "lucide-react";
 import { getContractAddress } from "@mento-protocol/mento-sdk";
 import { useSetAtom } from "jotai";
 import { useQueryClient } from "@tanstack/react-query";
@@ -66,33 +66,42 @@ function TokenAmountInput({
   return (
     <div className="gap-2 flex flex-col">
       <div className="gap-2 flex items-center justify-between">
-        <div className="gap-2 flex items-center">
+        <span className="font-semibold font-mono tracking-widest text-[11px] text-muted-foreground uppercase">
+          {token.symbol}
+        </span>
+        <span className="font-mono text-[11px] text-muted-foreground">
+          Balance:{" "}
+          <span className="text-muted-foreground/80">
+            {formatCompactBalance(balance)}
+          </span>
+        </span>
+      </div>
+      <div
+        className={`gap-2 px-4 py-1 flex items-center rounded-xl border bg-muted/30 transition-colors focus-within:border-primary ${insufficient ? "border-destructive" : "border-border"}`}
+      >
+        <CoinInput
+          value={amount}
+          onChange={onChange}
+          placeholder="0.00"
+          className="h-10 px-0 text-lg font-semibold flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
+        />
+        <button
+          className="px-2 py-1 font-bold font-mono tracking-wider cursor-pointer rounded-md bg-primary/10 text-[11px] text-primary transition-colors hover:bg-primary/15"
+          onClick={onMax}
+        >
+          MAX
+        </button>
+        <div className="gap-1.5 px-3 py-1.5 flex items-center rounded-lg bg-muted/50">
           <TokenIcon
             token={{ address: token.address, symbol: token.symbol }}
-            size={24}
+            size={20}
             className="rounded-full"
           />
-          <span className="font-medium">{token.symbol}</span>
-        </div>
-        <div className="text-sm text-muted-foreground">
-          Balance:{" "}
-          <span className="font-medium font-mono text-foreground/80">
-            {formatCompactBalance(balance)}
-          </span>{" "}
-          <button
-            className="font-medium cursor-pointer text-primary hover:underline"
-            onClick={onMax}
-          >
-            MAX
-          </button>
+          <span className="text-sm font-semibold text-foreground/70">
+            {token.symbol}
+          </span>
         </div>
       </div>
-      <CoinInput
-        value={amount}
-        onChange={onChange}
-        placeholder="0"
-        className={`shadow-xs h-10 px-3 text-sm font-mono placeholder:text-sm border border-input focus-within:border-primary focus:border-primary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${insufficient ? "border-destructive" : ""}`}
-      />
       {insufficient && (
         <p className="text-xs text-destructive">
           Insufficient {token.symbol} balance
@@ -616,33 +625,47 @@ export function AddLiquidityForm({
     }
   };
 
+  // Summary display values
+  const summaryToken0Amount =
+    mode === "balanced"
+      ? token0Amount || "0.0000"
+      : zapTokenIn === pool.token0.address
+        ? zapAmount || "0.0000"
+        : "—";
+  const summaryToken1Amount =
+    mode === "balanced"
+      ? token1Amount || "0.0000"
+      : zapTokenIn === pool.token1.address
+        ? zapAmount || "0.0000"
+        : "—";
+
   return (
-    <div className="md:flex-row flex flex-col">
-      {/* Left Column — Inputs */}
-      <div className="min-w-0 md:border-r flex-1 border-border">
+    <div className="gap-5 md:grid-cols-[1fr_340px] grid grid-cols-1">
+      {/* Left — Inputs card */}
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
         {header}
         <div className="gap-6 p-6 flex flex-col">
           {/* Deposit mode toggle */}
-          <div className="gap-2 grid grid-cols-2">
+          <div className="gap-1 p-1 grid grid-cols-2 rounded-lg bg-muted/50">
             <button
               onClick={() => setMode("balanced")}
-              className={`px-4 py-2.5 text-sm font-medium cursor-pointer rounded-md border ${
+              className={`px-4 py-2.5 text-xs font-semibold cursor-pointer rounded-md transition-colors ${
                 mode === "balanced"
-                  ? "border-border bg-background text-foreground"
-                  : "border-border bg-transparent text-muted-foreground"
+                  ? "shadow-sm bg-background text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               Balanced (2 tokens)
             </button>
             <button
               onClick={() => setMode("single")}
-              className={`px-4 py-2.5 text-sm font-medium cursor-pointer rounded-md border ${
+              className={`px-4 py-2.5 text-xs font-semibold cursor-pointer rounded-md transition-colors ${
                 mode === "single"
-                  ? "border-border bg-background text-foreground"
-                  : "border-border bg-transparent text-muted-foreground"
+                  ? "shadow-sm bg-background text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              Single token (auto-swap)
+              Single token
             </button>
           </div>
 
@@ -656,6 +679,27 @@ export function AddLiquidityForm({
                 onMax={handleMax0}
                 insufficient={insufficientToken0}
               />
+
+              {/* Plus divider */}
+              <div className="-my-2 flex justify-center">
+                <div className="h-8 w-8 flex items-center justify-center rounded-lg border border-border bg-muted/30">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 14 14"
+                    fill="none"
+                    className="text-muted-foreground/50"
+                  >
+                    <path
+                      d="M7 3v8M3 7h8"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </div>
+              </div>
+
               <TokenAmountInput
                 token={pool.token1}
                 balance={formattedToken1Balance}
@@ -664,32 +708,40 @@ export function AddLiquidityForm({
                 onMax={handleMax1}
                 insufficient={insufficientToken1}
               />
-
-              {/* Info text */}
-              <p className="text-xs text-muted-foreground">
-                Amounts are based on the current pool ratio.
-              </p>
             </>
           ) : (
             <>
-              {/* How it works */}
-              <div className="gap-2 p-3 flex flex-col rounded-md border border-border bg-muted/30">
-                <div className="gap-1.5 text-sm font-medium flex items-center">
-                  <Info className="h-4 w-4" />
-                  How it works
-                </div>
-                <ul className="gap-1 ml-5 text-xs flex list-disc flex-col text-muted-foreground">
-                  <li>
-                    A portion of your input will be swapped to balance the pool
-                  </li>
-                  <li>Both tokens will then be added as liquidity</li>
-                  <li>Swap uses current pool price and fees</li>
-                </ul>
-              </div>
-
               {/* Token selector + input */}
               <div className="gap-2 flex flex-col">
                 <div className="gap-2 flex items-center justify-between">
+                  <span className="font-semibold font-mono tracking-widest text-[11px] text-muted-foreground uppercase">
+                    Deposit Token
+                  </span>
+                  <span className="font-mono text-[11px] text-muted-foreground">
+                    Balance:{" "}
+                    <span className="text-muted-foreground/80">
+                      {formatCompactBalance(formattedZapBalance)}
+                    </span>
+                  </span>
+                </div>
+                <div
+                  className={`gap-2 px-4 py-1 flex items-center rounded-xl border bg-muted/30 transition-colors focus-within:border-primary ${insufficientZap ? "border-destructive" : "border-border"}`}
+                >
+                  <CoinInput
+                    value={zapAmount}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setZapAmount(e.target.value)
+                    }
+                    placeholder="0.00"
+                    className="h-10 px-0 text-lg font-semibold flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
+                  />
+                  <button
+                    className="px-2 py-1 font-bold font-mono tracking-wider cursor-pointer rounded-md bg-primary/10 text-[11px] text-primary transition-colors hover:bg-primary/15"
+                    onClick={() => setZapAmount(formattedZapBalance)}
+                  >
+                    MAX
+                  </button>
+                  {/* Token selector */}
                   <Select
                     value={zapTokenIn}
                     onValueChange={(v) => {
@@ -697,7 +749,7 @@ export function AddLiquidityForm({
                       setZapAmount("");
                     }}
                   >
-                    <SelectTrigger className="gap-2 px-3 py-2 font-medium w-auto border border-border bg-transparent shadow-none">
+                    <SelectTrigger className="gap-1.5 px-3 py-1.5 font-semibold h-auto w-auto rounded-lg border-0 bg-muted/50 shadow-none">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -735,21 +787,7 @@ export function AddLiquidityForm({
                       </SelectItem>
                     </SelectContent>
                   </Select>
-                  <div className="text-sm text-muted-foreground">
-                    Balance:{" "}
-                    <span className="font-medium font-mono text-foreground/80">
-                      {formatCompactBalance(formattedZapBalance)}
-                    </span>
-                  </div>
                 </div>
-                <CoinInput
-                  value={zapAmount}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setZapAmount(e.target.value)
-                  }
-                  placeholder="0"
-                  className={`shadow-xs h-10 px-3 text-sm font-mono placeholder:text-sm border border-input focus-within:border-primary focus:border-primary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${insufficientZap ? "border-destructive" : ""}`}
-                />
                 {insufficientZap && (
                   <p className="text-xs text-destructive">
                     Insufficient {zapToken.symbol} balance
@@ -776,11 +814,11 @@ export function AddLiquidityForm({
               </div>
 
               {/* Warning */}
-              <div className="gap-2 p-3 border-yellow-500/20 bg-yellow-50/50 text-xs text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-400 flex items-start rounded-md border">
+              <div className="gap-2 p-3 border-yellow-500/20 bg-yellow-50/50 text-xs text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-400 flex items-start rounded-lg border">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <span>
-                  Single-token liquidity uses an automatic swap and may result
-                  in slightly higher fees than providing both tokens.
+                  Single-sided deposits use an auto-swap, which incurs the pool
+                  fee and some price impact.
                 </span>
               </div>
             </>
@@ -788,56 +826,90 @@ export function AddLiquidityForm({
         </div>
       </div>
 
-      {/* Right Column — Summary & Action */}
-      <div className="md:w-80 p-6 flex shrink-0 flex-col">
-        <h3 className="text-sm font-semibold mb-4 text-foreground">Summary</h3>
+      {/* Right — Summary & Action */}
+      <div className="gap-4 flex flex-col">
+        {/* Summary card */}
+        <div className="p-6 flex-1 rounded-xl border border-border bg-card">
+          <h3 className="text-sm font-semibold mb-5 text-muted-foreground">
+            Transaction Summary
+          </h3>
 
-        {/* Summary metrics */}
-        <div className="space-y-3 flex-1">
-          <div className="text-sm flex justify-between">
-            <span className="text-muted-foreground">Est. LP tokens</span>
-            <span className="font-medium font-mono">
-              {mode === "balanced" ? estimatedLP : zapEstimatedLP} LP
-            </span>
-          </div>
-          <div className="text-sm flex justify-between">
-            <span className="text-muted-foreground">LP fee</span>
-            <span className="font-medium font-mono">
-              {pool.fees.lp.toFixed(2)}%
-            </span>
-          </div>
-          <div className="text-sm flex justify-between">
-            <span className="text-muted-foreground">Protocol fee</span>
-            <span className="font-medium font-mono">
-              {pool.fees.protocol.toFixed(2)}%
-            </span>
-          </div>
-        </div>
+          <div className="space-y-3.5">
+            {/* Deposit token 0 */}
+            <div className="flex items-center justify-between">
+              <div className="gap-2 flex items-center">
+                <TokenIcon
+                  token={{
+                    address: pool.token0.address,
+                    symbol: pool.token0.symbol,
+                  }}
+                  size={20}
+                  className="rounded-full"
+                />
+                <span className="text-sm text-muted-foreground">
+                  Deposit {pool.token0.symbol}
+                </span>
+              </div>
+              <span className="text-sm font-semibold font-mono tabular-nums">
+                {summaryToken0Amount}
+              </span>
+            </div>
 
-        {/* Slippage Tolerance */}
-        <div className="pt-4 mt-4 mb-4 border-t border-border">
-          <div className="mb-1 flex items-center justify-between">
-            <label className="text-xs text-muted-foreground">
-              Slippage tolerance
-            </label>
-            <Select
-              value={String(slippage)}
-              onValueChange={(v) => setSlippage(Number(v) as SlippageOption)}
-            >
-              <SelectTrigger className="h-7 text-xs w-[90px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SLIPPAGE_OPTIONS.map((option) => (
-                  <SelectItem key={option} value={String(option)}>
-                    {option}%
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {/* Deposit token 1 */}
+            <div className="flex items-center justify-between">
+              <div className="gap-2 flex items-center">
+                <TokenIcon
+                  token={{
+                    address: pool.token1.address,
+                    symbol: pool.token1.symbol,
+                  }}
+                  size={20}
+                  className="rounded-full"
+                />
+                <span className="text-sm text-muted-foreground">
+                  Deposit {pool.token1.symbol}
+                </span>
+              </div>
+              <span className="text-sm font-semibold font-mono tabular-nums">
+                {summaryToken1Amount}
+              </span>
+            </div>
+
+            <div className="h-px bg-border" />
+
+            {/* LP fee */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">LP fee</span>
+              <span className="text-sm font-medium font-mono text-muted-foreground/80">
+                {pool.fees.lp.toFixed(1)}%
+              </span>
+            </div>
+
+            {/* Slippage tolerance */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">
+                Slippage tolerance
+              </span>
+              <Select
+                value={String(slippage)}
+                onValueChange={(v) => setSlippage(Number(v) as SlippageOption)}
+              >
+                <SelectTrigger className="h-7 text-xs font-mono w-[80px] border-border bg-muted/30">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SLIPPAGE_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={String(option)}>
+                      {option}%
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <p className="text-[11px] text-muted-foreground">
-            Used to set minimum amounts for zap swaps and liquidity mint/burn.
+
+          <p className="mt-4 leading-relaxed text-[11px] text-muted-foreground/60">
+            Sets minimum amounts for zap swaps and liquidity mint/burn.
           </p>
         </div>
 
@@ -855,34 +927,12 @@ export function AddLiquidityForm({
               {buttonState.text}
             </Button>
             {mode === "single" && zapBuildError && (
-              <p className="text-xs leading-5 mt-2 text-center text-muted-foreground">
+              <p className="text-xs leading-5 text-center text-muted-foreground">
                 {zapBuildError}
               </p>
             )}
           </>
         )}
-
-        {/* Footer links */}
-        <div className="mt-3 flex items-center justify-between">
-          <a
-            href={`${explorerUrl}/address/${pool.poolAddr}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="gap-1 flex items-center text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <ExternalLink className="h-3 w-3" />
-            View on explorer
-          </a>
-          <a
-            href="https://docs.mento.org/mento/overview/core-concepts/fixed-price-market-makers-fpmms"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="gap-1 flex items-center text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-          >
-            FPMM mechanics
-            <ExternalLink className="h-3 w-3" />
-          </a>
-        </div>
       </div>
     </div>
   );

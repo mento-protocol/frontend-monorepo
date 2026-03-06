@@ -27,8 +27,8 @@ export default function SwapPage() {
             <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
             <div
               className={cn(
-                "space-y-6 p-6 md:h-[510px] relative z-50 flex flex-col bg-card",
-                confirmView ? "md:h-[510px] h-auto" : "h-[510px]",
+                "space-y-6 p-6 md:h-[525px] relative z-50 flex flex-col bg-card",
+                confirmView ? "md:h-[525px] h-auto" : "h-[525px]",
               )}
             >
               <div className="gap-6 flex flex-row items-center justify-between">
@@ -38,7 +38,7 @@ export default function SwapPage() {
                       Token Exchange
                     </span>
                   )}
-                  <h2 className="gap-2 font-bold flex items-center text-3xl">
+                  <h2 className="mt-0 gap-2 font-bold flex items-center text-3xl">
                     {confirmView ? (
                       <Button
                         data-testid="backButton"
@@ -53,7 +53,7 @@ export default function SwapPage() {
                     {confirmView ? "Confirm Swap" : "Swap"}
                   </h2>
                   {!confirmView && (
-                    <p className="text-sm text-muted-foreground">
+                    <p className="mt-2 text-sm text-muted-foreground">
                       Trade between Mento stablecoins and other tokens.
                     </p>
                   )}

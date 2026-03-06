@@ -34,7 +34,6 @@ import {
 } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, type Address } from "viem";
 import { useState, useEffect } from "react";
-import { ExternalLink } from "lucide-react";
 import { useSetAtom } from "jotai";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -477,47 +476,78 @@ export function RemoveLiquidityForm({
     }
   };
 
+  // Summary values for balanced mode
+  const summaryReceive0 =
+    hasAmount && quote
+      ? formatTokenAmount(quote.amount0, pool.token0.decimals)
+      : "0.0000";
+  const summaryReceive1 =
+    hasAmount && quote
+      ? formatTokenAmount(quote.amount1, pool.token1.decimals)
+      : "0.0000";
+
   return (
-    <div className="md:flex-row flex flex-col">
-      {/* Left Column — Inputs */}
-      <div className="min-w-0 md:border-r flex-1 border-border">
+    <div className="gap-5 md:grid-cols-[1fr_340px] grid grid-cols-1">
+      {/* Left — Inputs card */}
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
         {header}
         <div className="gap-6 p-6 flex flex-col">
           {/* Mode toggle */}
-          <div className="gap-2 grid grid-cols-2">
+          <div className="gap-1 p-1 grid grid-cols-2 rounded-lg bg-muted/50">
             <button
               onClick={() => setMode("balanced")}
-              className={`px-4 py-2.5 text-sm font-medium cursor-pointer rounded-md border ${
+              className={`px-4 py-2.5 text-xs font-semibold cursor-pointer rounded-md transition-colors ${
                 mode === "balanced"
-                  ? "border-border bg-background text-foreground"
-                  : "border-border bg-transparent text-muted-foreground"
+                  ? "shadow-sm bg-background text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               Balanced (2 tokens)
             </button>
             <button
               onClick={() => setMode("single")}
-              className={`px-4 py-2.5 text-sm font-medium cursor-pointer rounded-md border ${
+              className={`px-4 py-2.5 text-xs font-semibold cursor-pointer rounded-md transition-colors ${
                 mode === "single"
-                  ? "border-border bg-background text-foreground"
-                  : "border-border bg-transparent text-muted-foreground"
+                  ? "shadow-sm bg-background text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              Single token (auto-swap)
+              Single token
             </button>
           </div>
 
           {/* LP token input */}
           <div className="gap-2 flex flex-col">
             <div className="gap-2 flex items-center justify-between">
-              <div className="gap-2 flex items-center">
-                <div className="-space-x-2 flex">
+              <span className="font-semibold font-mono tracking-widest text-[11px] text-muted-foreground uppercase">
+                LP Tokens to Burn
+              </span>
+              <span className="font-mono text-[11px] text-muted-foreground">
+                Balance:{" "}
+                <span className="text-muted-foreground/80">
+                  {formatCompactBalance(formattedLpBalance)}
+                </span>
+              </span>
+            </div>
+            <div
+              className={`gap-2 px-4 py-1 flex items-center rounded-xl border bg-muted/30 transition-colors focus-within:border-primary ${insufficientLp ? "border-destructive" : "border-border"}`}
+            >
+              <CoinInput
+                value={lpAmount}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setLpAmount(e.target.value)
+                }
+                placeholder="0.00"
+                className="h-10 px-0 text-lg font-semibold flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
+              />
+              <div className="gap-1.5 px-3 py-1.5 flex items-center rounded-lg bg-muted/50">
+                <div className="-space-x-1.5 flex">
                   <TokenIcon
                     token={{
                       address: pool.token0.address,
                       symbol: pool.token0.symbol,
                     }}
-                    size={24}
+                    size={18}
                     className="relative z-10 rounded-full"
                   />
                   <TokenIcon
@@ -525,27 +555,15 @@ export function RemoveLiquidityForm({
                       address: pool.token1.address,
                       symbol: pool.token1.symbol,
                     }}
-                    size={24}
+                    size={18}
                     className="rounded-full"
                   />
                 </div>
-                <span className="font-medium">LP Tokens</span>
-              </div>
-              <div className="text-sm text-muted-foreground">
-                Balance:{" "}
-                <span className="font-medium font-mono text-foreground/80">
-                  {formatCompactBalance(formattedLpBalance)}
+                <span className="text-sm font-semibold text-foreground/70">
+                  LP
                 </span>
               </div>
             </div>
-            <CoinInput
-              value={lpAmount}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setLpAmount(e.target.value)
-              }
-              placeholder="0"
-              className={`shadow-xs h-10 px-3 text-sm font-mono placeholder:text-sm border border-input focus-within:border-primary focus:border-primary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${insufficientLp ? "border-destructive" : ""}`}
-            />
             {insufficientLp && (
               <p className="text-xs text-destructive">
                 Insufficient LP token balance
@@ -560,15 +578,32 @@ export function RemoveLiquidityForm({
               { label: "50%", fraction: 0.5 },
               { label: "75%", fraction: 0.75 },
               { label: "Max", fraction: 1 },
-            ].map(({ label, fraction }) => (
-              <button
-                key={label}
-                onClick={() => handlePreset(fraction)}
-                className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
-              >
-                {label}
-              </button>
-            ))}
+            ].map(({ label, fraction }) => {
+              const val =
+                lpBalance && fraction < 1
+                  ? formatUnits(
+                      (lpBalance * BigInt(Math.round(fraction * 1_000_000))) /
+                        1_000_000n,
+                      18,
+                    )
+                  : lpBalance
+                    ? formatUnits(lpBalance, 18)
+                    : "";
+              const isActive = lpAmount === val && val !== "";
+              return (
+                <button
+                  key={label}
+                  onClick={() => handlePreset(fraction)}
+                  className={`py-1.5 text-xs font-medium cursor-pointer rounded-md border text-center transition-colors ${
+                    isActive
+                      ? "border-primary/30 bg-primary/10 text-primary"
+                      : "border-border bg-background hover:bg-muted/50"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
 
           {mode === "single" && (
@@ -628,115 +663,118 @@ export function RemoveLiquidityForm({
         </div>
       </div>
 
-      {/* Right Column — Summary & Action */}
-      <div className="md:w-80 p-6 flex shrink-0 flex-col">
-        <h3 className="text-sm font-semibold mb-4 text-foreground">Summary</h3>
+      {/* Right — Summary & Action */}
+      <div className="gap-4 flex flex-col">
+        {/* Summary card */}
+        <div className="p-6 flex-1 rounded-xl border border-border bg-card">
+          <h3 className="text-sm font-semibold mb-5 text-muted-foreground">
+            Transaction Summary
+          </h3>
 
-        {/* Summary metrics */}
-        <div className="space-y-3 flex-1">
-          {mode === "balanced" ? (
-            <>
-              <div className="text-sm flex items-center justify-between">
-                <div className="gap-1.5 flex items-center">
-                  <TokenIcon
-                    token={{
-                      address: pool.token0.address,
-                      symbol: pool.token0.symbol,
-                    }}
-                    size={18}
-                    className="rounded-full"
-                  />
-                  <span className="text-muted-foreground">
-                    Receive {pool.token0.symbol}
+          <div className="space-y-3.5">
+            {mode === "balanced" ? (
+              <>
+                {/* Receive token 0 */}
+                <div className="flex items-center justify-between">
+                  <div className="gap-2 flex items-center">
+                    <TokenIcon
+                      token={{
+                        address: pool.token0.address,
+                        symbol: pool.token0.symbol,
+                      }}
+                      size={20}
+                      className="rounded-full"
+                    />
+                    <span className="text-sm text-muted-foreground">
+                      Receive {pool.token0.symbol}
+                    </span>
+                  </div>
+                  <span className="text-sm font-semibold font-mono tabular-nums">
+                    {summaryReceive0}
                   </span>
                 </div>
-                <span className="font-medium font-mono tabular-nums">
-                  {hasAmount && quote
-                    ? formatTokenAmount(quote.amount0, pool.token0.decimals)
-                    : "0.0000"}{" "}
-                  {pool.token0.symbol}
-                </span>
-              </div>
-              <div className="text-sm flex items-center justify-between">
-                <div className="gap-1.5 flex items-center">
-                  <TokenIcon
-                    token={{
-                      address: pool.token1.address,
-                      symbol: pool.token1.symbol,
-                    }}
-                    size={18}
-                    className="rounded-full"
-                  />
-                  <span className="text-muted-foreground">
-                    Receive {pool.token1.symbol}
+
+                {/* Receive token 1 */}
+                <div className="flex items-center justify-between">
+                  <div className="gap-2 flex items-center">
+                    <TokenIcon
+                      token={{
+                        address: pool.token1.address,
+                        symbol: pool.token1.symbol,
+                      }}
+                      size={20}
+                      className="rounded-full"
+                    />
+                    <span className="text-sm text-muted-foreground">
+                      Receive {pool.token1.symbol}
+                    </span>
+                  </div>
+                  <span className="text-sm font-semibold font-mono tabular-nums">
+                    {summaryReceive1}
                   </span>
                 </div>
-                <span className="font-medium font-mono tabular-nums">
-                  {hasAmount && quote
-                    ? formatTokenAmount(quote.amount1, pool.token1.decimals)
-                    : "0.0000"}{" "}
-                  {pool.token1.symbol}
+              </>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="gap-2 flex items-center">
+                  <TokenIcon
+                    token={{
+                      address: selectedToken.address,
+                      symbol: selectedToken.symbol,
+                    }}
+                    size={20}
+                    className="rounded-full"
+                  />
+                  <span className="text-sm text-muted-foreground">
+                    Receive {selectedToken.symbol}
+                  </span>
+                </div>
+                <span className="text-sm font-semibold font-mono tabular-nums">
+                  {hasAmount && estimatedSingleTokenOut
+                    ? formatTokenAmount(
+                        estimatedSingleTokenOut,
+                        selectedToken.decimals,
+                      )
+                    : "0.0000"}
                 </span>
               </div>
-            </>
-          ) : (
-            <div className="text-sm flex items-center justify-between">
-              <div className="gap-1.5 flex items-center">
-                <TokenIcon
-                  token={{
-                    address: selectedToken.address,
-                    symbol: selectedToken.symbol,
-                  }}
-                  size={18}
-                  className="rounded-full"
-                />
-                <span className="text-muted-foreground">
-                  Receive {selectedToken.symbol}
-                </span>
-              </div>
-              <span className="font-medium font-mono tabular-nums">
-                {hasAmount && estimatedSingleTokenOut
-                  ? formatTokenAmount(
-                      estimatedSingleTokenOut,
-                      selectedToken.decimals,
-                    )
-                  : "0.0000"}{" "}
-                {selectedToken.symbol}
+            )}
+
+            <div className="h-px bg-border" />
+
+            {/* LP fee */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">LP fee</span>
+              <span className="text-sm font-medium font-mono text-muted-foreground/80">
+                {pool.fees.lp.toFixed(1)}%
               </span>
             </div>
-          )}
-          <div className="text-sm flex justify-between">
-            <span className="text-muted-foreground">LP fee</span>
-            <span className="font-medium font-mono">
-              {pool.fees.lp.toFixed(2)}%
-            </span>
-          </div>
-        </div>
 
-        {/* Slippage Tolerance */}
-        <div className="pt-4 mt-4 mb-4 border-t border-border">
-          <div className="mb-1 flex items-center justify-between">
-            <label className="text-xs text-muted-foreground">
-              Slippage tolerance
-            </label>
-            <Select
-              value={String(slippage)}
-              onValueChange={(v) => setSlippage(Number(v) as SlippageOption)}
-            >
-              <SelectTrigger className="h-7 text-xs w-[90px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SLIPPAGE_OPTIONS.map((option) => (
-                  <SelectItem key={option} value={String(option)}>
-                    {option}%
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {/* Slippage tolerance */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">
+                Slippage tolerance
+              </span>
+              <Select
+                value={String(slippage)}
+                onValueChange={(v) => setSlippage(Number(v) as SlippageOption)}
+              >
+                <SelectTrigger className="h-7 text-xs font-mono w-[80px] border-border bg-muted/30">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SLIPPAGE_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={String(option)}>
+                      {option}%
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <p className="text-[11px] text-muted-foreground">
-            Used to set minimum amounts for zap swaps and liquidity mint/burn.
+
+          <p className="mt-4 leading-relaxed text-[11px] text-muted-foreground/60">
+            Sets minimum amounts for zap swaps and liquidity mint/burn.
           </p>
         </div>
 
@@ -754,34 +792,12 @@ export function RemoveLiquidityForm({
               {buttonState.text}
             </Button>
             {mode === "single" && zapOutUiError && (
-              <p className="text-xs leading-5 mt-2 text-center text-muted-foreground">
+              <p className="text-xs leading-5 text-center text-muted-foreground">
                 {zapOutUiError}
               </p>
             )}
           </>
         )}
-
-        {/* Footer links */}
-        <div className="mt-3 flex items-center justify-between">
-          <a
-            href={`${explorerUrl}/address/${pool.poolAddr}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="gap-1 flex items-center text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <ExternalLink className="h-3 w-3" />
-            View on explorer
-          </a>
-          <a
-            href="https://docs.mento.org/mento/overview/core-concepts/fixed-price-market-makers-fpmms"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="gap-1 flex items-center text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-          >
-            FPMM mechanics
-            <ExternalLink className="h-3 w-3" />
-          </a>
-        </div>
       </div>
     </div>
   );
