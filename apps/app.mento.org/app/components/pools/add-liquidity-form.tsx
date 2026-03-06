@@ -23,7 +23,6 @@ import {
   executeLiquidityFlow,
   liquidityFlowAtom,
   showLiquiditySuccessToast,
-  useExplorerUrl,
   type LiquidityFlowStepDefinition,
 } from "@repo/web3";
 import {
@@ -35,18 +34,10 @@ import {
 } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, type Address } from "viem";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Info, AlertTriangle } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { getContractAddress } from "@mento-protocol/mento-sdk";
 import { useSetAtom } from "jotai";
 import { useQueryClient } from "@tanstack/react-query";
-
-function formatLP(liquidity: bigint | undefined): string {
-  if (!liquidity || liquidity === 0n) return "0.00";
-  return Number(formatUnits(liquidity, 18)).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 4,
-  });
-}
 
 function TokenAmountInput({
   token,
@@ -129,7 +120,6 @@ export function AddLiquidityForm({
     watch: !!address,
     query: { enabled: !!address },
   });
-  const explorerUrl = useExplorerUrl();
   const queryClient = useQueryClient();
   const setFlow = useSetAtom(liquidityFlowAtom);
   const routerAddress = getContractAddress(chainId, "Router") as Address;
@@ -608,9 +598,6 @@ export function AddLiquidityForm({
   };
 
   // === Preview calculations ===
-
-  const estimatedLP = formatLP(quote?.liquidity);
-  const zapEstimatedLP = formatLP(zapQuote?.estimatedMinLiquidity);
 
   const handleAmountPreset = (pctString: string) => {
     if (!zapTokenBalance) return;

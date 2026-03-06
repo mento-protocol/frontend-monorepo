@@ -1,4 +1,4 @@
-import { useReadContract, useReadContracts } from "wagmi";
+import { useReadContracts } from "wagmi";
 import { parseAbi } from "viem";
 import { stabilityPoolAbi } from "../stability-pool/abi";
 import { useStabilityPoolAddress } from "./use-stability-pool-address";

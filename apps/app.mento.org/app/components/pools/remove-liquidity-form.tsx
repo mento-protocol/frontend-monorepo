@@ -22,7 +22,6 @@ import {
   executeLiquidityFlow,
   liquidityFlowAtom,
   showLiquiditySuccessToast,
-  useExplorerUrl,
   type LiquidityFlowStepDefinition,
 } from "@repo/web3";
 import {
@@ -79,7 +78,6 @@ export function RemoveLiquidityForm({
     watch: !!address,
     query: { enabled: !!address },
   });
-  const explorerUrl = useExplorerUrl();
   const queryClient = useQueryClient();
   const setFlow = useSetAtom(liquidityFlowAtom);
 

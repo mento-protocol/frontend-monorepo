@@ -9,7 +9,6 @@ import {
   TabsList,
   TabsTrigger,
   TabsContent,
-  Button,
   Skeleton,
   TokenIcon,
 } from "@repo/ui";
@@ -21,7 +20,6 @@ import {
   formatCollateralAmount,
   formatDebtAmount,
   formatInterestRate,
-  formatLtv,
   formatPrice,
 } from "@repo/web3";
 import { useChainId } from "@repo/web3/wagmi";
