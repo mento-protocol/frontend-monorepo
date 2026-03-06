@@ -1,14 +1,16 @@
 "use client";
 
-import { CoinInput } from "@repo/ui";
+import { CoinInput, TokenIcon } from "@repo/ui";
 import {
   useDebtSuggestions,
   useSystemParams,
   formatDebtAmount,
   selectedDebtTokenAtom,
 } from "@repo/web3";
+import { useChainId } from "@repo/web3/wagmi";
+import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 import { useAtomValue } from "jotai";
-import { formatUnits } from "viem";
+import { formatUnits, type Address } from "viem";
 import type { RiskLevel } from "@repo/web3";
 
 function trimDecimals(value: string, dp: number): string {
@@ -52,8 +54,20 @@ function formatCompactDebt(amount: bigint): string {
 }
 
 export function DebtInput({ value, onChange, collAmount }: DebtInputProps) {
+  const chainId = useChainId();
   const debtToken = useAtomValue(selectedDebtTokenAtom);
   const { data: systemParams } = useSystemParams(debtToken.symbol);
+
+  const debtTokenAddress = (() => {
+    try {
+      return getTokenAddress(
+        chainId,
+        debtToken.symbol as TokenSymbol,
+      ) as Address;
+    } catch {
+      return undefined;
+    }
+  })();
   const suggestions = useDebtSuggestions(
     collAmount > 0n ? collAmount : null,
     debtToken.symbol,
@@ -84,12 +98,20 @@ export function DebtInput({ value, onChange, collAmount }: DebtInputProps) {
             onChange(e.target.value)
           }
           placeholder="0.00"
-          className="p-0 text-xl font-semibold flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
+          className="p-0 text-sm font-mono flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
         />
         <div className="gap-1.5 px-3 py-2 flex items-center bg-muted/50">
-          <div className="h-5 w-5 from-indigo-500 to-purple-600 font-bold flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-[9px]">
-            {debtToken.currencySymbol}
-          </div>
+          {debtTokenAddress ? (
+            <TokenIcon
+              token={{ address: debtTokenAddress, symbol: debtToken.symbol }}
+              size={20}
+              className="shrink-0 rounded-full"
+            />
+          ) : (
+            <div className="h-5 w-5 font-bold from-indigo-500 to-purple-600 flex shrink-0 items-center justify-center rounded-full bg-linear-to-br text-[9px]">
+              {debtToken.currencySymbol}
+            </div>
+          )}
           <span className="text-sm font-semibold text-muted-foreground/70">
             {debtToken.symbol}
           </span>

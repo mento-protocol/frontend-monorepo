@@ -130,7 +130,7 @@ function CoinInput({
       data-slot="input"
       className={cn(
         "h-9 min-w-0 text-base flex w-full rounded-none bg-transparent transition-[color,box-shadow] outline-none",
-        "text-[32px] placeholder:text-[32px] placeholder:text-muted-foreground",
+        "text-[32px] placeholder:text-[inherit] placeholder:text-muted-foreground",
         "selection:bg-primary/20 selection:text-primary-foreground",
         "file:h-7 file:text-sm file:font-medium file:inline-flex file:bg-transparent file:text-foreground",
         "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",

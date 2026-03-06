@@ -83,7 +83,7 @@ function TokenAmountInput({
           value={amount}
           onChange={onChange}
           placeholder="0.00"
-          className="h-10 px-0 text-lg font-semibold flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
+          className="h-10 p-0 text-sm font-mono flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
         />
         <button
           className="px-2 py-1 font-bold font-mono tracking-wider cursor-pointer rounded-md bg-primary/10 text-[11px] text-primary transition-colors hover:bg-primary/15"
@@ -733,7 +733,7 @@ export function AddLiquidityForm({
                       setZapAmount(e.target.value)
                     }
                     placeholder="0.00"
-                    className="h-10 px-0 text-lg font-semibold flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
+                    className="h-10 p-0 text-sm font-mono flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
                   />
                   <button
                     className="px-2 py-1 font-bold font-mono tracking-wider cursor-pointer rounded-md bg-primary/10 text-[11px] text-primary transition-colors hover:bg-primary/15"

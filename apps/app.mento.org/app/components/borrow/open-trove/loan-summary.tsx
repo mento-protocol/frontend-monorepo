@@ -12,7 +12,6 @@ import {
 } from "@repo/web3";
 import { useAtomValue } from "jotai";
 import { useMemo } from "react";
-import { RiskBadge } from "../shared/risk-badge";
 
 interface LoanSummaryProps {
   collAmount: bigint;
@@ -82,12 +81,6 @@ export function LoanSummary({
         </MetricRow>
         <MetricRow label="Debt">
           {hasInputs ? formatDebtAmount(debtAmount, debtToken) : PLACEHOLDER}
-        </MetricRow>
-        <MetricRow label="LTV">
-          <span className="gap-1.5 flex items-center">
-            {loanDetails ? formatLtv(loanDetails.ltv) : PLACEHOLDER}
-            {loanDetails && <RiskBadge risk={loanDetails.liquidationRisk} />}
-          </span>
         </MetricRow>
         <MetricRow label="Liq. Price">
           {loanDetails

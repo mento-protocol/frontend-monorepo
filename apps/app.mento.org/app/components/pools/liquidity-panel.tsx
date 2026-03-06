@@ -156,23 +156,9 @@ export function LiquidityPanel({ pool, mode, onClose }: LiquidityPanelProps) {
                 {pool.poolType === "FPMM" ? "FPMM" : "LEGACY"}
               </Badge>
             </div>
-            <div className="gap-3 mt-1 flex items-center">
-              <span className="text-xs font-mono text-muted-foreground">
-                {pool.fees.total.toFixed(1)}% fee
-              </span>
-              {pool.tvl !== null && (
-                <>
-                  <span className="h-1 w-1 rounded-full bg-muted-foreground/30" />
-                  <span className="text-xs font-mono text-muted-foreground">
-                    TVL $
-                    {pool.tvl.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </span>
-                </>
-              )}
-            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Manage your liquidity position
+            </p>
           </div>
         </div>
         <div className="gap-2 flex">

@@ -1,6 +1,7 @@
 "use client";
 
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
+import { useEffect } from "react";
 import { DebtTokenSelector } from "./shared/debt-token-selector";
 import { FlowDialog } from "./shared/flow-dialog";
 import { BorrowDashboard } from "./dashboard/borrow-dashboard";
@@ -10,6 +11,12 @@ import { borrowViewAtom } from "./atoms/borrow-navigation";
 
 export function BorrowView() {
   const view = useAtomValue(borrowViewAtom);
+  const setBorrowView = useSetAtom(borrowViewAtom);
+
+  // Reset to dashboard whenever the borrow tab is re-entered
+  useEffect(() => {
+    setBorrowView("dashboard");
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const showHeader = view === "dashboard" || view === "redeem";
 

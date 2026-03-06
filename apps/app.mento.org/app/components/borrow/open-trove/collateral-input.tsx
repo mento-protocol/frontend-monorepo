@@ -1,6 +1,6 @@
 "use client";
 
-import { CoinInput } from "@repo/ui";
+import { CoinInput, TokenIcon } from "@repo/ui";
 import {
   formatCompactBalance,
   tryParseUnits,
@@ -89,7 +89,7 @@ export function CollateralInput({ value, onChange }: CollateralInputProps) {
             onChange(e.target.value)
           }
           placeholder="0.00"
-          className="p-0 text-xl font-semibold flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
+          className="p-0 text-sm font-mono flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
         />
         <button
           type="button"
@@ -99,9 +99,17 @@ export function CollateralInput({ value, onChange }: CollateralInputProps) {
           MAX
         </button>
         <div className="gap-1.5 px-3 py-2 flex items-center bg-muted/50">
-          <div className="h-5 w-5 from-emerald-500 to-emerald-700 font-bold flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-[9px]">
-            $
-          </div>
+          {collateralAddress ? (
+            <TokenIcon
+              token={{ address: collateralAddress, symbol: "USDm" }}
+              size={20}
+              className="shrink-0 rounded-full"
+            />
+          ) : (
+            <div className="h-5 w-5 font-bold from-emerald-500 to-emerald-700 flex shrink-0 items-center justify-center rounded-full bg-linear-to-br text-[9px]">
+              $
+            </div>
+          )}
           <span className="text-sm font-semibold text-muted-foreground/70">
             USDm
           </span>

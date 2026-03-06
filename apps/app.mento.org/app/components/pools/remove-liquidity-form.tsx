@@ -538,7 +538,7 @@ export function RemoveLiquidityForm({
                   setLpAmount(e.target.value)
                 }
                 placeholder="0.00"
-                className="h-10 px-0 text-lg font-semibold flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
+                className="h-10 p-0 text-sm font-mono flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
               />
               <div className="gap-1.5 px-3 py-1.5 flex items-center rounded-lg bg-muted/50">
                 <div className="-space-x-1.5 flex">
