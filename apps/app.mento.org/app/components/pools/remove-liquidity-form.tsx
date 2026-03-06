@@ -535,13 +535,7 @@ export function RemoveLiquidityForm({
                 Balance:{" "}
                 <span className="font-medium font-mono text-foreground/80">
                   {formatCompactBalance(formattedLpBalance)}
-                </span>{" "}
-                <button
-                  className="font-medium cursor-pointer text-primary hover:underline"
-                  onClick={() => handlePreset(1)}
-                >
-                  MAX
-                </button>
+                </span>
               </div>
             </div>
             <CoinInput

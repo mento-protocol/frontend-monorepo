@@ -34,19 +34,9 @@ import {
   useBlockNumber,
 } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, type Address } from "viem";
-import {
-  useState,
-  useEffect,
-  useCallback,
-  useRef,
-  type ChangeEvent,
-} from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Info, AlertTriangle, ExternalLink } from "lucide-react";
 import { getContractAddress } from "@mento-protocol/mento-sdk";
-import {
-  sanitizePercentInput,
-  sanitizePercentOnBlur,
-} from "@/lib/utils/percent-input";
 import { useSetAtom } from "jotai";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -613,8 +603,6 @@ export function AddLiquidityForm({
   const estimatedLP = formatLP(quote?.liquidity);
   const zapEstimatedLP = formatLP(zapQuote?.estimatedMinLiquidity);
 
-  const [customPct, setCustomPct] = useState("");
-
   const handleAmountPreset = (pctString: string) => {
     if (!zapTokenBalance) return;
     const pct = Number(pctString);
@@ -625,41 +613,6 @@ export function AddLiquidityForm({
       const scaledPct = BigInt(Math.round(pct * 10));
       const fractionalBalance = (zapTokenBalance * scaledPct) / 1000n;
       setZapAmount(formatUnits(fractionalBalance, zapToken.decimals));
-    }
-  };
-
-  const handleCustomPctChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (!zapTokenBalance) return;
-    const raw = sanitizePercentInput(e.target.value);
-    setCustomPct(raw);
-    const pct = parseFloat(raw);
-    if (!isNaN(pct) && pct > 0) {
-      if (pct >= 100) {
-        setZapAmount(formattedZapBalance);
-      } else {
-        const fractionalBalance =
-          (zapTokenBalance * BigInt(Math.round((pct / 100) * 1_000_000))) /
-          1_000_000n;
-        setZapAmount(formatUnits(fractionalBalance, zapToken.decimals));
-      }
-    }
-  };
-
-  const handleCustomPctBlur = () => {
-    if (!zapTokenBalance) return;
-    const corrected = sanitizePercentOnBlur(customPct);
-    if (corrected === null) return;
-    setCustomPct(corrected);
-    const val = parseFloat(corrected);
-    if (!isNaN(val) && val > 0) {
-      if (val >= 100) {
-        setZapAmount(formattedZapBalance);
-      } else {
-        const fractionalBalance =
-          (zapTokenBalance * BigInt(Math.round((val / 100) * 1_000_000))) /
-          1_000_000n;
-        setZapAmount(formatUnits(fractionalBalance, zapToken.decimals));
-      }
     }
   };
 
@@ -786,13 +739,7 @@ export function AddLiquidityForm({
                     Balance:{" "}
                     <span className="font-medium font-mono text-foreground/80">
                       {formatCompactBalance(formattedZapBalance)}
-                    </span>{" "}
-                    <button
-                      className="font-medium cursor-pointer text-primary hover:underline"
-                      onClick={() => setZapAmount(formattedZapBalance)}
-                    >
-                      MAX
-                    </button>
+                    </span>
                   </div>
                 </div>
                 <CoinInput
@@ -811,39 +758,21 @@ export function AddLiquidityForm({
               </div>
 
               {/* Amount presets */}
-              <div className="gap-2 grid grid-cols-3">
-                <button
-                  onClick={() => handleAmountPreset("0.1")}
-                  className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
-                >
-                  0.1%
-                </button>
-                <button
-                  onClick={() => handleAmountPreset("1")}
-                  className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
-                >
-                  1%
-                </button>
-                <div className="py-1.5 flex items-center justify-center overflow-hidden rounded-md border border-border bg-background">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    maxLength={6}
-                    placeholder="Custom %"
-                    value={customPct}
-                    className="min-w-0 text-xs font-medium w-full shrink bg-transparent text-center outline-none placeholder:text-muted-foreground"
-                    onChange={handleCustomPctChange}
-                    onBlur={handleCustomPctBlur}
-                    style={
-                      customPct
-                        ? { width: `${customPct.length}ch`, flexShrink: 0 }
-                        : undefined
-                    }
-                  />
-                  {customPct && (
-                    <span className="text-xs font-medium shrink-0">%</span>
-                  )}
-                </div>
+              <div className="gap-2 grid grid-cols-4">
+                {[
+                  { label: "25%", pct: "25" },
+                  { label: "50%", pct: "50" },
+                  { label: "75%", pct: "75" },
+                  { label: "Max", pct: "100" },
+                ].map(({ label, pct }) => (
+                  <button
+                    key={label}
+                    onClick={() => handleAmountPreset(pct)}
+                    className="py-1.5 text-xs font-medium cursor-pointer rounded-md border border-border bg-background text-center transition-colors hover:bg-muted/50"
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
 
               {/* Warning */}
