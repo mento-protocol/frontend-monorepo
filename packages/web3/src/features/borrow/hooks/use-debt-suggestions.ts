@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { calculateDebtSuggestions } from "@mento-protocol/mento-sdk/dist/services/borrow/borrowMath";
+import { calculateDebtSuggestions } from "@mento-protocol/mento-sdk";
 import { useLoanDetails } from "./use-loan-details";
 import { useSystemParams } from "./use-system-params";
 

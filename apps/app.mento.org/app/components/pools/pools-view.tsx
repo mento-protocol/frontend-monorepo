@@ -86,8 +86,11 @@ export function PoolsView() {
       <div className="relative">
         <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
         <div className="p-6 bg-card">
-          <h1 className="font-medium md:text-2xl">Pool</h1>
-          <p className="text-sm text-muted-foreground">
+          <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
+            Liquidity Provision
+          </span>
+          <h1 className="mt-2 font-bold text-3xl">Pool</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
             Explore pools, view on-chain metrics, and provide liquidity.
           </p>
         </div>
@@ -101,7 +104,7 @@ export function PoolsView() {
               key={tab.value}
               onClick={() => setFilter(tab.value)}
               className={cn(
-                "md:flex-none px-4 py-2 text-sm font-medium flex-1 border-0 transition-colors outline-none",
+                "md:flex-none px-4 py-2 text-sm font-medium flex-1 cursor-pointer border-0 transition-colors outline-none",
                 filter === tab.value
                   ? "bg-card text-foreground"
                   : "text-muted-foreground hover:text-foreground",
@@ -117,7 +120,7 @@ export function PoolsView() {
             placeholder="Search by name, symbol or pool address"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-9 md:w-64 pl-9 w-full"
+            className="h-9 md:w-96 pl-9 w-full"
           />
         </div>
       </div>

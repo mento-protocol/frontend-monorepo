@@ -243,6 +243,7 @@ export function RateForm({ troveId, troveData }: RateFormProps) {
 
       {/* Submit */}
       <Button
+        size="lg"
         className="w-full"
         disabled={buttonDisabledReason !== null}
         onClick={handleSubmit}

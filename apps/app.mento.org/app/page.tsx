@@ -11,6 +11,7 @@ import { activeTabAtom } from "@/atoms/navigation";
 import { Button, cn, DebugPopup } from "@repo/ui";
 import { PoolsView } from "./components/pools/pools-view";
 import { BorrowView } from "./components/borrow/borrow-view";
+import { EarnView } from "./components/borrow/earn/earn-view";
 
 export default function SwapPage() {
   const [confirmView, setConfirmView] = useAtom(confirmViewAtom);
@@ -26,25 +27,37 @@ export default function SwapPage() {
             <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
             <div
               className={cn(
-                "space-y-6 p-6 md:h-[510px] relative z-50 flex flex-col bg-card",
-                confirmView ? "md:h-[510px] h-auto" : "h-[510px]",
+                "space-y-6 p-6 md:min-h-[525px] relative z-50 flex flex-col bg-card",
+                confirmView ? "md:min-h-[525px] h-auto" : "min-h-[525px]",
               )}
             >
               <div className="gap-6 flex flex-row items-center justify-between">
-                <h2 className="gap-2 font-medium md:text-2xl flex items-center">
-                  {confirmView ? (
-                    <Button
-                      data-testid="backButton"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => setConfirmView(false)}
-                    >
-                      <ArrowLeft />
-                    </Button>
-                  ) : null}
-                  {confirmView ? "Confirm Swap" : "Swap"}
-                </h2>
+                <div>
+                  {!confirmView && (
+                    <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
+                      Token Exchange
+                    </span>
+                  )}
+                  <h2 className="mt-0 gap-2 font-bold flex items-center text-3xl">
+                    {confirmView ? (
+                      <Button
+                        data-testid="backButton"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => setConfirmView(false)}
+                      >
+                        <ArrowLeft />
+                      </Button>
+                    ) : null}
+                    {confirmView ? "Confirm Swap" : "Swap"}
+                  </h2>
+                  {!confirmView && (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Trade between Mento stablecoins and other tokens.
+                    </p>
+                  )}
+                </div>
                 {!confirmView && <SwapSettingsPopover />}
               </div>
               {confirmView && <SwapConfirm />}
@@ -65,6 +78,7 @@ export default function SwapPage() {
         )}
         {activeTab === "pool" && <PoolsView />}
         {activeTab === "borrow" && <BorrowView />}
+        {activeTab === "earn" && <EarnView />}
       </div>
     </>
   );

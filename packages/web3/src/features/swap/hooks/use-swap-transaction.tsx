@@ -1,6 +1,10 @@
 import { chainIdToChain, CELO_EXPLORER } from "@/config/chains";
 import { getTokenBySymbol } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
+import {
+  extractFullErrorString,
+  isInsufficientLiquidityError,
+} from "@/features/swap/error-handlers";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
 import { logger } from "@/utils/logger";
 import { validateAddress } from "@/utils/addresses";
@@ -121,15 +125,9 @@ export function useSwapTransaction(
           value: BigInt(swapDetails.params.value || 0),
         });
       } catch (estimateError) {
-        const estimateMessage =
-          estimateError instanceof Error
-            ? estimateError.message
-            : String(estimateError);
+        const estimateMessage = extractFullErrorString(estimateError);
 
-        if (
-          estimateMessage.includes("0xbb55fd27") ||
-          /insufficient liquidity/i.test(estimateMessage)
-        ) {
+        if (isInsufficientLiquidityError(estimateMessage)) {
           throw new Error(
             "Insufficient liquidity for this swap. Try a smaller amount.",
           );
@@ -299,7 +297,10 @@ export function useSwapTransaction(
  * Handles transaction-specific errors like user rejection, insufficient funds, etc.
  */
 function getSwapTransactionErrorMessage(error: Error | string): string {
-  const errorMessage = error instanceof Error ? error.message : error;
+  const errorMessage = extractFullErrorString(error);
+  if (isInsufficientLiquidityError(errorMessage)) {
+    return "Insufficient liquidity for this swap. Try a smaller amount.";
+  }
 
   switch (true) {
     case errorMessage.includes(`Trading is suspended for this reference rate`):
@@ -310,8 +311,6 @@ function getSwapTransactionErrorMessage(error: Error | string): string {
       return "Swap transaction rejected by user.";
     case /request\s+rejected/i.test(errorMessage):
       return "Swap transaction rejected by user.";
-    case errorMessage.includes("0xbb55fd27"):
-      return "Insufficient liquidity for this swap. Try a smaller amount.";
     case errorMessage.includes("No route found for tokens") ||
       errorMessage.includes("tradable path"):
       return "No route found for the selected token pair.";

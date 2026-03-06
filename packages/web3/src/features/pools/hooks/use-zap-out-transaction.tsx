@@ -112,14 +112,14 @@ export function useZapOutTransaction(pool: PoolDisplay) {
         const block = await publicClient.getBlock();
         const deadline = block.timestamp + BigInt(20 * 60);
 
-        const result = await sdk.liquidity.buildZapOutTransaction(
-          pool.poolAddr,
+        const result = await sdk.liquidity.buildZapOutTransaction({
+          poolAddress: pool.poolAddr,
           tokenOut,
           liquidity,
           recipient,
-          recipient,
-          { slippageTolerance: slippage, deadline },
-        );
+          owner: recipient,
+          options: { slippageTolerance: slippage, deadline },
+        });
 
         setBuildResult(result);
         setBuildError(null);

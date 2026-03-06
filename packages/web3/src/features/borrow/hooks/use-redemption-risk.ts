@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { getRedemptionRisk } from "@mento-protocol/mento-sdk/dist/services/borrow/borrowMath";
+import { getRedemptionRisk } from "@mento-protocol/mento-sdk";
 import type { RiskLevel } from "../types";
 import { useInterestRateBrackets } from "./use-interest-rate-brackets";
 

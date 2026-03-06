@@ -49,6 +49,7 @@ export interface PoolDisplay {
     canRebalance: boolean; // true if out of band and has liquidity strategy
     liquidityStrategy: string | null;
   };
+  tvl: number | null; // Total value locked in USD, null when pricing unavailable
 }
 
 export const SLIPPAGE_OPTIONS = [0.1, 0.3, 0.5, 1.0] as const;

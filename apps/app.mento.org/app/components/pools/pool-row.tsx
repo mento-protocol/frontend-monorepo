@@ -4,6 +4,16 @@ import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, type Address } from "viem";
 import { PoolAddressPopover } from "./pool-address-popover";
 
+function formatCompactTvl(value: number): string {
+  if (value >= 1_000_000) {
+    return `$${(value / 1_000_000).toFixed(1)}M`;
+  }
+  if (value >= 1_000) {
+    return `$${(value / 1_000).toFixed(1)}K`;
+  }
+  return `$${value.toFixed(1)}`;
+}
+
 interface PoolRowProps {
   pool: PoolDisplay;
   onSelect: (pool: PoolDisplay, mode: "deposit" | "manage") => void;
@@ -36,7 +46,7 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
         isLegacy && "opacity-60",
       )}
     >
-      <div className="gap-4 md:gap-8 px-4 py-4 md:grid md:grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)] md:items-center flex flex-col">
+      <div className="gap-4 md:gap-8 px-4 py-4 md:grid md:grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,1fr)] md:items-center flex flex-col">
         {/* Pool info + action (mobile: row with action on right) */}
         <div className="gap-3 flex items-center">
           <div className="-space-x-2 flex">
@@ -94,13 +104,17 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
         {/* Reserves */}
         <div className="gap-1.5 flex flex-col">
           <div className="text-sm flex justify-between text-muted-foreground">
-            <span>
+            <span className="font-mono tabular-nums">
               {pool.reserves.token0}{" "}
-              <span className="font-semibold">{pool.token0.symbol}</span>
+              <span className="font-semibold font-sans">
+                {pool.token0.symbol}
+              </span>
             </span>
-            <span>
+            <span className="font-mono tabular-nums">
               {pool.reserves.token1}{" "}
-              <span className="font-semibold">{pool.token1.symbol}</span>
+              <span className="font-semibold font-sans">
+                {pool.token1.symbol}
+              </span>
             </span>
           </div>
           {hasLiquidity ? (
@@ -140,27 +154,23 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
         </div>
 
         {/* Fees */}
-        <div className="flex flex-col">
-          <span className="text-xs md:hidden text-muted-foreground">Fees</span>
-          <span className="text-sm font-medium">
+        <div className="flex flex-col justify-center">
+          <span className="text-xs md:hidden text-muted-foreground">Fee</span>
+          <span className="text-sm font-medium font-mono tabular-nums">
             {pool.fees.total.toFixed(2)}%
           </span>
-          {pool.fees.label === "fee" ? (
-            <>
-              <span className="text-xs text-muted-foreground">
-                LP {pool.fees.lp.toFixed(2)}%
-              </span>
-              <span className="text-xs text-muted-foreground">
-                Protocol {pool.fees.protocol.toFixed(2)}%
-              </span>
-            </>
-          ) : (
-            <span className="text-xs text-muted-foreground">Spread</span>
-          )}
+        </div>
+
+        {/* TVL */}
+        <div className="flex flex-col">
+          <span className="text-xs md:hidden text-muted-foreground">TVL</span>
+          <span className="text-sm font-medium font-mono tabular-nums">
+            {pool.tvl !== null ? formatCompactTvl(pool.tvl) : "--"}
+          </span>
         </div>
 
         {/* Actions - desktop only */}
-        <div className="gap-2 md:flex hidden items-center justify-end">
+        <div className="gap-2 md:flex min-h-8 hidden items-center justify-end">
           {pool.poolType === "FPMM" && (
             <Button
               size="sm"

@@ -1,5 +1,6 @@
 import { NativeTokenSymbol } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
+import { isInsufficientLiquidityError } from "@/features/swap/error-handlers";
 import { parseInputExchangeAmount } from "@/features/swap/utils";
 import { fromWei } from "@/utils/amount";
 import { validateAddress } from "@/utils/addresses";
@@ -195,7 +196,7 @@ export function useGasEstimation({
               : String(estimateError);
 
           // Insufficient liquidity - surface to UI instead of falling back
-          if (errorMessage.includes("0xbb55fd27")) {
+          if (isInsufficientLiquidityError(errorMessage)) {
             throw new Error("Insufficient liquidity for this swap.");
           }
 
@@ -236,10 +237,7 @@ export function useGasEstimation({
         const errorMsg = error instanceof Error ? error.message : String(error);
 
         // Insufficient liquidity - re-throw to surface in UI
-        if (
-          errorMsg.includes("0xbb55fd27") ||
-          errorMsg.includes("Insufficient liquidity")
-        ) {
+        if (isInsufficientLiquidityError(errorMsg)) {
           throw error;
         }
 
@@ -268,8 +266,7 @@ export function useGasEstimation({
     staleTime: 10000,
     gcTime: 30000,
     retry: (failureCount, error) => {
-      const msg = error instanceof Error ? error.message : String(error);
-      if (msg.includes("Insufficient liquidity")) return false;
+      if (isInsufficientLiquidityError(error)) return false;
       return failureCount < 1;
     },
     retryDelay: 1000,

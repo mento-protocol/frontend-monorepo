@@ -12,3 +12,4 @@ export * from "./hooks/use-remove-liquidity-quote";
 export * from "./hooks/use-remove-liquidity-transaction";
 export * from "./hooks/use-zap-out-quote";
 export * from "./hooks/use-zap-out-transaction";
+export * from "./hooks/use-user-position";

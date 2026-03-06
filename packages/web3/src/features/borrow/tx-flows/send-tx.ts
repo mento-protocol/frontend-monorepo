@@ -5,7 +5,7 @@ import {
   sendTransaction,
   waitForTransactionReceipt,
 } from "wagmi/actions";
-import { BORROWER_OPERATIONS_ABI } from "@mento-protocol/mento-sdk/dist/core/abis";
+import { BORROWER_OPERATIONS_ABI } from "@mento-protocol/mento-sdk";
 import {
   decodeErrorResult,
   isHex,

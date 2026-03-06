@@ -3,15 +3,12 @@
 import { Slider } from "@repo/ui";
 import {
   useSystemParams,
-  useRedemptionRisk,
   formatDebtAmount,
-  formatInterestRate,
   selectedDebtTokenAtom,
 } from "@repo/web3";
 import { useAtomValue } from "jotai";
 import { parseUnits } from "viem";
 import { useMemo } from "react";
-import { RiskBadge } from "../shared/risk-badge";
 
 interface InterestRateInputProps {
   value: string;
@@ -22,11 +19,16 @@ interface InterestRateInputProps {
 const MAX_RATE_PCT = 15;
 const SLIDER_STEP = 0.1;
 
+const RATE_PRESETS = [
+  { rate: "1.0", label: "1.0%" },
+  { rate: "3.5", label: "3.5%" },
+  { rate: "6.3", label: "6.3%" },
+  { rate: "10.0", label: "10.0%" },
+];
+
 function parseRateToBigint(pctString: string): bigint | null {
   const num = Number(pctString);
   if (isNaN(num) || num < 0) return null;
-  // Convert percentage to 18-decimal fraction: 5% → 0.05 → 5n * 10n**16n
-  // Use parseUnits on the decimal form
   const decimalStr = (num / 100).toFixed(18);
   try {
     return parseUnits(decimalStr, 18);
@@ -36,7 +38,6 @@ function parseRateToBigint(pctString: string): bigint | null {
 }
 
 function bigintRateToNumber(rate: bigint): number {
-  // 18-decimal fraction → percentage: 5 * 10^16 → 5.0
   return Number(rate) / 1e16;
 }
 
@@ -49,7 +50,6 @@ export function InterestRateInput({
   const { data: systemParams } = useSystemParams(debtToken.symbol);
 
   const rateBigint = parseRateToBigint(value);
-  const redemptionRisk = useRedemptionRisk(rateBigint, debtToken.symbol);
 
   const minRatePct = systemParams?.minAnnualInterestRate
     ? bigintRateToNumber(systemParams.minAnnualInterestRate)
@@ -59,7 +59,6 @@ export function InterestRateInput({
 
   const annualCost = useMemo(() => {
     if (rateBigint == null || debtAmount === 0n) return null;
-    // annualCost = debtAmount * rate (both 18-decimal) / 10^18
     return (debtAmount * rateBigint) / 10n ** 18n;
   }, [rateBigint, debtAmount]);
 
@@ -72,20 +71,26 @@ export function InterestRateInput({
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
-    // Allow empty, or valid numeric strings
     if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
       onChange(raw);
     }
   };
 
   return (
-    <div className="gap-3 flex flex-col">
+    <div className="gap-4 flex flex-col">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium">Annual Interest Rate</span>
-        <RiskBadge risk={redemptionRisk} />
+        <span className="font-semibold tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
+          Annual Interest Rate
+        </span>
+        {annualCost !== null && (
+          <span className="font-mono text-[11px] text-muted-foreground/50">
+            Annual cost: {formatDebtAmount(annualCost, debtToken)}
+          </span>
+        )}
       </div>
 
-      <div className="gap-3 flex items-center">
+      {/* Slider + percentage input */}
+      <div className="gap-4 flex items-center">
         <Slider
           min={minRatePct}
           max={MAX_RATE_PCT}
@@ -94,26 +99,38 @@ export function InterestRateInput({
           onValueChange={handleSliderChange}
           className="flex-1"
         />
-        <div className="gap-1 flex items-center">
+        <div className="gap-1 px-3 py-1.5 flex items-center border border-border bg-muted/20">
           <input
             type="text"
             inputMode="decimal"
             value={value}
             onChange={handleInputChange}
             placeholder={minRatePct.toFixed(1)}
-            className="h-8 w-16 px-2 text-sm shadow-xs rounded-md border border-input bg-background text-right focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-hidden"
+            className="w-9 font-mono text-base font-semibold bg-transparent text-right outline-none"
           />
-          <span className="text-sm text-muted-foreground">%</span>
+          <span className="text-sm text-muted-foreground/50">%</span>
         </div>
       </div>
 
-      <div className="text-xs flex items-center justify-between text-muted-foreground">
-        <span>
-          Min: {formatInterestRate(systemParams?.minAnnualInterestRate ?? null)}
-        </span>
-        {annualCost !== null && (
-          <span>Annual cost: {formatDebtAmount(annualCost, debtToken)}</span>
-        )}
+      {/* Rate presets */}
+      <div className="gap-1.5 flex">
+        {RATE_PRESETS.map((p) => {
+          const isActive = value === p.rate;
+          return (
+            <button
+              key={p.rate}
+              type="button"
+              className={`py-1.5 font-mono text-xs font-medium flex-1 cursor-pointer border transition-colors ${
+                isActive
+                  ? "border-primary/30 bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground/50 hover:text-muted-foreground"
+              }`}
+              onClick={() => onChange(p.rate)}
+            >
+              {p.label}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

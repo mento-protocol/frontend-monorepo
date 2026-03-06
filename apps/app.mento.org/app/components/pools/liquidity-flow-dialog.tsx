@@ -193,8 +193,12 @@ export function LiquidityFlowDialog() {
   return (
     <Dialog open onOpenChange={(open) => !open && allDone && setFlow(null)}>
       <DialogContent
+        className="border-0 bg-card"
         showCloseButton={allDone || errored}
         onPointerDownOutside={(e) => {
+          // Allow clicks on toasts (sonner) to pass through
+          const target = e.target as HTMLElement;
+          if (target?.closest("[data-sonner-toast]")) return;
           if (!allDone && !errored) e.preventDefault();
         }}
         onEscapeKeyDown={(e) => {
@@ -202,7 +206,9 @@ export function LiquidityFlowDialog() {
         }}
       >
         <DialogHeader>
-          <DialogTitle>{flow.operation}</DialogTitle>
+          <DialogTitle className="font-medium md:text-2xl">
+            {flow.operation}
+          </DialogTitle>
           <DialogDescription>
             {allDone
               ? "All steps completed successfully."
@@ -224,7 +230,12 @@ export function LiquidityFlowDialog() {
         </div>
 
         {allDone && (
-          <Button className="mt-2 w-full" onClick={() => setFlow(null)}>
+          <Button
+            className="mt-2 w-full"
+            size="lg"
+            clipped="lg"
+            onClick={() => setFlow(null)}
+          >
             Done
           </Button>
         )}
@@ -232,6 +243,7 @@ export function LiquidityFlowDialog() {
           <Button
             variant="outline"
             className="mt-2 w-full"
+            size="lg"
             onClick={() => setFlow(null)}
           >
             Close

@@ -53,16 +53,16 @@ export function useAddLiquidityTransaction(pool: PoolDisplay) {
         const block = await publicClient.getBlock();
         const deadline = block.timestamp + BigInt(20 * 60);
 
-        const result = await sdk.liquidity.buildAddLiquidityTransaction(
-          pool.poolAddr as Address,
-          pool.token0.address as Address,
+        const result = await sdk.liquidity.buildAddLiquidityTransaction({
+          poolAddress: pool.poolAddr as Address,
+          tokenA: pool.token0.address as Address,
           amountA,
-          pool.token1.address as Address,
+          tokenB: pool.token1.address as Address,
           amountB,
           recipient,
-          recipient,
-          { slippageTolerance: slippage, deadline },
-        );
+          owner: recipient,
+          options: { slippageTolerance: slippage, deadline },
+        });
 
         setBuildResult(result);
         return result;
