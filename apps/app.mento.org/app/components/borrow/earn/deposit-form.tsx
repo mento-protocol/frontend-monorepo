@@ -2,12 +2,10 @@
 
 import { useState } from "react";
 import { useAtomValue } from "jotai";
-import { Button, CoinInput } from "@repo/ui";
+import { Button, CoinInput, TokenIcon } from "@repo/ui";
 import {
   selectedDebtTokenAtom,
   useSpDeposit,
-  formatDebtAmount,
-  formatCollateralAmount,
   formatCompactBalance,
   tryParseUnits,
 } from "@repo/web3";
@@ -81,13 +79,25 @@ export function DepositForm({
     });
   };
 
+  const getButtonText = () => {
+    if (spDeposit.isPending) return "Depositing...";
+    if (!value || parsedAmount === null || parsedAmount === 0n)
+      return "Enter amount to deposit";
+    if (insufficient) return `Insufficient ${debtToken.symbol} balance`;
+    return "Deposit";
+  };
+
   return (
     <div className="gap-4 flex flex-col">
       <div className="gap-2 flex flex-col">
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium">Amount</span>
           <div className="text-sm text-muted-foreground">
-            Balance: {formatCompactBalance(formattedBalance)}{" "}
+            Balance:{" "}
+            <span className="font-medium font-mono text-foreground/80">
+              {formatCompactBalance(formattedBalance)}
+            </span>{" "}
+            {debtToken.symbol}{" "}
             <button
               type="button"
               className="font-medium cursor-pointer text-primary hover:underline"
@@ -97,14 +107,31 @@ export function DepositForm({
             </button>
           </div>
         </div>
-        <CoinInput
-          value={value}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-            setValue(e.target.value)
-          }
-          placeholder="0"
-          className={`shadow-xs h-10 px-3 text-sm placeholder:text-sm border border-input focus-within:border-primary focus:border-primary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${insufficient ? "border-destructive" : ""}`}
-        />
+        <div
+          className={`gap-2 shadow-xs px-3 h-10 flex items-center rounded-md border bg-background focus-within:border-primary focus-within:ring-[3px] focus-within:ring-ring/50 ${insufficient ? "border-destructive" : "border-input"}`}
+        >
+          <CoinInput
+            value={value}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setValue(e.target.value)
+            }
+            placeholder="0.00"
+            className="p-0 text-sm font-mono placeholder:text-sm h-auto flex-1 border-0 shadow-none focus-visible:border-0 focus-visible:ring-0"
+          />
+          <div className="gap-1.5 flex shrink-0 items-center">
+            {tokenAddress && (
+              <TokenIcon
+                token={{
+                  address: tokenAddress,
+                  symbol: debtToken.symbol,
+                }}
+                size={20}
+                className="rounded-full"
+              />
+            )}
+            <span className="text-sm font-medium">{debtToken.symbol}</span>
+          </div>
+        </div>
         {insufficient && (
           <p className="text-xs text-destructive">
             Insufficient {debtToken.symbol} balance
@@ -113,35 +140,19 @@ export function DepositForm({
       </div>
 
       {hasRewards && (
-        <div className="gap-2 flex flex-col">
-          <label className="gap-2 text-sm flex items-center">
-            <input
-              type="checkbox"
-              checked={doClaim}
-              onChange={(e) => setDoClaim(e.target.checked)}
-              className="accent-primary"
-            />
-            Claim rewards with deposit
-          </label>
-          {doClaim && (
-            <div className="gap-2 rounded p-3 text-xs flex flex-col border border-border bg-muted/50">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Collateral Gain</span>
-                <span>{formatCollateralAmount(collateralGain)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">
-                  {debtToken.symbol} Yield
-                </span>
-                <span>{formatDebtAmount(debtTokenGain, debtToken)}</span>
-              </div>
-            </div>
-          )}
-        </div>
+        <label className="gap-2 text-sm flex items-center">
+          <input
+            type="checkbox"
+            checked={doClaim}
+            onChange={(e) => setDoClaim(e.target.checked)}
+            className="accent-primary"
+          />
+          Claim rewards with deposit
+        </label>
       )}
 
       <Button disabled={!canSubmit} onClick={handleSubmit}>
-        {spDeposit.isPending ? "Depositing..." : "Deposit"}
+        {getButtonText()}
       </Button>
     </div>
   );
