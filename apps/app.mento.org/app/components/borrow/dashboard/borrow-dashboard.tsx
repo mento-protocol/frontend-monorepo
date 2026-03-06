@@ -10,7 +10,7 @@ import {
   formatCollateralAmount,
 } from "@repo/web3";
 import { useAccount, useConfig } from "@repo/web3/wagmi";
-import { PositionCard } from "./position-card";
+import { TroveList } from "./trove-list";
 import { borrowViewAtom } from "../atoms/borrow-navigation";
 import { activeTabAtom } from "@/atoms/navigation";
 
@@ -33,14 +33,9 @@ export function BorrowDashboard() {
 
   const hasTroves = troves && troves.length > 0;
   const hasSurplus = surplusAmount != null && surplusAmount > 0n;
-  const hasAnyPosition = hasTroves || hasSurplus;
 
   if (!isConnected) {
     return <NotConnectedState />;
-  }
-
-  if (trovesLoading) {
-    return <LoadingState />;
   }
 
   if (trovesError) {
@@ -58,7 +53,7 @@ export function BorrowDashboard() {
     );
   }
 
-  if (!hasAnyPosition) {
+  if (!trovesLoading && !hasTroves && !hasSurplus) {
     return (
       <EmptyState
         onOpenTrove={() => setBorrowView("open-trove")}
@@ -99,17 +94,12 @@ export function BorrowDashboard() {
         <Button onClick={() => setBorrowView("open-trove")}>Open Trove</Button>
       </div>
 
-      {/* Position cards */}
-      <div className="gap-4 md:grid-cols-2 grid">
-        {hasTroves &&
-          troves.map((position) => (
-            <PositionCard
-              key={position.troveId}
-              position={position}
-              debtToken={debtToken}
-            />
-          ))}
-      </div>
+      {/* Trove list */}
+      <TroveList
+        troves={troves ?? []}
+        debtToken={debtToken}
+        isLoading={trovesLoading}
+      />
     </div>
   );
 }
@@ -120,16 +110,6 @@ function NotConnectedState() {
       <p className="text-muted-foreground">
         Connect your wallet to view your borrow positions.
       </p>
-    </div>
-  );
-}
-
-function LoadingState() {
-  return (
-    <div className="gap-4 md:grid-cols-2 grid">
-      {[1, 2].map((i) => (
-        <div key={i} className="h-48 animate-pulse rounded-lg bg-muted" />
-      ))}
     </div>
   );
 }
