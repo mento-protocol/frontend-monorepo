@@ -4,6 +4,16 @@ import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, type Address } from "viem";
 import { PoolAddressPopover } from "./pool-address-popover";
 
+function formatCompactTvl(value: number): string {
+  if (value >= 1_000_000) {
+    return `$${(value / 1_000_000).toFixed(1)}M`;
+  }
+  if (value >= 1_000) {
+    return `$${(value / 1_000).toFixed(1)}K`;
+  }
+  return `$${value.toFixed(1)}`;
+}
+
 interface PoolRowProps {
   pool: PoolDisplay;
   onSelect: (pool: PoolDisplay, mode: "deposit" | "manage") => void;
@@ -155,14 +165,7 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
         <div className="flex flex-col">
           <span className="text-xs md:hidden text-muted-foreground">TVL</span>
           <span className="text-sm font-medium font-mono tabular-nums">
-            {pool.tvl !== null
-              ? pool.tvl.toLocaleString(undefined, {
-                  style: "currency",
-                  currency: "USD",
-                  minimumFractionDigits: 0,
-                  maximumFractionDigits: 0,
-                })
-              : "--"}
+            {pool.tvl !== null ? formatCompactTvl(pool.tvl) : "--"}
           </span>
         </div>
 
