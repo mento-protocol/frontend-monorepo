@@ -56,13 +56,22 @@ export function EarnView() {
   );
   const { data: totalDeposits, isLoading: statsLoading } =
     useStabilityPoolStats(debtToken.symbol);
-  const { data: spApy, isLoading: apyLoading } = useStabilityPoolApy(
-    debtToken.symbol,
-  );
+  const {
+    data: spApy,
+    avgInterestRate,
+    isLoading: apyLoading,
+  } = useStabilityPoolApy(debtToken.symbol);
 
   const isLoading = spLoading || statsLoading;
   const apyDisplay = spApy != null ? `${(spApy * 100).toFixed(1)}` : "—";
+  const avgRateDisplay =
+    avgInterestRate != null ? `${(avgInterestRate * 100).toFixed(1)}` : "—";
   const hasDeposit = spPosition && spPosition.deposit > 0n;
+
+  const poolShare =
+    hasDeposit && totalDeposits && totalDeposits > 0n
+      ? Number((spPosition.deposit * 10000n) / totalDeposits) / 100
+      : null;
 
   const hasRewards =
     spPosition &&
@@ -88,7 +97,7 @@ export function EarnView() {
     {
       icon: <Clock className="h-5 w-5" />,
       title: "Earn rewards",
-      desc: "Liquidation gains plus protocol yield. Compounding optional.",
+      desc: "Liquidation gains plus protocol yield plus trove interest. Compounding optional.",
     },
   ];
 
@@ -146,11 +155,19 @@ export function EarnView() {
           <Card className="!py-0 !gap-0">
             <CardContent className="!px-4 py-3">
               <span className="text-sm font-semibold text-muted-foreground">
-                Liquidation Discount
+                Avg. Borrow Rate
               </span>
               <div className="text-xl font-bold">
-                5-10
-                <span className="text-sm ml-0.5 text-muted-foreground">%</span>
+                {apyLoading ? (
+                  <span className="h-6 w-12 animate-pulse rounded inline-block bg-muted" />
+                ) : (
+                  <>
+                    {avgRateDisplay}
+                    <span className="text-sm ml-0.5 text-muted-foreground">
+                      %
+                    </span>
+                  </>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -167,12 +184,19 @@ export function EarnView() {
                     Your Position
                   </span>
                   {hasDeposit && (
-                    <Badge
-                      variant="outline"
-                      className="border-green-300 text-green-700 dark:border-green-700 dark:text-green-400 tracking-wide text-[11px] uppercase"
-                    >
-                      Earning
-                    </Badge>
+                    <div className="gap-2 flex items-center">
+                      {poolShare != null && (
+                        <Badge variant="outline" className="text-[11px]">
+                          {poolShare.toFixed(2)}% of pool
+                        </Badge>
+                      )}
+                      <Badge
+                        variant="outline"
+                        className="border-green-300 text-green-700 dark:border-green-700 dark:text-green-400 tracking-wide text-[11px] uppercase"
+                      >
+                        Earning
+                      </Badge>
+                    </div>
                   )}
                 </div>
 
@@ -275,17 +299,20 @@ export function EarnView() {
           </h3>
           <div className="gap-4 md:grid-cols-3 grid grid-cols-1">
             {steps.map((step, i) => (
-              <Card key={i} className="transition-colors hover:bg-accent/50">
-                <CardContent className="pt-5 pb-5">
-                  <div className="gap-3 mb-3 flex items-center">
-                    <div className="h-9 w-9 flex items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Card
+                key={i}
+                className="!py-0 !gap-0 transition-colors hover:bg-accent/50"
+              >
+                <CardContent className="!px-4 py-3">
+                  <div className="gap-2 mb-1 flex items-center">
+                    <div className="h-7 w-7 flex items-center justify-center rounded-md bg-primary/10 text-primary">
                       {step.icon}
                     </div>
-                    <span className="font-semibold text-[11px] text-muted-foreground/50">
+                    <span className="text-sm font-semibold">{step.title}</span>
+                    <span className="font-semibold ml-auto text-[11px] text-muted-foreground/50">
                       {String(i + 1).padStart(2, "0")}
                     </span>
                   </div>
-                  <h4 className="text-sm font-semibold mb-1">{step.title}</h4>
                   <p className="text-xs leading-relaxed text-muted-foreground">
                     {step.desc}
                   </p>
