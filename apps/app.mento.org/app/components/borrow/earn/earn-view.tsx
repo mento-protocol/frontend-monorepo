@@ -325,7 +325,7 @@ export function EarnView() {
         {/* Footer link */}
         <div className="pt-4 border-t border-border text-center">
           <a
-            href="https://docs.mento.org/mento/overview/core-concepts/stability-pool"
+            href="https://docs.mento.org/mento/overview/core-concepts"
             target="_blank"
             rel="noopener noreferrer"
             className="gap-1.5 text-xs inline-flex items-center text-primary hover:underline"
