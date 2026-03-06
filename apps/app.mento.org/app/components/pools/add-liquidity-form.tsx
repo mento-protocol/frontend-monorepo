@@ -261,7 +261,7 @@ export function AddLiquidityForm({
     ? formatUnits(zapTokenBalance, zapToken.decimals)
     : "0";
 
-  const { data: zapQuote, isFetching: isZapQuoting } = useZapInQuote({
+  const { isFetching: isZapQuoting } = useZapInQuote({
     pool,
     tokenIn: zapTokenIn,
     amountIn: mode === "single" ? zapAmount : "",
