@@ -33,6 +33,11 @@ export default function SwapPage() {
             >
               <div className="gap-6 flex flex-row items-center justify-between">
                 <div>
+                  {!confirmView && (
+                    <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
+                      Token Exchange
+                    </span>
+                  )}
                   <h2 className="gap-2 font-bold flex items-center text-3xl">
                     {confirmView ? (
                       <Button

@@ -108,8 +108,11 @@ export function EarnView() {
         <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
         <div className="p-6 flex items-center justify-between bg-card">
           <div>
-            <h1 className="font-bold text-3xl">Earn</h1>
-            <p className="text-sm text-muted-foreground">
+            <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
+              Stability Pool
+            </span>
+            <h1 className="mt-2 font-bold text-3xl">Earn</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
               Deposit into the Stability Pool to earn liquidation gains and
               protocol rewards. No lock-up period.
             </p>
@@ -123,7 +126,7 @@ export function EarnView() {
         <div className="gap-4 grid grid-cols-3">
           <Card className="!py-0 !gap-0">
             <CardContent className="!px-4 py-3">
-              <span className="text-sm font-semibold text-muted-foreground">
+              <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
                 Total Deposits
               </span>
               <div className="text-xl font-bold">
@@ -137,7 +140,7 @@ export function EarnView() {
           </Card>
           <Card className="!py-0 !gap-0">
             <CardContent className="!px-4 py-3">
-              <span className="text-sm font-semibold text-muted-foreground">
+              <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
                 Pool APY
               </span>
               <div className="text-xl font-bold text-primary">
@@ -154,7 +157,7 @@ export function EarnView() {
           </Card>
           <Card className="!py-0 !gap-0">
             <CardContent className="!px-4 py-3">
-              <span className="text-sm font-semibold text-muted-foreground">
+              <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
                 Avg. Borrow Rate
               </span>
               <div className="text-xl font-bold">
@@ -180,7 +183,7 @@ export function EarnView() {
             <CardContent className="!px-4 pt-5 pb-4 flex h-full flex-col justify-between">
               <div>
                 <div className="mb-6 flex items-center justify-between">
-                  <span className="text-sm font-semibold text-muted-foreground">
+                  <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
                     Your Position
                   </span>
                   {hasDeposit && (

@@ -86,8 +86,11 @@ export function PoolsView() {
       <div className="relative">
         <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
         <div className="p-6 bg-card">
-          <h1 className="font-bold text-3xl">Pool</h1>
-          <p className="text-sm text-muted-foreground">
+          <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
+            Liquidity Provision
+          </span>
+          <h1 className="mt-2 font-bold text-3xl">Pool</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
             Explore pools, view on-chain metrics, and provide liquidity.
           </p>
         </div>

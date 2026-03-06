@@ -58,6 +58,35 @@ function MetricRow({
   );
 }
 
+function ToggleButtons({
+  options,
+  active,
+  onChange,
+}: {
+  options: { value: string; label: string }[];
+  active: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="gap-0.5 p-0.5 flex rounded-lg bg-muted/50">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          onClick={() => onChange(opt.value)}
+          className={`px-3 py-1.5 text-xs font-semibold cursor-pointer rounded-md transition-colors ${
+            active === opt.value
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function AdjustForm({ troveId, troveData }: AdjustFormProps) {
   const debtToken = useAtomValue(selectedDebtTokenAtom);
   const { address, isConnected } = useAccount();
@@ -143,9 +172,9 @@ export function AdjustForm({ troveId, troveData }: AdjustFormProps) {
   const collLimitLabel = useMemo(() => {
     if (collDirection === "add") {
       const bal = collateralBalance ? formatUnits(collateralBalance, 18) : "0";
-      return `Balance: ${formatCompactBalance(bal)}`;
+      return `Wallet: ${formatCompactBalance(bal)}`;
     }
-    return `Current: ${formatCollateralAmount(troveData.collateral)}`;
+    return `Deposited: ${formatCollateralAmount(troveData.collateral)}`;
   }, [collDirection, collateralBalance, troveData.collateral]);
 
   // Max collateral handler
@@ -224,63 +253,57 @@ export function AdjustForm({ troveId, troveData }: AdjustFormProps) {
   };
 
   return (
-    <div className="space-y-6 pt-4">
-      {/* Collateral adjustment */}
-      <div className="gap-2 flex flex-col">
+    <div className="space-y-6">
+      {/* Collateral section */}
+      <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <div className="gap-2 flex items-center">
-            <span className="text-sm font-medium">Collateral</span>
-            <span className="text-sm text-muted-foreground">USDm</span>
-          </div>
-          <div className="gap-1 flex">
-            <button
-              type="button"
-              className={`px-3 py-1 text-xs font-medium cursor-pointer rounded-l-md border transition-colors ${
-                collDirection === "add"
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-input bg-background hover:bg-accent"
-              }`}
-              onClick={() => setCollDirection("add")}
-            >
-              Add
-            </button>
-            <button
-              type="button"
-              className={`px-3 py-1 text-xs font-medium cursor-pointer rounded-r-md border border-l-0 transition-colors ${
-                collDirection === "remove"
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-input bg-background hover:bg-accent"
-              }`}
-              onClick={() => setCollDirection("remove")}
-            >
-              Remove
-            </button>
-          </div>
+          <span className="font-semibold tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
+            Collateral
+          </span>
+          <ToggleButtons
+            options={[
+              { value: "add", label: "Add" },
+              { value: "remove", label: "Remove" },
+            ]}
+            active={collDirection}
+            onChange={(v) => setCollDirection(v as CollDirection)}
+          />
         </div>
+
         <div className="flex items-center justify-between">
-          <span className="text-xs text-muted-foreground">
+          <span className="text-sm font-medium">
+            {collDirection === "add" ? "Add" : "Remove"} Collateral
+          </span>
+          <span className="font-mono text-[11px] text-muted-foreground">
             {collLimitLabel}
           </span>
+        </div>
+
+        <div className="gap-2 p-1 pl-4 flex items-center rounded-lg border border-border bg-muted/20 focus-within:border-primary">
+          <CoinInput
+            value={collInput}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setCollInput(e.target.value)
+            }
+            placeholder="0.00"
+            className={`p-0 text-xl font-semibold flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0 ${
+              insufficientCollBalance || exceedsCurrentCollateral
+                ? "text-destructive"
+                : ""
+            }`}
+          />
           <button
             type="button"
-            className="text-xs font-medium cursor-pointer text-primary hover:underline"
+            className="px-2 py-1 font-bold font-mono tracking-wider cursor-pointer rounded-md bg-primary/10 text-[11px] text-primary transition-colors hover:bg-primary/20"
             onClick={handleMaxColl}
           >
             MAX
           </button>
+          <div className="px-3 py-2 rounded-lg bg-muted/50">
+            <span className="text-sm font-semibold">USDm</span>
+          </div>
         </div>
-        <CoinInput
-          value={collInput}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-            setCollInput(e.target.value)
-          }
-          placeholder="0"
-          className={`shadow-xs h-10 px-3 text-sm placeholder:text-sm border border-input focus-within:border-primary focus:border-primary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
-            insufficientCollBalance || exceedsCurrentCollateral
-              ? "border-destructive"
-              : ""
-          }`}
-        />
+
         {insufficientCollBalance && (
           <p className="text-xs text-destructive">Insufficient USDm balance</p>
         )}
@@ -289,65 +312,62 @@ export function AdjustForm({ troveId, troveData }: AdjustFormProps) {
         )}
       </div>
 
-      {/* Debt adjustment */}
-      <div className="gap-2 flex flex-col">
+      {/* Divider */}
+      <div className="h-px bg-border" />
+
+      {/* Debt section */}
+      <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <div className="gap-2 flex items-center">
-            <span className="text-sm font-medium">Debt</span>
-            <span className="text-sm text-muted-foreground">
-              {debtToken.symbol}
-            </span>
-          </div>
-          <div className="gap-1 flex">
-            <button
-              type="button"
-              className={`px-3 py-1 text-xs font-medium cursor-pointer rounded-l-md border transition-colors ${
-                debtDirection === "borrow"
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-input bg-background hover:bg-accent"
-              }`}
-              onClick={() => setDebtDirection("borrow")}
-            >
-              Borrow more
-            </button>
-            <button
-              type="button"
-              className={`px-3 py-1 text-xs font-medium cursor-pointer rounded-r-md border border-l-0 transition-colors ${
-                debtDirection === "repay"
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-input bg-background hover:bg-accent"
-              }`}
-              onClick={() => setDebtDirection("repay")}
-            >
-              Repay
-            </button>
-          </div>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-muted-foreground">
-            Current: {formatDebtAmount(troveData.debt, debtToken)}
+          <span className="font-semibold tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
+            Debt
           </span>
+          <ToggleButtons
+            options={[
+              { value: "borrow", label: "Borrow More" },
+              { value: "repay", label: "Repay" },
+            ]}
+            active={debtDirection}
+            onChange={(v) => setDebtDirection(v as DebtDirection)}
+          />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium">
+            {debtDirection === "borrow" ? "Borrow More" : "Repay Debt"}
+          </span>
+          <span className="font-mono text-[11px] text-muted-foreground">
+            {debtDirection === "repay"
+              ? `Current debt: ${formatDebtAmount(troveData.debt, debtToken)}`
+              : `Available: ${PLACEHOLDER}`}
+          </span>
+        </div>
+
+        <div className="gap-2 p-1 pl-4 flex items-center rounded-lg border border-border bg-muted/20 focus-within:border-primary">
+          <CoinInput
+            value={debtInput}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setDebtInput(e.target.value)
+            }
+            placeholder="0.00"
+            className="p-0 text-xl font-semibold flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
+          />
           {debtDirection === "repay" && (
             <button
               type="button"
-              className="text-xs font-medium cursor-pointer text-primary hover:underline"
+              className="px-2 py-1 font-bold font-mono tracking-wider cursor-pointer rounded-md bg-primary/10 text-[11px] text-primary transition-colors hover:bg-primary/20"
               onClick={handleMaxDebt}
             >
               MAX
             </button>
           )}
+          <div className="px-3 py-2 rounded-lg bg-muted/50">
+            <span className="text-sm font-semibold">{debtToken.symbol}</span>
+          </div>
         </div>
-        <CoinInput
-          value={debtInput}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-            setDebtInput(e.target.value)
-          }
-          placeholder="0"
-          className="shadow-xs h-10 px-3 text-sm placeholder:text-sm border border-input focus-within:border-primary focus:border-primary focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        />
+
         {systemParams?.minDebt && (
-          <p className="text-xs text-muted-foreground">
-            Min debt: {formatDebtAmount(systemParams.minDebt, debtToken)}
+          <p className="font-mono text-[11px] text-muted-foreground">
+            Min. debt: {formatDebtAmount(systemParams.minDebt, debtToken)}
           </p>
         )}
         {belowMinDebt && (
@@ -357,7 +377,7 @@ export function AdjustForm({ troveId, troveData }: AdjustFormProps) {
         )}
       </div>
 
-      {/* Before → After comparison */}
+      {/* Before -> After comparison */}
       {hasChanges && (
         <div className="p-3 flex flex-col divide-y rounded-md border">
           <MetricRow
@@ -417,7 +437,7 @@ export function AdjustForm({ troveId, troveData }: AdjustFormProps) {
         disabled={buttonDisabledReason !== null}
         onClick={handleSubmit}
       >
-        {buttonDisabledReason ?? "Adjust Trove"}
+        {buttonDisabledReason ?? "Confirm Adjustment"}
       </Button>
     </div>
   );
