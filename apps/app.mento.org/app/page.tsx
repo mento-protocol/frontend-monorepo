@@ -32,20 +32,27 @@ export default function SwapPage() {
               )}
             >
               <div className="gap-6 flex flex-row items-center justify-between">
-                <h2 className="gap-2 font-bold flex items-center text-3xl">
-                  {confirmView ? (
-                    <Button
-                      data-testid="backButton"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => setConfirmView(false)}
-                    >
-                      <ArrowLeft />
-                    </Button>
-                  ) : null}
-                  {confirmView ? "Confirm Swap" : "Swap"}
-                </h2>
+                <div>
+                  <h2 className="gap-2 font-bold flex items-center text-3xl">
+                    {confirmView ? (
+                      <Button
+                        data-testid="backButton"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => setConfirmView(false)}
+                      >
+                        <ArrowLeft />
+                      </Button>
+                    ) : null}
+                    {confirmView ? "Confirm Swap" : "Swap"}
+                  </h2>
+                  {!confirmView && (
+                    <p className="text-sm text-muted-foreground">
+                      Trade between Mento stablecoins and other tokens.
+                    </p>
+                  )}
+                </div>
                 {!confirmView && <SwapSettingsPopover />}
               </div>
               {confirmView && <SwapConfirm />}

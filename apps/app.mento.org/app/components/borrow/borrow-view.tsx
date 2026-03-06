@@ -18,9 +18,13 @@ export function BorrowView() {
         <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
         <div className="p-6 flex items-start justify-between bg-card">
           <div>
-            <h1 className="font-bold text-3xl">Borrow</h1>
-            <p className="text-sm text-muted-foreground">
-              Borrow stablecoins against your collateral.
+            <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
+              Collateralized Debt
+            </span>
+            <h1 className="mt-2 font-bold text-3xl">Borrow</h1>
+            <p className="mt-1 text-sm max-w-md leading-relaxed text-muted-foreground">
+              Borrow stablecoins against your collateral. Manage your open
+              troves below.
             </p>
           </div>
           <DebtTokenSelector />
