@@ -97,14 +97,7 @@ export function DepositForm({
             <span className="font-medium font-mono text-foreground/80">
               {formatCompactBalance(formattedBalance)}
             </span>{" "}
-            {debtToken.symbol}{" "}
-            <button
-              type="button"
-              className="font-medium cursor-pointer text-primary hover:underline"
-              onClick={handleMax}
-            >
-              MAX
-            </button>
+            {debtToken.symbol}
           </div>
         </div>
         <div
@@ -137,6 +130,29 @@ export function DepositForm({
             Insufficient {debtToken.symbol} balance
           </p>
         )}
+        <div className="gap-2 flex">
+          {[25, 50, 75].map((pct) => (
+            <button
+              key={pct}
+              type="button"
+              className="py-1.5 text-xs font-medium flex-1 rounded-md border border-border text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground/70"
+              onClick={() => {
+                if (!balance) return;
+                const scaled = (balance * BigInt(pct)) / 100n;
+                setValue(formatUnits(scaled, 18));
+              }}
+            >
+              {pct}%
+            </button>
+          ))}
+          <button
+            type="button"
+            className="py-1.5 text-xs font-medium flex-1 rounded-md border border-border text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground/70"
+            onClick={handleMax}
+          >
+            MAX
+          </button>
+        </div>
       </div>
 
       {hasRewards && (

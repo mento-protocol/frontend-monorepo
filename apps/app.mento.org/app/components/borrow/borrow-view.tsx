@@ -18,7 +18,7 @@ export function BorrowView() {
         <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
         <div className="p-6 flex items-start justify-between bg-card">
           <div>
-            <h1 className="font-medium md:text-2xl">Borrow</h1>
+            <h1 className="font-bold text-3xl">Borrow</h1>
             <p className="text-sm text-muted-foreground">
               Borrow stablecoins against your collateral.
             </p>

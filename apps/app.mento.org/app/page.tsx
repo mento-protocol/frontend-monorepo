@@ -32,7 +32,7 @@ export default function SwapPage() {
               )}
             >
               <div className="gap-6 flex flex-row items-center justify-between">
-                <h2 className="gap-2 font-medium md:text-2xl flex items-center">
+                <h2 className="gap-2 font-bold flex items-center text-3xl">
                   {confirmView ? (
                     <Button
                       data-testid="backButton"

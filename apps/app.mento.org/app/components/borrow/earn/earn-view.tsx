@@ -9,31 +9,20 @@ import {
   TabsList,
   TabsTrigger,
   TabsContent,
-  Button,
-  TokenIcon,
 } from "@repo/ui";
 import {
   selectedDebtTokenAtom,
   useStabilityPool,
+  useStabilityPoolApy,
   useStabilityPoolStats,
-  formatDebtAmount,
-  formatCollateralAmount,
 } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
 import { DebtTokenSelector } from "../shared/debt-token-selector";
 import { DepositForm } from "./deposit-form";
 import { WithdrawForm } from "./withdraw-form";
 import { ClaimRewards } from "./claim-rewards";
-import {
-  Info,
-  ArrowUpDown,
-  Shield,
-  TrendingUp,
-  ExternalLink,
-} from "lucide-react";
+import { Plus, TrendingUp, Clock, ExternalLink } from "lucide-react";
 import { formatUnits } from "viem";
-import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
-import { useChainId } from "@repo/web3/wagmi";
 
 function formatCompactCurrency(
   amount: bigint | null | undefined,
@@ -61,21 +50,19 @@ function formatTokenAmount(amount: bigint | null | undefined): string {
 export function EarnView() {
   const { isConnected } = useAccount();
   const debtToken = useAtomValue(selectedDebtTokenAtom);
-  const chainId = useChainId();
 
   const { data: spPosition, isLoading: spLoading } = useStabilityPool(
     debtToken.symbol,
   );
   const { data: totalDeposits, isLoading: statsLoading } =
     useStabilityPoolStats(debtToken.symbol);
+  const { data: spApy, isLoading: apyLoading } = useStabilityPoolApy(
+    debtToken.symbol,
+  );
 
   const isLoading = spLoading || statsLoading;
+  const apyDisplay = spApy != null ? `${(spApy * 100).toFixed(1)}` : "—";
   const hasDeposit = spPosition && spPosition.deposit > 0n;
-
-  const tokenAddress = getTokenAddress(
-    chainId,
-    debtToken.symbol as TokenSymbol,
-  );
 
   const hasRewards =
     spPosition &&
@@ -87,6 +74,24 @@ export function EarnView() {
       ? (spPosition.collateralGain ?? 0n) + (spPosition.debtTokenGain ?? 0n)
       : null;
 
+  const steps = [
+    {
+      icon: <Plus className="h-5 w-5" />,
+      title: "Deposit",
+      desc: `Add ${debtToken.symbol} to the pool. No lock-up, withdraw anytime.`,
+    },
+    {
+      icon: <TrendingUp className="h-5 w-5" />,
+      title: "Absorb liquidations",
+      desc: `Your ${debtToken.symbol} repays debt and you receive collateral at a discount.`,
+    },
+    {
+      icon: <Clock className="h-5 w-5" />,
+      title: "Earn rewards",
+      desc: "Liquidation gains plus protocol yield. Compounding optional.",
+    },
+  ];
+
   return (
     <div className="max-w-5xl space-y-6 px-4 pt-6 md:px-0 md:pt-0 pb-16 relative min-h-[550px] w-full">
       {/* Header */}
@@ -94,174 +99,140 @@ export function EarnView() {
         <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
         <div className="p-6 flex items-center justify-between bg-card">
           <div>
-            <h1 className="font-medium md:text-2xl">Earn</h1>
+            <h1 className="font-bold text-3xl">Earn</h1>
             <p className="text-sm text-muted-foreground">
-              Deposit into Stability Pools to earn liquidation and protocol
-              rewards.
+              Deposit into the Stability Pool to earn liquidation gains and
+              protocol rewards. No lock-up period.
             </p>
           </div>
           <DebtTokenSelector />
         </div>
       </div>
 
-      <div className="space-y-4">
-        {/* Pool Selector Card */}
-        <Card className="border-primary/50 bg-primary/5">
-          <CardContent className="py-4 flex items-center justify-between">
-            <div className="gap-3 flex items-center">
-              {tokenAddress && (
-                <TokenIcon
-                  token={{
-                    address: tokenAddress,
-                    symbol: debtToken.symbol,
-                  }}
-                  size={40}
-                  className="rounded-full"
-                />
-              )}
-              <div>
-                <span className="font-medium">
-                  {debtToken.symbol} Stability Pool
-                </span>
-                <p className="text-sm text-muted-foreground">
-                  {isLoading
-                    ? "Loading..."
-                    : `${formatCompactCurrency(totalDeposits ?? null, debtToken)} total deposited`}
-                </p>
-              </div>
-            </div>
-            <div className="text-right">
-              <span className="text-lg font-semibold text-primary">—</span>
-              <p className="text-xs text-muted-foreground">APY</p>
-            </div>
-          </CardContent>
-        </Card>
-
+      <div className="space-y-6">
         {/* Stats Row */}
-        <div className="gap-4 md:grid-cols-4 grid grid-cols-2">
-          <Card>
-            <CardContent className="py-4">
-              <div className="gap-1 flex items-center">
-                <span className="text-xs text-muted-foreground">
-                  Total Deposits
-                </span>
-                <Info className="h-3 w-3 text-muted-foreground" />
-              </div>
-              <span className="text-lg font-semibold">
+        <div className="gap-4 grid grid-cols-3">
+          <Card className="!py-0 !gap-0">
+            <CardContent className="!px-4 py-3">
+              <span className="text-sm font-semibold text-muted-foreground">
+                Total Deposits
+              </span>
+              <div className="text-xl font-bold">
                 {isLoading ? (
-                  <span className="h-5 w-16 animate-pulse rounded inline-block bg-muted" />
+                  <span className="h-6 w-16 animate-pulse rounded inline-block bg-muted" />
                 ) : (
                   formatCompactCurrency(totalDeposits ?? null, debtToken)
                 )}
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="!py-0 !gap-0">
+            <CardContent className="!px-4 py-3">
+              <span className="text-sm font-semibold text-muted-foreground">
+                Pool APY
               </span>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="py-4">
-              <div className="gap-1 flex items-center">
-                <span className="text-xs text-muted-foreground">
-                  Liquidation Yield
-                </span>
-                <Info className="h-3 w-3 text-muted-foreground" />
+              <div className="text-xl font-bold text-primary">
+                {apyLoading ? (
+                  <span className="h-6 w-12 animate-pulse rounded inline-block bg-muted" />
+                ) : (
+                  <>
+                    {apyDisplay}
+                    <span className="text-sm ml-0.5 text-primary/60">%</span>
+                  </>
+                )}
               </div>
-              <span className="text-lg font-semibold text-primary">—</span>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="py-4">
-              <div className="gap-1 flex items-center">
-                <span className="text-xs text-muted-foreground">
-                  Protocol Yield
-                </span>
-                <Info className="h-3 w-3 text-muted-foreground" />
+          <Card className="!py-0 !gap-0">
+            <CardContent className="!px-4 py-3">
+              <span className="text-sm font-semibold text-muted-foreground">
+                Liquidation Discount
+              </span>
+              <div className="text-xl font-bold">
+                5-10
+                <span className="text-sm ml-0.5 text-muted-foreground">%</span>
               </div>
-              <span className="text-lg font-semibold text-primary">—</span>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="py-4 flex items-center justify-end">
-              <ApyGauge value={null} />
             </CardContent>
           </Card>
         </div>
 
         {/* Two-Column Layout: Position + Deposit/Withdraw Form */}
-        <div className="gap-4 md:grid-cols-2 grid grid-cols-1">
+        <div className="gap-6 md:grid-cols-2 grid grid-cols-1">
           {/* Your Position */}
-          <Card>
-            <CardContent className="pt-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold">Your Position</h2>
-                {hasDeposit && (
-                  <Badge
-                    variant="outline"
-                    className="border-green-300 text-green-700 dark:border-green-700 dark:text-green-400"
-                  >
-                    Earning
-                  </Badge>
-                )}
-              </div>
-
-              {isLoading ? (
-                <div className="space-y-3">
-                  {[1, 2].map((i) => (
-                    <div
-                      key={i}
-                      className="h-10 animate-pulse rounded bg-muted"
-                    />
-                  ))}
+          <Card className="!py-0 !gap-0">
+            <CardContent className="!px-4 pt-5 pb-4 flex h-full flex-col justify-between">
+              <div>
+                <div className="mb-6 flex items-center justify-between">
+                  <span className="text-sm font-semibold text-muted-foreground">
+                    Your Position
+                  </span>
+                  {hasDeposit && (
+                    <Badge
+                      variant="outline"
+                      className="border-green-300 text-green-700 dark:border-green-700 dark:text-green-400 tracking-wide text-[11px] uppercase"
+                    >
+                      Earning
+                    </Badge>
+                  )}
                 </div>
-              ) : hasDeposit ? (
-                <>
-                  <div className="gap-x-6 gap-y-3 grid grid-cols-2">
+
+                {isLoading ? (
+                  <div className="space-y-3">
+                    {[1, 2].map((i) => (
+                      <div
+                        key={i}
+                        className="h-10 animate-pulse rounded bg-muted"
+                      />
+                    ))}
+                  </div>
+                ) : hasDeposit ? (
+                  <div className="gap-10 mb-6 flex">
                     <div className="gap-1 flex flex-col">
-                      <span className="text-xs text-muted-foreground">
+                      <span className="font-medium tracking-widest text-[11px] text-muted-foreground uppercase">
                         Deposited
                       </span>
-                      <span className="text-lg font-semibold">
+                      <span className="text-2xl font-bold tracking-tight">
                         {formatCompactCurrency(spPosition.deposit, debtToken)}
                       </span>
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-sm font-medium text-muted-foreground">
                         {formatTokenAmount(spPosition.deposit)}{" "}
                         {debtToken.symbol}
                       </span>
                     </div>
                     <div className="gap-1 flex flex-col">
-                      <span className="text-xs text-muted-foreground">
+                      <span className="font-medium tracking-widest text-[11px] text-muted-foreground uppercase">
                         Rewards
                       </span>
-                      <span className="text-lg font-semibold text-primary">
+                      <span className="text-2xl font-bold tracking-tight text-primary">
                         {formatCompactCurrency(totalRewards, debtToken)}
                       </span>
-                      <span className="text-xs text-muted-foreground">
-                        Liq: {formatCollateralAmount(spPosition.collateralGain)}{" "}
-                        Proto:{" "}
-                        {formatDebtAmount(spPosition.debtTokenGain, debtToken)}
-                      </span>
+                      <span className="text-xs text-primary/50">Claimable</span>
                     </div>
                   </div>
+                ) : isConnected ? (
+                  <p className="text-sm py-8 text-center text-muted-foreground">
+                    No deposit yet — deposit to start earning.
+                  </p>
+                ) : (
+                  <p className="text-sm py-8 text-center text-muted-foreground">
+                    Connect your wallet to view your position.
+                  </p>
+                )}
+              </div>
 
-                  {/* Claim Rewards */}
-                  <ClaimRewards
-                    collateralGain={spPosition.collateralGain}
-                    debtTokenGain={spPosition.debtTokenGain}
-                  />
-                </>
-              ) : isConnected ? (
-                <p className="text-sm py-6 text-center text-muted-foreground">
-                  No deposit yet — deposit to start earning.
-                </p>
-              ) : (
-                <p className="text-sm py-6 text-center text-muted-foreground">
-                  Connect your wallet to view your position.
-                </p>
+              {/* Claim Rewards */}
+              {hasDeposit && (
+                <ClaimRewards
+                  collateralGain={spPosition.collateralGain}
+                  debtTokenGain={spPosition.debtTokenGain}
+                />
               )}
             </CardContent>
           </Card>
 
           {/* Deposit / Withdraw Form */}
-          <Card>
-            <CardContent className="pt-6">
+          <Card className="!py-0 !gap-0">
+            <CardContent className="!px-4 pt-4 pb-4">
               {isConnected ? (
                 <Tabs defaultValue="deposit">
                   <TabsList>
@@ -291,106 +262,53 @@ export function EarnView() {
                 </div>
               )}
               <p className="text-xs mt-4 text-center text-muted-foreground">
-                Deposits can be withdrawn at any time. No lock-up period.
+                No lock-up period &middot; Withdraw anytime
               </p>
             </CardContent>
           </Card>
         </div>
 
-        {/* How the Stability Pool works */}
-        <Card>
-          <CardContent className="pt-6 space-y-6">
-            <h2 className="text-sm font-semibold">
-              How the Stability Pool works
-            </h2>
-            <div className="gap-6 md:grid-cols-3 grid grid-cols-1">
-              <div className="gap-3 flex flex-col">
-                <div className="h-10 w-10 flex items-center justify-center rounded-md bg-primary/10">
-                  <ArrowUpDown className="h-5 w-5 text-primary" />
-                </div>
-                <h3 className="text-sm font-medium">Deposit</h3>
-                <p className="text-xs text-muted-foreground">
-                  Deposit {debtToken.symbol} into the Stability Pool. Your
-                  tokens are used to absorb liquidations.
-                </p>
-              </div>
-              <div className="gap-3 flex flex-col">
-                <div className="h-10 w-10 flex items-center justify-center rounded-md bg-primary/10">
-                  <Shield className="h-5 w-5 text-primary" />
-                </div>
-                <h3 className="text-sm font-medium">Absorb liquidations</h3>
-                <p className="text-xs text-muted-foreground">
-                  When a position is liquidated, your {debtToken.symbol} is used
-                  to repay debt and you receive collateral at a discount.
-                </p>
-              </div>
-              <div className="gap-3 flex flex-col">
-                <div className="h-10 w-10 flex items-center justify-center rounded-md bg-primary/10">
-                  <TrendingUp className="h-5 w-5 text-primary" />
-                </div>
-                <h3 className="text-sm font-medium">Earn rewards</h3>
-                <p className="text-xs text-muted-foreground">
-                  Earn liquidation gains plus additional protocol yield.
-                  Withdraw anytime with no lock-up.
-                </p>
-              </div>
-            </div>
-            <a
-              href="https://docs.mento.org/mento/overview/core-concepts/stability-pool"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="gap-1 text-xs flex items-center text-primary hover:underline"
-            >
-              Learn more about the Stability Pool
-              <ExternalLink className="h-3 w-3" />
-            </a>
-          </CardContent>
-        </Card>
+        {/* How it works */}
+        <div>
+          <h3 className="font-semibold tracking-widest mb-4 text-[11px] text-muted-foreground uppercase">
+            How it works
+          </h3>
+          <div className="gap-4 md:grid-cols-3 grid grid-cols-1">
+            {steps.map((step, i) => (
+              <Card key={i} className="transition-colors hover:bg-accent/50">
+                <CardContent className="pt-5 pb-5">
+                  <div className="gap-3 mb-3 flex items-center">
+                    <div className="h-9 w-9 flex items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      {step.icon}
+                    </div>
+                    <span className="font-semibold text-[11px] text-muted-foreground/50">
+                      {String(i + 1).padStart(2, "0")}
+                    </span>
+                  </div>
+                  <h4 className="text-sm font-semibold mb-1">{step.title}</h4>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    {step.desc}
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+
+        {/* Footer link */}
+        <div className="pt-4 border-t border-border text-center">
+          <a
+            href="https://docs.mento.org/mento/overview/core-concepts/stability-pool"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="gap-1.5 text-xs inline-flex items-center text-primary hover:underline"
+          >
+            Learn more about the Stability Pool
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
       </div>
       <div className="bottom-decorations after:-bottom-15 before:-bottom-5 before:-right-5 before:h-5 before:w-5 after:right-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-card before:invert after:absolute after:block after:bg-card"></div>
-    </div>
-  );
-}
-
-function ApyGauge({ value }: { value: number | null }) {
-  const radius = 36;
-  const stroke = 6;
-  const circumference = 2 * Math.PI * radius;
-  const progress = value != null ? Math.min(value / 20, 1) : 0;
-  const dashOffset = circumference * (1 - progress);
-
-  return (
-    <div className="relative flex items-center justify-center">
-      <svg width={90} height={90} viewBox="0 0 90 90">
-        <circle
-          cx={45}
-          cy={45}
-          r={radius}
-          fill="none"
-          stroke="currentColor"
-          className="text-muted/40"
-          strokeWidth={stroke}
-        />
-        <circle
-          cx={45}
-          cy={45}
-          r={radius}
-          fill="none"
-          stroke="currentColor"
-          className="text-primary"
-          strokeWidth={stroke}
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={dashOffset}
-          transform="rotate(-90 45 45)"
-        />
-      </svg>
-      <div className="absolute flex flex-col items-center">
-        <span className="text-lg font-bold">
-          {value != null ? `${value.toFixed(1)}%` : "—"}
-        </span>
-        <span className="text-[10px] text-muted-foreground">APY</span>
-      </div>
     </div>
   );
 }
