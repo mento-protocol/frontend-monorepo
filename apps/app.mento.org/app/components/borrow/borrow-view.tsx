@@ -2,8 +2,13 @@
 
 import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect } from "react";
+import { useChainId } from "@repo/web3/wagmi";
 import { DebtTokenSelector } from "./shared/debt-token-selector";
 import { FlowDialog } from "./shared/flow-dialog";
+import {
+  UnsupportedChainState,
+  isBorrowSupportedChain,
+} from "./shared/unsupported-chain-state";
 import { BorrowDashboard } from "./dashboard/borrow-dashboard";
 import { OpenTroveForm } from "./open-trove/open-trove-form";
 import { ManageTroveView } from "./manage-trove/manage-trove-view";
@@ -12,6 +17,7 @@ import { borrowViewAtom } from "./atoms/borrow-navigation";
 export function BorrowView() {
   const view = useAtomValue(borrowViewAtom);
   const setBorrowView = useSetAtom(borrowViewAtom);
+  const chainId = useChainId();
 
   // Reset to dashboard whenever the borrow tab is re-entered
   useEffect(() => {
@@ -37,23 +43,29 @@ export function BorrowView() {
                 troves below.
               </p>
             </div>
-            <DebtTokenSelector />
+            {isBorrowSupportedChain(chainId) && <DebtTokenSelector />}
           </div>
         </div>
       )}
 
       {/* Content */}
-      {view === "dashboard" && <BorrowDashboard />}
-      {view === "open-trove" && <OpenTroveForm />}
-      {typeof view === "object" && view.view === "manage-trove" && (
-        <ManageTroveView troveId={view.troveId} />
+      {!isBorrowSupportedChain(chainId) ? (
+        <UnsupportedChainState feature="borrow" />
+      ) : (
+        <>
+          {view === "dashboard" && <BorrowDashboard />}
+          {view === "open-trove" && <OpenTroveForm />}
+          {typeof view === "object" && view.view === "manage-trove" && (
+            <ManageTroveView troveId={view.troveId} />
+          )}
+          {view === "redeem" && (
+            <div className="p-6 bg-card text-center text-muted-foreground">
+              Redeem — coming soon
+            </div>
+          )}
+          <FlowDialog />
+        </>
       )}
-      {view === "redeem" && (
-        <div className="p-6 bg-card text-center text-muted-foreground">
-          Redeem — coming soon
-        </div>
-      )}
-      <FlowDialog />
     </div>
   );
 }
