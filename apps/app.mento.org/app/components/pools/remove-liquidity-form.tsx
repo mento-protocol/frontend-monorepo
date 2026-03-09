@@ -485,7 +485,7 @@ export function RemoveLiquidityForm({
       : "0.0000";
 
   return (
-    <div className="gap-5 md:grid-cols-[1fr_340px] grid grid-cols-1">
+    <div className="gap-4 md:grid-cols-[2fr_1fr] grid grid-cols-1">
       {/* Left — Inputs card */}
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         {header}
