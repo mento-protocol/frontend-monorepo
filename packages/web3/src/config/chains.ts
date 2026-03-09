@@ -3,6 +3,8 @@ import { Address, Chain } from "viem";
 import { celoSepolia } from "viem/chains";
 import { celo } from "wagmi/chains";
 import { MentoChain, MentoChainContracts } from "../types";
+import celoIcon from "./chain-icons/celo.svg";
+import monadIcon from "./chain-icons/monad.svg";
 
 const useFork = isForkModeEnabled();
 const customRpcUrl = getCustomRpcUrl();
@@ -39,6 +41,8 @@ export const MONAD_TESTNET_EXPLORER = {
 export const CeloSepolia: MentoChain = {
   ...celoSepolia,
   id: ChainId.CeloSepolia,
+  iconUrl: celoIcon,
+  iconBackground: "#FCFF52",
   nativeCurrency: {
     decimals: 18,
     name: "CELO",
@@ -56,7 +60,7 @@ export const CeloSepolia: MentoChain = {
     ...celoSepolia.contracts,
     ...transformToChainContracts(addresses[celoSepolia.id]),
   },
-} as const satisfies Chain;
+} as const satisfies MentoChain;
 
 export const Celo: MentoChain = {
   ...celo,
@@ -100,6 +104,8 @@ export const MonadTestnet: MentoChain = {
 export const Monad: MentoChain = {
   id: ChainId.Monad,
   name: "Monad",
+  iconUrl: monadIcon,
+  iconBackground: "transparent",
   nativeCurrency: {
     decimals: 18,
     name: "MON",
@@ -114,7 +120,7 @@ export const Monad: MentoChain = {
     },
   },
   contracts: {},
-} as const satisfies Chain;
+} as const satisfies MentoChain;
 
 function isForkModeEnabled(): boolean {
   if (typeof window === "undefined") {

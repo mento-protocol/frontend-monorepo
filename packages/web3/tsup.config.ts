@@ -24,6 +24,9 @@ export default defineConfig({
     "@rainbow-me/rainbowkit",
     "@repo/web3",
   ],
+  loader: {
+    ".svg": "dataurl",
+  },
   esbuildPlugins: [
     preserveDirectivesPlugin({
       directives: ["use client"],
