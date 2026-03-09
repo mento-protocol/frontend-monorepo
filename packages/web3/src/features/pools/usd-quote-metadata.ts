@@ -1,6 +1,6 @@
 import { ChainId } from "@/config/chains";
 
-export type UsdQuoteSide = "token0" | "token1" | "both" | "none";
+type UsdQuoteSide = "token0" | "token1" | "both" | "none";
 
 type GetUsdTokenPricesParams = {
   token0Address: string;
@@ -32,7 +32,7 @@ const CELO_SEPOLIA_USD_QUOTE_ADDRESSES = [
   "0x6285De9DA7C1d329C0451628638908915002d9d1", // axlUSDC
 ];
 
-export const USD_QUOTE_TOKEN_ADDRESSES_BY_CHAIN: Record<
+const USD_QUOTE_TOKEN_ADDRESSES_BY_CHAIN: Record<
   ChainId,
   ReadonlySet<string>
 > = {
@@ -52,7 +52,7 @@ function isValidOraclePrice(oraclePrice: number): boolean {
   return Number.isFinite(oraclePrice) && oraclePrice > 0;
 }
 
-export function getUsdQuoteSide(
+function getUsdQuoteSide(
   token0Address: string,
   token1Address: string,
   chainId: ChainId,
