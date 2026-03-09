@@ -3,6 +3,7 @@ import type { PoolDisplay } from "@repo/web3";
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, type Address } from "viem";
 import { PoolAddressPopover } from "./pool-address-popover";
+import { PoolFeePopover } from "./pool-fee-popover";
 
 function formatCompactTvl(value: number): string {
   if (value >= 1_000_000) {
@@ -156,9 +157,12 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
         {/* Fees */}
         <div className="flex flex-col justify-center">
           <span className="text-xs md:hidden text-muted-foreground">Fee</span>
-          <span className="text-sm font-medium font-mono tabular-nums">
-            {pool.fees.total.toFixed(2)}%
-          </span>
+          <div className="gap-1.5 flex items-center">
+            <span className="text-sm font-medium font-mono tabular-nums">
+              {pool.fees.total.toFixed(2)}%
+            </span>
+            <PoolFeePopover pool={pool} />
+          </div>
         </div>
 
         {/* TVL */}
