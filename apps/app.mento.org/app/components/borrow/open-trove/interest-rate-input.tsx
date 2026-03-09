@@ -17,7 +17,7 @@ interface InterestRateInputProps {
   maxRatePct: number;
 }
 
-const SLIDER_STEP = 0.1;
+const SLIDER_STEP = 0.5;
 
 const RATE_PRESETS = [
   { rate: "1.0", label: "1.0%" },
