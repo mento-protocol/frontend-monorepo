@@ -350,7 +350,7 @@ function EmptyState({ onOpenTrove }: { onOpenTrove: () => void }) {
               key={i}
               className="!py-0 !gap-0 transition-colors hover:bg-accent/50"
             >
-              <CardContent className="!px-0 p-6">
+              <CardContent className="p-6">
                 <div className="mb-3.5 gap-3 flex items-center">
                   <div className="h-10 w-10 flex items-center justify-center rounded-lg bg-primary/10 text-primary">
                     {step.icon}
