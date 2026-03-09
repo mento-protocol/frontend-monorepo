@@ -6,6 +6,7 @@ import { useChainId } from "wagmi";
 import { formatUnits, type Address } from "viem";
 import type { PoolDisplay, PriceAlignmentStatus } from "../types";
 import { POOL_REFETCH_INTERVAL } from "@/config/constants";
+import { getUsdTokenPrices } from "../usd-quote-metadata";
 
 function trimTrailingZeros(value: string): string {
   return value.replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
@@ -228,17 +229,17 @@ export function usePoolsList() {
               details.pricing &&
               hasLiquidity
             ) {
-              const token0IsUsd = token0Info.symbol
-                .toUpperCase()
-                .includes("USD");
-              if (token0IsUsd) {
-                // Express in token0 (USD) units
+              const usdTokenPrices = getUsdTokenPrices({
+                token0Address: details.token0,
+                token1Address: details.token1,
+                oraclePrice: details.pricing.oraclePrice,
+                chainId,
+              });
+
+              if (usdTokenPrices) {
                 tvl =
-                  reserve0Value + reserve1Value / details.pricing.oraclePrice;
-              } else {
-                // token1 is USD-pegged; express in token1 units
-                tvl =
-                  reserve0Value * details.pricing.oraclePrice + reserve1Value;
+                  reserve0Value * usdTokenPrices.token0PriceUsd +
+                  reserve1Value * usdTokenPrices.token1PriceUsd;
               }
             }
 

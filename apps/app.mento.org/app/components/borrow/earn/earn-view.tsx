@@ -247,7 +247,9 @@ export function EarnView() {
                       <span className="text-2xl font-bold tracking-tight text-primary">
                         {formatCompactCurrency(totalRewards, debtToken)}
                       </span>
-                      <span className="text-xs text-primary/50">Claimable</span>
+                      <span className="text-xs font-medium text-primary">
+                        Claimable
+                      </span>
                     </div>
                   </div>
                 ) : isConnected ? (
