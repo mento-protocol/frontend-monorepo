@@ -20,7 +20,6 @@ export function UnsupportedChainState({
 }: {
   feature: "borrow" | "earn";
 }) {
-  const chainId = useChainId();
   const { switchChainAsync } = useSwitchChain();
 
   const collateralAddress = (() => {

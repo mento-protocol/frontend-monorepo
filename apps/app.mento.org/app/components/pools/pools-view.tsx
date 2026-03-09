@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
-import { Search } from "lucide-react";
+import { Search, Droplets } from "lucide-react";
 import { Input, cn } from "@repo/ui";
 import {
   usePoolsList,
@@ -96,53 +96,42 @@ export function PoolsView() {
         </div>
       </div>
 
-      {/* Filter row */}
-      <div className="gap-4 md:flex-row md:items-center md:justify-between flex flex-col">
-        <div className="md:justify-start md:w-auto flex w-full items-center justify-center">
-          {filterTabs.map((tab) => (
-            <button
-              key={tab.value}
-              onClick={() => setFilter(tab.value)}
-              className={cn(
-                "md:flex-none px-4 py-2 text-sm font-medium flex-1 cursor-pointer border-0 transition-colors outline-none",
-                filter === tab.value
-                  ? "bg-card text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {tab.label}
-            </button>
-          ))}
+      {/* Filter row — hidden when no pools */}
+      {!isError && (isLoading || pools.length > 0) && (
+        <div className="gap-4 md:flex-row md:items-center md:justify-between flex flex-col">
+          <div className="md:justify-start md:w-auto flex w-full items-center justify-center">
+            {filterTabs.map((tab) => (
+              <button
+                key={tab.value}
+                onClick={() => setFilter(tab.value)}
+                className={cn(
+                  "md:flex-none px-4 py-2 text-sm font-medium flex-1 cursor-pointer border-0 transition-colors outline-none",
+                  filter === tab.value
+                    ? "bg-card text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <div className="relative">
+            <Search className="left-3 h-4 w-4 absolute top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search by name, symbol or pool address"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-9 md:w-96 pl-9 w-full"
+            />
+          </div>
         </div>
-        <div className="relative">
-          <Search className="left-3 h-4 w-4 absolute top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search by name, symbol or pool address"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="h-9 md:w-96 pl-9 w-full"
-          />
-        </div>
-      </div>
+      )}
 
       {/* Content */}
       <div className="space-y-3 min-h-0 flex flex-1 flex-col">
-        {/* Error state */}
-        {isError && (
-          <div className="p-6 bg-card text-center">
-            <p className="text-destructive">
-              Failed to load pools. Please check your connection and try again.
-            </p>
-            {error && (
-              <p className="mt-2 text-sm text-muted-foreground">
-                {error instanceof Error ? error.message : String(error)}
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* Table */}
-        {!isError && (
+        {isError || (!isLoading && pools.length === 0) ? (
+          <NoPoolsState />
+        ) : (
           <PoolsTable
             pools={filteredPools}
             isLoading={isLoading}
@@ -161,6 +150,30 @@ export function PoolsView() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function NoPoolsState() {
+  return (
+    <div className="px-6 py-14 relative overflow-hidden rounded-xl border border-border bg-card text-center">
+      {/* Top accent line */}
+      <div className="top-0 w-48 absolute left-1/2 h-[2px] -translate-x-1/2 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
+
+      {/* Icon */}
+      <div className="mb-7 flex justify-center">
+        <div className="h-14 w-14 flex items-center justify-center rounded-full bg-primary/10">
+          <Droplets className="h-7 w-7 text-primary" />
+        </div>
+      </div>
+
+      <h2 className="mb-2.5 text-xl font-bold tracking-tight">
+        No pools on this network yet
+      </h2>
+      <p className="max-w-sm text-sm leading-relaxed mx-auto text-muted-foreground">
+        Pools are not available on this network yet. Switch to Celo to explore
+        pools, view on-chain metrics, and provide liquidity.
+      </p>
     </div>
   );
 }
