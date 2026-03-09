@@ -18,7 +18,7 @@ const filterTabs: { value: PoolFilterType; label: string }[] = [
 ];
 
 export function PoolsView() {
-  const { data: pools = [], isLoading, isError, error } = usePoolsList();
+  const { data: pools = [], isLoading, isError } = usePoolsList();
   const [filter, setFilter] = useState<PoolFilterType>("all");
   const [search, setSearch] = useState("");
   const [selectedPool, setSelectedPool] = useState<{

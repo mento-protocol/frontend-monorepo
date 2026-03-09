@@ -2,7 +2,7 @@
 
 import { Button, TokenIcon } from "@repo/ui";
 import { ChainId, Celo } from "@repo/web3";
-import { useChainId, useSwitchChain } from "@repo/web3/wagmi";
+import { useSwitchChain } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 import { ArrowRightLeft } from "lucide-react";
 
