@@ -16,7 +16,9 @@ import {
   useStabilityPoolApy,
   useStabilityPoolStats,
 } from "@repo/web3";
-import { useAccount } from "@repo/web3/wagmi";
+import { useAccount, useChainId } from "@repo/web3/wagmi";
+import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
+import { TokenIcon } from "@repo/ui";
 import { DebtTokenSelector } from "../shared/debt-token-selector";
 import { DepositForm } from "./deposit-form";
 import { WithdrawForm } from "./withdraw-form";
@@ -49,7 +51,19 @@ function formatTokenAmount(amount: bigint | null | undefined): string {
 
 export function EarnView() {
   const { isConnected } = useAccount();
+  const chainId = useChainId();
   const debtToken = useAtomValue(selectedDebtTokenAtom);
+
+  const debtTokenAddress = (() => {
+    try {
+      return getTokenAddress(
+        chainId,
+        debtToken.symbol as TokenSymbol,
+      ) as `0x${string}`;
+    } catch {
+      return undefined;
+    }
+  })();
 
   const { data: spPosition, isLoading: spLoading } = useStabilityPool(
     debtToken.symbol,
@@ -237,9 +251,36 @@ export function EarnView() {
                     </div>
                   </div>
                 ) : isConnected ? (
-                  <p className="text-sm py-8 text-center text-muted-foreground">
-                    No deposit yet — deposit to start earning.
-                  </p>
+                  <div className="py-8 flex flex-col items-center text-center">
+                    {/* Token icon cluster */}
+                    <div className="mb-5 flex justify-center">
+                      <div className="h-14 w-14 relative">
+                        <div className="inset-0 absolute z-[1]">
+                          {debtTokenAddress ? (
+                            <TokenIcon
+                              token={{
+                                address: debtTokenAddress,
+                                symbol: debtToken.symbol,
+                              }}
+                              size={44}
+                              className="rounded-full"
+                            />
+                          ) : (
+                            <div className="h-11 w-11 bg-indigo-500 text-lg font-bold flex items-center justify-center rounded-full">
+                              {debtToken.currencySymbol}
+                            </div>
+                          )}
+                        </div>
+                        {/* Plus badge */}
+                        <div className="right-0 bottom-0 absolute z-[2] flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 border-card bg-primary text-primary-foreground">
+                          <Plus className="h-3 w-3" />
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      No deposit yet — deposit to start earning.
+                    </p>
+                  </div>
                 ) : (
                   <p className="text-sm py-8 text-center text-muted-foreground">
                     Connect your wallet to view your position.
