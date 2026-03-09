@@ -6,6 +6,7 @@ import { useChainId } from "wagmi";
 import { formatUnits, type Address } from "viem";
 import type { PoolDisplay, PriceAlignmentStatus } from "../types";
 import { POOL_REFETCH_INTERVAL } from "@/config/constants";
+import { getUsdTokenPrices } from "../usd-quote-metadata";
 
 function trimTrailingZeros(value: string): string {
   return value.replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
@@ -221,14 +222,25 @@ export function usePoolsList() {
                     details.scalingFactor1,
                   );
 
-            // TVL: use oracle price for FPMM pools (token1 assumed USD-pegged)
+            // TVL in USD: use oracle price for FPMM pools
             let tvl: number | null = null;
             if (
               details.poolType === "FPMM" &&
               details.pricing &&
               hasLiquidity
             ) {
-              tvl = reserve0Value * details.pricing.oraclePrice + reserve1Value;
+              const usdTokenPrices = getUsdTokenPrices({
+                token0Address: details.token0,
+                token1Address: details.token1,
+                oraclePrice: details.pricing.oraclePrice,
+                chainId,
+              });
+
+              if (usdTokenPrices) {
+                tvl =
+                  reserve0Value * usdTokenPrices.token0PriceUsd +
+                  reserve1Value * usdTokenPrices.token1PriceUsd;
+              }
             }
 
             const poolDisplay: PoolDisplay = {

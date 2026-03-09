@@ -16,7 +16,9 @@ import {
   useStabilityPoolApy,
   useStabilityPoolStats,
 } from "@repo/web3";
-import { useAccount } from "@repo/web3/wagmi";
+import { useAccount, useChainId } from "@repo/web3/wagmi";
+import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
+import { TokenIcon } from "@repo/ui";
 import { DebtTokenSelector } from "../shared/debt-token-selector";
 import { DepositForm } from "./deposit-form";
 import { WithdrawForm } from "./withdraw-form";
@@ -49,7 +51,19 @@ function formatTokenAmount(amount: bigint | null | undefined): string {
 
 export function EarnView() {
   const { isConnected } = useAccount();
+  const chainId = useChainId();
   const debtToken = useAtomValue(selectedDebtTokenAtom);
+
+  const debtTokenAddress = (() => {
+    try {
+      return getTokenAddress(
+        chainId,
+        debtToken.symbol as TokenSymbol,
+      ) as `0x${string}`;
+    } catch {
+      return undefined;
+    }
+  })();
 
   const { data: spPosition, isLoading: spLoading } = useStabilityPool(
     debtToken.symbol,
@@ -233,13 +247,42 @@ export function EarnView() {
                       <span className="text-2xl font-bold tracking-tight text-primary">
                         {formatCompactCurrency(totalRewards, debtToken)}
                       </span>
-                      <span className="text-xs text-primary/50">Claimable</span>
+                      <span className="text-xs font-medium text-primary">
+                        Claimable
+                      </span>
                     </div>
                   </div>
                 ) : isConnected ? (
-                  <p className="text-sm py-8 text-center text-muted-foreground">
-                    No deposit yet — deposit to start earning.
-                  </p>
+                  <div className="py-8 flex flex-col items-center text-center">
+                    {/* Token icon cluster */}
+                    <div className="mb-5 flex justify-center">
+                      <div className="h-14 w-14 relative">
+                        <div className="inset-0 absolute z-[1]">
+                          {debtTokenAddress ? (
+                            <TokenIcon
+                              token={{
+                                address: debtTokenAddress,
+                                symbol: debtToken.symbol,
+                              }}
+                              size={44}
+                              className="rounded-full"
+                            />
+                          ) : (
+                            <div className="h-11 w-11 bg-indigo-500 text-lg font-bold flex items-center justify-center rounded-full">
+                              {debtToken.currencySymbol}
+                            </div>
+                          )}
+                        </div>
+                        {/* Plus badge */}
+                        <div className="right-0 bottom-0 absolute z-[2] flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 border-card bg-primary text-primary-foreground">
+                          <Plus className="h-3 w-3" />
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      No deposit yet — deposit to start earning.
+                    </p>
+                  </div>
                 ) : (
                   <p className="text-sm py-8 text-center text-muted-foreground">
                     Connect your wallet to view your position.
@@ -297,7 +340,7 @@ export function EarnView() {
 
         {/* How it works */}
         <div>
-          <h3 className="font-semibold tracking-widest mb-4 text-[11px] text-muted-foreground uppercase">
+          <h3 className="mb-4 font-mono font-semibold tracking-widest text-[11px] text-muted-foreground uppercase">
             How it works
           </h3>
           <div className="gap-4 md:grid-cols-3 grid grid-cols-1">
@@ -306,17 +349,19 @@ export function EarnView() {
                 key={i}
                 className="!py-0 !gap-0 transition-colors hover:bg-accent/50"
               >
-                <CardContent className="!px-4 py-3">
-                  <div className="gap-2 mb-1 flex items-center">
-                    <div className="h-7 w-7 flex items-center justify-center rounded-md bg-primary/10 text-primary">
+                <CardContent className="p-6">
+                  <div className="mb-3.5 gap-3 flex items-center">
+                    <div className="h-10 w-10 flex items-center justify-center rounded-lg bg-primary/10 text-primary">
                       {step.icon}
                     </div>
-                    <span className="text-sm font-semibold">{step.title}</span>
-                    <span className="font-semibold ml-auto text-[11px] text-muted-foreground/50">
+                    <span className="font-mono font-semibold text-[11px] text-muted-foreground/25">
                       {String(i + 1).padStart(2, "0")}
                     </span>
                   </div>
-                  <p className="text-xs leading-relaxed text-muted-foreground">
+                  <h4 className="mb-1.5 font-semibold text-[15px]">
+                    {step.title}
+                  </h4>
+                  <p className="leading-relaxed text-[13px] text-muted-foreground/60">
                     {step.desc}
                   </p>
                 </CardContent>

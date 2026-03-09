@@ -16,14 +16,17 @@ import { useAccount, useConfig } from "@repo/web3/wagmi";
 import { useAtomValue } from "jotai";
 import { parseUnits } from "viem";
 import { RiskBadge } from "../shared/risk-badge";
+import {
+  MAX_INTEREST_RATE_PCT,
+  MAX_INTEREST_RATE_WAD,
+} from "../shared/interest-rate-limits";
 
 interface RateFormProps {
   troveId: string;
   troveData: BorrowPosition;
 }
 
-const MAX_RATE_PCT = 15;
-const SLIDER_STEP = 0.1;
+const SLIDER_STEP = 0.5;
 const PLACEHOLDER = "\u2014";
 
 function parseRateToBigint(pctString: string): bigint | null {
@@ -110,12 +113,15 @@ export function RateForm({ troveId, troveData }: RateFormProps) {
     newRateBigint != null &&
     systemParams?.minAnnualInterestRate != null &&
     newRateBigint < systemParams.minAnnualInterestRate;
+  const aboveMaxRate =
+    newRateBigint != null && newRateBigint > MAX_INTEREST_RATE_WAD;
 
   const buttonDisabledReason = useMemo(() => {
     if (!isConnected) return "Connect wallet";
     if (!rateInput || newRateBigint == null) return "Enter a rate";
     if (!rateChanged) return "Rate unchanged";
     if (belowMinRate) return "Below minimum rate";
+    if (aboveMaxRate) return `Above max rate (${MAX_INTEREST_RATE_PCT}%)`;
     if (adjustInterestRate.isPending) return "Changing rate...";
     return null;
   }, [
@@ -124,6 +130,7 @@ export function RateForm({ troveId, troveData }: RateFormProps) {
     newRateBigint,
     rateChanged,
     belowMinRate,
+    aboveMaxRate,
     adjustInterestRate.isPending,
   ]);
 
@@ -179,9 +186,14 @@ export function RateForm({ troveId, troveData }: RateFormProps) {
         <div className="gap-3 flex items-center">
           <Slider
             min={minRatePct}
-            max={MAX_RATE_PCT}
+            max={MAX_INTEREST_RATE_PCT}
             step={SLIDER_STEP}
-            value={[Math.min(Math.max(sliderValue, minRatePct), MAX_RATE_PCT)]}
+            value={[
+              Math.min(
+                Math.max(sliderValue, minRatePct),
+                MAX_INTEREST_RATE_PCT,
+              ),
+            ]}
             onValueChange={handleSliderChange}
             className="flex-1"
           />
@@ -238,6 +250,11 @@ export function RateForm({ troveId, troveData }: RateFormProps) {
         <p className="text-xs text-destructive">
           Rate is below the minimum of{" "}
           {formatInterestRate(systemParams?.minAnnualInterestRate ?? null)}
+        </p>
+      )}
+      {aboveMaxRate && (
+        <p className="text-xs text-destructive">
+          Rate is above the maximum of {MAX_INTEREST_RATE_PCT}%
         </p>
       )}
 

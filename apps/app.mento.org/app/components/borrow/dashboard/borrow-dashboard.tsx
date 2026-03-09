@@ -346,23 +346,27 @@ function EmptyState({ onOpenTrove }: { onOpenTrove: () => void }) {
         </h3>
         <div className="gap-4 md:grid-cols-3 grid grid-cols-1">
           {steps.map((step, i) => (
-            <div
+            <Card
               key={i}
-              className="p-6 rounded-xl border border-border/40 bg-card/50 transition-colors hover:border-border hover:bg-card"
+              className="!py-0 !gap-0 transition-colors hover:bg-accent/50"
             >
-              <div className="mb-3.5 gap-3 flex items-center">
-                <div className="h-10 w-10 flex items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  {step.icon}
+              <CardContent className="p-6">
+                <div className="mb-3.5 gap-3 flex items-center">
+                  <div className="h-10 w-10 flex items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    {step.icon}
+                  </div>
+                  <span className="font-mono font-semibold text-[11px] text-muted-foreground/25">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
                 </div>
-                <span className="font-mono font-semibold text-[11px] text-muted-foreground/25">
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-              </div>
-              <h4 className="mb-1.5 font-semibold text-[15px]">{step.title}</h4>
-              <p className="leading-relaxed text-[13px] text-muted-foreground/60">
-                {step.desc}
-              </p>
-            </div>
+                <h4 className="mb-1.5 font-semibold text-[15px]">
+                  {step.title}
+                </h4>
+                <p className="leading-relaxed text-[13px] text-muted-foreground/60">
+                  {step.desc}
+                </p>
+              </CardContent>
+            </Card>
           ))}
         </div>
       </div>

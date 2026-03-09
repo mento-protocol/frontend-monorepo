@@ -14,10 +14,10 @@ interface InterestRateInputProps {
   value: string;
   onChange: (value: string) => void;
   debtAmount: bigint;
+  maxRatePct: number;
 }
 
-const MAX_RATE_PCT = 15;
-const SLIDER_STEP = 0.1;
+const SLIDER_STEP = 0.5;
 
 const RATE_PRESETS = [
   { rate: "1.0", label: "1.0%" },
@@ -45,6 +45,7 @@ export function InterestRateInput({
   value,
   onChange,
   debtAmount,
+  maxRatePct,
 }: InterestRateInputProps) {
   const debtToken = useAtomValue(selectedDebtTokenAtom);
   const { data: systemParams } = useSystemParams(debtToken.symbol);
@@ -93,9 +94,9 @@ export function InterestRateInput({
       <div className="gap-4 flex items-center">
         <Slider
           min={minRatePct}
-          max={MAX_RATE_PCT}
+          max={maxRatePct}
           step={SLIDER_STEP}
-          value={[Math.min(Math.max(sliderValue, minRatePct), MAX_RATE_PCT)]}
+          value={[Math.min(Math.max(sliderValue, minRatePct), maxRatePct)]}
           onValueChange={handleSliderChange}
           className="flex-1"
         />

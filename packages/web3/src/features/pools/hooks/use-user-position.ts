@@ -5,6 +5,7 @@ import { useChainId } from "wagmi";
 import type { ChainId } from "@/config/chains";
 import type { PoolDisplay } from "../types";
 import { LP_TOTAL_SUPPLY_HOLDER } from "../types";
+import { getUsdTokenPrices } from "../usd-quote-metadata";
 
 export interface UserPosition {
   poolSharePercent: number;
@@ -69,9 +70,16 @@ export function useUserPosition({
       let token1Price: number | null = null;
 
       if (details.poolType === "FPMM" && details.pricing) {
-        // oraclePrice = price of token0 in terms of token1
-        token0Price = details.pricing.oraclePrice;
-        token1Price = 1; // token1 is assumed to be USD-pegged stablecoin
+        const usdTokenPrices = getUsdTokenPrices({
+          token0Address: details.token0,
+          token1Address: details.token1,
+          oraclePrice: details.pricing.oraclePrice,
+          chainId,
+        });
+        if (usdTokenPrices) {
+          token0Price = usdTokenPrices.token0PriceUsd;
+          token1Price = usdTokenPrices.token1PriceUsd;
+        }
       }
 
       // USD values

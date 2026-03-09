@@ -25,12 +25,13 @@ import { borrowViewAtom } from "../atoms/borrow-navigation";
 import { CollateralInput } from "./collateral-input";
 import { DebtInput } from "./debt-input";
 import { InterestRateInput } from "./interest-rate-input";
+import {
+  MAX_INTEREST_RATE_PCT,
+  MAX_INTEREST_RATE_WAD,
+} from "../shared/interest-rate-limits";
 
 import { LoanSummary } from "./loan-summary";
 import { LTVBar } from "./ltv-bar";
-
-const MAX_RATE_PCT = 15;
-const MAX_RATE = parseUnits("0.15", 18);
 
 function parseRateToBigint(pctString: string): bigint | null {
   const num = Number(pctString);
@@ -139,7 +140,7 @@ export function OpenTroveForm() {
     systemParams?.minAnnualInterestRate != null &&
     rateBigint < systemParams.minAnnualInterestRate;
 
-  const aboveMaxRate = rateBigint != null && rateBigint > MAX_RATE;
+  const aboveMaxRate = rateBigint != null && rateBigint > MAX_INTEREST_RATE_WAD;
 
   const liquidatablePosition =
     loanDetails?.status === "liquidatable" ||
@@ -158,7 +159,7 @@ export function OpenTroveForm() {
     if (collAmount === 0n || debtAmount === 0n) return "Enter valid amounts";
     if (rateBigint === null) return "Enter valid interest rate";
     if (belowMinRate) return "Interest rate below minimum";
-    if (aboveMaxRate) return `Interest rate above ${MAX_RATE_PCT}%`;
+    if (aboveMaxRate) return `Interest rate above ${MAX_INTEREST_RATE_PCT}%`;
     if (insufficientBalance) return "Insufficient USDm balance";
     if (belowMinDebt) return "Below minimum debt";
     if (liquidatablePosition) return "Position would be liquidatable";
@@ -322,6 +323,7 @@ export function OpenTroveForm() {
               value={formState.interestRate}
               onChange={setInterestRate}
               debtAmount={debtAmount}
+              maxRatePct={MAX_INTEREST_RATE_PCT}
             />
           </div>
         </div>
