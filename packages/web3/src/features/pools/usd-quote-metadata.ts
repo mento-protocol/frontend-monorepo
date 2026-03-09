@@ -32,9 +32,8 @@ const CELO_SEPOLIA_USD_QUOTE_ADDRESSES = [
   "0x6285De9DA7C1d329C0451628638908915002d9d1", // axlUSDC
 ];
 
-const USD_QUOTE_TOKEN_ADDRESSES_BY_CHAIN: Record<
-  ChainId,
-  ReadonlySet<string>
+const USD_QUOTE_TOKEN_ADDRESSES_BY_CHAIN: Partial<
+  Record<ChainId, ReadonlySet<string>>
 > = {
   [ChainId.Celo]: new Set(CELO_USD_QUOTE_ADDRESSES.map(normalizeAddress)),
   [ChainId.CeloSepolia]: new Set(
@@ -43,9 +42,8 @@ const USD_QUOTE_TOKEN_ADDRESSES_BY_CHAIN: Record<
 };
 
 function isUsdQuoteToken(tokenAddress: string, chainId: ChainId): boolean {
-  return USD_QUOTE_TOKEN_ADDRESSES_BY_CHAIN[chainId].has(
-    normalizeAddress(tokenAddress),
-  );
+  const addresses = USD_QUOTE_TOKEN_ADDRESSES_BY_CHAIN[chainId];
+  return addresses?.has(normalizeAddress(tokenAddress)) ?? false;
 }
 
 function isValidOraclePrice(oraclePrice: number): boolean {

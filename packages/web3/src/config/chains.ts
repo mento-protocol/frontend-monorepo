@@ -10,6 +10,8 @@ const customRpcUrl = getCustomRpcUrl();
 export enum ChainId {
   CeloSepolia = 11142220,
   Celo = 42220,
+  MonadTestnet = 10143,
+  Monad = 143,
 }
 
 const LOCAL_FORK_EXPLORER = {
@@ -24,6 +26,14 @@ export const CELO_SEPOLIA_EXPLORER = {
   name: "Celo Sepolia Explorer",
   url: "https://sepolia.celoscan.io",
   apiUrl: "https://sepolia.celoscan.io/api",
+};
+export const MONAD_EXPLORER = {
+  name: "Monad Explorer",
+  url: "https://monadvision.com",
+};
+export const MONAD_TESTNET_EXPLORER = {
+  name: "Monad Testnet Explorer",
+  url: "https://testnet.monadexplorer.com",
 };
 
 export const CeloSepolia: MentoChain = {
@@ -66,6 +76,44 @@ export const Celo: MentoChain = {
     ...celo.contracts,
     ...transformToChainContracts(addresses[celo.id]),
   },
+} as const satisfies Chain;
+
+export const MonadTestnet: MentoChain = {
+  id: ChainId.MonadTestnet,
+  name: "Monad Testnet",
+  nativeCurrency: {
+    decimals: 18,
+    name: "MON",
+    symbol: "MON",
+  },
+  blockExplorers: {
+    default: MONAD_TESTNET_EXPLORER,
+  },
+  rpcUrls: {
+    default: {
+      http: ["https://testnet-rpc.monad.xyz/"],
+    },
+  },
+  contracts: {},
+} as const satisfies Chain;
+
+export const Monad: MentoChain = {
+  id: ChainId.Monad,
+  name: "Monad",
+  nativeCurrency: {
+    decimals: 18,
+    name: "MON",
+    symbol: "MON",
+  },
+  blockExplorers: {
+    default: MONAD_EXPLORER,
+  },
+  rpcUrls: {
+    default: {
+      http: ["https://rpc.monad.xyz"],
+    },
+  },
+  contracts: {},
 } as const satisfies Chain;
 
 function isForkModeEnabled(): boolean {
@@ -138,12 +186,16 @@ function getCeloRpcUrl(): string {
 export const chainIdToChain: Record<number, MentoChain> = {
   [ChainId.CeloSepolia]: CeloSepolia,
   [ChainId.Celo]: Celo,
+  [ChainId.MonadTestnet]: MonadTestnet,
+  [ChainId.Monad]: Monad,
 };
 
-export const allChains = [Celo, CeloSepolia] as const satisfies readonly [
-  MentoChain,
-  ...MentoChain[],
-];
+export const allChains = [
+  Celo,
+  CeloSepolia,
+  Monad,
+  MonadTestnet,
+] as const satisfies readonly [MentoChain, ...MentoChain[]];
 
 /**
  * Transforms the specified Mento contract addresses to the format used by Viem.
