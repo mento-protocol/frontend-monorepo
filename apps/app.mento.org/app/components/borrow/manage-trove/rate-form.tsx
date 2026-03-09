@@ -22,8 +22,8 @@ interface RateFormProps {
   troveData: BorrowPosition;
 }
 
-const MAX_RATE_PCT = 15;
-const SLIDER_STEP = 0.1;
+const MAX_RATE_PCT = 250;
+const SLIDER_STEP = 0.5;
 const PLACEHOLDER = "\u2014";
 
 function parseRateToBigint(pctString: string): bigint | null {

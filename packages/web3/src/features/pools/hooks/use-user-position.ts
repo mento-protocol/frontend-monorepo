@@ -70,8 +70,16 @@ export function useUserPosition({
 
       if (details.poolType === "FPMM" && details.pricing) {
         // oraclePrice = price of token0 in terms of token1
-        token0Price = details.pricing.oraclePrice;
-        token1Price = 1; // token1 is assumed to be USD-pegged stablecoin
+        const token0IsUsd = pool.token0.symbol.toUpperCase().includes("USD");
+        if (token0IsUsd) {
+          // token0 is USD-pegged: token0 price = $1, token1 price = 1/oraclePrice
+          token0Price = 1;
+          token1Price = 1 / details.pricing.oraclePrice;
+        } else {
+          // token1 is USD-pegged: token1 price = $1, token0 price = oraclePrice
+          token0Price = details.pricing.oraclePrice;
+          token1Price = 1;
+        }
       }
 
       // USD values

@@ -221,14 +221,25 @@ export function usePoolsList() {
                     details.scalingFactor1,
                   );
 
-            // TVL: use oracle price for FPMM pools (token1 assumed USD-pegged)
+            // TVL in USD: use oracle price for FPMM pools
             let tvl: number | null = null;
             if (
               details.poolType === "FPMM" &&
               details.pricing &&
               hasLiquidity
             ) {
-              tvl = reserve0Value * details.pricing.oraclePrice + reserve1Value;
+              const token0IsUsd = token0Info.symbol
+                .toUpperCase()
+                .includes("USD");
+              if (token0IsUsd) {
+                // Express in token0 (USD) units
+                tvl =
+                  reserve0Value + reserve1Value / details.pricing.oraclePrice;
+              } else {
+                // token1 is USD-pegged; express in token1 units
+                tvl =
+                  reserve0Value * details.pricing.oraclePrice + reserve1Value;
+              }
             }
 
             const poolDisplay: PoolDisplay = {

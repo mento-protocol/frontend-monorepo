@@ -29,8 +29,8 @@ import { InterestRateInput } from "./interest-rate-input";
 import { LoanSummary } from "./loan-summary";
 import { LTVBar } from "./ltv-bar";
 
-const MAX_RATE_PCT = 15;
-const MAX_RATE = parseUnits("0.15", 18);
+const MAX_RATE_PCT = 250;
+const MAX_RATE = parseUnits("2.5", 18);
 
 function parseRateToBigint(pctString: string): bigint | null {
   const num = Number(pctString);

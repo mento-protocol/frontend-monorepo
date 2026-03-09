@@ -297,7 +297,7 @@ export function EarnView() {
 
         {/* How it works */}
         <div>
-          <h3 className="font-semibold tracking-widest mb-4 text-[11px] text-muted-foreground uppercase">
+          <h3 className="mb-4 font-mono font-semibold tracking-widest text-[11px] text-muted-foreground uppercase">
             How it works
           </h3>
           <div className="gap-4 md:grid-cols-3 grid grid-cols-1">
@@ -306,17 +306,19 @@ export function EarnView() {
                 key={i}
                 className="!py-0 !gap-0 transition-colors hover:bg-accent/50"
               >
-                <CardContent className="!px-4 py-3">
-                  <div className="gap-2 mb-1 flex items-center">
-                    <div className="h-7 w-7 flex items-center justify-center rounded-md bg-primary/10 text-primary">
+                <CardContent className="!px-0 p-6">
+                  <div className="mb-3.5 gap-3 flex items-center">
+                    <div className="h-10 w-10 flex items-center justify-center rounded-lg bg-primary/10 text-primary">
                       {step.icon}
                     </div>
-                    <span className="text-sm font-semibold">{step.title}</span>
-                    <span className="font-semibold ml-auto text-[11px] text-muted-foreground/50">
+                    <span className="font-mono font-semibold text-[11px] text-muted-foreground/25">
                       {String(i + 1).padStart(2, "0")}
                     </span>
                   </div>
-                  <p className="text-xs leading-relaxed text-muted-foreground">
+                  <h4 className="mb-1.5 font-semibold text-[15px]">
+                    {step.title}
+                  </h4>
+                  <p className="leading-relaxed text-[13px] text-muted-foreground/60">
                     {step.desc}
                   </p>
                 </CardContent>
