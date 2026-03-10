@@ -33,6 +33,22 @@ export const env = createEnv({
       (val) => (val === "" ? undefined : val),
       z.string().url().optional(),
     ),
+    NEXT_PUBLIC_CELO_RPC_URL: z.preprocess(
+      (val) => (val === "" ? undefined : val),
+      z.string().url().optional(),
+    ),
+    NEXT_PUBLIC_CELO_SEPOLIA_RPC_URL: z.preprocess(
+      (val) => (val === "" ? undefined : val),
+      z.string().url().optional(),
+    ),
+    NEXT_PUBLIC_MONAD_RPC_URL: z.preprocess(
+      (val) => (val === "" ? undefined : val),
+      z.string().url().optional(),
+    ),
+    NEXT_PUBLIC_MONAD_TESTNET_RPC_URL: z.preprocess(
+      (val) => (val === "" ? undefined : val),
+      z.string().url().optional(),
+    ),
   },
   /*
    * Due to how Next.js bundles environment variables on Edge and Client,
@@ -50,5 +66,11 @@ export const env = createEnv({
     NEXT_PUBLIC_BANNER_TEXT: process.env.NEXT_PUBLIC_BANNER_TEXT,
     NEXT_PUBLIC_BANNER_LINK: process.env.NEXT_PUBLIC_BANNER_LINK,
     NEXT_PUBLIC_RPC_URL: process.env.NEXT_PUBLIC_RPC_URL,
+    NEXT_PUBLIC_CELO_RPC_URL: process.env.NEXT_PUBLIC_CELO_RPC_URL,
+    NEXT_PUBLIC_CELO_SEPOLIA_RPC_URL:
+      process.env.NEXT_PUBLIC_CELO_SEPOLIA_RPC_URL,
+    NEXT_PUBLIC_MONAD_RPC_URL: process.env.NEXT_PUBLIC_MONAD_RPC_URL,
+    NEXT_PUBLIC_MONAD_TESTNET_RPC_URL:
+      process.env.NEXT_PUBLIC_MONAD_TESTNET_RPC_URL,
   },
 });

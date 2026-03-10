@@ -11,7 +11,6 @@ import celoIcon from "./chain-icons/celo.svg";
 import monadIcon from "./chain-icons/monad.svg";
 
 const useFork = isForkModeEnabled();
-const customRpcUrl = getCustomRpcUrl();
 
 export enum ChainId {
   CeloSepolia = 11142220,
@@ -19,6 +18,28 @@ export enum ChainId {
   MonadTestnet = 10143,
   Monad = 143,
 }
+
+const RPC_OVERRIDE_CONFIG: Record<
+  ChainId,
+  { envVar: string; localStorageKey: string }
+> = {
+  [ChainId.CeloSepolia]: {
+    envVar: "NEXT_PUBLIC_CELO_SEPOLIA_RPC_URL",
+    localStorageKey: "mento_custom_rpc_url_11142220",
+  },
+  [ChainId.Celo]: {
+    envVar: "NEXT_PUBLIC_CELO_RPC_URL",
+    localStorageKey: "mento_custom_rpc_url_42220",
+  },
+  [ChainId.MonadTestnet]: {
+    envVar: "NEXT_PUBLIC_MONAD_TESTNET_RPC_URL",
+    localStorageKey: "mento_custom_rpc_url_10143",
+  },
+  [ChainId.Monad]: {
+    envVar: "NEXT_PUBLIC_MONAD_RPC_URL",
+    localStorageKey: "mento_custom_rpc_url_143",
+  },
+};
 
 const LOCAL_FORK_EXPLORER = {
   name: "Otterscan (Local Fork)",
@@ -161,7 +182,7 @@ function isForkModeEnabled(): boolean {
   return false;
 }
 
-function getCustomRpcUrl(): string | undefined {
+function getLegacyCustomRpcUrl(): string | undefined {
   if (typeof window !== "undefined") {
     const stored = localStorage.getItem("mento_custom_rpc_url");
     if (stored) return stored;
@@ -169,16 +190,54 @@ function getCustomRpcUrl(): string | undefined {
   return process.env.NEXT_PUBLIC_RPC_URL || undefined;
 }
 
+function getChainSpecificRpcUrl(
+  chainId: ChainId,
+): { url: string; source: string } | undefined {
+  const config = RPC_OVERRIDE_CONFIG[chainId];
+
+  if (typeof window !== "undefined") {
+    const stored = localStorage.getItem(config.localStorageKey);
+    if (stored) {
+      return {
+        url: stored,
+        source: `custom RPC (${config.localStorageKey})`,
+      };
+    }
+  }
+
+  const envUrl = process.env[config.envVar];
+  if (envUrl) {
+    return {
+      url: envUrl,
+      source: `custom RPC (${config.envVar})`,
+    };
+  }
+
+  // Keep the legacy global override only for Monad chains.
+  if (chainId === ChainId.Monad || chainId === ChainId.MonadTestnet) {
+    const legacyUrl = getLegacyCustomRpcUrl();
+    if (legacyUrl) {
+      return {
+        url: legacyUrl,
+        source: "custom RPC (NEXT_PUBLIC_RPC_URL / mento_custom_rpc_url)",
+      };
+    }
+  }
+
+  return undefined;
+}
+
 function getCeloSepoliaRpcUrl(): string {
   let url: string;
   let source: string;
+  const override = getChainSpecificRpcUrl(ChainId.CeloSepolia);
 
   if (useFork) {
     url = "http://localhost:8545";
     source = "fork mode";
-  } else if (customRpcUrl) {
-    url = customRpcUrl;
-    source = "custom RPC (NEXT_PUBLIC_RPC_URL / localStorage)";
+  } else if (override) {
+    url = override.url;
+    source = override.source;
   } else {
     url = "https://forno.celo-sepolia.celo-testnet.org";
     source = "default";
@@ -191,13 +250,14 @@ function getCeloSepoliaRpcUrl(): string {
 function getCeloRpcUrl(): string {
   let url: string;
   let source: string;
+  const override = getChainSpecificRpcUrl(ChainId.Celo);
 
   if (useFork) {
     url = "http://localhost:8545";
     source = "fork mode";
-  } else if (customRpcUrl) {
-    url = customRpcUrl;
-    source = "custom RPC (NEXT_PUBLIC_RPC_URL / localStorage)";
+  } else if (override) {
+    url = override.url;
+    source = override.source;
   } else {
     url = "https://forno.celo.org";
     source = "default";
@@ -210,10 +270,11 @@ function getCeloRpcUrl(): string {
 function getMonadTestnetRpcUrl(): string {
   let url: string;
   let source: string;
+  const override = getChainSpecificRpcUrl(ChainId.MonadTestnet);
 
-  if (customRpcUrl) {
-    url = customRpcUrl;
-    source = "custom RPC (NEXT_PUBLIC_RPC_URL / localStorage)";
+  if (override) {
+    url = override.url;
+    source = override.source;
   } else {
     url = "https://testnet-rpc.monad.xyz/";
     source = "default";
@@ -226,10 +287,11 @@ function getMonadTestnetRpcUrl(): string {
 function getMonadRpcUrl(): string {
   let url: string;
   let source: string;
+  const override = getChainSpecificRpcUrl(ChainId.Monad);
 
-  if (customRpcUrl) {
-    url = customRpcUrl;
-    source = "custom RPC (NEXT_PUBLIC_RPC_URL / localStorage)";
+  if (override) {
+    url = override.url;
+    source = override.source;
   } else {
     url = "https://rpc.monad.xyz";
     source = "default";
