@@ -1,6 +1,10 @@
 import { addresses, ContractAddresses } from "@mento-protocol/mento-sdk";
 import { Address, Chain } from "viem";
-import { celoSepolia } from "viem/chains";
+import {
+  celoSepolia,
+  monad as viemMonad,
+  monadTestnet as viemMonadTestnet,
+} from "viem/chains";
 import { celo } from "wagmi/chains";
 import { MentoChain, MentoChainContracts } from "../types";
 import celoIcon from "./chain-icons/celo.svg";
@@ -83,8 +87,10 @@ export const Celo: MentoChain = {
 } as const satisfies Chain;
 
 export const MonadTestnet: MentoChain = {
+  ...viemMonadTestnet,
   id: ChainId.MonadTestnet,
-  name: "Monad Testnet",
+  iconUrl: monadIcon,
+  iconBackground: "transparent",
   nativeCurrency: {
     decimals: 18,
     name: "MON",
@@ -94,16 +100,22 @@ export const MonadTestnet: MentoChain = {
     default: MONAD_TESTNET_EXPLORER,
   },
   rpcUrls: {
+    ...viemMonadTestnet.rpcUrls,
     default: {
-      http: ["https://testnet-rpc.monad.xyz/"],
+      http: [getMonadTestnetRpcUrl()],
     },
   },
-  contracts: {},
-} as const satisfies Chain;
+  contracts: {
+    ...viemMonadTestnet.contracts,
+    ...transformToChainContracts(
+      addresses[ChainId.MonadTestnet as unknown as keyof typeof addresses],
+    ),
+  },
+} as const satisfies MentoChain;
 
 export const Monad: MentoChain = {
+  ...viemMonad,
   id: ChainId.Monad,
-  name: "Monad",
   iconUrl: monadIcon,
   iconBackground: "transparent",
   nativeCurrency: {
@@ -115,11 +127,17 @@ export const Monad: MentoChain = {
     default: MONAD_EXPLORER,
   },
   rpcUrls: {
+    ...viemMonad.rpcUrls,
     default: {
-      http: ["https://rpc.monad.xyz"],
+      http: [getMonadRpcUrl()],
     },
   },
-  contracts: {},
+  contracts: {
+    ...viemMonad.contracts,
+    ...transformToChainContracts(
+      addresses[ChainId.Monad as unknown as keyof typeof addresses],
+    ),
+  },
 } as const satisfies MentoChain;
 
 function isForkModeEnabled(): boolean {
@@ -186,6 +204,38 @@ function getCeloRpcUrl(): string {
   }
 
   console.log(`[mento] Celo RPC: ${url} (${source})`);
+  return url;
+}
+
+function getMonadTestnetRpcUrl(): string {
+  let url: string;
+  let source: string;
+
+  if (customRpcUrl) {
+    url = customRpcUrl;
+    source = "custom RPC (NEXT_PUBLIC_RPC_URL / localStorage)";
+  } else {
+    url = "https://testnet-rpc.monad.xyz/";
+    source = "default";
+  }
+
+  console.log(`[mento] Monad Testnet RPC: ${url} (${source})`);
+  return url;
+}
+
+function getMonadRpcUrl(): string {
+  let url: string;
+  let source: string;
+
+  if (customRpcUrl) {
+    url = customRpcUrl;
+    source = "custom RPC (NEXT_PUBLIC_RPC_URL / localStorage)";
+  } else {
+    url = "https://rpc.monad.xyz";
+    source = "default";
+  }
+
+  console.log(`[mento] Monad RPC: ${url} (${source})`);
   return url;
 }
 

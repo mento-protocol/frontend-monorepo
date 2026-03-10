@@ -1,6 +1,6 @@
 "use client";
 
-import { ConnectButton } from "@repo/web3";
+import { ChainButton, ConnectButton } from "@repo/web3";
 
 import { useTheme } from "next-themes";
 import { useAtom } from "jotai";
@@ -96,6 +96,7 @@ export function Header() {
           </a>
           <div className="gap-2 px-4 md:px-6 flex flex-row items-center justify-between">
             <ThemeSwitch />
+            <ChainButton />
             <div className="md:hidden">
               <ConnectButton text="Connect" />
             </div>
