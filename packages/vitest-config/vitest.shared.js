@@ -30,7 +30,7 @@ export default defineConfig({
       "**/.trunk/**",
     ],
     globals: false,
-    passWithNoTests: true,
+    passWithNoTests: false,
     coverage: {
       provider: "v8",
       reporter: ["text", "json", "html"],
