@@ -1,5 +1,6 @@
 "use client";
 
+import { env } from "@/env.mjs";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -351,6 +352,7 @@ export function useSwapForm() {
     quote,
     rate,
     isError,
+    hasInsufficientLiquidityError,
     quoteErrorMessage,
     fromTokenUSDValue,
     toTokenUSDValue,
@@ -358,6 +360,9 @@ export function useSwapForm() {
     canQuote ? amount : "",
     tokenInSymbol,
     tokenOutSymbol,
+    {
+      insufficientLiquidityFallbackUrl: env.NEXT_PUBLIC_BANNER_LINK,
+    },
   );
 
   // ── Side effects ────────────────────────────────────────────────────
@@ -727,6 +732,7 @@ export function useSwapForm() {
     quote,
     rate,
     isError,
+    hasInsufficientLiquidityError,
     quoteErrorMessage,
     canQuote,
     hasValidQuote,

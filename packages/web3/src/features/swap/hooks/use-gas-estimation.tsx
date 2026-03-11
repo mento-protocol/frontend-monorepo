@@ -1,6 +1,9 @@
 import { NativeTokenSymbol } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
-import { isInsufficientLiquidityError } from "@/features/swap/error-handlers";
+import {
+  isInsufficientLiquidityError,
+  SWAP_INSUFFICIENT_LIQUIDITY_LABEL,
+} from "@/features/swap/error-handlers";
 import { parseInputExchangeAmount } from "@/features/swap/utils";
 import { fromWei } from "@/utils/amount";
 import { validateAddress } from "@/utils/addresses";
@@ -197,7 +200,7 @@ export function useGasEstimation({
 
           // Insufficient liquidity - surface to UI instead of falling back
           if (isInsufficientLiquidityError(errorMessage)) {
-            throw new Error("Insufficient liquidity for this swap.");
+            throw new Error(SWAP_INSUFFICIENT_LIQUIDITY_LABEL);
           }
 
           // If estimation fails, check if it's due to approval

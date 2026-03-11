@@ -11,6 +11,8 @@ import { buildSwapRoute } from "@/features/swap/build-swap-route";
 import {
   extractFullErrorString,
   getToastErrorMessage,
+  isInsufficientLiquidityError,
+  SWAP_INSUFFICIENT_LIQUIDITY_LABEL,
   shouldRetrySwapError,
 } from "@/features/swap/error-handlers";
 import {
@@ -48,6 +50,7 @@ interface UseSwapQuoteOptions {
   skipDebugLogs?: boolean;
   debounceMs?: number;
   validatePoolLiquidity?: boolean;
+  insufficientLiquidityFallbackUrl?: string;
 }
 
 function isSameAddress(addressA: string, addressB: string): boolean {
@@ -95,9 +98,7 @@ async function validateRouteLiquidity(params: {
 
     // Router swaps require output strictly below available reserve.
     if (hopAmountOut >= reserveOut) {
-      throw new Error(
-        "Insufficient liquidity for this swap. Try a smaller amount.",
-      );
+      throw new Error(SWAP_INSUFFICIENT_LIQUIDITY_LABEL);
     }
   }
 }
@@ -116,6 +117,7 @@ export function useSwapQuote(
     skipDebugLogs = false,
     debounceMs = 350,
     validatePoolLiquidity = true,
+    insufficientLiquidityFallbackUrl,
   } = options;
   const chainId = useChainId();
   const publicClient = usePublicClient({ chainId });
@@ -336,8 +338,20 @@ export function useSwapQuote(
       fromTokenSymbol: fromToken?.symbol,
       toTokenSymbol: toToken?.symbol,
       chainId,
+      insufficientLiquidityFallbackUrl,
     });
-  }, [error, fromToken?.symbol, toToken?.symbol, chainId]);
+  }, [
+    error,
+    fromToken?.symbol,
+    toToken?.symbol,
+    chainId,
+    insufficientLiquidityFallbackUrl,
+  ]);
+
+  const hasInsufficientLiquidityError = useMemo(
+    () => isInsufficientLiquidityError(error),
+    [error],
+  );
 
   const lastToastTimeRef = useRef(0);
 
@@ -364,6 +378,7 @@ export function useSwapQuote(
     () => ({
       isFetching,
       isError: isError || !!error,
+      hasInsufficientLiquidityError,
       quoteErrorMessage,
       amountWei: data?.amountWei || "0",
       quoteWei: data?.quoteWei || "0",
@@ -371,7 +386,15 @@ export function useSwapQuote(
       rate: data?.rate,
       refetch,
     }),
-    [isFetching, isError, error, quoteErrorMessage, data, refetch],
+    [
+      isFetching,
+      isError,
+      error,
+      hasInsufficientLiquidityError,
+      quoteErrorMessage,
+      data,
+      refetch,
+    ],
   );
 }
 
@@ -419,8 +442,11 @@ export function useOptimizedSwapQuote(
   amount: string | number,
   tokenInSymbol: TokenSymbol,
   tokenOutSymbol: TokenSymbol,
+  options: Pick<UseSwapQuoteOptions, "insufficientLiquidityFallbackUrl"> = {},
 ) {
-  const mainQuote = useSwapQuote(amount, tokenInSymbol, tokenOutSymbol);
+  const mainQuote = useSwapQuote(amount, tokenInSymbol, tokenOutSymbol, {
+    insufficientLiquidityFallbackUrl: options.insufficientLiquidityFallbackUrl,
+  });
 
   // Calculate USD values - amount is always the input, quote is always the output
   const fromAmount = amount;

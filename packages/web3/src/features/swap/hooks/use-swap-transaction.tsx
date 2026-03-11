@@ -3,7 +3,9 @@ import { getTokenBySymbol } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import {
   extractFullErrorString,
+  getInsufficientLiquidityNoticeContent,
   isInsufficientLiquidityError,
+  SWAP_INSUFFICIENT_LIQUIDITY_LABEL,
 } from "@/features/swap/error-handlers";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
 import { logger } from "@/utils/logger";
@@ -15,6 +17,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
 import { useAtom, useSetAtom } from "jotai";
 import { useEffect } from "react";
+import type { JSX } from "react";
 import type { Address, Hex } from "viem";
 import {
   usePublicClient,
@@ -34,6 +37,7 @@ export function useSwapTransaction(
     fromAmount: string;
     toAmount: string;
   },
+  insufficientLiquidityFallbackUrl?: string,
 ): {
   sendSwapTx: () => Promise<Address>;
   swapTxResult: Address | undefined;
@@ -128,9 +132,7 @@ export function useSwapTransaction(
         const estimateMessage = extractFullErrorString(estimateError);
 
         if (isInsufficientLiquidityError(estimateMessage)) {
-          throw new Error(
-            "Insufficient liquidity for this swap. Try a smaller amount.",
-          );
+          throw new Error(SWAP_INSUFFICIENT_LIQUIDITY_LABEL);
         }
 
         if (
@@ -161,7 +163,10 @@ export function useSwapTransaction(
         logger.debug("Swap skipped due to prerequisites not being met.");
         return;
       }
-      const toastError = getSwapTransactionErrorMessage(error);
+      const toastError = getSwapTransactionErrorMessage(
+        error,
+        insufficientLiquidityFallbackUrl,
+      );
       toast.error(toastError);
       logger.error(`Swap transaction failed: ${error.message}`, error);
     },
@@ -296,10 +301,15 @@ export function useSwapTransaction(
  * Converts swap transaction errors to user-friendly toast messages.
  * Handles transaction-specific errors like user rejection, insufficient funds, etc.
  */
-function getSwapTransactionErrorMessage(error: Error | string): string {
+function getSwapTransactionErrorMessage(
+  error: Error | string,
+  insufficientLiquidityFallbackUrl?: string,
+): string | JSX.Element {
   const errorMessage = extractFullErrorString(error);
   if (isInsufficientLiquidityError(errorMessage)) {
-    return "Insufficient liquidity for this swap. Try a smaller amount.";
+    return getInsufficientLiquidityNoticeContent({
+      insufficientLiquidityFallbackUrl,
+    });
   }
 
   switch (true) {

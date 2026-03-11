@@ -2,7 +2,7 @@
 
 import { IconLoading } from "@repo/ui";
 import { Button } from "@repo/ui";
-import { ConnectButton } from "@repo/web3";
+import { ConnectButton, SWAP_INSUFFICIENT_LIQUIDITY_LABEL } from "@repo/web3";
 
 import type { TokenWithBalance } from "@repo/web3";
 
@@ -20,6 +20,7 @@ interface SwapSubmitButtonProps {
   isTradingSuspended: boolean;
   isSuspensionCheckLoading: boolean;
   isError: boolean;
+  hasInsufficientLiquidityError: boolean;
   quoteErrorMessage: string | null;
   hasValidQuote: boolean;
   shouldApprove: string | boolean;
@@ -40,6 +41,7 @@ export function SwapSubmitButton({
   isTradingSuspended,
   isSuspensionCheckLoading,
   isError,
+  hasInsufficientLiquidityError,
   quoteErrorMessage,
   hasValidQuote,
   shouldApprove,
@@ -92,6 +94,8 @@ export function SwapSubmitButton({
         "Select token to sell"
       ) : !tokenOutSymbol ? (
         "Select token to buy"
+      ) : hasInsufficientLiquidityError ? (
+        SWAP_INSUFFICIENT_LIQUIDITY_LABEL
       ) : isError ? (
         quoteErrorMessage?.includes("FX market") ? (
           "FX market is closed"

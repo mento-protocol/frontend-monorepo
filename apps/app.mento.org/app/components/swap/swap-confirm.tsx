@@ -1,5 +1,6 @@
 "use client";
 
+import { env } from "@/env.mjs";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import { Button, IconLoading, TokenIcon } from "@repo/ui";
 import {
@@ -7,6 +8,7 @@ import {
   formValuesAtom,
   isInsufficientLiquidityError,
   logger,
+  SWAP_INSUFFICIENT_LIQUIDITY_LABEL,
   useAccountBalances,
   useGasEstimation,
   useOptimizedSwapQuote,
@@ -18,6 +20,7 @@ import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { useAtom } from "jotai";
 import { ArrowRight } from "lucide-react";
 import { useMemo } from "react";
+import { SwapInsufficientLiquidityNotice } from "./insufficient-liquidity-notice";
 
 export function SwapConfirm() {
   const [formValues] = useAtom(formValuesAtom);
@@ -39,10 +42,13 @@ export function SwapConfirm() {
     quote,
     rate,
     isError: isQuoteError,
+    hasInsufficientLiquidityError: hasQuoteInsufficientLiquidityError,
     quoteErrorMessage,
     fromTokenUSDValue,
     toTokenUSDValue,
-  } = useOptimizedSwapQuote(amount, tokenInSymbol, tokenOutSymbol);
+  } = useOptimizedSwapQuote(amount, tokenInSymbol, tokenOutSymbol, {
+    insufficientLiquidityFallbackUrl: env.NEXT_PUBLIC_BANNER_LINK,
+  });
 
   // Always direction "in" - selling exact amount of fromToken (swapIn)
   const swapValues = useMemo(() => {
@@ -67,6 +73,7 @@ export function SwapConfirm() {
         fromAmount,
         toAmount,
       },
+      env.NEXT_PUBLIC_BANNER_LINK,
     );
 
   const approveAmount = amountWei;
@@ -95,7 +102,10 @@ export function SwapConfirm() {
     skipApprove,
   });
 
-  const isInsufficientLiquidity = isInsufficientLiquidityError(gasError);
+  const hasGasInsufficientLiquidityError =
+    isInsufficientLiquidityError(gasError);
+  const hasInsufficientLiquidityError =
+    hasQuoteInsufficientLiquidityError || hasGasInsufficientLiquidityError;
 
   // Calculate sell USD value with fallback
   const sellUSDValue = useMemo(() => {
@@ -238,6 +248,12 @@ export function SwapConfirm() {
         </div>
       </div>
 
+      {hasInsufficientLiquidityError && (
+        <SwapInsufficientLiquidityNotice
+          fallbackUrl={env.NEXT_PUBLIC_BANNER_LINK}
+        />
+      )}
+
       <Button
         data-testid={
           isSwapTxLoading || isSwapTxReceiptLoading
@@ -253,7 +269,7 @@ export function SwapConfirm() {
           isSwapTxReceiptLoading ||
           isGasEstimating ||
           isQuoteError ||
-          isInsufficientLiquidity ||
+          hasInsufficientLiquidityError ||
           !rate ||
           !amountWei ||
           !address ||
@@ -263,13 +279,15 @@ export function SwapConfirm() {
         {isSwapTxLoading || isSwapTxReceiptLoading ? (
           <IconLoading />
         ) : isQuoteError ? (
-          quoteErrorMessage?.includes("FX market") ? (
+          hasQuoteInsufficientLiquidityError ? (
+            SWAP_INSUFFICIENT_LIQUIDITY_LABEL
+          ) : quoteErrorMessage?.includes("FX market") ? (
             "FX market is closed"
           ) : (
             (quoteErrorMessage ?? "Unable to fetch quote")
           )
-        ) : isInsufficientLiquidity ? (
-          "Insufficient liquidity"
+        ) : hasInsufficientLiquidityError ? (
+          SWAP_INSUFFICIENT_LIQUIDITY_LABEL
         ) : (
           "Swap"
         )}
