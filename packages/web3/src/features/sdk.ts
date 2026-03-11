@@ -5,8 +5,9 @@ import {
   TokenSymbol,
   getTokenAddress,
 } from "@mento-protocol/mento-sdk";
+import { createPublicClient, http } from "viem";
 
-const cache: Record<number, Mento> = {};
+const cache: Record<number, Promise<Mento>> = {};
 
 export async function getMentoSdk(chainId: ChainId): Promise<Mento> {
   if (cache[chainId]) return cache[chainId];
@@ -14,9 +15,23 @@ export async function getMentoSdk(chainId: ChainId): Promise<Mento> {
   const chain = chainIdToChain[chainId];
   const rpcUrl = chain?.rpcUrls?.default?.http?.[0];
 
-  const mento = await Mento.create(chainId, rpcUrl);
-  cache[chainId] = mento;
-  return mento;
+  if (!chain || !rpcUrl) {
+    throw new Error(
+      `Unsupported chain or missing RPC URL for chain ${chainId}`,
+    );
+  }
+
+  const publicClient = createPublicClient({
+    chain,
+    transport: http(rpcUrl),
+  });
+
+  cache[chainId] = Mento.create(chainId, publicClient).catch((error) => {
+    delete cache[chainId];
+    throw error;
+  });
+
+  return cache[chainId];
 }
 
 /**

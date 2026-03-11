@@ -1,4 +1,5 @@
-import { NativeTokenSymbol } from "@/config/tokens";
+import { ChainId } from "@/config/chains";
+import { getNativeTokenSymbol } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import {
   isInsufficientLiquidityError,
@@ -33,6 +34,28 @@ interface GasEstimationResult {
   totalFeeWei: string;
   totalFeeFormatted: string;
   totalFeeUSD: string;
+}
+
+function getApproxNativeTokenUsdPrice(chainId: number): number | null {
+  switch (chainId) {
+    case ChainId.Celo:
+    case ChainId.CeloSepolia:
+      return 0.7;
+    case ChainId.Monad:
+    case ChainId.MonadTestnet:
+      return null;
+    default:
+      return null;
+  }
+}
+
+function formatTotalFeeUsd(totalFeeFormatted: string, chainId: number): string {
+  const nativeTokenPrice = getApproxNativeTokenUsdPrice(chainId);
+  if (nativeTokenPrice == null) {
+    return "";
+  }
+
+  return (parseFloat(totalFeeFormatted) * nativeTokenPrice).toFixed(4);
 }
 
 export function useGasEstimation({
@@ -76,7 +99,7 @@ export function useGasEstimation({
       try {
         // For swap quote, we just need to estimate a simple transfer
         // This gives us a baseline gas cost without needing approval
-        if (!skipApprove && tokenInSymbol !== NativeTokenSymbol) {
+        if (!skipApprove && tokenInSymbol !== getNativeTokenSymbol(chainId)) {
           // Estimate gas for a simple transfer as a baseline
           const fromTokenAddr = getTokenAddress(chainId, tokenInSymbol);
           if (!fromTokenAddr) {
@@ -108,10 +131,7 @@ export function useGasEstimation({
           const totalFeeWei =
             typeof gasEstimate === "bigint" ? gasEstimate * gasPrice : 0;
           const totalFeeFormatted = fromWei(totalFeeWei.toString(), 18);
-          const celoPrice = 0.7;
-          const totalFeeUSD = (
-            parseFloat(totalFeeFormatted) * celoPrice
-          ).toFixed(4);
+          const totalFeeUSD = formatTotalFeeUsd(totalFeeFormatted, chainId);
 
           return {
             gasEstimate: gasEstimate.toString(),
@@ -223,11 +243,7 @@ export function useGasEstimation({
         const totalFeeWei = estimatedGas.mul(gasPrice);
         const totalFeeFormatted = fromWei(totalFeeWei.toString(), 18);
 
-        // Estimate USD value
-        const celoPrice = 0.7; // TODO: Fetch actual price
-        const totalFeeUSD = (parseFloat(totalFeeFormatted) * celoPrice).toFixed(
-          4,
-        );
+        const totalFeeUSD = formatTotalFeeUsd(totalFeeFormatted, chainId);
 
         return {
           gasEstimate: estimatedGas.toString(),
@@ -254,7 +270,7 @@ export function useGasEstimation({
         );
         const totalFeeWei = fallbackGas.mul(gasPrice);
         const totalFeeFormatted = fromWei(totalFeeWei.toString(), 18);
-        const totalFeeUSD = (parseFloat(totalFeeFormatted) * 0.7).toFixed(4);
+        const totalFeeUSD = formatTotalFeeUsd(totalFeeFormatted, chainId);
 
         return {
           gasEstimate: fallbackGas.toString(),

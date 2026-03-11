@@ -1,6 +1,6 @@
 "use client";
 
-import { ConnectButton } from "@repo/web3";
+import { ChainButton, ConnectButton } from "@repo/web3";
 
 import { useTheme } from "next-themes";
 import { useAtom } from "jotai";
@@ -48,6 +48,7 @@ const tabs: { value: AppTab; label: string }[] = [
   { value: "pool", label: "Pool" },
   { value: "borrow", label: "Borrow" },
   { value: "earn", label: "Earn" },
+  { value: "bridge", label: "Bridge" },
 ];
 
 export function Header() {
@@ -96,6 +97,7 @@ export function Header() {
           </a>
           <div className="gap-2 px-4 md:px-6 flex flex-row items-center justify-between">
             <ThemeSwitch />
+            <ChainButton />
             <div className="md:hidden">
               <ConnectButton text="Connect" />
             </div>

@@ -13,3 +13,5 @@ export * from "./hooks/use-remove-liquidity-transaction";
 export * from "./hooks/use-zap-out-quote";
 export * from "./hooks/use-zap-out-transaction";
 export * from "./hooks/use-user-position";
+export * from "./hooks/use-pool-rebalance-preview";
+export * from "./hooks/use-rebalance-transaction";

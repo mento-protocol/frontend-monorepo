@@ -140,3 +140,14 @@ export function getTokenByAddress(
 }
 
 export const NativeTokenSymbol = "CELO" as const;
+
+/**
+ * Returns the native token symbol for a given chain.
+ * Monad chains use MON, Celo chains use CELO.
+ */
+export function getNativeTokenSymbol(chainId: number): string {
+  if (chainId === ChainId.Monad || chainId === ChainId.MonadTestnet) {
+    return "MON";
+  }
+  return "CELO";
+}

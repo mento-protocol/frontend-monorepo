@@ -12,6 +12,7 @@ import { Button, cn, DebugPopup } from "@repo/ui";
 import { PoolsView } from "./components/pools/pools-view";
 import { BorrowView } from "./components/borrow/borrow-view";
 import { EarnView } from "./components/borrow/earn/earn-view";
+import { BridgeView } from "./components/bridge/bridge-view";
 
 export default function SwapPage() {
   const [confirmView, setConfirmView] = useAtom(confirmViewAtom);
@@ -79,6 +80,7 @@ export default function SwapPage() {
         {activeTab === "pool" && <PoolsView />}
         {activeTab === "borrow" && <BorrowView />}
         {activeTab === "earn" && <EarnView />}
+        {activeTab === "bridge" && <BridgeView />}
       </div>
     </>
   );

@@ -7,7 +7,6 @@ import { useState, useEffect, useCallback } from "react";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import { AddLiquidityForm } from "./add-liquidity-form";
 import { RemoveLiquidityForm } from "./remove-liquidity-form";
-import { LiquidityFlowDialog } from "./liquidity-flow-dialog";
 import { UserPositionCard } from "./user-position-card";
 
 interface LiquidityPanelProps {
@@ -240,8 +239,6 @@ export function LiquidityPanel({ pool, mode, onClose }: LiquidityPanelProps) {
           header={formTabs}
         />
       )}
-
-      <LiquidityFlowDialog />
     </div>
   );
 }

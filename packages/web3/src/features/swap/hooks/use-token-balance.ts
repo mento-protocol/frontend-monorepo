@@ -1,7 +1,6 @@
 import { getTokenDecimals } from "@/config/tokens";
 import { fromWei, fromWeiRounded } from "@/utils/amount";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
-import { toast } from "@repo/ui";
 import type { UseFormSetValue } from "react-hook-form";
 import { useAccount, useChainId } from "wagmi";
 
@@ -25,10 +24,6 @@ export function useTokenBalance(
   const useMaxBalance = () => {
     const maxAmount = fromWei(balance, decimals);
     setValue("amount", maxAmount, { shouldValidate: true, shouldDirty: true });
-
-    if (tokenSymbol === "CELO") {
-      toast.warning("Consider keeping some CELO for transaction fees");
-    }
   };
 
   return {

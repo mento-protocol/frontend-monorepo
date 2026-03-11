@@ -20,6 +20,10 @@ import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 import { TokenIcon } from "@repo/ui";
 import { DebtTokenSelector } from "../shared/debt-token-selector";
+import {
+  UnsupportedChainState,
+  isBorrowSupportedChain,
+} from "../shared/unsupported-chain-state";
 import { DepositForm } from "./deposit-form";
 import { WithdrawForm } from "./withdraw-form";
 import { ClaimRewards } from "./claim-rewards";
@@ -53,6 +57,7 @@ export function EarnView() {
   const { isConnected } = useAccount();
   const chainId = useChainId();
   const debtToken = useAtomValue(selectedDebtTokenAtom);
+  const isSupported = isBorrowSupportedChain(chainId);
 
   const debtTokenAddress = (() => {
     try {
@@ -131,258 +136,262 @@ export function EarnView() {
               protocol rewards. No lock-up period.
             </p>
           </div>
-          <DebtTokenSelector />
+          {isSupported && <DebtTokenSelector />}
         </div>
       </div>
 
-      <div className="space-y-6">
-        {/* Stats Row */}
-        <div className="gap-4 grid grid-cols-3">
-          <Card className="!py-0 !gap-0">
-            <CardContent className="!px-4 py-3">
-              <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
-                Total Deposits
-              </span>
-              <div className="text-xl font-bold">
-                {isLoading ? (
-                  <span className="h-6 w-16 animate-pulse rounded inline-block bg-muted" />
-                ) : (
-                  formatCompactCurrency(totalDeposits ?? null, debtToken)
-                )}
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="!py-0 !gap-0">
-            <CardContent className="!px-4 py-3">
-              <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
-                Pool APY
-              </span>
-              <div className="text-xl font-bold text-primary">
-                {apyLoading ? (
-                  <span className="h-6 w-12 animate-pulse rounded inline-block bg-muted" />
-                ) : (
-                  <>
-                    {apyDisplay}
-                    <span className="text-sm ml-0.5 text-primary/60">%</span>
-                  </>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="!py-0 !gap-0">
-            <CardContent className="!px-4 py-3">
-              <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
-                Avg. Borrow Rate
-              </span>
-              <div className="text-xl font-bold">
-                {apyLoading ? (
-                  <span className="h-6 w-12 animate-pulse rounded inline-block bg-muted" />
-                ) : (
-                  <>
-                    {avgRateDisplay}
-                    <span className="text-sm ml-0.5 text-muted-foreground">
-                      %
-                    </span>
-                  </>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+      {!isSupported ? (
+        <UnsupportedChainState feature="earn" />
+      ) : (
+        <div className="space-y-6">
+          {/* Stats Row */}
+          <div className="gap-4 grid grid-cols-3">
+            <Card className="!py-0 !gap-0">
+              <CardContent className="!px-4 py-3">
+                <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
+                  Total Deposits
+                </span>
+                <div className="text-xl font-bold">
+                  {isLoading ? (
+                    <span className="h-6 w-16 animate-pulse rounded inline-block bg-muted" />
+                  ) : (
+                    formatCompactCurrency(totalDeposits ?? null, debtToken)
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="!py-0 !gap-0">
+              <CardContent className="!px-4 py-3">
+                <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
+                  Pool APY
+                </span>
+                <div className="text-xl font-bold text-primary">
+                  {apyLoading ? (
+                    <span className="h-6 w-12 animate-pulse rounded inline-block bg-muted" />
+                  ) : (
+                    <>
+                      {apyDisplay}
+                      <span className="text-sm ml-0.5 text-primary/60">%</span>
+                    </>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="!py-0 !gap-0">
+              <CardContent className="!px-4 py-3">
+                <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
+                  Avg. Borrow Rate
+                </span>
+                <div className="text-xl font-bold">
+                  {apyLoading ? (
+                    <span className="h-6 w-12 animate-pulse rounded inline-block bg-muted" />
+                  ) : (
+                    <>
+                      {avgRateDisplay}
+                      <span className="text-sm ml-0.5 text-muted-foreground">
+                        %
+                      </span>
+                    </>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
-        {/* Two-Column Layout: Position + Deposit/Withdraw Form */}
-        <div className="gap-6 md:grid-cols-2 grid grid-cols-1">
-          {/* Your Position */}
-          <Card className="!py-0 !gap-0">
-            <CardContent className="!px-4 pt-5 pb-4 flex h-full flex-col justify-between">
-              <div>
-                <div className="mb-6 flex items-center justify-between">
-                  <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
-                    Your Position
-                  </span>
-                  {hasDeposit && (
-                    <div className="gap-2 flex items-center">
-                      {poolShare != null && (
-                        <Badge variant="outline" className="text-[11px]">
-                          {poolShare.toFixed(2)}% of pool
+          {/* Two-Column Layout: Position + Deposit/Withdraw Form */}
+          <div className="gap-6 md:grid-cols-2 grid grid-cols-1">
+            {/* Your Position */}
+            <Card className="!py-0 !gap-0">
+              <CardContent className="!px-4 pt-5 pb-4 flex h-full flex-col justify-between">
+                <div>
+                  <div className="mb-6 flex items-center justify-between">
+                    <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
+                      Your Position
+                    </span>
+                    {hasDeposit && (
+                      <div className="gap-2 flex items-center">
+                        {poolShare != null && (
+                          <Badge variant="outline" className="text-[11px]">
+                            {poolShare.toFixed(2)}% of pool
+                          </Badge>
+                        )}
+                        <Badge
+                          variant="outline"
+                          className="border-green-300 text-green-700 dark:border-green-700 dark:text-green-400 tracking-wide text-[11px] uppercase"
+                        >
+                          Earning
                         </Badge>
-                      )}
-                      <Badge
-                        variant="outline"
-                        className="border-green-300 text-green-700 dark:border-green-700 dark:text-green-400 tracking-wide text-[11px] uppercase"
-                      >
-                        Earning
-                      </Badge>
+                      </div>
+                    )}
+                  </div>
+
+                  {isLoading ? (
+                    <div className="space-y-3">
+                      {[1, 2].map((i) => (
+                        <div
+                          key={i}
+                          className="h-10 animate-pulse rounded bg-muted"
+                        />
+                      ))}
                     </div>
+                  ) : hasDeposit ? (
+                    <div className="gap-10 mb-6 flex">
+                      <div className="gap-1 flex flex-col">
+                        <span className="font-medium tracking-widest text-[11px] text-muted-foreground uppercase">
+                          Deposited
+                        </span>
+                        <span className="text-2xl font-bold tracking-tight">
+                          {formatCompactCurrency(spPosition.deposit, debtToken)}
+                        </span>
+                        <span className="text-sm font-medium text-muted-foreground">
+                          {formatTokenAmount(spPosition.deposit)}{" "}
+                          {debtToken.symbol}
+                        </span>
+                      </div>
+                      <div className="gap-1 flex flex-col">
+                        <span className="font-medium tracking-widest text-[11px] text-muted-foreground uppercase">
+                          Rewards
+                        </span>
+                        <span className="text-2xl font-bold tracking-tight text-primary">
+                          {formatCompactCurrency(totalRewards, debtToken)}
+                        </span>
+                        <span className="text-xs font-medium text-primary">
+                          Claimable
+                        </span>
+                      </div>
+                    </div>
+                  ) : isConnected ? (
+                    <div className="py-8 flex flex-col items-center text-center">
+                      {/* Token icon cluster */}
+                      <div className="mb-5 flex justify-center">
+                        <div className="h-14 w-14 relative">
+                          <div className="inset-0 absolute z-[1]">
+                            {debtTokenAddress ? (
+                              <TokenIcon
+                                token={{
+                                  address: debtTokenAddress,
+                                  symbol: debtToken.symbol,
+                                }}
+                                size={44}
+                                className="rounded-full"
+                              />
+                            ) : (
+                              <div className="h-11 w-11 bg-indigo-500 text-lg font-bold flex items-center justify-center rounded-full">
+                                {debtToken.currencySymbol}
+                              </div>
+                            )}
+                          </div>
+                          {/* Plus badge */}
+                          <div className="right-0 bottom-0 absolute z-[2] flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 border-card bg-primary text-primary-foreground">
+                            <Plus className="h-3 w-3" />
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        No deposit yet — deposit to start earning.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-sm py-8 text-center text-muted-foreground">
+                      Connect your wallet to view your position.
+                    </p>
                   )}
                 </div>
 
-                {isLoading ? (
-                  <div className="space-y-3">
-                    {[1, 2].map((i) => (
-                      <div
-                        key={i}
-                        className="h-10 animate-pulse rounded bg-muted"
+                {/* Claim Rewards */}
+                {hasDeposit && (
+                  <ClaimRewards
+                    collateralGain={spPosition.collateralGain}
+                    debtTokenGain={spPosition.debtTokenGain}
+                  />
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Deposit / Withdraw Form */}
+            <Card className="!py-0 !gap-0">
+              <CardContent className="!px-4 pt-4 pb-4">
+                {isConnected ? (
+                  <Tabs defaultValue="deposit">
+                    <TabsList>
+                      <TabsTrigger value="deposit">Deposit</TabsTrigger>
+                      <TabsTrigger value="withdraw">Withdraw</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="deposit">
+                      <DepositForm
+                        deposit={spPosition?.deposit ?? null}
+                        collateralGain={spPosition?.collateralGain ?? null}
+                        debtTokenGain={spPosition?.debtTokenGain ?? null}
                       />
-                    ))}
-                  </div>
-                ) : hasDeposit ? (
-                  <div className="gap-10 mb-6 flex">
-                    <div className="gap-1 flex flex-col">
-                      <span className="font-medium tracking-widest text-[11px] text-muted-foreground uppercase">
-                        Deposited
-                      </span>
-                      <span className="text-2xl font-bold tracking-tight">
-                        {formatCompactCurrency(spPosition.deposit, debtToken)}
-                      </span>
-                      <span className="text-sm font-medium text-muted-foreground">
-                        {formatTokenAmount(spPosition.deposit)}{" "}
-                        {debtToken.symbol}
-                      </span>
-                    </div>
-                    <div className="gap-1 flex flex-col">
-                      <span className="font-medium tracking-widest text-[11px] text-muted-foreground uppercase">
-                        Rewards
-                      </span>
-                      <span className="text-2xl font-bold tracking-tight text-primary">
-                        {formatCompactCurrency(totalRewards, debtToken)}
-                      </span>
-                      <span className="text-xs font-medium text-primary">
-                        Claimable
-                      </span>
-                    </div>
-                  </div>
-                ) : isConnected ? (
-                  <div className="py-8 flex flex-col items-center text-center">
-                    {/* Token icon cluster */}
-                    <div className="mb-5 flex justify-center">
-                      <div className="h-14 w-14 relative">
-                        <div className="inset-0 absolute z-[1]">
-                          {debtTokenAddress ? (
-                            <TokenIcon
-                              token={{
-                                address: debtTokenAddress,
-                                symbol: debtToken.symbol,
-                              }}
-                              size={44}
-                              className="rounded-full"
-                            />
-                          ) : (
-                            <div className="h-11 w-11 bg-indigo-500 text-lg font-bold flex items-center justify-center rounded-full">
-                              {debtToken.currencySymbol}
-                            </div>
-                          )}
-                        </div>
-                        {/* Plus badge */}
-                        <div className="right-0 bottom-0 absolute z-[2] flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 border-card bg-primary text-primary-foreground">
-                          <Plus className="h-3 w-3" />
-                        </div>
-                      </div>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      No deposit yet — deposit to start earning.
+                    </TabsContent>
+                    <TabsContent value="withdraw">
+                      <WithdrawForm
+                        deposit={spPosition?.deposit ?? null}
+                        collateralGain={spPosition?.collateralGain ?? null}
+                        debtTokenGain={spPosition?.debtTokenGain ?? null}
+                      />
+                    </TabsContent>
+                  </Tabs>
+                ) : (
+                  <div className="py-8 text-center">
+                    <p className="text-sm mb-4 text-muted-foreground">
+                      Connect your wallet to deposit or withdraw.
                     </p>
                   </div>
-                ) : (
-                  <p className="text-sm py-8 text-center text-muted-foreground">
-                    Connect your wallet to view your position.
-                  </p>
                 )}
-              </div>
+                <p className="text-xs mt-4 text-center text-muted-foreground">
+                  No lock-up period &middot; Withdraw anytime
+                </p>
+              </CardContent>
+            </Card>
+          </div>
 
-              {/* Claim Rewards */}
-              {hasDeposit && (
-                <ClaimRewards
-                  collateralGain={spPosition.collateralGain}
-                  debtTokenGain={spPosition.debtTokenGain}
-                />
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Deposit / Withdraw Form */}
-          <Card className="!py-0 !gap-0">
-            <CardContent className="!px-4 pt-4 pb-4">
-              {isConnected ? (
-                <Tabs defaultValue="deposit">
-                  <TabsList>
-                    <TabsTrigger value="deposit">Deposit</TabsTrigger>
-                    <TabsTrigger value="withdraw">Withdraw</TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="deposit">
-                    <DepositForm
-                      deposit={spPosition?.deposit ?? null}
-                      collateralGain={spPosition?.collateralGain ?? null}
-                      debtTokenGain={spPosition?.debtTokenGain ?? null}
-                    />
-                  </TabsContent>
-                  <TabsContent value="withdraw">
-                    <WithdrawForm
-                      deposit={spPosition?.deposit ?? null}
-                      collateralGain={spPosition?.collateralGain ?? null}
-                      debtTokenGain={spPosition?.debtTokenGain ?? null}
-                    />
-                  </TabsContent>
-                </Tabs>
-              ) : (
-                <div className="py-8 text-center">
-                  <p className="text-sm mb-4 text-muted-foreground">
-                    Connect your wallet to deposit or withdraw.
-                  </p>
-                </div>
-              )}
-              <p className="text-xs mt-4 text-center text-muted-foreground">
-                No lock-up period &middot; Withdraw anytime
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* How it works */}
-        <div>
-          <h3 className="mb-4 font-mono font-semibold tracking-widest text-[11px] text-muted-foreground uppercase">
-            How it works
-          </h3>
-          <div className="gap-4 md:grid-cols-3 grid grid-cols-1">
-            {steps.map((step, i) => (
-              <Card
-                key={i}
-                className="!py-0 !gap-0 transition-colors hover:bg-accent/50"
-              >
-                <CardContent className="p-6">
-                  <div className="mb-3.5 gap-3 flex items-center">
-                    <div className="h-10 w-10 flex items-center justify-center rounded-lg bg-primary/10 text-primary">
-                      {step.icon}
+          {/* How it works */}
+          <div>
+            <h3 className="mb-4 font-mono font-semibold tracking-widest text-[11px] text-muted-foreground uppercase">
+              How it works
+            </h3>
+            <div className="gap-4 md:grid-cols-3 grid grid-cols-1">
+              {steps.map((step, i) => (
+                <Card
+                  key={i}
+                  className="!py-0 !gap-0 transition-colors hover:bg-accent/50"
+                >
+                  <CardContent className="p-6">
+                    <div className="mb-3.5 gap-3 flex items-center">
+                      <div className="h-10 w-10 flex items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        {step.icon}
+                      </div>
+                      <span className="font-mono font-semibold text-[11px] text-muted-foreground/25">
+                        {String(i + 1).padStart(2, "0")}
+                      </span>
                     </div>
-                    <span className="font-mono font-semibold text-[11px] text-muted-foreground/25">
-                      {String(i + 1).padStart(2, "0")}
-                    </span>
-                  </div>
-                  <h4 className="mb-1.5 font-semibold text-[15px]">
-                    {step.title}
-                  </h4>
-                  <p className="leading-relaxed text-[13px] text-muted-foreground/60">
-                    {step.desc}
-                  </p>
-                </CardContent>
-              </Card>
-            ))}
+                    <h4 className="mb-1.5 font-semibold text-[15px]">
+                      {step.title}
+                    </h4>
+                    <p className="leading-relaxed text-[13px] text-muted-foreground/60">
+                      {step.desc}
+                    </p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+
+          {/* Footer link */}
+          <div className="pt-4 border-t border-border text-center">
+            <a
+              href="https://docs.mento.org/mento/overview/core-concepts"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="gap-1.5 text-xs inline-flex items-center text-primary hover:underline"
+            >
+              Learn more about the Stability Pool
+              <ExternalLink className="h-3 w-3" />
+            </a>
           </div>
         </div>
-
-        {/* Footer link */}
-        <div className="pt-4 border-t border-border text-center">
-          <a
-            href="https://docs.mento.org/mento/overview/core-concepts"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="gap-1.5 text-xs inline-flex items-center text-primary hover:underline"
-          >
-            Learn more about the Stability Pool
-            <ExternalLink className="h-3 w-3" />
-          </a>
-        </div>
-      </div>
+      )}
       <div className="bottom-decorations after:-bottom-15 before:-bottom-5 before:-right-5 before:h-5 before:w-5 after:right-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-card before:invert after:absolute after:block after:bg-card"></div>
     </div>
   );

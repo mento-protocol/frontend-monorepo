@@ -1,5 +1,5 @@
-import { Button, TokenIcon, cn, Badge } from "@repo/ui";
-import type { PoolDisplay } from "@repo/web3";
+import { Badge, Button, TokenIcon, cn } from "@repo/ui";
+import { type PoolDisplay } from "@repo/web3";
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, type Address } from "viem";
 import { PoolAddressPopover } from "./pool-address-popover";
@@ -39,6 +39,7 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
   const token0Ratio = Math.max(0, Math.min(1, pool.reserves.token0Ratio));
   const token0Percent = Math.round(token0Ratio * 100);
   const token1Percent = 100 - token0Percent;
+  const rebalanceDue = !!pool.rebalancing?.canRebalance;
 
   return (
     <div
@@ -47,8 +48,7 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
         isLegacy && "opacity-60",
       )}
     >
-      <div className="gap-4 md:gap-8 px-4 py-4 md:grid md:grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,1fr)] md:items-center flex flex-col">
-        {/* Pool info + action (mobile: row with action on right) */}
+      <div className="gap-4 px-4 py-4 md:grid md:grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,1fr)] md:items-center md:gap-8 flex flex-col">
         <div className="gap-3 flex items-center">
           <div className="-space-x-2 flex">
             <TokenIcon
@@ -68,6 +68,7 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
               className="rounded-full"
             />
           </div>
+
           <div className="gap-1 flex flex-col">
             <div className="gap-1.5 flex items-center">
               <span className="text-sm font-medium">
@@ -75,19 +76,33 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
               </span>
               <PoolAddressPopover pool={pool} />
             </div>
-            <Badge
-              variant="secondary"
-              className={cn(
-                "px-1.5 py-0 text-[10px]",
-                pool.poolType === "FPMM" &&
-                  "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400",
+
+            <div className="gap-1.5 flex flex-wrap items-center">
+              <Badge
+                variant="secondary"
+                className={cn(
+                  "px-1.5 py-0 text-[10px]",
+                  pool.poolType === "FPMM"
+                    ? "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400"
+                    : "",
+                )}
+              >
+                {pool.poolType === "FPMM" ? "FPMM" : "LEGACY"}
+              </Badge>
+
+              {pool.poolType === "FPMM" && rebalanceDue && (
+                <Badge
+                  variant="secondary"
+                  className="gap-1.5 px-1.5 py-0 bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400 text-[10px]"
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                  Rebalance Due
+                </Badge>
               )}
-            >
-              {pool.poolType === "FPMM" ? "FPMM" : "LEGACY"}
-            </Badge>
+            </div>
           </div>
-          {/* Action button - mobile only, aligned to right */}
-          <div className="md:hidden ml-auto">
+
+          <div className="gap-2 md:hidden ml-auto flex items-center">
             {pool.poolType === "FPMM" && (
               <Button
                 size="sm"
@@ -102,7 +117,6 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
           </div>
         </div>
 
-        {/* Reserves */}
         <div className="gap-1.5 flex flex-col">
           <div className="text-sm flex justify-between text-muted-foreground">
             <span className="font-mono tabular-nums">
@@ -127,9 +141,7 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
                 />
                 <div
                   className="ease-out bg-primary-border/70 transition-[width] duration-400"
-                  style={{
-                    width: `${(1 - token0Ratio) * 100}%`,
-                  }}
+                  style={{ width: `${(1 - token0Ratio) * 100}%` }}
                 />
               </div>
               <div
@@ -154,27 +166,24 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
           )}
         </div>
 
-        {/* Fees */}
         <div className="flex flex-col justify-center">
           <span className="text-xs md:hidden text-muted-foreground">Fee</span>
           <div className="gap-1.5 flex items-center">
-            <span className="text-sm font-medium font-mono tabular-nums">
+            <span className="font-mono text-sm font-medium tabular-nums">
               {pool.fees.total.toFixed(2)}%
             </span>
             <PoolFeePopover pool={pool} />
           </div>
         </div>
 
-        {/* TVL */}
         <div className="flex flex-col">
           <span className="text-xs md:hidden text-muted-foreground">TVL</span>
-          <span className="text-sm font-medium font-mono tabular-nums">
+          <span className="font-mono text-sm font-medium tabular-nums">
             {pool.tvl !== null ? formatCompactTvl(pool.tvl) : "--"}
           </span>
         </div>
 
-        {/* Actions - desktop only */}
-        <div className="gap-2 md:flex min-h-8 hidden items-center justify-end">
+        <div className="min-h-8 gap-2 md:flex hidden items-center justify-end">
           {pool.poolType === "FPMM" && (
             <Button
               size="sm"
