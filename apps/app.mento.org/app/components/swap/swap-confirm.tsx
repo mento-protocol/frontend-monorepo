@@ -6,6 +6,7 @@ import { Button, IconLoading, TokenIcon } from "@repo/ui";
 import {
   formatWithMaxDecimals,
   formValuesAtom,
+  getNativeTokenSymbol,
   isInsufficientLiquidityError,
   logger,
   SWAP_INSUFFICIENT_LIQUIDITY_LABEL,
@@ -27,10 +28,11 @@ export function SwapConfirm() {
 
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
+  const nativeTokenSymbol = getNativeTokenSymbol(chainId) as TokenSymbol;
 
   const amount = String(formValues?.amount || "");
   const tokenInSymbol = formValues?.tokenInSymbol || TokenSymbol.USDm;
-  const tokenOutSymbol = formValues?.tokenOutSymbol || TokenSymbol.CELO;
+  const tokenOutSymbol = formValues?.tokenOutSymbol || nativeTokenSymbol;
   const slippage = String(formValues?.slippage || "0.3");
   const deadlineMinutes = String(formValues?.deadlineMinutes || "5");
 
@@ -225,7 +227,8 @@ export function SwapConfirm() {
             <span className="text-muted-foreground">Calculating...</span>
           ) : gasEstimate ? (
             <span data-testid="gasFeesLabel">
-              ~{formatWithMaxDecimals(gasEstimate.totalFeeFormatted)} CELO
+              ~{formatWithMaxDecimals(gasEstimate.totalFeeFormatted)}{" "}
+              {nativeTokenSymbol}
               {gasEstimate.totalFeeUSD && (
                 <span className="ml-1 text-muted-foreground">
                   (${formatWithMaxDecimals(gasEstimate.totalFeeUSD)})
