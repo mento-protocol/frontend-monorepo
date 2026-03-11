@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { Button } from "@repo/ui";
 import { ArrowRightLeft, ExternalLink } from "lucide-react";
 
@@ -32,7 +33,13 @@ export function BridgeView() {
           <div className="gap-4 flex items-center">
             {/* Celo network icon */}
             <div className="h-14 w-14 shadow-lg flex items-center justify-center rounded-full bg-[#FCFF52] shadow-[#FCFF52]/20">
-              <img src="/tokens/CELO.svg" alt="Celo" className="h-10 w-10" />
+              <Image
+                src="/tokens/CELO.svg"
+                alt="Celo"
+                width={40}
+                height={40}
+                className="h-10 w-10"
+              />
             </div>
 
             {/* Bridge arrows */}
@@ -44,9 +51,11 @@ export function BridgeView() {
 
             {/* Monad network icon */}
             <div className="h-14 w-14 shadow-lg flex items-center justify-center rounded-full shadow-[#836EF9]/20">
-              <img
+              <Image
                 src="/networks/monad.svg"
                 alt="Monad"
+                width={56}
+                height={56}
                 className="h-14 w-14"
               />
             </div>
