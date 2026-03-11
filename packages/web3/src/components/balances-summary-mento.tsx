@@ -1,8 +1,8 @@
 "use client";
 
 import { NumbersService } from "@/utils/numbers";
+import { useAddTokens, useTokens } from "@/features/tokens";
 import { IconMento } from "@repo/ui";
-import { useAddTokens, useTokens } from "@repo/web3";
 
 export function BalancesSummaryMento() {
   const { mentoBalance, veMentoBalance } = useTokens();
