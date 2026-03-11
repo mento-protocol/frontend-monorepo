@@ -9,7 +9,7 @@ export function showLiquiditySuccessToast({
   txHash,
   chainId,
 }: {
-  action: "added" | "removed";
+  action: "added" | "removed" | "rebalanced";
   token0Symbol: string;
   token1Symbol: string;
   txHash: string;
@@ -19,8 +19,16 @@ export function showLiquiditySuccessToast({
   const chain = chainIdToChain[chainId];
   const explorerName =
     chain?.blockExplorers?.default?.name || CELO_EXPLORER.name;
-  const title = action === "added" ? "Liquidity Added" : "Liquidity Removed";
-  const message = `You've ${action} liquidity ${action === "added" ? "to" : "from"} the ${token0Symbol}/${token1Symbol} pool.`;
+  const title =
+    action === "added"
+      ? "Liquidity Added"
+      : action === "removed"
+        ? "Liquidity Removed"
+        : "Pool Rebalanced";
+  const message =
+    action === "rebalanced"
+      ? `You've executed a rebalance for the ${token0Symbol}/${token1Symbol} pool.`
+      : `You've ${action} liquidity ${action === "added" ? "to" : "from"} the ${token0Symbol}/${token1Symbol} pool.`;
 
   toast.success(
     <>
