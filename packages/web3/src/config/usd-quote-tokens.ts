@@ -12,6 +12,17 @@ const USD_QUOTE_TOKEN_SYMBOLS = [
   TokenSymbol.AUSD,
 ] as const;
 
+const USD_QUOTE_TOKEN_PREFERENCE_BY_CHAIN: Partial<
+  Record<ChainId, readonly TokenSymbol[]>
+> = {
+  [ChainId.Monad]: [TokenSymbol.USDC, TokenSymbol.AUSD, TokenSymbol.USDm],
+  [ChainId.MonadTestnet]: [
+    TokenSymbol.USDC,
+    TokenSymbol.AUSD,
+    TokenSymbol.USDm,
+  ],
+};
+
 const USD_QUOTE_TOKEN_SYMBOL_SET = new Set<TokenSymbol>(
   USD_QUOTE_TOKEN_SYMBOLS,
 );
@@ -44,4 +55,23 @@ export function isUsdQuoteTokenAddress(
 
 export function isUsdQuoteTokenSymbol(tokenSymbol: TokenSymbol): boolean {
   return USD_QUOTE_TOKEN_SYMBOL_SET.has(tokenSymbol);
+}
+
+export function getPreferredUsdQuoteTokenSymbol(
+  chainId: number,
+): TokenSymbol | null {
+  const tokenAddresses = TOKEN_ADDRESSES_BY_CHAIN[chainId as ChainId];
+  if (!tokenAddresses) return null;
+
+  const preferredSymbols =
+    USD_QUOTE_TOKEN_PREFERENCE_BY_CHAIN[chainId as ChainId] ??
+    USD_QUOTE_TOKEN_SYMBOLS;
+
+  for (const symbol of preferredSymbols) {
+    if (tokenAddresses[symbol]) {
+      return symbol;
+    }
+  }
+
+  return null;
 }

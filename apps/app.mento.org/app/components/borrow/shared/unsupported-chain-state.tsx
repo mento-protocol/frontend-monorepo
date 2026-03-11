@@ -1,7 +1,7 @@
 "use client";
 
 import { Button, TokenIcon } from "@repo/ui";
-import { ChainId, Celo } from "@repo/web3";
+import { Celo, CeloSepolia, ChainId, IS_PROD } from "@repo/web3";
 import { useSwitchChain } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 import { ArrowRightLeft } from "lucide-react";
@@ -21,11 +21,13 @@ export function UnsupportedChainState({
   feature: "borrow" | "earn";
 }) {
   const { switchChainAsync } = useSwitchChain();
+  const targetChain = IS_PROD ? Celo : CeloSepolia;
+  const supportedChainNames = `${Celo.name} or ${CeloSepolia.name}`;
 
   const collateralAddress = (() => {
     try {
       return getTokenAddress(
-        ChainId.Celo,
+        targetChain.id,
         "USDm" as TokenSymbol,
       ) as `0x${string}`;
     } catch {
@@ -36,7 +38,7 @@ export function UnsupportedChainState({
   const debtTokenAddress = (() => {
     try {
       return getTokenAddress(
-        ChainId.Celo,
+        targetChain.id,
         "GBPm" as TokenSymbol,
       ) as `0x${string}`;
     } catch {
@@ -46,7 +48,7 @@ export function UnsupportedChainState({
 
   const handleSwitch = async () => {
     try {
-      await switchChainAsync({ chainId: Celo.id });
+      await switchChainAsync({ chainId: targetChain.id });
     } catch {
       // wallet rejected or doesn't support switching
     }
@@ -54,13 +56,13 @@ export function UnsupportedChainState({
 
   const title =
     feature === "borrow"
-      ? "Borrowing is only available on Celo"
-      : "Earning is only available on Celo";
+      ? `Borrowing is only available on ${supportedChainNames}`
+      : `Earning is only available on ${supportedChainNames}`;
 
   const description =
     feature === "borrow"
-      ? "Switch to the Celo network to open Troves, deposit collateral, and borrow stablecoins."
-      : "Switch to the Celo network to deposit into the Stability Pool and earn rewards.";
+      ? `Switch to ${targetChain.name} to open Troves, deposit collateral, and borrow stablecoins.`
+      : `Switch to ${targetChain.name} to deposit into the Stability Pool and earn rewards.`;
 
   return (
     <div className="px-6 py-14 relative overflow-hidden rounded-xl border border-border bg-card text-center">
@@ -127,7 +129,7 @@ export function UnsupportedChainState({
       {/* CTA */}
       <Button onClick={handleSwitch} size="lg" className="gap-2.5">
         <ArrowRightLeft className="h-4 w-4" />
-        Switch to Celo
+        Switch to {targetChain.name}
       </Button>
     </div>
   );

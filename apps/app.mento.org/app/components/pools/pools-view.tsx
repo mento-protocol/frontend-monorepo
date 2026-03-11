@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
-import { Search, Droplets } from "lucide-react";
-import { Input, cn } from "@repo/ui";
+import { Search, Droplets, RefreshCw } from "lucide-react";
+import { Button, Input, cn } from "@repo/ui";
 import {
   usePoolsList,
   type PoolFilterType,
@@ -19,7 +19,7 @@ const filterTabs: { value: PoolFilterType; label: string }[] = [
 ];
 
 export function PoolsView() {
-  const { data: pools = [], isLoading, isError } = usePoolsList();
+  const { data: pools = [], isLoading, isError, refetch } = usePoolsList();
   const [filter, setFilter] = useState<PoolFilterType>("all");
   const [search, setSearch] = useState("");
   const [selectedPool, setSelectedPool] = useState<{
@@ -68,6 +68,8 @@ export function PoolsView() {
       filteredPools.some((p) => p.poolType === "Legacy"),
     [filteredPools, filter],
   );
+  const showPoolsError = isError && pools.length === 0;
+  const showNoPools = !isLoading && !isError && pools.length === 0;
 
   if (selectedPool) {
     return (
@@ -101,7 +103,7 @@ export function PoolsView() {
           </div>
         </div>
 
-        {!isError && (isLoading || pools.length > 0) && (
+        {!showPoolsError && (isLoading || pools.length > 0) && (
           <div className="gap-4 md:flex-row md:items-center md:justify-between flex flex-col">
             <div className="md:w-auto md:justify-start flex w-full items-center justify-center">
               {filterTabs.map((tab) => (
@@ -132,7 +134,9 @@ export function PoolsView() {
         )}
 
         <div className="min-h-0 space-y-3 flex flex-1 flex-col">
-          {isError || (!isLoading && pools.length === 0) ? (
+          {showPoolsError ? (
+            <PoolsErrorState onRetry={() => void refetch()} />
+          ) : showNoPools ? (
             <NoPoolsState />
           ) : (
             <PoolsTable
@@ -155,6 +159,33 @@ export function PoolsView() {
       </div>
       <LiquidityFlowDialog />
     </>
+  );
+}
+
+function PoolsErrorState({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="px-6 py-14 relative overflow-hidden rounded-xl border border-border bg-card text-center">
+      <div className="top-0 w-48 absolute left-1/2 h-[2px] -translate-x-1/2 bg-gradient-to-r from-transparent via-destructive/50 to-transparent" />
+
+      <div className="mb-7 flex justify-center">
+        <div className="h-14 w-14 flex items-center justify-center rounded-full bg-destructive/10 text-destructive">
+          <RefreshCw className="h-7 w-7" />
+        </div>
+      </div>
+
+      <h2 className="mb-2.5 text-xl font-bold tracking-tight">
+        Unable to load pools
+      </h2>
+      <p className="max-w-sm text-sm leading-relaxed mx-auto text-muted-foreground">
+        The pools list could not be loaded from the current RPC right now. Try
+        again in a moment.
+      </p>
+
+      <Button onClick={onRetry} size="lg" className="mt-8 gap-2.5">
+        <RefreshCw className="h-4 w-4" />
+        Retry
+      </Button>
+    </div>
   );
 }
 

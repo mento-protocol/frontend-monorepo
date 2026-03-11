@@ -21,22 +21,26 @@ export enum ChainId {
 
 const RPC_OVERRIDE_CONFIG: Record<
   ChainId,
-  { envVar: string; localStorageKey: string }
+  { envVar: string; envUrl: string | undefined; localStorageKey: string }
 > = {
   [ChainId.CeloSepolia]: {
     envVar: "NEXT_PUBLIC_CELO_SEPOLIA_RPC_URL",
+    envUrl: process.env.NEXT_PUBLIC_CELO_SEPOLIA_RPC_URL,
     localStorageKey: "mento_custom_rpc_url_11142220",
   },
   [ChainId.Celo]: {
     envVar: "NEXT_PUBLIC_CELO_RPC_URL",
+    envUrl: process.env.NEXT_PUBLIC_CELO_RPC_URL,
     localStorageKey: "mento_custom_rpc_url_42220",
   },
   [ChainId.MonadTestnet]: {
     envVar: "NEXT_PUBLIC_MONAD_TESTNET_RPC_URL",
+    envUrl: process.env.NEXT_PUBLIC_MONAD_TESTNET_RPC_URL,
     localStorageKey: "mento_custom_rpc_url_10143",
   },
   [ChainId.Monad]: {
     envVar: "NEXT_PUBLIC_MONAD_RPC_URL",
+    envUrl: process.env.NEXT_PUBLIC_MONAD_RPC_URL,
     localStorageKey: "mento_custom_rpc_url_143",
   },
 };
@@ -205,7 +209,7 @@ function getChainSpecificRpcUrl(
     }
   }
 
-  const envUrl = process.env[config.envVar];
+  const envUrl = config.envUrl;
   if (envUrl) {
     return {
       url: envUrl,

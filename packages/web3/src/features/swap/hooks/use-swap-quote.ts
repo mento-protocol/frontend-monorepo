@@ -6,7 +6,10 @@ import { useChainId, usePublicClient } from "wagmi";
 
 import { SWAP_QUOTE_REFETCH_INTERVAL } from "@/config/constants";
 import { getTokenBySymbol } from "@/config/tokens";
-import { isUsdQuoteTokenSymbol } from "@/config/usd-quote-tokens";
+import {
+  getPreferredUsdQuoteTokenSymbol,
+  isUsdQuoteTokenSymbol,
+} from "@/config/usd-quote-tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import { buildSwapRoute } from "@/features/swap/build-swap-route";
 import {
@@ -383,6 +386,7 @@ export function useTokenUSDValue(
   tokenSymbol: TokenSymbol,
   amount: string | number,
 ) {
+  const chainId = useChainId();
   const isUsdQuoteToken = useMemo(
     () => isUsdQuoteTokenSymbol(tokenSymbol),
     [tokenSymbol],
@@ -391,12 +395,16 @@ export function useTokenUSDValue(
     () => amount && amount !== "" && Number(amount) > 0,
     [amount],
   );
+  const usdQuoteTokenSymbol = useMemo(
+    () => getPreferredUsdQuoteTokenSymbol(chainId),
+    [chainId],
+  );
 
   // Always call useSwapQuote, but disable it when not needed
   const { quote } = useSwapQuote(
     hasValidAmount ? amount : "",
     tokenSymbol,
-    TokenSymbol.USDm,
+    usdQuoteTokenSymbol ?? tokenSymbol,
     {
       skipDebugLogs: true,
       validatePoolLiquidity: false,
@@ -407,11 +415,11 @@ export function useTokenUSDValue(
     if (isUsdQuoteToken && hasValidAmount) {
       return amount.toString();
     }
-    if (hasValidAmount && !isUsdQuoteToken) {
+    if (hasValidAmount && !isUsdQuoteToken && usdQuoteTokenSymbol) {
       return quote;
     }
     return "0";
-  }, [isUsdQuoteToken, hasValidAmount, amount, quote]);
+  }, [isUsdQuoteToken, hasValidAmount, amount, quote, usdQuoteTokenSymbol]);
 }
 
 /**
