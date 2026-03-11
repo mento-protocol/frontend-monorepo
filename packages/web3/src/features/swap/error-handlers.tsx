@@ -7,6 +7,7 @@ interface SwapErrorOptions {
   toTokenSymbol?: string;
   chainId?: number;
   type?: "quote" | "swap";
+  insufficientLiquidityFallbackUrl?: string;
 }
 
 /**
@@ -29,6 +30,38 @@ export const SWAP_ERROR_MESSAGES = {
   FX_MARKET_CLOSED_SELECTOR: "0xa407143a",
 } as const;
 
+export const SWAP_INSUFFICIENT_LIQUIDITY_LABEL =
+  SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY_TEXT;
+export const SWAP_INSUFFICIENT_LIQUIDITY_MESSAGE =
+  "Liquidity for some Mento V3 pools is still being bootstrapped. Try a smaller amount, or use the V2 app for deeper liquidity.";
+export const SWAP_INSUFFICIENT_LIQUIDITY_LINK_LABEL = "Open V2 app";
+
+interface InsufficientLiquidityContentOptions {
+  insufficientLiquidityFallbackUrl?: string;
+}
+
+export function getInsufficientLiquidityNoticeContent({
+  insufficientLiquidityFallbackUrl,
+}: InsufficientLiquidityContentOptions = {}): string | JSX.Element {
+  if (!insufficientLiquidityFallbackUrl) {
+    return SWAP_INSUFFICIENT_LIQUIDITY_MESSAGE;
+  }
+
+  return (
+    <>
+      {SWAP_INSUFFICIENT_LIQUIDITY_MESSAGE}{" "}
+      <a
+        href={insufficientLiquidityFallbackUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline"
+      >
+        {SWAP_INSUFFICIENT_LIQUIDITY_LINK_LABEL}
+      </a>
+    </>
+  );
+}
+
 /**
  * Converts swap error messages to user-friendly toast messages
  */
@@ -38,8 +71,9 @@ export function getToastErrorMessage(
     fromTokenSymbol,
     toTokenSymbol,
     chainId,
+    insufficientLiquidityFallbackUrl,
   }: Omit<SwapErrorOptions, "type"> = {},
-): string | (() => JSX.Element) {
+): string | JSX.Element {
   const errorChecks = [
     {
       condition: swapErrorMessage.includes(SWAP_ERROR_MESSAGES.OVERFLOW_X1Y1),
@@ -74,7 +108,7 @@ export function getToastErrorMessage(
       ),
       message:
         toTokenSymbol && chainId
-          ? () => {
+          ? (() => {
               const reserveAddress = getContractAddress(chainId, "Reserve");
               const explorerUrl = getExplorerUrl(chainId);
               const reserveUrl = reserveAddress
@@ -96,7 +130,7 @@ export function getToastErrorMessage(
                   Please try a smaller amount or try again later.
                 </>
               );
-            }
+            })()
           : "The Reserve does not have enough tokens to execute this swap. Please try a smaller amount or try again later.",
     },
     {
@@ -108,7 +142,9 @@ export function getToastErrorMessage(
         swapErrorMessage.includes(
           SWAP_ERROR_MESSAGES.INSUFFICIENT_LIQUIDITY_NAME,
         ),
-      message: "Insufficient liquidity for this swap. Try a smaller amount.",
+      message: getInsufficientLiquidityNoticeContent({
+        insufficientLiquidityFallbackUrl,
+      }),
     },
     {
       condition:

@@ -1,7 +1,9 @@
 "use client";
 
+import { env } from "@/env.mjs";
 import { Button, Form } from "@repo/ui";
 import { ArrowUpDown } from "lucide-react";
+import { SwapInsufficientLiquidityNotice } from "../insufficient-liquidity-notice";
 import { BuyTokenInput } from "./buy-token-input";
 import { SellTokenInput } from "./sell-token-input";
 import { SwapSubmitButton } from "./swap-submit-button";
@@ -49,6 +51,12 @@ export default function SwapForm() {
           tokenOutSymbol={swap.tokenOutSymbol}
         />
 
+        {swap.hasInsufficientLiquidityError && (
+          <SwapInsufficientLiquidityNotice
+            fallbackUrl={env.NEXT_PUBLIC_BANNER_LINK}
+          />
+        )}
+
         <SwapSubmitButton
           isConnected={swap.isConnected}
           hasAmount={swap.hasAmount}
@@ -63,6 +71,7 @@ export default function SwapForm() {
           isTradingSuspended={swap.isTradingSuspended}
           isSuspensionCheckLoading={swap.isSuspensionCheckLoading}
           isError={swap.isError}
+          hasInsufficientLiquidityError={swap.hasInsufficientLiquidityError}
           quoteErrorMessage={swap.quoteErrorMessage}
           hasValidQuote={swap.hasValidQuote}
           shouldApprove={swap.shouldApprove}
