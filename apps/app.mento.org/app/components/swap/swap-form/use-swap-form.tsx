@@ -14,6 +14,7 @@ import {
   formatWithMaxDecimals,
   formValuesAtom,
   fromWeiRounded,
+  getNativeTokenSymbol,
   getTokenDecimals,
   logger,
   MIN_ROUNDED_VALUE,
@@ -39,6 +40,7 @@ import { defaultEmptyBalances, formSchema, type FormValues } from "./types";
 export function useSwapForm() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId() ?? 42220;
+  const nativeTokenSymbol = getNativeTokenSymbol(chainId);
   const [formValues, setFormValues] = useAtom(formValuesAtom);
   const [, setConfirmView] = useAtom(confirmViewAtom);
   const [isApprovalProcessing, setIsApprovalProcessing] = useState(false);
@@ -58,7 +60,7 @@ export function useSwapForm() {
     defaultValues: {
       amount: formValues?.amount || "",
       quote: formValues?.quote || "",
-      tokenInSymbol: formValues?.tokenInSymbol || "CELO",
+      tokenInSymbol: formValues?.tokenInSymbol || nativeTokenSymbol,
       tokenOutSymbol: formValues?.tokenOutSymbol || "USDm",
       slippage: formValues?.slippage || "0.3",
     },
@@ -296,7 +298,7 @@ export function useSwapForm() {
     );
     const decimals = getTokenDecimals(tokenInSymbol, chainId);
 
-    if (tokenInSymbol === "CELO") {
+    if (tokenInSymbol === nativeTokenSymbol) {
       const gasReserveWei = BigInt("10000000000000000"); // 0.01 CELO
       const balance = BigInt(maxAmountInWei);
       if (balance > gasReserveWei) {
@@ -312,10 +314,12 @@ export function useSwapForm() {
     );
     form.setValue("amount", formattedAmountWithMaxDecimals);
 
-    if (tokenInSymbol === "CELO") {
+    if (tokenInSymbol === nativeTokenSymbol) {
       toast.success("Max balance used", {
         duration: 5000,
-        description: () => <>0.01 CELO reserved for transaction fees</>,
+        description: () => (
+          <>0.01 {nativeTokenSymbol} reserved for transaction fees</>
+        ),
         icon: <OctagonAlert strokeWidth={1.5} size={18} className="mt-0.5" />,
       });
     }
