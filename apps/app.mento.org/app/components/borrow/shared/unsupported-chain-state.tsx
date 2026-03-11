@@ -1,15 +1,12 @@
 "use client";
 
 import { Button, TokenIcon } from "@repo/ui";
-import { Celo, CeloSepolia, ChainId, IS_PROD } from "@repo/web3";
+import { Celo, ChainId } from "@repo/web3";
 import { useSwitchChain } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 import { ArrowRightLeft } from "lucide-react";
 
-const SUPPORTED_CHAIN_IDS = new Set<number>([
-  ChainId.Celo,
-  ChainId.CeloSepolia,
-]);
+const SUPPORTED_CHAIN_IDS = new Set<number>([ChainId.Celo]);
 
 export function isBorrowSupportedChain(chainId: number): boolean {
   return SUPPORTED_CHAIN_IDS.has(chainId);
@@ -21,7 +18,7 @@ export function UnsupportedChainState({
   feature: "borrow" | "earn";
 }) {
   const { switchChainAsync } = useSwitchChain();
-  const targetChain = IS_PROD ? Celo : CeloSepolia;
+  const targetChain = Celo;
 
   const collateralAddress = (() => {
     try {

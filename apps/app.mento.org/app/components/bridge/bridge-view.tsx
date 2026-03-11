@@ -64,8 +64,8 @@ export function BridgeView() {
 
         <h2 className="mb-2.5 text-xl font-bold tracking-tight">Coming Soon</h2>
         <p className="mb-8 max-w-sm text-sm leading-relaxed mx-auto text-muted-foreground">
-          Soon you will be able to bridge Mento tokens between Celo and Monad.
-          Until then, you can use Portal Bridge.
+          Soon you will be able to bridge Mento tokens between Celo and Monad
+          here. Until then, you can use Portal Bridge.
         </p>
 
         {/* CTA */}
