@@ -22,7 +22,6 @@ export function UnsupportedChainState({
 }) {
   const { switchChainAsync } = useSwitchChain();
   const targetChain = IS_PROD ? Celo : CeloSepolia;
-  const supportedChainNames = `${Celo.name} or ${CeloSepolia.name}`;
 
   const collateralAddress = (() => {
     try {
@@ -56,8 +55,8 @@ export function UnsupportedChainState({
 
   const title =
     feature === "borrow"
-      ? `Borrowing is only available on ${supportedChainNames}`
-      : `Earning is only available on ${supportedChainNames}`;
+      ? `Borrowing is only available on ${targetChain.name}`
+      : `Earning is only available on ${targetChain.name}`;
 
   const description =
     feature === "borrow"

@@ -48,6 +48,7 @@ const tabs: { value: AppTab; label: string }[] = [
   { value: "pool", label: "Pool" },
   { value: "borrow", label: "Borrow" },
   { value: "earn", label: "Earn" },
+  { value: "bridge", label: "Bridge" },
 ];
 
 export function Header() {
