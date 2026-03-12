@@ -2,6 +2,7 @@ export * from "./chains";
 export * from "./chain-slugs";
 export * from "./constants";
 export * from "./tokens";
+export * from "./usd-quote-tokens";
 export * from "./celo-wallets";
 export * from "./config";
 export * from "./wagmi";

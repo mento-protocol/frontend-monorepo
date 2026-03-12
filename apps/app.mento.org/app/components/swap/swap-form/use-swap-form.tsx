@@ -16,7 +16,9 @@ import {
   formValuesAtom,
   fromWeiRounded,
   getNativeTokenSymbol,
+  getPreferredUsdQuoteTokenSymbol,
   getTokenDecimals,
+  getTokenOptionsByChainId,
   logger,
   MIN_ROUNDED_VALUE,
   parseAmount,
@@ -55,6 +57,7 @@ export function useSwapForm() {
   const quoteRef = useRef<HTMLInputElement>(null);
   const prevTradingSuspensionErrorRef = useRef<string | null>(null);
   const suspensionToastIdRef = useRef<string | number | null>(null);
+  const prevChainIdRef = useRef<number>(chainId);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -370,6 +373,63 @@ export function useSwapForm() {
   );
 
   // ── Side effects ────────────────────────────────────────────────────
+
+  // Reset token selections when chain changes
+  useEffect(() => {
+    if (prevChainIdRef.current === chainId) return;
+    prevChainIdRef.current = chainId;
+
+    const availableTokens = getTokenOptionsByChainId(chainId);
+    const availableSet = new Set<TokenSymbol>(availableTokens);
+
+    const currentTokenIn = form.getValues("tokenInSymbol") as TokenSymbol;
+    const currentTokenOut = form.getValues("tokenOutSymbol") as TokenSymbol;
+
+    const tokenInValid = availableSet.has(currentTokenIn);
+    const tokenOutValid = availableSet.has(currentTokenOut);
+
+    // If both tokens are valid on the new chain, just clear amount/quote
+    if (tokenInValid && tokenOutValid && currentTokenIn !== currentTokenOut) {
+      form.setValue("amount", "");
+      form.setValue("quote", "");
+      setFormValues((prev) => (prev ? { ...prev, amount: "" } : prev));
+      return;
+    }
+
+    const preferredQuote = getPreferredUsdQuoteTokenSymbol(chainId);
+
+    let newTokenIn: string = tokenInValid
+      ? currentTokenIn
+      : preferredQuote || availableTokens[0] || "";
+    let newTokenOut: string = tokenOutValid ? currentTokenOut : "";
+
+    // Ensure tokenIn !== tokenOut
+    if (newTokenIn && newTokenOut && newTokenIn === newTokenOut) {
+      newTokenOut = "";
+    }
+
+    // Pick a default tokenOut if needed
+    if (!newTokenOut && availableTokens.length > 1) {
+      newTokenOut = availableTokens.find((t) => t !== newTokenIn) || "";
+    }
+
+    form.setValue("tokenInSymbol", newTokenIn);
+    form.setValue("tokenOutSymbol", newTokenOut);
+    form.setValue("amount", "");
+    form.setValue("quote", "");
+
+    setFormValues((prev) =>
+      prev
+        ? {
+            ...prev,
+            tokenInSymbol: newTokenIn as TokenSymbol,
+            tokenOutSymbol: newTokenOut as TokenSymbol,
+            amount: "",
+          }
+        : prev,
+    );
+    setLastChangedToken(null);
+  }, [chainId, form, setFormValues]);
 
   useEffect(() => {
     if (isError) {
