@@ -4,7 +4,7 @@ import { ChainButton, ConnectButton, chainIdToSlug } from "@repo/web3";
 import { useChainId } from "@repo/web3/wagmi";
 
 import { useTheme } from "next-themes";
-import { useAtom } from "jotai";
+import { useAtomValue } from "jotai";
 import { Button, cn, Logo } from "@repo/ui";
 import { Moon, Sun } from "lucide-react";
 import { type AppTab, activeTabAtom } from "@/atoms/navigation";
@@ -54,7 +54,7 @@ const tabs: { value: AppTab; label: string }[] = [
 ];
 
 export function Header() {
-  const [atomTab, setAtomTab] = useAtom(activeTabAtom);
+  const atomTab = useAtomValue(activeTabAtom);
   const pathname = usePathname();
   const router = useRouter();
   const navRef = useRef<HTMLElement>(null);
@@ -66,6 +66,9 @@ export function Header() {
   const activeTab: AppTab = useMemo(() => {
     if (pathname.startsWith("/pools")) return "pool";
     if (pathname.startsWith("/swap")) return "swap";
+    if (pathname.startsWith("/borrow")) return "borrow";
+    if (pathname.startsWith("/earn")) return "earn";
+    if (pathname.startsWith("/bridge")) return "bridge";
     return atomTab;
   }, [pathname, atomTab]);
 
@@ -75,11 +78,12 @@ export function Header() {
       router.push(`/swap/${chainSlug}`);
     } else if (tab === "pool") {
       router.push("/pools");
-    } else {
-      setAtomTab(tab);
-      if (pathname !== "/") {
-        router.push("/");
-      }
+    } else if (tab === "borrow") {
+      router.push("/borrow");
+    } else if (tab === "earn") {
+      router.push("/earn");
+    } else if (tab === "bridge") {
+      router.push("/bridge");
     }
   };
 
