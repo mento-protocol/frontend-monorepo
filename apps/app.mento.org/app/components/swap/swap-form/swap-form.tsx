@@ -9,8 +9,18 @@ import { SellTokenInput } from "./sell-token-input";
 import { SwapSubmitButton } from "./swap-submit-button";
 import { useSwapForm } from "./use-swap-form";
 
-export default function SwapForm() {
-  const swap = useSwapForm();
+interface SwapFormProps {
+  initialFrom?: string;
+  initialTo?: string;
+  initialAmount?: string;
+}
+
+export default function SwapForm({
+  initialFrom,
+  initialTo,
+  initialAmount,
+}: SwapFormProps = {}) {
+  const swap = useSwapForm({ initialFrom, initialTo, initialAmount });
 
   return (
     <Form {...swap.form}>

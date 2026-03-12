@@ -3,6 +3,15 @@ import type { NextConfig } from "next";
 import { env } from "@/env.mjs";
 
 const nextConfig: NextConfig = {
+  async redirects() {
+    return [
+      {
+        source: "/",
+        destination: "/swap/celo",
+        permanent: false,
+      },
+    ];
+  },
   // We use trunk to lint the code in a separate step, disable eslint during build for faster builds
   eslint: {
     ignoreDuringBuilds: true,

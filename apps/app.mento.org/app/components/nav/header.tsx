@@ -1,6 +1,7 @@
 "use client";
 
-import { ChainButton, ConnectButton } from "@repo/web3";
+import { ChainButton, ConnectButton, chainIdToSlug } from "@repo/web3";
+import { useChainId } from "@repo/web3/wagmi";
 
 import { useTheme } from "next-themes";
 import { useAtom } from "jotai";
@@ -59,18 +60,23 @@ export function Header() {
   const navRef = useRef<HTMLElement>(null);
   const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 });
 
-  // Derive active tab from URL when on /pools routes
-  const activeTab: AppTab = useMemo(
-    () => (pathname.startsWith("/pools") ? "pool" : atomTab),
-    [pathname, atomTab],
-  );
+  const walletChainId = useChainId();
+
+  // Derive active tab from URL when on routed pages
+  const activeTab: AppTab = useMemo(() => {
+    if (pathname.startsWith("/pools")) return "pool";
+    if (pathname.startsWith("/swap")) return "swap";
+    return atomTab;
+  }, [pathname, atomTab]);
 
   const handleTabClick = (tab: AppTab) => {
-    if (tab === "pool") {
+    if (tab === "swap") {
+      const chainSlug = chainIdToSlug(walletChainId) || "celo";
+      router.push(`/swap/${chainSlug}`);
+    } else if (tab === "pool") {
       router.push("/pools");
     } else {
       setAtomTab(tab);
-      // Navigate to root when switching away from a /pools route
       if (pathname !== "/") {
         router.push("/");
       }

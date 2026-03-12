@@ -40,7 +40,13 @@ import { OctagonAlert } from "lucide-react";
 
 import { defaultEmptyBalances, formSchema, type FormValues } from "./types";
 
-export function useSwapForm() {
+interface UseSwapFormOptions {
+  initialFrom?: string;
+  initialTo?: string;
+  initialAmount?: string;
+}
+
+export function useSwapForm(opts?: UseSwapFormOptions) {
   const { address, isConnected } = useAccount();
   const chainId = useChainId() ?? 42220;
   const nativeTokenSymbol = getNativeTokenSymbol(chainId);
@@ -59,13 +65,34 @@ export function useSwapForm() {
   const suspensionToastIdRef = useRef<string | number | null>(null);
   const prevChainIdRef = useRef<number>(chainId);
 
+  // Validate URL tokens exist on current chain, fall back to defaults if not
+  const validatedInitialFrom = useMemo(() => {
+    if (!opts?.initialFrom) return undefined;
+    const available = getTokenOptionsByChainId(chainId);
+    return available.includes(opts.initialFrom as TokenSymbol)
+      ? (opts.initialFrom as TokenSymbol)
+      : undefined;
+  }, [opts?.initialFrom, chainId]);
+
+  const validatedInitialTo = useMemo(() => {
+    if (!opts?.initialTo) return undefined;
+    const available = getTokenOptionsByChainId(chainId);
+    return available.includes(opts.initialTo as TokenSymbol)
+      ? (opts.initialTo as TokenSymbol)
+      : undefined;
+  }, [opts?.initialTo, chainId]);
+
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      amount: formValues?.amount || "",
+      amount: opts?.initialAmount || formValues?.amount || "",
       quote: formValues?.quote || "",
-      tokenInSymbol: formValues?.tokenInSymbol || ("USDC" as TokenSymbol),
-      tokenOutSymbol: formValues?.tokenOutSymbol || "USDm",
+      tokenInSymbol:
+        validatedInitialFrom ||
+        formValues?.tokenInSymbol ||
+        ("USDC" as TokenSymbol),
+      tokenOutSymbol:
+        validatedInitialTo || formValues?.tokenOutSymbol || "USDm",
       slippage: formValues?.slippage || "0.3",
     },
     mode: "onChange",
