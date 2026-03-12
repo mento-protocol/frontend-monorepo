@@ -13,11 +13,17 @@ interface LiquidityPanelProps {
   pool: PoolDisplay;
   mode: "deposit" | "manage";
   onClose: () => void;
+  disabled?: boolean;
 }
 
 type TabMode = "add" | "remove";
 
-export function LiquidityPanel({ pool, mode, onClose }: LiquidityPanelProps) {
+export function LiquidityPanel({
+  pool,
+  mode,
+  onClose,
+  disabled,
+}: LiquidityPanelProps) {
   const { address } = useAccount();
   const explorerUrl = useExplorerUrl();
   const { data: blockNumber } = useBlockNumber({
@@ -231,12 +237,14 @@ export function LiquidityPanel({ pool, mode, onClose }: LiquidityPanelProps) {
           pool={pool}
           onLiquidityUpdated={handleLiquidityUpdated}
           header={formTabs}
+          disabled={disabled}
         />
       ) : (
         <RemoveLiquidityForm
           pool={pool}
           onLiquidityUpdated={handleLiquidityUpdated}
           header={formTabs}
+          disabled={disabled}
         />
       )}
     </div>

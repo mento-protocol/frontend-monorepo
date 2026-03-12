@@ -64,12 +64,14 @@ interface RemoveLiquidityFormProps {
   pool: PoolDisplay;
   onLiquidityUpdated?: () => void | Promise<void>;
   header?: React.ReactNode;
+  disabled?: boolean;
 }
 
 export function RemoveLiquidityForm({
   pool,
   onLiquidityUpdated,
   header,
+  disabled,
 }: RemoveLiquidityFormProps) {
   const { address } = useAccount();
   const wagmiConfig = useConfig();
@@ -235,6 +237,7 @@ export function RemoveLiquidityForm({
   // === Button state ===
 
   const getButtonState = () => {
+    if (disabled) return { text: "Wrong network", disabled: true };
     if (isSubmitting) return { text: "Confirm in wallet...", disabled: true };
     if (!hasAmount) return { text: "Enter amount", disabled: true };
     if (insufficientLp)
@@ -536,6 +539,7 @@ export function RemoveLiquidityForm({
                   setLpAmount(e.target.value)
                 }
                 placeholder="0.00"
+                disabled={disabled}
                 className="h-10 p-0 text-sm font-mono flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
               />
               <div className="gap-1.5 px-3 py-1.5 flex items-center rounded-lg bg-muted/50">
@@ -592,7 +596,8 @@ export function RemoveLiquidityForm({
                 <button
                   key={label}
                   onClick={() => handlePreset(fraction)}
-                  className={`py-1.5 text-xs font-medium cursor-pointer rounded-md border text-center transition-colors ${
+                  disabled={disabled}
+                  className={`py-1.5 text-xs font-medium cursor-pointer rounded-md border text-center transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                     isActive
                       ? "border-primary/30 bg-primary/10 text-primary"
                       : "border-border bg-background hover:bg-muted/50"

@@ -46,11 +46,13 @@ function TokenAmountInput({
   onChange,
   onMax,
   insufficient,
+  disabled,
 }: {
   token: { address: string; symbol: string };
   balance: string;
   amount: string;
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  disabled?: boolean;
   onMax: () => void;
   insufficient: boolean;
 }) {
@@ -74,11 +76,13 @@ function TokenAmountInput({
           value={amount}
           onChange={onChange}
           placeholder="0.00"
+          disabled={disabled}
           className="h-10 p-0 text-sm font-mono flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
         />
         <button
-          className="px-2 py-1 font-bold font-mono tracking-wider cursor-pointer rounded-md bg-primary/10 text-[11px] text-primary transition-colors hover:bg-primary/15"
+          className="px-2 py-1 font-bold font-mono tracking-wider cursor-pointer rounded-md bg-primary/10 text-[11px] text-primary transition-colors hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-50"
           onClick={onMax}
+          disabled={disabled}
         >
           MAX
         </button>
@@ -106,12 +110,14 @@ interface AddLiquidityFormProps {
   pool: PoolDisplay;
   onLiquidityUpdated?: () => void | Promise<void>;
   header?: React.ReactNode;
+  disabled?: boolean;
 }
 
 export function AddLiquidityForm({
   pool,
   onLiquidityUpdated,
   header,
+  disabled,
 }: AddLiquidityFormProps) {
   const { address } = useAccount();
   const wagmiConfig = useConfig();
@@ -351,6 +357,7 @@ export function AddLiquidityForm({
   // === Button state ===
 
   const getButtonState = () => {
+    if (disabled) return { text: "Wrong network", disabled: true };
     if (isSubmitting) return { text: "Confirm in wallet...", disabled: true };
 
     if (mode === "single") {
@@ -665,6 +672,7 @@ export function AddLiquidityForm({
                 onChange={handleToken0Change}
                 onMax={handleMax0}
                 insufficient={insufficientToken0}
+                disabled={disabled}
               />
 
               {/* Plus divider */}
@@ -694,6 +702,7 @@ export function AddLiquidityForm({
                 onChange={handleToken1Change}
                 onMax={handleMax1}
                 insufficient={insufficientToken1}
+                disabled={disabled}
               />
             </>
           ) : (
@@ -720,11 +729,13 @@ export function AddLiquidityForm({
                       setZapAmount(e.target.value)
                     }
                     placeholder="0.00"
+                    disabled={disabled}
                     className="h-10 p-0 text-sm font-mono flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
                   />
                   <button
-                    className="px-2 py-1 font-bold font-mono tracking-wider cursor-pointer rounded-md bg-primary/10 text-[11px] text-primary transition-colors hover:bg-primary/15"
+                    className="px-2 py-1 font-bold font-mono tracking-wider cursor-pointer rounded-md bg-primary/10 text-[11px] text-primary transition-colors hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-50"
                     onClick={() => setZapAmount(formattedZapBalance)}
+                    disabled={disabled}
                   >
                     MAX
                   </button>

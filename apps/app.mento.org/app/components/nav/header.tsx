@@ -7,7 +7,8 @@ import { useAtom } from "jotai";
 import { Button, cn, Logo } from "@repo/ui";
 import { Moon, Sun } from "lucide-react";
 import { type AppTab, activeTabAtom } from "@/atoms/navigation";
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useMemo } from "react";
+import { usePathname, useRouter } from "next/navigation";
 
 function ThemeSwitch() {
   const { theme, setTheme } = useTheme();
@@ -52,9 +53,29 @@ const tabs: { value: AppTab; label: string }[] = [
 ];
 
 export function Header() {
-  const [activeTab, setActiveTab] = useAtom(activeTabAtom);
+  const [atomTab, setAtomTab] = useAtom(activeTabAtom);
+  const pathname = usePathname();
+  const router = useRouter();
   const navRef = useRef<HTMLElement>(null);
   const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 });
+
+  // Derive active tab from URL when on /pools routes
+  const activeTab: AppTab = useMemo(
+    () => (pathname.startsWith("/pools") ? "pool" : atomTab),
+    [pathname, atomTab],
+  );
+
+  const handleTabClick = (tab: AppTab) => {
+    if (tab === "pool") {
+      router.push("/pools");
+    } else {
+      setAtomTab(tab);
+      // Navigate to root when switching away from a /pools route
+      if (pathname !== "/") {
+        router.push("/");
+      }
+    }
+  };
 
   // Update indicator position when active tab changes or window resizes
   useEffect(() => {
@@ -112,7 +133,7 @@ export function Header() {
               <button
                 key={tab.value}
                 data-tab={tab.value}
-                onClick={() => setActiveTab(tab.value)}
+                onClick={() => handleTabClick(tab.value)}
                 className={cn(
                   "pb-1 text-md font-medium relative z-10 cursor-pointer transition-colors outline-none",
                   activeTab === tab.value

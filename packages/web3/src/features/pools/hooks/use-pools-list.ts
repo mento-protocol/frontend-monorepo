@@ -100,8 +100,9 @@ function getPriceAlignmentStatus(
   return "rebalance-likely";
 }
 
-export function usePoolsList() {
-  const chainId = useChainId() as ChainId;
+export function usePoolsList(overrideChainId?: ChainId) {
+  const walletChainId = useChainId() as ChainId;
+  const chainId = overrideChainId ?? walletChainId;
 
   return useQuery<PoolDisplay[]>({
     queryKey: ["pools-list", chainId],
