@@ -73,33 +73,12 @@ export function BridgeView() {
   );
 
   return (
-    <div className="max-w-5xl space-y-6 px-4 pt-6 md:px-0 md:pt-0 pb-16 relative min-h-[550px] w-full">
-      {/* Header */}
-      <div className="relative">
-        <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
-        <div className="p-6 flex items-center justify-between bg-card">
-          <div>
-            <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
-              Cross-Chain
-            </span>
-            <h1 className="mt-2 font-bold text-3xl">Bridge</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Bridge Mento stablecoins between supported networks.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Wormhole Connect Widget or Testnet State */}
+    <div className="max-w-5xl px-4 pt-6 md:px-0 md:pt-0 pb-16 relative min-h-[550px] w-full">
       {isTestnet ? (
         <BridgeTestnetState />
       ) : (
-        <div className="relative overflow-hidden">
-          <WormholeConnect theme={theme} config={bridgeConfig} />
-        </div>
+        <WormholeConnect theme={theme} config={bridgeConfig} />
       )}
-
-      <div className="bottom-decorations after:-bottom-15 before:-bottom-5 before:-right-5 before:h-5 before:w-5 after:right-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-card before:invert after:absolute after:block after:bg-card"></div>
     </div>
   );
 }
