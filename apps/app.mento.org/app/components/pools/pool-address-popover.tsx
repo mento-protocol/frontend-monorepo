@@ -6,7 +6,12 @@ import {
   PopoverTrigger,
   CopyToClipboard,
 } from "@repo/ui";
-import { useExplorerUrl, shortenAddress, chainIdToSlug } from "@repo/web3";
+import {
+  useExplorerUrl,
+  getExplorerUrl,
+  shortenAddress,
+  chainIdToSlug,
+} from "@repo/web3";
 import { useChainId } from "@repo/web3/wagmi";
 import type { PoolDisplay } from "@repo/web3";
 import { Info, ExternalLink, Link2, Check } from "lucide-react";
@@ -15,6 +20,7 @@ import { toast } from "sonner";
 
 interface PoolAddressPopoverProps {
   pool: PoolDisplay;
+  chainId?: number;
 }
 
 interface AddressRowProps {
@@ -52,13 +58,20 @@ function AddressRow({ label, address, explorerUrl }: AddressRowProps) {
   );
 }
 
-export function PoolAddressPopover({ pool }: PoolAddressPopoverProps) {
-  const explorerUrl = useExplorerUrl();
-  const chainId = useChainId();
+export function PoolAddressPopover({
+  pool,
+  chainId: overrideChainId,
+}: PoolAddressPopoverProps) {
+  const walletExplorerUrl = useExplorerUrl();
+  const walletChainId = useChainId();
+  const resolvedChainId = overrideChainId ?? walletChainId;
+  const explorerUrl = overrideChainId
+    ? getExplorerUrl(overrideChainId)
+    : walletExplorerUrl;
   const [open, setOpen] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
 
-  const poolLink = `${typeof window !== "undefined" ? window.location.origin : ""}/pools/${chainIdToSlug(chainId) ?? "celo"}/${pool.poolAddr}`;
+  const poolLink = `${typeof window !== "undefined" ? window.location.origin : ""}/pools/${chainIdToSlug(resolvedChainId) ?? "celo"}/${pool.poolAddr}`;
 
   const handleCopyLink = (e: React.MouseEvent) => {
     e.preventDefault();

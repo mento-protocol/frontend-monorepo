@@ -1,6 +1,6 @@
 import { Badge, TokenIcon, cn } from "@repo/ui";
 import type { PoolDisplay } from "@repo/web3";
-import { useUserPosition, useExplorerUrl } from "@repo/web3";
+import { useUserPosition, useExplorerUrl, getExplorerUrl } from "@repo/web3";
 import { useAccount, useReadContract, useBlockNumber } from "@repo/web3/wagmi";
 import { erc20Abi, type Address } from "viem";
 import { useState, useEffect, useCallback } from "react";
@@ -14,6 +14,7 @@ interface LiquidityPanelProps {
   mode: "deposit" | "manage";
   onClose: () => void;
   disabled?: boolean;
+  chainId?: number;
 }
 
 type TabMode = "add" | "remove";
@@ -23,9 +24,11 @@ export function LiquidityPanel({
   mode,
   onClose,
   disabled,
+  chainId,
 }: LiquidityPanelProps) {
   const { address } = useAccount();
-  const explorerUrl = useExplorerUrl();
+  const walletExplorerUrl = useExplorerUrl();
+  const explorerUrl = chainId ? getExplorerUrl(chainId) : walletExplorerUrl;
   const { data: blockNumber } = useBlockNumber({
     watch: !!address,
     query: { enabled: !!address },

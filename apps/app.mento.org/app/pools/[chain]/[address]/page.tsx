@@ -85,6 +85,15 @@ function PoolDetailContent({
     );
   }
 
+  if (pool.poolType === "Legacy") {
+    return (
+      <PoolError
+        title="Legacy pool"
+        description="Liquidity actions are not available for legacy pools. These pools are planned for migration to FPMM."
+      />
+    );
+  }
+
   return (
     <div className="md:items-center flex h-full w-full flex-wrap items-start justify-center">
       <div className="mb-6 max-w-5xl px-4 pt-6 md:px-0 md:pt-0 space-y-5 min-h-[550px] w-full">
@@ -94,6 +103,7 @@ function PoolDetailContent({
           mode={mode}
           onClose={() => router.push("/pools")}
           disabled={isWrongChain}
+          chainId={chainId}
         />
       </div>
       <LiquidityFlowDialog />
