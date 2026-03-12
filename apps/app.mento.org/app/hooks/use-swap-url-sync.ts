@@ -9,7 +9,8 @@ import { useChainId } from "@repo/web3/wagmi";
 /**
  * Keeps the swap URL in sync with form state and wallet chain.
  * - Updates query params (from, to, amount) when form values change
- * - Navigates to new chain slug when wallet chain changes
+ * - Navigates to new chain slug only when user actively switches chains
+ *   (not on initial page load — respects deep link URLs)
  */
 export function useSwapUrlSync(urlChainId: ChainId) {
   const router = useRouter();
@@ -23,6 +24,9 @@ export function useSwapUrlSync(urlChainId: ChainId) {
     tokenOutSymbol?: string;
     amount?: string;
   }>({});
+
+  // Track previous wallet chain to detect active chain switches vs initial mismatch
+  const prevWalletChainRef = useRef<number>(walletChainId);
 
   // Sync form values → URL query params
   useEffect(() => {
@@ -80,10 +84,16 @@ export function useSwapUrlSync(urlChainId: ChainId) {
     router,
   ]);
 
-  // Navigate to new chain slug when wallet chain changes
+  // Navigate to new chain slug only when user actively switches wallet chain
   useEffect(() => {
     if (!pathname.startsWith("/swap/")) return;
-    if (walletChainId === urlChainId) return;
+
+    const prevWalletChain = prevWalletChainRef.current;
+    prevWalletChainRef.current = walletChainId;
+
+    // Only navigate if the wallet chain actually changed (user switched chains),
+    // not on initial load where wallet and URL chain may differ (deep link)
+    if (prevWalletChain === walletChainId) return;
 
     const newSlug = chainIdToSlug(walletChainId);
     if (!newSlug) return;
@@ -98,7 +108,6 @@ export function useSwapUrlSync(urlChainId: ChainId) {
     router.replace(`/swap/${newSlug}${query ? `?${query}` : ""}`);
   }, [
     walletChainId,
-    urlChainId,
     pathname,
     router,
     formValues?.tokenInSymbol,

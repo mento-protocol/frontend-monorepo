@@ -75,6 +75,7 @@ export function SwapPageContent({
               initialFrom={initialFrom}
               initialTo={initialTo}
               initialAmount={initialAmount}
+              targetChainId={chainId}
             />
           </div>
         </div>

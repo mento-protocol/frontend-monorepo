@@ -35,7 +35,7 @@ export function ChainMismatchBanner({
         <p className="font-medium text-sm">Wrong network</p>
         <p className="text-sm text-muted-foreground">
           You&apos;re connected to {walletName}. Switch to {targetName} to
-          interact with this pool.
+          continue.
         </p>
       </div>
       <Button onClick={handleSwitch} size="sm" className="ml-4 gap-2 shrink-0">

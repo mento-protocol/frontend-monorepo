@@ -2,6 +2,8 @@
 
 import { env } from "@/env.mjs";
 import { Button, Form } from "@repo/ui";
+import { chainIdToChain, type ChainId } from "@repo/web3";
+import { useChainId } from "@repo/web3/wagmi";
 import { ArrowUpDown } from "lucide-react";
 import { SwapInsufficientLiquidityNotice } from "../insufficient-liquidity-notice";
 import { BuyTokenInput } from "./buy-token-input";
@@ -13,14 +15,23 @@ interface SwapFormProps {
   initialFrom?: string;
   initialTo?: string;
   initialAmount?: string;
+  targetChainId?: ChainId;
 }
 
 export default function SwapForm({
   initialFrom,
   initialTo,
   initialAmount,
+  targetChainId,
 }: SwapFormProps = {}) {
   const swap = useSwapForm({ initialFrom, initialTo, initialAmount });
+  const walletChainId = useChainId();
+
+  // Determine if user is on the wrong chain for this swap URL
+  const wrongChainName =
+    targetChainId && walletChainId !== targetChainId
+      ? (chainIdToChain[targetChainId]?.name ?? `Chain ${targetChainId}`)
+      : undefined;
 
   return (
     <Form {...swap.form}>
@@ -86,6 +97,7 @@ export default function SwapForm({
           hasValidQuote={swap.hasValidQuote}
           shouldApprove={swap.shouldApprove}
           allTokenOptions={swap.allTokenOptions}
+          wrongChainName={wrongChainName}
         />
       </form>
     </Form>
