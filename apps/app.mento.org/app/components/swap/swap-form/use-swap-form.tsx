@@ -61,7 +61,7 @@ export function useSwapForm() {
     defaultValues: {
       amount: formValues?.amount || "",
       quote: formValues?.quote || "",
-      tokenInSymbol: formValues?.tokenInSymbol || nativeTokenSymbol,
+      tokenInSymbol: formValues?.tokenInSymbol || ("USDC" as TokenSymbol),
       tokenOutSymbol: formValues?.tokenOutSymbol || "USDm",
       slippage: formValues?.slippage || "0.3",
     },
