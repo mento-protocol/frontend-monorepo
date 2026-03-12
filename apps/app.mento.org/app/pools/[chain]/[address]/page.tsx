@@ -21,7 +21,6 @@ export default function PoolDetailPage({
   params: Promise<{ chain: string; address: string }>;
 }) {
   const { chain, address } = use(params);
-  const router = useRouter();
   const searchParams = useSearchParams();
   const mode = searchParams.get("mode") === "manage" ? "manage" : "deposit";
 
