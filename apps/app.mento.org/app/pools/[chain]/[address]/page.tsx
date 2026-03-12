@@ -7,7 +7,7 @@ import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { LiquidityPanel } from "@/components/pools/liquidity-panel";
 import { LiquidityFlowDialog } from "@/components/pools/liquidity-flow-dialog";
 import { ChainMismatchBanner } from "@/components/shared/chain-mismatch-banner";
-import { Button, Skeleton } from "@repo/ui";
+import { Skeleton } from "@repo/ui";
 import { ArrowLeft, Droplets } from "lucide-react";
 import Link from "next/link";
 

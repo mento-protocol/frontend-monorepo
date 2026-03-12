@@ -399,6 +399,10 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     },
   );
 
+  const [lastChangedToken, setLastChangedToken] = useState<
+    "from" | "to" | null
+  >(null);
+
   // ── Side effects ────────────────────────────────────────────────────
 
   // Reset token selections when chain changes
@@ -425,7 +429,7 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
     const preferredQuote = getPreferredUsdQuoteTokenSymbol(chainId);
 
-    let newTokenIn: string = tokenInValid
+    const newTokenIn: string = tokenInValid
       ? currentTokenIn
       : preferredQuote || availableTokens[0] || "";
     let newTokenOut: string = tokenOutValid ? currentTokenOut : "";
@@ -743,10 +747,6 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
   const { data: fromTokenTradablePairs } = useTradablePairs(tokenInSymbol);
   const { data: toTokenTradablePairs } = useTradablePairs(tokenOutSymbol);
-
-  const [lastChangedToken, setLastChangedToken] = useState<
-    "from" | "to" | null
-  >(null);
 
   // Reset form fields after a successful swap (formValues.amount is cleared but tokens preserved)
   useEffect(() => {
