@@ -60,11 +60,11 @@ function PoolDetailContent({
   const { data: pools, isLoading, isError } = usePoolsList(chainId);
   const isWrongChain = isConnected && walletChainId !== chainId;
 
-  if (isLoading) {
+  if (isLoading && !pools) {
     return <PoolDetailSkeleton />;
   }
 
-  if (isError) {
+  if (isError && !pools) {
     return (
       <PoolError
         title="Failed to load pool"

@@ -27,13 +27,19 @@ export function PoolsView() {
   const router = useRouter();
   const chainId = useChainId();
 
+  const chainSlug = chainIdToSlug(chainId);
+
   const handleSelectPool = useCallback(
     (pool: PoolDisplay, mode: "deposit" | "manage") => {
-      const slug = chainIdToSlug(chainId);
       const modeParam = mode === "manage" ? "?mode=manage" : "";
-      router.push(`/pools/${slug}/${pool.poolAddr}${modeParam}`);
+      router.push(`/pools/${chainSlug}/${pool.poolAddr}${modeParam}`);
     },
-    [chainId, router],
+    [chainSlug, router],
+  );
+
+  const getPoolHref = useCallback(
+    (pool: PoolDisplay) => `/pools/${chainSlug}/${pool.poolAddr}`,
+    [chainSlug],
   );
 
   const filteredPools = useMemo(() => {
@@ -126,6 +132,7 @@ export function PoolsView() {
               pools={filteredPools}
               isLoading={isLoading}
               onSelectPool={handleSelectPool}
+              getPoolHref={getPoolHref}
             />
           )}
 
