@@ -6,10 +6,13 @@ import { useSwitchChain } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 import { ArrowRightLeft } from "lucide-react";
 
-const SUPPORTED_CHAIN_IDS = new Set<number>([ChainId.Celo]);
+const UNSUPPORTED_CHAIN_IDS = new Set<number>([
+  ChainId.Monad,
+  ChainId.MonadTestnet,
+]);
 
 export function isBorrowSupportedChain(chainId: number): boolean {
-  return SUPPORTED_CHAIN_IDS.has(chainId);
+  return !UNSUPPORTED_CHAIN_IDS.has(chainId);
 }
 
 export function UnsupportedChainState({
