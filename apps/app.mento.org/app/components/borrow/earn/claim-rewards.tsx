@@ -3,8 +3,7 @@
 import { useAtomValue } from "jotai";
 import { Button } from "@repo/ui";
 import { selectedDebtTokenAtom, useSpWithdraw } from "@repo/web3";
-import { useAccount } from "@repo/web3/wagmi";
-import { useConfig } from "wagmi";
+import { useAccount, useConfig } from "@repo/web3/wagmi";
 
 interface ClaimRewardsProps {
   collateralGain: bigint | null;
