@@ -129,8 +129,8 @@ export const bridgeConfig: config.WormholeConnectConfig = {
   ui: {
     title: " ",
     defaultInputs: {
-      source: { chain: "Celo" },
-      destination: { chain: "Monad" },
+      source: { chain: "Celo", token: "USDm" },
+      destination: { chain: "Monad", token: "USDm" },
     },
     showFooter: true,
   },
