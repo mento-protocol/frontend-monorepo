@@ -9,7 +9,8 @@ import { Button, cn, Logo } from "@repo/ui";
 import { Moon, Sun } from "lucide-react";
 import { type AppTab, activeTabAtom } from "@/atoms/navigation";
 import { useRef, useEffect, useState, useMemo } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 function ThemeSwitch() {
   const { theme, setTheme } = useTheme();
@@ -56,7 +57,6 @@ const tabs: { value: AppTab; label: string }[] = [
 export function Header() {
   const atomTab = useAtomValue(activeTabAtom);
   const pathname = usePathname();
-  const router = useRouter();
   const navRef = useRef<HTMLElement>(null);
   const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 });
 
@@ -72,18 +72,20 @@ export function Header() {
     return atomTab;
   }, [pathname, atomTab]);
 
-  const handleTabClick = (tab: AppTab) => {
-    if (tab === "swap") {
-      const chainSlug = chainIdToSlug(walletChainId) || "celo";
-      router.push(`/swap/${chainSlug}`);
-    } else if (tab === "pool") {
-      router.push("/pools");
-    } else if (tab === "borrow") {
-      router.push("/borrow");
-    } else if (tab === "earn") {
-      router.push("/earn");
-    } else if (tab === "bridge") {
-      router.push("/bridge");
+  const getTabHref = (tab: AppTab): string => {
+    switch (tab) {
+      case "swap": {
+        const chainSlug = chainIdToSlug(walletChainId) || "celo";
+        return `/swap/${chainSlug}`;
+      }
+      case "pool":
+        return "/pools";
+      case "borrow":
+        return "/borrow";
+      case "earn":
+        return "/earn";
+      case "bridge":
+        return "/bridge";
     }
   };
 
@@ -140,10 +142,10 @@ export function Header() {
         <div className="pt-10 pb-3 md:pt-0 md:absolute md:left-1/2 md:-translate-x-1/2 md:pb-0 flex justify-center">
           <nav ref={navRef} className="gap-6 relative flex items-center">
             {tabs.map((tab) => (
-              <button
+              <Link
                 key={tab.value}
                 data-tab={tab.value}
-                onClick={() => handleTabClick(tab.value)}
+                href={getTabHref(tab.value)}
                 className={cn(
                   "pb-1 text-md font-medium relative z-10 cursor-pointer transition-colors outline-none",
                   activeTab === tab.value
@@ -152,7 +154,7 @@ export function Header() {
                 )}
               >
                 {tab.label}
-              </button>
+              </Link>
             ))}
             {/* Sliding underline indicator */}
             <div
