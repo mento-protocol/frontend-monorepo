@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { chainIdToSlug } from "@repo/web3";
 import { useChainId } from "@repo/web3/wagmi";
+import { SwapSkeleton } from "./swap-skeleton";
 
 export default function SwapRedirectPage() {
   const router = useRouter();
@@ -14,5 +15,5 @@ export default function SwapRedirectPage() {
     router.replace(`/swap/${chainSlug}`);
   }, [chainId, router]);
 
-  return null;
+  return <SwapSkeleton />;
 }
