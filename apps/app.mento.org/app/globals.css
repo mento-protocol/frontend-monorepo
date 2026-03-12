@@ -13,3 +13,19 @@ html {
 html body[data-scroll-locked] {
   margin-right: 0 !important;
 }
+
+/* Wormhole Connect bridge widget overrides — match Mento's UI style */
+.bridge-widget * {
+  border-radius: 0 !important;
+}
+
+/* Remove widget's own padding so content sits edge-to-edge in the card */
+.bridge-widget > div {
+  padding: 0 !important;
+  gap: 0 !important;
+}
+
+/* Match Mento's font family */
+.bridge-widget {
+  font-family: var(--font-sans), "Geist Sans", sans-serif !important;
+}

@@ -10,13 +10,14 @@ export function getBridgeTheme(mode: "dark" | "light"): WormholeConnectTheme {
   return {
     mode,
     background: "transparent",
-    formBackground: isDark ? "#2D1F47" : "#FFFFFF",
-    formBorder: isDark ? "#3D2B5C" : "#E5E2ED",
-    input: isDark ? "#3D2B5C" : "#F7F5FA",
+    formBackground: "transparent",
+    formBorder: "transparent",
+    input: isDark ? "#2C2936" : "#F3F1F7",
+    inputFillTreatment: true,
     primary: "#7C3AED",
-    secondary: isDark ? "#3D2B5C" : "#E5E2ED",
+    secondary: isDark ? "#2C2936" : "#E5E2ED",
     text: isDark ? "#F5F0FF" : "#1A0E2E",
-    textSecondary: "#9B8FB8",
+    textSecondary: isDark ? "#8A8594" : "#9B8FB8",
     error: isDark ? "#E5484D" : "#DC3545",
     success: "#46A758",
     font: '"AspektaVF", "Geist Sans", sans-serif',
@@ -126,7 +127,7 @@ export const bridgeConfig: config.WormholeConnectConfig = {
     Monad: "https://rpc3.monad.xyz",
   },
   ui: {
-    title: "Bridge",
+    title: " ",
     defaultInputs: {
       source: { chain: "Celo" },
       destination: { chain: "Monad" },

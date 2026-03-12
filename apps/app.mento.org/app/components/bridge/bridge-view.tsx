@@ -73,12 +73,27 @@ export function BridgeView() {
   );
 
   return (
-    <div className="max-w-5xl px-4 pt-6 md:px-0 md:pt-0 pb-16 relative min-h-[550px] w-full">
-      {isTestnet ? (
-        <BridgeTestnetState />
-      ) : (
-        <WormholeConnect theme={theme} config={bridgeConfig} />
-      )}
+    <div className="mb-6 px-4 md:px-0 relative w-full max-w-[568px]">
+      <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
+      <div className="relative z-50 flex min-h-[525px] flex-col bg-card">
+        <div className="px-6 pt-6 pb-2">
+          <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
+            Cross-Chain
+          </span>
+          <h2 className="mt-0 font-bold text-3xl">Bridge</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Bridge Mento tokens between supported networks.
+          </p>
+        </div>
+        {isTestnet ? (
+          <BridgeTestnetState />
+        ) : (
+          <div className="bridge-widget">
+            <WormholeConnect theme={theme} config={bridgeConfig} />
+          </div>
+        )}
+      </div>
+      <div className="bottom-decorations after:-bottom-15 before:-bottom-5 before:-right-5 before:h-5 before:w-5 after:right-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-card before:invert after:absolute after:block after:bg-card"></div>
     </div>
   );
 }
