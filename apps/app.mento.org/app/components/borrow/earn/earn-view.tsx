@@ -24,6 +24,7 @@ import {
   UnsupportedChainState,
   isBorrowSupportedChain,
 } from "../shared/unsupported-chain-state";
+import { FlowDialog } from "../shared/flow-dialog";
 import { DepositForm } from "./deposit-form";
 import { WithdrawForm } from "./withdraw-form";
 import { ClaimRewards } from "./claim-rewards";
@@ -393,6 +394,7 @@ export function EarnView() {
         </div>
       )}
       <div className="bottom-decorations after:-bottom-15 before:-bottom-5 before:-right-5 before:h-5 before:w-5 after:right-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-card before:invert after:absolute after:block after:bg-card"></div>
+      <FlowDialog />
     </div>
   );
 }

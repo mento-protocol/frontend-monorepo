@@ -2,6 +2,7 @@ import { Badge, Button, TokenIcon, cn } from "@repo/ui";
 import { type PoolDisplay } from "@repo/web3";
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, type Address } from "viem";
+import Link from "next/link";
 import { PoolAddressPopover } from "./pool-address-popover";
 import { PoolFeePopover } from "./pool-fee-popover";
 
@@ -18,9 +19,10 @@ function formatCompactTvl(value: number): string {
 interface PoolRowProps {
   pool: PoolDisplay;
   onSelect: (pool: PoolDisplay, mode: "deposit" | "manage") => void;
+  poolHref?: string;
 }
 
-export function PoolRow({ pool, onSelect }: PoolRowProps) {
+export function PoolRow({ pool, onSelect, poolHref }: PoolRowProps) {
   const { address } = useAccount();
 
   const { data: lpBalance } = useReadContract({
@@ -103,7 +105,13 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
           </div>
 
           <div className="gap-2 md:hidden ml-auto flex items-center">
-            {pool.poolType === "FPMM" && (
+            {pool.poolType === "FPMM" && poolHref ? (
+              <Button size="sm" className="h-8" asChild>
+                <Link href={`${poolHref}${hasLPTokens ? "?mode=manage" : ""}`}>
+                  {hasLPTokens ? "Manage" : "Deposit"}
+                </Link>
+              </Button>
+            ) : pool.poolType === "FPMM" ? (
               <Button
                 size="sm"
                 className="h-8"
@@ -113,7 +121,7 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
               >
                 {hasLPTokens ? "Manage" : "Deposit"}
               </Button>
-            )}
+            ) : null}
           </div>
         </div>
 
@@ -184,7 +192,13 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
         </div>
 
         <div className="min-h-8 gap-2 md:flex hidden items-center justify-end">
-          {pool.poolType === "FPMM" && (
+          {pool.poolType === "FPMM" && poolHref ? (
+            <Button size="sm" className="h-8" asChild>
+              <Link href={`${poolHref}${hasLPTokens ? "?mode=manage" : ""}`}>
+                {hasLPTokens ? "Manage" : "Deposit"}
+              </Link>
+            </Button>
+          ) : pool.poolType === "FPMM" ? (
             <Button
               size="sm"
               className="h-8"
@@ -192,7 +206,7 @@ export function PoolRow({ pool, onSelect }: PoolRowProps) {
             >
               {hasLPTokens ? "Manage" : "Deposit"}
             </Button>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

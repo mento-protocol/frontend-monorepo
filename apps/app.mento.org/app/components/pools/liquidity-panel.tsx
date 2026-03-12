@@ -1,6 +1,6 @@
 import { Badge, TokenIcon, cn } from "@repo/ui";
 import type { PoolDisplay } from "@repo/web3";
-import { useUserPosition, useExplorerUrl } from "@repo/web3";
+import { useUserPosition, useExplorerUrl, getExplorerUrl } from "@repo/web3";
 import { useAccount, useReadContract, useBlockNumber } from "@repo/web3/wagmi";
 import { erc20Abi, type Address } from "viem";
 import { useState, useEffect, useCallback } from "react";
@@ -13,13 +13,22 @@ interface LiquidityPanelProps {
   pool: PoolDisplay;
   mode: "deposit" | "manage";
   onClose: () => void;
+  disabled?: boolean;
+  chainId?: number;
 }
 
 type TabMode = "add" | "remove";
 
-export function LiquidityPanel({ pool, mode, onClose }: LiquidityPanelProps) {
+export function LiquidityPanel({
+  pool,
+  mode,
+  onClose,
+  disabled,
+  chainId,
+}: LiquidityPanelProps) {
   const { address } = useAccount();
-  const explorerUrl = useExplorerUrl();
+  const walletExplorerUrl = useExplorerUrl();
+  const explorerUrl = chainId ? getExplorerUrl(chainId) : walletExplorerUrl;
   const { data: blockNumber } = useBlockNumber({
     watch: !!address,
     query: { enabled: !!address },
@@ -231,12 +240,14 @@ export function LiquidityPanel({ pool, mode, onClose }: LiquidityPanelProps) {
           pool={pool}
           onLiquidityUpdated={handleLiquidityUpdated}
           header={formTabs}
+          disabled={disabled}
         />
       ) : (
         <RemoveLiquidityForm
           pool={pool}
           onLiquidityUpdated={handleLiquidityUpdated}
           header={formTabs}
+          disabled={disabled}
         />
       )}
     </div>

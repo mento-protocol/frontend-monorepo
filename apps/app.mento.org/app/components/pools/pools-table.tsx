@@ -6,6 +6,7 @@ interface PoolsTableProps {
   pools: PoolDisplay[];
   isLoading: boolean;
   onSelectPool: (pool: PoolDisplay, mode: "deposit" | "manage") => void;
+  getPoolHref?: (pool: PoolDisplay) => string;
 }
 
 function SkeletonRow() {
@@ -35,6 +36,7 @@ export function PoolsTable({
   pools,
   isLoading,
   onSelectPool,
+  getPoolHref,
 }: PoolsTableProps) {
   return (
     <div className="min-h-0 flex flex-1 flex-col">
@@ -65,7 +67,12 @@ export function PoolsTable({
           </div>
         ) : (
           pools.map((pool) => (
-            <PoolRow key={pool.poolAddr} pool={pool} onSelect={onSelectPool} />
+            <PoolRow
+              key={pool.poolAddr}
+              pool={pool}
+              onSelect={onSelectPool}
+              poolHref={getPoolHref?.(pool)}
+            />
           ))
         )}
       </div>
