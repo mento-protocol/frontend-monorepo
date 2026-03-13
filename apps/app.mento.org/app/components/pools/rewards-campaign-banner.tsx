@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Star, X, ExternalLink } from "lucide-react";
 import { Badge, Button } from "@repo/ui";
 import {
@@ -20,6 +20,15 @@ export function RewardsCampaignBanner({
 }: RewardsCampaignBannerProps) {
   const [dismissed, setDismissed] = useState(false);
   const [mountedAt] = useState(() => Date.now());
+  const [tracerPosition, setTracerPosition] = useState(0);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setTracerPosition((prev) => (prev + 1) % 100);
+    }, 50);
+
+    return () => window.clearInterval(interval);
+  }, []);
 
   const campaign = useMemo(() => {
     let maxApr = 0;
@@ -48,15 +57,16 @@ export function RewardsCampaignBanner({
 
   return (
     <div className="relative overflow-hidden rounded-lg">
-      <div className="inset-0 pointer-events-none absolute overflow-hidden rounded-lg">
-        <div
-          className="absolute -inset-[160%] animate-[spin_7s_linear_infinite] motion-reduce:animate-none"
-          style={{
-            background:
-              "conic-gradient(from 180deg, transparent 0deg, transparent 328deg, oklch(0.5116 0.2893 289.05 / 0.96) 340deg, oklch(0.5116 0.2893 289.05 / 0.22) 350deg, transparent 360deg)",
-          }}
-        />
-        <div className="absolute inset-px rounded-[7px] border border-border/70 bg-card" />
+      <div
+        className="inset-0 pointer-events-none absolute overflow-hidden rounded-lg"
+        style={{
+          background: `conic-gradient(from ${
+            tracerPosition * 3.6
+          }deg, transparent 0deg, transparent 328deg, oklch(0.5116 0.2893 289.05 / 0.96) 340deg, oklch(0.5116 0.2893 289.05 / 0.22) 350deg, transparent 360deg)`,
+          padding: "1px",
+        }}
+      >
+        <div className="h-full w-full rounded-lg border border-border/70 bg-card" />
       </div>
 
       <div className="gap-4 p-4 md:flex-row md:items-center md:justify-between md:px-5 relative z-10 flex flex-col rounded-lg">
