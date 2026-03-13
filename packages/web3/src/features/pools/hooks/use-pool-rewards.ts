@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChainId } from "@/config/chains";
 import type { PoolRewardInfo } from "../types";
 
-const MERKL_API_BASE = "https://api.merkl.xyz/v4";
+const MERKL_API_BASE = "/api/merkl";
 const MERKL_PROTOCOL_ID = "mento";
 const REWARDS_STALE_TIME = 5 * 60_000; // 5 minutes
 

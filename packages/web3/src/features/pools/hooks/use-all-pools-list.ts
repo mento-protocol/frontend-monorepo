@@ -43,7 +43,10 @@ export function useAllPoolsList() {
         { chainId: ChainId.Monad, query: monadQuery },
       ];
 
-  const isLoading = allQueries.some(({ query }) => query.isLoading);
+  // Progressive loading: show pools from chains that have resolved while
+  // others are still in flight, instead of blocking on the slowest chain.
+  const isLoading = allQueries.every(({ query }) => query.isLoading);
+  const isFetchingMore = allQueries.some(({ query }) => query.isLoading);
   const isError = allQueries.some(({ query }) => query.isError);
   const isPartialError =
     isError && allQueries.some(({ query }) => query.isSuccess);
@@ -59,5 +62,13 @@ export function useAllPoolsList() {
     await Promise.all(allQueries.map(({ query }) => query.refetch()));
   };
 
-  return { data, isLoading, isError, isPartialError, failedChainIds, refetch };
+  return {
+    data,
+    isLoading,
+    isFetchingMore,
+    isError,
+    isPartialError,
+    failedChainIds,
+    refetch,
+  };
 }

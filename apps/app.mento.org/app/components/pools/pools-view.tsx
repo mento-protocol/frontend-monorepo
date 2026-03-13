@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { Search, Star, Droplets, RefreshCw, AlertTriangle } from "lucide-react";
 import { Button, Input, cn } from "@repo/ui";
@@ -39,6 +39,7 @@ export function PoolsView() {
   const {
     data: pools = [],
     isLoading,
+    isFetchingMore,
     isError,
     isPartialError: isPoolsPartialError,
     failedChainIds: failedPoolChainIds,
@@ -51,11 +52,55 @@ export function PoolsView() {
     failedChainIds: failedRewardChainIds,
     refetch: refetchRewards,
   } = usePoolRewards();
-  const [filter, setFilter] = useState<PoolFilterType>("all");
-  const [chainFilter, setChainFilter] = useState<ChainFilterType>("all");
-  const [showRewardsOnly, setShowRewardsOnly] = useState(false);
-  const [search, setSearch] = useState("");
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Filter state lives in URL so it persists across refresh / share
+  const filter = (searchParams.get("type") as PoolFilterType) || "all";
+  const chainParam = searchParams.get("chain");
+  const chainFilter: ChainFilterType =
+    chainParam && !Number.isNaN(Number(chainParam))
+      ? (Number(chainParam) as ChainId)
+      : "all";
+  const showRewardsOnly = searchParams.get("rewards") === "1";
+  const search = searchParams.get("q") ?? "";
+
+  const setFilter = useCallback(
+    (value: PoolFilterType) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (value === "all") params.delete("type");
+      else params.set("type", value);
+      router.replace(`?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams],
+  );
+  const setChainFilter = useCallback(
+    (value: ChainFilterType) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (value === "all") params.delete("chain");
+      else params.set("chain", String(value));
+      router.replace(`?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams],
+  );
+  const setShowRewardsOnly = useCallback(
+    (on: boolean) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (on) params.set("rewards", "1");
+      else params.delete("rewards");
+      router.replace(`?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams],
+  );
+  const setSearch = useCallback(
+    (value: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (value) params.set("q", value);
+      else params.delete("q");
+      router.replace(`?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams],
+  );
 
   const handleSelectPool = useCallback(
     (pool: PoolDisplay, mode: "deposit" | "manage") => {
@@ -264,6 +309,7 @@ export function PoolsView() {
             <PoolsTable
               pools={filteredPools}
               isLoading={isLoading}
+              isFetchingMore={isFetchingMore}
               onSelectPool={handleSelectPool}
               getPoolHref={getPoolHref}
               rewards={rewards}

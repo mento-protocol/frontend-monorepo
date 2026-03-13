@@ -35,23 +35,22 @@ const nextConfig: NextConfig = {
     "@wagmi/core",
     "@rainbow-me/rainbowkit",
   ],
+  // NOTE: dev & build both use --turbopack, which ignores the webpack hook.
+  // Turbopack deduplicates wagmi via transpilePackages + pnpm hoisting.
+  // The webpack block below is kept only as a safety net for any future
+  // non-Turbopack invocation (e.g. if Sentry's build step runs webpack).
   webpack: (config) => {
-    // Ignore React Native modules that are not needed in web builds
     config.resolve.fallback = {
       ...config.resolve.fallback,
       "@react-native-async-storage/async-storage": false,
       "react-native": false,
     };
-
-    // Add alias to prevent webpack from trying to resolve these modules
-    // Force single wagmi instance to avoid duplicate React context across packages
     config.resolve.alias = {
       ...config.resolve.alias,
       "@react-native-async-storage/async-storage": false,
       wagmi: path.dirname(require.resolve("wagmi/package.json")),
       "@wagmi/core": path.dirname(require.resolve("@wagmi/core/package.json")),
     };
-
     return config;
   },
 };

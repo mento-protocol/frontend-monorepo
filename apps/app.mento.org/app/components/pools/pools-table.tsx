@@ -9,6 +9,8 @@ import { PoolRow } from "./pool-row";
 interface PoolsTableProps {
   pools: PoolDisplay[];
   isLoading: boolean;
+  /** True when some chains have resolved but others are still loading */
+  isFetchingMore?: boolean;
   onSelectPool: (pool: PoolDisplay, mode: "deposit" | "manage") => void;
   getPoolHref?: (pool: PoolDisplay) => string;
   rewards?: Map<string, PoolRewardInfo>;
@@ -40,6 +42,7 @@ function SkeletonRow() {
 export function PoolsTable({
   pools,
   isLoading,
+  isFetchingMore,
   onSelectPool,
   getPoolHref,
   rewards,
@@ -69,22 +72,25 @@ export function PoolsTable({
             <SkeletonRow />
             <SkeletonRow />
           </>
-        ) : pools.length === 0 ? (
+        ) : pools.length === 0 && !isFetchingMore ? (
           <div className="py-12 flex items-center justify-center rounded-lg border border-border bg-card text-muted-foreground">
             No pools found
           </div>
         ) : (
-          pools.map((pool) => (
-            <PoolRow
-              key={`${pool.chainId}-${pool.poolAddr}`}
-              pool={pool}
-              onSelect={onSelectPool}
-              poolHref={getPoolHref?.(pool)}
-              rewards={rewards?.get(
-                getPoolRewardKey(pool.chainId, pool.poolAddr),
-              )}
-            />
-          ))
+          <>
+            {pools.map((pool) => (
+              <PoolRow
+                key={`${pool.chainId}-${pool.poolAddr}`}
+                pool={pool}
+                onSelect={onSelectPool}
+                poolHref={getPoolHref?.(pool)}
+                rewards={rewards?.get(
+                  getPoolRewardKey(pool.chainId, pool.poolAddr),
+                )}
+              />
+            ))}
+            {isFetchingMore && <SkeletonRow />}
+          </>
         )}
       </div>
     </div>
