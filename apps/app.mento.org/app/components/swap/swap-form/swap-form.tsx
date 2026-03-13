@@ -2,6 +2,8 @@
 
 import { env } from "@/env.mjs";
 import { Button, Form } from "@repo/ui";
+import { chainIdToChain, type ChainId } from "@repo/web3";
+import { useChainId } from "@repo/web3/wagmi";
 import { ArrowUpDown } from "lucide-react";
 import { SwapInsufficientLiquidityNotice } from "../insufficient-liquidity-notice";
 import { BuyTokenInput } from "./buy-token-input";
@@ -9,8 +11,32 @@ import { SellTokenInput } from "./sell-token-input";
 import { SwapSubmitButton } from "./swap-submit-button";
 import { useSwapForm } from "./use-swap-form";
 
-export default function SwapForm() {
-  const swap = useSwapForm();
+interface SwapFormProps {
+  initialFrom?: string;
+  initialTo?: string;
+  initialAmount?: string;
+  targetChainId?: ChainId;
+}
+
+export default function SwapForm({
+  initialFrom,
+  initialTo,
+  initialAmount,
+  targetChainId,
+}: SwapFormProps = {}) {
+  const swap = useSwapForm({
+    initialFrom,
+    initialTo,
+    initialAmount,
+    urlChainId: targetChainId,
+  });
+  const walletChainId = useChainId();
+
+  // Determine if user is on the wrong chain for this swap URL
+  const wrongChainName =
+    targetChainId && walletChainId !== targetChainId
+      ? (chainIdToChain[targetChainId]?.name ?? `Chain ${targetChainId}`)
+      : undefined;
 
   return (
     <Form {...swap.form}>
@@ -26,6 +52,7 @@ export default function SwapForm() {
             sellUSDValue={swap.sellUSDValue}
             fromTokenBalance={swap.fromTokenBalance}
             handleUseMaxBalance={swap.handleUseMaxBalance}
+            chainId={swap.formChainId}
             tokenOutSymbol={swap.tokenOutSymbol}
             allTokenOptions={swap.allTokenOptions}
             setLastChangedToken={swap.setLastChangedToken}
@@ -39,6 +66,7 @@ export default function SwapForm() {
             formQuote={swap.formQuote}
             buyUSDValue={swap.buyUSDValue}
             toTokenBalance={swap.toTokenBalance}
+            chainId={swap.formChainId}
             tokenInSymbol={swap.tokenInSymbol}
             allTokenOptions={swap.allTokenOptions}
             setLastChangedToken={swap.setLastChangedToken}
@@ -76,6 +104,7 @@ export default function SwapForm() {
           hasValidQuote={swap.hasValidQuote}
           shouldApprove={swap.shouldApprove}
           allTokenOptions={swap.allTokenOptions}
+          wrongChainName={wrongChainName}
         />
       </form>
     </Form>

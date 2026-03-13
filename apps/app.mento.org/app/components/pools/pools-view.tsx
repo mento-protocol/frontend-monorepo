@@ -1,16 +1,18 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { Search, Droplets, RefreshCw } from "lucide-react";
 import { Button, Input, cn } from "@repo/ui";
 import {
   usePoolsList,
+  chainIdToSlug,
   type PoolFilterType,
   type PoolDisplay,
 } from "@repo/web3";
+import { useChainId } from "@repo/web3/wagmi";
 import { PoolsTable } from "./pools-table";
 import { LiquidityFlowDialog } from "./liquidity-flow-dialog";
-import { LiquidityPanel } from "./liquidity-panel";
 
 const filterTabs: { value: PoolFilterType; label: string }[] = [
   { value: "all", label: "All Pools" },
@@ -22,21 +24,23 @@ export function PoolsView() {
   const { data: pools = [], isLoading, isError, refetch } = usePoolsList();
   const [filter, setFilter] = useState<PoolFilterType>("all");
   const [search, setSearch] = useState("");
-  const [selectedPool, setSelectedPool] = useState<{
-    pool: PoolDisplay;
-    mode: "deposit" | "manage";
-  } | null>(null);
+  const router = useRouter();
+  const chainId = useChainId();
+
+  const chainSlug = chainIdToSlug(chainId);
 
   const handleSelectPool = useCallback(
     (pool: PoolDisplay, mode: "deposit" | "manage") => {
-      setSelectedPool({ pool, mode });
+      const modeParam = mode === "manage" ? "?mode=manage" : "";
+      router.push(`/pools/${chainSlug}/${pool.poolAddr}${modeParam}`);
     },
-    [],
+    [chainSlug, router],
   );
 
-  const handleClosePanel = useCallback(() => {
-    setSelectedPool(null);
-  }, []);
+  const getPoolHref = useCallback(
+    (pool: PoolDisplay) => `/pools/${chainSlug}/${pool.poolAddr}`,
+    [chainSlug],
+  );
 
   const filteredPools = useMemo(() => {
     let result = pools;
@@ -70,21 +74,6 @@ export function PoolsView() {
   );
   const showPoolsError = isError && pools.length === 0;
   const showNoPools = !isLoading && !isError && pools.length === 0;
-
-  if (selectedPool) {
-    return (
-      <>
-        <div className="mb-6 max-w-5xl px-4 pt-6 md:px-0 md:pt-0 min-h-[550px] w-full">
-          <LiquidityPanel
-            pool={selectedPool.pool}
-            mode={selectedPool.mode}
-            onClose={handleClosePanel}
-          />
-        </div>
-        <LiquidityFlowDialog />
-      </>
-    );
-  }
 
   return (
     <>
@@ -143,6 +132,7 @@ export function PoolsView() {
               pools={filteredPools}
               isLoading={isLoading}
               onSelectPool={handleSelectPool}
+              getPoolHref={getPoolHref}
             />
           )}
 

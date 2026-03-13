@@ -46,6 +46,7 @@ export function ChainButton() {
           "border-border-secondary text-accent-foreground",
         )}
         onClick={onClickChain}
+        data-testid="change-network-button"
       >
         {iconUrl && (
           <img

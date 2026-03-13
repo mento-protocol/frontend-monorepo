@@ -100,8 +100,9 @@ function getPriceAlignmentStatus(
   return "rebalance-likely";
 }
 
-export function usePoolsList() {
-  const chainId = useChainId() as ChainId;
+export function usePoolsList(overrideChainId?: ChainId) {
+  const walletChainId = useChainId() as ChainId;
+  const chainId = overrideChainId ?? walletChainId;
 
   return useQuery<PoolDisplay[]>({
     queryKey: ["pools-list", chainId],
@@ -273,8 +274,22 @@ export function usePoolsList() {
 
             return poolDisplay;
           } catch (error) {
-            console.error(
-              `[usePoolsList] Failed to enrich pool ${pool.poolAddr}:`,
+            // Token-registry gaps are permanent — safe to skip.
+            // RPC / network errors are transient — re-throw so TanStack Query retries.
+            const msg =
+              error instanceof Error ? error.message.toLowerCase() : "";
+            const isTransient =
+              msg.includes("fetch") ||
+              msg.includes("network") ||
+              msg.includes("timeout") ||
+              msg.includes("rpc") ||
+              msg.includes("econnrefused") ||
+              msg.includes("429");
+            if (isTransient) {
+              throw error;
+            }
+            console.warn(
+              `[usePoolsList] Skipping pool ${pool.poolAddr}:`,
               error,
             );
             return null;

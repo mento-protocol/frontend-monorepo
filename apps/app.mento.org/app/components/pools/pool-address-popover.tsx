@@ -6,13 +6,21 @@ import {
   PopoverTrigger,
   CopyToClipboard,
 } from "@repo/ui";
-import { useExplorerUrl, shortenAddress } from "@repo/web3";
+import {
+  useExplorerUrl,
+  getExplorerUrl,
+  shortenAddress,
+  chainIdToSlug,
+} from "@repo/web3";
+import { useChainId } from "@repo/web3/wagmi";
 import type { PoolDisplay } from "@repo/web3";
-import { Info, ExternalLink } from "lucide-react";
+import { Info, ExternalLink, Link2, Check } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 
 interface PoolAddressPopoverProps {
   pool: PoolDisplay;
+  chainId?: number;
 }
 
 interface AddressRowProps {
@@ -50,9 +58,33 @@ function AddressRow({ label, address, explorerUrl }: AddressRowProps) {
   );
 }
 
-export function PoolAddressPopover({ pool }: PoolAddressPopoverProps) {
-  const explorerUrl = useExplorerUrl();
+export function PoolAddressPopover({
+  pool,
+  chainId: overrideChainId,
+}: PoolAddressPopoverProps) {
+  const walletExplorerUrl = useExplorerUrl();
+  const walletChainId = useChainId();
+  const resolvedChainId = overrideChainId ?? walletChainId;
+  const explorerUrl = overrideChainId
+    ? getExplorerUrl(overrideChainId)
+    : walletExplorerUrl;
   const [open, setOpen] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  const poolLink = `${typeof window !== "undefined" ? window.location.origin : ""}/pools/${chainIdToSlug(resolvedChainId) ?? "celo"}/${pool.poolAddr}`;
+
+  const handleCopyLink = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      navigator.clipboard.writeText(poolLink);
+      toast.success("Pool link copied", { duration: 2000 });
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      // clipboard access denied
+    }
+  };
 
   return (
     <Popover modal={false} open={open} onOpenChange={setOpen}>
@@ -87,6 +119,19 @@ export function PoolAddressPopover({ pool }: PoolAddressPopoverProps) {
           address={pool.token1.address}
           explorerUrl={explorerUrl}
         />
+        <div className="h-px bg-border" />
+        <button
+          type="button"
+          onClick={handleCopyLink}
+          className="gap-1.5 text-xs font-medium p-0 flex cursor-pointer items-center border-0 bg-transparent text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {linkCopied ? (
+            <Check className="h-3.5 w-3.5 text-green-500" />
+          ) : (
+            <Link2 className="h-3.5 w-3.5" />
+          )}
+          {linkCopied ? "Copied!" : "Copy pool link"}
+        </button>
       </PopoverContent>
     </Popover>
   );

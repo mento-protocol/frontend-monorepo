@@ -26,6 +26,7 @@ interface SellTokenInputProps {
   sellUSDValue: string;
   fromTokenBalance: string;
   handleUseMaxBalance: () => void;
+  chainId: number;
   tokenOutSymbol: TokenSymbol;
   allTokenOptions: TokenWithBalance[];
   setLastChangedToken: (t: "from" | "to" | null) => void;
@@ -38,6 +39,7 @@ export function SellTokenInput({
   sellUSDValue,
   fromTokenBalance,
   handleUseMaxBalance,
+  chainId,
   tokenOutSymbol,
   allTokenOptions,
   setLastChangedToken,
@@ -94,6 +96,7 @@ export function SellTokenInput({
                     setLastChangedToken("from");
                   }}
                   title="Select asset to sell"
+                  chainId={chainId}
                   excludeTokenSymbol={tokenOutSymbol}
                   filterByTokenSymbol={tokenOutSymbol}
                   onClose={() => {
