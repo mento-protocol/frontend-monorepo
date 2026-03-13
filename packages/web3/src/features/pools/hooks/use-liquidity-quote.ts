@@ -20,6 +20,7 @@ interface UseLiquidityQuoteParams {
   token0Amount: string;
   token1Amount: string;
   lastEditedToken: 0 | 1;
+  chainId?: ChainId;
 }
 
 export function useLiquidityQuote({
@@ -27,8 +28,10 @@ export function useLiquidityQuote({
   token0Amount,
   token1Amount,
   lastEditedToken,
+  chainId,
 }: UseLiquidityQuoteParams) {
-  const chainId = useChainId() as ChainId;
+  const walletChainId = useChainId() as ChainId;
+  const resolvedChainId = chainId ?? walletChainId;
 
   const driverAmount = lastEditedToken === 0 ? token0Amount : token1Amount;
   const debouncedAmount = useDebounce(driverAmount, 350);
@@ -40,12 +43,12 @@ export function useLiquidityQuote({
       pool.poolAddr,
       debouncedAmount,
       lastEditedToken,
-      chainId,
+      resolvedChainId,
     ],
     queryFn: async () => {
       if (!isValidAmount) return null;
 
-      const sdk = await getMentoSdk(chainId);
+      const sdk = await getMentoSdk(resolvedChainId);
 
       // Get raw pool reserves for proportional calculation
       const details = await sdk.pools.getPoolDetails(pool.poolAddr);

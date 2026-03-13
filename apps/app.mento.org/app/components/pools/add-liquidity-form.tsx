@@ -29,7 +29,6 @@ import {
   useAccount,
   useReadContract,
   useConfig,
-  useChainId,
   useBlockNumber,
 } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, type Address } from "viem";
@@ -121,14 +120,18 @@ export function AddLiquidityForm({
 }: AddLiquidityFormProps) {
   const { address } = useAccount();
   const wagmiConfig = useConfig();
-  const chainId = useChainId();
+  const chainId = pool.chainId;
   const { data: blockNumber } = useBlockNumber({
+    chainId,
     watch: !!address,
     query: { enabled: !!address },
   });
   const queryClient = useQueryClient();
   const setFlow = useSetAtom(liquidityFlowAtom);
-  const routerAddress = getContractAddress(chainId, "Router") as Address;
+  const routerAddress = getContractAddress(
+    Number(chainId) as Parameters<typeof getContractAddress>[0],
+    "Router",
+  ) as Address;
 
   const [mode, setMode] = useState<"balanced" | "single">("balanced");
   const [token0Amount, setToken0Amount] = useState("");
@@ -147,6 +150,7 @@ export function AddLiquidityForm({
   // Fetch token balances
   const { data: token0Balance, refetch: refetchToken0Balance } =
     useReadContract({
+      chainId,
       address: pool.token0.address as Address,
       abi: erc20Abi,
       functionName: "balanceOf",
@@ -160,6 +164,7 @@ export function AddLiquidityForm({
 
   const { data: token1Balance, refetch: refetchToken1Balance } =
     useReadContract({
+      chainId,
       address: pool.token1.address as Address,
       abi: erc20Abi,
       functionName: "balanceOf",
@@ -181,6 +186,7 @@ export function AddLiquidityForm({
   // Fetch token allowances for Router to avoid unnecessary approval steps.
   const { data: token0Allowance, refetch: refetchToken0Allowance } =
     useReadContract({
+      chainId,
       address: pool.token0.address as Address,
       abi: erc20Abi,
       functionName: "allowance",
@@ -194,6 +200,7 @@ export function AddLiquidityForm({
 
   const { data: token1Allowance, refetch: refetchToken1Allowance } =
     useReadContract({
+      chainId,
       address: pool.token1.address as Address,
       abi: erc20Abi,
       functionName: "allowance",
@@ -227,6 +234,7 @@ export function AddLiquidityForm({
     token0Amount: mode === "balanced" ? token0Amount : "",
     token1Amount: mode === "balanced" ? token1Amount : "",
     lastEditedToken,
+    chainId,
   });
 
   // Auto-fill proportional amount when quote returns
@@ -247,7 +255,7 @@ export function AddLiquidityForm({
   }, [quote, lastEditedToken, pool, mode]);
 
   const { buildTransaction, buildResult, isBuilding } =
-    useAddLiquidityTransaction(pool);
+    useAddLiquidityTransaction(pool, chainId);
 
   // Build transaction when we have a valid quote and wallet
   useEffect(() => {
@@ -272,6 +280,7 @@ export function AddLiquidityForm({
     tokenIn: zapTokenIn,
     amountIn: mode === "single" ? zapAmount : "",
     slippage,
+    chainId,
   });
 
   const {
@@ -279,7 +288,7 @@ export function AddLiquidityForm({
     buildResult: zapBuildResult,
     buildError: zapBuildError,
     isBuilding: isZapBuilding,
-  } = useZapInTransaction(pool);
+  } = useZapInTransaction(pool, chainId);
 
   // Build zap transaction whenever the amount is valid for current state.
   useEffect(() => {
@@ -499,6 +508,7 @@ export function AddLiquidityForm({
           setFlow,
           "Add Liquidity",
           steps,
+          chainId,
         );
 
         if (result.success) {
@@ -567,6 +577,7 @@ export function AddLiquidityForm({
           setFlow,
           "Add Liquidity",
           steps,
+          chainId,
         );
 
         if (result.success) {

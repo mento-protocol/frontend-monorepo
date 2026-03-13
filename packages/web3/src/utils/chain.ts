@@ -14,8 +14,9 @@ export function getExplorerUrl(chainId: number): string {
 /**
  * Hook to get the current chain's explorer URL
  */
-export function useExplorerUrl(): string {
-  const chainId = useChainId();
+export function useExplorerUrl(overrideChainId?: number): string {
+  const walletChainId = useChainId();
+  const chainId = overrideChainId ?? walletChainId;
 
   return useMemo(() => {
     return getExplorerUrl(chainId);

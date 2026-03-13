@@ -26,22 +26,30 @@ interface UseUserPositionParams {
   pool: PoolDisplay;
   lpBalance: bigint | undefined;
   enabled?: boolean;
+  chainId?: ChainId;
 }
 
 export function useUserPosition({
   pool,
   lpBalance,
   enabled = true,
+  chainId,
 }: UseUserPositionParams) {
-  const chainId = useChainId() as ChainId;
+  const walletChainId = useChainId() as ChainId;
+  const resolvedChainId = chainId ?? walletChainId;
   const hasBalance = lpBalance !== undefined && lpBalance > 0n;
 
   return useQuery<UserPosition | null>({
-    queryKey: ["user-position", pool.poolAddr, lpBalance?.toString(), chainId],
+    queryKey: [
+      "user-position",
+      pool.poolAddr,
+      lpBalance?.toString(),
+      resolvedChainId,
+    ],
     queryFn: async () => {
       if (!lpBalance || lpBalance <= 0n) return null;
 
-      const sdk = await getMentoSdk(chainId);
+      const sdk = await getMentoSdk(resolvedChainId);
 
       const [lpData, details] = await Promise.all([
         sdk.liquidity.getLPTokenBalance(pool.poolAddr, LP_TOTAL_SUPPLY_HOLDER),
@@ -74,7 +82,7 @@ export function useUserPosition({
           token0Address: details.token0,
           token1Address: details.token1,
           oraclePrice: details.pricing.oraclePrice,
-          chainId,
+          chainId: resolvedChainId,
         });
         if (usdTokenPrices) {
           token0Price = usdTokenPrices.token0PriceUsd;

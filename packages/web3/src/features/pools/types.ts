@@ -1,4 +1,14 @@
+import type { ChainId } from "@/config/chains";
+
 export type PoolFilterType = "all" | "fpmm" | "legacy";
+export type ChainFilterType = "all" | ChainId;
+
+export interface PoolRewardInfo {
+  apr: number;
+  dailyRewards: number;
+  campaignEnd: number; // unix timestamp
+  liveCampaigns: number;
+}
 
 export type PriceAlignmentStatus =
   | "in-band"
@@ -16,6 +26,7 @@ export interface PoolDisplayToken {
 
 export interface PoolDisplay {
   poolAddr: string;
+  chainId: ChainId;
   poolType: "FPMM" | "Legacy";
   token0: PoolDisplayToken;
   token1: PoolDisplayToken;
@@ -50,6 +61,15 @@ export interface PoolDisplay {
     liquidityStrategy: string | null;
   };
   tvl: number | null; // Total value locked in USD, null when pricing unavailable
+}
+
+export function sortPoolsByTvl(pools: PoolDisplay[]): PoolDisplay[] {
+  return [...pools].sort((a, b) => {
+    if (a.tvl === null && b.tvl === null) return 0;
+    if (a.tvl === null) return 1;
+    if (b.tvl === null) return -1;
+    return b.tvl - a.tvl;
+  });
 }
 
 export const SLIPPAGE_OPTIONS = [0.1, 0.3, 0.5, 1.0] as const;

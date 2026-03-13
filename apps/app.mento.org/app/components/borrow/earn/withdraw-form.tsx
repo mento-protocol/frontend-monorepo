@@ -9,8 +9,7 @@ import {
   formatCompactBalance,
   tryParseUnits,
 } from "@repo/web3";
-import { useAccount, useChainId } from "@repo/web3/wagmi";
-import { useConfig } from "wagmi";
+import { useAccount, useChainId, useConfig } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 import { formatUnits, type Address } from "viem";
 

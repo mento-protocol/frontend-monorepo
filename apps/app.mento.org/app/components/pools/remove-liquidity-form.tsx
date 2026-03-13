@@ -28,7 +28,6 @@ import {
   useAccount,
   useReadContract,
   useConfig,
-  useChainId,
   useBlockNumber,
 } from "@repo/web3/wagmi";
 import { erc20Abi, formatUnits, type Address } from "viem";
@@ -75,8 +74,9 @@ export function RemoveLiquidityForm({
 }: RemoveLiquidityFormProps) {
   const { address } = useAccount();
   const wagmiConfig = useConfig();
-  const chainId = useChainId();
+  const chainId = pool.chainId;
   const { data: blockNumber } = useBlockNumber({
+    chainId,
     watch: !!address,
     query: { enabled: !!address },
   });
@@ -96,6 +96,7 @@ export function RemoveLiquidityForm({
 
   // Fetch LP token balance (LP token is the pool contract itself)
   const { data: lpBalance, refetch: refetchLpBalance } = useReadContract({
+    chainId,
     address: pool.poolAddr as Address,
     abi: erc20Abi,
     functionName: "balanceOf",
@@ -127,11 +128,12 @@ export function RemoveLiquidityForm({
   const { data: quote, isFetching: isQuoting } = useRemoveLiquidityQuote({
     pool,
     lpAmount,
+    chainId,
   });
 
   // === Balanced transaction hook (build only) ===
   const { buildTransaction, buildResult, isBuilding } =
-    useRemoveLiquidityTransaction(pool);
+    useRemoveLiquidityTransaction(pool, chainId);
 
   // === Zap-out (single-token) hooks ===
   const {
@@ -144,6 +146,7 @@ export function RemoveLiquidityForm({
     tokenOut: receiveToken,
     lpAmount: mode === "single" ? lpAmount : "",
     slippage,
+    chainId,
   });
 
   const {
@@ -151,7 +154,7 @@ export function RemoveLiquidityForm({
     buildResult: zapOutBuildResult,
     buildError: zapOutBuildError,
     isBuilding: isZapOutBuilding,
-  } = useZapOutTransaction(pool);
+  } = useZapOutTransaction(pool, chainId);
 
   const zapOutQuoteErrorMessage = getErrorMessage(zapOutQuoteError);
   const zapOutQuoteUiError = isZapOutQuoteError
@@ -373,6 +376,7 @@ export function RemoveLiquidityForm({
           setFlow,
           "Remove Liquidity",
           steps,
+          chainId,
         );
 
         if (result.success) {
@@ -427,6 +431,7 @@ export function RemoveLiquidityForm({
           setFlow,
           "Remove Liquidity",
           steps,
+          chainId,
         );
 
         if (result.success) {

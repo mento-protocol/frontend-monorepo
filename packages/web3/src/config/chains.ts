@@ -1,5 +1,5 @@
 import { addresses, ContractAddresses } from "@mento-protocol/mento-sdk";
-import { Address, Chain } from "viem";
+import { Address } from "viem";
 import {
   celoSepolia,
   monad as viemMonad,
@@ -60,11 +60,11 @@ export const CELO_SEPOLIA_EXPLORER = {
 };
 export const MONAD_EXPLORER = {
   name: "Monad Explorer",
-  url: "https://monadvision.com",
+  url: "https://monadscan.com",
 };
 export const MONAD_TESTNET_EXPLORER = {
   name: "Monad Testnet Explorer",
-  url: "https://testnet.monadexplorer.com",
+  url: "https://testnet.monadscan.com",
 };
 
 export const CeloSepolia: MentoChain = {
@@ -94,6 +94,8 @@ export const CeloSepolia: MentoChain = {
 export const Celo: MentoChain = {
   ...celo,
   id: ChainId.Celo,
+  iconUrl: celoIcon,
+  iconBackground: "#FCFF52",
   nativeCurrency: {
     decimals: 18,
     name: "CELO",
@@ -109,7 +111,7 @@ export const Celo: MentoChain = {
     ...celo.contracts,
     ...transformToChainContracts(addresses[celo.id]),
   },
-} as const satisfies Chain;
+} as const satisfies MentoChain;
 
 export const MonadTestnet: MentoChain = {
   ...viemMonadTestnet,
