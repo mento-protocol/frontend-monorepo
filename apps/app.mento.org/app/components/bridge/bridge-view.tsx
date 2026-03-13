@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Image from "next/image";
 import { useTheme } from "next-themes";
 import { useMemo } from "react";
 import { getBridgeTheme, bridgeConfig } from "./bridge-config";
@@ -38,12 +39,36 @@ function BridgeTestnetState() {
   };
 
   return (
-    <div className="px-6 py-14 relative overflow-hidden rounded-xl border border-border bg-card text-center">
+    <div className="px-6 py-14 relative overflow-hidden rounded-xl bg-card text-center">
       <div className="top-0 w-48 absolute left-1/2 h-[2px] -translate-x-1/2 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
 
       <div className="mb-7 flex justify-center">
-        <div className="h-14 w-14 flex items-center justify-center rounded-full border-2 border-border bg-card">
-          <ArrowRightLeft className="h-6 w-6 text-muted-foreground" />
+        <div className="gap-4 flex items-center">
+          <div className="h-14 w-14 shadow-lg flex items-center justify-center rounded-full bg-[#FCFF52] shadow-[#FCFF52]/20">
+            <Image
+              src="/tokens/CELO.svg"
+              alt="Celo"
+              width={40}
+              height={40}
+              className="h-10 w-10"
+            />
+          </div>
+
+          <div className="gap-1 flex flex-col items-center">
+            <div className="w-16 h-[2px] bg-gradient-to-r from-primary/60 via-primary to-primary/60" />
+            <ArrowRightLeft className="h-5 w-5 text-primary" />
+            <div className="w-16 h-[2px] bg-gradient-to-r from-primary/60 via-primary to-primary/60" />
+          </div>
+
+          <div className="h-14 w-14 shadow-lg flex items-center justify-center rounded-full shadow-[#836EF9]/20">
+            <Image
+              src="/networks/monad.svg"
+              alt="Monad"
+              width={56}
+              height={56}
+              className="h-14 w-14"
+            />
+          </div>
         </div>
       </div>
 
