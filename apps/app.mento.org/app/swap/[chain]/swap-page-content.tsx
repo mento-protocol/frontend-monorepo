@@ -8,7 +8,6 @@ import SwapForm from "@/components/swap/swap-form";
 import { confirmViewAtom, type ChainId } from "@repo/web3";
 import { Button, cn, DebugPopup } from "@repo/ui";
 import { ChainMismatchBanner } from "@/components/shared/chain-mismatch-banner";
-import { useSwapUrlSync } from "@/hooks/use-swap-url-sync";
 
 interface SwapPageContentProps {
   chainId: ChainId;
@@ -25,8 +24,6 @@ export function SwapPageContent({
 }: SwapPageContentProps) {
   const [confirmView, setConfirmView] = useAtom(confirmViewAtom);
   const shouldEnableDebug = process.env.NEXT_PUBLIC_ENABLE_DEBUG === "true";
-
-  useSwapUrlSync(chainId);
 
   return (
     <div className="md:items-center flex h-full w-full flex-wrap items-start justify-center">

@@ -24,7 +24,12 @@ export default function SwapForm({
   initialAmount,
   targetChainId,
 }: SwapFormProps = {}) {
-  const swap = useSwapForm({ initialFrom, initialTo, initialAmount });
+  const swap = useSwapForm({
+    initialFrom,
+    initialTo,
+    initialAmount,
+    urlChainId: targetChainId,
+  });
   const walletChainId = useChainId();
 
   // Determine if user is on the wrong chain for this swap URL
@@ -47,6 +52,7 @@ export default function SwapForm({
             sellUSDValue={swap.sellUSDValue}
             fromTokenBalance={swap.fromTokenBalance}
             handleUseMaxBalance={swap.handleUseMaxBalance}
+            chainId={swap.formChainId}
             tokenOutSymbol={swap.tokenOutSymbol}
             allTokenOptions={swap.allTokenOptions}
             setLastChangedToken={swap.setLastChangedToken}
@@ -60,6 +66,7 @@ export default function SwapForm({
             formQuote={swap.formQuote}
             buyUSDValue={swap.buyUSDValue}
             toTokenBalance={swap.toTokenBalance}
+            chainId={swap.formChainId}
             tokenInSymbol={swap.tokenInSymbol}
             allTokenOptions={swap.allTokenOptions}
             setLastChangedToken={swap.setLastChangedToken}

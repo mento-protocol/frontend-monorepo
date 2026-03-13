@@ -4,6 +4,7 @@ import { chainIdToChain, type ChainId } from "@repo/web3";
 import { useAccount, useChainId, useSwitchChain } from "@repo/web3/wagmi";
 import { Button } from "@repo/ui";
 import { ArrowRightLeft } from "lucide-react";
+import { toast } from "sonner";
 
 export function ChainMismatchBanner({
   targetChainId,
@@ -25,7 +26,9 @@ export function ChainMismatchBanner({
     try {
       await switchChainAsync({ chainId: targetChainId });
     } catch {
-      // wallet rejected or doesn't support switching
+      toast.error(
+        `Could not switch to ${targetName}. Please switch networks in your wallet.`,
+      );
     }
   };
 

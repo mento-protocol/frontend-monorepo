@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useRouter, usePathname } from "next/navigation";
-import { useAtomValue } from "jotai";
-import { chainIdToSlug, formValuesAtom, type ChainId } from "@repo/web3";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { chainIdToSlug, type ChainId } from "@repo/web3";
 import { useChainId } from "@repo/web3/wagmi";
 
 /**
@@ -12,18 +11,33 @@ import { useChainId } from "@repo/web3/wagmi";
  * - Navigates to new chain slug only when user actively switches chains
  *   (not on initial page load — respects deep link URLs)
  */
-export function useSwapUrlSync(urlChainId: ChainId) {
+export function useSwapUrlSync({
+  amount,
+  tokenInSymbol,
+  tokenOutSymbol,
+  urlChainId,
+}: {
+  amount?: string;
+  tokenInSymbol?: string;
+  tokenOutSymbol?: string;
+  urlChainId: ChainId;
+}) {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const walletChainId = useChainId();
-  const formValues = useAtomValue(formValuesAtom);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasInitializedRef = useRef(false);
   const prevFormRef = useRef<{
     tokenInSymbol?: string;
     tokenOutSymbol?: string;
     amount?: string;
-  }>({});
+  }>({
+    tokenInSymbol: searchParams.get("from") || "",
+    tokenOutSymbol: searchParams.get("to") || "",
+    amount: searchParams.get("amount") || "",
+  });
 
   // Track previous wallet chain to detect active chain switches vs initial mismatch
   const prevWalletChainRef = useRef<number>(walletChainId);
@@ -31,33 +45,63 @@ export function useSwapUrlSync(urlChainId: ChainId) {
   // Sync form values → URL query params
   useEffect(() => {
     if (!pathname.startsWith("/swap/")) return;
+    if (
+      typeof tokenInSymbol === "undefined" &&
+      typeof tokenOutSymbol === "undefined" &&
+      typeof amount === "undefined"
+    ) {
+      return;
+    }
 
-    const tokenIn = formValues?.tokenInSymbol || "";
-    const tokenOut = formValues?.tokenOutSymbol || "";
-    const amount = formValues?.amount || "";
-
-    const prev = prevFormRef.current;
-    const tokensChanged =
-      prev.tokenInSymbol !== tokenIn || prev.tokenOutSymbol !== tokenOut;
-    const amountChanged = prev.amount !== amount;
-
-    if (!tokensChanged && !amountChanged) return;
-
-    prevFormRef.current = {
-      tokenInSymbol: tokenIn,
-      tokenOutSymbol: tokenOut,
-      amount,
-    };
+    const tokenIn = tokenInSymbol || "";
+    const tokenOut = tokenOutSymbol || "";
+    const nextAmount = amount || "";
 
     const buildUrl = () => {
       const chainSlug = chainIdToSlug(urlChainId) || "celo";
       const params = new URLSearchParams();
       if (tokenIn) params.set("from", tokenIn);
       if (tokenOut) params.set("to", tokenOut);
-      if (amount && amount !== "0") params.set("amount", amount);
+      if (nextAmount && nextAmount !== "0") params.set("amount", nextAmount);
 
       const query = params.toString();
       return `/swap/${chainSlug}${query ? `?${query}` : ""}`;
+    };
+
+    if (!hasInitializedRef.current) {
+      hasInitializedRef.current = true;
+      prevFormRef.current = {
+        tokenInSymbol: tokenIn,
+        tokenOutSymbol: tokenOut,
+        amount: nextAmount,
+      };
+
+      const urlTokenIn = searchParams.get("from") || "";
+      const urlTokenOut = searchParams.get("to") || "";
+      const urlAmount = searchParams.get("amount") || "";
+      const hasIncomingQuery = !!(urlTokenIn || urlTokenOut || urlAmount);
+      const urlMatchesForm =
+        urlTokenIn === tokenIn &&
+        urlTokenOut === tokenOut &&
+        urlAmount === nextAmount;
+
+      if (!hasIncomingQuery || urlMatchesForm) return;
+
+      router.replace(buildUrl());
+      return;
+    }
+
+    const prev = prevFormRef.current;
+    const tokensChanged =
+      prev.tokenInSymbol !== tokenIn || prev.tokenOutSymbol !== tokenOut;
+    const amountChanged = prev.amount !== nextAmount;
+
+    if (!tokensChanged && !amountChanged) return;
+
+    prevFormRef.current = {
+      tokenInSymbol: tokenIn,
+      tokenOutSymbol: tokenOut,
+      amount: nextAmount,
     };
 
     if (tokensChanged) {
@@ -71,18 +115,21 @@ export function useSwapUrlSync(urlChainId: ChainId) {
         router.replace(buildUrl());
       }, 300);
     }
-
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
   }, [
-    formValues?.tokenInSymbol,
-    formValues?.tokenOutSymbol,
-    formValues?.amount,
+    tokenInSymbol,
+    tokenOutSymbol,
+    amount,
     urlChainId,
     pathname,
     router,
+    searchParams,
   ]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
 
   // Navigate to new chain slug only when user actively switches wallet chain
   useEffect(() => {
@@ -98,19 +145,15 @@ export function useSwapUrlSync(urlChainId: ChainId) {
     const newSlug = chainIdToSlug(walletChainId);
     if (!newSlug) return;
 
-    const tokenIn = formValues?.tokenInSymbol || "";
-    const tokenOut = formValues?.tokenOutSymbol || "";
+    const tokenIn = tokenInSymbol || "";
+    const tokenOut = tokenOutSymbol || "";
+    const nextAmount = amount || "";
     const params = new URLSearchParams();
     if (tokenIn) params.set("from", tokenIn);
     if (tokenOut) params.set("to", tokenOut);
+    if (nextAmount && nextAmount !== "0") params.set("amount", nextAmount);
 
     const query = params.toString();
     router.replace(`/swap/${newSlug}${query ? `?${query}` : ""}`);
-  }, [
-    walletChainId,
-    pathname,
-    router,
-    formValues?.tokenInSymbol,
-    formValues?.tokenOutSymbol,
-  ]);
+  }, [walletChainId, pathname, router, tokenInSymbol, tokenOutSymbol, amount]);
 }

@@ -5,11 +5,13 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
+import { useSwapUrlSync } from "@/hooks/use-swap-url-sync";
 
 import type { TokenSymbol } from "@mento-protocol/mento-sdk";
 import {
   CELO_EXPLORER,
   chainIdToChain,
+  type ChainId,
   confirmViewAtom,
   formatBalance,
   formatWithMaxDecimals,
@@ -44,55 +46,103 @@ interface UseSwapFormOptions {
   initialFrom?: string;
   initialTo?: string;
   initialAmount?: string;
+  urlChainId?: ChainId;
 }
 
 export function useSwapForm(opts?: UseSwapFormOptions) {
   const { address, isConnected } = useAccount();
-  const chainId = useChainId() ?? 42220;
-  const nativeTokenSymbol = getNativeTokenSymbol(chainId);
+  const walletChainId = useChainId();
+  const formChainId = opts?.urlChainId ?? walletChainId ?? 42220;
+  const nativeTokenSymbol = getNativeTokenSymbol(formChainId);
   const [formValues, setFormValues] = useAtom(formValuesAtom);
   const [, setConfirmView] = useAtom(confirmViewAtom);
   const [isApprovalProcessing, setIsApprovalProcessing] = useState(false);
 
-  const { data: balancesFromHook } = useAccountBalances({ address, chainId });
+  const { data: balancesFromHook } = useAccountBalances({
+    address,
+    chainId: formChainId,
+  });
   const balances = balancesFromHook || defaultEmptyBalances;
 
-  const { allTokenOptions } = useTokenOptions(undefined, balancesFromHook);
+  const { allTokenOptions } = useTokenOptions(
+    undefined,
+    balancesFromHook,
+    formChainId,
+  );
 
   const amountRef = useRef<HTMLInputElement>(null);
   const quoteRef = useRef<HTMLInputElement>(null);
   const prevTradingSuspensionErrorRef = useRef<string | null>(null);
   const suspensionToastIdRef = useRef<string | number | null>(null);
-  const prevChainIdRef = useRef<number>(chainId);
+  const prevChainIdRef = useRef<number>(formChainId);
+  const hasUrlParams = Boolean(
+    opts?.initialFrom || opts?.initialTo || opts?.initialAmount,
+  );
+  const availableTokens = useMemo(
+    () => getTokenOptionsByChainId(formChainId),
+    [formChainId],
+  );
 
   // Validate URL tokens exist on current chain, fall back to defaults if not
-  const validatedInitialFrom = useMemo(() => {
-    if (!opts?.initialFrom) return undefined;
-    const available = getTokenOptionsByChainId(chainId);
-    return available.includes(opts.initialFrom as TokenSymbol)
+  const validatedInitialFrom =
+    opts?.initialFrom &&
+    availableTokens.includes(opts.initialFrom as TokenSymbol)
       ? (opts.initialFrom as TokenSymbol)
       : undefined;
-  }, [opts?.initialFrom, chainId]);
 
-  const validatedInitialTo = useMemo(() => {
-    if (!opts?.initialTo) return undefined;
-    const available = getTokenOptionsByChainId(chainId);
-    return available.includes(opts.initialTo as TokenSymbol)
+  const validatedInitialTo =
+    opts?.initialTo && availableTokens.includes(opts.initialTo as TokenSymbol)
       ? (opts.initialTo as TokenSymbol)
       : undefined;
-  }, [opts?.initialTo, chainId]);
+
+  const storedTokenInSymbol =
+    !hasUrlParams &&
+    formValues?.tokenInSymbol &&
+    availableTokens.includes(formValues.tokenInSymbol as TokenSymbol)
+      ? (formValues.tokenInSymbol as TokenSymbol)
+      : undefined;
+
+  const storedTokenOutSymbol =
+    !hasUrlParams &&
+    formValues?.tokenOutSymbol &&
+    availableTokens.includes(formValues.tokenOutSymbol as TokenSymbol)
+      ? (formValues.tokenOutSymbol as TokenSymbol)
+      : undefined;
+
+  const defaultTokenInSymbol =
+    getPreferredUsdQuoteTokenSymbol(formChainId) ||
+    availableTokens[0] ||
+    ("USDC" as TokenSymbol);
+
+  const initialTokenInSymbol =
+    validatedInitialFrom || storedTokenInSymbol || defaultTokenInSymbol;
+
+  const requestedTokenOut = validatedInitialTo || storedTokenOutSymbol;
+  const initialTokenOutSymbol =
+    requestedTokenOut && requestedTokenOut !== initialTokenInSymbol
+      ? requestedTokenOut
+      : availableTokens.find((token) => token !== initialTokenInSymbol) || "";
+
+  const canReuseStoredDraft =
+    !hasUrlParams &&
+    storedTokenInSymbol === initialTokenInSymbol &&
+    storedTokenOutSymbol === initialTokenOutSymbol;
+
+  const initialAmount = hasUrlParams
+    ? opts?.initialAmount || ""
+    : canReuseStoredDraft
+      ? formValues?.amount || ""
+      : "";
+
+  const initialQuote = canReuseStoredDraft ? formValues?.quote || "" : "";
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      amount: opts?.initialAmount || formValues?.amount || "",
-      quote: formValues?.quote || "",
-      tokenInSymbol:
-        validatedInitialFrom ||
-        formValues?.tokenInSymbol ||
-        ("USDC" as TokenSymbol),
-      tokenOutSymbol:
-        validatedInitialTo || formValues?.tokenOutSymbol || "USDm",
+      amount: initialAmount,
+      quote: initialQuote,
+      tokenInSymbol: initialTokenInSymbol,
+      tokenOutSymbol: initialTokenOutSymbol,
       slippage: formValues?.slippage || "0.3",
     },
     mode: "onChange",
@@ -109,37 +159,44 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
   const amount = useWatch({ control: form.control, name: "amount" });
   const formQuote = useWatch({ control: form.control, name: "quote" });
 
+  useSwapUrlSync({
+    amount,
+    tokenInSymbol,
+    tokenOutSymbol,
+    urlChainId: formChainId,
+  });
+
   // Token balances
   const fromTokenBalance = useMemo(() => {
     const balanceValue = balances[tokenInSymbol as keyof typeof balances];
     const balance = formatBalance(
       balanceValue,
-      getTokenDecimals(tokenInSymbol, chainId),
+      getTokenDecimals(tokenInSymbol, formChainId),
     );
     return formatWithMaxDecimals(balance || "0.00");
-  }, [balances, tokenInSymbol, chainId]);
+  }, [balances, tokenInSymbol, formChainId]);
 
   const toTokenBalance = useMemo(() => {
     const balanceValue = balances[tokenOutSymbol as keyof typeof balances];
     const balance = fromWeiRounded(
       balanceValue,
-      getTokenDecimals(tokenOutSymbol, chainId),
+      getTokenDecimals(tokenOutSymbol, formChainId),
     );
     return formatWithMaxDecimals(balance || "0.00");
-  }, [balances, tokenOutSymbol, chainId]);
+  }, [balances, tokenOutSymbol, formChainId]);
 
   // Trading limits
   const { data: limits, isLoading: limitsLoading } = useTradingLimits(
     tokenInSymbol,
     tokenOutSymbol,
-    chainId,
+    formChainId,
   );
 
   // Trading suspension
   const {
     isSuspended: isTradingSuspended,
     isLoading: isSuspensionCheckLoading,
-  } = useTradingSuspensionCheck(tokenInSymbol, tokenOutSymbol);
+  } = useTradingSuspensionCheck(tokenInSymbol, tokenOutSymbol, formChainId);
 
   // ── Validation ──────────────────────────────────────────────────────
 
@@ -327,7 +384,7 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     let maxAmountInWei: string = String(
       balances[tokenInSymbol as keyof typeof balances] || "0",
     );
-    const decimals = getTokenDecimals(tokenInSymbol, chainId);
+    const decimals = getTokenDecimals(tokenInSymbol, formChainId);
 
     if (tokenInSymbol === nativeTokenSymbol) {
       const gasReserveWei = BigInt("10000000000000000"); // 0.01 CELO
@@ -395,6 +452,7 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     tokenInSymbol,
     tokenOutSymbol,
     {
+      chainId: formChainId,
       insufficientLiquidityFallbackUrl: env.NEXT_PUBLIC_BANNER_LINK,
     },
   );
@@ -407,10 +465,10 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
   // Reset token selections when chain changes
   useEffect(() => {
-    if (prevChainIdRef.current === chainId) return;
-    prevChainIdRef.current = chainId;
+    if (prevChainIdRef.current === formChainId) return;
+    prevChainIdRef.current = formChainId;
 
-    const availableTokens = getTokenOptionsByChainId(chainId);
+    const availableTokens = getTokenOptionsByChainId(formChainId);
     const availableSet = new Set<TokenSymbol>(availableTokens);
 
     const currentTokenIn = form.getValues("tokenInSymbol") as TokenSymbol;
@@ -427,7 +485,7 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
       return;
     }
 
-    const preferredQuote = getPreferredUsdQuoteTokenSymbol(chainId);
+    const preferredQuote = getPreferredUsdQuoteTokenSymbol(formChainId);
 
     const newTokenIn: string = tokenInValid
       ? currentTokenIn
@@ -460,7 +518,7 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
         : prev,
     );
     setLastChangedToken(null);
-  }, [chainId, form, setFormValues]);
+  }, [form, formChainId, setFormValues]);
 
   useEffect(() => {
     if (isError) {
@@ -619,14 +677,14 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
   const amountInWei = useMemo(() => {
     if (!tokenInSymbol) return "0";
     return amount
-      ? toWei(amount, getTokenDecimals(tokenInSymbol, chainId)).toFixed(0)
+      ? toWei(amount, getTokenDecimals(tokenInSymbol, formChainId)).toFixed(0)
       : "0";
-  }, [amount, tokenInSymbol, chainId]);
+  }, [amount, tokenInSymbol, formChainId]);
 
   // ── Allowance & approval ────────────────────────────────────────────
 
   const { skipApprove } = useSwapAllowance({
-    chainId,
+    chainId: formChainId,
     tokenInSymbol,
     tokenOutSymbol,
     approveAmount: amountInWei,
@@ -634,14 +692,14 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
   });
 
   const { sendApproveTx, isApproveTxLoading } = useApproveTransaction({
-    chainId,
+    chainId: formChainId,
     tokenInSymbol,
     tokenOutSymbol,
     amountInWei,
     accountAddress: address,
     onSuccess: (receipt) => {
       logger.info("Approval transaction confirmed");
-      const chain = chainIdToChain[chainId];
+      const chain = chainIdToChain[formChainId];
       const explorerUrl = chain?.blockExplorers?.default.url;
       const explorerName =
         chain?.blockExplorers?.default?.name || CELO_EXPLORER.name;
@@ -745,8 +803,14 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
   // ── Token pair validation ───────────────────────────────────────────
 
-  const { data: fromTokenTradablePairs } = useTradablePairs(tokenInSymbol);
-  const { data: toTokenTradablePairs } = useTradablePairs(tokenOutSymbol);
+  const { data: fromTokenTradablePairs } = useTradablePairs(
+    tokenInSymbol,
+    formChainId,
+  );
+  const { data: toTokenTradablePairs } = useTradablePairs(
+    tokenOutSymbol,
+    formChainId,
+  );
 
   // Reset form fields after a successful swap (formValues.amount is cleared but tokens preserved)
   useEffect(() => {
@@ -797,6 +861,7 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
   return {
     form,
     isConnected,
+    formChainId,
 
     // Refs
     amountRef,
