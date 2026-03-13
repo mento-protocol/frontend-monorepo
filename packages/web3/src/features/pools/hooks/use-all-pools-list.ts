@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { ChainId } from "@/config/chains";
 import { IS_DEBUG } from "@/utils/environment";
 import { usePoolsList } from "./use-pools-list";
@@ -39,12 +38,8 @@ export function useAllPoolsList() {
   const isLoading = allQueries.some((q) => q.isLoading);
   const isError = allQueries.every((q) => q.isError);
 
-  const data = useMemo<PoolDisplay[]>(
-    () => {
-      return sortPoolsByTvl(allQueries.flatMap((q) => q.data ?? []));
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    },
-    allQueries.map((q) => q.data),
+  const data: PoolDisplay[] = sortPoolsByTvl(
+    allQueries.flatMap((q) => q.data ?? []),
   );
 
   const refetch = async () => {
