@@ -3,7 +3,11 @@
 import { useState, useMemo } from "react";
 import { Star, X, ExternalLink } from "lucide-react";
 import { Badge, Button } from "@repo/ui";
-import type { PoolRewardInfo, PoolDisplay } from "@repo/web3";
+import {
+  getPoolRewardKey,
+  type PoolRewardInfo,
+  type PoolDisplay,
+} from "@repo/web3";
 
 interface RewardsCampaignBannerProps {
   rewards: Map<string, PoolRewardInfo>;
@@ -22,7 +26,7 @@ export function RewardsCampaignBanner({
     let eligibleCount = 0;
 
     for (const pool of pools) {
-      const reward = rewards.get(pool.poolAddr.toLowerCase());
+      const reward = rewards.get(getPoolRewardKey(pool.chainId, pool.poolAddr));
       if (!reward) continue;
       eligibleCount++;
       if (reward.apr > maxApr) maxApr = reward.apr;

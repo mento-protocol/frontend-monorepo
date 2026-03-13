@@ -1,5 +1,9 @@
 import { Skeleton } from "@repo/ui";
-import type { PoolDisplay, PoolRewardInfo } from "@repo/web3";
+import {
+  getPoolRewardKey,
+  type PoolDisplay,
+  type PoolRewardInfo,
+} from "@repo/web3";
 import { PoolRow } from "./pool-row";
 
 interface PoolsTableProps {
@@ -74,7 +78,9 @@ export function PoolsTable({
               pool={pool}
               onSelect={onSelectPool}
               poolHref={getPoolHref?.(pool)}
-              rewards={rewards?.get(pool.poolAddr.toLowerCase())}
+              rewards={rewards?.get(
+                getPoolRewardKey(pool.chainId, pool.poolAddr),
+              )}
             />
           ))
         )}

@@ -7,6 +7,7 @@ import { Button, Input, cn } from "@repo/ui";
 import {
   useAllPoolsList,
   usePoolRewards,
+  getPoolRewardKey,
   chainIdToSlug,
   chainIdToChain,
   ChainId,
@@ -75,7 +76,9 @@ export function PoolsView() {
 
     // Rewards filter
     if (showRewardsOnly) {
-      result = result.filter((p) => rewards.has(p.poolAddr.toLowerCase()));
+      result = result.filter((p) =>
+        rewards.has(getPoolRewardKey(p.chainId, p.poolAddr)),
+      );
     }
 
     // Search
