@@ -25,6 +25,7 @@ interface SwapSubmitButtonProps {
   hasValidQuote: boolean;
   shouldApprove: string | boolean;
   allTokenOptions: TokenWithBalance[];
+  wrongChainName?: string;
 }
 
 export function SwapSubmitButton({
@@ -46,6 +47,7 @@ export function SwapSubmitButton({
   hasValidQuote,
   shouldApprove,
   allTokenOptions,
+  wrongChainName,
 }: SwapSubmitButtonProps) {
   if (!isConnected) {
     return (
@@ -55,6 +57,20 @@ export function SwapSubmitButton({
         fullWidth
         shouldShowAddress={false}
       />
+    );
+  }
+
+  if (wrongChainName) {
+    return (
+      <Button
+        className="mt-auto w-full"
+        size="lg"
+        clipped="lg"
+        type="button"
+        disabled
+      >
+        Switch to {wrongChainName} to swap
+      </Button>
     );
   }
 

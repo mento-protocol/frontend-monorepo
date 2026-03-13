@@ -25,6 +25,7 @@ interface BuyTokenInputProps {
   formQuote: string;
   buyUSDValue: string;
   toTokenBalance: string;
+  chainId: number;
   tokenInSymbol: TokenSymbol;
   allTokenOptions: TokenWithBalance[];
   setLastChangedToken: (t: "from" | "to" | null) => void;
@@ -36,6 +37,7 @@ export function BuyTokenInput({
   formQuote,
   buyUSDValue,
   toTokenBalance,
+  chainId,
   tokenInSymbol,
   allTokenOptions,
   setLastChangedToken,
@@ -92,6 +94,7 @@ export function BuyTokenInput({
                     setLastChangedToken("to");
                   }}
                   title="Select asset to buy"
+                  chainId={chainId}
                   excludeTokenSymbol={tokenInSymbol}
                   filterByTokenSymbol={tokenInSymbol}
                   onClose={() => {

@@ -55,6 +55,7 @@ interface UseSwapQuoteOptions {
   debounceMs?: number;
   validatePoolLiquidity?: boolean;
   insufficientLiquidityFallbackUrl?: string;
+  chainId?: number;
 }
 
 function isSameAddress(addressA: string, addressB: string): boolean {
@@ -122,8 +123,10 @@ export function useSwapQuote(
     debounceMs = 350,
     validatePoolLiquidity = true,
     insufficientLiquidityFallbackUrl,
+    chainId: chainIdOverride,
   } = options;
-  const chainId = useChainId();
+  const walletChainId = useChainId();
+  const chainId = chainIdOverride ?? walletChainId;
   const publicClient = usePublicClient({ chainId });
   const queryClient = useQueryClient();
   const debouncedAmount = useDebounce(amount, debounceMs);
@@ -408,8 +411,10 @@ export function useSwapQuote(
 export function useTokenUSDValue(
   tokenSymbol: TokenSymbol,
   amount: string | number,
+  chainIdOverride?: number,
 ) {
-  const chainId = useChainId();
+  const walletChainId = useChainId();
+  const chainId = chainIdOverride ?? walletChainId;
   const isUsdQuoteToken = useMemo(
     () => isUsdQuoteTokenSymbol(tokenSymbol),
     [tokenSymbol],
@@ -419,7 +424,7 @@ export function useTokenUSDValue(
     [amount],
   );
   const usdQuoteTokenSymbol = useMemo(
-    () => getPreferredUsdQuoteTokenSymbol(chainId),
+    () => (chainId ? getPreferredUsdQuoteTokenSymbol(chainId) : null),
     [chainId],
   );
 
@@ -429,6 +434,7 @@ export function useTokenUSDValue(
     tokenSymbol,
     usdQuoteTokenSymbol ?? tokenSymbol,
     {
+      chainId,
       skipDebugLogs: true,
       validatePoolLiquidity: false,
     },
@@ -454,9 +460,13 @@ export function useOptimizedSwapQuote(
   amount: string | number,
   tokenInSymbol: TokenSymbol,
   tokenOutSymbol: TokenSymbol,
-  options: Pick<UseSwapQuoteOptions, "insufficientLiquidityFallbackUrl"> = {},
+  options: Pick<
+    UseSwapQuoteOptions,
+    "chainId" | "insufficientLiquidityFallbackUrl"
+  > = {},
 ) {
   const mainQuote = useSwapQuote(amount, tokenInSymbol, tokenOutSymbol, {
+    chainId: options.chainId,
     insufficientLiquidityFallbackUrl: options.insufficientLiquidityFallbackUrl,
   });
 
@@ -464,8 +474,16 @@ export function useOptimizedSwapQuote(
   const fromAmount = amount;
   const toAmount = mainQuote.quote;
 
-  const fromTokenUSDValue = useTokenUSDValue(tokenInSymbol, fromAmount);
-  const toTokenUSDValue = useTokenUSDValue(tokenOutSymbol, toAmount);
+  const fromTokenUSDValue = useTokenUSDValue(
+    tokenInSymbol,
+    fromAmount,
+    options.chainId,
+  );
+  const toTokenUSDValue = useTokenUSDValue(
+    tokenOutSymbol,
+    toAmount,
+    options.chainId,
+  );
 
   return useMemo(
     () => ({

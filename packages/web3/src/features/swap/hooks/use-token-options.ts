@@ -10,13 +10,17 @@ import { useAccount } from "wagmi";
 export function useTokenOptions(
   tokenInSymbol?: TokenSymbol,
   balancesFromHook?: AccountBalances,
+  chainIdOverride?: number,
 ) {
   const { chain } = useAccount();
-  const chainId = useMemo(() => chain?.id ?? Celo.id, [chain]);
+  const chainId = useMemo(
+    () => chainIdOverride ?? chain?.id ?? Celo.id,
+    [chain?.id, chainIdOverride],
+  );
   const [swappableTokens, setSwappableTokens] = useState<TokenSymbol[]>([]);
 
   // Get cached tokens synchronously from SDK
-  const tokens = useSDKTokens();
+  const tokens = useSDKTokens(chainId);
   const isLoading = Object.keys(tokens).length === 0;
 
   // Get all available token IDs from SDK
