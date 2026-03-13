@@ -10,7 +10,7 @@ export function getBridgeTheme(mode: "dark" | "light"): WormholeConnectTheme {
   return {
     mode,
     background: "transparent",
-    formBackground: "transparent",
+    formBackground: isDark ? "#161322" : "#FFFFFF",
     formBorder: "transparent",
     input: isDark ? "#2C2936" : "#F3F1F7",
     inputFillTreatment: true,
