@@ -27,6 +27,7 @@
     "@tanstack/react-query": "catalog:",
     "@vercel/analytics": "catalog:",
     "@wormhole-foundation/wormhole-connect": "^5.1.0",
+    "@wagmi/core": "catalog:",
     "jotai": "catalog:",
     "lucide-react": "catalog:",
     "next": "catalog:",

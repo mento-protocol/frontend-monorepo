@@ -20,6 +20,7 @@ export interface LiquidityFlowState {
   operation: string;
   steps: LiquidityFlowStep[];
   currentStepIndex: number;
+  chainId?: number;
 }
 
 // ---------------------------------------------------------------------------

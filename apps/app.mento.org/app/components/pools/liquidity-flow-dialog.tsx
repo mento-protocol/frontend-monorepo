@@ -183,7 +183,7 @@ function FlowStep({
 
 export function LiquidityFlowDialog() {
   const [flow, setFlow] = useAtom(liquidityFlowAtom);
-  const explorerUrl = useExplorerUrl();
+  const explorerUrl = useExplorerUrl(flow?.chainId);
 
   if (!flow) return null;
 

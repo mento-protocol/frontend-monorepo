@@ -16,13 +16,16 @@ export interface RemoveLiquidityQuoteResult {
 interface UseRemoveLiquidityQuoteParams {
   pool: PoolDisplay;
   lpAmount: string;
+  chainId?: ChainId;
 }
 
 export function useRemoveLiquidityQuote({
   pool,
   lpAmount,
+  chainId,
 }: UseRemoveLiquidityQuoteParams) {
-  const chainId = useChainId() as ChainId;
+  const walletChainId = useChainId() as ChainId;
+  const resolvedChainId = chainId ?? walletChainId;
 
   const debouncedAmount = useDebounce(lpAmount, 350);
   const isValidAmount = !!debouncedAmount && Number(debouncedAmount) > 0;
@@ -32,12 +35,12 @@ export function useRemoveLiquidityQuote({
       "remove-liquidity-quote",
       pool.poolAddr,
       debouncedAmount,
-      chainId,
+      resolvedChainId,
     ],
     queryFn: async () => {
       if (!isValidAmount) return null;
 
-      const sdk = await getMentoSdk(chainId);
+      const sdk = await getMentoSdk(resolvedChainId);
       const liquidityWei = parseUnits(debouncedAmount, 18);
 
       const quote = await sdk.liquidity.quoteRemoveLiquidity(

@@ -1,6 +1,14 @@
 import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 import { env } from "@/env.mjs";
+import path from "node:path";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const storageHostname = env.NEXT_PUBLIC_STORAGE_URL.replace(
+  /^https?:\/\/([^/]+)\/?.*$/,
+  "$1",
+);
 
 const nextConfig: NextConfig = {
   // We use trunk to lint the code in a separate step, disable eslint during build for faster builds
@@ -11,11 +19,13 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: "https",
-        hostname: env.NEXT_PUBLIC_STORAGE_URL.replace(
-          /^https?:\/\/([^/]+)\/?.*$/,
-          "$1",
-        ),
-        pathname: "/app/*|/shared/*",
+        hostname: storageHostname,
+        pathname: "/app/**",
+      },
+      {
+        protocol: "https",
+        hostname: storageHostname,
+        pathname: "/shared/**",
       },
     ],
   },
@@ -25,20 +35,22 @@ const nextConfig: NextConfig = {
     "@wagmi/core",
     "@rainbow-me/rainbowkit",
   ],
+  // NOTE: dev & build both use --turbopack, which ignores the webpack hook.
+  // Turbopack deduplicates wagmi via transpilePackages + pnpm hoisting.
+  // The webpack block below is kept only as a safety net for any future
+  // non-Turbopack invocation (e.g. if Sentry's build step runs webpack).
   webpack: (config) => {
-    // Ignore React Native modules that are not needed in web builds
     config.resolve.fallback = {
       ...config.resolve.fallback,
       "@react-native-async-storage/async-storage": false,
       "react-native": false,
     };
-
-    // Add alias to prevent webpack from trying to resolve these modules
     config.resolve.alias = {
       ...config.resolve.alias,
       "@react-native-async-storage/async-storage": false,
+      wagmi: path.dirname(require.resolve("wagmi/package.json")),
+      "@wagmi/core": path.dirname(require.resolve("@wagmi/core/package.json")),
     };
-
     return config;
   },
 };

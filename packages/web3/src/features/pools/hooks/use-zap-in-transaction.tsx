@@ -35,9 +35,10 @@ function isAllowanceError(message: string): boolean {
   return /allowance|insufficient allowance|exceeds allowance/i.test(message);
 }
 
-export function useZapInTransaction(pool: PoolDisplay) {
-  const chainId = useChainId() as ChainId;
-  const publicClient = usePublicClient({ chainId });
+export function useZapInTransaction(pool: PoolDisplay, chainId?: ChainId) {
+  const walletChainId = useChainId() as ChainId;
+  const resolvedChainId = chainId ?? walletChainId;
+  const publicClient = usePublicClient({ chainId: resolvedChainId });
   const queryClient = useQueryClient();
 
   const [buildResult, setBuildResult] = useState<ZapInTransaction | null>(null);
@@ -74,10 +75,10 @@ export function useZapInTransaction(pool: PoolDisplay) {
             token0Symbol: pool.token0.symbol,
             token1Symbol: pool.token1.symbol,
             txHash: receipt.transactionHash,
-            chainId,
+            chainId: resolvedChainId,
           });
           queryClient.invalidateQueries({
-            queryKey: ["pools-list", chainId],
+            queryKey: ["pools-list", resolvedChainId],
           });
           queryClient.invalidateQueries({ queryKey: ["readContract"] });
         } else {
@@ -92,7 +93,7 @@ export function useZapInTransaction(pool: PoolDisplay) {
         logger.error("Error waiting for zap-in receipt:", err);
         toast.error("Failed to confirm zap-in transaction.");
       });
-  }, [txHash, publicClient, pool, chainId, queryClient]);
+  }, [txHash, publicClient, pool, resolvedChainId, queryClient]);
 
   const buildTransaction = useCallback(
     async (
@@ -104,7 +105,7 @@ export function useZapInTransaction(pool: PoolDisplay) {
       setIsBuilding(true);
       setBuildError(null);
       try {
-        const sdk = await getMentoSdk(chainId);
+        const sdk = await getMentoSdk(resolvedChainId);
 
         if (!publicClient) throw new Error("Public client not available");
         const block = await publicClient.getBlock();
@@ -159,7 +160,7 @@ export function useZapInTransaction(pool: PoolDisplay) {
         setIsBuilding(false);
       }
     },
-    [chainId, pool, publicClient],
+    [resolvedChainId, pool, publicClient],
   );
 
   const sendZapIn = useCallback(

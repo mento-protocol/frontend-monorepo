@@ -6,13 +6,7 @@ import {
   PopoverTrigger,
   CopyToClipboard,
 } from "@repo/ui";
-import {
-  useExplorerUrl,
-  getExplorerUrl,
-  shortenAddress,
-  chainIdToSlug,
-} from "@repo/web3";
-import { useChainId } from "@repo/web3/wagmi";
+import { getExplorerUrl, shortenAddress, chainIdToSlug } from "@repo/web3";
 import type { PoolDisplay } from "@repo/web3";
 import { Info, ExternalLink, Link2, Check } from "lucide-react";
 import { useState } from "react";
@@ -62,12 +56,8 @@ export function PoolAddressPopover({
   pool,
   chainId: overrideChainId,
 }: PoolAddressPopoverProps) {
-  const walletExplorerUrl = useExplorerUrl();
-  const walletChainId = useChainId();
-  const resolvedChainId = overrideChainId ?? walletChainId;
-  const explorerUrl = overrideChainId
-    ? getExplorerUrl(overrideChainId)
-    : walletExplorerUrl;
+  const resolvedChainId = overrideChainId ?? pool.chainId;
+  const explorerUrl = getExplorerUrl(resolvedChainId);
   const [open, setOpen] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
 
