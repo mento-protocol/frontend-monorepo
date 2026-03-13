@@ -1,5 +1,5 @@
 import { addresses, ContractAddresses } from "@mento-protocol/mento-sdk";
-import { Address, Chain } from "viem";
+import { Address } from "viem";
 import {
   celoSepolia,
   monad as viemMonad,
@@ -111,7 +111,7 @@ export const Celo: MentoChain = {
     ...celo.contracts,
     ...transformToChainContracts(addresses[celo.id]),
   },
-} as const satisfies Chain;
+} as const satisfies MentoChain;
 
 export const MonadTestnet: MentoChain = {
   ...viemMonadTestnet,
