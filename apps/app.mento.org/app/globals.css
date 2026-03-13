@@ -29,3 +29,8 @@ html body[data-scroll-locked] {
 .bridge-widget {
   font-family: var(--font-sans), "Geist Sans", sans-serif !important;
 }
+
+/* Normalize Wormhole button label weight (incl. 25/50/Max chips) */
+.bridge-widget .MuiButton-root .MuiTypography-root {
+  font-weight: 500 !important;
+}
