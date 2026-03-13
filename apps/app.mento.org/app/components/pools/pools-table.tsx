@@ -1,5 +1,5 @@
 import { Skeleton } from "@repo/ui";
-import type { PoolDisplay } from "@repo/web3";
+import type { PoolDisplay, PoolRewardInfo } from "@repo/web3";
 import { PoolRow } from "./pool-row";
 
 interface PoolsTableProps {
@@ -7,11 +7,12 @@ interface PoolsTableProps {
   isLoading: boolean;
   onSelectPool: (pool: PoolDisplay, mode: "deposit" | "manage") => void;
   getPoolHref?: (pool: PoolDisplay) => string;
+  rewards?: Map<string, PoolRewardInfo>;
 }
 
 function SkeletonRow() {
   return (
-    <div className="gap-4 md:gap-8 px-4 py-4 md:grid md:grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,1fr)] md:items-center flex flex-col rounded-lg border border-border bg-card">
+    <div className="gap-4 md:gap-4 px-4 py-4 md:grid md:grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,0.7fr)_minmax(0,1fr)] md:items-center flex flex-col rounded-lg border border-border bg-card">
       <div className="gap-3 flex items-center">
         <div className="-space-x-2 flex">
           <Skeleton className="h-8 w-8 rounded-full" />
@@ -37,11 +38,12 @@ export function PoolsTable({
   isLoading,
   onSelectPool,
   getPoolHref,
+  rewards,
 }: PoolsTableProps) {
   return (
     <div className="min-h-0 flex flex-1 flex-col">
       {/* Header - hidden on mobile */}
-      <div className="gap-8 px-4 py-3 md:grid hidden shrink-0 grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,1fr)] rounded-lg border border-border bg-card">
+      <div className="gap-4 px-4 py-3 md:grid hidden shrink-0 grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,0.7fr)_minmax(0,1fr)] rounded-lg border border-border bg-card">
         <span className="text-sm font-medium text-muted-foreground">Pool</span>
         <span className="text-sm font-medium text-muted-foreground">
           Reserves
@@ -68,10 +70,11 @@ export function PoolsTable({
         ) : (
           pools.map((pool) => (
             <PoolRow
-              key={pool.poolAddr}
+              key={`${pool.chainId}-${pool.poolAddr}`}
               pool={pool}
               onSelect={onSelectPool}
               poolHref={getPoolHref?.(pool)}
+              rewards={rewards?.get(pool.poolAddr.toLowerCase())}
             />
           ))
         )}

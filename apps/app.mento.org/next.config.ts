@@ -1,6 +1,10 @@
 import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 import { env } from "@/env.mjs";
+import path from "node:path";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
 
 const nextConfig: NextConfig = {
   // We use trunk to lint the code in a separate step, disable eslint during build for faster builds
@@ -34,9 +38,12 @@ const nextConfig: NextConfig = {
     };
 
     // Add alias to prevent webpack from trying to resolve these modules
+    // Force single wagmi instance to avoid duplicate React context across packages
     config.resolve.alias = {
       ...config.resolve.alias,
       "@react-native-async-storage/async-storage": false,
+      wagmi: path.dirname(require.resolve("wagmi/package.json")),
+      "@wagmi/core": path.dirname(require.resolve("@wagmi/core/package.json")),
     };
 
     return config;

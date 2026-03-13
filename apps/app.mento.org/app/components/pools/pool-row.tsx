@@ -1,5 +1,11 @@
+import { Star } from "lucide-react";
 import { Badge, Button, TokenIcon, cn } from "@repo/ui";
-import { type PoolDisplay } from "@repo/web3";
+import {
+  type PoolDisplay,
+  type PoolRewardInfo,
+  chainIdToChain,
+  type ChainId,
+} from "@repo/web3";
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, type Address } from "viem";
 import Link from "next/link";
@@ -20,9 +26,10 @@ interface PoolRowProps {
   pool: PoolDisplay;
   onSelect: (pool: PoolDisplay, mode: "deposit" | "manage") => void;
   poolHref?: string;
+  rewards?: PoolRewardInfo;
 }
 
-export function PoolRow({ pool, onSelect, poolHref }: PoolRowProps) {
+export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
   const { address } = useAccount();
 
   const { data: lpBalance } = useReadContract({
@@ -50,9 +57,9 @@ export function PoolRow({ pool, onSelect, poolHref }: PoolRowProps) {
         isLegacy && "opacity-60",
       )}
     >
-      <div className="gap-4 px-4 py-4 md:grid md:grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,1fr)] md:items-center md:gap-8 flex flex-col">
+      <div className="gap-4 px-4 py-4 md:grid md:grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,0.7fr)_minmax(0,1fr)] md:items-center md:gap-4 flex flex-col">
         <div className="gap-3 flex items-center">
-          <div className="-space-x-2 flex">
+          <div className="-space-x-2 flex shrink-0">
             <TokenIcon
               token={{
                 address: pool.token0.address,
@@ -76,6 +83,7 @@ export function PoolRow({ pool, onSelect, poolHref }: PoolRowProps) {
               <span className="text-sm font-medium">
                 {pool.token0.symbol} / {pool.token1.symbol}
               </span>
+              <ChainBadge chainId={pool.chainId} />
               <PoolAddressPopover pool={pool} />
             </div>
 
@@ -83,7 +91,7 @@ export function PoolRow({ pool, onSelect, poolHref }: PoolRowProps) {
               <Badge
                 variant="secondary"
                 className={cn(
-                  "px-1.5 py-0 text-[10px]",
+                  "px-1 py-0 text-[10px]",
                   pool.poolType === "FPMM"
                     ? "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400"
                     : "",
@@ -92,10 +100,20 @@ export function PoolRow({ pool, onSelect, poolHref }: PoolRowProps) {
                 {pool.poolType === "FPMM" ? "FPMM" : "LEGACY"}
               </Badge>
 
+              {rewards && (
+                <Badge
+                  variant="secondary"
+                  className="gap-1 px-1 py-0 bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300 font-semibold text-[10px]"
+                >
+                  <Star className="h-2.5 w-2.5 fill-current" />+
+                  {rewards.apr.toFixed(1)}%
+                </Badge>
+              )}
+
               {pool.poolType === "FPMM" && rebalanceDue && (
                 <Badge
                   variant="secondary"
-                  className="gap-1.5 px-1.5 py-0 bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400 text-[10px]"
+                  className="gap-1 px-1 py-0 bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400 text-[10px]"
                 >
                   <span className="h-1.5 w-1.5 rounded-full bg-current" />
                   Rebalance Due
@@ -210,5 +228,25 @@ export function PoolRow({ pool, onSelect, poolHref }: PoolRowProps) {
         </div>
       </div>
     </div>
+  );
+}
+
+function ChainBadge({ chainId }: { chainId: ChainId }) {
+  const chain = chainIdToChain[chainId];
+  if (!chain) return null;
+
+  const iconUrl = (chain as unknown as Record<string, unknown>)?.iconUrl as
+    | string
+    | undefined;
+
+  if (!iconUrl) return null;
+
+  return (
+    <img
+      src={iconUrl}
+      alt={chain.name}
+      className="h-4 w-4 rounded-full"
+      title={chain.name}
+    />
   );
 }

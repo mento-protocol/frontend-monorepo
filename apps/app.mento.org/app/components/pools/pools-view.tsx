@@ -2,17 +2,23 @@
 
 import { useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Droplets, RefreshCw } from "lucide-react";
+import { Search, Star, Droplets, RefreshCw } from "lucide-react";
 import { Button, Input, cn } from "@repo/ui";
 import {
-  usePoolsList,
+  useAllPoolsList,
+  usePoolRewards,
   chainIdToSlug,
+  chainIdToChain,
+  ChainId,
   type PoolFilterType,
+  type ChainFilterType,
   type PoolDisplay,
+  type PoolRewardInfo,
 } from "@repo/web3";
-import { useChainId } from "@repo/web3/wagmi";
+import { MAINNET_CHAINS } from "@repo/web3";
 import { PoolsTable } from "./pools-table";
 import { LiquidityFlowDialog } from "./liquidity-flow-dialog";
+import { RewardsCampaignBanner } from "./rewards-campaign-banner";
 
 const filterTabs: { value: PoolFilterType; label: string }[] = [
   { value: "all", label: "All Pools" },
@@ -20,37 +26,59 @@ const filterTabs: { value: PoolFilterType; label: string }[] = [
   { value: "legacy", label: "Legacy" },
 ];
 
+const chainFilters: { value: ChainFilterType; label: string }[] = [
+  { value: "all", label: "All" },
+  ...MAINNET_CHAINS.map((id) => ({
+    value: id as ChainFilterType,
+    label: chainIdToChain[id]?.name ?? `Chain ${id}`,
+  })),
+];
+
 export function PoolsView() {
-  const { data: pools = [], isLoading, isError, refetch } = usePoolsList();
+  const { data: pools = [], isLoading, isError, refetch } = useAllPoolsList();
+  const { rewards } = usePoolRewards();
   const [filter, setFilter] = useState<PoolFilterType>("all");
+  const [chainFilter, setChainFilter] = useState<ChainFilterType>("all");
+  const [showRewardsOnly, setShowRewardsOnly] = useState(false);
   const [search, setSearch] = useState("");
   const router = useRouter();
-  const chainId = useChainId();
-
-  const chainSlug = chainIdToSlug(chainId);
 
   const handleSelectPool = useCallback(
     (pool: PoolDisplay, mode: "deposit" | "manage") => {
+      const slug = chainIdToSlug(pool.chainId);
       const modeParam = mode === "manage" ? "?mode=manage" : "";
-      router.push(`/pools/${chainSlug}/${pool.poolAddr}${modeParam}`);
+      router.push(`/pools/${slug}/${pool.poolAddr}${modeParam}`);
     },
-    [chainSlug, router],
+    [router],
   );
 
   const getPoolHref = useCallback(
-    (pool: PoolDisplay) => `/pools/${chainSlug}/${pool.poolAddr}`,
-    [chainSlug],
+    (pool: PoolDisplay) =>
+      `/pools/${chainIdToSlug(pool.chainId)}/${pool.poolAddr}`,
+    [],
   );
 
   const filteredPools = useMemo(() => {
     let result = pools;
 
+    // Pool type filter
     if (filter === "fpmm") {
       result = result.filter((p) => p.poolType === "FPMM");
     } else if (filter === "legacy") {
       result = result.filter((p) => p.poolType === "Legacy");
     }
 
+    // Chain filter
+    if (chainFilter !== "all") {
+      result = result.filter((p) => p.chainId === chainFilter);
+    }
+
+    // Rewards filter
+    if (showRewardsOnly) {
+      result = result.filter((p) => rewards.has(p.poolAddr.toLowerCase()));
+    }
+
+    // Search
     if (search.trim()) {
       const query = search.toLowerCase();
       result = result.filter(
@@ -64,7 +92,7 @@ export function PoolsView() {
     }
 
     return result;
-  }, [pools, filter, search]);
+  }, [pools, filter, chainFilter, showRewardsOnly, rewards, search]);
 
   const hasLegacyPools = useMemo(
     () =>
@@ -87,14 +115,21 @@ export function PoolsView() {
             </span>
             <h1 className="mt-2 font-bold text-3xl">Pool</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Explore pools, view on-chain metrics, and provide liquidity.
+              Explore pools across all chains, view on-chain metrics, and
+              provide liquidity.
             </p>
           </div>
         </div>
 
+        {/* Rewards Campaign Banner */}
+        {rewards.size > 0 && (
+          <RewardsCampaignBanner rewards={rewards} pools={pools} />
+        )}
+
         {!showPoolsError && (isLoading || pools.length > 0) && (
           <div className="gap-4 md:flex-row md:items-center md:justify-between flex flex-col">
-            <div className="md:w-auto md:justify-start flex w-full items-center justify-center">
+            <div className="md:w-auto md:justify-start flex w-full flex-wrap items-center justify-center">
+              {/* Pool type filters */}
               {filterTabs.map((tab) => (
                 <button
                   key={tab.value}
@@ -109,11 +144,51 @@ export function PoolsView() {
                   {tab.label}
                 </button>
               ))}
+
+              {/* Divider */}
+              <div className="mx-1 h-5 md:block hidden w-px bg-border" />
+
+              {/* Chain filters (toggles) */}
+              {chainFilters.map((cf) => (
+                <button
+                  key={String(cf.value)}
+                  onClick={() => setChainFilter(cf.value)}
+                  className={cn(
+                    "gap-1.5 px-4 py-2 text-sm font-medium inline-flex cursor-pointer items-center border-0 transition-colors outline-none",
+                    chainFilter === cf.value
+                      ? "bg-card text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {cf.value !== "all" && (
+                    <ChainIcon chainId={cf.value as ChainId} />
+                  )}
+                  {cf.label}
+                </button>
+              ))}
+
+              {/* Divider */}
+              <div className="mx-1 h-5 md:block hidden w-px bg-border" />
+
+              {/* Rewards toggle */}
+              <button
+                onClick={() => setShowRewardsOnly(!showRewardsOnly)}
+                className={cn(
+                  "gap-1.5 px-4 py-2 text-sm font-medium inline-flex cursor-pointer items-center border-0 transition-colors outline-none",
+                  showRewardsOnly
+                    ? "bg-card text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Star className="h-3.5 w-3.5" />
+                Rewards
+              </button>
             </div>
+
             <div className="relative">
               <Search className="left-3 h-4 w-4 absolute top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Search by name, symbol or pool address"
+                placeholder="Search pools..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="h-9 pl-9 md:w-96 w-full"
@@ -133,6 +208,7 @@ export function PoolsView() {
               isLoading={isLoading}
               onSelectPool={handleSelectPool}
               getPoolHref={getPoolHref}
+              rewards={rewards}
             />
           )}
 
@@ -152,6 +228,23 @@ export function PoolsView() {
   );
 }
 
+function ChainIcon({ chainId }: { chainId: ChainId }) {
+  const chain = chainIdToChain[chainId];
+  const iconUrl = (chain as unknown as Record<string, unknown>)?.iconUrl as
+    | string
+    | undefined;
+
+  if (!iconUrl) return null;
+
+  return (
+    <img
+      src={iconUrl}
+      alt={chain?.name ?? ""}
+      className="h-4 w-4 rounded-full"
+    />
+  );
+}
+
 function PoolsErrorState({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="px-6 py-14 relative overflow-hidden rounded-xl border border-border bg-card text-center">
@@ -167,8 +260,7 @@ function PoolsErrorState({ onRetry }: { onRetry: () => void }) {
         Unable to load pools
       </h2>
       <p className="max-w-sm text-sm leading-relaxed mx-auto text-muted-foreground">
-        The pools list could not be loaded from the current RPC right now. Try
-        again in a moment.
+        The pools list could not be loaded right now. Try again in a moment.
       </p>
 
       <Button onClick={onRetry} size="lg" className="mt-8 gap-2.5">
@@ -182,10 +274,8 @@ function PoolsErrorState({ onRetry }: { onRetry: () => void }) {
 function NoPoolsState() {
   return (
     <div className="px-6 py-14 relative overflow-hidden rounded-xl border border-border bg-card text-center">
-      {/* Top accent line */}
       <div className="top-0 w-48 absolute left-1/2 h-[2px] -translate-x-1/2 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
 
-      {/* Icon */}
       <div className="mb-7 flex justify-center">
         <div className="h-14 w-14 flex items-center justify-center rounded-full bg-primary/10">
           <Droplets className="h-7 w-7 text-primary" />
@@ -193,11 +283,11 @@ function NoPoolsState() {
       </div>
 
       <h2 className="mb-2.5 text-xl font-bold tracking-tight">
-        No pools on this network yet
+        No pools found
       </h2>
       <p className="max-w-sm text-sm leading-relaxed mx-auto text-muted-foreground">
-        Pools are not available on this network yet. Switch to Celo to explore
-        pools, view on-chain metrics, and provide liquidity.
+        No pools match your current filters. Try adjusting your search or filter
+        criteria.
       </p>
     </div>
   );

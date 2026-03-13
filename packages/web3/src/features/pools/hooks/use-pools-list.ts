@@ -246,6 +246,7 @@ export function usePoolsList(overrideChainId?: ChainId) {
 
             const poolDisplay: PoolDisplay = {
               poolAddr: pool.poolAddr,
+              chainId,
               poolType: details.poolType === "FPMM" ? "FPMM" : "Legacy",
               token0: {
                 symbol: token0Info.symbol,

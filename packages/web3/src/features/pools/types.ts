@@ -1,4 +1,14 @@
+import type { ChainId } from "@/config/chains";
+
 export type PoolFilterType = "all" | "fpmm" | "legacy";
+export type ChainFilterType = "all" | ChainId;
+
+export interface PoolRewardInfo {
+  apr: number;
+  dailyRewards: number;
+  campaignEnd: number; // unix timestamp
+  liveCampaigns: number;
+}
 
 export type PriceAlignmentStatus =
   | "in-band"
@@ -16,6 +26,7 @@ export interface PoolDisplayToken {
 
 export interface PoolDisplay {
   poolAddr: string;
+  chainId: ChainId;
   poolType: "FPMM" | "Legacy";
   token0: PoolDisplayToken;
   token1: PoolDisplayToken;
