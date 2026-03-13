@@ -1,3 +1,0 @@
-[[IgnoredVulns]]
-id = "GHSA-ffrw-9mx8-89p8"
-reason = "There is no fix for this vulnerability and it's only low risk"

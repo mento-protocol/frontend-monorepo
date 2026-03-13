@@ -13,3 +13,32 @@ html {
 html body[data-scroll-locked] {
   margin-right: 0 !important;
 }
+
+/* Wormhole Connect bridge widget overrides — match Mento's UI style */
+.bridge-widget * {
+  border-radius: 0 !important;
+}
+
+/* Remove widget's own padding so content sits edge-to-edge in the card */
+.bridge-widget > div {
+  padding: 0 !important;
+  gap: 0 !important;
+}
+
+/* Match Mento's font family */
+.bridge-widget {
+  font-family: var(--font-sans), "Geist Sans", sans-serif !important;
+}
+
+/* Normalize Wormhole button label weight (incl. 25/50/Max chips) */
+.bridge-widget .MuiButton-root .MuiTypography-root {
+  font-weight: 500 !important;
+}
+
+.bridge-widget .MuiCardContent-root .MuiTypography-root {
+  color: rgb(26 14 46 / 70%) !important;
+}
+
+.dark .bridge-widget .MuiTypography-root {
+  color: rgb(245 240 255 / 82%) !important;
+}

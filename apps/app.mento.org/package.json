@@ -11,8 +11,14 @@
     "start": "next start"
   },
   "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.0",
     "@hookform/resolvers": "^5.2.2",
     "@mento-protocol/mento-sdk": "catalog:",
+    "@mui/icons-material": "^7.3.2",
+    "@mui/material": "^7.3.2",
+    "@mui/styled-engine": "^7.3.0",
+    "@mui/system": "^7.3.2",
     "@rainbow-me/rainbowkit": "catalog:",
     "@repo/ui": "workspace:*",
     "@repo/web3": "workspace:*",
@@ -21,6 +27,7 @@
     "@tanstack/react-query": "catalog:",
     "@vercel/analytics": "catalog:",
     "@wagmi/core": "catalog:",
+    "@wormhole-foundation/wormhole-connect": "^5.1.0",
     "jotai": "catalog:",
     "lucide-react": "catalog:",
     "next": "catalog:",
