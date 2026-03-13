@@ -45,3 +45,7 @@ reason = "minimatch ReDoS in transitive deps; pre-existing"
 [[IgnoredVulns]]
 id = "GHSA-7r86-cg39-jmmj"
 reason = "minimatch ReDoS in transitive deps; pre-existing"
+
+[[IgnoredVulns]]
+id = "GHSA-25h7-pfq9-p65f"
+reason = "flatted vulnerability is only reachable through ESLint cache tooling in dev/CI, not application runtime"
