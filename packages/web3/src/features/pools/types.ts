@@ -63,6 +63,15 @@ export interface PoolDisplay {
   tvl: number | null; // Total value locked in USD, null when pricing unavailable
 }
 
+export function sortPoolsByTvl(pools: PoolDisplay[]): PoolDisplay[] {
+  return [...pools].sort((a, b) => {
+    if (a.tvl === null && b.tvl === null) return 0;
+    if (a.tvl === null) return 1;
+    if (b.tvl === null) return -1;
+    return b.tvl - a.tvl;
+  });
+}
+
 export const SLIPPAGE_OPTIONS = [0.1, 0.3, 0.5, 1.0] as const;
 export type SlippageOption = (typeof SLIPPAGE_OPTIONS)[number];
 

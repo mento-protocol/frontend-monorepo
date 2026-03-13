@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useAtom } from "jotai";
 import { ArrowLeft } from "lucide-react";
 import { SwapSettingsPopover } from "@/components/swap/swap-settings-popover";
@@ -24,6 +25,19 @@ export function SwapPageContent({
 }: SwapPageContentProps) {
   const [confirmView, setConfirmView] = useAtom(confirmViewAtom);
   const shouldEnableDebug = process.env.NEXT_PUBLIC_ENABLE_DEBUG === "true";
+
+  useEffect(() => {
+    if (confirmView) {
+      setConfirmView(false);
+    }
+  }, [
+    chainId,
+    confirmView,
+    initialAmount,
+    initialFrom,
+    initialTo,
+    setConfirmView,
+  ]);
 
   return (
     <div className="md:items-center flex h-full w-full flex-wrap items-start justify-center">

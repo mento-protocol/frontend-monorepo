@@ -4,7 +4,11 @@ import type { ChainId } from "@/config/chains";
 import { useQuery } from "@tanstack/react-query";
 import { useChainId } from "wagmi";
 import { formatUnits, type Address } from "viem";
-import type { PoolDisplay, PriceAlignmentStatus } from "../types";
+import {
+  type PoolDisplay,
+  type PriceAlignmentStatus,
+  sortPoolsByTvl,
+} from "../types";
 import { POOL_REFETCH_INTERVAL } from "@/config/constants";
 import { getUsdTokenPrices } from "../usd-quote-metadata";
 
@@ -100,12 +104,16 @@ function getPriceAlignmentStatus(
   return "rebalance-likely";
 }
 
-export function usePoolsList(overrideChainId?: ChainId) {
+export function usePoolsList(
+  overrideChainId?: ChainId,
+  options?: { enabled?: boolean },
+) {
   const walletChainId = useChainId() as ChainId;
   const chainId = overrideChainId ?? walletChainId;
 
   return useQuery<PoolDisplay[]>({
     queryKey: ["pools-list", chainId],
+    enabled: options?.enabled ?? true,
     queryFn: async () => {
       const sdk = await getMentoSdk(chainId);
       const pools = await sdk.pools.getPools();
@@ -298,7 +306,9 @@ export function usePoolsList(overrideChainId?: ChainId) {
         }),
       );
 
-      return enrichedPools.filter((p): p is PoolDisplay => p !== null);
+      return sortPoolsByTvl(
+        enrichedPools.filter((p): p is PoolDisplay => p !== null),
+      );
     },
     staleTime: POOL_REFETCH_INTERVAL,
     refetchInterval: POOL_REFETCH_INTERVAL,

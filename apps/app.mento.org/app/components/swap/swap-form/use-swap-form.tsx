@@ -49,6 +49,12 @@ interface UseSwapFormOptions {
   urlChainId?: ChainId;
 }
 
+type RouteDrivenFormState = {
+  amount: string;
+  tokenInSymbol: string;
+  tokenOutSymbol: string;
+};
+
 export function useSwapForm(opts?: UseSwapFormOptions) {
   const { address, isConnected } = useAccount();
   const walletChainId = useChainId();
@@ -147,6 +153,16 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     },
     mode: "onChange",
   });
+
+  const routeDrivenFormState = useMemo<RouteDrivenFormState>(
+    () => ({
+      amount: initialAmount,
+      tokenInSymbol: initialTokenInSymbol,
+      tokenOutSymbol: initialTokenOutSymbol,
+    }),
+    [initialAmount, initialTokenInSymbol, initialTokenOutSymbol],
+  );
+  const lastRouteDrivenFormStateRef = useRef<RouteDrivenFormState | null>(null);
 
   const tokenInSymbol = useWatch({
     control: form.control,
@@ -521,6 +537,37 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
   }, [form, formChainId, setFormValues]);
 
   useEffect(() => {
+    const previousRouteState = lastRouteDrivenFormStateRef.current;
+    const routeStateChanged =
+      !previousRouteState ||
+      previousRouteState.amount !== routeDrivenFormState.amount ||
+      previousRouteState.tokenInSymbol !== routeDrivenFormState.tokenInSymbol ||
+      previousRouteState.tokenOutSymbol !== routeDrivenFormState.tokenOutSymbol;
+
+    lastRouteDrivenFormStateRef.current = routeDrivenFormState;
+
+    if (!routeStateChanged) return;
+
+    const currentValues = form.getValues();
+    const formAlreadyMatchesRoute =
+      currentValues.amount === routeDrivenFormState.amount &&
+      currentValues.tokenInSymbol === routeDrivenFormState.tokenInSymbol &&
+      currentValues.tokenOutSymbol === routeDrivenFormState.tokenOutSymbol;
+
+    if (formAlreadyMatchesRoute) return;
+
+    form.reset({
+      ...currentValues,
+      amount: routeDrivenFormState.amount,
+      quote: "",
+      tokenInSymbol: routeDrivenFormState.tokenInSymbol,
+      tokenOutSymbol: routeDrivenFormState.tokenOutSymbol,
+      slippage: currentValues.slippage || formValues?.slippage || "0.3",
+    });
+    setLastChangedToken(null);
+  }, [form, formValues?.slippage, routeDrivenFormState]);
+
+  useEffect(() => {
     if (isError) {
       setConfirmView(false);
     }
@@ -803,14 +850,14 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
   // ── Token pair validation ───────────────────────────────────────────
 
-  const { data: fromTokenTradablePairs } = useTradablePairs(
-    tokenInSymbol,
-    formChainId,
-  );
-  const { data: toTokenTradablePairs } = useTradablePairs(
-    tokenOutSymbol,
-    formChainId,
-  );
+  const {
+    data: fromTokenTradablePairs,
+    isLoading: isFromTokenTradablePairsLoading,
+  } = useTradablePairs(tokenInSymbol, formChainId);
+  const {
+    data: toTokenTradablePairs,
+    isLoading: isToTokenTradablePairsLoading,
+  } = useTradablePairs(tokenOutSymbol, formChainId);
 
   // Reset form fields after a successful swap (formValues.amount is cleared but tokens preserved)
   useEffect(() => {
@@ -834,10 +881,13 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
   useEffect(() => {
     if (!tokenInSymbol || !tokenOutSymbol || !lastChangedToken) return;
+    if (isFromTokenTradablePairsLoading || isToTokenTradablePairsLoading)
+      return;
+    if (!fromTokenTradablePairs || !toTokenTradablePairs) return;
 
     const isValidPair =
-      fromTokenTradablePairs?.includes(tokenOutSymbol) ||
-      toTokenTradablePairs?.includes(tokenInSymbol);
+      fromTokenTradablePairs.includes(tokenOutSymbol) ||
+      toTokenTradablePairs.includes(tokenInSymbol);
 
     if (!isValidPair) {
       if (lastChangedToken === "from") {
@@ -852,6 +902,8 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     tokenOutSymbol,
     fromTokenTradablePairs,
     toTokenTradablePairs,
+    isFromTokenTradablePairsLoading,
+    isToTokenTradablePairsLoading,
     lastChangedToken,
     form,
   ]);

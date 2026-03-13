@@ -16,7 +16,7 @@ import {
   type ChainFilterType,
   type PoolDisplay,
 } from "@repo/web3";
-import { MAINNET_CHAINS } from "@repo/web3";
+import { VISIBLE_CHAINS } from "@repo/web3";
 import { PoolsTable } from "./pools-table";
 import { LiquidityFlowDialog } from "./liquidity-flow-dialog";
 import { RewardsCampaignBanner } from "./rewards-campaign-banner";
@@ -29,7 +29,7 @@ const filterTabs: { value: PoolFilterType; label: string }[] = [
 
 const chainFilters: { value: ChainFilterType; label: string }[] = [
   { value: "all", label: "All" },
-  ...MAINNET_CHAINS.map((id) => ({
+  ...VISIBLE_CHAINS.map((id) => ({
     value: id as ChainFilterType,
     label: chainIdToChain[id]?.name ?? `Chain ${id}`,
   })),
