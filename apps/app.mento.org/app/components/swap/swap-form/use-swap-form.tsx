@@ -55,6 +55,18 @@ type RouteDrivenFormState = {
   tokenOutSymbol: string;
 };
 
+function sanitizeRouteAmount(value?: string): string {
+  if (!value) return "";
+  const trimmedValue = value.trim();
+  if (!trimmedValue) return "";
+  if (!/^(?:\d+\.?\d*|\.\d+)$/.test(trimmedValue)) return "";
+
+  const parsedValue = parseAmount(trimmedValue);
+  if (!parsedValue || parsedValue.isNegative()) return "";
+
+  return trimmedValue;
+}
+
 export function useSwapForm(opts?: UseSwapFormOptions) {
   const { address, isConnected } = useAccount();
   const walletChainId = useChainId();
@@ -128,6 +140,7 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     requestedTokenOut && requestedTokenOut !== initialTokenInSymbol
       ? requestedTokenOut
       : availableTokens.find((token) => token !== initialTokenInSymbol) || "";
+  const sanitizedInitialAmount = sanitizeRouteAmount(opts?.initialAmount);
   const hasRequestedRouteTokens = Boolean(opts?.initialFrom || opts?.initialTo);
   const routeUsesRequestedTokens =
     (!opts?.initialFrom || validatedInitialFrom === initialTokenInSymbol) &&
@@ -140,7 +153,7 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
   const initialAmount = hasUrlParams
     ? !hasRequestedRouteTokens || routeUsesRequestedTokens
-      ? opts?.initialAmount || ""
+      ? sanitizedInitialAmount
       : ""
     : canReuseStoredDraft
       ? formValues?.amount || ""
@@ -562,6 +575,17 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
     if (formAlreadyMatchesRoute) return;
 
+    const routeChangedTokenSide =
+      previousRouteState?.tokenInSymbol !== routeDrivenFormState.tokenInSymbol
+        ? "from"
+        : previousRouteState?.tokenOutSymbol !==
+            routeDrivenFormState.tokenOutSymbol
+          ? "to"
+          : routeDrivenFormState.tokenInSymbol &&
+              routeDrivenFormState.tokenOutSymbol
+            ? "from"
+            : null;
+
     form.reset({
       ...currentValues,
       amount: routeDrivenFormState.amount,
@@ -570,7 +594,7 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
       tokenOutSymbol: routeDrivenFormState.tokenOutSymbol,
       slippage: currentValues.slippage || formValues?.slippage || "0.3",
     });
-    setLastChangedToken(null);
+    setLastChangedToken(routeChangedTokenSide);
   }, [form, formValues?.slippage, routeDrivenFormState]);
 
   useEffect(() => {
@@ -729,9 +753,13 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
   const amountInWei = useMemo(() => {
     if (!tokenInSymbol) return "0";
-    return amount
-      ? toWei(amount, getTokenDecimals(tokenInSymbol, formChainId)).toFixed(0)
-      : "0";
+    const parsedAmount = parseAmount(amount);
+    if (!parsedAmount || !parsedAmount.gt(0)) return "0";
+
+    return toWei(
+      parsedAmount,
+      getTokenDecimals(tokenInSymbol, formChainId),
+    ).toFixed(0);
   }, [amount, tokenInSymbol, formChainId]);
 
   // ── Allowance & approval ────────────────────────────────────────────

@@ -33,7 +33,7 @@ interface PoolRowProps {
 export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
   const { address } = useAccount();
 
-  const { data: lpBalance } = useReadContract({
+  const { data: lpBalance, isLoading: isLpBalanceLoading } = useReadContract({
     chainId: pool.chainId,
     address: pool.poolAddr as Address,
     abi: erc20Abi,
@@ -45,12 +45,15 @@ export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
   });
 
   const hasLPTokens = lpBalance !== undefined && lpBalance > 0n;
+  const isActionLoading =
+    pool.poolType === "FPMM" && !!address && isLpBalanceLoading;
   const isLegacy = pool.poolType === "Legacy";
   const hasLiquidity = pool.reserves.hasLiquidity;
   const token0Ratio = Math.max(0, Math.min(1, pool.reserves.token0Ratio));
   const token0Percent = Math.round(token0Ratio * 100);
   const token1Percent = 100 - token0Percent;
   const rebalanceDue = !!pool.rebalancing?.canRebalance;
+  const actionLabel = hasLPTokens ? "Manage" : "Deposit";
 
   return (
     <div
@@ -125,10 +128,14 @@ export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
           </div>
 
           <div className="gap-2 md:hidden ml-auto flex items-center">
-            {pool.poolType === "FPMM" && poolHref ? (
+            {pool.poolType === "FPMM" && isActionLoading ? (
+              <Button size="sm" className="h-8" disabled>
+                Loading...
+              </Button>
+            ) : pool.poolType === "FPMM" && poolHref ? (
               <Button size="sm" className="h-8" asChild>
                 <Link href={`${poolHref}${hasLPTokens ? "?mode=manage" : ""}`}>
-                  {hasLPTokens ? "Manage" : "Deposit"}
+                  {actionLabel}
                 </Link>
               </Button>
             ) : pool.poolType === "FPMM" ? (
@@ -139,7 +146,7 @@ export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
                   onSelect(pool, hasLPTokens ? "manage" : "deposit")
                 }
               >
-                {hasLPTokens ? "Manage" : "Deposit"}
+                {actionLabel}
               </Button>
             ) : null}
           </div>
@@ -212,10 +219,14 @@ export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
         </div>
 
         <div className="min-h-8 gap-2 md:flex hidden items-center justify-end">
-          {pool.poolType === "FPMM" && poolHref ? (
+          {pool.poolType === "FPMM" && isActionLoading ? (
+            <Button size="sm" className="h-8" disabled>
+              Loading...
+            </Button>
+          ) : pool.poolType === "FPMM" && poolHref ? (
             <Button size="sm" className="h-8" asChild>
               <Link href={`${poolHref}${hasLPTokens ? "?mode=manage" : ""}`}>
-                {hasLPTokens ? "Manage" : "Deposit"}
+                {actionLabel}
               </Link>
             </Button>
           ) : pool.poolType === "FPMM" ? (
@@ -224,7 +235,7 @@ export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
               className="h-8"
               onClick={() => onSelect(pool, hasLPTokens ? "manage" : "deposit")}
             >
-              {hasLPTokens ? "Manage" : "Deposit"}
+              {actionLabel}
             </Button>
           ) : null}
         </div>

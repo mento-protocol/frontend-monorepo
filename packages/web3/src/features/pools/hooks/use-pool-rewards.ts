@@ -20,6 +20,22 @@ interface MerklOpportunity {
   };
 }
 
+function mergeRewardInfo(
+  existing: PoolRewardInfo | undefined,
+  incoming: PoolRewardInfo,
+): PoolRewardInfo {
+  if (!existing) return incoming;
+
+  return {
+    // Multiple live opportunities on the same pool contribute to the
+    // total rewards surface shown in the UI.
+    apr: existing.apr + incoming.apr,
+    dailyRewards: existing.dailyRewards + incoming.dailyRewards,
+    campaignEnd: Math.max(existing.campaignEnd, incoming.campaignEnd),
+    liveCampaigns: existing.liveCampaigns + incoming.liveCampaigns,
+  };
+}
+
 export function getPoolRewardKey(
   chainId: ChainId,
   poolAddress: string,
@@ -47,16 +63,29 @@ async function fetchChainRewards(
     if (opp.protocol?.id && opp.protocol.id !== MERKL_PROTOCOL_ID) continue;
     if (!opp.explorerAddress) continue;
 
+    const apr = Number(opp.apr);
+    const dailyRewards = Number(opp.dailyRewards);
     const campaignEnd = Number(opp.latestCampaignEnd);
-    if (!Number.isFinite(campaignEnd)) continue;
+    const liveCampaigns = Number(opp.liveCampaigns);
+    if (
+      !Number.isFinite(apr) ||
+      !Number.isFinite(dailyRewards) ||
+      !Number.isFinite(campaignEnd) ||
+      !Number.isFinite(liveCampaigns)
+    ) {
+      continue;
+    }
 
     const key = getPoolRewardKey(chainId, opp.explorerAddress);
-    rewardsMap.set(key, {
-      apr: opp.apr,
-      dailyRewards: opp.dailyRewards,
-      campaignEnd,
-      liveCampaigns: opp.liveCampaigns,
-    });
+    rewardsMap.set(
+      key,
+      mergeRewardInfo(rewardsMap.get(key), {
+        apr,
+        dailyRewards,
+        campaignEnd,
+        liveCampaigns,
+      }),
+    );
   }
 
   return rewardsMap;
