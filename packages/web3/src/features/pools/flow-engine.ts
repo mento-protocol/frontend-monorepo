@@ -101,6 +101,7 @@ export async function executeLiquidityFlow(
   setFlowAtom: SetFlowAtom,
   operation: string,
   stepDefs: LiquidityFlowStepDefinition[],
+  chainId?: number,
 ): Promise<{ success: boolean; txHashes: string[] }> {
   const txHashes: string[] = [];
 
@@ -114,6 +115,7 @@ export async function executeLiquidityFlow(
     operation,
     steps: initialSteps,
     currentStepIndex: 0,
+    chainId,
   };
 
   setFlowAtom(initialState);

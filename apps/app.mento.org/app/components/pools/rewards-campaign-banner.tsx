@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Star, X, ExternalLink } from "lucide-react";
 import { Badge, Button } from "@repo/ui";
 import {
@@ -19,19 +19,11 @@ export function RewardsCampaignBanner({
   pools,
 }: RewardsCampaignBannerProps) {
   const [dismissed, setDismissed] = useState(false);
-  const [tracerPosition, setTracerPosition] = useState(0);
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      setTracerPosition((prev) => (prev + 1) % 100);
-    }, 50);
-
-    return () => window.clearInterval(interval);
-  }, []);
+  const [mountedAt] = useState(() => Date.now());
 
   const campaign = useMemo(() => {
     let maxApr = 0;
-    let earliestEnd = Infinity;
+    let latestEnd = 0;
     let eligibleCount = 0;
 
     for (const pool of pools) {
@@ -39,33 +31,32 @@ export function RewardsCampaignBanner({
       if (!reward) continue;
       eligibleCount++;
       if (reward.apr > maxApr) maxApr = reward.apr;
-      if (reward.campaignEnd < earliestEnd) earliestEnd = reward.campaignEnd;
+      if (reward.campaignEnd > latestEnd) latestEnd = reward.campaignEnd;
     }
 
     if (eligibleCount === 0) return null;
 
     const daysRemaining = Math.max(
       0,
-      Math.ceil((earliestEnd * 1000 - Date.now()) / (1000 * 60 * 60 * 24)),
+      Math.ceil((latestEnd * 1000 - mountedAt) / (1000 * 60 * 60 * 24)),
     );
 
     return { maxApr, eligibleCount, daysRemaining };
-  }, [rewards, pools]);
+  }, [mountedAt, rewards, pools]);
 
   if (!campaign || dismissed) return null;
 
   return (
     <div className="relative overflow-hidden rounded-lg">
-      <div
-        className="inset-0 pointer-events-none absolute overflow-hidden rounded-lg"
-        style={{
-          background: `conic-gradient(from ${
-            tracerPosition * 3.6
-          }deg, transparent 0deg, transparent 328deg, oklch(0.5116 0.2893 289.05 / 0.96) 340deg, oklch(0.5116 0.2893 289.05 / 0.28) 350deg, transparent 360deg)`,
-          padding: "1px",
-        }}
-      >
-        <div className="h-full w-full rounded-lg border border-border/70 bg-card" />
+      <div className="inset-0 pointer-events-none absolute overflow-hidden rounded-lg">
+        <div
+          className="absolute -inset-[160%] animate-[spin_7s_linear_infinite] motion-reduce:animate-none"
+          style={{
+            background:
+              "conic-gradient(from 180deg, transparent 0deg, transparent 328deg, oklch(0.5116 0.2893 289.05 / 0.96) 340deg, oklch(0.5116 0.2893 289.05 / 0.22) 350deg, transparent 360deg)",
+          }}
+        />
+        <div className="absolute inset-px rounded-[7px] border border-border/70 bg-card" />
       </div>
 
       <div className="gap-4 p-4 md:flex-row md:items-center md:justify-between md:px-5 relative z-10 flex flex-col rounded-lg">

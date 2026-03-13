@@ -180,8 +180,10 @@ export function PoolsView() {
               {/* Pool type filters */}
               {filterTabs.map((tab) => (
                 <button
+                  type="button"
                   key={tab.value}
                   onClick={() => setFilter(tab.value)}
+                  aria-pressed={filter === tab.value}
                   className={cn(
                     "px-4 py-2 text-sm font-medium md:flex-none flex-1 cursor-pointer border-0 transition-colors outline-none",
                     filter === tab.value
@@ -199,8 +201,10 @@ export function PoolsView() {
               {/* Chain filters (toggles) */}
               {chainFilters.map((cf) => (
                 <button
+                  type="button"
                   key={String(cf.value)}
                   onClick={() => setChainFilter(cf.value)}
+                  aria-pressed={chainFilter === cf.value}
                   className={cn(
                     "gap-1.5 px-4 py-2 text-sm font-medium inline-flex cursor-pointer items-center border-0 transition-colors outline-none",
                     chainFilter === cf.value
@@ -220,8 +224,10 @@ export function PoolsView() {
 
               {/* Rewards toggle */}
               <button
+                type="button"
                 onClick={() => setShowRewardsOnly(!showRewardsOnly)}
                 disabled={!canApplyRewardsFilter}
+                aria-pressed={showRewardsOnly}
                 className={cn(
                   "gap-1.5 px-4 py-2 text-sm font-medium inline-flex cursor-pointer items-center border-0 transition-colors outline-none",
                   showRewardsOnly

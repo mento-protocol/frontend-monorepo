@@ -16,9 +16,13 @@ import { showLiquiditySuccessToast } from "../liquidity-toast";
 import type { PoolDisplay, SlippageOption } from "../types";
 import { getTransactionErrorMessage } from "../types";
 
-export function useRemoveLiquidityTransaction(pool: PoolDisplay) {
-  const chainId = useChainId() as ChainId;
-  const publicClient = usePublicClient({ chainId });
+export function useRemoveLiquidityTransaction(
+  pool: PoolDisplay,
+  chainId?: ChainId,
+) {
+  const walletChainId = useChainId() as ChainId;
+  const resolvedChainId = chainId ?? walletChainId;
+  const publicClient = usePublicClient({ chainId: resolvedChainId });
   const queryClient = useQueryClient();
 
   const [buildResult, setBuildResult] =
@@ -47,7 +51,7 @@ export function useRemoveLiquidityTransaction(pool: PoolDisplay) {
     ): Promise<RemoveLiquidityTransaction | null> => {
       setIsBuilding(true);
       try {
-        const sdk = await getMentoSdk(chainId);
+        const sdk = await getMentoSdk(resolvedChainId);
 
         if (!publicClient) throw new Error("Public client not available");
         const block = await publicClient.getBlock();
@@ -71,7 +75,7 @@ export function useRemoveLiquidityTransaction(pool: PoolDisplay) {
         setIsBuilding(false);
       }
     },
-    [chainId, pool, publicClient],
+    [resolvedChainId, pool, publicClient],
   );
 
   const sendRemoveLiquidity = useCallback(
@@ -106,18 +110,18 @@ export function useRemoveLiquidityTransaction(pool: PoolDisplay) {
         token0Symbol: pool.token0.symbol,
         token1Symbol: pool.token1.symbol,
         txHash: receipt.transactionHash,
-        chainId,
+        chainId: resolvedChainId,
       });
 
       queryClient.invalidateQueries({
-        queryKey: ["pools-list", chainId],
+        queryKey: ["pools-list", resolvedChainId],
       });
       queryClient.invalidateQueries({
         predicate: (query) =>
           JSON.stringify(query.queryKey).toLowerCase().includes("balanceof"),
       });
     }
-  }, [isConfirmed, receipt, pool, chainId, queryClient]);
+  }, [isConfirmed, receipt, pool, resolvedChainId, queryClient]);
 
   const reset = useCallback(() => {
     setBuildResult(null);

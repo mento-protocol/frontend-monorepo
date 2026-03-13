@@ -19,6 +19,7 @@ interface UseZapOutQuoteParams {
   tokenOut: string;
   lpAmount: string;
   slippage: SlippageOption;
+  chainId?: ChainId;
 }
 
 function getZapOutQuoteRawError(error: unknown): string {
@@ -47,8 +48,10 @@ export function useZapOutQuote({
   tokenOut,
   lpAmount,
   slippage,
+  chainId,
 }: UseZapOutQuoteParams) {
-  const chainId = useChainId() as ChainId;
+  const walletChainId = useChainId() as ChainId;
+  const resolvedChainId = chainId ?? walletChainId;
 
   const debouncedAmount = useDebounce(lpAmount, 350);
   const isValidAmount = !!debouncedAmount && Number(debouncedAmount) > 0;
@@ -60,12 +63,12 @@ export function useZapOutQuote({
       tokenOut,
       debouncedAmount,
       slippage,
-      chainId,
+      resolvedChainId,
     ],
     queryFn: async () => {
       if (!isValidAmount) return null;
 
-      const sdk = await getMentoSdk(chainId);
+      const sdk = await getMentoSdk(resolvedChainId);
       const liquidityWei = parseUnits(debouncedAmount, 18);
 
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);

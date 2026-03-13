@@ -21,6 +21,7 @@ interface UseZapInQuoteParams {
   tokenIn: string;
   amountIn: string;
   slippage: SlippageOption;
+  chainId?: ChainId;
 }
 
 export function useZapInQuote({
@@ -28,8 +29,10 @@ export function useZapInQuote({
   tokenIn,
   amountIn,
   slippage,
+  chainId,
 }: UseZapInQuoteParams) {
-  const chainId = useChainId() as ChainId;
+  const walletChainId = useChainId() as ChainId;
+  const resolvedChainId = chainId ?? walletChainId;
 
   const debouncedAmount = useDebounce(amountIn, 350);
   const isValidAmount = !!debouncedAmount && Number(debouncedAmount) > 0;
@@ -41,12 +44,12 @@ export function useZapInQuote({
       tokenIn,
       debouncedAmount,
       slippage,
-      chainId,
+      resolvedChainId,
     ],
     queryFn: async () => {
       if (!isValidAmount) return null;
 
-      const sdk = await getMentoSdk(chainId);
+      const sdk = await getMentoSdk(resolvedChainId);
 
       const tokenDecimals =
         tokenIn === pool.token0.address

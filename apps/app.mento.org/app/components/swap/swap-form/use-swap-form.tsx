@@ -128,6 +128,10 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     requestedTokenOut && requestedTokenOut !== initialTokenInSymbol
       ? requestedTokenOut
       : availableTokens.find((token) => token !== initialTokenInSymbol) || "";
+  const hasRequestedRouteTokens = Boolean(opts?.initialFrom || opts?.initialTo);
+  const routeUsesRequestedTokens =
+    (!opts?.initialFrom || validatedInitialFrom === initialTokenInSymbol) &&
+    (!opts?.initialTo || validatedInitialTo === initialTokenOutSymbol);
 
   const canReuseStoredDraft =
     !hasUrlParams &&
@@ -135,7 +139,9 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     storedTokenOutSymbol === initialTokenOutSymbol;
 
   const initialAmount = hasUrlParams
-    ? opts?.initialAmount || ""
+    ? !hasRequestedRouteTokens || routeUsesRequestedTokens
+      ? opts?.initialAmount || ""
+      : ""
     : canReuseStoredDraft
       ? formValues?.amount || ""
       : "";

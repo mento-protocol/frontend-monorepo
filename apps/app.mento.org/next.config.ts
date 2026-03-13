@@ -5,6 +5,10 @@ import path from "node:path";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
+const storageHostname = env.NEXT_PUBLIC_STORAGE_URL.replace(
+  /^https?:\/\/([^/]+)\/?.*$/,
+  "$1",
+);
 
 const nextConfig: NextConfig = {
   // We use trunk to lint the code in a separate step, disable eslint during build for faster builds
@@ -15,11 +19,13 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: "https",
-        hostname: env.NEXT_PUBLIC_STORAGE_URL.replace(
-          /^https?:\/\/([^/]+)\/?.*$/,
-          "$1",
-        ),
-        pathname: "/app/*|/shared/*",
+        hostname: storageHostname,
+        pathname: "/app/**",
+      },
+      {
+        protocol: "https",
+        hostname: storageHostname,
+        pathname: "/shared/**",
       },
     ],
   },

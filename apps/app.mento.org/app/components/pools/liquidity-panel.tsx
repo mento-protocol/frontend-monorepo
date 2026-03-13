@@ -1,6 +1,6 @@
 import { Badge, TokenIcon, cn } from "@repo/ui";
 import type { PoolDisplay } from "@repo/web3";
-import { useUserPosition, useExplorerUrl, getExplorerUrl } from "@repo/web3";
+import { useUserPosition, useExplorerUrl } from "@repo/web3";
 import { useAccount, useReadContract, useBlockNumber } from "@repo/web3/wagmi";
 import { erc20Abi, type Address } from "viem";
 import { useState, useEffect, useCallback } from "react";
@@ -27,14 +27,16 @@ export function LiquidityPanel({
   chainId,
 }: LiquidityPanelProps) {
   const { address } = useAccount();
-  const walletExplorerUrl = useExplorerUrl();
-  const explorerUrl = chainId ? getExplorerUrl(chainId) : walletExplorerUrl;
+  const resolvedChainId = chainId ?? pool.chainId;
+  const explorerUrl = useExplorerUrl(resolvedChainId);
   const { data: blockNumber } = useBlockNumber({
+    chainId: resolvedChainId,
     watch: !!address,
     query: { enabled: !!address },
   });
 
   const { data: lpBalance, refetch: refetchLpBalance } = useReadContract({
+    chainId: resolvedChainId,
     address: pool.poolAddr as Address,
     abi: erc20Abi,
     functionName: "balanceOf",
@@ -52,6 +54,7 @@ export function LiquidityPanel({
     pool,
     lpBalance,
     enabled: hasLPTokens,
+    chainId: resolvedChainId,
   });
 
   const [activeTab, setActiveTab] = useState<TabMode>(
