@@ -46,6 +46,7 @@ export function PoolsView() {
   } = useAllPoolsList();
   const {
     rewards,
+    isLoading: isRewardsLoading,
     isError: isRewardsError,
     failedChainIds: failedRewardChainIds,
     refetch: refetchRewards,
@@ -70,6 +71,8 @@ export function PoolsView() {
       `/pools/${chainIdToSlug(pool.chainId)}/${pool.poolAddr}`,
     [],
   );
+  const canApplyRewardsFilter =
+    !isRewardsLoading && (!isRewardsError || rewards.size > 0);
 
   const filteredPools = useMemo(() => {
     let result = pools;
@@ -87,7 +90,7 @@ export function PoolsView() {
     }
 
     // Rewards filter
-    if (showRewardsOnly) {
+    if (showRewardsOnly && canApplyRewardsFilter) {
       result = result.filter((p) =>
         rewards.has(getPoolRewardKey(p.chainId, p.poolAddr)),
       );
@@ -107,7 +110,15 @@ export function PoolsView() {
     }
 
     return result;
-  }, [pools, filter, chainFilter, showRewardsOnly, rewards, search]);
+  }, [
+    pools,
+    filter,
+    chainFilter,
+    showRewardsOnly,
+    rewards,
+    search,
+    canApplyRewardsFilter,
+  ]);
 
   const hasLegacyPools = useMemo(
     () =>
@@ -210,12 +221,16 @@ export function PoolsView() {
               {/* Rewards toggle */}
               <button
                 onClick={() => setShowRewardsOnly(!showRewardsOnly)}
+                disabled={!canApplyRewardsFilter}
                 className={cn(
                   "gap-1.5 px-4 py-2 text-sm font-medium inline-flex cursor-pointer items-center border-0 transition-colors outline-none",
                   showRewardsOnly
                     ? "bg-card text-foreground"
                     : "text-muted-foreground hover:text-foreground",
+                  !canApplyRewardsFilter &&
+                    "cursor-not-allowed opacity-50 hover:text-muted-foreground",
                 )}
+                aria-busy={isRewardsLoading}
               >
                 <Star className="h-3.5 w-3.5" />
                 Rewards
@@ -371,7 +386,12 @@ function formatChainList(chainIds: ChainId[]): string {
   const names = chainIds.map(
     (chainId) => chainIdToChain[chainId]?.name ?? `Chain ${chainId}`,
   );
-  if (names.length === 1) return names[0];
-  if (names.length === 2) return `${names[0]} and ${names[1]}`;
-  return `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}`;
+  const [first, second] = names;
+  const last = names.at(-1);
+
+  if (names.length === 1 && first) return first;
+  if (names.length === 2 && first && second) return `${first} and ${second}`;
+  if (last) return `${names.slice(0, -1).join(", ")}, and ${last}`;
+
+  return "one or more chains";
 }
