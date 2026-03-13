@@ -61,7 +61,7 @@ export function RewardsCampaignBanner({
         style={{
           background: `conic-gradient(from ${
             tracerPosition * 3.6
-          }deg, transparent 0deg, transparent 328deg, rgba(16,185,129,0.96) 340deg, rgba(16,185,129,0.28) 350deg, transparent 360deg)`,
+          }deg, transparent 0deg, transparent 328deg, oklch(0.5116 0.2893 289.05 / 0.96) 340deg, oklch(0.5116 0.2893 289.05 / 0.28) 350deg, transparent 360deg)`,
           padding: "1px",
         }}
       >
