@@ -19,8 +19,10 @@ interface TradingSuspensionCheckResult {
 export function useTradingSuspensionCheck(
   tokenInSymbol: TokenSymbol | undefined,
   tokenOutSymbol: TokenSymbol | undefined,
+  chainIdOverride?: number,
 ): TradingSuspensionCheckResult {
-  const chainId = useChainId();
+  const walletChainId = useChainId();
+  const chainId = chainIdOverride ?? walletChainId;
 
   // Query key based on token symbols - React Query will automatically refetch when this changes
   const queryKey = useMemo(

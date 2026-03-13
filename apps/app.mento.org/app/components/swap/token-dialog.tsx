@@ -30,6 +30,7 @@ interface TokenDialogProps {
   onValueChange: (value: string) => void;
   trigger: React.ReactNode;
   title?: string;
+  chainId?: number;
   tokenInSymbol?: TokenSymbol;
   excludeTokenSymbol?: TokenSymbol;
   filterByTokenSymbol?: TokenSymbol;
@@ -50,6 +51,7 @@ export default function TokenDialog({
   onValueChange,
   trigger,
   title = "Select asset to sell",
+  chainId,
   tokenInSymbol,
   excludeTokenSymbol,
   filterByTokenSymbol,
@@ -58,17 +60,22 @@ export default function TokenDialog({
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
   const { address } = useAccount();
-  const chainId = useChainId();
+  const walletChainId = useChainId();
+  const effectiveChainId = chainId ?? walletChainId;
 
-  const { data: balancesFromHook } = useAccountBalances({ address, chainId });
+  const { data: balancesFromHook } = useAccountBalances({
+    address,
+    chainId: effectiveChainId,
+  });
 
   const { tokenOptions, allTokenOptions } = useTokenOptions(
     tokenInSymbol,
     balancesFromHook,
+    effectiveChainId,
   );
 
   const { data: tradableTokenSymbols, isLoading: isLoadingTradablePairs } =
-    useTradablePairs(filterByTokenSymbol);
+    useTradablePairs(filterByTokenSymbol, effectiveChainId);
 
   const filteredTokens = (tokenInSymbol ? tokenOptions : allTokenOptions)
     .filter(
