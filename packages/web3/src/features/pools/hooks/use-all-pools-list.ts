@@ -32,19 +32,32 @@ export function useAllPoolsList() {
   });
 
   const allQueries = IS_DEBUG
-    ? [celoQuery, monadQuery, celoSepoliaQuery, monadTestnetQuery]
-    : [celoQuery, monadQuery];
+    ? [
+        { chainId: ChainId.Celo, query: celoQuery },
+        { chainId: ChainId.Monad, query: monadQuery },
+        { chainId: ChainId.CeloSepolia, query: celoSepoliaQuery },
+        { chainId: ChainId.MonadTestnet, query: monadTestnetQuery },
+      ]
+    : [
+        { chainId: ChainId.Celo, query: celoQuery },
+        { chainId: ChainId.Monad, query: monadQuery },
+      ];
 
-  const isLoading = allQueries.some((q) => q.isLoading);
-  const isError = allQueries.every((q) => q.isError);
+  const isLoading = allQueries.some(({ query }) => query.isLoading);
+  const isError = allQueries.some(({ query }) => query.isError);
+  const isPartialError =
+    isError && allQueries.some(({ query }) => query.isSuccess);
+  const failedChainIds = allQueries
+    .filter(({ query }) => query.isError)
+    .map(({ chainId }) => chainId);
 
   const data: PoolDisplay[] = sortPoolsByTvl(
-    allQueries.flatMap((q) => q.data ?? []),
+    allQueries.flatMap(({ query }) => query.data ?? []),
   );
 
   const refetch = async () => {
-    await Promise.all(allQueries.map((q) => q.refetch()));
+    await Promise.all(allQueries.map(({ query }) => query.refetch()));
   };
 
-  return { data, isLoading, isError, refetch };
+  return { data, isLoading, isError, isPartialError, failedChainIds, refetch };
 }

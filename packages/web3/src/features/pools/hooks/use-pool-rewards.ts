@@ -81,7 +81,18 @@ export function usePoolRewards() {
     gcTime: 10 * 60_000,
   });
 
-  const isLoading = celoQuery.isLoading || monadQuery.isLoading;
+  const rewardQueries = [
+    { chainId: ChainId.Celo, query: celoQuery },
+    { chainId: ChainId.Monad, query: monadQuery },
+  ];
+
+  const isLoading = rewardQueries.some(({ query }) => query.isLoading);
+  const isError = rewardQueries.some(({ query }) => query.isError);
+  const isPartialError =
+    isError && rewardQueries.some(({ query }) => query.isSuccess);
+  const failedChainIds = rewardQueries
+    .filter(({ query }) => query.isError)
+    .map(({ chainId }) => chainId);
 
   const rewards = useMemo(() => {
     const merged = new Map<string, PoolRewardInfo>();
@@ -94,5 +105,16 @@ export function usePoolRewards() {
     return merged;
   }, [celoQuery.data, monadQuery.data]);
 
-  return { rewards, isLoading };
+  const refetch = async () => {
+    await Promise.all(rewardQueries.map(({ query }) => query.refetch()));
+  };
+
+  return {
+    rewards,
+    isLoading,
+    isError,
+    isPartialError,
+    failedChainIds,
+    refetch,
+  };
 }

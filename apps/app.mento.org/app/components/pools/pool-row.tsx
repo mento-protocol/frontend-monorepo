@@ -34,6 +34,7 @@ export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
   const { address } = useAccount();
 
   const { data: lpBalance } = useReadContract({
+    chainId: pool.chainId,
     address: pool.poolAddr as Address,
     abi: erc20Abi,
     functionName: "balanceOf",

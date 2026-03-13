@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAtom } from "jotai";
 import { ArrowLeft } from "lucide-react";
 import { SwapSettingsPopover } from "@/components/swap/swap-settings-popover";
 import { SwapConfirm } from "@/components/swap/swap-confirm";
 import SwapForm from "@/components/swap/swap-form";
-import { confirmViewAtom, type ChainId } from "@repo/web3";
+import { confirmViewAtom, formValuesAtom, type ChainId } from "@repo/web3";
 import { Button, cn, DebugPopup } from "@repo/ui";
 import { ChainMismatchBanner } from "@/components/shared/chain-mismatch-banner";
 
@@ -24,20 +24,47 @@ export function SwapPageContent({
   initialAmount,
 }: SwapPageContentProps) {
   const [confirmView, setConfirmView] = useAtom(confirmViewAtom);
+  const [formValues] = useAtom(formValuesAtom);
   const shouldEnableDebug = process.env.NEXT_PUBLIC_ENABLE_DEBUG === "true";
+  const previousChainIdRef = useRef(chainId);
+  const confirmViewRef = useRef(confirmView);
+  const formValuesRef = useRef(formValues);
 
   useEffect(() => {
-    if (confirmView) {
+    confirmViewRef.current = confirmView;
+  }, [confirmView]);
+
+  useEffect(() => {
+    formValuesRef.current = formValues;
+  }, [formValues]);
+
+  useEffect(() => {
+    const previousChainId = previousChainIdRef.current;
+    previousChainIdRef.current = chainId;
+
+    if (previousChainId !== chainId) {
+      setConfirmView(false);
+      return;
+    }
+
+    if (!confirmViewRef.current || !formValuesRef.current) return;
+
+    const routeTokenIn = initialFrom || "";
+    const routeTokenOut = initialTo || "";
+    const routeAmount = initialAmount || "";
+    const confirmTokenIn = formValuesRef.current.tokenInSymbol || "";
+    const confirmTokenOut = formValuesRef.current.tokenOutSymbol || "";
+    const confirmAmount = formValuesRef.current.amount || "";
+
+    const routeDiffersFromConfirmState =
+      routeTokenIn !== confirmTokenIn ||
+      routeTokenOut !== confirmTokenOut ||
+      routeAmount !== confirmAmount;
+
+    if (routeDiffersFromConfirmState) {
       setConfirmView(false);
     }
-  }, [
-    chainId,
-    confirmView,
-    initialAmount,
-    initialFrom,
-    initialTo,
-    setConfirmView,
-  ]);
+  }, [chainId, initialAmount, initialFrom, initialTo, setConfirmView]);
 
   return (
     <div className="md:items-center flex h-full w-full flex-wrap items-start justify-center">

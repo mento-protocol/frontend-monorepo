@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Search, Star, Droplets, RefreshCw } from "lucide-react";
+import { Search, Star, Droplets, RefreshCw, AlertTriangle } from "lucide-react";
 import { Button, Input, cn } from "@repo/ui";
 import {
   useAllPoolsList,
@@ -36,8 +36,20 @@ const chainFilters: { value: ChainFilterType; label: string }[] = [
 ];
 
 export function PoolsView() {
-  const { data: pools = [], isLoading, isError, refetch } = useAllPoolsList();
-  const { rewards } = usePoolRewards();
+  const {
+    data: pools = [],
+    isLoading,
+    isError,
+    isPartialError: isPoolsPartialError,
+    failedChainIds: failedPoolChainIds,
+    refetch,
+  } = useAllPoolsList();
+  const {
+    rewards,
+    isError: isRewardsError,
+    failedChainIds: failedRewardChainIds,
+    refetch: refetchRewards,
+  } = usePoolRewards();
   const [filter, setFilter] = useState<PoolFilterType>("all");
   const [chainFilter, setChainFilter] = useState<ChainFilterType>("all");
   const [showRewardsOnly, setShowRewardsOnly] = useState(false);
@@ -105,6 +117,8 @@ export function PoolsView() {
   );
   const showPoolsError = isError && pools.length === 0;
   const showNoPools = !isLoading && !isError && pools.length === 0;
+  const showPoolsWarning = isPoolsPartialError && pools.length > 0;
+  const showRewardsWarning = isRewardsError;
 
   return (
     <>
@@ -127,6 +141,26 @@ export function PoolsView() {
         {/* Rewards Campaign Banner */}
         {rewards.size > 0 && (
           <RewardsCampaignBanner rewards={rewards} pools={pools} />
+        )}
+
+        {showPoolsWarning && (
+          <InlineWarningCard
+            title="Some chain pools could not be loaded"
+            description={`Showing the available pools while ${formatChainList(
+              failedPoolChainIds,
+            )} is unavailable. Retry to refresh the full cross-chain list.`}
+            onRetry={() => void refetch()}
+          />
+        )}
+
+        {showRewardsWarning && (
+          <InlineWarningCard
+            title="Rewards data is partially unavailable"
+            description={`Merkl rewards could not be loaded for ${formatChainList(
+              failedRewardChainIds,
+            )}. Reward badges, the campaign banner, and the Rewards filter may be incomplete until rewards refresh successfully.`}
+            onRetry={() => void refetchRewards()}
+          />
         )}
 
         {!showPoolsError && (isLoading || pools.length > 0) && (
@@ -297,4 +331,47 @@ function NoPoolsState() {
       </p>
     </div>
   );
+}
+
+function InlineWarningCard({
+  title,
+  description,
+  onRetry,
+}: {
+  title: string;
+  description: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="gap-3 px-4 py-3 md:flex-row md:items-center md:justify-between border-amber-500/20 bg-amber-500/8 text-sm flex flex-col border">
+      <div className="gap-3 flex items-start">
+        <div className="mt-0.5 h-8 w-8 bg-amber-500/12 text-amber-400 flex shrink-0 items-center justify-center rounded-full">
+          <AlertTriangle className="h-4 w-4" />
+        </div>
+        <div>
+          <p className="font-medium text-foreground">{title}</p>
+          <p className="mt-0.5 text-muted-foreground">{description}</p>
+        </div>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-1.5 border-amber-500/20 hover:bg-amber-500/8 self-start bg-transparent"
+        onClick={onRetry}
+      >
+        <RefreshCw className="h-3.5 w-3.5" />
+        Retry
+      </Button>
+    </div>
+  );
+}
+
+function formatChainList(chainIds: ChainId[]): string {
+  if (chainIds.length === 0) return "one or more chains";
+  const names = chainIds.map(
+    (chainId) => chainIdToChain[chainId]?.name ?? `Chain ${chainId}`,
+  );
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}`;
 }
