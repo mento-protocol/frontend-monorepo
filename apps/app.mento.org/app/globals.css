@@ -34,3 +34,11 @@ html body[data-scroll-locked] {
 .bridge-widget .MuiButton-root .MuiTypography-root {
   font-weight: 500 !important;
 }
+
+.bridge-widget .MuiCardContent-root .MuiTypography-root {
+  color: rgb(26 14 46 / 70%) !important;
+}
+
+.dark .bridge-widget .MuiTypography-root {
+  color: rgb(245 240 255 / 82%) !important;
+}
