@@ -20,6 +20,7 @@
     "@t3-oss/env-nextjs": "catalog:",
     "@tanstack/react-query": "catalog:",
     "@vercel/analytics": "catalog:",
+    "@wagmi/core": "catalog:",
     "jotai": "catalog:",
     "lucide-react": "catalog:",
     "next": "catalog:",
