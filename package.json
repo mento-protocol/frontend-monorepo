@@ -24,7 +24,7 @@
     "test": "turbo run test"
   },
   "resolutions": {
-    "brace-expansion": ">=2.0.2",
+    "brace-expansion": "2.0.2",
     "esbuild": ">=0.25.0"
   },
   "devDependencies": {

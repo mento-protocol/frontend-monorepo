@@ -45,7 +45,3 @@ reason = "minimatch ReDoS in transitive deps; pre-existing"
 [[IgnoredVulns]]
 id = "GHSA-7r86-cg39-jmmj"
 reason = "minimatch ReDoS in transitive deps; pre-existing"
-
-[[IgnoredVulns]]
-id = "GHSA-v8w9-8mx6-g223"
-reason = "hono advisory flagged in lockfile; accepted risk for now"
