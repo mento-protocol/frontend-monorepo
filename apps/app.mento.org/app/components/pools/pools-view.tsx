@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { Search, Star, Droplets, RefreshCw } from "lucide-react";
 import { Button, Input, cn } from "@repo/ui";
 import {
@@ -14,7 +15,6 @@ import {
   type PoolFilterType,
   type ChainFilterType,
   type PoolDisplay,
-  type PoolRewardInfo,
 } from "@repo/web3";
 import { MAINNET_CHAINS } from "@repo/web3";
 import { PoolsTable } from "./pools-table";
@@ -240,10 +240,13 @@ function ChainIcon({ chainId }: { chainId: ChainId }) {
   if (!iconUrl) return null;
 
   return (
-    <img
+    <Image
       src={iconUrl}
       alt={chain?.name ?? ""}
+      width={16}
+      height={16}
       className="h-4 w-4 rounded-full"
+      unoptimized
     />
   );
 }

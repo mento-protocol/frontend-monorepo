@@ -9,6 +9,7 @@ import {
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, type Address } from "viem";
 import Link from "next/link";
+import Image from "next/image";
 import { PoolAddressPopover } from "./pool-address-popover";
 import { PoolFeePopover } from "./pool-fee-popover";
 
@@ -242,11 +243,14 @@ function ChainBadge({ chainId }: { chainId: ChainId }) {
   if (!iconUrl) return null;
 
   return (
-    <img
+    <Image
       src={iconUrl}
       alt={chain.name}
+      width={16}
+      height={16}
       className="h-4 w-4 rounded-full"
       title={chain.name}
+      unoptimized
     />
   );
 }
