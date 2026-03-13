@@ -28,7 +28,7 @@ function SkeletonRow() {
         </div>
       </div>
       <Skeleton className="h-4 w-36" />
-      <Skeleton className="h-4 w-16" />
+      <Skeleton className="h-4 w-16 md:ml-4" />
       <Skeleton className="h-4 w-16" />
       <div className="gap-2 md:justify-end flex">
         <Skeleton className="h-8 w-16" />
@@ -52,7 +52,9 @@ export function PoolsTable({
         <span className="text-sm font-medium text-muted-foreground">
           Reserves
         </span>
-        <span className="text-sm font-medium text-muted-foreground">Fee</span>
+        <span className="pl-4 text-sm font-medium text-muted-foreground">
+          Fee
+        </span>
         <span className="text-sm font-medium text-muted-foreground">TVL</span>
         <span className="text-sm font-medium text-right text-muted-foreground">
           Actions

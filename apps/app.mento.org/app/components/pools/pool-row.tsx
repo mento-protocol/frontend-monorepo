@@ -192,7 +192,7 @@ export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
           )}
         </div>
 
-        <div className="flex flex-col justify-center">
+        <div className="md:pl-4 flex flex-col justify-center">
           <span className="text-xs md:hidden text-muted-foreground">Fee</span>
           <div className="gap-1.5 flex items-center">
             <span className="font-mono text-sm font-medium tabular-nums">
