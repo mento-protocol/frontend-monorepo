@@ -7,7 +7,7 @@ import { SwapSettingsPopover } from "@/components/swap/swap-settings-popover";
 import { SwapConfirm } from "@/components/swap/swap-confirm";
 import SwapForm from "@/components/swap/swap-form";
 import { confirmViewAtom, formValuesAtom, type ChainId } from "@repo/web3";
-import { Button, cn, DebugPopup } from "@repo/ui";
+import { Button, cn } from "@repo/ui";
 import { ChainMismatchBanner } from "@/components/shared/chain-mismatch-banner";
 
 interface SwapPageContentProps {
@@ -25,7 +25,6 @@ export function SwapPageContent({
 }: SwapPageContentProps) {
   const [confirmView, setConfirmView] = useAtom(confirmViewAtom);
   const [formValues] = useAtom(formValuesAtom);
-  const shouldEnableDebug = process.env.NEXT_PUBLIC_ENABLE_DEBUG === "true";
   const previousChainIdRef = useRef(chainId);
   const confirmViewRef = useRef(confirmView);
   const formValuesRef = useRef(formValues);
@@ -68,7 +67,6 @@ export function SwapPageContent({
 
   return (
     <div className="md:items-center flex h-full w-full flex-wrap items-start justify-center">
-      {shouldEnableDebug && <DebugPopup />}
       <div className="mb-6 px-4 md:px-0 relative w-full max-w-[568px]">
         <ChainMismatchBanner targetChainId={chainId} />
         <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
