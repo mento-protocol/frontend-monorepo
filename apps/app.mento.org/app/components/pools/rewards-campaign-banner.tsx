@@ -104,15 +104,6 @@ export function RewardsCampaignBanner({
                 {campaign.eligibleCount !== 1 ? "s" : ""}
               </span>
               .
-              {campaign.daysRemaining > 0 && (
-                <>
-                  {" "}
-                  <span className="text-foreground/80">
-                    Ends in {campaign.daysRemaining} day
-                    {campaign.daysRemaining !== 1 ? "s" : ""}.
-                  </span>
-                </>
-              )}
             </p>
           </div>
         </div>
