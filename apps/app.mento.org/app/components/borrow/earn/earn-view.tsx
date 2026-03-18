@@ -2,7 +2,6 @@
 
 import { useAtomValue } from "jotai";
 import {
-  Badge,
   Card,
   CardContent,
   Tabs,
@@ -33,25 +32,17 @@ import { formatUnits } from "viem";
 
 function formatCompactCurrency(
   amount: bigint | null | undefined,
-  debtToken: { currencySymbol: string },
+  debtToken: { symbol: string },
 ): string {
   if (amount == null) return "—";
   const num = Number(formatUnits(amount, 18));
   if (num >= 1_000_000) {
-    return `${debtToken.currencySymbol}${(num / 1_000_000).toFixed(1)}M`;
+    return `${(num / 1_000_000).toFixed(1)}M ${debtToken.symbol}`;
   }
   if (num >= 1_000) {
-    return `${debtToken.currencySymbol}${(num / 1_000).toFixed(1)}K`;
+    return `${(num / 1_000).toFixed(1)}K ${debtToken.symbol}`;
   }
-  return `${debtToken.currencySymbol}${num.toFixed(2)}`;
-}
-
-function formatTokenAmount(amount: bigint | null | undefined): string {
-  if (amount == null) return "—";
-  const num = Number(formatUnits(amount, 18));
-  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
-  if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
-  return num.toFixed(2);
+  return `${num.toFixed(2)} ${debtToken.symbol}`;
 }
 
 export function EarnView() {
@@ -66,6 +57,14 @@ export function EarnView() {
         chainId,
         debtToken.symbol as TokenSymbol,
       ) as `0x${string}`;
+    } catch {
+      return undefined;
+    }
+  })();
+
+  const collateralTokenAddress = (() => {
+    try {
+      return getTokenAddress(chainId, "USDm" as TokenSymbol) as `0x${string}`;
     } catch {
       return undefined;
     }
@@ -91,16 +90,6 @@ export function EarnView() {
   const poolShare =
     hasDeposit && totalDeposits && totalDeposits > 0n
       ? Number((spPosition.deposit * 10000n) / totalDeposits) / 100
-      : null;
-
-  const hasRewards =
-    spPosition &&
-    ((spPosition.collateralGain != null && spPosition.collateralGain > 0n) ||
-      (spPosition.debtTokenGain != null && spPosition.debtTokenGain > 0n));
-
-  const totalRewards =
-    spPosition && hasRewards
-      ? (spPosition.collateralGain ?? 0n) + (spPosition.debtTokenGain ?? 0n)
       : null;
 
   const steps = [
@@ -202,112 +191,157 @@ export function EarnView() {
           {/* Two-Column Layout: Position + Deposit/Withdraw Form */}
           <div className="gap-6 md:grid-cols-2 grid grid-cols-1">
             {/* Your Position */}
-            <Card className="!py-0 !gap-0">
-              <CardContent className="!px-4 pt-5 pb-4 flex h-full flex-col justify-between">
-                <div>
-                  <div className="mb-6 flex items-center justify-between">
-                    <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
+            <div className="p-6 flex flex-col justify-between rounded-xl border border-border bg-card">
+              <div>
+                {/* Header */}
+                <div className="mb-5 gap-6 grid grid-cols-2">
+                  <div className="gap-2.5 flex items-center">
+                    <span className="text-sm font-semibold text-muted-foreground">
                       Your Position
                     </span>
                     {hasDeposit && (
-                      <div className="gap-2 flex items-center">
-                        {poolShare != null && (
-                          <Badge variant="outline" className="text-[11px]">
-                            {poolShare.toFixed(2)}% of pool
-                          </Badge>
-                        )}
-                        <Badge
-                          variant="outline"
-                          className="border-green-300 text-green-700 dark:border-green-700 dark:text-green-400 tracking-wide text-[11px] uppercase"
-                        >
-                          Earning
-                        </Badge>
-                      </div>
+                      <span className="h-1.5 w-1.5 bg-green-500 rounded-full shadow-[0_0_6px_rgba(34,197,94,0.5)]" />
                     )}
                   </div>
+                  <div>
+                    {hasDeposit && poolShare != null && (
+                      <span className="px-2.5 py-1 font-semibold font-mono tracking-wider bg-green-500/10 text-green-600 dark:text-green-400 rounded-md text-[11px]">
+                        {poolShare.toFixed(2)}% POOL SHARE
+                      </span>
+                    )}
+                  </div>
+                </div>
 
-                  {isLoading ? (
-                    <div className="space-y-3">
-                      {[1, 2].map((i) => (
-                        <div
-                          key={i}
-                          className="h-10 animate-pulse rounded bg-muted"
-                        />
-                      ))}
-                    </div>
-                  ) : hasDeposit ? (
-                    <div className="gap-10 mb-6 flex">
-                      <div className="gap-1 flex flex-col">
-                        <span className="font-medium tracking-widest text-[11px] text-muted-foreground uppercase">
-                          Deposited
-                        </span>
-                        <span className="text-2xl font-bold tracking-tight">
-                          {formatCompactCurrency(spPosition.deposit, debtToken)}
-                        </span>
-                        <span className="text-sm font-medium text-muted-foreground">
-                          {formatTokenAmount(spPosition.deposit)}{" "}
-                          {debtToken.symbol}
-                        </span>
+                {isLoading ? (
+                  <div className="space-y-3">
+                    {[1, 2].map((i) => (
+                      <div
+                        key={i}
+                        className="h-10 animate-pulse rounded bg-muted"
+                      />
+                    ))}
+                  </div>
+                ) : hasDeposit ? (
+                  <div className="gap-6 mb-6 grid grid-cols-2">
+                    {/* Deposited */}
+                    <div>
+                      <div className="font-mono tracking-widest mb-3 text-[11px] text-muted-foreground uppercase">
+                        Deposited
                       </div>
-                      <div className="gap-1 flex flex-col">
-                        <span className="font-medium tracking-widest text-[11px] text-muted-foreground uppercase">
-                          Rewards
-                        </span>
-                        <span className="text-2xl font-bold tracking-tight text-primary">
-                          {formatCompactCurrency(totalRewards, debtToken)}
-                        </span>
-                        <span className="text-xs font-medium text-primary">
-                          Claimable
-                        </span>
-                      </div>
-                    </div>
-                  ) : isConnected ? (
-                    <div className="py-8 flex flex-col items-center text-center">
-                      {/* Token icon cluster */}
-                      <div className="mb-5 flex justify-center">
-                        <div className="h-14 w-14 relative">
-                          <div className="inset-0 absolute z-[1]">
-                            {debtTokenAddress ? (
-                              <TokenIcon
-                                token={{
-                                  address: debtTokenAddress,
-                                  symbol: debtToken.symbol,
-                                }}
-                                size={44}
-                                className="rounded-full"
-                              />
-                            ) : (
-                              <div className="h-11 w-11 bg-indigo-500 text-lg font-bold flex items-center justify-center rounded-full">
-                                {debtToken.currencySymbol}
-                              </div>
+                      <div className="gap-3 flex items-center">
+                        {debtTokenAddress && (
+                          <TokenIcon
+                            token={{
+                              address: debtTokenAddress,
+                              symbol: debtToken.symbol,
+                            }}
+                            size={28}
+                            className="shrink-0 rounded-full"
+                          />
+                        )}
+                        <div>
+                          <div className="text-lg font-bold tracking-tight tabular-nums">
+                            {formatCompactCurrency(
+                              spPosition.deposit,
+                              debtToken,
                             )}
-                          </div>
-                          {/* Plus badge */}
-                          <div className="right-0 bottom-0 absolute z-[2] flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 border-card bg-primary text-primary-foreground">
-                            <Plus className="h-3 w-3" />
                           </div>
                         </div>
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        No deposit yet — deposit to start earning.
-                      </p>
                     </div>
-                  ) : (
-                    <p className="text-sm py-8 text-center text-muted-foreground">
-                      Connect your wallet to view your position.
-                    </p>
-                  )}
-                </div>
 
-                {/* Claim Rewards */}
-                {hasDeposit && (
-                  <ClaimRewards
-                    collateralGain={spPosition.collateralGain}
-                    debtTokenGain={spPosition.debtTokenGain}
-                  />
+                    {/* Rewards */}
+                    <div>
+                      <div className="font-mono tracking-widest mb-3 text-[11px] text-muted-foreground uppercase">
+                        Claimable Rewards
+                      </div>
+                      <div className="space-y-2.5">
+                        {spPosition.debtTokenGain != null &&
+                          spPosition.debtTokenGain > 0n && (
+                            <div className="gap-3 flex items-center">
+                              {debtTokenAddress && (
+                                <TokenIcon
+                                  token={{
+                                    address: debtTokenAddress,
+                                    symbol: debtToken.symbol,
+                                  }}
+                                  size={28}
+                                  className="shrink-0 rounded-full"
+                                />
+                              )}
+                              <div>
+                                <div className="text-lg font-bold tracking-tight tabular-nums">
+                                  {formatCompactCurrency(
+                                    spPosition.debtTokenGain,
+                                    debtToken,
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        {spPosition.collateralGain != null &&
+                          spPosition.collateralGain > 0n && (
+                            <div className="gap-3 flex items-center">
+                              {collateralTokenAddress && (
+                                <TokenIcon
+                                  token={{
+                                    address: collateralTokenAddress,
+                                    symbol: "USDm",
+                                  }}
+                                  size={28}
+                                  className="shrink-0 rounded-full"
+                                />
+                              )}
+                              <div>
+                                <div className="text-lg font-bold tracking-tight tabular-nums">
+                                  {formatCompactCurrency(
+                                    spPosition.collateralGain,
+                                    { symbol: "USDm" },
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                      </div>
+                    </div>
+                  </div>
+                ) : isConnected ? (
+                  <div className="py-8 flex flex-col items-center text-center">
+                    <div className="mb-5 flex justify-center">
+                      {debtTokenAddress ? (
+                        <TokenIcon
+                          token={{
+                            address: debtTokenAddress,
+                            symbol: debtToken.symbol,
+                          }}
+                          size={44}
+                          className="rounded-full"
+                        />
+                      ) : (
+                        <div className="h-11 w-11 text-lg font-bold flex items-center justify-center rounded-full bg-primary/10 text-primary">
+                          {debtToken.symbol.charAt(0)}
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      No deposit yet — deposit to start earning.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm py-8 text-center text-muted-foreground">
+                    Connect your wallet to view your position.
+                  </p>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+
+              {/* Claim Rewards */}
+              {hasDeposit && (
+                <ClaimRewards
+                  collateralGain={spPosition.collateralGain}
+                  debtTokenGain={spPosition.debtTokenGain}
+                />
+              )}
+            </div>
 
             {/* Deposit / Withdraw Form */}
             <Card className="!py-0 !gap-0">
