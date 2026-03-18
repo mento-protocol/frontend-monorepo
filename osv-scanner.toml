@@ -49,3 +49,11 @@ reason = "minimatch ReDoS in transitive deps; pre-existing"
 [[IgnoredVulns]]
 id = "GHSA-25h7-pfq9-p65f"
 reason = "flatted vulnerability is only reachable through ESLint cache tooling in dev/CI, not application runtime"
+
+[[IgnoredVulns]]
+id = "GHSA-xxjr-mmjv-4gpg"
+reason = "lodash prototype pollution in transitive deps (@metamask/utils); no fix available"
+
+[[IgnoredVulns]]
+id = "GHSA-3x4c-7xq6-9pq8"
+reason = "Next.js unbounded image cache growth; 15.5.13 is latest stable, no fix available yet"
