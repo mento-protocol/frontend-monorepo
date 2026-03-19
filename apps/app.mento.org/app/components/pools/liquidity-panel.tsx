@@ -183,7 +183,7 @@ export function LiquidityPanel({
             <ExternalLink className="h-3 w-3" />
           </a>
           <a
-            href="https://docs.mento.org/mento/overview/core-concepts/fixed-price-market-makers-fpmms"
+            href="https://docs.mento.org/mento-v3/dive-deeper/fpmm"
             target="_blank"
             rel="noopener noreferrer"
             className="gap-1.5 px-3.5 py-2 text-xs font-medium flex items-center rounded-lg border border-border bg-muted/30 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"

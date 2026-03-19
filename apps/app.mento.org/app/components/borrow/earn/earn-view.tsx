@@ -416,7 +416,7 @@ export function EarnView() {
           {/* Footer link */}
           <div className="pt-4 border-t border-border text-center">
             <a
-              href="https://docs.mento.org/mento/overview/core-concepts"
+              href="https://docs.mento.org/mento-v3/dive-deeper/cdp"
               target="_blank"
               rel="noopener noreferrer"
               className="gap-1.5 text-xs inline-flex items-center text-primary hover:underline"
