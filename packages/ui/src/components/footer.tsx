@@ -55,6 +55,16 @@ export function Footer({ type = "swap" }: FooterProps) {
         >
           Mento.org
         </a>
+        {type !== "swap" && (
+          <a
+            href="https://app.mento.org/"
+            className={cn(linkClassName)}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Reserve
+          </a>
+        )}
         {(type === "governance" || type === "swap") && (
           <a
             href="https://reserve.mento.org"
