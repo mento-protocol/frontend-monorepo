@@ -1,16 +1,14 @@
-import type { ChainId } from "@/config/chains";
-import { getMentoSdk } from "@/features/sdk";
 import { logger } from "@/utils/logger";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import type { RebalanceTransaction } from "@mento-protocol/mento-sdk";
 import type { Address } from "viem";
-import { useChainId } from "wagmi";
 import { showLiquiditySuccessToast } from "../liquidity-toast";
+import { buildPoolRebalanceTransaction } from "../rebalance";
 import type { PoolDisplay } from "../types";
 
 export function useRebalanceTransaction(pool: PoolDisplay) {
-  const chainId = useChainId() as ChainId;
+  const chainId = pool.chainId;
   const queryClient = useQueryClient();
   const [isBuilding, setIsBuilding] = useState(false);
 
@@ -18,11 +16,7 @@ export function useRebalanceTransaction(pool: PoolDisplay) {
     async (owner: Address): Promise<RebalanceTransaction> => {
       setIsBuilding(true);
       try {
-        const sdk = await getMentoSdk(chainId);
-        return await sdk.liquidity.buildRebalanceTransaction({
-          poolAddress: pool.poolAddr as Address,
-          owner,
-        });
+        return await buildPoolRebalanceTransaction(pool, owner);
       } catch (error) {
         logger.error("Failed to build rebalance transaction:", error);
         throw error;
@@ -30,7 +24,7 @@ export function useRebalanceTransaction(pool: PoolDisplay) {
         setIsBuilding(false);
       }
     },
-    [chainId, pool.poolAddr],
+    [pool],
   );
 
   const handleSuccess = useCallback(

@@ -1,5 +1,13 @@
+import { useState } from "react";
 import { Star } from "lucide-react";
-import { Badge, Button, TokenIcon, cn } from "@repo/ui";
+import {
+  Badge,
+  Button,
+  Collapsible,
+  CollapsibleContent,
+  TokenIcon,
+  cn,
+} from "@repo/ui";
 import {
   type PoolDisplay,
   type PoolRewardInfo,
@@ -12,6 +20,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { PoolAddressPopover } from "./pool-address-popover";
 import { PoolFeePopover } from "./pool-fee-popover";
+import { RebalancePanel } from "./rebalance-panel";
 
 function formatCompactTvl(value: number): string {
   if (value >= 1_000_000) {
@@ -32,6 +41,7 @@ interface PoolRowProps {
 
 export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
   const { address } = useAccount();
+  const [rebalanceOpen, setRebalanceOpen] = useState(false);
 
   const { data: lpBalance, isLoading: isLpBalanceLoading } = useReadContract({
     chainId: pool.chainId,
@@ -56,7 +66,9 @@ export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
   const actionLabel = hasLPTokens ? "Manage" : "Deposit";
 
   return (
-    <div
+    <Collapsible
+      open={rebalanceOpen}
+      onOpenChange={setRebalanceOpen}
       className={cn(
         "overflow-hidden rounded-lg border border-border bg-card",
         isLegacy && "opacity-60",
@@ -118,7 +130,12 @@ export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
               {pool.poolType === "FPMM" && rebalanceDue && (
                 <Badge
                   variant="secondary"
-                  className="gap-1 px-1 py-0 bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400 text-[10px]"
+                  className="gap-1 px-1 py-0 bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300 font-semibold hover:bg-amber-200 dark:hover:bg-amber-500/30 cursor-pointer text-[10px] transition-colors select-none"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setRebalanceOpen((o) => !o);
+                  }}
                 >
                   <span className="h-1.5 w-1.5 rounded-full bg-current" />
                   Rebalance Due
@@ -240,7 +257,11 @@ export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
           ) : null}
         </div>
       </div>
-    </div>
+
+      <CollapsibleContent>
+        <RebalancePanel pool={pool} />
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 

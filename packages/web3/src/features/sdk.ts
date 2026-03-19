@@ -8,9 +8,14 @@ import {
 import { createPublicClient, http } from "viem";
 
 const cache: Record<number, Promise<Mento>> = {};
+const publicClientCache: Record<
+  number,
+  ReturnType<typeof createPublicClient> | undefined
+> = {};
 
-export async function getMentoSdk(chainId: ChainId): Promise<Mento> {
-  if (cache[chainId]) return cache[chainId];
+export function getPublicClient(chainId: ChainId) {
+  const cachedClient = publicClientCache[chainId];
+  if (cachedClient) return cachedClient;
 
   const chain = chainIdToChain[chainId];
   const rpcUrl = chain?.rpcUrls?.default?.http?.[0];
@@ -26,7 +31,19 @@ export async function getMentoSdk(chainId: ChainId): Promise<Mento> {
     transport: http(rpcUrl),
   });
 
-  cache[chainId] = Mento.create(chainId, publicClient).catch((error) => {
+  publicClientCache[chainId] = publicClient;
+  return publicClient;
+}
+
+export async function getMentoSdk(chainId: ChainId): Promise<Mento> {
+  if (cache[chainId]) return cache[chainId];
+
+  const publicClient = getPublicClient(chainId);
+
+  cache[chainId] = Mento.create(
+    chainId,
+    publicClient as Parameters<typeof Mento.create>[1],
+  ).catch((error) => {
     delete cache[chainId];
     throw error;
   });
