@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSetAtom } from "jotai";
-import { ExternalLink, AlertTriangle, ArrowRightLeft } from "lucide-react";
+import { AlertTriangle, ArrowRightLeft } from "lucide-react";
 
 import { Button, TokenIcon } from "@repo/ui";
 import {
