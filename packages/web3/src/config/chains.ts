@@ -249,7 +249,6 @@ function getCeloSepoliaRpcUrl(): string {
     source = "default";
   }
 
-  console.log(`[mento] Celo Sepolia RPC: ${url} (${source})`);
   return url;
 }
 
@@ -269,7 +268,6 @@ function getCeloRpcUrl(): string {
     source = "default";
   }
 
-  console.log(`[mento] Celo RPC: ${url} (${source})`);
   return url;
 }
 
@@ -286,7 +284,6 @@ function getMonadTestnetRpcUrl(): string {
     source = "default";
   }
 
-  console.log(`[mento] Monad Testnet RPC: ${url} (${source})`);
   return url;
 }
 
@@ -303,7 +300,6 @@ function getMonadRpcUrl(): string {
     source = "default";
   }
 
-  console.log(`[mento] Monad RPC: ${url} (${source})`);
   return url;
 }
 
