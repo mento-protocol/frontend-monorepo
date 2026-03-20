@@ -22,6 +22,9 @@ export const SWAP_ERROR_MESSAGES = {
   NO_ROUTE_FOUND: "No route found for tokens",
   NO_TRADABLE_PATH: "They may not have a tradable path",
   NO_VALID_MEDIAN: "no valid median",
+  // Router/oracle failures sometimes surface as an undecoded custom error selector
+  // instead of the underlying "no valid median" revert string.
+  NO_VALID_MEDIAN_SELECTOR: "0xeb0d3e81",
   INSUFFICIENT_RESERVE_BALANCE: "Insufficient balance in reserve",
   INSUFFICIENT_LIQUIDITY: "0xbb55fd27",
   INSUFFICIENT_LIQUIDITY_NAME: "InsufficientLiquidity",
@@ -86,11 +89,7 @@ export function getToastErrorMessage(
       message: "Amount out is too large",
     },
     {
-      condition:
-        swapErrorMessage.includes(SWAP_ERROR_MESSAGES.NO_VALID_MEDIAN) ||
-        swapErrorMessage.includes(
-          SWAP_ERROR_MESSAGES.TRADING_SUSPENDED_REFERENCE_RATE,
-        ),
+      condition: isReferenceRateUnavailableError(swapErrorMessage),
       message: `Trading temporarily paused. Unable to determine accurate ${fromTokenSymbol} to ${toTokenSymbol} exchange rate now. Please try again later.`,
     },
     {
@@ -147,12 +146,7 @@ export function getToastErrorMessage(
       }),
     },
     {
-      condition:
-        swapErrorMessage.includes(SWAP_ERROR_MESSAGES.FX_MARKET_CLOSED) ||
-        swapErrorMessage.includes("FXMarketClosed") ||
-        swapErrorMessage.includes(
-          SWAP_ERROR_MESSAGES.FX_MARKET_CLOSED_SELECTOR,
-        ),
+      condition: isFxMarketClosedError(swapErrorMessage),
       message:
         "FX market is currently closed. Trading will resume when the market reopens.",
     },
@@ -214,6 +208,37 @@ export function isInsufficientLiquidityError(error: unknown): boolean {
   );
 }
 
+export function isNoValidMedianError(error: unknown): boolean {
+  const errorMessage = extractFullErrorString(error).toLowerCase();
+  return (
+    errorMessage.includes(SWAP_ERROR_MESSAGES.NO_VALID_MEDIAN.toLowerCase()) ||
+    errorMessage.includes(
+      SWAP_ERROR_MESSAGES.NO_VALID_MEDIAN_SELECTOR.toLowerCase(),
+    )
+  );
+}
+
+export function isReferenceRateUnavailableError(error: unknown): boolean {
+  const errorMessage = extractFullErrorString(error).toLowerCase();
+  return (
+    isNoValidMedianError(errorMessage) ||
+    errorMessage.includes(
+      SWAP_ERROR_MESSAGES.TRADING_SUSPENDED_REFERENCE_RATE.toLowerCase(),
+    )
+  );
+}
+
+export function isFxMarketClosedError(error: unknown): boolean {
+  const errorMessage = extractFullErrorString(error).toLowerCase();
+  return (
+    errorMessage.includes(SWAP_ERROR_MESSAGES.FX_MARKET_CLOSED.toLowerCase()) ||
+    errorMessage.includes("fxmarketclosed") ||
+    errorMessage.includes(
+      SWAP_ERROR_MESSAGES.FX_MARKET_CLOSED_SELECTOR.toLowerCase(),
+    )
+  );
+}
+
 /**
  * Determines if an error should be retried in React Query
  */
@@ -224,6 +249,7 @@ export function shouldRetrySwapError(
   const errorMessage = extractFullErrorString(error);
   if (errorMessage.includes(SWAP_ERROR_MESSAGES.TRADING_SUSPENDED))
     return false;
+  if (isReferenceRateUnavailableError(errorMessage)) return false;
   if (errorMessage.includes(SWAP_ERROR_MESSAGES.OVERFLOW_X1Y1)) return false;
   if (errorMessage.includes(SWAP_ERROR_MESSAGES.FIXIDITY_TOO_LARGE))
     return false;
@@ -232,12 +258,7 @@ export function shouldRetrySwapError(
   if (errorMessage.includes(SWAP_ERROR_MESSAGES.INSUFFICIENT_RESERVE_BALANCE))
     return false;
   if (isInsufficientLiquidityError(errorMessage)) return false;
-  if (
-    errorMessage.includes(SWAP_ERROR_MESSAGES.FX_MARKET_CLOSED) ||
-    errorMessage.includes("FXMarketClosed") ||
-    errorMessage.includes(SWAP_ERROR_MESSAGES.FX_MARKET_CLOSED_SELECTOR)
-  )
-    return false;
+  if (isFxMarketClosedError(errorMessage)) return false;
 
   return failureCount < 2;
 }

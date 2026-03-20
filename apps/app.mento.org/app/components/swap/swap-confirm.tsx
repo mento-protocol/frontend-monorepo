@@ -284,6 +284,8 @@ export function SwapConfirm() {
         ) : isQuoteError ? (
           hasQuoteInsufficientLiquidityError ? (
             SWAP_INSUFFICIENT_LIQUIDITY_LABEL
+          ) : quoteErrorMessage?.includes("temporarily paused") ? (
+            "Rate temporarily unavailable"
           ) : quoteErrorMessage?.includes("FX market") ? (
             "FX market is closed"
           ) : (

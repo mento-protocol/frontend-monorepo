@@ -113,7 +113,9 @@ export function SwapSubmitButton({
       ) : hasInsufficientLiquidityError ? (
         SWAP_INSUFFICIENT_LIQUIDITY_LABEL
       ) : isError ? (
-        quoteErrorMessage?.includes("FX market") ? (
+        quoteErrorMessage?.includes("temporarily paused") ? (
+          "Rate temporarily unavailable"
+        ) : quoteErrorMessage?.includes("FX market") ? (
           "FX market is closed"
         ) : (
           (quoteErrorMessage ?? "Unable to fetch quote")

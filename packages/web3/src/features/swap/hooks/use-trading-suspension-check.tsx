@@ -3,6 +3,11 @@ import { useMemo } from "react";
 import { useChainId } from "wagmi";
 
 import { getMentoSdk } from "@/features/sdk";
+import {
+  extractFullErrorString,
+  isFxMarketClosedError,
+  isReferenceRateUnavailableError,
+} from "@/features/swap/error-handlers";
 import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
 
 interface TradingSuspensionCheckResult {
@@ -77,19 +82,24 @@ export function useTradingSuspensionCheck(
 
         return { isSuspended: false };
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : String(err);
+        const errorMessage = extractFullErrorString(err);
         const isNoExchangeError = errorMessage.includes("No exchange found");
-        const isFXMarketClosed =
-          errorMessage.includes("FX market is currently closed") ||
-          errorMessage.includes("FXMarketClosed");
+        const isFXMarketClosed = isFxMarketClosedError(errorMessage);
+        const isReferenceRateUnavailable =
+          isReferenceRateUnavailableError(errorMessage);
 
         console.error(
           `[Trading Suspension Check] Error checking isPairTradable(${tokenInSymbol} -> ${tokenOutSymbol}):`,
           err,
         );
 
-        // If no exchange is found or FX market is closed, treat as suspended
-        if (isNoExchangeError || isFXMarketClosed) {
+        // If no exchange is found or the reference rate is unavailable,
+        // treat the pair as temporarily untradable.
+        if (
+          isNoExchangeError ||
+          isFXMarketClosed ||
+          isReferenceRateUnavailable
+        ) {
           return {
             isSuspended: true,
           };

@@ -3,8 +3,11 @@ import { getTokenBySymbol } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import {
   extractFullErrorString,
+  getToastErrorMessage,
   getInsufficientLiquidityNoticeContent,
+  isFxMarketClosedError,
   isInsufficientLiquidityError,
+  isReferenceRateUnavailableError,
   SWAP_INSUFFICIENT_LIQUIDITY_LABEL,
 } from "@/features/swap/error-handlers";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
@@ -165,6 +168,11 @@ export function useSwapTransaction(
       }
       const toastError = getSwapTransactionErrorMessage(
         error,
+        {
+          fromTokenSymbol: fromToken,
+          toTokenSymbol: toToken,
+          chainId,
+        },
         insufficientLiquidityFallbackUrl,
       );
       toast.error(toastError);
@@ -303,6 +311,15 @@ export function useSwapTransaction(
  */
 function getSwapTransactionErrorMessage(
   error: Error | string,
+  {
+    fromTokenSymbol,
+    toTokenSymbol,
+    chainId,
+  }: {
+    fromTokenSymbol?: string;
+    toTokenSymbol?: string;
+    chainId?: number;
+  } = {},
   insufficientLiquidityFallbackUrl?: string,
 ): string | JSX.Element {
   const errorMessage = extractFullErrorString(error);
@@ -312,9 +329,18 @@ function getSwapTransactionErrorMessage(
     });
   }
 
+  const sharedMessage = getToastErrorMessage(errorMessage, {
+    fromTokenSymbol,
+    toTokenSymbol,
+    chainId,
+    insufficientLiquidityFallbackUrl,
+  });
+
+  if (sharedMessage !== "Unable to fetch swap amount") {
+    return sharedMessage;
+  }
+
   switch (true) {
-    case errorMessage.includes(`Trading is suspended for this reference rate`):
-      return "Trading temporarily paused.  " + "Please try again later.";
     case /user\s+rejected/i.test(errorMessage):
       return "Swap transaction rejected by user.";
     case /denied\s+transaction\s+signature/i.test(errorMessage):
@@ -330,8 +356,9 @@ function getSwapTransactionErrorMessage(
       return "Insufficient funds for transaction.";
     case errorMessage.includes("Transaction failed"):
       return "Transaction failed on blockchain.";
-    case errorMessage.includes("FX market is currently closed") ||
-      errorMessage.includes("FXMarketClosed"):
+    case isReferenceRateUnavailableError(errorMessage):
+      return "Trading temporarily paused. Please try again later.";
+    case isFxMarketClosedError(errorMessage):
       return "FX market is currently closed. Please try again when the market reopens.";
     default:
       logger.warn(`Unhandled swap error for toast: ${errorMessage}`);
