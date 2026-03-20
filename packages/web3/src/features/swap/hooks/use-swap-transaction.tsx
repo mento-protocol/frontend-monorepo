@@ -3,13 +3,8 @@ import { getTokenBySymbol } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
 import {
   extractFullErrorString,
-  getInsufficientLiquidityNoticeContent,
-  getToastErrorMessage,
-  isFxMarketClosedError,
   isInsufficientLiquidityError,
-  isReferenceRateUnavailableError,
   SWAP_INSUFFICIENT_LIQUIDITY_LABEL,
-  USER_ERROR_MESSAGES,
 } from "@/features/swap/error-handlers";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
 import { validateAddress } from "@/utils/addresses";
@@ -21,13 +16,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
 import { useAtom, useSetAtom } from "jotai";
 import { useEffect } from "react";
-import type { JSX } from "react";
 import type { Address, Hex } from "viem";
 import {
   usePublicClient,
   useSendTransaction,
   useWaitForTransactionReceipt,
 } from "wagmi";
+import { getSwapTransactionErrorMessage } from "./swap-transaction-error";
 import { confirmViewAtom, formValuesAtom } from "../swap-atoms";
 
 export function useSwapTransaction(
@@ -294,66 +289,4 @@ export function useSwapTransaction(
     swapTxError: mutation.error,
     resetSwapTx: mutation.reset,
   };
-}
-
-/**
- * Converts swap transaction errors to user-friendly toast messages.
- * Handles transaction-specific errors like user rejection, insufficient funds, etc.
- */
-export function getSwapTransactionErrorMessage(
-  error: Error | string,
-  {
-    fromTokenSymbol,
-    toTokenSymbol,
-    chainId,
-  }: {
-    fromTokenSymbol?: string;
-    toTokenSymbol?: string;
-    chainId?: number;
-  } = {},
-  insufficientLiquidityFallbackUrl?: string,
-): string | JSX.Element {
-  const errorMessage = extractFullErrorString(error);
-
-  if (isInsufficientLiquidityError(errorMessage)) {
-    return getInsufficientLiquidityNoticeContent({
-      insufficientLiquidityFallbackUrl,
-    });
-  }
-
-  const sharedMessage = getToastErrorMessage(errorMessage, {
-    fromTokenSymbol,
-    toTokenSymbol,
-    chainId,
-    insufficientLiquidityFallbackUrl,
-  });
-
-  if (sharedMessage !== "Unable to fetch swap amount") {
-    return sharedMessage;
-  }
-
-  switch (true) {
-    case /user\s+rejected/i.test(errorMessage):
-      return USER_ERROR_MESSAGES.SWAP_REJECTED_BY_USER;
-    case /denied\s+transaction\s+signature/i.test(errorMessage):
-      return USER_ERROR_MESSAGES.SWAP_REJECTED_BY_USER;
-    case /request\s+rejected/i.test(errorMessage):
-      return USER_ERROR_MESSAGES.SWAP_REJECTED_BY_USER;
-    case errorMessage.includes("No route found for tokens") ||
-      errorMessage.includes("tradable path"):
-      return "No route found for the selected token pair.";
-    case errorMessage.includes("Slippage tolerance"):
-      return "Slippage exceeds the maximum supported value.";
-    case errorMessage.includes("insufficient funds"):
-      return USER_ERROR_MESSAGES.INSUFFICIENT_FUNDS;
-    case errorMessage.includes("Transaction failed"):
-      return USER_ERROR_MESSAGES.TRANSACTION_FAILED;
-    case isReferenceRateUnavailableError(errorMessage):
-      return USER_ERROR_MESSAGES.TRADING_PAUSED;
-    case isFxMarketClosedError(errorMessage):
-      return "FX market is currently closed. Please try again when the market reopens.";
-    default:
-      logger.warn(`Unhandled swap error for toast: ${errorMessage}`);
-      return USER_ERROR_MESSAGES.UNKNOWN_ERROR;
-  }
 }

@@ -59,6 +59,10 @@
     "viem": "catalog:",
     "wagmi": "catalog:"
   },
+  "devDependencies": {
+    "@vitest/coverage-v8": "catalog:",
+    "vitest": "catalog:"
+  },
   "peerDependencies": {
     "@rainbow-me/rainbowkit": "catalog:",
     "@sentry/nextjs": "catalog:",
