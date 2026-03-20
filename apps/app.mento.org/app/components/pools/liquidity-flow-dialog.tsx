@@ -191,7 +191,10 @@ export function LiquidityFlowDialog() {
   const errored = flow.steps.some((s) => s.status === "error");
 
   return (
-    <Dialog open onOpenChange={(open) => !open && allDone && setFlow(null)}>
+    <Dialog
+      open
+      onOpenChange={(open) => !open && (allDone || errored) && setFlow(null)}
+    >
       <DialogContent
         className="border-0 bg-card"
         showCloseButton={allDone || errored}

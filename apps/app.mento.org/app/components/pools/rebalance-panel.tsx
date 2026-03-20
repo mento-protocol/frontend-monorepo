@@ -1,9 +1,13 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useSetAtom } from "jotai";
-import { AlertTriangle, Equal } from "lucide-react";
-import { Badge, Button, TokenIcon } from "@repo/ui";
+import { ExternalLink, AlertTriangle, ArrowRightLeft } from "lucide-react";
+
+import { Button, TokenIcon } from "@repo/ui";
 import {
+  chainIdToChain,
+  type ChainId,
   type PoolDisplay,
   usePoolRebalancePreview,
   useRebalanceTransaction,
@@ -11,8 +15,14 @@ import {
   liquidityFlowAtom,
   type LiquidityFlowStepDefinition,
 } from "@repo/web3";
-import { useAccount, useConfig } from "@repo/web3/wagmi";
+import {
+  useAccount,
+  useChainId,
+  useConfig,
+  useSwitchChain,
+} from "@repo/web3/wagmi";
 import { formatUnits, type Address } from "viem";
+import { toast } from "sonner";
 
 function formatAmount(amount: bigint, decimals = 18): string {
   const num = Number(formatUnits(amount, decimals));
@@ -42,18 +52,6 @@ function resolveTokenAddress(tokenAddress: string, pool: PoolDisplay): string {
   return tokenAddress;
 }
 
-function computeExchangeRate(
-  amountIn: bigint,
-  decimalsIn: number,
-  amountOut: bigint,
-  decimalsOut: number,
-): string {
-  const numIn = Number(formatUnits(amountIn, decimalsIn));
-  const numOut = Number(formatUnits(amountOut, decimalsOut));
-  if (numIn <= 0) return "—";
-  return (numOut / numIn).toFixed(2);
-}
-
 function clampPercent(percent: number): number {
   return Math.max(0, Math.min(100, percent));
 }
@@ -73,6 +71,19 @@ function getReserveSharePercentForThreshold(
   return clampPercent(100 / (1 + relativePoolPrice));
 }
 
+function formatCooldownDuration(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.ceil(totalSeconds));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+
+  if (hours > 0) return `${hours}h ${minutes.toString().padStart(2, "0")}m`;
+  if (minutes > 0) return `${minutes}m ${secs.toString().padStart(2, "0")}s`;
+  return `${secs}s`;
+}
+
+const COOLDOWN_SAFETY_BUFFER_SECONDS = 2;
+
 interface RebalancePanelProps {
   pool: PoolDisplay;
   onRebalanceComplete?: () => void;
@@ -82,15 +93,52 @@ export function RebalancePanel({
   pool,
   onRebalanceComplete,
 }: RebalancePanelProps) {
+  const [nowTs, setNowTs] = useState(() => Math.floor(Date.now() / 1000));
   const { address, isConnected } = useAccount();
+  const walletChainId = useChainId();
+  const { switchChainAsync } = useSwitchChain();
   const wagmiConfig = useConfig();
   const setFlow = useSetAtom(liquidityFlowAtom);
   const { data: preview, isLoading, isError } = usePoolRebalancePreview(pool);
   const { buildTransaction, handleSuccess, isBuilding } =
     useRebalanceTransaction(pool);
+  const targetChain = chainIdToChain[pool.chainId as ChainId];
+  const targetChainName = targetChain?.name ?? `Chain ${pool.chainId}`;
+  const isWrongChain = isConnected && walletChainId !== pool.chainId;
+  const cooldownEndsAt =
+    preview?.config.lastRebalance && preview.config.rebalanceCooldown > 0
+      ? preview.config.lastRebalance +
+        preview.config.rebalanceCooldown +
+        COOLDOWN_SAFETY_BUFFER_SECONDS
+      : 0;
+  const cooldownRemainingSeconds =
+    cooldownEndsAt > 0 ? Math.max(0, cooldownEndsAt - nowTs) : 0;
+  const isOnCooldown = cooldownRemainingSeconds > 0;
+
+  useEffect(() => {
+    setNowTs(Math.floor(Date.now() / 1000));
+  }, [preview?.config.lastRebalance, preview?.config.rebalanceCooldown]);
+
+  useEffect(() => {
+    if (!isOnCooldown) return;
+
+    const intervalId = window.setInterval(() => {
+      setNowTs(Math.floor(Date.now() / 1000));
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [isOnCooldown]);
 
   const handleRebalance = async () => {
-    if (!address || !preview) return;
+    if (!address || !preview || isWrongChain) return;
+    if (isOnCooldown) {
+      toast.error(
+        `Rebalance cooldown active. Try again in ${formatCooldownDuration(
+          cooldownRemainingSeconds,
+        )}.`,
+      );
+      return;
+    }
 
     const tx = await buildTransaction(address as Address);
 
@@ -119,8 +167,22 @@ export function RebalancePanel({
     );
 
     if (result.success && result.txHashes.length > 0) {
-      await handleSuccess(result.txHashes[result.txHashes.length - 1]!);
+      await handleSuccess(
+        result.txHashes[result.txHashes.length - 1]!,
+        preview,
+      );
       onRebalanceComplete?.();
+    }
+  };
+
+  const handleSwitchChain = async () => {
+    try {
+      if (!switchChainAsync) throw new Error("switchChainAsync unavailable");
+      await switchChainAsync({ chainId: pool.chainId });
+    } catch {
+      toast.error(
+        `Could not switch to ${targetChainName}. Please switch networks in your wallet.`,
+      );
     }
   };
 
@@ -162,27 +224,24 @@ export function RebalancePanel({
       ? pool.token0.decimals
       : pool.token1.decimals;
 
-  const exchangeRate = computeExchangeRate(
+  const formattedDepositAmount = formatAmount(
     preview.amountRequired.amount,
     inputDecimals,
+  );
+  const formattedReceiveAmount = formatAmount(
     preview.amountTransferred.amount,
     outputDecimals,
   );
-  const oracleRateLabel =
-    pool.pricing?.oraclePrice !== undefined
-      ? `1 ${pool.token0.symbol} = ${pool.pricing.oraclePrice.toFixed(2)} ${pool.token1.symbol}`
-      : null;
-  const poolRateLabel =
-    pool.pricing?.poolPrice !== undefined
-      ? `1 ${pool.token0.symbol} = ${pool.pricing.poolPrice.toFixed(2)} ${pool.token1.symbol}`
-      : null;
+  const formattedBonusAmount = formatAmount(
+    preview.liquiditySourceIncentive.amount,
+    outputDecimals,
+  );
 
   const token0Ratio = Math.max(0, Math.min(1, pool.reserves.token0Ratio));
   const token0Percent = Math.round(token0Ratio * 100);
   const token1Percent = 100 - token0Percent;
 
   const incentivePercent = pool.rebalancing?.incentivePercent ?? 0;
-  const isExpansion = preview.direction === "Expand";
   const isPoolPriceAbove = pool.pricing?.isPoolPriceAbove ?? false;
 
   const deviationPercent = Math.abs(
@@ -211,17 +270,14 @@ export function RebalancePanel({
     ? thresholdAbovePos
     : thresholdBelowPos;
   const activeThresholdRelation = isPoolPriceAbove ? "above" : "below";
-  const currentDeviationLabel = `${deviationPercent.toFixed(1)}% ${activeThresholdRelation} oracle`;
-  const expectedRateLabel = `1 ${inputSymbol} = ${exchangeRate} ${outputSymbol}`;
-  const bonusLabel = `+${formatAmount(
-    preview.liquiditySourceIncentive.amount,
-    outputDecimals,
-  )} ${outputSymbol}`;
+  const cooldownLabel = isOnCooldown
+    ? `Cooldown: ${formatCooldownDuration(cooldownRemainingSeconds)}`
+    : null;
 
   return (
     <div className="px-4 pb-4 pt-4 border-t border-border">
       <div className="border-amber-500/10 bg-amber-500/5 overflow-hidden rounded-lg border">
-        <div className="p-4 md:p-5 space-y-5">
+        <div className="space-y-4 p-4 md:p-5">
           {/* Header */}
           <div className="gap-2 flex items-center">
             <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0" />
@@ -230,382 +286,227 @@ export function RebalancePanel({
             </span>
           </div>
 
-          {/* Main content: left column (description + bar + cards) + right column (gauge) */}
-          <div className="md:grid-cols-[1fr_auto] gap-4 md:gap-6 grid grid-cols-1 items-start">
-            <div className="space-y-4">
-              {/* Description */}
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                This pool needs more {inputSymbol} and has extra {outputSymbol}.
-                Deposit {inputSymbol}, receive {outputSymbol}, and earn a
-                rebalance bonus. To learn more, read the{" "}
-                <a
-                  href="https://docs.mento.org/mento-v3/dive-deeper/fpmm/rebalancing-and-strategies"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-medium text-foreground underline underline-offset-2 transition-colors hover:text-primary"
-                >
-                  docs
-                </a>
+          <div className="space-y-4">
+            {/* Description */}
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              This pool has drifted away from its target reserve mix.
+              Rebalancing helps move it back toward balance by adding the
+              scarcer asset and removing the excess asset, with a bonus for
+              doing so. Read the docs to{" "}
+              <a
+                href="https://docs.mento.org/mento-v3/dive-deeper/fpmm/rebalancing-and-strategies"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-foreground underline underline-offset-2 transition-colors hover:text-primary"
+              >
+                learn more
+              </a>
+              .
+            </p>
+
+            {/* Reserve imbalance bar */}
+            <div className="space-y-3 p-3 rounded-lg border border-border bg-incard">
+              <div className="gap-2 md:flex-row md:items-start md:justify-between flex flex-col">
+                <div className="space-y-0.5">
+                  <div className="font-mono font-semibold tracking-wider text-[10px] text-muted-foreground uppercase">
+                    Reserve Mix (by value)
+                  </div>
+                  <div className="font-mono text-sm text-muted-foreground">
+                    <span className="font-semibold text-foreground">
+                      {token0Percent}% {pool.token0.symbol}
+                    </span>
+                    <span className="text-muted-foreground/40"> | </span>
+                    <span className="font-semibold text-foreground">
+                      {token1Percent}% {pool.token1.symbol}
+                    </span>
+                  </div>
+                </div>
+                <div className="space-y-0.5 md:text-right">
+                  <div className="font-mono font-semibold tracking-wider text-[10px] text-muted-foreground uppercase">
+                    Price vs Oracle
+                  </div>
+                  <div className="font-mono text-sm text-muted-foreground">
+                    <span className="font-semibold text-amber-600 dark:text-amber-400">
+                      {deviationPercent.toFixed(1)}% {activeThresholdRelation}{" "}
+                      oracle
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-muted-foreground">
+                Too much{" "}
+                <span className="font-semibold text-foreground">
+                  {outputSymbol}
+                </span>
+                . Too little{" "}
+                <span className="font-semibold text-foreground">
+                  {inputSymbol}
+                </span>
                 .
               </p>
 
-              {/* Direction & price info row */}
-              <div className="gap-2 text-xs flex flex-wrap items-center">
-                <Badge
-                  variant="secondary"
-                  className="px-1.5 py-0 font-semibold text-[10px]"
-                >
-                  {isExpansion ? "Expansion" : "Contraction"}
-                </Badge>
-                {pool.pricing && (
-                  <span className="font-mono text-muted-foreground">
-                    Pool price{" "}
-                    <span className="font-semibold text-amber-600 dark:text-amber-400">
-                      {deviationPercent.toFixed(1)}%{" "}
-                      {isPoolPriceAbove ? "above" : "below"}
-                    </span>{" "}
-                    oracle
-                  </span>
-                )}
+              <div className="gap-x-4 gap-y-1 font-mono flex flex-wrap items-center text-[10px] text-muted-foreground/80">
+                <span className="gap-1.5 inline-flex items-center">
+                  <span className="h-3 w-0.5 rounded-full bg-foreground/70 shadow-[0_0_4px_rgba(255,255,255,0.3)]" />
+                  - Target 50/50
+                </span>
                 {activeThreshold > 0 && (
-                  <>
-                    <span className="text-muted-foreground/30">|</span>
-                    <span className="font-mono text-muted-foreground">
-                      Rebalance starts at{" "}
-                      <span className="text-foreground/70">
-                        {activeThreshold.toFixed(1)}% {activeThresholdRelation}{" "}
-                        oracle
-                      </span>
-                    </span>
-                  </>
+                  <span className="gap-1.5 text-amber-600 dark:text-amber-400 inline-flex items-center">
+                    <span className="h-3 w-px border-l border-dashed border-current" />
+                    - Rebalance trigger ({activeThreshold.toFixed(1)}%{" "}
+                    {activeThresholdRelation} oracle)
+                  </span>
                 )}
               </div>
 
-              {/* Reserve imbalance bar */}
-              <div className="space-y-3 p-3 rounded-lg border border-border bg-incard">
-                <div className="gap-2 md:flex-row md:items-start md:justify-between flex flex-col">
-                  <div className="space-y-0.5">
-                    <div className="font-mono font-semibold tracking-wider text-[10px] text-muted-foreground uppercase">
-                      Reserve Mix (by value)
-                    </div>
-                    <div className="font-mono text-sm text-muted-foreground">
-                      <span className="font-semibold text-foreground">
-                        {token0Percent}% {pool.token0.symbol}
-                      </span>
-                      <span className="text-muted-foreground/40"> | </span>
-                      <span className="font-semibold text-foreground">
-                        {token1Percent}% {pool.token1.symbol}
-                      </span>
-                    </div>
+              {/* Bar visualization */}
+              <div className="space-y-2">
+                <div className="relative">
+                  <div className="h-3.5 ring-white/5 flex w-full overflow-hidden rounded-full bg-muted/20 ring-1">
+                    <div
+                      className="ease-out bg-linear-to-r from-primary to-primary/80 transition-[width] duration-400"
+                      style={{ width: `${token0Ratio * 100}%` }}
+                    />
+                    <div
+                      className="ease-out bg-linear-to-r from-primary-border/80 to-primary-border/60 transition-[width] duration-400"
+                      style={{ width: `${(1 - token0Ratio) * 100}%` }}
+                    />
                   </div>
-                  <div className="space-y-0.5 md:text-right">
-                    <div className="font-mono font-semibold tracking-wider text-[10px] text-muted-foreground uppercase">
-                      Price vs Oracle
-                    </div>
-                    <div className="font-mono text-sm text-muted-foreground">
-                      <span className="font-semibold text-amber-600 dark:text-amber-400">
-                        {deviationPercent.toFixed(1)}% {activeThresholdRelation}{" "}
-                        oracle
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <p className="text-[11px] text-muted-foreground">
-                  Too much{" "}
-                  <span className="font-semibold text-foreground">
-                    {outputSymbol}
-                  </span>
-                  . Too little{" "}
-                  <span className="font-semibold text-foreground">
-                    {inputSymbol}
-                  </span>
-                  . White = 50/50 target. Yellow = rebalance trigger.
-                </p>
-
-                <div className="gap-x-4 gap-y-1 font-mono flex flex-wrap items-center text-[10px] text-muted-foreground/80">
-                  <span className="gap-1.5 inline-flex items-center">
-                    <span className="h-3 w-0.5 rounded-full bg-foreground/70 shadow-[0_0_4px_rgba(255,255,255,0.3)]" />
-                    Target 50/50
-                  </span>
+                  {/* 50% target marker (solid white) */}
+                  <div
+                    className="-top-0.5 h-4 w-0.5 absolute bg-foreground/80 shadow-[0_0_4px_rgba(255,255,255,0.3)]"
+                    style={{ left: "50%", transform: "translateX(-50%)" }}
+                  />
+                  {/* Active rebalance threshold marker (dashed) */}
                   {activeThreshold > 0 && (
-                    <span className="gap-1.5 text-amber-600 dark:text-amber-400 inline-flex items-center">
-                      <span className="h-3 w-px border-l border-dashed border-current" />
-                      Rebalance trigger: {activeThreshold.toFixed(1)}%{" "}
-                      {activeThresholdRelation} oracle
-                    </span>
+                    <div
+                      className="-top-0.5 h-4 border-amber-500/70 absolute w-px border-l border-dashed"
+                      style={{
+                        left: `${activeThresholdPos}%`,
+                        transform: "translateX(-50%)",
+                      }}
+                    />
                   )}
                 </div>
 
-                {/* Bar visualization */}
-                <div className="space-y-2">
-                  <div className="relative">
-                    <div className="h-3.5 ring-white/5 flex w-full overflow-hidden rounded-full bg-muted/20 ring-1">
-                      <div
-                        className="ease-out bg-linear-to-r from-primary to-primary/80 transition-[width] duration-400"
-                        style={{ width: `${token0Ratio * 100}%` }}
-                      />
-                      <div
-                        className="ease-out bg-linear-to-r from-primary-border/80 to-primary-border/60 transition-[width] duration-400"
-                        style={{ width: `${(1 - token0Ratio) * 100}%` }}
-                      />
-                    </div>
-                    {/* 50% target marker (solid white) */}
-                    <div
-                      className="-top-0.5 h-4 w-0.5 absolute bg-foreground/80 shadow-[0_0_4px_rgba(255,255,255,0.3)]"
-                      style={{ left: "50%", transform: "translateX(-50%)" }}
-                    />
-                    {/* Active rebalance threshold marker (dashed) */}
-                    {activeThreshold > 0 && (
-                      <div
-                        className="-top-0.5 h-4 border-amber-500/70 absolute w-px border-l border-dashed"
-                        style={{
-                          left: `${activeThresholdPos}%`,
-                          transform: "translateX(-50%)",
-                        }}
-                      />
-                    )}
-                  </div>
-
-                  <div className="font-mono flex items-center justify-between text-[10px] text-muted-foreground">
-                    <span>{pool.token0.symbol} share</span>
-                    <span>{pool.token1.symbol} share</span>
-                  </div>
-                </div>
-
-                <div className="text-sm font-mono flex justify-between">
-                  <span className="font-semibold text-amber-600 dark:text-amber-400">
-                    -{" "}
-                    {formatAmount(preview.amountRequired.amount, inputDecimals)}{" "}
-                    {inputSymbol}
-                  </span>
-                  <span className="font-semibold text-green-500">
-                    +{" "}
-                    {formatAmount(
-                      preview.amountTransferred.amount,
-                      outputDecimals,
-                    )}{" "}
-                    {outputSymbol}
-                  </span>
+                <div className="font-mono flex items-center justify-between text-[10px] text-muted-foreground">
+                  <span>{pool.token0.symbol} share</span>
+                  <span>{pool.token1.symbol} share</span>
                 </div>
               </div>
+            </div>
 
-              {/* Bottom cards: Deposit / Receive / Reward */}
-              <div className="text-xs font-mono font-semibold tracking-wider mt-1 text-muted-foreground uppercase">
-                Rebalance Preview
-              </div>
-              <div className="md:grid-cols-[1fr_auto_1fr_1fr] gap-3 grid grid-cols-1 items-stretch">
-                {/* You Deposit */}
-                <div className="p-3 space-y-1 rounded-lg border border-border bg-incard">
-                  <div className="font-mono font-semibold tracking-wider text-[10px] text-muted-foreground uppercase">
-                    You deposit
-                  </div>
+            {/* Preview */}
+            <div className="mt-1 text-xs font-mono font-semibold tracking-wider text-muted-foreground uppercase">
+              Preview
+            </div>
+            <div className="gap-3 md:grid-cols-3 grid grid-cols-1 items-stretch">
+              {/* You Deposit */}
+              <div className="p-3 space-y-1 rounded-lg border border-border bg-incard">
+                <div className="font-mono font-semibold tracking-wider text-[10px] text-muted-foreground uppercase">
+                  You deposit
+                </div>
+                <div className="gap-2 flex items-center">
+                  <TokenIcon
+                    token={{
+                      address: inputAddress,
+                      symbol: inputSymbol,
+                    }}
+                    size={20}
+                    className="shrink-0 rounded-full"
+                  />
                   <div className="gap-2 flex items-baseline">
                     <span className="text-xl font-bold tabular-nums">
-                      {formatAmount(
-                        preview.amountRequired.amount,
-                        inputDecimals,
-                      )}
+                      {formattedDepositAmount}
                     </span>
                     <span className="text-sm font-medium text-muted-foreground">
                       {inputSymbol}
                     </span>
                   </div>
-                  <div className="font-mono text-[10px] text-muted-foreground/60">
-                    {inputSymbol} (underweight)
-                  </div>
                 </div>
-
-                {/* Arrow separator */}
-                <div className="md:flex hidden items-center justify-center">
-                  <div className="h-8 w-8 flex items-center justify-center rounded-lg border border-border bg-incard">
-                    <Equal className="h-4 w-4 text-muted-foreground/40" />
-                  </div>
+                <div className="font-mono text-[10px] text-muted-foreground/60">
+                  {inputSymbol} (pool needs this)
                 </div>
+              </div>
 
-                {/* You Receive */}
-                <div className="p-3 space-y-1 rounded-lg border border-border bg-incard">
-                  <div className="font-mono font-semibold tracking-wider text-[10px] text-muted-foreground uppercase">
-                    You receive
-                  </div>
+              {/* You Receive */}
+              <div className="p-3 space-y-1 rounded-lg border border-border bg-incard">
+                <div className="font-mono font-semibold tracking-wider text-[10px] text-muted-foreground uppercase">
+                  You receive
+                </div>
+                <div className="gap-2 flex items-center">
+                  <TokenIcon
+                    token={{
+                      address: outputAddress,
+                      symbol: outputSymbol,
+                    }}
+                    size={20}
+                    className="shrink-0 rounded-full"
+                  />
                   <div className="gap-2 flex items-baseline">
                     <span className="text-xl font-bold tabular-nums">
-                      {formatAmount(
-                        preview.amountTransferred.amount,
-                        outputDecimals,
-                      )}
+                      {formattedReceiveAmount}
                     </span>
                     <span className="text-sm font-medium text-muted-foreground">
                       {outputSymbol}
                     </span>
                   </div>
-                  <div className="font-mono text-[10px] text-muted-foreground/60">
-                    {outputSymbol} (overweight)
-                  </div>
                 </div>
+                <div className="font-mono text-[10px] text-muted-foreground/60">
+                  {outputSymbol} (pool has extra)
+                </div>
+              </div>
 
-                {/* Reward */}
-                <div className="border-green-500/15 bg-green-500/5 p-3 space-y-1 rounded-lg border">
-                  <div className="font-mono font-semibold tracking-wider text-green-600/60 dark:text-green-400/60 text-[10px] uppercase">
-                    Reward
-                  </div>
-                  <div className="gap-2 flex items-center">
-                    <TokenIcon
-                      token={{
-                        address: outputAddress,
-                        symbol: outputSymbol,
-                      }}
-                      size={20}
-                      className="shrink-0 rounded-full"
-                    />
-                    <span className="text-xl font-bold text-green-600 dark:text-green-400 tabular-nums">
-                      {formatAmount(
-                        preview.liquiditySourceIncentive.amount,
-                        outputDecimals,
-                      )}
-                    </span>
-                    <span className="text-sm font-medium text-green-600/60 dark:text-green-400/60">
-                      {outputSymbol}
-                    </span>
-                  </div>
-                  <div className="font-mono text-green-600/40 dark:text-green-400/40 text-[10px]">
-                    +{incentivePercent.toFixed(2)}% incentive
-                  </div>
+              {/* Bonus */}
+              <div className="border-green-500/15 bg-green-500/5 p-3 space-y-1 rounded-lg border">
+                <div className="font-mono font-semibold tracking-wider text-green-600/60 dark:text-green-400/60 text-[10px] uppercase">
+                  Bonus
+                </div>
+                <div className="gap-2 flex items-center">
+                  <TokenIcon
+                    token={{
+                      address: outputAddress,
+                      symbol: outputSymbol,
+                    }}
+                    size={20}
+                    className="shrink-0 rounded-full"
+                  />
+                  <span className="text-xl font-bold text-green-600 dark:text-green-400 tabular-nums">
+                    {formattedBonusAmount}
+                  </span>
+                  <span className="text-sm font-medium text-green-600/60 dark:text-green-400/60">
+                    {outputSymbol}
+                  </span>
+                </div>
+                <div className="font-mono text-green-600/40 dark:text-green-400/40 text-[10px]">
+                  +{incentivePercent.toFixed(2)}% incentive
                 </div>
               </div>
             </div>
 
-            {/* Right column: Compact summary + CTA */}
-            <div className="w-80 md:flex hidden flex-col">
-              <div className="p-4 rounded-lg border border-border bg-incard">
-                <div className="font-mono font-semibold tracking-wider text-[10px] text-muted-foreground uppercase">
-                  Quick Summary
-                </div>
-
-                <div className="mt-3 border-amber-500/15 bg-amber-500/5 p-3 rounded-lg border">
-                  <div className="text-sm font-semibold text-foreground">
-                    The pool needs {inputSymbol}.
-                  </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    Deposit {inputSymbol}. Receive {outputSymbol}.
-                  </div>
-                  <div className="mt-3 gap-2 font-mono flex flex-wrap text-[10px]">
-                    <span className="border-green-500/20 bg-green-500/10 px-2 py-1 text-green-500 rounded-full border">
-                      Needs {inputSymbol}
-                    </span>
-                    <span className="px-2 py-1 rounded-full border border-primary/20 bg-primary/10 text-primary">
-                      Extra {outputSymbol}
-                    </span>
-                  </div>
-                </div>
-
-                <div
-                  className={`mt-3 gap-2 grid ${activeThreshold > 0 ? "grid-cols-2" : "grid-cols-1"}`}
-                >
-                  <div className="p-3 rounded-md border border-border/60 bg-background/20">
-                    <div className="font-mono font-semibold tracking-wider text-[10px] text-muted-foreground uppercase">
-                      Deviation
-                    </div>
-                    <div className="mt-1 font-mono text-sm font-semibold text-amber-600 dark:text-amber-400">
-                      {currentDeviationLabel}
-                    </div>
-                  </div>
-
-                  {activeThreshold > 0 && (
-                    <div className="border-amber-500/20 bg-amber-500/5 p-3 rounded-md border">
-                      <div className="font-mono font-semibold tracking-wider text-amber-600/70 dark:text-amber-400/70 text-[10px] uppercase">
-                        Trigger
-                      </div>
-                      <div className="mt-1 font-mono text-sm font-semibold text-amber-600 dark:text-amber-400">
-                        {activeThreshold.toFixed(1)}% {activeThresholdRelation}{" "}
-                        oracle
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-2 gap-2 grid grid-cols-2">
-                  <div className="p-3 rounded-md border border-border/60 bg-background/20">
-                    <div className="font-mono font-semibold tracking-wider text-[10px] text-muted-foreground uppercase">
-                      Target
-                    </div>
-                    <div className="mt-1 font-mono text-sm font-semibold text-foreground">
-                      50 / 50 by value
-                    </div>
-                  </div>
-                  <div className="border-green-500/15 bg-green-500/5 p-3 rounded-md border">
-                    <div className="font-mono font-semibold tracking-wider text-green-600/70 dark:text-green-400/70 text-[10px] uppercase">
-                      Bonus
-                    </div>
-                    <div className="mt-1 font-mono text-sm font-semibold text-green-600 dark:text-green-400">
-                      {bonusLabel}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-3 p-3 rounded-md border border-border/60 bg-background/20">
-                  <div className="font-mono font-semibold tracking-wider text-[10px] text-muted-foreground uppercase">
-                    Rates
-                  </div>
-                  <div className="mt-2 space-y-1.5 font-mono text-xs text-muted-foreground">
-                    {oracleRateLabel && (
-                      <div className="gap-3 flex items-start justify-between">
-                        <span>Oracle</span>
-                        <span className="text-right text-foreground/85">
-                          {oracleRateLabel}
-                        </span>
-                      </div>
-                    )}
-                    {poolRateLabel && (
-                      <div className="gap-3 flex items-start justify-between">
-                        <span>Pool</span>
-                        <span className="text-right text-foreground/85">
-                          {poolRateLabel}
-                        </span>
-                      </div>
-                    )}
-                    <div className="gap-3 pt-2 flex items-start justify-between border-t border-border/60">
-                      <span>Rebalance rate</span>
-                      <span className="text-right text-foreground/85">
-                        {expectedRateLabel}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4">
-                  {!isConnected ? (
-                    <p className="text-xs text-center text-muted-foreground">
-                      Connect wallet to rebalance
-                    </p>
-                  ) : (
-                    <Button
-                      size="sm"
-                      className="h-10 w-full"
-                      disabled={isBuilding}
-                      onClick={handleRebalance}
-                    >
-                      {isBuilding ? "Preparing..." : "Rebalance"}
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Mobile-only CTA */}
-            <div className="md:hidden flex justify-end">
+            <div className="flex">
               {!isConnected ? (
                 <p className="text-xs text-muted-foreground">
                   Connect wallet to rebalance
                 </p>
+              ) : isWrongChain ? (
+                <Button
+                  size="sm"
+                  className="h-10 md:w-auto md:min-w-44 gap-2 w-full"
+                  onClick={handleSwitchChain}
+                >
+                  <ArrowRightLeft className="h-3.5 w-3.5" />
+                  Switch to {targetChainName}
+                </Button>
               ) : (
                 <Button
                   size="sm"
-                  className="h-9 min-w-40"
-                  disabled={isBuilding}
+                  className="h-10 md:w-auto md:min-w-52 w-full whitespace-nowrap"
+                  disabled={isBuilding || isOnCooldown}
                   onClick={handleRebalance}
                 >
-                  {isBuilding ? "Preparing..." : "Rebalance"}
+                  {isBuilding ? "Preparing..." : (cooldownLabel ?? "Rebalance")}
                 </Button>
               )}
             </div>

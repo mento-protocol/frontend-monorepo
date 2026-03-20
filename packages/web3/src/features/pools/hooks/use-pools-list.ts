@@ -1,7 +1,7 @@
 import { getMentoSdk } from "@/features/sdk";
 import { getTokenByAddress } from "@/config/tokens";
 import type { ChainId } from "@/config/chains";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useChainId } from "wagmi";
 import { formatUnits, type Address } from "viem";
 import {
@@ -131,6 +131,7 @@ export function usePoolsList(
 ) {
   const walletChainId = useChainId() as ChainId;
   const chainId = overrideChainId ?? walletChainId;
+  const queryClient = useQueryClient();
 
   return useQuery<PoolDisplay[]>({
     queryKey: ["pools-list", chainId],
@@ -313,6 +314,23 @@ export function usePoolsList(
               ...(pricing && { pricing }),
               ...(rebalancing && { rebalancing }),
             };
+
+            const rebalanceSuppressedUntil =
+              queryClient.getQueryData<number>([
+                "recent-pool-rebalance",
+                chainId,
+                pool.poolAddr,
+              ]) ?? 0;
+
+            if (
+              rebalanceSuppressedUntil > Date.now() &&
+              poolDisplay.rebalancing
+            ) {
+              poolDisplay.rebalancing = {
+                ...poolDisplay.rebalancing,
+                canRebalance: false,
+              };
+            }
 
             return poolDisplay;
           } catch (error) {
