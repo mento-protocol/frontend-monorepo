@@ -16,6 +16,7 @@ export { useOpenTrove } from "./use-open-trove";
 export { usePredictAdjustInterestRateUpfrontFee } from "./use-predict-adjust-interest-rate-upfront-fee";
 export { usePredictUpfrontFee } from "./use-predict-upfront-fee";
 export { useRedemptionRisk } from "./use-redemption-risk";
+export { useSpClaimRewards } from "./use-sp-claim-rewards";
 export { useSpDeposit } from "./use-sp-deposit";
 export { useSpWithdraw } from "./use-sp-withdraw";
 export { useStabilityPool } from "./use-stability-pool";

@@ -35,3 +35,16 @@ export function buildSpWithdraw(
 
   return { to: spAddress, data, value: "0x0" };
 }
+
+/**
+ * Builds a CallParams for claiming stashed Stability Pool collateral after the
+ * user's deposit has already reached zero.
+ */
+export function buildSpClaimAllCollGains(spAddress: string): CallParams {
+  const data = encodeFunctionData({
+    abi: stabilityPoolAbi,
+    functionName: "claimAllCollGains",
+  });
+
+  return { to: spAddress, data, value: "0x0" };
+}

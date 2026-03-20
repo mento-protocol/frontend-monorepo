@@ -85,10 +85,14 @@ export function EarnView() {
   const apyDisplay = spApy != null ? `${(spApy * 100).toFixed(1)}` : "—";
   const avgRateDisplay =
     avgInterestRate != null ? `${(avgInterestRate * 100).toFixed(1)}` : "—";
-  const hasDeposit = spPosition && spPosition.deposit > 0n;
+  const hasDeposit = (spPosition?.deposit ?? 0n) > 0n;
+  const hasRewards =
+    (spPosition?.debtTokenGain ?? 0n) > 0n ||
+    (spPosition?.collateralGain ?? 0n) > 0n;
+  const hasPosition = hasDeposit || hasRewards;
 
   const poolShare =
-    hasDeposit && totalDeposits && totalDeposits > 0n
+    hasDeposit && spPosition && totalDeposits && totalDeposits > 0n
       ? Number((spPosition.deposit * 10000n) / totalDeposits) / 100
       : null;
 
@@ -199,7 +203,7 @@ export function EarnView() {
                     <span className="text-sm font-semibold text-muted-foreground">
                       Your Position
                     </span>
-                    {hasDeposit && (
+                    {hasPosition && (
                       <span className="h-1.5 w-1.5 bg-green-500 rounded-full shadow-[0_0_6px_rgba(34,197,94,0.5)]" />
                     )}
                   </div>
@@ -221,7 +225,7 @@ export function EarnView() {
                       />
                     ))}
                   </div>
-                ) : hasDeposit ? (
+                ) : hasPosition ? (
                   <div className="gap-6 mb-6 grid grid-cols-2">
                     {/* Deposited */}
                     <div>
@@ -242,7 +246,7 @@ export function EarnView() {
                         <div>
                           <div className="text-lg font-bold tracking-tight tabular-nums">
                             {formatCompactCurrency(
-                              spPosition.deposit,
+                              spPosition?.deposit ?? 0n,
                               debtToken,
                             )}
                           </div>
@@ -255,54 +259,60 @@ export function EarnView() {
                       <div className="font-mono tracking-widest mb-3 text-[11px] text-muted-foreground uppercase">
                         Claimable Rewards
                       </div>
-                      <div className="space-y-2.5">
-                        {spPosition.debtTokenGain != null &&
-                          spPosition.debtTokenGain > 0n && (
-                            <div className="gap-3 flex items-center">
-                              {debtTokenAddress && (
-                                <TokenIcon
-                                  token={{
-                                    address: debtTokenAddress,
-                                    symbol: debtToken.symbol,
-                                  }}
-                                  size={28}
-                                  className="shrink-0 rounded-full"
-                                />
-                              )}
-                              <div>
-                                <div className="text-lg font-bold tracking-tight tabular-nums">
-                                  {formatCompactCurrency(
-                                    spPosition.debtTokenGain,
-                                    debtToken,
-                                  )}
+                      {hasRewards ? (
+                        <div className="space-y-2.5">
+                          {spPosition?.debtTokenGain != null &&
+                            spPosition.debtTokenGain > 0n && (
+                              <div className="gap-3 flex items-center">
+                                {debtTokenAddress && (
+                                  <TokenIcon
+                                    token={{
+                                      address: debtTokenAddress,
+                                      symbol: debtToken.symbol,
+                                    }}
+                                    size={28}
+                                    className="shrink-0 rounded-full"
+                                  />
+                                )}
+                                <div>
+                                  <div className="text-lg font-bold tracking-tight tabular-nums">
+                                    {formatCompactCurrency(
+                                      spPosition.debtTokenGain,
+                                      debtToken,
+                                    )}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          )}
-                        {spPosition.collateralGain != null &&
-                          spPosition.collateralGain > 0n && (
-                            <div className="gap-3 flex items-center">
-                              {collateralTokenAddress && (
-                                <TokenIcon
-                                  token={{
-                                    address: collateralTokenAddress,
-                                    symbol: "USDm",
-                                  }}
-                                  size={28}
-                                  className="shrink-0 rounded-full"
-                                />
-                              )}
-                              <div>
-                                <div className="text-lg font-bold tracking-tight tabular-nums">
-                                  {formatCompactCurrency(
-                                    spPosition.collateralGain,
-                                    { symbol: "USDm" },
-                                  )}
+                            )}
+                          {spPosition?.collateralGain != null &&
+                            spPosition.collateralGain > 0n && (
+                              <div className="gap-3 flex items-center">
+                                {collateralTokenAddress && (
+                                  <TokenIcon
+                                    token={{
+                                      address: collateralTokenAddress,
+                                      symbol: "USDm",
+                                    }}
+                                    size={28}
+                                    className="shrink-0 rounded-full"
+                                  />
+                                )}
+                                <div>
+                                  <div className="text-lg font-bold tracking-tight tabular-nums">
+                                    {formatCompactCurrency(
+                                      spPosition.collateralGain,
+                                      { symbol: "USDm" },
+                                    )}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          )}
-                      </div>
+                            )}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          No claimable rewards yet.
+                        </p>
+                      )}
                     </div>
                   </div>
                 ) : isConnected ? (
@@ -335,10 +345,11 @@ export function EarnView() {
               </div>
 
               {/* Claim Rewards */}
-              {hasDeposit && (
+              {hasRewards && (
                 <ClaimRewards
-                  collateralGain={spPosition.collateralGain}
-                  debtTokenGain={spPosition.debtTokenGain}
+                  hasActiveDeposit={spPosition?.hasActiveDeposit ?? false}
+                  collateralGain={spPosition?.collateralGain ?? null}
+                  debtTokenGain={spPosition?.debtTokenGain ?? null}
                 />
               )}
             </div>

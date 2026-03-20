@@ -1,2 +1,6 @@
 export { stabilityPoolAbi } from "./abi";
-export { buildSpDeposit, buildSpWithdraw } from "./tx-builders";
+export {
+  buildSpClaimAllCollGains,
+  buildSpDeposit,
+  buildSpWithdraw,
+} from "./tx-builders";
