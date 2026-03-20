@@ -9,12 +9,12 @@ import type {
   ReserveAddressesResponse,
   ReserveAssetSymbol,
 } from "@/lib/types";
-import { TokenSymbol } from "@mento-protocol/mento-sdk";
 
 // Define a more specific type for the items in result.stablecoins
 interface ExternalStablecoin {
   symbol: string;
   name: string;
+  address: string;
   supply: {
     amount: string | number; // Allow string or number, will be converted to Number
     usd_value: number;
@@ -73,8 +73,9 @@ async function getStableCoinStats(): Promise<StableValueTokensAPI> {
   const convertedResult: StableValueTokensAPI = {
     totalStableValueInUSD: result.total_supply_usd,
     tokens: result.stablecoins.map((stablecoin: ExternalStablecoin) => ({
-      symbol: stablecoin.symbol as TokenSymbol,
+      symbol: stablecoin.symbol,
       name: stablecoin.name,
+      address: stablecoin.address,
       units: Number(stablecoin.supply.amount),
       value: stablecoin.supply.usd_value,
       updated: Date.now(),

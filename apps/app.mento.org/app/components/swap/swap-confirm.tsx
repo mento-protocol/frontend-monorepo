@@ -1,14 +1,15 @@
 "use client";
 
+import { env } from "@/env.mjs";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import { Button, IconLoading, TokenIcon } from "@repo/ui";
 import {
   formatWithMaxDecimals,
   formValuesAtom,
-  getMaxSellAmount,
-  getMinBuyAmount,
+  getNativeTokenSymbol,
+  isInsufficientLiquidityError,
   logger,
-  SwapDirection,
+  SWAP_INSUFFICIENT_LIQUIDITY_LABEL,
   useAccountBalances,
   useGasEstimation,
   useOptimizedSwapQuote,
@@ -20,18 +21,20 @@ import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { useAtom } from "jotai";
 import { ArrowRight } from "lucide-react";
 import { useMemo } from "react";
+import { SwapInsufficientLiquidityNotice } from "./insufficient-liquidity-notice";
 
 export function SwapConfirm() {
   const [formValues] = useAtom(formValuesAtom);
 
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
+  const nativeTokenSymbol = getNativeTokenSymbol(chainId) as TokenSymbol;
 
   const amount = String(formValues?.amount || "");
-  const direction = (formValues?.direction || "in") as SwapDirection;
   const tokenInSymbol = formValues?.tokenInSymbol || TokenSymbol.USDm;
-  const tokenOutSymbol = formValues?.tokenOutSymbol || TokenSymbol.CELO;
-  const slippage = String(formValues?.slippage || "0.5");
+  const tokenOutSymbol = formValues?.tokenOutSymbol || nativeTokenSymbol;
+  const slippage = String(formValues?.slippage || "0.3");
+  const deadlineMinutes = String(formValues?.deadlineMinutes || "5");
 
   const { data: balancesFromHook } = useAccountBalances({ address, chainId });
   const { allTokenOptions } = useTokenOptions(undefined, balancesFromHook);
@@ -39,59 +42,26 @@ export function SwapConfirm() {
   const {
     amountWei,
     quote,
-    quoteWei,
     rate,
+    isError: isQuoteError,
+    hasInsufficientLiquidityError: hasQuoteInsufficientLiquidityError,
+    quoteErrorMessage,
     fromTokenUSDValue,
     toTokenUSDValue,
-  } = useOptimizedSwapQuote(amount, direction, tokenInSymbol, tokenOutSymbol);
+  } = useOptimizedSwapQuote(amount, tokenInSymbol, tokenOutSymbol, {
+    insufficientLiquidityFallbackUrl: env.NEXT_PUBLIC_BANNER_LINK,
+  });
 
+  // Always direction "in" - selling exact amount of fromToken (swapIn)
   const swapValues = useMemo(() => {
-    let computedFromAmountWei = amountWei;
-    let computedThresholdAmountWei: string;
-
-    if (direction === "in") {
-      // Selling exact amount of fromToken (swapIn)
-      // Don't adjust the amount - use what the user entered
-      computedFromAmountWei = amountWei;
-      // Minimum amount of toToken we're willing to receive
-      computedThresholdAmountWei = getMinBuyAmount(quoteWei, slippage).toFixed(
-        0,
-      );
-
-      return {
-        fromAmount: amount,
-        fromAmountWei: computedFromAmountWei,
-        toAmount: quote,
-        toAmountWei: quoteWei,
-        thresholdAmountInWei: computedThresholdAmountWei,
-      };
-    }
-
-    // Direction "out" - Buying exact amount of toToken (swapOut)
-    // For swapOut: we specify exact amount to buy and max amount to sell
-    // fromAmountWei is what we expect to sell (quote)
-    // thresholdAmountWei is the MAXIMUM we're willing to sell (quote + slippage)
-    computedFromAmountWei = quoteWei; // Expected sell amount
-    computedThresholdAmountWei = getMaxSellAmount(quoteWei, slippage).toFixed(
-      0,
-    ); // Max sell amount
-
     return {
-      fromAmount: quote,
-      fromAmountWei: computedFromAmountWei,
-      toAmount: amount.toString(),
-      toAmountWei: amountWei, // Exact amount we want to buy
-      thresholdAmountInWei: computedThresholdAmountWei,
+      fromAmount: amount,
+      fromAmountWei: amountWei,
+      toAmount: quote,
     };
-  }, [amount, amountWei, quote, quoteWei, direction, slippage]);
+  }, [amount, amountWei, quote]);
 
-  const {
-    fromAmount,
-    fromAmountWei,
-    toAmount,
-    toAmountWei,
-    thresholdAmountInWei,
-  } = swapValues;
+  const { fromAmount, fromAmountWei, toAmount } = swapValues;
 
   const { sendSwapTx, isSwapTxLoading, isSwapTxReceiptLoading } =
     useSwapTransaction(
@@ -99,18 +69,16 @@ export function SwapConfirm() {
       tokenInSymbol,
       tokenOutSymbol,
       fromAmountWei,
-      thresholdAmountInWei,
-      direction,
       address,
       true,
       {
         fromAmount,
         toAmount,
-        toAmountWei,
       },
+      env.NEXT_PUBLIC_BANNER_LINK,
     );
 
-  const approveAmount = direction === "in" ? amountWei : thresholdAmountInWei;
+  const approveAmount = amountWei;
 
   const { skipApprove } = useSwapAllowance({
     chainId,
@@ -120,17 +88,26 @@ export function SwapConfirm() {
     address,
   });
 
-  const { data: gasEstimate, isLoading: isGasEstimating } = useGasEstimation({
+  const {
+    data: gasEstimate,
+    isLoading: isGasEstimating,
+    error: gasError,
+  } = useGasEstimation({
     amount,
     quote,
     tokenInSymbol,
     tokenOutSymbol,
-    direction,
     address: address || "",
     chainId,
     slippage,
+    deadlineMinutes,
     skipApprove,
   });
+
+  const hasGasInsufficientLiquidityError =
+    isInsufficientLiquidityError(gasError);
+  const hasInsufficientLiquidityError =
+    hasQuoteInsufficientLiquidityError || hasGasInsufficientLiquidityError;
 
   // Calculate sell USD value with fallback
   const sellUSDValue = useMemo(() => {
@@ -140,24 +117,9 @@ export function SwapConfirm() {
       return passedValue;
     }
 
-    // Fallback to calculating it ourselves
-    if (direction === "in") {
-      // selling from-token
-      return tokenInSymbol === "USDm"
-        ? amount || "0"
-        : fromTokenUSDValue || "0";
-    } else {
-      // still selling from-token (but user typed in Buy first)
-      return tokenInSymbol === "USDm" ? quote || "0" : fromTokenUSDValue || "0";
-    }
-  }, [
-    formValues?.sellUSDValue,
-    direction,
-    tokenInSymbol,
-    amount,
-    quote,
-    fromTokenUSDValue,
-  ]);
+    // Fallback to calculating it ourselves selling from-token
+    return tokenInSymbol === "USDm" ? amount || "0" : fromTokenUSDValue || "0";
+  }, [formValues?.sellUSDValue, tokenInSymbol, amount, fromTokenUSDValue]);
 
   // Calculate buy USD value with fallback
   const buyUSDValue = useMemo(() => {
@@ -167,21 +129,9 @@ export function SwapConfirm() {
       return passedValue;
     }
 
-    // Fallback to calculating it ourselves
-    if (direction === "in") {
-      return tokenOutSymbol === "USDm" ? quote || "0" : toTokenUSDValue || "0";
-    } else {
-      // we're buying the to-token
-      return tokenOutSymbol === "USDm" ? amount || "0" : toTokenUSDValue || "0";
-    }
-  }, [
-    formValues?.buyUSDValue,
-    direction,
-    tokenOutSymbol,
-    amount,
-    quote,
-    toTokenUSDValue,
-  ]);
+    // Fallback to calculating it ourselves - buying to-token
+    return tokenOutSymbol === "USDm" ? quote || "0" : toTokenUSDValue || "0";
+  }, [formValues?.buyUSDValue, tokenOutSymbol, quote, toTokenUSDValue]);
 
   async function onSubmit() {
     if (!rate || !amountWei || !address || !isConnected) return;
@@ -205,12 +155,10 @@ export function SwapConfirm() {
     return null;
   }
 
-  const isSell = direction === "in";
-
   return (
     <div className="gap-6 flex h-full flex-col">
-      <div className="md:w-[520px] flex w-full flex-row items-center justify-between">
-        <div className="md:h-50 md:w-50 h-32 gap-2 md:aspect-auto flex aspect-square flex-col items-center justify-center bg-incard">
+      <div className="md:w-[520px] gap-2 flex w-full flex-row items-center justify-between">
+        <div className="md:h-50 md:w-50 h-32 gap-2 flex flex-1 flex-col items-center justify-center bg-incard">
           <TokenIcon
             token={fromToken}
             className="h-10 w-10 md:h-14 md:w-14 bg-transparent"
@@ -226,25 +174,24 @@ export function SwapConfirm() {
             className="text-sm md:text-base text-muted-foreground"
             data-testid="sellUsdAmountLabel"
           >
-            ~$
-            {isSell
-              ? formatWithMaxDecimals(sellUSDValue)
-              : formatWithMaxDecimals(buyUSDValue)}
+            ~${formatWithMaxDecimals(sellUSDValue)}
           </span>
         </div>
-        <div className="md:w-30 p-0 md:flex relative hidden h-full items-center justify-center text-muted-foreground">
-          <div className="swap-deco-1 left-0 top-0 h-10 w-10 absolute block bg-incard"></div>
-          <div className="swap-deco-2 left-15 top-5 h-5 w-5 absolute block bg-incard"></div>
-          <div className="swap-deco-3 left-10 top-10 h-5 w-5 absolute block bg-primary"></div>
-          <div className="swap-deco-4 top-15 left-5 h-5 w-5 absolute block bg-incard"></div>
-          <div className="swap-deco-5 left-10 top-20 h-10 w-10 absolute flex flex-row items-center justify-center bg-incard">
-            <ArrowRight size={24} className="shrink-0" />
+        <div className="w-20 md:w-30 h-32 md:h-50 relative flex overflow-hidden text-muted-foreground">
+          <div className="top-0 left-0 h-50 w-30 md:scale-100 absolute origin-top-left scale-[0.64]">
+            <div className="swap-deco-1 left-0 top-0 h-10 w-10 absolute block bg-incard"></div>
+            <div className="swap-deco-2 left-15 top-5 h-5 w-5 absolute block bg-incard"></div>
+            <div className="swap-deco-3 left-10 top-10 h-5 w-5 absolute block bg-primary"></div>
+            <div className="swap-deco-4 top-15 left-5 h-5 w-5 absolute block bg-incard"></div>
+            <div className="swap-deco-5 left-10 top-20 h-10 w-10 absolute flex flex-row items-center justify-center bg-incard">
+              <ArrowRight size={24} className="shrink-0" />
+            </div>
+            <div className="swap-deco-6 top-35 right-10 h-5 w-5 absolute block bg-incard"></div>
+            <div className="swap-deco-7 right-0 top-40 h-10 w-10 absolute block bg-primary"></div>
+            <div className="swap-deco-8 right-15 top-40 h-5 w-5 absolute block bg-incard"></div>
           </div>
-          <div className="swap-deco-6 top-35 right-10 h-5 w-5 absolute block bg-incard"></div>
-          <div className="swap-deco-7 right-0 top-40 h-10 w-10 absolute block bg-primary"></div>
-          <div className="swap-deco-8 right-15 top-40 h-5 w-5 absolute block bg-incard"></div>
         </div>
-        <div className="md:h-50 md:w-50 h-32 gap-2 md:aspect-auto flex aspect-square flex-col items-center justify-center bg-incard">
+        <div className="md:h-50 md:w-50 h-32 gap-2 flex flex-1 flex-col items-center justify-center bg-incard">
           <TokenIcon
             token={toToken}
             className="size-10 md:size-14 bg-transparent"
@@ -257,30 +204,31 @@ export function SwapConfirm() {
             {formatWithMaxDecimals(toAmount)}
           </span>
           <span
-            className="text-muted-foreground"
+            className="text-sm md:text-base text-muted-foreground"
             data-testid="buyUsdAmountLabel"
           >
-            ~$
-            {isSell
-              ? formatWithMaxDecimals(buyUSDValue)
-              : formatWithMaxDecimals(sellUSDValue)}
+            ~${formatWithMaxDecimals(buyUSDValue)}
           </span>
         </div>
       </div>
 
-      <div className="space-y-2 flex w-full flex-col items-start justify-start">
+      <div className="space-y-2 text-sm md:text-base flex w-full flex-col items-start justify-start">
         <div className="flex w-full flex-row items-center justify-between">
-          <span className="text-muted-foreground">Rate</span>
-          <span data-testid="rateLabel">{`${rate && Number(rate) > 0 ? Number(rate).toFixed(4) : "0"} ${tokenInSymbol} ~ 1 ${tokenOutSymbol}`}</span>
+          <span className="shrink-0 text-muted-foreground">Rate</span>
+          <span
+            className="text-right"
+            data-testid="rateLabel"
+          >{`${rate && Number(rate) > 0 ? Number(rate).toFixed(4) : "0"} ${tokenInSymbol} ~ 1 ${tokenOutSymbol}`}</span>
         </div>
 
         <div className="flex w-full flex-row items-center justify-between">
-          <span className="text-muted-foreground">Gas Fees</span>
+          <span className="shrink-0 text-muted-foreground">Gas Fees</span>
           {isGasEstimating ? (
             <span className="text-muted-foreground">Calculating...</span>
           ) : gasEstimate ? (
             <span data-testid="gasFeesLabel">
-              ~{formatWithMaxDecimals(gasEstimate.totalFeeFormatted)} CELO
+              ~{formatWithMaxDecimals(gasEstimate.totalFeeFormatted)}{" "}
+              {nativeTokenSymbol}
               {gasEstimate.totalFeeUSD && (
                 <span className="ml-1 text-muted-foreground">
                   (${formatWithMaxDecimals(gasEstimate.totalFeeUSD)})
@@ -293,10 +241,21 @@ export function SwapConfirm() {
         </div>
 
         <div className="flex w-full flex-row items-center justify-between">
-          <span className="text-muted-foreground">Slippage</span>
+          <span className="shrink-0 text-muted-foreground">Slippage</span>
           <span data-testid="slippageLabel">{slippage}%</span>
         </div>
+
+        <div className="flex w-full flex-row items-center justify-between">
+          <span className="shrink-0 text-muted-foreground">Deadline</span>
+          <span data-testid="deadlineLabel">{deadlineMinutes} minutes</span>
+        </div>
       </div>
+
+      {hasInsufficientLiquidityError && (
+        <SwapInsufficientLiquidityNotice
+          fallbackUrl={env.NEXT_PUBLIC_BANNER_LINK}
+        />
+      )}
 
       <Button
         data-testid={
@@ -305,19 +264,38 @@ export function SwapConfirm() {
             : "swapButton"
         }
         onClick={onSubmit}
-        className="mt-auto w-full"
+        className="mt-6 md:mt-auto w-full"
         size="lg"
         clipped="lg"
         disabled={
           isSwapTxLoading ||
           isSwapTxReceiptLoading ||
+          isGasEstimating ||
+          isQuoteError ||
+          hasInsufficientLiquidityError ||
           !rate ||
           !amountWei ||
           !address ||
           !isConnected
         }
       >
-        {isSwapTxLoading || isSwapTxReceiptLoading ? <IconLoading /> : "Swap"}
+        {isSwapTxLoading || isSwapTxReceiptLoading ? (
+          <IconLoading />
+        ) : isQuoteError ? (
+          hasQuoteInsufficientLiquidityError ? (
+            SWAP_INSUFFICIENT_LIQUIDITY_LABEL
+          ) : quoteErrorMessage?.includes("temporarily paused") ? (
+            "Rate temporarily unavailable"
+          ) : quoteErrorMessage?.includes("FX market") ? (
+            "FX market is closed"
+          ) : (
+            (quoteErrorMessage ?? "Unable to fetch quote")
+          )
+        ) : hasInsufficientLiquidityError ? (
+          SWAP_INSUFFICIENT_LIQUIDITY_LABEL
+        ) : (
+          "Swap"
+        )}
       </Button>
     </div>
   );

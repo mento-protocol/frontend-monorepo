@@ -15,7 +15,7 @@ export function Footer({ type = "swap" }: FooterProps) {
   return (
     <footer className="gap-6 p-4 md:!flex-row md:!justify-between relative z-40 flex flex-col items-center justify-center border-t border-border">
       <span className="text-xs md:text-sm shrink-0 text-muted-foreground">
-        ©2025 Mento Labs. All rights reserved.
+        ©2026 Mento Labs. All rights reserved.
       </span>
       <div className="gap-5 md:absolute md:left-1/2 md:-translate-x-1/2 mt-auto flex flex-row items-center justify-center">
         <a
@@ -55,6 +55,16 @@ export function Footer({ type = "swap" }: FooterProps) {
         >
           Mento.org
         </a>
+        {type !== "swap" && (
+          <a
+            href="https://app.mento.org/"
+            className={cn(linkClassName)}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Mento App
+          </a>
+        )}
         {(type === "governance" || type === "swap") && (
           <a
             href="https://reserve.mento.org"

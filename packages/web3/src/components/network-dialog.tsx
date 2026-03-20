@@ -23,11 +23,12 @@ import { MentoChain } from "@/types";
 interface Props {
   isOpen: boolean;
   close: () => void;
+  chains?: MentoChain[];
 }
 
 const baseLocator = "networkModal";
 
-export function NetworkDialog({ isOpen, close }: Props) {
+export function NetworkDialog({ isOpen, close, chains }: Props) {
   const latestBlock = useAtomValue(latestBlockAtom);
   const chainId = useChainId();
   const currentChain = chainIdToChain[chainId];
@@ -35,6 +36,7 @@ export function NetworkDialog({ isOpen, close }: Props) {
   const queryClient = useQueryClient();
   const resetJotaiSwapState = useSetAtom(resetSwapUiAtomsAtom);
   const setResetLatestBlock = useSetAtom(resetLatestBlockAtom);
+  const availableChains = chains ?? allChains;
 
   const switchToNetwork = async (c: MentoChain) => {
     try {
@@ -101,7 +103,7 @@ export function NetworkDialog({ isOpen, close }: Props) {
         <div className="h-[0px] w-full border-t border-border" />
 
         <div className="font-inter gap-2 inline-flex w-full items-start justify-center">
-          {allChains.map((c) => (
+          {availableChains.map((c) => (
             <Button
               type="button"
               onClick={() => switchToNetwork(c)}

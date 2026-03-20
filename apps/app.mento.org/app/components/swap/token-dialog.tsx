@@ -9,35 +9,41 @@ import {
   DialogTitle,
   DialogTrigger,
   IconLoading,
+  Input,
   ScrollArea,
   TokenIcon,
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
 } from "@repo/ui";
-import { formatBalance, useAccountBalances } from "@repo/web3";
-import { useAccount, useChainId } from "@repo/web3/wagmi";
-import { ChevronLeft, ChevronsRight, Search } from "lucide-react";
-import { Fragment, useState } from "react";
-
-import { TokenSymbol } from "@mento-protocol/mento-sdk";
-import { Input } from "@repo/ui";
 import {
+  formatBalance,
   formatWithMaxDecimals,
+  useAccountBalances,
   useTokenOptions,
   useTradablePairs,
 } from "@repo/web3";
+import { useAccount, useChainId } from "@repo/web3/wagmi";
+import { TokenSymbol } from "@mento-protocol/mento-sdk";
+import { ChevronLeft, ChevronsRight, Search } from "lucide-react";
+import { useState } from "react";
 
 interface TokenDialogProps {
   value: string;
   onValueChange: (value: string) => void;
   trigger: React.ReactNode;
   title?: string;
+  chainId?: number;
   tokenInSymbol?: TokenSymbol;
   excludeTokenSymbol?: TokenSymbol;
   filterByTokenSymbol?: TokenSymbol;
   onClose?: () => void;
+}
+
+interface TokenEntry {
+  address: string;
+  symbol: string;
+  name?: string;
+  decimals: number;
+  balance: string;
+  isValidPair: boolean;
 }
 
 export default function TokenDialog({
@@ -45,6 +51,7 @@ export default function TokenDialog({
   onValueChange,
   trigger,
   title = "Select asset to sell",
+  chainId,
   tokenInSymbol,
   excludeTokenSymbol,
   filterByTokenSymbol,
@@ -53,32 +60,34 @@ export default function TokenDialog({
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
   const { address } = useAccount();
-  const chainId = useChainId();
+  const walletChainId = useChainId();
+  const effectiveChainId = chainId ?? walletChainId;
 
-  const { data: balancesFromHook } = useAccountBalances({ address, chainId });
+  const { data: balancesFromHook } = useAccountBalances({
+    address,
+    chainId: effectiveChainId,
+  });
 
   const { tokenOptions, allTokenOptions } = useTokenOptions(
     tokenInSymbol,
     balancesFromHook,
+    effectiveChainId,
   );
 
-  // Get tradable pairs if filterByTokenSymbol is provided
   const { data: tradableTokenSymbols, isLoading: isLoadingTradablePairs } =
-    useTradablePairs(filterByTokenSymbol);
-  // Filter tokens based on search input and exclude the token that's already selected
+    useTradablePairs(filterByTokenSymbol, effectiveChainId);
+
   const filteredTokens = (tokenInSymbol ? tokenOptions : allTokenOptions)
     .filter(
       (token) =>
         token.symbol.toLowerCase().includes(search.toLowerCase()) ||
-        token.name.toLowerCase().includes(search.toLowerCase()),
+        token.name?.toLowerCase().includes(search.toLowerCase()),
     )
     .filter((token) => token.symbol !== excludeTokenSymbol)
     .map((token) => {
-      const balanceValue = balancesFromHook?.[token.symbol];
+      const balanceValue = balancesFromHook?.[token.symbol as TokenSymbol];
       const balance = formatBalance(balanceValue ?? "0", token.decimals);
 
-      // Check if this token is a valid pair with the filterByTokenSymbol
-      // Show as valid if: no filter, still loading, or token is in the valid list
       const isValidPair =
         !filterByTokenSymbol ||
         isLoadingTradablePairs ||
@@ -88,21 +97,22 @@ export default function TokenDialog({
       return {
         ...token,
         balance: formatWithMaxDecimals(balance),
-        isValidPair: isValidPair,
+        isValidPair,
       };
     })
-    // Sort tokens so valid pairs maintain original order and invalid pairs move to the end
     .sort((a, b) => {
-      // If one is valid and the other is invalid, valid comes first
       if (a.isValidPair && !b.isValidPair) return -1;
       if (!a.isValidPair && b.isValidPair) return 1;
-
-      // If both have the same validity status, maintain original order
       return 0;
     });
 
-  const handleTokenSelect = (TokenSymbol: TokenSymbol) => {
-    onValueChange(TokenSymbol);
+  const validTokens = filteredTokens.filter((t) => t.isValidPair);
+  const unavailableTokens = filteredTokens.filter((t) => !t.isValidPair);
+
+  const showSectionHeaders = !isLoadingTradablePairs;
+
+  const handleTokenSelect = (tokenSymbol: TokenSymbol) => {
+    onValueChange(tokenSymbol);
     setIsOpen(false);
   };
 
@@ -148,129 +158,117 @@ export default function TokenDialog({
           </div>
         ) : (
           <ScrollArea className="pr-3 h-[calc(100vh-20rem)]">
-            {filteredTokens.map((token, index) => (
-              <Fragment key={token.symbol}>
-                {!token.isValidPair ? (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div
-                          className={cn(
-                            "group p-2 flex w-full items-center justify-between text-left opacity-50 hover:cursor-pointer hover:bg-accent",
-                            value === token.symbol && "bg-accent",
-                          )}
-                          data-testid={`tokenOption_${token.symbol}_invalid`}
-                          onClick={() => {
-                            handleTokenSelect(token.symbol);
-                          }}
-                          onKeyUp={(e) => {
-                            if (e.key === "Enter") {
-                              handleTokenSelect(token.symbol);
-                            }
-                          }}
-                        >
-                          <div className="gap-2 flex items-center">
-                            <div className="group h-10 w-10 relative grid place-content-center">
-                              <TokenIcon
-                                token={{
-                                  address: token.address,
-                                  symbol: token.symbol,
-                                  name: token.name,
-                                  decimals: token.decimals || 18,
-                                }}
-                                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 group-hover:opacity-0"
-                                size={24}
-                              />
-                              <div className="h-10 w-10 absolute grid place-items-center bg-primary text-primary-foreground opacity-0 group-hover:opacity-100">
-                                <ChevronsRight />
-                              </div>
-                            </div>
-                            <div className="gap-2 flex items-center">
-                              <div
-                                className="font-medium"
-                                data-testid={`invalidToken`}
-                              >
-                                {token.symbol}
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                {token.name}
-                              </div>
-                            </div>
-                          </div>
-                          {token.balance && token.balance !== "0" && (
-                            <div className="text-sm">
-                              {token.balance} {token.symbol}
-                            </div>
-                          )}
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent
-                        className="!bg-incard"
-                        sideOffset={6}
-                        hideArrow
-                      >
-                        <p data-testid="invalidPairTooltip">
-                          No route found to this token
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                ) : (
-                  <div
-                    className={cn(
-                      "group p-2 flex w-full items-center justify-between text-left hover:cursor-pointer hover:bg-accent",
-                      value === token.symbol && "bg-accent",
-                    )}
-                    data-testid={`tokenOption_${token.symbol}`}
-                    onClick={() => {
-                      handleTokenSelect(token.symbol);
-                    }}
-                    onKeyUp={(e) => {
-                      if (e.key === "Enter") {
-                        handleTokenSelect(token.symbol);
-                      }
-                    }}
-                  >
-                    <div className="gap-2 flex items-center">
-                      <div className="group h-10 w-10 relative grid place-content-center">
-                        <TokenIcon
-                          token={{
-                            address: token.address,
-                            symbol: token.symbol,
-                            name: token.name,
-                            decimals: token.decimals || 18,
-                          }}
-                          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 group-hover:opacity-0"
-                          size={24}
-                        />
-                        <div className="h-10 w-10 absolute grid place-items-center bg-primary text-primary-foreground opacity-0 group-hover:opacity-100">
-                          <ChevronsRight />
-                        </div>
-                      </div>
-                      <div className="gap-2 flex items-center">
-                        <div className="font-medium" data-testid={`validToken`}>
-                          {token.symbol}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {token.name}
-                        </div>
-                      </div>
-                    </div>
-                    {token.balance && token.balance !== "0" && (
-                      <div className="text-sm">
-                        {token.balance} {token.symbol}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {index < filteredTokens.length - 1 && (
-                  <hr className="border-[var(--border)]" />
-                )}
-              </Fragment>
+            {showSectionHeaders && validTokens.length > 0 && (
+              <SectionHeader label="Available Assets" className="pt-3" />
+            )}
+            {validTokens.map((token, index) => (
+              <TokenRow
+                key={token.symbol}
+                token={token}
+                isSelected={value === token.symbol}
+                isLast={index === validTokens.length - 1}
+                onSelect={() => handleTokenSelect(token.symbol as TokenSymbol)}
+                testId={`tokenOption_${token.symbol}`}
+              />
+            ))}
+
+            {showSectionHeaders && unavailableTokens.length > 0 && (
+              <SectionHeader label="No route available" className="pt-4" />
+            )}
+            {unavailableTokens.map((token, index) => (
+              <TokenRow
+                key={token.symbol}
+                token={token}
+                isSelected={value === token.symbol}
+                isLast={index === unavailableTokens.length - 1}
+                onSelect={() => {}}
+                testId={`tokenOption_${token.symbol}_invalid`}
+                className="pointer-events-none opacity-50"
+              />
             ))}
           </ScrollArea>
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function SectionHeader({
+  label,
+  className,
+}: {
+  label: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "top-0 px-2 pb-1 text-xs font-semibold tracking-wider sticky z-10 bg-card text-muted-foreground uppercase",
+        className,
+      )}
+    >
+      {label}
+    </div>
+  );
+}
+
+function TokenRow({
+  token,
+  isSelected,
+  isLast,
+  onSelect,
+  testId,
+  className,
+}: {
+  token: TokenEntry;
+  isSelected: boolean;
+  isLast: boolean;
+  onSelect: () => void;
+  testId: string;
+  className?: string;
+}) {
+  return (
+    <>
+      <div
+        className={cn(
+          "group p-2 flex w-full items-center justify-between text-left hover:cursor-pointer hover:bg-accent",
+          isSelected && "bg-accent",
+          className,
+        )}
+        data-testid={testId}
+        onClick={onSelect}
+        onKeyUp={(e) => {
+          if (e.key === "Enter") onSelect();
+        }}
+      >
+        <div className="gap-2 flex items-center">
+          <div className="group h-10 w-10 relative grid place-content-center">
+            <TokenIcon
+              token={{
+                address: token.address,
+                symbol: token.symbol,
+                name: token.name,
+                decimals: token.decimals,
+              }}
+              className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 group-hover:opacity-0"
+              size={24}
+            />
+            <div className="h-10 w-10 absolute grid place-items-center bg-primary text-primary-foreground opacity-0 group-hover:opacity-100">
+              <ChevronsRight />
+            </div>
+          </div>
+          <div className="gap-2 flex items-center">
+            <div className="font-medium">{token.symbol}</div>
+            <div className="text-xs text-muted-foreground">{token.name}</div>
+          </div>
+        </div>
+        {token.balance && token.balance !== "0" && (
+          <div className="text-sm">
+            {token.balance} {token.symbol}
+          </div>
+        )}
+      </div>
+      {!isLast && <hr className="border-[var(--border)]" />}
+    </>
   );
 }

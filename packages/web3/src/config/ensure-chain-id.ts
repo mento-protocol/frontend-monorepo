@@ -1,9 +1,8 @@
-import { CeloSepolia, Celo } from "@/config/chains";
+import { chainIdToChain, Celo } from "@/config/chains";
 
 export const ensureChainId = (chainId?: number) => {
-  if (chainId !== Celo.id && chainId !== CeloSepolia.id) {
-    return Celo.id;
-  } else {
+  if (chainId !== undefined && chainId in chainIdToChain) {
     return chainId;
   }
+  return Celo.id;
 };

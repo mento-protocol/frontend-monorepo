@@ -1,0 +1,146 @@
+import type { ChainId } from "@/config/chains";
+import { getMentoSdk } from "@/features/sdk";
+import { logger } from "@/utils/logger";
+import { toast } from "@repo/ui";
+import type { AddLiquidityTransaction } from "@mento-protocol/mento-sdk";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useState } from "react";
+import type { Address, Hex } from "viem";
+import {
+  useChainId,
+  usePublicClient,
+  useSendTransaction,
+  useWaitForTransactionReceipt,
+} from "wagmi";
+import { showLiquiditySuccessToast } from "../liquidity-toast";
+import type { PoolDisplay, SlippageOption } from "../types";
+import { getTransactionErrorMessage } from "../types";
+
+export function useAddLiquidityTransaction(
+  pool: PoolDisplay,
+  chainId?: ChainId,
+) {
+  const walletChainId = useChainId() as ChainId;
+  const resolvedChainId = chainId ?? walletChainId;
+  const publicClient = usePublicClient({ chainId: resolvedChainId });
+  const queryClient = useQueryClient();
+
+  const [buildResult, setBuildResult] =
+    useState<AddLiquidityTransaction | null>(null);
+  const [isBuilding, setIsBuilding] = useState(false);
+  const [txHash, setTxHash] = useState<Address | undefined>();
+
+  const {
+    sendTransactionAsync,
+    isPending: isSending,
+    reset: resetSend,
+  } = useSendTransaction();
+
+  const {
+    isLoading: isConfirming,
+    isSuccess: isConfirmed,
+    data: receipt,
+  } = useWaitForTransactionReceipt({ hash: txHash });
+
+  const buildTransaction = useCallback(
+    async (
+      amountA: bigint,
+      amountB: bigint,
+      recipient: Address,
+      slippage: SlippageOption,
+    ): Promise<AddLiquidityTransaction | null> => {
+      setIsBuilding(true);
+      try {
+        const sdk = await getMentoSdk(resolvedChainId);
+
+        if (!publicClient) throw new Error("Public client not available");
+        const block = await publicClient.getBlock();
+        const deadline = block.timestamp + BigInt(20 * 60);
+
+        const result = await sdk.liquidity.buildAddLiquidityTransaction({
+          poolAddress: pool.poolAddr as Address,
+          tokenA: pool.token0.address as Address,
+          amountA,
+          tokenB: pool.token1.address as Address,
+          amountB,
+          recipient,
+          owner: recipient,
+          options: { slippageTolerance: slippage, deadline },
+        });
+
+        setBuildResult(result);
+        return result;
+      } catch (err) {
+        logger.error("Failed to build add liquidity transaction:", err);
+        setBuildResult(null);
+        return null;
+      } finally {
+        setIsBuilding(false);
+      }
+    },
+    [resolvedChainId, pool, publicClient],
+  );
+
+  const sendAddLiquidity = useCallback(
+    async (build: AddLiquidityTransaction) => {
+      try {
+        const hash = await sendTransactionAsync({
+          to: build.addLiquidity.params.to as Address,
+          data: build.addLiquidity.params.data as Hex,
+          value: BigInt(build.addLiquidity.params.value || 0),
+        });
+        setTxHash(hash);
+        return hash;
+      } catch (err) {
+        toast.error(
+          getTransactionErrorMessage(
+            err instanceof Error ? err.message : String(err),
+            "Unable to complete add liquidity transaction.",
+            "Add liquidity",
+          ),
+        );
+        logger.error("Add liquidity transaction failed:", err);
+        throw err;
+      }
+    },
+    [sendTransactionAsync],
+  );
+
+  useEffect(() => {
+    if (isConfirmed && receipt?.status === "success") {
+      showLiquiditySuccessToast({
+        action: "added",
+        token0Symbol: pool.token0.symbol,
+        token1Symbol: pool.token1.symbol,
+        txHash: receipt.transactionHash,
+        chainId: resolvedChainId,
+      });
+
+      queryClient.invalidateQueries({
+        queryKey: ["pools-list", resolvedChainId],
+      });
+      queryClient.invalidateQueries({
+        predicate: (query) =>
+          JSON.stringify(query.queryKey).toLowerCase().includes("balanceof"),
+      });
+    }
+  }, [isConfirmed, receipt, pool, resolvedChainId, queryClient]);
+
+  const reset = useCallback(() => {
+    setBuildResult(null);
+    setTxHash(undefined);
+    resetSend();
+  }, [resetSend]);
+
+  return {
+    buildTransaction,
+    buildResult,
+    isBuilding,
+    sendAddLiquidity,
+    isSending,
+    isConfirming,
+    isConfirmed,
+    addTxHash: txHash,
+    reset,
+  };
+}

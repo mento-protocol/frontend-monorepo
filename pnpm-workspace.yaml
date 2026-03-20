@@ -3,8 +3,9 @@ packages:
   - packages/*
 
 catalog:
+  "@wagmi/core": ^2.22.1
   "@eslint/js": ^9.39.2
-  "@mento-protocol/mento-sdk": ^1.19.0
+  "@mento-protocol/mento-sdk": 3.1.0-beta.8
   "@metamask/jazzicon": github:jmrossy/jazzicon#7a8df28
   "@rainbow-me/rainbowkit": ^2.2.10
   "@sentry/nextjs": ^10.35.0

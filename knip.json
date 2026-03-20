@@ -30,6 +30,10 @@
       "entry": "*.js",
       "project": "**/*.js"
     },
+    "packages/vitest-config": {
+      "entry": "*.js",
+      "project": "**/*.js"
+    },
     "packages/typescript-config": {
       "entry": "*.json",
       "project": "**/*.json",

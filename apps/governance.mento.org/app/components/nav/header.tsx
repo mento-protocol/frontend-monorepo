@@ -10,7 +10,7 @@ import {
   NavigationMenuLink,
   NavigationMenuList,
 } from "@repo/ui";
-import { ConnectButton } from "@repo/web3";
+import { Celo, CeloSepolia, ChainButton, ConnectButton } from "@repo/web3";
 import { usePathname } from "next/navigation";
 
 export function Header() {
@@ -70,6 +70,7 @@ export function Header() {
           </NavigationMenu>
         </div>
         <div className="gap-2 px-4 md:px-6 flex flex-row items-center justify-between">
+          <ChainButton chains={[Celo, CeloSepolia]} />
           <ConnectButton balanceMode="mento" />
         </div>
       </div>

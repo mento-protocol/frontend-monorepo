@@ -1,8 +1,7 @@
 import { ERC20_ABI } from "@/config/constants";
 import { getProvider } from "@/features/providers";
-import { getTradablePairForTokens } from "@/features/sdk";
 import {
-  getAddress,
+  getContractAddress,
   getTokenAddress,
   TokenSymbol,
 } from "@mento-protocol/mento-sdk";
@@ -15,36 +14,21 @@ async function fetchAllowance(
   accountAddress: string,
   chainId: number,
 ): Promise<string> {
-  const tradablePair = await getTradablePairForTokens(
-    chainId,
-    tokenInSymbol,
-    tokenOutSymbol,
-  );
-  const brokerAddress = getAddress("Broker", chainId);
-  const routerAddress = getAddress("MentoRouter", chainId);
-  const tokenAddr = getTokenAddress(tokenInSymbol, chainId);
+  const tokenAddr = getTokenAddress(chainId, tokenInSymbol);
   if (!tokenAddr) {
     throw new Error(
       `${tokenInSymbol} token address not found on chain ${chainId}`,
     );
   }
 
+  const routerAddress = getContractAddress(chainId, "Router");
+
   // For Debugging
   // logger.info(`Fetching allowance for token ${tokenAddr} on chain ${chainId}`);
   const provider = getProvider(chainId);
   const contract = new Contract(tokenAddr, ERC20_ABI, provider);
 
-  let allowedContractAddr: string;
-  if (tradablePair.path.length === 1) {
-    allowedContractAddr = brokerAddress;
-  } else {
-    allowedContractAddr = routerAddress;
-  }
-
-  const allowance = await contract.allowance(
-    accountAddress,
-    allowedContractAddr,
-  );
+  const allowance = await contract.allowance(accountAddress, routerAddress);
   // For Debugging
   // logger.info(`Allowance: ${allowance.toString()}`);
   return allowance.toString();

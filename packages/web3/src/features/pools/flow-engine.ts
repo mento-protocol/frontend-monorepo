@@ -1,0 +1,250 @@
+import type { Config } from "wagmi";
+import {
+  estimateGas,
+  sendTransaction,
+  waitForTransactionReceipt,
+} from "wagmi/actions";
+import type { Address, Hex } from "viem";
+import type { LiquidityFlowState, LiquidityFlowStep } from "./flow-atoms";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface TxParams {
+  to: string;
+  data: string;
+  value?: string | number | bigint;
+}
+
+export interface LiquidityFlowStepDefinition {
+  id: string;
+  label: string;
+  /** Return TxParams to execute, or null to skip this step. */
+  buildTx: () => Promise<TxParams | null>;
+}
+
+type SetFlowAtom = (
+  update:
+    | LiquidityFlowState
+    | null
+    | ((prev: LiquidityFlowState | null) => LiquidityFlowState | null),
+) => void;
+
+const GAS_HEADROOM = 0.25;
+
+function stringifyErrorPart(value: unknown): string {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value !== "object") return String(value);
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "";
+  }
+}
+
+function extractFlowErrorString(error: unknown): string {
+  if (!error) return "";
+  if (typeof error === "string") return error;
+  if (!(error instanceof Error)) return String(error);
+
+  const err = error as Error & {
+    shortMessage?: string;
+    reason?: string;
+    details?: string;
+    data?: unknown;
+    cause?: unknown;
+  };
+
+  const cause =
+    typeof err.cause === "object" && err.cause !== null
+      ? (err.cause as {
+          message?: string;
+          data?: unknown;
+          signature?: string;
+          reason?: string;
+        })
+      : undefined;
+
+  return [
+    err.message,
+    err.shortMessage,
+    err.reason,
+    err.details,
+    stringifyErrorPart(err.data),
+    cause?.message,
+    cause?.reason,
+    stringifyErrorPart(cause?.data),
+    cause?.signature,
+    err.name,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function isLikelyDeterministicRevert(error: unknown): boolean {
+  const message = extractFlowErrorString(error).toLowerCase();
+
+  return /execution reverted|call execution error|insufficient liquidity|insufficientliquidity|insufficient reserves|insufficient output amount|bb55fd27|always failing transaction|simulation failed|slippage|minimum amount|minimum output|no viable zap-(in|out) route|no route for this amount|route unavailable|unable to prepare single-token|unable to quote single-token/i.test(
+    message,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Engine
+// ---------------------------------------------------------------------------
+
+export async function executeLiquidityFlow(
+  wagmiConfig: Config,
+  setFlowAtom: SetFlowAtom,
+  operation: string,
+  stepDefs: LiquidityFlowStepDefinition[],
+  chainId?: number,
+): Promise<{ success: boolean; txHashes: string[] }> {
+  const txHashes: string[] = [];
+
+  const initialSteps: LiquidityFlowStep[] = stepDefs.map((def) => ({
+    id: def.id,
+    label: def.label,
+    status: "idle" as const,
+  }));
+
+  const initialState: LiquidityFlowState = {
+    operation,
+    steps: initialSteps,
+    currentStepIndex: 0,
+    chainId,
+  };
+
+  setFlowAtom(initialState);
+
+  for (let i = 0; i < stepDefs.length; i++) {
+    const def = stepDefs[i]!;
+
+    try {
+      const txParams = await def.buildTx();
+
+      // Skip step if buildTx returns null
+      if (txParams === null) {
+        setFlowAtom((prev) => {
+          if (!prev) return prev;
+          const steps = [...prev.steps];
+          steps[i] = {
+            ...steps[i]!,
+            status: "confirmed",
+            label: `${def.label} — Skipped`,
+          };
+          return { ...prev, steps, currentStepIndex: i + 1 };
+        });
+        continue;
+      }
+
+      // Mark step as pending
+      setFlowAtom((prev) => {
+        if (!prev) return prev;
+        const steps = [...prev.steps];
+        steps[i] = { ...steps[i]!, status: "pending" };
+        return { ...prev, steps, currentStepIndex: i };
+      });
+
+      // Send transaction with gas headroom
+      const txRequest = {
+        to: txParams.to as Address,
+        data: txParams.data as Hex,
+        value: BigInt(txParams.value || 0),
+        ...(chainId != null && { chainId }),
+      };
+
+      let txHash: Hex;
+      try {
+        const gasEstimate = await estimateGas(wagmiConfig, txRequest);
+        const gasLimit =
+          gasEstimate + BigInt(Math.ceil(Number(gasEstimate) * GAS_HEADROOM));
+        txHash = await sendTransaction(wagmiConfig, {
+          ...txRequest,
+          gas: gasLimit,
+        });
+      } catch (estimateError) {
+        if (isLikelyDeterministicRevert(estimateError)) {
+          throw estimateError;
+        }
+
+        // Fall back to sending without explicit gas limit
+        txHash = await sendTransaction(wagmiConfig, txRequest);
+      }
+
+      // Mark step as confirming with txHash
+      setFlowAtom((prev) => {
+        if (!prev) return prev;
+        const steps = [...prev.steps];
+        steps[i] = { ...steps[i]!, status: "confirming", txHash };
+        return { ...prev, steps };
+      });
+
+      // Wait for confirmation
+      const receipt = await waitForTransactionReceipt(wagmiConfig, {
+        hash: txHash,
+      });
+
+      if (receipt.status === "reverted") {
+        throw new Error("Transaction reverted on-chain");
+      }
+
+      txHashes.push(txHash);
+
+      // Mark step as confirmed
+      setFlowAtom((prev) => {
+        if (!prev) return prev;
+        const steps = [...prev.steps];
+        steps[i] = { ...steps[i]!, status: "confirmed" };
+        return { ...prev, steps, currentStepIndex: i + 1 };
+      });
+    } catch (error) {
+      const rawMessage = extractFlowErrorString(error);
+
+      // If user rejected, clear the flow entirely
+      if (
+        /user\s+rejected|denied\s+transaction|request\s+rejected/i.test(
+          rawMessage,
+        )
+      ) {
+        setFlowAtom(null);
+        return { success: false, txHashes };
+      }
+
+      // Log full error for debugging, show friendly message to user
+      console.error(`[LiquidityFlow] Step "${def.label}" failed:`, error);
+
+      const friendlyMessage =
+        /no viable zap-(in|out) route|no route for this amount|route unavailable|unable to prepare single-token|unable to quote single-token|insufficient liquidity|insufficientliquidity|insufficient reserves|insufficient output amount|bb55fd27/i.test(
+          rawMessage,
+        )
+          ? "No viable route for this amount. Reduce amount or use balanced mode."
+          : /reverted/i.test(rawMessage)
+            ? "Transaction was reverted. Please check your inputs and try again."
+            : /insufficient\s+funds/i.test(rawMessage)
+              ? "Insufficient funds to complete this transaction."
+              : /nonce/i.test(rawMessage)
+                ? "Transaction conflict. Please try again."
+                : "Something went wrong. Please try again.";
+
+      // Mark step as error and stop
+      setFlowAtom((prev) => {
+        if (!prev) return prev;
+        const steps = [...prev.steps];
+        steps[i] = {
+          ...steps[i]!,
+          status: "error",
+          error: { message: friendlyMessage },
+        };
+        return { ...prev, steps };
+      });
+
+      return { success: false, txHashes };
+    }
+  }
+
+  return { success: true, txHashes };
+}

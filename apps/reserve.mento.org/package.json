@@ -11,7 +11,6 @@
     "start": "next start"
   },
   "dependencies": {
-    "@mento-protocol/mento-sdk": "catalog:",
     "@repo/ui": "workspace:*",
     "@sentry/nextjs": "catalog:",
     "@t3-oss/env-nextjs": "catalog:",

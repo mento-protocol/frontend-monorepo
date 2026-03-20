@@ -17,22 +17,6 @@ export function parseInputExchangeAmount(
   return BigNumber.max(parsedWei, 0).toFixed(0);
 }
 
-export function getMinBuyAmount(
-  amountInWei: BigNumber.Value,
-  slippage: BigNumber.Value,
-): BigNumber {
-  const slippageFactor = new BigNumber(slippage).div(100).minus(1).times(-1);
-  return new BigNumber(amountInWei).times(slippageFactor).decimalPlaces(0);
-}
-
-export function getMaxSellAmount(
-  amountInWei: BigNumber.Value,
-  slippage: BigNumber.Value,
-): BigNumber {
-  const slippageFactor = new BigNumber(slippage).div(100).plus(1);
-  return new BigNumber(amountInWei).times(slippageFactor).decimalPlaces(0);
-}
-
 export function calcExchangeRate(
   fromAmountWei: NumberT,
   fromDecimals: number,

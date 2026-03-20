@@ -3,23 +3,15 @@
 import { BalancesSummary } from "@/components/balances-summary";
 import { BalancesSummaryMento } from "@/components/balances-summary-mento";
 import { Identicon } from "@/components/identicon";
-import { NetworkDialog } from "@/components/network-dialog";
 import { tryClipboardSet } from "@/utils/clipboard";
 import { WalletHelper } from "@/utils/wallet.helper";
 import {
   ConnectButton as RainbowConnectButton,
   useAccountModal,
-  useChainModal,
   useConnectModal,
 } from "@rainbow-me/rainbowkit";
 import { toast } from "@repo/ui";
-import {
-  ChevronDown,
-  ClipboardCopy,
-  LogOut,
-  Network as NetworkIcon,
-} from "lucide-react";
-import { useState } from "react";
+import { ChevronDown, ClipboardCopy, LogOut } from "lucide-react";
 import { useAccount, useDisconnect } from "wagmi";
 
 import {
@@ -52,10 +44,8 @@ function ConnectedDropdown({
   fullWidth,
   balanceMode = "all",
 }: ConnectedDropdownProps) {
-  const { openChainModal } = useChainModal();
   const { openAccountModal } = useAccountModal();
   const { disconnect } = useDisconnect();
-  const [showNetworkDialog, setShowNetworkDialog] = useState(false);
 
   const onClickCopy = async () => {
     if (!account.address) return;
@@ -64,14 +54,6 @@ function ConnectedDropdown({
       toast.success("Address copied to clipboard", { duration: 2000 });
     } catch (error) {
       console.error("Failed to copy address", error);
-    }
-  };
-
-  const onClickChangeNetwork = () => {
-    if (openChainModal) {
-      openChainModal();
-    } else {
-      setShowNetworkDialog(true);
     }
   };
 
@@ -123,20 +105,6 @@ function ConnectedDropdown({
             />
             <span>Copy Address</span>
           </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={onClickChangeNetwork}
-            className={cn(
-              "gap-3 py-3 cursor-pointer",
-              "focus:bg-accent focus:text-accent-foreground",
-            )}
-          >
-            <NetworkIcon
-              size={iconSize}
-              strokeWidth={iconStrokeWidth}
-              className="text-muted-foreground"
-            />
-            <span>Change Network</span>
-          </DropdownMenuItem>
           {openAccountModal && (
             <DropdownMenuItem
               onClick={openAccountModal}
@@ -171,12 +139,6 @@ function ConnectedDropdown({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      {showNetworkDialog && (
-        <NetworkDialog
-          isOpen={showNetworkDialog}
-          close={() => setShowNetworkDialog(false)}
-        />
-      )}
     </>
   );
 }

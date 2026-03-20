@@ -5,12 +5,17 @@ import { useQuery } from "@tanstack/react-query";
 import { useChainId } from "wagmi";
 import { useTokenOptions } from "./use-token-options";
 
-export function useTradablePairs(tokenSymbol?: TokenSymbol) {
-  const chainId = useChainId() as ChainId;
-  const { allTokenOptions, isLoading: isLoadingTokens } = useTokenOptions();
+export function useTradablePairs(tokenSymbol?: TokenSymbol, chainId?: number) {
+  const walletChainId = useChainId() as ChainId;
+  const effectiveChainId = (chainId ?? walletChainId) as ChainId;
+  const { allTokenOptions, isLoading: isLoadingTokens } = useTokenOptions(
+    undefined,
+    undefined,
+    effectiveChainId,
+  );
 
   return useQuery({
-    queryKey: ["tradablePairs", chainId, tokenSymbol],
+    queryKey: ["tradablePairs", effectiveChainId, tokenSymbol],
     queryFn: async () => {
       if (!tokenSymbol) return [];
 
@@ -20,7 +25,7 @@ export function useTradablePairs(tokenSymbol?: TokenSymbol) {
 
         try {
           const pair = await getTradablePairForTokens(
-            chainId,
+            effectiveChainId,
             tokenSymbol,
             token.symbol as TokenSymbol,
           );
@@ -42,7 +47,11 @@ export function useTradablePairs(tokenSymbol?: TokenSymbol) {
       // Filter out null values to get only tradable token IDs
       return results.filter((symbol): symbol is TokenSymbol => symbol !== null);
     },
-    enabled: !!tokenSymbol && !isLoadingTokens && allTokenOptions.length > 0,
+    enabled:
+      !!tokenSymbol &&
+      !!effectiveChainId &&
+      !isLoadingTokens &&
+      allTokenOptions.length > 0,
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
     gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
   });

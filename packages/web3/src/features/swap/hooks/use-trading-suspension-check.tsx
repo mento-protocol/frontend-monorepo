@@ -3,6 +3,11 @@ import { useMemo } from "react";
 import { useChainId } from "wagmi";
 
 import { getMentoSdk } from "@/features/sdk";
+import {
+  extractFullErrorString,
+  isFxMarketClosedError,
+  isReferenceRateUnavailableError,
+} from "@/features/swap/error-handlers";
 import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
 
 interface TradingSuspensionCheckResult {
@@ -19,8 +24,10 @@ interface TradingSuspensionCheckResult {
 export function useTradingSuspensionCheck(
   tokenInSymbol: TokenSymbol | undefined,
   tokenOutSymbol: TokenSymbol | undefined,
+  chainIdOverride?: number,
 ): TradingSuspensionCheckResult {
-  const chainId = useChainId();
+  const walletChainId = useChainId();
+  const chainId = chainIdOverride ?? walletChainId;
 
   // Query key based on token symbols - React Query will automatically refetch when this changes
   const queryKey = useMemo(
@@ -45,8 +52,8 @@ export function useTradingSuspensionCheck(
         return { isSuspended: false };
       }
 
-      const fromTokenAddr = getTokenAddress(tokenInSymbol, chainId);
-      const toTokenAddr = getTokenAddress(tokenOutSymbol, chainId);
+      const fromTokenAddr = getTokenAddress(chainId, tokenInSymbol);
+      const toTokenAddr = getTokenAddress(chainId, tokenOutSymbol);
 
       if (!fromTokenAddr || !toTokenAddr) {
         console.warn(`[Trading Suspension Check] Token addresses not found:`, {
@@ -62,7 +69,7 @@ export function useTradingSuspensionCheck(
       try {
         const mento = await getMentoSdk(chainId);
 
-        const isTradable = await mento.isPairTradable(
+        const isTradable = await mento.trading.isPairTradable(
           fromTokenAddr,
           toTokenAddr,
         );
@@ -75,16 +82,24 @@ export function useTradingSuspensionCheck(
 
         return { isSuspended: false };
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : String(err);
+        const errorMessage = extractFullErrorString(err);
         const isNoExchangeError = errorMessage.includes("No exchange found");
+        const isFXMarketClosed = isFxMarketClosedError(errorMessage);
+        const isReferenceRateUnavailable =
+          isReferenceRateUnavailableError(errorMessage);
 
         console.error(
           `[Trading Suspension Check] Error checking isPairTradable(${tokenInSymbol} -> ${tokenOutSymbol}):`,
           err,
         );
 
-        // If no exchange is found, treat it as suspended since trading can't happen without an exchange
-        if (isNoExchangeError) {
+        // If no exchange is found or the reference rate is unavailable,
+        // treat the pair as temporarily untradable.
+        if (
+          isNoExchangeError ||
+          isFXMarketClosed ||
+          isReferenceRateUnavailable
+        ) {
           return {
             isSuspended: true,
           };

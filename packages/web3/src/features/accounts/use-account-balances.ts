@@ -29,7 +29,7 @@ async function getTokenBalance({
   chainId: number;
   tokenSymbol: TokenSymbol;
 }): Promise<string> {
-  const tokenAddress = getTokenAddress(tokenSymbol, chainId);
+  const tokenAddress = getTokenAddress(chainId, tokenSymbol);
   if (!tokenAddress) {
     throw new Error(
       `${tokenSymbol} token address not found on chain ${chainId}`,

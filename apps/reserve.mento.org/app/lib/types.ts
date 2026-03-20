@@ -1,5 +1,3 @@
-import type { TokenSymbol } from "@mento-protocol/mento-sdk";
-
 enum Network {
   ETH = "ethereum",
   CELO = "celo",
@@ -22,8 +20,9 @@ export type ReserveAssetSymbol =
   | "USDGLO";
 
 interface TokenModel {
-  symbol: TokenSymbol;
+  symbol: string;
   name: string;
+  address: string;
   units: number;
   value: number; // Presumed to be USD value
   updated: number; // Timestamp of the last update
