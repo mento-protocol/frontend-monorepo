@@ -89,7 +89,9 @@ export function getToastErrorMessage(
 
   const errorChecks = [
     {
-      condition: checkedErrorMessage.includes(SWAP_ERROR_MESSAGES.OVERFLOW_X1Y1),
+      condition: checkedErrorMessage.includes(
+        SWAP_ERROR_MESSAGES.OVERFLOW_X1Y1,
+      ),
       message: "Amount in is too large",
     },
     {
