@@ -150,10 +150,9 @@ export function useRebalanceTransaction(pool: PoolDisplay) {
       );
 
       // Seed preview as empty so reopened UI does not show stale rebalance data.
-      queryClient.setQueryData(
-        ["pool-rebalance-preview", chainId, pool.poolAddr],
-        null,
-      );
+      queryClient.removeQueries({
+        queryKey: ["pool-rebalance-preview", chainId, pool.poolAddr],
+      });
 
       // Invalidate balance queries immediately
       await queryClient.invalidateQueries({

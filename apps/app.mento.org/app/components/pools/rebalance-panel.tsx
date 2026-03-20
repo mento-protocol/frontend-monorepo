@@ -99,7 +99,11 @@ export function RebalancePanel({
   const { switchChainAsync } = useSwitchChain();
   const wagmiConfig = useConfig();
   const setFlow = useSetAtom(liquidityFlowAtom);
-  const { data: preview, isLoading, isError } = usePoolRebalancePreview(pool);
+  const {
+    data: preview,
+    isLoading,
+    isError,
+  } = usePoolRebalancePreview(pool, true, address as Address | undefined);
   const { buildTransaction, handleSuccess, isBuilding } =
     useRebalanceTransaction(pool);
   const targetChain = chainIdToChain[pool.chainId as ChainId];
@@ -487,9 +491,14 @@ export function RebalancePanel({
 
             <div className="flex">
               {!isConnected ? (
-                <p className="text-xs text-muted-foreground">
+                <Button
+                  size="sm"
+                  className="h-10 md:w-auto md:min-w-52 w-full whitespace-nowrap"
+                  disabled={true}
+                  onClick={() => {}}
+                >
                   Connect wallet to rebalance
-                </p>
+                </Button>
               ) : isWrongChain ? (
                 <Button
                   size="sm"

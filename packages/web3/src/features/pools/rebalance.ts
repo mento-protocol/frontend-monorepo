@@ -403,6 +403,7 @@ async function getAllowance(
 
 export async function getPoolRebalancePreview(
   pool: PoolDisplay,
+  account?: Address,
 ): Promise<PoolRebalancePreview | null> {
   const strategy = pool.rebalancing?.liquidityStrategy;
 
@@ -433,6 +434,7 @@ export async function getPoolRebalancePreview(
         abi: LIQUIDITY_STRATEGY_ABI,
         functionName: "determineAction",
         args: [pool.poolAddr as Address],
+        ...(account && { account }),
       }),
     ]);
 
