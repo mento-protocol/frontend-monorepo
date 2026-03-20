@@ -11,18 +11,10 @@ import {
   CoinCardSymbol,
 } from "@repo/ui";
 import Image from "next/image";
-import { getTokenAddress } from "@mento-protocol/mento-sdk";
 import type { StableValueTokensAPI } from "../../lib/types";
 
 interface StablecoinSupplyContentProps {
   stableCoinStats: StableValueTokensAPI;
-}
-
-// NOTE: Conscious duplication of ChainId to avoid having to install @repo/web3
-// as a dependency of this app.
-enum ChainId {
-  CeloSepolia = 11142220,
-  Celo = 42220,
 }
 
 export function StablecoinSupplyContent({
@@ -35,27 +27,17 @@ export function StablecoinSupplyContent({
           <CoinCardHeader className="justify-between">
             <CoinCardHeaderGroup>
               <CoinCardSymbol>
-                {(() => {
-                  const chainId = ChainId.Celo;
-                  const tokenAddress = getTokenAddress(chainId, token.symbol);
-                  if (!tokenAddress) {
-                    throw new Error(
-                      `${token.symbol} token address not found on chain ${chainId}`,
-                    );
-                  }
-
-                  return tokenAddress ? (
-                    <a
-                      href={`https://celoscan.io/token/${tokenAddress}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {token.symbol}
-                    </a>
-                  ) : (
-                    token.symbol
-                  );
-                })()}
+                {token.address ? (
+                  <a
+                    href={`https://celoscan.io/token/${token.address}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {token.symbol}
+                  </a>
+                ) : (
+                  token.symbol
+                )}
               </CoinCardSymbol>
               <CoinCardName>{token.name}</CoinCardName>
             </CoinCardHeaderGroup>
