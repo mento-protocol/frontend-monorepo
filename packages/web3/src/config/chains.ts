@@ -235,18 +235,14 @@ function getChainSpecificRpcUrl(
 
 function getCeloSepoliaRpcUrl(): string {
   let url: string;
-  let source: string;
   const override = getChainSpecificRpcUrl(ChainId.CeloSepolia);
 
   if (useFork) {
     url = "http://localhost:8545";
-    source = "fork mode";
   } else if (override) {
     url = override.url;
-    source = override.source;
   } else {
     url = "https://forno.celo-sepolia.celo-testnet.org";
-    source = "default";
   }
 
   return url;
@@ -254,18 +250,14 @@ function getCeloSepoliaRpcUrl(): string {
 
 function getCeloRpcUrl(): string {
   let url: string;
-  let source: string;
   const override = getChainSpecificRpcUrl(ChainId.Celo);
 
   if (useFork) {
     url = "http://localhost:8545";
-    source = "fork mode";
   } else if (override) {
     url = override.url;
-    source = override.source;
   } else {
     url = "https://forno.celo.org";
-    source = "default";
   }
 
   return url;
@@ -273,15 +265,12 @@ function getCeloRpcUrl(): string {
 
 function getMonadTestnetRpcUrl(): string {
   let url: string;
-  let source: string;
   const override = getChainSpecificRpcUrl(ChainId.MonadTestnet);
 
   if (override) {
     url = override.url;
-    source = override.source;
   } else {
     url = "https://testnet-rpc.monad.xyz/";
-    source = "default";
   }
 
   return url;
@@ -289,15 +278,12 @@ function getMonadTestnetRpcUrl(): string {
 
 function getMonadRpcUrl(): string {
   let url: string;
-  let source: string;
   const override = getChainSpecificRpcUrl(ChainId.Monad);
 
   if (override) {
     url = override.url;
-    source = override.source;
   } else {
     url = "https://rpc.monad.xyz";
-    source = "default";
   }
 
   return url;
