@@ -42,6 +42,7 @@ interface PoolRowProps {
 export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
   const { address } = useAccount();
   const [rebalanceOpen, setRebalanceOpen] = useState(false);
+  const rebalancePanelId = `rebalance-panel-${pool.poolAddr.toLowerCase()}`;
 
   const { data: lpBalance, isLoading: isLpBalanceLoading } = useReadContract({
     chainId: pool.chainId,
@@ -134,24 +135,37 @@ export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
                   )}
 
                   {rebalanceDue && (
-                    <Badge
-                      variant="secondary"
-                      className="gap-1 px-1 py-0 bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300 font-semibold hover:bg-amber-200 dark:hover:bg-amber-500/30 cursor-pointer text-[10px] transition-colors select-none"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setRebalanceOpen((o) => !o);
-                      }}
-                    >
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
-                      Rebalance Due
-                      <ChevronDown
-                        className={cn(
-                          "h-3 w-3 transition-transform duration-200",
-                          rebalanceOpen && "rotate-180",
-                        )}
-                      />
-                    </Badge>
+                    <div className="gap-1 inline-flex items-center">
+                      <Badge
+                        variant="secondary"
+                        className="px-1 py-0 bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300 font-semibold text-[10px]"
+                      >
+                        Rebalance Needed
+                      </Badge>
+                      <button
+                        type="button"
+                        aria-controls={rebalancePanelId}
+                        aria-expanded={rebalanceOpen}
+                        aria-label={
+                          rebalanceOpen
+                            ? "Hide rebalance details"
+                            : "Show rebalance details"
+                        }
+                        className="h-4 w-4 border-amber-500/20 bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-500/30 inline-flex cursor-pointer items-center justify-center rounded-none border transition-colors"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setRebalanceOpen((o) => !o);
+                        }}
+                      >
+                        <ChevronDown
+                          className={cn(
+                            "h-2 w-2 transition-transform duration-200",
+                            rebalanceOpen && "rotate-180",
+                          )}
+                        />
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -282,7 +296,7 @@ export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
             </div>
           </div>
 
-          <CollapsibleContent>
+          <CollapsibleContent id={rebalancePanelId}>
             <RebalancePanel
               pool={pool}
               onRebalanceComplete={() => setRebalanceOpen(false)}
