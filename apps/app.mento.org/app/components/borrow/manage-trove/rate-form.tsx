@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { Button, Slider } from "@repo/ui";
 import {
   useAdjustInterestRate,
-  usePredictUpfrontFee,
+  usePredictAdjustInterestRateUpfrontFee,
   useRedemptionRisk,
   useSystemParams,
   selectedDebtTokenAtom,
@@ -97,11 +97,12 @@ export function RateForm({ troveId, troveData }: RateFormProps) {
     return (troveData.debt * newRateBigint) / 10n ** 18n;
   }, [newRateBigint, troveData.debt]);
 
-  // Fee estimate — rate changes may trigger upfront fee
-  // usePredictUpfrontFee takes (borrowAmount, interestRate, symbol)
-  // For rate changes, pass 0n as borrowAmount with the new rate
-  const { data: upfrontFee } = usePredictUpfrontFee(
-    0n,
+  const {
+    data: upfrontFee,
+    isError: upfrontFeeError,
+    isFetching: upfrontFeeFetching,
+  } = usePredictAdjustInterestRateUpfrontFee(
+    troveId,
     newRateBigint ?? 0n,
     debtToken.symbol,
   );
@@ -122,6 +123,13 @@ export function RateForm({ troveId, troveData }: RateFormProps) {
     if (!rateChanged) return "Rate unchanged";
     if (belowMinRate) return "Below minimum rate";
     if (aboveMaxRate) return `Above max rate (${MAX_INTEREST_RATE_PCT}%)`;
+    if (upfrontFee == null) {
+      return upfrontFeeError
+        ? "Unable to quote upfront fee"
+        : upfrontFeeFetching
+          ? "Calculating upfront fee..."
+          : "Upfront fee unavailable";
+    }
     if (adjustInterestRate.isPending) return "Changing rate...";
     return null;
   }, [
@@ -131,6 +139,9 @@ export function RateForm({ troveId, troveData }: RateFormProps) {
     rateChanged,
     belowMinRate,
     aboveMaxRate,
+    upfrontFee,
+    upfrontFeeError,
+    upfrontFeeFetching,
     adjustInterestRate.isPending,
   ]);
 
@@ -149,12 +160,15 @@ export function RateForm({ troveId, troveData }: RateFormProps) {
   };
 
   const handleSubmit = () => {
-    if (buttonDisabledReason || !address || !newRateBigint) return;
+    if (
+      buttonDisabledReason ||
+      !address ||
+      !newRateBigint ||
+      upfrontFee == null
+    )
+      return;
 
-    const maxUpfrontFee =
-      upfrontFee != null && upfrontFee > 0n
-        ? upfrontFee + upfrontFee / 20n // 5% buffer
-        : troveData.debt / 100n; // 1% fallback
+    const maxUpfrontFee = upfrontFee + upfrontFee / 20n;
 
     adjustInterestRate.mutate({
       symbol: debtToken.symbol,

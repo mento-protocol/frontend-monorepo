@@ -13,6 +13,7 @@ import {
 } from "@repo/ui";
 import { useAtom } from "jotai";
 import { Info, Settings } from "lucide-react";
+import { useEffect, useState } from "react";
 
 const DEFAULT_SLIPPAGE = "0.3";
 const DEFAULT_DEADLINE = "5";
@@ -29,6 +30,11 @@ export function SwapSettingsPopover() {
   const isAutoSlippage = formValues?.isAutoSlippage ?? true;
   const deadline = formValues?.deadlineMinutes ?? DEFAULT_DEADLINE;
   const isAutoDeadline = formValues?.isAutoDeadline ?? true;
+  const [deadlineDraft, setDeadlineDraft] = useState(deadline);
+
+  useEffect(() => {
+    setDeadlineDraft(formValues?.deadlineMinutes ?? DEFAULT_DEADLINE);
+  }, [formValues?.deadlineMinutes]);
 
   const update = (updates: Partial<NonNullable<typeof formValues>>) => {
     setFormValues((prev) => ({
@@ -94,6 +100,7 @@ export function SwapSettingsPopover() {
 
   const handleAutoDeadlineToggle = () => {
     if (isAutoDeadline) return;
+    setDeadlineDraft(DEFAULT_DEADLINE);
     update({ isAutoDeadline: true, deadlineMinutes: DEFAULT_DEADLINE });
   };
 
@@ -104,8 +111,10 @@ export function SwapSettingsPopover() {
       return;
     }
 
+    setDeadlineDraft(value);
+
     if (value === "") {
-      update({ deadlineMinutes: "", isAutoDeadline: false });
+      update({ isAutoDeadline: false });
       return;
     }
 
@@ -121,9 +130,20 @@ export function SwapSettingsPopover() {
   const handleDeadlineBlur = () => {
     if (isAutoDeadline) return;
 
-    if (deadline === "" || Number.parseInt(deadline, 10) < MIN_DEADLINE) {
+    const parsed = Number.parseInt(deadlineDraft, 10);
+
+    if (!deadlineDraft || !Number.isFinite(parsed) || parsed < MIN_DEADLINE) {
+      setDeadlineDraft(DEFAULT_DEADLINE);
       update({ isAutoDeadline: true, deadlineMinutes: DEFAULT_DEADLINE });
+      return;
     }
+
+    const normalized = String(Math.min(parsed, MAX_DEADLINE));
+    setDeadlineDraft(normalized);
+    update({
+      deadlineMinutes: normalized,
+      isAutoDeadline: normalized === DEFAULT_DEADLINE,
+    });
   };
 
   const handleDeadlineKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -134,7 +154,7 @@ export function SwapSettingsPopover() {
   };
 
   const displaySlippage = isAutoSlippage ? DEFAULT_SLIPPAGE : slippage;
-  const displayDeadline = isAutoDeadline ? DEFAULT_DEADLINE : deadline;
+  const displayDeadline = deadlineDraft;
 
   const autoButtonClass = (active: boolean) =>
     cn(

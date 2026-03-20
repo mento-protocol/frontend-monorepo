@@ -25,6 +25,16 @@ import {
 import { getSwapTransactionErrorMessage } from "./swap-transaction-error";
 import { confirmViewAtom, formValuesAtom } from "../swap-atoms";
 
+function parseDeadlineMinutes(deadlineMinutes?: string): number {
+  const parsed = Number.parseInt(deadlineMinutes ?? "", 10);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 5;
+  }
+
+  return parsed;
+}
+
 export function useSwapTransaction(
   chainId: number,
   fromToken: TokenSymbol,
@@ -91,7 +101,7 @@ export function useSwapTransaction(
       const route = await getTradablePairForTokens(chainId, fromToken, toToken);
 
       const deadlineSeconds =
-        parseInt(formValues?.deadlineMinutes || "5", 10) * 60;
+        parseDeadlineMinutes(formValues?.deadlineMinutes) * 60;
       if (!publicClient) {
         throw new Error("Public client not available");
       }

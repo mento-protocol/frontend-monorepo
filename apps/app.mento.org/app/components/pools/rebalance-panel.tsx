@@ -144,38 +144,54 @@ export function RebalancePanel({
       return;
     }
 
-    const tx = await buildTransaction(address as Address);
+    try {
+      const tx = await buildTransaction(address as Address);
 
-    const steps: LiquidityFlowStepDefinition[] = [];
+      const steps: LiquidityFlowStepDefinition[] = [];
 
-    if (tx.approval) {
+      if (tx.approval) {
+        steps.push({
+          id: "approve",
+          label: `Approve ${resolveTokenSymbol(preview.inputToken, pool)}`,
+          buildTx: async () => tx.approval!.params,
+        });
+      }
+
       steps.push({
-        id: "approve",
-        label: `Approve ${resolveTokenSymbol(preview.inputToken, pool)}`,
-        buildTx: async () => tx.approval!.params,
+        id: "rebalance",
+        label: `Rebalance ${pool.token0.symbol} / ${pool.token1.symbol}`,
+        buildTx: async () => tx.rebalance.params,
       });
-    }
 
-    steps.push({
-      id: "rebalance",
-      label: `Rebalance ${pool.token0.symbol} / ${pool.token1.symbol}`,
-      buildTx: async () => tx.rebalance.params,
-    });
-
-    const result = await executeLiquidityFlow(
-      wagmiConfig,
-      setFlow,
-      "Rebalance Pool",
-      steps,
-      pool.chainId,
-    );
-
-    if (result.success && result.txHashes.length > 0) {
-      await handleSuccess(
-        result.txHashes[result.txHashes.length - 1]!,
-        preview,
+      const result = await executeLiquidityFlow(
+        wagmiConfig,
+        setFlow,
+        "Rebalance Pool",
+        steps,
+        pool.chainId,
       );
-      onRebalanceComplete?.();
+
+      if (result.success && result.txHashes.length > 0) {
+        await handleSuccess(
+          result.txHashes[result.txHashes.length - 1]!,
+          preview,
+        );
+        onRebalanceComplete?.();
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Failed to prepare rebalance. Please try again.";
+
+      // Avoid duplicating wallet rejection toasts if the flow already surfaced one.
+      if (
+        !/user rejected|request rejected|denied transaction signature/i.test(
+          message,
+        )
+      ) {
+        toast.error(message);
+      }
     }
   };
 
