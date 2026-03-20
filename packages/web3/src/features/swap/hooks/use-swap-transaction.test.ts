@@ -9,7 +9,6 @@ vi.mock("@mento-protocol/mento-sdk", () => ({
     11142220: {},
   },
 }));
-
 import {
   SWAP_ERROR_MESSAGES,
   USER_ERROR_MESSAGES,

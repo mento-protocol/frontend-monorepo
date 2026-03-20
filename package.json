@@ -32,6 +32,7 @@
     "@eslint/js": "catalog:",
     "@repo/eslint-config": "workspace:*",
     "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "eslint": "catalog:",
     "eslint-config-prettier": "catalog:",
     "knip": "^5.82.1",
@@ -39,7 +40,8 @@
     "prettier-plugin-tailwindcss": "^0.7.2",
     "turbo": "^2.7.5",
     "typescript": "catalog:",
-    "typescript-eslint": "catalog:"
+    "typescript-eslint": "catalog:",
+    "vitest": "catalog:"
   },
   "packageManager": "pnpm@10.24.0",
   "engines": {

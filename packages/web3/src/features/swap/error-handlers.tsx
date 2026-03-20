@@ -72,7 +72,6 @@ export function getInsufficientLiquidityNoticeContent({
     </>
   );
 }
-
 /**
  * Converts swap error messages to user-friendly toast messages
  */
@@ -86,7 +85,6 @@ export function getToastErrorMessage(
   }: Omit<SwapErrorOptions, "type"> = {},
 ): string | JSX.Element {
   const checkedErrorMessage = extractFullErrorString(swapErrorMessage);
-
   const errorChecks = [
     {
       condition: checkedErrorMessage.includes(
