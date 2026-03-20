@@ -427,7 +427,7 @@ export function RebalancePanel({
                 </span>
                 {activeThreshold > 0 && (
                   <span className="gap-1.5 text-amber-600 dark:text-amber-400 inline-flex items-center">
-                    <span className="h-3 w-px border-l border-dashed border-current" />
+                    <span className="h-3 w-px border-l-2 border-dashed border-current" />
                     - Rebalance trigger ({activeThreshold.toFixed(1)}%{" "}
                     {activeThresholdRelation} oracle)
                   </span>
@@ -455,7 +455,7 @@ export function RebalancePanel({
                   {/* Active rebalance threshold marker (dashed) */}
                   {activeThreshold > 0 && (
                     <div
-                      className="-top-0.5 h-4 border-amber-500/70 absolute w-px border-l border-dashed"
+                      className="-top-1 h-6 border-amber-500/70 absolute w-px border-l-3 border-dashed"
                       style={{
                         left: `${activeThresholdPos}%`,
                         transform: "translateX(-50%)",
