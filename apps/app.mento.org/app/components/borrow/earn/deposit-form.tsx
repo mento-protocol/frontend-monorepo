@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAtomValue } from "jotai";
 import { Button, CoinInput, TokenIcon } from "@repo/ui";
 import {
@@ -35,11 +35,19 @@ export function DepositForm({
   const spDeposit = useSpDeposit();
 
   const [value, setValue] = useState("");
+  const [hasCustomClaimPreference, setHasCustomClaimPreference] =
+    useState(false);
 
   const hasRewards =
     (collateralGain != null && collateralGain > 0n) ||
     (debtTokenGain != null && debtTokenGain > 0n);
   const [doClaim, setDoClaim] = useState(hasRewards);
+
+  useEffect(() => {
+    if (!hasCustomClaimPreference) {
+      setDoClaim(hasRewards);
+    }
+  }, [hasCustomClaimPreference, hasRewards]);
 
   const tokenAddress = getTokenAddress(
     chainId,
@@ -164,7 +172,10 @@ export function DepositForm({
           <input
             type="checkbox"
             checked={doClaim}
-            onChange={(e) => setDoClaim(e.target.checked)}
+            onChange={(e) => {
+              setHasCustomClaimPreference(true);
+              setDoClaim(e.target.checked);
+            }}
             className="accent-primary"
           />
           Claim rewards with deposit

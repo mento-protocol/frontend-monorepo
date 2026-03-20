@@ -25,7 +25,19 @@ export function useStabilityPool(symbol = "GBPm") {
       {
         address: spAddress,
         abi: stabilityPoolAbi,
-        functionName: "getDepositorYieldGain",
+        functionName: "getDepositorYieldGainWithPending",
+        args: [account!],
+      },
+      {
+        address: spAddress,
+        abi: stabilityPoolAbi,
+        functionName: "stashedColl",
+        args: [account!],
+      },
+      {
+        address: spAddress,
+        abi: stabilityPoolAbi,
+        functionName: "deposits",
         args: [account!],
       },
     ],
@@ -38,8 +50,11 @@ export function useStabilityPool(symbol = "GBPm") {
   const data: StabilityPoolPosition | undefined = result.data
     ? {
         deposit: result.data[0],
-        collateralGain: result.data[1],
+        // Claimable collateral can be split between the live gain and
+        // previously stashed collateral when the user chose not to claim.
+        collateralGain: result.data[1] + result.data[3],
         debtTokenGain: result.data[2],
+        hasActiveDeposit: result.data[4] > 0n,
       }
     : undefined;
 

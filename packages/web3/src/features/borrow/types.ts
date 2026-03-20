@@ -32,6 +32,7 @@ export interface StabilityPoolPosition {
   deposit: bigint;
   collateralGain: bigint;
   debtTokenGain: bigint;
+  hasActiveDeposit: boolean;
 }
 
 // ---------------------------------------------------------------------------
