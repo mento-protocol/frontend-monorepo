@@ -37,18 +37,35 @@ export function useRebalanceTransaction(pool: PoolDisplay) {
         chainId,
       });
 
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: ["pools-list", chainId],
-        }),
-        queryClient.invalidateQueries({
-          queryKey: ["pool-rebalance-preview", chainId, pool.poolAddr],
-        }),
-        queryClient.invalidateQueries({
-          predicate: (query) =>
-            JSON.stringify(query.queryKey).toLowerCase().includes("balanceof"),
-        }),
-      ]);
+      // Optimistically clear the rebalance flag so the badge hides immediately.
+      // Don't invalidate pools-list right away — the RPC may still return stale
+      // data and overwrite this optimistic update. The regular polling interval
+      // will pick up the new state once it has propagated.
+      queryClient.setQueriesData<PoolDisplay[]>(
+        { queryKey: ["pools-list", chainId] },
+        (old) =>
+          old?.map((p) =>
+            p.poolAddr === pool.poolAddr
+              ? {
+                  ...p,
+                  rebalancing: p.rebalancing
+                    ? { ...p.rebalancing, canRebalance: false }
+                    : undefined,
+                }
+              : p,
+          ),
+      );
+
+      // Invalidate the preview cache so the panel doesn't show stale data
+      queryClient.removeQueries({
+        queryKey: ["pool-rebalance-preview", chainId, pool.poolAddr],
+      });
+
+      // Invalidate balance queries immediately
+      await queryClient.invalidateQueries({
+        predicate: (query) =>
+          JSON.stringify(query.queryKey).toLowerCase().includes("balanceof"),
+      });
     },
     [
       chainId,

@@ -154,6 +154,7 @@ export async function executeLiquidityFlow(
         to: txParams.to as Address,
         data: txParams.data as Hex,
         value: BigInt(txParams.value || 0),
+        ...(chainId != null && { chainId }),
       };
 
       let txHash: Hex;

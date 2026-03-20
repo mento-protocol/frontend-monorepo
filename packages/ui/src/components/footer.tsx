@@ -62,7 +62,7 @@ export function Footer({ type = "swap" }: FooterProps) {
             target="_blank"
             rel="noopener noreferrer"
           >
-            Reserve
+            Mento App
           </a>
         )}
         {(type === "governance" || type === "swap") && (

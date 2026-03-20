@@ -1,5 +1,6 @@
 import type { ChainId } from "@/config/chains";
 import { getPublicClient } from "@/features/sdk";
+import { logger } from "@/utils/logger";
 import type {
   PoolRebalancePreview,
   RebalanceDetails,
@@ -22,6 +23,7 @@ const ERC20_REBALANCE_ABI = parseAbi([
 
 const FEE_DENOMINATOR = 10n ** 18n;
 const ZERO_CALL_VALUE = "0";
+const REVERT_SELECTOR_REGEX = /0x[a-fA-F0-9]{8,}/g;
 
 type TupleLike = readonly unknown[] | Record<string, unknown>;
 
@@ -315,6 +317,45 @@ function buildPreview(
   };
 }
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function extractRevertSelector(error: unknown): string | null {
+  const seen = new Set<unknown>();
+
+  function visit(value: unknown, depth: number): string | null {
+    if (depth > 4 || value == null) return null;
+
+    if (typeof value === "string") {
+      const matches = value.match(REVERT_SELECTOR_REGEX);
+      if (!matches || matches.length === 0) return null;
+      const candidate = matches.find((match) => match.length >= 10);
+      return candidate ? candidate.slice(0, 10) : null;
+    }
+
+    if (typeof value !== "object" || seen.has(value)) return null;
+    seen.add(value);
+
+    const obj = value as Record<string, unknown>;
+    for (const key of [
+      "data",
+      "details",
+      "shortMessage",
+      "message",
+      "cause",
+      "error",
+    ]) {
+      const selector = visit(obj[key], depth + 1);
+      if (selector) return selector;
+    }
+
+    return null;
+  }
+
+  return visit(error, 0);
+}
+
 function buildApprovalParams(
   token: Address,
   amount: bigint,
@@ -374,32 +415,45 @@ export async function getPoolRebalancePreview(
   }
 
   const publicClient = getPublicClient(pool.chainId);
-  const strategyAddress = getAddress(strategy);
+  let strategyAddressForLog = strategy;
 
-  const [configRaw, determineActionRaw] = await Promise.all([
-    publicClient.readContract({
-      address: strategyAddress,
-      abi: LIQUIDITY_STRATEGY_ABI,
-      functionName: "poolConfigs",
-      args: [pool.poolAddr as Address],
-    }),
-    publicClient.readContract({
-      address: strategyAddress,
-      abi: LIQUIDITY_STRATEGY_ABI,
-      functionName: "determineAction",
-      args: [pool.poolAddr as Address],
-    }),
-  ]);
+  try {
+    const strategyAddress = getAddress(strategy);
+    strategyAddressForLog = strategyAddress;
 
-  const config = parsePoolConfig(configRaw);
-  const context = parseContext(
-    getTupleValue(determineActionRaw, "ctx", 0, "determineAction"),
-  );
-  const action = parseAction(
-    getTupleValue(determineActionRaw, "action", 1, "determineAction"),
-  );
+    const [configRaw, determineActionRaw] = await Promise.all([
+      publicClient.readContract({
+        address: strategyAddress,
+        abi: LIQUIDITY_STRATEGY_ABI,
+        functionName: "poolConfigs",
+        args: [pool.poolAddr as Address],
+      }),
+      publicClient.readContract({
+        address: strategyAddress,
+        abi: LIQUIDITY_STRATEGY_ABI,
+        functionName: "determineAction",
+        args: [pool.poolAddr as Address],
+      }),
+    ]);
 
-  return buildPreview(pool, strategyAddress, config, context, action);
+    const config = parsePoolConfig(configRaw);
+    const context = parseContext(
+      getTupleValue(determineActionRaw, "ctx", 0, "determineAction"),
+    );
+    const action = parseAction(
+      getTupleValue(determineActionRaw, "action", 1, "determineAction"),
+    );
+
+    return buildPreview(pool, strategyAddress, config, context, action);
+  } catch (error) {
+    logger.warn("Failed to fetch pool rebalance preview", {
+      poolAddress: pool.poolAddr,
+      strategyAddress: strategyAddressForLog,
+      revertSelector: extractRevertSelector(error),
+      errorMessage: getErrorMessage(error),
+    });
+    return null;
+  }
 }
 
 export async function buildPoolRebalanceTransaction(
@@ -420,6 +474,16 @@ export async function buildPoolRebalanceTransaction(
     owner,
     getAddress(preview.approvalSpender),
   );
+
+  logger.info("Rebalance allowance check", {
+    poolAddress: pool.poolAddr,
+    approvalToken: preview.approvalToken,
+    approvalSpender: preview.approvalSpender,
+    currentAllowance: currentAllowance.toString(),
+    requiredAmount: preview.approvalAmount.toString(),
+    needsApproval: currentAllowance < preview.approvalAmount,
+    direction: preview.direction,
+  });
 
   const approval =
     currentAllowance < preview.approvalAmount

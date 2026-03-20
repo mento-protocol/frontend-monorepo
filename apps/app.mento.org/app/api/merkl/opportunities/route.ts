@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const MERKL_API_BASE = "https://api.merkl.xyz/v4";
+const MERKL_API_BASE = "https://api-merkl.angle.money/v4";
 const ALLOWED_PARAMS = new Set(["chainId", "mainProtocolId"]);
 
 export async function GET(req: NextRequest) {

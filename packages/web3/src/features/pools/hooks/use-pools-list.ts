@@ -104,6 +104,27 @@ function getPriceAlignmentStatus(
   return "rebalance-likely";
 }
 
+function canPoolRebalanceStrict(details: {
+  pricing: {
+    priceDifferenceBps: bigint;
+    reservePriceAboveOraclePrice: boolean;
+  };
+  rebalancing: {
+    rebalanceThresholdAboveBps: bigint;
+    rebalanceThresholdBelowBps: bigint;
+    liquidityStrategy: string | null;
+  };
+}): boolean {
+  const relevantThresholdBps = details.pricing.reservePriceAboveOraclePrice
+    ? details.rebalancing.rebalanceThresholdAboveBps
+    : details.rebalancing.rebalanceThresholdBelowBps;
+
+  return (
+    details.pricing.priceDifferenceBps > relevantThresholdBps &&
+    !!details.rebalancing.liquidityStrategy
+  );
+}
+
 export function usePoolsList(
   overrideChainId?: ChainId,
   options?: { enabled?: boolean },
@@ -196,9 +217,21 @@ export function usePoolsList(
                   thresholdBelowBps: Number(
                     details.rebalancing.rebalanceThresholdBelowBps,
                   ),
-                  canRebalance:
-                    !details.rebalancing.inBand &&
-                    !!details.rebalancing.liquidityStrategy,
+                  // Use a strict threshold check so equality stays non-rebalanceable.
+                  canRebalance: canPoolRebalanceStrict({
+                    pricing: {
+                      priceDifferenceBps: details.pricing.priceDifferenceBps,
+                      reservePriceAboveOraclePrice:
+                        details.pricing.reservePriceAboveOraclePrice,
+                    },
+                    rebalancing: {
+                      rebalanceThresholdAboveBps:
+                        details.rebalancing.rebalanceThresholdAboveBps,
+                      rebalanceThresholdBelowBps:
+                        details.rebalancing.rebalanceThresholdBelowBps,
+                      liquidityStrategy: details.rebalancing.liquidityStrategy,
+                    },
+                  }),
                   liquidityStrategy: details.rebalancing.liquidityStrategy,
                 };
               } else {
