@@ -7,6 +7,7 @@ import { Button, cn } from "@repo/ui";
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { useAccount, useChainId } from "wagmi";
+import { MentoChain } from "@/types";
 import celoIcon from "@/config/chain-icons/celo.svg";
 import monadIcon from "@/config/chain-icons/monad.svg";
 
@@ -17,7 +18,11 @@ const chainIcons: Record<number, string> = {
   [ChainId.MonadTestnet]: monadIcon,
 };
 
-export function ChainButton() {
+interface ChainButtonProps {
+  chains?: MentoChain[];
+}
+
+export function ChainButton({ chains }: ChainButtonProps = {}) {
   const { isConnected } = useAccount();
   const chainId = useChainId();
   const currentChain = chainIdToChain[chainId];
@@ -29,7 +34,7 @@ export function ChainButton() {
   const iconUrl = chainIcons[chainId];
 
   const onClickChain = () => {
-    if (openChainModal) {
+    if (!chains && openChainModal) {
       openChainModal();
     } else {
       setShowNetworkDialog(true);
@@ -64,6 +69,7 @@ export function ChainButton() {
         <NetworkDialog
           isOpen={showNetworkDialog}
           close={() => setShowNetworkDialog(false)}
+          chains={chains}
         />
       )}
     </>
