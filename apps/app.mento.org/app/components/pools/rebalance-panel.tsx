@@ -52,6 +52,12 @@ function resolveTokenAddress(tokenAddress: string, pool: PoolDisplay): string {
   return tokenAddress;
 }
 
+function resolveTokenDecimals(tokenAddress: string, pool: PoolDisplay): number {
+  return tokenAddress.toLowerCase() === pool.token0.address.toLowerCase()
+    ? pool.token0.decimals
+    : pool.token1.decimals;
+}
+
 function clampPercent(percent: number): number {
   return Math.max(0, Math.min(100, percent));
 }
@@ -100,15 +106,29 @@ export function RebalancePanel({
   const wagmiConfig = useConfig();
   const setFlow = useSetAtom(liquidityFlowAtom);
   const {
-    data: preview,
-    isLoading,
-    isError,
-  } = usePoolRebalancePreview(pool, true, address as Address | undefined);
+    data: fullPreview,
+    isLoading: isFullPreviewLoading,
+    isError: isFullPreviewError,
+  } = usePoolRebalancePreview(pool, true);
+  const hasConnectedWallet = isConnected && !!address;
+  const {
+    data: walletPreview,
+    isLoading: isWalletPreviewLoading,
+    isError: isWalletPreviewError,
+  } = usePoolRebalancePreview(
+    pool,
+    hasConnectedWallet,
+    address as Address | undefined,
+  );
   const { buildTransaction, handleSuccess, isBuilding } =
     useRebalanceTransaction(pool);
   const targetChain = chainIdToChain[pool.chainId as ChainId];
   const targetChainName = targetChain?.name ?? `Chain ${pool.chainId}`;
   const isWrongChain = isConnected && walletChainId !== pool.chainId;
+  const preview = hasConnectedWallet
+    ? (walletPreview ?? fullPreview)
+    : fullPreview;
+  const executionPreview = hasConnectedWallet ? walletPreview : null;
   const cooldownEndsAt =
     preview?.config.lastRebalance && preview.config.rebalanceCooldown > 0
       ? preview.config.lastRebalance +
@@ -134,7 +154,7 @@ export function RebalancePanel({
   }, [isOnCooldown]);
 
   const handleRebalance = async () => {
-    if (!address || !preview || isWrongChain) return;
+    if (!address || !executionPreview || isWrongChain) return;
     if (isOnCooldown) {
       toast.error(
         `Rebalance cooldown active. Try again in ${formatCooldownDuration(
@@ -152,7 +172,7 @@ export function RebalancePanel({
       if (tx.approval) {
         steps.push({
           id: "approve",
-          label: `Approve ${resolveTokenSymbol(preview.inputToken, pool)}`,
+          label: `Approve ${resolveTokenSymbol(executionPreview.inputToken, pool)}`,
           buildTx: async () => tx.approval!.params,
         });
       }
@@ -174,7 +194,7 @@ export function RebalancePanel({
       if (result.success && result.txHashes.length > 0) {
         await handleSuccess(
           result.txHashes[result.txHashes.length - 1]!,
-          preview,
+          executionPreview,
         );
         onRebalanceComplete?.();
       }
@@ -206,7 +226,10 @@ export function RebalancePanel({
     }
   };
 
-  if (isLoading && !preview) {
+  if (
+    (isFullPreviewLoading && !fullPreview) ||
+    (hasConnectedWallet && isWalletPreviewLoading && !walletPreview)
+  ) {
     return (
       <div className="px-4 py-4 border-t border-border">
         <div className="space-y-3">
@@ -218,13 +241,26 @@ export function RebalancePanel({
     );
   }
 
-  if (isError || !preview) {
+  if (
+    isFullPreviewError ||
+    (!preview && (!hasConnectedWallet || isWalletPreviewError))
+  ) {
     return (
       <div className="px-4 py-4 border-t border-border">
         <p className="text-sm text-muted-foreground">
-          {isError
+          {isFullPreviewError || isWalletPreviewError
             ? "Failed to load rebalance data. Please try again."
             : "No rebalance data available for this pool."}
+        </p>
+      </div>
+    );
+  }
+
+  if (!preview) {
+    return (
+      <div className="px-4 py-4 border-t border-border">
+        <p className="text-sm text-muted-foreground">
+          No rebalance data available for this pool.
         </p>
       </div>
     );
@@ -235,14 +271,8 @@ export function RebalancePanel({
   const inputAddress = resolveTokenAddress(preview.inputToken, pool);
   const outputAddress = resolveTokenAddress(preview.outputToken, pool);
 
-  const inputDecimals =
-    inputAddress.toLowerCase() === pool.token0.address.toLowerCase()
-      ? pool.token0.decimals
-      : pool.token1.decimals;
-  const outputDecimals =
-    outputAddress.toLowerCase() === pool.token0.address.toLowerCase()
-      ? pool.token0.decimals
-      : pool.token1.decimals;
+  const inputDecimals = resolveTokenDecimals(inputAddress, pool);
+  const outputDecimals = resolveTokenDecimals(outputAddress, pool);
 
   const formattedDepositAmount = formatAmount(
     preview.amountRequired.amount,
@@ -256,6 +286,25 @@ export function RebalancePanel({
     preview.liquiditySourceIncentive.amount,
     outputDecimals,
   );
+  const hasWalletScopedPreview = hasConnectedWallet && !!walletPreview;
+  const isWalletLimited =
+    !!fullPreview &&
+    !!walletPreview &&
+    walletPreview.inputToken.toLowerCase() ===
+      fullPreview.inputToken.toLowerCase() &&
+    walletPreview.amountRequired.amount < fullPreview.amountRequired.amount;
+  const isWalletIneligible =
+    hasConnectedWallet && !walletPreview && !!fullPreview;
+  const fullInputSymbol = fullPreview
+    ? resolveTokenSymbol(fullPreview.inputToken, pool)
+    : inputSymbol;
+  const fullInputAddress = fullPreview
+    ? resolveTokenAddress(fullPreview.inputToken, pool)
+    : inputAddress;
+  const fullInputDecimals = resolveTokenDecimals(fullInputAddress, pool);
+  const formattedFullRequiredAmount = fullPreview
+    ? formatAmount(fullPreview.amountRequired.amount, fullInputDecimals)
+    : formattedDepositAmount;
 
   const token0Ratio = Math.max(0, Math.min(1, pool.reserves.token0Ratio));
   const token0Percent = Math.round(token0Ratio * 100);
@@ -293,6 +342,11 @@ export function RebalancePanel({
   const cooldownLabel = isOnCooldown
     ? `Cooldown: ${formatCooldownDuration(cooldownRemainingSeconds)}`
     : null;
+  const buttonLabel = isBuilding
+    ? "Preparing..."
+    : isWalletIneligible
+      ? `Need ${inputSymbol} to rebalance`
+      : (cooldownLabel ?? "Rebalance");
 
   return (
     <div className="px-4 pb-4 pt-4 border-t border-border">
@@ -418,14 +472,38 @@ export function RebalancePanel({
             </div>
 
             {/* Preview */}
-            <div className="mt-1 text-xs font-mono font-semibold tracking-wider text-muted-foreground uppercase">
-              Preview
+            <div className="mt-1 gap-1.5 flex flex-col">
+              <div className="text-xs font-mono font-semibold tracking-wider text-muted-foreground uppercase">
+                Preview
+              </div>
+              {isWalletLimited ? (
+                <p className="text-[11px] text-muted-foreground">
+                  Pool needs{" "}
+                  <span className="font-semibold text-foreground">
+                    {formattedFullRequiredAmount} {fullInputSymbol}
+                  </span>{" "}
+                  to fully rebalance. With your current wallet, you can provide{" "}
+                  <span className="font-semibold text-foreground">
+                    {formattedDepositAmount} {inputSymbol}
+                  </span>
+                  .
+                </p>
+              ) : isWalletIneligible ? (
+                <p className="text-[11px] text-muted-foreground">
+                  Pool needs{" "}
+                  <span className="font-semibold text-foreground">
+                    {formattedFullRequiredAmount} {fullInputSymbol}
+                  </span>{" "}
+                  to fully rebalance. Your current wallet cannot contribute to
+                  this rebalance yet.
+                </p>
+              ) : null}
             </div>
             <div className="gap-3 md:grid-cols-3 grid grid-cols-1 items-stretch">
-              {/* You Deposit */}
+              {/* Deposit */}
               <div className="p-3 space-y-1 rounded-lg border border-border bg-incard">
                 <div className="font-mono font-semibold tracking-wider text-[10px] text-muted-foreground uppercase">
-                  You deposit
+                  {hasWalletScopedPreview ? "You deposit" : "Required deposit"}
                 </div>
                 <div className="gap-2 flex items-center">
                   <TokenIcon
@@ -446,14 +524,18 @@ export function RebalancePanel({
                   </div>
                 </div>
                 <div className="font-mono text-[10px] text-muted-foreground/60">
-                  {inputSymbol} (pool needs this)
+                  {hasWalletScopedPreview
+                    ? isWalletLimited
+                      ? "From your current wallet balance"
+                      : "From your wallet"
+                    : "Pool needs this to rebalance"}
                 </div>
               </div>
 
-              {/* You Receive */}
+              {/* Receive */}
               <div className="p-3 space-y-1 rounded-lg border border-border bg-incard">
                 <div className="font-mono font-semibold tracking-wider text-[10px] text-muted-foreground uppercase">
-                  You receive
+                  {hasWalletScopedPreview ? "You receive" : "Expected receive"}
                 </div>
                 <div className="gap-2 flex items-center">
                   <TokenIcon
@@ -474,7 +556,9 @@ export function RebalancePanel({
                   </div>
                 </div>
                 <div className="font-mono text-[10px] text-muted-foreground/60">
-                  {outputSymbol} (pool has extra)
+                  {hasWalletScopedPreview
+                    ? "Expected from your current rebalance"
+                    : "Expected if this rebalance is executed now"}
                 </div>
               </div>
 
@@ -528,10 +612,10 @@ export function RebalancePanel({
                 <Button
                   size="sm"
                   className="h-10 md:w-auto md:min-w-52 w-full whitespace-nowrap"
-                  disabled={isBuilding || isOnCooldown}
+                  disabled={isBuilding || isOnCooldown || isWalletIneligible}
                   onClick={handleRebalance}
                 >
-                  {isBuilding ? "Preparing..." : (cooldownLabel ?? "Rebalance")}
+                  {buttonLabel}
                 </Button>
               )}
             </div>

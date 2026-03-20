@@ -462,7 +462,7 @@ export async function buildPoolRebalanceTransaction(
   pool: PoolDisplay,
   owner: Address,
 ): Promise<RebalanceTransaction> {
-  const preview = await getPoolRebalancePreview(pool);
+  const preview = await getPoolRebalancePreview(pool, owner);
 
   if (!preview) {
     throw new Error(
