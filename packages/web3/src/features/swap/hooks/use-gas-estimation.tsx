@@ -125,11 +125,10 @@ export function useGasEstimation({
               to: fromTokenAddr as Address,
               data: ("0xa9059cbb" + transferData.slice(2)) as Hex,
             })
-            .catch(() => ethers.BigNumber.from("100000")); // Fallback for transfer
+            .catch(() => 100000n); // Fallback for transfer
 
           const gasPrice = await publicClient.getGasPrice();
-          const totalFeeWei =
-            typeof gasEstimate === "bigint" ? gasEstimate * gasPrice : 0;
+          const totalFeeWei = gasEstimate * gasPrice;
           const totalFeeFormatted = fromWei(totalFeeWei.toString(), 18);
           const totalFeeUSD = formatTotalFeeUsd(totalFeeFormatted, chainId);
 

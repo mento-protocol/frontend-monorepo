@@ -15,18 +15,26 @@ export async function GET(req: NextRequest) {
   }
 
   const url = `${MERKL_API_BASE}/opportunities?${params}`;
-  const res = await fetch(url, {
-    headers: { Accept: "application/json" },
-    next: { revalidate: 300 }, // cache for 5 minutes on the edge
-  });
+  try {
+    const res = await fetch(url, {
+      headers: { Accept: "application/json" },
+      next: { revalidate: 300 }, // cache for 5 minutes on the edge
+    });
 
-  if (!res.ok) {
+    if (!res.ok) {
+      return NextResponse.json(
+        { error: `Merkl API error: ${res.status}` },
+        { status: res.status },
+      );
+    }
+
+    const data = await res.json();
+    return NextResponse.json(data);
+  } catch (error) {
+    console.error("Failed to fetch Merkl opportunities", error);
     return NextResponse.json(
-      { error: `Merkl API error: ${res.status}` },
-      { status: res.status },
+      { error: "Unable to fetch Merkl opportunities" },
+      { status: 502 },
     );
   }
-
-  const data = await res.json();
-  return NextResponse.json(data);
 }
