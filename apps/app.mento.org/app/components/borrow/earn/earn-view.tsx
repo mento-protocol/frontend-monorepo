@@ -115,7 +115,6 @@ export function EarnView({ chainId, debtToken }: EarnViewProps) {
       <ChainMismatchBanner targetChainId={chainId} />
 
       <div className="relative">
-        <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block pointer-events-none hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card" />
         <div className="p-6 relative z-10 flex items-center justify-between bg-card">
           <div>
             <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
