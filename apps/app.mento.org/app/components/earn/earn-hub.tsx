@@ -127,7 +127,7 @@ export function EarnHub() {
     }
 
     return {
-      id: `sp-${debtToken.symbol.toLowerCase()}`,
+      id: `sp-${spChainId}-${debtToken.symbol.toLowerCase()}`,
       type: "stability" as const,
       chainId: spChainId,
       name: `${debtToken.symbol} Stability Pool`,
@@ -202,7 +202,7 @@ export function EarnHub() {
       const slug = chainIdToSlug(pool.chainId);
 
       return {
-        id: `lp-${pool.poolAddr}`,
+        id: `lp-${pool.chainId}-${pool.poolAddr.toLowerCase()}`,
         type: "lp" as const,
         chainId: pool.chainId,
         name: `${pool.token0.symbol} / ${pool.token1.symbol}`,
@@ -266,12 +266,12 @@ export function EarnHub() {
     {
       icon: <Clock className="h-5 w-5" />,
       title: "Compare options",
-      desc: "Each card shows APY, risk level, and how you earn. Compare Stability Pool vs LP pools side by side.",
+      desc: "Each card shows APY and how you earn. Compare Stability Pool vs LP pools side by side.",
     },
     {
       icon: <Plus className="h-5 w-5" />,
       title: "Deposit & earn",
-      desc: "Click any opportunity to go to its deposit page. No lock-up on any option \u2014 withdraw anytime.",
+      desc: "Click any opportunity to go to its deposit page. No lock-up on any option, withdraw anytime.",
     },
     {
       icon: <TrendingUp className="h-5 w-5" />,
