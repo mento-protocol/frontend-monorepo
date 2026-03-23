@@ -63,14 +63,20 @@ function ChainIcon({ chainId }: { chainId: ChainId }) {
   if (!iconUrl) return null;
 
   return (
-    <Image
-      src={iconUrl}
-      alt={chain?.name ?? ""}
-      width={16}
-      height={16}
-      className="h-4 w-4 rounded-full"
-      unoptimized
-    />
+    <span
+      title={chain?.name ?? ""}
+      aria-label={chain?.name ?? ""}
+      className="inline-flex"
+    >
+      <Image
+        src={iconUrl}
+        alt={chain?.name ?? ""}
+        width={16}
+        height={16}
+        className="h-4 w-4 rounded-full"
+        unoptimized
+      />
+    </span>
   );
 }
 
@@ -78,7 +84,7 @@ export function OpportunityCard({ opp }: { opp: Opportunity }) {
   const isStability = opp.type === "stability";
 
   return (
-    <Link href={opp.href} className="group block">
+    <div className="group">
       <Card className="!py-0 !gap-0 relative overflow-hidden transition-colors group-hover:bg-accent/30">
         {opp.hasRewards && (
           <div className="top-0 left-0 right-0 h-0.5 from-emerald-400/40 absolute bg-gradient-to-r to-transparent" />
@@ -235,9 +241,10 @@ export function OpportunityCard({ opp }: { opp: Opportunity }) {
           )}
 
           {/* CTA */}
-          <button
+          <Link
+            href={opp.href}
             className={cn(
-              "py-3 font-semibold gap-1.5 flex w-full items-center justify-center rounded-lg border text-[13px] transition-all",
+              "py-3 font-semibold gap-1.5 flex w-full cursor-pointer items-center justify-center rounded-lg border text-[13px] transition-all",
               isStability
                 ? "border-emerald-400/15 bg-emerald-400/8 text-emerald-400 group-hover:bg-emerald-400 group-hover:text-white group-hover:border-transparent group-hover:shadow-[0_4px_20px_rgba(0,229,153,0.2)]"
                 : "border-indigo-400/15 bg-indigo-400/8 text-indigo-300 group-hover:bg-indigo-500 group-hover:text-white group-hover:border-transparent group-hover:shadow-[0_4px_20px_rgba(99,102,241,0.2)]",
@@ -245,9 +252,9 @@ export function OpportunityCard({ opp }: { opp: Opportunity }) {
           >
             {opp.userPosition ? "Manage Position" : "Start Earning"}
             <ChevronRight className="h-3.5 w-3.5" />
-          </button>
+          </Link>
         </CardContent>
       </Card>
-    </Link>
+    </div>
   );
 }
