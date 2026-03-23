@@ -3,9 +3,9 @@ import { stabilityPoolAbi } from "../stability-pool/abi";
 import type { StabilityPoolPosition } from "../types";
 import { useStabilityPoolAddress } from "./use-stability-pool-address";
 
-export function useStabilityPool(symbol = "GBPm") {
+export function useStabilityPool(symbol = "GBPm", targetChainId?: number) {
   const { address: account } = useAccount();
-  const { data: spAddress } = useStabilityPoolAddress(symbol);
+  const { data: spAddress } = useStabilityPoolAddress(symbol, targetChainId);
 
   const result = useReadContracts({
     allowFailure: false,
@@ -15,30 +15,35 @@ export function useStabilityPool(symbol = "GBPm") {
         abi: stabilityPoolAbi,
         functionName: "getCompoundedBoldDeposit",
         args: [account!],
+        chainId: targetChainId,
       },
       {
         address: spAddress,
         abi: stabilityPoolAbi,
         functionName: "getDepositorCollGain",
         args: [account!],
+        chainId: targetChainId,
       },
       {
         address: spAddress,
         abi: stabilityPoolAbi,
         functionName: "getDepositorYieldGainWithPending",
         args: [account!],
+        chainId: targetChainId,
       },
       {
         address: spAddress,
         abi: stabilityPoolAbi,
         functionName: "stashedColl",
         args: [account!],
+        chainId: targetChainId,
       },
       {
         address: spAddress,
         abi: stabilityPoolAbi,
         functionName: "deposits",
         args: [account!],
+        chainId: targetChainId,
       },
     ],
     query: {

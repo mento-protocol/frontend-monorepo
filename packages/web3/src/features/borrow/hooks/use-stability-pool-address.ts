@@ -8,9 +8,17 @@ import { useChainId, usePublicClient } from "wagmi";
 /**
  * Internal hook to resolve the StabilityPool contract address via SDK address registry.
  * Cached with staleTime: Infinity since contract addresses are immutable.
+ *
+ * @param symbol - Debt token symbol (default: "GBPm")
+ * @param targetChainId - Optional chain ID override. When provided, reads from
+ *   this chain regardless of the user's connected chain.
  */
-export function useStabilityPoolAddress(symbol = "GBPm") {
-  const chainId = useChainId();
+export function useStabilityPoolAddress(
+  symbol = "GBPm",
+  targetChainId?: number,
+) {
+  const walletChainId = useChainId();
+  const chainId = targetChainId ?? walletChainId;
   const publicClient = usePublicClient({ chainId });
 
   return useQuery({

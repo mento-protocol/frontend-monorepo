@@ -1,15 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAtomValue } from "jotai";
 import { Button, CoinInput, TokenIcon } from "@repo/ui";
 import {
-  selectedDebtTokenAtom,
   useSpWithdraw,
   formatCompactBalance,
   tryParseUnits,
+  type ChainId,
+  type DebtTokenConfig,
 } from "@repo/web3";
-import { useAccount, useChainId, useConfig } from "@repo/web3/wagmi";
+import { useAccount, useConfig } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 import { formatUnits, type Address } from "viem";
 
@@ -17,16 +17,20 @@ interface WithdrawFormProps {
   deposit: bigint | null;
   collateralGain: bigint | null;
   debtTokenGain: bigint | null;
+  debtToken: DebtTokenConfig;
+  targetChainId: ChainId;
+  disabled?: boolean;
 }
 
 export function WithdrawForm({
   deposit,
   collateralGain,
   debtTokenGain,
+  debtToken,
+  targetChainId,
+  disabled = false,
 }: WithdrawFormProps) {
-  const debtToken = useAtomValue(selectedDebtTokenAtom);
   const { address, isConnected } = useAccount();
-  const chainId = useChainId();
   const wagmiConfig = useConfig();
   const spWithdraw = useSpWithdraw();
 
@@ -46,7 +50,7 @@ export function WithdrawForm({
   }, [hasCustomClaimPreference, hasRewards]);
 
   const tokenAddress = getTokenAddress(
-    chainId,
+    targetChainId,
     debtToken.symbol as TokenSymbol,
   ) as Address | undefined;
 
@@ -61,10 +65,12 @@ export function WithdrawForm({
     value !== "" &&
     parsedAmount !== null &&
     parsedAmount > 0n &&
+    !disabled &&
     !exceedsDeposit &&
     !spWithdraw.isPending;
 
   const handleMax = () => {
+    if (disabled) return;
     setValue(formattedDeposit);
   };
 
@@ -81,6 +87,7 @@ export function WithdrawForm({
 
   const getButtonText = () => {
     if (spWithdraw.isPending) return "Withdrawing...";
+    if (disabled) return "Switch network to withdraw";
     if (!value || parsedAmount === null || parsedAmount === 0n)
       return "Enter amount to withdraw";
     if (exceedsDeposit) return "Amount exceeds your deposit";
@@ -108,6 +115,7 @@ export function WithdrawForm({
             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
               setValue(e.target.value)
             }
+            disabled={disabled}
             placeholder="0.00"
             className="p-0 text-sm font-mono placeholder:text-sm h-auto flex-1 border-0 shadow-none focus-visible:border-0 focus-visible:ring-0"
           />
@@ -135,6 +143,7 @@ export function WithdrawForm({
             <button
               key={pct}
               type="button"
+              disabled={disabled}
               className="py-1.5 text-xs font-medium flex-1 rounded-md border border-border text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground/70"
               onClick={() => {
                 if (!deposit) return;
@@ -147,6 +156,7 @@ export function WithdrawForm({
           ))}
           <button
             type="button"
+            disabled={disabled}
             className="py-1.5 text-xs font-medium flex-1 rounded-md border border-border text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground/70"
             onClick={handleMax}
           >
@@ -160,6 +170,7 @@ export function WithdrawForm({
           <input
             type="checkbox"
             checked={doClaim}
+            disabled={disabled}
             onChange={(e) => {
               setHasCustomClaimPreference(true);
               setDoClaim(e.target.checked);

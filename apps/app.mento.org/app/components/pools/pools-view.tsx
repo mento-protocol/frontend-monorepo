@@ -178,7 +178,7 @@ export function PoolsView() {
 
   return (
     <>
-      <div className="max-w-5xl space-y-4 px-4 pt-6 md:px-0 md:pt-0 flex h-full w-full flex-col overflow-hidden">
+      <div className="max-w-5xl space-y-4 px-4 pt-6 md:px-0 md:pt-0 flex h-full w-full flex-col">
         {/* Header */}
         <div className="relative">
           <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
@@ -221,7 +221,7 @@ export function PoolsView() {
 
         {!showPoolsError && (isLoading || pools.length > 0) && (
           <div className="gap-4 md:flex-row md:items-center md:justify-between flex flex-col">
-            <div className="md:w-auto md:justify-start flex w-full flex-wrap items-center justify-center">
+            <div className="gap-1 flex flex-wrap items-center">
               {/* Pool type filters */}
               {filterTabs.map((tab) => (
                 <button
@@ -230,9 +230,9 @@ export function PoolsView() {
                   onClick={() => setFilter(tab.value)}
                   aria-pressed={filter === tab.value}
                   className={cn(
-                    "px-4 py-2 text-sm font-medium md:flex-none flex-1 cursor-pointer border-0 transition-colors outline-none",
+                    "px-3.5 py-1.5 text-xs font-semibold cursor-pointer rounded-lg border-0 transition-colors outline-none",
                     filter === tab.value
-                      ? "bg-card text-foreground"
+                      ? "bg-accent text-foreground"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
@@ -251,9 +251,9 @@ export function PoolsView() {
                   onClick={() => setChainFilter(cf.value)}
                   aria-pressed={chainFilter === cf.value}
                   className={cn(
-                    "gap-1.5 px-4 py-2 text-sm font-medium inline-flex cursor-pointer items-center border-0 transition-colors outline-none",
+                    "gap-1.5 px-3.5 py-1.5 text-xs font-semibold inline-flex cursor-pointer items-center rounded-lg border-0 transition-colors outline-none",
                     chainFilter === cf.value
-                      ? "bg-card text-foreground"
+                      ? "bg-accent text-foreground"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
@@ -274,9 +274,9 @@ export function PoolsView() {
                 disabled={!canApplyRewardsFilter}
                 aria-pressed={showRewardsOnly}
                 className={cn(
-                  "gap-1.5 px-4 py-2 text-sm font-medium inline-flex cursor-pointer items-center border-0 transition-colors outline-none",
+                  "gap-1.5 px-3.5 py-1.5 text-xs font-semibold inline-flex cursor-pointer items-center rounded-lg border-0 transition-colors outline-none",
                   showRewardsOnly
-                    ? "bg-card text-foreground"
+                    ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:text-foreground",
                   !canApplyRewardsFilter &&
                     "cursor-not-allowed opacity-50 hover:text-muted-foreground",
@@ -284,7 +284,7 @@ export function PoolsView() {
                 aria-busy={isRewardsLoading}
               >
                 <Star className="h-3.5 w-3.5" />
-                Rewards
+                With Rewards
               </button>
             </div>
 

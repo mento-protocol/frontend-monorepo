@@ -1,20 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAtomValue } from "jotai";
 import { Button, CoinInput, TokenIcon } from "@repo/ui";
+import Link from "next/link";
+import { ArrowRightLeft } from "lucide-react";
+import { getStabilitySwapRoute } from "@/lib/stability-route";
 import {
-  selectedDebtTokenAtom,
   useSpDeposit,
   formatCompactBalance,
   tryParseUnits,
+  type ChainId,
+  type DebtTokenConfig,
 } from "@repo/web3";
-import {
-  useAccount,
-  useReadContract,
-  useChainId,
-  useConfig,
-} from "@repo/web3/wagmi";
+import { useAccount, useReadContract, useConfig } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 import { erc20Abi, formatUnits, type Address } from "viem";
 
@@ -22,15 +20,20 @@ interface DepositFormProps {
   deposit: bigint | null;
   collateralGain: bigint | null;
   debtTokenGain: bigint | null;
+  debtToken: DebtTokenConfig;
+  targetChainId: ChainId;
+  disabled?: boolean;
 }
 
 export function DepositForm({
+  deposit,
   collateralGain,
   debtTokenGain,
+  debtToken,
+  targetChainId,
+  disabled = false,
 }: DepositFormProps) {
-  const debtToken = useAtomValue(selectedDebtTokenAtom);
   const { address, isConnected } = useAccount();
-  const chainId = useChainId();
   const wagmiConfig = useConfig();
   const spDeposit = useSpDeposit();
 
@@ -50,7 +53,7 @@ export function DepositForm({
   }, [hasCustomClaimPreference, hasRewards]);
 
   const tokenAddress = getTokenAddress(
-    chainId,
+    targetChainId,
     debtToken.symbol as TokenSymbol,
   ) as Address | undefined;
 
@@ -58,11 +61,14 @@ export function DepositForm({
     address: tokenAddress,
     abi: erc20Abi,
     functionName: "balanceOf",
+    chainId: targetChainId,
     args: address ? [address] : undefined,
     query: { enabled: !!address && !!tokenAddress },
   });
 
   const formattedBalance = balance ? formatUnits(balance, 18) : "0";
+  const hasPosition = (deposit ?? 0n) > 0n || hasRewards;
+  const showSwapCta = isConnected && !hasPosition && balance === 0n;
 
   const parsedAmount = tryParseUnits(value, 18);
   const insufficient =
@@ -73,10 +79,12 @@ export function DepositForm({
     value !== "" &&
     parsedAmount !== null &&
     parsedAmount > 0n &&
+    !disabled &&
     !insufficient &&
     !spDeposit.isPending;
 
   const handleMax = () => {
+    if (disabled) return;
     setValue(formattedBalance);
   };
 
@@ -93,6 +101,7 @@ export function DepositForm({
 
   const getButtonText = () => {
     if (spDeposit.isPending) return "Depositing...";
+    if (disabled) return "Switch network to deposit";
     if (!value || parsedAmount === null || parsedAmount === 0n)
       return "Enter amount to deposit";
     if (insufficient) return `Insufficient ${debtToken.symbol} balance`;
@@ -120,6 +129,7 @@ export function DepositForm({
             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
               setValue(e.target.value)
             }
+            disabled={disabled}
             placeholder="0.00"
             className="p-0 text-sm font-mono placeholder:text-sm h-auto flex-1 border-0 shadow-none focus-visible:border-0 focus-visible:ring-0"
           />
@@ -147,6 +157,7 @@ export function DepositForm({
             <button
               key={pct}
               type="button"
+              disabled={disabled}
               className="py-1.5 text-xs font-medium flex-1 rounded-md border border-border text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground/70"
               onClick={() => {
                 if (!balance) return;
@@ -159,6 +170,7 @@ export function DepositForm({
           ))}
           <button
             type="button"
+            disabled={disabled}
             className="py-1.5 text-xs font-medium flex-1 rounded-md border border-border text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground/70"
             onClick={handleMax}
           >
@@ -172,6 +184,7 @@ export function DepositForm({
           <input
             type="checkbox"
             checked={doClaim}
+            disabled={disabled}
             onChange={(e) => {
               setHasCustomClaimPreference(true);
               setDoClaim(e.target.checked);
@@ -190,6 +203,15 @@ export function DepositForm({
       >
         {getButtonText()}
       </Button>
+
+      {showSwapCta && (
+        <Button variant="outline" size="lg" className="w-full" asChild>
+          <Link href={getStabilitySwapRoute(debtToken.symbol)}>
+            <ArrowRightLeft className="h-4 w-4" />
+            Swap USDm for {debtToken.symbol}
+          </Link>
+        </Button>
+      )}
     </div>
   );
 }
