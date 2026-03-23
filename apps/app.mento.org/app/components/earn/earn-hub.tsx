@@ -192,7 +192,7 @@ export function EarnHub() {
       ];
       if (hasReward) {
         mechanics.push({
-          label: "MENTO rewards",
+          label: "Merkl rewards",
           color: "green",
           value: `+${rewardApr.toFixed(1)}%`,
         });
@@ -431,12 +431,12 @@ export function EarnHub() {
       {/* Footer link */}
       <div className="pt-2 text-center">
         <a
-          href="https://docs.mento.org/mento/mento-protocol/earn"
+          href="https://docs.mento.org/mento-v3/dive-deeper/protocol-economics"
           target="_blank"
           rel="noopener noreferrer"
           className="gap-1.5 text-xs inline-flex items-center text-primary hover:underline"
         >
-          Read the full guide to earning on Mento
+          Learn more about the Mento protocol economics
           <ExternalLink className="h-3 w-3" />
         </a>
       </div>

@@ -98,7 +98,7 @@ export function RewardsCampaignBanner({
               <span className="font-semibold text-emerald-400">
                 {campaign.maxApr.toFixed(1)}% APR
               </span>{" "}
-              in MENTO rewards on{" "}
+              through live Merkl campaigns on{" "}
               <span className="text-foreground">
                 {campaign.eligibleCount} eligible pool
                 {campaign.eligibleCount !== 1 ? "s" : ""}
