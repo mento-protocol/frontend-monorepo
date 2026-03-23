@@ -6,18 +6,18 @@ import { Card, CardContent, cn, TokenIcon } from "@repo/ui";
 import { chainIdToChain, type ChainId } from "@repo/web3";
 import { ChevronRight } from "lucide-react";
 
-export interface EarnMechanic {
+interface EarnMechanic {
   label: string;
   value?: string;
   color: "green" | "indigo" | "amber";
 }
 
-export interface EarnStat {
+interface EarnStat {
   label: string;
   value: string;
 }
 
-export interface UserPositionSummary {
+interface UserPositionSummary {
   deposited: string;
   rewards?: string;
 }

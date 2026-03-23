@@ -1,6 +1,6 @@
 export const STABILITY_CHAIN_ID = 42220;
 export const STABILITY_CHAIN_NAME = "Celo";
-export const STABILITY_CHAIN_SLUG = "celo";
+const STABILITY_CHAIN_SLUG = "celo";
 
 const STABILITY_DEBT_TOKENS = [
   {
