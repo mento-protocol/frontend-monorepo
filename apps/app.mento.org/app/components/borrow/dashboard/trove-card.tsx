@@ -14,6 +14,7 @@ import { useChainId } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 import type { Address } from "viem";
 import { borrowViewAtom } from "../atoms/borrow-navigation";
+import { TroveStatusBadge } from "../shared/trove-status-badge";
 import { TroveIdPopover } from "../shared/trove-id-popover";
 
 const COLLATERAL_SYMBOL = "USDm";
@@ -174,9 +175,12 @@ export function TroveCard({ position, debtToken }: TroveCardProps) {
                 </span>
                 <TroveIdPopover troveId={position.troveId} />
               </div>
-              <span className="font-mono text-[11px] text-muted-foreground/50">
-                Trove #{position.troveId.slice(0, 8)}
-              </span>
+              <div className="gap-2 flex flex-wrap items-center">
+                <span className="font-mono text-[11px] text-muted-foreground/50">
+                  Trove #{position.troveId.slice(0, 8)}
+                </span>
+                <TroveStatusBadge status={position.status} />
+              </div>
             </div>
           </div>
 
