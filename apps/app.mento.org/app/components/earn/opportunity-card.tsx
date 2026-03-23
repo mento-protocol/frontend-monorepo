@@ -54,6 +54,10 @@ const mechanicDotColor: Record<EarnMechanic["color"], string> = {
   amber: "bg-amber-400",
 };
 
+function formatOpportunityApy(apy: number): string {
+  return apy > 0 && apy < 1 ? apy.toFixed(2) : apy.toFixed(1);
+}
+
 function ChainIcon({ chainId }: { chainId: ChainId }) {
   const chain = chainIdToChain[chainId];
   const iconUrl = (chain as unknown as Record<string, unknown>)?.iconUrl as
@@ -163,7 +167,7 @@ export function OpportunityCard({ opp }: { opp: Opportunity }) {
             {/* APY */}
             <div className="shrink-0 text-right">
               <div className="text-2xl font-bold tracking-tight text-emerald-400">
-                {opp.apy.toFixed(1)}%
+                {formatOpportunityApy(opp.apy)}%
               </div>
               <div className="font-mono text-[10px] text-muted-foreground/50">
                 {opp.apyLabel}
