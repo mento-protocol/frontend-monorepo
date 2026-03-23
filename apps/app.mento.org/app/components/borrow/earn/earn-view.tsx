@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import {
   Card,
   CardContent,
@@ -20,6 +21,7 @@ import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 import { TokenIcon } from "@repo/ui";
 import { FlowDialog } from "../shared/flow-dialog";
 import { ChainMismatchBanner } from "@/components/shared/chain-mismatch-banner";
+import { getOpportunityBackLink } from "@/lib/opportunity-navigation";
 import { DepositForm } from "./deposit-form";
 import { WithdrawForm } from "./withdraw-form";
 import { ClaimRewards } from "./claim-rewards";
@@ -48,9 +50,11 @@ interface EarnViewProps {
 }
 
 export function EarnView({ chainId, debtToken }: EarnViewProps) {
+  const searchParams = useSearchParams();
   const { isConnected } = useAccount();
   const walletChainId = useChainId();
   const isWrongChain = isConnected && walletChainId !== chainId;
+  const backLink = getOpportunityBackLink(searchParams.get("source"));
 
   const debtTokenAddress = (() => {
     try {
@@ -101,11 +105,11 @@ export function EarnView({ chainId, debtToken }: EarnViewProps) {
   return (
     <div className="max-w-5xl space-y-6 px-4 pt-6 md:px-0 md:pt-0 pb-16 relative min-h-[550px] w-full">
       <Link
-        href="/earn"
+        href={backLink.href}
         className="gap-1.5 text-sm font-medium relative z-10 inline-flex items-center text-muted-foreground transition-colors hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />
-        Back to Earn
+        {backLink.label}
       </Link>
 
       <ChainMismatchBanner targetChainId={chainId} />

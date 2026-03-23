@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { useAtomValue } from "jotai";
 import { getStabilityRoute } from "@/lib/stability-route";
+import { withOpportunitySource } from "@/lib/opportunity-navigation";
 import { Card, CardContent, cn } from "@repo/ui";
 import {
   selectedDebtTokenAtom,
@@ -156,7 +157,7 @@ export function EarnHub() {
         { label: "Lock-up", value: "None" },
       ],
       userPosition,
-      href: getStabilityRoute(debtToken.symbol),
+      href: withOpportunitySource(getStabilityRoute(debtToken.symbol), "earn"),
     };
   }, [
     spChainId,
@@ -224,7 +225,7 @@ export function EarnHub() {
           { label: "Lock-up", value: "None" },
         ],
         userPosition: null, // LP user positions require per-pool balance lookups; shown on pool detail page
-        href: `/pools/${slug}/${pool.poolAddr}`,
+        href: withOpportunitySource(`/pools/${slug}/${pool.poolAddr}`, "earn"),
       };
     });
   }, [pools, rewards]);

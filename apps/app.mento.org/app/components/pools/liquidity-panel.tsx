@@ -13,6 +13,7 @@ interface LiquidityPanelProps {
   pool: PoolDisplay;
   mode: "deposit" | "manage";
   onClose: () => void;
+  backLabel?: string;
   disabled?: boolean;
   chainId?: number;
 }
@@ -23,6 +24,7 @@ export function LiquidityPanel({
   pool,
   mode,
   onClose,
+  backLabel = "Back to Pools",
   disabled,
   chainId,
 }: LiquidityPanelProps) {
@@ -127,7 +129,7 @@ export function LiquidityPanel({
         className="gap-1.5 text-sm flex cursor-pointer items-center text-muted-foreground transition-colors hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />
-        Back to Pools
+        {backLabel}
       </button>
 
       {/* Pool Header */}

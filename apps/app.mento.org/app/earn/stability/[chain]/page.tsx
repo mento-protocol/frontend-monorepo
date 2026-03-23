@@ -1,5 +1,9 @@
 import { redirect } from "next/navigation";
 import {
+  resolveOpportunitySource,
+  withOpportunitySource,
+} from "@/lib/opportunity-navigation";
+import {
   DEFAULT_STABILITY_TOKEN,
   getStabilityRoute,
   resolveStabilityChainId,
@@ -8,19 +12,34 @@ import {
 
 export default async function StabilityPoolRedirectPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ chain: string }>;
+  searchParams: Promise<{ source?: string | string[] }>;
 }) {
   const { chain } = await params;
+  const { source } = await searchParams;
+  const sourceValue = Array.isArray(source) ? source[0] : source;
+  const opportunitySource = resolveOpportunitySource(sourceValue);
 
   const debtToken = resolveStabilityDebtToken(chain);
   if (debtToken) {
-    redirect(getStabilityRoute(debtToken.symbol));
+    redirect(
+      withOpportunitySource(
+        getStabilityRoute(debtToken.symbol),
+        opportunitySource,
+      ),
+    );
   }
 
   const chainId = resolveStabilityChainId(chain);
   if (chainId) {
-    redirect(getStabilityRoute(DEFAULT_STABILITY_TOKEN.symbol));
+    redirect(
+      withOpportunitySource(
+        getStabilityRoute(DEFAULT_STABILITY_TOKEN.symbol),
+        opportunitySource,
+      ),
+    );
   }
 
   redirect("/earn");

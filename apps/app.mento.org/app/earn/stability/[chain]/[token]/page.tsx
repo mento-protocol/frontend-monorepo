@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft, CircleAlert } from "lucide-react";
 import { EarnView } from "@/components/borrow/earn/earn-view";
+import { getOpportunityBackLink } from "@/lib/opportunity-navigation";
 import {
   STABILITY_CHAIN_ID,
   STABILITY_CHAIN_NAME,
@@ -10,15 +11,22 @@ import {
 
 export default async function StabilityPoolPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ chain: string; token: string }>;
+  searchParams: Promise<{ source?: string | string[] }>;
 }) {
   const { chain, token } = await params;
+  const { source } = await searchParams;
+  const sourceValue = Array.isArray(source) ? source[0] : source;
+  const backLink = getOpportunityBackLink(sourceValue);
   const routeChainId = resolveStabilityChainId(chain);
 
   if (!routeChainId) {
     return (
       <StabilityPageError
+        backHref={backLink.href}
+        backLabel={backLink.label}
         title="Unknown network"
         description={`"${chain}" is not a supported network. Try celo.`}
       />
@@ -28,6 +36,8 @@ export default async function StabilityPoolPage({
   if (routeChainId !== STABILITY_CHAIN_ID) {
     return (
       <StabilityPageError
+        backHref={backLink.href}
+        backLabel={backLink.label}
         title="Stability Pool unavailable"
         description={`The Stability Pool is currently available on ${STABILITY_CHAIN_NAME} only.`}
       />
@@ -39,6 +49,8 @@ export default async function StabilityPoolPage({
   if (!debtToken) {
     return (
       <StabilityPageError
+        backHref={backLink.href}
+        backLabel={backLink.label}
         title="Unknown stability token"
         description={`"${token}" is not a supported Stability Pool token.`}
       />
@@ -53,9 +65,13 @@ export default async function StabilityPoolPage({
 }
 
 function StabilityPageError({
+  backHref,
+  backLabel,
   title,
   description,
 }: {
+  backHref: "/earn" | "/pools";
+  backLabel: "Back to Earn" | "Back to Pools";
   title: string;
   description: string;
 }) {
@@ -74,11 +90,11 @@ function StabilityPageError({
             {description}
           </p>
           <Link
-            href="/earn"
+            href={backHref}
             className="gap-1.5 text-sm font-medium inline-flex items-center text-primary hover:underline"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back to Earn
+            {backLabel}
           </Link>
         </div>
       </div>
