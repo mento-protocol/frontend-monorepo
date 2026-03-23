@@ -6,6 +6,7 @@ import {
 import type { Address } from "viem";
 import { useAccount, useChainId, usePublicClient } from "wagmi";
 import type { BorrowPosition } from "../types";
+import { useBorrowService } from "./use-borrow-service";
 import {
   TROVE_MANAGER_ABI,
   TROVE_NFT_ABI,
@@ -15,6 +16,7 @@ import {
 } from "./trove-parsing";
 
 export function useUserTroves(symbol = "GBPm") {
+  const sdk = useBorrowService();
   const { address } = useAccount();
   const chainId = useChainId();
   const publicClient = usePublicClient({ chainId });
@@ -24,6 +26,11 @@ export function useUserTroves(symbol = "GBPm") {
     queryFn: async () => {
       const owner = address!;
       const ownerLc = owner.toLowerCase();
+      const ownedTroveCount = await sdk!.getOwnedTroveCount(symbol, owner);
+
+      if (ownedTroveCount === 0) {
+        return [];
+      }
 
       const registryAddress = getBorrowRegistry(chainId, symbol);
       const addresses = await resolveAddressesFromRegistry(
@@ -87,7 +94,7 @@ export function useUserTroves(symbol = "GBPm") {
         }),
       );
     },
-    enabled: !!publicClient && !!address,
+    enabled: !!sdk && !!publicClient && !!address,
     refetchInterval: 15_000,
   });
 }

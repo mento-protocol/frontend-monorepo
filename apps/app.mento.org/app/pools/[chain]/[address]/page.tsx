@@ -7,6 +7,7 @@ import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { LiquidityPanel } from "@/components/pools/liquidity-panel";
 import { LiquidityFlowDialog } from "@/components/pools/liquidity-flow-dialog";
 import { ChainMismatchBanner } from "@/components/shared/chain-mismatch-banner";
+import { getOpportunityBackLink } from "@/lib/opportunity-navigation";
 import { Skeleton } from "@repo/ui";
 import { ArrowLeft, Droplets } from "lucide-react";
 import Link from "next/link";
@@ -19,12 +20,15 @@ export default function PoolDetailPage({
   const { chain, address } = use(params);
   const searchParams = useSearchParams();
   const mode = searchParams.get("mode") === "manage" ? "manage" : "deposit";
+  const backLink = getOpportunityBackLink(searchParams.get("source"));
 
   const chainId = chainSlugToId(chain);
 
   if (!chainId) {
     return (
       <PoolError
+        backHref={backLink.href}
+        backLabel={backLink.label}
         title="Unknown network"
         description={`"${chain}" is not a supported network. Try celo, celo-sepolia, monad, or monad-testnet.`}
       />
@@ -36,6 +40,8 @@ export default function PoolDetailPage({
       chainId={chainId}
       address={address}
       mode={mode as "deposit" | "manage"}
+      backHref={backLink.href}
+      backLabel={backLink.label}
     />
   );
 }
@@ -44,10 +50,14 @@ function PoolDetailContent({
   chainId,
   address,
   mode,
+  backHref,
+  backLabel,
 }: {
   chainId: ChainId;
   address: string;
   mode: "deposit" | "manage";
+  backHref: "/earn" | "/pools";
+  backLabel: "Back to Earn" | "Back to Pools";
 }) {
   const router = useRouter();
   const { isConnected } = useAccount();
@@ -62,6 +72,8 @@ function PoolDetailContent({
   if (isError && !pools) {
     return (
       <PoolError
+        backHref={backHref}
+        backLabel={backLabel}
         title="Failed to load pool"
         description="Could not fetch pool data. Please check your connection and try again."
       />
@@ -75,6 +87,8 @@ function PoolDetailContent({
   if (!pool) {
     return (
       <PoolError
+        backHref={backHref}
+        backLabel={backLabel}
         title="Pool not found"
         description={`No pool found at address ${address} on this network.`}
       />
@@ -84,6 +98,8 @@ function PoolDetailContent({
   if (pool.poolType === "Legacy") {
     return (
       <PoolError
+        backHref={backHref}
+        backLabel={backLabel}
         title="Legacy pool"
         description="Liquidity actions are not available for legacy pools. These pools are planned for migration to FPMM."
       />
@@ -97,7 +113,8 @@ function PoolDetailContent({
         <LiquidityPanel
           pool={pool}
           mode={mode}
-          onClose={() => router.push("/pools")}
+          onClose={() => router.push(backHref)}
+          backLabel={backLabel}
           disabled={isWrongChain}
           chainId={chainId}
         />
@@ -142,9 +159,13 @@ function PoolDetailSkeleton() {
 }
 
 function PoolError({
+  backHref,
+  backLabel,
   title,
   description,
 }: {
+  backHref: "/earn" | "/pools";
+  backLabel: "Back to Earn" | "Back to Pools";
   title: string;
   description: string;
 }) {
@@ -163,11 +184,11 @@ function PoolError({
             {description}
           </p>
           <Link
-            href="/pools"
+            href={backHref}
             className="gap-1.5 text-sm font-medium inline-flex items-center text-primary hover:underline"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back to Pools
+            {backLabel}
           </Link>
         </div>
       </div>

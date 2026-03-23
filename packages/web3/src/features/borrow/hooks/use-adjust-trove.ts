@@ -3,13 +3,15 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSetAtom } from "jotai";
 import type { Config } from "wagmi";
 import { borrowFlowAtom } from "../atoms/flow-atoms";
-import type { AdjustTroveParams, CallParams } from "../types";
+import type { AdjustTroveParams, CallParams, TroveStatus } from "../types";
 import { executeFlow } from "../tx-flows/engine";
+import { buildAdjustTroveCall } from "./adjust-trove-transaction";
 import { useBorrowService } from "./use-borrow-service";
 
 interface AdjustTroveMutationParams {
   symbol: string;
   params: AdjustTroveParams;
+  troveStatus: TroveStatus;
   wagmiConfig: Config;
   account: string;
 }
@@ -23,6 +25,7 @@ export function useAdjustTrove() {
     mutationFn: async ({
       symbol,
       params,
+      troveStatus,
       wagmiConfig,
       account,
     }: AdjustTroveMutationParams) => {
@@ -57,7 +60,7 @@ export function useAdjustTrove() {
             id: "adjust-trove",
             label: "Adjust Position",
             buildTx: async () =>
-              sdk.buildAdjustTroveTransaction(symbol, params),
+              buildAdjustTroveCall(sdk, symbol, params, troveStatus),
           },
         ],
       );

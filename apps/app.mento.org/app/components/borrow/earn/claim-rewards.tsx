@@ -1,22 +1,24 @@
 "use client";
 
-import { useAtomValue } from "jotai";
 import { Button } from "@repo/ui";
-import { selectedDebtTokenAtom, useSpClaimRewards } from "@repo/web3";
+import { useSpClaimRewards, type DebtTokenConfig } from "@repo/web3";
 import { useAccount, useConfig } from "@repo/web3/wagmi";
 
 interface ClaimRewardsProps {
+  debtToken: DebtTokenConfig;
   hasActiveDeposit: boolean;
   collateralGain: bigint | null;
   debtTokenGain: bigint | null;
+  disabled?: boolean;
 }
 
 export function ClaimRewards({
+  debtToken,
   hasActiveDeposit,
   collateralGain,
   debtTokenGain,
+  disabled = false,
 }: ClaimRewardsProps) {
-  const debtToken = useAtomValue(selectedDebtTokenAtom);
   const { address, isConnected } = useAccount();
   const wagmiConfig = useConfig();
   const spClaimRewards = useSpClaimRewards();
@@ -27,7 +29,7 @@ export function ClaimRewards({
 
   if (!hasRewards) return null;
 
-  const canClaim = isConnected && !spClaimRewards.isPending;
+  const canClaim = isConnected && !disabled && !spClaimRewards.isPending;
 
   const handleClaim = () => {
     if (!canClaim || !address) return;
@@ -47,7 +49,11 @@ export function ClaimRewards({
       disabled={!canClaim}
       onClick={handleClaim}
     >
-      {spClaimRewards.isPending ? "Claiming..." : "Claim rewards"}
+      {spClaimRewards.isPending
+        ? "Claiming..."
+        : disabled
+          ? "Switch network to claim rewards"
+          : "Claim rewards"}
     </Button>
   );
 }

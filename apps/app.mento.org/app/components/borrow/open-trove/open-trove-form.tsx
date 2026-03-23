@@ -5,7 +5,7 @@ import {
   openTroveFormAtom,
   selectedDebtTokenAtom,
   useLoanDetails,
-  useNextOwnerIndex,
+  useNextAvailableOwnerIndex,
   useOpenTrove,
   usePredictUpfrontFee,
   useSystemParams,
@@ -54,7 +54,11 @@ export function OpenTroveForm() {
 
   // Hooks
   const { data: systemParams } = useSystemParams(debtToken.symbol);
-  const { data: ownerIndex } = useNextOwnerIndex(debtToken.symbol);
+  const {
+    data: ownerIndex,
+    isError: ownerIndexError,
+    isFetching: ownerIndexFetching,
+  } = useNextAvailableOwnerIndex(debtToken.symbol);
   const openTrove = useOpenTrove();
 
   // Parse form values to bigints
@@ -155,6 +159,13 @@ export function OpenTroveForm() {
 
   const buttonDisabledReason = useMemo(() => {
     if (!isConnected) return "Connect wallet";
+    if (ownerIndex == null) {
+      return ownerIndexError
+        ? "Unable to prepare trove id"
+        : ownerIndexFetching
+          ? "Preparing trove id..."
+          : "Preparing trove id...";
+    }
     if (inputsEmpty) return "Enter all fields";
     if (collAmount === 0n || debtAmount === 0n) return "Enter valid amounts";
     if (rateBigint === null) return "Enter valid interest rate";
@@ -174,6 +185,9 @@ export function OpenTroveForm() {
     return null;
   }, [
     isConnected,
+    ownerIndex,
+    ownerIndexError,
+    ownerIndexFetching,
     inputsEmpty,
     collAmount,
     debtAmount,
@@ -209,14 +223,11 @@ export function OpenTroveForm() {
     if (
       buttonDisabledReason ||
       !address ||
+      ownerIndex == null ||
       rateBigint === null ||
       upfrontFee == null
     )
       return;
-
-    const nowIndex = Date.now();
-    const safeOwnerIndex =
-      ownerIndex != null ? Math.max(ownerIndex + 1, nowIndex) : nowIndex;
 
     // Add 5% buffer to predicted fee for maxUpfrontFee
     const maxUpfrontFee = upfrontFee + upfrontFee / 20n;
@@ -225,7 +236,7 @@ export function OpenTroveForm() {
       symbol: debtToken.symbol,
       params: {
         owner: address,
-        ownerIndex: safeOwnerIndex,
+        ownerIndex,
         collAmount,
         boldAmount: debtAmount,
         annualInterestRate: rateBigint,

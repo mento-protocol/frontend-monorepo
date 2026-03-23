@@ -247,6 +247,7 @@ export function AdjustForm({ troveId, troveData }: AdjustFormProps) {
         isDebtIncrease,
         maxUpfrontFee,
       },
+      troveStatus: troveData.status,
       wagmiConfig,
       account: address,
     });

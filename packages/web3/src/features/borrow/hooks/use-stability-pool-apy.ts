@@ -13,12 +13,15 @@ const activePoolAbi = parseAbi([
 const SP_YIELD_SPLIT = 750_000_000_000_000_000n;
 const DECIMAL_PRECISION = 10n ** 18n;
 
-export function useStabilityPoolApy(symbol = "GBPm"): {
+export function useStabilityPoolApy(
+  symbol = "GBPm",
+  targetChainId?: number,
+): {
   data: number | null;
   avgInterestRate: number | null;
   isLoading: boolean;
 } {
-  const { data: spAddress } = useStabilityPoolAddress(symbol);
+  const { data: spAddress } = useStabilityPoolAddress(symbol, targetChainId);
 
   const { data: spData, isLoading: spDataLoading } = useReadContracts({
     allowFailure: false,
@@ -27,11 +30,13 @@ export function useStabilityPoolApy(symbol = "GBPm"): {
         address: spAddress,
         abi: stabilityPoolAbi,
         functionName: "activePool",
+        chainId: targetChainId,
       },
       {
         address: spAddress,
         abi: stabilityPoolAbi,
         functionName: "getTotalBoldDeposits",
+        chainId: targetChainId,
       },
     ],
     query: {
@@ -50,11 +55,13 @@ export function useStabilityPoolApy(symbol = "GBPm"): {
         address: activePoolAddress,
         abi: activePoolAbi,
         functionName: "aggWeightedDebtSum",
+        chainId: targetChainId,
       },
       {
         address: activePoolAddress,
         abi: activePoolAbi,
         functionName: "aggRecordedDebt",
+        chainId: targetChainId,
       },
     ],
     query: {

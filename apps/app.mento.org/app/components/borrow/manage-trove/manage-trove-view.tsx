@@ -30,10 +30,14 @@ import { AdjustForm } from "./adjust-form";
 import { RateForm } from "./rate-form";
 import { CloseForm } from "./close-form";
 import { borrowViewAtom } from "../atoms/borrow-navigation";
+import { TroveStatusBadge } from "../shared/trove-status-badge";
 
 const COLLATERAL_SYMBOL = "USDm";
 
-const STATUS_LABELS: Record<string, { label: string; colorClass: string }> = {
+const RISK_STATUS_LABELS: Record<
+  string,
+  { label: string; colorClass: string }
+> = {
   healthy: { label: "Active", colorClass: "text-green-500" },
   "at-risk": { label: "At Risk", colorClass: "text-amber-400" },
   liquidatable: { label: "Liquidatable", colorClass: "text-red-500" },
@@ -155,12 +159,13 @@ export function ManageTroveView({ troveId }: ManageTroveViewProps) {
     debtToken.symbol as TokenSymbol,
   ) as Address | undefined;
 
-  const statusConfig = loanDetails?.status
-    ? (STATUS_LABELS[loanDetails.status] ?? {
+  const riskStatusConfig = loanDetails?.status
+    ? (RISK_STATUS_LABELS[loanDetails.status] ?? {
         label: loanDetails.status,
         colorClass: "text-muted-foreground",
       })
     : null;
+  const isZombieTrove = troveData?.status === "zombie";
 
   if (isLoading) {
     return (
@@ -275,17 +280,20 @@ export function ManageTroveView({ troveId }: ManageTroveViewProps) {
         </div>
 
         {/* Status + Trove # */}
-        <div className="gap-1.5 text-xs font-mono flex items-center text-muted-foreground">
-          {statusConfig && (
-            <>
+        <div className="gap-2 text-xs font-mono flex flex-wrap items-center text-muted-foreground">
+          <TroveStatusBadge status={troveData?.status} />
+          {!isZombieTrove && riskStatusConfig && (
+            <div className="gap-1.5 flex items-center">
               <span
-                className={`h-1.5 w-1.5 rounded-full ${statusConfig.colorClass === "text-green-500" ? "bg-green-500" : statusConfig.colorClass === "text-amber-400" ? "bg-amber-400" : "bg-red-500"}`}
+                className={`h-1.5 w-1.5 rounded-full ${riskStatusConfig.colorClass === "text-green-500" ? "bg-green-500" : riskStatusConfig.colorClass === "text-amber-400" ? "bg-amber-400" : "bg-red-500"}`}
               />
-              <span className={statusConfig.colorClass}>
-                {statusConfig.label}
+              <span className={riskStatusConfig.colorClass}>
+                {riskStatusConfig.label}
               </span>
-              <span className="mx-0.5 opacity-30">&middot;</span>
-            </>
+            </div>
+          )}
+          {(isZombieTrove || (!isZombieTrove && riskStatusConfig)) && (
+            <span className="mx-0.5 opacity-30">&middot;</span>
           )}
           Trove #{troveId.slice(2, 6)}
         </div>
