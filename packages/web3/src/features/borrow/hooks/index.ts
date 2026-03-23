@@ -11,6 +11,7 @@ export { useInterestRateBrackets } from "./use-interest-rate-brackets";
 export { useInterestRateChartData } from "./use-interest-rate-chart-data";
 export type { InterestRateChartPoint } from "./use-interest-rate-chart-data";
 export { useLoanDetails } from "./use-loan-details";
+export { useNextAvailableOwnerIndex } from "./use-next-owner-index";
 export { useNextOwnerIndex } from "./use-next-owner-index";
 export { useOpenTrove } from "./use-open-trove";
 export { usePredictAdjustInterestRateUpfrontFee } from "./use-predict-adjust-interest-rate-upfront-fee";

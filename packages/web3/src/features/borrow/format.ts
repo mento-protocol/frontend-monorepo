@@ -25,6 +25,19 @@ export function formatDebtAmount(
   }).format(num);
 }
 
+export function formatDebtTokenAmount(
+  amount: bigint | null | undefined,
+  debtToken: DebtTokenConfig,
+): string {
+  if (amount == null) return PLACEHOLDER;
+  const num = bigintToNumber(amount);
+  const formatted = new Intl.NumberFormat(debtToken.locale, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num);
+  return `${formatted} ${debtToken.symbol}`;
+}
+
 export function formatCollateralAmount(
   amount: bigint | null | undefined,
 ): string {

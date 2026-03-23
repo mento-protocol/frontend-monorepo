@@ -6,7 +6,7 @@ import {
   useCloseTrove,
   selectedDebtTokenAtom,
   formatCollateralAmount,
-  formatDebtAmount,
+  formatDebtTokenAmount,
   type BorrowPosition,
 } from "@repo/web3";
 import {
@@ -30,6 +30,8 @@ export function CloseForm({ troveId, troveData }: CloseFormProps) {
   const chainId = useChainId();
   const wagmiConfig = useConfig();
   const closeTrove = useCloseTrove();
+  const isZombieTrove = troveData.status === "zombie";
+  const canCloseZombieWithoutDebt = isZombieTrove && troveData.debt === 0n;
 
   // Total debt to repay (debt includes accrued interest from SDK)
   const totalDebt = troveData.debt;
@@ -56,11 +58,19 @@ export function CloseForm({ troveId, troveData }: CloseFormProps) {
 
   const buttonDisabledReason = useMemo(() => {
     if (!isConnected) return "Connect wallet";
-    if (totalDebt === 0n) return "No debt to repay";
+    if (totalDebt === 0n) {
+      return canCloseZombieWithoutDebt ? null : "No debt to repay";
+    }
     if (insufficientBalance) return "Insufficient balance to repay";
     if (closeTrove.isPending) return "Closing position...";
     return null;
-  }, [isConnected, totalDebt, insufficientBalance, closeTrove.isPending]);
+  }, [
+    isConnected,
+    totalDebt,
+    canCloseZombieWithoutDebt,
+    insufficientBalance,
+    closeTrove.isPending,
+  ]);
 
   const handleSubmit = () => {
     if (buttonDisabledReason || !address) return;
@@ -81,7 +91,7 @@ export function CloseForm({ troveId, troveData }: CloseFormProps) {
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">Debt to repay</span>
           <span className="text-sm font-medium">
-            {formatDebtAmount(totalDebt, debtToken)}
+            {formatDebtTokenAmount(totalDebt, debtToken)}
           </span>
         </div>
         <div className="flex items-center justify-between">
@@ -95,24 +105,35 @@ export function CloseForm({ troveId, troveData }: CloseFormProps) {
       </div>
 
       {/* Confirmation message */}
-      <p className="text-sm text-muted-foreground">
-        You will repay{" "}
-        <span className="font-medium text-foreground">
-          {formatDebtAmount(totalDebt, debtToken)}
-        </span>{" "}
-        and receive{" "}
-        <span className="font-medium text-foreground">
-          {formatCollateralAmount(collateralToReceive)}
-        </span>
-        .
-      </p>
+      {canCloseZombieWithoutDebt ? (
+        <p className="text-sm text-muted-foreground">
+          This trove has no remaining {debtToken.symbol} debt. Closing it will
+          return{" "}
+          <span className="font-medium text-foreground">
+            {formatCollateralAmount(collateralToReceive)}
+          </span>
+          .
+        </p>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          You will repay{" "}
+          <span className="font-medium text-foreground">
+            {formatDebtTokenAmount(totalDebt, debtToken)}
+          </span>{" "}
+          and receive{" "}
+          <span className="font-medium text-foreground">
+            {formatCollateralAmount(collateralToReceive)}
+          </span>
+          .
+        </p>
+      )}
 
       {/* Insufficient balance warning */}
       {insufficientBalance && (
         <p className="text-sm text-destructive">
           Your {debtToken.symbol} balance is insufficient to repay the full
-          debt. You need {formatDebtAmount(totalDebt, debtToken)} but only have{" "}
-          {formatDebtAmount(debtTokenBalance ?? 0n, debtToken)}.
+          debt. You need {formatDebtTokenAmount(totalDebt, debtToken)} but only
+          have {formatDebtTokenAmount(debtTokenBalance ?? 0n, debtToken)}.
         </p>
       )}
 
