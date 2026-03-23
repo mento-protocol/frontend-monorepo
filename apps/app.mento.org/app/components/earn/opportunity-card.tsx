@@ -91,7 +91,7 @@ export function OpportunityCard({ opp }: { opp: Opportunity }) {
     <div className="group">
       <Card className="!py-0 !gap-0 relative overflow-hidden transition-colors group-hover:bg-accent/30">
         {opp.hasRewards && (
-          <div className="top-0 left-0 right-0 h-0.5 from-emerald-400/40 absolute bg-gradient-to-r to-transparent" />
+          <div className="top-0 left-0 right-0 h-1 from-emerald-300 via-emerald-400/90 absolute bg-gradient-to-r to-transparent" />
         )}
 
         <CardContent className="p-5 space-y-4">
