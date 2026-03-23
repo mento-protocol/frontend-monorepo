@@ -180,15 +180,15 @@ export function EarnHub() {
       const reward = rewards.get(rewardKey);
       const hasReward = !!reward;
 
-      const feePercent = pool.fees.total;
+      const lpFeePercent = pool.fees.lp;
       const rewardApr = reward?.apr ?? 0;
-      const totalApr = feePercent + rewardApr;
+      const totalApr = lpFeePercent + rewardApr;
 
       const mechanics: LpOpportunity["earnMechanics"] = [
         {
           label: "Swap fees",
           color: "indigo",
-          value: `${feePercent.toFixed(2)}%`,
+          value: `${lpFeePercent.toFixed(2)}%`,
         },
       ];
       if (hasReward) {
@@ -221,7 +221,7 @@ export function EarnHub() {
         earnMechanics: mechanics,
         stats: [
           { label: "TVL", value: tvlDisplay },
-          { label: "Pool fee", value: `${feePercent.toFixed(2)}%` },
+          { label: "LP fee", value: `${lpFeePercent.toFixed(2)}%` },
           { label: "Lock-up", value: "None" },
         ],
         userPosition: null, // LP user positions require per-pool balance lookups; shown on pool detail page
