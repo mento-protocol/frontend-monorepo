@@ -89,7 +89,7 @@ export function CloseForm({ troveId, troveData }: CloseFormProps) {
             Collateral to receive
           </span>
           <span className="text-sm font-medium">
-            {formatCollateralAmount(collateralToReceive)} USDm
+            {formatCollateralAmount(collateralToReceive)}
           </span>
         </div>
       </div>
@@ -102,7 +102,7 @@ export function CloseForm({ troveId, troveData }: CloseFormProps) {
         </span>{" "}
         and receive{" "}
         <span className="font-medium text-foreground">
-          {formatCollateralAmount(collateralToReceive)} USDm
+          {formatCollateralAmount(collateralToReceive)}
         </span>
         .
       </p>
