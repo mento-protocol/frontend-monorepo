@@ -17,8 +17,6 @@ import {
   chainIdToChain,
   ChainId,
   VISIBLE_CHAINS,
-  type PoolDisplay,
-  type PoolRewardInfo,
   type ChainFilterType,
 } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
@@ -95,9 +93,6 @@ export function EarnHub() {
   // Build stability pool opportunity (always Celo)
   const stabilityOpportunity: StabilityOpportunity | null = useMemo(() => {
     const hasDeposit = (spPosition?.deposit ?? 0n) > 0n;
-    const hasRewards =
-      (spPosition?.debtTokenGain ?? 0n) > 0n ||
-      (spPosition?.collateralGain ?? 0n) > 0n;
 
     const apyValue = spApy != null ? spApy * 100 : 0;
     const avgRate = avgInterestRate != null ? avgInterestRate * 100 : 0;
