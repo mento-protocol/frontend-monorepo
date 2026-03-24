@@ -76,6 +76,8 @@ async function fetchChainRewards(
       continue;
     }
 
+    if (apr <= 0) continue;
+
     const key = getPoolRewardKey(chainId, opp.explorerAddress);
     rewardsMap.set(
       key,
