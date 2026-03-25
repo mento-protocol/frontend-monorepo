@@ -106,7 +106,7 @@ export function SwapPageContent({
             {!confirmView && <SwapSettingsPopover />}
           </div>
           {confirmView && <SwapConfirm />}
-          <div className={confirmView ? "hidden" : "contents"}>
+          <div className={cn("flex flex-1 flex-col", confirmView && "hidden")}>
             <SwapForm
               initialFrom={initialFrom}
               initialTo={initialTo}
