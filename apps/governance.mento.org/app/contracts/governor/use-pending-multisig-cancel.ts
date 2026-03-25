@@ -3,6 +3,7 @@ import { useChainId } from "@repo/web3/wagmi";
 import { getWatchdogMultisigAddress, getSafeServiceUrl } from "@/config";
 import { encodeFunctionData } from "viem";
 import { TimelockControllerABI, useContracts } from "@repo/web3";
+import * as Sentry from "@sentry/nextjs";
 
 interface SafeTransaction {
   safe: string;
@@ -36,7 +37,51 @@ interface PendingMultisigCancellationResult {
   signaturesCollected: number;
   signaturesRequired: number;
   nonce: number | undefined;
+  isStatusUnavailable: boolean;
   isLoading: boolean;
+}
+
+const SAFE_POLLING_ERROR_NAME = "SafePollingError";
+const SAFE_POLLING_ERROR_REPORT_INTERVAL_MS = 5 * 60 * 1000;
+const lastSafePollingReportAt = new Map<string, number>();
+
+function reportSafePollingError(
+  error: Error,
+  context: {
+    chainId: number;
+    watchdogAddress: string;
+    operationId: `0x${string}`;
+    safeServiceUrl: string;
+    status?: number;
+  },
+) {
+  const reportKey = [
+    context.chainId,
+    context.watchdogAddress,
+    context.operationId,
+    context.status ?? "network",
+  ].join(":");
+  const now = Date.now();
+  const lastReportedAt = lastSafePollingReportAt.get(reportKey) ?? 0;
+
+  if (now - lastReportedAt < SAFE_POLLING_ERROR_REPORT_INTERVAL_MS) {
+    return;
+  }
+
+  lastSafePollingReportAt.set(reportKey, now);
+
+  Sentry.captureException(error, {
+    tags: {
+      context: "pending-safe-cancellation",
+      chainId: String(context.chainId),
+      watchdogAddress: context.watchdogAddress,
+    },
+    extra: {
+      operationId: context.operationId,
+      safeServiceUrl: context.safeServiceUrl,
+      status: context.status,
+    },
+  });
 }
 
 /**
@@ -58,27 +103,38 @@ export const usePendingMultisigCancellation = (
     args: [operationId],
   });
 
-  const { data, isLoading } = useQuery({
+  const { data, isError, isLoading } = useQuery({
     queryKey: ["pending-safe-cancel", watchdogAddress, chainId, operationId],
     enabled,
     queryFn: async () => {
-      try {
-        // Get the Safe Transaction Service API URL based on chain
-        const safeServiceUrl = getSafeServiceUrl(chainId);
+      // Get the Safe Transaction Service API URL based on chain
+      const safeServiceUrl = getSafeServiceUrl(chainId);
 
+      try {
         // Fetch pending transactions from the Safe
         const response = await fetch(
           `${safeServiceUrl}/api/v1/safes/${watchdogAddress}/multisig-transactions/?executed=false&limit=100`,
         );
 
         if (!response.ok) {
-          const errorMessage = `Failed to fetch Safe transactions: ${response.status}`;
-          console.warn(errorMessage, {
+          const error = new Error(
+            `Failed to fetch Safe transactions: ${response.status}`,
+          );
+          error.name = SAFE_POLLING_ERROR_NAME;
+
+          console.warn(error.message, {
             context: "pending-safe-cancellation",
             chainId,
             watchdogAddress,
           });
-          return null;
+          reportSafePollingError(error, {
+            chainId,
+            watchdogAddress,
+            operationId,
+            safeServiceUrl,
+            status: response.status,
+          });
+          throw error;
         }
 
         const data: SafeTransactionsResponse = await response.json();
@@ -103,8 +159,21 @@ export const usePendingMultisigCancellation = (
           nonce: pendingCancelTx.nonce,
         };
       } catch (error) {
-        console.error("Error fetching Safe transactions:", error);
-        return null;
+        const normalizedError =
+          error instanceof Error
+            ? error
+            : new Error("Error fetching Safe transactions");
+
+        console.error("Error fetching Safe transactions:", normalizedError);
+        if (normalizedError.name !== SAFE_POLLING_ERROR_NAME) {
+          reportSafePollingError(normalizedError, {
+            chainId,
+            watchdogAddress,
+            operationId,
+            safeServiceUrl,
+          });
+        }
+        throw normalizedError;
       }
     },
     // Refetch every 3 seconds to keep signatures count updated
@@ -118,6 +187,7 @@ export const usePendingMultisigCancellation = (
     signaturesCollected: data?.signaturesCollected ?? 0,
     signaturesRequired: data?.signaturesRequired ?? 0,
     nonce: data?.nonce,
+    isStatusUnavailable: isError && !data,
     isLoading,
   };
 };

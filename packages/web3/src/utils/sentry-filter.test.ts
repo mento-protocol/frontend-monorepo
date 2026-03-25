@@ -9,12 +9,14 @@ import {
 function makeEvent({
   message,
   exceptionValue,
+  exceptionType,
   frames = [],
   requestUrl,
   transaction,
 }: {
   message?: string;
   exceptionValue?: string;
+  exceptionType?: string;
   frames?: string[];
   requestUrl?: string;
   transaction?: string;
@@ -27,7 +29,7 @@ function makeEvent({
       ? {
           values: [
             {
-              type: "Error",
+              type: exceptionType ?? "Error",
               value: exceptionValue,
               stacktrace: {
                 frames: frames.map((filename) => ({ filename })),
@@ -74,11 +76,21 @@ describe("sentry-filter", () => {
 
   it("drops Merkl proxy transport failures on the Merkl route", () => {
     const event = makeEvent({
-      exceptionValue: "fetch failed",
+      exceptionType: "AbortError",
+      exceptionValue: "The operation was aborted",
       requestUrl: "https://app.mento.org/api/merkl/opportunities?chainId=42220",
     });
 
     expect(filterNoisySentryEvents(event)).toBeNull();
+  });
+
+  it("keeps Merkl proxy transport failures on the Merkl route when they are not explicit aborts", () => {
+    const event = makeEvent({
+      exceptionValue: "fetch failed",
+      requestUrl: "https://app.mento.org/api/merkl/opportunities?chainId=42220",
+    });
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
   });
 
   it("keeps Merkl-like transport failures outside the Merkl route", () => {

@@ -40,9 +40,13 @@ const FIRST_PARTY_FRAME_PATTERNS = [
   /\/var\/runtime\//i,
 ] as const;
 
-const MERKL_PROXY_ERROR_PATTERNS = [
-  /fetch failed/i,
-  /failed to pipe response/i,
+const MERKL_PROXY_ABORT_PATTERNS = [
+  /AbortError/i,
+  /The operation was aborted/i,
+  /\brequest aborted\b/i,
+  /\boperation aborted\b/i,
+  /\bcancelled\b/i,
+  /\bcanceled\b/i,
 ] as const;
 
 export const sentryIgnoreErrors = [...ALWAYS_IGNORE_ERROR_PATTERNS];
@@ -65,6 +69,20 @@ function getEventMessage(event: ErrorEvent, hint?: EventHint): string {
 
   if (hint?.originalException instanceof Error) {
     return hint.originalException.message;
+  }
+
+  return "";
+}
+
+function getEventType(event: ErrorEvent, hint?: EventHint): string {
+  const exception = event.exception?.values?.[0];
+
+  if (typeof exception?.type === "string" && exception.type.length > 0) {
+    return exception.type;
+  }
+
+  if (hint?.originalException instanceof Error) {
+    return hint.originalException.name;
   }
 
   return "";
@@ -101,6 +119,8 @@ export function filterNoisySentryEvents(
   hint?: EventHint,
 ): ErrorEvent | null {
   const message = getEventMessage(event, hint);
+  const eventType = getEventType(event, hint);
+  const eventSignal = `${eventType} ${message}`.trim();
 
   if (ALWAYS_IGNORE_ERROR_PATTERNS.some((pattern) => pattern.test(message))) {
     return null;
@@ -115,7 +135,7 @@ export function filterNoisySentryEvents(
 
   if (
     eventTargetsRoute(event, "/api/merkl/opportunities") &&
-    MERKL_PROXY_ERROR_PATTERNS.some((pattern) => pattern.test(message))
+    MERKL_PROXY_ABORT_PATTERNS.some((pattern) => pattern.test(eventSignal))
   ) {
     return null;
   }
