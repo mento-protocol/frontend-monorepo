@@ -30,10 +30,14 @@ const EXTENSION_URL_PATTERNS = [
 
 const FIRST_PARTY_FRAME_PATTERNS = [
   /\/_next\//i,
+  /\.next\/server\//i,
+  /\.next\/standalone\//i,
   /app\.mento\.org/i,
   /governance\.mento\.org/i,
   /reserve\.mento\.org/i,
   /localhost:\d+/i,
+  /\/var\/task\//i,
+  /\/var\/runtime\//i,
 ] as const;
 
 const MERKL_PROXY_ERROR_PATTERNS = [

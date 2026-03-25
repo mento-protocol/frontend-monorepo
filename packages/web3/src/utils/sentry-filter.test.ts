@@ -117,6 +117,15 @@ describe("sentry-filter", () => {
     expect(filterNoisySentryEvents(event)).toBe(event);
   });
 
+  it("keeps shared-environment errors when server-side first-party frames are present", () => {
+    const event = makeEvent({
+      exceptionValue: "Maximum call stack size exceeded",
+      frames: ["/var/task/.next/server/app/pools/page.js"],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
+  });
+
   it("drops chunk-load errors only when they come from extension frames", () => {
     const event = makeEvent({
       exceptionValue: "ChunkLoadError: Failed to load chunk",
