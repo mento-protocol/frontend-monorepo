@@ -1,13 +1,13 @@
 version: 2
 updates:
   # npm / pnpm workspace dependencies
-  - package-ecosystem: "npm"
-    directory: "/"
+  - package-ecosystem: npm
+    directory: /
     schedule:
-      interval: "monthly"
-      day: "monday"
+      interval: monthly
+      day: monday
       time: "06:00" # trunk-ignore(yamllint/quoted-strings)
-      timezone: "UTC"
+      timezone: UTC
 
     cooldown:
       default-days: 7
@@ -22,97 +22,97 @@ updates:
       - automated
 
     commit-message:
-      prefix: "chore(deps)"
-      prefix-development: "chore(deps-dev)"
+      prefix: chore(deps)
+      prefix-development: chore(deps-dev)
 
     groups:
       frontend-core:
         applies-to: version-updates
         patterns:
-          - "next"
-          - "react"
-          - "react-dom"
+          - next
+          - react
+          - react-dom
           - "@types/react"
           - "@types/react-dom"
           - "@t3-oss/env-nextjs"
           - "@vercel/*"
         update-types:
-          - "minor"
-          - "patch"
+          - minor
+          - patch
 
       web3-stack:
         applies-to: version-updates
         patterns:
-          - "wagmi"
-          - "viem"
+          - wagmi
+          - viem
           - "@wagmi/*"
           - "@rainbow-me/*"
           - "@metamask/*"
-          - "ethers"
+          - ethers
           - "@mento-protocol/mento-sdk"
         update-types:
-          - "minor"
-          - "patch"
+          - minor
+          - patch
 
       ui-styling:
         applies-to: version-updates
         patterns:
-          - "tailwindcss"
+          - tailwindcss
           - "@tailwindcss/*"
-          - "postcss"
-          - "lucide-react"
-          - "next-themes"
-          - "react-hook-form"
-          - "sonner"
-          - "jotai"
-          - "zod"
+          - postcss
+          - lucide-react
+          - next-themes
+          - react-hook-form
+          - sonner
+          - jotai
+          - zod
         update-types:
-          - "minor"
-          - "patch"
+          - minor
+          - patch
 
       tooling:
         applies-to: version-updates
-        dependency-type: "development"
+        dependency-type: development
 
       security-runtime:
         applies-to: security-updates
-        dependency-type: "production"
+        dependency-type: production
 
       security-tooling:
         applies-to: security-updates
-        dependency-type: "development"
+        dependency-type: development
 
     # Handle high-blast-radius major upgrades intentionally.
     ignore:
-      - dependency-name: "next"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "react"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "react-dom"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "typescript"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "wagmi"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "viem"
-        update-types: ["version-update:semver-major"]
+      - dependency-name: next
+        update-types: [version-update:semver-major]
+      - dependency-name: react
+        update-types: [version-update:semver-major]
+      - dependency-name: react-dom
+        update-types: [version-update:semver-major]
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
+      - dependency-name: wagmi
+        update-types: [version-update:semver-major]
+      - dependency-name: viem
+        update-types: [version-update:semver-major]
       - dependency-name: "@tanstack/react-query"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "tailwindcss"
-        update-types: ["version-update:semver-major"]
+        update-types: [version-update:semver-major]
+      - dependency-name: tailwindcss
+        update-types: [version-update:semver-major]
       - dependency-name: "@rainbow-me/rainbowkit"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "turbo"
-        update-types: ["version-update:semver-major"]
+        update-types: [version-update:semver-major]
+      - dependency-name: turbo
+        update-types: [version-update:semver-major]
 
   # GitHub Actions
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: github-actions
+    directory: /
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: weekly
+      day: monday
       time: "06:00" # trunk-ignore(yamllint/quoted-strings)
-      timezone: "UTC"
+      timezone: UTC
 
     cooldown:
       default-days: 7
@@ -125,7 +125,7 @@ updates:
       - automated
 
     commit-message:
-      prefix: "chore(ci)"
+      prefix: chore(ci)
 
     groups:
       github-actions:
