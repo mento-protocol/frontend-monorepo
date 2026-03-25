@@ -131,8 +131,15 @@ export const VoteCard = ({
       proposal.state === ProposalState.Succeeded);
 
   // Check for pending Safe cancellation transaction
-  const { hasPendingCancellation, signaturesCollected, signaturesRequired } =
-    usePendingMultisigCancellation(operationId, shouldCheckPendingCancellation);
+  const {
+    hasPendingCancellation,
+    isStatusUnavailable: isPendingCancellationStatusUnavailable,
+    signaturesCollected,
+    signaturesRequired,
+  } = usePendingMultisigCancellation(
+    operationId,
+    shouldCheckPendingCancellation,
+  );
 
   const { quorumNeeded } = useQuorum(proposal.startBlock);
 
@@ -834,6 +841,9 @@ export const VoteCard = ({
               <ProposalCancelButton
                 isWatchdog={isWatchdog}
                 hasPendingCancellation={hasPendingCancellation}
+                isPendingCancellationStatusUnavailable={
+                  isPendingCancellationStatusUnavailable
+                }
                 onCancel={handleCancelByWatchdog}
                 isAwaitingCancelSignature={isAwaitingCancelSignature}
                 isCancelConfirming={isCancelConfirming}
@@ -861,6 +871,9 @@ export const VoteCard = ({
             <ProposalCancelButton
               isWatchdog={isWatchdog}
               hasPendingCancellation={hasPendingCancellation}
+              isPendingCancellationStatusUnavailable={
+                isPendingCancellationStatusUnavailable
+              }
               onCancel={handleCancelByWatchdog}
               isAwaitingCancelSignature={isAwaitingCancelSignature}
               isCancelConfirming={isCancelConfirming}
@@ -927,6 +940,9 @@ export const VoteCard = ({
             <ProposalCancelButton
               isWatchdog={isWatchdog}
               hasPendingCancellation={hasPendingCancellation}
+              isPendingCancellationStatusUnavailable={
+                isPendingCancellationStatusUnavailable
+              }
               onCancel={handleCancelByWatchdog}
               isAwaitingCancelSignature={isAwaitingCancelSignature}
               isCancelConfirming={isCancelConfirming}

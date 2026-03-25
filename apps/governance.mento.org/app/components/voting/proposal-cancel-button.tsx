@@ -4,6 +4,7 @@ import { getSafeUrl } from "@/config";
 interface ProposalCancelButtonProps {
   isWatchdog: boolean;
   hasPendingCancellation: boolean;
+  isPendingCancellationStatusUnavailable: boolean;
   onCancel: () => void;
   isAwaitingCancelSignature: boolean;
   isCancelConfirming: boolean;
@@ -22,6 +23,7 @@ interface ProposalCancelButtonProps {
 export const ProposalCancelButton = ({
   isWatchdog,
   hasPendingCancellation,
+  isPendingCancellationStatusUnavailable,
   onCancel,
   isAwaitingCancelSignature,
   isCancelConfirming,
@@ -52,6 +54,27 @@ export const ProposalCancelButton = ({
         >
           Cancellation pending — {signaturesCollected}/{signaturesRequired}{" "}
           signatures
+        </a>
+      </Button>
+    );
+  }
+
+  if (isPendingCancellationStatusUnavailable) {
+    return (
+      <Button
+        variant="outline"
+        size="lg"
+        clipped="default"
+        asChild
+        className="w-full"
+        data-testid="pendingCancellationStatusUnavailableButton"
+      >
+        <a
+          href={getSafeUrl(chainId, watchdogAddress)}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Cancellation status unavailable — check Safe
         </a>
       </Button>
     );

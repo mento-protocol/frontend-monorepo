@@ -11,7 +11,6 @@ import { validateAddress } from "@/utils/addresses";
 import { logger } from "@/utils/logger";
 import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
 import { toast } from "@repo/ui";
-import * as Sentry from "@sentry/nextjs";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
 import { useAtom, useSetAtom } from "jotai";
@@ -266,7 +265,9 @@ export function useSwapTransaction(
               ],
             });
           } catch (error) {
-            Sentry.captureException(`Balance refresh failed: ${error}`);
+            logger.warn("Balance refresh invalidation failed after swap", {
+              error,
+            });
           }
         })();
       }
