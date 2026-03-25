@@ -4,6 +4,11 @@
 
 import * as Sentry from "@sentry/nextjs";
 import { env } from "@/env.mjs";
+import {
+  filterNoisySentryEvents,
+  sentryDenyUrls,
+  sentryIgnoreErrors,
+} from "./sentry.shared";
 
 Sentry.init({
   dsn: env.NEXT_PUBLIC_SENTRY_DSN_RESERVE,
@@ -14,6 +19,10 @@ Sentry.init({
   // Adds request headers and IP for users, for more info visit:
   // https://docs.sentry.io/platforms/javascript/guides/nextjs/configuration/options/#sendDefaultPii
   sendDefaultPii: true,
+
+  ignoreErrors: sentryIgnoreErrors,
+  denyUrls: sentryDenyUrls,
+  beforeSend: filterNoisySentryEvents,
 
   // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
   tracesSampleRate: 0.1,

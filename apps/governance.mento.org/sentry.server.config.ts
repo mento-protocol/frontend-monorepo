@@ -4,12 +4,16 @@
 
 import { env } from "@/env.mjs";
 import * as Sentry from "@sentry/nextjs";
+import { filterNoisySentryEvents, sentryIgnoreErrors } from "./sentry.shared";
 
 Sentry.init({
   dsn: env.NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE,
 
   // Disable Sentry in development to avoid localhost errors
   enabled: process.env.NODE_ENV === "production",
+
+  ignoreErrors: sentryIgnoreErrors,
+  beforeSend: filterNoisySentryEvents,
 
   // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
   tracesSampleRate: 0.1,

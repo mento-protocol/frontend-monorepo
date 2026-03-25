@@ -3,7 +3,6 @@ import { useChainId } from "@repo/web3/wagmi";
 import { getWatchdogMultisigAddress, getSafeServiceUrl } from "@/config";
 import { encodeFunctionData } from "viem";
 import { TimelockControllerABI, useContracts } from "@repo/web3";
-import * as Sentry from "@sentry/nextjs";
 
 interface SafeTransaction {
   safe: string;
@@ -74,14 +73,10 @@ export const usePendingMultisigCancellation = (
 
         if (!response.ok) {
           const errorMessage = `Failed to fetch Safe transactions: ${response.status}`;
-          console.error(errorMessage);
-          Sentry.captureMessage(errorMessage, {
-            level: "warning",
-            tags: {
-              context: "pending-safe-cancellation",
-              chainId,
-              watchdogAddress,
-            },
+          console.warn(errorMessage, {
+            context: "pending-safe-cancellation",
+            chainId,
+            watchdogAddress,
           });
           return null;
         }
@@ -109,13 +104,6 @@ export const usePendingMultisigCancellation = (
         };
       } catch (error) {
         console.error("Error fetching Safe transactions:", error);
-        Sentry.captureException(error, {
-          tags: {
-            context: "pending-safe-cancellation",
-            chainId,
-            watchdogAddress,
-          },
-        });
         return null;
       }
     },
