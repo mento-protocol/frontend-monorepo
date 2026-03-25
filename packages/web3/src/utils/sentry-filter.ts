@@ -6,6 +6,9 @@ const ALWAYS_IGNORE_ERROR_PATTERNS = [
   /Cannot set property ethereum of #<Window> which has only a getter/i,
   /'set' on proxy: trap returned falsish for property 'tronlinkParams'/i,
   /WebSocket connection failed for host: wss:\/\/relay\.walletconnect\.org/i,
+] as const;
+
+const CHUNK_LOAD_ERROR_PATTERNS = [
   /Failed to load chunk/i,
   /Loading chunk [\w./?-]+ failed/i,
   /ChunkLoadError/i,
@@ -96,6 +99,13 @@ export function filterNoisySentryEvents(
   const message = getEventMessage(event, hint);
 
   if (ALWAYS_IGNORE_ERROR_PATTERNS.some((pattern) => pattern.test(message))) {
+    return null;
+  }
+
+  if (
+    CHUNK_LOAD_ERROR_PATTERNS.some((pattern) => pattern.test(message)) &&
+    hasExtensionFrames(event)
+  ) {
     return null;
   }
 

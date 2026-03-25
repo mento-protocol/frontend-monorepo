@@ -18,6 +18,11 @@
       "types": "./dist/wagmi-ssr.d.ts",
       "import": "./dist/wagmi-ssr.js",
       "require": "./dist/wagmi-ssr.cjs"
+    },
+    "./sentry-filter": {
+      "types": "./dist/sentry-filter.d.ts",
+      "import": "./dist/sentry-filter.js",
+      "require": "./dist/sentry-filter.cjs"
     }
   },
   "main": "dist/index.js",

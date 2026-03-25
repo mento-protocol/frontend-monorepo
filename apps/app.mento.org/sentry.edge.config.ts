@@ -5,7 +5,10 @@
 
 import * as Sentry from "@sentry/nextjs";
 import { env } from "@/env.mjs";
-import { filterNoisySentryEvents, sentryIgnoreErrors } from "./sentry.shared";
+import {
+  filterNoisySentryEvents,
+  sentryIgnoreErrors,
+} from "@repo/web3/sentry-filter";
 
 Sentry.init({
   dsn: env.NEXT_PUBLIC_SENTRY_DSN_SWAP,

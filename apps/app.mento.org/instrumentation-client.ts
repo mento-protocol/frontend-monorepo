@@ -8,7 +8,7 @@ import {
   filterNoisySentryEvents,
   sentryDenyUrls,
   sentryIgnoreErrors,
-} from "./sentry.shared";
+} from "@repo/web3/sentry-filter";
 
 Sentry.init({
   dsn: env.NEXT_PUBLIC_SENTRY_DSN_SWAP,

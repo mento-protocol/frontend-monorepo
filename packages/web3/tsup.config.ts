@@ -2,7 +2,12 @@ import { defineConfig } from "tsup";
 import { preserveDirectivesPlugin } from "esbuild-plugin-preserve-directives";
 
 export default defineConfig({
-  entry: ["src/index.ts", "src/wagmi.ts", "src/wagmi-ssr.ts"],
+  entry: [
+    "src/index.ts",
+    "src/wagmi.ts",
+    "src/wagmi-ssr.ts",
+    "src/sentry-filter.ts",
+  ],
   outDir: "dist",
   format: ["esm", "cjs"],
   splitting: false,
