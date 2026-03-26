@@ -52,6 +52,7 @@
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "concurrently": "catalog:",
     "eslint": "catalog:",
     "jsdom": "^26.1.0",
