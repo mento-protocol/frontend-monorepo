@@ -1,9 +1,9 @@
 import { resolve } from "path";
-import { defineConfig } from "vitest/config";
+import { mergeConfig } from "vitest/config";
+import sharedConfig from "@repo/vitest-config/shared";
 
-export default defineConfig({
+export default mergeConfig(sharedConfig, {
   esbuild: {
-    // Enable the automatic JSX runtime so tests can use JSX without explicit React imports
     jsx: "automatic",
     jsxImportSource: "react",
   },
@@ -16,8 +16,5 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     include: ["app/**/*.test.ts", "app/**/*.test.tsx"],
-    exclude: ["**/node_modules/**", "**/dist/**", "**/.next/**"],
-    globals: false,
-    passWithNoTests: true,
   },
 });
