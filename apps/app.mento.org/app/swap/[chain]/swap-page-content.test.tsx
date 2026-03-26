@@ -14,7 +14,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import React from "react";
 import { render, act, cleanup } from "@testing-library/react";
-import { atom, createStore, Provider } from "jotai";
+import { createStore, Provider } from "jotai";
 
 // ---------------------------------------------------------------------------
 // Module mocks – must be declared before the component import so that vitest
