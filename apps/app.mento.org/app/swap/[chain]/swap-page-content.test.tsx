@@ -123,11 +123,9 @@ describe("SwapPageContent – confirm-view navigation regression", () => {
 
     const { rerender } = render(renderWithStore(store, 42220));
 
-    await expect(
-      act(async () => {
-        rerender(renderWithStore(store, 44787));
-      }),
-    ).resolves.not.toThrow();
+    await act(async () => {
+      rerender(renderWithStore(store, 44787));
+    });
   });
 
   it("keeps SwapForm mounted in the DOM while confirm view is active", () => {
