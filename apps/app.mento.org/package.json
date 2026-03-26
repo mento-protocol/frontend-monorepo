@@ -8,7 +8,9 @@
     "clean": "rm -rf .next && rm -rf .turbo",
     "dev": "concurrently \"pnpm --filter @repo/web3 watch\" \"pnpm --filter @repo/ui watch\" \"next dev --turbopack --port 3000\" --names \"web3,ui,next\" --prefix-colors \"bgBlue,bgGreen,bgMagenta\"",
     "lint": "npx @trunkio/launcher check .",
-    "start": "next start"
+    "start": "next start",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -44,15 +46,19 @@
   "devDependencies": {
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
+    "@repo/vitest-config": "workspace:*",
     "@tailwindcss/postcss": "catalog:",
+    "@testing-library/react": "^16.3.0",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "concurrently": "catalog:",
     "eslint": "catalog:",
+    "jsdom": "^26.1.0",
     "pino-pretty": "catalog:",
     "postcss": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "volta": {
     "node": "18.20.7"
