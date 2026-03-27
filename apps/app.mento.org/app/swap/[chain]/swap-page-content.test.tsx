@@ -75,19 +75,26 @@ import { SwapPageContent } from "./swap-page-content";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-type ChainId = number; // runtime type; the real branded type lives in @repo/web3
+
+// Derive the exact ChainId type from the component props rather than casting
+// to `never`. This keeps the helper type-correct without needing to import the
+// enum through the mocked @repo/web3 module.
+type TestChainId = Parameters<typeof SwapPageContent>[0]["chainId"];
 
 function renderWithStore(
   store: ReturnType<typeof createStore>,
-  chainId: ChainId,
+  chainId: TestChainId,
 ) {
   return (
     <Provider store={store}>
-      {/* Cast is safe: ChainId is structurally a number */}
-      <SwapPageContent chainId={chainId as unknown as never} />
+      <SwapPageContent chainId={chainId} />
     </Provider>
   );
 }
+
+// Real ChainId enum values, mirrored as constants so call-sites stay readable.
+const CELO = 42220 as TestChainId;
+const CELO_SEPOLIA = 11142220 as TestChainId;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -107,25 +114,32 @@ describe("SwapPageContent – confirm-view navigation regression", () => {
     // Simulate user entering confirm view on the celo chain.
     store.set(confirmViewAtom, true);
 
-    const { rerender } = render(renderWithStore(store, 42220));
+    const { rerender } = render(renderWithStore(store, CELO));
     expect(store.get(confirmViewAtom)).toBe(true);
 
-    // Navigate to the alfajores chain – this is the route change that previously crashed.
+    // Navigate to celo sepolia – this is the route change that previously crashed.
     await act(async () => {
-      rerender(renderWithStore(store, 44787));
+      rerender(renderWithStore(store, CELO_SEPOLIA));
     });
 
     expect(store.get(confirmViewAtom)).toBe(false);
   });
 
   it("does not throw during chain navigation while confirm view is active", async () => {
+    // The removeChild crash surfaced as a React console.error before throwing.
+    // Asserting silence here means any future regression is caught immediately.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
     store.set(confirmViewAtom, true);
 
-    const { rerender } = render(renderWithStore(store, 42220));
+    const { rerender } = render(renderWithStore(store, CELO));
 
     await act(async () => {
-      rerender(renderWithStore(store, 44787));
+      rerender(renderWithStore(store, CELO_SEPOLIA));
     });
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 
   it("keeps SwapForm mounted in the DOM while confirm view is active", () => {
@@ -134,7 +148,7 @@ describe("SwapPageContent – confirm-view navigation regression", () => {
     // removeChild invariant violation when React reconciles during a transition.
     store.set(confirmViewAtom, true);
 
-    const { getByTestId } = render(renderWithStore(store, 42220));
+    const { getByTestId } = render(renderWithStore(store, CELO));
 
     const swapForm = getByTestId("swap-form");
     expect(swapForm).toBeDefined();
@@ -148,10 +162,10 @@ describe("SwapPageContent – confirm-view navigation regression", () => {
   it("does not reset confirmView when chainId stays the same", () => {
     store.set(confirmViewAtom, true);
 
-    const { rerender } = render(renderWithStore(store, 42220));
+    const { rerender } = render(renderWithStore(store, CELO));
 
     // Re-render with the same chainId (e.g. query-param change, not chain change).
-    rerender(renderWithStore(store, 42220));
+    rerender(renderWithStore(store, CELO));
 
     expect(store.get(confirmViewAtom)).toBe(true);
   });
