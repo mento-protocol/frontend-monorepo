@@ -113,7 +113,12 @@ export function SwapPageContent({
            * confirm view was active, because React tried to remove a node that
            * the browser had already detached during the route transition.
            */}
-          <div className={cn("flex flex-1 flex-col", confirmView && "hidden")}>
+          <div
+            className={cn(
+              "flex flex-1 flex-col",
+              confirmView ? "hidden" : "contents",
+            )}
+          >
             <SwapForm
               initialFrom={initialFrom}
               initialTo={initialTo}

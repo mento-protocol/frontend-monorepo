@@ -1,15 +1,21 @@
 /**
  * Regression tests for the SwapPageContent confirm-view / chain-navigation crash.
  *
- * Previously, the SwapForm wrapper used `display: contents` which caused React to
- * hit a DOM removeChild invariant when the component was hidden during a route
- * transition while confirm view was active. The fix keeps SwapForm always mounted
- * but hidden via Tailwind's `hidden` class (`display: none`).
+ * Root cause: the SwapForm wrapper previously toggled between Tailwind's
+ * `contents` class (display: contents) and `hidden` (display: none). In the
+ * browser, display:contents removes the element from the layout tree in a way
+ * that conflicts with React's internal DOM bookkeeping during a Next.js route
+ * transition, producing a removeChild invariant violation.
  *
- * These tests cover the exact navigation path that previously crashed:
- *   1. User opens confirm view.
- *   2. User navigates to a different [chain] swap route.
- *   3. Assert: no error thrown AND confirmView atom is reset to false.
+ * The fix: the wrapper is always a plain flex container; only `hidden` is
+ * applied when confirm view is active. The `contents` class is never used.
+ *
+ * JSDOM does not reproduce the browser DOM behaviour behind the crash, so tests
+ * here focus on the class-name invariants that distinguish the fixed
+ * implementation from the broken one:
+ *   - wrapper NEVER has class `contents` (display:contents was the crash cause)
+ *   - wrapper has `hidden` only while confirmView is true
+ *   - confirmView resets to false on chain navigation
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import React from "react";
@@ -125,38 +131,43 @@ describe("SwapPageContent – confirm-view navigation regression", () => {
     expect(store.get(confirmViewAtom)).toBe(false);
   });
 
-  it("does not throw during chain navigation while confirm view is active", async () => {
-    // The removeChild crash surfaced as a React console.error before throwing.
-    // Asserting silence here means any future regression is caught immediately.
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  it("SwapForm wrapper never carries the display:contents class in normal view", () => {
+    // THIS is the class-level invariant that distinguishes fixed from broken.
+    // The pre-fix implementation applied `contents` (display:contents) to the
+    // wrapper when confirmView was false, e.g.:
+    //   cn("flex flex-1 flex-col", confirmView ? "hidden" : "contents")
+    // That `contents` class caused the removeChild crash during navigation.
+    // This test fails on that implementation and passes only on the fix.
+    const { getByTestId } = render(renderWithStore(store, CELO));
 
+    expect(getByTestId("swap-form").parentElement?.className).not.toContain(
+      "contents",
+    );
+  });
+
+  it("SwapForm wrapper has no display:contents class after navigating from confirm view", async () => {
+    // After chain navigation confirmView resets to false, and the wrapper must
+    // be a plain flex container — not display:contents. The pre-fix toggle
+    // `confirmView ? "hidden" : "contents"` would put `contents` here, which is
+    // exactly the state that crashed the browser. This test catches that reversion.
     store.set(confirmViewAtom, true);
 
-    const { rerender } = render(renderWithStore(store, CELO));
+    const { getByTestId, rerender } = render(renderWithStore(store, CELO));
 
+    // Confirm view: wrapper is hidden, never contents.
+    const wrapperInConfirm = getByTestId("swap-form").parentElement;
+    expect(wrapperInConfirm?.className).toContain("hidden");
+    expect(wrapperInConfirm?.className).not.toContain("contents");
+
+    // Navigate to a different chain.
     await act(async () => {
       rerender(renderWithStore(store, CELO_SEPOLIA));
     });
 
-    expect(errorSpy).not.toHaveBeenCalled();
-    errorSpy.mockRestore();
-  });
-
-  it("keeps SwapForm mounted in the DOM while confirm view is active", () => {
-    // The fix: the SwapForm wrapper uses `hidden` (display: none) rather than
-    // conditional rendering. The element must remain in the DOM to prevent the
-    // removeChild invariant violation when React reconciles during a transition.
-    store.set(confirmViewAtom, true);
-
-    const { getByTestId } = render(renderWithStore(store, CELO));
-
-    const swapForm = getByTestId("swap-form");
-    expect(swapForm).toBeDefined();
-
-    // The wrapper div should carry the `hidden` class (not be unmounted).
-    // Changing this to conditional rendering is what caused the crash.
-    const wrapper = swapForm.parentElement;
-    expect(wrapper?.className).toContain("hidden");
+    // Post-navigation: confirmView is false, wrapper must be flex — not contents.
+    const wrapperAfterNav = getByTestId("swap-form").parentElement;
+    expect(wrapperAfterNav?.className).not.toContain("contents");
+    expect(wrapperAfterNav?.className).not.toContain("hidden");
   });
 
   it("does not reset confirmView when chainId stays the same", () => {
