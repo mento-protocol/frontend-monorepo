@@ -60,6 +60,14 @@ export const wagmiConfig: Config = createConfig({
     [Monad.id]: http(Monad.rpcUrls.default.http[0]),
     [MonadTestnet.id]: http(MonadTestnet.rpcUrls.default.http[0]),
   },
+  // Viem v2.44+ derives pollingInterval from chain.blockTime (blockTime/2, min 500ms).
+  // Monad has blockTime: 400ms → 500ms default, which is far too aggressive for HTTP RPC.
+  // Override Monad chains to 4s; Celo chains default to 4s via their blockTime (5s → 2500ms
+  // clamped to 4000ms), so no explicit override is needed there.
+  pollingInterval: {
+    [Monad.id]: 4_000,
+    [MonadTestnet.id]: 4_000,
+  },
   ssr: true,
   storage: createStorage({
     storage: cookieStorage,

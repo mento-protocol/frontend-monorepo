@@ -23,15 +23,27 @@ async function fetchAllowance(
 
   const routerAddress = getContractAddress(chainId, "Router");
 
-  // For Debugging
-  // logger.info(`Fetching allowance for token ${tokenAddr} on chain ${chainId}`);
   const provider = getProvider(chainId);
   const contract = new Contract(tokenAddr, ERC20_ABI, provider);
 
-  const allowance = await contract.allowance(accountAddress, routerAddress);
-  // For Debugging
-  // logger.info(`Allowance: ${allowance.toString()}`);
-  return allowance.toString();
+  try {
+    const allowance = await contract.allowance(accountAddress, routerAddress);
+    return allowance.toString();
+  } catch (error) {
+    // Ethers.js can throw plain objects ({code, data, message}) for RPC errors.
+    // Wrap them so callers always receive proper Error instances, preventing
+    // Sentry from capturing transient "unhandled" rejections before React Query
+    // has a chance to process them.
+    if (error instanceof Error) throw error;
+    const message =
+      typeof error === "object" &&
+      error !== null &&
+      "message" in error &&
+      typeof (error as { message: unknown }).message === "string"
+        ? (error as { message: string }).message
+        : `Failed to fetch allowance for ${tokenInSymbol}`;
+    throw new Error(message);
+  }
 }
 
 export function useAppAllowance(

@@ -57,7 +57,7 @@ export function PollingWorker() {
   }, [address, isConnected, chainId, queryClient, status, setLatestBlock]);
 
   useEffect(() => {
-    onPoll();
+    void onPoll();
   }, [onPoll]);
 
   useInterval(onPoll, FAST_INTERVAL);
