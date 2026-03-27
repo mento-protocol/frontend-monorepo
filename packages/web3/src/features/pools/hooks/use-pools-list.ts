@@ -10,7 +10,10 @@ import {
   sortPoolsByTvl,
 } from "../types";
 import { POOL_REFETCH_INTERVAL } from "@/config/constants";
-import { getUsdTokenPrices } from "../usd-quote-metadata";
+import {
+  createPoolUsdPricingContext,
+  getUsdTokenPrices,
+} from "../usd-quote-metadata";
 
 function trimTrailingZeros(value: string): string {
   return value.replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
@@ -139,6 +142,7 @@ export function usePoolsList(
     queryFn: async () => {
       const sdk = await getMentoSdk(chainId);
       const pools = await sdk.pools.getPools();
+      const usdPricingContext = createPoolUsdPricingContext(sdk, chainId);
 
       const enrichedPools = await Promise.all(
         pools.map(async (pool) => {
@@ -272,11 +276,12 @@ export function usePoolsList(
               details.pricing &&
               hasLiquidity
             ) {
-              const usdTokenPrices = getUsdTokenPrices({
+              const usdTokenPrices = await getUsdTokenPrices({
                 token0Address: details.token0,
                 token1Address: details.token1,
                 oraclePrice: details.pricing.oraclePrice,
                 chainId,
+                context: usdPricingContext,
               });
 
               if (usdTokenPrices) {
