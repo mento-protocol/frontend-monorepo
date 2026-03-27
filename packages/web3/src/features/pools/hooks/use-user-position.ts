@@ -5,7 +5,10 @@ import { useChainId } from "wagmi";
 import type { ChainId } from "@/config/chains";
 import type { PoolDisplay } from "../types";
 import { LP_TOTAL_SUPPLY_HOLDER } from "../types";
-import { getUsdTokenPrices } from "../usd-quote-metadata";
+import {
+  createPoolUsdPricingContext,
+  getUsdTokenPrices,
+} from "../usd-quote-metadata";
 
 export interface UserPosition {
   poolSharePercent: number;
@@ -50,6 +53,10 @@ export function useUserPosition({
       if (!lpBalance || lpBalance <= 0n) return null;
 
       const sdk = await getMentoSdk(resolvedChainId);
+      const usdPricingContext = createPoolUsdPricingContext(
+        sdk,
+        resolvedChainId,
+      );
 
       const [lpData, details] = await Promise.all([
         sdk.liquidity.getLPTokenBalance(pool.poolAddr, LP_TOTAL_SUPPLY_HOLDER),
@@ -78,11 +85,12 @@ export function useUserPosition({
       let token1Price: number | null = null;
 
       if (details.poolType === "FPMM" && details.pricing) {
-        const usdTokenPrices = getUsdTokenPrices({
+        const usdTokenPrices = await getUsdTokenPrices({
           token0Address: details.token0,
           token1Address: details.token1,
           oraclePrice: details.pricing.oraclePrice,
           chainId: resolvedChainId,
+          context: usdPricingContext,
         });
         if (usdTokenPrices) {
           token0Price = usdTokenPrices.token0PriceUsd;

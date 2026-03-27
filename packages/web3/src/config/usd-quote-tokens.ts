@@ -2,7 +2,10 @@ import {
   TOKEN_ADDRESSES_BY_CHAIN,
   TokenSymbol,
 } from "@mento-protocol/mento-sdk";
-import { ChainId } from "./chains";
+import type { ChainId } from "./chains";
+
+const MONAD_CHAIN_ID = 143 as ChainId;
+const MONAD_TESTNET_CHAIN_ID = 10143 as ChainId;
 
 const USD_QUOTE_TOKEN_SYMBOLS = [
   TokenSymbol.USDm,
@@ -15,8 +18,8 @@ const USD_QUOTE_TOKEN_SYMBOLS = [
 const USD_QUOTE_TOKEN_PREFERENCE_BY_CHAIN: Partial<
   Record<ChainId, readonly TokenSymbol[]>
 > = {
-  [ChainId.Monad]: [TokenSymbol.USDC, TokenSymbol.AUSD, TokenSymbol.USDm],
-  [ChainId.MonadTestnet]: [
+  [MONAD_CHAIN_ID]: [TokenSymbol.USDC, TokenSymbol.AUSD, TokenSymbol.USDm],
+  [MONAD_TESTNET_CHAIN_ID]: [
     TokenSymbol.USDC,
     TokenSymbol.AUSD,
     TokenSymbol.USDm,
