@@ -106,7 +106,14 @@ export function SwapPageContent({
             {!confirmView && <SwapSettingsPopover />}
           </div>
           {confirmView && <SwapConfirm />}
-          <div className={confirmView ? "hidden" : "contents"}>
+          {/*
+           * Keep SwapForm always mounted; only toggle visibility with `hidden`.
+           * Using `display: contents` (or conditional rendering) here caused a
+           * DOM removeChild crash when navigating between [chain] routes while
+           * confirm view was active, because React tried to remove a node that
+           * the browser had already detached during the route transition.
+           */}
+          <div className={cn("flex flex-1 flex-col", confirmView && "hidden")}>
             <SwapForm
               initialFrom={initialFrom}
               initialTo={initialTo}
