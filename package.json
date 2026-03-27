@@ -25,7 +25,7 @@
     "test:coverage": "turbo run test:coverage"
   },
   "resolutions": {
-    "brace-expansion": "2.0.2",
+    "brace-expansion": "2.0.3",
     "esbuild": ">=0.25.0"
   },
   "devDependencies": {
@@ -73,12 +73,14 @@
       "axios@<1.13.5": ">=1.13.5",
       "basic-ftp@<5.2.0": ">=5.2.0",
       "bn.js@>=5.0.0 <5.2.3": ">=5.2.3",
+      "brace-expansion": "2.0.3",
       "color-string@<1.5.5": ">=1.5.5",
       "diff@<5.2.0": ">=5.2.0",
       "flatted@<3.4.2": ">=3.4.2",
       "form-data@<2.5.4": ">=2.5.4",
       "glob@<11.1.0": ">=11.1.0",
       "h3@<1.15.6": ">=1.15.6",
+      "handlebars@<4.7.9": ">=4.7.9",
       "hono@<4.12.7": ">=4.12.7",
       "immutable@<3.8.0": ">=3.8.0",
       "js-yaml@<4.1.1": ">=4.1.1",
@@ -88,13 +90,16 @@
       "mdast-util-to-hast": "^13.2.1",
       "minimatch@>=10.0.0 <10.2.4": ">=10.2.4",
       "next": "^15.5.10",
+      "picomatch": "4.0.4",
       "preact": ">=10.28.2",
       "rollup@>=4.0.0 <4.59.0": ">=4.59.0",
       "serialize-javascript@<7.0.3": ">=7.0.3",
+      "smol-toml@<1.6.1": ">=1.6.1",
       "socket.io-parser@>=4.0.0 <4.2.6": ">=4.2.6",
       "tmp": ">=0.2.4",
       "wagmi": "^2.16.9",
       "yaml@>=2.0.0 <2.8.3": ">=2.8.3",
+      "yaml@<1.10.3": ">=1.10.3 <2",
       "zod": "^4.1.13"
     }
   }
