@@ -52,8 +52,7 @@ export function BorrowView() {
               </span>
               <h1 className="mt-2 font-bold text-3xl">Borrow</h1>
               <p className="mt-1 text-sm max-w-md leading-relaxed text-muted-foreground">
-                Borrow stablecoins against your collateral. Manage your open
-                troves below.
+                Borrow stablecoins against your collateral.
               </p>
             </div>
             {isBorrowChainSupported && <DebtTokenSelector />}

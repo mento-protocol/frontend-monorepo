@@ -3,6 +3,7 @@
 import { useAtomValue, useSetAtom } from "jotai";
 import { Button, Card, CardContent, Skeleton, TokenIcon } from "@repo/ui";
 import {
+  ConnectButton,
   useUserTroves,
   useSurplusCollateral,
   useClaimCollateral,
@@ -39,7 +40,7 @@ export function BorrowDashboard() {
   const hasSurplus = surplusAmount != null && surplusAmount > 0n;
 
   if (!isConnected) {
-    return <NotConnectedState />;
+    return <EmptyState isConnected={false} />;
   }
 
   if (trovesError) {
@@ -58,7 +59,9 @@ export function BorrowDashboard() {
   }
 
   if (!trovesLoading && !hasTroves && !hasSurplus) {
-    return <EmptyState onOpenTrove={() => setBorrowView("open-trove")} />;
+    return (
+      <EmptyState isConnected onOpenTrove={() => setBorrowView("open-trove")} />
+    );
   }
 
   return (
@@ -192,17 +195,13 @@ function PortfolioSummary({
   );
 }
 
-function NotConnectedState() {
-  return (
-    <div className="p-8 bg-card text-center">
-      <p className="text-muted-foreground">
-        Connect your wallet to view your borrow positions.
-      </p>
-    </div>
-  );
-}
-
-function EmptyState({ onOpenTrove }: { onOpenTrove: () => void }) {
+function EmptyState({
+  isConnected,
+  onOpenTrove,
+}: {
+  isConnected: boolean;
+  onOpenTrove?: () => void;
+}) {
   const chainId = useChainId();
   const debtToken = useAtomValue(selectedDebtTokenAtom);
 
@@ -251,6 +250,51 @@ function EmptyState({ onOpenTrove }: { onOpenTrove: () => void }) {
 
   return (
     <div className="space-y-8">
+      {/* How borrowing works */}
+      <div>
+        <h3 className="mb-4 font-mono font-semibold tracking-widest text-[11px] text-muted-foreground uppercase">
+          How borrowing works
+        </h3>
+        <div className="gap-4 md:grid-cols-3 grid grid-cols-1">
+          {steps.map((step, i) => (
+            <Card
+              key={i}
+              className="!py-0 !gap-0 transition-colors hover:bg-accent/50"
+            >
+              <CardContent className="p-6">
+                <div className="mb-3.5 gap-3 flex items-center">
+                  <div className="h-10 w-10 flex items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    {step.icon}
+                  </div>
+                  <span className="font-mono font-semibold text-[11px] text-muted-foreground/25">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                </div>
+                <h4 className="mb-1.5 font-semibold text-[15px]">
+                  {step.title}
+                </h4>
+                <p className="leading-relaxed text-[13px] text-muted-foreground/60">
+                  {step.desc}
+                </p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+
+      {/* Footer link */}
+      <div className="text-center">
+        <a
+          href="https://docs.mento.org"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="gap-1.5 font-medium inline-flex items-center text-[13px] text-primary hover:underline"
+        >
+          Learn more about Troves and liquidation
+          <ArrowUpRight className="h-3 w-3" />
+        </a>
+      </div>
+
       {/* Empty state card */}
       <div className="px-6 py-14 relative overflow-hidden rounded-xl border border-border bg-card text-center">
         {/* Top accent line */}
@@ -315,16 +359,22 @@ function EmptyState({ onOpenTrove }: { onOpenTrove: () => void }) {
           No open positions yet
         </h2>
         <p className="mb-8 max-w-sm text-sm leading-relaxed mx-auto text-muted-foreground">
-          Open a Trove to deposit USDm collateral and borrow {debtToken.symbol}.
-          You set your own interest rate and there&apos;s no fixed repayment
+          Open a borrow position to deposit USDm collateral and borrow{" "}
+          {debtToken.symbol}. Set your own interest rate with no fixed repayment
           schedule.
         </p>
 
         {/* CTA */}
-        <Button onClick={onOpenTrove} size="lg" className="gap-2.5">
-          <Plus className="h-4 w-4" />
-          Open Your First Trove
-        </Button>
+        <div className="flex justify-center">
+          {isConnected ? (
+            <Button onClick={onOpenTrove} size="lg" className="gap-2.5">
+              <Plus className="h-4 w-4" />
+              Open Your First Position
+            </Button>
+          ) : (
+            <ConnectButton size="lg" text="Connect Wallet" />
+          )}
+        </div>
 
         {/* Stats */}
         <div className="mt-9 gap-8 pt-7 flex justify-center border-t border-border/40">
@@ -337,51 +387,6 @@ function EmptyState({ onOpenTrove }: { onOpenTrove: () => void }) {
             </div>
           ))}
         </div>
-      </div>
-
-      {/* How borrowing works */}
-      <div>
-        <h3 className="mb-4 font-mono font-semibold tracking-widest text-[11px] text-muted-foreground uppercase">
-          How borrowing works
-        </h3>
-        <div className="gap-4 md:grid-cols-3 grid grid-cols-1">
-          {steps.map((step, i) => (
-            <Card
-              key={i}
-              className="!py-0 !gap-0 transition-colors hover:bg-accent/50"
-            >
-              <CardContent className="p-6">
-                <div className="mb-3.5 gap-3 flex items-center">
-                  <div className="h-10 w-10 flex items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    {step.icon}
-                  </div>
-                  <span className="font-mono font-semibold text-[11px] text-muted-foreground/25">
-                    {String(i + 1).padStart(2, "0")}
-                  </span>
-                </div>
-                <h4 className="mb-1.5 font-semibold text-[15px]">
-                  {step.title}
-                </h4>
-                <p className="leading-relaxed text-[13px] text-muted-foreground/60">
-                  {step.desc}
-                </p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
-
-      {/* Footer link */}
-      <div className="pt-6 border-t border-border/40 text-center">
-        <a
-          href="https://docs.mento.org"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="gap-1.5 font-medium inline-flex items-center text-[13px] text-primary hover:underline"
-        >
-          Learn more about Troves and liquidation
-          <ArrowUpRight className="h-3 w-3" />
-        </a>
       </div>
     </div>
   );
