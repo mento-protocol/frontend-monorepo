@@ -108,8 +108,8 @@ export function DebtInput({ value, onChange, collAmount }: DebtInputProps) {
               className="shrink-0 rounded-full"
             />
           ) : (
-            <div className="h-5 w-5 font-bold from-indigo-500 to-purple-600 flex shrink-0 items-center justify-center rounded-full bg-linear-to-br text-[9px]">
-              {debtToken.currencySymbol}
+            <div className="h-5 w-5 font-bold from-indigo-500 to-purple-600 flex shrink-0 items-center justify-center rounded-full bg-linear-to-br text-[7px] leading-none">
+              {debtToken.symbol}
             </div>
           )}
           <span className="text-sm font-semibold text-muted-foreground/70">
@@ -139,8 +139,7 @@ export function DebtInput({ value, onChange, collAmount }: DebtInputProps) {
               >
                 <span>{RISK_LABEL[s.risk]}</span>
                 <span className="text-[10px] opacity-70">
-                  {debtToken.currencySymbol}
-                  {formatCompactDebt(s.amount)}
+                  {formatCompactDebt(s.amount)} {debtToken.symbol}
                 </span>
               </button>
             );

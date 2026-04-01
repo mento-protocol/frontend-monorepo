@@ -226,7 +226,7 @@ function EmptyState({
 
   const stats = [
     { label: "Min. collateral ratio", value: "110%" },
-    { label: "Min. debt", value: `${debtToken.currencySymbol}1,000` },
+    { label: "Min. debt", value: `1,000 ${debtToken.symbol}` },
     { label: "Interest rates from", value: "0.5%" },
   ];
 
@@ -328,8 +328,8 @@ function EmptyState({
                     className="rounded-full"
                   />
                 ) : (
-                  <div className="h-11 w-11 bg-indigo-500 text-lg font-bold flex items-center justify-center rounded-full">
-                    {debtToken.currencySymbol}
+                  <div className="h-11 w-11 bg-indigo-500 px-1 font-bold flex items-center justify-center rounded-full text-[9px] leading-none">
+                    {debtToken.symbol}
                   </div>
                 )}
               </div>
