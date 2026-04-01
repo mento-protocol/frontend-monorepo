@@ -361,116 +361,6 @@ export function RebalancePanel({
           </div>
 
           <div className="space-y-4">
-            {/* Description */}
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              This pool has drifted away from its target reserve mix.
-              Rebalancing helps move it back toward balance by adding the
-              scarcer asset and removing the excess asset, with a bonus for
-              doing so. Read the docs to{" "}
-              <a
-                href="https://docs.mento.org/mento-v3/dive-deeper/fpmm/rebalancing-and-strategies"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-medium text-foreground underline underline-offset-2 transition-colors hover:text-primary"
-              >
-                learn more
-              </a>
-              .
-            </p>
-
-            {/* Reserve imbalance bar */}
-            <div className="space-y-3 p-3 rounded-lg border border-border bg-incard">
-              <div className="gap-2 md:flex-row md:items-start md:justify-between flex flex-col">
-                <div className="space-y-0.5">
-                  <div className="font-mono font-semibold tracking-wider text-[10px] text-muted-foreground uppercase">
-                    Reserve Mix (by value)
-                  </div>
-                  <div className="font-mono text-sm text-muted-foreground">
-                    <span className="font-semibold text-foreground">
-                      {token0Percent}% {pool.token0.symbol}
-                    </span>
-                    <span className="text-muted-foreground/40"> | </span>
-                    <span className="font-semibold text-foreground">
-                      {token1Percent}% {pool.token1.symbol}
-                    </span>
-                  </div>
-                </div>
-                <div className="space-y-0.5 md:text-right">
-                  <div className="font-mono font-semibold tracking-wider text-[10px] text-muted-foreground uppercase">
-                    Price vs Oracle
-                  </div>
-                  <div className="font-mono text-sm text-muted-foreground">
-                    <span className="font-semibold text-amber-600 dark:text-amber-400">
-                      {deviationPercent.toFixed(1)}% {activeThresholdRelation}{" "}
-                      oracle
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <p className="text-[11px] text-muted-foreground">
-                Too much{" "}
-                <span className="font-semibold text-foreground">
-                  {outputSymbol}
-                </span>
-                . Too little{" "}
-                <span className="font-semibold text-foreground">
-                  {inputSymbol}
-                </span>
-                .
-              </p>
-
-              <div className="gap-x-4 gap-y-1 font-mono flex flex-wrap items-center text-[10px] text-muted-foreground/80">
-                <span className="gap-1.5 inline-flex items-center">
-                  <span className="h-3 w-0.5 rounded-full bg-foreground/70 shadow-[0_0_4px_rgba(255,255,255,0.3)]" />
-                  - Target 50/50
-                </span>
-                {activeThreshold > 0 && (
-                  <span className="gap-1.5 text-amber-600 dark:text-amber-400 inline-flex items-center">
-                    <span className="h-3 w-px border-l-2 border-dashed border-current" />
-                    - Rebalance trigger ({activeThreshold.toFixed(1)}%{" "}
-                    {activeThresholdRelation} oracle)
-                  </span>
-                )}
-              </div>
-
-              {/* Bar visualization */}
-              <div className="space-y-2">
-                <div className="relative">
-                  <div className="h-3.5 ring-white/5 flex w-full overflow-hidden rounded-full bg-muted/20 ring-1">
-                    <div
-                      className="ease-out bg-linear-to-r from-primary to-primary/80 transition-[width] duration-400"
-                      style={{ width: `${token0Ratio * 100}%` }}
-                    />
-                    <div
-                      className="ease-out bg-linear-to-r from-primary-border/80 to-primary-border/60 transition-[width] duration-400"
-                      style={{ width: `${(1 - token0Ratio) * 100}%` }}
-                    />
-                  </div>
-                  {/* 50% target marker (solid white) */}
-                  <div
-                    className="-top-0.5 h-4 w-0.5 absolute bg-foreground/80 shadow-[0_0_4px_rgba(255,255,255,0.3)]"
-                    style={{ left: "50%", transform: "translateX(-50%)" }}
-                  />
-                  {/* Active rebalance threshold marker (dashed) */}
-                  {activeThreshold > 0 && (
-                    <div
-                      className="-top-1 h-6 border-amber-500/70 absolute w-px border-l-3 border-dashed"
-                      style={{
-                        left: `${activeThresholdPos}%`,
-                        transform: "translateX(-50%)",
-                      }}
-                    />
-                  )}
-                </div>
-
-                <div className="font-mono flex items-center justify-between text-[10px] text-muted-foreground">
-                  <span>{pool.token0.symbol} share</span>
-                  <span>{pool.token1.symbol} share</span>
-                </div>
-              </div>
-            </div>
-
             {/* Preview */}
             <div className="mt-1 gap-1.5 flex flex-col">
               <div className="text-xs font-mono font-semibold tracking-wider text-muted-foreground uppercase">
@@ -585,6 +475,116 @@ export function RebalancePanel({
                 </div>
                 <div className="font-mono text-green-600/40 dark:text-green-400/40 text-[10px]">
                   +{incentivePercent.toFixed(2)}% incentive
+                </div>
+              </div>
+            </div>
+
+            {/* Description */}
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              This pool has drifted away from its target reserve mix.
+              Rebalancing helps move it back toward balance by adding the
+              scarcer asset and removing the excess asset, with a bonus for
+              doing so. Read the docs to{" "}
+              <a
+                href="https://docs.mento.org/mento-v3/dive-deeper/fpmm/rebalancing-and-strategies"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-foreground underline underline-offset-2 transition-colors hover:text-primary"
+              >
+                learn more
+              </a>
+              .
+            </p>
+
+            {/* Reserve imbalance bar */}
+            <div className="space-y-3 p-3 rounded-lg border border-border bg-incard">
+              <div className="gap-2 md:flex-row md:items-start md:justify-between flex flex-col">
+                <div className="space-y-0.5">
+                  <div className="font-mono font-semibold tracking-wider text-[10px] text-muted-foreground uppercase">
+                    Reserve Mix (by value)
+                  </div>
+                  <div className="font-mono text-sm text-muted-foreground">
+                    <span className="font-semibold text-foreground">
+                      {token0Percent}% {pool.token0.symbol}
+                    </span>
+                    <span className="text-muted-foreground/40"> | </span>
+                    <span className="font-semibold text-foreground">
+                      {token1Percent}% {pool.token1.symbol}
+                    </span>
+                  </div>
+                </div>
+                <div className="space-y-0.5 md:text-right">
+                  <div className="font-mono font-semibold tracking-wider text-[10px] text-muted-foreground uppercase">
+                    Price vs Oracle
+                  </div>
+                  <div className="font-mono text-sm text-muted-foreground">
+                    <span className="font-semibold text-amber-600 dark:text-amber-400">
+                      {deviationPercent.toFixed(1)}% {activeThresholdRelation}{" "}
+                      oracle
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-muted-foreground">
+                Too much{" "}
+                <span className="font-semibold text-foreground">
+                  {outputSymbol}
+                </span>
+                . Too little{" "}
+                <span className="font-semibold text-foreground">
+                  {inputSymbol}
+                </span>
+                .
+              </p>
+
+              <div className="gap-x-4 gap-y-1 font-mono flex flex-wrap items-center text-[10px] text-muted-foreground/80">
+                <span className="gap-1.5 inline-flex items-center">
+                  <span className="h-3 w-0.5 rounded-full bg-foreground/70 shadow-[0_0_4px_rgba(255,255,255,0.3)]" />
+                  - Target 50/50
+                </span>
+                {activeThreshold > 0 && (
+                  <span className="gap-1.5 text-amber-600 dark:text-amber-400 inline-flex items-center">
+                    <span className="h-3 w-px border-l-2 border-dashed border-current" />
+                    - Rebalance trigger ({activeThreshold.toFixed(1)}%{" "}
+                    {activeThresholdRelation} oracle)
+                  </span>
+                )}
+              </div>
+
+              {/* Bar visualization */}
+              <div className="space-y-2">
+                <div className="relative">
+                  <div className="h-3.5 ring-white/5 flex w-full overflow-hidden rounded-full bg-muted/20 ring-1">
+                    <div
+                      className="ease-out bg-linear-to-r from-primary to-primary/80 transition-[width] duration-400"
+                      style={{ width: `${token0Ratio * 100}%` }}
+                    />
+                    <div
+                      className="ease-out bg-linear-to-r from-primary-border/80 to-primary-border/60 transition-[width] duration-400"
+                      style={{ width: `${(1 - token0Ratio) * 100}%` }}
+                    />
+                  </div>
+                  {/* 50% target marker (solid white) */}
+                  <div
+                    className="-top-0.5 h-4 w-0.5 absolute bg-foreground/80 shadow-[0_0_4px_rgba(255,255,255,0.3)]"
+                    style={{ left: "50%", transform: "translateX(-50%)" }}
+                  />
+                  {/* Active rebalance threshold marker (dashed) */}
+                  {activeThreshold > 0 && (
+                    <div
+                      className="-top-1 h-6 border-amber-500/70 absolute w-px border-l-3 border-dashed"
+                      style={{
+                        left: `${activeThresholdPos}%`,
+                        transform: "translateX(-50%)",
+                      }}
+                    />
+                  )}
+                </div>
+
+                <div className="font-mono flex items-center justify-between text-[10px] text-muted-foreground">
+                  <span>{pool.token0.symbol} share</span>
+                  <span>{pool.token1.symbol} share</span>
                 </div>
               </div>
             </div>
