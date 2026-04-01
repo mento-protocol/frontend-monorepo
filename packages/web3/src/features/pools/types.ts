@@ -1,6 +1,6 @@
 import type { ChainId } from "@/config/chains";
 
-export type PoolFilterType = "all" | "fpmm" | "legacy";
+export type PoolFilterType = "all" | "positions";
 export type ChainFilterType = "all" | ChainId;
 
 export interface PoolRewardInfo {

@@ -17,14 +17,15 @@ import {
   type ChainFilterType,
   type PoolDisplay,
 } from "@repo/web3";
+import { useAccount, useReadContracts } from "@repo/web3/wagmi";
+import { erc20Abi, type Address } from "viem";
 import { PoolsTable } from "./pools-table";
 import { LiquidityFlowDialog } from "./liquidity-flow-dialog";
 import { RewardsCampaignBanner } from "./rewards-campaign-banner";
 
 const filterTabs: { value: PoolFilterType; label: string }[] = [
   { value: "all", label: "All Pools" },
-  { value: "fpmm", label: "FPMM" },
-  { value: "legacy", label: "Legacy" },
+  { value: "positions", label: "My Positions" },
 ];
 
 export function PoolsView() {
@@ -47,9 +48,11 @@ export function PoolsView() {
   } = usePoolRewards();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { address, isConnected } = useAccount();
 
   // Filter state lives in URL so it persists across refresh / share
-  const filter = (searchParams.get("type") as PoolFilterType) || "all";
+  const filter: PoolFilterType =
+    searchParams.get("type") === "positions" ? "positions" : "all";
   const chainParam = searchParams.get("chain");
   const chainFilter: ChainFilterType =
     chainParam &&
@@ -66,6 +69,43 @@ export function PoolsView() {
       label: chainIdToChain[id]?.name ?? `Chain ${id}`,
     })),
   ];
+  const positionContracts = useMemo(
+    () =>
+      pools
+        .filter((pool) => pool.poolType === "FPMM")
+        .map((pool) => ({
+          abi: erc20Abi,
+          address: pool.poolAddr as Address,
+          functionName: "balanceOf" as const,
+          args: address ? [address] : undefined,
+          chainId: pool.chainId,
+        })),
+    [address, pools],
+  );
+  const {
+    data: positionBalances,
+    isLoading: isPositionsLoading,
+    isError: isPositionsError,
+  } = useReadContracts({
+    allowFailure: false,
+    contracts: positionContracts,
+    query: {
+      enabled: isConnected && !!address && positionContracts.length > 0,
+    },
+  });
+  const poolsWithPositions = useMemo(() => {
+    if (!positionBalances?.length) return new Set<string>();
+
+    return new Set(
+      pools
+        .filter((pool) => pool.poolType === "FPMM")
+        .flatMap((pool, index) =>
+          (positionBalances[index] ?? 0n) > 0n
+            ? [`${pool.chainId}:${pool.poolAddr.toLowerCase()}`]
+            : [],
+        ),
+    );
+  }, [pools, positionBalances]);
 
   const setFilter = useCallback(
     (value: PoolFilterType) => {
@@ -120,15 +160,20 @@ export function PoolsView() {
   );
   const canApplyRewardsFilter =
     !isRewardsLoading && (!isRewardsError || rewards.size > 0);
+  const canApplyPositionsFilter =
+    !isConnected ||
+    isPositionsLoading ||
+    !isPositionsError ||
+    poolsWithPositions.size > 0;
 
   const filteredPools = useMemo(() => {
     let result = pools;
 
-    // Pool type filter
-    if (filter === "fpmm") {
-      result = result.filter((p) => p.poolType === "FPMM");
-    } else if (filter === "legacy") {
-      result = result.filter((p) => p.poolType === "Legacy");
+    // Wallet positions filter
+    if (filter === "positions") {
+      result = result.filter((p) =>
+        poolsWithPositions.has(`${p.chainId}:${p.poolAddr.toLowerCase()}`),
+      );
     }
 
     // Chain filter
@@ -165,14 +210,9 @@ export function PoolsView() {
     rewards,
     search,
     canApplyRewardsFilter,
+    poolsWithPositions,
   ]);
 
-  const hasLegacyPools = useMemo(
-    () =>
-      (filter === "all" || filter === "legacy") &&
-      filteredPools.some((p) => p.poolType === "Legacy"),
-    [filteredPools, filter],
-  );
   const showPoolsError = isError && pools.length === 0;
   const showNoPools = !isLoading && !isError && pools.length === 0;
   const showPoolsWarning = isPoolsPartialError && pools.length > 0;
@@ -231,11 +271,17 @@ export function PoolsView() {
                   key={tab.value}
                   onClick={() => setFilter(tab.value)}
                   aria-pressed={filter === tab.value}
+                  disabled={
+                    tab.value === "positions" && !canApplyPositionsFilter
+                  }
                   className={cn(
                     "px-3.5 py-1.5 text-xs font-semibold cursor-pointer rounded-lg border-0 transition-colors outline-none",
                     filter === tab.value
                       ? "bg-accent text-foreground"
                       : "text-muted-foreground hover:text-foreground",
+                    tab.value === "positions" &&
+                      !canApplyPositionsFilter &&
+                      "cursor-not-allowed opacity-50 hover:text-muted-foreground",
                   )}
                 >
                   {tab.label}
@@ -306,7 +352,7 @@ export function PoolsView() {
           {showPoolsError ? (
             <PoolsErrorState onRetry={() => void refetch()} />
           ) : showNoPools ? (
-            <NoPoolsState />
+            <NoPoolsState filter={filter} isConnected={isConnected} />
           ) : (
             <PoolsTable
               pools={filteredPools}
@@ -316,16 +362,6 @@ export function PoolsView() {
               getPoolHref={getPoolHref}
               rewards={rewards}
             />
-          )}
-
-          {hasLegacyPools && (
-            <div className="relative">
-              <div className="px-4 py-3 text-sm bg-card text-muted-foreground">
-                Legacy pools are planned for migration to FPMM. Liquidity
-                actions are not available for these pools.
-              </div>
-              <div className="bottom-decorations after:-bottom-15 before:-bottom-5 before:-right-5 before:h-5 before:w-5 after:right-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-card before:invert after:absolute after:block after:bg-card"></div>
-            </div>
           )}
         </div>
       </div>
@@ -380,7 +416,15 @@ function PoolsErrorState({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-function NoPoolsState() {
+function NoPoolsState({
+  filter,
+  isConnected,
+}: {
+  filter: PoolFilterType;
+  isConnected: boolean;
+}) {
+  const isPositionsFilter = filter === "positions";
+
   return (
     <div className="px-6 py-14 relative overflow-hidden rounded-xl border border-border bg-card text-center">
       <div className="top-0 w-48 absolute left-1/2 h-[2px] -translate-x-1/2 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
@@ -392,11 +436,18 @@ function NoPoolsState() {
       </div>
 
       <h2 className="mb-2.5 text-xl font-bold tracking-tight">
-        No pools found
+        {isPositionsFilter
+          ? isConnected
+            ? "No positions found"
+            : "Connect wallet to view positions"
+          : "No pools found"}
       </h2>
       <p className="max-w-sm text-sm leading-relaxed mx-auto text-muted-foreground">
-        No pools match your current filters. Try adjusting your search or filter
-        criteria.
+        {isPositionsFilter
+          ? isConnected
+            ? "No pools match your current position filters yet. Add liquidity to a pool and it will appear here."
+            : "Your positions are tied to your connected wallet. Connect a wallet to filter the list down to pools you already hold."
+          : "No pools match your current filters. Try adjusting your search or filter criteria."}
       </p>
     </div>
   );
