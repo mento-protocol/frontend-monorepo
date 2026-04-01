@@ -141,7 +141,8 @@ export function usePoolsList(
     enabled: options?.enabled ?? true,
     queryFn: async () => {
       const sdk = await getMentoSdk(chainId);
-      const pools = await sdk.pools.getPools();
+      const allPools = await sdk.pools.getPools();
+      const pools = allPools.filter((pool) => pool.poolType !== "Virtual");
       const usdPricingContext = createPoolUsdPricingContext(sdk, chainId);
 
       const enrichedPools = await Promise.all(
