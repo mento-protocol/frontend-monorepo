@@ -10,7 +10,9 @@ import {
   selectedDebtTokenAtom,
   formatCollateralAmount,
   formatDebtAmount,
+  formatDebtTokenAmount,
   formatLtv,
+  useCollateralPrice,
   useLoanDetails,
 } from "@repo/web3";
 import type { BorrowPosition, DebtTokenConfig } from "@repo/web3";
@@ -141,6 +143,7 @@ function PortfolioSummary({
       : null;
   const totalDebt =
     troves.length > 0 ? troves.reduce((sum, t) => sum + t.debt, 0n) : null;
+  const { data: collateralPrice } = useCollateralPrice(debtToken.symbol);
 
   // Compute weighted average LTV from the first trove's loan details context
   // We use the total collateral/debt to get an aggregate LTV
@@ -151,6 +154,9 @@ function PortfolioSummary({
     debtToken.symbol,
   );
 
+  const totalDebtUsdValue = formatDebtUsdAmount(totalDebt, collateralPrice);
+  const totalDebtTokenValue = formatDebtTokenAmount(totalDebt, debtToken);
+
   const stats = [
     {
       label: "Total Collateral",
@@ -158,7 +164,10 @@ function PortfolioSummary({
     },
     {
       label: "Total Debt",
-      value: isLoading ? null : formatDebtAmount(totalDebt, debtToken),
+      value: isLoading
+        ? null
+        : (totalDebtUsdValue ?? formatDebtAmount(totalDebt, debtToken)),
+      secondaryValue: isLoading ? null : totalDebtTokenValue,
     },
     {
       label: "Avg LTV",
@@ -183,7 +192,15 @@ function PortfolioSummary({
               className={`mt-1 text-xl font-semibold tracking-tight ${stat.accent ? "text-primary" : ""}`}
             >
               {stat.value != null ? (
-                stat.value
+                <>
+                  <div>{stat.value}</div>
+                  {"secondaryValue" in stat &&
+                    typeof stat.secondaryValue === "string" && (
+                      <div className="mt-1 text-xs font-mono font-medium text-muted-foreground/60">
+                        {stat.secondaryValue}
+                      </div>
+                    )}
+                </>
               ) : (
                 <Skeleton className="mt-1 h-6 w-20" />
               )}
@@ -193,6 +210,25 @@ function PortfolioSummary({
       ))}
     </div>
   );
+}
+
+function formatDebtUsdAmount(
+  amount: bigint | null | undefined,
+  collateralPrice: bigint | null | undefined,
+): string | null {
+  if (amount == null || collateralPrice == null || collateralPrice <= 0n) {
+    return null;
+  }
+
+  const usdValue = (amount * 10n ** 18n) / collateralPrice;
+  const num = Number(usdValue) / 1e18;
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num);
 }
 
 function EmptyState({

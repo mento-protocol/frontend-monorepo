@@ -48,14 +48,14 @@ function SkeletonCard() {
 
 export function TroveList({ troves, debtToken, isLoading }: TroveListProps) {
   return (
-    <div className="space-y-4">
+    <div className="gap-4 md:grid-cols-2 grid grid-cols-1">
       {isLoading ? (
         <>
           <SkeletonCard />
           <SkeletonCard />
         </>
       ) : troves.length === 0 ? (
-        <div className="py-12 flex items-center justify-center rounded-lg border border-border bg-card text-muted-foreground">
+        <div className="py-12 col-span-full flex items-center justify-center rounded-lg border border-border bg-card text-muted-foreground">
           No active troves
         </div>
       ) : (
