@@ -32,7 +32,7 @@ import Image from "next/image";
 import { Clock, Plus, TrendingUp, Info, ExternalLink } from "lucide-react";
 import { formatUnits } from "viem";
 
-type EarnFilter = "all" | "stability" | "lp" | "rewards";
+type EarnFilter = "all" | "stability" | "lp";
 
 function formatCompactUsd(value: number | null): string {
   if (value == null) return "$0";
@@ -328,7 +328,6 @@ export function EarnHub() {
     if (filter === "stability")
       result = result.filter((o) => o.type === "stability");
     if (filter === "lp") result = result.filter((o) => o.type === "lp");
-    if (filter === "rewards") result = result.filter((o) => o.hasRewards);
 
     if (chainFilter !== "all") {
       result = result.filter((o) => o.chainId === chainFilter);
@@ -344,7 +343,6 @@ export function EarnHub() {
     { key: "all", label: "All" },
     { key: "stability", label: "Stability Pool" },
     { key: "lp", label: "Liquidity Pools" },
-    { key: "rewards", label: "\u2605 With Rewards" },
   ];
 
   const steps = [
@@ -377,7 +375,6 @@ export function EarnHub() {
           <h1 className="mt-2 font-bold text-3xl">Earn</h1>
           <p className="mt-1 max-w-lg text-sm text-muted-foreground">
             Earn yield through stability pool deposits and liquidity provision.
-            Compare rates and opportunities in one place.
           </p>
         </div>
       </div>
