@@ -36,7 +36,7 @@ export default async function StabilityPoolRedirectPage({
   if (chainId) {
     redirect(
       withOpportunitySource(
-        getStabilityRoute(DEFAULT_STABILITY_TOKEN.symbol),
+        getStabilityRoute(DEFAULT_STABILITY_TOKEN.symbol, chainId),
         opportunitySource,
       ),
     );

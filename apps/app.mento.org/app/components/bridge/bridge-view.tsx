@@ -6,14 +6,9 @@ import { useTheme } from "next-themes";
 import { useMemo } from "react";
 import { getBridgeTheme, bridgeConfig } from "./bridge-config";
 import { Button } from "@repo/ui";
-import { Celo, ChainId } from "@repo/web3";
+import { Celo, isFeatureConfiguredOnChain } from "@repo/web3";
 import { useChainId, useSwitchChain } from "@repo/web3/wagmi";
 import { ArrowRightLeft } from "lucide-react";
-
-const TESTNET_CHAIN_IDS = new Set<number>([
-  ChainId.CeloSepolia,
-  ChainId.MonadTestnet,
-]);
 
 const WormholeConnect = dynamic(
   () => import("@wormhole-foundation/wormhole-connect"),
@@ -73,11 +68,11 @@ function BridgeTestnetState() {
       </div>
 
       <h2 className="mb-2.5 text-xl font-bold tracking-tight">
-        Bridging is not available on testnets
+        Bridging is currently mainnet-only
       </h2>
       <p className="mb-8 max-w-sm text-sm leading-relaxed mx-auto text-muted-foreground">
-        Switch to a mainnet network to bridge Mento stablecoins between
-        supported networks.
+        Switch to a supported mainnet network to bridge Mento stablecoins
+        between Celo and Monad.
       </p>
 
       <Button onClick={handleSwitch} size="lg" className="gap-2.5">
@@ -90,7 +85,12 @@ function BridgeTestnetState() {
 
 export function BridgeView() {
   const chainId = useChainId();
-  const isTestnet = TESTNET_CHAIN_IDS.has(chainId);
+  const isBridgeSupportedChain =
+    !chainId ||
+    isFeatureConfiguredOnChain({
+      chainId,
+      feature: "bridge",
+    });
   const { resolvedTheme } = useTheme();
   const theme = useMemo(
     () => getBridgeTheme(resolvedTheme === "dark" ? "dark" : "light"),
@@ -110,7 +110,7 @@ export function BridgeView() {
             Bridge Mento tokens between supported networks.
           </p>
         </div>
-        {isTestnet ? (
+        {!isBridgeSupportedChain ? (
           <BridgeTestnetState />
         ) : (
           <div className="bridge-widget">

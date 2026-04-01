@@ -2,10 +2,10 @@
 
 import { chainIdToChain, ChainId } from "@/config/chains";
 import { NetworkDialog } from "@/components/network-dialog";
-import { useChainModal } from "@rainbow-me/rainbowkit";
+import { useVisibleChains } from "@/config/testnet-mode";
 import { Button, cn } from "@repo/ui";
 import { ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useAccount, useChainId } from "wagmi";
 import { MentoChain } from "@/types";
 import celoIcon from "@/config/chain-icons/celo.svg";
@@ -26,19 +26,24 @@ export function ChainButton({ chains }: ChainButtonProps = {}) {
   const { isConnected } = useAccount();
   const chainId = useChainId();
   const currentChain = chainIdToChain[chainId];
-  const { openChainModal } = useChainModal();
+  const visibleChainIds = useVisibleChains();
   const [showNetworkDialog, setShowNetworkDialog] = useState(false);
+
+  const availableChains = useMemo(
+    () =>
+      chains ??
+      visibleChainIds
+        .map((visibleChainId) => chainIdToChain[visibleChainId])
+        .filter((chain): chain is MentoChain => Boolean(chain)),
+    [chains, visibleChainIds],
+  );
 
   if (!isConnected) return null;
 
   const iconUrl = chainIcons[chainId];
 
   const onClickChain = () => {
-    if (!chains && openChainModal) {
-      openChainModal();
-    } else {
-      setShowNetworkDialog(true);
-    }
+    setShowNetworkDialog(true);
   };
 
   return (
@@ -69,7 +74,7 @@ export function ChainButton({ chains }: ChainButtonProps = {}) {
         <NetworkDialog
           isOpen={showNetworkDialog}
           close={() => setShowNetworkDialog(false)}
-          chains={chains}
+          chains={availableChains}
         />
       )}
     </>

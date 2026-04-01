@@ -16,12 +16,17 @@ const DECIMAL_PRECISION = 10n ** 18n;
 export function useStabilityPoolApy(
   symbol = "GBPm",
   targetChainId?: number,
+  options?: { enabled?: boolean },
 ): {
   data: number | null;
   avgInterestRate: number | null;
   isLoading: boolean;
 } {
-  const { data: spAddress } = useStabilityPoolAddress(symbol, targetChainId);
+  const { data: spAddress } = useStabilityPoolAddress(
+    symbol,
+    targetChainId,
+    options,
+  );
 
   const { data: spData, isLoading: spDataLoading } = useReadContracts({
     allowFailure: false,
@@ -40,7 +45,7 @@ export function useStabilityPoolApy(
       },
     ],
     query: {
-      enabled: !!spAddress,
+      enabled: (options?.enabled ?? true) && !!spAddress,
       refetchInterval: 30_000,
     },
   });
@@ -65,7 +70,7 @@ export function useStabilityPoolApy(
       },
     ],
     query: {
-      enabled: !!activePoolAddress,
+      enabled: (options?.enabled ?? true) && !!activePoolAddress,
       refetchInterval: 30_000,
     },
   });

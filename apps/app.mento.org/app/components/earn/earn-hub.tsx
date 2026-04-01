@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAtomValue } from "jotai";
 import { getStabilityRoute } from "@/lib/stability-route";
 import { withOpportunitySource } from "@/lib/opportunity-navigation";
@@ -16,7 +16,7 @@ import {
   chainIdToSlug,
   chainIdToChain,
   ChainId,
-  VISIBLE_CHAINS,
+  useVisibleChains,
   type ChainFilterType,
 } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
@@ -53,116 +53,208 @@ function formatCompactToken(
   return `${num.toFixed(2)} ${symbol}`;
 }
 
+function buildStabilityOpportunity({
+  chainId,
+  debtTokenSymbol,
+  debtTokenAddress,
+  isConnected,
+  position,
+  totalDeposits,
+  apy,
+  avgInterestRate,
+}: {
+  chainId: ChainId;
+  debtTokenSymbol: string;
+  debtTokenAddress?: `0x${string}`;
+  isConnected: boolean;
+  position:
+    | {
+        deposit: bigint;
+        debtTokenGain: bigint;
+        collateralGain: bigint;
+      }
+    | null
+    | undefined;
+  totalDeposits: bigint | null | undefined;
+  apy: number | null | undefined;
+  avgInterestRate: number | null | undefined;
+}): StabilityOpportunity {
+  const hasDeposit = (position?.deposit ?? 0n) > 0n;
+  const apyValue = apy != null ? apy * 100 : 0;
+  const avgRate = avgInterestRate != null ? avgInterestRate * 100 : 0;
+  const totalDep = formatCompactToken(totalDeposits ?? null, debtTokenSymbol);
+
+  let userPosition = null;
+  if (isConnected && hasDeposit) {
+    const deposited = formatCompactToken(
+      position?.deposit ?? 0n,
+      debtTokenSymbol,
+    );
+    const rewardParts: string[] = [];
+    if (position?.debtTokenGain && position.debtTokenGain > 0n) {
+      rewardParts.push(
+        formatCompactToken(position.debtTokenGain, debtTokenSymbol),
+      );
+    }
+    if (position?.collateralGain && position.collateralGain > 0n) {
+      rewardParts.push(formatCompactToken(position.collateralGain, "USDm"));
+    }
+    userPosition = {
+      deposited,
+      rewards: rewardParts.length > 0 ? rewardParts.join(" + ") : undefined,
+    };
+  }
+
+  return {
+    id: `sp-${chainId}-${debtTokenSymbol.toLowerCase()}`,
+    type: "stability",
+    chainId,
+    name: `${debtTokenSymbol} Stability Pool`,
+    token: {
+      address: debtTokenAddress ?? "",
+      symbol: debtTokenSymbol,
+    },
+    apy: apyValue,
+    apyLabel: "Pool APY",
+    hasRewards: false,
+    earnMechanics: [
+      { label: "Liquidation gains", color: "green" },
+      { label: "Protocol yield", color: "indigo" },
+      {
+        label: "Trove interest",
+        color: "amber",
+        value: avgRate > 0 ? `${avgRate.toFixed(1)}%` : undefined,
+      },
+    ],
+    stats: [
+      { label: "Total deposits", value: totalDep },
+      {
+        label: "Avg. borrow rate",
+        value: avgRate > 0 ? `${avgRate.toFixed(1)}%` : "—",
+      },
+      { label: "Lock-up", value: "None" },
+    ],
+    userPosition,
+    href: withOpportunitySource(
+      getStabilityRoute(debtTokenSymbol, chainId),
+      "earn",
+    ),
+  };
+}
+
 export function EarnHub() {
   const [filter, setFilter] = useState<EarnFilter>("all");
   const [chainFilter, setChainFilter] = useState<ChainFilterType>("all");
 
   const { isConnected } = useAccount();
   const debtToken = useAtomValue(selectedDebtTokenAtom);
+  const visiblePoolChains = useVisibleChains("pools");
+  const visibleStabilityChains = useVisibleChains("stabilityPool");
 
-  // Always fetch stability pool data from Celo (where borrow/SP is deployed)
-  const spChainId = ChainId.Celo;
+  const { data: celoSpPosition } = useStabilityPool(
+    debtToken.symbol,
+    ChainId.Celo,
+    { enabled: visibleStabilityChains.includes(ChainId.Celo) },
+  );
+  const { data: celoTotalDeposits } = useStabilityPoolStats(
+    debtToken.symbol,
+    ChainId.Celo,
+    { enabled: visibleStabilityChains.includes(ChainId.Celo) },
+  );
+  const { data: celoSpApy, avgInterestRate: celoAvgInterestRate } =
+    useStabilityPoolApy(debtToken.symbol, ChainId.Celo, {
+      enabled: visibleStabilityChains.includes(ChainId.Celo),
+    });
 
-  // Stability Pool data — always from Celo regardless of connected chain
-  const { data: spPosition } = useStabilityPool(debtToken.symbol, spChainId);
-  const { data: totalDeposits } = useStabilityPoolStats(
+  const { data: celoSepoliaSpPosition } = useStabilityPool(
     debtToken.symbol,
-    spChainId,
+    ChainId.CeloSepolia,
+    { enabled: visibleStabilityChains.includes(ChainId.CeloSepolia) },
   );
-  const { data: spApy, avgInterestRate } = useStabilityPoolApy(
+  const { data: celoSepoliaTotalDeposits } = useStabilityPoolStats(
     debtToken.symbol,
-    spChainId,
+    ChainId.CeloSepolia,
+    { enabled: visibleStabilityChains.includes(ChainId.CeloSepolia) },
   );
+  const {
+    data: celoSepoliaSpApy,
+    avgInterestRate: celoSepoliaAvgInterestRate,
+  } = useStabilityPoolApy(debtToken.symbol, ChainId.CeloSepolia, {
+    enabled: visibleStabilityChains.includes(ChainId.CeloSepolia),
+  });
 
   // LP Pool data — fetches across all chains
   const { data: pools = [] } = useAllPoolsList();
   const { rewards } = usePoolRewards();
+  const visibleEarnChains = useMemo(() => {
+    const chainIds = new Set<ChainId>([
+      ...visiblePoolChains,
+      ...visibleStabilityChains,
+    ]);
+    return Array.from(chainIds);
+  }, [visiblePoolChains, visibleStabilityChains]);
 
-  // Resolve token addresses on Celo for stability pool icons
-  const debtTokenAddress = (() => {
-    try {
-      return getTokenAddress(
-        spChainId,
-        debtToken.symbol as TokenSymbol,
-      ) as `0x${string}`;
-    } catch {
-      return undefined;
+  useEffect(() => {
+    if (chainFilter !== "all" && !visibleEarnChains.includes(chainFilter)) {
+      setChainFilter("all");
     }
-  })();
+  }, [chainFilter, visibleEarnChains]);
 
-  // Build stability pool opportunity (always Celo)
-  const stabilityOpportunity: StabilityOpportunity | null = useMemo(() => {
-    const hasDeposit = (spPosition?.deposit ?? 0n) > 0n;
-
-    const apyValue = spApy != null ? spApy * 100 : 0;
-    const avgRate = avgInterestRate != null ? avgInterestRate * 100 : 0;
-    const totalDep = formatCompactToken(
-      totalDeposits ?? null,
-      debtToken.symbol,
-    );
-
-    let userPosition = null;
-    if (isConnected && hasDeposit) {
-      const deposited = formatCompactToken(
-        spPosition?.deposit ?? 0n,
-        debtToken.symbol,
-      );
-      const rewardParts: string[] = [];
-      if (spPosition?.debtTokenGain && spPosition.debtTokenGain > 0n) {
-        rewardParts.push(
-          formatCompactToken(spPosition.debtTokenGain, debtToken.symbol),
-        );
-      }
-      if (spPosition?.collateralGain && spPosition.collateralGain > 0n) {
-        rewardParts.push(formatCompactToken(spPosition.collateralGain, "USDm"));
-      }
-      userPosition = {
-        deposited,
-        rewards: rewardParts.length > 0 ? rewardParts.join(" + ") : undefined,
-      };
-    }
-
-    return {
-      id: `sp-${spChainId}-${debtToken.symbol.toLowerCase()}`,
-      type: "stability" as const,
-      chainId: spChainId,
-      name: `${debtToken.symbol} Stability Pool`,
-      token: {
-        address: debtTokenAddress ?? "",
-        symbol: debtToken.symbol,
+  const stabilityOpportunities: StabilityOpportunity[] = useMemo(() => {
+    const chainData = [
+      {
+        chainId: ChainId.Celo,
+        position: celoSpPosition,
+        totalDeposits: celoTotalDeposits,
+        apy: celoSpApy,
+        avgInterestRate: celoAvgInterestRate,
       },
-      apy: apyValue,
-      apyLabel: "Pool APY",
-      hasRewards: false,
-      earnMechanics: [
-        { label: "Liquidation gains", color: "green" as const },
-        { label: "Protocol yield", color: "indigo" as const },
-        {
-          label: "Trove interest",
-          color: "amber" as const,
-          value: avgRate > 0 ? `${avgRate.toFixed(1)}%` : undefined,
-        },
-      ],
-      stats: [
-        { label: "Total deposits", value: totalDep },
-        {
-          label: "Avg. borrow rate",
-          value: avgRate > 0 ? `${avgRate.toFixed(1)}%` : "—",
-        },
-        { label: "Lock-up", value: "None" },
-      ],
-      userPosition,
-      href: withOpportunitySource(getStabilityRoute(debtToken.symbol), "earn"),
-    };
+      {
+        chainId: ChainId.CeloSepolia,
+        position: celoSepoliaSpPosition,
+        totalDeposits: celoSepoliaTotalDeposits,
+        apy: celoSepoliaSpApy,
+        avgInterestRate: celoSepoliaAvgInterestRate,
+      },
+    ];
+
+    return chainData
+      .filter(({ chainId }) => visibleStabilityChains.includes(chainId))
+      .map(({ chainId, position, totalDeposits, apy, avgInterestRate }) => {
+        let debtTokenAddress: `0x${string}` | undefined;
+
+        try {
+          debtTokenAddress = getTokenAddress(
+            chainId,
+            debtToken.symbol as TokenSymbol,
+          ) as `0x${string}`;
+        } catch {
+          debtTokenAddress = undefined;
+        }
+
+        return buildStabilityOpportunity({
+          chainId,
+          debtTokenSymbol: debtToken.symbol,
+          debtTokenAddress,
+          isConnected,
+          position: position ?? null,
+          totalDeposits,
+          apy,
+          avgInterestRate,
+        });
+      });
   }, [
-    spChainId,
-    spPosition,
-    spApy,
-    avgInterestRate,
-    totalDeposits,
-    debtToken,
-    debtTokenAddress,
+    visibleStabilityChains,
+    debtToken.symbol,
     isConnected,
+    celoSpPosition,
+    celoTotalDeposits,
+    celoSpApy,
+    celoAvgInterestRate,
+    celoSepoliaSpPosition,
+    celoSepoliaTotalDeposits,
+    celoSepoliaSpApy,
+    celoSepoliaAvgInterestRate,
   ]);
 
   // Build LP pool opportunities
@@ -227,11 +319,8 @@ export function EarnHub() {
 
   // Combine and filter/sort
   const allOpportunities: Opportunity[] = useMemo(() => {
-    const all: Opportunity[] = [];
-    if (stabilityOpportunity) all.push(stabilityOpportunity);
-    all.push(...lpOpportunities);
-    return all;
-  }, [stabilityOpportunity, lpOpportunities]);
+    return [...stabilityOpportunities, ...lpOpportunities];
+  }, [stabilityOpportunities, lpOpportunities]);
 
   const filtered = useMemo(() => {
     let result = allOpportunities;
@@ -333,7 +422,7 @@ export function EarnHub() {
           >
             All
           </button>
-          {VISIBLE_CHAINS.map((id) => {
+          {visibleEarnChains.map((id) => {
             const chain = chainIdToChain[id];
             const iconUrl = (chain as unknown as Record<string, unknown>)
               ?.iconUrl as string | undefined;

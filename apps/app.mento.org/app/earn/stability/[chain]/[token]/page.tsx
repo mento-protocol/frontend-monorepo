@@ -1,12 +1,19 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { ArrowLeft, CircleAlert } from "lucide-react";
 import { EarnView } from "@/components/borrow/earn/earn-view";
+import { HiddenTestnetState } from "@/components/shared/hidden-testnet-state";
 import { getOpportunityBackLink } from "@/lib/opportunity-navigation";
 import {
-  STABILITY_CHAIN_ID,
-  STABILITY_CHAIN_NAME,
+  DEFAULT_STABILITY_CHAIN_ID,
+  getStabilityChainName,
+  getStabilityFallbackChainId,
+  getStabilityRoute,
+  isStabilityChainVisible,
   resolveStabilityChainId,
   resolveStabilityDebtToken,
+  readTestnetModeCookie,
+  type StabilityChainId,
 } from "@/lib/stability-route";
 
 export default async function StabilityPoolPage({
@@ -21,6 +28,7 @@ export default async function StabilityPoolPage({
   const sourceValue = Array.isArray(source) ? source[0] : source;
   const backLink = getOpportunityBackLink(sourceValue);
   const routeChainId = resolveStabilityChainId(chain);
+  const testnetMode = readTestnetModeCookie((await cookies()).toString());
 
   if (!routeChainId) {
     return (
@@ -29,17 +37,6 @@ export default async function StabilityPoolPage({
         backLabel={backLink.label}
         title="Unknown network"
         description={`"${chain}" is not a supported network. Try celo.`}
-      />
-    );
-  }
-
-  if (routeChainId !== STABILITY_CHAIN_ID) {
-    return (
-      <StabilityPageError
-        backHref={backLink.href}
-        backLabel={backLink.label}
-        title="Stability Pool unavailable"
-        description={`The Stability Pool is currently available on ${STABILITY_CHAIN_NAME} only.`}
       />
     );
   }
@@ -57,11 +54,43 @@ export default async function StabilityPoolPage({
     );
   }
 
+  if (!isStabilityChainVisible(routeChainId, testnetMode)) {
+    const fallbackChainId =
+      getStabilityFallbackChainId(routeChainId) ?? DEFAULT_STABILITY_CHAIN_ID;
+
+    return (
+      <div className="md:items-center flex h-full w-full flex-wrap items-start justify-center">
+        <div className="max-w-5xl px-4 pt-6 md:px-0 md:pt-0 w-full">
+          <HiddenTestnetState
+            title="Testnet hidden"
+            description={`${getStabilityChainName(routeChainId) ?? "This testnet"} is available when Testnet Mode is enabled. Enable it from the profile menu, or switch back to mainnet.`}
+            fallbackHref={withSource(
+              getStabilityRoute(debtToken.symbol, fallbackChainId),
+              sourceValue,
+            )}
+            fallbackLabel={`Open ${getStabilityChainName(fallbackChainId) ?? "mainnet"} Stability Pool`}
+            switchChainId={fallbackChainId}
+            refreshOnEnable
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="md:items-center flex h-full w-full flex-wrap items-start justify-center">
-      <EarnView chainId={STABILITY_CHAIN_ID} debtToken={debtToken} />
+      <EarnView
+        chainId={routeChainId as StabilityChainId}
+        debtToken={debtToken}
+      />
     </div>
   );
+}
+
+function withSource(path: string, source: string | null | undefined): string {
+  if (!source) return path;
+  const separator = path.includes("?") ? "&" : "?";
+  return `${path}${separator}source=${source}`;
 }
 
 function StabilityPageError({

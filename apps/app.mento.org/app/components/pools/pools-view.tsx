@@ -11,12 +11,12 @@ import {
   getPoolRewardKey,
   chainIdToSlug,
   chainIdToChain,
+  useVisibleChains,
   ChainId,
   type PoolFilterType,
   type ChainFilterType,
   type PoolDisplay,
 } from "@repo/web3";
-import { VISIBLE_CHAINS } from "@repo/web3";
 import { PoolsTable } from "./pools-table";
 import { LiquidityFlowDialog } from "./liquidity-flow-dialog";
 import { RewardsCampaignBanner } from "./rewards-campaign-banner";
@@ -27,15 +27,8 @@ const filterTabs: { value: PoolFilterType; label: string }[] = [
   { value: "legacy", label: "Legacy" },
 ];
 
-const chainFilters: { value: ChainFilterType; label: string }[] = [
-  { value: "all", label: "All" },
-  ...VISIBLE_CHAINS.map((id) => ({
-    value: id as ChainFilterType,
-    label: chainIdToChain[id]?.name ?? `Chain ${id}`,
-  })),
-];
-
 export function PoolsView() {
+  const visibleChainIds = useVisibleChains("pools");
   const {
     data: pools = [],
     isLoading,
@@ -59,11 +52,20 @@ export function PoolsView() {
   const filter = (searchParams.get("type") as PoolFilterType) || "all";
   const chainParam = searchParams.get("chain");
   const chainFilter: ChainFilterType =
-    chainParam && !Number.isNaN(Number(chainParam))
+    chainParam &&
+    !Number.isNaN(Number(chainParam)) &&
+    visibleChainIds.includes(Number(chainParam) as ChainId)
       ? (Number(chainParam) as ChainId)
       : "all";
   const showRewardsOnly = searchParams.get("rewards") === "1";
   const search = searchParams.get("q") ?? "";
+  const chainFilters: { value: ChainFilterType; label: string }[] = [
+    { value: "all", label: "All" },
+    ...visibleChainIds.map((id) => ({
+      value: id as ChainFilterType,
+      label: chainIdToChain[id]?.name ?? `Chain ${id}`,
+    })),
+  ];
 
   const setFilter = useCallback(
     (value: PoolFilterType) => {

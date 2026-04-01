@@ -2,11 +2,21 @@
 
 import { use } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { chainSlugToId, usePoolsList, type ChainId } from "@repo/web3";
+import {
+  chainIdToSlug,
+  chainSlugToId,
+  getMainnetFallbackChainId,
+  isFeatureConfiguredOnChain,
+  isFeatureSupported,
+  usePoolsList,
+  useTestnetMode,
+  type ChainId,
+} from "@repo/web3";
 import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { LiquidityPanel } from "@/components/pools/liquidity-panel";
 import { LiquidityFlowDialog } from "@/components/pools/liquidity-flow-dialog";
 import { ChainMismatchBanner } from "@/components/shared/chain-mismatch-banner";
+import { HiddenTestnetState } from "@/components/shared/hidden-testnet-state";
 import { getOpportunityBackLink } from "@/lib/opportunity-navigation";
 import { Skeleton } from "@repo/ui";
 import { ArrowLeft, Droplets } from "lucide-react";
@@ -62,8 +72,23 @@ function PoolDetailContent({
   const router = useRouter();
   const { isConnected } = useAccount();
   const walletChainId = useChainId();
+  const [testnetMode] = useTestnetMode();
   const { data: pools, isLoading, isError } = usePoolsList(chainId);
   const isWrongChain = isConnected && walletChainId !== chainId;
+
+  if (
+    isFeatureConfiguredOnChain({ chainId, feature: "pools" }) &&
+    !isFeatureSupported({ chainId, feature: "pools", testnetMode })
+  ) {
+    const fallbackChainId = getMainnetFallbackChainId(chainId);
+
+    return (
+      <PoolHiddenTestnetState
+        fallbackHref={backHref}
+        switchChainId={fallbackChainId}
+      />
+    );
+  }
 
   if (isLoading && !pools) {
     return <PoolDetailSkeleton />;
@@ -120,6 +145,28 @@ function PoolDetailContent({
         />
       </div>
       <LiquidityFlowDialog />
+    </div>
+  );
+}
+
+function PoolHiddenTestnetState({
+  fallbackHref,
+  switchChainId,
+}: {
+  fallbackHref: "/earn" | "/pools";
+  switchChainId?: ChainId;
+}) {
+  return (
+    <div className="md:items-center flex h-full w-full flex-wrap items-start justify-center">
+      <div className="max-w-5xl px-4 pt-6 md:px-0 md:pt-0 w-full">
+        <HiddenTestnetState
+          title="Testnet hidden"
+          description="This pool is on a testnet network. Enable Testnet Mode from the profile menu to manage liquidity there, or switch back to mainnet."
+          fallbackHref={fallbackHref}
+          fallbackLabel="Back to Pools"
+          switchChainId={switchChainId}
+        />
+      </div>
     </div>
   );
 }

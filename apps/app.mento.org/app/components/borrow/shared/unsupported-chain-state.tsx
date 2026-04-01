@@ -1,19 +1,10 @@
 "use client";
 
 import { Button, TokenIcon } from "@repo/ui";
-import { Celo, ChainId } from "@repo/web3";
+import { Celo } from "@repo/web3";
 import { useSwitchChain } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 import { ArrowRightLeft } from "lucide-react";
-
-const UNSUPPORTED_CHAIN_IDS = new Set<number>([
-  ChainId.Monad,
-  ChainId.MonadTestnet,
-]);
-
-export function isBorrowSupportedChain(chainId: number): boolean {
-  return !UNSUPPORTED_CHAIN_IDS.has(chainId);
-}
 
 export function UnsupportedChainState({
   feature,
@@ -55,8 +46,8 @@ export function UnsupportedChainState({
 
   const title =
     feature === "borrow"
-      ? `Borrowing is only available on ${targetChain.name}`
-      : `Earning is only available on ${targetChain.name}`;
+      ? `Borrowing is only available on Celo networks`
+      : `Stability Pool earning is only available on Celo networks`;
 
   const description =
     feature === "borrow"

@@ -2,22 +2,28 @@
 
 import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect } from "react";
+import {
+  ChainId,
+  getMainnetFallbackChainId,
+  isFeatureSupported,
+  isTestnetChain,
+  useTestnetMode,
+} from "@repo/web3";
 import { useChainId } from "@repo/web3/wagmi";
 import { DebtTokenSelector } from "./shared/debt-token-selector";
 import { FlowDialog } from "./shared/flow-dialog";
-import {
-  UnsupportedChainState,
-  isBorrowSupportedChain,
-} from "./shared/unsupported-chain-state";
+import { UnsupportedChainState } from "./shared/unsupported-chain-state";
 import { BorrowDashboard } from "./dashboard/borrow-dashboard";
 import { OpenTroveForm } from "./open-trove/open-trove-form";
 import { ManageTroveView } from "./manage-trove/manage-trove-view";
 import { borrowViewAtom } from "./atoms/borrow-navigation";
+import { HiddenTestnetState } from "@/components/shared/hidden-testnet-state";
 
 export function BorrowView() {
   const view = useAtomValue(borrowViewAtom);
   const setBorrowView = useSetAtom(borrowViewAtom);
   const chainId = useChainId();
+  const [testnetMode] = useTestnetMode();
 
   // Reset to dashboard whenever the borrow tab is re-entered
   useEffect(() => {
@@ -25,6 +31,13 @@ export function BorrowView() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const showHeader = view === "dashboard" || view === "redeem";
+  const isHiddenTestnet = isTestnetChain(chainId) && !testnetMode;
+  const isBorrowChainSupported = isFeatureSupported({
+    chainId,
+    feature: "borrow",
+    testnetMode,
+  });
+  const fallbackChainId = getMainnetFallbackChainId(chainId) ?? ChainId.Celo;
 
   return (
     <div className="max-w-5xl space-y-6 px-4 pt-6 md:px-0 md:pt-0 pb-16 min-h-[550px] w-full">
@@ -43,13 +56,19 @@ export function BorrowView() {
                 troves below.
               </p>
             </div>
-            {isBorrowSupportedChain(chainId) && <DebtTokenSelector />}
+            {isBorrowChainSupported && <DebtTokenSelector />}
           </div>
         </div>
       )}
 
       {/* Content */}
-      {!isBorrowSupportedChain(chainId) ? (
+      {isHiddenTestnet ? (
+        <HiddenTestnetState
+          title="Testnet hidden"
+          description="Borrow on Celo Sepolia is available when Testnet Mode is enabled. Enable it from the profile menu, or switch back to Celo mainnet."
+          switchChainId={fallbackChainId}
+        />
+      ) : !isBorrowChainSupported ? (
         <UnsupportedChainState feature="borrow" />
       ) : (
         <>
