@@ -3,7 +3,6 @@
 import { use } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  chainIdToSlug,
   chainSlugToId,
   getMainnetFallbackChainId,
   isFeatureConfiguredOnChain,
