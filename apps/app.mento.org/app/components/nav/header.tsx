@@ -1,6 +1,13 @@
 "use client";
 
-import { ChainButton, ConnectButton, chainIdToSlug } from "@repo/web3";
+import {
+  ChainButton,
+  ChainId,
+  ConnectButton,
+  chainIdToSlug,
+  getPreferredVisibleChain,
+  useTestnetMode,
+} from "@repo/web3";
 import { useChainId } from "@repo/web3/wagmi";
 
 import { useTheme } from "next-themes";
@@ -61,6 +68,7 @@ export function Header() {
   const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 });
 
   const walletChainId = useChainId();
+  const [testnetMode] = useTestnetMode();
 
   // Derive active tab from URL when on routed pages
   const activeTab: AppTab = useMemo(() => {
@@ -75,7 +83,13 @@ export function Header() {
   const getTabHref = (tab: AppTab): string => {
     switch (tab) {
       case "swap": {
-        const chainSlug = chainIdToSlug(walletChainId) || "celo";
+        const routeChainId = getPreferredVisibleChain({
+          chainId: walletChainId,
+          feature: "swap",
+          testnetMode,
+          fallbackChainId: ChainId.Celo,
+        });
+        const chainSlug = chainIdToSlug(routeChainId) || "celo";
         return `/swap/${chainSlug}`;
       }
       case "pool":

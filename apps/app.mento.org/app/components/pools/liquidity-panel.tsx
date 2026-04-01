@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from "react";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import { AddLiquidityForm } from "./add-liquidity-form";
 import { RemoveLiquidityForm } from "./remove-liquidity-form";
+import { PoolFeePopover } from "./pool-fee-popover";
 import { UserPositionCard } from "./user-position-card";
 
 interface LiquidityPanelProps {
@@ -211,8 +212,9 @@ export function LiquidityPanel({
           <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
             Pool Fee
           </span>
-          <div className="text-sm font-semibold mt-1">
-            {pool.fees.total.toFixed(1)}%
+          <div className="gap-1.5 text-sm font-semibold mt-1 flex items-center">
+            <span>{pool.fees.lp.toFixed(2)}%</span>
+            <PoolFeePopover pool={pool} />
           </div>
         </div>
         <div className="px-4 py-3 rounded-xl border border-border bg-card">

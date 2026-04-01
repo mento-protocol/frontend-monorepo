@@ -41,7 +41,7 @@ function formatTokenAmount(
 ): string {
   if (!amount || amount === 0n) return "0.0000";
   return Number(formatUnits(amount, decimals)).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
+    minimumFractionDigits: 4,
     maximumFractionDigits: 4,
   });
 }
@@ -782,7 +782,8 @@ export function RemoveLiquidityForm({
           </div>
 
           <p className="mt-4 leading-relaxed text-[11px] text-muted-foreground/60">
-            Sets minimum amounts for zap swaps and liquidity mint/burn.
+            Sets the minimum amounts for single-token deposits/withdrawals and
+            liquidity mint/burn.
           </p>
         </div>
 

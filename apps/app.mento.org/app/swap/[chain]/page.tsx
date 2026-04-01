@@ -2,10 +2,19 @@
 
 import { use } from "react";
 import { useSearchParams } from "next/navigation";
-import { chainSlugToId } from "@repo/web3";
+import {
+  ChainId,
+  chainIdToSlug,
+  chainSlugToId,
+  getMainnetFallbackChainId,
+  isFeatureConfiguredOnChain,
+  isFeatureSupported,
+  useTestnetMode,
+} from "@repo/web3";
 import { ArrowLeft, ArrowRightLeft } from "lucide-react";
 import Link from "next/link";
 import { SwapPageContent } from "./swap-page-content";
+import { HiddenTestnetState } from "@/components/shared/hidden-testnet-state";
 
 export default function SwapPage({
   params,
@@ -14,11 +23,34 @@ export default function SwapPage({
 }) {
   const { chain } = use(params);
   const searchParams = useSearchParams();
+  const [testnetMode] = useTestnetMode();
 
   const chainId = chainSlugToId(chain);
 
   if (!chainId) {
     return <SwapError chain={chain} />;
+  }
+
+  if (
+    isFeatureConfiguredOnChain({ chainId, feature: "swap" }) &&
+    !isFeatureSupported({ chainId, feature: "swap", testnetMode })
+  ) {
+    const fallbackChainId = getMainnetFallbackChainId(chainId) ?? ChainId.Celo;
+    const fallbackSlug = chainIdToSlug(fallbackChainId) ?? "celo";
+
+    return (
+      <div className="md:items-center flex h-full w-full flex-wrap items-start justify-center">
+        <div className="px-4 md:px-0 w-full max-w-[568px]">
+          <HiddenTestnetState
+            title="Testnet hidden"
+            description={`${chain} is a testnet network. Enable Testnet Mode from the profile menu to use swap there, or switch back to ${fallbackSlug}.`}
+            fallbackHref={`/swap/${fallbackSlug}`}
+            fallbackLabel={`Go to Swap on ${fallbackSlug}`}
+            switchChainId={fallbackChainId}
+          />
+        </div>
+      </div>
+    );
   }
 
   const initialFrom = searchParams.get("from") || undefined;

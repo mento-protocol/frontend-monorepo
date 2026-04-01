@@ -16,6 +16,7 @@ import { useChainId, usePublicClient } from "wagmi";
 export function useStabilityPoolAddress(
   symbol = "GBPm",
   targetChainId?: number,
+  options?: { enabled?: boolean },
 ) {
   const walletChainId = useChainId();
   const chainId = targetChainId ?? walletChainId;
@@ -31,7 +32,7 @@ export function useStabilityPoolAddress(
       );
       return addresses.stabilityPool as `0x${string}`;
     },
-    enabled: !!publicClient,
+    enabled: (options?.enabled ?? true) && !!publicClient,
     staleTime: Infinity,
   });
 }

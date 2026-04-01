@@ -3,6 +3,7 @@
 import { BalancesSummary } from "@/components/balances-summary";
 import { BalancesSummaryMento } from "@/components/balances-summary-mento";
 import { Identicon } from "@/components/identicon";
+import { useTestnetMode } from "@/config/testnet-mode";
 import { tryClipboardSet } from "@/utils/clipboard";
 import { WalletHelper } from "@/utils/wallet.helper";
 import {
@@ -11,7 +12,13 @@ import {
   useConnectModal,
 } from "@rainbow-me/rainbowkit";
 import { toast } from "@repo/ui";
-import { ChevronDown, ClipboardCopy, LogOut } from "lucide-react";
+import {
+  ChevronDown,
+  ClipboardCopy,
+  LogOut,
+  Square,
+  SquareCheck,
+} from "lucide-react";
 import { useAccount, useDisconnect } from "wagmi";
 
 import {
@@ -21,6 +28,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@repo/ui";
@@ -46,6 +54,7 @@ function ConnectedDropdown({
 }: ConnectedDropdownProps) {
   const { openAccountModal } = useAccountModal();
   const { disconnect } = useDisconnect();
+  const [testnetMode, setTestnetMode] = useTestnetMode();
 
   const onClickCopy = async () => {
     if (!account.address) return;
@@ -90,6 +99,34 @@ function ConnectedDropdown({
           ) : (
             <BalancesSummary />
           )}
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="px-2 pb-0 text-xs tracking-widest text-muted-foreground uppercase">
+            Settings
+          </DropdownMenuLabel>
+          <DropdownMenuItem
+            onClick={() => setTestnetMode(!testnetMode)}
+            className={cn(
+              "gap-3 py-3 cursor-pointer",
+              "focus:bg-accent focus:text-accent-foreground",
+            )}
+            role="menuitemcheckbox"
+            aria-checked={testnetMode}
+          >
+            {testnetMode ? (
+              <SquareCheck
+                size={iconSize}
+                strokeWidth={iconStrokeWidth}
+                className="text-muted-foreground"
+              />
+            ) : (
+              <Square
+                size={iconSize}
+                strokeWidth={iconStrokeWidth}
+                className="text-muted-foreground"
+              />
+            )}
+            Testnet Mode
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={onClickCopy}

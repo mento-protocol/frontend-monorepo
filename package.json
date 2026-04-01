@@ -93,7 +93,7 @@
       "picomatch": "4.0.4",
       "preact": ">=10.28.2",
       "rollup@>=4.0.0 <4.59.0": ">=4.59.0",
-      "serialize-javascript@<7.0.3": ">=7.0.3",
+      "serialize-javascript@<7.0.5": ">=7.0.5",
       "smol-toml@<1.6.1": ">=1.6.1",
       "socket.io-parser@>=4.0.0 <4.2.6": ">=4.2.6",
       "tmp": ">=0.2.4",

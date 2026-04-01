@@ -1,6 +1,7 @@
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries } from "@tanstack/react-query";
 import { ChainId } from "@/config/chains";
+import { useVisibleChains } from "@/config/testnet-mode";
 import type { PoolRewardInfo } from "../types";
 
 const MERKL_API_BASE = "/api/merkl";
@@ -98,24 +99,20 @@ async function fetchChainRewards(
  * Returns a Map keyed by chain-aware pool reward key → reward info.
  */
 export function usePoolRewards() {
-  const celoQuery = useQuery({
-    queryKey: ["pool-rewards", ChainId.Celo, MERKL_PROTOCOL_ID],
-    queryFn: () => fetchChainRewards(ChainId.Celo),
-    staleTime: REWARDS_STALE_TIME,
-    gcTime: 10 * 60_000,
+  const rewardChainIds = useVisibleChains("rewards");
+  const queries = useQueries({
+    queries: rewardChainIds.map((chainId) => ({
+      queryKey: ["pool-rewards", chainId, MERKL_PROTOCOL_ID],
+      queryFn: () => fetchChainRewards(chainId),
+      staleTime: REWARDS_STALE_TIME,
+      gcTime: 10 * 60_000,
+    })),
   });
 
-  const monadQuery = useQuery({
-    queryKey: ["pool-rewards", ChainId.Monad, MERKL_PROTOCOL_ID],
-    queryFn: () => fetchChainRewards(ChainId.Monad),
-    staleTime: REWARDS_STALE_TIME,
-    gcTime: 10 * 60_000,
-  });
-
-  const rewardQueries = [
-    { chainId: ChainId.Celo, query: celoQuery },
-    { chainId: ChainId.Monad, query: monadQuery },
-  ];
+  const rewardQueries = rewardChainIds.map((chainId, index) => ({
+    chainId,
+    query: queries[index]!,
+  }));
 
   const isLoading = rewardQueries.some(({ query }) => query.isLoading);
   const isError = rewardQueries.some(({ query }) => query.isError);
@@ -127,14 +124,14 @@ export function usePoolRewards() {
 
   const rewards = useMemo(() => {
     const merged = new Map<string, PoolRewardInfo>();
-    if (celoQuery.data) {
-      for (const [k, v] of celoQuery.data) merged.set(k, v);
-    }
-    if (monadQuery.data) {
-      for (const [k, v] of monadQuery.data) merged.set(k, v);
+    for (const query of queries) {
+      if (!query.data) continue;
+      for (const [k, v] of query.data) {
+        merged.set(k, v);
+      }
     }
     return merged;
-  }, [celoQuery.data, monadQuery.data]);
+  }, [queries]);
 
   const refetch = async () => {
     await Promise.all(rewardQueries.map(({ query }) => query.refetch()));

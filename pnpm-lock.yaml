@@ -124,26 +124,26 @@ overrides:
   form-data@<2.5.4: '>=2.5.4'
   glob@<11.1.0: '>=11.1.0'
   h3@<1.15.6: '>=1.15.6'
+  handlebars@<4.7.9: '>=4.7.9'
   hono@<4.12.7: '>=4.12.7'
   immutable@<3.8.0: '>=3.8.0'
-  handlebars@<4.7.9: '>=4.7.9'
   js-yaml@<4.1.1: '>=4.1.1'
   linkifyjs: ^4.3.2
   lodash@<4.17.23: '>=4.17.23'
   markdown-it@<14.1.1: '>=14.1.1'
   mdast-util-to-hast: ^13.2.1
   minimatch@>=10.0.0 <10.2.4: '>=10.2.4'
-  picomatch: 4.0.4
   next: ^15.5.10
+  picomatch: 4.0.4
   preact: '>=10.28.2'
   rollup@>=4.0.0 <4.59.0: '>=4.59.0'
-  serialize-javascript@<7.0.3: '>=7.0.3'
-  socket.io-parser@>=4.0.0 <4.2.6: '>=4.2.6'
+  serialize-javascript@<7.0.5: '>=7.0.5'
   smol-toml@<1.6.1: '>=1.6.1'
+  socket.io-parser@>=4.0.0 <4.2.6: '>=4.2.6'
   tmp: '>=0.2.4'
   wagmi: ^2.16.9
-  yaml@<1.10.3: '>=1.10.3 <2'
   yaml@>=2.0.0 <2.8.3: '>=2.8.3'
+  yaml@<1.10.3: '>=1.10.3 <2'
   zod: ^4.1.13
 
 importers:
@@ -11807,8 +11807,8 @@ packages:
     resolution: {integrity: sha512-ghgmKt5o4Tly5yEG/UJp8qTd0AN7Xalw4XBtDEKP655B699qMEtra1WlXeE6WIvdEG481JvRxULKsInq/iNysw==}
     engines: {node: '>=0.10.0'}
 
-  serialize-javascript@7.0.4:
-    resolution: {integrity: sha512-DuGdB+Po43Q5Jxwpzt1lhyFSYKryqoNjQSA9M92tyw0lyHIOur+XCalOUe0KTJpyqzT8+fQ5A0Jf7vCx/NKmIg==}
+  serialize-javascript@7.0.5:
+    resolution: {integrity: sha512-F4LcB0UqUl1zErq+1nYEEzSHJnIwb3AF2XWB94b+afhrekOUijwooAYqFyRbjYkm2PAKBabx6oYv/xDxNi8IBw==}
     engines: {node: '>=20.0.0'}
 
   serve-static@1.16.3:
@@ -29396,7 +29396,7 @@ snapshots:
 
   serialize-error@2.1.0: {}
 
-  serialize-javascript@7.0.4: {}
+  serialize-javascript@7.0.5: {}
 
   serve-static@1.16.3:
     dependencies:
@@ -29840,7 +29840,7 @@ snapshots:
       '@jridgewell/trace-mapping': 0.3.31
       jest-worker: 27.5.1
       schema-utils: 4.3.3
-      serialize-javascript: 7.0.4
+      serialize-javascript: 7.0.5
       terser: 5.44.1
       webpack: 5.104.1(esbuild@0.27.2)
     optionalDependencies:
@@ -29851,7 +29851,7 @@ snapshots:
       '@jridgewell/trace-mapping': 0.3.31
       jest-worker: 27.5.1
       schema-utils: 4.3.3
-      serialize-javascript: 7.0.4
+      serialize-javascript: 7.0.5
       terser: 5.44.1
       webpack: 5.104.1
 

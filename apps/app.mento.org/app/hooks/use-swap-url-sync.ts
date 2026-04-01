@@ -2,7 +2,13 @@
 
 import { useEffect, useRef } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { chainIdToSlug, type ChainId } from "@repo/web3";
+import {
+  ChainId,
+  chainIdToSlug,
+  getPreferredVisibleChain,
+  useTestnetMode,
+  type ChainId as AppChainId,
+} from "@repo/web3";
 import { useChainId } from "@repo/web3/wagmi";
 
 /**
@@ -20,12 +26,13 @@ export function useSwapUrlSync({
   amount?: string;
   tokenInSymbol?: string;
   tokenOutSymbol?: string;
-  urlChainId: ChainId;
+  urlChainId: AppChainId;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const walletChainId = useChainId();
+  const [testnetMode] = useTestnetMode();
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasInitializedRef = useRef(false);
@@ -142,7 +149,13 @@ export function useSwapUrlSync({
     // not on initial load where wallet and URL chain may differ (deep link)
     if (prevWalletChain === walletChainId) return;
 
-    const newSlug = chainIdToSlug(walletChainId);
+    const routeChainId = getPreferredVisibleChain({
+      chainId: walletChainId,
+      feature: "swap",
+      testnetMode,
+      fallbackChainId: ChainId.Celo,
+    });
+    const newSlug = chainIdToSlug(routeChainId);
     if (!newSlug) return;
 
     const tokenIn = tokenInSymbol || "";
@@ -155,5 +168,13 @@ export function useSwapUrlSync({
 
     const query = params.toString();
     router.replace(`/swap/${newSlug}${query ? `?${query}` : ""}`);
-  }, [walletChainId, pathname, router, tokenInSymbol, tokenOutSymbol, amount]);
+  }, [
+    walletChainId,
+    pathname,
+    router,
+    tokenInSymbol,
+    tokenOutSymbol,
+    amount,
+    testnetMode,
+  ]);
 }

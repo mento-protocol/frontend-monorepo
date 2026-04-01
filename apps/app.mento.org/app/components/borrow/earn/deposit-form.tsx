@@ -206,7 +206,7 @@ export function DepositForm({
 
       {showSwapCta && (
         <Button variant="outline" size="lg" className="w-full" asChild>
-          <Link href={getStabilitySwapRoute(debtToken.symbol)}>
+          <Link href={getStabilitySwapRoute(debtToken.symbol, targetChainId)}>
             <ArrowRightLeft className="h-4 w-4" />
             Swap USDm for {debtToken.symbol}
           </Link>

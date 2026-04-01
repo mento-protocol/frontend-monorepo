@@ -3,9 +3,17 @@ import { stabilityPoolAbi } from "../stability-pool/abi";
 import type { StabilityPoolPosition } from "../types";
 import { useStabilityPoolAddress } from "./use-stability-pool-address";
 
-export function useStabilityPool(symbol = "GBPm", targetChainId?: number) {
+export function useStabilityPool(
+  symbol = "GBPm",
+  targetChainId?: number,
+  options?: { enabled?: boolean },
+) {
   const { address: account } = useAccount();
-  const { data: spAddress } = useStabilityPoolAddress(symbol, targetChainId);
+  const { data: spAddress } = useStabilityPoolAddress(
+    symbol,
+    targetChainId,
+    options,
+  );
 
   const result = useReadContracts({
     allowFailure: false,
@@ -47,7 +55,7 @@ export function useStabilityPool(symbol = "GBPm", targetChainId?: number) {
       },
     ],
     query: {
-      enabled: !!spAddress && !!account,
+      enabled: (options?.enabled ?? true) && !!spAddress && !!account,
       refetchInterval: 30_000,
     },
   });

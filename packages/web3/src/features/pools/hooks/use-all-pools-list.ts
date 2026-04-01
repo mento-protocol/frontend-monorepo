@@ -1,47 +1,25 @@
-import { ChainId } from "@/config/chains";
-import { IS_DEBUG } from "@/utils/environment";
-import { usePoolsList } from "./use-pools-list";
+import { useVisibleChains } from "@/config/testnet-mode";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
+import { getPoolsListQueryOptions } from "./use-pools-list";
 import { sortPoolsByTvl, type PoolDisplay } from "../types";
-
-/** Mainnet chains to fetch pools from */
-export const MAINNET_CHAINS: ChainId[] = [ChainId.Celo, ChainId.Monad];
-
-/** Testnet chains (only visible when debug mode is enabled) */
-export const TESTNET_CHAINS: ChainId[] = [
-  ChainId.CeloSepolia,
-  ChainId.MonadTestnet,
-];
-
-/** Chains visible in the pools list (mainnet + testnets when debug is on) */
-export const VISIBLE_CHAINS: ChainId[] = IS_DEBUG
-  ? [...MAINNET_CHAINS, ...TESTNET_CHAINS]
-  : MAINNET_CHAINS;
 
 /**
  * Fetches pools from all visible chains in parallel and merges them
  * into a single flat list. Each pool includes its chainId.
  */
 export function useAllPoolsList() {
-  const celoQuery = usePoolsList(ChainId.Celo);
-  const monadQuery = usePoolsList(ChainId.Monad);
-  const celoSepoliaQuery = usePoolsList(ChainId.CeloSepolia, {
-    enabled: IS_DEBUG,
-  });
-  const monadTestnetQuery = usePoolsList(ChainId.MonadTestnet, {
-    enabled: IS_DEBUG,
+  const queryClient = useQueryClient();
+  const visibleChains = useVisibleChains("pools");
+  const queries = useQueries({
+    queries: visibleChains.map((chainId) =>
+      getPoolsListQueryOptions(chainId, queryClient),
+    ),
   });
 
-  const allQueries = IS_DEBUG
-    ? [
-        { chainId: ChainId.Celo, query: celoQuery },
-        { chainId: ChainId.Monad, query: monadQuery },
-        { chainId: ChainId.CeloSepolia, query: celoSepoliaQuery },
-        { chainId: ChainId.MonadTestnet, query: monadTestnetQuery },
-      ]
-    : [
-        { chainId: ChainId.Celo, query: celoQuery },
-        { chainId: ChainId.Monad, query: monadQuery },
-      ];
+  const allQueries = visibleChains.map((chainId, index) => ({
+    chainId,
+    query: queries[index]!,
+  }));
 
   // Progressive loading: show pools from chains that have resolved while
   // others are still in flight, instead of blocking on the slowest chain.

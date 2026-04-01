@@ -11,18 +11,22 @@ function bigintToNumber(value: bigint, decimals = DECIMALS): number {
   return Number(whole) + Number(fraction) / Number(divisor);
 }
 
+function formatDebtValue(num: number, debtToken: DebtTokenConfig): string {
+  const formatted = new Intl.NumberFormat(debtToken.locale, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num);
+
+  return `${formatted} ${debtToken.symbol}`;
+}
+
 export function formatDebtAmount(
   amount: bigint | null | undefined,
   debtToken: DebtTokenConfig,
 ): string {
   if (amount == null) return PLACEHOLDER;
   const num = bigintToNumber(amount);
-  return new Intl.NumberFormat(debtToken.locale, {
-    style: "currency",
-    currency: debtToken.currencyCode,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(num);
+  return formatDebtValue(num, debtToken);
 }
 
 export function formatDebtTokenAmount(
@@ -56,13 +60,7 @@ export function formatPrice(
 ): string {
   if (price == null) return PLACEHOLDER;
   const num = bigintToNumber(price);
-  const formatted = new Intl.NumberFormat(debtToken.locale, {
-    style: "currency",
-    currency: debtToken.currencyCode,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(num);
-  return `${formatted} per USDm`;
+  return `${formatDebtValue(num, debtToken)} per USDm`;
 }
 
 export function formatInterestRate(rate: bigint | null | undefined): string {

@@ -1,6 +1,33 @@
-export const STABILITY_CHAIN_ID = 42220;
-export const STABILITY_CHAIN_NAME = "Celo";
-const STABILITY_CHAIN_SLUG = "celo";
+export type StabilityChainId = 42220 | 11142220;
+
+const DEFAULT_CHAIN_SLUG = "celo";
+const CELO_CHAIN_ID = 42220 as const;
+const CELO_SEPOLIA_CHAIN_ID = 11142220 as const;
+
+const STABILITY_CHAINS = {
+  [CELO_CHAIN_ID]: {
+    name: "Celo",
+    slug: "celo",
+    isTestnet: false,
+    fallbackChainId: CELO_CHAIN_ID,
+  },
+  [CELO_SEPOLIA_CHAIN_ID]: {
+    name: "Celo Sepolia Testnet",
+    slug: "celo-sepolia",
+    isTestnet: true,
+    fallbackChainId: CELO_CHAIN_ID,
+  },
+} as const satisfies Record<
+  StabilityChainId,
+  {
+    name: string;
+    slug: string;
+    isTestnet: boolean;
+    fallbackChainId: StabilityChainId;
+  }
+>;
+
+export const DEFAULT_STABILITY_CHAIN_ID = CELO_CHAIN_ID;
 
 const STABILITY_DEBT_TOKENS = [
   {
@@ -11,10 +38,65 @@ const STABILITY_DEBT_TOKENS = [
   },
 ] as const;
 
-export function resolveStabilityChainId(chainSlug: string): number | undefined {
-  return chainSlug.toLowerCase() === STABILITY_CHAIN_SLUG
-    ? STABILITY_CHAIN_ID
+function parseStoredBoolean(value?: string | null): boolean | null {
+  if (value === "1" || value === "true") return true;
+  if (value === "0" || value === "false") return false;
+  return null;
+}
+
+function readCookieValue(
+  cookieSource: string | null | undefined,
+  key: string,
+): string | null {
+  if (!cookieSource) return null;
+
+  const prefix = `${key}=`;
+  const match = cookieSource
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix));
+
+  return match ? match.slice(prefix.length) : null;
+}
+
+export function readTestnetModeCookie(cookieSource?: string | null): boolean {
+  return (
+    parseStoredBoolean(readCookieValue(cookieSource, "mento_testnet_mode")) ??
+    false
+  );
+}
+
+export function resolveStabilityChainId(
+  chainSlug: string,
+): StabilityChainId | undefined {
+  const normalizedSlug = chainSlug.toLowerCase();
+  const matchingChainEntry = Object.entries(STABILITY_CHAINS).find(
+    ([, chain]) => chain.slug === normalizedSlug,
+  );
+
+  return matchingChainEntry
+    ? (Number(matchingChainEntry[0]) as StabilityChainId)
     : undefined;
+}
+
+export function getStabilityChainName(chainId: number): string | undefined {
+  return STABILITY_CHAINS[chainId as StabilityChainId]?.name;
+}
+
+export function isStabilityChainVisible(
+  chainId: number,
+  testnetMode: boolean,
+): chainId is StabilityChainId {
+  const chain = STABILITY_CHAINS[chainId as StabilityChainId];
+  if (!chain) return false;
+
+  return testnetMode || !chain.isTestnet;
+}
+
+export function getStabilityFallbackChainId(
+  chainId: number,
+): StabilityChainId | undefined {
+  return STABILITY_CHAINS[chainId as StabilityChainId]?.fallbackChainId;
 }
 
 export function resolveStabilityDebtToken(
@@ -27,15 +109,33 @@ export function resolveStabilityDebtToken(
 
 export const DEFAULT_STABILITY_TOKEN = STABILITY_DEBT_TOKENS[0];
 
-export function getStabilityRoute(symbol: string): string {
-  return `/earn/stability/${STABILITY_CHAIN_SLUG}/${symbol.toLowerCase()}`;
+function chainIdToSlug(chainId: number): string | undefined {
+  return STABILITY_CHAINS[chainId as StabilityChainId]?.slug;
 }
 
-export function getStabilitySwapRoute(symbol: string): string {
+export function getStabilityRoute(
+  symbol: string,
+  chainId: number = DEFAULT_STABILITY_CHAIN_ID,
+): string {
+  const chainSlug =
+    chainIdToSlug(chainId) ??
+    chainIdToSlug(DEFAULT_STABILITY_CHAIN_ID) ??
+    DEFAULT_CHAIN_SLUG;
+  return `/earn/stability/${chainSlug}/${symbol.toLowerCase()}`;
+}
+
+export function getStabilitySwapRoute(
+  symbol: string,
+  chainId: number = DEFAULT_STABILITY_CHAIN_ID,
+): string {
   const params = new URLSearchParams({
     from: "USDm",
     to: symbol,
   });
 
-  return `/swap/${STABILITY_CHAIN_SLUG}?${params.toString()}`;
+  const chainSlug =
+    chainIdToSlug(chainId) ??
+    chainIdToSlug(DEFAULT_STABILITY_CHAIN_ID) ??
+    DEFAULT_CHAIN_SLUG;
+  return `/swap/${chainSlug}?${params.toString()}`;
 }

@@ -3,13 +3,16 @@
 import { useAtomValue, useSetAtom } from "jotai";
 import { Button, Card, CardContent, Skeleton, TokenIcon } from "@repo/ui";
 import {
+  ConnectButton,
   useUserTroves,
   useSurplusCollateral,
   useClaimCollateral,
   selectedDebtTokenAtom,
   formatCollateralAmount,
   formatDebtAmount,
+  formatDebtTokenAmount,
   formatLtv,
+  useCollateralPrice,
   useLoanDetails,
 } from "@repo/web3";
 import type { BorrowPosition, DebtTokenConfig } from "@repo/web3";
@@ -39,7 +42,7 @@ export function BorrowDashboard() {
   const hasSurplus = surplusAmount != null && surplusAmount > 0n;
 
   if (!isConnected) {
-    return <NotConnectedState />;
+    return <EmptyState isConnected={false} />;
   }
 
   if (trovesError) {
@@ -58,7 +61,9 @@ export function BorrowDashboard() {
   }
 
   if (!trovesLoading && !hasTroves && !hasSurplus) {
-    return <EmptyState onOpenTrove={() => setBorrowView("open-trove")} />;
+    return (
+      <EmptyState isConnected onOpenTrove={() => setBorrowView("open-trove")} />
+    );
   }
 
   return (
@@ -138,6 +143,7 @@ function PortfolioSummary({
       : null;
   const totalDebt =
     troves.length > 0 ? troves.reduce((sum, t) => sum + t.debt, 0n) : null;
+  const { data: collateralPrice } = useCollateralPrice(debtToken.symbol);
 
   // Compute weighted average LTV from the first trove's loan details context
   // We use the total collateral/debt to get an aggregate LTV
@@ -148,6 +154,9 @@ function PortfolioSummary({
     debtToken.symbol,
   );
 
+  const totalDebtUsdValue = formatDebtUsdAmount(totalDebt, collateralPrice);
+  const totalDebtTokenValue = formatDebtTokenAmount(totalDebt, debtToken);
+
   const stats = [
     {
       label: "Total Collateral",
@@ -155,7 +164,10 @@ function PortfolioSummary({
     },
     {
       label: "Total Debt",
-      value: isLoading ? null : formatDebtAmount(totalDebt, debtToken),
+      value: isLoading
+        ? null
+        : (totalDebtUsdValue ?? formatDebtAmount(totalDebt, debtToken)),
+      secondaryValue: isLoading ? null : totalDebtTokenValue,
     },
     {
       label: "Avg LTV",
@@ -180,7 +192,15 @@ function PortfolioSummary({
               className={`mt-1 text-xl font-semibold tracking-tight ${stat.accent ? "text-primary" : ""}`}
             >
               {stat.value != null ? (
-                stat.value
+                <>
+                  <div>{stat.value}</div>
+                  {"secondaryValue" in stat &&
+                    typeof stat.secondaryValue === "string" && (
+                      <div className="mt-1 text-xs font-mono font-medium text-muted-foreground/60">
+                        {stat.secondaryValue}
+                      </div>
+                    )}
+                </>
               ) : (
                 <Skeleton className="mt-1 h-6 w-20" />
               )}
@@ -192,17 +212,32 @@ function PortfolioSummary({
   );
 }
 
-function NotConnectedState() {
-  return (
-    <div className="p-8 bg-card text-center">
-      <p className="text-muted-foreground">
-        Connect your wallet to view your borrow positions.
-      </p>
-    </div>
-  );
+function formatDebtUsdAmount(
+  amount: bigint | null | undefined,
+  collateralPrice: bigint | null | undefined,
+): string | null {
+  if (amount == null || collateralPrice == null || collateralPrice <= 0n) {
+    return null;
+  }
+
+  const usdValue = (amount * 10n ** 18n) / collateralPrice;
+  const num = Number(usdValue) / 1e18;
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num);
 }
 
-function EmptyState({ onOpenTrove }: { onOpenTrove: () => void }) {
+function EmptyState({
+  isConnected,
+  onOpenTrove,
+}: {
+  isConnected: boolean;
+  onOpenTrove?: () => void;
+}) {
   const chainId = useChainId();
   const debtToken = useAtomValue(selectedDebtTokenAtom);
 
@@ -227,7 +262,7 @@ function EmptyState({ onOpenTrove }: { onOpenTrove: () => void }) {
 
   const stats = [
     { label: "Min. collateral ratio", value: "110%" },
-    { label: "Min. debt", value: `${debtToken.currencySymbol}1,000` },
+    { label: "Min. debt", value: `1,000 ${debtToken.symbol}` },
     { label: "Interest rates from", value: "0.5%" },
   ];
 
@@ -251,94 +286,6 @@ function EmptyState({ onOpenTrove }: { onOpenTrove: () => void }) {
 
   return (
     <div className="space-y-8">
-      {/* Empty state card */}
-      <div className="px-6 py-14 relative overflow-hidden rounded-xl border border-border bg-card text-center">
-        {/* Top accent line */}
-        <div className="top-0 w-48 absolute left-1/2 h-[2px] -translate-x-1/2 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
-
-        {/* Token icon cluster */}
-        <div className="mb-7 flex justify-center">
-          <div className="h-14 w-20 relative">
-            <div className="left-0 top-2 absolute z-[2]">
-              {collateralAddress ? (
-                <TokenIcon
-                  token={{ address: collateralAddress, symbol: "USDm" }}
-                  size={44}
-                  className="rounded-full"
-                />
-              ) : (
-                <div className="h-11 w-11 bg-emerald-500 text-lg font-bold flex items-center justify-center rounded-full">
-                  $
-                </div>
-              )}
-            </div>
-            <div className="left-8 top-2 absolute z-[1]">
-              <div className="rounded-full border-[3px] border-card">
-                {debtTokenAddress ? (
-                  <TokenIcon
-                    token={{
-                      address: debtTokenAddress,
-                      symbol: debtToken.symbol,
-                    }}
-                    size={44}
-                    className="rounded-full"
-                  />
-                ) : (
-                  <div className="h-11 w-11 bg-indigo-500 text-lg font-bold flex items-center justify-center rounded-full">
-                    {debtToken.currencySymbol}
-                  </div>
-                )}
-              </div>
-            </div>
-            {/* Arrow badge */}
-            <div className="left-6 top-0 absolute z-[3] flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 border-border bg-card">
-              <svg
-                width="10"
-                height="10"
-                viewBox="0 0 10 10"
-                fill="none"
-                className="text-primary"
-              >
-                <path
-                  d="M3 5h4M5.5 3L7 5l-1.5 2"
-                  stroke="currentColor"
-                  strokeWidth="1.3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </div>
-          </div>
-        </div>
-
-        <h2 className="mb-2.5 text-xl font-bold tracking-tight">
-          No open positions yet
-        </h2>
-        <p className="mb-8 max-w-sm text-sm leading-relaxed mx-auto text-muted-foreground">
-          Open a Trove to deposit USDm collateral and borrow {debtToken.symbol}.
-          You set your own interest rate and there&apos;s no fixed repayment
-          schedule.
-        </p>
-
-        {/* CTA */}
-        <Button onClick={onOpenTrove} size="lg" className="gap-2.5">
-          <Plus className="h-4 w-4" />
-          Open Your First Trove
-        </Button>
-
-        {/* Stats */}
-        <div className="mt-9 gap-8 pt-7 flex justify-center border-t border-border/40">
-          {stats.map((s) => (
-            <div key={s.label} className="text-center">
-              <div className="text-lg font-bold tracking-tight">{s.value}</div>
-              <div className="font-mono tracking-wide text-[11px] text-muted-foreground/50">
-                {s.label}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* How borrowing works */}
       <div>
         <h3 className="mb-4 font-mono font-semibold tracking-widest text-[11px] text-muted-foreground uppercase">
@@ -372,7 +319,7 @@ function EmptyState({ onOpenTrove }: { onOpenTrove: () => void }) {
       </div>
 
       {/* Footer link */}
-      <div className="pt-6 border-t border-border/40 text-center">
+      <div className="text-center">
         <a
           href="https://docs.mento.org"
           target="_blank"
@@ -382,6 +329,100 @@ function EmptyState({ onOpenTrove }: { onOpenTrove: () => void }) {
           Learn more about Troves and liquidation
           <ArrowUpRight className="h-3 w-3" />
         </a>
+      </div>
+
+      {/* Empty state card */}
+      <div className="px-6 py-14 relative overflow-hidden rounded-xl border border-border bg-card text-center">
+        {/* Top accent line */}
+        <div className="top-0 w-48 absolute left-1/2 h-[2px] -translate-x-1/2 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
+
+        {/* Token icon cluster */}
+        <div className="mb-7 flex justify-center">
+          <div className="h-14 w-20 relative">
+            <div className="left-0 top-2 absolute z-[2]">
+              {collateralAddress ? (
+                <TokenIcon
+                  token={{ address: collateralAddress, symbol: "USDm" }}
+                  size={44}
+                  className="rounded-full"
+                />
+              ) : (
+                <div className="h-11 w-11 bg-emerald-500 text-lg font-bold flex items-center justify-center rounded-full">
+                  $
+                </div>
+              )}
+            </div>
+            <div className="left-8 top-2 absolute z-[1]">
+              <div className="rounded-full border-[3px] border-card">
+                {debtTokenAddress ? (
+                  <TokenIcon
+                    token={{
+                      address: debtTokenAddress,
+                      symbol: debtToken.symbol,
+                    }}
+                    size={44}
+                    className="rounded-full"
+                  />
+                ) : (
+                  <div className="h-11 w-11 bg-indigo-500 px-1 font-bold flex items-center justify-center rounded-full text-[9px] leading-none">
+                    {debtToken.symbol}
+                  </div>
+                )}
+              </div>
+            </div>
+            {/* Arrow badge */}
+            <div className="left-6 top-0 absolute z-[3] flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 border-border bg-card">
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 10 10"
+                fill="none"
+                className="text-primary"
+              >
+                <path
+                  d="M3 5h4M5.5 3L7 5l-1.5 2"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        <h2 className="mb-2.5 text-xl font-bold tracking-tight">
+          No open positions yet
+        </h2>
+        <p className="mb-8 max-w-sm text-sm leading-relaxed mx-auto text-muted-foreground">
+          Open a borrow position to deposit USDm collateral and borrow{" "}
+          {debtToken.symbol}. Set your own interest rate with no fixed repayment
+          schedule.
+        </p>
+
+        {/* CTA */}
+        <div className="flex justify-center">
+          {isConnected ? (
+            <Button onClick={onOpenTrove} size="lg" className="gap-2.5">
+              <Plus className="h-4 w-4" />
+              Open Your First Position
+            </Button>
+          ) : (
+            <ConnectButton size="lg" text="Connect Wallet" />
+          )}
+        </div>
+
+        {/* Stats */}
+        <div className="mt-9 gap-8 pt-7 flex justify-center border-t border-border/40">
+          {stats.map((s) => (
+            <div key={s.label} className="text-center">
+              <div className="text-lg font-bold tracking-tight">{s.value}</div>
+              <div className="font-mono tracking-wide text-[11px] text-muted-foreground/50">
+                {s.label}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
