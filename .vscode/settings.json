@@ -122,5 +122,6 @@
     "valora",
     "viem",
     "Vulns"
-  ]
+  ],
+  "postman.settings.dotenv-detection-notification-visibility": false
 }

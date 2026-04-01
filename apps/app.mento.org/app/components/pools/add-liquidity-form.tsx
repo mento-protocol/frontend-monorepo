@@ -105,6 +105,18 @@ function TokenAmountInput({
   );
 }
 
+function formatSummaryAmount(amount: string): string {
+  if (amount === "—") return amount;
+
+  const value = Number(amount);
+  if (!Number.isFinite(value)) return "0.0000";
+
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 4,
+  });
+}
+
 interface AddLiquidityFormProps {
   pool: PoolDisplay;
   onLiquidityUpdated?: () => void | Promise<void>;
@@ -633,15 +645,15 @@ export function AddLiquidityForm({
   // Summary display values
   const summaryToken0Amount =
     mode === "balanced"
-      ? token0Amount || "0.0000"
+      ? formatSummaryAmount(token0Amount || "0")
       : zapTokenIn === pool.token0.address
-        ? zapAmount || "0.0000"
+        ? formatSummaryAmount(zapAmount || "0")
         : "—";
   const summaryToken1Amount =
     mode === "balanced"
-      ? token1Amount || "0.0000"
+      ? formatSummaryAmount(token1Amount || "0")
       : zapTokenIn === pool.token1.address
-        ? zapAmount || "0.0000"
+        ? formatSummaryAmount(zapAmount || "0")
         : "—";
 
   return (
@@ -685,26 +697,6 @@ export function AddLiquidityForm({
                 insufficient={insufficientToken0}
                 disabled={disabled}
               />
-
-              {/* Plus divider */}
-              <div className="-my-2 flex justify-center">
-                <div className="h-8 w-8 flex items-center justify-center rounded-lg border border-border bg-muted/30">
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 14 14"
-                    fill="none"
-                    className="text-muted-foreground/50"
-                  >
-                    <path
-                      d="M7 3v8M3 7h8"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                </div>
-              </div>
 
               <TokenAmountInput
                 token={pool.token1}
@@ -918,7 +910,8 @@ export function AddLiquidityForm({
           </div>
 
           <p className="mt-4 leading-relaxed text-[11px] text-muted-foreground/60">
-            Sets minimum amounts for zap swaps and liquidity mint/burn.
+            Sets the minimum amounts for single-token deposits/withdrawals and
+            liquidity mint/burn.
           </p>
         </div>
 

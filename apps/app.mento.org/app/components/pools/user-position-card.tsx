@@ -62,20 +62,36 @@ export function UserPositionCard({
   return (
     <div className="p-6 rounded-xl border border-border bg-card">
       {/* Header row */}
-      <div className="mb-5 flex items-center justify-between">
+      <div className="mb-5">
         <div className="gap-2.5 flex items-center">
           <span className="text-sm font-semibold text-muted-foreground">
             Your Position
           </span>
           <span className="h-1.5 w-1.5 bg-green-500 rounded-full shadow-[0_0_6px_rgba(34,197,94,0.5)]" />
         </div>
-        <span className="px-2.5 py-1 font-semibold font-mono tracking-wider bg-green-500/10 text-green-600 dark:text-green-400 rounded-md text-[11px]">
-          {formatPercent(position.poolSharePercent)} POOL SHARE
-        </span>
       </div>
 
       {/* Three-column layout */}
       <div className="gap-6 grid grid-cols-3">
+        {/* Total position value */}
+        <div>
+          <div className="font-bold tracking-tight text-3xl tabular-nums">
+            {position.totalUsdValue !== null
+              ? formatUsd(position.totalUsdValue)
+              : "--"}
+          </div>
+          {lpBalance !== undefined && lpBalance > 0n && (
+            <div className="mt-1 text-xs font-mono text-muted-foreground/50">
+              {formatLpBalance(lpBalance)} LP tokens
+            </div>
+          )}
+          <div className="mt-2">
+            <span className="px-2.5 py-1 font-semibold font-mono tracking-wider bg-green-500/10 text-green-600 dark:text-green-400 inline-flex rounded-md text-[11px]">
+              {formatPercent(position.poolSharePercent)} POOL SHARE
+            </span>
+          </div>
+        </div>
+
         {/* Token 0 */}
         <div className="gap-3.5 flex items-start">
           <TokenIcon
@@ -136,23 +152,6 @@ export function UserPositionCard({
               </div>
             )}
           </div>
-        </div>
-
-        {/* Total Position Value */}
-        <div className="text-right">
-          <div className="font-mono tracking-widest mb-1 text-[11px] text-muted-foreground uppercase">
-            Position Value
-          </div>
-          <div className="text-2xl font-bold tracking-tight">
-            {position.totalUsdValue !== null
-              ? formatUsd(position.totalUsdValue)
-              : "--"}
-          </div>
-          {lpBalance !== undefined && lpBalance > 0n && (
-            <div className="mt-1 text-xs font-mono text-muted-foreground/50">
-              {formatLpBalance(lpBalance)} LP tokens
-            </div>
-          )}
         </div>
       </div>
     </div>
