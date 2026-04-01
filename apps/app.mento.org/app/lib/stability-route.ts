@@ -28,8 +28,6 @@ const STABILITY_CHAINS = {
 >;
 
 export const DEFAULT_STABILITY_CHAIN_ID = CELO_CHAIN_ID;
-export const DEFAULT_STABILITY_CHAIN_NAME =
-  STABILITY_CHAINS[DEFAULT_STABILITY_CHAIN_ID].name;
 
 const STABILITY_DEBT_TOKENS = [
   {
@@ -83,12 +81,6 @@ export function resolveStabilityChainId(
 
 export function getStabilityChainName(chainId: number): string | undefined {
   return STABILITY_CHAINS[chainId as StabilityChainId]?.name;
-}
-
-export function isStabilityChainConfigured(
-  chainId: number,
-): chainId is StabilityChainId {
-  return chainId in STABILITY_CHAINS;
 }
 
 export function isStabilityChainVisible(
