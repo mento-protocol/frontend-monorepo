@@ -1,6 +1,10 @@
 import { Badge, TokenIcon, cn } from "@repo/ui";
 import type { PoolDisplay } from "@repo/web3";
-import { useUserPosition, useExplorerUrl } from "@repo/web3";
+import {
+  useUserPosition,
+  useExplorerUrl,
+  getPoolDisplayOrder,
+} from "@repo/web3";
 import { useAccount, useReadContract, useBlockNumber } from "@repo/web3/wagmi";
 import { erc20Abi, type Address } from "viem";
 import { useState, useEffect, useCallback } from "react";
@@ -29,6 +33,8 @@ export function LiquidityPanel({
   disabled,
   chainId,
 }: LiquidityPanelProps) {
+  const { displayToken0, displayToken1, displayReserve0, displayReserve1 } =
+    getPoolDisplayOrder(pool);
   const { address } = useAccount();
   const resolvedChainId = chainId ?? pool.chainId;
   const explorerUrl = useExplorerUrl(resolvedChainId);
@@ -139,16 +145,16 @@ export function LiquidityPanel({
           <div className="-space-x-2.5 flex">
             <TokenIcon
               token={{
-                address: pool.token0.address,
-                symbol: pool.token0.symbol,
+                address: displayToken0.address,
+                symbol: displayToken0.symbol,
               }}
               size={38}
               className="relative z-10 rounded-full"
             />
             <TokenIcon
               token={{
-                address: pool.token1.address,
-                symbol: pool.token1.symbol,
+                address: displayToken1.address,
+                symbol: displayToken1.symbol,
               }}
               size={38}
               className="rounded-full"
@@ -157,7 +163,7 @@ export function LiquidityPanel({
           <div>
             <div className="gap-2.5 flex items-center">
               <h1 className="text-2xl font-bold tracking-tight">
-                {pool.token0.symbol} / {pool.token1.symbol}
+                {displayToken0.symbol} / {displayToken1.symbol}
               </h1>
               <Badge
                 variant="secondary"
@@ -204,8 +210,8 @@ export function LiquidityPanel({
             Reserves
           </span>
           <div className="text-sm font-semibold mt-1">
-            {pool.reserves.token0} {pool.token0.symbol} / {pool.reserves.token1}{" "}
-            {pool.token1.symbol}
+            {displayReserve0} {displayToken0.symbol} / {displayReserve1}{" "}
+            {displayToken1.symbol}
           </div>
         </div>
         <div className="px-4 py-3 rounded-xl border border-border bg-card">

@@ -1,5 +1,6 @@
 import { TokenIcon } from "@repo/ui";
 import type { PoolDisplay, UserPosition } from "@repo/web3";
+import { getPoolDisplayOrder } from "@repo/web3";
 import { formatUnits } from "viem";
 
 interface UserPositionCardProps {
@@ -56,8 +57,13 @@ export function UserPositionCard({
   position,
   lpBalance,
 }: UserPositionCardProps) {
-  const token0 = { token: pool.token0, data: position.token0 };
-  const token1 = { token: pool.token1, data: position.token1 };
+  const { isSwapped } = getPoolDisplayOrder(pool);
+  const token0 = isSwapped
+    ? { token: pool.token1, data: position.token1 }
+    : { token: pool.token0, data: position.token0 };
+  const token1 = isSwapped
+    ? { token: pool.token0, data: position.token0 }
+    : { token: pool.token1, data: position.token1 };
 
   return (
     <div className="p-6 rounded-xl border border-border bg-card">

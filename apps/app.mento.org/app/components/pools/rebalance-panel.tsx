@@ -14,6 +14,7 @@ import {
   executeLiquidityFlow,
   liquidityFlowAtom,
   type LiquidityFlowStepDefinition,
+  getPoolDisplayOrder,
 } from "@repo/web3";
 import {
   useAccount,
@@ -99,6 +100,8 @@ export function RebalancePanel({
   pool,
   onRebalanceComplete,
 }: RebalancePanelProps) {
+  const { displayToken0, displayToken1, displayRatio0 } =
+    getPoolDisplayOrder(pool);
   const [nowTs, setNowTs] = useState(() => Math.floor(Date.now() / 1000));
   const { address, isConnected } = useAccount();
   const walletChainId = useChainId();
@@ -179,7 +182,7 @@ export function RebalancePanel({
 
       steps.push({
         id: "rebalance",
-        label: `Rebalance ${pool.token0.symbol} / ${pool.token1.symbol}`,
+        label: `Rebalance ${displayToken0.symbol} / ${displayToken1.symbol}`,
         buildTx: async () => tx.rebalance.params,
       });
 
@@ -306,7 +309,7 @@ export function RebalancePanel({
     ? formatAmount(fullPreview.amountRequired.amount, fullInputDecimals)
     : formattedDepositAmount;
 
-  const token0Ratio = Math.max(0, Math.min(1, pool.reserves.token0Ratio));
+  const token0Ratio = Math.max(0, Math.min(1, displayRatio0));
   const token0Percent = Math.round(token0Ratio * 100);
   const token1Percent = 100 - token0Percent;
 
@@ -505,11 +508,11 @@ export function RebalancePanel({
                   </div>
                   <div className="font-mono text-sm text-muted-foreground">
                     <span className="font-semibold text-foreground">
-                      {token0Percent}% {pool.token0.symbol}
+                      {token0Percent}% {displayToken0.symbol}
                     </span>
                     <span className="text-muted-foreground/40"> | </span>
                     <span className="font-semibold text-foreground">
-                      {token1Percent}% {pool.token1.symbol}
+                      {token1Percent}% {displayToken1.symbol}
                     </span>
                   </div>
                 </div>
@@ -583,8 +586,8 @@ export function RebalancePanel({
                 </div>
 
                 <div className="font-mono flex items-center justify-between text-[10px] text-muted-foreground">
-                  <span>{pool.token0.symbol} share</span>
-                  <span>{pool.token1.symbol} share</span>
+                  <span>{displayToken0.symbol} share</span>
+                  <span>{displayToken1.symbol} share</span>
                 </div>
               </div>
             </div>

@@ -13,6 +13,7 @@ import {
   type PoolRewardInfo,
   chainIdToChain,
   type ChainId,
+  getPoolDisplayOrder,
 } from "@repo/web3";
 import { useAccount, useReadContract } from "@repo/web3/wagmi";
 import { erc20Abi, type Address } from "viem";
@@ -55,12 +56,20 @@ export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
     },
   });
 
+  const {
+    displayToken0,
+    displayToken1,
+    displayReserve0,
+    displayReserve1,
+    displayRatio0,
+  } = getPoolDisplayOrder(pool);
+
   const hasLPTokens = lpBalance !== undefined && lpBalance > 0n;
   const isActionLoading =
     pool.poolType === "FPMM" && !!address && isLpBalanceLoading;
   const isLegacy = pool.poolType === "Legacy";
   const hasLiquidity = pool.reserves.hasLiquidity;
-  const token0Ratio = Math.max(0, Math.min(1, pool.reserves.token0Ratio));
+  const token0Ratio = Math.max(0, Math.min(1, displayRatio0));
   const token0Percent = Math.round(token0Ratio * 100);
   const token1Percent = 100 - token0Percent;
   const actionLabel = hasLPTokens ? "Manage" : "Deposit";
@@ -86,16 +95,16 @@ export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
               <div className="-space-x-2 flex shrink-0">
                 <TokenIcon
                   token={{
-                    address: pool.token0.address,
-                    symbol: pool.token0.symbol,
+                    address: displayToken0.address,
+                    symbol: displayToken0.symbol,
                   }}
                   size={32}
                   className="relative z-10 rounded-full"
                 />
                 <TokenIcon
                   token={{
-                    address: pool.token1.address,
-                    symbol: pool.token1.symbol,
+                    address: displayToken1.address,
+                    symbol: displayToken1.symbol,
                   }}
                   size={32}
                   className="rounded-full"
@@ -105,7 +114,7 @@ export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
               <div className="gap-1 flex flex-col">
                 <div className="gap-1.5 flex items-center">
                   <span className="text-sm font-medium">
-                    {pool.token0.symbol} / {pool.token1.symbol}
+                    {displayToken0.symbol} / {displayToken1.symbol}
                   </span>
                   <ChainBadge chainId={pool.chainId} />
                   <PoolAddressPopover pool={pool} />
@@ -200,15 +209,15 @@ export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
             <div className="gap-1.5 flex flex-col">
               <div className="text-sm flex justify-between text-muted-foreground">
                 <span className="font-mono tabular-nums">
-                  {pool.reserves.token0}{" "}
+                  {displayReserve0}{" "}
                   <span className="font-semibold font-sans">
-                    {pool.token0.symbol}
+                    {displayToken0.symbol}
                   </span>
                 </span>
                 <span className="font-mono tabular-nums">
-                  {pool.reserves.token1}{" "}
+                  {displayReserve1}{" "}
                   <span className="font-semibold font-sans">
-                    {pool.token1.symbol}
+                    {displayToken1.symbol}
                   </span>
                 </span>
               </div>

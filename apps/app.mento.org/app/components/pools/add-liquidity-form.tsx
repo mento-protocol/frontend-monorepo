@@ -24,6 +24,7 @@ import {
   liquidityFlowAtom,
   showLiquiditySuccessToast,
   type LiquidityFlowStepDefinition,
+  getPoolDisplayOrder,
 } from "@repo/web3";
 import {
   useAccount,
@@ -130,6 +131,7 @@ export function AddLiquidityForm({
   header,
   disabled,
 }: AddLiquidityFormProps) {
+  const { displayToken0, displayToken1, isSwapped } = getPoolDisplayOrder(pool);
   const { address } = useAccount();
   const wagmiConfig = useConfig();
   const chainId = pool.chainId;
@@ -528,8 +530,8 @@ export function AddLiquidityForm({
           if (lastTxHash) {
             showLiquiditySuccessToast({
               action: "added",
-              token0Symbol: pool.token0.symbol,
-              token1Symbol: pool.token1.symbol,
+              token0Symbol: displayToken0.symbol,
+              token1Symbol: displayToken1.symbol,
               txHash: lastTxHash,
               chainId,
             });
@@ -597,8 +599,8 @@ export function AddLiquidityForm({
           if (lastTxHash) {
             showLiquiditySuccessToast({
               action: "added",
-              token0Symbol: pool.token0.symbol,
-              token1Symbol: pool.token1.symbol,
+              token0Symbol: displayToken0.symbol,
+              token1Symbol: displayToken1.symbol,
               txHash: lastTxHash,
               chainId,
             });
@@ -688,25 +690,52 @@ export function AddLiquidityForm({
 
           {mode === "balanced" ? (
             <>
-              <TokenAmountInput
-                token={pool.token0}
-                balance={formattedToken0Balance}
-                amount={token0Amount}
-                onChange={handleToken0Change}
-                onMax={handleMax0}
-                insufficient={insufficientToken0}
-                disabled={disabled}
-              />
-
-              <TokenAmountInput
-                token={pool.token1}
-                balance={formattedToken1Balance}
-                amount={token1Amount}
-                onChange={handleToken1Change}
-                onMax={handleMax1}
-                insufficient={insufficientToken1}
-                disabled={disabled}
-              />
+              {(isSwapped
+                ? [
+                    <TokenAmountInput
+                      key="t1"
+                      token={pool.token1}
+                      balance={formattedToken1Balance}
+                      amount={token1Amount}
+                      onChange={handleToken1Change}
+                      onMax={handleMax1}
+                      insufficient={insufficientToken1}
+                      disabled={disabled}
+                    />,
+                    <TokenAmountInput
+                      key="t0"
+                      token={pool.token0}
+                      balance={formattedToken0Balance}
+                      amount={token0Amount}
+                      onChange={handleToken0Change}
+                      onMax={handleMax0}
+                      insufficient={insufficientToken0}
+                      disabled={disabled}
+                    />,
+                  ]
+                : [
+                    <TokenAmountInput
+                      key="t0"
+                      token={pool.token0}
+                      balance={formattedToken0Balance}
+                      amount={token0Amount}
+                      onChange={handleToken0Change}
+                      onMax={handleMax0}
+                      insufficient={insufficientToken0}
+                      disabled={disabled}
+                    />,
+                    <TokenAmountInput
+                      key="t1"
+                      token={pool.token1}
+                      balance={formattedToken1Balance}
+                      amount={token1Amount}
+                      onChange={handleToken1Change}
+                      onMax={handleMax1}
+                      insufficient={insufficientToken1}
+                      disabled={disabled}
+                    />,
+                  ]
+              ).map((input) => input)}
             </>
           ) : (
             <>
@@ -755,35 +784,35 @@ export function AddLiquidityForm({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem
-                        value={pool.token0.address}
+                        value={displayToken0.address}
                         className="py-2.5 pl-3 pr-9"
                       >
                         <div className="gap-2.5 flex items-center">
                           <TokenIcon
                             token={{
-                              address: pool.token0.address,
-                              symbol: pool.token0.symbol,
+                              address: displayToken0.address,
+                              symbol: displayToken0.symbol,
                             }}
                             size={22}
                             className="rounded-full"
                           />
-                          {pool.token0.symbol}
+                          {displayToken0.symbol}
                         </div>
                       </SelectItem>
                       <SelectItem
-                        value={pool.token1.address}
+                        value={displayToken1.address}
                         className="py-2.5 pl-3 pr-9"
                       >
                         <div className="gap-2.5 flex items-center">
                           <TokenIcon
                             token={{
-                              address: pool.token1.address,
-                              symbol: pool.token1.symbol,
+                              address: displayToken1.address,
+                              symbol: displayToken1.symbol,
                             }}
                             size={22}
                             className="rounded-full"
                           />
-                          {pool.token1.symbol}
+                          {displayToken1.symbol}
                         </div>
                       </SelectItem>
                     </SelectContent>
@@ -836,43 +865,43 @@ export function AddLiquidityForm({
           </h3>
 
           <div className="space-y-3.5">
-            {/* Deposit token 0 */}
+            {/* Deposit display token 0 */}
             <div className="flex items-center justify-between">
               <div className="gap-2 flex items-center">
                 <TokenIcon
                   token={{
-                    address: pool.token0.address,
-                    symbol: pool.token0.symbol,
+                    address: displayToken0.address,
+                    symbol: displayToken0.symbol,
                   }}
                   size={20}
                   className="rounded-full"
                 />
                 <span className="text-sm text-muted-foreground">
-                  Deposit {pool.token0.symbol}
+                  Deposit {displayToken0.symbol}
                 </span>
               </div>
               <span className="text-sm font-semibold font-mono tabular-nums">
-                {summaryToken0Amount}
+                {isSwapped ? summaryToken1Amount : summaryToken0Amount}
               </span>
             </div>
 
-            {/* Deposit token 1 */}
+            {/* Deposit display token 1 */}
             <div className="flex items-center justify-between">
               <div className="gap-2 flex items-center">
                 <TokenIcon
                   token={{
-                    address: pool.token1.address,
-                    symbol: pool.token1.symbol,
+                    address: displayToken1.address,
+                    symbol: displayToken1.symbol,
                   }}
                   size={20}
                   className="rounded-full"
                 />
                 <span className="text-sm text-muted-foreground">
-                  Deposit {pool.token1.symbol}
+                  Deposit {displayToken1.symbol}
                 </span>
               </div>
               <span className="text-sm font-semibold font-mono tabular-nums">
-                {summaryToken1Amount}
+                {isSwapped ? summaryToken0Amount : summaryToken1Amount}
               </span>
             </div>
 
