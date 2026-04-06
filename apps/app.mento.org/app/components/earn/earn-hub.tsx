@@ -18,6 +18,7 @@ import {
   ChainId,
   useVisibleChains,
   type ChainFilterType,
+  getPoolDisplayOrder,
 } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
@@ -289,18 +290,20 @@ export function EarnHub() {
       const tvlDisplay = pool.tvl != null ? formatCompactUsd(pool.tvl) : "—";
       const slug = chainIdToSlug(pool.chainId);
 
+      const { displayToken0, displayToken1 } = getPoolDisplayOrder(pool);
+
       return {
         id: `lp-${pool.chainId}-${pool.poolAddr.toLowerCase()}`,
         type: "lp" as const,
         chainId: pool.chainId,
-        name: `${pool.token0.symbol} / ${pool.token1.symbol}`,
+        name: `${displayToken0.symbol} / ${displayToken1.symbol}`,
         tokenA: {
-          address: pool.token0.address,
-          symbol: pool.token0.symbol,
+          address: displayToken0.address,
+          symbol: displayToken0.symbol,
         },
         tokenB: {
-          address: pool.token1.address,
-          symbol: pool.token1.symbol,
+          address: displayToken1.address,
+          symbol: displayToken1.symbol,
         },
         apy: totalApr,
         apyLabel: "Total APR",

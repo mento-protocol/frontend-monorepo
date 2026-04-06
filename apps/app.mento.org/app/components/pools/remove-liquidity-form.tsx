@@ -23,6 +23,7 @@ import {
   liquidityFlowAtom,
   showLiquiditySuccessToast,
   type LiquidityFlowStepDefinition,
+  getPoolDisplayOrder,
 } from "@repo/web3";
 import {
   useAccount,
@@ -72,6 +73,7 @@ export function RemoveLiquidityForm({
   header,
   disabled,
 }: RemoveLiquidityFormProps) {
+  const { displayToken0, displayToken1, isSwapped } = getPoolDisplayOrder(pool);
   const { address } = useAccount();
   const wagmiConfig = useConfig();
   const chainId = pool.chainId;
@@ -384,8 +386,8 @@ export function RemoveLiquidityForm({
           if (lastTxHash) {
             showLiquiditySuccessToast({
               action: "removed",
-              token0Symbol: pool.token0.symbol,
-              token1Symbol: pool.token1.symbol,
+              token0Symbol: displayToken0.symbol,
+              token1Symbol: displayToken1.symbol,
               txHash: lastTxHash,
               chainId,
             });
@@ -439,8 +441,8 @@ export function RemoveLiquidityForm({
           if (lastTxHash) {
             showLiquiditySuccessToast({
               action: "removed",
-              token0Symbol: pool.token0.symbol,
-              token1Symbol: pool.token1.symbol,
+              token0Symbol: displayToken0.symbol,
+              token1Symbol: displayToken1.symbol,
               txHash: lastTxHash,
               chainId,
             });
@@ -551,16 +553,16 @@ export function RemoveLiquidityForm({
                 <div className="-space-x-1.5 flex">
                   <TokenIcon
                     token={{
-                      address: pool.token0.address,
-                      symbol: pool.token0.symbol,
+                      address: displayToken0.address,
+                      symbol: displayToken0.symbol,
                     }}
                     size={18}
                     className="relative z-10 rounded-full"
                   />
                   <TokenIcon
                     token={{
-                      address: pool.token1.address,
-                      symbol: pool.token1.symbol,
+                      address: displayToken1.address,
+                      symbol: displayToken1.symbol,
                     }}
                     size={18}
                     className="rounded-full"
@@ -623,40 +625,40 @@ export function RemoveLiquidityForm({
                 </label>
                 <div className="gap-2 grid grid-cols-2">
                   <button
-                    onClick={() => setReceiveToken(pool.token0.address)}
+                    onClick={() => setReceiveToken(displayToken0.address)}
                     className={`gap-2 px-4 py-2.5 text-sm font-medium flex cursor-pointer items-center justify-center rounded-md border ${
-                      receiveToken === pool.token0.address
+                      receiveToken === displayToken0.address
                         ? "border-border bg-background text-foreground"
                         : "border-border bg-transparent text-muted-foreground"
                     }`}
                   >
                     <TokenIcon
                       token={{
-                        address: pool.token0.address,
-                        symbol: pool.token0.symbol,
+                        address: displayToken0.address,
+                        symbol: displayToken0.symbol,
                       }}
                       size={24}
                       className="rounded-full"
                     />
-                    {pool.token0.symbol}
+                    {displayToken0.symbol}
                   </button>
                   <button
-                    onClick={() => setReceiveToken(pool.token1.address)}
+                    onClick={() => setReceiveToken(displayToken1.address)}
                     className={`gap-2 px-4 py-2.5 text-sm font-medium flex cursor-pointer items-center justify-center rounded-md border ${
-                      receiveToken === pool.token1.address
+                      receiveToken === displayToken1.address
                         ? "border-border bg-background text-foreground"
                         : "border-border bg-transparent text-muted-foreground"
                     }`}
                   >
                     <TokenIcon
                       token={{
-                        address: pool.token1.address,
-                        symbol: pool.token1.symbol,
+                        address: displayToken1.address,
+                        symbol: displayToken1.symbol,
                       }}
                       size={24}
                       className="rounded-full"
                     />
-                    {pool.token1.symbol}
+                    {displayToken1.symbol}
                   </button>
                 </div>
               </div>
@@ -682,43 +684,43 @@ export function RemoveLiquidityForm({
           <div className="space-y-3.5">
             {mode === "balanced" ? (
               <>
-                {/* Receive token 0 */}
+                {/* Receive display token 0 */}
                 <div className="flex items-center justify-between">
                   <div className="gap-2 flex items-center">
                     <TokenIcon
                       token={{
-                        address: pool.token0.address,
-                        symbol: pool.token0.symbol,
+                        address: displayToken0.address,
+                        symbol: displayToken0.symbol,
                       }}
                       size={20}
                       className="rounded-full"
                     />
                     <span className="text-sm text-muted-foreground">
-                      Receive {pool.token0.symbol}
+                      Receive {displayToken0.symbol}
                     </span>
                   </div>
                   <span className="text-sm font-semibold font-mono tabular-nums">
-                    {summaryReceive0}
+                    {isSwapped ? summaryReceive1 : summaryReceive0}
                   </span>
                 </div>
 
-                {/* Receive token 1 */}
+                {/* Receive display token 1 */}
                 <div className="flex items-center justify-between">
                   <div className="gap-2 flex items-center">
                     <TokenIcon
                       token={{
-                        address: pool.token1.address,
-                        symbol: pool.token1.symbol,
+                        address: displayToken1.address,
+                        symbol: displayToken1.symbol,
                       }}
                       size={20}
                       className="rounded-full"
                     />
                     <span className="text-sm text-muted-foreground">
-                      Receive {pool.token1.symbol}
+                      Receive {displayToken1.symbol}
                     </span>
                   </div>
                   <span className="text-sm font-semibold font-mono tabular-nums">
-                    {summaryReceive1}
+                    {isSwapped ? summaryReceive0 : summaryReceive1}
                   </span>
                 </div>
               </>
