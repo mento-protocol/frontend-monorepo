@@ -62,6 +62,6 @@
     "vitest": "catalog:"
   },
   "volta": {
-    "node": "18.20.7"
+    "node": "22.22.2"
   }
 }
