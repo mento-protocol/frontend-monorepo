@@ -1,6 +1,6 @@
 ---
 description: Frontend TypeScript and React development
-globs: *.tsx
+globs: *.ts,*.tsx
 alwaysApply: false
 ---
 # Frontend
@@ -20,6 +20,7 @@ Carefully follow these instructions for frontend TypeScript and React developmen
    - Prefer re-using or extending existing components instead of adding new ones (but do add new ones when it makes sense)
    - Use clear, descriptive names instead of making comments.
    - Never use acronyms in code (e.g., use `errorMessage` not `errMsg`, `button` not `btn`, `authentication` not `auth`, `navigation` not `nav`, `parameters` not `params`).
+   - Never use `any` type. Always prefer specific types. In the worst case, use `unknown`.
    - Prioritize code readability and maintainability.
    - Never introduce new npm dependencies without asking and receiving explicit approval before
    - Prefer React Aria Components wherever possible
@@ -34,12 +35,9 @@ Carefully follow these instructions for frontend TypeScript and React developmen
    - Search the codebase for similar code before implementing new code.
    - Reference existing implementations to maintain consistency.
 
-4. After each change, build and format your changes:
-   - Run `trunk format` to format your code
-   - Run `trunk check` to lint your code
-   - Use playwright to see if everything works as expected in the browser
+4. After making changes, follow the validation steps in the general rules (index.mdc).
 
-5. When a task is complete, verify your changes:
+5. Before submitting a PR, run the full validation:
    - Run `trunk check --all` to run all linters
    - Run `trunk format --all` to run all formatters
    - Run `turbo build` to build the entire project
