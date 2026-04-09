@@ -6,9 +6,7 @@ import { ShieldX } from "lucide-react";
 import type { PropsWithChildren } from "react";
 
 export function SanctionsGuard({ children }: PropsWithChildren) {
-  const { isSanctioned, isChecking, checkFailed } = useSanctionsCheck();
-
-  if (isChecking) return null;
+  const { isSanctioned, checkFailed } = useSanctionsCheck();
 
   if (checkFailed) {
     return (

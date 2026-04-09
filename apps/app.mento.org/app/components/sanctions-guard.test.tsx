@@ -40,17 +40,16 @@ describe("SanctionsGuard", () => {
     expect(screen.queryByText("Compliance Check Unavailable")).toBeNull();
   });
 
-  it("renders nothing while checking", () => {
+  it("renders children while checking", () => {
     useSanctionsCheckMock.mockReturnValue({
       isSanctioned: false,
       isChecking: true,
       checkFailed: false,
     });
 
-    const { container } = renderGuard();
+    renderGuard();
 
-    expect(container.innerHTML).toBe("");
-    expect(screen.queryByTestId("app-content")).toBeNull();
+    expect(screen.queryByTestId("app-content")).not.toBeNull();
   });
 
   it("renders blocked screen and hides children for sanctioned address", () => {
