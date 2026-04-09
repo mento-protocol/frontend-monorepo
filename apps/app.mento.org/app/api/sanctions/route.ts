@@ -85,8 +85,13 @@ export async function GET(request: NextRequest) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
+  // Address is validated by isAddress() above (0x-prefixed hex string).
+  // encodeURIComponent prevents any path traversal or injection.
+  const sanitizedAddress = encodeURIComponent(address);
+  const url = `${CHAINALYSIS_API_BASE}/${sanitizedAddress}`;
+
   try {
-    const response = await fetch(`${CHAINALYSIS_API_BASE}/${address}`, {
+    const response = await fetch(url, {
       headers: {
         "X-API-KEY": env.CHAINALYSIS_API_KEY,
         Accept: "application/json",
