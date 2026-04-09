@@ -166,7 +166,7 @@ describe("useSanctionsCheck", () => {
     expect(disconnectMock).not.toHaveBeenCalled();
   });
 
-  it("treats isSanctioned: null as a failure", async () => {
+  it("treats non-boolean isSanctioned as a failure", async () => {
     useAccountMock.mockReturnValue({
       address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
       isConnected: true,

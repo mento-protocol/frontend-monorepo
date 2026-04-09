@@ -127,8 +127,8 @@ describe("GET /api/sanctions", () => {
     });
   });
 
-  describe("malformed API response", () => {
-    it("returns isSanctioned: false when identifications field is missing", async () => {
+  describe("malformed API response (fail-closed)", () => {
+    it("returns 502 when identifications field is missing", async () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockResolvedValue({
@@ -138,12 +138,13 @@ describe("GET /api/sanctions", () => {
       );
 
       const response = await GET(createRequest(VALID_ADDRESS, "1.2.3.4"));
+      expect(response.status).toBe(502);
       const body = await response.json();
-      expect(body.isSanctioned).toBe(false);
-      expect(body.error).toBeUndefined();
+      expect(body.isSanctioned).toBeNull();
+      expect(body.error).toBe("check_failed");
     });
 
-    it("returns isSanctioned: false when identifications is not an array", async () => {
+    it("returns 502 when identifications is not an array", async () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockResolvedValue({
@@ -153,9 +154,25 @@ describe("GET /api/sanctions", () => {
       );
 
       const response = await GET(createRequest(VALID_ADDRESS, "1.2.3.4"));
+      expect(response.status).toBe(502);
       const body = await response.json();
-      expect(body.isSanctioned).toBe(false);
-      expect(body.error).toBeUndefined();
+      expect(body.isSanctioned).toBeNull();
+      expect(body.error).toBe("check_failed");
+    });
+
+    it("returns 502 when response body is null", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(null),
+        }),
+      );
+
+      const response = await GET(createRequest(VALID_ADDRESS, "1.2.3.4"));
+      expect(response.status).toBe(502);
+      const body = await response.json();
+      expect(body.isSanctioned).toBeNull();
     });
   });
 

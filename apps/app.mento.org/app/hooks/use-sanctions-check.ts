@@ -21,8 +21,8 @@ export function useSanctionsCheck() {
         throw new Error(`Sanctions check failed: ${response.status}`);
       }
       const result = await response.json();
-      if (result.isSanctioned === null) {
-        throw new Error("Sanctions check inconclusive");
+      if (typeof result?.isSanctioned !== "boolean") {
+        throw new Error("Sanctions check returned invalid response");
       }
       return result as { isSanctioned: boolean };
     },

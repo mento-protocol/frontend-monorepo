@@ -1,6 +1,7 @@
 "use client";
 
 import { useSanctionsCheck } from "@/hooks/use-sanctions-check";
+import { Button } from "@repo/ui";
 import { ShieldX } from "lucide-react";
 import type { PropsWithChildren } from "react";
 
@@ -21,13 +22,9 @@ export function SanctionsGuard({ children }: PropsWithChildren) {
             We are unable to verify your wallet at this time. Please try again
             later.
           </p>
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="px-4 py-2 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
-          >
+          <Button size="sm" onPress={() => window.location.reload()}>
             Retry
-          </button>
+          </Button>
         </div>
       </div>
     );

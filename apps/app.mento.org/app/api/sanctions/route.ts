@@ -6,6 +6,7 @@ import { isAddress } from "viem";
 const CHAINALYSIS_API_BASE = "https://public.chainalysis.com/api/v1/address";
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 60;
+const FETCH_TIMEOUT_MS = 10_000;
 
 const requestCounts = new Map<string, { count: number; resetAt: number }>();
 
@@ -25,8 +26,6 @@ if (typeof setInterval !== "undefined") {
 }
 
 function getClientIp(request: NextRequest): string {
-  // Prefer Vercel's verified header, fall back to rightmost x-forwarded-for
-  // (rightmost is the one added by the closest trusted proxy)
   const vercelIp = request.headers.get("x-real-ip");
   if (vercelIp) return vercelIp.trim();
 
@@ -52,6 +51,13 @@ function isRateLimited(ip: string): boolean {
   return entry.count > RATE_LIMIT_MAX_REQUESTS;
 }
 
+function failClosed() {
+  return NextResponse.json(
+    { isSanctioned: null, error: "check_failed" },
+    { status: 502 },
+  );
+}
+
 export async function GET(request: NextRequest) {
   const ip = getClientIp(request);
 
@@ -69,27 +75,43 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
     const response = await fetch(`${CHAINALYSIS_API_BASE}/${address}`, {
       headers: {
         "X-API-KEY": env.CHAINALYSIS_API_KEY,
         Accept: "application/json",
       },
+      signal: controller.signal,
     });
+
+    clearTimeout(timeout);
 
     if (!response.ok) {
       Sentry.captureException(
         new Error(`Chainalysis API error: ${response.status}`),
         { extra: { status: response.status } },
       );
-      return NextResponse.json(
-        { isSanctioned: null, error: "check_failed" },
-        { status: 502 },
-      );
+      return failClosed();
     }
 
     const data = await response.json();
-    const isSanctioned =
-      Array.isArray(data.identifications) && data.identifications.length > 0;
+
+    // Validate response shape — fail closed on unexpected payloads
+    if (
+      !data ||
+      typeof data !== "object" ||
+      !Array.isArray(data.identifications)
+    ) {
+      Sentry.captureException(
+        new Error("Chainalysis API returned unexpected response shape"),
+        { extra: { dataKeys: data ? Object.keys(data) : null } },
+      );
+      return failClosed();
+    }
+
+    const isSanctioned = data.identifications.length > 0;
 
     if (isSanctioned) {
       Sentry.captureMessage("Sanctioned address attempted connection", {
@@ -103,9 +125,6 @@ export async function GET(request: NextRequest) {
     Sentry.captureException(error, {
       extra: { context: "sanctions_check" },
     });
-    return NextResponse.json(
-      { isSanctioned: null, error: "check_failed" },
-      { status: 502 },
-    );
+    return failClosed();
   }
 }
