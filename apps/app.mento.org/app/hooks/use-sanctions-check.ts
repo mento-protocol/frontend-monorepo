@@ -9,7 +9,7 @@ export function useSanctionsCheck() {
   const { address, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
   const disconnectedAddress = useRef<string | null>(null);
-  const [blocked, setBlocked] = useState(false);
+  const [blockedAddress, setBlockedAddress] = useState<string | null>(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["sanctions", address],
@@ -32,7 +32,11 @@ export function useSanctionsCheck() {
     retry: 2,
   });
 
-  const isSanctioned = data?.isSanctioned === true || blocked;
+  // Sanctioned if: query says so, OR we're still showing the blocked screen
+  // for the address that was just disconnected
+  const isSanctioned =
+    data?.isSanctioned === true ||
+    (blockedAddress !== null && (!address || address === blockedAddress));
   const checkFailed = isError && !isLoading;
   const isChecking = isLoading && isConnected && !!address;
 
@@ -43,7 +47,7 @@ export function useSanctionsCheck() {
       disconnectedAddress.current !== address
     ) {
       disconnectedAddress.current = address;
-      setBlocked(true);
+      setBlockedAddress(address);
       disconnect();
       toast.error(
         "This address cannot use this application due to sanctions compliance.",
@@ -51,6 +55,13 @@ export function useSanctionsCheck() {
       );
     }
   }, [data?.isSanctioned, address, disconnect]);
+
+  // Clear blocked state when a different address connects
+  useEffect(() => {
+    if (address && blockedAddress && address !== blockedAddress) {
+      setBlockedAddress(null);
+    }
+  }, [address, blockedAddress]);
 
   return { isSanctioned, isChecking, checkFailed };
 }

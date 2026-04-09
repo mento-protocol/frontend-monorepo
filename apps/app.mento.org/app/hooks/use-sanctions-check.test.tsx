@@ -292,4 +292,51 @@ describe("useSanctionsCheck", () => {
     // isSanctioned must remain true even after disconnect
     expect(result.current.isSanctioned).toBe(true);
   });
+
+  it("unblocks when a different clean address connects after a sanctioned one", async () => {
+    const sanctionedAddress = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
+    const cleanAddress = "0x71C7656EC7ab88b098defB751B7401B5f6d8976F";
+
+    useAccountMock.mockReturnValue({
+      address: sanctionedAddress,
+      isConnected: true,
+    } as ReturnType<typeof useAccount>);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ isSanctioned: true }),
+      }),
+    );
+
+    const { result, rerender } = renderHook(() => useSanctionsCheck(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSanctioned).toBe(true);
+    });
+
+    // Switch to a clean address
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ isSanctioned: false }),
+      }),
+    );
+
+    useAccountMock.mockReturnValue({
+      address: cleanAddress,
+      isConnected: true,
+    } as ReturnType<typeof useAccount>);
+
+    await act(async () => rerender());
+
+    await waitFor(() => {
+      expect(result.current.isSanctioned).toBe(false);
+    });
+    expect(result.current.checkFailed).toBe(false);
+  });
 });

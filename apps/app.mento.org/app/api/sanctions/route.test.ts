@@ -176,6 +176,43 @@ describe("GET /api/sanctions", () => {
     });
   });
 
+  describe("missing API key", () => {
+    it("returns 502 when CHAINALYSIS_API_KEY is not set", async () => {
+      vi.resetModules();
+      vi.doMock("@/env.mjs", () => ({
+        env: { CHAINALYSIS_API_KEY: undefined },
+      }));
+      vi.doMock("@sentry/nextjs", () => ({
+        captureException: vi.fn(),
+        captureMessage: vi.fn(),
+      }));
+      const { GET: getWithoutKey } = await import("./route");
+
+      const response = await getWithoutKey(
+        createRequest(VALID_ADDRESS, "1.2.3.4"),
+      );
+      expect(response.status).toBe(502);
+      const body = await response.json();
+      expect(body.isSanctioned).toBeNull();
+      expect(body.error).toBe("check_failed");
+    });
+  });
+
+  describe("fetch timeout", () => {
+    it("returns 502 when fetch is aborted", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockRejectedValue(new DOMException("Aborted", "AbortError")),
+      );
+
+      const response = await GET(createRequest(VALID_ADDRESS, "1.2.3.4"));
+      expect(response.status).toBe(502);
+      const body = await response.json();
+      expect(body.isSanctioned).toBeNull();
+      expect(body.error).toBe("check_failed");
+    });
+  });
+
   describe("rate limiting", () => {
     it("returns 429 after exceeding rate limit", async () => {
       vi.stubGlobal(
