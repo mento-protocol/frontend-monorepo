@@ -77,6 +77,11 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  if (!env.CHAINALYSIS_API_KEY) {
+    Sentry.captureException(new Error("CHAINALYSIS_API_KEY is not configured"));
+    return failClosed();
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 

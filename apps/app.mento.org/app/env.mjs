@@ -9,7 +9,7 @@ export const env = createEnv({
    */
   server: {
     SENTRY_AUTH_TOKEN: z.string(),
-    CHAINALYSIS_API_KEY: z.string(),
+    CHAINALYSIS_API_KEY: z.string().optional(),
   },
   /*
    * Environment variables available on the client (and server).
