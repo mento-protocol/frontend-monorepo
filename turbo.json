@@ -15,7 +15,8 @@
     "NEXT_PUBLIC_MONAD_TESTNET_RPC_URL",
     "NEXT_RUNTIME",
     "CI",
-    "SENTRY_AUTH_TOKEN"
+    "SENTRY_AUTH_TOKEN",
+    "CHAINALYSIS_API_KEY"
   ],
   "tasks": {
     "build": {
