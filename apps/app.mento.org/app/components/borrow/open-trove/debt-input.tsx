@@ -1,16 +1,18 @@
 "use client";
 
-import { CoinInput, TokenIcon } from "@repo/ui";
+import { CoinInput } from "@repo/ui";
 import {
   type DebtTokenConfig,
   useDebtSuggestions,
   useSystemParams,
   formatDebtAmount,
 } from "@repo/web3";
-import { useChainId } from "@repo/web3/wagmi";
-import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
-import { formatUnits, type Address } from "viem";
+import { formatUnits } from "viem";
 import type { RiskLevel } from "@repo/web3";
+import {
+  TokenDropdown,
+  type TokenDropdownOption,
+} from "../shared/debt-token-selector";
 
 function trimDecimals(value: string, dp: number): string {
   const dotIndex = value.indexOf(".");
@@ -20,6 +22,8 @@ function trimDecimals(value: string, dp: number): string {
 
 interface DebtInputProps {
   debtToken: DebtTokenConfig;
+  debtTokenOptions: TokenDropdownOption[];
+  onDebtTokenChange: (symbol: string) => void;
   value: string;
   onChange: (value: string) => void;
   collAmount: bigint;
@@ -55,23 +59,13 @@ function formatCompactDebt(amount: bigint): string {
 
 export function DebtInput({
   debtToken,
+  debtTokenOptions,
+  onDebtTokenChange,
   value,
   onChange,
   collAmount,
 }: DebtInputProps) {
-  const chainId = useChainId();
   const { data: systemParams } = useSystemParams(debtToken.symbol);
-
-  const debtTokenAddress = (() => {
-    try {
-      return getTokenAddress(
-        chainId,
-        debtToken.symbol as TokenSymbol,
-      ) as Address;
-    } catch {
-      return undefined;
-    }
-  })();
   const suggestions = useDebtSuggestions(
     collAmount > 0n ? collAmount : null,
     debtToken.symbol,
@@ -104,22 +98,12 @@ export function DebtInput({
           placeholder="0.00"
           className="p-0 text-sm font-mono flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
         />
-        <div className="gap-1.5 px-3 py-2 flex items-center bg-muted/50">
-          {debtTokenAddress ? (
-            <TokenIcon
-              token={{ address: debtTokenAddress, symbol: debtToken.symbol }}
-              size={20}
-              className="shrink-0 rounded-full"
-            />
-          ) : (
-            <div className="h-5 w-5 font-bold from-indigo-500 to-purple-600 flex shrink-0 items-center justify-center rounded-full bg-linear-to-br text-[7px] leading-none">
-              {debtToken.symbol}
-            </div>
-          )}
-          <span className="text-sm font-semibold text-muted-foreground/70">
-            {debtToken.symbol}
-          </span>
-        </div>
+        <TokenDropdown
+          value={debtToken.symbol}
+          onValueChange={onDebtTokenChange}
+          options={debtTokenOptions}
+          triggerClassName="gap-1.5 px-3 py-2 h-auto flex items-center bg-muted/50 border-0 shadow-none rounded-none text-sm font-semibold text-muted-foreground/70 focus:ring-0 focus-visible:ring-0"
+        />
       </div>
 
       {suggestions && suggestions.length > 0 && (

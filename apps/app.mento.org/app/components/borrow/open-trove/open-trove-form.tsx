@@ -34,7 +34,6 @@ import {
 } from "../shared/interest-rate-limits";
 import { LoanSummary } from "./loan-summary";
 import { LTVBar } from "./ltv-bar";
-import { TokenDropdown } from "../shared/debt-token-selector";
 
 function parseRateToBigint(pctString: string): bigint | null {
   const num = Number(pctString);
@@ -327,37 +326,10 @@ export function OpenTroveForm() {
         <span className="font-mono font-medium tracking-widest text-[11px] text-muted-foreground/50 uppercase">
           New Position
         </span>
-        <div className="mt-4 gap-4 md:grid-cols-2 grid">
-          <label className="space-y-2">
-            <span className="font-mono font-medium tracking-widest text-[11px] text-muted-foreground/50 uppercase">
-              Collateral
-            </span>
-            <TokenDropdown
-              value={collateralSymbol}
-              onValueChange={() => {}}
-              options={collateralOptions}
-              disabled
-              triggerClassName="w-full gap-2 border border-border bg-transparent px-3 py-2 font-medium shadow-none"
-            />
-          </label>
-          <label className="space-y-2">
-            <span className="font-mono font-medium tracking-widest text-[11px] text-muted-foreground/50 uppercase">
-              Borrow
-            </span>
-            <TokenDropdown
-              value={selectedDebtToken.symbol}
-              onValueChange={handleDebtTokenChange}
-              options={supportedDebtTokens.map((token) => ({
-                symbol: token.symbol,
-              }))}
-              triggerClassName="w-full gap-2 border border-border bg-transparent px-3 py-2 font-medium shadow-none"
-            />
-          </label>
-        </div>
-        <h1 className="mt-6 font-bold tracking-tight text-3xl">Open a Trove</h1>
+        <h1 className="mt-4 font-bold tracking-tight text-3xl">Open a Trove</h1>
         <p className="mt-1 leading-relaxed text-[15px] text-muted-foreground/60">
-          Deposit {collateralSymbol} as collateral and borrow{" "}
-          {selectedDebtToken.symbol} against it.
+          Deposit collateral and borrow a stablecoin against it at your chosen
+          interest rate.
         </p>
       </div>
 
@@ -378,6 +350,7 @@ export function OpenTroveForm() {
             <CollateralInput
               debtToken={selectedDebtToken}
               collateralSymbol={collateralSymbol}
+              collateralOptions={collateralOptions}
               value={formState.collAmount}
               onChange={setCollAmount}
             />
@@ -404,6 +377,10 @@ export function OpenTroveForm() {
 
             <DebtInput
               debtToken={selectedDebtToken}
+              debtTokenOptions={supportedDebtTokens.map((token) => ({
+                symbol: token.symbol,
+              }))}
+              onDebtTokenChange={handleDebtTokenChange}
               value={formState.debtAmount}
               onChange={setDebtAmount}
               collAmount={collAmount}
