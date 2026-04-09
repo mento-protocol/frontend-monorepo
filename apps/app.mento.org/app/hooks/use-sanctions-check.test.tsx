@@ -192,7 +192,7 @@ describe("useSanctionsCheck", () => {
     );
   });
 
-  it("does not disconnect twice on re-render", async () => {
+  it("does not disconnect twice for the same address on re-render", async () => {
     useAccountMock.mockReturnValue({
       address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
       isConnected: true,
@@ -218,5 +218,44 @@ describe("useSanctionsCheck", () => {
     await act(async () => rerender());
 
     expect(disconnectMock).toHaveBeenCalledOnce();
+  });
+
+  it("disconnects again when a different sanctioned address connects", async () => {
+    const firstAddress = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
+    const secondAddress = "0x71C7656EC7ab88b098defB751B7401B5f6d8976F";
+
+    useAccountMock.mockReturnValue({
+      address: firstAddress,
+      isConnected: true,
+    } as ReturnType<typeof useAccount>);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ isSanctioned: true }),
+      }),
+    );
+
+    const { result, rerender } = renderHook(() => useSanctionsCheck(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSanctioned).toBe(true);
+    });
+    expect(disconnectMock).toHaveBeenCalledOnce();
+
+    // Switch to a different sanctioned address
+    useAccountMock.mockReturnValue({
+      address: secondAddress,
+      isConnected: true,
+    } as ReturnType<typeof useAccount>);
+
+    await act(async () => rerender());
+
+    await waitFor(() => {
+      expect(disconnectMock).toHaveBeenCalledTimes(2);
+    });
   });
 });

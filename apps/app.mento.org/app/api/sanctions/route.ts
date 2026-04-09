@@ -26,13 +26,16 @@ if (typeof setInterval !== "undefined") {
 }
 
 function getClientIp(request: NextRequest): string {
+  // On Vercel (production), x-real-ip is set by the platform and is trustworthy
   const vercelIp = request.headers.get("x-real-ip");
   if (vercelIp) return vercelIp.trim();
 
+  // Fallback: x-forwarded-for. Leftmost = original client (but spoofable),
+  // rightmost = nearest proxy. We use leftmost as a best-effort for non-Vercel.
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) {
     const parts = forwarded.split(",");
-    return parts[parts.length - 1]!.trim();
+    return parts[0]!.trim();
   }
 
   return "unknown";

@@ -8,7 +8,7 @@ import { toast } from "@repo/ui";
 export function useSanctionsCheck() {
   const { address, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
-  const hasDisconnected = useRef(false);
+  const disconnectedAddress = useRef<string | null>(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["sanctions", address],
@@ -36,21 +36,15 @@ export function useSanctionsCheck() {
   const isChecking = isLoading && isConnected && !!address;
 
   useEffect(() => {
-    if (isSanctioned && !hasDisconnected.current) {
-      hasDisconnected.current = true;
+    if (isSanctioned && address && disconnectedAddress.current !== address) {
+      disconnectedAddress.current = address;
       disconnect();
       toast.error(
         "This address cannot use this application due to sanctions compliance.",
         { duration: Infinity },
       );
     }
-  }, [isSanctioned, disconnect]);
-
-  useEffect(() => {
-    if (!isConnected && !isSanctioned) {
-      hasDisconnected.current = false;
-    }
-  }, [isConnected, isSanctioned]);
+  }, [isSanctioned, address, disconnect]);
 
   return { isSanctioned, isChecking, checkFailed };
 }
