@@ -258,4 +258,38 @@ describe("useSanctionsCheck", () => {
       expect(disconnectMock).toHaveBeenCalledTimes(2);
     });
   });
+
+  it("stays blocked after sanctioned wallet is disconnected", async () => {
+    useAccountMock.mockReturnValue({
+      address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+      isConnected: true,
+    } as ReturnType<typeof useAccount>);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ isSanctioned: true }),
+      }),
+    );
+
+    const { result, rerender } = renderHook(() => useSanctionsCheck(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSanctioned).toBe(true);
+    });
+
+    // Simulate disconnect (address becomes undefined)
+    useAccountMock.mockReturnValue({
+      address: undefined,
+      isConnected: false,
+    } as ReturnType<typeof useAccount>);
+
+    await act(async () => rerender());
+
+    // isSanctioned must remain true even after disconnect
+    expect(result.current.isSanctioned).toBe(true);
+  });
 });

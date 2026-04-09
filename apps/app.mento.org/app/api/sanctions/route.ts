@@ -77,10 +77,10 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
+  try {
     const response = await fetch(`${CHAINALYSIS_API_BASE}/${address}`, {
       headers: {
         "X-API-KEY": env.CHAINALYSIS_API_KEY,
@@ -88,8 +88,6 @@ export async function GET(request: NextRequest) {
       },
       signal: controller.signal,
     });
-
-    clearTimeout(timeout);
 
     if (!response.ok) {
       Sentry.captureException(
@@ -129,5 +127,7 @@ export async function GET(request: NextRequest) {
       extra: { context: "sanctions_check" },
     });
     return failClosed();
+  } finally {
+    clearTimeout(timeout);
   }
 }

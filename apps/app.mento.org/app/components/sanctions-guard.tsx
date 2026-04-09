@@ -22,7 +22,7 @@ export function SanctionsGuard({ children }: PropsWithChildren) {
             We are unable to verify your wallet at this time. Please try again
             later.
           </p>
-          <Button size="sm" onPress={() => window.location.reload()}>
+          <Button size="sm" onClick={() => window.location.reload()}>
             Retry
           </Button>
         </div>

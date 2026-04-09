@@ -2,13 +2,14 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useAccount, useDisconnect } from "wagmi";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "@repo/ui";
 
 export function useSanctionsCheck() {
   const { address, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
   const disconnectedAddress = useRef<string | null>(null);
+  const [blocked, setBlocked] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["sanctions", address],
@@ -31,20 +32,25 @@ export function useSanctionsCheck() {
     retry: 2,
   });
 
-  const isSanctioned = data?.isSanctioned === true;
+  const isSanctioned = data?.isSanctioned === true || blocked;
   const checkFailed = isError && !isLoading;
   const isChecking = isLoading && isConnected && !!address;
 
   useEffect(() => {
-    if (isSanctioned && address && disconnectedAddress.current !== address) {
+    if (
+      data?.isSanctioned === true &&
+      address &&
+      disconnectedAddress.current !== address
+    ) {
       disconnectedAddress.current = address;
+      setBlocked(true);
       disconnect();
       toast.error(
         "This address cannot use this application due to sanctions compliance.",
         { duration: Infinity },
       );
     }
-  }, [isSanctioned, address, disconnect]);
+  }, [data?.isSanctioned, address, disconnect]);
 
   return { isSanctioned, isChecking, checkFailed };
 }
