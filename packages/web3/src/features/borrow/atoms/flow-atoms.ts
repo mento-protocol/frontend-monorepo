@@ -22,6 +22,7 @@ export interface BorrowFlowState {
   steps: FlowStep[];
   currentStepIndex: number;
   account: string;
+  successHref?: string;
 }
 
 // ---------------------------------------------------------------------------

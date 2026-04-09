@@ -1,11 +1,11 @@
 import { BorrowView } from "@/components/borrow/borrow-view";
-import { BorrowDashboard } from "@/components/borrow/dashboard/borrow-dashboard";
+import { OpenTroveForm } from "@/components/borrow/open-trove/open-trove-form";
 
-export default function BorrowPage() {
+export default function BorrowOpenPage() {
   return (
     <div className="md:items-center flex h-full w-full flex-wrap items-start justify-center">
-      <BorrowView showHeader>
-        <BorrowDashboard />
+      <BorrowView>
+        <OpenTroveForm />
       </BorrowView>
     </div>
   );

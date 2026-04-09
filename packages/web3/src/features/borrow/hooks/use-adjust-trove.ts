@@ -14,6 +14,7 @@ interface AdjustTroveMutationParams {
   troveStatus: TroveStatus;
   wagmiConfig: Config;
   account: string;
+  successHref?: string;
 }
 
 export function useAdjustTrove() {
@@ -28,6 +29,7 @@ export function useAdjustTrove() {
       troveStatus,
       wagmiConfig,
       account,
+      successHref,
     }: AdjustTroveMutationParams) => {
       if (!sdk) throw new Error("Borrow service not available");
 
@@ -63,6 +65,7 @@ export function useAdjustTrove() {
               buildAdjustTroveCall(sdk, symbol, params, troveStatus),
           },
         ],
+        { successHref },
       );
 
       if (!result.success) {

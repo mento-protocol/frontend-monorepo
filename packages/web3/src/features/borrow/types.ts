@@ -20,13 +20,8 @@ export interface DebtTokenConfig {
   currencySymbol: string;
   currencyCode: string;
   locale: string;
+  collateralSymbol: string;
 }
-
-export type BorrowView =
-  | "dashboard"
-  | "open-trove"
-  | { view: "manage-trove"; troveId: string }
-  | "redeem";
 
 export interface StabilityPoolPosition {
   deposit: bigint;
@@ -45,5 +40,18 @@ export const DEBT_TOKEN_CONFIGS: Record<string, DebtTokenConfig> = {
     currencySymbol: "£",
     currencyCode: "GBP",
     locale: "en-GB",
+    collateralSymbol: "USDm",
   },
 } as const;
+
+export function getDebtTokenConfig(symbol: string): DebtTokenConfig {
+  return (
+    DEBT_TOKEN_CONFIGS[symbol] ?? {
+      symbol,
+      currencySymbol: symbol,
+      currencyCode: symbol.replace(/m$/, ""),
+      locale: "en-US",
+      collateralSymbol: "USDm",
+    }
+  );
+}

@@ -2,15 +2,14 @@
 
 import { CoinInput, TokenIcon } from "@repo/ui";
 import {
+  type DebtTokenConfig,
   formatCompactBalance,
   tryParseUnits,
   useCollateralPrice,
-  selectedDebtTokenAtom,
 } from "@repo/web3";
 import { useAccount, useReadContract, useChainId } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 import { erc20Abi, formatUnits, type Address } from "viem";
-import { useAtomValue } from "jotai";
 import { useMemo } from "react";
 
 function trimDecimals(value: string, dp: number): string {
@@ -20,18 +19,25 @@ function trimDecimals(value: string, dp: number): string {
 }
 
 interface CollateralInputProps {
+  debtToken: DebtTokenConfig;
+  collateralSymbol: string;
   value: string;
   onChange: (value: string) => void;
 }
 
-export function CollateralInput({ value, onChange }: CollateralInputProps) {
+export function CollateralInput({
+  debtToken,
+  collateralSymbol,
+  value,
+  onChange,
+}: CollateralInputProps) {
   const { address } = useAccount();
   const chainId = useChainId();
-  const debtToken = useAtomValue(selectedDebtTokenAtom);
 
-  const collateralAddress = getTokenAddress(chainId, "USDm" as TokenSymbol) as
-    | Address
-    | undefined;
+  const collateralAddress = getTokenAddress(
+    chainId,
+    collateralSymbol as TokenSymbol,
+  ) as Address | undefined;
 
   const { data: balance } = useReadContract({
     address: collateralAddress,
@@ -75,7 +81,7 @@ export function CollateralInput({ value, onChange }: CollateralInputProps) {
           <span className="text-muted-foreground/70">
             {formatCompactBalance(formattedBalance)}
           </span>{" "}
-          USDm
+          {collateralSymbol}
         </span>
       </div>
       <div
@@ -101,7 +107,7 @@ export function CollateralInput({ value, onChange }: CollateralInputProps) {
         <div className="gap-1.5 px-3 py-2 flex items-center bg-muted/50">
           {collateralAddress ? (
             <TokenIcon
-              token={{ address: collateralAddress, symbol: "USDm" }}
+              token={{ address: collateralAddress, symbol: collateralSymbol }}
               size={20}
               className="shrink-0 rounded-full"
             />
@@ -111,7 +117,7 @@ export function CollateralInput({ value, onChange }: CollateralInputProps) {
             </div>
           )}
           <span className="text-sm font-semibold text-muted-foreground/70">
-            USDm
+            {collateralSymbol}
           </span>
         </div>
       </div>
@@ -121,7 +127,9 @@ export function CollateralInput({ value, onChange }: CollateralInputProps) {
         </p>
       )}
       {insufficient && (
-        <p className="text-xs text-destructive">Insufficient USDm balance</p>
+        <p className="text-xs text-destructive">
+          Insufficient {collateralSymbol} balance
+        </p>
       )}
     </div>
   );

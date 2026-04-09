@@ -1,209 +1,280 @@
 "use client";
 
-import { useAtomValue, useSetAtom } from "jotai";
-import { Button, Card, CardContent, Skeleton, TokenIcon } from "@repo/ui";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
+import { useRouter } from "next/navigation";
+import { Button, Card, CardContent, TokenIcon } from "@repo/ui";
 import {
   ConnectButton,
-  useUserTroves,
-  useSurplusCollateral,
-  useClaimCollateral,
-  selectedDebtTokenAtom,
   formatCollateralAmount,
-  formatDebtAmount,
-  formatDebtTokenAmount,
-  formatLtv,
-  useCollateralPrice,
-  useLoanDetails,
+  getDebtTokenConfig,
+  type BorrowPosition,
+  type DebtTokenConfig,
+  useClaimCollateral,
+  useSurplusCollateral,
+  useUserTroves,
 } from "@repo/web3";
-import type { BorrowPosition, DebtTokenConfig } from "@repo/web3";
-import { useAccount, useConfig, useChainId } from "@repo/web3/wagmi";
+import { useAccount, useChainId, useConfig } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
-import { Plus, Wallet, Clock, Settings, ArrowUpRight } from "lucide-react";
-import { TroveList } from "./trove-list";
-import { borrowViewAtom } from "../atoms/borrow-navigation";
+import { ArrowUpRight, Clock, Plus, Settings, Wallet } from "lucide-react";
+import { getSupportedDebtTokens } from "@/lib/stability-route";
+import { TroveList, type TroveListItem } from "./trove-list";
+
+interface TokenTroveState {
+  troves: BorrowPosition[];
+  isLoading: boolean;
+  error: Error | null;
+}
+
+interface TokenSurplusState {
+  amount: bigint;
+  isLoading: boolean;
+}
 
 export function BorrowDashboard() {
+  const router = useRouter();
   const { address, isConnected } = useAccount();
   const wagmiConfig = useConfig();
-  const debtToken = useAtomValue(selectedDebtTokenAtom);
-  const setBorrowView = useSetAtom(borrowViewAtom);
-
-  const {
-    data: troves,
-    isLoading: trovesLoading,
-    isError: trovesError,
-    error: trovesErrorDetail,
-  } = useUserTroves(debtToken.symbol);
-
-  const { data: surplusAmount } = useSurplusCollateral(debtToken.symbol);
+  const chainId = useChainId();
+  const supportedDebtTokens = useMemo(
+    () => getSupportedDebtTokens(chainId),
+    [chainId],
+  );
+  const [troveStates, setTroveStates] = useState<
+    Record<string, TokenTroveState>
+  >({});
+  const [surplusStates, setSurplusStates] = useState<
+    Record<string, TokenSurplusState>
+  >({});
   const claimCollateral = useClaimCollateral();
 
-  const hasTroves = troves && troves.length > 0;
-  const hasSurplus = surplusAmount != null && surplusAmount > 0n;
+  useEffect(() => {
+    setTroveStates({});
+    setSurplusStates({});
+  }, [chainId]);
+
+  const troves = useMemo<TroveListItem[]>(
+    () =>
+      supportedDebtTokens
+        .flatMap((token) =>
+          (troveStates[token.symbol]?.troves ?? []).map((position) => ({
+            position,
+            debtToken: token,
+          })),
+        )
+        .sort(
+          (a, b) =>
+            a.debtToken.symbol.localeCompare(b.debtToken.symbol) ||
+            a.position.troveId.localeCompare(b.position.troveId),
+        ),
+    [supportedDebtTokens, troveStates],
+  );
+
+  const troveLoading = supportedDebtTokens.some(
+    (token) =>
+      troveStates[token.symbol] == null || troveStates[token.symbol]!.isLoading,
+  );
+  const troveError = supportedDebtTokens
+    .map((token) => troveStates[token.symbol]?.error)
+    .find((error): error is Error => error instanceof Error);
+
+  const surplusTokens = supportedDebtTokens.filter(
+    (token) => (surplusStates[token.symbol]?.amount ?? 0n) > 0n,
+  );
+  const hasSurplus = surplusTokens.length > 0;
 
   if (!isConnected) {
-    return <EmptyState isConnected={false} />;
+    return (
+      <EmptyState
+        isConnected={false}
+        debtToken={supportedDebtTokens[0] ?? getDebtTokenConfig("GBPm")}
+      />
+    );
   }
 
-  if (trovesError) {
+  if (troveError) {
     return (
       <div className="p-6 bg-card text-center">
         <p className="text-destructive">
           Failed to load positions. Please check your connection and try again.
         </p>
-        {trovesErrorDetail instanceof Error && (
-          <p className="mt-2 text-xs break-all text-muted-foreground">
-            {trovesErrorDetail.message}
-          </p>
-        )}
+        <p className="mt-2 text-xs break-all text-muted-foreground">
+          {troveError.message}
+        </p>
       </div>
     );
   }
 
-  if (!trovesLoading && !hasTroves && !hasSurplus) {
+  if (!troveLoading && troves.length === 0 && !hasSurplus) {
     return (
-      <EmptyState isConnected onOpenTrove={() => setBorrowView("open-trove")} />
+      <EmptyState
+        isConnected
+        debtToken={supportedDebtTokens[0] ?? getDebtTokenConfig("GBPm")}
+        onOpenTrove={() => router.push("/borrow/open")}
+      />
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* Claim collateral banner */}
-      {hasSurplus && (
-        <div className="p-4 flex items-center justify-between rounded-lg border border-primary/20 bg-primary/5">
-          <div>
-            <p className="font-medium">Surplus Collateral Available</p>
-            <p className="text-sm text-muted-foreground">
-              You have {formatCollateralAmount(surplusAmount)} available to
-              claim from a liquidated position.
-            </p>
-          </div>
-          <Button
-            onClick={() =>
-              claimCollateral.mutate({
-                symbol: debtToken.symbol,
-                wagmiConfig,
-                account: address!,
-              })
-            }
-            disabled={claimCollateral.isPending}
-          >
-            {claimCollateral.isPending ? "Claiming…" : "Claim Collateral"}
-          </Button>
-        </div>
-      )}
+      {supportedDebtTokens.map((token) => (
+        <TokenTrovesObserver
+          key={`troves:${token.symbol}`}
+          token={token}
+          setTroveStates={setTroveStates}
+        />
+      ))}
+      {supportedDebtTokens.map((token) => (
+        <TokenSurplusObserver
+          key={`surplus:${token.symbol}`}
+          token={token}
+          setSurplusStates={setSurplusStates}
+        />
+      ))}
 
-      {/* Portfolio Summary */}
+      {surplusTokens.map((token) => {
+        const amount = surplusStates[token.symbol]?.amount ?? 0n;
+        return (
+          <div
+            key={`banner:${token.symbol}`}
+            className="p-4 flex items-center justify-between rounded-lg border border-primary/20 bg-primary/5"
+          >
+            <div>
+              <p className="font-medium">Surplus Collateral Available</p>
+              <p className="text-sm text-muted-foreground">
+                You have{" "}
+                {formatCollateralAmount(amount, token.collateralSymbol)}{" "}
+                available to claim from a liquidated {token.symbol} position.
+              </p>
+            </div>
+            <Button
+              onClick={() =>
+                claimCollateral.mutate({
+                  symbol: token.symbol,
+                  wagmiConfig,
+                  account: address!,
+                  successHref: "/borrow",
+                })
+              }
+              disabled={claimCollateral.isPending}
+            >
+              {claimCollateral.isPending ? "Claiming..." : "Claim Collateral"}
+            </Button>
+          </div>
+        );
+      })}
+
       <PortfolioSummary
-        troves={troves ?? []}
-        debtToken={debtToken}
-        isLoading={trovesLoading}
+        openTroves={troves.length}
+        supportedTokens={supportedDebtTokens.length}
+        activeTokens={
+          new Set(troves.map((item) => item.debtToken.symbol)).size +
+          surplusTokens.filter(
+            (token) =>
+              !troves.some((item) => item.debtToken.symbol === token.symbol),
+          ).length
+        }
+        isLoading={troveLoading}
       />
 
-      {/* Open Trove CTA */}
-      <Button onClick={() => setBorrowView("open-trove")} className="gap-2">
+      <Button onClick={() => router.push("/borrow/open")} className="gap-2">
         <Plus className="h-4 w-4" />
         Open New Trove
       </Button>
 
-      {/* Your Troves section */}
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
+        <h3 className="font-mono font-semibold tracking-widest text-[11px] text-muted-foreground uppercase">
           Your Troves
         </h3>
-        {hasTroves && (
-          <span className="text-xs font-mono text-muted-foreground/50">
+        {troves.length > 0 && (
+          <span className="font-mono text-xs text-muted-foreground/50">
             {troves.length} position{troves.length !== 1 ? "s" : ""}
           </span>
         )}
       </div>
 
-      {/* Trove list */}
-      <TroveList
-        troves={troves ?? []}
-        debtToken={debtToken}
-        isLoading={trovesLoading}
-      />
+      <TroveList troves={troves} isLoading={troveLoading} />
     </div>
   );
 }
 
+function TokenTrovesObserver({
+  token,
+  setTroveStates,
+}: {
+  token: DebtTokenConfig;
+  setTroveStates: Dispatch<SetStateAction<Record<string, TokenTroveState>>>;
+}) {
+  const { data, isLoading, error } = useUserTroves(token.symbol);
+
+  useEffect(() => {
+    setTroveStates((prev) => ({
+      ...prev,
+      [token.symbol]: {
+        troves: data ?? [],
+        isLoading,
+        error: error instanceof Error ? error : null,
+      },
+    }));
+  }, [data, error, isLoading, setTroveStates, token.symbol]);
+
+  return null;
+}
+
+function TokenSurplusObserver({
+  token,
+  setSurplusStates,
+}: {
+  token: DebtTokenConfig;
+  setSurplusStates: Dispatch<SetStateAction<Record<string, TokenSurplusState>>>;
+}) {
+  const { data, isLoading } = useSurplusCollateral(token.symbol);
+
+  useEffect(() => {
+    setSurplusStates((prev) => ({
+      ...prev,
+      [token.symbol]: {
+        amount: data ?? 0n,
+        isLoading,
+      },
+    }));
+  }, [data, isLoading, setSurplusStates, token.symbol]);
+
+  return null;
+}
+
 function PortfolioSummary({
-  troves,
-  debtToken,
+  openTroves,
+  supportedTokens,
+  activeTokens,
   isLoading,
 }: {
-  troves: BorrowPosition[];
-  debtToken: DebtTokenConfig;
+  openTroves: number;
+  supportedTokens: number;
+  activeTokens: number;
   isLoading: boolean;
 }) {
-  const totalCollateral =
-    troves.length > 0
-      ? troves.reduce((sum, t) => sum + t.collateral, 0n)
-      : null;
-  const totalDebt =
-    troves.length > 0 ? troves.reduce((sum, t) => sum + t.debt, 0n) : null;
-  const { data: collateralPrice } = useCollateralPrice(debtToken.symbol);
-
-  // Compute weighted average LTV from the first trove's loan details context
-  // We use the total collateral/debt to get an aggregate LTV
-  const avgLoanDetails = useLoanDetails(
-    totalCollateral,
-    totalDebt,
-    troves[0]?.annualInterestRate ?? null,
-    debtToken.symbol,
-  );
-
-  const totalDebtUsdValue = formatDebtUsdAmount(totalDebt, collateralPrice);
-  const totalDebtTokenValue = formatDebtTokenAmount(totalDebt, debtToken);
-
   const stats = [
-    {
-      label: "Total Collateral",
-      value: isLoading ? null : formatCollateralAmount(totalCollateral),
-    },
-    {
-      label: "Total Debt",
-      value: isLoading
-        ? null
-        : (totalDebtUsdValue ?? formatDebtAmount(totalDebt, debtToken)),
-      secondaryValue: isLoading ? null : totalDebtTokenValue,
-    },
-    {
-      label: "Avg LTV",
-      value: isLoading ? null : formatLtv(avgLoanDetails?.ltv ?? null),
-      accent: true,
-    },
-    {
-      label: "Open Troves",
-      value: isLoading ? null : troves.length.toString(),
-    },
+    { label: "Open Troves", value: openTroves.toString() },
+    { label: "Supported Tokens", value: supportedTokens.toString() },
+    { label: "Active Markets", value: activeTokens.toString() },
   ];
 
   return (
-    <div className="gap-4 md:grid-cols-4 grid grid-cols-2">
+    <div className="gap-4 md:grid-cols-3 grid grid-cols-2">
       {stats.map((stat) => (
-        <Card key={stat.label} className="!py-0 !gap-0">
+        <Card key={stat.label} className="!gap-0 !py-0">
           <CardContent className="!px-4 py-4">
-            <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
+            <span className="font-mono font-medium tracking-widest text-[11px] text-muted-foreground uppercase">
               {stat.label}
             </span>
-            <div
-              className={`mt-1 text-xl font-semibold tracking-tight ${stat.accent ? "text-primary" : ""}`}
-            >
-              {stat.value != null ? (
-                <>
-                  <div>{stat.value}</div>
-                  {"secondaryValue" in stat &&
-                    typeof stat.secondaryValue === "string" && (
-                      <div className="mt-1 text-xs font-mono font-medium text-muted-foreground/60">
-                        {stat.secondaryValue}
-                      </div>
-                    )}
-                </>
-              ) : (
-                <Skeleton className="mt-1 h-6 w-20" />
-              )}
+            <div className="mt-1 text-xl font-semibold tracking-tight">
+              {isLoading ? "..." : stat.value}
             </div>
           </CardContent>
         </Card>
@@ -212,38 +283,24 @@ function PortfolioSummary({
   );
 }
 
-function formatDebtUsdAmount(
-  amount: bigint | null | undefined,
-  collateralPrice: bigint | null | undefined,
-): string | null {
-  if (amount == null || collateralPrice == null || collateralPrice <= 0n) {
-    return null;
-  }
-
-  const usdValue = (amount * 10n ** 18n) / collateralPrice;
-  const num = Number(usdValue) / 1e18;
-
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(num);
-}
-
 function EmptyState({
   isConnected,
+  debtToken,
   onOpenTrove,
 }: {
   isConnected: boolean;
+  debtToken: DebtTokenConfig;
   onOpenTrove?: () => void;
 }) {
   const chainId = useChainId();
-  const debtToken = useAtomValue(selectedDebtTokenAtom);
+  const collateralSymbol = debtToken.collateralSymbol;
 
   const collateralAddress = (() => {
     try {
-      return getTokenAddress(chainId, "USDm" as TokenSymbol) as `0x${string}`;
+      return getTokenAddress(
+        chainId,
+        collateralSymbol as TokenSymbol,
+      ) as `0x${string}`;
     } catch {
       return undefined;
     }
@@ -270,7 +327,7 @@ function EmptyState({
     {
       icon: <Wallet className="h-5 w-5" />,
       title: "Deposit collateral",
-      desc: "Lock USDm as collateral to secure your loan. The more you deposit, the more you can borrow.",
+      desc: `Lock ${collateralSymbol} as collateral to secure your loan. The more you deposit, the more you can borrow.`,
     },
     {
       icon: <Clock className="h-5 w-5" />,
@@ -286,7 +343,6 @@ function EmptyState({
 
   return (
     <div className="space-y-8">
-      {/* How borrowing works */}
       <div>
         <h3 className="mb-4 font-mono font-semibold tracking-widest text-[11px] text-muted-foreground uppercase">
           How borrowing works
@@ -295,7 +351,7 @@ function EmptyState({
           {steps.map((step, i) => (
             <Card
               key={i}
-              className="!py-0 !gap-0 transition-colors hover:bg-accent/50"
+              className="!gap-0 !py-0 transition-colors hover:bg-accent/50"
             >
               <CardContent className="p-6">
                 <div className="mb-3.5 gap-3 flex items-center">
@@ -318,110 +374,68 @@ function EmptyState({
         </div>
       </div>
 
-      {/* Footer link */}
-      <div className="text-center">
-        <a
-          href="https://docs.mento.org"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="gap-1.5 font-medium inline-flex items-center text-[13px] text-primary hover:underline"
-        >
-          Learn more about Troves and liquidation
-          <ArrowUpRight className="h-3 w-3" />
-        </a>
+      <div className="gap-4 md:grid-cols-3 grid grid-cols-1">
+        {stats.map((stat) => (
+          <Card key={stat.label} className="!gap-0 !py-0">
+            <CardContent className="!px-4 py-4">
+              <span className="font-mono font-medium tracking-widest text-[11px] text-muted-foreground uppercase">
+                {stat.label}
+              </span>
+              <div className="mt-1 text-xl font-semibold tracking-tight">
+                {stat.value}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      {/* Empty state card */}
-      <div className="px-6 py-14 relative overflow-hidden rounded-xl border border-border bg-card text-center">
-        {/* Top accent line */}
-        <div className="top-0 w-48 absolute left-1/2 h-[2px] -translate-x-1/2 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
-
-        {/* Token icon cluster */}
-        <div className="mb-7 flex justify-center">
-          <div className="h-14 w-20 relative">
-            <div className="left-0 top-2 absolute z-[2]">
-              {collateralAddress ? (
+      <div className="overflow-hidden rounded-lg border border-border bg-card">
+        <div className="px-6 py-4 flex items-center justify-between border-b border-border">
+          <div className="gap-3 flex items-center">
+            <div className="h-8 w-11 relative">
+              {collateralAddress && (
                 <TokenIcon
-                  token={{ address: collateralAddress, symbol: "USDm" }}
-                  size={44}
-                  className="rounded-full"
+                  token={{
+                    address: collateralAddress,
+                    symbol: collateralSymbol,
+                  }}
+                  size={32}
+                  className="left-0 top-0 absolute z-10 rounded-full ring-2 ring-card"
                 />
-              ) : (
-                <div className="h-11 w-11 bg-emerald-500 text-lg font-bold flex items-center justify-center rounded-full">
-                  $
-                </div>
+              )}
+              {debtTokenAddress && (
+                <TokenIcon
+                  token={{
+                    address: debtTokenAddress,
+                    symbol: debtToken.symbol,
+                  }}
+                  size={32}
+                  className="top-0 absolute left-[18px] rounded-full ring-2 ring-card"
+                />
               )}
             </div>
-            <div className="left-8 top-2 absolute z-[1]">
-              <div className="rounded-full border-[3px] border-card">
-                {debtTokenAddress ? (
-                  <TokenIcon
-                    token={{
-                      address: debtTokenAddress,
-                      symbol: debtToken.symbol,
-                    }}
-                    size={44}
-                    className="rounded-full"
-                  />
-                ) : (
-                  <div className="h-11 w-11 bg-indigo-500 px-1 font-bold flex items-center justify-center rounded-full text-[9px] leading-none">
-                    {debtToken.symbol}
-                  </div>
-                )}
+            <div>
+              <div className="font-semibold">
+                {collateralSymbol} / {debtToken.symbol}
               </div>
-            </div>
-            {/* Arrow badge */}
-            <div className="left-6 top-0 absolute z-[3] flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 border-border bg-card">
-              <svg
-                width="10"
-                height="10"
-                viewBox="0 0 10 10"
-                fill="none"
-                className="text-primary"
-              >
-                <path
-                  d="M3 5h4M5.5 3L7 5l-1.5 2"
-                  stroke="currentColor"
-                  strokeWidth="1.3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
+              <div className="text-xs text-muted-foreground">
+                Open a borrow position to deposit {collateralSymbol} collateral
+                and borrow {debtToken.symbol}.
+              </div>
             </div>
           </div>
+          <ArrowUpRight className="h-4 w-4 text-muted-foreground/50" />
         </div>
 
-        <h2 className="mb-2.5 text-xl font-bold tracking-tight">
-          No open positions yet
-        </h2>
-        <p className="mb-8 max-w-sm text-sm leading-relaxed mx-auto text-muted-foreground">
-          Open a borrow position to deposit USDm collateral and borrow{" "}
-          {debtToken.symbol}. Set your own interest rate with no fixed repayment
-          schedule.
-        </p>
-
-        {/* CTA */}
-        <div className="flex justify-center">
+        <div className="p-6">
           {isConnected ? (
-            <Button onClick={onOpenTrove} size="lg" className="gap-2.5">
+            <Button onClick={onOpenTrove} className="gap-2">
               <Plus className="h-4 w-4" />
-              Open Your First Position
+              Open New Trove
             </Button>
           ) : (
-            <ConnectButton size="lg" text="Connect Wallet" />
+            <ConnectButton />
           )}
-        </div>
-
-        {/* Stats */}
-        <div className="mt-9 gap-8 pt-7 flex justify-center border-t border-border/40">
-          {stats.map((s) => (
-            <div key={s.label} className="text-center">
-              <div className="text-lg font-bold tracking-tight">{s.value}</div>
-              <div className="font-mono tracking-wide text-[11px] text-muted-foreground/50">
-                {s.label}
-              </div>
-            </div>
-          ))}
         </div>
       </div>
     </div>

@@ -14,6 +14,10 @@ export interface FlowStepDefinition {
   buildTx: () => Promise<CallParams | null>;
 }
 
+export interface ExecuteFlowOptions {
+  successHref?: string;
+}
+
 type SetFlowAtom = (
   update:
     | BorrowFlowState
@@ -36,6 +40,7 @@ export async function executeFlow(
   operation: string,
   account: string,
   stepDefs: FlowStepDefinition[],
+  options?: ExecuteFlowOptions,
 ): Promise<{ success: boolean; txHashes: string[] }> {
   const txHashes: string[] = [];
 
@@ -52,6 +57,7 @@ export async function executeFlow(
     steps: initialSteps,
     currentStepIndex: 0,
     account,
+    successHref: options?.successHref,
   };
 
   setFlowAtom(initialState);

@@ -2,15 +2,15 @@
 
 import { Slider } from "@repo/ui";
 import {
+  type DebtTokenConfig,
   useSystemParams,
   formatDebtAmount,
-  selectedDebtTokenAtom,
 } from "@repo/web3";
-import { useAtomValue } from "jotai";
 import { parseUnits } from "viem";
 import { useMemo } from "react";
 
 interface InterestRateInputProps {
+  debtToken: DebtTokenConfig;
   value: string;
   onChange: (value: string) => void;
   debtAmount: bigint;
@@ -42,12 +42,12 @@ function bigintRateToNumber(rate: bigint): number {
 }
 
 export function InterestRateInput({
+  debtToken,
   value,
   onChange,
   debtAmount,
   maxRatePct,
 }: InterestRateInputProps) {
-  const debtToken = useAtomValue(selectedDebtTokenAtom);
   const { data: systemParams } = useSystemParams(debtToken.symbol);
 
   const rateBigint = parseRateToBigint(value);
@@ -90,7 +90,6 @@ export function InterestRateInput({
         )}
       </div>
 
-      {/* Slider + percentage input */}
       <div className="gap-4 flex items-center">
         <Slider
           min={minRatePct}
@@ -113,7 +112,6 @@ export function InterestRateInput({
         </div>
       </div>
 
-      {/* Rate presets */}
       <div className="gap-1.5 flex">
         {RATE_PRESETS.map((p) => {
           const isActive = value === p.rate;

@@ -10,6 +10,7 @@ import type { Config } from "wagmi";
 import { getChainId, getPublicClient } from "wagmi/actions";
 import { borrowFlowAtom } from "../atoms/flow-atoms";
 import type { CallParams, OpenTroveParams } from "../types";
+import { deriveBorrowTroveId } from "../sdk";
 import { executeFlow } from "../tx-flows/engine";
 import { useBorrowService } from "./use-borrow-service";
 
@@ -17,6 +18,7 @@ interface OpenTroveMutationParams {
   symbol: string;
   params: OpenTroveParams;
   wagmiConfig: Config;
+  successHref?: string;
 }
 
 export function useOpenTrove() {
@@ -29,10 +31,16 @@ export function useOpenTrove() {
       symbol,
       params,
       wagmiConfig,
+      successHref,
     }: OpenTroveMutationParams) => {
       if (!sdk) throw new Error("Borrow service not available");
 
       const flowId = `open-trove-${Date.now()}`;
+      const troveId = deriveBorrowTroveId(
+        params.owner,
+        params.owner,
+        params.ownerIndex,
+      );
       const result = await executeFlow(
         wagmiConfig,
         setFlowAtom,
@@ -119,6 +127,11 @@ export function useOpenTrove() {
             },
           },
         ],
+        {
+          successHref:
+            successHref ??
+            `/borrow/manage/${troveId.toString()}?token=${encodeURIComponent(symbol)}`,
+        },
       );
 
       if (!result.success) {

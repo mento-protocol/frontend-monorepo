@@ -2,14 +2,13 @@
 
 import { CoinInput, TokenIcon } from "@repo/ui";
 import {
+  type DebtTokenConfig,
   useDebtSuggestions,
   useSystemParams,
   formatDebtAmount,
-  selectedDebtTokenAtom,
 } from "@repo/web3";
 import { useChainId } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
-import { useAtomValue } from "jotai";
 import { formatUnits, type Address } from "viem";
 import type { RiskLevel } from "@repo/web3";
 
@@ -20,6 +19,7 @@ function trimDecimals(value: string, dp: number): string {
 }
 
 interface DebtInputProps {
+  debtToken: DebtTokenConfig;
   value: string;
   onChange: (value: string) => void;
   collAmount: bigint;
@@ -53,9 +53,13 @@ function formatCompactDebt(amount: bigint): string {
   return num.toFixed(0);
 }
 
-export function DebtInput({ value, onChange, collAmount }: DebtInputProps) {
+export function DebtInput({
+  debtToken,
+  value,
+  onChange,
+  collAmount,
+}: DebtInputProps) {
   const chainId = useChainId();
-  const debtToken = useAtomValue(selectedDebtTokenAtom);
   const { data: systemParams } = useSystemParams(debtToken.symbol);
 
   const debtTokenAddress = (() => {
@@ -118,7 +122,6 @@ export function DebtInput({ value, onChange, collAmount }: DebtInputProps) {
         </div>
       </div>
 
-      {/* Borrow presets */}
       {suggestions && suggestions.length > 0 && (
         <div className="gap-1.5 flex">
           {suggestions.map((s) => {

@@ -13,6 +13,7 @@ interface AdjustInterestRateMutationParams {
   maxUpfrontFee: bigint;
   wagmiConfig: Config;
   account: string;
+  successHref?: string;
 }
 
 export function useAdjustInterestRate() {
@@ -28,6 +29,7 @@ export function useAdjustInterestRate() {
       maxUpfrontFee,
       wagmiConfig,
       account,
+      successHref,
     }: AdjustInterestRateMutationParams) => {
       if (!sdk) throw new Error("Borrow service not available");
 
@@ -51,6 +53,7 @@ export function useAdjustInterestRate() {
               ),
           },
         ],
+        { successHref },
       );
 
       if (!result.success) {

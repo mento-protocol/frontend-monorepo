@@ -2,9 +2,13 @@ import { Skeleton } from "@repo/ui";
 import type { BorrowPosition, DebtTokenConfig } from "@repo/web3";
 import { TroveCard } from "./trove-card";
 
-interface TroveListProps {
-  troves: BorrowPosition[];
+export interface TroveListItem {
+  position: BorrowPosition;
   debtToken: DebtTokenConfig;
+}
+
+interface TroveListProps {
+  troves: TroveListItem[];
   isLoading: boolean;
 }
 
@@ -46,7 +50,7 @@ function SkeletonCard() {
   );
 }
 
-export function TroveList({ troves, debtToken, isLoading }: TroveListProps) {
+export function TroveList({ troves, isLoading }: TroveListProps) {
   return (
     <div className="gap-4 md:grid-cols-2 grid grid-cols-1">
       {isLoading ? (
@@ -59,9 +63,9 @@ export function TroveList({ troves, debtToken, isLoading }: TroveListProps) {
           No active troves
         </div>
       ) : (
-        troves.map((position) => (
+        troves.map(({ position, debtToken }) => (
           <TroveCard
-            key={position.troveId}
+            key={`${debtToken.symbol}:${position.troveId}`}
             position={position}
             debtToken={debtToken}
           />

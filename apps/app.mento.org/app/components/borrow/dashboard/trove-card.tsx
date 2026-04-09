@@ -1,6 +1,6 @@
 "use client";
 
-import { useSetAtom } from "jotai";
+import { useRouter } from "next/navigation";
 import { Button, TokenIcon } from "@repo/ui";
 import type { BorrowPosition, DebtTokenConfig, RiskLevel } from "@repo/web3";
 import {
@@ -13,11 +13,8 @@ import {
 import { useChainId } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 import type { Address } from "viem";
-import { borrowViewAtom } from "../atoms/borrow-navigation";
 import { TroveStatusBadge } from "../shared/trove-status-badge";
 import { TroveIdPopover } from "../shared/trove-id-popover";
-
-const COLLATERAL_SYMBOL = "USDm";
 
 interface TroveCardProps {
   position: BorrowPosition;
@@ -105,8 +102,9 @@ function LtvHealthBar({
 }
 
 export function TroveCard({ position, debtToken }: TroveCardProps) {
-  const setBorrowView = useSetAtom(borrowViewAtom);
+  const router = useRouter();
   const chainId = useChainId();
+  const collateralSymbol = debtToken.collateralSymbol;
 
   const loanDetails = useLoanDetails(
     position.collateral,
@@ -117,7 +115,7 @@ export function TroveCard({ position, debtToken }: TroveCardProps) {
 
   const collateralAddress = getTokenAddress(
     chainId,
-    COLLATERAL_SYMBOL as TokenSymbol,
+    collateralSymbol as TokenSymbol,
   ) as Address | undefined;
 
   const debtTokenAddress = getTokenAddress(
@@ -126,7 +124,9 @@ export function TroveCard({ position, debtToken }: TroveCardProps) {
   ) as Address | undefined;
 
   function handleManage() {
-    setBorrowView({ view: "manage-trove", troveId: position.troveId });
+    router.push(
+      `/borrow/manage/${position.troveId}?token=${encodeURIComponent(debtToken.symbol)}`,
+    );
   }
 
   const risk = loanDetails?.liquidationRisk ?? null;
@@ -151,7 +151,7 @@ export function TroveCard({ position, debtToken }: TroveCardProps) {
                 <TokenIcon
                   token={{
                     address: collateralAddress,
-                    symbol: COLLATERAL_SYMBOL,
+                    symbol: collateralSymbol,
                   }}
                   size={32}
                   className="left-0 top-0 absolute z-10 rounded-full ring-2 ring-card"
@@ -171,7 +171,7 @@ export function TroveCard({ position, debtToken }: TroveCardProps) {
             <div>
               <div className="gap-1.5 flex items-center">
                 <span className="font-semibold">
-                  {COLLATERAL_SYMBOL} / {debtToken.symbol}
+                  {collateralSymbol} / {debtToken.symbol}
                 </span>
                 <TroveIdPopover troveId={position.troveId} />
               </div>
@@ -212,7 +212,10 @@ export function TroveCard({ position, debtToken }: TroveCardProps) {
         <div className="gap-6 grid grid-cols-3">
           <DataCell
             label="Collateral"
-            value={formatCollateralAmount(position.collateral)}
+            value={formatCollateralAmount(
+              position.collateral,
+              collateralSymbol,
+            )}
           />
           <DataCell
             label="Debt"
@@ -223,6 +226,7 @@ export function TroveCard({ position, debtToken }: TroveCardProps) {
             value={formatPrice(
               loanDetails?.liquidationPrice ?? null,
               debtToken,
+              collateralSymbol,
             )}
           />
         </div>

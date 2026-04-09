@@ -3,17 +3,16 @@
 import { useState, useMemo } from "react";
 import { Button, Slider } from "@repo/ui";
 import {
+  type DebtTokenConfig,
   useAdjustInterestRate,
   usePredictAdjustInterestRateUpfrontFee,
   useRedemptionRisk,
   useSystemParams,
-  selectedDebtTokenAtom,
   formatDebtAmount,
   formatInterestRate,
   type BorrowPosition,
 } from "@repo/web3";
 import { useAccount, useConfig } from "@repo/web3/wagmi";
-import { useAtomValue } from "jotai";
 import { parseUnits } from "viem";
 import { RiskBadge } from "../shared/risk-badge";
 import {
@@ -24,6 +23,7 @@ import {
 interface RateFormProps {
   troveId: string;
   troveData: BorrowPosition;
+  debtToken: DebtTokenConfig;
 }
 
 const SLIDER_STEP = 0.5;
@@ -65,8 +65,7 @@ function MetricRow({
   );
 }
 
-export function RateForm({ troveId, troveData }: RateFormProps) {
-  const debtToken = useAtomValue(selectedDebtTokenAtom);
+export function RateForm({ troveId, troveData, debtToken }: RateFormProps) {
   const { address, isConnected } = useAccount();
   const wagmiConfig = useConfig();
 
@@ -177,6 +176,7 @@ export function RateForm({ troveId, troveData }: RateFormProps) {
       maxUpfrontFee,
       wagmiConfig,
       account: address,
+      successHref: "/borrow",
     });
   };
 

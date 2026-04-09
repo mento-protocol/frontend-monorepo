@@ -1,6 +1,7 @@
 "use client";
 
 import { useAtom } from "jotai";
+import { useRouter } from "next/navigation";
 import { borrowFlowAtom } from "@repo/web3";
 import type { BorrowFlowState } from "@repo/web3";
 import {
@@ -13,8 +14,6 @@ import {
   DialogTitle,
 } from "@repo/ui";
 import { FlowStep } from "./flow-step";
-import { borrowViewAtom } from "../atoms/borrow-navigation";
-import { useSetAtom } from "jotai";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -33,17 +32,20 @@ function hasError(flow: BorrowFlowState): boolean {
 // ---------------------------------------------------------------------------
 
 export function FlowDialog() {
+  const router = useRouter();
   const [flow, setFlow] = useAtom(borrowFlowAtom);
-  const setBorrowView = useSetAtom(borrowViewAtom);
 
   if (!flow) return null;
 
   const allDone = isAllConfirmed(flow);
   const errored = hasError(flow);
+  const successHref = flow.successHref;
 
   function handleBackToDashboard() {
     setFlow(null);
-    setBorrowView("dashboard");
+    if (successHref) {
+      router.push(successHref);
+    }
   }
 
   function handleTryAgain() {
@@ -56,8 +58,8 @@ export function FlowDialog() {
       onOpenChange={(open) => {
         if (!open) {
           setFlow(null);
-          if (allDone) {
-            setBorrowView("dashboard");
+          if (allDone && successHref) {
+            router.push(successHref);
           }
         }
       }}

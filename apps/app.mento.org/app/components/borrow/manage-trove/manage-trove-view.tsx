@@ -1,38 +1,36 @@
 "use client";
 
 import { useState } from "react";
-import { useAtomValue, useSetAtom } from "jotai";
+import { useRouter } from "next/navigation";
 import {
   Card,
   CardContent,
   Tabs,
+  TabsContent,
   TabsList,
   TabsTrigger,
-  TabsContent,
   Skeleton,
   TokenIcon,
 } from "@repo/ui";
-import type { RiskLevel } from "@repo/web3";
 import {
-  useTroveData,
-  useLoanDetails,
-  selectedDebtTokenAtom,
   formatCollateralAmount,
   formatDebtAmount,
   formatInterestRate,
   formatPrice,
+  getDebtTokenConfig,
+  type RiskLevel,
+  useLoanDetails,
+  useTroveData,
 } from "@repo/web3";
 import { useChainId } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 import type { Address } from "viem";
-import { ChevronLeft, Copy, Check } from "lucide-react";
+import { Check, ChevronLeft, Copy } from "lucide-react";
+import { getSupportedDebtTokens } from "@/lib/stability-route";
 import { AdjustForm } from "./adjust-form";
-import { RateForm } from "./rate-form";
 import { CloseForm } from "./close-form";
-import { borrowViewAtom } from "../atoms/borrow-navigation";
+import { RateForm } from "./rate-form";
 import { TroveStatusBadge } from "../shared/trove-status-badge";
-
-const COLLATERAL_SYMBOL = "USDm";
 
 const RISK_STATUS_LABELS: Record<
   string,
@@ -101,7 +99,7 @@ function LtvHealthBar({
             {ltvPct.toFixed(1)}%
           </span>
           <span
-            className={`px-2 py-0.5 rounded font-semibold tracking-wider font-mono text-[11px] uppercase ${riskStyle.bgClass}`}
+            className={`rounded px-2 py-0.5 font-mono font-semibold tracking-wider text-[11px] uppercase ${riskStyle.bgClass}`}
           >
             {riskStyle.label}
           </span>
@@ -127,14 +125,24 @@ function shortenId(id: string): string {
 
 interface ManageTroveViewProps {
   troveId: string;
+  tokenSymbol?: string;
 }
 
-export function ManageTroveView({ troveId }: ManageTroveViewProps) {
-  const debtToken = useAtomValue(selectedDebtTokenAtom);
-  const setBorrowView = useSetAtom(borrowViewAtom);
+export function ManageTroveView({
+  troveId,
+  tokenSymbol,
+}: ManageTroveViewProps) {
+  const router = useRouter();
   const chainId = useChainId();
   const [copied, setCopied] = useState(false);
+  const supportedDebtTokens = getSupportedDebtTokens(chainId);
+  const resolvedDebtToken =
+    supportedDebtTokens.find((token) => token.symbol === tokenSymbol) ??
+    (tokenSymbol ? undefined : null);
+  const debtToken = resolvedDebtToken ?? getDebtTokenConfig("GBPm");
+  const isValidToken = !!tokenSymbol && !!resolvedDebtToken;
 
+  const collateralSymbol = debtToken.collateralSymbol;
   const {
     data: troveData,
     isLoading,
@@ -149,11 +157,34 @@ export function ManageTroveView({ troveId }: ManageTroveViewProps) {
     debtToken.symbol,
   );
 
+  if (!isValidToken) {
+    return (
+      <div className="space-y-6">
+        <button
+          type="button"
+          onClick={() => router.push("/borrow")}
+          className="gap-1 text-sm flex items-center text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ChevronLeft className="h-4 w-4" />
+          Back to Dashboard
+        </button>
+        <Card>
+          <CardContent className="space-y-2 pt-6">
+            <p className="font-semibold">Invalid borrow token</p>
+            <p className="text-sm text-muted-foreground">
+              This trove route is missing a supported debt token for the current
+              chain.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   const collateralAddress = getTokenAddress(
     chainId,
-    COLLATERAL_SYMBOL as TokenSymbol,
+    collateralSymbol as TokenSymbol,
   ) as Address | undefined;
-
   const debtTokenAddress = getTokenAddress(
     chainId,
     debtToken.symbol as TokenSymbol,
@@ -190,14 +221,14 @@ export function ManageTroveView({ troveId }: ManageTroveViewProps) {
       <div className="space-y-6">
         <button
           type="button"
-          onClick={() => setBorrowView("dashboard")}
+          onClick={() => router.push("/borrow")}
           className="gap-1 text-sm flex items-center text-muted-foreground transition-colors hover:text-foreground"
         >
           <ChevronLeft className="h-4 w-4" />
           Back to Dashboard
         </button>
         <Card>
-          <CardContent className="pt-6 space-y-2">
+          <CardContent className="space-y-2 pt-6">
             <p className="font-semibold">Failed to load trove</p>
             <p className="text-sm text-destructive">
               Could not fetch data for trove #{troveId}.
@@ -215,26 +246,23 @@ export function ManageTroveView({ troveId }: ManageTroveViewProps) {
 
   return (
     <div className="space-y-6">
-      {/* Back nav */}
       <button
         type="button"
-        onClick={() => setBorrowView("dashboard")}
+        onClick={() => router.push("/borrow")}
         className="gap-1 text-sm flex items-center text-muted-foreground transition-colors hover:text-foreground"
       >
         <ChevronLeft className="h-4 w-4" />
         Back to Dashboard
       </button>
 
-      {/* Trove header */}
       <div className="gap-4 px-6 py-5 flex flex-wrap items-center justify-between rounded-xl border border-border bg-card">
         <div className="gap-3 flex items-center">
-          {/* Token pair icons */}
           <div className="h-10 w-12 relative">
             {collateralAddress && (
               <TokenIcon
                 token={{
                   address: collateralAddress,
-                  symbol: COLLATERAL_SYMBOL,
+                  symbol: collateralSymbol,
                 }}
                 size={36}
                 className="left-0 top-0 absolute z-10 rounded-full ring-2 ring-background"
@@ -247,16 +275,16 @@ export function ManageTroveView({ troveId }: ManageTroveViewProps) {
                   symbol: debtToken.symbol,
                 }}
                 size={36}
-                className="top-0 left-5 absolute rounded-full ring-2 ring-background"
+                className="left-5 top-0 absolute rounded-full ring-2 ring-background"
               />
             )}
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight">
-              {COLLATERAL_SYMBOL} / {debtToken.symbol}
+              {collateralSymbol} / {debtToken.symbol}
             </h1>
             <div className="mt-0.5 gap-2 flex items-center">
-              <span className="text-xs font-mono text-muted-foreground">
+              <span className="font-mono text-xs text-muted-foreground">
                 {shortenId(troveId)}
               </span>
               <button
@@ -279,8 +307,7 @@ export function ManageTroveView({ troveId }: ManageTroveViewProps) {
           </div>
         </div>
 
-        {/* Status + Trove # */}
-        <div className="gap-2 text-xs font-mono flex flex-wrap items-center text-muted-foreground">
+        <div className="gap-2 font-mono text-xs flex flex-wrap items-center text-muted-foreground">
           <TroveStatusBadge status={troveData?.status} />
           {!isZombieTrove && riskStatusConfig && (
             <div className="gap-1.5 flex items-center">
@@ -299,11 +326,10 @@ export function ManageTroveView({ troveId }: ManageTroveViewProps) {
         </div>
       </div>
 
-      {/* LTV Health Bar */}
       {loanDetails && (
-        <Card className="!py-0 !gap-0">
+        <Card className="!gap-0 !py-0">
           <CardContent className="!px-6 py-5">
-            <span className="font-medium tracking-widest font-mono mb-3 block text-[11px] text-muted-foreground uppercase">
+            <span className="mb-3 font-mono font-medium tracking-widest block text-[11px] text-muted-foreground uppercase">
               Loan-to-Value
             </span>
             <LtvHealthBar
@@ -315,12 +341,14 @@ export function ManageTroveView({ troveId }: ManageTroveViewProps) {
         </Card>
       )}
 
-      {/* Stats row */}
       {troveData && (
         <div className="gap-4 md:grid-cols-4 grid grid-cols-2">
           <StatCell
             label="Collateral"
-            value={formatCollateralAmount(troveData.collateral)}
+            value={formatCollateralAmount(
+              troveData.collateral,
+              collateralSymbol,
+            )}
           />
           <StatCell
             label="Debt"
@@ -335,13 +363,13 @@ export function ManageTroveView({ troveId }: ManageTroveViewProps) {
             value={formatPrice(
               loanDetails?.liquidationPrice ?? null,
               debtToken,
+              collateralSymbol,
             )}
           />
         </div>
       )}
 
-      {/* Action panel with tabs */}
-      <Card className="!py-0 !gap-0">
+      <Card className="!gap-0 !py-0">
         <CardContent className="!p-0">
           <Tabs defaultValue="adjust">
             <TabsList className="p-0 w-full justify-start rounded-none border-b border-border bg-transparent">
@@ -367,17 +395,31 @@ export function ManageTroveView({ troveId }: ManageTroveViewProps) {
             <div className="p-6">
               <TabsContent value="adjust" className="mt-0">
                 {troveData && (
-                  <AdjustForm troveId={troveId} troveData={troveData} />
+                  <AdjustForm
+                    troveId={troveId}
+                    troveData={troveData}
+                    debtToken={debtToken}
+                    collateralSymbol={collateralSymbol}
+                  />
                 )}
               </TabsContent>
               <TabsContent value="interest-rate" className="mt-0">
                 {troveData && (
-                  <RateForm troveId={troveId} troveData={troveData} />
+                  <RateForm
+                    troveId={troveId}
+                    troveData={troveData}
+                    debtToken={debtToken}
+                  />
                 )}
               </TabsContent>
               <TabsContent value="close" className="mt-0">
                 {troveData && (
-                  <CloseForm troveId={troveId} troveData={troveData} />
+                  <CloseForm
+                    troveId={troveId}
+                    troveData={troveData}
+                    debtToken={debtToken}
+                    collateralSymbol={collateralSymbol}
+                  />
                 )}
               </TabsContent>
             </div>
@@ -390,9 +432,9 @@ export function ManageTroveView({ troveId }: ManageTroveViewProps) {
 
 function StatCell({ label, value }: { label: string; value: string }) {
   return (
-    <Card className="!py-0 !gap-0">
+    <Card className="!gap-0 !py-0">
       <CardContent className="!px-4 py-4">
-        <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
+        <span className="font-mono font-medium tracking-widest text-[11px] text-muted-foreground uppercase">
           {label}
         </span>
         <div className="mt-1 font-semibold tracking-tight">{value}</div>
