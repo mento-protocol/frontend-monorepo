@@ -27,6 +27,16 @@ function hasError(flow: BorrowFlowState): boolean {
   return flow.steps.some((s) => s.status === "error");
 }
 
+function getSuccessActionLabel(successHref?: string): string {
+  if (!successHref || successHref === "/borrow") {
+    return "Back to Dashboard";
+  }
+  if (successHref.startsWith("/borrow/manage/")) {
+    return "View Position";
+  }
+  return "Continue";
+}
+
 // ---------------------------------------------------------------------------
 // FlowDialog — self-managing transaction progress dialog
 // ---------------------------------------------------------------------------
@@ -40,8 +50,9 @@ export function FlowDialog() {
   const allDone = isAllConfirmed(flow);
   const errored = hasError(flow);
   const successHref = flow.successHref;
+  const successActionLabel = getSuccessActionLabel(successHref);
 
-  function handleBackToDashboard() {
+  function handleSuccessAction() {
     setFlow(null);
     if (successHref) {
       router.push(successHref);
@@ -89,7 +100,9 @@ export function FlowDialog() {
         {(allDone || errored) && (
           <DialogFooter>
             {allDone && (
-              <Button onClick={handleBackToDashboard}>Back to Dashboard</Button>
+              <Button onClick={handleSuccessAction}>
+                {successActionLabel}
+              </Button>
             )}
             {errored && (
               <Button variant="outline" onClick={handleTryAgain}>

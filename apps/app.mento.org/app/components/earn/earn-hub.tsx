@@ -88,12 +88,15 @@ function buildStabilityOpportunity({
   avgInterestRate: number | null | undefined;
 }): StabilityOpportunity {
   const hasDeposit = (position?.deposit ?? 0n) > 0n;
+  const hasRewards =
+    (position?.debtTokenGain ?? 0n) > 0n ||
+    (position?.collateralGain ?? 0n) > 0n;
   const apyValue = apy != null ? apy * 100 : 0;
   const avgRate = avgInterestRate != null ? avgInterestRate * 100 : 0;
   const totalDep = formatCompactToken(totalDeposits ?? null, debtToken.symbol);
 
   let userPosition = null;
-  if (isConnected && hasDeposit) {
+  if (isConnected && (hasDeposit || hasRewards)) {
     const deposited = formatCompactToken(
       position?.deposit ?? 0n,
       debtToken.symbol,
@@ -126,7 +129,7 @@ function buildStabilityOpportunity({
     },
     apy: apyValue,
     apyLabel: "Pool APY",
-    hasRewards: false,
+    hasRewards,
     earnMechanics: [
       { label: "Liquidation gains", color: "green" },
       { label: "Protocol yield", color: "indigo" },

@@ -221,6 +221,14 @@ export function AdjustForm({
     systemParams?.minDebt != null &&
     newDebt < systemParams.minDebt;
 
+  const exceedsCurrentDebt =
+    debtDirection === "repay" && debtChange > 0n && debtChange > troveData.debt;
+
+  const liquidatableAdjustment =
+    newDebt > 0n &&
+    (newLoanDetails?.status === "liquidatable" ||
+      newLoanDetails?.status === "underwater");
+
   const buttonDisabledReason = useMemo(() => {
     if (!isConnected) return "Connect wallet";
     if (!hasChanges) return "Enter an amount";
@@ -228,7 +236,9 @@ export function AdjustForm({
       return `Insufficient ${collateralSymbol} balance`;
     }
     if (exceedsCurrentCollateral) return "Exceeds current collateral";
+    if (exceedsCurrentDebt) return "Exceeds current debt";
     if (belowMinDebt) return "Below minimum debt";
+    if (liquidatableAdjustment) return "Position would be liquidatable";
     if (adjustTrove.isPending) return "Adjusting position...";
     return null;
   }, [
@@ -237,7 +247,9 @@ export function AdjustForm({
     insufficientCollBalance,
     collateralSymbol,
     exceedsCurrentCollateral,
+    exceedsCurrentDebt,
     belowMinDebt,
+    liquidatableAdjustment,
     adjustTrove.isPending,
   ]);
 
@@ -393,6 +405,9 @@ export function AdjustForm({
             New debt would be below minimum
           </p>
         )}
+        {exceedsCurrentDebt && (
+          <p className="text-xs text-destructive">Exceeds current debt</p>
+        )}
       </div>
 
       {/* Before -> After comparison */}
@@ -458,6 +473,13 @@ export function AdjustForm({
             />
           )}
         </div>
+      )}
+
+      {liquidatableAdjustment && (
+        <p className="text-xs text-destructive">
+          This adjustment would make the trove liquidatable. Add more collateral
+          or reduce the debt change.
+        </p>
       )}
 
       {/* Submit */}
