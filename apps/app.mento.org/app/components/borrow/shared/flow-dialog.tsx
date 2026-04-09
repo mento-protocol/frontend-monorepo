@@ -28,7 +28,10 @@ function hasError(flow: BorrowFlowState): boolean {
 }
 
 function getSuccessActionLabel(successHref?: string): string {
-  if (!successHref || successHref === "/borrow") {
+  if (!successHref) {
+    return "Done";
+  }
+  if (successHref === "/borrow") {
     return "Back to Dashboard";
   }
   if (successHref.startsWith("/borrow/manage/")) {
