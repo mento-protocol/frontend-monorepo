@@ -17,6 +17,7 @@ export default function SwapRedirectPage() {
   const [testnetMode] = useTestnetMode();
   const searchParams = useSearchParams();
   const search = searchParams.toString();
+  console.info("test");
 
   useEffect(() => {
     const routeChainId = getPreferredVisibleChain({
