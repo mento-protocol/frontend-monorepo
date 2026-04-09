@@ -9,7 +9,7 @@ const { disconnectMock, toastErrorMock } = vi.hoisted(() => ({
   toastErrorMock: vi.fn(),
 }));
 
-vi.mock("wagmi", () => ({
+vi.mock("@repo/web3/wagmi", () => ({
   useAccount: vi.fn(),
   useDisconnect: () => ({ disconnect: disconnectMock }),
 }));
@@ -18,7 +18,7 @@ vi.mock("@repo/ui", () => ({
   toast: { error: toastErrorMock },
 }));
 
-import { useAccount } from "wagmi";
+import { useAccount } from "@repo/web3/wagmi";
 import { useSanctionsCheck } from "./use-sanctions-check";
 
 const useAccountMock = vi.mocked(useAccount);

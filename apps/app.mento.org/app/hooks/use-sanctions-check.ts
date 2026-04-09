@@ -1,9 +1,13 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useAccount, useDisconnect } from "wagmi";
+import { useAccount, useDisconnect } from "@repo/web3/wagmi";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "@repo/ui";
+
+const isTestMode =
+  typeof window !== "undefined" &&
+  process.env.NEXT_PUBLIC_SANCTIONS_TEST_MODE === "true";
 
 export function useSanctionsCheck() {
   const { address, isConnected } = useAccount();
@@ -15,6 +19,7 @@ export function useSanctionsCheck() {
     queryKey: ["sanctions", address],
     queryFn: async () => {
       if (!address) throw new Error("No address");
+      if (isTestMode) return { isSanctioned: true };
       const response = await fetch(
         `/api/sanctions?address=${encodeURIComponent(address)}`,
       );
