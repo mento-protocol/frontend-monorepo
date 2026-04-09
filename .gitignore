@@ -55,4 +55,4 @@ yarn-error.log*
 .claude/skills/
 # AI Pentesting
 deliverables
-.codex
+.codex.reviews/

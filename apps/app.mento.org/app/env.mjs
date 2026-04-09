@@ -9,6 +9,7 @@ export const env = createEnv({
    */
   server: {
     SENTRY_AUTH_TOKEN: z.string(),
+    CHAINALYSIS_API_KEY: z.string().optional(),
   },
   /*
    * Environment variables available on the client (and server).
@@ -24,6 +25,10 @@ export const env = createEnv({
       .optional()
       .default("false"),
     NEXT_PUBLIC_USE_FORK: z.enum(["true", "false"]).optional().default("false"),
+    NEXT_PUBLIC_SANCTIONS_TEST_MODE: z
+      .enum(["true", "false"])
+      .optional()
+      .default("false"),
     NEXT_PUBLIC_BANNER_TEXT: z.string().optional().default(""),
     NEXT_PUBLIC_BANNER_LINK: z.preprocess(
       (val) => (val === "" ? undefined : val),
@@ -60,9 +65,12 @@ export const env = createEnv({
     NEXT_PUBLIC_STORAGE_URL: process.env.NEXT_PUBLIC_STORAGE_URL,
     NEXT_PUBLIC_WALLET_CONNECT_ID: process.env.NEXT_PUBLIC_WALLET_CONNECT_ID,
     SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
+    CHAINALYSIS_API_KEY: process.env.CHAINALYSIS_API_KEY,
     NEXT_PUBLIC_SENTRY_DSN_SWAP: process.env.NEXT_PUBLIC_SENTRY_DSN_SWAP,
     NEXT_PUBLIC_ENABLE_DEBUG: process.env.NEXT_PUBLIC_ENABLE_DEBUG,
     NEXT_PUBLIC_USE_FORK: process.env.NEXT_PUBLIC_USE_FORK,
+    NEXT_PUBLIC_SANCTIONS_TEST_MODE:
+      process.env.NEXT_PUBLIC_SANCTIONS_TEST_MODE,
     NEXT_PUBLIC_BANNER_TEXT: process.env.NEXT_PUBLIC_BANNER_TEXT,
     NEXT_PUBLIC_BANNER_LINK: process.env.NEXT_PUBLIC_BANNER_LINK,
     NEXT_PUBLIC_RPC_URL: process.env.NEXT_PUBLIC_RPC_URL,
