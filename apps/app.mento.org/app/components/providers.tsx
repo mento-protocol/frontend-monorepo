@@ -13,6 +13,7 @@ import { useIsSsr } from "@/lib/utils/ssr";
 import { Web3Provider } from "@repo/web3";
 import { State } from "@repo/web3/wagmi";
 import { useSentryWalletContext } from "@/hooks/use-sentry-wallet-context";
+import { SanctionsGuard } from "./sanctions-guard";
 
 function SafeHydrate({ children }: PropsWithChildren<unknown>) {
   const isSsr = useIsSsr();
@@ -37,7 +38,9 @@ export function ClientProviders({
         <NextThemesProvider attribute="class" defaultTheme="dark" enableSystem>
           <Web3Provider initialState={initialState}>
             <WalletContextTracker />
-            <AppLayout>{children}</AppLayout>
+            <SanctionsGuard>
+              <AppLayout>{children}</AppLayout>
+            </SanctionsGuard>
           </Web3Provider>
         </NextThemesProvider>
       </SafeHydrate>
