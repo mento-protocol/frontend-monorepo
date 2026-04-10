@@ -1,15 +1,13 @@
 import { IconInfo } from "@repo/ui";
 import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui";
-import type { ReserveStats } from "@/lib/types";
+import type { V2OverviewResponse } from "@/lib/types";
 
 interface MetricCardsProps {
-  reserveStats: ReserveStats;
+  overview: V2OverviewResponse;
 }
 
-export function MetricCards({ reserveStats }: MetricCardsProps) {
-  const collateralizationRatio = reserveStats.collateralization_ratio;
-  const totalSupply = reserveStats.total_outstanding_stables_usd;
-  const reserveHoldingsValue = reserveStats.total_reserve_value_usd;
+export function MetricCards({ overview }: MetricCardsProps) {
+  const { supply, reserve_backing } = overview;
 
   return (
     <div className="mb-8 mt-8 lg:mb-16 lg:mt-16 xl:mb-0">
@@ -30,7 +28,7 @@ export function MetricCards({ reserveStats }: MetricCardsProps) {
         </span>
         <span className="leading-0 text-lg">
           $
-          {totalSupply.toLocaleString(undefined, {
+          {supply.total_usd.toLocaleString(undefined, {
             maximumFractionDigits: 0,
           })}
         </span>
@@ -54,7 +52,7 @@ export function MetricCards({ reserveStats }: MetricCardsProps) {
         </span>
         <span className="leading-0 text-lg">
           $
-          {reserveHoldingsValue.toLocaleString(undefined, {
+          {reserve_backing.collateral_usd.toLocaleString(undefined, {
             maximumFractionDigits: 0,
           })}
         </span>
@@ -71,14 +69,14 @@ export function MetricCards({ reserveStats }: MetricCardsProps) {
               <p>
                 The ratio between the total value of assets held in the Reserve
                 and the total value of Mento stablecoins in circulation. A ratio
-                above means all stablecoins are fully overcollateralized by
+                above 1 means all stablecoins are fully overcollateralized by
                 Reserve assets.
               </p>
             </PopoverContent>
           </Popover>
         </span>
         <span className="leading-0 text-lg">
-          {collateralizationRatio.toFixed(2)}
+          {reserve_backing.ratio.toFixed(2)}
         </span>
       </div>
     </div>
