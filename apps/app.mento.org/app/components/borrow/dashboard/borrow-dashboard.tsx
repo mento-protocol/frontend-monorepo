@@ -393,7 +393,7 @@ function PortfolioSummary({
     if (!pricesLoading && !priceWarning) {
       for (const { position, debtToken } of troves) {
         const price = priceStates[debtToken.symbol]?.price;
-        totalDebtUSD += (position.debt * 10n ** 18n) / price;
+        totalDebtUSD += (position.debt * 10n ** 18n) / price!;
       }
     }
 
