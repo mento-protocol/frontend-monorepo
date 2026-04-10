@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  useEffect,
-  useMemo,
-  useState,
-  type Dispatch,
-  type SetStateAction,
-} from "react";
+import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import {
   getStabilityRoute,
   getSupportedDeployments,
@@ -197,12 +191,10 @@ export function EarnHub() {
     ]);
     return Array.from(chainIds);
   }, [visiblePoolChains, visibleStabilityChains]);
-
-  useEffect(() => {
-    if (chainFilter !== "all" && !visibleEarnChains.includes(chainFilter)) {
-      setChainFilter("all");
-    }
-  }, [chainFilter, visibleEarnChains]);
+  const selectedChainFilter =
+    chainFilter !== "all" && !visibleEarnChains.includes(chainFilter)
+      ? "all"
+      : chainFilter;
 
   const stabilityOpportunities: StabilityOpportunity[] = useMemo(() => {
     return supportedDeployments.map(({ chainId, token }) => {
@@ -306,15 +298,15 @@ export function EarnHub() {
       result = result.filter((o) => o.type === "stability");
     if (filter === "lp") result = result.filter((o) => o.type === "lp");
 
-    if (chainFilter !== "all") {
-      result = result.filter((o) => o.chainId === chainFilter);
+    if (selectedChainFilter !== "all") {
+      result = result.filter((o) => o.chainId === selectedChainFilter);
     }
 
     // Always sort by highest APY
     result = [...result].sort((a, b) => b.apy - a.apy);
 
     return result;
-  }, [allOpportunities, filter, chainFilter]);
+  }, [allOpportunities, filter, selectedChainFilter]);
 
   const filterOptions: { key: EarnFilter; label: string }[] = [
     { key: "all", label: "All" },
@@ -397,7 +389,7 @@ export function EarnHub() {
             onClick={() => setChainFilter("all")}
             className={cn(
               "px-3.5 py-1.5 text-xs font-semibold cursor-pointer rounded-lg border-0 transition-colors outline-none",
-              chainFilter === "all"
+              selectedChainFilter === "all"
                 ? "bg-accent text-foreground"
                 : "text-muted-foreground hover:text-foreground",
             )}
@@ -415,7 +407,7 @@ export function EarnHub() {
                 onClick={() => setChainFilter(id)}
                 className={cn(
                   "gap-1.5 px-3.5 py-1.5 text-xs font-semibold inline-flex cursor-pointer items-center rounded-lg border-0 transition-colors outline-none",
-                  chainFilter === id
+                  selectedChainFilter === id
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:text-foreground",
                 )}

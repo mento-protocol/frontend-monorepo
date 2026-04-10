@@ -1,7 +1,30 @@
-// Single source of truth lives in @repo/web3. Re-export from there so
-// existing import paths keep working without drift risk.
-export {
-  DEBT_TOKEN_CONFIGS,
-  getDebtTokenConfig,
-  type DebtTokenConfig,
-} from "@repo/web3";
+export interface DebtTokenConfig {
+  symbol: string;
+  currencySymbol: string;
+  currencyCode: string;
+  locale: string;
+  collateralSymbol: string;
+}
+
+// Keep a local server-safe copy for route utilities and server components.
+export const DEBT_TOKEN_CONFIGS: Record<string, DebtTokenConfig> = {
+  GBPm: {
+    symbol: "GBPm",
+    currencySymbol: "£",
+    currencyCode: "GBP",
+    locale: "en-GB",
+    collateralSymbol: "USDm",
+  },
+} as const;
+
+export function getDebtTokenConfig(symbol: string): DebtTokenConfig {
+  return (
+    DEBT_TOKEN_CONFIGS[symbol] ?? {
+      symbol,
+      currencySymbol: symbol,
+      currencyCode: symbol.replace(/m$/, ""),
+      locale: "en-US",
+      collateralSymbol: "USDm",
+    }
+  );
+}
