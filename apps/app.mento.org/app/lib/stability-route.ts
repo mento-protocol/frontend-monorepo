@@ -107,11 +107,10 @@ export function getSupportedDeployments(): Array<{
   chainId: StabilityChainId;
   token: DebtTokenConfig;
 }> {
-  return (
-    Object.keys(STABILITY_CHAINS) as unknown as StabilityChainId[]
-  ).flatMap((chainId) =>
-    getSupportedDebtTokens(chainId).map((token) => ({ chainId, token })),
-  );
+  return (Object.keys(STABILITY_CHAINS) as string[]).flatMap((key) => {
+    const chainId = Number(key) as StabilityChainId;
+    return getSupportedDebtTokens(chainId).map((token) => ({ chainId, token }));
+  });
 }
 
 export function getSupportedCollaterals(
