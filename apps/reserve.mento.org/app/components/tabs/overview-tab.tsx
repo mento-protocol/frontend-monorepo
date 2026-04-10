@@ -26,8 +26,8 @@ export function OverviewTab({
         <div className="hidden md:flex md:items-center md:gap-3">
           <KpiCard
             label="Total Supply"
-            value={formatUsd(supply.total_usd)}
-            tooltip={`The total supply of all Mento stablecoins across ${supply.stablecoin_count} stablecoins. This excludes ${formatUsd(supply.lost_usd)} in lost or inaccessible assets.`}
+            value={formatUsd(supply.total_usd - supply.lost_usd)}
+            tooltip={`The total supply of all Mento stablecoins across ${supply.stablecoin_count} stablecoins, excluding ${formatUsd(supply.lost_usd)} in lost or inaccessible assets.`}
             className="flex-1"
           />
           <Operator>=</Operator>
@@ -67,8 +67,8 @@ export function OverviewTab({
         <div className="flex flex-col gap-2 md:hidden">
           <KpiCard
             label="Total Supply"
-            value={formatUsd(supply.total_usd)}
-            tooltip={`The total supply of all Mento stablecoins across ${supply.stablecoin_count} stablecoins. This excludes ${formatUsd(supply.lost_usd)} in lost or inaccessible assets.`}
+            value={formatUsd(supply.total_usd - supply.lost_usd)}
+            tooltip={`The total supply of all Mento stablecoins across ${supply.stablecoin_count} stablecoins, excluding ${formatUsd(supply.lost_usd)} in lost or inaccessible assets.`}
           />
           <Operator>=</Operator>
           <div className="grid grid-cols-3 gap-2">

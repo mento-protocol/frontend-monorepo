@@ -40,6 +40,24 @@ export interface V2OverviewResponse {
   timestamp: string;
 }
 
+// Supply breakdown (shared between aggregate and per-network)
+export interface StablecoinSupply {
+  total: string;
+  total_usd: number;
+  debt: string;
+  debt_usd: number;
+  reserve_held: string;
+  reserve_held_usd: number;
+  lost: string;
+  lost_usd: number;
+}
+
+export interface NetworkSupply {
+  chain: Chain;
+  address: string;
+  supply: StablecoinSupply;
+}
+
 // GET /api/v2/stablecoins
 export interface V2StablecoinsResponse {
   total_supply_usd: number;
@@ -51,16 +69,8 @@ export interface V2StablecoinsResponse {
     fiat_symbol: string;
     icon_url?: string;
     networks: Chain[];
-    supply: {
-      total: string;
-      total_usd: number;
-      debt: string;
-      debt_usd: number;
-      reserve_held: string;
-      reserve_held_usd: number;
-      lost: string;
-      lost_usd: number;
-    };
+    supply: StablecoinSupply;
+    network_supplies: NetworkSupply[];
     market_cap_percentage: number;
   }>;
 }
