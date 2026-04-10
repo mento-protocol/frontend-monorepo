@@ -3,6 +3,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type Dispatch,
   type SetStateAction,
@@ -62,8 +63,19 @@ export function BorrowDashboard() {
     Record<string, TokenPriceState>
   >({});
   const claimCollateral = useClaimCollateral();
+  const previousChainId = useRef<number | null>(null);
 
   useEffect(() => {
+    if (previousChainId.current == null) {
+      previousChainId.current = chainId;
+      return;
+    }
+
+    if (previousChainId.current === chainId) {
+      return;
+    }
+
+    previousChainId.current = chainId;
     setTroveStates({});
     setSurplusStates({});
     setPriceStates({});
@@ -98,41 +110,8 @@ export function BorrowDashboard() {
     (token) => (surplusStates[token.symbol]?.amount ?? 0n) > 0n,
   );
   const hasSurplus = surplusTokens.length > 0;
-
-  if (!isConnected) {
-    return (
-      <EmptyState
-        isConnected={false}
-        debtToken={supportedDebtTokens[0] ?? getDebtTokenConfig("GBPm")}
-      />
-    );
-  }
-
-  if (troveError) {
-    return (
-      <div className="p-6 bg-card text-center">
-        <p className="text-destructive">
-          Failed to load positions. Please check your connection and try again.
-        </p>
-        <p className="mt-2 text-xs break-all text-muted-foreground">
-          {troveError.message}
-        </p>
-      </div>
-    );
-  }
-
-  if (!troveLoading && troves.length === 0 && !hasSurplus) {
-    return (
-      <EmptyState
-        isConnected
-        debtToken={supportedDebtTokens[0] ?? getDebtTokenConfig("GBPm")}
-        onOpenTrove={() => router.push("/borrow/open")}
-      />
-    );
-  }
-
-  return (
-    <div className="space-y-6">
+  const observers = isConnected ? (
+    <>
       {supportedDebtTokens.map((token) => (
         <TokenTrovesObserver
           key={`troves:${token.symbol}`}
@@ -154,6 +133,51 @@ export function BorrowDashboard() {
           setPriceStates={setPriceStates}
         />
       ))}
+    </>
+  ) : null;
+
+  if (!isConnected) {
+    return (
+      <EmptyState
+        isConnected={false}
+        debtToken={supportedDebtTokens[0] ?? getDebtTokenConfig("GBPm")}
+      />
+    );
+  }
+
+  if (troveError) {
+    return (
+      <>
+        {observers}
+        <div className="p-6 bg-card text-center">
+          <p className="text-destructive">
+            Failed to load positions. Please check your connection and try
+            again.
+          </p>
+          <p className="mt-2 text-xs break-all text-muted-foreground">
+            {troveError.message}
+          </p>
+        </div>
+      </>
+    );
+  }
+
+  if (!troveLoading && troves.length === 0 && !hasSurplus) {
+    return (
+      <>
+        {observers}
+        <EmptyState
+          isConnected
+          debtToken={supportedDebtTokens[0] ?? getDebtTokenConfig("GBPm")}
+          onOpenTrove={() => router.push("/borrow/open")}
+        />
+      </>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {observers}
 
       {surplusTokens.map((token) => {
         const amount = surplusStates[token.symbol]?.amount ?? 0n;

@@ -13,7 +13,7 @@ import {
 } from "@repo/ui";
 import { useAtom } from "jotai";
 import { Info, Settings } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const DEFAULT_SLIPPAGE = "0.3";
 const DEFAULT_DEADLINE = "5";
@@ -178,7 +178,6 @@ export function SwapSettingsPopover() {
             </Tooltip>
           </div>
           <DeadlineSettings
-            key={`${deadline}:${isAutoDeadline}`}
             deadline={deadline}
             isAutoDeadline={isAutoDeadline}
             update={update}
@@ -202,6 +201,16 @@ function DeadlineSettings({
   autoButtonClass: (active: boolean) => string;
 }) {
   const [deadlineDraft, setDeadlineDraft] = useState(deadline);
+
+  useEffect(() => {
+    setDeadlineDraft(deadline);
+  }, [deadline]);
+
+  useEffect(() => {
+    if (isAutoDeadline) {
+      setDeadlineDraft(DEFAULT_DEADLINE);
+    }
+  }, [isAutoDeadline]);
 
   const handleAutoDeadlineToggle = () => {
     if (isAutoDeadline) return;
