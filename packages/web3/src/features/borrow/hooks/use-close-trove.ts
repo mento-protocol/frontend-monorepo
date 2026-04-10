@@ -17,6 +17,7 @@ interface CloseTroveMutationParams {
   debt: bigint;
   wagmiConfig: Config;
   account: string;
+  successHref?: string;
 }
 
 export function useCloseTrove() {
@@ -31,6 +32,7 @@ export function useCloseTrove() {
       debt,
       wagmiConfig,
       account,
+      successHref,
     }: CloseTroveMutationParams) => {
       if (!sdk) throw new Error("Borrow service not available");
 
@@ -77,6 +79,7 @@ export function useCloseTrove() {
               sdk.buildCloseTroveTransaction(symbol, troveId),
           },
         ],
+        { successHref },
       );
 
       if (!result.success) {

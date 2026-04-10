@@ -4,9 +4,9 @@ import { useMemo } from "react";
 import { Button } from "@repo/ui";
 import {
   useCloseTrove,
-  selectedDebtTokenAtom,
   formatCollateralAmount,
   formatDebtTokenAmount,
+  type DebtTokenConfig,
   type BorrowPosition,
 } from "@repo/web3";
 import {
@@ -15,17 +15,22 @@ import {
   useConfig,
   useReadContract,
 } from "@repo/web3/wagmi";
-import { useAtomValue } from "jotai";
 import { erc20Abi, type Address } from "viem";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 
 interface CloseFormProps {
   troveId: string;
   troveData: BorrowPosition;
+  debtToken: DebtTokenConfig;
+  collateralSymbol: string;
 }
 
-export function CloseForm({ troveId, troveData }: CloseFormProps) {
-  const debtToken = useAtomValue(selectedDebtTokenAtom);
+export function CloseForm({
+  troveId,
+  troveData,
+  debtToken,
+  collateralSymbol,
+}: CloseFormProps) {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const wagmiConfig = useConfig();
@@ -81,6 +86,7 @@ export function CloseForm({ troveId, troveData }: CloseFormProps) {
       debt: totalDebt,
       wagmiConfig,
       account: address,
+      successHref: "/borrow",
     });
   };
 
@@ -99,7 +105,7 @@ export function CloseForm({ troveId, troveData }: CloseFormProps) {
             Collateral to receive
           </span>
           <span className="text-sm font-medium">
-            {formatCollateralAmount(collateralToReceive)}
+            {formatCollateralAmount(collateralToReceive, collateralSymbol)}
           </span>
         </div>
       </div>
@@ -110,7 +116,7 @@ export function CloseForm({ troveId, troveData }: CloseFormProps) {
           This trove has no remaining {debtToken.symbol} debt. Closing it will
           return{" "}
           <span className="font-medium text-foreground">
-            {formatCollateralAmount(collateralToReceive)}
+            {formatCollateralAmount(collateralToReceive, collateralSymbol)}
           </span>
           .
         </p>
@@ -122,7 +128,7 @@ export function CloseForm({ troveId, troveData }: CloseFormProps) {
           </span>{" "}
           and receive{" "}
           <span className="font-medium text-foreground">
-            {formatCollateralAmount(collateralToReceive)}
+            {formatCollateralAmount(collateralToReceive, collateralSymbol)}
           </span>
           .
         </p>

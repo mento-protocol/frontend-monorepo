@@ -1,3 +1,10 @@
+import { borrowRegistries } from "@mento-protocol/mento-sdk";
+import {
+  DEBT_TOKEN_CONFIGS,
+  getDebtTokenConfig,
+  type DebtTokenConfig,
+} from "./debt-token-config";
+
 export type StabilityChainId = 42220 | 11142220;
 
 const DEFAULT_CHAIN_SLUG = "celo";
@@ -28,15 +35,6 @@ const STABILITY_CHAINS = {
 >;
 
 export const DEFAULT_STABILITY_CHAIN_ID = CELO_CHAIN_ID;
-
-const STABILITY_DEBT_TOKENS = [
-  {
-    symbol: "GBPm",
-    currencySymbol: "£",
-    currencyCode: "GBP",
-    locale: "en-GB",
-  },
-] as const;
 
 function parseStoredBoolean(value?: string | null): boolean | null {
   if (value === "1" || value === "true") return true;
@@ -99,15 +97,59 @@ export function getStabilityFallbackChainId(
   return STABILITY_CHAINS[chainId as StabilityChainId]?.fallbackChainId;
 }
 
+export function getSupportedDebtTokens(chainId: number): DebtTokenConfig[] {
+  return Object.keys(borrowRegistries[chainId] ?? {})
+    .sort((a, b) => a.localeCompare(b))
+    .map((symbol) => getDebtTokenConfig(symbol));
+}
+
+export function getSupportedDeployments(): Array<{
+  chainId: StabilityChainId;
+  token: DebtTokenConfig;
+}> {
+  return (Object.keys(STABILITY_CHAINS) as string[]).flatMap((key) => {
+    const chainId = Number(key) as StabilityChainId;
+    return getSupportedDebtTokens(chainId).map((token) => ({ chainId, token }));
+  });
+}
+
+export function getSupportedCollaterals(
+  chainId: number,
+  symbol?: string,
+): string[] {
+  const debtToken =
+    (symbol
+      ? getSupportedDebtTokens(chainId).find((token) => token.symbol === symbol)
+      : undefined) ?? DEBT_TOKEN_CONFIGS.GBPm;
+  return [debtToken?.collateralSymbol ?? "USDm"];
+}
+
 export function resolveStabilityDebtToken(
   tokenSlug: string,
-): (typeof STABILITY_DEBT_TOKENS)[number] | undefined {
-  return STABILITY_DEBT_TOKENS.find(
+  chainId: number,
+): DebtTokenConfig | undefined {
+  const tokens = getSupportedDebtTokens(chainId);
+  return tokens.find(
     (token) => token.symbol.toLowerCase() === tokenSlug.toLowerCase(),
   );
 }
 
-export const DEFAULT_STABILITY_TOKEN = STABILITY_DEBT_TOKENS[0];
+export function resolveStabilityDebtTokenAcrossDeployments(
+  tokenSlug: string,
+): DebtTokenConfig | undefined {
+  const tokens = Array.from(
+    new Map(
+      getSupportedDeployments().map(({ token }) => [token.symbol, token]),
+    ).values(),
+  );
+  return tokens.find(
+    (token) => token.symbol.toLowerCase() === tokenSlug.toLowerCase(),
+  );
+}
+
+export const DEFAULT_STABILITY_TOKEN =
+  getSupportedDebtTokens(DEFAULT_STABILITY_CHAIN_ID)[0] ??
+  getDebtTokenConfig("GBPm");
 
 function chainIdToSlug(chainId: number): string | undefined {
   return STABILITY_CHAINS[chainId as StabilityChainId]?.slug;

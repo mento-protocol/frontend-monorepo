@@ -44,6 +44,7 @@ export function formatDebtTokenAmount(
 
 export function formatCollateralAmount(
   amount: bigint | null | undefined,
+  collateralSymbol = "USDm",
 ): string {
   if (amount == null) return PLACEHOLDER;
   const num = bigintToNumber(amount);
@@ -51,16 +52,17 @@ export function formatCollateralAmount(
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(num);
-  return `${formatted} USDm`;
+  return `${formatted} ${collateralSymbol}`;
 }
 
 export function formatPrice(
   price: bigint | null | undefined,
   debtToken: DebtTokenConfig,
+  collateralSymbol = "USDm",
 ): string {
   if (price == null) return PLACEHOLDER;
   const num = bigintToNumber(price);
-  return `${formatDebtValue(num, debtToken)} per USDm`;
+  return `${formatDebtValue(num, debtToken)} per ${collateralSymbol}`;
 }
 
 export function formatInterestRate(rate: bigint | null | undefined): string {

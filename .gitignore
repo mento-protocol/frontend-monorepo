@@ -56,3 +56,4 @@ yarn-error.log*
 # AI Pentesting
 deliverables
 .codex.reviews/
+.codex

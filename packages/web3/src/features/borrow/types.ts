@@ -15,18 +15,10 @@ export type {
 // Frontend-specific types
 // ---------------------------------------------------------------------------
 
-export interface DebtTokenConfig {
-  symbol: string;
-  currencySymbol: string;
-  currencyCode: string;
-  locale: string;
-}
-
-export type BorrowView =
-  | "dashboard"
-  | "open-trove"
-  | { view: "manage-trove"; troveId: string }
-  | "redeem";
+// DebtTokenConfig and its registry live in borrow-server.ts (no client deps)
+// so they can be imported by both server components and client code.
+export type { DebtTokenConfig } from "../../borrow-server";
+export { DEBT_TOKEN_CONFIGS, getDebtTokenConfig } from "../../borrow-server";
 
 export interface StabilityPoolPosition {
   deposit: bigint;
@@ -34,16 +26,3 @@ export interface StabilityPoolPosition {
   debtTokenGain: bigint;
   hasActiveDeposit: boolean;
 }
-
-// ---------------------------------------------------------------------------
-// Debt token configuration registry
-// ---------------------------------------------------------------------------
-
-export const DEBT_TOKEN_CONFIGS: Record<string, DebtTokenConfig> = {
-  GBPm: {
-    symbol: "GBPm",
-    currencySymbol: "£",
-    currencyCode: "GBP",
-    locale: "en-GB",
-  },
-} as const;

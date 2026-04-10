@@ -1,17 +1,20 @@
 "use client";
 
-import { CoinInput, TokenIcon } from "@repo/ui";
+import { CoinInput } from "@repo/ui";
 import {
+  type DebtTokenConfig,
   formatCompactBalance,
   tryParseUnits,
   useCollateralPrice,
-  selectedDebtTokenAtom,
 } from "@repo/web3";
 import { useAccount, useReadContract, useChainId } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 import { erc20Abi, formatUnits, type Address } from "viem";
-import { useAtomValue } from "jotai";
 import { useMemo } from "react";
+import {
+  TokenDropdown,
+  type TokenDropdownOption,
+} from "../shared/debt-token-selector";
 
 function trimDecimals(value: string, dp: number): string {
   const dotIndex = value.indexOf(".");
@@ -20,18 +23,29 @@ function trimDecimals(value: string, dp: number): string {
 }
 
 interface CollateralInputProps {
+  debtToken: DebtTokenConfig;
+  collateralSymbol: string;
+  collateralOptions: TokenDropdownOption[];
   value: string;
   onChange: (value: string) => void;
+  onCollateralChange?: (symbol: string) => void;
 }
 
-export function CollateralInput({ value, onChange }: CollateralInputProps) {
+export function CollateralInput({
+  debtToken,
+  collateralSymbol,
+  collateralOptions,
+  value,
+  onChange,
+  onCollateralChange,
+}: CollateralInputProps) {
   const { address } = useAccount();
   const chainId = useChainId();
-  const debtToken = useAtomValue(selectedDebtTokenAtom);
 
-  const collateralAddress = getTokenAddress(chainId, "USDm" as TokenSymbol) as
-    | Address
-    | undefined;
+  const collateralAddress = getTokenAddress(
+    chainId,
+    collateralSymbol as TokenSymbol,
+  ) as Address | undefined;
 
   const { data: balance } = useReadContract({
     address: collateralAddress,
@@ -75,7 +89,7 @@ export function CollateralInput({ value, onChange }: CollateralInputProps) {
           <span className="text-muted-foreground/70">
             {formatCompactBalance(formattedBalance)}
           </span>{" "}
-          USDm
+          {collateralSymbol}
         </span>
       </div>
       <div
@@ -98,22 +112,13 @@ export function CollateralInput({ value, onChange }: CollateralInputProps) {
         >
           MAX
         </button>
-        <div className="gap-1.5 px-3 py-2 flex items-center bg-muted/50">
-          {collateralAddress ? (
-            <TokenIcon
-              token={{ address: collateralAddress, symbol: "USDm" }}
-              size={20}
-              className="shrink-0 rounded-full"
-            />
-          ) : (
-            <div className="h-5 w-5 font-bold from-emerald-500 to-emerald-700 flex shrink-0 items-center justify-center rounded-full bg-linear-to-br text-[9px]">
-              $
-            </div>
-          )}
-          <span className="text-sm font-semibold text-muted-foreground/70">
-            USDm
-          </span>
-        </div>
+        <TokenDropdown
+          value={collateralSymbol}
+          onValueChange={onCollateralChange ?? (() => {})}
+          options={collateralOptions}
+          disabled={!onCollateralChange}
+          triggerClassName="gap-1.5 px-3 py-2 h-auto flex items-center bg-muted/50 border-0 shadow-none rounded-none text-sm font-semibold text-muted-foreground/70 focus:ring-0 focus-visible:ring-0"
+        />
       </div>
       {debtCurrencyValue && (
         <p className="pl-0.5 font-mono text-[11px] text-muted-foreground/40">
@@ -121,7 +126,9 @@ export function CollateralInput({ value, onChange }: CollateralInputProps) {
         </p>
       )}
       {insufficient && (
-        <p className="text-xs text-destructive">Insufficient USDm balance</p>
+        <p className="text-xs text-destructive">
+          Insufficient {collateralSymbol} balance
+        </p>
       )}
     </div>
   );

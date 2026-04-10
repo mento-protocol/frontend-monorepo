@@ -2,14 +2,14 @@
 
 import { Button } from "@repo/ui";
 import {
-  openTroveFormAtom,
-  selectedDebtTokenAtom,
+  getDebtTokenConfig,
   useLoanDetails,
   useNextAvailableOwnerIndex,
   useOpenTrove,
   usePredictUpfrontFee,
   useSystemParams,
   tryParseUnits,
+  type DebtTokenConfig,
 } from "@repo/web3";
 import {
   useAccount,
@@ -17,11 +17,14 @@ import {
   useConfig,
   useReadContract,
 } from "@repo/web3/wagmi";
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { parseUnits, erc20Abi, type Address } from "viem";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
-import { useMemo, useCallback } from "react";
-import { borrowViewAtom } from "../atoms/borrow-navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  getSupportedCollaterals,
+  getSupportedDebtTokens,
+} from "@/lib/stability-route";
 import { CollateralInput } from "./collateral-input";
 import { DebtInput } from "./debt-input";
 import { InterestRateInput } from "./interest-rate-input";
@@ -29,7 +32,6 @@ import {
   MAX_INTEREST_RATE_PCT,
   MAX_INTEREST_RATE_WAD,
 } from "../shared/interest-rate-limits";
-
 import { LoanSummary } from "./loan-summary";
 import { LTVBar } from "./ltv-bar";
 
@@ -44,24 +46,61 @@ function parseRateToBigint(pctString: string): bigint | null {
   }
 }
 
+function getInitialDebtToken(tokens: DebtTokenConfig[]): DebtTokenConfig {
+  return tokens.find((token) => token.symbol === "GBPm") ?? tokens[0]!;
+}
+
 export function OpenTroveForm() {
-  const [formState, setFormState] = useAtom(openTroveFormAtom);
-  const setBorrowView = useSetAtom(borrowViewAtom);
-  const debtToken = useAtomValue(selectedDebtTokenAtom);
+  const router = useRouter();
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const wagmiConfig = useConfig();
+  const supportedDebtTokens = useMemo(
+    () => getSupportedDebtTokens(chainId),
+    [chainId],
+  );
+  const [selectedDebtToken, setSelectedDebtToken] = useState<DebtTokenConfig>(
+    () =>
+      supportedDebtTokens.length > 0
+        ? getInitialDebtToken(supportedDebtTokens)
+        : getDebtTokenConfig("GBPm"),
+  );
+  const [formState, setFormState] = useState({
+    collAmount: "",
+    debtAmount: "",
+    interestRate: "",
+  });
 
-  // Hooks
-  const { data: systemParams } = useSystemParams(debtToken.symbol);
+  useEffect(() => {
+    if (supportedDebtTokens.length === 0) return;
+    setSelectedDebtToken((current) => {
+      const next =
+        supportedDebtTokens.find((token) => token.symbol === current.symbol) ??
+        getInitialDebtToken(supportedDebtTokens);
+      return next.symbol === current.symbol ? current : next;
+    });
+  }, [supportedDebtTokens]);
+
+  const collateralOptions = useMemo(
+    () =>
+      getSupportedCollaterals(chainId, selectedDebtToken.symbol).map(
+        (symbol) => ({
+          symbol,
+          disabled: true,
+        }),
+      ),
+    [chainId, selectedDebtToken.symbol],
+  );
+  const collateralSymbol = collateralOptions[0]?.symbol ?? "USDm";
+
+  const { data: systemParams } = useSystemParams(selectedDebtToken.symbol);
   const {
     data: ownerIndex,
     isError: ownerIndexError,
     isFetching: ownerIndexFetching,
-  } = useNextAvailableOwnerIndex(debtToken.symbol);
+  } = useNextAvailableOwnerIndex(selectedDebtToken.symbol);
   const openTrove = useOpenTrove();
 
-  // Parse form values to bigints
   const collAmount = useMemo(
     () => tryParseUnits(formState.collAmount, 18) ?? 0n,
     [formState.collAmount],
@@ -75,21 +114,23 @@ export function OpenTroveForm() {
     [formState.interestRate],
   );
 
-  // Upfront fee for maxUpfrontFee calculation
   const {
     data: upfrontFee,
     isError: upfrontFeeError,
     isFetching: upfrontFeeFetching,
-  } = usePredictUpfrontFee(debtAmount, rateBigint ?? 0n, debtToken.symbol);
+  } = usePredictUpfrontFee(
+    debtAmount,
+    rateBigint ?? 0n,
+    selectedDebtToken.symbol,
+  );
 
   const loanDetails = useLoanDetails(
     collAmount > 0n ? collAmount : null,
     debtAmount > 0n ? debtAmount : null,
     rateBigint,
-    debtToken.symbol,
+    selectedDebtToken.symbol,
   );
 
-  // Compute LTV as a number for the bar
   const ltvNumber = useMemo(() => {
     if (!loanDetails?.ltv) return 0;
     return Number(loanDetails.ltv) / 1e16;
@@ -100,10 +141,10 @@ export function OpenTroveForm() {
     return Number(loanDetails.maxLtv) / 1e16;
   }, [loanDetails]);
 
-  // Collateral balance check
-  const collateralAddress = getTokenAddress(chainId, "USDm" as TokenSymbol) as
-    | Address
-    | undefined;
+  const collateralAddress = getTokenAddress(
+    chainId,
+    collateralSymbol as TokenSymbol,
+  ) as Address | undefined;
 
   const { data: collateralBalance } = useReadContract({
     address: collateralAddress,
@@ -113,22 +154,20 @@ export function OpenTroveForm() {
     query: { enabled: !!address && !!collateralAddress },
   });
 
-  // Form field handlers
   const setCollAmount = useCallback(
     (value: string) => setFormState((prev) => ({ ...prev, collAmount: value })),
-    [setFormState],
+    [],
   );
   const setDebtAmount = useCallback(
     (value: string) => setFormState((prev) => ({ ...prev, debtAmount: value })),
-    [setFormState],
+    [],
   );
   const setInterestRate = useCallback(
     (value: string) =>
       setFormState((prev) => ({ ...prev, interestRate: value })),
-    [setFormState],
+    [],
   );
 
-  // Validation
   const insufficientBalance =
     collAmount > 0n &&
     collateralBalance !== undefined &&
@@ -158,6 +197,7 @@ export function OpenTroveForm() {
   const needsUpfrontFee = debtAmount > 0n && rateBigint != null;
 
   const buttonDisabledReason = useMemo(() => {
+    if (supportedDebtTokens.length === 0) return "Borrow unavailable";
     if (!isConnected) return "Connect wallet";
     if (ownerIndex == null) {
       return ownerIndexError
@@ -171,7 +211,7 @@ export function OpenTroveForm() {
     if (rateBigint === null) return "Enter valid interest rate";
     if (belowMinRate) return "Interest rate below minimum";
     if (aboveMaxRate) return `Interest rate above ${MAX_INTEREST_RATE_PCT}%`;
-    if (insufficientBalance) return "Insufficient USDm balance";
+    if (insufficientBalance) return `Insufficient ${collateralSymbol} balance`;
     if (belowMinDebt) return "Below minimum debt";
     if (liquidatablePosition) return "Position would be liquidatable";
     if (needsUpfrontFee && upfrontFee == null) {
@@ -184,6 +224,7 @@ export function OpenTroveForm() {
     if (openTrove.isPending) return "Opening position...";
     return null;
   }, [
+    supportedDebtTokens.length,
     isConnected,
     ownerIndex,
     ownerIndexError,
@@ -195,6 +236,7 @@ export function OpenTroveForm() {
     belowMinRate,
     aboveMaxRate,
     insufficientBalance,
+    collateralSymbol,
     belowMinDebt,
     liquidatablePosition,
     needsUpfrontFee,
@@ -204,12 +246,11 @@ export function OpenTroveForm() {
     openTrove.isPending,
   ]);
 
-  // Dynamic button label matching mockup
   const buttonLabel = useMemo(() => {
     if (!isConnected) return "Connect wallet";
     if (collAmount === 0n) return "Enter collateral amount";
     if (belowMinDebt) return "Min. borrow too low";
-    if (liquidatablePosition) return "LTV too high \u2014 add more collateral";
+    if (liquidatablePosition) return "LTV too high - add more collateral";
     return buttonDisabledReason ?? "Open Trove";
   }, [
     isConnected,
@@ -219,6 +260,22 @@ export function OpenTroveForm() {
     buttonDisabledReason,
   ]);
 
+  const handleDebtTokenChange = (symbol: string) => {
+    const nextDebtToken = supportedDebtTokens.find(
+      (token) => token.symbol === symbol,
+    );
+    if (!nextDebtToken || nextDebtToken.symbol === selectedDebtToken.symbol) {
+      return;
+    }
+
+    setSelectedDebtToken(nextDebtToken);
+    setFormState((prev) => ({
+      collAmount: prev.collAmount,
+      debtAmount: "",
+      interestRate: "",
+    }));
+  };
+
   const handleSubmit = () => {
     if (
       buttonDisabledReason ||
@@ -226,14 +283,14 @@ export function OpenTroveForm() {
       ownerIndex == null ||
       rateBigint === null ||
       upfrontFee == null
-    )
+    ) {
       return;
+    }
 
-    // Add 5% buffer to predicted fee for maxUpfrontFee
     const maxUpfrontFee = upfrontFee + upfrontFee / 20n;
 
     openTrove.mutate({
-      symbol: debtToken.symbol,
+      symbol: selectedDebtToken.symbol,
       params: {
         owner: address,
         ownerIndex,
@@ -248,11 +305,10 @@ export function OpenTroveForm() {
 
   return (
     <div className="space-y-6">
-      {/* Back button */}
       <button
         type="button"
         className="gap-2 font-medium flex cursor-pointer items-center text-[13px] text-muted-foreground/60 transition-colors hover:text-muted-foreground"
-        onClick={() => setBorrowView("dashboard")}
+        onClick={() => router.push("/borrow")}
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path
@@ -266,18 +322,17 @@ export function OpenTroveForm() {
         Back to Dashboard
       </button>
 
-      {/* Header */}
       <div className="p-6 border border-border/50 bg-card">
-        <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground/50 uppercase">
+        <span className="font-mono font-medium tracking-widest text-[11px] text-muted-foreground/50 uppercase">
           New Position
         </span>
-        <h1 className="mt-2 font-bold tracking-tight text-3xl">Open a Trove</h1>
+        <h1 className="mt-4 font-bold tracking-tight text-3xl">Open a Trove</h1>
         <p className="mt-1 leading-relaxed text-[15px] text-muted-foreground/60">
-          Deposit USDm as collateral and borrow {debtToken.symbol} against it.
+          Deposit collateral and borrow a stablecoin against it at your chosen
+          interest rate.
         </p>
       </div>
 
-      {/* LTV Health Bar — hero */}
       <div className="p-6 border border-border/50 bg-card">
         <div className="mb-3 font-mono font-medium tracking-widest text-[11px] text-muted-foreground/40 uppercase">
           Loan-to-Value
@@ -289,18 +344,17 @@ export function OpenTroveForm() {
         />
       </div>
 
-      {/* Main two-column layout */}
       <div className="gap-6 lg:grid-cols-[1fr_340px] grid grid-cols-1">
-        {/* Left: Form inputs */}
         <div className="gap-6 flex flex-col">
-          {/* Collateral & Borrow Card */}
-          <div className="p-7 space-y-6 border border-border/50 bg-card">
+          <div className="space-y-6 p-7 border border-border/50 bg-card">
             <CollateralInput
+              debtToken={selectedDebtToken}
+              collateralSymbol={collateralSymbol}
+              collateralOptions={collateralOptions}
               value={formState.collAmount}
               onChange={setCollAmount}
             />
 
-            {/* Divider with arrow */}
             <div className="-my-2 flex justify-center">
               <div className="h-8 w-8 flex items-center justify-center border border-border/50 bg-muted/30">
                 <svg
@@ -322,15 +376,20 @@ export function OpenTroveForm() {
             </div>
 
             <DebtInput
+              debtToken={selectedDebtToken}
+              debtTokenOptions={supportedDebtTokens.map((token) => ({
+                symbol: token.symbol,
+              }))}
+              onDebtTokenChange={handleDebtTokenChange}
               value={formState.debtAmount}
               onChange={setDebtAmount}
               collAmount={collAmount}
             />
           </div>
 
-          {/* Interest Rate Card */}
-          <div className="p-7 space-y-6 border border-border/50 bg-card">
+          <div className="space-y-6 p-7 border border-border/50 bg-card">
             <InterestRateInput
+              debtToken={selectedDebtToken}
               value={formState.interestRate}
               onChange={setInterestRate}
               debtAmount={debtAmount}
@@ -339,15 +398,15 @@ export function OpenTroveForm() {
           </div>
         </div>
 
-        {/* Right: Summary sidebar */}
         <div className="gap-4 flex flex-col">
           <LoanSummary
+            debtToken={selectedDebtToken}
+            collateralSymbol={collateralSymbol}
             collAmount={collAmount}
             debtAmount={debtAmount}
             interestRate={rateBigint ?? 0n}
           />
 
-          {/* Open Trove button */}
           <Button
             className="py-5 text-base font-semibold w-full"
             size="lg"
@@ -357,7 +416,6 @@ export function OpenTroveForm() {
             {buttonLabel}
           </Button>
 
-          {/* Liquidation warning */}
           {liquidatablePosition && ltvNumber > 0 && (
             <div className="gap-2.5 p-3 flex items-start border border-destructive/20 bg-destructive/5">
               <svg

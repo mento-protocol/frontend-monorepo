@@ -1,12 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useAtomValue } from "jotai";
-import { getStabilityRoute } from "@/lib/stability-route";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
+import {
+  getStabilityRoute,
+  getSupportedDeployments,
+} from "@/lib/stability-route";
 import { withOpportunitySource } from "@/lib/opportunity-navigation";
 import { Card, CardContent, cn } from "@repo/ui";
 import {
-  selectedDebtTokenAtom,
   useStabilityPool,
   useStabilityPoolApy,
   useStabilityPoolStats,
@@ -56,7 +63,7 @@ function formatCompactToken(
 
 function buildStabilityOpportunity({
   chainId,
-  debtTokenSymbol,
+  debtToken,
   debtTokenAddress,
   isConnected,
   position,
@@ -65,7 +72,7 @@ function buildStabilityOpportunity({
   avgInterestRate,
 }: {
   chainId: ChainId;
-  debtTokenSymbol: string;
+  debtToken: { symbol: string; collateralSymbol: string };
   debtTokenAddress?: `0x${string}`;
   isConnected: boolean;
   position:
@@ -81,24 +88,29 @@ function buildStabilityOpportunity({
   avgInterestRate: number | null | undefined;
 }): StabilityOpportunity {
   const hasDeposit = (position?.deposit ?? 0n) > 0n;
+  const hasRewards =
+    (position?.debtTokenGain ?? 0n) > 0n ||
+    (position?.collateralGain ?? 0n) > 0n;
   const apyValue = apy != null ? apy * 100 : 0;
   const avgRate = avgInterestRate != null ? avgInterestRate * 100 : 0;
-  const totalDep = formatCompactToken(totalDeposits ?? null, debtTokenSymbol);
+  const totalDep = formatCompactToken(totalDeposits ?? null, debtToken.symbol);
 
   let userPosition = null;
-  if (isConnected && hasDeposit) {
+  if (isConnected && (hasDeposit || hasRewards)) {
     const deposited = formatCompactToken(
       position?.deposit ?? 0n,
-      debtTokenSymbol,
+      debtToken.symbol,
     );
     const rewardParts: string[] = [];
     if (position?.debtTokenGain && position.debtTokenGain > 0n) {
       rewardParts.push(
-        formatCompactToken(position.debtTokenGain, debtTokenSymbol),
+        formatCompactToken(position.debtTokenGain, debtToken.symbol),
       );
     }
     if (position?.collateralGain && position.collateralGain > 0n) {
-      rewardParts.push(formatCompactToken(position.collateralGain, "USDm"));
+      rewardParts.push(
+        formatCompactToken(position.collateralGain, debtToken.collateralSymbol),
+      );
     }
     userPosition = {
       deposited,
@@ -107,17 +119,17 @@ function buildStabilityOpportunity({
   }
 
   return {
-    id: `sp-${chainId}-${debtTokenSymbol.toLowerCase()}`,
+    id: `sp-${chainId}-${debtToken.symbol.toLowerCase()}`,
     type: "stability",
     chainId,
-    name: `${debtTokenSymbol} Stability Pool`,
+    name: `${debtToken.symbol} Stability Pool`,
     token: {
       address: debtTokenAddress ?? "",
-      symbol: debtTokenSymbol,
+      symbol: debtToken.symbol,
     },
     apy: apyValue,
     apyLabel: "Pool APY",
-    hasRewards: false,
+    hasRewards,
     earnMechanics: [
       { label: "Liquidation gains", color: "green" },
       { label: "Protocol yield", color: "indigo" },
@@ -137,10 +149,24 @@ function buildStabilityOpportunity({
     ],
     userPosition,
     href: withOpportunitySource(
-      getStabilityRoute(debtTokenSymbol, chainId),
+      getStabilityRoute(debtToken.symbol, chainId),
       "earn",
     ),
   };
+}
+
+interface StabilityOpportunityState {
+  position:
+    | {
+        deposit: bigint;
+        debtTokenGain: bigint;
+        collateralGain: bigint;
+      }
+    | null
+    | undefined;
+  totalDeposits: bigint | null | undefined;
+  apy: number | null | undefined;
+  avgInterestRate: number | null | undefined;
 }
 
 export function EarnHub() {
@@ -148,41 +174,18 @@ export function EarnHub() {
   const [chainFilter, setChainFilter] = useState<ChainFilterType>("all");
 
   const { isConnected } = useAccount();
-  const debtToken = useAtomValue(selectedDebtTokenAtom);
   const visiblePoolChains = useVisibleChains("pools");
   const visibleStabilityChains = useVisibleChains("stabilityPool");
-
-  const { data: celoSpPosition } = useStabilityPool(
-    debtToken.symbol,
-    ChainId.Celo,
-    { enabled: visibleStabilityChains.includes(ChainId.Celo) },
+  const [stabilityStates, setStabilityStates] = useState<
+    Record<string, StabilityOpportunityState>
+  >({});
+  const supportedDeployments = useMemo(
+    () =>
+      getSupportedDeployments().filter(({ chainId }) =>
+        visibleStabilityChains.includes(chainId),
+      ),
+    [visibleStabilityChains],
   );
-  const { data: celoTotalDeposits } = useStabilityPoolStats(
-    debtToken.symbol,
-    ChainId.Celo,
-    { enabled: visibleStabilityChains.includes(ChainId.Celo) },
-  );
-  const { data: celoSpApy, avgInterestRate: celoAvgInterestRate } =
-    useStabilityPoolApy(debtToken.symbol, ChainId.Celo, {
-      enabled: visibleStabilityChains.includes(ChainId.Celo),
-    });
-
-  const { data: celoSepoliaSpPosition } = useStabilityPool(
-    debtToken.symbol,
-    ChainId.CeloSepolia,
-    { enabled: visibleStabilityChains.includes(ChainId.CeloSepolia) },
-  );
-  const { data: celoSepoliaTotalDeposits } = useStabilityPoolStats(
-    debtToken.symbol,
-    ChainId.CeloSepolia,
-    { enabled: visibleStabilityChains.includes(ChainId.CeloSepolia) },
-  );
-  const {
-    data: celoSepoliaSpApy,
-    avgInterestRate: celoSepoliaAvgInterestRate,
-  } = useStabilityPoolApy(debtToken.symbol, ChainId.CeloSepolia, {
-    enabled: visibleStabilityChains.includes(ChainId.CeloSepolia),
-  });
 
   // LP Pool data — fetches across all chains
   const { data: pools = [] } = useAllPoolsList();
@@ -194,69 +197,38 @@ export function EarnHub() {
     ]);
     return Array.from(chainIds);
   }, [visiblePoolChains, visibleStabilityChains]);
-
-  useEffect(() => {
-    if (chainFilter !== "all" && !visibleEarnChains.includes(chainFilter)) {
-      setChainFilter("all");
-    }
-  }, [chainFilter, visibleEarnChains]);
+  const selectedChainFilter =
+    chainFilter !== "all" && !visibleEarnChains.includes(chainFilter)
+      ? "all"
+      : chainFilter;
 
   const stabilityOpportunities: StabilityOpportunity[] = useMemo(() => {
-    const chainData = [
-      {
-        chainId: ChainId.Celo,
-        position: celoSpPosition,
-        totalDeposits: celoTotalDeposits,
-        apy: celoSpApy,
-        avgInterestRate: celoAvgInterestRate,
-      },
-      {
-        chainId: ChainId.CeloSepolia,
-        position: celoSepoliaSpPosition,
-        totalDeposits: celoSepoliaTotalDeposits,
-        apy: celoSepoliaSpApy,
-        avgInterestRate: celoSepoliaAvgInterestRate,
-      },
-    ];
+    return supportedDeployments.map(({ chainId, token }) => {
+      const stateKey = `${chainId}:${token.symbol}`;
+      const state = stabilityStates[stateKey];
+      let debtTokenAddress: `0x${string}` | undefined;
 
-    return chainData
-      .filter(({ chainId }) => visibleStabilityChains.includes(chainId))
-      .map(({ chainId, position, totalDeposits, apy, avgInterestRate }) => {
-        let debtTokenAddress: `0x${string}` | undefined;
-
-        try {
-          debtTokenAddress = getTokenAddress(
-            chainId,
-            debtToken.symbol as TokenSymbol,
-          ) as `0x${string}`;
-        } catch {
-          debtTokenAddress = undefined;
-        }
-
-        return buildStabilityOpportunity({
+      try {
+        debtTokenAddress = getTokenAddress(
           chainId,
-          debtTokenSymbol: debtToken.symbol,
-          debtTokenAddress,
-          isConnected,
-          position: position ?? null,
-          totalDeposits,
-          apy,
-          avgInterestRate,
-        });
+          token.symbol as TokenSymbol,
+        ) as `0x${string}`;
+      } catch {
+        debtTokenAddress = undefined;
+      }
+
+      return buildStabilityOpportunity({
+        chainId,
+        debtToken: token,
+        debtTokenAddress,
+        isConnected,
+        position: state?.position ?? null,
+        totalDeposits: state?.totalDeposits,
+        apy: state?.apy,
+        avgInterestRate: state?.avgInterestRate,
       });
-  }, [
-    visibleStabilityChains,
-    debtToken.symbol,
-    isConnected,
-    celoSpPosition,
-    celoTotalDeposits,
-    celoSpApy,
-    celoAvgInterestRate,
-    celoSepoliaSpPosition,
-    celoSepoliaTotalDeposits,
-    celoSepoliaSpApy,
-    celoSepoliaAvgInterestRate,
-  ]);
+    });
+  }, [supportedDeployments, stabilityStates, isConnected]);
 
   // Build LP pool opportunities
   const lpOpportunities: LpOpportunity[] = useMemo(() => {
@@ -332,15 +304,15 @@ export function EarnHub() {
       result = result.filter((o) => o.type === "stability");
     if (filter === "lp") result = result.filter((o) => o.type === "lp");
 
-    if (chainFilter !== "all") {
-      result = result.filter((o) => o.chainId === chainFilter);
+    if (selectedChainFilter !== "all") {
+      result = result.filter((o) => o.chainId === selectedChainFilter);
     }
 
     // Always sort by highest APY
     result = [...result].sort((a, b) => b.apy - a.apy);
 
     return result;
-  }, [allOpportunities, filter, chainFilter]);
+  }, [allOpportunities, filter, selectedChainFilter]);
 
   const filterOptions: { key: EarnFilter; label: string }[] = [
     { key: "all", label: "All" },
@@ -368,6 +340,14 @@ export function EarnHub() {
 
   return (
     <div className="max-w-5xl space-y-6 px-4 pt-6 md:px-0 md:pt-0 pb-16 relative w-full">
+      {supportedDeployments.map(({ chainId, token }) => (
+        <StabilityOpportunityObserver
+          key={`${chainId}:${token.symbol}`}
+          chainId={chainId}
+          tokenSymbol={token.symbol}
+          setStabilityStates={setStabilityStates}
+        />
+      ))}
       {/* Header */}
       <div className="relative">
         <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card" />
@@ -415,7 +395,7 @@ export function EarnHub() {
             onClick={() => setChainFilter("all")}
             className={cn(
               "px-3.5 py-1.5 text-xs font-semibold cursor-pointer rounded-lg border-0 transition-colors outline-none",
-              chainFilter === "all"
+              selectedChainFilter === "all"
                 ? "bg-accent text-foreground"
                 : "text-muted-foreground hover:text-foreground",
             )}
@@ -433,7 +413,7 @@ export function EarnHub() {
                 onClick={() => setChainFilter(id)}
                 className={cn(
                   "gap-1.5 px-3.5 py-1.5 text-xs font-semibold inline-flex cursor-pointer items-center rounded-lg border-0 transition-colors outline-none",
-                  chainFilter === id
+                  selectedChainFilter === id
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:text-foreground",
                 )}
@@ -529,4 +509,52 @@ export function EarnHub() {
       <div className="bottom-decorations after:-bottom-15 before:-bottom-5 before:-right-5 before:h-5 before:w-5 after:right-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-card before:invert after:absolute after:block after:bg-card" />
     </div>
   );
+}
+
+function StabilityOpportunityObserver({
+  chainId,
+  tokenSymbol,
+  setStabilityStates,
+}: {
+  chainId: ChainId;
+  tokenSymbol: string;
+  setStabilityStates: Dispatch<
+    SetStateAction<Record<string, StabilityOpportunityState>>
+  >;
+}) {
+  const stateKey = `${chainId}:${tokenSymbol}`;
+  const { data: position } = useStabilityPool(tokenSymbol, chainId, {
+    enabled: true,
+  });
+  const { data: totalDeposits } = useStabilityPoolStats(tokenSymbol, chainId, {
+    enabled: true,
+  });
+  const { data: apy, avgInterestRate } = useStabilityPoolApy(
+    tokenSymbol,
+    chainId,
+    {
+      enabled: true,
+    },
+  );
+
+  useEffect(() => {
+    setStabilityStates((prev) => ({
+      ...prev,
+      [stateKey]: {
+        position,
+        totalDeposits,
+        apy,
+        avgInterestRate,
+      },
+    }));
+  }, [
+    apy,
+    avgInterestRate,
+    position,
+    setStabilityStates,
+    stateKey,
+    totalDeposits,
+  ]);
+
+  return null;
 }

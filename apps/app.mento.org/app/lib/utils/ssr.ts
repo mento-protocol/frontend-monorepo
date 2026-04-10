@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
-// Is the component server-side rendering or not
+function subscribe() {
+  return () => {};
+}
+
 export function useIsSsr() {
-  const [isSsr, setIsSsr] = useState(true);
-  useEffect(() => {
-    setIsSsr(false);
-  }, []);
-  return isSsr;
+  return useSyncExternalStore(
+    subscribe,
+    () => false,
+    () => true,
+  );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  type DebtTokenConfig,
   useLoanDetails,
   usePredictUpfrontFee,
   formatLtv,
@@ -8,12 +9,12 @@ import {
   formatDebtAmount,
   formatCollateralAmount,
   formatInterestRate,
-  selectedDebtTokenAtom,
 } from "@repo/web3";
-import { useAtomValue } from "jotai";
 import { useMemo } from "react";
 
 interface LoanSummaryProps {
+  debtToken: DebtTokenConfig;
+  collateralSymbol: string;
   collAmount: bigint;
   debtAmount: bigint;
   interestRate: bigint;
@@ -43,12 +44,12 @@ function MetricRow({
 }
 
 export function LoanSummary({
+  debtToken,
+  collateralSymbol,
   collAmount,
   debtAmount,
   interestRate,
 }: LoanSummaryProps) {
-  const debtToken = useAtomValue(selectedDebtTokenAtom);
-
   const hasInputs = collAmount > 0n && debtAmount > 0n;
 
   const loanDetails = useLoanDetails(
@@ -77,14 +78,20 @@ export function LoanSummary({
 
       <div className="flex flex-col">
         <MetricRow label="Collateral">
-          {hasInputs ? formatCollateralAmount(collAmount) : PLACEHOLDER}
+          {hasInputs
+            ? formatCollateralAmount(collAmount, collateralSymbol)
+            : PLACEHOLDER}
         </MetricRow>
         <MetricRow label="Debt">
           {hasInputs ? formatDebtAmount(debtAmount, debtToken) : PLACEHOLDER}
         </MetricRow>
         <MetricRow label="Liq. Price">
           {loanDetails
-            ? formatPrice(loanDetails.liquidationPrice, debtToken)
+            ? formatPrice(
+                loanDetails.liquidationPrice,
+                debtToken,
+                collateralSymbol,
+              )
             : PLACEHOLDER}
         </MetricRow>
 

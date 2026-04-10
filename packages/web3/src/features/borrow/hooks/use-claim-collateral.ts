@@ -10,6 +10,7 @@ interface ClaimCollateralMutationParams {
   symbol: string;
   wagmiConfig: Config;
   account: string;
+  successHref?: string;
 }
 
 export function useClaimCollateral() {
@@ -22,6 +23,7 @@ export function useClaimCollateral() {
       symbol,
       wagmiConfig,
       account,
+      successHref,
     }: ClaimCollateralMutationParams) => {
       if (!sdk) throw new Error("Borrow service not available");
 
@@ -39,6 +41,7 @@ export function useClaimCollateral() {
             buildTx: async () => sdk.buildClaimCollateralTransaction(symbol),
           },
         ],
+        { successHref },
       );
 
       if (!result.success) {

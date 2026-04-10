@@ -3,11 +3,11 @@
 import { useState, useMemo, useCallback } from "react";
 import { Button, CoinInput } from "@repo/ui";
 import {
+  type DebtTokenConfig,
   useAdjustTrove,
   useLoanDetails,
   usePredictUpfrontFee,
   useSystemParams,
-  selectedDebtTokenAtom,
   formatCollateralAmount,
   formatDebtAmount,
   formatLtv,
@@ -22,7 +22,6 @@ import {
   useConfig,
   useReadContract,
 } from "@repo/web3/wagmi";
-import { useAtomValue } from "jotai";
 import { erc20Abi, formatUnits, type Address } from "viem";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 import { RiskBadge } from "../shared/risk-badge";
@@ -33,6 +32,8 @@ type DebtDirection = "borrow" | "repay";
 interface AdjustFormProps {
   troveId: string;
   troveData: BorrowPosition;
+  debtToken: DebtTokenConfig;
+  collateralSymbol: string;
 }
 
 const PLACEHOLDER = "\u2014";
@@ -87,8 +88,12 @@ function ToggleButtons({
   );
 }
 
-export function AdjustForm({ troveId, troveData }: AdjustFormProps) {
-  const debtToken = useAtomValue(selectedDebtTokenAtom);
+export function AdjustForm({
+  troveId,
+  troveData,
+  debtToken,
+  collateralSymbol,
+}: AdjustFormProps) {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const wagmiConfig = useConfig();
@@ -102,9 +107,10 @@ export function AdjustForm({ troveId, troveData }: AdjustFormProps) {
   const adjustTrove = useAdjustTrove();
 
   // Wallet balance for collateral (needed when adding)
-  const collateralAddress = getTokenAddress(chainId, "USDm" as TokenSymbol) as
-    | Address
-    | undefined;
+  const collateralAddress = getTokenAddress(
+    chainId,
+    collateralSymbol as TokenSymbol,
+  ) as Address | undefined;
 
   const { data: collateralBalance } = useReadContract({
     address: collateralAddress,
@@ -174,8 +180,13 @@ export function AdjustForm({ troveId, troveData }: AdjustFormProps) {
       const bal = collateralBalance ? formatUnits(collateralBalance, 18) : "0";
       return `Wallet: ${formatCompactBalance(bal)}`;
     }
-    return `Deposited: ${formatCollateralAmount(troveData.collateral)}`;
-  }, [collDirection, collateralBalance, troveData.collateral]);
+    return `Deposited: ${formatCollateralAmount(troveData.collateral, collateralSymbol)}`;
+  }, [
+    collDirection,
+    collateralBalance,
+    collateralSymbol,
+    troveData.collateral,
+  ]);
 
   // Max collateral handler
   const handleMaxColl = useCallback(() => {
@@ -210,20 +221,35 @@ export function AdjustForm({ troveId, troveData }: AdjustFormProps) {
     systemParams?.minDebt != null &&
     newDebt < systemParams.minDebt;
 
+  const exceedsCurrentDebt =
+    debtDirection === "repay" && debtChange > 0n && debtChange > troveData.debt;
+
+  const liquidatableAdjustment =
+    newDebt > 0n &&
+    (newLoanDetails?.status === "liquidatable" ||
+      newLoanDetails?.status === "underwater");
+
   const buttonDisabledReason = useMemo(() => {
     if (!isConnected) return "Connect wallet";
     if (!hasChanges) return "Enter an amount";
-    if (insufficientCollBalance) return "Insufficient USDm balance";
+    if (insufficientCollBalance) {
+      return `Insufficient ${collateralSymbol} balance`;
+    }
     if (exceedsCurrentCollateral) return "Exceeds current collateral";
+    if (exceedsCurrentDebt) return "Exceeds current debt";
     if (belowMinDebt) return "Below minimum debt";
+    if (liquidatableAdjustment) return "Position would be liquidatable";
     if (adjustTrove.isPending) return "Adjusting position...";
     return null;
   }, [
     isConnected,
     hasChanges,
     insufficientCollBalance,
+    collateralSymbol,
     exceedsCurrentCollateral,
+    exceedsCurrentDebt,
     belowMinDebt,
+    liquidatableAdjustment,
     adjustTrove.isPending,
   ]);
 
@@ -250,6 +276,7 @@ export function AdjustForm({ troveId, troveData }: AdjustFormProps) {
       troveStatus: troveData.status,
       wagmiConfig,
       account: address,
+      successHref: "/borrow",
     });
   };
 
@@ -301,12 +328,14 @@ export function AdjustForm({ troveId, troveData }: AdjustFormProps) {
             MAX
           </button>
           <div className="px-3 py-2 rounded-lg bg-muted/50">
-            <span className="text-sm font-semibold">USDm</span>
+            <span className="text-sm font-semibold">{collateralSymbol}</span>
           </div>
         </div>
 
         {insufficientCollBalance && (
-          <p className="text-xs text-destructive">Insufficient USDm balance</p>
+          <p className="text-xs text-destructive">
+            Insufficient {collateralSymbol} balance
+          </p>
         )}
         {exceedsCurrentCollateral && (
           <p className="text-xs text-destructive">Exceeds current collateral</p>
@@ -376,6 +405,9 @@ export function AdjustForm({ troveId, troveData }: AdjustFormProps) {
             New debt would be below minimum
           </p>
         )}
+        {exceedsCurrentDebt && (
+          <p className="text-xs text-destructive">Exceeds current debt</p>
+        )}
       </div>
 
       {/* Before -> After comparison */}
@@ -403,19 +435,30 @@ export function AdjustForm({ troveId, troveData }: AdjustFormProps) {
             label="Liquidation Price"
             before={
               currentLoanDetails
-                ? formatPrice(currentLoanDetails.liquidationPrice, debtToken)
+                ? formatPrice(
+                    currentLoanDetails.liquidationPrice,
+                    debtToken,
+                    collateralSymbol,
+                  )
                 : PLACEHOLDER
             }
             after={
               newLoanDetails
-                ? formatPrice(newLoanDetails.liquidationPrice, debtToken)
+                ? formatPrice(
+                    newLoanDetails.liquidationPrice,
+                    debtToken,
+                    collateralSymbol,
+                  )
                 : PLACEHOLDER
             }
           />
           <MetricRow
             label="Collateral"
-            before={formatCollateralAmount(troveData.collateral)}
-            after={formatCollateralAmount(newCollateral)}
+            before={formatCollateralAmount(
+              troveData.collateral,
+              collateralSymbol,
+            )}
+            after={formatCollateralAmount(newCollateral, collateralSymbol)}
           />
           <MetricRow
             label="Debt"
@@ -430,6 +473,13 @@ export function AdjustForm({ troveId, troveData }: AdjustFormProps) {
             />
           )}
         </div>
+      )}
+
+      {liquidatableAdjustment && (
+        <p className="text-xs text-destructive">
+          This adjustment would make the trove liquidatable. Add more collateral
+          or reduce the debt change.
+        </p>
       )}
 
       {/* Submit */}

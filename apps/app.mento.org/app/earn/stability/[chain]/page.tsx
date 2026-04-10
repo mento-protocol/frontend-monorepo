@@ -7,7 +7,7 @@ import {
   DEFAULT_STABILITY_TOKEN,
   getStabilityRoute,
   resolveStabilityChainId,
-  resolveStabilityDebtToken,
+  resolveStabilityDebtTokenAcrossDeployments,
 } from "@/lib/stability-route";
 
 export default async function StabilityPoolRedirectPage({
@@ -22,7 +22,7 @@ export default async function StabilityPoolRedirectPage({
   const sourceValue = Array.isArray(source) ? source[0] : source;
   const opportunitySource = resolveOpportunitySource(sourceValue);
 
-  const debtToken = resolveStabilityDebtToken(chain);
+  const debtToken = resolveStabilityDebtTokenAcrossDeployments(chain);
   if (debtToken) {
     redirect(
       withOpportunitySource(

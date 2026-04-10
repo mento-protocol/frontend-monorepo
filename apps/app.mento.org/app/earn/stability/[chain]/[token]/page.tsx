@@ -41,7 +41,7 @@ export default async function StabilityPoolPage({
     );
   }
 
-  const debtToken = resolveStabilityDebtToken(token);
+  const debtToken = resolveStabilityDebtToken(token, routeChainId);
 
   if (!debtToken) {
     return (

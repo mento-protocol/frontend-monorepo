@@ -1,36 +1,34 @@
 "use client";
 
-import { useAtomValue, useSetAtom } from "jotai";
-import { useEffect } from "react";
+import type { ReactNode } from "react";
 import {
   ChainId,
+  getDebtTokenConfig,
   getMainnetFallbackChainId,
   isFeatureSupported,
   isTestnetChain,
+  type DebtTokenConfig,
   useTestnetMode,
 } from "@repo/web3";
 import { useChainId } from "@repo/web3/wagmi";
-import { DebtTokenSelector } from "./shared/debt-token-selector";
 import { FlowDialog } from "./shared/flow-dialog";
 import { UnsupportedChainState } from "./shared/unsupported-chain-state";
-import { BorrowDashboard } from "./dashboard/borrow-dashboard";
-import { OpenTroveForm } from "./open-trove/open-trove-form";
-import { ManageTroveView } from "./manage-trove/manage-trove-view";
-import { borrowViewAtom } from "./atoms/borrow-navigation";
 import { HiddenTestnetState } from "@/components/shared/hidden-testnet-state";
 
-export function BorrowView() {
-  const view = useAtomValue(borrowViewAtom);
-  const setBorrowView = useSetAtom(borrowViewAtom);
+interface BorrowViewProps {
+  children: ReactNode;
+  showHeader?: boolean;
+  unsupportedDebtToken?: DebtTokenConfig;
+}
+
+export function BorrowView({
+  children,
+  showHeader = false,
+  unsupportedDebtToken = getDebtTokenConfig("GBPm"),
+}: BorrowViewProps) {
   const chainId = useChainId();
   const [testnetMode] = useTestnetMode();
 
-  // Reset to dashboard whenever the borrow tab is re-entered
-  useEffect(() => {
-    setBorrowView("dashboard");
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const showHeader = view === "dashboard" || view === "redeem";
   const isHiddenTestnet = isTestnetChain(chainId) && !testnetMode;
   const isBorrowChainSupported = isFeatureSupported({
     chainId,
@@ -40,27 +38,24 @@ export function BorrowView() {
   const fallbackChainId = getMainnetFallbackChainId(chainId) ?? ChainId.Celo;
 
   return (
-    <div className="max-w-5xl space-y-6 px-4 pt-6 md:px-0 md:pt-0 pb-16 min-h-[550px] w-full">
-      {/* Header — only shown on dashboard and redeem */}
+    <div className="max-w-5xl space-y-6 px-4 pt-6 pb-16 md:px-0 md:pt-0 min-h-[550px] w-full">
       {showHeader && (
         <div className="relative">
           <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
           <div className="p-6 flex items-start justify-between bg-card">
             <div>
-              <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
+              <span className="font-mono font-medium tracking-widest text-[11px] text-muted-foreground uppercase">
                 Collateralized Debt
               </span>
               <h1 className="mt-2 font-bold text-3xl">Borrow</h1>
-              <p className="mt-1 text-sm max-w-md leading-relaxed text-muted-foreground">
+              <p className="mt-1 max-w-md text-sm leading-relaxed text-muted-foreground">
                 Borrow stablecoins against your collateral.
               </p>
             </div>
-            {isBorrowChainSupported && <DebtTokenSelector />}
           </div>
         </div>
       )}
 
-      {/* Content */}
       {isHiddenTestnet ? (
         <HiddenTestnetState
           title="Testnet hidden"
@@ -68,19 +63,13 @@ export function BorrowView() {
           switchChainId={fallbackChainId}
         />
       ) : !isBorrowChainSupported ? (
-        <UnsupportedChainState feature="borrow" />
+        <UnsupportedChainState
+          feature="borrow"
+          debtToken={unsupportedDebtToken}
+        />
       ) : (
         <>
-          {view === "dashboard" && <BorrowDashboard />}
-          {view === "open-trove" && <OpenTroveForm />}
-          {typeof view === "object" && view.view === "manage-trove" && (
-            <ManageTroveView troveId={view.troveId} />
-          )}
-          {view === "redeem" && (
-            <div className="p-6 bg-card text-center text-muted-foreground">
-              Redeem — coming soon
-            </div>
-          )}
+          {children}
           <FlowDialog />
         </>
       )}

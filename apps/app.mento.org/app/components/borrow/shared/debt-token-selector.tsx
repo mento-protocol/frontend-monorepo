@@ -1,6 +1,5 @@
 "use client";
 
-import { useAtom } from "jotai";
 import {
   Select,
   SelectContent,
@@ -10,43 +9,30 @@ import {
   Badge,
   TokenIcon,
 } from "@repo/ui";
-import {
-  selectedDebtTokenAtom,
-  DEBT_TOKEN_CONFIGS,
-  type DebtTokenConfig,
-} from "@repo/web3";
 import { useChainId } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 
-interface DebtTokenOption {
-  config: DebtTokenConfig;
-  comingSoon: boolean;
+export interface TokenDropdownOption {
+  symbol: string;
+  disabled?: boolean;
+  badge?: string;
 }
 
-const DEBT_TOKEN_OPTIONS: DebtTokenOption[] = [
-  { config: DEBT_TOKEN_CONFIGS.GBPm!, comingSoon: false },
-  {
-    config: {
-      symbol: "CHFm",
-      currencySymbol: "Fr",
-      currencyCode: "CHF",
-      locale: "de-CH",
-    },
-    comingSoon: true,
-  },
-  {
-    config: {
-      symbol: "JPYm",
-      currencySymbol: "¥",
-      currencyCode: "JPY",
-      locale: "ja-JP",
-    },
-    comingSoon: true,
-  },
-];
+interface TokenDropdownProps {
+  value: string;
+  onValueChange: (symbol: string) => void;
+  options: TokenDropdownOption[];
+  disabled?: boolean;
+  triggerClassName?: string;
+}
 
-export function DebtTokenSelector() {
-  const [selectedToken, setSelectedToken] = useAtom(selectedDebtTokenAtom);
+export function TokenDropdown({
+  value,
+  onValueChange,
+  options,
+  disabled = false,
+  triggerClassName,
+}: TokenDropdownProps) {
   const chainId = useChainId();
 
   const getAddress = (symbol: string) => {
@@ -58,28 +44,23 @@ export function DebtTokenSelector() {
   };
 
   return (
-    <Select
-      value={selectedToken.symbol}
-      onValueChange={(symbol) => {
-        const option = DEBT_TOKEN_OPTIONS.find(
-          (o) => o.config.symbol === symbol,
-        );
-        if (option && !option.comingSoon) {
-          setSelectedToken(option.config);
+    <Select value={value} onValueChange={onValueChange} disabled={disabled}>
+      <SelectTrigger
+        className={
+          triggerClassName ??
+          "gap-2 px-3 py-2 font-medium w-auto border border-border bg-transparent shadow-none"
         }
-      }}
-    >
-      <SelectTrigger className="gap-2 px-3 py-2 font-medium w-auto border border-border bg-transparent shadow-none">
+      >
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        {DEBT_TOKEN_OPTIONS.map((option) => {
-          const address = getAddress(option.config.symbol);
+        {options.map((option) => {
+          const address = getAddress(option.symbol);
           return (
             <SelectItem
-              key={option.config.symbol}
-              value={option.config.symbol}
-              disabled={option.comingSoon}
+              key={option.symbol}
+              value={option.symbol}
+              disabled={option.disabled}
               className="py-2.5 pl-3 pr-9"
             >
               <div className="gap-2.5 flex items-center">
@@ -87,19 +68,19 @@ export function DebtTokenSelector() {
                   <TokenIcon
                     token={{
                       address,
-                      symbol: option.config.symbol,
+                      symbol: option.symbol,
                     }}
                     size={22}
                     className="rounded-full"
                   />
                 )}
-                {option.config.symbol}
-                {option.comingSoon && (
+                {option.symbol}
+                {option.badge && (
                   <Badge
                     variant="secondary"
                     className="px-1.5 py-0 text-[10px]"
                   >
-                    Soon
+                    {option.badge}
                   </Badge>
                 )}
               </div>

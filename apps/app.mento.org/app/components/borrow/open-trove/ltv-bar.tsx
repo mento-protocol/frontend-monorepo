@@ -8,80 +8,80 @@ interface LTVBarProps {
   risk: RiskLevel | null;
 }
 
-const RISK_LABELS: Record<RiskLevel, string> = {
-  low: "Safe",
-  medium: "Moderate",
-  high: "At Risk",
-};
-
-const RISK_COLORS: Record<RiskLevel, string> = {
-  low: "text-green-400",
-  medium: "text-amber-400",
-  high: "text-red-400",
-};
-
-const RISK_BG: Record<RiskLevel, string> = {
-  low: "bg-green-400/10",
-  medium: "bg-amber-400/10",
-  high: "bg-red-400/10",
-};
-
-const SEGMENTS = [
-  {
-    end: 40,
-    label: "SAFE",
-    color: "bg-green-400",
-    textColor: "text-green-400/30",
-  },
-  {
-    end: 60,
-    label: "MODERATE",
-    color: "bg-amber-400",
-    textColor: "text-amber-400/30",
-  },
-  {
-    end: 80,
-    label: "RISKY",
-    color: "bg-orange-400",
-    textColor: "text-orange-400/30",
-  },
-  { end: 90, label: "LIQ", color: "bg-red-400", textColor: "text-red-400/30" },
-];
-
-function getProgressColor(ltv: number): string {
-  if (ltv < 40) return "from-green-400 to-green-400";
-  if (ltv < 60) return "from-green-400 to-amber-400";
-  if (ltv < 80) return "from-green-400 to-orange-400";
-  return "from-green-400 to-red-400";
-}
-
-function getGlowColor(ltv: number): string {
-  if (ltv < 40) return "shadow-green-400/40";
-  if (ltv < 60) return "shadow-amber-400/40";
-  if (ltv < 80) return "shadow-orange-400/40";
-  return "shadow-red-400/40";
-}
-
 export function LTVBar({ ltv, maxLtv, risk }: LTVBarProps) {
   const hasValue = ltv > 0;
+  const riskLabels: Record<RiskLevel, string> = {
+    low: "Safe",
+    medium: "Moderate",
+    high: "At Risk",
+  };
+  const riskColors: Record<RiskLevel, string> = {
+    low: "text-green-400",
+    medium: "text-amber-400",
+    high: "text-red-400",
+  };
+  const riskBg: Record<RiskLevel, string> = {
+    low: "bg-green-400/10",
+    medium: "bg-amber-400/10",
+    high: "bg-red-400/10",
+  };
+  const segments = [
+    {
+      end: 40,
+      label: "SAFE",
+      color: "bg-green-400",
+      textColor: "text-green-400/30",
+    },
+    {
+      end: 60,
+      label: "MODERATE",
+      color: "bg-amber-400",
+      textColor: "text-amber-400/30",
+    },
+    {
+      end: 80,
+      label: "RISKY",
+      color: "bg-orange-400",
+      textColor: "text-orange-400/30",
+    },
+    {
+      end: 90,
+      label: "LIQ",
+      color: "bg-red-400",
+      textColor: "text-red-400/30",
+    },
+  ];
+
+  const getProgressColor = (value: number): string => {
+    if (value < 40) return "from-green-400 to-green-400";
+    if (value < 60) return "from-green-400 to-amber-400";
+    if (value < 80) return "from-green-400 to-orange-400";
+    return "from-green-400 to-red-400";
+  };
+
+  const getGlowColor = (value: number): string => {
+    if (value < 40) return "shadow-green-400/40";
+    if (value < 60) return "shadow-amber-400/40";
+    if (value < 80) return "shadow-orange-400/40";
+    return "shadow-red-400/40";
+  };
 
   return (
     <div className="w-full">
-      {/* Value + badge + liquidation label */}
       <div className="mb-2.5 flex items-baseline justify-between">
         <div className="gap-2.5 flex items-center">
           <span
             className={`text-2xl font-bold tracking-tight ${
-              hasValue && risk ? RISK_COLORS[risk] : "text-muted-foreground/15"
+              hasValue && risk ? riskColors[risk] : "text-muted-foreground/15"
             }`}
           >
             {hasValue ? `${ltv.toFixed(1)}%` : "\u2014"}
           </span>
           {hasValue && risk && (
             <span
-              className={`rounded px-2 py-0.5 font-mono font-semibold tracking-wider text-[11px] uppercase ${RISK_COLORS[risk]} ${RISK_BG[risk]}`}
+              className={`rounded px-2 py-0.5 font-mono font-semibold tracking-wider text-[11px] uppercase ${riskColors[risk]} ${riskBg[risk]}`}
             >
-              {RISK_LABELS[risk]}
+              {riskLabels[risk]}
             </span>
           )}
         </div>
@@ -90,12 +90,10 @@ export function LTVBar({ ltv, maxLtv, risk }: LTVBarProps) {
         </span>
       </div>
 
-      {/* Track */}
       <div className="h-2 relative w-full overflow-hidden rounded-full bg-muted/30">
-        {/* Segment backgrounds */}
         <div className="inset-0 absolute flex overflow-hidden rounded-full">
-          {SEGMENTS.map((seg, i) => {
-            const prevEnd = i === 0 ? 0 : (SEGMENTS[i - 1]?.end ?? 0);
+          {segments.map((seg, i) => {
+            const prevEnd = i === 0 ? 0 : (segments[i - 1]?.end ?? 0);
             const width = ((seg.end - prevEnd) / maxLtv) * 100;
             return (
               <div
@@ -106,8 +104,6 @@ export function LTVBar({ ltv, maxLtv, risk }: LTVBarProps) {
             );
           })}
         </div>
-
-        {/* Progress fill */}
         {hasValue && (
           <div
             className={`inset-y-0 left-0 absolute rounded-full bg-gradient-to-r ${getProgressColor(ltv)} shadow-lg ${getGlowColor(ltv)} ease-out transition-[width] duration-300`}
@@ -116,10 +112,9 @@ export function LTVBar({ ltv, maxLtv, risk }: LTVBarProps) {
         )}
       </div>
 
-      {/* Zone labels */}
       <div className="mt-3 flex">
-        {SEGMENTS.map((seg, i) => {
-          const prevEnd = i === 0 ? 0 : (SEGMENTS[i - 1]?.end ?? 0);
+        {segments.map((seg, i) => {
+          const prevEnd = i === 0 ? 0 : (segments[i - 1]?.end ?? 0);
           const width = ((seg.end - prevEnd) / maxLtv) * 100;
           return (
             <div key={i} className="text-center" style={{ width: `${width}%` }}>

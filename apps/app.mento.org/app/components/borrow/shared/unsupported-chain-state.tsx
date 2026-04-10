@@ -1,26 +1,28 @@
 "use client";
 
 import { Button, TokenIcon } from "@repo/ui";
-import { Celo, selectedDebtTokenAtom } from "@repo/web3";
+import { Celo, getDebtTokenConfig, type DebtTokenConfig } from "@repo/web3";
 import { useSwitchChain } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
-import { useAtomValue } from "jotai";
 import { ArrowRightLeft } from "lucide-react";
 
 export function UnsupportedChainState({
   feature,
+  debtToken = getDebtTokenConfig("GBPm"),
 }: {
   feature: "borrow" | "earn";
+  debtToken?: DebtTokenConfig;
 }) {
   const { switchChainAsync } = useSwitchChain();
   const targetChain = Celo;
-  const debtToken = useAtomValue(selectedDebtTokenAtom);
+
+  const collateralSymbol = debtToken.collateralSymbol;
 
   const collateralAddress = (() => {
     try {
       return getTokenAddress(
         targetChain.id,
-        "USDm" as TokenSymbol,
+        collateralSymbol as TokenSymbol,
       ) as `0x${string}`;
     } catch {
       return undefined;
@@ -67,7 +69,7 @@ export function UnsupportedChainState({
           <div className="left-0 top-2 absolute z-[2]">
             {collateralAddress ? (
               <TokenIcon
-                token={{ address: collateralAddress, symbol: "USDm" }}
+                token={{ address: collateralAddress, symbol: collateralSymbol }}
                 size={44}
                 className="rounded-full"
               />
