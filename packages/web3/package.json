@@ -23,6 +23,11 @@
       "types": "./dist/sentry-filter.d.ts",
       "import": "./dist/sentry-filter.js",
       "require": "./dist/sentry-filter.cjs"
+    },
+    "./borrow-server": {
+      "types": "./dist/borrow-server.d.ts",
+      "import": "./dist/borrow-server.js",
+      "require": "./dist/borrow-server.cjs"
     }
   },
   "main": "dist/index.js",

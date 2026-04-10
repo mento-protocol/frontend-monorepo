@@ -7,6 +7,7 @@ export default defineConfig({
     "src/wagmi.ts",
     "src/wagmi-ssr.ts",
     "src/sentry-filter.ts",
+    "src/borrow-server.ts",
   ],
   outDir: "dist",
   format: ["esm", "cjs"],

@@ -139,9 +139,12 @@ export function ManageTroveView({
   const resolvedDebtToken = tokenSymbol
     ? supportedDebtTokens.find((token) => token.symbol === tokenSymbol)
     : undefined;
-  // When token is omitted, fall back to GBPm silently. Only invalid when an
-  // explicit token param is provided but isn't supported on this chain.
-  const isValidToken = !tokenSymbol || !!resolvedDebtToken;
+  // A token param is always required. Missing token and unrecognised token are
+  // both invalid — there is no safe fallback because market selection must be
+  // explicit to avoid fetching data from the wrong borrow market.
+  const isValidToken = !!tokenSymbol && !!resolvedDebtToken;
+  // Use a stable placeholder when invalid so hooks are always called with the
+  // same arity (React rules of hooks), but gate the actual fetch via `enabled`.
   const debtToken = resolvedDebtToken ?? getDebtTokenConfig("GBPm");
 
   const collateralSymbol = debtToken.collateralSymbol;
@@ -150,12 +153,12 @@ export function ManageTroveView({
     isLoading,
     isError,
     error,
-  } = useTroveData(troveId, debtToken.symbol);
+  } = useTroveData(isValidToken ? troveId : undefined, debtToken.symbol);
 
   const loanDetails = useLoanDetails(
-    troveData?.collateral ?? null,
-    troveData?.debt ?? null,
-    troveData?.annualInterestRate ?? null,
+    isValidToken ? (troveData?.collateral ?? null) : null,
+    isValidToken ? (troveData?.debt ?? null) : null,
+    isValidToken ? (troveData?.annualInterestRate ?? null) : null,
     debtToken.symbol,
   );
 
