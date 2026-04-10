@@ -2,8 +2,9 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useAccount, useDisconnect } from "@repo/web3/wagmi";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { toast } from "@repo/ui";
+import { createLocalStore } from "@/lib/utils/local-store";
 
 const isTestMode =
   typeof window !== "undefined" &&
@@ -13,7 +14,15 @@ export function useSanctionsCheck() {
   const { address, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
   const disconnectedAddress = useRef<string | null>(null);
-  const [blockedAddress, setBlockedAddress] = useState<string | null>(null);
+  const blockedAddressStore = useMemo(
+    () => createLocalStore<string | null>(null),
+    [],
+  );
+  const blockedAddress = useSyncExternalStore(
+    blockedAddressStore.subscribe,
+    blockedAddressStore.getSnapshot,
+    blockedAddressStore.getSnapshot,
+  );
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["sanctions", address],
@@ -52,21 +61,20 @@ export function useSanctionsCheck() {
       disconnectedAddress.current !== address
     ) {
       disconnectedAddress.current = address;
-      setBlockedAddress(address);
+      blockedAddressStore.set(address);
       disconnect();
       toast.error(
         "This address cannot use this application due to sanctions compliance.",
         { duration: Infinity },
       );
     }
-  }, [data?.isSanctioned, address, disconnect]);
+  }, [address, blockedAddressStore, data?.isSanctioned, disconnect]);
 
-  // Clear blocked state when a different address connects
   useEffect(() => {
     if (address && blockedAddress && address !== blockedAddress) {
-      setBlockedAddress(null);
+      blockedAddressStore.set(null);
     }
-  }, [address, blockedAddress]);
+  }, [address, blockedAddress, blockedAddressStore]);
 
   return { isSanctioned, isChecking, checkFailed };
 }

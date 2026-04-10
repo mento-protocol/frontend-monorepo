@@ -13,7 +13,7 @@ import {
 } from "@repo/ui";
 import { useAtom } from "jotai";
 import { Info, Settings } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 const DEFAULT_SLIPPAGE = "0.3";
 const DEFAULT_DEADLINE = "5";
@@ -23,6 +23,13 @@ const MAX_SLIPPAGE = 20.0;
 const MIN_DEADLINE = 1;
 const MAX_DEADLINE = 180;
 
+interface SwapFormSettings {
+  slippage?: string;
+  isAutoSlippage?: boolean;
+  deadlineMinutes?: string;
+  isAutoDeadline?: boolean;
+}
+
 export function SwapSettingsPopover() {
   const [formValues, setFormValues] = useAtom(formValuesAtom);
 
@@ -30,13 +37,8 @@ export function SwapSettingsPopover() {
   const isAutoSlippage = formValues?.isAutoSlippage ?? true;
   const deadline = formValues?.deadlineMinutes ?? DEFAULT_DEADLINE;
   const isAutoDeadline = formValues?.isAutoDeadline ?? true;
-  const [deadlineDraft, setDeadlineDraft] = useState(deadline);
 
-  useEffect(() => {
-    setDeadlineDraft(formValues?.deadlineMinutes ?? DEFAULT_DEADLINE);
-  }, [formValues?.deadlineMinutes]);
-
-  const update = (updates: Partial<NonNullable<typeof formValues>>) => {
+  const update = (updates: Partial<SwapFormSettings>) => {
     setFormValues((prev) => ({
       ...prev,
       slippage: prev?.slippage ?? DEFAULT_SLIPPAGE,
@@ -96,65 +98,7 @@ export function SwapSettingsPopover() {
     }
   };
 
-  // -- Deadline handlers --
-
-  const handleAutoDeadlineToggle = () => {
-    if (isAutoDeadline) return;
-    setDeadlineDraft(DEFAULT_DEADLINE);
-    update({ isAutoDeadline: true, deadlineMinutes: DEFAULT_DEADLINE });
-  };
-
-  const handleDeadlineChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-
-    if (!/^[0-9]*$/.test(value)) {
-      return;
-    }
-
-    setDeadlineDraft(value);
-
-    if (value === "") {
-      update({ isAutoDeadline: false });
-      return;
-    }
-
-    const numValue = Number.parseInt(value, 10);
-    if (numValue >= MIN_DEADLINE && numValue <= MAX_DEADLINE) {
-      update({
-        deadlineMinutes: value,
-        isAutoDeadline: value === DEFAULT_DEADLINE,
-      });
-    }
-  };
-
-  const handleDeadlineBlur = () => {
-    if (isAutoDeadline) return;
-
-    const parsed = Number.parseInt(deadlineDraft, 10);
-
-    if (!deadlineDraft || !Number.isFinite(parsed) || parsed < MIN_DEADLINE) {
-      setDeadlineDraft(DEFAULT_DEADLINE);
-      update({ isAutoDeadline: true, deadlineMinutes: DEFAULT_DEADLINE });
-      return;
-    }
-
-    const normalized = String(Math.min(parsed, MAX_DEADLINE));
-    setDeadlineDraft(normalized);
-    update({
-      deadlineMinutes: normalized,
-      isAutoDeadline: normalized === DEFAULT_DEADLINE,
-    });
-  };
-
-  const handleDeadlineKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    const invalidChars = ["e", "E", "-", "+", ",", "."];
-    if (invalidChars.includes(e.key)) {
-      e.preventDefault();
-    }
-  };
-
   const displaySlippage = isAutoSlippage ? DEFAULT_SLIPPAGE : slippage;
-  const displayDeadline = deadlineDraft;
 
   const autoButtonClass = (active: boolean) =>
     cn(
@@ -233,33 +177,112 @@ export function SwapSettingsPopover() {
               </TooltipContent>
             </Tooltip>
           </div>
-          <div className="gap-1.5 ml-auto flex items-center">
-            <button
-              data-testid="autoDeadlineToggle"
-              onClick={handleAutoDeadlineToggle}
-              className={autoButtonClass(isAutoDeadline)}
-            >
-              Auto
-            </button>
-            <div className="relative">
-              <Input
-                data-testid="deadlineInput"
-                type="text"
-                inputMode="numeric"
-                value={displayDeadline}
-                onChange={handleDeadlineChange}
-                onKeyDown={handleDeadlineKeyDown}
-                onBlur={handleDeadlineBlur}
-                className="h-7 w-16 pr-5 text-xs text-right text-foreground"
-                placeholder="5"
-              />
-              <span className="right-1.5 text-xs pointer-events-none absolute top-1/2 -translate-y-1/2 text-muted-foreground">
-                m
-              </span>
-            </div>
-          </div>
+          <DeadlineSettings
+            key={`${deadline}:${isAutoDeadline}`}
+            deadline={deadline}
+            isAutoDeadline={isAutoDeadline}
+            update={update}
+            autoButtonClass={autoButtonClass}
+          />
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function DeadlineSettings({
+  deadline,
+  isAutoDeadline,
+  update,
+  autoButtonClass,
+}: {
+  deadline: string;
+  isAutoDeadline: boolean;
+  update: (updates: Partial<SwapFormSettings>) => void;
+  autoButtonClass: (active: boolean) => string;
+}) {
+  const [deadlineDraft, setDeadlineDraft] = useState(deadline);
+
+  const handleAutoDeadlineToggle = () => {
+    if (isAutoDeadline) return;
+    setDeadlineDraft(DEFAULT_DEADLINE);
+    update({ isAutoDeadline: true, deadlineMinutes: DEFAULT_DEADLINE });
+  };
+
+  const handleDeadlineChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+
+    if (!/^[0-9]*$/.test(value)) {
+      return;
+    }
+
+    setDeadlineDraft(value);
+
+    if (value === "") {
+      update({ isAutoDeadline: false });
+      return;
+    }
+
+    const numValue = Number.parseInt(value, 10);
+    if (numValue >= MIN_DEADLINE && numValue <= MAX_DEADLINE) {
+      update({
+        deadlineMinutes: value,
+        isAutoDeadline: value === DEFAULT_DEADLINE,
+      });
+    }
+  };
+
+  const handleDeadlineBlur = () => {
+    if (isAutoDeadline) return;
+
+    const parsed = Number.parseInt(deadlineDraft, 10);
+
+    if (!deadlineDraft || !Number.isFinite(parsed) || parsed < MIN_DEADLINE) {
+      setDeadlineDraft(DEFAULT_DEADLINE);
+      update({ isAutoDeadline: true, deadlineMinutes: DEFAULT_DEADLINE });
+      return;
+    }
+
+    const normalized = String(Math.min(parsed, MAX_DEADLINE));
+    setDeadlineDraft(normalized);
+    update({
+      deadlineMinutes: normalized,
+      isAutoDeadline: normalized === DEFAULT_DEADLINE,
+    });
+  };
+
+  const handleDeadlineKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const invalidChars = ["e", "E", "-", "+", ",", "."];
+    if (invalidChars.includes(e.key)) {
+      e.preventDefault();
+    }
+  };
+
+  return (
+    <div className="gap-1.5 ml-auto flex items-center">
+      <button
+        data-testid="autoDeadlineToggle"
+        onClick={handleAutoDeadlineToggle}
+        className={autoButtonClass(isAutoDeadline)}
+      >
+        Auto
+      </button>
+      <div className="relative">
+        <Input
+          data-testid="deadlineInput"
+          type="text"
+          inputMode="numeric"
+          value={deadlineDraft}
+          onChange={handleDeadlineChange}
+          onKeyDown={handleDeadlineKeyDown}
+          onBlur={handleDeadlineBlur}
+          className="h-7 w-16 pr-5 text-xs text-right text-foreground"
+          placeholder="5"
+        />
+        <span className="right-1.5 text-xs pointer-events-none absolute top-1/2 -translate-y-1/2 text-muted-foreground">
+          m
+        </span>
+      </div>
+    </div>
   );
 }

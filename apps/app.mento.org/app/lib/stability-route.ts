@@ -3,7 +3,7 @@ import {
   DEBT_TOKEN_CONFIGS,
   getDebtTokenConfig,
   type DebtTokenConfig,
-} from "@repo/web3";
+} from "./debt-token-config";
 
 export type StabilityChainId = 42220 | 11142220;
 

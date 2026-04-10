@@ -136,11 +136,13 @@ export function ManageTroveView({
   const chainId = useChainId();
   const [copied, setCopied] = useState(false);
   const supportedDebtTokens = getSupportedDebtTokens(chainId);
-  const resolvedDebtToken =
-    supportedDebtTokens.find((token) => token.symbol === tokenSymbol) ??
-    (tokenSymbol ? undefined : null);
+  const resolvedDebtToken = tokenSymbol
+    ? supportedDebtTokens.find((token) => token.symbol === tokenSymbol)
+    : undefined;
+  // When token is omitted, fall back to GBPm silently. Only invalid when an
+  // explicit token param is provided but isn't supported on this chain.
+  const isValidToken = !tokenSymbol || !!resolvedDebtToken;
   const debtToken = resolvedDebtToken ?? getDebtTokenConfig("GBPm");
-  const isValidToken = !!tokenSymbol && !!resolvedDebtToken;
 
   const collateralSymbol = debtToken.collateralSymbol;
   const {

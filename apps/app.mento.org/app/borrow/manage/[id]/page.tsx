@@ -1,6 +1,6 @@
 import { BorrowView } from "@/components/borrow/borrow-view";
 import { ManageTroveView } from "@/components/borrow/manage-trove/manage-trove-view";
-import { getDebtTokenConfig } from "@repo/web3";
+import { getDebtTokenConfig } from "@/lib/debt-token-config";
 
 export default async function BorrowManagePage({
   params,

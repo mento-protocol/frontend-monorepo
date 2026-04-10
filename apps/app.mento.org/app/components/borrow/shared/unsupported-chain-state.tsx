@@ -16,11 +16,13 @@ export function UnsupportedChainState({
   const { switchChainAsync } = useSwitchChain();
   const targetChain = Celo;
 
+  const collateralSymbol = debtToken.collateralSymbol;
+
   const collateralAddress = (() => {
     try {
       return getTokenAddress(
         targetChain.id,
-        "USDm" as TokenSymbol,
+        collateralSymbol as TokenSymbol,
       ) as `0x${string}`;
     } catch {
       return undefined;
@@ -67,7 +69,7 @@ export function UnsupportedChainState({
           <div className="left-0 top-2 absolute z-[2]">
             {collateralAddress ? (
               <TokenIcon
-                token={{ address: collateralAddress, symbol: "USDm" }}
+                token={{ address: collateralAddress, symbol: collateralSymbol }}
                 size={44}
                 className="rounded-full"
               />

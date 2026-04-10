@@ -2,10 +2,18 @@
 
 import { env } from "@/env.mjs";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { useSwapUrlSync } from "@/hooks/use-swap-url-sync";
+import { createLocalStore } from "@/lib/utils/local-store";
 
 import type { TokenSymbol } from "@mento-protocol/mento-sdk";
 import {
@@ -54,6 +62,8 @@ type RouteDrivenFormState = {
   tokenInSymbol: string;
   tokenOutSymbol: string;
 };
+
+type LastChangedToken = "from" | "to" | null;
 
 function sanitizeRouteAmount(value?: string): string {
   if (!value) return "";
@@ -458,10 +468,12 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     amount !== "0." &&
     Number(amount) > 0;
 
-  const [tradingLimitError, setTradingLimitError] = useState<string | null>(
-    null,
-  );
-  const [balanceError, setBalanceError] = useState<string | null>(null);
+  const balanceError = useMemo(() => {
+    if (!hasAmount || !tokenInSymbol) return null;
+
+    const balanceCheck = validateBalance(amount);
+    return balanceCheck !== true ? balanceCheck : null;
+  }, [amount, hasAmount, tokenInSymbol, validateBalance]);
 
   const tradingSuspensionError = useMemo(() => {
     if (!isTradingSuspended) return null;
@@ -492,9 +504,10 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     },
   );
 
-  const [lastChangedToken, setLastChangedToken] = useState<
-    "from" | "to" | null
-  >(null);
+  const lastChangedTokenRef = useRef<LastChangedToken>(null);
+  const setLastChangedToken = useCallback((value: LastChangedToken) => {
+    lastChangedTokenRef.current = value;
+  }, []);
 
   // ── Side effects ────────────────────────────────────────────────────
 
@@ -553,7 +566,7 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
         : prev,
     );
     setLastChangedToken(null);
-  }, [form, formChainId, setFormValues]);
+  }, [form, formChainId, setFormValues, setLastChangedToken]);
 
   useEffect(() => {
     const previousRouteState = lastRouteDrivenFormStateRef.current;
@@ -595,7 +608,7 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
       slippage: currentValues.slippage || formValues?.slippage || "0.3",
     });
     setLastChangedToken(routeChangedTokenSide);
-  }, [form, formValues?.slippage, routeDrivenFormState]);
+  }, [form, formValues?.slippage, routeDrivenFormState, setLastChangedToken]);
 
   useEffect(() => {
     if (isError) {
@@ -603,41 +616,19 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     }
   }, [isError, setConfirmView]);
 
-  useEffect(() => {
-    setTradingLimitError(null);
-  }, [amount, quote]);
-
-  useEffect(() => {
-    const checkBalance = async () => {
-      if (!hasAmount || !tokenInSymbol) {
-        setBalanceError(null);
-        return;
-      }
-      const balanceCheck = validateBalance(amount);
-      if (balanceCheck !== true) {
-        setBalanceError(balanceCheck);
-      } else {
-        setBalanceError(null);
-      }
-    };
-    checkBalance();
-  }, [amount, hasAmount, tokenInSymbol, validateBalance]);
-
-  useEffect(() => {
-    if (!hasAmount || !limits || limitsLoading) return;
+  const tradingLimitError = useMemo(() => {
+    if (!hasAmount || !limits || limitsLoading) return null;
 
     const numericAmount = Number(parseAmount(amount) ?? 0);
     const numericQuote = Number(quote || 0);
 
-    const violation = checkTradingLimitViolation(
+    return checkTradingLimitViolation(
       numericAmount,
       numericQuote,
       limits,
       tokenInSymbol,
       tokenOutSymbol,
     );
-
-    setTradingLimitError((v) => (v === violation ? v : violation));
   }, [
     amount,
     quote,
@@ -684,8 +675,19 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     tokenInSymbol: TokenSymbol | undefined;
     tokenOutSymbol: TokenSymbol | undefined;
   }>({ tokenInSymbol: undefined, tokenOutSymbol: undefined });
-
-  const [isWaitingForQuote, setIsWaitingForQuote] = useState(false);
+  const waitingForQuotePairStore = useMemo(
+    () => createLocalStore<string | null>(null),
+    [],
+  );
+  const waitingForQuotePair = useSyncExternalStore(
+    waitingForQuotePairStore.subscribe,
+    waitingForQuotePairStore.getSnapshot,
+    waitingForQuotePairStore.getSnapshot,
+  );
+  const tokenPairKey =
+    tokenInSymbol && tokenOutSymbol
+      ? `${tokenInSymbol}:${tokenOutSymbol}`
+      : null;
 
   useEffect(() => {
     const tokensChanged =
@@ -694,33 +696,40 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
     if (tokensChanged) {
       prevTokenPairRef.current = { tokenInSymbol, tokenOutSymbol };
-      if (hasAmount && !!tokenInSymbol && !!tokenOutSymbol) {
-        setIsWaitingForQuote(true);
-      }
+      waitingForQuotePairStore.set(
+        hasAmount && tokenPairKey ? tokenPairKey : null,
+      );
+      return;
     }
 
-    if (isTradingSuspended && isWaitingForQuote) {
-      setIsWaitingForQuote(false);
+    if (!hasAmount || !tokenPairKey || isTradingSuspended) {
+      waitingForQuotePairStore.set(null);
+      return;
     }
 
     if (
-      isWaitingForQuote &&
+      waitingForQuotePair === tokenPairKey &&
       quote &&
       quote !== "0" &&
       Number(quote) > 0 &&
       !quoteFetching
     ) {
-      setIsWaitingForQuote(false);
+      waitingForQuotePairStore.set(null);
     }
   }, [
-    tokenInSymbol,
-    tokenOutSymbol,
     hasAmount,
-    isWaitingForQuote,
+    isTradingSuspended,
     quote,
     quoteFetching,
-    isTradingSuspended,
+    tokenInSymbol,
+    tokenOutSymbol,
+    tokenPairKey,
+    waitingForQuotePair,
+    waitingForQuotePairStore,
   ]);
+
+  const isWaitingForQuote =
+    tokenPairKey !== null && waitingForQuotePair === tokenPairKey;
 
   const isButtonLoading = useMemo(
     () =>
@@ -911,9 +920,12 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     formValues?.tokenOutSymbol,
     formValues?.slippage,
     form,
+    setLastChangedToken,
   ]);
 
   useEffect(() => {
+    const lastChangedToken = lastChangedTokenRef.current;
+
     if (!tokenInSymbol || !tokenOutSymbol || !lastChangedToken) return;
     if (isFromTokenTradablePairsLoading || isToTokenTradablePairsLoading)
       return;
@@ -938,8 +950,8 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     toTokenTradablePairs,
     isFromTokenTradablePairsLoading,
     isToTokenTradablePairsLoading,
-    lastChangedToken,
     form,
+    setLastChangedToken,
   ]);
 
   // ── Return ──────────────────────────────────────────────────────────
