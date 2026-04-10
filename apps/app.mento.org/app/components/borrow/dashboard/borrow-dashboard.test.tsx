@@ -1,12 +1,20 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const pushMock = vi.fn();
 
 const mockToken = {
   symbol: "GBPm",
   collateralSymbol: "CELO",
+};
+
+let mockSupportedDebtTokens = [mockToken];
+let mockCollateralPrices: Record<string, bigint | null> = {
+  GBPm: 10n ** 18n,
+};
+let mockCollateralPriceErrors: Record<string, Error | null> = {
+  GBPm: null,
 };
 
 let mockTroves: Array<{
@@ -23,7 +31,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/stability-route", () => ({
-  getSupportedDebtTokens: () => [mockToken],
+  getSupportedDebtTokens: () => mockSupportedDebtTokens,
 }));
 
 vi.mock("@mento-protocol/mento-sdk", () => ({
@@ -59,10 +67,10 @@ vi.mock("@repo/web3", () => ({
     mutate: vi.fn(),
     isPending: false,
   }),
-  useCollateralPrice: () => ({
-    data: 10n ** 18n,
+  useCollateralPrice: (symbol: string) => ({
+    data: mockCollateralPrices[symbol] ?? 10n ** 18n,
     isLoading: false,
-    error: null,
+    error: mockCollateralPriceErrors[symbol] ?? null,
   }),
   useSurplusCollateral: () => ({
     data: 0n,
@@ -109,7 +117,14 @@ import { BorrowDashboard } from "./borrow-dashboard";
 describe("BorrowDashboard", () => {
   beforeEach(() => {
     mockTroves = [];
+    mockSupportedDebtTokens = [mockToken];
+    mockCollateralPrices = { GBPm: 10n ** 18n };
+    mockCollateralPriceErrors = { GBPm: null };
     pushMock.mockReset();
+  });
+
+  afterEach(() => {
+    cleanup();
   });
 
   it("keeps observers active in the empty state so new positions appear without leaving the page", async () => {
@@ -133,6 +148,48 @@ describe("BorrowDashboard", () => {
     await waitFor(() => {
       expect(screen.queryByText("How borrowing works")).toBeNull();
       expect(screen.getByTestId("trove-list").textContent).toContain("GBPm:1");
+    });
+  });
+
+  it("fails closed for aggregate debt and ltv when a market price is invalid", async () => {
+    mockTroves = [
+      {
+        troveId: "1",
+        collateral: 10n ** 18n,
+        debt: 5n * 10n ** 17n,
+        ltv: 50,
+      },
+    ];
+    mockCollateralPrices = { GBPm: 0n };
+
+    render(<BorrowDashboard />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/market prices failed to load or returned invalid/i),
+      ).toBeTruthy();
+      expect(screen.getAllByText("Unavailable")).toHaveLength(2);
+    });
+  });
+
+  it("uses a responsive summary grid instead of a fixed four-column inline layout", async () => {
+    mockTroves = [
+      {
+        troveId: "1",
+        collateral: 10n ** 18n,
+        debt: 5n * 10n ** 17n,
+        ltv: 50,
+      },
+    ];
+
+    render(<BorrowDashboard />);
+
+    await waitFor(() => {
+      const grid = screen.getByTestId("portfolio-summary-grid");
+      expect(grid.className).toContain("grid-cols-1");
+      expect(grid.className).toContain("sm:grid-cols-2");
+      expect(grid.className).toContain("xl:grid-cols-4");
+      expect(grid.getAttribute("style")).toBeNull();
     });
   });
 });

@@ -126,15 +126,22 @@ export function getSupportedCollaterals(
 
 export function resolveStabilityDebtToken(
   tokenSlug: string,
-  chainId?: number,
+  chainId: number,
 ): DebtTokenConfig | undefined {
-  const tokens = chainId
-    ? getSupportedDebtTokens(chainId)
-    : Array.from(
-        new Map(
-          getSupportedDeployments().map(({ token }) => [token.symbol, token]),
-        ).values(),
-      );
+  const tokens = getSupportedDebtTokens(chainId);
+  return tokens.find(
+    (token) => token.symbol.toLowerCase() === tokenSlug.toLowerCase(),
+  );
+}
+
+export function resolveStabilityDebtTokenAcrossDeployments(
+  tokenSlug: string,
+): DebtTokenConfig | undefined {
+  const tokens = Array.from(
+    new Map(
+      getSupportedDeployments().map(({ token }) => [token.symbol, token]),
+    ).values(),
+  );
   return tokens.find(
     (token) => token.symbol.toLowerCase() === tokenSlug.toLowerCase(),
   );

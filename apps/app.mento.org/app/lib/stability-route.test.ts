@@ -43,6 +43,8 @@ import {
   isStabilityChainVisible,
   readTestnetModeCookie,
   resolveStabilityChainId,
+  resolveStabilityDebtToken,
+  resolveStabilityDebtTokenAcrossDeployments,
 } from "./stability-route";
 
 describe("stability-route", () => {
@@ -100,6 +102,23 @@ describe("stability-route", () => {
         expect(typeof token.symbol).toBe("string");
         expect(token.symbol.length).toBeGreaterThan(0);
       }
+    });
+  });
+
+  describe("resolveStabilityDebtToken", () => {
+    it("resolves tokens only within the requested chain", () => {
+      expect(resolveStabilityDebtToken("GBPm", 42220)?.symbol).toBe("GBPm");
+      expect(resolveStabilityDebtToken("GBPm", 11142220)?.symbol).toBe("GBPm");
+      expect(resolveStabilityDebtToken("USDm", 42220)).toBeUndefined();
+    });
+
+    it("keeps cross-deployment lookup explicit for legacy redirects", () => {
+      expect(resolveStabilityDebtTokenAcrossDeployments("GBPm")?.symbol).toBe(
+        "GBPm",
+      );
+      expect(
+        resolveStabilityDebtTokenAcrossDeployments("USDm"),
+      ).toBeUndefined();
     });
   });
 });

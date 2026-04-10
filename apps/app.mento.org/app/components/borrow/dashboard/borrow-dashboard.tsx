@@ -380,14 +380,19 @@ function PortfolioSummary({
         state.isLoading ||
         (state.price == null && state.error == null),
     );
-    const priceWarning = requiredPrices.some((state) => state?.error != null);
+    const priceWarning = requiredPrices.some(
+      (state) =>
+        state?.error != null ||
+        (!!state &&
+          !state.isLoading &&
+          state.error == null &&
+          state.price != null &&
+          state.price <= 0n),
+    );
 
     if (!pricesLoading && !priceWarning) {
       for (const { position, debtToken } of troves) {
         const price = priceStates[debtToken.symbol]?.price;
-        if (!price || price <= 0n) {
-          continue;
-        }
         totalDebtUSD += (position.debt * 10n ** 18n) / price;
       }
     }
@@ -424,18 +429,12 @@ function PortfolioSummary({
       {priceWarning && (
         <div className="border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300 rounded-lg border">
           Portfolio risk metrics are temporarily unavailable because one or more
-          market prices failed to load.
+          market prices failed to load or returned invalid values.
         </div>
       )}
       <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr 1fr 1fr",
-          gap: 1,
-          background: "rgba(255,255,255,0.06)",
-          borderRadius: 14,
-          overflow: "hidden",
-        }}
+        data-testid="portfolio-summary-grid"
+        className="bg-white/5 sm:grid-cols-2 xl:grid-cols-4 grid grid-cols-1 gap-px overflow-hidden rounded-[14px]"
       >
         <StatCell
           label="Total Collateral"
