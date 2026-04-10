@@ -21,6 +21,13 @@ interface OpenTroveMutationParams {
   successHref?: string;
 }
 
+export function buildOpenTroveSuccessHref(
+  troveId: bigint,
+  symbol: string,
+): string {
+  return `/borrow/manage/${troveId.toString()}?token=${encodeURIComponent(symbol)}`;
+}
+
 export function useOpenTrove() {
   const sdk = useBorrowService();
   const setFlowAtom = useSetAtom(borrowFlowAtom);
@@ -129,8 +136,7 @@ export function useOpenTrove() {
         ],
         {
           successHref:
-            successHref ??
-            `/borrow/manage/${troveId.toString()}?token=${encodeURIComponent(symbol)}`,
+            successHref ?? buildOpenTroveSuccessHref(troveId, symbol),
         },
       );
 
