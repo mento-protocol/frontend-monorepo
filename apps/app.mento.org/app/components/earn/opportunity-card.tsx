@@ -91,10 +91,10 @@ export function OpportunityCard({ opp }: { opp: Opportunity }) {
     <div className="group">
       <Card className="!py-0 !gap-0 relative overflow-hidden transition-colors group-hover:bg-accent/30">
         {opp.hasRewards && (
-          <div className="top-0 left-0 right-0 h-1 from-emerald-300 via-emerald-400/90 absolute bg-gradient-to-r to-transparent" />
+          <div className="top-0 left-0 right-0 h-1 from-emerald-300 via-emerald-400/90 pointer-events-none absolute bg-gradient-to-r to-transparent" />
         )}
 
-        <CardContent className="p-5 space-y-4">
+        <CardContent className="p-5 space-y-4 relative z-10">
           {/* Header: icon + name + badges + APY */}
           <div className="flex items-start justify-between">
             <div className="gap-3 flex items-center">
@@ -247,8 +247,9 @@ export function OpportunityCard({ opp }: { opp: Opportunity }) {
           {/* CTA */}
           <Link
             href={opp.href}
+            data-testid="earn-opportunity-cta"
             className={cn(
-              "py-3 font-semibold gap-1.5 flex w-full cursor-pointer items-center justify-center rounded-lg border text-[13px] transition-all",
+              "py-3 font-semibold gap-1.5 relative z-10 flex w-full cursor-pointer items-center justify-center rounded-lg border text-[13px] transition-all",
               isStability
                 ? "border-emerald-400/15 bg-emerald-400/8 text-emerald-400 group-hover:bg-emerald-400 group-hover:text-white group-hover:border-transparent group-hover:shadow-[0_4px_20px_rgba(0,229,153,0.2)]"
                 : "border-indigo-400/15 bg-indigo-400/8 text-indigo-300 group-hover:bg-indigo-500 group-hover:text-white group-hover:border-transparent group-hover:shadow-[0_4px_20px_rgba(99,102,241,0.2)]",

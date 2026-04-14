@@ -169,6 +169,48 @@ interface StabilityOpportunityState {
   avgInterestRate: number | null | undefined;
 }
 
+function isSameStabilityPosition(
+  prev:
+    | {
+        deposit: bigint;
+        debtTokenGain: bigint;
+        collateralGain: bigint;
+      }
+    | null
+    | undefined,
+  next:
+    | {
+        deposit: bigint;
+        debtTokenGain: bigint;
+        collateralGain: bigint;
+      }
+    | null
+    | undefined,
+): boolean {
+  if (prev == null && next == null) return true;
+  if (prev == null || next == null) return false;
+
+  return (
+    prev.deposit === next.deposit &&
+    prev.debtTokenGain === next.debtTokenGain &&
+    prev.collateralGain === next.collateralGain
+  );
+}
+
+function isSameStabilityState(
+  prev: StabilityOpportunityState | undefined,
+  next: StabilityOpportunityState,
+): boolean {
+  if (!prev) return false;
+
+  return (
+    isSameStabilityPosition(prev.position, next.position) &&
+    prev.totalDeposits === next.totalDeposits &&
+    prev.apy === next.apy &&
+    prev.avgInterestRate === next.avgInterestRate
+  );
+}
+
 export function EarnHub() {
   const [filter, setFilter] = useState<EarnFilter>("all");
   const [chainFilter, setChainFilter] = useState<ChainFilterType>("all");
@@ -350,7 +392,7 @@ export function EarnHub() {
       ))}
       {/* Header */}
       <div className="relative">
-        <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card" />
+        <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block pointer-events-none hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card" />
         <div className="p-6 bg-card">
           <span className="font-mono font-medium tracking-widest text-[11px] text-muted-foreground uppercase">
             Yield opportunities
@@ -506,7 +548,7 @@ export function EarnHub() {
         </a>
       </div>
 
-      <div className="bottom-decorations after:-bottom-15 before:-bottom-5 before:-right-5 before:h-5 before:w-5 after:right-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-card before:invert after:absolute after:block after:bg-card" />
+      <div className="bottom-decorations after:-bottom-15 before:-bottom-5 before:-right-5 before:h-5 before:w-5 after:right-0 after:h-10 after:w-10 md:block pointer-events-none hidden before:absolute before:block before:bg-card before:invert after:absolute after:block after:bg-card" />
     </div>
   );
 }
@@ -538,15 +580,23 @@ function StabilityOpportunityObserver({
   );
 
   useEffect(() => {
-    setStabilityStates((prev) => ({
-      ...prev,
-      [stateKey]: {
-        position,
-        totalDeposits,
-        apy,
-        avgInterestRate,
-      },
-    }));
+    const nextState: StabilityOpportunityState = {
+      position,
+      totalDeposits,
+      apy,
+      avgInterestRate,
+    };
+
+    setStabilityStates((prev) => {
+      if (isSameStabilityState(prev[stateKey], nextState)) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        [stateKey]: nextState,
+      };
+    });
   }, [
     apy,
     avgInterestRate,
