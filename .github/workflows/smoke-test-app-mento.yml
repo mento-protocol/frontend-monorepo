@@ -17,7 +17,7 @@ jobs:
   test:
     needs: test-eligibility
     if: needs.test-eligibility.outputs.should_run == 'true'
-    uses: mento-protocol/mento-automation-tests/.github/workflows/app-mento-smoke-test.yml@refactor/ci-workflows
+    uses: mento-protocol/mento-automation-tests/.github/workflows/app-mento-smoke-test.yml@main
     with:
       CUSTOM_URL: ${{ github.event.deployment_status.environment_url }}
       IS_MAINNET: false
