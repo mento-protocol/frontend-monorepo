@@ -1,6 +1,6 @@
 import React from "react";
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   OpportunityCard,
   type LpOpportunity,
@@ -23,9 +23,20 @@ vi.mock("next/link", () => ({
   default: ({
     children,
     href,
+    onClick,
     ...rest
   }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
-    <a href={href} {...rest}>
+    <a
+      href={href}
+      onClick={(event) => {
+        onClick?.(event);
+        if (!event.defaultPrevented) {
+          event.preventDefault();
+          window.history.pushState({}, "", href);
+        }
+      }}
+      {...rest}
+    >
       {children}
     </a>
   ),
@@ -84,27 +95,39 @@ const lpOpportunity: LpOpportunity = {
 };
 
 describe("OpportunityCard", () => {
+  beforeEach(() => {
+    window.history.replaceState({}, "", "/earn");
+  });
+
   afterEach(() => {
     cleanup();
   });
 
-  it("renders a stability CTA with a non-empty href and source=earn", () => {
+  it("navigates to the stability opportunity when the CTA is clicked", () => {
     render(<OpportunityCard opp={stabilityOpportunity} />);
 
     const link = screen.getByTestId("earn-opportunity-cta");
     expect(link.getAttribute("href")).toBe(
       "/earn/stability/celo/gbpm?source=earn",
     );
-    expect(link.getAttribute("href")).toContain("source=earn");
-    expect(link.textContent).toContain("Start Earning");
+
+    fireEvent.click(link);
+
+    expect(`${window.location.pathname}${window.location.search}`).toBe(
+      "/earn/stability/celo/gbpm?source=earn",
+    );
   });
 
-  it("renders an LP CTA with a non-empty href and source=earn", () => {
+  it("navigates to the LP opportunity when the CTA is clicked", () => {
     render(<OpportunityCard opp={lpOpportunity} />);
 
     const link = screen.getByTestId("earn-opportunity-cta");
     expect(link.getAttribute("href")).toBe("/pools/celo/0xpool?source=earn");
-    expect(link.getAttribute("href")).toContain("source=earn");
-    expect(link.textContent).toContain("Start Earning");
+
+    fireEvent.click(link);
+
+    expect(`${window.location.pathname}${window.location.search}`).toBe(
+      "/pools/celo/0xpool?source=earn",
+    );
   });
 });
