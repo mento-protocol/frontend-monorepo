@@ -16,6 +16,8 @@ export default function HomePage() {
   const chainId = useChainId();
   const [testnetMode] = useTestnetMode();
 
+  console.info("test 1");
+
   useEffect(() => {
     const routeChainId = getPreferredVisibleChain({
       chainId,
