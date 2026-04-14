@@ -59,6 +59,7 @@ export function NetworkDialog({ isOpen, close, chains }: Props) {
   };
 
   console.info("test 4");
+  console.info("test 5");
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && close()}>
