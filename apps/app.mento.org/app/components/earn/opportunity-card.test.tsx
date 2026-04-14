@@ -8,14 +8,15 @@ import {
 } from "./opportunity-card";
 
 vi.mock("next/image", () => ({
-  default: ({
-    alt,
-    src,
-    unoptimized: _unoptimized,
-    ...rest
-  }: React.ImgHTMLAttributes<HTMLImageElement> & { src: string }) => (
-    <img alt={alt} src={src} {...rest} />
-  ),
+  default: (
+    props: React.ImgHTMLAttributes<HTMLImageElement> & { src: string },
+  ) => {
+    const imageProps = { ...props };
+    delete imageProps.unoptimized;
+
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img {...imageProps} />;
+  },
 }));
 
 vi.mock("next/link", () => ({
