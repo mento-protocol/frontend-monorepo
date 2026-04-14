@@ -77,7 +77,7 @@ export function ReserveTabs({ data }: { data: ReservePageData }) {
 
       <TabsContent value={TabType.positions} className={gradientOverlay}>
         <div className="relative z-10 pt-6 md:pt-12">
-          <PositionsTab reserve={data.reserve} />
+          <PositionsTab reserve={data.reserve} stablecoins={data.stablecoins} />
         </div>
       </TabsContent>
 

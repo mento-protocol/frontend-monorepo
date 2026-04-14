@@ -75,6 +75,21 @@ export interface V2StablecoinsResponse {
   }>;
 }
 
+export type CollateralSourceType =
+  | "wallet"
+  | "aave"
+  | "univ3"
+  | "fpmm"
+  | "stability_pool";
+
+export interface CollateralSource {
+  type: CollateralSourceType;
+  label: string;
+  identifier: string;
+  balance: string;
+  usd_value: number;
+}
+
 // GET /api/v2/reserve
 export interface V2ReserveResponse {
   collateral: {
@@ -85,6 +100,15 @@ export interface V2ReserveResponse {
       balance: string;
       usd_value: number;
       percentage: number;
+      sources: CollateralSource[];
+    }>;
+  };
+  reserve_held_supply: {
+    total_usd: number;
+    by_token: Array<{
+      symbol: string;
+      amount: number;
+      usd_value: number;
     }>;
   };
   lp_positions: {
@@ -113,6 +137,9 @@ export interface V2ReserveResponse {
     total_collateral_usd: number;
     total_debt_usd: number;
     troves: Array<{
+      trove_id: string;
+      owner: string;
+      owner_label: string;
       stablecoin: string;
       collateral_token: string;
       collateral_amount: string;
@@ -120,10 +147,89 @@ export interface V2ReserveResponse {
       debt_amount: string;
       debt_usd: number;
       ratio: number;
+      annual_interest_rate: number;
       liquidation_price: number;
       status: TroveStatus;
       chain: Chain;
       contract_address: string;
+      overhead?: {
+        usd: number;
+        wiggleroom_pct: number;
+      };
+    }>;
+  };
+  positions: {
+    wallet_balances: Array<{
+      address: string;
+      label: string;
+      chain: Chain;
+      token: string;
+      token_address: string;
+      balance: string;
+      usd_value: number;
+      is_mento_stable: boolean;
+    }>;
+    aave_deposits: Array<{
+      address: string;
+      label: string;
+      chain: Chain;
+      token: string;
+      a_token_address: string;
+      balance: string;
+      usd_value: number;
+      is_mento_stable: boolean;
+    }>;
+    univ3_positions: Array<{
+      position_id: number;
+      owner: string;
+      owner_label: string;
+      chain: Chain;
+      pool_address: string;
+      fee_tier: number;
+      token0: { symbol: string; address: string; amount: string };
+      token1: { symbol: string; address: string; amount: string };
+      liquidity: string;
+      in_range: boolean;
+    }>;
+    fpmm_positions: Array<{
+      pool_address: string;
+      chain: Chain;
+      pool_name: string;
+      strategy_registered: boolean;
+      lp_holder: string;
+      lp_holder_label: string;
+      lp_share_pct: number;
+      debt_token: { symbol: string; amount: number; address: string };
+      collateral_token: { symbol: string; amount: number; address: string };
+    }>;
+    cdp_troves: Array<{
+      trove_id: string;
+      owner: string;
+      owner_label: string;
+      chain: Chain;
+      status: TroveStatus;
+      collateral_token: string;
+      collateral_amount: string;
+      collateral_usd: number;
+      debt_token: string;
+      debt_amount: string;
+      debt_usd: number;
+      ratio: number;
+      annual_interest_rate: number;
+      contract_address: string;
+    }>;
+    stability_pool_deposits: Array<{
+      pool_address: string;
+      pool_label: string;
+      chain: Chain;
+      depositor: string;
+      depositor_label: string;
+      deposit_token: string;
+      deposit_amount: string;
+      deposit_usd: number;
+      collateral_gained_token: string;
+      collateral_gained: string;
+      collateral_gained_usd: number;
     }>;
   };
 }

@@ -41,7 +41,7 @@ export function OverviewTab({
           <KpiCard
             label="CDP Debt"
             value={formatUsd(supply.cdp_debt_usd)}
-            tooltip="Stablecoins minted through collateralized debt positions, backed by collateral deposited in on-chain CDPs."
+            tooltip="Mento stablecoins in public circulation, minted through collateralized debt positions and backed by collateral deposited in on-chain CDPs."
             className="flex-1"
           />
           <Operator>+</Operator>
@@ -80,7 +80,7 @@ export function OverviewTab({
             <KpiCard
               label="CDP Debt"
               value={formatUsd(supply.cdp_debt_usd, true)}
-              tooltip="Stablecoins minted through collateralized debt positions, backed by collateral deposited in on-chain CDPs."
+              tooltip="Mento stablecoins in public circulation, minted through collateralized debt positions and backed by collateral deposited in on-chain CDPs."
             />
             <button
               type="button"
