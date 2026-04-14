@@ -307,10 +307,29 @@ function TokenPriceObserver({
 }
 
 function getRiskInfo(ltv: number) {
-  if (ltv < 40) return { label: "Healthy", color: "#00E599" };
-  if (ltv < 60) return { label: "Moderate", color: "#FBBF24" };
-  if (ltv < 80) return { label: "At Risk", color: "#F97316" };
-  return { label: "Critical", color: "#EF4444" };
+  if (ltv < 40)
+    return {
+      label: "Healthy",
+      textClass: "text-green-400",
+      badgeClass: "text-green-400 bg-green-400/10",
+    };
+  if (ltv < 60)
+    return {
+      label: "Moderate",
+      textClass: "text-amber-400",
+      badgeClass: "text-amber-400 bg-amber-400/10",
+    };
+  if (ltv < 80)
+    return {
+      label: "At Risk",
+      textClass: "text-orange-400",
+      badgeClass: "text-orange-400 bg-orange-400/10",
+    };
+  return {
+    label: "Critical",
+    textClass: "text-red-400",
+    badgeClass: "text-red-400 bg-red-400/10",
+  };
 }
 
 function formatUSD(value: bigint): string {
@@ -434,7 +453,7 @@ function PortfolioSummary({
       )}
       <div
         data-testid="portfolio-summary-grid"
-        className="bg-white/5 sm:grid-cols-2 xl:grid-cols-4 grid grid-cols-1 gap-px overflow-hidden rounded-[14px]"
+        className="sm:grid-cols-2 xl:grid-cols-4 gap-4 grid grid-cols-1"
       >
         <StatCell
           label="Total Collateral"
@@ -462,9 +481,9 @@ function PortfolioSummary({
                 ? `${avgLTV.toFixed(1)}%`
                 : "Unavailable"
           }
-          valueColor={riskInfo?.color}
+          valueClass={riskInfo?.textClass}
           badge={riskInfo?.label}
-          badgeColor={riskInfo?.color}
+          badgeClass={riskInfo?.badgeClass}
         />
         <StatCell
           label="Open Troves"
@@ -484,70 +503,38 @@ function StatCell({
   label,
   value,
   subtitle,
-  valueColor,
+  valueClass,
   badge,
-  badgeColor,
+  badgeClass,
 }: {
   label: string;
   value: string;
   subtitle?: string | null;
-  valueColor?: string;
+  valueClass?: string;
   badge?: string;
-  badgeColor?: string;
+  badgeClass?: string;
 }) {
   return (
-    <div style={{ background: "#12131A", padding: "18px 20px" }}>
-      <div
-        style={{
-          fontFamily: "monospace",
-          fontSize: 11,
-          fontWeight: 500,
-          letterSpacing: "0.08em",
-          color: "rgba(255,255,255,0.3)",
-          textTransform: "uppercase",
-          marginBottom: 8,
-        }}
-      >
+    <div className="px-5 py-4 rounded-xl border border-border bg-card">
+      <div className="font-mono font-medium tracking-widest mb-2 text-[11px] text-muted-foreground uppercase">
         {label}
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div className="gap-2 flex items-center">
         <span
-          style={{
-            fontSize: 20,
-            fontWeight: 700,
-            color: valueColor ?? "white",
-            lineHeight: 1,
-          }}
+          className={`text-xl font-bold tracking-tight ${valueClass ?? "text-foreground"}`}
         >
           {value}
         </span>
-        {badge && badgeColor && (
+        {badge && badgeClass && (
           <span
-            style={{
-              fontFamily: "monospace",
-              fontSize: 10,
-              fontWeight: 600,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              color: badgeColor,
-              background: `${badgeColor}1A`,
-              padding: "2px 6px",
-              borderRadius: 4,
-            }}
+            className={`font-mono font-semibold tracking-widest px-1.5 py-0.5 rounded text-[10px] uppercase ${badgeClass}`}
           >
             {badge}
           </span>
         )}
       </div>
       {subtitle && (
-        <div
-          style={{
-            fontFamily: "monospace",
-            fontSize: 12,
-            color: "rgba(255,255,255,0.25)",
-            marginTop: 4,
-          }}
-        >
+        <div className="font-mono mt-1 text-[11px] text-muted-foreground/40">
           {subtitle}
         </div>
       )}
