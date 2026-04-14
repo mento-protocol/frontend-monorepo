@@ -58,6 +58,8 @@ export function NetworkDialog({ isOpen, close, chains }: Props) {
     }
   };
 
+  console.info("test 4");
+
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && close()}>
       <DialogContent className="max-w-xl">
