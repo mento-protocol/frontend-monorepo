@@ -76,13 +76,38 @@ const nttConfig: NttRoute.Config = {
         ],
       },
     ],
+    EURm: [
+      {
+        chain: "Celo",
+        manager: "0x5F8a1e50F83f53951B89Fc73Ead80b27045C67fd",
+        token: "0xd8763cba276a3738e6de85b4b3bf5fded6d6ca73",
+        transceiver: [
+          {
+            address: "0x6467cfCA82184657F32F1195F9a26b5578399479",
+            type: "wormhole",
+          },
+        ],
+        eta: 1_200_000, // ~20 min for Celo → Monad
+      },
+      {
+        chain: "Monad",
+        manager: "0x5F8a1e50F83f53951B89Fc73Ead80b27045C67fd",
+        token: "0x4D502d735B4C574B487Ed641ae87cEaE884731C7",
+        transceiver: [
+          {
+            address: "0x6467cfCA82184657F32F1195F9a26b5578399479",
+            type: "wormhole",
+          },
+        ],
+      },
+    ],
   },
 };
 
 export const bridgeConfig: config.WormholeConnectConfig = {
   network: "Mainnet",
   chains: ["Celo", "Monad"],
-  tokens: ["USDm", "GBPm"],
+  tokens: ["USDm", "GBPm", "EURm"],
   tokensConfig: {
     USDm_celo: {
       symbol: "USDm",
@@ -118,6 +143,24 @@ export const bridgeConfig: config.WormholeConnectConfig = {
       tokenId: {
         chain: "Monad",
         address: "0x39bb4E0a204412bB98e821d25e7d955e69d40Fd1",
+      },
+    },
+    EURm_celo: {
+      symbol: "EURm",
+      decimals: 18,
+      icon: "/tokens/EURm.svg",
+      tokenId: {
+        chain: "Celo",
+        address: "0xd8763cba276a3738e6de85b4b3bf5fded6d6ca73",
+      },
+    },
+    EURm_monad: {
+      symbol: "EURm",
+      decimals: 18,
+      icon: "/tokens/EURm.svg",
+      tokenId: {
+        chain: "Monad",
+        address: "0x4D502d735B4C574B487Ed641ae87cEaE884731C7",
       },
     },
   },
