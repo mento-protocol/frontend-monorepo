@@ -480,7 +480,7 @@ function HoldingAssetRow({
   totalUsd: number;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const hasMultiple = asset.custodies.length > 0;
+  const hasMultiple = asset.custodies.length > 1;
   const pct = totalUsd > 0 ? (asset.totalUsd / totalUsd) * 100 : 0;
 
   return (

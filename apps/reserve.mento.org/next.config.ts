@@ -3,6 +3,25 @@ import type { NextConfig } from "next";
 import { env } from "@/env.mjs";
 
 const nextConfig: NextConfig = {
+  async redirects() {
+    return [
+      {
+        source: "/stablecoin-supply",
+        destination: "/?tab=stablecoins",
+        permanent: true,
+      },
+      {
+        source: "/reserve-holdings",
+        destination: "/?tab=collateral",
+        permanent: true,
+      },
+      {
+        source: "/reserve-addresses",
+        destination: "/?tab=addresses",
+        permanent: true,
+      },
+    ];
+  },
   // TODO: Remove once stable
   typescript: {
     ignoreBuildErrors: true,

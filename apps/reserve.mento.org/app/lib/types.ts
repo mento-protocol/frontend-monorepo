@@ -75,7 +75,7 @@ export interface V2StablecoinsResponse {
   }>;
 }
 
-export type CollateralSourceType =
+type CollateralSourceType =
   | "wallet"
   | "aave"
   | "univ3"
@@ -250,7 +250,7 @@ export interface V2AddressesResponse {
 }
 
 // GET /api/v2/supply/breakdown (not used for now, but typed for completeness)
-export interface SupplyBreakdownNode {
+interface SupplyBreakdownNode {
   id: string;
   label: string;
   value_usd: number;
@@ -258,7 +258,7 @@ export interface SupplyBreakdownNode {
   children?: SupplyBreakdownNode[];
 }
 
-export interface V2SupplyBreakdownResponse {
+interface V2SupplyBreakdownResponse {
   breakdown: SupplyBreakdownNode;
 }
 

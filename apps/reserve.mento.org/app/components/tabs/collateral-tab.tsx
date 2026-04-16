@@ -59,9 +59,12 @@ export function CollateralTab({
     }),
   );
 
-  const largestAsset = sorted[0];
-  const centerText = largestAsset
-    ? `${largestAsset.percentage.toFixed(2)}%`
+  const largestSegment =
+    chartData.length > 0
+      ? chartData.reduce((a, b) => (a.value > b.value ? a : b))
+      : null;
+  const centerText = largestSegment
+    ? `${largestSegment.value.toFixed(2)}%`
     : "Reserve";
 
   // Group assets by chain
