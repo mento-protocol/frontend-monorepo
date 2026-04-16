@@ -48,9 +48,9 @@ export function ReserveTabs({ data }: { data: ReservePageData }) {
     >
       <TabsList>
         <TabsTrigger value={TabType.overview}>Overview</TabsTrigger>
-        <TabsTrigger value={TabType.stablecoins}>Stablecoins</TabsTrigger>
-        <TabsTrigger value={TabType.collateral}>Reserve Collateral</TabsTrigger>
-        <TabsTrigger value={TabType.positions}>Reserve Positions</TabsTrigger>
+        <TabsTrigger value={TabType.stablecoins}>Supply</TabsTrigger>
+        <TabsTrigger value={TabType.collateral}>Collateral</TabsTrigger>
+        <TabsTrigger value={TabType.positions}>Positions</TabsTrigger>
         <TabsTrigger value={TabType.addresses}>Addresses</TabsTrigger>
       </TabsList>
 
