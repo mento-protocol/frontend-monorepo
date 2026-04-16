@@ -4,10 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import { IconInfo } from "@repo/ui";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@repo/ui";
-import type {
-  V2ReserveResponse,
-  V2StablecoinsResponse,
-} from "@/lib/types";
+import type { V2ReserveResponse, V2StablecoinsResponse } from "@/lib/types";
 import { formatUsd, formatNumber, formatPercent } from "@/lib/format";
 import { getBlockExplorerUrl, truncateAddress } from "@/lib/format";
 
@@ -83,13 +80,13 @@ export function PositionsTab({
   ).filter((p) => p.tokens.some((t) => t.amount > 0));
 
   // Compute the reserve-held totals for the summary header
-  const operationalTotal = stableHoldings.reduce(
-    (s, h) => s + h.usd_value,
-    0,
-  );
+  const operationalTotal = stableHoldings.reduce((s, h) => s + h.usd_value, 0);
   const liquidityMentoTotal = liquidityPositions.reduce(
     (s, p) =>
-      s + p.tokens.filter((t) => t.isMentoStable).reduce((ss, t) => ss + t.usdValue, 0),
+      s +
+      p.tokens
+        .filter((t) => t.isMentoStable)
+        .reduce((ss, t) => ss + t.usdValue, 0),
     0,
   );
   const troveOverheadTotal = reserve.cdp_troves.troves
@@ -132,7 +129,7 @@ function ReserveHeldSummary({
     <div>
       <h2 className="mb-6 text-2xl font-medium">Reserve Held Breakdown</h2>
       {/* Desktop */}
-      <div className="hidden md:flex md:items-center md:gap-3">
+      <div className="md:flex md:items-center md:gap-3 hidden">
         <SummaryCard
           label="Total Reserve Held"
           value={formatUsd(total)}
@@ -163,14 +160,14 @@ function ReserveHeldSummary({
       </div>
 
       {/* Mobile */}
-      <div className="flex flex-col gap-2 md:hidden">
+      <div className="gap-2 md:hidden flex flex-col">
         <SummaryCard
           label="Total Reserve Held"
           value={formatUsd(total)}
           tooltip="Sum of Mento stablecoins held by the reserve in operational wallets, liquidity positions, and CDP trove overhead."
         />
         <SummaryOp>=</SummaryOp>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="gap-2 grid grid-cols-3">
           <SummaryCard
             label="Operational"
             value={formatUsd(operational, true)}
@@ -204,8 +201,8 @@ function SummaryCard({
   className?: string;
 }) {
   return (
-    <div className={`bg-card p-4 md:p-6 ${className ?? ""}`}>
-      <span className="text-sm text-muted-foreground flex items-center gap-1">
+    <div className={`p-4 md:p-6 bg-card ${className ?? ""}`}>
+      <span className="text-sm gap-1 flex items-center text-muted-foreground">
         {label}
         {tooltip && <InfoTooltip>{tooltip}</InfoTooltip>}
       </span>
@@ -216,7 +213,7 @@ function SummaryCard({
 
 function SummaryOp({ children }: { children: string }) {
   return (
-    <span className="shrink-0 text-center text-lg font-light text-muted-foreground">
+    <span className="text-lg font-light shrink-0 text-center text-muted-foreground">
       {children}
     </span>
   );
@@ -267,7 +264,11 @@ function buildPriceMap(
   return map;
 }
 
-function priceOf(symbol: string, amount: number, priceMap: Map<string, number>): number {
+function priceOf(
+  symbol: string,
+  amount: number,
+  priceMap: Map<string, number>,
+): number {
   const rate = priceMap.get(symbol);
   if (rate === undefined) return 0;
   return rate * amount;
@@ -284,7 +285,8 @@ function normalizePositions(
   // AAVE
   for (const d of positions.aave_deposits) {
     const amount = parseFloat(d.balance);
-    const usd = d.usd_value > 0 ? d.usd_value : priceOf(d.token, amount, priceMap);
+    const usd =
+      d.usd_value > 0 ? d.usd_value : priceOf(d.token, amount, priceMap);
     out.push({
       protocol: "AAVE",
       positionName: `${d.token} Deposit`,
@@ -430,7 +432,7 @@ function OperationalHoldingsSection({
       </p>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[600px] text-base table-fixed">
+        <table className="text-base w-full min-w-[600px] table-fixed">
           <colgroup>
             <col className="w-[40%]" />
             <col className="w-[20%]" />
@@ -455,13 +457,13 @@ function OperationalHoldingsSection({
             ))}
 
             {/* Grand total */}
-            <tr className="bg-card border-t border-[var(--border)]">
+            <tr className="border-t border-[var(--border)] bg-card">
               <td className="px-4 py-3 font-medium">Total</td>
               <td className="px-4 py-3" />
-              <td className="px-4 py-3 text-right font-medium tabular-nums">
+              <td className="px-4 py-3 font-medium text-right tabular-nums">
                 {formatUsd(totalUsd)}
               </td>
-              <td className="px-4 py-3 text-right font-medium tabular-nums">
+              <td className="px-4 py-3 font-medium text-right tabular-nums">
                 100%
               </td>
             </tr>
@@ -490,7 +492,7 @@ function HoldingAssetRow({
         onClick={() => hasMultiple && setExpanded(!expanded)}
       >
         <td className="px-4 py-3">
-          <div className="flex items-center gap-3">
+          <div className="gap-3 flex items-center">
             {hasMultiple && (
               <span
                 className={`text-xs text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`}
@@ -530,22 +532,20 @@ function HoldingAssetRow({
             className="border-b border-[var(--border)] bg-[#15111b]/50"
           >
             <td className="px-4 py-2 pl-16">
-              <div className="flex items-center gap-2">
-                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <div className="gap-2 flex items-center">
+                <span className="rounded px-1.5 py-0.5 font-medium bg-muted text-[10px] text-muted-foreground">
                   {chainLabel(c.chain)}
                 </span>
-                <span className="text-sm text-muted-foreground">
-                  {c.label}
-                </span>
+                <span className="text-sm text-muted-foreground">{c.label}</span>
                 <span className="font-mono text-xs text-muted-foreground">
                   {truncateAddress(c.address)}
                 </span>
               </div>
             </td>
-            <td className="px-4 py-2 text-right tabular-nums text-sm text-muted-foreground">
+            <td className="px-4 py-2 text-sm text-right text-muted-foreground tabular-nums">
               {formatNumber(c.balance, 2)}
             </td>
-            <td className="px-4 py-2 text-right tabular-nums text-sm text-muted-foreground">
+            <td className="px-4 py-2 text-sm text-right text-muted-foreground tabular-nums">
               {formatUsd(c.usd_value)}
             </td>
             <td className="px-4 py-2" />
@@ -580,12 +580,20 @@ function LiquidityPositionsSection({
   // Totals
   const sumMento = (ps: LiquidityPosition[]) =>
     ps.reduce(
-      (s, p) => s + p.tokens.filter((t) => t.isMentoStable).reduce((ss, t) => ss + t.usdValue, 0),
+      (s, p) =>
+        s +
+        p.tokens
+          .filter((t) => t.isMentoStable)
+          .reduce((ss, t) => ss + t.usdValue, 0),
       0,
     );
   const sumCollateral = (ps: LiquidityPosition[]) =>
     ps.reduce(
-      (s, p) => s + p.tokens.filter((t) => !t.isMentoStable).reduce((ss, t) => ss + t.usdValue, 0),
+      (s, p) =>
+        s +
+        p.tokens
+          .filter((t) => !t.isMentoStable)
+          .reduce((ss, t) => ss + t.usdValue, 0),
       0,
     );
 
@@ -604,7 +612,7 @@ function LiquidityPositionsSection({
       </p>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[900px] text-base">
+        <table className="text-base w-full min-w-[900px]">
           <thead>
             <tr className="border-b border-[var(--border)] text-left text-muted-foreground">
               <th className="px-4 py-3 font-medium">Position</th>
@@ -629,7 +637,7 @@ function LiquidityPositionsSection({
             })}
 
             {/* Grand breakdown — aggregated per-asset across all protocols */}
-            <tr className="bg-card border-t-2 border-[var(--border)]">
+            <tr className="border-t-2 border-[var(--border)] bg-card">
               <td className="px-4 pt-3 pb-1 text-sm font-medium text-muted-foreground">
                 Grand Breakdown
               </td>
@@ -645,10 +653,10 @@ function LiquidityPositionsSection({
             {/* Grand total USD row */}
             <tr className="bg-card">
               <td className="px-4 pt-1 pb-3 font-semibold">Total</td>
-              <td className="px-4 pt-1 pb-3 tabular-nums font-semibold">
+              <td className="px-4 pt-1 pb-3 font-semibold tabular-nums">
                 {formatUsd(grandMento)}
               </td>
-              <td className="px-4 pt-1 pb-3 tabular-nums font-semibold">
+              <td className="px-4 pt-1 pb-3 font-semibold tabular-nums">
                 {formatUsd(grandColl)}
               </td>
               <td className="px-4 pt-1 pb-3" />
@@ -683,7 +691,7 @@ function ProtocolGroup({
       ))}
 
       {/* Protocol subtotal — aggregated per-asset breakdown */}
-      <tr className={`bg-card border-l-4 ${PROTOCOL_BORDER[protocol]}`}>
+      <tr className={`border-l-4 bg-card ${PROTOCOL_BORDER[protocol]}`}>
         <td className="px-4 pt-3 pb-1 text-sm font-medium text-muted-foreground">
           {protocol} Breakdown
         </td>
@@ -697,7 +705,9 @@ function ProtocolGroup({
       </tr>
 
       {/* Protocol total USD row */}
-      <tr className={`border-b border-[var(--border)] bg-card border-l-4 ${PROTOCOL_BORDER[protocol]}`}>
+      <tr
+        className={`border-b border-l-4 border-[var(--border)] bg-card ${PROTOCOL_BORDER[protocol]}`}
+      >
         <td className="px-4 pt-1 pb-3 text-sm font-semibold">
           {protocol} Total
         </td>
@@ -721,7 +731,7 @@ function PositionRow({ pos }: { pos: LiquidityPosition }) {
   return (
     <tr className="border-b border-[var(--border)] hover:bg-accent">
       <td className="px-4 py-3">
-        <div className="flex items-center gap-3">
+        <div className="gap-3 flex items-center">
           <Image
             src={PROTOCOL_LOGO[pos.protocol]}
             alt={pos.protocol}
@@ -730,9 +740,9 @@ function PositionRow({ pos }: { pos: LiquidityPosition }) {
             className="h-8 w-8 shrink-0"
           />
           <div>
-            <div className="flex items-center gap-2">
+            <div className="gap-2 flex items-center">
               <span className="font-medium">{pos.positionName}</span>
-              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <span className="rounded px-1.5 py-0.5 font-medium bg-muted text-[10px] text-muted-foreground">
                 {chainLabel(pos.chain)}
               </span>
             </div>
@@ -746,9 +756,7 @@ function PositionRow({ pos }: { pos: LiquidityPosition }) {
       <td className="px-4 py-3">
         <TokenColumn tokens={collTokens} />
       </td>
-      <td className="px-4 py-3 text-sm text-muted-foreground">
-        {pos.holder}
-      </td>
+      <td className="px-4 py-3 text-sm text-muted-foreground">{pos.holder}</td>
     </tr>
   );
 }
@@ -759,9 +767,9 @@ function TokenColumn({ tokens }: { tokens: Token[] }) {
   }
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className="gap-1 flex flex-col">
       {tokens.map((t, i) => (
-        <div key={`${t.symbol}-${i}`} className="flex items-center gap-2">
+        <div key={`${t.symbol}-${i}`} className="gap-2 flex items-center">
           <Image
             src={`/tokens/${t.symbol}.svg`}
             alt={t.symbol}
@@ -811,7 +819,10 @@ function CdpTrovesSection({
   troves: V2ReserveResponse["cdp_troves"];
 }) {
   const activeTroves = troves.troves.filter((t) => t.status === "active");
-  const totalCollateral = activeTroves.reduce((s, t) => s + t.collateral_usd, 0);
+  const totalCollateral = activeTroves.reduce(
+    (s, t) => s + t.collateral_usd,
+    0,
+  );
   const totalDebt = activeTroves.reduce((s, t) => s + t.debt_usd, 0);
   const totalOverhead = activeTroves.reduce(
     (s, t) => s + (t.overhead?.usd ?? 0),
@@ -823,12 +834,12 @@ function CdpTrovesSection({
       <h2 className="mb-2 text-2xl font-medium">CDP Trove Positions</h2>
       <p className="mb-6 max-w-xl text-sm text-muted-foreground">
         Active collateralized debt positions. Collateral deposited in CDPs backs
-        the minted stablecoins. The overhead is the excess collateral that
-        is not counted as a reserve liability.
+        the minted stablecoins. The overhead is the excess collateral that is
+        not counted as a reserve liability.
       </p>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[900px] text-base">
+        <table className="text-base w-full min-w-[900px]">
           <thead>
             <tr className="border-b border-[var(--border)] text-left text-muted-foreground">
               <th className="px-4 py-3 font-medium">Trove</th>
@@ -838,12 +849,12 @@ function CdpTrovesSection({
               <th className="px-4 py-3 font-medium text-right">Ratio</th>
               <th className="px-4 py-3 font-medium text-right">Interest</th>
               <th className="px-4 py-3 font-medium text-right">
-                <div className="flex items-center justify-end gap-1">
+                <div className="gap-1 flex items-center justify-end">
                   Overhead
                   <InfoTooltip>
-                    The portion of CDP collateral that sits above the debt
-                    plus a wiggle-room buffer. Counted as reserve-held, not
-                    a liability.
+                    The portion of CDP collateral that sits above the debt plus
+                    a wiggle-room buffer. Counted as reserve-held, not a
+                    liability.
                   </InfoTooltip>
                 </div>
               </th>
@@ -855,19 +866,19 @@ function CdpTrovesSection({
             ))}
 
             {/* Grand total */}
-            <tr className="bg-card border-t-2 border-[var(--border)]">
+            <tr className="border-t-2 border-[var(--border)] bg-card">
               <td colSpan={2} className="px-4 py-3 font-medium">
                 {activeTroves.length} active troves
               </td>
-              <td className="px-4 py-3 text-right font-medium tabular-nums">
+              <td className="px-4 py-3 font-medium text-right tabular-nums">
                 {formatUsd(totalCollateral)}
               </td>
-              <td className="px-4 py-3 text-right font-medium tabular-nums">
+              <td className="px-4 py-3 font-medium text-right tabular-nums">
                 {formatUsd(totalDebt)}
               </td>
               <td className="px-4 py-3" />
               <td className="px-4 py-3" />
-              <td className="px-4 py-3 text-right font-medium tabular-nums">
+              <td className="px-4 py-3 font-medium text-right tabular-nums">
                 {formatUsd(totalOverhead)}
               </td>
             </tr>
@@ -886,7 +897,7 @@ function TroveRow({
   return (
     <tr className="border-b border-[var(--border)] hover:bg-accent">
       <td className="px-4 py-3">
-        <div className="flex items-center gap-3">
+        <div className="gap-3 flex items-center">
           <Image
             src={`/tokens/${trove.stablecoin}.svg`}
             alt={trove.stablecoin}
@@ -897,9 +908,9 @@ function TroveRow({
               e.currentTarget.src = "/tokens/CELO.svg";
             }}
           />
-          <div className="flex items-center gap-2">
+          <div className="gap-2 flex items-center">
             <span className="font-medium">{trove.stablecoin}</span>
-            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            <span className="rounded px-1.5 py-0.5 font-medium bg-muted text-[10px] text-muted-foreground">
               {chainLabel(trove.chain)}
             </span>
             <a
@@ -928,7 +939,7 @@ function TroveRow({
           {formatNumber(trove.debt_amount, 2)} {trove.stablecoin}
         </div>
       </td>
-      <td className="px-4 py-3 text-right tabular-nums text-green-400">
+      <td className="px-4 py-3 text-green-400 text-right tabular-nums">
         {trove.ratio.toFixed(2)}
       </td>
       <td className="px-4 py-3 text-right tabular-nums">
@@ -936,12 +947,11 @@ function TroveRow({
       </td>
       <td className="px-4 py-3 text-right tabular-nums">
         {trove.overhead ? (
-          <div className="inline-flex items-center gap-1">
+          <div className="gap-1 inline-flex items-center">
             {formatUsd(trove.overhead.usd)}
             <InfoTooltip>
-              ({formatUsd(trove.collateral_usd)} −{" "}
-              {formatUsd(trove.debt_usd)}) × (1 −{" "}
-              {trove.overhead.wiggleroom_pct}%) ={" "}
+              ({formatUsd(trove.collateral_usd)} − {formatUsd(trove.debt_usd)})
+              × (1 − {trove.overhead.wiggleroom_pct}%) ={" "}
               {formatUsd(trove.overhead.usd)}
             </InfoTooltip>
           </div>

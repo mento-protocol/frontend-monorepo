@@ -22,10 +22,7 @@ export function truncateAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
-export function getBlockExplorerUrl(
-  chain: string,
-  address: string,
-): string {
+export function getBlockExplorerUrl(chain: string, address: string): string {
   switch (chain) {
     case "ethereum":
       return `https://etherscan.io/address/${address}`;

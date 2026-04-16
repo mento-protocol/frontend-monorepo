@@ -51,7 +51,7 @@ export function AddressesTab({
 
   return (
     <div className="gap-4 md:gap-8 flex h-full flex-col">
-      <h2 className="text-2xl font-medium hidden md:block">
+      <h2 className="text-2xl font-medium md:block hidden">
         Reserve Addresses
       </h2>
 

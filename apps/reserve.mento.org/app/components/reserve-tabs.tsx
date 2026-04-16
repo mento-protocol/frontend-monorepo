@@ -32,8 +32,7 @@ export function ReserveTabs({ data }: { data: ReservePageData }) {
 
   const handleTabChange = (value: string) => {
     setActiveTab(value as TabType);
-    const newUrl =
-      value === TabType.overview ? "/" : `/?tab=${value}`;
+    const newUrl = value === TabType.overview ? "/" : `/?tab=${value}`;
     router.replace(newUrl, { scroll: false });
   };
 
@@ -55,7 +54,7 @@ export function ReserveTabs({ data }: { data: ReservePageData }) {
       </TabsList>
 
       <TabsContent value={TabType.overview} className={gradientOverlay}>
-        <div className="relative z-10 pt-6 md:pt-12">
+        <div className="pt-6 md:pt-12 relative z-10">
           <OverviewTab
             overview={data.overview}
             onNavigateToPositions={() => handleTabChange(TabType.positions)}
@@ -64,25 +63,25 @@ export function ReserveTabs({ data }: { data: ReservePageData }) {
       </TabsContent>
 
       <TabsContent value={TabType.stablecoins} className={gradientOverlay}>
-        <div className="relative z-10 pt-6 md:pt-12">
+        <div className="pt-6 md:pt-12 relative z-10">
           <StablecoinsTab stablecoins={data.stablecoins} />
         </div>
       </TabsContent>
 
       <TabsContent value={TabType.collateral} className={gradientOverlay}>
-        <div className="relative z-10 pt-6 md:pt-12">
+        <div className="pt-6 md:pt-12 relative z-10">
           <CollateralTab reserve={data.reserve} />
         </div>
       </TabsContent>
 
       <TabsContent value={TabType.positions} className={gradientOverlay}>
-        <div className="relative z-10 pt-6 md:pt-12">
+        <div className="pt-6 md:pt-12 relative z-10">
           <PositionsTab reserve={data.reserve} stablecoins={data.stablecoins} />
         </div>
       </TabsContent>
 
       <TabsContent value={TabType.addresses} className={gradientOverlay}>
-        <div className="relative z-10 pt-6 md:pt-12">
+        <div className="pt-6 md:pt-12 relative z-10">
           <AddressesTab addresses={data.addresses} />
         </div>
       </TabsContent>

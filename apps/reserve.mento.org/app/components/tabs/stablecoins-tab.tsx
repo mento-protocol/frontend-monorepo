@@ -20,21 +20,42 @@ export function StablecoinsTab({
     .filter((c) => c.backing_type === "cdp")
     .sort((a, b) => b.supply.total_usd - a.supply.total_usd);
 
-  const reserveDebtTotal = reserveCoins.reduce((s, c) => s + c.supply.debt_usd, 0);
-  const reserveHeldTotal = reserveCoins.reduce((s, c) => s + c.supply.reserve_held_usd, 0);
-  const reserveSupplyTotal = reserveCoins.reduce((s, c) => s + c.supply.total_usd - c.supply.lost_usd, 0);
-  const reservePct = reserveCoins.reduce((s, c) => s + c.market_cap_percentage, 0);
+  const reserveDebtTotal = reserveCoins.reduce(
+    (s, c) => s + c.supply.debt_usd,
+    0,
+  );
+  const reserveHeldTotal = reserveCoins.reduce(
+    (s, c) => s + c.supply.reserve_held_usd,
+    0,
+  );
+  const reserveSupplyTotal = reserveCoins.reduce(
+    (s, c) => s + c.supply.total_usd - c.supply.lost_usd,
+    0,
+  );
+  const reservePct = reserveCoins.reduce(
+    (s, c) => s + c.market_cap_percentage,
+    0,
+  );
 
   const cdpDebtTotal = cdpCoins.reduce((s, c) => s + c.supply.debt_usd, 0);
-  const cdpHeldTotal = cdpCoins.reduce((s, c) => s + c.supply.reserve_held_usd, 0);
-  const cdpSupplyTotal = cdpCoins.reduce((s, c) => s + c.supply.total_usd - c.supply.lost_usd, 0);
+  const cdpHeldTotal = cdpCoins.reduce(
+    (s, c) => s + c.supply.reserve_held_usd,
+    0,
+  );
+  const cdpSupplyTotal = cdpCoins.reduce(
+    (s, c) => s + c.supply.total_usd - c.supply.lost_usd,
+    0,
+  );
   const cdpPct = cdpCoins.reduce((s, c) => s + c.market_cap_percentage, 0);
 
-  const grandTotalSupply = stablecoins.stablecoins.reduce((s, c) => s + c.supply.total_usd - c.supply.lost_usd, 0);
+  const grandTotalSupply = stablecoins.stablecoins.reduce(
+    (s, c) => s + c.supply.total_usd - c.supply.lost_usd,
+    0,
+  );
 
   return (
     <div>
-      <h2 className="my-6 text-2xl font-medium md:mb-8 hidden md:block">
+      <h2 className="my-6 text-2xl font-medium md:mb-8 md:block hidden">
         Mento Stablecoins
       </h2>
       <p className="mb-6 max-w-xl text-sm text-muted-foreground">
@@ -44,7 +65,7 @@ export function StablecoinsTab({
       </p>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[800px] text-lg">
+        <table className="text-lg w-full min-w-[800px]">
           <thead>
             <tr className="border-b border-[var(--border)] text-left text-muted-foreground">
               <th className="px-4 py-3 font-medium">Token</th>
@@ -67,16 +88,16 @@ export function StablecoinsTab({
               <td colSpan={3} className="px-4 py-3 font-medium">
                 Reserve Total — {reserveCoins.length} stablecoins
               </td>
-              <td className="px-4 py-3 text-right font-medium tabular-nums">
+              <td className="px-4 py-3 font-medium text-right tabular-nums">
                 {formatUsd(reserveDebtTotal)}
               </td>
-              <td className="px-4 py-3 text-right font-medium tabular-nums">
+              <td className="px-4 py-3 font-medium text-right tabular-nums">
                 {formatUsd(reserveHeldTotal)}
               </td>
-              <td className="px-4 py-3 text-right font-medium tabular-nums">
+              <td className="px-4 py-3 font-medium text-right tabular-nums">
                 {formatUsd(reserveSupplyTotal)}
               </td>
-              <td className="px-4 py-3 text-right font-medium tabular-nums">
+              <td className="px-4 py-3 font-medium text-right tabular-nums">
                 {formatPercent(reservePct)}
               </td>
             </tr>
@@ -88,41 +109,41 @@ export function StablecoinsTab({
 
             {/* CDP subtotal */}
             {cdpCoins.length > 0 && (
-              <tr className="border-l-4 border-l-amber-500 bg-card">
+              <tr className="border-l-amber-500 border-l-4 bg-card">
                 <td colSpan={3} className="px-4 py-3 font-medium">
                   CDP Total — {cdpCoins.length}{" "}
                   {cdpCoins.length === 1 ? "stablecoin" : "stablecoins"}
                 </td>
-                <td className="px-4 py-3 text-right font-medium tabular-nums">
+                <td className="px-4 py-3 font-medium text-right tabular-nums">
                   {formatUsd(cdpDebtTotal)}
                 </td>
-                <td className="px-4 py-3 text-right font-medium tabular-nums">
+                <td className="px-4 py-3 font-medium text-right tabular-nums">
                   {formatUsd(cdpHeldTotal)}
                 </td>
-                <td className="px-4 py-3 text-right font-medium tabular-nums">
+                <td className="px-4 py-3 font-medium text-right tabular-nums">
                   {formatUsd(cdpSupplyTotal)}
                 </td>
-                <td className="px-4 py-3 text-right font-medium tabular-nums">
+                <td className="px-4 py-3 font-medium text-right tabular-nums">
                   {formatPercent(cdpPct)}
                 </td>
               </tr>
             )}
 
             {/* Grand total */}
-            <tr className="bg-card border-t border-[var(--border)]">
+            <tr className="border-t border-[var(--border)] bg-card">
               <td colSpan={3} className="px-4 py-3 font-medium">
                 Total
               </td>
-              <td className="px-4 py-3 text-right font-medium tabular-nums">
+              <td className="px-4 py-3 font-medium text-right tabular-nums">
                 {formatUsd(stablecoins.total_debt_usd)}
               </td>
-              <td className="px-4 py-3 text-right font-medium tabular-nums">
+              <td className="px-4 py-3 font-medium text-right tabular-nums">
                 {formatUsd(reserveHeldTotal + cdpHeldTotal)}
               </td>
-              <td className="px-4 py-3 text-right font-medium tabular-nums">
+              <td className="px-4 py-3 font-medium text-right tabular-nums">
                 {formatUsd(grandTotalSupply)}
               </td>
-              <td className="px-4 py-3 text-right font-medium tabular-nums">
+              <td className="px-4 py-3 font-medium text-right tabular-nums">
                 100%
               </td>
             </tr>
@@ -176,7 +197,7 @@ function CoinRow({
         </td>
         <td className="px-4 py-3">
           <span
-            className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+            className={`rounded px-1.5 py-0.5 font-medium text-[10px] ${
               coin.backing_type === "cdp"
                 ? "bg-amber-500/20 text-amber-400"
                 : "bg-[#8c35fd]/20 text-[#8c35fd]"
@@ -193,11 +214,20 @@ function CoinRow({
           </div>
         </td>
         <SupplyCell amount={coin.supply.debt} usd={coin.supply.debt_usd} />
-        <SupplyCell amount={coin.supply.reserve_held} usd={coin.supply.reserve_held_usd} />
         <SupplyCell
-          amount={String(parseFloat(coin.supply.total) - parseFloat(coin.supply.lost))}
+          amount={coin.supply.reserve_held}
+          usd={coin.supply.reserve_held_usd}
+        />
+        <SupplyCell
+          amount={String(
+            parseFloat(coin.supply.total) - parseFloat(coin.supply.lost),
+          )}
           usd={coin.supply.total_usd - coin.supply.lost_usd}
-          lostNote={coin.supply.lost_usd > 0 ? `Excluding ${formatNumber(coin.supply.lost)} lost or inaccessible tokens (${formatUsd(coin.supply.lost_usd)})` : undefined}
+          lostNote={
+            coin.supply.lost_usd > 0
+              ? `Excluding ${formatNumber(coin.supply.lost)} lost or inaccessible tokens (${formatUsd(coin.supply.lost_usd)})`
+              : undefined
+          }
         />
         <td className="px-4 py-3 text-right tabular-nums">
           {formatPercent(coin.market_cap_percentage)}
@@ -214,17 +244,27 @@ function CoinRow({
             <td className="px-4 py-2 pl-16">
               <div className="gap-2 flex items-center">
                 <NetworkLabel chain={ns.chain} />
-                <span className="text-xs text-muted-foreground font-mono truncate max-w-[120px]">
+                <span className="text-xs font-mono max-w-[120px] truncate text-muted-foreground">
                   {ns.address.slice(0, 6)}...{ns.address.slice(-4)}
                 </span>
               </div>
             </td>
             <td className="px-4 py-2" />
             <td className="px-4 py-2" />
-            <SupplyCell amount={ns.supply.debt} usd={ns.supply.debt_usd} muted />
-            <SupplyCell amount={ns.supply.reserve_held} usd={ns.supply.reserve_held_usd} muted />
             <SupplyCell
-              amount={String(parseFloat(ns.supply.total) - parseFloat(ns.supply.lost))}
+              amount={ns.supply.debt}
+              usd={ns.supply.debt_usd}
+              muted
+            />
+            <SupplyCell
+              amount={ns.supply.reserve_held}
+              usd={ns.supply.reserve_held_usd}
+              muted
+            />
+            <SupplyCell
+              amount={String(
+                parseFloat(ns.supply.total) - parseFloat(ns.supply.lost),
+              )}
               usd={ns.supply.total_usd - ns.supply.lost_usd}
               muted
             />
@@ -247,7 +287,9 @@ function SupplyCell({
   lostNote?: string;
 }) {
   return (
-    <td className={`px-4 ${muted ? "py-2" : "py-3"} text-right tabular-nums ${muted ? "text-muted-foreground text-sm" : ""}`}>
+    <td
+      className={`px-4 ${muted ? "py-2" : "py-3"} text-right tabular-nums ${muted ? "text-sm text-muted-foreground" : ""}`}
+    >
       <div>
         {formatNumber(amount)}
         {lostNote && (
@@ -263,7 +305,9 @@ function SupplyCell({
           </Tooltip>
         )}
       </div>
-      <div className={`text-xs ${muted ? "text-muted-foreground/70" : "text-muted-foreground"}`}>
+      <div
+        className={`text-xs ${muted ? "text-muted-foreground/70" : "text-muted-foreground"}`}
+      >
         = {formatUsd(usd)}
       </div>
     </td>
@@ -278,7 +322,7 @@ function NetworkLabel({ chain }: { chain: string }) {
     bitcoin: "Bitcoin",
   };
   return (
-    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+    <span className="rounded px-1.5 py-0.5 font-medium bg-muted text-[10px] text-muted-foreground">
       {labels[chain] ?? chain}
     </span>
   );

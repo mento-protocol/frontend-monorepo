@@ -5,7 +5,7 @@ import type { ChartSegment } from "@repo/ui";
 import { ReserveChart } from "@repo/ui";
 import Image from "next/image";
 import type { V2ReserveResponse, Chain } from "@/lib/types";
-import { formatUsd, formatNumber, formatPercent, truncateAddress } from "@/lib/format";
+import { formatUsd, formatNumber, formatPercent } from "@/lib/format";
 
 const TOKEN_COLORS: Record<string, string> = {
   CELO: "#7006FC",
@@ -34,11 +34,7 @@ const CHAIN_LABEL: Record<string, string> = {
   bitcoin: "Bitcoin",
 };
 
-export function CollateralTab({
-  reserve,
-}: {
-  reserve: V2ReserveResponse;
-}) {
+export function CollateralTab({ reserve }: { reserve: V2ReserveResponse }) {
   const [active, setActive] = useState<string>();
   const { assets, total_usd } = reserve.collateral;
 
@@ -49,7 +45,10 @@ export function CollateralTab({
   // Deduplicate chart data by symbol (aggregate across chains)
   const chartBySymbol = new Map<string, number>();
   for (const a of sorted) {
-    chartBySymbol.set(a.symbol, (chartBySymbol.get(a.symbol) ?? 0) + a.percentage);
+    chartBySymbol.set(
+      a.symbol,
+      (chartBySymbol.get(a.symbol) ?? 0) + a.percentage,
+    );
   }
   const chartData: ChartSegment[] = [...chartBySymbol.entries()].map(
     ([symbol, pct]) => ({
@@ -104,7 +103,7 @@ export function CollateralTab({
         </div>
         <div className="md:col-span-6 xl:col-span-8">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[600px] text-base table-fixed">
+            <table className="text-base w-full min-w-[600px] table-fixed">
               <colgroup>
                 <col className="w-[40%]" />
                 <col className="w-[20%]" />
@@ -115,7 +114,9 @@ export function CollateralTab({
                 <tr className="border-b border-[var(--border)] text-left text-muted-foreground">
                   <th className="px-4 py-3 font-medium">Asset</th>
                   <th className="px-4 py-3 font-medium text-right">Amount</th>
-                  <th className="px-4 py-3 font-medium text-right">Value (USD)</th>
+                  <th className="px-4 py-3 font-medium text-right">
+                    Value (USD)
+                  </th>
                   <th className="px-4 py-3 font-medium text-right">%</th>
                 </tr>
               </thead>
@@ -133,13 +134,13 @@ export function CollateralTab({
                 ))}
 
                 {/* Grand total */}
-                <tr className="bg-card border-t border-[var(--border)]">
+                <tr className="border-t border-[var(--border)] bg-card">
                   <td className="px-4 py-3 font-medium">Total</td>
                   <td className="px-4 py-3" />
-                  <td className="px-4 py-3 text-right font-medium tabular-nums">
+                  <td className="px-4 py-3 font-medium text-right tabular-nums">
                     {formatUsd(total_usd)}
                   </td>
-                  <td className="px-4 py-3 text-right font-medium tabular-nums">
+                  <td className="px-4 py-3 font-medium text-right tabular-nums">
                     100%
                   </td>
                 </tr>
@@ -172,7 +173,7 @@ function ChainGroup({
       {/* Chain header */}
       <tr className="bg-card/50">
         <td colSpan={4} className="px-4 py-2">
-          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+          <span className="rounded px-1.5 py-0.5 font-medium bg-muted text-[10px] text-muted-foreground">
             {CHAIN_LABEL[chain] ?? chain}
           </span>
         </td>
@@ -194,10 +195,10 @@ function ChainGroup({
           {CHAIN_LABEL[chain] ?? chain} Total
         </td>
         <td className="px-4 py-2" />
-        <td className="px-4 py-2 text-right text-sm font-medium tabular-nums">
+        <td className="px-4 py-2 text-sm font-medium text-right tabular-nums">
           {formatUsd(totalUsd)}
         </td>
-        <td className="px-4 py-2 text-right text-sm font-medium tabular-nums">
+        <td className="px-4 py-2 text-sm font-medium text-right tabular-nums">
           {formatPercent(totalPct)}
         </td>
       </tr>
@@ -242,7 +243,7 @@ function AssetRow({
         onMouseLeave={() => onHover(undefined)}
       >
         <td className="px-4 py-3">
-          <div className="flex items-center gap-3">
+          <div className="gap-3 flex items-center">
             {hasSources && (
               <span
                 className={`text-xs text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`}
@@ -282,21 +283,19 @@ function AssetRow({
             className="border-b border-[var(--border)] bg-[#15111b]/50"
           >
             <td className="px-4 py-2 pl-16">
-              <div className="flex items-center gap-2">
+              <div className="gap-2 flex items-center">
                 <span
-                  className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${SOURCE_TYPE_COLOR[s.type] ?? "bg-muted text-muted-foreground"}`}
+                  className={`rounded px-1.5 py-0.5 font-medium text-[10px] ${SOURCE_TYPE_COLOR[s.type] ?? "bg-muted text-muted-foreground"}`}
                 >
                   {SOURCE_TYPE_LABEL[s.type] ?? s.type}
                 </span>
-                <span className="text-sm text-muted-foreground">
-                  {s.label}
-                </span>
+                <span className="text-sm text-muted-foreground">{s.label}</span>
               </div>
             </td>
-            <td className="px-4 py-2 text-right tabular-nums text-sm text-muted-foreground">
+            <td className="px-4 py-2 text-sm text-right text-muted-foreground tabular-nums">
               {formatNumber(s.balance, 2)}
             </td>
-            <td className="px-4 py-2 text-right tabular-nums text-sm text-muted-foreground">
+            <td className="px-4 py-2 text-sm text-right text-muted-foreground tabular-nums">
               {formatUsd(s.usd_value)}
             </td>
             <td className="px-4 py-2" />

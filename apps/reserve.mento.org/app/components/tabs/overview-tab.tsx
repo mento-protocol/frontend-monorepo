@@ -23,7 +23,7 @@ export function OverviewTab({
       <div>
         <h2 className="mb-6 text-2xl font-medium">Supply Breakdown</h2>
         {/* Desktop: horizontal with operators */}
-        <div className="hidden md:flex md:items-center md:gap-3">
+        <div className="md:flex md:items-center md:gap-3 hidden">
           <KpiCard
             label="Total Supply"
             value={formatUsd(supply.total_usd - supply.lost_usd)}
@@ -48,13 +48,13 @@ export function OverviewTab({
           <button
             type="button"
             onClick={onNavigateToPositions}
-            className="cursor-pointer bg-card p-4 md:p-6 text-left transition-colors hover:bg-accent flex-1"
+            className="p-4 md:p-6 flex-1 cursor-pointer bg-card text-left transition-colors hover:bg-accent"
           >
-            <span className="text-sm text-muted-foreground flex items-center gap-1">
+            <span className="text-sm gap-1 flex items-center text-muted-foreground">
               Reserve Held Supply
               <InfoTooltip>
-                Mento stablecoins held in reserve wallets and LP positions —
-                not counted as reserve liabilities.
+                Mento stablecoins held in reserve wallets and LP positions — not
+                counted as reserve liabilities.
               </InfoTooltip>
             </span>
             <p className="mt-1 text-xl font-medium md:text-2xl">
@@ -64,14 +64,14 @@ export function OverviewTab({
         </div>
 
         {/* Mobile: stacked with operators between rows */}
-        <div className="flex flex-col gap-2 md:hidden">
+        <div className="gap-2 md:hidden flex flex-col">
           <KpiCard
             label="Total Supply"
             value={formatUsd(supply.total_usd - supply.lost_usd)}
             tooltip={`The total supply of all Mento stablecoins across ${supply.stablecoin_count} stablecoins, excluding ${formatUsd(supply.lost_usd)} in lost or inaccessible assets.`}
           />
           <Operator>=</Operator>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="gap-2 grid grid-cols-3">
             <KpiCard
               label="Reserve Debt"
               value={formatUsd(supply.reserve_debt_usd, true)}
@@ -85,9 +85,9 @@ export function OverviewTab({
             <button
               type="button"
               onClick={onNavigateToPositions}
-              className="cursor-pointer bg-card p-4 text-left transition-colors hover:bg-accent"
+              className="p-4 cursor-pointer bg-card text-left transition-colors hover:bg-accent"
             >
-              <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <span className="text-xs gap-1 flex items-center text-muted-foreground">
                 Held
                 <InfoTooltip>
                   Mento stablecoins held in reserve wallets and LP positions —
@@ -104,18 +104,18 @@ export function OverviewTab({
 
       {/* Backing Mechanisms */}
       <div>
-        <h2 className="mb-6 text-2xl font-medium flex items-center gap-2">
+        <h2 className="mb-6 text-2xl font-medium gap-2 flex items-center">
           Backing
           <InfoTooltip>
             Each backing mechanism maintains its own collateralization ratio.
             Reserve-backed stablecoins are redeemable through the buy-and-sell
-            mechanism. CDP-backed stablecoins are minted by depositing collateral
-            in on-chain collateralized debt positions.
+            mechanism. CDP-backed stablecoins are minted by depositing
+            collateral in on-chain collateralized debt positions.
           </InfoTooltip>
         </h2>
-        <div className="gap-2 md:gap-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="gap-2 md:gap-4 sm:grid-cols-2 lg:grid-cols-4 grid grid-cols-1">
           {/* Reserve-backed */}
-          <div className="bg-card p-4 md:p-6 border-l-4 border-[#8c35fd]">
+          <div className="p-4 md:p-6 border-l-4 border-[#8c35fd] bg-card">
             <span className="text-sm text-muted-foreground">
               Reserve-Backed
             </span>
@@ -148,7 +148,7 @@ export function OverviewTab({
           {activeCdps.map((cdp) => (
             <div
               key={cdp.stablecoin}
-              className="bg-card p-4 md:p-6 border-l-4 border-amber-500"
+              className="p-4 md:p-6 border-amber-500 border-l-4 bg-card"
             >
               <span className="text-sm text-muted-foreground">
                 {cdp.stablecoin} CDP
@@ -213,8 +213,8 @@ function KpiCard({
   className?: string;
 }) {
   return (
-    <div className={`bg-card p-4 md:p-6 ${className ?? ""}`}>
-      <span className="text-sm text-muted-foreground flex items-center gap-1">
+    <div className={`p-4 md:p-6 bg-card ${className ?? ""}`}>
+      <span className="text-sm gap-1 flex items-center text-muted-foreground">
         {label}
         {tooltip && <InfoTooltip>{tooltip}</InfoTooltip>}
       </span>
@@ -225,7 +225,7 @@ function KpiCard({
 
 function Operator({ children }: { children: string }) {
   return (
-    <span className="shrink-0 text-center text-lg font-light text-muted-foreground">
+    <span className="text-lg font-light shrink-0 text-center text-muted-foreground">
       {children}
     </span>
   );
@@ -233,10 +233,10 @@ function Operator({ children }: { children: string }) {
 
 function ComingSoonCard({ label }: { label: string }) {
   return (
-    <div className="bg-card p-4 md:p-6 border-l-4 border-amber-500/30 opacity-50">
-      <div className="flex items-center gap-2">
+    <div className="p-4 md:p-6 border-amber-500/30 border-l-4 bg-card opacity-50">
+      <div className="gap-2 flex items-center">
         <span className="text-sm text-muted-foreground">{label}</span>
-        <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
+        <span className="rounded bg-amber-500/20 px-1.5 py-0.5 font-medium text-amber-400 text-[10px]">
           SOON
         </span>
       </div>

@@ -12,7 +12,9 @@ async function fetchApi<T>(
 ): Promise<T> {
   const url = getAnalyticsUrl(endpoint);
   if (!url) {
-    throw new Error(`Analytics API URL for ${endpoint} could not be constructed.`);
+    throw new Error(
+      `Analytics API URL for ${endpoint} could not be constructed.`,
+    );
   }
 
   const response = await fetch(url, { cache: "no-store" });

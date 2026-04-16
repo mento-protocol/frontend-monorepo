@@ -249,19 +249,6 @@ export interface V2AddressesResponse {
   }>;
 }
 
-// GET /api/v2/supply/breakdown (not used for now, but typed for completeness)
-interface SupplyBreakdownNode {
-  id: string;
-  label: string;
-  value_usd: number;
-  color?: string;
-  children?: SupplyBreakdownNode[];
-}
-
-interface V2SupplyBreakdownResponse {
-  breakdown: SupplyBreakdownNode;
-}
-
 // Aggregated data passed to the page
 export interface ReservePageData {
   overview: V2OverviewResponse;
