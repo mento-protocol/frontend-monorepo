@@ -310,7 +310,7 @@ function SupplyCell({
               <button
                 type="button"
                 aria-label={lostNote}
-                className="ml-1 inline-flex cursor-help rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+                className="ml-1 rounded inline-flex cursor-help focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
               >
                 <IconInfo />
               </button>
