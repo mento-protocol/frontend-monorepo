@@ -188,11 +188,12 @@ export function OverviewTab({
             </div>
           ))}
 
-          {/* Coming soon CDPs */}
-          {!cdp_backings.some((c) => c.stablecoin === "CHFm") && (
+          {/* Coming soon CDPs — shown when no active card exists for the stablecoin,
+              regardless of any pending placeholder API entry. */}
+          {!activeCdps.some((c) => c.stablecoin === "CHFm") && (
             <ComingSoonCard label="CHFm CDP" />
           )}
-          {!cdp_backings.some((c) => c.stablecoin === "JPYm") && (
+          {!activeCdps.some((c) => c.stablecoin === "JPYm") && (
             <ComingSoonCard label="JPYm CDP" />
           )}
         </div>

@@ -484,12 +484,24 @@ function HoldingAssetRow({
   const [expanded, setExpanded] = useState(false);
   const hasMultiple = asset.custodies.length > 1;
   const pct = totalUsd > 0 ? (asset.totalUsd / totalUsd) * 100 : 0;
+  const toggle = () => hasMultiple && setExpanded((v) => !v);
 
   return (
     <>
       <tr
-        className={`border-b border-[var(--border)] transition-colors hover:bg-accent ${hasMultiple ? "cursor-pointer" : ""}`}
-        onClick={() => hasMultiple && setExpanded(!expanded)}
+        className={`border-b border-[var(--border)] transition-colors hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ring)] ${hasMultiple ? "cursor-pointer" : ""}`}
+        onClick={toggle}
+        role={hasMultiple ? "button" : undefined}
+        tabIndex={hasMultiple ? 0 : undefined}
+        aria-expanded={hasMultiple ? expanded : undefined}
+        onKeyDown={(e) => {
+          if (!hasMultiple) return;
+          if (e.target !== e.currentTarget) return;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            toggle();
+          }
+        }}
       >
         <td className="px-4 py-3">
           <div className="gap-3 flex items-center">

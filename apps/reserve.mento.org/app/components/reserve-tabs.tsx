@@ -18,6 +18,13 @@ enum TabType {
   addresses = "addresses",
 }
 
+// Map legacy ?tab= values (from the old separate pages) to the new enum.
+const LEGACY_TAB_ALIASES: Record<string, TabType> = {
+  "stablecoin-supply": TabType.stablecoins,
+  "reserve-holdings": TabType.collateral,
+  "reserve-addresses": TabType.addresses,
+};
+
 export function ReserveTabs({ data }: { data: ReservePageData }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -25,8 +32,13 @@ export function ReserveTabs({ data }: { data: ReservePageData }) {
 
   useEffect(() => {
     const tabParam = searchParams.get("tab");
-    if (tabParam && Object.values(TabType).includes(tabParam as TabType)) {
-      setActiveTab(tabParam as TabType);
+    if (!tabParam) {
+      setActiveTab(TabType.overview);
+      return;
+    }
+    const normalized = LEGACY_TAB_ALIASES[tabParam] ?? tabParam;
+    if (Object.values(TabType).includes(normalized as TabType)) {
+      setActiveTab(normalized as TabType);
     }
   }, [searchParams]);
 

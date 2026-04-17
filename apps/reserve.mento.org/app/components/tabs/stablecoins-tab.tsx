@@ -161,12 +161,24 @@ function CoinRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const hasMultipleNetworks = coin.network_supplies.length > 1;
+  const toggle = () => hasMultipleNetworks && setExpanded((v) => !v);
 
   return (
     <>
       <tr
-        className={`border-b border-[var(--border)] transition-colors hover:bg-accent ${hasMultipleNetworks ? "cursor-pointer" : ""}`}
-        onClick={() => hasMultipleNetworks && setExpanded(!expanded)}
+        className={`border-b border-[var(--border)] transition-colors hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ring)] ${hasMultipleNetworks ? "cursor-pointer" : ""}`}
+        onClick={toggle}
+        role={hasMultipleNetworks ? "button" : undefined}
+        tabIndex={hasMultipleNetworks ? 0 : undefined}
+        aria-expanded={hasMultipleNetworks ? expanded : undefined}
+        onKeyDown={(e) => {
+          if (!hasMultipleNetworks) return;
+          if (e.target !== e.currentTarget) return;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            toggle();
+          }
+        }}
       >
         <td className="px-4 py-3">
           <div className="gap-3 flex items-center">
@@ -295,9 +307,13 @@ function SupplyCell({
         {lostNote && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="ml-1 inline-flex cursor-help">
+              <button
+                type="button"
+                aria-label={lostNote}
+                className="ml-1 inline-flex cursor-help rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+              >
                 <IconInfo />
-              </span>
+              </button>
             </TooltipTrigger>
             <TooltipContent hideArrow className="max-w-xs">
               {lostNote}

@@ -36,11 +36,14 @@ const CHAIN_LABEL: Record<string, string> = {
 
 export function CollateralTab({ reserve }: { reserve: V2ReserveResponse }) {
   const [active, setActive] = useState<string>();
-  const { assets, total_usd } = reserve.collateral;
+  const { assets } = reserve.collateral;
 
   // Filter out zero-value dust
   const meaningful = assets.filter((a) => a.usd_value >= 1);
   const sorted = [...meaningful].sort((a, b) => b.usd_value - a.usd_value);
+  // Footer must reconcile with the visible (dust-filtered) rows.
+  const displayedTotalUsd = sorted.reduce((s, a) => s + a.usd_value, 0);
+  const displayedTotalPct = sorted.reduce((s, a) => s + a.percentage, 0);
 
   // Deduplicate chart data by symbol (aggregate across chains)
   const chartBySymbol = new Map<string, number>();
@@ -138,10 +141,10 @@ export function CollateralTab({ reserve }: { reserve: V2ReserveResponse }) {
                   <td className="px-4 py-3 font-medium">Total</td>
                   <td className="px-4 py-3" />
                   <td className="px-4 py-3 font-medium text-right tabular-nums">
-                    {formatUsd(total_usd)}
+                    {formatUsd(displayedTotalUsd)}
                   </td>
                   <td className="px-4 py-3 font-medium text-right tabular-nums">
-                    100%
+                    {formatPercent(displayedTotalPct)}
                   </td>
                 </tr>
               </tbody>
@@ -233,14 +236,26 @@ function AssetRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const hasSources = asset.sources.length > 0;
+  const toggle = () => hasSources && setExpanded((v) => !v);
 
   return (
     <>
       <tr
-        className={`border-b border-[var(--border)] transition-colors hover:bg-accent ${hasSources ? "cursor-pointer" : ""} ${asset.symbol === active ? "bg-accent" : ""}`}
-        onClick={() => hasSources && setExpanded(!expanded)}
+        className={`border-b border-[var(--border)] transition-colors hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ring)] ${hasSources ? "cursor-pointer" : ""} ${asset.symbol === active ? "bg-accent" : ""}`}
+        onClick={toggle}
         onMouseEnter={() => onHover(asset.symbol)}
         onMouseLeave={() => onHover(undefined)}
+        role={hasSources ? "button" : undefined}
+        tabIndex={hasSources ? 0 : undefined}
+        aria-expanded={hasSources ? expanded : undefined}
+        onKeyDown={(e) => {
+          if (!hasSources) return;
+          if (e.target !== e.currentTarget) return;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            toggle();
+          }
+        }}
       >
         <td className="px-4 py-3">
           <div className="gap-3 flex items-center">
