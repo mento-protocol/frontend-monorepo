@@ -70,30 +70,51 @@ async function validateRouteLiquidity(params: {
 }) {
   const { mento, route, amounts, routerRoutes } = params;
 
-  if (route.path.length === 0) return;
-  if (amounts.length !== route.path.length + 1) {
+  if (routerRoutes.length === 0) return;
+  if (amounts.length !== routerRoutes.length + 1) {
     throw new Error("Unable to validate swap liquidity.");
   }
 
-  const poolDetails = await Promise.all(
-    route.path.map((pool) => mento.pools.getPoolDetails(pool.poolAddr)),
+  const poolDetailsByAddr = new Map(
+    await Promise.all(
+      route.path.map(
+        async (pool) =>
+          [
+            pool.poolAddr.toLowerCase(),
+            await mento.pools.getPoolDetails(pool.poolAddr),
+          ] as const,
+      ),
+    ),
   );
 
-  for (const [hopIndex, pool] of route.path.entries()) {
-    const hopTokenOut = routerRoutes[hopIndex]?.to;
-    if (!hopTokenOut) {
+  // routerRoutes is the authoritative, direction-aware order of hops; route.path
+  // is only consulted to resolve (factory, {from,to}) → poolAddr.
+  const remainingPools = [...route.path];
+
+  for (const [hopIndex, hop] of routerRoutes.entries()) {
+    const poolIdx = remainingPools.findIndex(
+      (p) =>
+        isSameAddress(p.factoryAddr, hop.factory) &&
+        ((isSameAddress(p.token0, hop.from) &&
+          isSameAddress(p.token1, hop.to)) ||
+          (isSameAddress(p.token1, hop.from) &&
+            isSameAddress(p.token0, hop.to))),
+    );
+    const pool = poolIdx === -1 ? undefined : remainingPools[poolIdx];
+    if (!pool) {
       throw new Error("Unable to validate swap liquidity.");
     }
+    remainingPools.splice(poolIdx, 1);
 
-    const details = poolDetails[hopIndex];
+    const details = poolDetailsByAddr.get(pool.poolAddr.toLowerCase());
     const hopAmountOut = amounts[hopIndex + 1];
     if (!details || hopAmountOut == null) {
       throw new Error("Unable to validate swap liquidity.");
     }
 
-    const reserveOut = isSameAddress(hopTokenOut, pool.token0)
+    const reserveOut = isSameAddress(hop.to, pool.token0)
       ? details.reserve0
-      : isSameAddress(hopTokenOut, pool.token1)
+      : isSameAddress(hop.to, pool.token1)
         ? details.reserve1
         : null;
 
