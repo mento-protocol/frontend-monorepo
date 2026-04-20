@@ -37,6 +37,7 @@ import {
   toWei,
   useAccountBalances,
   useApproveTransaction,
+  useBatchCapability,
   useOptimizedSwapQuote,
   useSwapAllowance,
   useTokenOptions,
@@ -773,6 +774,8 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
   // ── Allowance & approval ────────────────────────────────────────────
 
+  const { supportsBatching } = useBatchCapability();
+
   const { skipApprove } = useSwapAllowance({
     chainId: formChainId,
     tokenInSymbol,
@@ -854,7 +857,8 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
   const onSubmit = async (values: FormValues) => {
     try {
-      if (!skipApprove && sendApproveTx) {
+      if (!skipApprove && sendApproveTx && !supportsBatching) {
+        // Sequential flow: send approval first, swap confirm opens on receipt
         setIsApprovalProcessing(true);
         logger.info("Approval needed, sending approve transaction");
         const hash = await sendApproveTx();
@@ -867,6 +871,7 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
           hash,
         });
       } else {
+        // No approval needed, or wallet supports batching (approve+swap sent together from confirm view)
         const formData: SwapFormValues = {
           ...values,
           slippage: formValues?.slippage || form.getValues("slippage") || "0.3",
@@ -888,8 +893,15 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
   const hasValidQuote = !!quote && Number(quote) > 0;
 
+  // When the wallet supports batching, approval is handled atomically in the confirm view —
+  // the form button should show "Swap" directly and not trigger a standalone approval tx.
   const shouldApprove =
-    !skipApprove && hasAmount && hasValidQuote && !isLoading && !balanceError;
+    !skipApprove &&
+    !supportsBatching &&
+    hasAmount &&
+    hasValidQuote &&
+    !isLoading &&
+    !balanceError;
 
   // ── Token pair validation ───────────────────────────────────────────
 

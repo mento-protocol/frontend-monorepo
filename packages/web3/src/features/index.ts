@@ -1,4 +1,5 @@
 export * from "./accounts";
+export * from "./use-batch-capability";
 export * from "./blocks";
 export * from "./borrow";
 export * from "./contracts";
