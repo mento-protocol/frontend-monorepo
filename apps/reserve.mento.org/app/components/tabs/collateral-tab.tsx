@@ -318,7 +318,7 @@ function getRowClassName(
   if (row.kind === "chain") return "bg-card/60";
   if (row.kind === "total") return "border-t border-[var(--border)] bg-card";
   if (row.kind === "source") return "bg-[#15111b]/50";
-  // asset
-  const isActive = row.symbol === active;
-  return `transition-colors hover:bg-accent ${isActive ? "bg-accent" : ""}`;
+  // asset: apply bg-accent when this symbol is active from the donut so
+  // donut-driven highlighting works even without a direct hover.
+  return row.symbol === active ? "bg-accent" : "";
 }

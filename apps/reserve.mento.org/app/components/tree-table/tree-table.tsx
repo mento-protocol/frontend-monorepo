@@ -197,7 +197,9 @@ function TreeTableRow<T>({
     <>
       <tr
         className={`border-b border-[var(--border)] ${
-          expandable ? "cursor-pointer" : ""
+          expandable
+            ? "cursor-pointer transition-colors hover:bg-accent"
+            : ""
         } ${rowClassName?.(row, depth) ?? ""}`}
         onClick={
           expandable
