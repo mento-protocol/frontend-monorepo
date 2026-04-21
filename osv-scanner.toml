@@ -34,10 +34,12 @@ reason = "bn.js infinite loop in transitive deps; pre-existing"
 [[IgnoredVulns]]
 id = "GHSA-848j-6mx2-7j84"
 # No official upstream fix exists for elliptic as of 2026-04-21.
-# This is a transitive dependency pulled in through ethers v5 / mento-sdk.
-# TODO: Remove once upstream releases a patched version or the dependency chain migrates away.
+# Pulled in via multiple independent chains: ethers v5 (@ethersproject/signing-key),
+# @cosmjs/crypto, @toruslabs/eccrypto, and tiny-secp256k1. Removing any single
+# chain (e.g. ethers v5) will NOT eliminate the vulnerability.
+# TODO: Remove once upstream releases a patched version.
 ignoreUntil = 2026-06-01T00:00:00Z
-reason = "No upstream fix available for elliptic yet; transitive dependency via ethers v5."
+reason = "No upstream fix available for elliptic yet; pulled in via multiple chains (ethers v5, @cosmjs/crypto, @toruslabs/eccrypto, tiny-secp256k1)."
 
 [[IgnoredVulns]]
 id = "GHSA-23c5-xmqv-rm74"
@@ -62,3 +64,13 @@ reason = "No fix available - lodash 4.17.21 is the latest version. Transitive de
 [[IgnoredVulns]]
 id = "GHSA-3x4c-7xq6-9pq8"
 reason = "Next.js unbounded image cache growth; 15.5.13 is latest stable, no fix available yet"
+
+[[IgnoredVulns]]
+id = "GHSA-xq3m-2v4x-88gg"
+# protobufjs 6.11.5 vulnerability. Pulled in via @confio/ics23@0.6.8 which is
+# deprecated/unmaintained and declares protobufjs ^6.8.8. Forcing it to 7.x is
+# a semver-major jump (dropped `long` dep, changed 64-bit integer handling)
+# that risks silently corrupting IBC/Cosmos proof parsing in the wormhole-connect
+# bridge stack used by app.mento.org. 7.x/8.x consumers are already covered by
+# the narrower pnpm overrides.
+reason = "protobufjs 6.x advisory — no safe fix path; @confio/ics23@0.6.8 is deprecated and 7.x is an unsafe major jump for Cosmos proof parsing."
