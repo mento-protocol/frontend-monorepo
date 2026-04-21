@@ -38,8 +38,8 @@ const SOURCE_TYPE_COLOR: Record<string, string> = {
 type Peg = "usd" | "eur" | "volatile";
 
 const PEG_META: Record<Peg, { label: string; accent: string }> = {
-  usd: { label: "USD-pegged", accent: "border-l-4 border-l-[#66FFB8]" },
-  eur: { label: "EUR-pegged", accent: "border-l-4 border-l-[#3D42CD]" },
+  usd: { label: "$USD backed", accent: "border-l-4 border-l-[#66FFB8]" },
+  eur: { label: "€EUR backed", accent: "border-l-4 border-l-[#3D42CD]" },
   volatile: {
     label: "Volatile",
     accent: "border-l-4 border-l-[#7006FC]",
