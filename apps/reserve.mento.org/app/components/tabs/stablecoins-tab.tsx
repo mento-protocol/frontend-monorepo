@@ -149,6 +149,7 @@ function buildRows(
       reserveHeldUsd,
       netUsd,
       mcapPct,
+      alwaysExpanded: true,
       children: coins.map(coinToRow),
     };
   };
