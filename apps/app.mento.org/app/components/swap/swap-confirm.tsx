@@ -11,7 +11,6 @@ import {
   logger,
   SWAP_INSUFFICIENT_LIQUIDITY_LABEL,
   useAccountBalances,
-  useBatchCapability,
   useBatchSwapTransaction,
   useGasEstimation,
   useOptimizedSwapQuote,
@@ -90,9 +89,6 @@ export function SwapConfirm() {
     address,
   });
 
-  const { supportsBatching } = useBatchCapability();
-  const useBatchPath = !skipApprove && supportsBatching;
-
   const { sendBatchSwapTx, isBatchSwapLoading, isBatchSwapReceiptLoading } =
     useBatchSwapTransaction(
       chainId,
@@ -153,7 +149,7 @@ export function SwapConfirm() {
     if (!rate || !amountWei || !address || !isConnected) return;
 
     try {
-      if (useBatchPath) {
+      if (!skipApprove) {
         await sendBatchSwapTx();
       } else {
         await sendSwapTx();

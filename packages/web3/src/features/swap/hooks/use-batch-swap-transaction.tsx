@@ -14,10 +14,16 @@ import { toast } from "@repo/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
 import { useAtom, useSetAtom } from "jotai";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Address, Hex } from "viem";
 import { encodeFunctionData } from "viem";
-import { usePublicClient, useSendCalls, useWaitForCallsStatus } from "wagmi";
+import {
+  useConfig,
+  usePublicClient,
+  useSendCalls,
+  useWaitForCallsStatus,
+} from "wagmi";
+import { sendTransaction, waitForTransactionReceipt } from "wagmi/actions";
 import { confirmViewAtom, formValuesAtom } from "../swap-atoms";
 import { getSwapTransactionErrorMessage } from "./swap-transaction-error";
 
@@ -26,6 +32,22 @@ function parseDeadlineMinutes(deadlineMinutes?: string): number {
   if (!Number.isFinite(parsed) || parsed <= 0) return 5;
   return parsed;
 }
+
+function isSendCallsUnsupported(error: unknown): boolean {
+  const msg = String(error instanceof Error ? error.message : String(error));
+  return /sendCalls.*not supported|not supported.*sendCalls|method.*not.*found|method does not exist|wallet_sendCalls/i.test(
+    msg,
+  );
+}
+
+function isUserRejection(error: unknown): boolean {
+  const msg = String(error instanceof Error ? error.message : String(error));
+  return /user\s+rejected|denied\s+transaction|request\s+rejected/i.test(msg);
+}
+
+type MutationResult =
+  | { mode: "batch"; id: string }
+  | { mode: "sequential"; txHash: string };
 
 export function useBatchSwapTransaction(
   chainId: number,
@@ -39,7 +61,7 @@ export function useBatchSwapTransaction(
   },
   insufficientLiquidityFallbackUrl?: string,
 ): {
-  sendBatchSwapTx: () => Promise<string>;
+  sendBatchSwapTx: () => Promise<void>;
   isBatchSwapLoading: boolean;
   isBatchSwapReceiptLoading: boolean;
   isBatchSwapSuccess: boolean;
@@ -51,6 +73,7 @@ export function useBatchSwapTransaction(
   const setConfirmView = useSetAtom(confirmViewAtom);
   const publicClient = usePublicClient({ chainId });
   const queryClient = useQueryClient();
+  const wagmiConfig = useConfig();
 
   const [callsId, setCallsId] = useState<string | undefined>(undefined);
   const successFiredForIdRef = useRef<string | null>(null);
@@ -66,10 +89,94 @@ export function useBatchSwapTransaction(
     query: { enabled: !!callsId },
   });
 
-  const mutation = useMutation({
-    mutationFn: async () => {
+  const fireSuccess = useCallback(
+    (txHash?: string) => {
+      if (swapValues) {
+        const chain = chainIdToChain[chainId];
+        const explorerUrl = chain?.blockExplorers?.default.url;
+        const explorerName =
+          chain?.blockExplorers?.default?.name || CELO_EXPLORER.name;
+        const fromTokenObj = getTokenBySymbol(fromToken, chainId);
+        const toTokenObj = getTokenBySymbol(toToken, chainId);
+        const fromAmountFormatted = formatWithMaxDecimals(
+          swapValues.fromAmount,
+          4,
+        );
+        const toAmountFormatted = formatWithMaxDecimals(swapValues.toAmount, 4);
+
+        toast.success(
+          <>
+            <h4>Swap Successful</h4>
+            <span className="mt-2 block text-muted-foreground">
+              You&apos;ve swapped {fromAmountFormatted}{" "}
+              {fromTokenObj?.symbol || "Token"} for {toAmountFormatted}{" "}
+              {toTokenObj?.symbol || "Token"}.
+            </span>
+            {explorerUrl && txHash && (
+              <a
+                href={`${explorerUrl}/tx/${txHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-muted-foreground underline"
+              >
+                View Transaction on {explorerName}
+              </a>
+            )}
+          </>,
+        );
+      }
+
+      setFormValues({
+        tokenInSymbol: fromToken,
+        tokenOutSymbol: toToken,
+        slippage: formValues?.slippage || "0.3",
+        isAutoSlippage: formValues?.isAutoSlippage ?? true,
+        deadlineMinutes: formValues?.deadlineMinutes || "5",
+        isAutoDeadline: formValues?.isAutoDeadline ?? true,
+      });
+      setConfirmView(false);
+
+      if (accountAddress && chainId) {
+        (async () => {
+          try {
+            await queryClient.cancelQueries({
+              queryKey: [
+                "accountBalances",
+                { address: accountAddress, chainId },
+              ],
+            });
+            await queryClient.invalidateQueries({
+              queryKey: [
+                "accountBalances",
+                { address: accountAddress, chainId },
+              ],
+            });
+          } catch (error) {
+            logger.warn("Balance refresh failed after swap", { error });
+          }
+        })();
+      }
+    },
+    [
+      accountAddress,
+      chainId,
+      formValues?.deadlineMinutes,
+      formValues?.isAutoDeadline,
+      formValues?.isAutoSlippage,
+      formValues?.slippage,
+      fromToken,
+      queryClient,
+      setConfirmView,
+      setFormValues,
+      swapValues,
+      toToken,
+    ],
+  );
+
+  const mutation = useMutation<MutationResult, Error>({
+    mutationFn: async (): Promise<MutationResult> => {
       if (!accountAddress || new BigNumber(amountInWei).lte(0)) {
-        throw new Error("Batch swap prerequisites not met");
+        throw new Error("Swap prerequisites not met");
       }
 
       // Build approve call
@@ -120,24 +227,57 @@ export function useBatchSwapTransaction(
         route,
       );
 
-      logger.debug("Sending batch approve+swap transaction...");
+      const approveTx = {
+        to: tokenInAddr as Address,
+        data: approveData,
+      };
+      const swapTx = {
+        to: swapDetails.params.to as Address,
+        data: swapDetails.params.data as Hex,
+        value: BigInt(swapDetails.params.value || 0),
+      };
 
-      const result = await sendCallsAsync({
-        calls: [
-          {
-            to: tokenInAddr as Address,
-            data: approveData,
-          },
-          {
-            to: swapDetails.params.to as Address,
-            data: swapDetails.params.data as Hex,
-            value: BigInt(swapDetails.params.value || 0),
-          },
-        ],
+      // Try wallet_sendCalls first
+      try {
+        logger.debug("Attempting approve+swap via wallet_sendCalls...");
+        const result = await sendCallsAsync({
+          calls: [approveTx, swapTx],
+        });
+        setCallsId(result.id);
+        return { mode: "batch", id: result.id };
+      } catch (batchError) {
+        if (isUserRejection(batchError)) throw batchError;
+        if (!isSendCallsUnsupported(batchError)) throw batchError;
+        logger.info(
+          "wallet_sendCalls not supported, falling back to sequential approve+swap",
+        );
+      }
+
+      // Sequential fallback: approve then swap
+      logger.debug("Sending approve transaction...");
+      const approveHash = await sendTransaction(wagmiConfig, {
+        to: approveTx.to,
+        data: approveTx.data,
+        chainId,
       });
+      await waitForTransactionReceipt(wagmiConfig, { hash: approveHash });
 
-      setCallsId(result.id);
-      return result.id;
+      logger.debug("Sending swap transaction...");
+      const swapHash = await sendTransaction(wagmiConfig, {
+        to: swapTx.to,
+        data: swapTx.data,
+        value: swapTx.value,
+        chainId,
+      });
+      await waitForTransactionReceipt(wagmiConfig, { hash: swapHash });
+
+      return { mode: "sequential", txHash: swapHash };
+    },
+    onSuccess: (result) => {
+      if (result.mode === "sequential") {
+        fireSuccess(result.txHash);
+      }
+      // Batch success is handled by the useEffect watching isCallsConfirmed
     },
     onError: (error: Error) => {
       const toastError = getSwapTransactionErrorMessage(
@@ -146,10 +286,11 @@ export function useBatchSwapTransaction(
         insufficientLiquidityFallbackUrl,
       );
       toast.error(toastError);
-      logger.error(`Batch swap transaction failed: ${error.message}`, error);
+      logger.error(`Swap transaction failed: ${error.message}`, error);
     },
   });
 
+  // Handle on-chain confirmation for the batch path
   useEffect(() => {
     if (
       !isCallsConfirmed ||
@@ -170,90 +311,19 @@ export function useBatchSwapTransaction(
 
     logger.info("Batch approve+swap confirmed successfully");
 
-    if (swapValues) {
-      const chain = chainIdToChain[chainId];
-      const explorerUrl = chain?.blockExplorers?.default.url;
-      const explorerName =
-        chain?.blockExplorers?.default?.name || CELO_EXPLORER.name;
-      const fromTokenObj = getTokenBySymbol(fromToken, chainId);
-      const toTokenObj = getTokenBySymbol(toToken, chainId);
-      const fromAmountFormatted = formatWithMaxDecimals(
-        swapValues.fromAmount,
-        4,
-      );
-      const toAmountFormatted = formatWithMaxDecimals(swapValues.toAmount, 4);
-      const lastReceipt =
-        callsStatus.receipts?.[callsStatus.receipts.length - 1];
-
-      toast.success(
-        <>
-          <h4>Swap Successful</h4>
-          <span className="mt-2 block text-muted-foreground">
-            You&apos;ve swapped {fromAmountFormatted}{" "}
-            {fromTokenObj?.symbol || "Token"} for {toAmountFormatted}{" "}
-            {toTokenObj?.symbol || "Token"}.
-          </span>
-          {explorerUrl && lastReceipt?.transactionHash && (
-            <a
-              href={`${explorerUrl}/tx/${lastReceipt.transactionHash}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-muted-foreground underline"
-            >
-              View Transaction on {explorerName}
-            </a>
-          )}
-        </>,
-      );
-    }
-
-    setFormValues({
-      tokenInSymbol: fromToken,
-      tokenOutSymbol: toToken,
-      slippage: formValues?.slippage || "0.3",
-      isAutoSlippage: formValues?.isAutoSlippage ?? true,
-      deadlineMinutes: formValues?.deadlineMinutes || "5",
-      isAutoDeadline: formValues?.isAutoDeadline ?? true,
-    });
-    setConfirmView(false);
-
-    if (accountAddress && chainId) {
-      (async () => {
-        try {
-          await queryClient.cancelQueries({
-            queryKey: ["accountBalances", { address: accountAddress, chainId }],
-          });
-          await queryClient.invalidateQueries({
-            queryKey: ["accountBalances", { address: accountAddress, chainId }],
-          });
-        } catch (error) {
-          logger.warn("Balance refresh failed after batch swap", { error });
-        }
-      })();
-    }
-  }, [
-    accountAddress,
-    callsId,
-    callsStatus,
-    chainId,
-    formValues?.deadlineMinutes,
-    formValues?.isAutoDeadline,
-    formValues?.isAutoSlippage,
-    formValues?.slippage,
-    fromToken,
-    isCallsConfirmed,
-    queryClient,
-    setConfirmView,
-    setFormValues,
-    swapValues,
-    toToken,
-  ]);
+    const lastReceipt = callsStatus.receipts?.[callsStatus.receipts.length - 1];
+    fireSuccess(lastReceipt?.transactionHash);
+  }, [callsId, callsStatus, fireSuccess, isCallsConfirmed, setConfirmView]);
 
   return {
-    sendBatchSwapTx: mutation.mutateAsync,
+    sendBatchSwapTx: async () => {
+      await mutation.mutateAsync();
+    },
     isBatchSwapLoading: mutation.isPending,
     isBatchSwapReceiptLoading: isCallsStatusLoading && !!callsId,
-    isBatchSwapSuccess: isCallsConfirmed && callsStatus?.status === "success",
+    isBatchSwapSuccess:
+      (mutation.isSuccess && mutation.data?.mode === "sequential") ||
+      (isCallsConfirmed && callsStatus?.status === "success"),
     isBatchSwapError:
       mutation.isError ||
       (isCallsConfirmed && callsStatus?.status === "failure"),

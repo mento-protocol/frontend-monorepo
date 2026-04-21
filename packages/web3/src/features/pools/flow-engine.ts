@@ -86,6 +86,13 @@ function extractFlowErrorString(error: unknown): string {
     .join(" ");
 }
 
+function isSendCallsUnsupported(error: unknown): boolean {
+  const msg = extractFlowErrorString(error);
+  return /sendCalls.*not supported|not supported.*sendCalls|method.*not.*found|method does not exist|wallet_sendCalls/i.test(
+    msg,
+  );
+}
+
 function isLikelyDeterministicRevert(error: unknown): boolean {
   const message = extractFlowErrorString(error).toLowerCase();
 
@@ -363,6 +370,20 @@ export async function executeBatchedFlow(
     ) {
       setFlowAtom(null);
       return { success: false, txHashes: [] };
+    }
+
+    // wallet_sendCalls not supported — fall back to sequential execution
+    if (isSendCallsUnsupported(error)) {
+      console.info(
+        "[LiquidityFlow] wallet_sendCalls not supported, falling back to sequential",
+      );
+      return executeLiquidityFlow(
+        wagmiConfig,
+        setFlowAtom,
+        operation,
+        stepDefs,
+        chainId,
+      );
     }
 
     console.error(`[LiquidityFlow] Batch "${operation}" failed:`, error);

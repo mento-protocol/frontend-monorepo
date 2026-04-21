@@ -37,7 +37,6 @@ import {
   toWei,
   useAccountBalances,
   useApproveTransaction,
-  useBatchCapability,
   useOptimizedSwapQuote,
   useSwapAllowance,
   useTokenOptions,
@@ -774,8 +773,6 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
   // ── Allowance & approval ────────────────────────────────────────────
 
-  const { supportsBatching } = useBatchCapability();
-
   const { skipApprove } = useSwapAllowance({
     chainId: formChainId,
     tokenInSymbol,
@@ -784,7 +781,7 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     address,
   });
 
-  const { sendApproveTx, isApproveTxLoading } = useApproveTransaction({
+  const { isApproveTxLoading } = useApproveTransaction({
     chainId: formChainId,
     tokenInSymbol,
     tokenOutSymbol,
@@ -857,34 +854,20 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
   const onSubmit = async (values: FormValues) => {
     try {
-      if (!skipApprove && sendApproveTx && !supportsBatching) {
-        // Sequential flow: send approval first, swap confirm opens on receipt
-        setIsApprovalProcessing(true);
-        logger.info("Approval needed, sending approve transaction");
-        const hash = await sendApproveTx();
-
-        if (!hash) {
-          setIsApprovalProcessing(false);
-        }
-
-        logger.info("Waiting for approval transaction", {
-          hash,
-        });
-      } else {
-        // No approval needed, or wallet supports batching (approve+swap sent together from confirm view)
-        const formData: SwapFormValues = {
-          ...values,
-          slippage: formValues?.slippage || form.getValues("slippage") || "0.3",
-          isAutoSlippage: formValues?.isAutoSlippage,
-          deadlineMinutes: formValues?.deadlineMinutes,
-          tokenInSymbol,
-          tokenOutSymbol,
-          buyUSDValue,
-          sellUSDValue,
-        };
-        setFormValues(formData);
-        setConfirmView(true);
-      }
+      // Always go to confirm view — approval (if needed) is handled there
+      // via wallet_sendCalls with sequential fallback
+      const formData: SwapFormValues = {
+        ...values,
+        slippage: formValues?.slippage || form.getValues("slippage") || "0.3",
+        isAutoSlippage: formValues?.isAutoSlippage,
+        deadlineMinutes: formValues?.deadlineMinutes,
+        tokenInSymbol,
+        tokenOutSymbol,
+        buyUSDValue,
+        sellUSDValue,
+      };
+      setFormValues(formData);
+      setConfirmView(true);
     } catch (error) {
       logger.error("Error in swap form submission", error);
       setIsApprovalProcessing(false);
@@ -893,15 +876,9 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
   const hasValidQuote = !!quote && Number(quote) > 0;
 
-  // When the wallet supports batching, approval is handled atomically in the confirm view —
-  // the form button should show "Swap" directly and not trigger a standalone approval tx.
-  const shouldApprove =
-    !skipApprove &&
-    !supportsBatching &&
-    hasAmount &&
-    hasValidQuote &&
-    !isLoading &&
-    !balanceError;
+  // Approval is handled in the confirm view via wallet_sendCalls with sequential fallback.
+  // The form button always shows "Swap" — never a separate approve step.
+  const shouldApprove = false;
 
   // ── Token pair validation ───────────────────────────────────────────
 

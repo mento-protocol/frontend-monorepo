@@ -21,12 +21,10 @@ import {
   tryParseUnits,
   formatCompactBalance,
   executeBatchedFlow,
-  executeLiquidityFlow,
   liquidityFlowAtom,
   showLiquiditySuccessToast,
   type LiquidityFlowStepDefinition,
   getPoolDisplayOrder,
-  useBatchCapability,
 } from "@repo/web3";
 import {
   useAccount,
@@ -136,7 +134,6 @@ export function AddLiquidityForm({
   const { displayToken0, displayToken1, isSwapped } = getPoolDisplayOrder(pool);
   const { address } = useAccount();
   const wagmiConfig = useConfig();
-  const { supportsBatching } = useBatchCapability();
   const chainId = pool.chainId;
   const { data: blockNumber } = useBlockNumber({
     chainId,
@@ -520,10 +517,7 @@ export function AddLiquidityForm({
           },
         });
 
-        const execute = supportsBatching
-          ? executeBatchedFlow
-          : executeLiquidityFlow;
-        const result = await execute(
+        const result = await executeBatchedFlow(
           wagmiConfig,
           setFlow,
           "Add Liquidity",
@@ -592,10 +586,7 @@ export function AddLiquidityForm({
           },
         });
 
-        const execute = supportsBatching
-          ? executeBatchedFlow
-          : executeLiquidityFlow;
-        const result = await execute(
+        const result = await executeBatchedFlow(
           wagmiConfig,
           setFlow,
           "Add Liquidity",
