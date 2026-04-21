@@ -33,8 +33,11 @@ reason = "bn.js infinite loop in transitive deps; pre-existing"
 
 [[IgnoredVulns]]
 id = "GHSA-848j-6mx2-7j84"
-ignoreUntil = 2026-04-19
-reason = "elliptic 6.6.1 — no patched version released by maintainer"
+# No official upstream fix exists for elliptic as of 2026-04-21.
+# This is a transitive dependency pulled in through ethers v5 / mento-sdk.
+# TODO: Remove once upstream releases a patched version or the dependency chain migrates away.
+ignoreUntil = 2026-06-01T00:00:00Z
+reason = "No upstream fix available for elliptic yet; transitive dependency via ethers v5."
 
 [[IgnoredVulns]]
 id = "GHSA-23c5-xmqv-rm74"
