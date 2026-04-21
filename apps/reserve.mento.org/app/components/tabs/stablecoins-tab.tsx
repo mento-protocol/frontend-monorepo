@@ -71,7 +71,7 @@ export function StablecoinsTab({
       <TreeTable<SupplyRow>
         rows={rows}
         columns={columns}
-        defaultOpenDepth={0}
+        defaultOpenDepth={1}
         rowClassName={getRowClassName}
       />
     </div>
@@ -149,7 +149,6 @@ function buildRows(
       reserveHeldUsd,
       netUsd,
       mcapPct,
-      alwaysExpanded: true,
       children: coins.map(coinToRow),
     };
   };
