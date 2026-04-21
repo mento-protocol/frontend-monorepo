@@ -55,9 +55,9 @@ export function OverviewTab({
               Reserve Held Supply
               <span className="pointer-events-auto">
                 <InfoTooltip>
-                  Mento stablecoins held by the reserve in operational wallets,
-                  liquidity positions, stability pools, and CDP overhead. These
-                  balances are not counted as reserve liabilities.
+                  Mento stablecoin balances held by the reserve, plus any CDP
+                  overhead counted toward reserve-held supply. These balances
+                  are not counted as reserve liabilities.
                 </InfoTooltip>
               </span>
             </span>
@@ -97,10 +97,9 @@ export function OverviewTab({
                 Held
                 <span className="pointer-events-auto">
                   <InfoTooltip>
-                    Mento stablecoins held by the reserve in operational
-                    wallets, liquidity positions, stability pools, and CDP
-                    overhead. These balances are not counted as reserve
-                    liabilities.
+                    Mento stablecoin balances held by the reserve, plus any CDP
+                    overhead counted toward reserve-held supply. These balances
+                    are not counted as reserve liabilities.
                   </InfoTooltip>
                 </span>
               </span>
