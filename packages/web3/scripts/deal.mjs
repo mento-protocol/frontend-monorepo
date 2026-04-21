@@ -12,6 +12,7 @@
  * Override with RPC_URL env var.
  */
 
+import process from "node:process";
 import {
   createPublicClient,
   http,
