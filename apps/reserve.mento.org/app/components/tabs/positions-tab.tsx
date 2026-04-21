@@ -592,7 +592,7 @@ const liquidityColumns: Column<LiquidityRow>[] = [
     cell: (row) => {
       if (row.kind === "protoTotal") {
         return (
-          <span className="text-sm font-semibold tabular-nums">
+          <span className="text-lg font-semibold tabular-nums">
             {row.mentoUsd > 0 ? formatUsd(row.mentoUsd) : "—"}
           </span>
         );
@@ -613,7 +613,7 @@ const liquidityColumns: Column<LiquidityRow>[] = [
     cell: (row) => {
       if (row.kind === "protoTotal") {
         return (
-          <span className="text-sm font-semibold tabular-nums">
+          <span className="text-lg font-semibold tabular-nums">
             {row.collateralUsd > 0 ? formatUsd(row.collateralUsd) : "—"}
           </span>
         );
