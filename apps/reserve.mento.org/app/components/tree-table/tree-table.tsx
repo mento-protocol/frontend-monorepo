@@ -197,8 +197,26 @@ function TreeTableRow<T>({
     <>
       <tr
         className={`border-b border-[var(--border)] ${
-          rowClassName?.(row, depth) ?? ""
-        }`}
+          expandable ? "cursor-pointer" : ""
+        } ${rowClassName?.(row, depth) ?? ""}`}
+        onClick={
+          expandable
+            ? (e) => {
+                // Skip toggle if the click originated on an interactive
+                // descendant (chevron button, tooltip trigger, link, etc.)
+                // so those handle their own behavior without double-firing.
+                const target = e.target as HTMLElement;
+                if (
+                  target.closest(
+                    'button, a, input, select, textarea, [role="button"]',
+                  )
+                ) {
+                  return;
+                }
+                toggle(row.id);
+              }
+            : undefined
+        }
         onMouseEnter={
           onRowMouseEnter ? () => onRowMouseEnter(row, depth) : undefined
         }
