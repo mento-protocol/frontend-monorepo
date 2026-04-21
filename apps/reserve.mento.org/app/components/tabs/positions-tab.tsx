@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
 import Image from "next/image";
 import { IconInfo } from "@repo/ui";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@repo/ui";
 import type { V2ReserveResponse, V2StablecoinsResponse } from "@/lib/types";
 import { formatUsd, formatNumber, formatPercent } from "@/lib/format";
 import { getBlockExplorerUrl, truncateAddress } from "@/lib/format";
+import { TreeTable, type Column, type TreeRow } from "../tree-table";
 
 const chainLabel = (chain: string) => {
   const labels: Record<string, string> = {
@@ -27,19 +27,19 @@ const PROTOCOL_LOGO: Record<Protocol, string> = {
   "Mento Liquity V2": "/protocols/mento-liquity.svg",
 };
 
-const PROTOCOL_LOGO_WIDTH: Record<Protocol, number> = {
-  AAVE: 32,
-  "Uniswap V3": 32,
-  "Mento FPMM": 32,
-  "Mento Liquity V2": 32,
-};
-
 const PROTOCOL_BORDER: Record<Protocol, string> = {
   AAVE: "border-[#9391F7]/60",
   "Uniswap V3": "border-[#FF007A]/60",
   "Mento FPMM": "border-[#7005fc]/60",
   "Mento Liquity V2": "border-[#405AE5]/60",
 };
+
+const PROTOCOL_ORDER: Protocol[] = [
+  "Mento FPMM",
+  "AAVE",
+  "Uniswap V3",
+  "Mento Liquity V2",
+];
 
 type Token = {
   symbol: string;
@@ -65,7 +65,6 @@ export function PositionsTab({
 }) {
   const { positions } = reserve;
 
-  // Build price map (USD per unit) from all known sources
   const priceMap = buildPriceMap(reserve, stablecoins);
   const mentoSymbols = new Set(stablecoins.stablecoins.map((c) => c.symbol));
 
@@ -233,6 +232,488 @@ function InfoTooltip({ children }: { children: React.ReactNode }) {
   );
 }
 
+/* ──────────────── Operational Holdings (TreeTable) ──────────────── */
+
+type HoldingEntry = V2ReserveResponse["positions"]["wallet_balances"][number];
+
+type OpAssetRow = {
+  kind: "opAsset";
+  symbol: string;
+  balance: number;
+  usd: number;
+  pct: number;
+};
+type OpCustodyRow = {
+  kind: "opCustody";
+  chain: string;
+  label: string;
+  address: string;
+  balance: string;
+  usd: number;
+};
+type OpTotalRow = {
+  kind: "opTotal";
+  usd: number;
+};
+type OpRow = OpAssetRow | OpCustodyRow | OpTotalRow;
+
+function OperationalHoldingsSection({
+  holdings,
+}: {
+  holdings: HoldingEntry[];
+}) {
+  const grouped = new Map<
+    string,
+    { symbol: string; totalBalance: number; totalUsd: number; custodies: HoldingEntry[] }
+  >();
+  for (const h of holdings) {
+    let group = grouped.get(h.token);
+    if (!group) {
+      group = {
+        symbol: h.token,
+        totalBalance: 0,
+        totalUsd: 0,
+        custodies: [],
+      };
+      grouped.set(h.token, group);
+    }
+    group.totalBalance += parseFloat(h.balance);
+    group.totalUsd += h.usd_value;
+    group.custodies.push(h);
+  }
+
+  const assets = [...grouped.values()].sort((a, b) => b.totalUsd - a.totalUsd);
+  const totalUsd = assets.reduce((s, a) => s + a.totalUsd, 0);
+
+  const rows: TreeRow<OpRow>[] = assets.map((asset) => ({
+    id: `op:${asset.symbol}`,
+    kind: "opAsset",
+    symbol: asset.symbol,
+    balance: asset.totalBalance,
+    usd: asset.totalUsd,
+    pct: totalUsd > 0 ? (asset.totalUsd / totalUsd) * 100 : 0,
+    // Only attach children when there's a meaningful breakdown to show.
+    children:
+      asset.custodies.length > 1
+        ? asset.custodies.map<TreeRow<OpRow>>((c, i) => ({
+            id: `op:${asset.symbol}:${c.address}:${c.chain}:${i}`,
+            kind: "opCustody",
+            chain: c.chain,
+            label: c.label,
+            address: c.address,
+            balance: c.balance,
+            usd: c.usd_value,
+          }))
+        : undefined,
+  }));
+
+  rows.push({
+    id: "op:total",
+    kind: "opTotal",
+    usd: totalUsd,
+  });
+
+  return (
+    <div>
+      <h2 className="mb-2 text-2xl font-medium">Operational Holdings</h2>
+      <p className="mb-6 max-w-xl text-sm text-muted-foreground">
+        Mento stablecoins held directly in reserve wallets. Not counted as
+        reserve liabilities.
+      </p>
+      <TreeTable<OpRow>
+        rows={rows}
+        columns={opColumns}
+        defaultOpenDepth={0}
+        minWidth="600px"
+        rowClassName={opRowClassName}
+      />
+    </div>
+  );
+}
+
+const opColumns: Column<OpRow>[] = [
+  {
+    key: "asset",
+    header: "Asset",
+    width: "40%",
+    cell: (row) => {
+      if (row.kind === "opAsset") {
+        return (
+          <span className="gap-3 inline-flex items-center">
+            <Image
+              src={`/tokens/${row.symbol}.svg`}
+              alt={row.symbol}
+              width={28}
+              height={28}
+              className="h-7 w-7"
+              onError={(e) => {
+                e.currentTarget.src = "/tokens/CELO.svg";
+              }}
+            />
+            <span className="font-medium">{row.symbol}</span>
+          </span>
+        );
+      }
+      if (row.kind === "opCustody") {
+        return (
+          <span className="gap-2 inline-flex items-center">
+            <span className="rounded px-1.5 py-0.5 font-medium bg-muted text-[10px] text-muted-foreground">
+              {chainLabel(row.chain)}
+            </span>
+            <span className="text-sm text-muted-foreground">{row.label}</span>
+            <span className="font-mono text-xs text-muted-foreground">
+              {truncateAddress(row.address)}
+            </span>
+          </span>
+        );
+      }
+      return <span className="font-medium">Total</span>;
+    },
+  },
+  {
+    key: "amount",
+    header: "Amount",
+    align: "right",
+    width: "20%",
+    cell: (row) => {
+      if (row.kind === "opAsset") return formatNumber(row.balance, 2);
+      if (row.kind === "opCustody")
+        return (
+          <span className="text-sm text-muted-foreground">
+            {formatNumber(row.balance, 2)}
+          </span>
+        );
+      return null;
+    },
+  },
+  {
+    key: "usd",
+    header: "Value (USD)",
+    align: "right",
+    width: "25%",
+    cell: (row) => {
+      if (row.kind === "opAsset") return formatUsd(row.usd);
+      if (row.kind === "opCustody")
+        return (
+          <span className="text-sm text-muted-foreground">
+            {formatUsd(row.usd)}
+          </span>
+        );
+      return <span className="font-medium">{formatUsd(row.usd)}</span>;
+    },
+  },
+  {
+    key: "pct",
+    header: "%",
+    align: "right",
+    width: "15%",
+    cell: (row) => {
+      if (row.kind === "opAsset") return formatPercent(row.pct);
+      if (row.kind === "opTotal")
+        return <span className="font-medium">100%</span>;
+      return null;
+    },
+  },
+];
+
+function opRowClassName(row: TreeRow<OpRow>): string {
+  if (row.kind === "opCustody") return "bg-[#15111b]/50";
+  if (row.kind === "opTotal") return "border-t border-[var(--border)] bg-card";
+  return "transition-colors hover:bg-accent";
+}
+
+/* ──────────────── Liquidity Positions (TreeTable) ──────────────── */
+
+type ProtocolTotalRowData = {
+  kind: "protoTotal";
+  protocol: Protocol;
+  mentoUsd: number;
+  collateralUsd: number;
+  positionCount: number;
+};
+type PositionRowData = {
+  kind: "position";
+  protocol: Protocol;
+  name: string;
+  chain: string;
+  holder: string;
+  mentoTokens: Token[];
+  collateralTokens: Token[];
+};
+type ProtocolSubtotalsRowData = {
+  kind: "protoSubtotals";
+  protocol: Protocol;
+  mentoTokens: Token[];
+  collateralTokens: Token[];
+};
+type GrandLiquidityTotalRowData = {
+  kind: "grandLiquidityTotal";
+  mentoUsd: number;
+  collateralUsd: number;
+};
+type LiquidityRow =
+  | ProtocolTotalRowData
+  | PositionRowData
+  | ProtocolSubtotalsRowData
+  | GrandLiquidityTotalRowData;
+
+function LiquidityPositionsSection({
+  positions,
+}: {
+  positions: LiquidityPosition[];
+}) {
+  const byProtocol = new Map<Protocol, LiquidityPosition[]>();
+  for (const p of positions) {
+    if (!byProtocol.has(p.protocol)) byProtocol.set(p.protocol, []);
+    byProtocol.get(p.protocol)!.push(p);
+  }
+
+  const rows: TreeRow<LiquidityRow>[] = [];
+  let grandMentoUsd = 0;
+  let grandCollUsd = 0;
+
+  for (const protocol of PROTOCOL_ORDER) {
+    const items = byProtocol.get(protocol);
+    if (!items || items.length === 0) continue;
+
+    const mentoUsd = sumUsd(items, (t) => t.isMentoStable);
+    const collateralUsd = sumUsd(items, (t) => !t.isMentoStable);
+    const aggregated = aggregateTokens(items);
+    const mentoTokens = aggregated.filter((t) => t.isMentoStable);
+    const collateralTokens = aggregated.filter((t) => !t.isMentoStable);
+
+    grandMentoUsd += mentoUsd;
+    grandCollUsd += collateralUsd;
+
+    rows.push({
+      id: `liq:${protocol}:total`,
+      kind: "protoTotal",
+      protocol,
+      mentoUsd,
+      collateralUsd,
+      positionCount: items.length,
+      children: items.map<TreeRow<LiquidityRow>>((pos, i) => {
+        const nonZero = pos.tokens.filter((t) => t.amount > 0);
+        return {
+          id: `liq:${protocol}:pos:${pos.positionName}:${i}`,
+          kind: "position",
+          protocol,
+          name: pos.positionName,
+          chain: pos.chain,
+          holder: pos.holder,
+          mentoTokens: nonZero.filter((t) => t.isMentoStable),
+          collateralTokens: nonZero.filter((t) => !t.isMentoStable),
+        };
+      }),
+    });
+
+    rows.push({
+      id: `liq:${protocol}:subtotals`,
+      kind: "protoSubtotals",
+      protocol,
+      mentoTokens,
+      collateralTokens,
+    });
+  }
+
+  rows.push({
+    id: "liq:grand",
+    kind: "grandLiquidityTotal",
+    mentoUsd: grandMentoUsd,
+    collateralUsd: grandCollUsd,
+  });
+
+  return (
+    <div>
+      <h2 className="mb-2 text-2xl font-medium">Liquidity Positions</h2>
+      <p className="mb-6 max-w-xl text-sm text-muted-foreground">
+        Reserve-held positions across AAVE, Uniswap V3, Mento FPMM pools, and
+        Liquity V2 stability pools.
+      </p>
+      <TreeTable<LiquidityRow>
+        rows={rows}
+        columns={liquidityColumns}
+        defaultOpenDepth={0}
+        minWidth="900px"
+        rowClassName={liquidityRowClassName}
+      />
+    </div>
+  );
+}
+
+const liquidityColumns: Column<LiquidityRow>[] = [
+  {
+    key: "position",
+    header: "Position",
+    cell: (row) => {
+      if (row.kind === "protoTotal") {
+        return (
+          <span className="gap-3 inline-flex items-center">
+            <Image
+              src={PROTOCOL_LOGO[row.protocol]}
+              alt={row.protocol}
+              width={32}
+              height={32}
+              className="h-8 w-8 shrink-0"
+            />
+            <span className="font-medium">
+              {row.protocol} Total
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                {row.positionCount}{" "}
+                {row.positionCount === 1 ? "position" : "positions"}
+              </span>
+            </span>
+          </span>
+        );
+      }
+      if (row.kind === "position") {
+        return (
+          <span className="gap-2 inline-flex items-center">
+            <span className="font-medium">{row.name}</span>
+            <span className="rounded px-1.5 py-0.5 font-medium bg-muted text-[10px] text-muted-foreground">
+              {chainLabel(row.chain)}
+            </span>
+          </span>
+        );
+      }
+      if (row.kind === "protoSubtotals") {
+        return (
+          <span className="text-sm font-medium text-muted-foreground">
+            {row.protocol} Subtotals
+          </span>
+        );
+      }
+      return <span className="font-semibold">Total</span>;
+    },
+  },
+  {
+    key: "mento",
+    header: "Mento Stables",
+    cell: (row) => {
+      if (row.kind === "protoTotal") {
+        return (
+          <span className="text-sm font-semibold tabular-nums">
+            {row.mentoUsd > 0 ? formatUsd(row.mentoUsd) : "—"}
+          </span>
+        );
+      }
+      if (row.kind === "position") return <TokenColumn tokens={row.mentoTokens} />;
+      if (row.kind === "protoSubtotals")
+        return <TokenColumn tokens={row.mentoTokens} />;
+      return (
+        <span className="font-semibold tabular-nums">
+          {formatUsd(row.mentoUsd)}
+        </span>
+      );
+    },
+  },
+  {
+    key: "collateral",
+    header: "Collateral",
+    cell: (row) => {
+      if (row.kind === "protoTotal") {
+        return (
+          <span className="text-sm font-semibold tabular-nums">
+            {row.collateralUsd > 0 ? formatUsd(row.collateralUsd) : "—"}
+          </span>
+        );
+      }
+      if (row.kind === "position")
+        return <TokenColumn tokens={row.collateralTokens} />;
+      if (row.kind === "protoSubtotals")
+        return <TokenColumn tokens={row.collateralTokens} />;
+      return (
+        <span className="font-semibold tabular-nums">
+          {formatUsd(row.collateralUsd)}
+        </span>
+      );
+    },
+  },
+  {
+    key: "holder",
+    header: "Holder",
+    cell: (row) => {
+      if (row.kind === "position")
+        return (
+          <span className="text-sm text-muted-foreground">{row.holder}</span>
+        );
+      return null;
+    },
+  },
+];
+
+function liquidityRowClassName(row: TreeRow<LiquidityRow>): string {
+  if (row.kind === "protoTotal") {
+    return `border-l-4 bg-card transition-colors hover:bg-accent ${PROTOCOL_BORDER[row.protocol]}`;
+  }
+  if (row.kind === "protoSubtotals") {
+    return `border-l-4 bg-card ${PROTOCOL_BORDER[row.protocol]}`;
+  }
+  if (row.kind === "grandLiquidityTotal") {
+    return "border-t-2 border-[var(--border)] bg-card";
+  }
+  return "transition-colors hover:bg-accent";
+}
+
+function TokenColumn({ tokens }: { tokens: Token[] }) {
+  if (tokens.length === 0) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+  return (
+    <span className="gap-1 flex flex-col">
+      {tokens.map((t, i) => (
+        <span key={`${t.symbol}-${i}`} className="gap-2 flex items-center">
+          <Image
+            src={`/tokens/${t.symbol}.svg`}
+            alt={t.symbol}
+            width={16}
+            height={16}
+            className="h-4 w-4"
+            onError={(e) => {
+              e.currentTarget.src = "/tokens/CELO.svg";
+            }}
+          />
+          <span className="text-sm tabular-nums">
+            {formatNumber(t.amount, 2)} {t.symbol}
+          </span>
+          {t.usdValue > 0 && (
+            <span className="text-xs text-muted-foreground tabular-nums">
+              = {formatUsd(t.usdValue)}
+            </span>
+          )}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function sumUsd(
+  positions: LiquidityPosition[],
+  pred: (t: Token) => boolean,
+): number {
+  return positions.reduce(
+    (s, p) => s + p.tokens.filter(pred).reduce((ss, t) => ss + t.usdValue, 0),
+    0,
+  );
+}
+
+function aggregateTokens(positions: LiquidityPosition[]): Token[] {
+  const map = new Map<string, Token>();
+  for (const p of positions) {
+    for (const t of p.tokens) {
+      if (t.amount === 0) continue;
+      const existing = map.get(t.symbol);
+      if (existing) {
+        existing.amount += t.amount;
+        existing.usdValue += t.usdValue;
+      } else {
+        map.set(t.symbol, { ...t });
+      }
+    }
+  }
+  return [...map.values()].sort((a, b) => b.usdValue - a.usdValue);
+}
+
 /* ──────────────── Price Map & Normalization ──────────────── */
 
 function buildPriceMap(
@@ -240,28 +721,19 @@ function buildPriceMap(
   stablecoins: V2StablecoinsResponse,
 ): Map<string, number> {
   const map = new Map<string, number>();
-
-  // From stablecoins: rate = total_usd / total
   for (const coin of stablecoins.stablecoins) {
     const total = parseFloat(coin.supply.total);
-    if (total > 0) {
-      map.set(coin.symbol, coin.supply.total_usd / total);
-    }
+    if (total > 0) map.set(coin.symbol, coin.supply.total_usd / total);
   }
-
-  // From collateral: rate = usd_value / balance
   for (const asset of reserve.collateral.assets) {
     const balance = parseFloat(asset.balance);
     if (balance > 0 && asset.usd_value > 0 && !map.has(asset.symbol)) {
       map.set(asset.symbol, asset.usd_value / balance);
     }
   }
-
-  // Known 1:1 stables as fallback
   for (const sym of ["USDC", "USDT", "USDGLO", "AUSD", "DAI", "axlUSDC"]) {
     if (!map.has(sym)) map.set(sym, 1);
   }
-
   return map;
 }
 
@@ -283,7 +755,6 @@ function normalizePositions(
   const { positions } = reserve;
   const out: LiquidityPosition[] = [];
 
-  // AAVE
   for (const d of positions.aave_deposits) {
     const amount = parseFloat(d.balance);
     const usd =
@@ -304,7 +775,6 @@ function normalizePositions(
     });
   }
 
-  // FPMM
   for (const p of positions.fpmm_positions) {
     const debtAmt = p.debt_token.amount;
     const collAmt = p.collateral_token.amount;
@@ -330,7 +800,6 @@ function normalizePositions(
     });
   }
 
-  // Uniswap V3
   for (const p of positions.univ3_positions) {
     const amt0 = parseFloat(p.token0.amount);
     const amt1 = parseFloat(p.token1.amount);
@@ -356,7 +825,6 @@ function normalizePositions(
     });
   }
 
-  // Stability Pool
   for (const d of positions.stability_pool_deposits) {
     const tokens: Token[] = [
       {
@@ -385,443 +853,6 @@ function normalizePositions(
   }
 
   return out;
-}
-
-/* ──────────────── Operational Stablecoin Holdings ──────────────── */
-
-type HoldingEntry = V2ReserveResponse["positions"]["wallet_balances"][number];
-
-type AssetGroup = {
-  symbol: string;
-  totalBalance: number;
-  totalUsd: number;
-  custodies: HoldingEntry[];
-};
-
-function OperationalHoldingsSection({
-  holdings,
-}: {
-  holdings: HoldingEntry[];
-}) {
-  // Group by asset symbol
-  const grouped = new Map<string, AssetGroup>();
-  for (const h of holdings) {
-    let group = grouped.get(h.token);
-    if (!group) {
-      group = {
-        symbol: h.token,
-        totalBalance: 0,
-        totalUsd: 0,
-        custodies: [],
-      };
-      grouped.set(h.token, group);
-    }
-    group.totalBalance += parseFloat(h.balance);
-    group.totalUsd += h.usd_value;
-    group.custodies.push(h);
-  }
-
-  const assets = [...grouped.values()].sort((a, b) => b.totalUsd - a.totalUsd);
-  const totalUsd = assets.reduce((s, a) => s + a.totalUsd, 0);
-
-  return (
-    <div>
-      <h2 className="mb-2 text-2xl font-medium">Operational Holdings</h2>
-      <p className="mb-6 max-w-xl text-sm text-muted-foreground">
-        Mento stablecoins held directly in reserve wallets. Not counted as
-        reserve liabilities.
-      </p>
-
-      <div className="overflow-x-auto">
-        <table className="text-base w-full min-w-[600px] table-fixed">
-          <colgroup>
-            <col className="w-[40%]" />
-            <col className="w-[20%]" />
-            <col className="w-[25%]" />
-            <col className="w-[15%]" />
-          </colgroup>
-          <thead>
-            <tr className="border-b border-[var(--border)] text-left text-muted-foreground">
-              <th className="px-4 py-3 font-medium">Asset</th>
-              <th className="px-4 py-3 font-medium text-right">Amount</th>
-              <th className="px-4 py-3 font-medium text-right">Value (USD)</th>
-              <th className="px-4 py-3 font-medium text-right">%</th>
-            </tr>
-          </thead>
-          <tbody>
-            {assets.map((asset) => (
-              <HoldingAssetRow
-                key={asset.symbol}
-                asset={asset}
-                totalUsd={totalUsd}
-              />
-            ))}
-
-            {/* Grand total */}
-            <tr className="border-t border-[var(--border)] bg-card">
-              <td className="px-4 py-3 font-medium">Total</td>
-              <td className="px-4 py-3" />
-              <td className="px-4 py-3 font-medium text-right tabular-nums">
-                {formatUsd(totalUsd)}
-              </td>
-              <td className="px-4 py-3 font-medium text-right tabular-nums">
-                100%
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function HoldingAssetRow({
-  asset,
-  totalUsd,
-}: {
-  asset: AssetGroup;
-  totalUsd: number;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const hasMultiple = asset.custodies.length > 1;
-  const pct = totalUsd > 0 ? (asset.totalUsd / totalUsd) * 100 : 0;
-  const toggle = () => hasMultiple && setExpanded((v) => !v);
-
-  return (
-    <>
-      <tr
-        className={`border-b border-[var(--border)] transition-colors hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ring)] ${hasMultiple ? "cursor-pointer" : ""}`}
-        onClick={toggle}
-        role={hasMultiple ? "button" : undefined}
-        tabIndex={hasMultiple ? 0 : undefined}
-        aria-expanded={hasMultiple ? expanded : undefined}
-        onKeyDown={(e) => {
-          if (!hasMultiple) return;
-          if (e.target !== e.currentTarget) return;
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            toggle();
-          }
-        }}
-      >
-        <td className="px-4 py-3">
-          <div className="gap-3 flex items-center">
-            {hasMultiple && (
-              <span
-                className={`text-xs text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`}
-              >
-                ▶
-              </span>
-            )}
-            <Image
-              src={`/tokens/${asset.symbol}.svg`}
-              alt={asset.symbol}
-              width={28}
-              height={28}
-              className="h-7 w-7"
-              onError={(e) => {
-                e.currentTarget.src = "/tokens/CELO.svg";
-              }}
-            />
-            <span className="font-medium">{asset.symbol}</span>
-          </div>
-        </td>
-        <td className="px-4 py-3 text-right tabular-nums">
-          {formatNumber(asset.totalBalance, 2)}
-        </td>
-        <td className="px-4 py-3 text-right tabular-nums">
-          {formatUsd(asset.totalUsd)}
-        </td>
-        <td className="px-4 py-3 text-right tabular-nums">
-          {formatPercent(pct)}
-        </td>
-      </tr>
-
-      {/* Custody breakdown */}
-      {expanded &&
-        asset.custodies.map((c, i) => (
-          <tr
-            key={`${c.address}-${c.chain}-${i}`}
-            className="border-b border-[var(--border)] bg-[#15111b]/50"
-          >
-            <td className="px-4 py-2 pl-16">
-              <div className="gap-2 flex items-center">
-                <span className="rounded px-1.5 py-0.5 font-medium bg-muted text-[10px] text-muted-foreground">
-                  {chainLabel(c.chain)}
-                </span>
-                <span className="text-sm text-muted-foreground">{c.label}</span>
-                <span className="font-mono text-xs text-muted-foreground">
-                  {truncateAddress(c.address)}
-                </span>
-              </div>
-            </td>
-            <td className="px-4 py-2 text-sm text-right text-muted-foreground tabular-nums">
-              {formatNumber(c.balance, 2)}
-            </td>
-            <td className="px-4 py-2 text-sm text-right text-muted-foreground tabular-nums">
-              {formatUsd(c.usd_value)}
-            </td>
-            <td className="px-4 py-2" />
-          </tr>
-        ))}
-    </>
-  );
-}
-
-/* ──────────────── Liquidity Positions (unified) ──────────────── */
-
-function LiquidityPositionsSection({
-  positions,
-}: {
-  positions: LiquidityPosition[];
-}) {
-  // Group by protocol
-  const byProtocol = new Map<Protocol, LiquidityPosition[]>();
-  for (const p of positions) {
-    if (!byProtocol.has(p.protocol)) byProtocol.set(p.protocol, []);
-    byProtocol.get(p.protocol)!.push(p);
-  }
-
-  // Order: Mento FPMM, AAVE, Uniswap V3, Mento Liquity V2
-  const protocolOrder: Protocol[] = [
-    "Mento FPMM",
-    "AAVE",
-    "Uniswap V3",
-    "Mento Liquity V2",
-  ];
-
-  // Totals
-  const sumMento = (ps: LiquidityPosition[]) =>
-    ps.reduce(
-      (s, p) =>
-        s +
-        p.tokens
-          .filter((t) => t.isMentoStable)
-          .reduce((ss, t) => ss + t.usdValue, 0),
-      0,
-    );
-  const sumCollateral = (ps: LiquidityPosition[]) =>
-    ps.reduce(
-      (s, p) =>
-        s +
-        p.tokens
-          .filter((t) => !t.isMentoStable)
-          .reduce((ss, t) => ss + t.usdValue, 0),
-      0,
-    );
-
-  const grandMento = sumMento(positions);
-  const grandColl = sumCollateral(positions);
-  const grandAggregated = aggregateTokens(positions);
-  const grandMentoAgg = grandAggregated.filter((t) => t.isMentoStable);
-  const grandCollAgg = grandAggregated.filter((t) => !t.isMentoStable);
-
-  return (
-    <div>
-      <h2 className="mb-2 text-2xl font-medium">Liquidity Positions</h2>
-      <p className="mb-6 max-w-xl text-sm text-muted-foreground">
-        Reserve-held positions across AAVE, Uniswap V3, Mento FPMM pools, and
-        Liquity V2 stability pools.
-      </p>
-
-      <div className="overflow-x-auto">
-        <table className="text-base w-full min-w-[900px]">
-          <thead>
-            <tr className="border-b border-[var(--border)] text-left text-muted-foreground">
-              <th className="px-4 py-3 font-medium">Position</th>
-              <th className="px-4 py-3 font-medium">Mento Stables</th>
-              <th className="px-4 py-3 font-medium">Collateral</th>
-              <th className="px-4 py-3 font-medium">Holder</th>
-            </tr>
-          </thead>
-          <tbody>
-            {protocolOrder.map((protocol) => {
-              const items = byProtocol.get(protocol) ?? [];
-              if (items.length === 0) return null;
-              return (
-                <ProtocolGroup
-                  key={protocol}
-                  protocol={protocol}
-                  items={items}
-                  totalMento={sumMento(items)}
-                  totalCollateral={sumCollateral(items)}
-                />
-              );
-            })}
-
-            {/* Grand breakdown — aggregated per-asset across all protocols */}
-            <tr className="border-t-2 border-[var(--border)] bg-card">
-              <td className="px-4 pt-3 pb-1 text-sm font-medium text-muted-foreground">
-                Grand Breakdown
-              </td>
-              <td className="px-4 pt-3 pb-1">
-                <TokenColumn tokens={grandMentoAgg} />
-              </td>
-              <td className="px-4 pt-3 pb-1">
-                <TokenColumn tokens={grandCollAgg} />
-              </td>
-              <td className="px-4 pt-3 pb-1" />
-            </tr>
-
-            {/* Grand total USD row */}
-            <tr className="bg-card">
-              <td className="px-4 pt-1 pb-3 font-semibold">Total</td>
-              <td className="px-4 pt-1 pb-3 font-semibold tabular-nums">
-                {formatUsd(grandMento)}
-              </td>
-              <td className="px-4 pt-1 pb-3 font-semibold tabular-nums">
-                {formatUsd(grandColl)}
-              </td>
-              <td className="px-4 pt-1 pb-3" />
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function ProtocolGroup({
-  protocol,
-  items,
-  totalMento,
-  totalCollateral,
-}: {
-  protocol: Protocol;
-  items: LiquidityPosition[];
-  totalMento: number;
-  totalCollateral: number;
-}) {
-  const aggregated = aggregateTokens(items);
-  const mentoAgg = aggregated.filter((t) => t.isMentoStable);
-  const collAgg = aggregated.filter((t) => !t.isMentoStable);
-
-  return (
-    <>
-      {/* Position rows */}
-      {items.map((pos, i) => (
-        <PositionRow key={`${pos.positionName}-${i}`} pos={pos} />
-      ))}
-
-      {/* Protocol subtotal — aggregated per-asset breakdown */}
-      <tr className={`border-l-4 bg-card ${PROTOCOL_BORDER[protocol]}`}>
-        <td className="px-4 pt-3 pb-1 text-sm font-medium text-muted-foreground">
-          {protocol} Breakdown
-        </td>
-        <td className="px-4 pt-3 pb-1">
-          <TokenColumn tokens={mentoAgg} />
-        </td>
-        <td className="px-4 pt-3 pb-1">
-          <TokenColumn tokens={collAgg} />
-        </td>
-        <td className="px-4 pt-3 pb-1" />
-      </tr>
-
-      {/* Protocol total USD row */}
-      <tr
-        className={`border-b border-l-4 border-[var(--border)] bg-card ${PROTOCOL_BORDER[protocol]}`}
-      >
-        <td className="px-4 pt-1 pb-3 text-sm font-semibold">
-          {protocol} Total
-        </td>
-        <td className="px-4 pt-1 pb-3 text-sm font-semibold tabular-nums">
-          {totalMento > 0 ? formatUsd(totalMento) : "—"}
-        </td>
-        <td className="px-4 pt-1 pb-3 text-sm font-semibold tabular-nums">
-          {totalCollateral > 0 ? formatUsd(totalCollateral) : "—"}
-        </td>
-        <td className="px-4 pt-1 pb-3" />
-      </tr>
-    </>
-  );
-}
-
-function PositionRow({ pos }: { pos: LiquidityPosition }) {
-  const nonZero = pos.tokens.filter((t) => t.amount > 0);
-  const mentoTokens = nonZero.filter((t) => t.isMentoStable);
-  const collTokens = nonZero.filter((t) => !t.isMentoStable);
-
-  return (
-    <tr className="border-b border-[var(--border)] hover:bg-accent">
-      <td className="px-4 py-3">
-        <div className="gap-3 flex items-center">
-          <Image
-            src={PROTOCOL_LOGO[pos.protocol]}
-            alt={pos.protocol}
-            width={PROTOCOL_LOGO_WIDTH[pos.protocol]}
-            height={32}
-            className="h-8 w-8 shrink-0"
-          />
-          <div>
-            <div className="gap-2 flex items-center">
-              <span className="font-medium">{pos.positionName}</span>
-              <span className="rounded px-1.5 py-0.5 font-medium bg-muted text-[10px] text-muted-foreground">
-                {chainLabel(pos.chain)}
-              </span>
-            </div>
-            <div className="text-xs text-muted-foreground">{pos.protocol}</div>
-          </div>
-        </div>
-      </td>
-      <td className="px-4 py-3">
-        <TokenColumn tokens={mentoTokens} />
-      </td>
-      <td className="px-4 py-3">
-        <TokenColumn tokens={collTokens} />
-      </td>
-      <td className="px-4 py-3 text-sm text-muted-foreground">{pos.holder}</td>
-    </tr>
-  );
-}
-
-function TokenColumn({ tokens }: { tokens: Token[] }) {
-  if (tokens.length === 0) {
-    return <span className="text-muted-foreground">—</span>;
-  }
-
-  return (
-    <div className="gap-1 flex flex-col">
-      {tokens.map((t, i) => (
-        <div key={`${t.symbol}-${i}`} className="gap-2 flex items-center">
-          <Image
-            src={`/tokens/${t.symbol}.svg`}
-            alt={t.symbol}
-            width={16}
-            height={16}
-            className="h-4 w-4"
-            onError={(e) => {
-              e.currentTarget.src = "/tokens/CELO.svg";
-            }}
-          />
-          <span className="text-sm tabular-nums">
-            {formatNumber(t.amount, 2)} {t.symbol}
-          </span>
-          {t.usdValue > 0 && (
-            <span className="text-xs text-muted-foreground tabular-nums">
-              = {formatUsd(t.usdValue)}
-            </span>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function aggregateTokens(positions: LiquidityPosition[]): Token[] {
-  const map = new Map<string, Token>();
-  for (const p of positions) {
-    for (const t of p.tokens) {
-      if (t.amount === 0) continue;
-      const existing = map.get(t.symbol);
-      if (existing) {
-        existing.amount += t.amount;
-        existing.usdValue += t.usdValue;
-      } else {
-        map.set(t.symbol, { ...t });
-      }
-    }
-  }
-  return [...map.values()].sort((a, b) => b.usdValue - a.usdValue);
 }
 
 /* ──────────────── CDP Trove Positions ──────────────── */
@@ -878,7 +909,6 @@ function CdpTrovesSection({
               <TroveRow key={trove.trove_id} trove={trove} />
             ))}
 
-            {/* Grand total */}
             <tr className="border-t-2 border-[var(--border)] bg-card">
               <td colSpan={2} className="px-4 py-3 font-medium">
                 {activeTroves.length} active troves
