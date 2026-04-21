@@ -148,7 +148,7 @@ function ReserveHeldSummary({
         <SummaryCard
           label="Trove Overhead"
           value={formatUsd(troveOverhead)}
-          tooltip="The portion of CDP collateral that sits above the debt plus a wiggle-room buffer. Hover the overhead column on a specific trove to see the calculation."
+          tooltip="The portion of CDP collateral left after reserving enough capital to repay the debt plus a wiggle-room buffer. Hover the overhead column on a specific trove to see the calculation."
           className="flex-1"
         />
       </div>
@@ -175,7 +175,7 @@ function ReserveHeldSummary({
           <SummaryCard
             label="Overhead"
             value={formatUsd(troveOverhead, true)}
-            tooltip="The portion of CDP collateral that sits above the debt plus a wiggle-room buffer."
+            tooltip="The portion of CDP collateral left after reserving enough capital to repay the debt plus a wiggle-room buffer."
           />
         </div>
       </div>
@@ -876,7 +876,8 @@ function CdpTrovesSection({
       <p className="mb-6 max-w-xl text-sm text-muted-foreground">
         Active collateralized debt positions. Collateral deposited in CDPs backs
         the minted stablecoins. The overhead is the excess collateral that is
-        not counted as a reserve liability.
+        left after reserving enough capital to repay the debt plus a wiggle-room
+        buffer, and is not counted as a reserve liability.
       </p>
 
       <div className="overflow-x-auto">
@@ -893,9 +894,9 @@ function CdpTrovesSection({
                 <div className="gap-1 flex items-center justify-end">
                   Overhead
                   <InfoTooltip>
-                    The portion of CDP collateral that sits above the debt plus
-                    a wiggle-room buffer. Counted as reserve-held, not a
-                    liability.
+                    The portion of CDP collateral left after reserving enough
+                    capital to repay the debt plus a wiggle-room buffer.
+                    Counted as reserve-held, not a liability.
                   </InfoTooltip>
                 </div>
               </th>
@@ -990,8 +991,8 @@ function TroveRow({
           <div className="gap-1 inline-flex items-center">
             {formatUsd(trove.overhead.usd)}
             <InfoTooltip>
-              ({formatUsd(trove.collateral_usd)} − {formatUsd(trove.debt_usd)})
-              × (1 − {trove.overhead.wiggleroom_pct}%) ={" "}
+              max(0, {formatUsd(trove.collateral_usd)} − ({formatUsd(trove.debt_usd)}
+              × (1 + {trove.overhead.wiggleroom_pct}%))) ={" "}
               {formatUsd(trove.overhead.usd)}
             </InfoTooltip>
           </div>

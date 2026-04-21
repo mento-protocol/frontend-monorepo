@@ -55,8 +55,9 @@ export function OverviewTab({
               Reserve Held Supply
               <span className="pointer-events-auto">
                 <InfoTooltip>
-                  Mento stablecoins held in reserve wallets and LP positions —
-                  not counted as reserve liabilities.
+                  Mento stablecoins held by the reserve in operational wallets,
+                  liquidity positions, stability pools, and CDP overhead. These
+                  balances are not counted as reserve liabilities.
                 </InfoTooltip>
               </span>
             </span>
@@ -96,8 +97,10 @@ export function OverviewTab({
                 Held
                 <span className="pointer-events-auto">
                   <InfoTooltip>
-                    Mento stablecoins held in reserve wallets and LP positions —
-                    not counted as reserve liabilities.
+                    Mento stablecoins held by the reserve in operational
+                    wallets, liquidity positions, stability pools, and CDP
+                    overhead. These balances are not counted as reserve
+                    liabilities.
                   </InfoTooltip>
                 </span>
               </span>
