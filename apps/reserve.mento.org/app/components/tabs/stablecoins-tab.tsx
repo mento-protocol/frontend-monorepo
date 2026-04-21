@@ -1,57 +1,60 @@
 "use client";
 
-import { useState } from "react";
 import Image from "next/image";
 import type { V2StablecoinsResponse } from "@/lib/types";
 import { formatUsd, formatNumber, formatPercent } from "@/lib/format";
 import { IconInfo } from "@repo/ui";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@repo/ui";
+import { TreeTable, type Column, type TreeRow } from "../tree-table";
+
+type CategoryRow = {
+  kind: "category";
+  label: string;
+  coinCount: number;
+  accent: "reserve" | "cdp" | "total";
+  debtUsd: number;
+  reserveHeldUsd: number;
+  netUsd: number;
+  mcapPct: number;
+};
+
+type CoinRow = {
+  kind: "coin";
+  symbol: string;
+  name: string;
+  backing: "reserve" | "cdp";
+  networks: string[];
+  debtAmount: string;
+  debtUsd: number;
+  reserveHeldAmount: string;
+  reserveHeldUsd: number;
+  netAmount: string;
+  netUsd: number;
+  lostAmount: string;
+  lostUsd: number;
+  mcapPct: number;
+};
+
+type ChainRow = {
+  kind: "chain";
+  chain: string;
+  address: string;
+  debtAmount: string;
+  debtUsd: number;
+  reserveHeldAmount: string;
+  reserveHeldUsd: number;
+  netAmount: string;
+  netUsd: number;
+};
+
+type SupplyRow = CategoryRow | CoinRow | ChainRow;
 
 export function StablecoinsTab({
   stablecoins,
 }: {
   stablecoins: V2StablecoinsResponse;
 }) {
-  const reserveCoins = stablecoins.stablecoins
-    .filter((c) => c.backing_type === "reserve")
-    .sort((a, b) => b.supply.total_usd - a.supply.total_usd);
-
-  const cdpCoins = stablecoins.stablecoins
-    .filter((c) => c.backing_type === "cdp")
-    .sort((a, b) => b.supply.total_usd - a.supply.total_usd);
-
-  const reserveDebtTotal = reserveCoins.reduce(
-    (s, c) => s + c.supply.debt_usd,
-    0,
-  );
-  const reserveHeldTotal = reserveCoins.reduce(
-    (s, c) => s + c.supply.reserve_held_usd,
-    0,
-  );
-  const reserveSupplyTotal = reserveCoins.reduce(
-    (s, c) => s + c.supply.total_usd - c.supply.lost_usd,
-    0,
-  );
-  const reservePct = reserveCoins.reduce(
-    (s, c) => s + c.market_cap_percentage,
-    0,
-  );
-
-  const cdpDebtTotal = cdpCoins.reduce((s, c) => s + c.supply.debt_usd, 0);
-  const cdpHeldTotal = cdpCoins.reduce(
-    (s, c) => s + c.supply.reserve_held_usd,
-    0,
-  );
-  const cdpSupplyTotal = cdpCoins.reduce(
-    (s, c) => s + c.supply.total_usd - c.supply.lost_usd,
-    0,
-  );
-  const cdpPct = cdpCoins.reduce((s, c) => s + c.market_cap_percentage, 0);
-
-  const grandTotalSupply = stablecoins.stablecoins.reduce(
-    (s, c) => s + c.supply.total_usd - c.supply.lost_usd,
-    0,
-  );
+  const rows = buildRows(stablecoins);
 
   return (
     <div>
@@ -61,233 +64,303 @@ export function StablecoinsTab({
       <p className="mb-6 max-w-xl text-sm text-muted-foreground">
         Debt is the circulating supply redeemable by the public. Reserve-held
         supply sits in reserve wallets and LP positions and is not counted as a
-        liability. Click a row to see the per-network breakdown.
+        liability. Expand a row to see the per-stable and per-network
+        breakdown.
       </p>
 
-      <div className="overflow-x-auto">
-        <table className="text-lg w-full min-w-[800px]">
-          <thead>
-            <tr className="border-b border-[var(--border)] text-left text-muted-foreground">
-              <th className="px-4 py-3 font-medium">Token</th>
-              <th className="px-4 py-3 font-medium">Backing</th>
-              <th className="px-4 py-3 font-medium">Networks</th>
-              <th className="px-4 py-3 font-medium text-right">Debt</th>
-              <th className="px-4 py-3 font-medium text-right">Reserve-Held</th>
-              <th className="px-4 py-3 font-medium text-right">Total Supply</th>
-              <th className="px-4 py-3 font-medium text-right">% of MCap</th>
-            </tr>
-          </thead>
-          <tbody>
-            {/* Reserve-backed */}
-            {reserveCoins.map((coin) => (
-              <CoinRow key={coin.symbol} coin={coin} />
-            ))}
-
-            {/* Reserve subtotal */}
-            <tr className="border-l-4 border-l-[#8c35fd] bg-card">
-              <td colSpan={3} className="px-4 py-3 font-medium">
-                Reserve Total — {reserveCoins.length} stablecoins
-              </td>
-              <td className="px-4 py-3 font-medium text-right tabular-nums">
-                {formatUsd(reserveDebtTotal)}
-              </td>
-              <td className="px-4 py-3 font-medium text-right tabular-nums">
-                {formatUsd(reserveHeldTotal)}
-              </td>
-              <td className="px-4 py-3 font-medium text-right tabular-nums">
-                {formatUsd(reserveSupplyTotal)}
-              </td>
-              <td className="px-4 py-3 font-medium text-right tabular-nums">
-                {formatPercent(reservePct)}
-              </td>
-            </tr>
-
-            {/* CDP-backed */}
-            {cdpCoins.map((coin) => (
-              <CoinRow key={coin.symbol} coin={coin} />
-            ))}
-
-            {/* CDP subtotal */}
-            {cdpCoins.length > 0 && (
-              <tr className="border-l-amber-500 border-l-4 bg-card">
-                <td colSpan={3} className="px-4 py-3 font-medium">
-                  CDP Total — {cdpCoins.length}{" "}
-                  {cdpCoins.length === 1 ? "stablecoin" : "stablecoins"}
-                </td>
-                <td className="px-4 py-3 font-medium text-right tabular-nums">
-                  {formatUsd(cdpDebtTotal)}
-                </td>
-                <td className="px-4 py-3 font-medium text-right tabular-nums">
-                  {formatUsd(cdpHeldTotal)}
-                </td>
-                <td className="px-4 py-3 font-medium text-right tabular-nums">
-                  {formatUsd(cdpSupplyTotal)}
-                </td>
-                <td className="px-4 py-3 font-medium text-right tabular-nums">
-                  {formatPercent(cdpPct)}
-                </td>
-              </tr>
-            )}
-
-            {/* Grand total */}
-            <tr className="border-t border-[var(--border)] bg-card">
-              <td colSpan={3} className="px-4 py-3 font-medium">
-                Total
-              </td>
-              <td className="px-4 py-3 font-medium text-right tabular-nums">
-                {formatUsd(stablecoins.total_debt_usd)}
-              </td>
-              <td className="px-4 py-3 font-medium text-right tabular-nums">
-                {formatUsd(reserveHeldTotal + cdpHeldTotal)}
-              </td>
-              <td className="px-4 py-3 font-medium text-right tabular-nums">
-                {formatUsd(grandTotalSupply)}
-              </td>
-              <td className="px-4 py-3 font-medium text-right tabular-nums">
-                100%
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <TreeTable<SupplyRow>
+        rows={rows}
+        columns={columns}
+        defaultOpenDepth={0}
+        rowClassName={getRowClassName}
+      />
     </div>
   );
 }
 
-function CoinRow({
-  coin,
-}: {
-  coin: V2StablecoinsResponse["stablecoins"][number];
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const hasMultipleNetworks = coin.network_supplies.length > 1;
-  const toggle = () => hasMultipleNetworks && setExpanded((v) => !v);
+function buildRows(
+  stablecoins: V2StablecoinsResponse,
+): TreeRow<SupplyRow>[] {
+  const reserveCoins = stablecoins.stablecoins
+    .filter((c) => c.backing_type === "reserve")
+    .sort((a, b) => b.supply.total_usd - a.supply.total_usd);
+  const cdpCoins = stablecoins.stablecoins
+    .filter((c) => c.backing_type === "cdp")
+    .sort((a, b) => b.supply.total_usd - a.supply.total_usd);
 
-  return (
-    <>
-      <tr
-        className={`border-b border-[var(--border)] transition-colors hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ring)] ${hasMultipleNetworks ? "cursor-pointer" : ""}`}
-        onClick={toggle}
-        role={hasMultipleNetworks ? "button" : undefined}
-        tabIndex={hasMultipleNetworks ? 0 : undefined}
-        aria-expanded={hasMultipleNetworks ? expanded : undefined}
-        onKeyDown={(e) => {
-          if (!hasMultipleNetworks) return;
-          if (e.target !== e.currentTarget) return;
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            toggle();
-          }
-        }}
-      >
-        <td className="px-4 py-3">
-          <div className="gap-3 flex items-center">
-            {hasMultipleNetworks && (
-              <span
-                className={`text-xs text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`}
-              >
-                ▶
+  const coinToRow = (
+    c: V2StablecoinsResponse["stablecoins"][number],
+  ): TreeRow<SupplyRow> => ({
+    id: `coin:${c.symbol}`,
+    kind: "coin",
+    symbol: c.symbol,
+    name: c.name,
+    backing: c.backing_type,
+    networks: c.networks,
+    debtAmount: c.supply.debt,
+    debtUsd: c.supply.debt_usd,
+    reserveHeldAmount: c.supply.reserve_held,
+    reserveHeldUsd: c.supply.reserve_held_usd,
+    netAmount: String(
+      parseFloat(c.supply.total) - parseFloat(c.supply.lost),
+    ),
+    netUsd: c.supply.total_usd - c.supply.lost_usd,
+    lostAmount: c.supply.lost,
+    lostUsd: c.supply.lost_usd,
+    mcapPct: c.market_cap_percentage,
+    children: c.network_supplies.map((ns) => ({
+      id: `coin:${c.symbol}:${ns.chain}`,
+      kind: "chain",
+      chain: ns.chain,
+      address: ns.address,
+      debtAmount: ns.supply.debt,
+      debtUsd: ns.supply.debt_usd,
+      reserveHeldAmount: ns.supply.reserve_held,
+      reserveHeldUsd: ns.supply.reserve_held_usd,
+      netAmount: String(
+        parseFloat(ns.supply.total) - parseFloat(ns.supply.lost),
+      ),
+      netUsd: ns.supply.total_usd - ns.supply.lost_usd,
+    })),
+  });
+
+  const categoryRow = (
+    label: string,
+    accent: CategoryRow["accent"],
+    coins: V2StablecoinsResponse["stablecoins"],
+  ): TreeRow<SupplyRow> => {
+    const debtUsd = coins.reduce((s, c) => s + c.supply.debt_usd, 0);
+    const reserveHeldUsd = coins.reduce(
+      (s, c) => s + c.supply.reserve_held_usd,
+      0,
+    );
+    const netUsd = coins.reduce(
+      (s, c) => s + c.supply.total_usd - c.supply.lost_usd,
+      0,
+    );
+    const mcapPct = coins.reduce((s, c) => s + c.market_cap_percentage, 0);
+    return {
+      id: `category:${accent}`,
+      kind: "category",
+      label,
+      coinCount: coins.length,
+      accent,
+      debtUsd,
+      reserveHeldUsd,
+      netUsd,
+      mcapPct,
+      children: coins.map(coinToRow),
+    };
+  };
+
+  const totalRow: TreeRow<SupplyRow> = {
+    id: "category:total",
+    kind: "category",
+    label: "Total",
+    coinCount: stablecoins.stablecoins.length,
+    accent: "total",
+    debtUsd: stablecoins.total_debt_usd,
+    reserveHeldUsd:
+      stablecoins.stablecoins.reduce(
+        (s, c) => s + c.supply.reserve_held_usd,
+        0,
+      ),
+    netUsd: stablecoins.stablecoins.reduce(
+      (s, c) => s + c.supply.total_usd - c.supply.lost_usd,
+      0,
+    ),
+    mcapPct: 100,
+  };
+
+  const result: TreeRow<SupplyRow>[] = [
+    categoryRow("Reserve stables", "reserve", reserveCoins),
+  ];
+  if (cdpCoins.length > 0) {
+    result.push(categoryRow("CDP stables", "cdp", cdpCoins));
+  }
+  result.push(totalRow);
+  return result;
+}
+
+const columns: Column<SupplyRow>[] = [
+  {
+    key: "token",
+    header: "Token",
+    colSpan: (row) => (row.kind === "coin" ? 1 : 3),
+    cell: (row) => {
+      if (row.kind === "category") {
+        return (
+          <span className="font-medium">
+            {row.label}
+            {row.kind === "category" && row.accent !== "total" && (
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                {row.coinCount}{" "}
+                {row.coinCount === 1 ? "stablecoin" : "stablecoins"}
               </span>
             )}
-            <Image
-              src={`/tokens/${coin.symbol}.svg`}
-              alt={coin.symbol}
-              width={28}
-              height={28}
-              className="h-7 w-7"
-              onError={(e) => {
-                e.currentTarget.src = "/tokens/CELO.svg";
-              }}
-            />
-            <div>
-              <span className="font-medium">{coin.symbol}</span>
-              <span className="ml-2 text-xs text-muted-foreground">
-                {coin.name}
-              </span>
-            </div>
-          </div>
-        </td>
-        <td className="px-4 py-3">
-          <span
-            className={`rounded px-1.5 py-0.5 font-medium text-[10px] ${
-              coin.backing_type === "cdp"
-                ? "bg-amber-500/20 text-amber-400"
-                : "bg-[#8c35fd]/20 text-[#8c35fd]"
-            }`}
-          >
-            {coin.backing_type === "cdp" ? "CDP" : "Reserve"}
           </span>
-        </td>
-        <td className="px-4 py-3">
-          <div className="gap-1 flex flex-wrap">
-            {coin.networks.map((n) => (
-              <NetworkLabel key={n} chain={n} />
-            ))}
-          </div>
-        </td>
-        <SupplyCell amount={coin.supply.debt} usd={coin.supply.debt_usd} />
-        <SupplyCell
-          amount={coin.supply.reserve_held}
-          usd={coin.supply.reserve_held_usd}
+        );
+      }
+      if (row.kind === "chain") {
+        return (
+          <span className="gap-2 inline-flex items-center">
+            <NetworkLabel chain={row.chain} />
+            <span className="text-xs font-mono text-muted-foreground max-w-[120px] truncate">
+              {row.address.slice(0, 6)}...{row.address.slice(-4)}
+            </span>
+          </span>
+        );
+      }
+      return <CoinLabel coin={row} />;
+    },
+  },
+  {
+    key: "backing",
+    header: "Backing",
+    cell: (row) => {
+      if (row.kind !== "coin") return null;
+      return (
+        <span
+          className={`rounded px-1.5 py-0.5 font-medium text-[10px] ${
+            row.backing === "cdp"
+              ? "bg-amber-500/20 text-amber-400"
+              : "bg-[#8c35fd]/20 text-[#8c35fd]"
+          }`}
+        >
+          {row.backing === "cdp" ? "CDP" : "Reserve"}
+        </span>
+      );
+    },
+  },
+  {
+    key: "networks",
+    header: "Networks",
+    cell: (row) => {
+      if (row.kind !== "coin") return null;
+      return (
+        <span className="gap-1 flex flex-wrap">
+          {row.networks.map((n) => (
+            <NetworkLabel key={n} chain={n} />
+          ))}
+        </span>
+      );
+    },
+  },
+  {
+    key: "debt",
+    header: "Debt",
+    align: "right",
+    cell: (row) => {
+      if (row.kind === "category")
+        return <CategoryNum>{formatUsd(row.debtUsd)}</CategoryNum>;
+      return (
+        <SupplyAmount
+          amount={row.debtAmount}
+          usd={row.debtUsd}
+          muted={row.kind === "chain"}
         />
-        <SupplyCell
-          amount={String(
-            parseFloat(coin.supply.total) - parseFloat(coin.supply.lost),
-          )}
-          usd={coin.supply.total_usd - coin.supply.lost_usd}
+      );
+    },
+  },
+  {
+    key: "reserveHeld",
+    header: "Reserve-Held",
+    align: "right",
+    cell: (row) => {
+      if (row.kind === "category")
+        return <CategoryNum>{formatUsd(row.reserveHeldUsd)}</CategoryNum>;
+      return (
+        <SupplyAmount
+          amount={row.reserveHeldAmount}
+          usd={row.reserveHeldUsd}
+          muted={row.kind === "chain"}
+        />
+      );
+    },
+  },
+  {
+    key: "net",
+    header: "Total Supply",
+    align: "right",
+    cell: (row) => {
+      if (row.kind === "category")
+        return <CategoryNum>{formatUsd(row.netUsd)}</CategoryNum>;
+      if (row.kind === "chain") {
+        return (
+          <SupplyAmount amount={row.netAmount} usd={row.netUsd} muted />
+        );
+      }
+      return (
+        <SupplyAmount
+          amount={row.netAmount}
+          usd={row.netUsd}
           lostNote={
-            coin.supply.lost_usd > 0
-              ? `Excluding ${formatNumber(coin.supply.lost)} lost or inaccessible tokens (${formatUsd(coin.supply.lost_usd)})`
+            row.lostUsd > 0
+              ? `Excluding ${formatNumber(row.lostAmount)} lost or inaccessible tokens (${formatUsd(row.lostUsd)})`
               : undefined
           }
         />
-        <td className="px-4 py-3 text-right tabular-nums">
-          {formatPercent(coin.market_cap_percentage)}
-        </td>
-      </tr>
+      );
+    },
+  },
+  {
+    key: "mcap",
+    header: "% of MCap",
+    align: "right",
+    cell: (row) => {
+      if (row.kind === "chain") return null;
+      return (
+        <span
+          className={row.kind === "category" ? "font-medium" : undefined}
+        >
+          {formatPercent(row.mcapPct)}
+        </span>
+      );
+    },
+  },
+];
 
-      {/* Per-network breakdown rows */}
-      {expanded &&
-        coin.network_supplies.map((ns) => (
-          <tr
-            key={ns.chain}
-            className="border-b border-[var(--border)] bg-[#15111b]/50"
-          >
-            <td className="px-4 py-2 pl-16">
-              <div className="gap-2 flex items-center">
-                <NetworkLabel chain={ns.chain} />
-                <span className="text-xs font-mono max-w-[120px] truncate text-muted-foreground">
-                  {ns.address.slice(0, 6)}...{ns.address.slice(-4)}
-                </span>
-              </div>
-            </td>
-            <td className="px-4 py-2" />
-            <td className="px-4 py-2" />
-            <SupplyCell
-              amount={ns.supply.debt}
-              usd={ns.supply.debt_usd}
-              muted
-            />
-            <SupplyCell
-              amount={ns.supply.reserve_held}
-              usd={ns.supply.reserve_held_usd}
-              muted
-            />
-            <SupplyCell
-              amount={String(
-                parseFloat(ns.supply.total) - parseFloat(ns.supply.lost),
-              )}
-              usd={ns.supply.total_usd - ns.supply.lost_usd}
-              muted
-            />
-            <td className="px-4 py-2" />
-          </tr>
-        ))}
-    </>
+function getRowClassName(row: TreeRow<SupplyRow>, depth: number): string {
+  if (row.kind === "category") {
+    const accent =
+      row.accent === "reserve"
+        ? "border-l-4 border-l-[#8c35fd]"
+        : row.accent === "cdp"
+          ? "border-l-4 border-l-amber-500"
+          : "border-t border-[var(--border)]";
+    return `${accent} bg-card`;
+  }
+  if (row.kind === "chain") return "bg-[#15111b]/50";
+  if (depth > 0) return "hover:bg-accent transition-colors";
+  return "hover:bg-accent transition-colors";
+}
+
+function CategoryNum({ children }: { children: React.ReactNode }) {
+  return <span className="font-medium">{children}</span>;
+}
+
+function CoinLabel({ coin }: { coin: CoinRow }) {
+  return (
+    <span className="gap-3 inline-flex items-center">
+      <Image
+        src={`/tokens/${coin.symbol}.svg`}
+        alt={coin.symbol}
+        width={28}
+        height={28}
+        className="h-7 w-7"
+        onError={(e) => {
+          e.currentTarget.src = "/tokens/CELO.svg";
+        }}
+      />
+      <span>
+        <span className="font-medium">{coin.symbol}</span>
+        <span className="ml-2 text-xs text-muted-foreground">{coin.name}</span>
+      </span>
+    </span>
   );
 }
 
-function SupplyCell({
+function SupplyAmount({
   amount,
   usd,
   muted,
@@ -299,10 +372,8 @@ function SupplyCell({
   lostNote?: string;
 }) {
   return (
-    <td
-      className={`px-4 ${muted ? "py-2" : "py-3"} text-right tabular-nums ${muted ? "text-sm text-muted-foreground" : ""}`}
-    >
-      <div>
+    <span className="inline-block">
+      <span className={muted ? "text-sm text-muted-foreground" : undefined}>
         {formatNumber(amount)}
         {lostNote && (
           <Tooltip>
@@ -320,13 +391,13 @@ function SupplyCell({
             </TooltipContent>
           </Tooltip>
         )}
-      </div>
-      <div
-        className={`text-xs ${muted ? "text-muted-foreground/70" : "text-muted-foreground"}`}
+      </span>
+      <span
+        className={`block text-xs ${muted ? "text-muted-foreground/70" : "text-muted-foreground"}`}
       >
         = {formatUsd(usd)}
-      </div>
-    </td>
+      </span>
+    </span>
   );
 }
 
