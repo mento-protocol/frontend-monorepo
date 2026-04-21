@@ -39,6 +39,8 @@ export function ReserveTabs({ data }: { data: ReservePageData }) {
     const normalized = LEGACY_TAB_ALIASES[tabParam] ?? tabParam;
     if (Object.values(TabType).includes(normalized as TabType)) {
       setActiveTab(normalized as TabType);
+    } else {
+      setActiveTab(TabType.overview);
     }
   }, [searchParams]);
 
