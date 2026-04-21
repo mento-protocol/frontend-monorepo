@@ -127,7 +127,7 @@ function ReserveHeldSummary({
         <SummaryCard
           label="Total Reserve Held"
           value={formatUsd(total)}
-          tooltip="Sum of Mento stablecoins held by the reserve in operational wallets, liquidity positions, and CDP trove overhead. Not counted as reserve liabilities."
+          tooltip="Sum of balances counted toward reserve-held supply in operational wallets, liquidity positions, and CDP trove overhead. Not counted as reserve liabilities."
           className="flex-1"
         />
         <SummaryOp>=</SummaryOp>
@@ -158,7 +158,7 @@ function ReserveHeldSummary({
         <SummaryCard
           label="Total Reserve Held"
           value={formatUsd(total)}
-          tooltip="Sum of Mento stablecoins held by the reserve in operational wallets, liquidity positions, and CDP trove overhead."
+          tooltip="Sum of balances counted toward reserve-held supply in operational wallets, liquidity positions, and CDP trove overhead."
         />
         <SummaryOp>=</SummaryOp>
         <div className="gap-2 grid grid-cols-3">
