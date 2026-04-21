@@ -479,8 +479,12 @@ function LiquidityPositionsSection({
     const mentoUsd = sumUsd(items, (t) => t.isMentoStable);
     const collateralUsd = sumUsd(items, (t) => !t.isMentoStable);
     const aggregated = aggregateTokens(items);
-    const mentoTokens = aggregated.filter((t) => t.isMentoStable);
-    const collateralTokens = aggregated.filter((t) => !t.isMentoStable);
+    const mentoTokens = sortTokensBySymbol(
+      aggregated.filter((t) => t.isMentoStable),
+    );
+    const collateralTokens = sortTokensBySymbol(
+      aggregated.filter((t) => !t.isMentoStable),
+    );
 
     grandMentoUsd += mentoUsd;
     grandCollUsd += collateralUsd;
@@ -501,8 +505,12 @@ function LiquidityPositionsSection({
           name: pos.positionName,
           chain: pos.chain,
           holder: pos.holder,
-          mentoTokens: nonZero.filter((t) => t.isMentoStable),
-          collateralTokens: nonZero.filter((t) => !t.isMentoStable),
+          mentoTokens: sortTokensBySymbol(
+            nonZero.filter((t) => t.isMentoStable),
+          ),
+          collateralTokens: sortTokensBySymbol(
+            nonZero.filter((t) => !t.isMentoStable),
+          ),
         };
       }),
     });
@@ -694,6 +702,14 @@ function sumUsd(
   return positions.reduce(
     (s, p) => s + p.tokens.filter(pred).reduce((ss, t) => ss + t.usdValue, 0),
     0,
+  );
+}
+
+// Stable, case-insensitive sort by symbol so breakdown rows line up
+// identically regardless of the underlying position order.
+function sortTokensBySymbol(tokens: Token[]): Token[] {
+  return [...tokens].sort((a, b) =>
+    a.symbol.toLowerCase().localeCompare(b.symbol.toLowerCase()),
   );
 }
 
