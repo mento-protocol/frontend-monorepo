@@ -35,6 +35,8 @@ export type TreeTableProps<T> = {
   defaultOpenDepth?: number;
   indentPerLevel?: number;
   rowClassName?: (row: TreeRow<T>, depth: number) => string | undefined;
+  onRowMouseEnter?: (row: TreeRow<T>, depth: number) => void;
+  onRowMouseLeave?: (row: TreeRow<T>, depth: number) => void;
   minWidth?: string;
   className?: string;
 };
@@ -59,6 +61,8 @@ export function TreeTable<T>({
   defaultOpenDepth = 0,
   indentPerLevel = 20,
   rowClassName,
+  onRowMouseEnter,
+  onRowMouseLeave,
   minWidth = "800px",
   className,
 }: TreeTableProps<T>) {
@@ -107,6 +111,8 @@ export function TreeTable<T>({
                 columns={columns}
                 indentPerLevel={indentPerLevel}
                 rowClassName={rowClassName}
+                onRowMouseEnter={onRowMouseEnter}
+                onRowMouseLeave={onRowMouseLeave}
               />
             ))}
           </OpenContext.Provider>
@@ -122,12 +128,16 @@ function TreeTableRow<T>({
   columns,
   indentPerLevel,
   rowClassName,
+  onRowMouseEnter,
+  onRowMouseLeave,
 }: {
   row: TreeRow<T>;
   depth: number;
   columns: Column<T>[];
   indentPerLevel: number;
   rowClassName?: (row: TreeRow<T>, depth: number) => string | undefined;
+  onRowMouseEnter?: (row: TreeRow<T>, depth: number) => void;
+  onRowMouseLeave?: (row: TreeRow<T>, depth: number) => void;
 }) {
   const { isOpen, toggle } = useOpen();
   const hasChildren = !!row.children?.length;
@@ -189,6 +199,12 @@ function TreeTableRow<T>({
         className={`border-b border-[var(--border)] ${
           rowClassName?.(row, depth) ?? ""
         }`}
+        onMouseEnter={
+          onRowMouseEnter ? () => onRowMouseEnter(row, depth) : undefined
+        }
+        onMouseLeave={
+          onRowMouseLeave ? () => onRowMouseLeave(row, depth) : undefined
+        }
       >
         {cells}
       </tr>
@@ -201,6 +217,8 @@ function TreeTableRow<T>({
             columns={columns}
             indentPerLevel={indentPerLevel}
             rowClassName={rowClassName}
+            onRowMouseEnter={onRowMouseEnter}
+            onRowMouseLeave={onRowMouseLeave}
           />
         ))}
     </>

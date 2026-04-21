@@ -4,8 +4,9 @@ import { useState } from "react";
 import type { ChartSegment } from "@repo/ui";
 import { ReserveChart } from "@repo/ui";
 import Image from "next/image";
-import type { V2ReserveResponse, Chain } from "@/lib/types";
+import type { V2ReserveResponse } from "@/lib/types";
 import { formatUsd, formatNumber, formatPercent } from "@/lib/format";
+import { TreeTable, type Column, type TreeRow } from "../tree-table";
 
 const TOKEN_COLORS: Record<string, string> = {
   CELO: "#7006FC",
@@ -34,18 +35,59 @@ const CHAIN_LABEL: Record<string, string> = {
   bitcoin: "Bitcoin",
 };
 
+const SOURCE_TYPE_LABEL: Record<string, string> = {
+  wallet: "Wallet",
+  aave: "AAVE",
+  univ3: "UniV3",
+  fpmm: "FPMM",
+  stability_pool: "Stability Pool",
+};
+
+const SOURCE_TYPE_COLOR: Record<string, string> = {
+  wallet: "bg-muted text-muted-foreground",
+  aave: "bg-pink-500/20 text-pink-400",
+  univ3: "bg-pink-500/20 text-pink-400",
+  fpmm: "bg-[#8c35fd]/20 text-[#8c35fd]",
+  stability_pool: "bg-blue-500/20 text-blue-400",
+};
+
+type ChainRow = {
+  kind: "chain";
+  chain: string;
+  totalUsd: number;
+  percentage: number;
+};
+type AssetRow = {
+  kind: "asset";
+  symbol: string;
+  chain: string;
+  balance: string;
+  usdValue: number;
+  percentage: number;
+};
+type SourceRow = {
+  kind: "source";
+  sourceType: string;
+  label: string;
+  balance: string;
+  usdValue: number;
+};
+type TotalRow = {
+  kind: "total";
+  totalUsd: number;
+  percentage: number;
+};
+type CollateralRow = ChainRow | AssetRow | SourceRow | TotalRow;
+
 export function CollateralTab({ reserve }: { reserve: V2ReserveResponse }) {
   const [active, setActive] = useState<string>();
   const { assets } = reserve.collateral;
 
-  // Filter out zero-value dust
   const meaningful = assets.filter((a) => a.usd_value >= 1);
   const sorted = [...meaningful].sort((a, b) => b.usd_value - a.usd_value);
-  // Footer must reconcile with the visible (dust-filtered) rows.
   const displayedTotalUsd = sorted.reduce((s, a) => s + a.usd_value, 0);
   const displayedTotalPct = sorted.reduce((s, a) => s + a.percentage, 0);
 
-  // Deduplicate chart data by symbol (aggregate across chains)
   const chartBySymbol = new Map<string, number>();
   for (const a of sorted) {
     chartBySymbol.set(
@@ -69,23 +111,7 @@ export function CollateralTab({ reserve }: { reserve: V2ReserveResponse }) {
     ? `${largestSegment.value.toFixed(2)}%`
     : "Reserve";
 
-  // Group assets by chain
-  const byChain = new Map<string, typeof sorted>();
-  for (const a of sorted) {
-    const chain = a.chain;
-    if (!byChain.has(chain)) byChain.set(chain, []);
-    byChain.get(chain)!.push(a);
-  }
-
-  // Order chains by total value
-  const chainOrder = [...byChain.entries()]
-    .map(([chain, items]) => ({
-      chain,
-      items,
-      total: items.reduce((s, a) => s + a.usd_value, 0),
-      pct: items.reduce((s, a) => s + a.percentage, 0),
-    }))
-    .sort((a, b) => b.total - a.total);
+  const rows = buildRows(sorted, displayedTotalUsd, displayedTotalPct);
 
   return (
     <div>
@@ -105,170 +131,100 @@ export function CollateralTab({ reserve }: { reserve: V2ReserveResponse }) {
           />
         </div>
         <div className="md:col-span-6 xl:col-span-8">
-          <div className="overflow-x-auto">
-            <table className="text-base w-full min-w-[600px] table-fixed">
-              <colgroup>
-                <col className="w-[40%]" />
-                <col className="w-[20%]" />
-                <col className="w-[25%]" />
-                <col className="w-[15%]" />
-              </colgroup>
-              <thead>
-                <tr className="border-b border-[var(--border)] text-left text-muted-foreground">
-                  <th className="px-4 py-3 font-medium">Asset</th>
-                  <th className="px-4 py-3 font-medium text-right">Amount</th>
-                  <th className="px-4 py-3 font-medium text-right">
-                    Value (USD)
-                  </th>
-                  <th className="px-4 py-3 font-medium text-right">%</th>
-                </tr>
-              </thead>
-              <tbody>
-                {chainOrder.map((group) => (
-                  <ChainGroup
-                    key={group.chain}
-                    chain={group.chain as Chain}
-                    assets={group.items}
-                    totalUsd={group.total}
-                    totalPct={group.pct}
-                    active={active}
-                    onHover={setActive}
-                  />
-                ))}
-
-                {/* Grand total */}
-                <tr className="border-t border-[var(--border)] bg-card">
-                  <td className="px-4 py-3 font-medium">Total</td>
-                  <td className="px-4 py-3" />
-                  <td className="px-4 py-3 font-medium text-right tabular-nums">
-                    {formatUsd(displayedTotalUsd)}
-                  </td>
-                  <td className="px-4 py-3 font-medium text-right tabular-nums">
-                    {formatPercent(displayedTotalPct)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <TreeTable<CollateralRow>
+            rows={rows}
+            columns={columns}
+            defaultOpenDepth={0}
+            minWidth="600px"
+            rowClassName={(row) => getRowClassName(row, active)}
+            onRowMouseEnter={(row) => {
+              if (row.kind === "asset") setActive(row.symbol);
+            }}
+            onRowMouseLeave={(row) => {
+              if (row.kind === "asset") setActive(undefined);
+            }}
+          />
         </div>
       </div>
     </div>
   );
 }
 
-function ChainGroup({
-  chain,
-  assets,
-  totalUsd,
-  totalPct,
-  active,
-  onHover,
-}: {
-  chain: Chain;
-  assets: V2ReserveResponse["collateral"]["assets"];
-  totalUsd: number;
-  totalPct: number;
-  active: string | undefined;
-  onHover: (name: string | undefined) => void;
-}) {
-  return (
-    <>
-      {/* Chain header */}
-      <tr className="bg-card/50">
-        <td colSpan={4} className="px-4 py-2">
-          <span className="rounded px-1.5 py-0.5 font-medium bg-muted text-[10px] text-muted-foreground">
-            {CHAIN_LABEL[chain] ?? chain}
-          </span>
-        </td>
-      </tr>
+function buildRows(
+  sorted: V2ReserveResponse["collateral"]["assets"],
+  totalUsd: number,
+  totalPct: number,
+): TreeRow<CollateralRow>[] {
+  const byChain = new Map<string, typeof sorted>();
+  for (const a of sorted) {
+    if (!byChain.has(a.chain)) byChain.set(a.chain, []);
+    byChain.get(a.chain)!.push(a);
+  }
 
-      {/* Asset rows */}
-      {assets.map((asset) => (
-        <AssetRow
-          key={`${asset.symbol}-${asset.chain}`}
-          asset={asset}
-          active={active}
-          onHover={onHover}
-        />
-      ))}
+  const chainRows: TreeRow<CollateralRow>[] = [...byChain.entries()]
+    .map(([chain, items]) => ({
+      chain,
+      items,
+      totalUsd: items.reduce((s, a) => s + a.usd_value, 0),
+      totalPct: items.reduce((s, a) => s + a.percentage, 0),
+    }))
+    .sort((a, b) => b.totalUsd - a.totalUsd)
+    .map<TreeRow<CollateralRow>>((group) => ({
+      id: `chain:${group.chain}`,
+      kind: "chain",
+      chain: group.chain,
+      totalUsd: group.totalUsd,
+      percentage: group.totalPct,
+      children: group.items.map<TreeRow<CollateralRow>>((asset) => ({
+        id: `asset:${asset.chain}:${asset.symbol}`,
+        kind: "asset",
+        symbol: asset.symbol,
+        chain: asset.chain,
+        balance: asset.balance,
+        usdValue: asset.usd_value,
+        percentage: asset.percentage,
+        children: asset.sources.map<TreeRow<CollateralRow>>((s, i) => ({
+          id: `source:${asset.chain}:${asset.symbol}:${s.identifier}:${i}`,
+          kind: "source",
+          sourceType: s.type,
+          label: s.label,
+          balance: s.balance,
+          usdValue: s.usd_value,
+        })),
+      })),
+    }));
 
-      {/* Chain subtotal */}
-      <tr className="border-b border-[var(--border)] bg-card">
-        <td className="px-4 py-2 text-sm font-medium text-muted-foreground">
-          {CHAIN_LABEL[chain] ?? chain} Total
-        </td>
-        <td className="px-4 py-2" />
-        <td className="px-4 py-2 text-sm font-medium text-right tabular-nums">
-          {formatUsd(totalUsd)}
-        </td>
-        <td className="px-4 py-2 text-sm font-medium text-right tabular-nums">
-          {formatPercent(totalPct)}
-        </td>
-      </tr>
-    </>
-  );
+  const totalRow: TreeRow<CollateralRow> = {
+    id: "total",
+    kind: "total",
+    totalUsd,
+    percentage: totalPct,
+  };
+
+  return [...chainRows, totalRow];
 }
 
-const SOURCE_TYPE_LABEL: Record<string, string> = {
-  wallet: "Wallet",
-  aave: "AAVE",
-  univ3: "UniV3",
-  fpmm: "FPMM",
-  stability_pool: "Stability Pool",
-};
-
-const SOURCE_TYPE_COLOR: Record<string, string> = {
-  wallet: "bg-muted text-muted-foreground",
-  aave: "bg-pink-500/20 text-pink-400",
-  univ3: "bg-pink-500/20 text-pink-400",
-  fpmm: "bg-[#8c35fd]/20 text-[#8c35fd]",
-  stability_pool: "bg-blue-500/20 text-blue-400",
-};
-
-function AssetRow({
-  asset,
-  active,
-  onHover,
-}: {
-  asset: V2ReserveResponse["collateral"]["assets"][number];
-  active: string | undefined;
-  onHover: (name: string | undefined) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const hasSources = asset.sources.length > 0;
-  const toggle = () => hasSources && setExpanded((v) => !v);
-
-  return (
-    <>
-      <tr
-        className={`border-b border-[var(--border)] transition-colors hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ring)] ${hasSources ? "cursor-pointer" : ""} ${asset.symbol === active ? "bg-accent" : ""}`}
-        onClick={toggle}
-        onMouseEnter={() => onHover(asset.symbol)}
-        onMouseLeave={() => onHover(undefined)}
-        role={hasSources ? "button" : undefined}
-        tabIndex={hasSources ? 0 : undefined}
-        aria-expanded={hasSources ? expanded : undefined}
-        onKeyDown={(e) => {
-          if (!hasSources) return;
-          if (e.target !== e.currentTarget) return;
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            toggle();
-          }
-        }}
-      >
-        <td className="px-4 py-3">
-          <div className="gap-3 flex items-center">
-            {hasSources && (
-              <span
-                className={`text-xs text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`}
-              >
-                ▶
-              </span>
-            )}
+const columns: Column<CollateralRow>[] = [
+  {
+    key: "asset",
+    header: "Asset",
+    width: "40%",
+    cell: (row) => {
+      if (row.kind === "chain") {
+        return (
+          <span className="gap-2 inline-flex items-center">
+            <span className="rounded px-1.5 py-0.5 font-medium bg-muted text-[10px] text-muted-foreground">
+              {CHAIN_LABEL[row.chain] ?? row.chain}
+            </span>
+          </span>
+        );
+      }
+      if (row.kind === "asset") {
+        return (
+          <span className="gap-3 inline-flex items-center">
             <Image
-              src={`/tokens/${asset.symbol}.svg`}
-              alt={asset.symbol}
+              src={`/tokens/${row.symbol}.svg`}
+              alt={row.symbol}
               width={28}
               height={28}
               className="h-7 w-7"
@@ -276,46 +232,93 @@ function AssetRow({
                 e.currentTarget.src = "/tokens/CELO.svg";
               }}
             />
-            <span className="font-medium">{asset.symbol}</span>
-          </div>
-        </td>
-        <td className="px-4 py-3 text-right tabular-nums">
-          {formatNumber(asset.balance, 2)}
-        </td>
-        <td className="px-4 py-3 text-right tabular-nums">
-          {formatUsd(asset.usd_value)}
-        </td>
-        <td className="px-4 py-3 text-right tabular-nums">
-          {formatPercent(asset.percentage)}
-        </td>
-      </tr>
+            <span className="font-medium">{row.symbol}</span>
+          </span>
+        );
+      }
+      if (row.kind === "source") {
+        return (
+          <span className="gap-2 inline-flex items-center">
+            <span
+              className={`rounded px-1.5 py-0.5 font-medium text-[10px] ${
+                SOURCE_TYPE_COLOR[row.sourceType] ??
+                "bg-muted text-muted-foreground"
+              }`}
+            >
+              {SOURCE_TYPE_LABEL[row.sourceType] ?? row.sourceType}
+            </span>
+            <span className="text-sm text-muted-foreground">{row.label}</span>
+          </span>
+        );
+      }
+      return <span className="font-medium">Total</span>;
+    },
+  },
+  {
+    key: "amount",
+    header: "Amount",
+    align: "right",
+    width: "20%",
+    cell: (row) => {
+      if (row.kind === "asset") return formatNumber(row.balance, 2);
+      if (row.kind === "source") {
+        return (
+          <span className="text-sm text-muted-foreground">
+            {formatNumber(row.balance, 2)}
+          </span>
+        );
+      }
+      return null;
+    },
+  },
+  {
+    key: "usd",
+    header: "Value (USD)",
+    align: "right",
+    width: "25%",
+    cell: (row) => {
+      if (row.kind === "chain" || row.kind === "total")
+        return <span className="font-medium">{formatUsd(row.totalUsd)}</span>;
+      if (row.kind === "asset") return formatUsd(row.usdValue);
+      return (
+        <span className="text-sm text-muted-foreground">
+          {formatUsd(row.usdValue)}
+        </span>
+      );
+    },
+  },
+  {
+    key: "pct",
+    header: "%",
+    align: "right",
+    width: "15%",
+    cell: (row) => {
+      if (row.kind === "source") return null;
+      const value =
+        row.kind === "asset" ? row.percentage : row.percentage;
+      return (
+        <span
+          className={
+            row.kind === "chain" || row.kind === "total"
+              ? "font-medium"
+              : undefined
+          }
+        >
+          {formatPercent(value)}
+        </span>
+      );
+    },
+  },
+];
 
-      {/* Sources breakdown */}
-      {expanded &&
-        asset.sources.map((s, i) => (
-          <tr
-            key={`${s.identifier}-${i}`}
-            className="border-b border-[var(--border)] bg-[#15111b]/50"
-          >
-            <td className="px-4 py-2 pl-16">
-              <div className="gap-2 flex items-center">
-                <span
-                  className={`rounded px-1.5 py-0.5 font-medium text-[10px] ${SOURCE_TYPE_COLOR[s.type] ?? "bg-muted text-muted-foreground"}`}
-                >
-                  {SOURCE_TYPE_LABEL[s.type] ?? s.type}
-                </span>
-                <span className="text-sm text-muted-foreground">{s.label}</span>
-              </div>
-            </td>
-            <td className="px-4 py-2 text-sm text-right text-muted-foreground tabular-nums">
-              {formatNumber(s.balance, 2)}
-            </td>
-            <td className="px-4 py-2 text-sm text-right text-muted-foreground tabular-nums">
-              {formatUsd(s.usd_value)}
-            </td>
-            <td className="px-4 py-2" />
-          </tr>
-        ))}
-    </>
-  );
+function getRowClassName(
+  row: TreeRow<CollateralRow>,
+  active: string | undefined,
+): string {
+  if (row.kind === "chain") return "bg-card/60";
+  if (row.kind === "total") return "border-t border-[var(--border)] bg-card";
+  if (row.kind === "source") return "bg-[#15111b]/50";
+  // asset
+  const isActive = row.symbol === active;
+  return `transition-colors hover:bg-accent ${isActive ? "bg-accent" : ""}`;
 }
