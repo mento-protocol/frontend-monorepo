@@ -51,8 +51,32 @@ const SOURCE_TYPE_COLOR: Record<string, string> = {
   stability_pool: "bg-blue-500/20 text-blue-400",
 };
 
-type ChainRow = {
-  kind: "chain";
+type Peg = "usd" | "eur" | "volatile";
+
+const PEG_META: Record<Peg, { label: string; accent: string }> = {
+  usd: { label: "USD-pegged", accent: "border-l-4 border-l-[#66FFB8]" },
+  eur: { label: "EUR-pegged", accent: "border-l-4 border-l-[#3D42CD]" },
+  volatile: {
+    label: "Volatile",
+    accent: "border-l-4 border-l-[#7006FC]",
+  },
+};
+
+function classifyPeg(symbol: string): Peg {
+  const upper = symbol.toUpperCase();
+  if (upper.includes("USD")) return "usd";
+  if (upper.includes("EUR")) return "eur";
+  return "volatile";
+}
+
+type PegRow = {
+  kind: "peg";
+  peg: Peg;
+  totalUsd: number;
+  percentage: number;
+};
+type NetworkRow = {
+  kind: "network";
   chain: string;
   totalUsd: number;
   percentage: number;
@@ -77,7 +101,9 @@ type TotalRow = {
   totalUsd: number;
   percentage: number;
 };
-type CollateralRow = ChainRow | AssetRow | SourceRow | TotalRow;
+type CollateralRow = PegRow | NetworkRow | AssetRow | SourceRow | TotalRow;
+
+type Asset = V2ReserveResponse["collateral"]["assets"][number];
 
 export function CollateralTab({ reserve }: { reserve: V2ReserveResponse }) {
   const [active, setActive] = useState<string>();
@@ -134,7 +160,7 @@ export function CollateralTab({ reserve }: { reserve: V2ReserveResponse }) {
           <TreeTable<CollateralRow>
             rows={rows}
             columns={columns}
-            defaultOpenDepth={0}
+            defaultOpenDepth={2}
             minWidth="600px"
             rowClassName={(row) => getRowClassName(row, active)}
             onRowMouseEnter={(row) => {
@@ -151,48 +177,76 @@ export function CollateralTab({ reserve }: { reserve: V2ReserveResponse }) {
 }
 
 function buildRows(
-  sorted: V2ReserveResponse["collateral"]["assets"],
+  sorted: Asset[],
   totalUsd: number,
   totalPct: number,
 ): TreeRow<CollateralRow>[] {
-  const byChain = new Map<string, typeof sorted>();
+  // Bucket assets by peg, then by chain within each peg.
+  const byPeg = new Map<Peg, Asset[]>();
   for (const a of sorted) {
-    if (!byChain.has(a.chain)) byChain.set(a.chain, []);
-    byChain.get(a.chain)!.push(a);
+    const peg = classifyPeg(a.symbol);
+    if (!byPeg.has(peg)) byPeg.set(peg, []);
+    byPeg.get(peg)!.push(a);
   }
 
-  const chainRows: TreeRow<CollateralRow>[] = [...byChain.entries()]
-    .map(([chain, items]) => ({
-      chain,
-      items,
-      totalUsd: items.reduce((s, a) => s + a.usd_value, 0),
-      totalPct: items.reduce((s, a) => s + a.percentage, 0),
-    }))
-    .sort((a, b) => b.totalUsd - a.totalUsd)
-    .map<TreeRow<CollateralRow>>((group) => ({
-      id: `chain:${group.chain}`,
-      kind: "chain",
-      chain: group.chain,
-      totalUsd: group.totalUsd,
-      percentage: group.totalPct,
-      children: group.items.map<TreeRow<CollateralRow>>((asset) => ({
-        id: `asset:${asset.chain}:${asset.symbol}`,
-        kind: "asset",
-        symbol: asset.symbol,
-        chain: asset.chain,
-        balance: asset.balance,
-        usdValue: asset.usd_value,
-        percentage: asset.percentage,
-        children: asset.sources.map<TreeRow<CollateralRow>>((s, i) => ({
-          id: `source:${asset.chain}:${asset.symbol}:${s.identifier}:${i}`,
-          kind: "source",
-          sourceType: s.type,
-          label: s.label,
-          balance: s.balance,
-          usdValue: s.usd_value,
-        })),
-      })),
-    }));
+  const pegOrder: Peg[] = ["usd", "eur", "volatile"];
+
+  const pegRows: TreeRow<CollateralRow>[] = pegOrder
+    .map((peg) => ({ peg, items: byPeg.get(peg) ?? [] }))
+    .filter(({ items }) => items.length > 0)
+    .map<TreeRow<CollateralRow>>(({ peg, items }) => {
+      const pegTotalUsd = items.reduce((s, a) => s + a.usd_value, 0);
+      const pegTotalPct = items.reduce((s, a) => s + a.percentage, 0);
+
+      // Group this peg's assets by chain.
+      const byChain = new Map<string, Asset[]>();
+      for (const a of items) {
+        if (!byChain.has(a.chain)) byChain.set(a.chain, []);
+        byChain.get(a.chain)!.push(a);
+      }
+
+      const networkChildren = [...byChain.entries()]
+        .map(([chain, chainAssets]) => ({
+          chain,
+          chainAssets,
+          chainUsd: chainAssets.reduce((s, a) => s + a.usd_value, 0),
+          chainPct: chainAssets.reduce((s, a) => s + a.percentage, 0),
+        }))
+        .sort((a, b) => b.chainUsd - a.chainUsd)
+        .map<TreeRow<CollateralRow>>((net) => ({
+          id: `peg:${peg}:chain:${net.chain}`,
+          kind: "network",
+          chain: net.chain,
+          totalUsd: net.chainUsd,
+          percentage: net.chainPct,
+          children: net.chainAssets.map<TreeRow<CollateralRow>>((asset) => ({
+            id: `peg:${peg}:chain:${asset.chain}:asset:${asset.symbol}`,
+            kind: "asset",
+            symbol: asset.symbol,
+            chain: asset.chain,
+            balance: asset.balance,
+            usdValue: asset.usd_value,
+            percentage: asset.percentage,
+            children: asset.sources.map<TreeRow<CollateralRow>>((s, i) => ({
+              id: `peg:${peg}:chain:${asset.chain}:asset:${asset.symbol}:source:${s.identifier}:${i}`,
+              kind: "source",
+              sourceType: s.type,
+              label: s.label,
+              balance: s.balance,
+              usdValue: s.usd_value,
+            })),
+          })),
+        }));
+
+      return {
+        id: `peg:${peg}`,
+        kind: "peg",
+        peg,
+        totalUsd: pegTotalUsd,
+        percentage: pegTotalPct,
+        children: networkChildren,
+      };
+    });
 
   const totalRow: TreeRow<CollateralRow> = {
     id: "total",
@@ -201,7 +255,7 @@ function buildRows(
     percentage: totalPct,
   };
 
-  return [...chainRows, totalRow];
+  return [...pegRows, totalRow];
 }
 
 const columns: Column<CollateralRow>[] = [
@@ -210,7 +264,10 @@ const columns: Column<CollateralRow>[] = [
     header: "Asset",
     width: "40%",
     cell: (row) => {
-      if (row.kind === "chain") {
+      if (row.kind === "peg") {
+        return <span className="font-medium">{PEG_META[row.peg].label}</span>;
+      }
+      if (row.kind === "network") {
         return (
           <span className="gap-2 inline-flex items-center">
             <span className="rounded px-1.5 py-0.5 font-medium bg-muted text-[10px] text-muted-foreground">
@@ -277,8 +334,14 @@ const columns: Column<CollateralRow>[] = [
     align: "right",
     width: "25%",
     cell: (row) => {
-      if (row.kind === "chain" || row.kind === "total")
+      if (row.kind === "peg" || row.kind === "total")
         return <span className="font-medium">{formatUsd(row.totalUsd)}</span>;
+      if (row.kind === "network")
+        return (
+          <span className="text-sm font-medium">
+            {formatUsd(row.totalUsd)}
+          </span>
+        );
       if (row.kind === "asset") return formatUsd(row.usdValue);
       return (
         <span className="text-sm text-muted-foreground">
@@ -294,17 +357,17 @@ const columns: Column<CollateralRow>[] = [
     width: "15%",
     cell: (row) => {
       if (row.kind === "source") return null;
-      const value =
-        row.kind === "asset" ? row.percentage : row.percentage;
       return (
         <span
           className={
-            row.kind === "chain" || row.kind === "total"
+            row.kind === "peg" || row.kind === "total"
               ? "font-medium"
-              : undefined
+              : row.kind === "network"
+                ? "text-sm font-medium"
+                : undefined
           }
         >
-          {formatPercent(value)}
+          {formatPercent(row.percentage)}
         </span>
       );
     },
@@ -315,7 +378,10 @@ function getRowClassName(
   row: TreeRow<CollateralRow>,
   active: string | undefined,
 ): string {
-  if (row.kind === "chain") return "bg-card/60";
+  if (row.kind === "peg") {
+    return `${PEG_META[row.peg].accent} bg-card`;
+  }
+  if (row.kind === "network") return "bg-card/40";
   if (row.kind === "total") return "border-t border-[var(--border)] bg-card";
   if (row.kind === "source") return "bg-[#15111b]/50";
   // asset: apply bg-accent when this symbol is active from the donut so
