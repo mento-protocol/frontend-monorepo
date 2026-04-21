@@ -557,7 +557,7 @@ const liquidityColumns: Column<LiquidityRow>[] = [
               className="h-8 w-8 shrink-0"
             />
             <span className="font-medium">
-              {row.protocol} Total
+              {row.protocol}
               <span className="ml-2 text-xs font-normal text-muted-foreground">
                 {row.positionCount}{" "}
                 {row.positionCount === 1 ? "position" : "positions"}
@@ -579,7 +579,7 @@ const liquidityColumns: Column<LiquidityRow>[] = [
       if (row.kind === "protoSubtotals") {
         return (
           <span className="text-sm font-medium text-muted-foreground">
-            {row.protocol} Subtotals
+            {row.protocol} Breakdown
           </span>
         );
       }
