@@ -1,22 +1,12 @@
 "use client";
 
 import Image from "next/image";
-import { IconInfo } from "@repo/ui";
-import { Tooltip, TooltipTrigger, TooltipContent } from "@repo/ui";
 import type { V2ReserveResponse, V2StablecoinsResponse } from "@/lib/types";
 import { formatUsd, formatNumber, formatPercent } from "@/lib/format";
 import { getBlockExplorerUrl, truncateAddress } from "@/lib/format";
+import { chainLabel } from "@/lib/chains";
+import { InfoTooltip } from "../info-tooltip";
 import { TreeTable, type Column, type TreeRow } from "../tree-table";
-
-const chainLabel = (chain: string) => {
-  const labels: Record<string, string> = {
-    celo: "Celo",
-    ethereum: "Ethereum",
-    monad: "Monad",
-    bitcoin: "Bitcoin",
-  };
-  return labels[chain] ?? chain;
-};
 
 type Protocol = "AAVE" | "Uniswap V3" | "Mento FPMM" | "Mento Liquity V2";
 
@@ -68,8 +58,12 @@ export function PositionsTab({
   const priceMap = buildPriceMap(reserve, stablecoins);
   const mentoSymbols = new Set(stablecoins.stablecoins.map((c) => c.symbol));
 
+  // Trust is_mento_stable but fall back to the canonical stablecoin symbol
+  // set in case the backend misses the flag for a known Mento stable.
   const stableHoldings = positions.wallet_balances.filter(
-    (b) => b.is_mento_stable && parseFloat(b.balance) > 0,
+    (b) =>
+      (b.is_mento_stable || mentoSymbols.has(b.token)) &&
+      parseFloat(b.balance) > 0,
   );
 
   const liquidityPositions = normalizePositions(
@@ -216,19 +210,6 @@ function SummaryOp({ children }: { children: string }) {
     <span className="text-lg font-light shrink-0 text-center text-muted-foreground">
       {children}
     </span>
-  );
-}
-
-function InfoTooltip({ children }: { children: React.ReactNode }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger className="flex items-center">
-        <IconInfo />
-      </TooltipTrigger>
-      <TooltipContent className="max-w-xs" hideArrow>
-        <p>{children}</p>
-      </TooltipContent>
-    </Tooltip>
   );
 }
 

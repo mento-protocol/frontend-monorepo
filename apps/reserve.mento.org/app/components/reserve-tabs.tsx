@@ -2,6 +2,7 @@
 
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@repo/ui";
 import { useState, useEffect } from "react";
+import type { ReadonlyURLSearchParams } from "next/navigation";
 import { useRouter, useSearchParams } from "next/navigation";
 import { OverviewTab } from "./tabs/overview-tab";
 import { StablecoinsTab } from "./tabs/stablecoins-tab";
@@ -25,23 +26,26 @@ const LEGACY_TAB_ALIASES: Record<string, TabType> = {
   "reserve-addresses": TabType.addresses,
 };
 
+function resolveTab(
+  params: ReadonlyURLSearchParams | URLSearchParams | null,
+): TabType {
+  const tabParam = params?.get("tab");
+  if (!tabParam) return TabType.overview;
+  const normalized = LEGACY_TAB_ALIASES[tabParam] ?? tabParam;
+  return Object.values(TabType).includes(normalized as TabType)
+    ? (normalized as TabType)
+    : TabType.overview;
+}
+
 export function ReserveTabs({ data }: { data: ReservePageData }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState(TabType.overview);
+  // Initialize synchronously from the URL so direct loads of /?tab=...
+  // server-render the correct panel instead of flashing Overview first.
+  const [activeTab, setActiveTab] = useState(() => resolveTab(searchParams));
 
   useEffect(() => {
-    const tabParam = searchParams.get("tab");
-    if (!tabParam) {
-      setActiveTab(TabType.overview);
-      return;
-    }
-    const normalized = LEGACY_TAB_ALIASES[tabParam] ?? tabParam;
-    if (Object.values(TabType).includes(normalized as TabType)) {
-      setActiveTab(normalized as TabType);
-    } else {
-      setActiveTab(TabType.overview);
-    }
+    setActiveTab(resolveTab(searchParams));
   }, [searchParams]);
 
   const handleTabChange = (value: string) => {

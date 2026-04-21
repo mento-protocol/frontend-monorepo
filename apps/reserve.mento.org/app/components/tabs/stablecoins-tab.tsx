@@ -3,6 +3,7 @@
 import Image from "next/image";
 import type { V2StablecoinsResponse } from "@/lib/types";
 import { formatUsd, formatNumber, formatPercent } from "@/lib/format";
+import { chainLabel } from "@/lib/chains";
 import { IconInfo } from "@repo/ui";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@repo/ui";
 import { TreeTable, type Column, type TreeRow } from "../tree-table";
@@ -402,15 +403,9 @@ function SupplyAmount({
 }
 
 function NetworkLabel({ chain }: { chain: string }) {
-  const labels: Record<string, string> = {
-    celo: "Celo",
-    ethereum: "Ethereum",
-    monad: "Monad",
-    bitcoin: "Bitcoin",
-  };
   return (
     <span className="rounded px-1.5 py-0.5 font-medium bg-muted text-[10px] text-muted-foreground">
-      {labels[chain] ?? chain}
+      {chainLabel(chain)}
     </span>
   );
 }

@@ -3,21 +3,8 @@
 import Image from "next/image";
 import type { V2ReserveResponse } from "@/lib/types";
 import { formatUsd, formatNumber, formatPercent } from "@/lib/format";
+import { CHAIN_ICON, chainLabel } from "@/lib/chains";
 import { TreeTable, type Column, type TreeRow } from "../tree-table";
-
-const CHAIN_LABEL: Record<string, string> = {
-  celo: "Celo",
-  ethereum: "Ethereum",
-  monad: "Monad",
-  bitcoin: "Bitcoin",
-};
-
-const CHAIN_ICON: Record<string, string> = {
-  celo: "/chains/celo.svg",
-  ethereum: "/tokens/ETH.svg",
-  monad: "/chains/monad.svg",
-  bitcoin: "/tokens/BTC.svg",
-};
 
 const SOURCE_TYPE_LABEL: Record<string, string> = {
   wallet: "Wallet",
@@ -46,10 +33,16 @@ const PEG_META: Record<Peg, { label: string; accent: string }> = {
   },
 };
 
+// Known stablecoins whose ticker doesn't contain "USD"/"EUR" substring.
+// DAI is the legacy MakerDAO USD stable (now USDS, which matches via
+// substring) — keeping DAI here in case either ticker shows up.
+const USD_PEG_OVERRIDES = new Set(["DAI"]);
+const EUR_PEG_OVERRIDES = new Set<string>();
+
 function classifyPeg(symbol: string): Peg {
   const upper = symbol.toUpperCase();
-  if (upper.includes("USD")) return "usd";
-  if (upper.includes("EUR")) return "eur";
+  if (USD_PEG_OVERRIDES.has(upper) || upper.includes("USD")) return "usd";
+  if (EUR_PEG_OVERRIDES.has(upper) || upper.includes("EUR")) return "eur";
   return "volatile";
 }
 
@@ -92,12 +85,11 @@ type Asset = V2ReserveResponse["collateral"]["assets"][number];
 export function CollateralTab({ reserve }: { reserve: V2ReserveResponse }) {
   const { assets } = reserve.collateral;
 
-  const meaningful = assets.filter((a) => a.usd_value >= 1);
-  const sorted = [...meaningful].sort((a, b) => b.usd_value - a.usd_value);
-  const displayedTotalUsd = sorted.reduce((s, a) => s + a.usd_value, 0);
-  const displayedTotalPct = sorted.reduce((s, a) => s + a.percentage, 0);
+  // Show every asset — no dust filter — so the grand Total row in the table
+  // genuinely reconciles with reserve.collateral.total_usd / 100%.
+  const sorted = [...assets].sort((a, b) => b.usd_value - a.usd_value);
 
-  const rows = buildRows(sorted, displayedTotalUsd, displayedTotalPct);
+  const rows = buildRows(sorted, reserve.collateral.total_usd, 100);
 
   return (
     <div>
@@ -206,20 +198,19 @@ const columns: Column<CollateralRow>[] = [
       }
       if (row.kind === "network") {
         const iconSrc = CHAIN_ICON[row.chain];
+        const label = chainLabel(row.chain);
         return (
           <span className="gap-2 inline-flex items-center">
             {iconSrc && (
               <Image
                 src={iconSrc}
-                alt={CHAIN_LABEL[row.chain] ?? row.chain}
+                alt={label}
                 width={20}
                 height={20}
                 className="h-5 w-5"
               />
             )}
-            <span className="font-medium">
-              {CHAIN_LABEL[row.chain] ?? row.chain}
-            </span>
+            <span className="font-medium">{label}</span>
           </span>
         );
       }

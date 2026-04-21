@@ -12,7 +12,6 @@ export function formatNumber(value: number | string, decimals = 0): string {
 }
 
 export function formatPercent(value: number): string {
-  if (value >= 10) return `${value.toFixed(1)}%`;
   if (value >= 1) return `${value.toFixed(1)}%`;
   return `${value.toFixed(2)}%`;
 }

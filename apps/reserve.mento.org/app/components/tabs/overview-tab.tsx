@@ -1,9 +1,8 @@
 "use client";
 
-import { IconInfo } from "@repo/ui";
-import { Tooltip, TooltipTrigger, TooltipContent } from "@repo/ui";
 import type { V2OverviewResponse } from "@/lib/types";
 import { formatUsd } from "@/lib/format";
+import { InfoTooltip } from "../info-tooltip";
 
 interface OverviewTabProps {
   overview: V2OverviewResponse;
@@ -265,15 +264,3 @@ function ComingSoonCard({ label }: { label: string }) {
   );
 }
 
-function InfoTooltip({ children }: { children: React.ReactNode }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger className="flex items-center">
-        <IconInfo />
-      </TooltipTrigger>
-      <TooltipContent className="max-w-xs" hideArrow>
-        <p>{children}</p>
-      </TooltipContent>
-    </Tooltip>
-  );
-}
