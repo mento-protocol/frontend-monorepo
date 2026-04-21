@@ -45,22 +45,26 @@ export function OverviewTab({
             className="flex-1"
           />
           <Operator>+</Operator>
-          <button
-            type="button"
-            onClick={onNavigateToPositions}
-            className="p-4 md:p-6 flex-1 cursor-pointer bg-card text-left transition-colors hover:bg-accent"
-          >
-            <span className="text-sm gap-1 flex items-center text-muted-foreground">
+          <div className="p-4 md:p-6 flex-1 relative bg-card transition-colors hover:bg-accent">
+            <button
+              type="button"
+              onClick={onNavigateToPositions}
+              aria-label="Reserve Held Supply — view details"
+              className="absolute inset-0 z-0 cursor-pointer"
+            />
+            <span className="text-sm gap-1 relative z-10 flex items-center text-muted-foreground w-fit pointer-events-none">
               Reserve Held Supply
-              <InfoTooltip>
-                Mento stablecoins held in reserve wallets and LP positions — not
-                counted as reserve liabilities.
-              </InfoTooltip>
+              <span className="pointer-events-auto">
+                <InfoTooltip>
+                  Mento stablecoins held in reserve wallets and LP positions —
+                  not counted as reserve liabilities.
+                </InfoTooltip>
+              </span>
             </span>
-            <p className="mt-1 text-xl font-medium md:text-2xl">
+            <p className="mt-1 text-xl font-medium md:text-2xl relative z-10 pointer-events-none">
               {formatUsd(supply.reserve_held_usd)}
             </p>
-          </button>
+          </div>
         </div>
 
         {/* Mobile: stacked with operators between rows */}
@@ -82,22 +86,26 @@ export function OverviewTab({
               value={formatUsd(supply.cdp_debt_usd, true)}
               tooltip="Mento stablecoins in public circulation, minted through collateralized debt positions and backed by collateral deposited in on-chain CDPs."
             />
-            <button
-              type="button"
-              onClick={onNavigateToPositions}
-              className="p-4 cursor-pointer bg-card text-left transition-colors hover:bg-accent"
-            >
-              <span className="text-xs gap-1 flex items-center text-muted-foreground">
+            <div className="p-4 relative bg-card transition-colors hover:bg-accent">
+              <button
+                type="button"
+                onClick={onNavigateToPositions}
+                aria-label="Reserve Held Supply — view details"
+                className="absolute inset-0 z-0 cursor-pointer"
+              />
+              <span className="text-xs gap-1 relative z-10 flex items-center text-muted-foreground w-fit pointer-events-none">
                 Held
-                <InfoTooltip>
-                  Mento stablecoins held in reserve wallets and LP positions —
-                  not counted as reserve liabilities.
-                </InfoTooltip>
+                <span className="pointer-events-auto">
+                  <InfoTooltip>
+                    Mento stablecoins held in reserve wallets and LP positions —
+                    not counted as reserve liabilities.
+                  </InfoTooltip>
+                </span>
               </span>
-              <p className="mt-1 text-lg font-medium">
+              <p className="mt-1 text-lg font-medium relative z-10 pointer-events-none">
                 {formatUsd(supply.reserve_held_usd, true)}
               </p>
-            </button>
+            </div>
           </div>
         </div>
       </div>

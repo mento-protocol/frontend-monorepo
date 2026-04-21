@@ -79,21 +79,22 @@ export function PositionsTab({
     priceMap,
   ).filter((p) => p.tokens.some((t) => t.amount > 0));
 
-  // Compute the reserve-held totals for the summary header
-  const operationalTotal = stableHoldings.reduce((s, h) => s + h.usd_value, 0);
-  const liquidityMentoTotal = liquidityPositions.reduce(
-    (s, p) =>
-      s +
-      p.tokens
-        .filter((t) => t.isMentoStable)
-        .reduce((ss, t) => ss + t.usdValue, 0),
-    0,
+  // Reserve-held totals come from the API's policy-applied breakdown so the
+  // headline matches `overview.supply.reserve_held_usd` exactly. CDP collateral
+  // that's committed to servicing debt (debt + wiggleroom) is excluded; only
+  // the overhead above that counts as free reserve-held supply.
+  const bySource = new Map(
+    reserve.reserve_held_supply.by_source.map(
+      (s) => [s.type, s.usd_value] as const,
+    ),
   );
-  const troveOverheadTotal = reserve.cdp_troves.troves
-    .filter((t) => t.status === "active")
-    .reduce((s, t) => s + (t.overhead?.usd ?? 0), 0);
-  const reserveHeldTotal =
-    operationalTotal + liquidityMentoTotal + troveOverheadTotal;
+  const reserveHeldTotal = reserve.reserve_held_supply.total_usd;
+  const operationalTotal = bySource.get("wallet") ?? 0;
+  const liquidityMentoTotal =
+    (bySource.get("aave") ?? 0) +
+    (bySource.get("lp") ?? 0) +
+    (bySource.get("stability_pool") ?? 0);
+  const troveOverheadTotal = bySource.get("cdp_overhead") ?? 0;
 
   return (
     <div className="gap-12 flex flex-col">

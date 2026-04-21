@@ -110,6 +110,16 @@ export interface V2ReserveResponse {
       amount: number;
       usd_value: number;
     }>;
+    by_source: Array<{
+      type:
+        | "wallet"
+        | "aave"
+        | "lp"
+        | "stability_pool"
+        | "cdp_overhead";
+      label: string;
+      usd_value: number;
+    }>;
   };
   lp_positions: {
     total_usd: number;
