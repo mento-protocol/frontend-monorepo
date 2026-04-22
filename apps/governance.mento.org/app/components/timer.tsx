@@ -23,7 +23,7 @@ interface TimeLeft {
 export const Timer = ({
   until,
   label = "Time left:",
-  expiredLabel = "Finished",
+  expiredLabel = "Voting ended",
 }: TimerProps) => {
   const [timeLeft, setTimeLeft] = useState<TimeLeft>({
     weeks: 0,
