@@ -21,3 +21,9 @@ jobs:
         with:
           fail-on-severity: high
           fail-on-scopes: runtime
+          # Mirrors osv-scanner.toml ignores. Keep both in sync.
+          # GHSA-xq3m-2v4x-88gg: protobufjs 6.x — no safe fix path; only consumer
+          # is the deprecated/unmaintained @confio/ics23@0.6.8 in the
+          # wormhole-connect/Cosmos stack, which declares protobufjs ^6.8.8.
+          # Forcing 7.x is a semver-major jump that risks silent IBC proof corruption.
+          allow-ghsas: GHSA-xq3m-2v4x-88gg
