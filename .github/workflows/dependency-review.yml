@@ -26,4 +26,5 @@ jobs:
           # is the deprecated/unmaintained @confio/ics23@0.6.8 in the
           # wormhole-connect/Cosmos stack, which declares protobufjs ^6.8.8.
           # Forcing 7.x is a semver-major jump that risks silent IBC proof corruption.
+          # TODO: Re-evaluate 2026-06-01 (matches osv-scanner.toml ignoreUntil).
           allow-ghsas: GHSA-xq3m-2v4x-88gg

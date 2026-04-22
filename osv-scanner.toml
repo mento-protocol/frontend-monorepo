@@ -73,4 +73,7 @@ id = "GHSA-xq3m-2v4x-88gg"
 # that risks silently corrupting IBC/Cosmos proof parsing in the wormhole-connect
 # bridge stack used by app.mento.org. 7.x/8.x consumers are already covered by
 # the narrower pnpm overrides.
+# TODO: Re-evaluate at ignoreUntil — check whether @confio/ics23 has been
+# removed from the dep tree or a safe fix path exists upstream.
+ignoreUntil = 2026-06-01T00:00:00Z
 reason = "protobufjs 6.x advisory — no safe fix path; @confio/ics23@0.6.8 is deprecated and 7.x is an unsafe major jump for Cosmos proof parsing."
