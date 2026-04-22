@@ -608,15 +608,19 @@ export const VoteCard = ({
         );
       case "queued": {
         const queueTxHash = proposal.proposalQueued?.[0]?.transaction?.id;
-        const queueEndTime = proposal.eta
-          ? new Date(Number(proposal.eta) * 1000)
-          : null;
+        const eta = proposal.proposalQueued?.[0]?.eta;
+        const queueEndTime = eta ? new Date(Number(eta) * 1000) : null;
         return (
           <>
             This proposal has been approved and is queued for execution.
-            <br />
             {queueEndTime && (
-              <>It can be executed after {queueEndTime.toLocaleString()}.</>
+              <div className="mt-2 flex justify-center">
+                <Timer
+                  until={queueEndTime}
+                  label="Executable in:"
+                  expiredLabel="Executable since"
+                />
+              </div>
             )}
             {queueTxHash && (
               <>
@@ -724,7 +728,6 @@ export const VoteCard = ({
     againstVotes,
     abstainVotes,
     quorumNeededFormatted,
-    proposal.eta,
     proposal.proposalQueued,
     proposal.proposalCanceled,
   ]);

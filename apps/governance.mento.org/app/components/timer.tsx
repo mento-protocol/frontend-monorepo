@@ -6,6 +6,8 @@ import spacetime from "spacetime";
 
 interface TimerProps {
   until: Date;
+  label?: string;
+  expiredLabel?: string;
 }
 
 interface TimeLeft {
@@ -17,7 +19,11 @@ interface TimeLeft {
   isFinished: boolean;
 }
 
-export const Timer = ({ until }: TimerProps) => {
+export const Timer = ({
+  until,
+  label = "Time left:",
+  expiredLabel = "Finished",
+}: TimerProps) => {
   const [timeLeft, setTimeLeft] = useState<TimeLeft>({
     weeks: 0,
     days: 0,
@@ -95,7 +101,7 @@ export const Timer = ({ until }: TimerProps) => {
         <div className="gap-1 flex items-center">
           <TimerIcon size={16} />
           <div className="gap-2 flex items-center">
-            <span>Finished</span>
+            <span>{expiredLabel}</span>
             <span className="text-muted-foreground">{formatFinishDate()}</span>
           </div>
         </div>
@@ -103,7 +109,7 @@ export const Timer = ({ until }: TimerProps) => {
         <>
           <span className="gap-1 flex items-center">
             <TimerIcon size={16} />
-            Time left:
+            {label}
           </span>
           <span className="text-muted-foreground">{formatTimeLeft()}</span>
         </>
