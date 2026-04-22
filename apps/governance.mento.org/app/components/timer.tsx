@@ -1,5 +1,6 @@
 "use client";
 
+import { formatInTimeZone } from "date-fns-tz";
 import { TimerIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import spacetime from "spacetime";
@@ -91,8 +92,7 @@ export const Timer = ({
   };
 
   const formatFinishDate = () => {
-    const finishDate = spacetime(until);
-    return finishDate.format("{date-ordinal} {month}, {year}");
+    return formatInTimeZone(until, "UTC", "MMM do, yyyy, HH:mm 'UTC'");
   };
 
   return (
