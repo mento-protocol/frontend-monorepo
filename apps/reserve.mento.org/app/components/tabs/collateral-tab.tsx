@@ -35,8 +35,16 @@ const PEG_META: Record<Peg, { label: string; accent: string }> = {
 
 // Known stablecoins whose ticker doesn't contain "USD"/"EUR" substring.
 // DAI is the legacy MakerDAO USD stable (now USDS, which matches via
-// substring) — keeping DAI here in case either ticker shows up.
-const USD_PEG_OVERRIDES = new Set(["DAI"]);
+// substring) — keeping DAI/sDAI here in case either ticker shows up,
+// plus a handful of common USD stables with non-USD tickers.
+const USD_PEG_OVERRIDES = new Set([
+  "DAI",
+  "SDAI",
+  "LUSD",
+  "FRAX",
+  "TUSD",
+  "GHO",
+]);
 const EUR_PEG_OVERRIDES = new Set<string>();
 
 function classifyPeg(symbol: string): Peg {
@@ -102,6 +110,7 @@ export function CollateralTab({ reserve }: { reserve: V2ReserveResponse }) {
         defaultOpenDepth={2}
         minWidth="600px"
         rowClassName={getRowClassName}
+        getRowLabel={getCollateralRowLabel}
       />
     </div>
   );
@@ -312,4 +321,15 @@ function getRowClassName(row: TreeRow<CollateralRow>): string {
   if (row.kind === "total") return "border-t border-[var(--border)] bg-card";
   if (row.kind === "source") return "bg-[#15111b]/50";
   return "";
+}
+
+function getCollateralRowLabel(
+  row: TreeRow<CollateralRow>,
+): string | undefined {
+  if (row.kind === "peg") return PEG_META[row.peg].label;
+  if (row.kind === "network") return chainLabel(row.chain);
+  if (row.kind === "asset") return row.symbol;
+  if (row.kind === "source") return row.label;
+  if (row.kind === "total") return "Total";
+  return undefined;
 }

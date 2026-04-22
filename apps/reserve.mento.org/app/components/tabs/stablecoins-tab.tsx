@@ -73,6 +73,7 @@ export function StablecoinsTab({
         columns={columns}
         defaultOpenDepth={1}
         rowClassName={getRowClassName}
+        getRowLabel={getSupplyRowLabel}
       />
     </div>
   );
@@ -324,6 +325,13 @@ function getRowClassName(row: TreeRow<SupplyRow>, depth: number): string {
   if (row.kind === "chain") return "bg-[#15111b]/50";
   if (depth > 0) return "hover:bg-accent transition-colors";
   return "hover:bg-accent transition-colors";
+}
+
+function getSupplyRowLabel(row: TreeRow<SupplyRow>): string | undefined {
+  if (row.kind === "category") return row.label;
+  if (row.kind === "coin") return row.symbol;
+  if (row.kind === "chain") return chainLabel(row.chain);
+  return undefined;
 }
 
 function CategoryNum({ children }: { children: React.ReactNode }) {

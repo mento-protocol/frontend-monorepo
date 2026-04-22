@@ -312,6 +312,7 @@ function OperationalHoldingsSection({
         defaultOpenDepth={0}
         minWidth="600px"
         rowClassName={opRowClassName}
+        getRowLabel={(row) => (row.kind === "opAsset" ? row.symbol : undefined)}
       />
     </div>
   );
@@ -530,6 +531,9 @@ function LiquidityPositionsSection({
         defaultOpenDepth={0}
         minWidth="900px"
         rowClassName={liquidityRowClassName}
+        getRowLabel={(row) =>
+          row.kind === "protoTotal" ? row.protocol : undefined
+        }
       />
     </div>
   );

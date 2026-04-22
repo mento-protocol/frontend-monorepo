@@ -50,8 +50,11 @@ export function ReserveTabs({ data }: { data: ReservePageData }) {
 
   const handleTabChange = (value: string) => {
     setActiveTab(value as TabType);
-    const newUrl = value === TabType.overview ? "/" : `/?tab=${value}`;
-    router.replace(newUrl, { scroll: false });
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    if (value === TabType.overview) params.delete("tab");
+    else params.set("tab", value);
+    const qs = params.toString();
+    router.replace(qs ? `/?${qs}` : "/", { scroll: false });
   };
 
   const gradientOverlay =

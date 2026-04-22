@@ -28,7 +28,7 @@ export function getBlockExplorerUrl(chain: string, address: string): string {
     case "bitcoin":
       return `https://blockstream.info/address/${address}`;
     case "monad":
-      return `https://explorer.monad.xyz/address/${address}`;
+      return `https://monadscan.com/address/${address}`;
     default:
       return `https://celoscan.io/address/${address}`;
   }

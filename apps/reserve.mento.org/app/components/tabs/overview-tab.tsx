@@ -2,6 +2,7 @@
 
 import type { V2OverviewResponse } from "@/lib/types";
 import { formatUsd } from "@/lib/format";
+import { chainLabel } from "@/lib/chains";
 import { InfoTooltip } from "../info-tooltip";
 
 interface OverviewTabProps {
@@ -156,11 +157,14 @@ export function OverviewTab({
           {/* Active CDP cards */}
           {activeCdps.map((cdp) => (
             <div
-              key={cdp.stablecoin}
+              key={`${cdp.stablecoin}-${cdp.chain}`}
               className="p-4 md:p-6 border-amber-500 border-l-4 bg-card"
             >
-              <span className="text-sm text-muted-foreground">
-                {cdp.stablecoin} CDP
+              <span className="text-sm gap-2 flex flex-wrap items-center text-muted-foreground">
+                <span>{cdp.stablecoin} CDP</span>
+                <span className="rounded px-1.5 py-0.5 font-medium bg-muted text-[10px]">
+                  {chainLabel(cdp.chain)}
+                </span>
               </span>
               <p className="mt-1 text-xl font-medium md:text-2xl">
                 {formatUsd(cdp.debt_usd)}

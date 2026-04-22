@@ -37,6 +37,10 @@ export type TreeTableProps<T> = {
   rowClassName?: (row: TreeRow<T>, depth: number) => string | undefined;
   onRowMouseEnter?: (row: TreeRow<T>, depth: number) => void;
   onRowMouseLeave?: (row: TreeRow<T>, depth: number) => void;
+  // Provide a plain-text label for a row so the disclosure button's
+  // accessible name becomes "Expand <label>" / "Collapse <label>"
+  // instead of a generic "Expand".
+  getRowLabel?: (row: TreeRow<T>, depth: number) => string | undefined;
   minWidth?: string;
   className?: string;
 };
@@ -63,6 +67,7 @@ export function TreeTable<T>({
   rowClassName,
   onRowMouseEnter,
   onRowMouseLeave,
+  getRowLabel,
   minWidth = "800px",
   className,
 }: TreeTableProps<T>) {
@@ -113,6 +118,7 @@ export function TreeTable<T>({
                 rowClassName={rowClassName}
                 onRowMouseEnter={onRowMouseEnter}
                 onRowMouseLeave={onRowMouseLeave}
+                getRowLabel={getRowLabel}
               />
             ))}
           </OpenContext.Provider>
@@ -130,6 +136,7 @@ function TreeTableRow<T>({
   rowClassName,
   onRowMouseEnter,
   onRowMouseLeave,
+  getRowLabel,
 }: {
   row: TreeRow<T>;
   depth: number;
@@ -138,6 +145,7 @@ function TreeTableRow<T>({
   rowClassName?: (row: TreeRow<T>, depth: number) => string | undefined;
   onRowMouseEnter?: (row: TreeRow<T>, depth: number) => void;
   onRowMouseLeave?: (row: TreeRow<T>, depth: number) => void;
+  getRowLabel?: (row: TreeRow<T>, depth: number) => string | undefined;
 }) {
   const { isOpen, toggle } = useOpen();
   const hasChildren = !!row.children?.length;
@@ -170,7 +178,11 @@ function TreeTableRow<T>({
                 type="button"
                 onClick={() => toggle(row.id)}
                 aria-expanded={open}
-                aria-label={open ? "Collapse" : "Expand"}
+                aria-label={(() => {
+                  const label = getRowLabel?.(row, depth);
+                  const verb = open ? "Collapse" : "Expand";
+                  return label ? `${verb} ${label}` : verb;
+                })()}
                 className="size-5 -ml-1 rounded text-xs inline-flex shrink-0 cursor-pointer items-center justify-center text-muted-foreground hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
               >
                 <span
@@ -237,6 +249,7 @@ function TreeTableRow<T>({
             rowClassName={rowClassName}
             onRowMouseEnter={onRowMouseEnter}
             onRowMouseLeave={onRowMouseLeave}
+            getRowLabel={getRowLabel}
           />
         ))}
     </>
