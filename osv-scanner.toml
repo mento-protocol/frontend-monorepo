@@ -23,18 +23,18 @@ id = "GHSA-5f7q-jpqc-wp7h"
 reason = "Next.js PPR vulnerability; pre-existing, not related to bridge changes"
 
 [[IgnoredVulns]]
-id = "GHSA-2g4f-4pwh-qvx6"
-ignoreUntil = 2026-04-19
-reason = "ajv 6.12.6 — fix only in 8.18.0 (major version jump); no 6.x patch available"
-
-[[IgnoredVulns]]
 id = "GHSA-378v-28hj-76wf"
 reason = "bn.js infinite loop in transitive deps; pre-existing"
 
 [[IgnoredVulns]]
 id = "GHSA-848j-6mx2-7j84"
-ignoreUntil = 2026-04-19
-reason = "elliptic 6.6.1 — no patched version released by maintainer"
+# No official upstream fix exists for elliptic as of 2026-04-21.
+# Pulled in via multiple independent chains: ethers v5 (@ethersproject/signing-key),
+# @cosmjs/crypto, @toruslabs/eccrypto, and tiny-secp256k1. Removing any single
+# chain (e.g. ethers v5) will NOT eliminate the vulnerability.
+# TODO: Remove once upstream releases a patched version.
+ignoreUntil = 2026-06-01T00:00:00Z
+reason = "No upstream fix available for elliptic yet; pulled in via multiple chains (ethers v5, @cosmjs/crypto, @toruslabs/eccrypto, tiny-secp256k1)."
 
 [[IgnoredVulns]]
 id = "GHSA-23c5-xmqv-rm74"
@@ -59,3 +59,16 @@ reason = "No fix available - lodash 4.17.21 is the latest version. Transitive de
 [[IgnoredVulns]]
 id = "GHSA-3x4c-7xq6-9pq8"
 reason = "Next.js unbounded image cache growth; 15.5.13 is latest stable, no fix available yet"
+
+[[IgnoredVulns]]
+id = "GHSA-xq3m-2v4x-88gg"
+# protobufjs 6.11.5 vulnerability. Pulled in via @confio/ics23@0.6.8 which is
+# deprecated/unmaintained and declares protobufjs ^6.8.8. Forcing it to 7.x is
+# a semver-major jump (dropped `long` dep, changed 64-bit integer handling)
+# that risks silently corrupting IBC/Cosmos proof parsing in the wormhole-connect
+# bridge stack used by app.mento.org. 7.x/8.x consumers are already covered by
+# the narrower pnpm overrides.
+# TODO: Re-evaluate at ignoreUntil — check whether @confio/ics23 has been
+# removed from the dep tree or a safe fix path exists upstream.
+ignoreUntil = 2026-06-01T00:00:00Z
+reason = "protobufjs 6.x advisory — no safe fix path; @confio/ics23@0.6.8 is deprecated and 7.x is an unsafe major jump for Cosmos proof parsing."
