@@ -153,6 +153,11 @@ export const VoteCard = ({
   // Always use the most recent transaction hash for explorer links
   const currentTxHash = cancelHash || queueHash || executeHash || hash;
 
+  const queueEndTime = useMemo(() => {
+    const eta = proposal.proposalQueued?.[0]?.eta;
+    return eta ? new Date(Number(eta) * 1000) : null;
+  }, [proposal.proposalQueued]);
+
   // Track if deadline has passed in real-time
   // Initialize as false to prevent hydration mismatch, will be updated in useEffect
   const [isDeadlinePassed, setIsDeadlinePassed] = useState(false);
@@ -608,20 +613,9 @@ export const VoteCard = ({
         );
       case "queued": {
         const queueTxHash = proposal.proposalQueued?.[0]?.transaction?.id;
-        const eta = proposal.proposalQueued?.[0]?.eta;
-        const queueEndTime = eta ? new Date(Number(eta) * 1000) : null;
         return (
           <>
             This proposal has been approved and is queued for execution.
-            {queueEndTime && (
-              <div className="mt-2 flex justify-center">
-                <Timer
-                  until={queueEndTime}
-                  label="Executable in:"
-                  expiredLabel="Executable since"
-                />
-              </div>
-            )}
             {queueTxHash && (
               <>
                 <br />
@@ -1234,6 +1228,15 @@ export const VoteCard = ({
                   </span>
                 ) : null}
               </div>
+            ) : !isCanceled &&
+              !isProposerCancelConfirmed &&
+              currentState === "queued" &&
+              queueEndTime ? (
+              <Timer
+                until={queueEndTime}
+                label="Executable in:"
+                expiredLabel="Executable since"
+              />
             ) : !isCanceled && !isProposerCancelConfirmed && votingDeadline ? (
               <Timer until={votingDeadline} />
             ) : null}
