@@ -27,7 +27,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Mento Reserve",
   description:
-    "A basket of cryptocurrencies enabling the Mento protocol to expand and contract the supply of Mento stable assets in-line with user demand.",
+    "Mento stablecoins are backed by a diversified crypto reserve and collateralized debt positions.",
   openGraph: {
     images: [
       {
@@ -65,7 +65,7 @@ export default function RootLayout({
               alt="Mento Reserve"
               width={1280}
               height={640}
-              className="-top-20 right-0 md:block 2xl:left-auto 2xl:right-0 absolute -bottom-[50px] left-1/3 -z-10 hidden h-[660px] w-auto object-cover"
+              className="-top-72 right-0 md:block 2xl:left-auto 2xl:right-0 absolute left-1/3 -z-10 hidden h-[660px] w-auto object-cover"
             />
             <section className="xl:px-22 max-w-2xl px-4 pb-0 md:pt-20">
               <h1 className="text-4xl font-medium md:text-6xl">
