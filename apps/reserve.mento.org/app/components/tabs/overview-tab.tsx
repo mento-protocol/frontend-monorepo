@@ -44,14 +44,14 @@ export function OverviewTab({
             className="flex-1"
           />
           <Operator>+</Operator>
-          <div className="p-4 md:p-6 flex-1 relative bg-card transition-colors hover:bg-accent">
+          <div className="p-4 md:p-6 relative flex-1 bg-card transition-colors hover:bg-accent">
             <button
               type="button"
               onClick={onNavigateToPositions}
               aria-label="Reserve Held Supply — view details"
-              className="absolute inset-0 z-0 cursor-pointer"
+              className="inset-0 absolute z-0 cursor-pointer"
             />
-            <span className="text-sm gap-1 relative z-10 flex items-center text-muted-foreground w-fit pointer-events-none">
+            <span className="text-sm gap-1 pointer-events-none relative z-10 flex w-fit items-center text-muted-foreground">
               Reserve Held Supply
               <span className="pointer-events-auto">
                 <InfoTooltip>
@@ -61,7 +61,7 @@ export function OverviewTab({
                 </InfoTooltip>
               </span>
             </span>
-            <p className="mt-1 text-xl font-medium md:text-2xl relative z-10 pointer-events-none">
+            <p className="mt-1 text-xl font-medium md:text-2xl pointer-events-none relative z-10">
               {formatUsd(supply.reserve_held_usd)}
             </p>
           </div>
@@ -91,9 +91,9 @@ export function OverviewTab({
                 type="button"
                 onClick={onNavigateToPositions}
                 aria-label="Reserve Held Supply — view details"
-                className="absolute inset-0 z-0 cursor-pointer"
+                className="inset-0 absolute z-0 cursor-pointer"
               />
-              <span className="text-xs gap-1 relative z-10 flex items-center text-muted-foreground w-fit pointer-events-none">
+              <span className="text-xs gap-1 pointer-events-none relative z-10 flex w-fit items-center text-muted-foreground">
                 Held
                 <span className="pointer-events-auto">
                   <InfoTooltip>
@@ -103,7 +103,7 @@ export function OverviewTab({
                   </InfoTooltip>
                 </span>
               </span>
-              <p className="mt-1 text-lg font-medium relative z-10 pointer-events-none">
+              <p className="mt-1 text-lg font-medium pointer-events-none relative z-10">
                 {formatUsd(supply.reserve_held_usd, true)}
               </p>
             </div>
@@ -265,4 +265,3 @@ function ComingSoonCard({ label }: { label: string }) {
     </div>
   );
 }
-
