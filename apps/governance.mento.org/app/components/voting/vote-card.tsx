@@ -158,6 +158,23 @@ export const VoteCard = ({
     return eta ? new Date(Number(eta) * 1000) : null;
   }, [proposal.proposalQueued]);
 
+  const [isVetoPeriodOver, setIsVetoPeriodOver] = useState(false);
+
+  useEffect(() => {
+    if (!queueEndTime) {
+      setIsVetoPeriodOver(false);
+      return;
+    }
+    const check = () => {
+      const over = new Date() >= queueEndTime;
+      setIsVetoPeriodOver(over);
+      return over;
+    };
+    if (check()) return;
+    const interval = setInterval(check, 1000);
+    return () => clearInterval(interval);
+  }, [queueEndTime]);
+
   // Track if deadline has passed in real-time
   // Initialize as false to prevent hydration mismatch, will be updated in useEffect
   const [isDeadlinePassed, setIsDeadlinePassed] = useState(false);
@@ -796,12 +813,9 @@ export const VoteCard = ({
         return null;
 
       case "queued": {
-        const proposalQueued =
-          proposal.proposalQueued && proposal.proposalQueued[0];
-        // Check if veto period has passed
-        const canExecute =
-          proposalQueued?.eta &&
-          Date.now() / 1000 > Number(proposalQueued?.eta);
+        // canExecute derives from isVetoPeriodOver (ticks every second) so the
+        // CTA flips in sync with the header countdown when ETA passes.
+        const canExecute = queueEndTime && isVetoPeriodOver;
 
         if (!address) {
           return (
