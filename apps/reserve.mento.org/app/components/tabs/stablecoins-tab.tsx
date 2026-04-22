@@ -65,8 +65,7 @@ export function StablecoinsTab({
       <p className="mb-6 max-w-xl text-sm text-muted-foreground">
         Debt is the circulating supply redeemable by the public. Reserve-held
         supply sits in reserve wallets and LP positions and is not counted as a
-        liability. Expand a row to see the per-stable and per-network
-        breakdown.
+        liability. Expand a row to see the per-stable and per-network breakdown.
       </p>
 
       <TreeTable<SupplyRow>
@@ -79,9 +78,7 @@ export function StablecoinsTab({
   );
 }
 
-function buildRows(
-  stablecoins: V2StablecoinsResponse,
-): TreeRow<SupplyRow>[] {
+function buildRows(stablecoins: V2StablecoinsResponse): TreeRow<SupplyRow>[] {
   const reserveCoins = stablecoins.stablecoins
     .filter((c) => c.backing_type === "reserve")
     .sort((a, b) => b.supply.total_usd - a.supply.total_usd);
@@ -102,9 +99,7 @@ function buildRows(
     debtUsd: c.supply.debt_usd,
     reserveHeldAmount: c.supply.reserve_held,
     reserveHeldUsd: c.supply.reserve_held_usd,
-    netAmount: String(
-      parseFloat(c.supply.total) - parseFloat(c.supply.lost),
-    ),
+    netAmount: String(parseFloat(c.supply.total) - parseFloat(c.supply.lost)),
     netUsd: c.supply.total_usd - c.supply.lost_usd,
     lostAmount: c.supply.lost,
     lostUsd: c.supply.lost_usd,
@@ -161,11 +156,10 @@ function buildRows(
     coinCount: stablecoins.stablecoins.length,
     accent: "total",
     debtUsd: stablecoins.total_debt_usd,
-    reserveHeldUsd:
-      stablecoins.stablecoins.reduce(
-        (s, c) => s + c.supply.reserve_held_usd,
-        0,
-      ),
+    reserveHeldUsd: stablecoins.stablecoins.reduce(
+      (s, c) => s + c.supply.reserve_held_usd,
+      0,
+    ),
     netUsd: stablecoins.stablecoins.reduce(
       (s, c) => s + c.supply.total_usd - c.supply.lost_usd,
       0,
@@ -206,7 +200,7 @@ const columns: Column<SupplyRow>[] = [
         return (
           <span className="gap-2 inline-flex items-center">
             <NetworkLabel chain={row.chain} />
-            <span className="text-xs font-mono text-muted-foreground max-w-[120px] truncate">
+            <span className="text-xs font-mono max-w-[120px] truncate text-muted-foreground">
               {row.address.slice(0, 6)}...{row.address.slice(-4)}
             </span>
           </span>
@@ -287,9 +281,7 @@ const columns: Column<SupplyRow>[] = [
       if (row.kind === "category")
         return <CategoryNum>{formatUsd(row.netUsd)}</CategoryNum>;
       if (row.kind === "chain") {
-        return (
-          <SupplyAmount amount={row.netAmount} usd={row.netUsd} muted />
-        );
+        return <SupplyAmount amount={row.netAmount} usd={row.netUsd} muted />;
       }
       return (
         <SupplyAmount
@@ -311,9 +303,7 @@ const columns: Column<SupplyRow>[] = [
     cell: (row) => {
       if (row.kind === "chain") return null;
       return (
-        <span
-          className={row.kind === "category" ? "font-medium" : undefined}
-        >
+        <span className={row.kind === "category" ? "font-medium" : undefined}>
           {formatPercent(row.mcapPct)}
         </span>
       );
@@ -394,7 +384,7 @@ function SupplyAmount({
         )}
       </span>
       <span
-        className={`block text-xs ${muted ? "text-muted-foreground/70" : "text-muted-foreground"}`}
+        className={`text-xs block ${muted ? "text-muted-foreground/70" : "text-muted-foreground"}`}
       >
         = {formatUsd(usd)}
       </span>

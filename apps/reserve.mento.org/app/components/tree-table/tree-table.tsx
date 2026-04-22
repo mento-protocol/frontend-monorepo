@@ -171,7 +171,7 @@ function TreeTableRow<T>({
                 onClick={() => toggle(row.id)}
                 aria-expanded={open}
                 aria-label={open ? "Collapse" : "Expand"}
-                className="size-5 -ml-1 shrink-0 cursor-pointer inline-flex items-center justify-center rounded text-xs text-muted-foreground hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+                className="size-5 -ml-1 rounded text-xs inline-flex shrink-0 cursor-pointer items-center justify-center text-muted-foreground hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
               >
                 <span
                   className={`transition-transform ${open ? "rotate-90" : ""}`}
@@ -197,9 +197,7 @@ function TreeTableRow<T>({
     <>
       <tr
         className={`border-b border-[var(--border)] ${
-          expandable
-            ? "cursor-pointer transition-colors hover:bg-accent"
-            : ""
+          expandable ? "cursor-pointer transition-colors hover:bg-accent" : ""
         } ${rowClassName?.(row, depth) ?? ""}`}
         onClick={
           expandable

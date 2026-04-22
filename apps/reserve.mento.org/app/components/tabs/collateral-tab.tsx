@@ -292,9 +292,7 @@ const columns: Column<CollateralRow>[] = [
       return (
         <span
           className={
-            row.kind === "peg" ||
-            row.kind === "total" ||
-            row.kind === "network"
+            row.kind === "peg" || row.kind === "total" || row.kind === "network"
               ? "font-medium"
               : undefined
           }

@@ -245,7 +245,12 @@ function OperationalHoldingsSection({
 }) {
   const grouped = new Map<
     string,
-    { symbol: string; totalBalance: number; totalUsd: number; custodies: HoldingEntry[] }
+    {
+      symbol: string;
+      totalBalance: number;
+      totalUsd: number;
+      custodies: HoldingEntry[];
+    }
   >();
   for (const h of holdings) {
     let group = grouped.get(h.token);
@@ -586,7 +591,8 @@ const liquidityColumns: Column<LiquidityRow>[] = [
           </span>
         );
       }
-      if (row.kind === "position") return <TokenColumn tokens={row.mentoTokens} />;
+      if (row.kind === "position")
+        return <TokenColumn tokens={row.mentoTokens} />;
       if (row.kind === "protoSubtotals")
         return <TokenColumn tokens={row.mentoTokens} />;
       return (
@@ -895,8 +901,8 @@ function CdpTrovesSection({
                   Overhead
                   <InfoTooltip>
                     The portion of CDP collateral left after reserving enough
-                    capital to repay the debt plus a wiggle-room buffer.
-                    Counted as reserve-held, not a liability.
+                    capital to repay the debt plus a wiggle-room buffer. Counted
+                    as reserve-held, not a liability.
                   </InfoTooltip>
                 </div>
               </th>
@@ -991,9 +997,9 @@ function TroveRow({
           <div className="gap-1 inline-flex items-center">
             {formatUsd(trove.overhead.usd)}
             <InfoTooltip>
-              max(0, {formatUsd(trove.collateral_usd)} − ({formatUsd(trove.debt_usd)}
-              × (1 + {trove.overhead.wiggleroom_pct}%))) ={" "}
-              {formatUsd(trove.overhead.usd)}
+              max(0, {formatUsd(trove.collateral_usd)} − (
+              {formatUsd(trove.debt_usd)}× (1 + {trove.overhead.wiggleroom_pct}
+              %))) = {formatUsd(trove.overhead.usd)}
             </InfoTooltip>
           </div>
         ) : (

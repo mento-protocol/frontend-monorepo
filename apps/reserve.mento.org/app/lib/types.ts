@@ -111,12 +111,7 @@ export interface V2ReserveResponse {
       usd_value: number;
     }>;
     by_source: Array<{
-      type:
-        | "wallet"
-        | "aave"
-        | "lp"
-        | "stability_pool"
-        | "cdp_overhead";
+      type: "wallet" | "aave" | "lp" | "stability_pool" | "cdp_overhead";
       label: string;
       usd_value: number;
     }>;
