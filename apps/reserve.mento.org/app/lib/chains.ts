@@ -1,4 +1,4 @@
-export const CHAIN_LABEL: Record<string, string> = {
+const CHAIN_LABEL: Record<string, string> = {
   celo: "Celo",
   ethereum: "Ethereum",
   monad: "Monad",
