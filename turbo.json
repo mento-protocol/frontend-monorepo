@@ -52,6 +52,6 @@
     }
   },
   "remoteCache": {
-    "signature": false
+    "signature": true
   }
 }
