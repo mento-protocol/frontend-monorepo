@@ -348,7 +348,13 @@ The signing key is provisioned in:
 - GitHub Actions, as the `TURBO_REMOTE_CACHE_SIGNATURE_KEY` Repository Secret.
 - Each Vercel project (`app.mento.org`, `governance.mento.org`, `reserve.mento.org`, `ui.mento.org`) for production, preview, and development environments.
 
-If you need to _write_ to the cache locally (most contributors don't — reads work without the key), export `TURBO_REMOTE_CACHE_SIGNATURE_KEY` in your shell with the same value. Ask a maintainer for the value; never commit it.
+**Local development:** With signing enabled, both reads and writes require the key — a Turbo client without `TURBO_REMOTE_CACHE_SIGNATURE_KEY` cannot verify signatures on downloaded artifacts and treats every task as a remote-cache miss (it then runs the task locally and uses local cache normally). To get remote-cache hits locally, export the key in your shell with the same value used in CI:
+
+```bash
+export TURBO_REMOTE_CACHE_SIGNATURE_KEY="<value from a maintainer>"
+```
+
+Never commit the key. If you don't set it, nothing breaks — you just lose the remote-cache speedup.
 
 **Rotating the key:** generate a new value (`openssl rand -hex 64`), then update all 13 locations in lockstep (1 GitHub secret + 4 projects × 3 envs). After rotation, the cache is effectively wiped — first build per task repopulates it.
 
