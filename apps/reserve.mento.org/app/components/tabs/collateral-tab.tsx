@@ -4,7 +4,9 @@ import Image from "next/image";
 import type { V2ReserveResponse } from "@/lib/types";
 import { formatUsd, formatNumber, formatPercent } from "@/lib/format";
 import { CHAIN_ICON, chainLabel } from "@/lib/chains";
+import { useV2Query } from "@/lib/use-v2-query";
 import { TreeTable, type Column, type TreeRow } from "../tree-table";
+import { TabSkeleton } from "../tab-skeleton";
 
 const SOURCE_TYPE_LABEL: Record<string, string> = {
   wallet: "Wallet",
@@ -90,7 +92,9 @@ type CollateralRow = PegRow | NetworkRow | AssetRow | SourceRow | TotalRow;
 
 type Asset = V2ReserveResponse["collateral"]["assets"][number];
 
-export function CollateralTab({ reserve }: { reserve: V2ReserveResponse }) {
+export function CollateralTab() {
+  const { data: reserve } = useV2Query("reserve");
+  if (!reserve) return <TabSkeleton />;
   const { assets } = reserve.collateral;
 
   // Show every asset — no dust filter — so the grand Total row in the table

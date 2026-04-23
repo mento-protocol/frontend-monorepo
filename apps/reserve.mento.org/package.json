@@ -15,6 +15,7 @@
     "@repo/web3": "workspace:*",
     "@sentry/nextjs": "catalog:",
     "@t3-oss/env-nextjs": "catalog:",
+    "@tanstack/react-query": "catalog:",
     "@vercel/analytics": "catalog:",
     "lucide-react": "catalog:",
     "next": "catalog:",

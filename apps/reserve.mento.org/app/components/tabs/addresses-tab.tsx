@@ -3,8 +3,9 @@
 import { useState, useEffect, useRef } from "react";
 import * as Sentry from "@sentry/nextjs";
 import { Check, ClipboardCopy } from "lucide-react";
-import type { V2AddressesResponse } from "@/lib/types";
 import { chainLabel } from "@/lib/chains";
+import { useV2Query } from "@/lib/use-v2-query";
+import { TabSkeleton } from "../tab-skeleton";
 
 function getAddressUrl(chain: string, address: string): string {
   // DeBank only indexes EVM chains; send native Bitcoin addresses to a
@@ -20,11 +21,8 @@ function getAddressLinkTitle(chain: string): string {
   return "View DeFi portfolio and positions on DeBank";
 }
 
-export function AddressesTab({
-  addresses,
-}: {
-  addresses: V2AddressesResponse;
-}) {
+export function AddressesTab() {
+  const { data: addresses } = useV2Query("addresses");
   const [copiedAddresses, setCopiedAddresses] = useState<Set<string>>(
     new Set(),
   );
@@ -73,6 +71,8 @@ export function AddressesTab({
       });
     }
   };
+
+  if (!addresses) return <TabSkeleton />;
 
   return (
     <div className="gap-4 md:gap-8 flex h-full flex-col">

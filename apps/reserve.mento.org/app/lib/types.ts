@@ -270,11 +270,3 @@ export interface V2AddressesResponse {
   }>;
   meta?: V2Meta;
 }
-
-// Aggregated data passed to the page
-export interface ReservePageData {
-  overview: V2OverviewResponse;
-  stablecoins: V2StablecoinsResponse;
-  reserve: V2ReserveResponse;
-  addresses: V2AddressesResponse;
-}

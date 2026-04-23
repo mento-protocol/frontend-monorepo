@@ -1,19 +1,18 @@
 "use client";
 
-import type { V2OverviewResponse } from "@/lib/types";
 import { formatUsd } from "@/lib/format";
 import { chainLabel } from "@/lib/chains";
+import { useV2Query } from "@/lib/use-v2-query";
 import { InfoTooltip } from "../info-tooltip";
+import { TabSkeleton } from "../tab-skeleton";
 
 interface OverviewTabProps {
-  overview: V2OverviewResponse;
   onNavigateToPositions: () => void;
 }
 
-export function OverviewTab({
-  overview,
-  onNavigateToPositions,
-}: OverviewTabProps) {
+export function OverviewTab({ onNavigateToPositions }: OverviewTabProps) {
+  const { data: overview } = useV2Query("overview");
+  if (!overview) return <TabSkeleton />;
   const { supply, reserve_backing, cdp_backings } = overview;
   const activeCdps = cdp_backings.filter((c) => c.status === "active");
 

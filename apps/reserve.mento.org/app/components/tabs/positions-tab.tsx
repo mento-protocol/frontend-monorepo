@@ -5,8 +5,10 @@ import type { V2ReserveResponse, V2StablecoinsResponse } from "@/lib/types";
 import { formatUsd, formatNumber, formatPercent } from "@/lib/format";
 import { getBlockExplorerUrl, truncateAddress } from "@/lib/format";
 import { chainLabel } from "@/lib/chains";
+import { useV2Query } from "@/lib/use-v2-query";
 import { InfoTooltip } from "../info-tooltip";
 import { TreeTable, type Column, type TreeRow } from "../tree-table";
+import { TabSkeleton } from "../tab-skeleton";
 
 type Protocol = "AAVE" | "Uniswap V3" | "Mento FPMM" | "Mento Liquity V2";
 
@@ -46,7 +48,14 @@ type LiquidityPosition = {
   chain: string;
 };
 
-export function PositionsTab({
+export function PositionsTab() {
+  const { data: reserve } = useV2Query("reserve");
+  const { data: stablecoins } = useV2Query("stablecoins");
+  if (!reserve || !stablecoins) return <TabSkeleton />;
+  return <PositionsTabView reserve={reserve} stablecoins={stablecoins} />;
+}
+
+function PositionsTabView({
   reserve,
   stablecoins,
 }: {
