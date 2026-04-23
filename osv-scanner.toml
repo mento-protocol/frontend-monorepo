@@ -72,3 +72,42 @@ id = "GHSA-xq3m-2v4x-88gg"
 # removed from the dep tree or a safe fix path exists upstream.
 ignoreUntil = 2026-06-01T00:00:00Z
 reason = "protobufjs 6.x advisory — no safe fix path; @confio/ics23@0.6.8 is deprecated and 7.x is an unsafe major jump for Cosmos proof parsing."
+
+[[IgnoredVulns]]
+id = "GHSA-w5hq-g745-h8pq"
+# uuid: missing buffer bounds check in v3/v5/v6 when a `buf` argument is provided.
+# Fixed upstream in uuid@14.0.0, but uuid@14 is ESM-only. CJS transitive
+# consumers in the wallet/RPC stack still do `require("uuid")` and would throw
+# ERR_REQUIRE_ESM at runtime if upgraded.
+#
+# Full audit of every package in pnpm-lock.yaml that declares a pre-14 `uuid`
+# dependency (16 unique entries), with the uuid APIs each actually calls in
+# its installed build:
+#
+#   Package                              | APIs used                       | Vulnerable path?
+#   -------------------------------------|---------------------------------|-----------------
+#   @aptos-connect/web-transport 0.2.0   | stringify                       | no
+#   @identity-connect/dapp-sdk 0.10.5    | parse, stringify                | no
+#   @keystonehq/bc-ur-registry-sol 0.9.5 | parse                           | no
+#   @keystonehq/sol-keyring 0.20.0       | v4, stringify                   | no (v4 random)
+#   @metamask/sdk 0.33.1                 | v4, parse, stringify, validate  | no (v4 random)
+#   @metamask/sdk-communication-layer …  | v4, parse, stringify, validate  | no (v4 random)
+#   @metamask/utils 8.5.0                | v4, parse, stringify            | no (v4 random)
+#   @metamask/utils 9.3.0                | v4, parse, stringify            | no (v4 random)
+#   @metamask/utils 11.9.0               | v4, parse, stringify            | no (v4 random)
+#   @sentry/webpack-plugin 4.7.0         | v4                              | no (v4 random)
+#   @solflare-wallet/metamask-sdk 1.0.3  | v4 (aliased)                    | no (v4 random)
+#   @solflare-wallet/sdk 1.4.2           | v4 (aliased)                    | no (v4 random)
+#   jayson 4.3.0                         | parse, stringify, version       | no
+#   rpc-websockets 7.11.2                | parse, stringify                | no
+#   rpc-websockets 9.3.2                 | v1, parse, stringify            | no (v1 time-based)
+#   uuidv4 6.2.13                        | v4, v5(text, ns), validate, NIL | no (v5 no buf)
+#
+# No consumer calls `v3`, `v6`, or `v5` with a 3rd `buf` argument. The
+# vulnerable code path is unreachable across the entire dep tree.
+#
+# TODO: Re-evaluate at ignoreUntil — re-run the audit after any major
+# lockfile churn (e.g. new wallet SDK, upstream ESM migrations) to confirm
+# no new pre-14 uuid consumer has entered the tree on a vulnerable path.
+ignoreUntil = 2026-08-01T00:00:00Z
+reason = "uuid v3/v5/v6+buf advisory — unreachable (all 16 pre-14 consumers audited; none call v3, v6, or v5 with a buf argument); upgrade blocked by ESM-only uuid@14 vs CJS consumers."
