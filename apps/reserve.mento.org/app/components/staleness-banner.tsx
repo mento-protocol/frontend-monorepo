@@ -6,39 +6,13 @@ import type { V2MetaWarning } from "@/lib/types";
 
 interface StalenessBannerProps {
   warnings: V2MetaWarning[];
+  summary: string;
 }
 
-function formatAge(cachedSinceIso: string): string | null {
-  const cachedMs = Date.parse(cachedSinceIso);
-  if (Number.isNaN(cachedMs)) return null;
-  const minutes = Math.max(0, Math.floor((Date.now() - cachedMs) / 60_000));
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const remaining = minutes % 60;
-  return remaining ? `${hours}h ${remaining}m` : `${hours}h`;
-}
-
-function oldestAge(warnings: V2MetaWarning[]): string | null {
-  const times = warnings
-    .map((w) => (w.cached_since ? Date.parse(w.cached_since) : NaN))
-    .filter((t) => !Number.isNaN(t));
-  if (!times.length) return null;
-  const oldest = Math.min(...times);
-  return formatAge(new Date(oldest).toISOString());
-}
-
-export function StalenessBanner({ warnings }: StalenessBannerProps) {
+export function StalenessBanner({ warnings, summary }: StalenessBannerProps) {
   const [open, setOpen] = useState(false);
 
   if (!warnings.length) return null;
-
-  const count = warnings.length;
-  const age = oldestAge(warnings);
-  const subject =
-    count === 1 ? "1 data source is" : `${count} data sources are`;
-  const summary = age
-    ? `${subject} stale — some data is as old as ${age}`
-    : `${subject} stale`;
 
   return (
     <Collapsible
