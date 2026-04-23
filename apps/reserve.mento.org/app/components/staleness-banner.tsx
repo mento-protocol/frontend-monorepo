@@ -1,11 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@repo/ui";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@repo/ui";
 import type { V2MetaWarning } from "@/lib/types";
 
 interface StalenessBannerProps {
@@ -38,7 +34,8 @@ export function StalenessBanner({ warnings }: StalenessBannerProps) {
 
   const count = warnings.length;
   const age = oldestAge(warnings);
-  const subject = count === 1 ? "1 data source is" : `${count} data sources are`;
+  const subject =
+    count === 1 ? "1 data source is" : `${count} data sources are`;
   const summary = age
     ? `${subject} stale — some data is as old as ${age}`
     : `${subject} stale`;
@@ -51,15 +48,15 @@ export function StalenessBanner({ warnings }: StalenessBannerProps) {
     >
       <CollapsibleTrigger
         aria-label={open ? "Hide staleness details" : "Show staleness details"}
-        className="flex w-full items-center gap-3 px-4 py-2.5 text-left"
+        className="gap-3 px-4 py-2.5 flex w-full items-center text-left"
       >
         <span
           aria-hidden
-          className="rounded bg-amber-500/20 px-1.5 py-0.5 font-medium text-amber-400 text-[10px] uppercase tracking-wide"
+          className="rounded bg-amber-500/20 px-1.5 py-0.5 font-medium text-amber-400 tracking-wide text-[10px] uppercase"
         >
           Stale
         </span>
-        <span className="flex-1 text-sm">{summary}</span>
+        <span className="text-sm flex-1">{summary}</span>
         <svg
           aria-hidden
           viewBox="0 0 16 16"
@@ -70,15 +67,11 @@ export function StalenessBanner({ warnings }: StalenessBannerProps) {
           stroke="currentColor"
           strokeWidth="2"
         >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M4 6l4 4 4-4"
-          />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4 6l4 4 4-4" />
         </svg>
       </CollapsibleTrigger>
       <CollapsibleContent className="px-4 pb-3">
-        <p className="text-muted-foreground text-xs">
+        <p className="text-xs text-muted-foreground">
           One or more data sources fell back to a cached snapshot. Values below
           may not reflect the latest state.
         </p>
@@ -86,7 +79,7 @@ export function StalenessBanner({ warnings }: StalenessBannerProps) {
           {warnings.map((warning, index) => (
             <li
               key={`${warning.source}-${index}`}
-              className="text-muted-foreground text-xs"
+              className="text-xs text-muted-foreground"
             >
               <span className="text-foreground">{warning.source}:</span>{" "}
               {warning.message}
