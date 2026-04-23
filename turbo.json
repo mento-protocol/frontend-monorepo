@@ -18,6 +18,7 @@
     "SENTRY_AUTH_TOKEN",
     "CHAINALYSIS_API_KEY"
   ],
+  "globalPassThroughEnv": ["TURBO_REMOTE_CACHE_SIGNATURE_KEY"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
