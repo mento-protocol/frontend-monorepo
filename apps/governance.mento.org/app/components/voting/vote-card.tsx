@@ -158,22 +158,21 @@ export const VoteCard = ({
     return eta ? new Date(Number(eta) * 1000) : null;
   }, [proposal.proposalQueued]);
 
-  const [isVetoPeriodOver, setIsVetoPeriodOver] = useState(false);
-
+  // Force a rerender every second while the veto period is active so the
+  // derived isVetoPeriodOver below stays in sync with wall-clock time. The
+  // gate itself is computed synchronously per render, so already-executable
+  // proposals flip the CTA on first paint rather than after the effect runs.
+  const [, setTick] = useState(0);
   useEffect(() => {
-    if (!queueEndTime) {
-      setIsVetoPeriodOver(false);
-      return;
-    }
-    const check = () => {
-      const over = new Date() >= queueEndTime;
-      setIsVetoPeriodOver(over);
-      return over;
-    };
-    if (check()) return;
-    const interval = setInterval(check, 1000);
+    if (!queueEndTime) return;
+    if (new Date() >= queueEndTime) return;
+    const interval = setInterval(() => {
+      setTick((t) => t + 1);
+      if (new Date() >= queueEndTime) clearInterval(interval);
+    }, 1000);
     return () => clearInterval(interval);
   }, [queueEndTime]);
+  const isVetoPeriodOver = !!queueEndTime && new Date() >= queueEndTime;
 
   // Track if deadline has passed in real-time
   // Initialize as false to prevent hydration mismatch, will be updated in useEffect
@@ -628,24 +627,10 @@ export const VoteCard = ({
             The changes outlined in the proposal are now in effect.
           </>
         );
-      case "queued": {
-        const queueTxHash = proposal.proposalQueued?.[0]?.transaction?.id;
+      case "queued":
         return (
-          <>
-            This proposal has been approved and is queued for execution.
-            {queueTxHash && (
-              <>
-                <br />
-                <Button variant="outline" size="lg" asChild>
-                  <TransactionLink txHash={queueTxHash}>
-                    View queue transaction
-                  </TransactionLink>
-                </Button>
-              </>
-            )}
-          </>
+          <>This proposal has been approved and is queued for execution.</>
         );
-      }
       case "succeeded":
         return (
           <>
@@ -739,7 +724,6 @@ export const VoteCard = ({
     againstVotes,
     abstainVotes,
     quorumNeededFormatted,
-    proposal.proposalQueued,
     proposal.proposalCanceled,
   ]);
 
