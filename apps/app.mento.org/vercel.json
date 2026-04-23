@@ -1,4 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "ignoreCommand": "npx turbo-ignore app.mento.org --fallback=origin/main"
+  "ignoreCommand": "npx turbo-ignore app.mento.org"
 }
