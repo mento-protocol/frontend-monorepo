@@ -158,21 +158,26 @@ export const VoteCard = ({
     return eta ? new Date(Number(eta) * 1000) : null;
   }, [proposal.proposalQueued]);
 
-  // Force a rerender every second while the veto period is active so the
-  // derived isVetoPeriodOver below stays in sync with wall-clock time. The
-  // gate itself is computed synchronously per render, so already-executable
-  // proposals flip the CTA on first paint rather than after the effect runs.
-  const [, setTick] = useState(0);
+  // Track whether the veto period has passed. Initialized as false so SSR
+  // and client-hydration render structurally identical CTA branches — same
+  // tradeoff isDeadlinePassed below makes. An already-executable proposal
+  // briefly paints "In Veto Period" for one frame before the effect flips
+  // the gate; accepted as the price of structural hydration safety.
+  const [isVetoPeriodOver, setIsVetoPeriodOver] = useState(false);
   useEffect(() => {
-    if (!queueEndTime) return;
-    if (new Date() >= queueEndTime) return;
-    const interval = setInterval(() => {
-      setTick((t) => t + 1);
-      if (new Date() >= queueEndTime) clearInterval(interval);
-    }, 1000);
+    if (!queueEndTime) {
+      setIsVetoPeriodOver(false);
+      return;
+    }
+    const check = () => {
+      const over = new Date() >= queueEndTime;
+      setIsVetoPeriodOver(over);
+      return over;
+    };
+    if (check()) return;
+    const interval = setInterval(check, 1000);
     return () => clearInterval(interval);
   }, [queueEndTime]);
-  const isVetoPeriodOver = !!queueEndTime && new Date() >= queueEndTime;
 
   // Track if deadline has passed in real-time
   // Initialize as false to prevent hydration mismatch, will be updated in useEffect

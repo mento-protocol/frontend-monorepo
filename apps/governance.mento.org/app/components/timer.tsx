@@ -25,14 +25,11 @@ export const Timer = ({
   label = "Time left:",
   expiredLabel = "Voting ended",
 }: TimerProps) => {
-  const [timeLeft, setTimeLeft] = useState<TimeLeft>({
-    weeks: 0,
-    days: 0,
-    hours: 0,
-    minutes: 0,
-    seconds: 0,
-    isFinished: false,
-  });
+  // null before first tick (SSR + first client render) so an already-past
+  // `until` doesn't flash "{label} 0m 0s" before the effect runs. SSR and
+  // hydration both render the placeholder below, then the effect computes
+  // the real state on mount — no hydration mismatch, no zero flash.
+  const [timeLeft, setTimeLeft] = useState<TimeLeft | null>(null);
 
   useEffect(() => {
     const calculateTimeLeft = () => {
@@ -76,8 +73,8 @@ export const Timer = ({
     return () => clearInterval(timer);
   }, [until]);
 
-  const formatTimeLeft = () => {
-    const { weeks, days, hours, minutes, seconds } = timeLeft;
+  const formatTimeLeft = (t: TimeLeft) => {
+    const { weeks, days, hours, minutes, seconds } = t;
 
     // Format based on the largest non-zero unit
     if (weeks > 0) {
@@ -95,6 +92,20 @@ export const Timer = ({
     return formatInTimeZone(until, "UTC", "MMM do, yyyy, HH:mm 'UTC'");
   };
 
+  // First paint (SSR + pre-effect): icon + active label, no time. Prevents
+  // "{label} 0m 0s" flash for already-past `until` values while keeping
+  // SSR output stable for hydration.
+  if (!timeLeft) {
+    return (
+      <div className="gap-2 flex items-center">
+        <span className="gap-1 flex items-center">
+          <TimerIcon size={16} />
+          {label}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div className="gap-2 flex items-center">
       {timeLeft.isFinished ? (
@@ -111,7 +122,9 @@ export const Timer = ({
             <TimerIcon size={16} />
             {label}
           </span>
-          <span className="text-muted-foreground">{formatTimeLeft()}</span>
+          <span className="text-muted-foreground">
+            {formatTimeLeft(timeLeft)}
+          </span>
         </>
       )}
     </div>
