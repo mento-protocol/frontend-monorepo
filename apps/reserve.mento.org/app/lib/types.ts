@@ -9,6 +9,19 @@ export enum Chain {
 export type BackingType = "reserve" | "cdp";
 export type TroveStatus = "active" | "pending";
 
+// Present on a v2 response only when the API fell back to cached data or
+// had partial failures. Absent on fully healthy responses.
+export interface V2MetaWarning {
+  source: string;
+  message: string;
+  cached_since?: string;
+}
+
+export interface V2Meta {
+  timestamp: string;
+  warnings: V2MetaWarning[];
+}
+
 // GET /api/v2/overview
 export interface V2OverviewResponse {
   supply: {
@@ -38,6 +51,7 @@ export interface V2OverviewResponse {
     chain: Chain;
   }>;
   timestamp: string;
+  meta?: V2Meta;
 }
 
 // Supply breakdown (shared between aggregate and per-network)
@@ -73,6 +87,7 @@ export interface V2StablecoinsResponse {
     network_supplies: NetworkSupply[];
     market_cap_percentage: number;
   }>;
+  meta?: V2Meta;
 }
 
 type CollateralSourceType =
@@ -237,6 +252,7 @@ export interface V2ReserveResponse {
       collateral_gained_usd: number;
     }>;
   };
+  meta?: V2Meta;
 }
 
 // GET /api/v2/addresses
@@ -252,12 +268,5 @@ export interface V2AddressesResponse {
       }>;
     }>;
   }>;
-}
-
-// Aggregated data passed to the page
-export interface ReservePageData {
-  overview: V2OverviewResponse;
-  stablecoins: V2StablecoinsResponse;
-  reserve: V2ReserveResponse;
-  addresses: V2AddressesResponse;
+  meta?: V2Meta;
 }

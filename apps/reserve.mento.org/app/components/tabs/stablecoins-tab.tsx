@@ -4,9 +4,11 @@ import Image from "next/image";
 import type { V2StablecoinsResponse } from "@/lib/types";
 import { formatUsd, formatNumber, formatPercent } from "@/lib/format";
 import { chainLabel } from "@/lib/chains";
+import { useV2Query } from "@/lib/use-v2-query";
 import { IconInfo } from "@repo/ui";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@repo/ui";
 import { TreeTable, type Column, type TreeRow } from "../tree-table";
+import { TabSkeleton } from "../tab-skeleton";
 
 type CategoryRow = {
   kind: "category";
@@ -50,11 +52,9 @@ type ChainRow = {
 
 type SupplyRow = CategoryRow | CoinRow | ChainRow;
 
-export function StablecoinsTab({
-  stablecoins,
-}: {
-  stablecoins: V2StablecoinsResponse;
-}) {
+export function StablecoinsTab() {
+  const { data: stablecoins } = useV2Query("stablecoins");
+  if (!stablecoins) return <TabSkeleton />;
   const rows = buildRows(stablecoins);
 
   return (
