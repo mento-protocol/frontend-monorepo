@@ -19,6 +19,20 @@ export const DEBT_TOKEN_CONFIGS: Record<string, DebtTokenConfig> = {
     locale: "en-GB",
     collateralSymbol: "USDm",
   },
+  CHFm: {
+    symbol: "CHFm",
+    currencySymbol: "₣",
+    currencyCode: "CHF",
+    locale: "de-CH",
+    collateralSymbol: "USDm",
+  },
+  JPYm: {
+    symbol: "JPYm",
+    currencySymbol: "¥",
+    currencyCode: "JPY",
+    locale: "ja-JP",
+    collateralSymbol: "USDm",
+  },
 } as const;
 
 export function getDebtTokenConfig(symbol: string): DebtTokenConfig {

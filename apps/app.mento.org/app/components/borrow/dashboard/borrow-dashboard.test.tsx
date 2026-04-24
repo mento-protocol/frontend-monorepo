@@ -1,11 +1,27 @@
 import React from "react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const pushMock = vi.fn();
 
 const mockToken = {
   symbol: "GBPm",
+  collateralSymbol: "CELO",
+};
+
+const mockChfmToken = {
+  symbol: "CHFm",
+  collateralSymbol: "CELO",
+};
+
+const mockJpymToken = {
+  symbol: "JPYm",
   collateralSymbol: "CELO",
 };
 
@@ -170,6 +186,42 @@ describe("BorrowDashboard", () => {
       ).toBeTruthy();
       expect(screen.getAllByText("Unavailable")).toHaveLength(2);
     });
+  });
+
+  it("renders one market card per supported debt token in the empty state", async () => {
+    mockSupportedDebtTokens = [mockChfmToken, mockToken, mockJpymToken];
+    mockCollateralPrices = {
+      CHFm: 10n ** 18n,
+      GBPm: 10n ** 18n,
+      JPYm: 10n ** 18n,
+    };
+    mockCollateralPriceErrors = { CHFm: null, GBPm: null, JPYm: null };
+
+    render(<BorrowDashboard />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("market-card-CHFm")).toBeTruthy();
+      expect(screen.getByTestId("market-card-GBPm")).toBeTruthy();
+      expect(screen.getByTestId("market-card-JPYm")).toBeTruthy();
+      expect(screen.getByText("3 markets")).toBeTruthy();
+    });
+  });
+
+  it("routes to /borrow/open?token=<symbol> when a market card is activated", async () => {
+    mockSupportedDebtTokens = [mockChfmToken, mockToken, mockJpymToken];
+    mockCollateralPrices = {
+      CHFm: 10n ** 18n,
+      GBPm: 10n ** 18n,
+      JPYm: 10n ** 18n,
+    };
+    mockCollateralPriceErrors = { CHFm: null, GBPm: null, JPYm: null };
+
+    render(<BorrowDashboard />);
+
+    const chfmCard = await screen.findByTestId("market-card-CHFm");
+    fireEvent.click(chfmCard);
+
+    expect(pushMock).toHaveBeenCalledWith("/borrow/open?token=CHFm");
   });
 
   it("uses a responsive summary grid instead of a fixed four-column inline layout", async () => {

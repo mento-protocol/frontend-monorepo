@@ -19,8 +19,8 @@ import {
 } from "@repo/web3/wagmi";
 import { parseUnits, erc20Abi, type Address } from "viem";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   getSupportedCollaterals,
   getSupportedDebtTokens,
@@ -46,12 +46,23 @@ function parseRateToBigint(pctString: string): bigint | null {
   }
 }
 
-function getInitialDebtToken(tokens: DebtTokenConfig[]): DebtTokenConfig {
+function getInitialDebtToken(
+  tokens: DebtTokenConfig[],
+  preferredSymbol?: string | null,
+): DebtTokenConfig {
+  if (preferredSymbol) {
+    const preferred = tokens.find(
+      (token) => token.symbol.toLowerCase() === preferredSymbol.toLowerCase(),
+    );
+    if (preferred) return preferred;
+  }
   return tokens.find((token) => token.symbol === "GBPm") ?? tokens[0]!;
 }
 
 export function OpenTroveForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const preferredTokenSymbol = searchParams.get("token");
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const wagmiConfig = useConfig();
@@ -62,7 +73,7 @@ export function OpenTroveForm() {
   const [selectedDebtToken, setSelectedDebtToken] = useState<DebtTokenConfig>(
     () =>
       supportedDebtTokens.length > 0
-        ? getInitialDebtToken(supportedDebtTokens)
+        ? getInitialDebtToken(supportedDebtTokens, preferredTokenSymbol)
         : getDebtTokenConfig("GBPm"),
   );
   const [formState, setFormState] = useState({
@@ -71,15 +82,27 @@ export function OpenTroveForm() {
     interestRate: "",
   });
 
+  const hasHydratedSupportedTokens = useRef(false);
   useEffect(() => {
     if (supportedDebtTokens.length === 0) return;
+    const isFirstHydration = !hasHydratedSupportedTokens.current;
+    hasHydratedSupportedTokens.current = true;
     setSelectedDebtToken((current) => {
+      // On first hydration, honor ?token= from the URL even if the bootstrap
+      // fallback (GBPm) happens to be in the list.
+      if (isFirstHydration && preferredTokenSymbol) {
+        const preferred = supportedDebtTokens.find(
+          (token) =>
+            token.symbol.toLowerCase() === preferredTokenSymbol.toLowerCase(),
+        );
+        if (preferred && preferred.symbol !== current.symbol) return preferred;
+      }
       const next =
         supportedDebtTokens.find((token) => token.symbol === current.symbol) ??
         getInitialDebtToken(supportedDebtTokens);
       return next.symbol === current.symbol ? current : next;
     });
-  }, [supportedDebtTokens]);
+  }, [supportedDebtTokens, preferredTokenSymbol]);
 
   const collateralOptions = useMemo(
     () =>

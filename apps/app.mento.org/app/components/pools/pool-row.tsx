@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { ChevronDown, Star } from "lucide-react";
 import {
   Badge,
@@ -15,8 +15,6 @@ import {
   type ChainId,
   getPoolDisplayOrder,
 } from "@repo/web3";
-import { useAccount, useReadContract } from "@repo/web3/wagmi";
-import { erc20Abi, type Address } from "viem";
 import Link from "next/link";
 import Image from "next/image";
 import { PoolAddressPopover } from "./pool-address-popover";
@@ -35,26 +33,23 @@ function formatCompactTvl(value: number): string {
 
 interface PoolRowProps {
   pool: PoolDisplay;
+  hasLPTokens: boolean;
+  isLpBalanceLoading: boolean;
   onSelect: (pool: PoolDisplay, mode: "deposit" | "manage") => void;
   poolHref?: string;
   rewards?: PoolRewardInfo;
 }
 
-export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
-  const { address } = useAccount();
+export const PoolRow = memo(function PoolRow({
+  pool,
+  hasLPTokens,
+  isLpBalanceLoading,
+  onSelect,
+  poolHref,
+  rewards,
+}: PoolRowProps) {
   const [rebalanceOpen, setRebalanceOpen] = useState(false);
   const rebalancePanelId = `rebalance-panel-${pool.poolAddr.toLowerCase()}`;
-
-  const { data: lpBalance, isLoading: isLpBalanceLoading } = useReadContract({
-    chainId: pool.chainId,
-    address: pool.poolAddr as Address,
-    abi: erc20Abi,
-    functionName: "balanceOf",
-    args: address ? [address] : undefined,
-    query: {
-      enabled: pool.poolType === "FPMM" && !!address,
-    },
-  });
 
   const {
     displayToken0,
@@ -64,9 +59,7 @@ export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
     displayRatio0,
   } = getPoolDisplayOrder(pool);
 
-  const hasLPTokens = lpBalance !== undefined && lpBalance > 0n;
-  const isActionLoading =
-    pool.poolType === "FPMM" && !!address && isLpBalanceLoading;
+  const isActionLoading = pool.poolType === "FPMM" && isLpBalanceLoading;
   const isLegacy = pool.poolType === "Legacy";
   const hasLiquidity = pool.reserves.hasLiquidity;
   const token0Ratio = Math.max(0, Math.min(1, displayRatio0));
@@ -315,7 +308,7 @@ export function PoolRow({ pool, onSelect, poolHref, rewards }: PoolRowProps) {
       </div>
     </Collapsible>
   );
-}
+});
 
 function ChainBadge({ chainId }: { chainId: ChainId }) {
   const chain = chainIdToChain[chainId];
