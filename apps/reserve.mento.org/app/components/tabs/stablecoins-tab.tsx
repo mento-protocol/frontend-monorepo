@@ -2,7 +2,13 @@
 
 import Image from "next/image";
 import type { V2StablecoinsResponse } from "@/lib/types";
-import { formatUsd, formatNumber, formatPercent } from "@/lib/format";
+import {
+  formatUsd,
+  formatNumber,
+  formatPercent,
+  getBlockExplorerUrl,
+  truncateAddress,
+} from "@/lib/format";
 import { chainLabel } from "@/lib/chains";
 import { useV2Query } from "@/lib/use-v2-query";
 import { IconInfo } from "@repo/ui";
@@ -201,9 +207,15 @@ const columns: Column<SupplyRow>[] = [
         return (
           <span className="gap-2 inline-flex items-center">
             <NetworkLabel chain={row.chain} />
-            <span className="text-xs font-mono max-w-[120px] truncate text-muted-foreground">
-              {row.address.slice(0, 6)}...{row.address.slice(-4)}
-            </span>
+            <a
+              href={getBlockExplorerUrl(row.chain, row.address)}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={row.address}
+              className="text-xs font-mono max-w-30 truncate text-[#8c35fd] underline-offset-4 transition-colors hover:text-[#a855f7] hover:underline"
+            >
+              {truncateAddress(row.address)}
+            </a>
           </span>
         );
       }
