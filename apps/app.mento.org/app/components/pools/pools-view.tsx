@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useEffect, memo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { Search, Star, Droplets, RefreshCw, AlertTriangle } from "lucide-react";
-import { Button, Input, cn } from "@repo/ui";
+import { Button, Input, cn, useDebounce } from "@repo/ui";
 import {
   useAllPoolsList,
   usePoolRewards,
@@ -62,6 +62,7 @@ export function PoolsView() {
       : "all";
   const showRewardsOnly = searchParams.get("rewards") === "1";
   const search = searchParams.get("q") ?? "";
+  const [searchQuery, setSearchQuery] = useState(search);
   const chainFilters: { value: ChainFilterType; label: string }[] = [
     { value: "all", label: "All" },
     ...visibleChainIds.map((id) => ({
@@ -93,19 +94,31 @@ export function PoolsView() {
       enabled: isConnected && !!address && positionContracts.length > 0,
     },
   });
-  const poolsWithPositions = useMemo(() => {
-    if (!positionBalances?.length) return new Set<string>();
+  const positionBalancesByPool = useMemo(() => {
+    if (!positionBalances?.length) return new Map<string, bigint>();
 
-    return new Set(
+    return new Map(
       pools
         .filter((pool) => pool.poolType === "FPMM")
-        .flatMap((pool, index) =>
-          (positionBalances[index] ?? 0n) > 0n
-            ? [`${pool.chainId}:${pool.poolAddr.toLowerCase()}`]
-            : [],
-        ),
+        .map((pool, index) => [
+          `${pool.chainId}:${pool.poolAddr.toLowerCase()}`,
+          positionBalances[index] ?? 0n,
+        ]),
     );
   }, [pools, positionBalances]);
+  const poolsWithPositions = useMemo(() => {
+    if (positionBalancesByPool.size === 0) return new Set<string>();
+
+    return new Set(
+      Array.from(positionBalancesByPool.entries()).flatMap(
+        ([poolKey, balance]) => (balance > 0n ? [poolKey] : []),
+      ),
+    );
+  }, [positionBalancesByPool]);
+
+  useEffect(() => {
+    setSearchQuery(search);
+  }, [search]);
 
   const setFilter = useCallback(
     (value: PoolFilterType) => {
@@ -134,7 +147,7 @@ export function PoolsView() {
     },
     [router, searchParams],
   );
-  const setSearch = useCallback(
+  const syncSearch = useCallback(
     (value: string) => {
       const params = new URLSearchParams(searchParams.toString());
       if (value) params.set("q", value);
@@ -143,6 +156,12 @@ export function PoolsView() {
     },
     [router, searchParams],
   );
+
+  useEffect(() => {
+    if (searchQuery !== search) {
+      syncSearch(searchQuery);
+    }
+  }, [searchQuery, search, syncSearch]);
 
   const handleSelectPool = useCallback(
     (pool: PoolDisplay, mode: "deposit" | "manage") => {
@@ -189,8 +208,8 @@ export function PoolsView() {
     }
 
     // Search
-    if (search.trim()) {
-      const query = search.toLowerCase();
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
       result = result.filter(
         (p) =>
           p.token0.symbol.toLowerCase().includes(query) ||
@@ -208,7 +227,7 @@ export function PoolsView() {
     chainFilter,
     showRewardsOnly,
     rewards,
-    search,
+    searchQuery,
     canApplyRewardsFilter,
     poolsWithPositions,
   ]);
@@ -336,15 +355,7 @@ export function PoolsView() {
               </button>
             </div>
 
-            <div className="relative">
-              <Search className="left-3 h-4 w-4 absolute top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search pools..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="h-9 pl-9 md:w-96 w-full"
-              />
-            </div>
+            <PoolsSearchInput value={searchQuery} onCommit={setSearchQuery} />
           </div>
         )}
 
@@ -358,8 +369,10 @@ export function PoolsView() {
               pools={filteredPools}
               isLoading={isLoading}
               isFetchingMore={isFetchingMore}
+              isPositionsLoading={isConnected && isPositionsLoading}
               onSelectPool={handleSelectPool}
               getPoolHref={getPoolHref}
+              positionBalancesByPool={positionBalancesByPool}
               rewards={rewards}
             />
           )}
@@ -369,6 +382,39 @@ export function PoolsView() {
     </>
   );
 }
+
+const PoolsSearchInput = memo(function PoolsSearchInput({
+  value,
+  onCommit,
+}: {
+  value: string;
+  onCommit: (value: string) => void;
+}) {
+  const [inputValue, setInputValue] = useState(value);
+  const debouncedValue = useDebounce(inputValue, 150);
+
+  useEffect(() => {
+    setInputValue(value);
+  }, [value]);
+
+  useEffect(() => {
+    if (debouncedValue !== value) {
+      onCommit(debouncedValue);
+    }
+  }, [debouncedValue, onCommit, value]);
+
+  return (
+    <div className="relative">
+      <Search className="left-3 h-4 w-4 absolute top-1/2 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        placeholder="Search pools..."
+        value={inputValue}
+        onChange={(e) => setInputValue(e.target.value)}
+        className="h-9 pl-9 md:w-96 w-full"
+      />
+    </div>
+  );
+});
 
 function ChainIcon({ chainId }: { chainId: ChainId }) {
   const chain = chainIdToChain[chainId];

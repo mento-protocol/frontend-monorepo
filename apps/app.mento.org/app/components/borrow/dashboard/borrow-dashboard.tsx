@@ -13,7 +13,6 @@ import { Button, Card, CardContent, TokenIcon } from "@repo/ui";
 import {
   ConnectButton,
   formatCollateralAmount,
-  getDebtTokenConfig,
   type BorrowPosition,
   type DebtTokenConfig,
   useClaimCollateral,
@@ -140,7 +139,7 @@ export function BorrowDashboard() {
     return (
       <EmptyState
         isConnected={false}
-        debtToken={supportedDebtTokens[0] ?? getDebtTokenConfig("GBPm")}
+        supportedDebtTokens={supportedDebtTokens}
       />
     );
   }
@@ -168,8 +167,10 @@ export function BorrowDashboard() {
         {observers}
         <EmptyState
           isConnected
-          debtToken={supportedDebtTokens[0] ?? getDebtTokenConfig("GBPm")}
-          onOpenTrove={() => router.push("/borrow/open")}
+          supportedDebtTokens={supportedDebtTokens}
+          onOpenTrove={(symbol) =>
+            router.push(`/borrow/open?token=${encodeURIComponent(symbol)}`)
+          }
         />
       </>
     );
@@ -542,43 +543,36 @@ function StatCell({
   );
 }
 
+function formatSymbolList(symbols: string[]): string {
+  if (symbols.length === 0) return "";
+  if (symbols.length === 1) return symbols[0]!;
+  if (symbols.length === 2) return `${symbols[0]} or ${symbols[1]}`;
+  return `${symbols.slice(0, -1).join(", ")}, or ${symbols[symbols.length - 1]}`;
+}
+
 function EmptyState({
   isConnected,
-  debtToken,
+  supportedDebtTokens,
   onOpenTrove,
 }: {
   isConnected: boolean;
-  debtToken: DebtTokenConfig;
-  onOpenTrove?: () => void;
+  supportedDebtTokens: DebtTokenConfig[];
+  onOpenTrove?: (symbol: string) => void;
 }) {
   const chainId = useChainId();
-  const collateralSymbol = debtToken.collateralSymbol;
 
-  const collateralAddress = (() => {
-    try {
-      return getTokenAddress(
-        chainId,
-        collateralSymbol as TokenSymbol,
-      ) as `0x${string}`;
-    } catch {
-      return undefined;
-    }
-  })();
-
-  const debtTokenAddress = (() => {
-    try {
-      return getTokenAddress(
-        chainId,
-        debtToken.symbol as TokenSymbol,
-      ) as `0x${string}`;
-    } catch {
-      return undefined;
-    }
-  })();
+  const uniqueCollaterals = Array.from(
+    new Set(supportedDebtTokens.map((token) => token.collateralSymbol)),
+  );
+  const collateralLabel =
+    uniqueCollaterals.length === 1 ? uniqueCollaterals[0]! : "collateral";
+  const symbolsList = formatSymbolList(
+    supportedDebtTokens.map((token) => token.symbol),
+  );
 
   const stats = [
     { label: "Min. collateral ratio", value: "110%" },
-    { label: "Min. debt", value: `1,000 ${debtToken.symbol}` },
+    { label: "Min. debt", value: "1,000" },
     { label: "Interest rates from", value: "0.5%" },
   ];
 
@@ -586,12 +580,14 @@ function EmptyState({
     {
       icon: <Wallet className="h-5 w-5" />,
       title: "Deposit collateral",
-      desc: `Lock ${collateralSymbol} as collateral to secure your loan. The more you deposit, the more you can borrow.`,
+      desc: `Lock ${collateralLabel} to secure your loan. The more you deposit, the more you can borrow.`,
     },
     {
       icon: <Clock className="h-5 w-5" />,
-      title: `Borrow ${debtToken.symbol}`,
-      desc: `Mint ${debtToken.symbol} stablecoins against your collateral at your chosen interest rate. No fixed repayment schedule.`,
+      title: "Borrow a Mento stablecoin",
+      desc: symbolsList
+        ? `Mint ${symbolsList} against your collateral at your chosen interest rate. No fixed repayment schedule.`
+        : "Mint Mento stablecoins against your collateral at your chosen interest rate. No fixed repayment schedule.",
     },
     {
       icon: <Settings className="h-5 w-5" />,
@@ -648,54 +644,144 @@ function EmptyState({
         ))}
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-border bg-card">
-        <div className="px-6 py-4 flex items-center justify-between border-b border-border">
-          <div className="gap-3 flex items-center">
-            <div className="h-8 w-11 relative">
-              {collateralAddress && (
-                <TokenIcon
-                  token={{
-                    address: collateralAddress,
-                    symbol: collateralSymbol,
-                  }}
-                  size={32}
-                  className="left-0 top-0 absolute z-10 rounded-full ring-2 ring-card"
-                />
-              )}
-              {debtTokenAddress && (
-                <TokenIcon
-                  token={{
-                    address: debtTokenAddress,
-                    symbol: debtToken.symbol,
-                  }}
-                  size={32}
-                  className="top-0 absolute left-[18px] rounded-full ring-2 ring-card"
-                />
-              )}
-            </div>
-            <div>
-              <div className="font-semibold">
-                {collateralSymbol} / {debtToken.symbol}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                Open a borrow position to deposit {collateralSymbol} collateral
-                and borrow {debtToken.symbol}.
-              </div>
-            </div>
-          </div>
-          <ArrowUpRight className="h-4 w-4 text-muted-foreground/50" />
-        </div>
-
-        <div className="p-6">
-          {isConnected ? (
-            <Button onClick={onOpenTrove} className="gap-2">
-              <Plus className="h-4 w-4" />
-              Open New Trove
-            </Button>
-          ) : (
-            <ConnectButton />
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="font-mono font-semibold tracking-widest text-[11px] text-muted-foreground uppercase">
+            Available markets
+          </h3>
+          {supportedDebtTokens.length > 0 && (
+            <span className="font-mono text-xs text-muted-foreground/50">
+              {supportedDebtTokens.length} market
+              {supportedDebtTokens.length !== 1 ? "s" : ""}
+            </span>
           )}
         </div>
+        <div
+          data-testid="markets-grid"
+          className="gap-3 sm:grid-cols-2 xl:grid-cols-3 grid grid-cols-1"
+        >
+          {supportedDebtTokens.map((token) => (
+            <MarketCard
+              key={token.symbol}
+              token={token}
+              chainId={chainId}
+              isConnected={isConnected}
+              onOpenTrove={onOpenTrove}
+            />
+          ))}
+        </div>
+        {!isConnected && (
+          <div className="pt-2 flex justify-center">
+            <ConnectButton />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MarketCard({
+  token,
+  chainId,
+  isConnected,
+  onOpenTrove,
+}: {
+  token: DebtTokenConfig;
+  chainId: number;
+  isConnected: boolean;
+  onOpenTrove?: (symbol: string) => void;
+}) {
+  const collateralAddress = (() => {
+    try {
+      return getTokenAddress(
+        chainId,
+        token.collateralSymbol as TokenSymbol,
+      ) as `0x${string}`;
+    } catch {
+      return undefined;
+    }
+  })();
+
+  const debtTokenAddress = (() => {
+    try {
+      return getTokenAddress(
+        chainId,
+        token.symbol as TokenSymbol,
+      ) as `0x${string}`;
+    } catch {
+      return undefined;
+    }
+  })();
+
+  const handleOpen = () => onOpenTrove?.(token.symbol);
+
+  const interactive = isConnected;
+
+  return (
+    <div
+      data-testid={`market-card-${token.symbol}`}
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : -1}
+      aria-disabled={!interactive}
+      onClick={interactive ? handleOpen : undefined}
+      onKeyDown={
+        interactive
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                handleOpen();
+              }
+            }
+          : undefined
+      }
+      className={[
+        "group overflow-hidden rounded-lg border border-border bg-card transition-colors",
+        interactive
+          ? "cursor-pointer hover:border-primary/40 hover:bg-accent/50 focus:border-primary/40 focus:outline-none"
+          : "opacity-90",
+      ].join(" ")}
+    >
+      <div className="px-5 py-4 flex items-center justify-between">
+        <div className="gap-3 flex items-center">
+          <div className="h-8 w-11 relative">
+            {collateralAddress && (
+              <TokenIcon
+                token={{
+                  address: collateralAddress,
+                  symbol: token.collateralSymbol,
+                }}
+                size={32}
+                className="left-0 top-0 absolute z-10 rounded-full ring-2 ring-card"
+              />
+            )}
+            {debtTokenAddress && (
+              <TokenIcon
+                token={{
+                  address: debtTokenAddress,
+                  symbol: token.symbol,
+                }}
+                size={32}
+                className="top-0 absolute left-[18px] rounded-full ring-2 ring-card"
+              />
+            )}
+          </div>
+          <div>
+            <div className="font-semibold">
+              {token.collateralSymbol} / {token.symbol}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Deposit {token.collateralSymbol} and borrow {token.symbol}
+            </div>
+          </div>
+        </div>
+        <ArrowUpRight
+          className={[
+            "h-4 w-4 transition-colors",
+            interactive
+              ? "text-muted-foreground/50 group-hover:text-primary"
+              : "text-muted-foreground/30",
+          ].join(" ")}
+        />
       </div>
     </div>
   );

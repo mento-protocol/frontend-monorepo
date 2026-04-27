@@ -11,8 +11,10 @@ interface PoolsTableProps {
   isLoading: boolean;
   /** True when some chains have resolved but others are still loading */
   isFetchingMore?: boolean;
+  isPositionsLoading?: boolean;
   onSelectPool: (pool: PoolDisplay, mode: "deposit" | "manage") => void;
   getPoolHref?: (pool: PoolDisplay) => string;
+  positionBalancesByPool?: Map<string, bigint>;
   rewards?: Map<string, PoolRewardInfo>;
 }
 
@@ -43,8 +45,10 @@ export function PoolsTable({
   pools,
   isLoading,
   isFetchingMore,
+  isPositionsLoading,
   onSelectPool,
   getPoolHref,
+  positionBalancesByPool,
   rewards,
 }: PoolsTableProps) {
   return (
@@ -82,6 +86,12 @@ export function PoolsTable({
               <PoolRow
                 key={`${pool.chainId}-${pool.poolAddr}`}
                 pool={pool}
+                hasLPTokens={
+                  (positionBalancesByPool?.get(
+                    `${pool.chainId}:${pool.poolAddr.toLowerCase()}`,
+                  ) ?? 0n) > 0n
+                }
+                isLpBalanceLoading={!!isPositionsLoading}
                 onSelect={onSelectPool}
                 poolHref={getPoolHref?.(pool)}
                 rewards={rewards?.get(

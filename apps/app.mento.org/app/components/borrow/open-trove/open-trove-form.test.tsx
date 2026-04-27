@@ -40,6 +40,7 @@ let mockIsPending = false;
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: pushMock }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock("@/lib/stability-route", () => ({
