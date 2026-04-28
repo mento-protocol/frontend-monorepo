@@ -1,76 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import * as Sentry from "@sentry/nextjs";
-import { Check, ClipboardCopy } from "lucide-react";
 import { chainLabel } from "@/lib/chains";
 import { useV2Query } from "@/lib/use-v2-query";
+import { AddressLabel } from "../address-label";
 import { TabSkeleton } from "../tab-skeleton";
-
-function getAddressUrl(chain: string, address: string): string {
-  // DeBank only indexes EVM chains; send native Bitcoin addresses to a
-  // Bitcoin block explorer instead of a dead DeBank profile URL.
-  if (chain === "bitcoin") {
-    return `https://blockstream.info/address/${address}`;
-  }
-  return `https://debank.com/profile/${address}`;
-}
-
-function getAddressLinkTitle(chain: string): string {
-  if (chain === "bitcoin") return "View address on Blockstream";
-  return "View DeFi portfolio and positions on DeBank";
-}
 
 export function AddressesTab() {
   const { data: addresses } = useV2Query("addresses");
-  const [copiedAddresses, setCopiedAddresses] = useState<Set<string>>(
-    new Set(),
-  );
-  const copyTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
-
-  useEffect(() => {
-    const timeouts = copyTimeoutsRef.current;
-    return () => {
-      timeouts.forEach((timeout) => clearTimeout(timeout));
-      timeouts.clear();
-    };
-  }, []);
-
-  const handleCopyAddress = async (
-    address: string,
-    key: string,
-    context: { chain: string; category: string },
-  ) => {
-    try {
-      await navigator.clipboard.writeText(address);
-      setCopiedAddresses((prev) => new Set(prev).add(key));
-
-      const existingTimeout = copyTimeoutsRef.current.get(key);
-      if (existingTimeout) clearTimeout(existingTimeout);
-
-      const timeoutId = setTimeout(() => {
-        setCopiedAddresses((prev) => {
-          const newSet = new Set(prev);
-          newSet.delete(key);
-          return newSet;
-        });
-        copyTimeoutsRef.current.delete(key);
-      }, 500);
-
-      copyTimeoutsRef.current.set(key, timeoutId);
-    } catch (error) {
-      Sentry.captureException(error, {
-        tags: {
-          feature: "reserve_addresses_copy",
-          chain: context.chain,
-        },
-        extra: {
-          address,
-          category: context.category,
-        },
-      });
-    }
-  };
 
   if (!addresses) return <TabSkeleton />;
 
@@ -92,53 +28,16 @@ export function AddressesTab() {
                   {cat.category} on {chainLabel(network.chain)}
                 </h3>
                 <div className="gap-6 flex flex-col">
-                  {cat.addresses.map((addr, addrIndex) => {
-                    const uniqueKey = `${network.chain}-${cat.category}-${addr.address}`;
-                    return (
-                      <div
-                        key={`${addr.address}-${addrIndex}`}
-                        className="gap-0 flex flex-col"
-                      >
-                        {addr.label && (
-                          <span className="text-sm font-medium text-muted-foreground">
-                            {addr.label}
-                          </span>
-                        )}
-                        <div className="gap-3 flex items-center">
-                          <a
-                            href={getAddressUrl(network.chain, addr.address)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-base leading-relaxed break-all text-[#8c35fd] underline transition-colors hover:text-[#a855f7]"
-                            title={getAddressLinkTitle(network.chain)}
-                          >
-                            {addr.address}
-                          </a>
-                          <button
-                            onClick={() =>
-                              handleCopyAddress(addr.address, uniqueKey, {
-                                chain: network.chain,
-                                category: cat.category,
-                              })
-                            }
-                            aria-label={`Copy address ${addr.address}`}
-                            className="h-4 w-4 shrink-0 cursor-copy opacity-60 hover:opacity-100"
-                          >
-                            {copiedAddresses.has(uniqueKey) ? (
-                              <Check className="h-4 w-4 text-green-500" />
-                            ) : (
-                              <ClipboardCopy className="h-4 w-4" />
-                            )}
-                          </button>
-                        </div>
-                        {addr.description && (
-                          <span className="text-xs text-muted-foreground">
-                            {addr.description}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
+                  {cat.addresses.map((addr, addrIndex) => (
+                    <AddressLabel
+                      key={`${addr.address}-${addrIndex}`}
+                      label={addr.label}
+                      address={addr.address}
+                      chain={network.chain}
+                      description={addr.description}
+                      context={`addresses_tab:${cat.category}`}
+                    />
+                  ))}
                 </div>
               </div>
             ))}

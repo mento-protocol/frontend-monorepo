@@ -1,12 +1,13 @@
 "use client";
 
 import Image from "next/image";
-import type { V2StablecoinsResponse } from "@/lib/types";
+import type { V2AddressesResponse, V2StablecoinsResponse } from "@/lib/types";
 import { formatUsd, formatNumber, formatPercent } from "@/lib/format";
 import { chainLabel } from "@/lib/chains";
 import { useV2Query } from "@/lib/use-v2-query";
 import { IconInfo } from "@repo/ui";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@repo/ui";
+import { AddressLabel } from "../address-label";
 import { TreeTable, type Column, type TreeRow } from "../tree-table";
 import { TabSkeleton } from "../tab-skeleton";
 
@@ -42,6 +43,7 @@ type ChainRow = {
   kind: "chain";
   chain: string;
   address: string;
+  addressLabel?: string;
   debtAmount: string;
   debtUsd: number;
   reserveHeldAmount: string;
@@ -54,8 +56,9 @@ type SupplyRow = CategoryRow | CoinRow | ChainRow;
 
 export function StablecoinsTab() {
   const { data: stablecoins } = useV2Query("stablecoins");
+  const { data: addresses } = useV2Query("addresses");
   if (!stablecoins) return <TabSkeleton />;
-  const rows = buildRows(stablecoins);
+  const rows = buildRows(stablecoins, addresses);
 
   return (
     <div>
@@ -79,7 +82,12 @@ export function StablecoinsTab() {
   );
 }
 
-function buildRows(stablecoins: V2StablecoinsResponse): TreeRow<SupplyRow>[] {
+function buildRows(
+  stablecoins: V2StablecoinsResponse,
+  addresses: V2AddressesResponse | undefined,
+): TreeRow<SupplyRow>[] {
+  const addressLabelLookup = buildAddressLabelLookup(addresses);
+
   const reserveCoins = stablecoins.stablecoins
     .filter((c) => c.backing_type === "reserve")
     .sort((a, b) => b.supply.total_usd - a.supply.total_usd);
@@ -110,6 +118,9 @@ function buildRows(stablecoins: V2StablecoinsResponse): TreeRow<SupplyRow>[] {
       kind: "chain",
       chain: ns.chain,
       address: ns.address,
+      addressLabel: addressLabelLookup.get(
+        `${ns.chain}:${ns.address.toLowerCase()}`,
+      ),
       debtAmount: ns.supply.debt,
       debtUsd: ns.supply.debt_usd,
       reserveHeldAmount: ns.supply.reserve_held,
@@ -201,9 +212,13 @@ const columns: Column<SupplyRow>[] = [
         return (
           <span className="gap-2 inline-flex items-center">
             <NetworkLabel chain={row.chain} />
-            <span className="text-xs font-mono max-w-[120px] truncate text-muted-foreground">
-              {row.address.slice(0, 6)}...{row.address.slice(-4)}
-            </span>
+            <AddressLabel
+              variant="compact"
+              label={row.addressLabel}
+              address={row.address}
+              chain={row.chain}
+              context="stablecoins_tab:network_supply"
+            />
           </span>
         );
       }
@@ -406,4 +421,22 @@ function NetworkLabel({ chain }: { chain: string }) {
       {chainLabel(chain)}
     </span>
   );
+}
+
+function buildAddressLabelLookup(
+  addresses: V2AddressesResponse | undefined,
+): Map<string, string> {
+  const lookup = new Map<string, string>();
+  if (!addresses) return lookup;
+  for (const network of addresses.networks) {
+    for (const cat of network.categories) {
+      for (const addr of cat.addresses) {
+        lookup.set(
+          `${network.chain}:${addr.address.toLowerCase()}`,
+          addr.label,
+        );
+      }
+    }
+  }
+  return lookup;
 }

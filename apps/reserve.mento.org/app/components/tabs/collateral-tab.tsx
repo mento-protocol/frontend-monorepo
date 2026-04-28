@@ -1,12 +1,23 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import Image from "next/image";
-import type { V2ReserveResponse } from "@/lib/types";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@repo/ui";
+import type { V2ReserveResponse, CollateralSource } from "@/lib/types";
 import { formatUsd, formatNumber, formatPercent } from "@/lib/format";
 import { CHAIN_ICON, chainLabel } from "@/lib/chains";
 import { useV2Query } from "@/lib/use-v2-query";
+import { CUSTODY_META, CUSTODY_ORDER, type CustodyType } from "@/lib/custody";
+import { AddressLabel } from "../address-label";
 import { TreeTable, type Column, type TreeRow } from "../tree-table";
 import { TabSkeleton } from "../tab-skeleton";
+import { SunburstChart, type SunburstNode } from "../sunburst-chart";
 
 const SOURCE_TYPE_LABEL: Record<string, string> = {
   wallet: "Wallet",
@@ -26,13 +37,30 @@ const SOURCE_TYPE_COLOR: Record<string, string> = {
 
 type Peg = "usd" | "eur" | "volatile";
 
-const PEG_META: Record<Peg, { label: string; accent: string }> = {
-  usd: { label: "$USD backed", accent: "border-l-4 border-l-[#66FFB8]" },
-  eur: { label: "€EUR backed", accent: "border-l-4 border-l-[#3D42CD]" },
-  volatile: {
-    label: "Volatile",
-    accent: "border-l-4 border-l-[#7006FC]",
-  },
+const PEG_META: Record<Peg, { label: string; accent: string; color: string }> =
+  {
+    usd: {
+      label: "$USD backed",
+      accent: "border-l-4 border-l-[#66FFB8]",
+      color: "#66FFB8",
+    },
+    eur: {
+      label: "€EUR backed",
+      accent: "border-l-4 border-l-[#3D42CD]",
+      color: "#3D42CD",
+    },
+    volatile: {
+      label: "Volatile",
+      accent: "border-l-4 border-l-[#7006FC]",
+      color: "#7006FC",
+    },
+  };
+
+const CHAIN_COLOR: Record<string, string> = {
+  celo: "#FBCC5C",
+  ethereum: "#627EEA",
+  bitcoin: "#F7931A",
+  monad: "#7006FC",
 };
 
 // Known stablecoins whose ticker doesn't contain "USD"/"EUR" substring.
@@ -56,9 +84,17 @@ function classifyPeg(symbol: string): Peg {
   return "volatile";
 }
 
+type GroupingMode = "asset-type" | "custody" | "network";
+
 type PegRow = {
   kind: "peg";
   peg: Peg;
+  totalUsd: number;
+  percentage: number;
+};
+type CustodyRow = {
+  kind: "custody-type";
+  custody: CustodyType;
   totalUsd: number;
   percentage: number;
 };
@@ -80,6 +116,8 @@ type SourceRow = {
   kind: "source";
   sourceType: string;
   label: string;
+  identifier: string;
+  chain: string;
   balance: string;
   usdValue: number;
 };
@@ -88,34 +126,123 @@ type TotalRow = {
   totalUsd: number;
   percentage: number;
 };
-type CollateralRow = PegRow | NetworkRow | AssetRow | SourceRow | TotalRow;
+type CollateralRow =
+  | PegRow
+  | CustodyRow
+  | NetworkRow
+  | AssetRow
+  | SourceRow
+  | TotalRow;
 
 type Asset = V2ReserveResponse["collateral"]["assets"][number];
 
+// Pre-flattened (asset, source) record for grouping modes that
+// re-aggregate by source rather than by asset.
+type SourceRecord = {
+  source: CollateralSource;
+  symbol: string;
+  chain: string;
+  // Token balance attributed to this source. The API gives usd_value
+  // per source but only an aggregate balance per asset; we pro-rate by
+  // the source's USD share so per-source rows still display amounts.
+  balance: string;
+};
+
 export function CollateralTab() {
   const { data: reserve } = useV2Query("reserve");
-  if (!reserve) return <TabSkeleton />;
-  const { assets } = reserve.collateral;
+  const [mode, setMode] = useState<GroupingMode>("asset-type");
+  const [hoverId, setHoverId] = useState<string | null>(null);
 
-  // Show every asset — no dust filter — so the grand Total row in the table
-  // genuinely reconciles with reserve.collateral.total_usd / 100%.
-  const sorted = [...assets].sort((a, b) => b.usd_value - a.usd_value);
+  const buildContext = useMemo(() => {
+    if (!reserve) return null;
+    const sorted = [...reserve.collateral.assets].sort(
+      (a, b) => b.usd_value - a.usd_value,
+    );
+    return {
+      sorted,
+      totalUsd: reserve.collateral.total_usd,
+      byCustodian: reserve.collateral.by_custodian,
+    };
+  }, [reserve]);
 
-  const rows = buildRows(sorted, reserve.collateral.total_usd, 100);
+  const rows = useMemo<TreeRow<CollateralRow>[]>(() => {
+    if (!buildContext) return [];
+    const { sorted, totalUsd, byCustodian } = buildContext;
+    if (mode === "asset-type") return buildRows(sorted, totalUsd, 100);
+    if (mode === "custody")
+      return buildRowsByCustody(sorted, totalUsd, 100, byCustodian);
+    return buildRowsByNetwork(sorted, totalUsd, 100);
+  }, [buildContext, mode]);
+
+  const sunburstData = useMemo<SunburstNode[]>(
+    () => buildSunburst(rows),
+    [rows],
+  );
+
+  if (!reserve || !buildContext) return <TabSkeleton />;
+
+  // 4-level asset-type benefits from defaultOpenDepth=2 (peg → network).
+  // 3-level modes show second level (asset / custodian) by opening 1 deep.
+  const defaultOpenDepth = mode === "asset-type" ? 2 : 1;
 
   return (
     <div>
-      <h2 className="mb-6 text-2xl font-medium md:block hidden">
-        Reserve Collateral
-      </h2>
-      <TreeTable<CollateralRow>
-        rows={rows}
-        columns={columns}
-        defaultOpenDepth={2}
-        minWidth="600px"
-        rowClassName={getRowClassName}
-        getRowLabel={getCollateralRowLabel}
-      />
+      <div className="md:flex-row md:items-center md:justify-between gap-4 mb-6 flex flex-col">
+        <h2 className="text-2xl font-medium md:block hidden">
+          Reserve Collateral
+        </h2>
+        <div className="md:flex-row md:items-center gap-2 flex flex-col">
+          <label
+            htmlFor="collateral-grouping"
+            className="text-sm text-muted-foreground"
+          >
+            Grouping by:
+          </label>
+          <Select
+            value={mode}
+            onValueChange={(value) => {
+              setMode(value as GroupingMode);
+              setHoverId(null);
+            }}
+          >
+            <SelectTrigger id="collateral-grouping" className="md:w-44 w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="asset-type">Asset type</SelectItem>
+              <SelectItem value="custody">Custody</SelectItem>
+              <SelectItem value="network">Network</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="lg:grid-cols-[auto_1fr] lg:items-start gap-6 grid grid-cols-1">
+        <div className="lg:justify-start flex justify-center">
+          <SunburstChart
+            data={sunburstData}
+            total={reserve.collateral.total_usd}
+            hoverId={hoverId}
+            onHoverChange={setHoverId}
+          />
+        </div>
+        <TreeTable<CollateralRow>
+          key={mode}
+          rows={rows}
+          columns={columns}
+          defaultOpenDepth={defaultOpenDepth}
+          minWidth="600px"
+          rowClassName={(row, depth) =>
+            getRowClassNameWithHover(row, depth, hoverId)
+          }
+          onRowMouseEnter={(row) => {
+            if (row.kind === "total") return;
+            setHoverId(row.id);
+          }}
+          onRowMouseLeave={() => setHoverId(null)}
+          getRowLabel={getCollateralRowLabel}
+        />
+      </div>
     </div>
   );
 }
@@ -174,6 +301,8 @@ function buildRows(
               kind: "source",
               sourceType: s.type,
               label: s.label,
+              identifier: s.identifier,
+              chain: asset.chain,
               balance: s.balance,
               usdValue: s.usd_value,
             })),
@@ -200,6 +329,200 @@ function buildRows(
   return [...pegRows, totalRow];
 }
 
+function sumSources(records: SourceRecord[] | undefined): number {
+  if (!records) return 0;
+  return records.reduce((s, r) => s + r.source.usd_value, 0);
+}
+
+// Flatten (asset, source) pairs and pro-rate the asset-level balance
+// across sources using the source's USD share.
+function flattenSources(assets: Asset[]): SourceRecord[] {
+  const records: SourceRecord[] = [];
+  for (const asset of assets) {
+    const assetTotal = asset.sources.reduce((s, src) => s + src.usd_value, 0);
+    for (const source of asset.sources) {
+      const share = assetTotal > 0 ? source.usd_value / assetTotal : 0;
+      const numericBalance = parseFloat(asset.balance);
+      const proRated = Number.isFinite(numericBalance)
+        ? (numericBalance * share).toString()
+        : asset.balance;
+      records.push({
+        source,
+        symbol: asset.symbol,
+        chain: asset.chain,
+        balance: proRated,
+      });
+    }
+  }
+  return records;
+}
+
+function buildRowsByCustody(
+  sorted: Asset[],
+  totalUsd: number,
+  totalPct: number,
+  byCustodian: V2ReserveResponse["collateral"]["by_custodian"] | undefined,
+): TreeRow<CollateralRow>[] {
+  const records = flattenSources(sorted);
+
+  const byCustody = new Map<CustodyType, SourceRecord[]>();
+  for (const rec of records) {
+    const custody = rec.source.custodian_type;
+    if (!byCustody.has(custody)) byCustody.set(custody, []);
+    byCustody.get(custody)!.push(rec);
+  }
+
+  // Prefer API-provided bucket totals when present so client and server
+  // can't drift; fall back to summing per-source values during rollout
+  // windows where `by_custodian` may not yet be populated.
+  const apiTotalsByCustody: Record<CustodyType, number> = byCustodian
+    ? {
+        hot: byCustodian.hot_usd,
+        cold: byCustodian.cold_usd,
+        ops: byCustodian.ops_usd,
+      }
+    : {
+        hot: sumSources(byCustody.get("hot")),
+        cold: sumSources(byCustody.get("cold")),
+        ops: sumSources(byCustody.get("ops")),
+      };
+
+  const custodyRows: TreeRow<CollateralRow>[] = CUSTODY_ORDER.map(
+    (custody) => ({
+      custody,
+      items: byCustody.get(custody) ?? [],
+    }),
+  )
+    .filter(({ items }) => items.length > 0)
+    .map<TreeRow<CollateralRow>>(({ custody, items }) => {
+      const custodyUsd = apiTotalsByCustody[custody];
+      const custodyPct = totalUsd > 0 ? (custodyUsd / totalUsd) * 100 : 0;
+
+      // Group by (chain, symbol) — symbols are not globally unique
+      // across chains (e.g. native BTC vs. wrapped BTC), so a flat
+      // symbol grouping would merge distinct tokens into one row.
+      const byChainSymbol = new Map<string, SourceRecord[]>();
+      for (const rec of items) {
+        const key = `${rec.chain}:${rec.symbol}`;
+        if (!byChainSymbol.has(key)) byChainSymbol.set(key, []);
+        byChainSymbol.get(key)!.push(rec);
+      }
+
+      const assetChildren = [...byChainSymbol.entries()]
+        .map(([key, recs]) => {
+          const first = recs[0]!;
+          return {
+            key,
+            symbol: first.symbol,
+            chain: first.chain,
+            recs,
+            assetUsd: recs.reduce((s, r) => s + r.source.usd_value, 0),
+            assetBalance: recs.reduce((s, r) => {
+              const n = parseFloat(r.balance);
+              return Number.isFinite(n) ? s + n : s;
+            }, 0),
+          };
+        })
+        .sort((a, b) => b.assetUsd - a.assetUsd)
+        .map<TreeRow<CollateralRow>>((entry) => ({
+          id: `custody:${custody}:chain:${entry.chain}:asset:${entry.symbol}`,
+          kind: "asset",
+          symbol: entry.symbol,
+          chain: entry.chain,
+          balance: entry.assetBalance.toString(),
+          usdValue: entry.assetUsd,
+          percentage: totalUsd > 0 ? (entry.assetUsd / totalUsd) * 100 : 0,
+          children: entry.recs
+            .slice()
+            .sort((a, b) => b.source.usd_value - a.source.usd_value)
+            .map<TreeRow<CollateralRow>>((rec, i) => ({
+              id: `custody:${custody}:chain:${entry.chain}:asset:${entry.symbol}:source:${rec.source.identifier}:${i}`,
+              kind: "source",
+              sourceType: rec.source.type,
+              label: rec.source.label,
+              identifier: rec.source.identifier,
+              chain: rec.chain,
+              balance: rec.balance,
+              usdValue: rec.source.usd_value,
+            })),
+        }));
+
+      return {
+        id: `custody:${custody}`,
+        kind: "custody-type",
+        custody,
+        totalUsd: custodyUsd,
+        percentage: custodyPct,
+        children: assetChildren,
+      };
+    });
+
+  const totalRow: TreeRow<CollateralRow> = {
+    id: "total",
+    kind: "total",
+    totalUsd,
+    percentage: totalPct,
+  };
+
+  return [...custodyRows, totalRow];
+}
+
+function buildRowsByNetwork(
+  sorted: Asset[],
+  totalUsd: number,
+  totalPct: number,
+): TreeRow<CollateralRow>[] {
+  const byChain = new Map<string, Asset[]>();
+  for (const a of sorted) {
+    if (!byChain.has(a.chain)) byChain.set(a.chain, []);
+    byChain.get(a.chain)!.push(a);
+  }
+
+  const networkRows: TreeRow<CollateralRow>[] = [...byChain.entries()]
+    .map(([chain, chainAssets]) => ({
+      chain,
+      chainAssets,
+      chainUsd: chainAssets.reduce((s, a) => s + a.usd_value, 0),
+      chainPct: chainAssets.reduce((s, a) => s + a.percentage, 0),
+    }))
+    .sort((a, b) => b.chainUsd - a.chainUsd)
+    .map<TreeRow<CollateralRow>>((net) => ({
+      id: `chain:${net.chain}`,
+      kind: "network",
+      chain: net.chain,
+      totalUsd: net.chainUsd,
+      percentage: net.chainPct,
+      children: net.chainAssets.map<TreeRow<CollateralRow>>((asset) => ({
+        id: `chain:${asset.chain}:asset:${asset.symbol}`,
+        kind: "asset",
+        symbol: asset.symbol,
+        chain: asset.chain,
+        balance: asset.balance,
+        usdValue: asset.usd_value,
+        percentage: asset.percentage,
+        children: asset.sources.map<TreeRow<CollateralRow>>((s, i) => ({
+          id: `chain:${asset.chain}:asset:${asset.symbol}:source:${s.identifier}:${i}`,
+          kind: "source",
+          sourceType: s.type,
+          label: s.label,
+          identifier: s.identifier,
+          chain: asset.chain,
+          balance: s.balance,
+          usdValue: s.usd_value,
+        })),
+      })),
+    }));
+
+  const totalRow: TreeRow<CollateralRow> = {
+    id: "total",
+    kind: "total",
+    totalUsd,
+    percentage: totalPct,
+  };
+
+  return [...networkRows, totalRow];
+}
+
 const columns: Column<CollateralRow>[] = [
   {
     key: "asset",
@@ -208,6 +531,11 @@ const columns: Column<CollateralRow>[] = [
     cell: (row) => {
       if (row.kind === "peg") {
         return <span className="font-medium">{PEG_META[row.peg].label}</span>;
+      }
+      if (row.kind === "custody-type") {
+        return (
+          <span className="font-medium">{CUSTODY_META[row.custody].label}</span>
+        );
       }
       if (row.kind === "network") {
         const iconSrc = CHAIN_ICON[row.chain];
@@ -255,7 +583,13 @@ const columns: Column<CollateralRow>[] = [
             >
               {SOURCE_TYPE_LABEL[row.sourceType] ?? row.sourceType}
             </span>
-            <span className="text-sm text-muted-foreground">{row.label}</span>
+            <AddressLabel
+              variant="compact"
+              label={row.label}
+              identifier={row.identifier}
+              chain={row.chain}
+              context={`collateral_tab:${row.sourceType}`}
+            />
           </span>
         );
       }
@@ -285,7 +619,12 @@ const columns: Column<CollateralRow>[] = [
     align: "right",
     width: "25%",
     cell: (row) => {
-      if (row.kind === "peg" || row.kind === "total" || row.kind === "network")
+      if (
+        row.kind === "peg" ||
+        row.kind === "custody-type" ||
+        row.kind === "total" ||
+        row.kind === "network"
+      )
         return <span className="font-medium">{formatUsd(row.totalUsd)}</span>;
       if (row.kind === "asset") return formatUsd(row.usdValue);
       return (
@@ -305,7 +644,10 @@ const columns: Column<CollateralRow>[] = [
       return (
         <span
           className={
-            row.kind === "peg" || row.kind === "total" || row.kind === "network"
+            row.kind === "peg" ||
+            row.kind === "custody-type" ||
+            row.kind === "total" ||
+            row.kind === "network"
               ? "font-medium"
               : undefined
           }
@@ -321,19 +663,95 @@ function getRowClassName(row: TreeRow<CollateralRow>): string {
   if (row.kind === "peg") {
     return `${PEG_META[row.peg].accent} bg-card`;
   }
+  if (row.kind === "custody-type") {
+    return `${CUSTODY_META[row.custody].accent} bg-card`;
+  }
   if (row.kind === "network") return "bg-card/40";
   if (row.kind === "total") return "border-t border-[var(--border)] bg-card";
   if (row.kind === "source") return "bg-[#15111b]/50";
   return "";
 }
 
+function getRowClassNameWithHover(
+  row: TreeRow<CollateralRow>,
+  depth: number,
+  hoverId: string | null,
+): string {
+  const base = getRowClassName(row);
+  if (!hoverId || row.kind === "total") return base;
+  if (row.id === hoverId) return `${base} ring-1 ring-inset ring-[#7006FC]`;
+  // Dim non-matching, non-ancestor rows so the hovered branch stands out.
+  // An ancestor's id is a prefix of the descendant's id (we build ids by
+  // appending segments), so a startsWith check identifies the hovered row's
+  // ancestors and descendants.
+  const isRelated =
+    hoverId.startsWith(`${row.id}:`) || row.id.startsWith(`${hoverId}:`);
+  if (isRelated) return base;
+  return `${base} opacity-50`;
+}
+
 function getCollateralRowLabel(
   row: TreeRow<CollateralRow>,
 ): string | undefined {
   if (row.kind === "peg") return PEG_META[row.peg].label;
+  if (row.kind === "custody-type") return CUSTODY_META[row.custody].label;
   if (row.kind === "network") return chainLabel(row.chain);
   if (row.kind === "asset") return row.symbol;
   if (row.kind === "source") return row.label;
   if (row.kind === "total") return "Total";
+  return undefined;
+}
+
+// Convert the visible TreeRow tree into a SunburstNode tree, dropping
+// the synthetic "total" footer row and assigning a base color to each
+// top-level group so child rings can lighten consistently.
+function buildSunburst(rows: TreeRow<CollateralRow>[]): SunburstNode[] {
+  return rows
+    .filter((r) => r.kind !== "total")
+    .map((r) => toSunburstNode(r, true));
+}
+
+function toSunburstNode(
+  row: TreeRow<CollateralRow>,
+  isRoot: boolean,
+): SunburstNode {
+  const children = row.children
+    ?.filter((c) => c.kind !== "total")
+    .map((c) => toSunburstNode(c, false));
+  return {
+    id: row.id,
+    label: sunburstLabel(row),
+    value: sunburstValue(row),
+    color: isRoot ? rootColor(row) : undefined,
+    children: children?.length ? children : undefined,
+  };
+}
+
+function sunburstLabel(row: TreeRow<CollateralRow>): string {
+  if (row.kind === "peg") return PEG_META[row.peg].label;
+  if (row.kind === "custody-type") return CUSTODY_META[row.custody].label;
+  if (row.kind === "network") return chainLabel(row.chain);
+  if (row.kind === "asset") return row.symbol;
+  if (row.kind === "source") return row.label;
+  return "Total";
+}
+
+function sunburstValue(row: TreeRow<CollateralRow>): number {
+  if (
+    row.kind === "peg" ||
+    row.kind === "custody-type" ||
+    row.kind === "network"
+  )
+    return row.totalUsd;
+  if (row.kind === "asset") return row.usdValue;
+  if (row.kind === "source") return row.usdValue;
+  if (row.kind === "total") return row.totalUsd;
+  return 0;
+}
+
+function rootColor(row: TreeRow<CollateralRow>): string | undefined {
+  if (row.kind === "peg") return PEG_META[row.peg].color;
+  if (row.kind === "custody-type") return CUSTODY_META[row.custody].color;
+  if (row.kind === "network") return CHAIN_COLOR[row.chain];
   return undefined;
 }

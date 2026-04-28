@@ -3,9 +3,10 @@
 import Image from "next/image";
 import type { V2ReserveResponse, V2StablecoinsResponse } from "@/lib/types";
 import { formatUsd, formatNumber, formatPercent } from "@/lib/format";
-import { getBlockExplorerUrl, truncateAddress } from "@/lib/format";
+import { getBlockExplorerUrl } from "@/lib/format";
 import { chainLabel } from "@/lib/chains";
 import { useV2Query } from "@/lib/use-v2-query";
+import { AddressLabel } from "../address-label";
 import { InfoTooltip } from "../info-tooltip";
 import { TreeTable, type Column, type TreeRow } from "../tree-table";
 import { TabSkeleton } from "../tab-skeleton";
@@ -356,10 +357,13 @@ const opColumns: Column<OpRow>[] = [
             <span className="rounded px-1.5 py-0.5 font-medium bg-muted text-[10px] text-muted-foreground">
               {chainLabel(row.chain)}
             </span>
-            <span className="text-sm text-muted-foreground">{row.label}</span>
-            <span className="font-mono text-xs text-muted-foreground">
-              {truncateAddress(row.address)}
-            </span>
+            <AddressLabel
+              variant="compact"
+              label={row.label}
+              address={row.address}
+              chain={row.chain}
+              context="positions_tab:operational_holdings"
+            />
           </span>
         );
       }
