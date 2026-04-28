@@ -112,7 +112,7 @@ export interface CollateralSource {
 export interface V2ReserveResponse {
   collateral: {
     total_usd: number;
-    by_custodian: {
+    by_custodian?: {
       hot_usd: number;
       cold_usd: number;
       ops_usd: number;

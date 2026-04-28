@@ -125,7 +125,7 @@ export function AddressLabel({
           type="button"
           onClick={handleCopy}
           aria-label={`Copy address ${displayAddress}`}
-          className="h-3.5 w-3.5 rounded shrink-0 cursor-copy text-muted-foreground opacity-0 transition-opacity group-hover/address:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+          className="h-3.5 w-3.5 rounded shrink-0 cursor-copy text-muted-foreground opacity-60 transition-opacity hover:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
         >
           {copied ? (
             <Check className="h-3.5 w-3.5 text-green-500" />
@@ -164,7 +164,7 @@ export function AddressLabel({
           type="button"
           onClick={handleCopy}
           aria-label={`Copy address ${displayAddress}`}
-          className="h-4 w-4 rounded shrink-0 cursor-copy text-muted-foreground opacity-0 transition-opacity group-hover/address:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+          className="h-4 w-4 rounded shrink-0 cursor-copy text-muted-foreground opacity-60 transition-opacity hover:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
         >
           {copied ? (
             <Check className="h-4 w-4 text-green-500" />

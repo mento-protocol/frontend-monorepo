@@ -329,6 +329,11 @@ function buildRows(
   return [...pegRows, totalRow];
 }
 
+function sumSources(records: SourceRecord[] | undefined): number {
+  if (!records) return 0;
+  return records.reduce((s, r) => s + r.source.usd_value, 0);
+}
+
 // Flatten (asset, source) pairs and pro-rate the asset-level balance
 // across sources using the source's USD share.
 function flattenSources(assets: Asset[]): SourceRecord[] {
@@ -356,7 +361,7 @@ function buildRowsByCustody(
   sorted: Asset[],
   totalUsd: number,
   totalPct: number,
-  byCustodian: V2ReserveResponse["collateral"]["by_custodian"],
+  byCustodian: V2ReserveResponse["collateral"]["by_custodian"] | undefined,
 ): TreeRow<CollateralRow>[] {
   const records = flattenSources(sorted);
 
@@ -367,14 +372,20 @@ function buildRowsByCustody(
     byCustody.get(custody)!.push(rec);
   }
 
-  // API-provided totals are authoritative — preferring them over a
-  // sum-of-children avoids drift when the wire format changes (e.g.
-  // sources merged or filtered server-side).
-  const apiTotalsByCustody: Record<CustodyType, number> = {
-    hot: byCustodian.hot_usd,
-    cold: byCustodian.cold_usd,
-    ops: byCustodian.ops_usd,
-  };
+  // Prefer API-provided bucket totals when present so client and server
+  // can't drift; fall back to summing per-source values during rollout
+  // windows where `by_custodian` may not yet be populated.
+  const apiTotalsByCustody: Record<CustodyType, number> = byCustodian
+    ? {
+        hot: byCustodian.hot_usd,
+        cold: byCustodian.cold_usd,
+        ops: byCustodian.ops_usd,
+      }
+    : {
+        hot: sumSources(byCustody.get("hot")),
+        cold: sumSources(byCustody.get("cold")),
+        ops: sumSources(byCustody.get("ops")),
+      };
 
   const custodyRows: TreeRow<CollateralRow>[] = CUSTODY_ORDER.map(
     (custody) => ({
@@ -387,28 +398,34 @@ function buildRowsByCustody(
       const custodyUsd = apiTotalsByCustody[custody];
       const custodyPct = totalUsd > 0 ? (custodyUsd / totalUsd) * 100 : 0;
 
-      // Group by asset symbol; custody buckets cross chains so we
-      // collapse same-symbol records (e.g. USDC on Celo + Ethereum).
-      const bySymbol = new Map<string, SourceRecord[]>();
+      // Group by (chain, symbol) — symbols are not globally unique
+      // across chains (e.g. native BTC vs. wrapped BTC), so a flat
+      // symbol grouping would merge distinct tokens into one row.
+      const byChainSymbol = new Map<string, SourceRecord[]>();
       for (const rec of items) {
-        if (!bySymbol.has(rec.symbol)) bySymbol.set(rec.symbol, []);
-        bySymbol.get(rec.symbol)!.push(rec);
+        const key = `${rec.chain}:${rec.symbol}`;
+        if (!byChainSymbol.has(key)) byChainSymbol.set(key, []);
+        byChainSymbol.get(key)!.push(rec);
       }
 
-      const assetChildren = [...bySymbol.entries()]
-        .map(([symbol, recs]) => ({
-          symbol,
-          recs,
-          assetUsd: recs.reduce((s, r) => s + r.source.usd_value, 0),
-          assetBalance: recs.reduce((s, r) => {
-            const n = parseFloat(r.balance);
-            return Number.isFinite(n) ? s + n : s;
-          }, 0),
-          chain: recs[0]!.chain,
-        }))
+      const assetChildren = [...byChainSymbol.entries()]
+        .map(([key, recs]) => {
+          const first = recs[0]!;
+          return {
+            key,
+            symbol: first.symbol,
+            chain: first.chain,
+            recs,
+            assetUsd: recs.reduce((s, r) => s + r.source.usd_value, 0),
+            assetBalance: recs.reduce((s, r) => {
+              const n = parseFloat(r.balance);
+              return Number.isFinite(n) ? s + n : s;
+            }, 0),
+          };
+        })
         .sort((a, b) => b.assetUsd - a.assetUsd)
         .map<TreeRow<CollateralRow>>((entry) => ({
-          id: `custody:${custody}:asset:${entry.symbol}`,
+          id: `custody:${custody}:chain:${entry.chain}:asset:${entry.symbol}`,
           kind: "asset",
           symbol: entry.symbol,
           chain: entry.chain,
@@ -419,7 +436,7 @@ function buildRowsByCustody(
             .slice()
             .sort((a, b) => b.source.usd_value - a.source.usd_value)
             .map<TreeRow<CollateralRow>>((rec, i) => ({
-              id: `custody:${custody}:asset:${entry.symbol}:source:${rec.source.identifier}:${i}`,
+              id: `custody:${custody}:chain:${entry.chain}:asset:${entry.symbol}:source:${rec.source.identifier}:${i}`,
               kind: "source",
               sourceType: rec.source.type,
               label: rec.source.label,
