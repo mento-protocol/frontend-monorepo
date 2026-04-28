@@ -1,0 +1,101 @@
+import type { ChainId } from "@/config/chains";
+
+export type PoolFilterType = "all" | "positions";
+export type ChainFilterType = "all" | ChainId;
+
+export interface PoolRewardInfo {
+  apr: number;
+  dailyRewards: number;
+  campaignEnd: number; // unix timestamp
+  liveCampaigns: number;
+}
+
+export type PriceAlignmentStatus =
+  | "in-band"
+  | "warning"
+  | "rebalance-likely"
+  | "market-closed"
+  | "none";
+
+export interface PoolDisplayToken {
+  symbol: string;
+  address: string;
+  decimals: number;
+  name: string;
+}
+
+export interface PoolDisplay {
+  poolAddr: string;
+  chainId: ChainId;
+  poolType: "FPMM" | "Legacy";
+  token0: PoolDisplayToken;
+  token1: PoolDisplayToken;
+  reserves: {
+    token0: string; // formatted with K/M suffix
+    token1: string;
+    token0Ratio: number; // 0-1, token0's share of total reserves (value-weighted when rate is available)
+    hasLiquidity: boolean;
+  };
+  fees: {
+    total: number;
+    lp: number;
+    protocol: number;
+    label: "fee" | "spread"; // "fee" for FPMM, "spread" for Legacy
+  };
+  priceAlignment: {
+    status: PriceAlignmentStatus;
+    priceDifferencePercent?: number;
+  };
+  // FPMM-specific data (only present for FPMM pools when pricing is available)
+  pricing?: {
+    oraclePrice: number;
+    poolPrice: number;
+    deviationBps: number; // in basis points
+    isPoolPriceAbove: boolean;
+  };
+  rebalancing?: {
+    incentivePercent: number;
+    thresholdAboveBps: number;
+    thresholdBelowBps: number;
+    canRebalance: boolean; // true if out of band and has liquidity strategy
+    liquidityStrategy: string | null;
+  };
+  tvl: number | null; // Total value locked in USD, null when pricing unavailable
+}
+
+export function sortPoolsByTvl(pools: PoolDisplay[]): PoolDisplay[] {
+  return [...pools].sort((a, b) => {
+    if (a.tvl === null && b.tvl === null) return 0;
+    if (a.tvl === null) return 1;
+    if (b.tvl === null) return -1;
+    return b.tvl - a.tvl;
+  });
+}
+
+export const SLIPPAGE_OPTIONS = [0.1, 0.3, 0.5, 1.0] as const;
+export type SlippageOption = (typeof SLIPPAGE_OPTIONS)[number];
+
+export type { CallParams as TransactionParams } from "@mento-protocol/mento-sdk";
+
+/** Dummy address used with getLPTokenBalance to retrieve totalSupply only. */
+export const LP_TOTAL_SUPPLY_HOLDER =
+  "0x0000000000000000000000000000000000000001" as const;
+
+/** Maps raw wallet/chain error messages to user-friendly strings. */
+export function getTransactionErrorMessage(
+  rawMessage: string,
+  fallback = "Unable to complete transaction.",
+  actionLabel?: string,
+): string {
+  if (
+    /user\s+rejected/i.test(rawMessage) ||
+    /denied\s+transaction/i.test(rawMessage) ||
+    /request\s+rejected/i.test(rawMessage)
+  ) {
+    return actionLabel ? `${actionLabel} rejected.` : "Transaction rejected.";
+  }
+  if (/insufficient/i.test(rawMessage)) {
+    return "Insufficient funds for this transaction.";
+  }
+  return fallback;
+}

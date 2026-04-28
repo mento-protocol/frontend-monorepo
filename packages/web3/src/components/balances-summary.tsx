@@ -2,8 +2,7 @@
 
 import { getTokenBySymbol, getTokenDecimals } from "@/config/tokens";
 import { useAccountBalances } from "@/features/accounts/use-account-balances";
-import { formatWithMaxDecimals } from "@/features/swap/utils";
-import { formatBalance } from "@repo/web3";
+import { formatBalance, formatWithMaxDecimals } from "@/features/swap/utils";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import { TokenIcon } from "@repo/ui";
 import { useAccount, useChainId } from "wagmi";

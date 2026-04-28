@@ -1,9 +1,113 @@
 [[IgnoredVulns]]
-id = "GHSA-2g4f-4pwh-qvx6"
-ignoreUntil = 2026-04-19
-reason = "ajv 6.12.6 — fix only in 8.18.0 (major version jump); no 6.x patch available"
+id = "GHSA-ffrw-9mx8-89p8"
+reason = "There is no fix for this vulnerability and it's only low risk"
+
+[[IgnoredVulns]]
+id = "GHSA-43fc-jf86-j433"
+reason = "axios vulnerability is in transitive deps (wormhole-connect); no direct fix available"
+
+[[IgnoredVulns]]
+id = "GHSA-4hjh-wcwx-xvwj"
+reason = "axios vulnerability is in transitive deps (wormhole-connect); no direct fix available"
+
+[[IgnoredVulns]]
+id = "GHSA-3gc7-fjrx-p6mg"
+reason = "bigint-buffer vulnerability is in transitive deps; no direct fix available"
+
+[[IgnoredVulns]]
+id = "GHSA-vqpr-j7v3-hqw9"
+reason = "valibot ReDoS vulnerability is in transitive deps; no direct fix available"
+
+[[IgnoredVulns]]
+id = "GHSA-5f7q-jpqc-wp7h"
+reason = "Next.js PPR vulnerability; pre-existing, not related to bridge changes"
+
+[[IgnoredVulns]]
+id = "GHSA-378v-28hj-76wf"
+reason = "bn.js infinite loop in transitive deps; pre-existing"
 
 [[IgnoredVulns]]
 id = "GHSA-848j-6mx2-7j84"
-ignoreUntil = 2026-04-19
-reason = "elliptic 6.6.1 — no patched version released by maintainer"
+# No official upstream fix exists for elliptic as of 2026-04-21.
+# Pulled in via multiple independent chains: ethers v5 (@ethersproject/signing-key),
+# @cosmjs/crypto, @toruslabs/eccrypto, and tiny-secp256k1. Removing any single
+# chain (e.g. ethers v5) will NOT eliminate the vulnerability.
+# TODO: Remove once upstream releases a patched version.
+ignoreUntil = 2026-06-01T00:00:00Z
+reason = "No upstream fix available for elliptic yet; pulled in via multiple chains (ethers v5, @cosmjs/crypto, @toruslabs/eccrypto, tiny-secp256k1)."
+
+[[IgnoredVulns]]
+id = "GHSA-23c5-xmqv-rm74"
+reason = "minimatch ReDoS in transitive deps; pre-existing"
+
+[[IgnoredVulns]]
+id = "GHSA-3ppc-4f35-3m26"
+reason = "minimatch ReDoS in transitive deps; pre-existing"
+
+[[IgnoredVulns]]
+id = "GHSA-7r86-cg39-jmmj"
+reason = "minimatch ReDoS in transitive deps; pre-existing"
+
+[[IgnoredVulns]]
+id = "GHSA-xxjr-mmjv-4gpg"
+# Prototype Pollution vulnerability in lodash _.unset and _.omit functions
+# lodash 4.17.21 is the latest version and is a transitive dependency of @metamask/utils
+# TODO: Remove this ignore once lodash releases a patched version
+ignoreUntil = 2026-02-22T00:00:00Z
+reason = "No fix available - lodash 4.17.21 is the latest version. Transitive dependency from @metamask/utils."
+
+[[IgnoredVulns]]
+id = "GHSA-3x4c-7xq6-9pq8"
+reason = "Next.js unbounded image cache growth; 15.5.13 is latest stable, no fix available yet"
+
+[[IgnoredVulns]]
+id = "GHSA-xq3m-2v4x-88gg"
+# protobufjs 6.11.5 vulnerability. Pulled in via @confio/ics23@0.6.8 which is
+# deprecated/unmaintained and declares protobufjs ^6.8.8. Forcing it to 7.x is
+# a semver-major jump (dropped `long` dep, changed 64-bit integer handling)
+# that risks silently corrupting IBC/Cosmos proof parsing in the wormhole-connect
+# bridge stack used by app.mento.org. 7.x/8.x consumers are already covered by
+# the narrower pnpm overrides.
+# TODO: Re-evaluate at ignoreUntil — check whether @confio/ics23 has been
+# removed from the dep tree or a safe fix path exists upstream.
+ignoreUntil = 2026-06-01T00:00:00Z
+reason = "protobufjs 6.x advisory — no safe fix path; @confio/ics23@0.6.8 is deprecated and 7.x is an unsafe major jump for Cosmos proof parsing."
+
+[[IgnoredVulns]]
+id = "GHSA-w5hq-g745-h8pq"
+# uuid: missing buffer bounds check in v3/v5/v6 when a `buf` argument is provided.
+# Fixed upstream in uuid@14.0.0, but uuid@14 is ESM-only. CJS transitive
+# consumers in the wallet/RPC stack still do `require("uuid")` and would throw
+# ERR_REQUIRE_ESM at runtime if upgraded.
+#
+# Full audit of every package in pnpm-lock.yaml that declares a pre-14 `uuid`
+# dependency (16 unique entries), with the uuid APIs each actually calls in
+# its installed build:
+#
+#   Package                              | APIs used                       | Vulnerable path?
+#   -------------------------------------|---------------------------------|-----------------
+#   @aptos-connect/web-transport 0.2.0   | stringify                       | no
+#   @identity-connect/dapp-sdk 0.10.5    | parse, stringify                | no
+#   @keystonehq/bc-ur-registry-sol 0.9.5 | parse                           | no
+#   @keystonehq/sol-keyring 0.20.0       | v4, stringify                   | no (v4 random)
+#   @metamask/sdk 0.33.1                 | v4, parse, stringify, validate  | no (v4 random)
+#   @metamask/sdk-communication-layer …  | v4, parse, stringify, validate  | no (v4 random)
+#   @metamask/utils 8.5.0                | v4, parse, stringify            | no (v4 random)
+#   @metamask/utils 9.3.0                | v4, parse, stringify            | no (v4 random)
+#   @metamask/utils 11.9.0               | v4, parse, stringify            | no (v4 random)
+#   @sentry/webpack-plugin 4.7.0         | v4                              | no (v4 random)
+#   @solflare-wallet/metamask-sdk 1.0.3  | v4 (aliased)                    | no (v4 random)
+#   @solflare-wallet/sdk 1.4.2           | v4 (aliased)                    | no (v4 random)
+#   jayson 4.3.0                         | parse, stringify, version       | no
+#   rpc-websockets 7.11.2                | parse, stringify                | no
+#   rpc-websockets 9.3.2                 | v1, parse, stringify            | no (v1 time-based)
+#   uuidv4 6.2.13                        | v4, v5(text, ns), validate, NIL | no (v5 no buf)
+#
+# No consumer calls `v3`, `v6`, or `v5` with a 3rd `buf` argument. The
+# vulnerable code path is unreachable across the entire dep tree.
+#
+# TODO: Re-evaluate at ignoreUntil — re-run the audit after any major
+# lockfile churn (e.g. new wallet SDK, upstream ESM migrations) to confirm
+# no new pre-14 uuid consumer has entered the tree on a vulnerable path.
+ignoreUntil = 2026-08-01T00:00:00Z
+reason = "uuid v3/v5/v6+buf advisory — unreachable (all 16 pre-14 consumers audited; none call v3, v6, or v5 with a buf argument); upgrade blocked by ESM-only uuid@14 vs CJS consumers."

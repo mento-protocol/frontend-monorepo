@@ -1,3 +1,4 @@
+export { ChainButton } from "./chain-button";
 export { ConnectButton } from "./connect-button";
 export { NetworkDialog } from "./network-dialog";
 export { Identicon } from "./identicon";

@@ -3,13 +3,12 @@
 import { BalancesSummary } from "@/components/balances-summary";
 import { BalancesSummaryMento } from "@/components/balances-summary-mento";
 import { Identicon } from "@/components/identicon";
-import { NetworkDialog } from "@/components/network-dialog";
+import { useTestnetMode } from "@/config/testnet-mode";
 import { tryClipboardSet } from "@/utils/clipboard";
 import { WalletHelper } from "@/utils/wallet.helper";
 import {
   ConnectButton as RainbowConnectButton,
   useAccountModal,
-  useChainModal,
   useConnectModal,
 } from "@rainbow-me/rainbowkit";
 import { toast } from "@repo/ui";
@@ -17,9 +16,9 @@ import {
   ChevronDown,
   ClipboardCopy,
   LogOut,
-  Network as NetworkIcon,
+  Square,
+  SquareCheck,
 } from "lucide-react";
-import { useState } from "react";
 import { useAccount, useDisconnect } from "wagmi";
 
 import {
@@ -29,6 +28,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@repo/ui";
@@ -52,10 +52,9 @@ function ConnectedDropdown({
   fullWidth,
   balanceMode = "all",
 }: ConnectedDropdownProps) {
-  const { openChainModal } = useChainModal();
   const { openAccountModal } = useAccountModal();
   const { disconnect } = useDisconnect();
-  const [showNetworkDialog, setShowNetworkDialog] = useState(false);
+  const [testnetMode, setTestnetMode] = useTestnetMode();
 
   const onClickCopy = async () => {
     if (!account.address) return;
@@ -64,14 +63,6 @@ function ConnectedDropdown({
       toast.success("Address copied to clipboard", { duration: 2000 });
     } catch (error) {
       console.error("Failed to copy address", error);
-    }
-  };
-
-  const onClickChangeNetwork = () => {
-    if (openChainModal) {
-      openChainModal();
-    } else {
-      setShowNetworkDialog(true);
     }
   };
 
@@ -109,6 +100,34 @@ function ConnectedDropdown({
             <BalancesSummary />
           )}
           <DropdownMenuSeparator />
+          <DropdownMenuLabel className="px-2 pb-0 text-xs tracking-widest text-muted-foreground uppercase">
+            Settings
+          </DropdownMenuLabel>
+          <DropdownMenuItem
+            onClick={() => setTestnetMode(!testnetMode)}
+            className={cn(
+              "gap-3 py-3 cursor-pointer",
+              "focus:bg-accent focus:text-accent-foreground",
+            )}
+            role="menuitemcheckbox"
+            aria-checked={testnetMode}
+          >
+            {testnetMode ? (
+              <SquareCheck
+                size={iconSize}
+                strokeWidth={iconStrokeWidth}
+                className="text-muted-foreground"
+              />
+            ) : (
+              <Square
+                size={iconSize}
+                strokeWidth={iconStrokeWidth}
+                className="text-muted-foreground"
+              />
+            )}
+            Testnet Mode
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={onClickCopy}
             className={cn(
@@ -122,20 +141,6 @@ function ConnectedDropdown({
               className="text-muted-foreground"
             />
             <span>Copy Address</span>
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={onClickChangeNetwork}
-            className={cn(
-              "gap-3 py-3 cursor-pointer",
-              "focus:bg-accent focus:text-accent-foreground",
-            )}
-          >
-            <NetworkIcon
-              size={iconSize}
-              strokeWidth={iconStrokeWidth}
-              className="text-muted-foreground"
-            />
-            <span>Change Network</span>
           </DropdownMenuItem>
           {openAccountModal && (
             <DropdownMenuItem
@@ -171,12 +176,6 @@ function ConnectedDropdown({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      {showNetworkDialog && (
-        <NetworkDialog
-          isOpen={showNetworkDialog}
-          close={() => setShowNetworkDialog(false)}
-        />
-      )}
     </>
   );
 }

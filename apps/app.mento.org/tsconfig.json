@@ -2,7 +2,9 @@
   "extends": "@repo/typescript-config/nextjs.json",
   "compilerOptions": {
     "paths": {
-      "@/*": ["./app/*"]
+      "@/*": ["./app/*"],
+      "@repo/web3/sentry-filter": ["../../packages/web3/src/sentry-filter.ts"],
+      "@repo/web3/borrow-server": ["../../packages/web3/src/borrow-server.ts"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

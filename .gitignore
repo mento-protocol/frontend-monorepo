@@ -49,6 +49,11 @@ yarn-error.log*
 
 # Cursor
 .cursor/screenshots/
+.claude/audit-report.md
+*.zip
 
+.claude/skills/
 # AI Pentesting
 deliverables
+.codex.reviews/
+.codex

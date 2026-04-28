@@ -1,30 +1,35 @@
-import { getAllReserveData } from "./lib/data-fetching";
-import { MetricCards } from "./components/metric-cards";
+import {
+  QueryClient,
+  HydrationBoundary,
+  dehydrate,
+} from "@tanstack/react-query";
 import { ReserveTabs } from "./components/reserve-tabs";
+import { TAB_ENDPOINTS, fetchV2, resolveTab, v2QueryKey } from "./lib/queries";
 
-export default async function Home() {
-  // Fetch all data once for both tabs
-  const {
-    reserveStats,
-    stableCoinStats,
-    reserveComposition,
-    reserveHoldings,
-    reserveAddresses,
-  } = await getAllReserveData();
+interface HomeProps {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}
+
+export default async function Home({ searchParams }: HomeProps) {
+  const params = await searchParams;
+  const initialTab = resolveTab(params.tab);
+  const eagerEndpoints = TAB_ENDPOINTS[initialTab];
+
+  const queryClient = new QueryClient();
+  await Promise.all(
+    eagerEndpoints.map((endpoint) =>
+      queryClient.prefetchQuery({
+        queryKey: v2QueryKey(endpoint),
+        queryFn: () => fetchV2(endpoint),
+      }),
+    ),
+  );
 
   return (
-    <>
-      <section className="xl:px-22 max-w-2xl px-4 pt-0 md:px-20 md:pb-20">
-        <MetricCards reserveStats={reserveStats} />
-      </section>
-      <section className="px-4 md:px-20 relative z-0 w-full">
-        <ReserveTabs
-          stableCoinStats={stableCoinStats}
-          reserveComposition={reserveComposition}
-          reserveHoldings={reserveHoldings}
-          reserveAddresses={reserveAddresses}
-        />
-      </section>
-    </>
+    <section className="px-4 md:px-20 mt-8 md:mt-16 relative z-0 w-full">
+      <HydrationBoundary state={dehydrate(queryClient)}>
+        <ReserveTabs initialTab={initialTab} />
+      </HydrationBoundary>
+    </section>
   );
 }

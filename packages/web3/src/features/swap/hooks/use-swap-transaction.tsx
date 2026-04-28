@@ -1,37 +1,51 @@
-import { chainIdToChain } from "@/config/chains";
+import { chainIdToChain, CELO_EXPLORER } from "@/config/chains";
 import { getTokenBySymbol } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
-import { SwapDirection } from "@/features/swap/types";
+import {
+  extractFullErrorString,
+  isInsufficientLiquidityError,
+  SWAP_INSUFFICIENT_LIQUIDITY_LABEL,
+} from "@/features/swap/error-handlers";
 import { formatWithMaxDecimals } from "@/features/swap/utils";
-import { logger } from "@/utils/logger";
-import { retryAsync } from "@/utils/retry";
 import { validateAddress } from "@/utils/addresses";
+import { logger } from "@/utils/logger";
 import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
 import { toast } from "@repo/ui";
-import * as Sentry from "@sentry/nextjs";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
 import { useAtom, useSetAtom } from "jotai";
 import { useEffect } from "react";
-import type { Address } from "viem";
-import { useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
+import type { Address, Hex } from "viem";
+import {
+  usePublicClient,
+  useSendTransaction,
+  useWaitForTransactionReceipt,
+} from "wagmi";
+import { getSwapTransactionErrorMessage } from "./swap-transaction-error";
 import { confirmViewAtom, formValuesAtom } from "../swap-atoms";
-import { SWAP_ERROR_MESSAGES, USER_ERROR_MESSAGES } from "../error-handlers";
+
+function parseDeadlineMinutes(deadlineMinutes?: string): number {
+  const parsed = Number.parseInt(deadlineMinutes ?? "", 10);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 5;
+  }
+
+  return parsed;
+}
 
 export function useSwapTransaction(
   chainId: number,
   fromToken: TokenSymbol,
   toToken: TokenSymbol,
   amountInWei: string,
-  thresholdAmountInWei: string,
-  direction: SwapDirection,
   accountAddress?: Address,
   isApproveConfirmed?: boolean,
   swapValues?: {
     fromAmount: string;
     toAmount: string;
-    toAmountWei?: string; // Add this to receive the exact buy amount for swapOut
   },
+  insufficientLiquidityFallbackUrl?: string,
 ): {
   sendSwapTx: () => Promise<Address>;
   swapTxResult: Address | undefined;
@@ -44,6 +58,7 @@ export function useSwapTransaction(
 } {
   const [formValues, setFormValues] = useAtom(formValuesAtom);
   const setConfirmView = useSetAtom(confirmViewAtom);
+  const publicClient = usePublicClient({ chainId });
 
   const { data: swapTxHash, sendTransactionAsync } = useSendTransaction();
 
@@ -60,16 +75,17 @@ export function useSwapTransaction(
       if (
         !accountAddress ||
         !isApproveConfirmed ||
-        new BigNumber(amountInWei).lte(0) ||
-        new BigNumber(thresholdAmountInWei).lte(0)
+        new BigNumber(amountInWei).lte(0)
       ) {
         logger.debug("Skipping swap transaction: prerequisites not met.");
         throw new Error("Swap prerequisites not met");
       }
       logger.debug("Preparing swap transaction...");
+
       const sdk = await getMentoSdk(chainId);
-      const fromTokenAddr = getTokenAddress(fromToken, chainId);
-      const toTokenAddr = getTokenAddress(toToken, chainId);
+
+      const fromTokenAddr = getTokenAddress(chainId, fromToken);
+      const toTokenAddr = getTokenAddress(chainId, toToken);
       if (!fromTokenAddr) {
         throw new Error(
           `${fromToken} token address not found on chain ${chainId}`,
@@ -80,73 +96,71 @@ export function useSwapTransaction(
           `${toToken} token address not found on chain ${chainId}`,
         );
       }
-      const tradablePair = await getTradablePairForTokens(
-        chainId,
-        fromToken,
-        toToken,
+
+      const route = await getTradablePairForTokens(chainId, fromToken, toToken);
+
+      const deadlineSeconds =
+        parseDeadlineMinutes(formValues?.deadlineMinutes) * 60;
+      if (!publicClient) {
+        throw new Error("Public client not available");
+      }
+      const block = await publicClient.getBlock();
+      const deadline = block.timestamp + BigInt(deadlineSeconds);
+
+      const swapDetails = await sdk.swap.buildSwapParams(
+        fromTokenAddr as `0x${string}`,
+        toTokenAddr as `0x${string}`,
+        BigInt(amountInWei),
+        accountAddress,
+        {
+          slippageTolerance: parseFloat(formValues?.slippage || "0.3"),
+          deadline,
+        },
+        route,
       );
 
-      let txRequest;
-      if (direction === "in") {
-        // swapIn: sell exact amount of fromToken, receive at least minAmountOut of toToken
-        txRequest = await sdk.swapIn(
-          fromTokenAddr,
-          toTokenAddr,
-          amountInWei, // exact amount of fromToken to sell
-          thresholdAmountInWei, // minimum amount of toToken to receive
-          tradablePair,
-        );
-      } else {
-        // swapOut: buy exact amount of toToken, sell at most maxAmountIn of fromToken
-        // CRITICAL: For swapOut, the parameter order is different!
-        // We need the exact buy amount from swapValues
-        const exactBuyAmount = swapValues?.toAmountWei;
-        if (!exactBuyAmount) {
-          throw new Error("Missing toAmountWei for swapOut");
-        }
+      logger.debug("Sending swap transaction...", { swapDetails });
 
-        logger.debug("SwapOut parameters:", {
-          fromToken: fromTokenAddr,
-          toToken: toTokenAddr,
-          exactBuyAmount,
-          maxSellAmount: thresholdAmountInWei,
-        });
-
-        txRequest = await sdk.swapOut(
-          fromTokenAddr,
-          toTokenAddr,
-          exactBuyAmount, // exact amount of toToken to buy
-          thresholdAmountInWei, // maximum amount of fromToken to sell
-          tradablePair,
-        );
-      }
-
-      logger.debug("Sending swap transaction...", { txRequest });
-
-      // Rely on the connected wallet's active chain. Passing `chainId` here breaks when it is undefined.
-      // See https://github.com/wagmi-dev/wagmi/issues/1879 – supply only tx fields;
       if (chainId === undefined) {
         throw new Error("Chain ID is undefined");
       }
-      validateAddress(txRequest.to, "swap transaction");
-      const txHash = await retryAsync(async () => {
-        return await sendTransactionAsync({
-          to: txRequest.to as Address,
-          data: txRequest.data as `0x${string}` | undefined,
-          value: txRequest.value
-            ? BigInt(txRequest.value.toString())
-            : undefined,
-          gas: txRequest.gasLimit
-            ? BigInt(txRequest.gasLimit.toString())
-            : undefined,
+      validateAddress(swapDetails.params.to, "swap transaction");
+
+      // Preflight estimate to surface revert reasons in-app before wallet submit.
+      try {
+        await publicClient.estimateGas({
+          account: accountAddress,
+          to: swapDetails.params.to as Address,
+          data: swapDetails.params.data as Hex,
+          value: BigInt(swapDetails.params.value || 0),
         });
+      } catch (estimateError) {
+        const estimateMessage = extractFullErrorString(estimateError);
+
+        if (isInsufficientLiquidityError(estimateMessage)) {
+          throw new Error(SWAP_INSUFFICIENT_LIQUIDITY_LABEL);
+        }
+
+        if (
+          estimateMessage.includes("No route found for tokens") ||
+          estimateMessage.includes("tradable path")
+        ) {
+          throw new Error("No route found for this token pair.");
+        }
+
+        throw estimateError;
+      }
+
+      const txHash = await sendTransactionAsync({
+        to: swapDetails.params.to as Address,
+        data: swapDetails.params.data as `0x${string}`,
+        value: BigInt(swapDetails.params.value || 0),
       });
 
       logger.debug("Transaction sent, waiting for confirmation...", {
         hash: txHash,
       });
 
-      // Return the transaction hash so that onSuccess receives it
       return txHash;
     },
     onError: (error: Error) => {
@@ -154,7 +168,15 @@ export function useSwapTransaction(
         logger.debug("Swap skipped due to prerequisites not being met.");
         return;
       }
-      const toastError = getSwapTransactionErrorMessage(error);
+      const toastError = getSwapTransactionErrorMessage(
+        error,
+        {
+          fromTokenSymbol: fromToken,
+          toTokenSymbol: toToken,
+          chainId,
+        },
+        insufficientLiquidityFallbackUrl,
+      );
       toast.error(toastError);
       logger.error(`Swap transaction failed: ${error.message}`, error);
     },
@@ -165,7 +187,13 @@ export function useSwapTransaction(
   useEffect(() => {
     if (isSwapTxConfirmed) {
       if (swapTxReceipt?.status !== "success") {
-        throw new Error("Transaction failed");
+        logger.error("Swap transaction reverted on-chain", {
+          hash: swapTxHash,
+          receiptStatus: swapTxReceipt?.status,
+        });
+        toast.error("Swap transaction failed on-chain.");
+        setConfirmView(false);
+        return;
       }
 
       logger.info("Swap transaction confirmed successfully", {
@@ -176,12 +204,13 @@ export function useSwapTransaction(
       if (swapValues) {
         const chain = chainIdToChain[chainId];
         const explorerUrl = chain?.blockExplorers?.default.url;
+        const explorerName =
+          chain?.blockExplorers?.default?.name || CELO_EXPLORER.name;
         const fromTokenObj = getTokenBySymbol(fromToken, chainId);
         const toTokenObj = getTokenBySymbol(toToken, chainId);
         const fromTokenSymbol = fromTokenObj?.symbol || "Token";
         const toTokenSymbol = toTokenObj?.symbol || "Token";
 
-        // Format amounts for display
         const fromAmountFormatted = formatWithMaxDecimals(
           swapValues.fromAmount,
           4,
@@ -203,7 +232,7 @@ export function useSwapTransaction(
                 rel="noopener noreferrer"
                 className="text-muted-foreground underline"
               >
-                View Transaction on CeloScan
+                View Transaction on {explorerName}
               </a>
             )}
           </>,
@@ -211,24 +240,24 @@ export function useSwapTransaction(
       }
 
       setFormValues({
-        slippage: formValues?.slippage || "0.5",
+        tokenInSymbol: fromToken,
+        tokenOutSymbol: toToken,
+        slippage: formValues?.slippage || "0.3",
+        isAutoSlippage: formValues?.isAutoSlippage ?? true,
+        deadlineMinutes: formValues?.deadlineMinutes || "5",
+        isAutoDeadline: formValues?.isAutoDeadline ?? true,
       });
       setConfirmView(false);
 
-      // Invalidate account balances to ensure UI shows updated balances
-      // Wrapped in async function with error handling to prevent unhandled rejections
-      // when the user disconnects their wallet immediately after a successful swap
       if (accountAddress && chainId) {
         (async () => {
           try {
-            // Cancel any in-flight balance queries first
             await queryClient.cancelQueries({
               queryKey: [
                 "accountBalances",
                 { address: accountAddress, chainId },
               ],
             });
-            // Then invalidate to trigger a fresh fetch
             await queryClient.invalidateQueries({
               queryKey: [
                 "accountBalances",
@@ -236,8 +265,9 @@ export function useSwapTransaction(
               ],
             });
           } catch (error) {
-            // This can happen if the user disconnects their wallet immediately after swap
-            Sentry.captureException(`Balance refresh failed: ${error}`);
+            logger.warn("Balance refresh invalidation failed after swap", {
+              error,
+            });
           }
         })();
       }
@@ -246,6 +276,9 @@ export function useSwapTransaction(
     accountAddress,
     chainId,
     formValues?.slippage,
+    formValues?.isAutoSlippage,
+    formValues?.deadlineMinutes,
+    formValues?.isAutoDeadline,
     fromToken,
     isSwapTxConfirmed,
     queryClient,
@@ -267,33 +300,4 @@ export function useSwapTransaction(
     swapTxError: mutation.error,
     resetSwapTx: mutation.reset,
   };
-}
-
-/**
- * Converts swap transaction errors to user-friendly toast messages.
- * Handles transaction-specific errors like user rejection, insufficient funds, etc.
- */
-export function getSwapTransactionErrorMessage(error: Error | string): string {
-  const errorMessage =
-    typeof error === "string" ? error : String(error.message ?? error);
-
-  switch (true) {
-    case errorMessage.includes(
-      SWAP_ERROR_MESSAGES.TRADING_SUSPENDED_REFERENCE_RATE,
-    ):
-      return USER_ERROR_MESSAGES.TRADING_PAUSED;
-    case /user\s+rejected/i.test(errorMessage):
-      return USER_ERROR_MESSAGES.SWAP_REJECTED_BY_USER;
-    case /denied\s+transaction\s+signature/i.test(errorMessage):
-      return USER_ERROR_MESSAGES.SWAP_REJECTED_BY_USER;
-    case /request\s+rejected/i.test(errorMessage):
-      return USER_ERROR_MESSAGES.SWAP_REJECTED_BY_USER;
-    case errorMessage.includes("insufficient funds"):
-      return USER_ERROR_MESSAGES.INSUFFICIENT_FUNDS;
-    case errorMessage.includes("Transaction failed"):
-      return USER_ERROR_MESSAGES.TRANSACTION_FAILED;
-    default:
-      logger.warn(`Unhandled swap error for toast: ${errorMessage}`);
-      return USER_ERROR_MESSAGES.UNKNOWN_ERROR;
-  }
 }

@@ -3,111 +3,112 @@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@repo/ui";
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ReserveHoldingsContent } from "../reserve-holdings/components/reserve-holdings-content";
-import { StablecoinSupplyContent } from "../stablecoin-supply/components/stablecoin-supply-content";
-import { ReserveAddressesContent } from "../reserve-addresses/components/reserve-addresses-content";
-import type {
-  HoldingsApi,
-  ReserveCompositionAPI,
-  StableValueTokensAPI,
-  ReserveAddressesResponse,
-} from "../lib/types";
-
-enum TabType {
-  stablecoinSupply = "stablecoin-supply",
-  reserveHoldings = "reserve-holdings",
-  reserveAddresses = "reserve-addresses",
-}
+import { useQueryClient } from "@tanstack/react-query";
+import { OverviewTab } from "./tabs/overview-tab";
+import { StablecoinsTab } from "./tabs/stablecoins-tab";
+import { CollateralTab } from "./tabs/collateral-tab";
+import { PositionsTab } from "./tabs/positions-tab";
+import { AddressesTab } from "./tabs/addresses-tab";
+import { StalenessBanner } from "./staleness-banner";
+import {
+  TAB_ENDPOINTS,
+  TabType,
+  V2_ENDPOINTS,
+  fetchV2,
+  resolveTab,
+  v2QueryKey,
+} from "@/lib/queries";
 
 interface ReserveTabsProps {
-  stableCoinStats: StableValueTokensAPI;
-  reserveComposition: ReserveCompositionAPI;
-  reserveHoldings: HoldingsApi;
-  reserveAddresses: ReserveAddressesResponse;
+  initialTab: TabType;
 }
 
-export function ReserveTabs({
-  stableCoinStats,
-  reserveComposition,
-  reserveHoldings,
-  reserveAddresses,
-}: ReserveTabsProps) {
+export function ReserveTabs({ initialTab }: ReserveTabsProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState(TabType.stablecoinSupply);
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab);
 
-  // Initialize tab from URL parameter
   useEffect(() => {
-    const tabParam = searchParams.get("tab");
-    if (
-      tabParam === TabType.reserveHoldings ||
-      tabParam === TabType.stablecoinSupply ||
-      tabParam === TabType.reserveAddresses
-    ) {
-      setActiveTab(tabParam as TabType);
-    }
+    setActiveTab(resolveTab(searchParams?.get("tab")));
   }, [searchParams]);
+
+  // After hydration, warm up queries the server didn't prefetch so
+  // switching tabs feels instant. Staggered to avoid a thundering herd.
+  useEffect(() => {
+    const eager = new Set(TAB_ENDPOINTS[initialTab]);
+    const deferred = V2_ENDPOINTS.filter((endpoint) => !eager.has(endpoint));
+    const timers = deferred.map((endpoint, index) =>
+      setTimeout(() => {
+        void queryClient.prefetchQuery({
+          queryKey: v2QueryKey(endpoint),
+          queryFn: () => fetchV2(endpoint),
+        });
+      }, index * 150),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [initialTab, queryClient]);
 
   const handleTabChange = (value: string) => {
     setActiveTab(value as TabType);
-    // Update URL without full page navigation
-    const newUrl = value === TabType.stablecoinSupply ? "/" : `/?tab=${value}`;
-    router.replace(newUrl, { scroll: false });
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    if (value === TabType.overview) params.delete("tab");
+    else params.set("tab", value);
+    const qs = params.toString();
+    router.replace(qs ? `/?${qs}` : "/", { scroll: false });
   };
 
+  const gradientOverlay =
+    "before:top-0 before:h-20 relative before:absolute before:left-1/2 before:z-0 before:w-screen before:-translate-x-1/2 before:bg-gradient-to-b before:from-[#15111B] before:to-[#070010]";
+
   return (
-    <Tabs
-      value={activeTab}
-      onValueChange={handleTabChange}
-      className="mb-8 gap-0 w-full"
-    >
-      <TabsList>
-        <TabsTrigger value={TabType.stablecoinSupply}>
-          Stablecoin Supply
-        </TabsTrigger>
-        <TabsTrigger value={TabType.reserveHoldings}>
-          Reserve Holdings
-        </TabsTrigger>
-        <TabsTrigger value={TabType.reserveAddresses}>
-          Reserve Addresses
-        </TabsTrigger>
-      </TabsList>
-
-      <TabsContent
-        value={TabType.stablecoinSupply}
-        className="before:top-0 before:h-20 relative before:absolute before:left-1/2 before:z-0 before:w-screen before:-translate-x-1/2 before:bg-gradient-to-b before:from-[#15111B] before:to-[#070010]"
+    <>
+      <StalenessBanner />
+      <Tabs
+        value={activeTab}
+        onValueChange={handleTabChange}
+        className="mb-8 gap-0 w-full"
       >
-        <h2 className="my-6 text-2xl font-medium md:mb-8 md:mt-12 md:block relative z-10 hidden">
-          Stablecoin Supply
-        </h2>
-        <div className="relative z-10">
-          <StablecoinSupplyContent stableCoinStats={stableCoinStats} />
-        </div>
-      </TabsContent>
+        <TabsList>
+          <TabsTrigger value={TabType.overview}>Overview</TabsTrigger>
+          <TabsTrigger value={TabType.stablecoins}>Supply</TabsTrigger>
+          <TabsTrigger value={TabType.collateral}>Collateral</TabsTrigger>
+          <TabsTrigger value={TabType.positions}>Positions</TabsTrigger>
+          <TabsTrigger value={TabType.addresses}>Addresses</TabsTrigger>
+        </TabsList>
 
-      <TabsContent
-        value={TabType.reserveHoldings}
-        className="before:top-0 before:h-20 relative before:absolute before:left-1/2 before:z-0 before:w-screen before:-translate-x-1/2 before:bg-gradient-to-b before:from-[#15111B] before:to-[#070010]"
-      >
-        <div className="relative z-10">
-          <ReserveHoldingsContent
-            reserveComposition={reserveComposition}
-            reserveHoldings={reserveHoldings}
-          />
-        </div>
-      </TabsContent>
+        <TabsContent value={TabType.overview} className={gradientOverlay}>
+          <div className="pt-6 md:pt-12 relative z-10">
+            <OverviewTab
+              onNavigateToPositions={() => handleTabChange(TabType.positions)}
+            />
+          </div>
+        </TabsContent>
 
-      <TabsContent
-        value={TabType.reserveAddresses}
-        className="before:top-0 before:h-20 relative before:absolute before:left-1/2 before:z-0 before:w-screen before:-translate-x-1/2 before:bg-gradient-to-b before:from-[#15111B] before:to-[#070010]"
-      >
-        <h2 className="my-6 text-2xl font-medium md:mb-8 md:mt-12 md:block relative z-10 hidden">
-          Reserve Addresses
-        </h2>
-        <div className="relative z-10">
-          <ReserveAddressesContent reserveAddresses={reserveAddresses} />
-        </div>
-      </TabsContent>
-    </Tabs>
+        <TabsContent value={TabType.stablecoins} className={gradientOverlay}>
+          <div className="pt-6 md:pt-12 relative z-10">
+            <StablecoinsTab />
+          </div>
+        </TabsContent>
+
+        <TabsContent value={TabType.collateral} className={gradientOverlay}>
+          <div className="pt-6 md:pt-12 relative z-10">
+            <CollateralTab />
+          </div>
+        </TabsContent>
+
+        <TabsContent value={TabType.positions} className={gradientOverlay}>
+          <div className="pt-6 md:pt-12 relative z-10">
+            <PositionsTab />
+          </div>
+        </TabsContent>
+
+        <TabsContent value={TabType.addresses} className={gradientOverlay}>
+          <div className="pt-6 md:pt-12 relative z-10">
+            <AddressesTab />
+          </div>
+        </TabsContent>
+      </Tabs>
+    </>
   );
 }

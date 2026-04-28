@@ -341,11 +341,22 @@ The `.github/workflows/ci.yml` workflow is configured to automatically leverage 
 
 #### Signed Remote Caching
 
-This repository has Signed Remote Caching enabled (`"signature": true` in `turbo.json`) for enhanced security. This prevents cache poisoning by ensuring only trusted sources can write to the cache.
+Signed Remote Caching is **enabled** (`"signature": true` in `turbo.json`). Artifacts are HMAC-signed with `TURBO_REMOTE_CACHE_SIGNATURE_KEY` before upload, and signatures are verified on download. This prevents cache poisoning: an attacker who steals `TURBO_TOKEN` (read/write API access) but not the signing key cannot inject malicious build artifacts.
 
-- **How it works:** Artifacts uploaded to the cache are signed using a secret key. Artifacts downloaded are verified against this signature.
-- **CI Requirement:** The signing key must be provided to the CI environment via the `TURBO_REMOTE_CACHE_SIGNATURE_KEY` environment variable. This should be configured as a Repository Secret in GitHub Actions settings.
-- **Local Requirement:** If you need to _write_ to the cache locally (i.e., upload artifacts that weren't already there) with signing enabled, you would also need to set the `TURBO_REMOTE_CACHE_SIGNATURE_KEY` environment variable in your local shell. Reading from the cache generally doesn't require the key.
+The signing key is provisioned in:
+
+- GitHub Actions, as the `TURBO_REMOTE_CACHE_SIGNATURE_KEY` Repository Secret.
+- Each Vercel project (`app.mento.org`, `governance.mento.org`, `reserve.mento.org`, `ui.mento.org`) for production, preview, and development environments.
+
+**Local development:** With signing enabled, both reads and writes require the key — a Turbo client without `TURBO_REMOTE_CACHE_SIGNATURE_KEY` cannot verify signatures on downloaded artifacts and treats every task as a remote-cache miss (it then runs the task locally and uses local cache normally). To get remote-cache hits locally, export the key in your shell with the same value used in CI:
+
+```bash
+export TURBO_REMOTE_CACHE_SIGNATURE_KEY="<value from a maintainer>"
+```
+
+Never commit the key. If you don't set it, nothing breaks — you just lose the remote-cache speedup.
+
+**Rotating the key:** generate a new value (`openssl rand -hex 64`), then update all 13 locations in lockstep (1 GitHub secret + 4 projects × 3 envs). After rotation, the cache is effectively wiped — first build per task repopulates it.
 
 ## Potential Future Improvements
 

@@ -7,5 +7,6 @@ export * from "./clipboard";
 export * from "./environment";
 export * from "./logger";
 export * from "./numbers";
+export * from "./sentry-filter";
 export * from "./time";
 export * from "./wallet.helper";

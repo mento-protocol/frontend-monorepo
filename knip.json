@@ -2,6 +2,7 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "ignoreBinaries": ["anvil"],
   "ignore": [
+    ".claude/worktrees/**",
     ".trunk/**",
     "apps/governance.mento.org/app/graphql/**/generated/**",
     "commitlint.config.mjs"
@@ -27,6 +28,10 @@
       "ignoreDependencies": ["tailwindcss", "tw-animate-css"]
     },
     "packages/eslint-config": {
+      "entry": "*.js",
+      "project": "**/*.js"
+    },
+    "packages/vitest-config": {
       "entry": "*.js",
       "project": "**/*.js"
     },

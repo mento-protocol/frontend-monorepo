@@ -1,9 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@mento-protocol/mento-sdk", () => ({
+  getContractAddress: vi.fn(),
+  addresses: {
+    143: {},
+    10143: {},
+    42220: {},
+    11142220: {},
+  },
+}));
 import {
   SWAP_ERROR_MESSAGES,
   USER_ERROR_MESSAGES,
 } from "@/features/swap/error-handlers";
-import { getSwapTransactionErrorMessage } from "./use-swap-transaction";
+import { getSwapTransactionErrorMessage } from "./swap-transaction-error";
 
 describe("getSwapTransactionErrorMessage", () => {
   const testCases: Array<{

@@ -22,7 +22,7 @@ import {
   ProposalStatus,
 } from "@repo/ui";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { formatUnits } from "viem";
 
 const ITEMS_PER_PAGE = 10;
@@ -128,6 +128,17 @@ export const ProposalList = () => {
     }
   };
 
+  useEffect(() => {
+    if (totalPages === 0 && currentPage !== 1) {
+      setCurrentPage(1);
+      return;
+    }
+
+    if (totalPages > 0 && currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   const paginationRange = usePagination({
     currentPage,
     totalPages,
@@ -167,9 +178,20 @@ export const ProposalList = () => {
         </div>
       </ProposalCardHeader>
       <ProposalCardBody className="min-h-40 relative flex flex-col">
-        {paginatedProposals.length === 0 && isLoading ? (
+        {isLoading ? (
           <div className="gap-4 absolute top-1/2 left-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center">
             <IconLoading />
+          </div>
+        ) : filteredProposals.length === 0 ? (
+          <div className="gap-2 text-sm text-white/70 absolute top-1/2 left-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center text-center">
+            <span className="font-medium text-white">
+              {showCanceled
+                ? "No proposals yet."
+                : "No proposals match this filter."}
+            </span>
+            {!showCanceled && (
+              <span>Try enabling canceled proposals to see more results.</span>
+            )}
           </div>
         ) : (
           paginatedProposals.map((proposal, index) => {

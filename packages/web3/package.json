@@ -18,6 +18,16 @@
       "types": "./dist/wagmi-ssr.d.ts",
       "import": "./dist/wagmi-ssr.js",
       "require": "./dist/wagmi-ssr.cjs"
+    },
+    "./sentry-filter": {
+      "types": "./dist/sentry-filter.d.ts",
+      "import": "./dist/sentry-filter.js",
+      "require": "./dist/sentry-filter.cjs"
+    },
+    "./borrow-server": {
+      "types": "./dist/borrow-server.d.ts",
+      "import": "./dist/borrow-server.js",
+      "require": "./dist/borrow-server.cjs"
     }
   },
   "main": "dist/index.js",
@@ -58,6 +68,10 @@
     "tsup": "catalog:",
     "viem": "catalog:",
     "wagmi": "catalog:"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "catalog:",
+    "vitest": "catalog:"
   },
   "peerDependencies": {
     "@rainbow-me/rainbowkit": "catalog:",

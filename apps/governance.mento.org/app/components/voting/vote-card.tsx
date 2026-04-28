@@ -131,8 +131,15 @@ export const VoteCard = ({
       proposal.state === ProposalState.Succeeded);
 
   // Check for pending Safe cancellation transaction
-  const { hasPendingCancellation, signaturesCollected, signaturesRequired } =
-    usePendingMultisigCancellation(operationId, shouldCheckPendingCancellation);
+  const {
+    hasPendingCancellation,
+    isStatusUnavailable: isPendingCancellationStatusUnavailable,
+    signaturesCollected,
+    signaturesRequired,
+  } = usePendingMultisigCancellation(
+    operationId,
+    shouldCheckPendingCancellation,
+  );
 
   const { quorumNeeded } = useQuorum(proposal.startBlock);
 
@@ -145,6 +152,32 @@ export const VoteCard = ({
 
   // Always use the most recent transaction hash for explorer links
   const currentTxHash = cancelHash || queueHash || executeHash || hash;
+
+  const queueEndTime = useMemo(() => {
+    const eta = proposal.proposalQueued?.[0]?.eta;
+    return eta ? new Date(Number(eta) * 1000) : null;
+  }, [proposal.proposalQueued]);
+
+  // Track whether the veto period has passed. Initialized as false so SSR
+  // and client-hydration render structurally identical CTA branches — same
+  // tradeoff isDeadlinePassed below makes. An already-executable proposal
+  // briefly paints "In Veto Period" for one frame before the effect flips
+  // the gate; accepted as the price of structural hydration safety.
+  const [isVetoPeriodOver, setIsVetoPeriodOver] = useState(false);
+  useEffect(() => {
+    if (!queueEndTime) {
+      setIsVetoPeriodOver(false);
+      return;
+    }
+    const check = () => {
+      const over = new Date() >= queueEndTime;
+      setIsVetoPeriodOver(over);
+      return over;
+    };
+    if (check()) return;
+    const interval = setInterval(check, 1000);
+    return () => clearInterval(interval);
+  }, [queueEndTime]);
 
   // Track if deadline has passed in real-time
   // Initialize as false to prevent hydration mismatch, will be updated in useEffect
@@ -599,31 +632,10 @@ export const VoteCard = ({
             The changes outlined in the proposal are now in effect.
           </>
         );
-      case "queued": {
-        const queueTxHash = proposal.proposalQueued?.[0]?.transaction?.id;
-        const queueEndTime = proposal.eta
-          ? new Date(Number(proposal.eta) * 1000)
-          : null;
+      case "queued":
         return (
-          <>
-            This proposal has been approved and is queued for execution.
-            <br />
-            {queueEndTime && (
-              <>It can be executed after {queueEndTime.toLocaleString()}.</>
-            )}
-            {queueTxHash && (
-              <>
-                <br />
-                <Button variant="outline" size="lg" asChild>
-                  <TransactionLink txHash={queueTxHash}>
-                    View queue transaction
-                  </TransactionLink>
-                </Button>
-              </>
-            )}
-          </>
+          <>This proposal has been approved and is queued for execution.</>
         );
-      }
       case "succeeded":
         return (
           <>
@@ -717,8 +729,6 @@ export const VoteCard = ({
     againstVotes,
     abstainVotes,
     quorumNeededFormatted,
-    proposal.eta,
-    proposal.proposalQueued,
     proposal.proposalCanceled,
   ]);
 
@@ -792,12 +802,9 @@ export const VoteCard = ({
         return null;
 
       case "queued": {
-        const proposalQueued =
-          proposal.proposalQueued && proposal.proposalQueued[0];
-        // Check if veto period has passed
-        const canExecute =
-          proposalQueued?.eta &&
-          Date.now() / 1000 > Number(proposalQueued?.eta);
+        // canExecute derives from isVetoPeriodOver (ticks every second) so the
+        // CTA flips in sync with the header countdown when ETA passes.
+        const canExecute = queueEndTime && isVetoPeriodOver;
 
         if (!address) {
           return (
@@ -834,6 +841,9 @@ export const VoteCard = ({
               <ProposalCancelButton
                 isWatchdog={isWatchdog}
                 hasPendingCancellation={hasPendingCancellation}
+                isPendingCancellationStatusUnavailable={
+                  isPendingCancellationStatusUnavailable
+                }
                 onCancel={handleCancelByWatchdog}
                 isAwaitingCancelSignature={isAwaitingCancelSignature}
                 isCancelConfirming={isCancelConfirming}
@@ -861,6 +871,9 @@ export const VoteCard = ({
             <ProposalCancelButton
               isWatchdog={isWatchdog}
               hasPendingCancellation={hasPendingCancellation}
+              isPendingCancellationStatusUnavailable={
+                isPendingCancellationStatusUnavailable
+              }
               onCancel={handleCancelByWatchdog}
               isAwaitingCancelSignature={isAwaitingCancelSignature}
               isCancelConfirming={isCancelConfirming}
@@ -927,6 +940,9 @@ export const VoteCard = ({
             <ProposalCancelButton
               isWatchdog={isWatchdog}
               hasPendingCancellation={hasPendingCancellation}
+              isPendingCancellationStatusUnavailable={
+                isPendingCancellationStatusUnavailable
+              }
               onCancel={handleCancelByWatchdog}
               isAwaitingCancelSignature={isAwaitingCancelSignature}
               isCancelConfirming={isCancelConfirming}
@@ -1215,6 +1231,15 @@ export const VoteCard = ({
                   </span>
                 ) : null}
               </div>
+            ) : !isCanceled &&
+              !isProposerCancelConfirmed &&
+              currentState === "queued" &&
+              queueEndTime ? (
+              <Timer
+                until={queueEndTime}
+                label="Executable in:"
+                expiredLabel="Executable since"
+              />
             ) : !isCanceled && !isProposerCancelConfirmed && votingDeadline ? (
               <Timer until={votingDeadline} />
             ) : null}

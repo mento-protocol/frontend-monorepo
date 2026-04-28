@@ -1,0 +1,43 @@
+name: Dependency Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        # Pin to a commit SHA to match the repository's Actions hardening posture.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Enforce allow-ghsas expiry
+        # dependency-review-action has no native expiry for allow-ghsas, so
+        # enforce it here: fail the workflow on/after 2026-06-01 until the
+        # allowlist below is re-evaluated. Keep this date in sync with the
+        # matching osv-scanner.toml ignoreUntil for GHSA-xq3m-2v4x-88gg.
+        run: |
+          expiry=2026-06-01
+          today=$(date -u +%Y-%m-%d)
+          if [ "$today" \> "$expiry" ] || [ "$today" = "$expiry" ]; then
+            echo "::error::allow-ghsas expiry reached ($expiry). Re-evaluate GHSA-xq3m-2v4x-88gg in .github/workflows/dependency-review.yml and osv-scanner.toml before bumping the expiry."
+            exit 1
+          fi
+
+      - name: Dependency review
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        with:
+          fail-on-severity: high
+          fail-on-scopes: runtime
+          # Mirrors osv-scanner.toml ignores. Keep both in sync.
+          # GHSA-xq3m-2v4x-88gg: protobufjs 6.x — no safe fix path; only consumer
+          # is the deprecated/unmaintained @confio/ics23@0.6.8 in the
+          # wormhole-connect/Cosmos stack, which declares protobufjs ^6.8.8.
+          # Forcing 7.x is a semver-major jump that risks silent IBC proof corruption.
+          # Expiry is enforced by the "Enforce allow-ghsas expiry" step above.
+          allow-ghsas: GHSA-xq3m-2v4x-88gg

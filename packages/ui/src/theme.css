@@ -174,7 +174,32 @@
   --color-card-header: var(--card-header);
   --color-outlier: var(--outlier);
   --color-success: var(--success);
+  --color-primary-border: var(--primary-border);
   --color-border-primary: var(--primary);
   --color-border-secondary: var(--border-secondary);
   --color-secondary-active: var(--secondary-active);
+
+  --animate-collapsible-down: collapsible-down 300ms ease-out;
+  --animate-collapsible-up: collapsible-up 300ms ease-out;
+
+  @keyframes collapsible-down {
+    from {
+      height: 0;
+      opacity: 0;
+    }
+    to {
+      height: var(--radix-collapsible-content-height);
+      opacity: 1;
+    }
+  }
+  @keyframes collapsible-up {
+    from {
+      height: var(--radix-collapsible-content-height);
+      opacity: 1;
+    }
+    to {
+      height: 0;
+      opacity: 0;
+    }
+  }
 }

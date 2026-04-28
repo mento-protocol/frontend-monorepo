@@ -5,7 +5,8 @@ import {
   resetLatestBlockAtom,
 } from "@/features/blocks/block-atoms";
 import { resetSwapUiAtomsAtom } from "@/features/swap/swap-atoms";
-import { allChains, chainIdToChain } from "@/config/chains";
+import { chainIdToChain } from "@/config/chains";
+import { useVisibleChains } from "@/config/testnet-mode";
 import { logger } from "@/utils/logger";
 import {
   Button,
@@ -23,11 +24,12 @@ import { MentoChain } from "@/types";
 interface Props {
   isOpen: boolean;
   close: () => void;
+  chains?: MentoChain[];
 }
 
 const baseLocator = "networkModal";
 
-export function NetworkDialog({ isOpen, close }: Props) {
+export function NetworkDialog({ isOpen, close, chains }: Props) {
   const latestBlock = useAtomValue(latestBlockAtom);
   const chainId = useChainId();
   const currentChain = chainIdToChain[chainId];
@@ -35,6 +37,12 @@ export function NetworkDialog({ isOpen, close }: Props) {
   const queryClient = useQueryClient();
   const resetJotaiSwapState = useSetAtom(resetSwapUiAtomsAtom);
   const setResetLatestBlock = useSetAtom(resetLatestBlockAtom);
+  const visibleChainIds = useVisibleChains();
+  const availableChains =
+    chains ??
+    visibleChainIds
+      .map((visibleChainId) => chainIdToChain[visibleChainId])
+      .filter((chain): chain is MentoChain => Boolean(chain));
 
   const switchToNetwork = async (c: MentoChain) => {
     try {
@@ -52,7 +60,7 @@ export function NetworkDialog({ isOpen, close }: Props) {
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && close()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-xl">
         <DialogHeader>
           <DialogTitle>Network details</DialogTitle>
         </DialogHeader>
@@ -100,13 +108,14 @@ export function NetworkDialog({ isOpen, close }: Props) {
 
         <div className="h-[0px] w-full border-t border-border" />
 
-        <div className="font-inter gap-2 inline-flex w-full items-start justify-center">
-          {allChains.map((c) => (
+        <div className="font-inter gap-2 flex w-full flex-wrap items-start justify-start">
+          {availableChains.map((c) => (
             <Button
               type="button"
               onClick={() => switchToNetwork(c)}
               key={c.id}
               variant={c.id === currentChain?.id ? "default" : "outline"}
+              className="px-4 min-w-fit"
             >
               {c.name}
             </Button>

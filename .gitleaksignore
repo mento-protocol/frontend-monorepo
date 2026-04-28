@@ -1,0 +1,12 @@
+# Public on-chain token contract addresses used in Wormhole NTT bridge config
+# These are NOT secrets — they are publicly deployed smart contract addresses on Celo and Monad
+apps/app.mento.org/app/components/bridge/bridge-config.ts:generic-api-key:33
+apps/app.mento.org/app/components/bridge/bridge-config.ts:generic-api-key:45
+apps/app.mento.org/app/components/bridge/bridge-config.ts:generic-api-key:58
+apps/app.mento.org/app/components/bridge/bridge-config.ts:generic-api-key:70
+apps/app.mento.org/app/components/bridge/bridge-config.ts:generic-api-key:83
+apps/app.mento.org/app/components/bridge/bridge-config.ts:generic-api-key:95
+apps/app.mento.org/app/components/bridge/bridge-config.ts:generic-api-key:108
+apps/app.mento.org/app/components/bridge/bridge-config.ts:generic-api-key:120
+apps/app.mento.org/app/components/bridge/bridge-config.ts:generic-api-key:133
+apps/app.mento.org/app/components/bridge/bridge-config.ts:generic-api-key:145
