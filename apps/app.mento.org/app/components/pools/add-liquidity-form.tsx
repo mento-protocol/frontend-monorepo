@@ -20,7 +20,7 @@ import {
   ConnectButton,
   tryParseUnits,
   formatCompactBalance,
-  executeLiquidityFlow,
+  executeBatchedFlow,
   liquidityFlowAtom,
   showLiquiditySuccessToast,
   type LiquidityFlowStepDefinition,
@@ -517,7 +517,7 @@ export function AddLiquidityForm({
           },
         });
 
-        const result = await executeLiquidityFlow(
+        const result = await executeBatchedFlow(
           wagmiConfig,
           setFlow,
           "Add Liquidity",
@@ -586,7 +586,7 @@ export function AddLiquidityForm({
           },
         });
 
-        const result = await executeLiquidityFlow(
+        const result = await executeBatchedFlow(
           wagmiConfig,
           setFlow,
           "Add Liquidity",

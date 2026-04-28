@@ -16,7 +16,8 @@
     "NEXT_RUNTIME",
     "CI",
     "SENTRY_AUTH_TOKEN",
-    "CHAINALYSIS_API_KEY"
+    "CHAINALYSIS_API_KEY",
+    "RPC_URL"
   ],
   "tasks": {
     "build": {

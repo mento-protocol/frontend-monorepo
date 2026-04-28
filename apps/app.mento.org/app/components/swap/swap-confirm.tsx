@@ -11,6 +11,7 @@ import {
   logger,
   SWAP_INSUFFICIENT_LIQUIDITY_LABEL,
   useAccountBalances,
+  useBatchSwapTransaction,
   useGasEstimation,
   useOptimizedSwapQuote,
   useSwapAllowance,
@@ -88,6 +89,17 @@ export function SwapConfirm() {
     address,
   });
 
+  const { sendBatchSwapTx, isBatchSwapLoading, isBatchSwapReceiptLoading } =
+    useBatchSwapTransaction(
+      chainId,
+      tokenInSymbol,
+      tokenOutSymbol,
+      fromAmountWei,
+      address,
+      { fromAmount, toAmount },
+      env.NEXT_PUBLIC_BANNER_LINK,
+    );
+
   const {
     data: gasEstimate,
     isLoading: isGasEstimating,
@@ -137,7 +149,11 @@ export function SwapConfirm() {
     if (!rate || !amountWei || !address || !isConnected) return;
 
     try {
-      await sendSwapTx();
+      if (!skipApprove) {
+        await sendBatchSwapTx();
+      } else {
+        await sendSwapTx();
+      }
     } catch (error) {
       // Error handling is done in the hook
       logger.error("Swap submission error:", error);
@@ -259,7 +275,10 @@ export function SwapConfirm() {
 
       <Button
         data-testid={
-          isSwapTxLoading || isSwapTxReceiptLoading
+          isSwapTxLoading ||
+          isSwapTxReceiptLoading ||
+          isBatchSwapLoading ||
+          isBatchSwapReceiptLoading
             ? "loadingLabel"
             : "swapButton"
         }
@@ -270,6 +289,8 @@ export function SwapConfirm() {
         disabled={
           isSwapTxLoading ||
           isSwapTxReceiptLoading ||
+          isBatchSwapLoading ||
+          isBatchSwapReceiptLoading ||
           isGasEstimating ||
           isQuoteError ||
           hasInsufficientLiquidityError ||
@@ -279,7 +300,10 @@ export function SwapConfirm() {
           !isConnected
         }
       >
-        {isSwapTxLoading || isSwapTxReceiptLoading ? (
+        {isSwapTxLoading ||
+        isSwapTxReceiptLoading ||
+        isBatchSwapLoading ||
+        isBatchSwapReceiptLoading ? (
           <IconLoading />
         ) : isQuoteError ? (
           hasQuoteInsufficientLiquidityError ? (
