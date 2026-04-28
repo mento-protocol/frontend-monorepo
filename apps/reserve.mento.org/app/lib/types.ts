@@ -97,18 +97,26 @@ type CollateralSourceType =
   | "fpmm"
   | "stability_pool";
 
+export type CustodianType = "hot" | "cold" | "ops";
+
 export interface CollateralSource {
   type: CollateralSourceType;
   label: string;
   identifier: string;
   balance: string;
   usd_value: number;
+  custodian_type: CustodianType;
 }
 
 // GET /api/v2/reserve
 export interface V2ReserveResponse {
   collateral: {
     total_usd: number;
+    by_custodian: {
+      hot_usd: number;
+      cold_usd: number;
+      ops_usd: number;
+    };
     assets: Array<{
       symbol: string;
       chain: Chain;
@@ -265,6 +273,7 @@ export interface V2AddressesResponse {
         address: string;
         label: string;
         description?: string;
+        custodian_type?: CustodianType;
       }>;
     }>;
   }>;
