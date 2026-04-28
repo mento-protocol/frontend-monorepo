@@ -200,7 +200,10 @@ export function CollateralTab() {
           </label>
           <Select
             value={mode}
-            onValueChange={(value) => setMode(value as GroupingMode)}
+            onValueChange={(value) => {
+              setMode(value as GroupingMode);
+              setHoverId(null);
+            }}
           >
             <SelectTrigger id="collateral-grouping" className="md:w-44 w-full">
               <SelectValue />
