@@ -224,6 +224,7 @@ export function CollateralTab() {
           />
         </div>
         <TreeTable<CollateralRow>
+          key={mode}
           rows={rows}
           columns={columns}
           defaultOpenDepth={defaultOpenDepth}
@@ -231,7 +232,10 @@ export function CollateralTab() {
           rowClassName={(row, depth) =>
             getRowClassNameWithHover(row, depth, hoverId)
           }
-          onRowMouseEnter={(row) => setHoverId(row.id)}
+          onRowMouseEnter={(row) => {
+            if (row.kind === "total") return;
+            setHoverId(row.id);
+          }}
           onRowMouseLeave={() => setHoverId(null)}
           getRowLabel={getCollateralRowLabel}
         />
