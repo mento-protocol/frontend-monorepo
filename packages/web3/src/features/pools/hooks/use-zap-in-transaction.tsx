@@ -53,6 +53,10 @@ function isSameAddress(addressA: string, addressB: string): boolean {
   return addressA.toLowerCase() === addressB.toLowerCase();
 }
 
+function isAllowanceError(message: string): boolean {
+  return /allowance|insufficient allowance|exceeds allowance/i.test(message);
+}
+
 async function validateZapRouteLiquidity({
   publicClient,
   routerAddress,
@@ -198,54 +202,66 @@ export function useZapInTransaction(pool: PoolDisplay, chainId?: ChainId) {
           options: { slippageTolerance: slippage, deadline },
         });
 
-        if (!result.approval) {
-          try {
-            await publicClient.estimateGas({
-              account: recipient,
-              to: result.zapIn.params.to as Address,
-              data: result.zapIn.params.data as Hex,
-              value: BigInt(result.zapIn.params.value || 0),
-            });
-          } catch (estimateErr) {
-            const estimateMessage =
-              estimateErr instanceof Error
-                ? estimateErr.message
-                : String(estimateErr);
-            let parsedError = getZapInBuildError(estimateMessage);
+        try {
+          await publicClient.estimateGas({
+            account: recipient,
+            to: result.zapIn.params.to as Address,
+            data: result.zapIn.params.data as Hex,
+            value: BigInt(result.zapIn.params.value || 0),
+          });
+        } catch (estimateErr) {
+          const estimateMessage =
+            estimateErr instanceof Error
+              ? estimateErr.message
+              : String(estimateErr);
 
-            if (!parsedError) {
-              try {
-                await Promise.all([
-                  validateZapRouteLiquidity({
-                    publicClient,
-                    routerAddress: result.zapIn.params.to as Address,
-                    routes: result.zapIn.routesA,
-                    amountIn: result.zapIn.amountInA,
-                  }),
-                  validateZapRouteLiquidity({
-                    publicClient,
-                    routerAddress: result.zapIn.params.to as Address,
-                    routes: result.zapIn.routesB,
-                    amountIn: result.zapIn.amountInB,
-                  }),
-                ]);
-              } catch (validationErr) {
-                const validationMessage =
-                  validationErr instanceof Error
-                    ? validationErr.message
-                    : String(validationErr);
-                parsedError =
-                  getZapInBuildError(validationMessage) || validationMessage;
-              }
-            }
-
-            setBuildError(
-              parsedError ||
-                "This single-token amount cannot be simulated right now. Try a smaller amount, higher slippage, or balanced mode.",
-            );
-            setBuildResult(null);
-            return null;
+          // Pre-approval simulations legitimately fail with allowance errors
+          // because the wallet hasn't granted the allowance yet. That doesn't
+          // mean the zap is invalid — let the build through so the approval
+          // step can run; a fresh preflight after approval will catch any
+          // real issues. All other failures (bad route, ratio shift, etc.)
+          // still gate the build to avoid prompting an approval for a zap
+          // we already know will revert.
+          if (result.approval && isAllowanceError(estimateMessage)) {
+            setBuildResult(result);
+            setBuildError(null);
+            return result;
           }
+
+          let parsedError = getZapInBuildError(estimateMessage);
+
+          if (!parsedError) {
+            try {
+              await Promise.all([
+                validateZapRouteLiquidity({
+                  publicClient,
+                  routerAddress: result.zapIn.params.to as Address,
+                  routes: result.zapIn.routesA,
+                  amountIn: result.zapIn.amountInA,
+                }),
+                validateZapRouteLiquidity({
+                  publicClient,
+                  routerAddress: result.zapIn.params.to as Address,
+                  routes: result.zapIn.routesB,
+                  amountIn: result.zapIn.amountInB,
+                }),
+              ]);
+            } catch (validationErr) {
+              const validationMessage =
+                validationErr instanceof Error
+                  ? validationErr.message
+                  : String(validationErr);
+              parsedError =
+                getZapInBuildError(validationMessage) || validationMessage;
+            }
+          }
+
+          setBuildError(
+            parsedError ||
+              "This single-token amount cannot be simulated right now. Try a smaller amount, higher slippage, or balanced mode.",
+          );
+          setBuildResult(null);
+          return null;
         }
 
         setBuildResult(result);

@@ -661,10 +661,14 @@ export function AddLiquidityForm({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
+        // The InsufficientAmount* selectors fire in balanced mode too, so the
+        // single-token-specific copy ("…or balanced mode") only makes sense
+        // when the user is actually in single-token mode.
         if (
-          isSingleTokenRouteError(msg) ||
-          isSingleTokenLiquidityLimitError(msg) ||
-          isSingleTokenPoolRatioError(msg)
+          mode === "single" &&
+          (isSingleTokenRouteError(msg) ||
+            isSingleTokenLiquidityLimitError(msg) ||
+            isSingleTokenPoolRatioError(msg))
         ) {
           toast.error(
             getSingleTokenLiquidityErrorMessage(msg, zapToken.symbol),
