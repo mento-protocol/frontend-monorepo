@@ -87,7 +87,7 @@ function extractFlowErrorString(error: unknown): string {
 function isLikelyDeterministicRevert(error: unknown): boolean {
   const message = extractFlowErrorString(error).toLowerCase();
 
-  return /execution reverted|call execution error|insufficient liquidity|insufficientliquidity|insufficient reserves|insufficient output amount|bb55fd27|always failing transaction|simulation failed|slippage|minimum amount|minimum output|no viable zap-(in|out) route|no route for this amount|route unavailable|unable to prepare single-token|unable to quote single-token/i.test(
+  return /execution reverted|call execution error|insufficient liquidity|insufficientliquidity|insufficient reserves|insufficient output amount|bb55fd27|always failing transaction|simulation failed|slippage|minimum amount|minimum output|no viable zap-(in|out) route|no route for this amount|route unavailable|unable to prepare single-token|unable to quote single-token|no single-token route/i.test(
     message,
   );
 }
@@ -217,18 +217,31 @@ export async function executeLiquidityFlow(
       // Log full error for debugging, show friendly message to user
       console.error(`[LiquidityFlow] Step "${def.label}" failed:`, error);
 
+      // The InsufficientAmount* / InsufficientLiquidity selectors fire in
+      // both balanced add-liquidity and single-token zap-in. Phrase the copy
+      // so it makes sense regardless of which mode the caller is in — telling
+      // a balanced-mode user to "use balanced mode" is nonsense. The route /
+      // single-token-prepare branch is genuinely zap-only and stays specific.
       const friendlyMessage =
-        /no viable zap-(in|out) route|no route for this amount|route unavailable|unable to prepare single-token|unable to quote single-token|insufficient liquidity|insufficientliquidity|insufficient reserves|insufficient output amount|bb55fd27/i.test(
+        /pool liquidity is insufficient|insufficient liquidity|insufficientliquidity|insufficient reserves|insufficient output amount|bb55fd27/i.test(
           rawMessage,
         )
-          ? "No viable route for this amount. Reduce amount or use balanced mode."
-          : /reverted/i.test(rawMessage)
-            ? "Transaction was reverted. Please check your inputs and try again."
-            : /insufficient\s+funds/i.test(rawMessage)
-              ? "Insufficient funds to complete this transaction."
-              : /nonce/i.test(rawMessage)
-                ? "Transaction conflict. Please try again."
-                : "Something went wrong. Please try again.";
+          ? "Pool liquidity is insufficient for this amount. Try a smaller amount."
+          : /current pool ratio|cannot be added|insufficient amount[ab]?|insufficient amount[ab] desired|0x8f66ec14|0x34c90624|0xdc6b2ef2|0xacee0513|0x5945ea56/i.test(
+                rawMessage,
+              )
+            ? "Pool ratio shifted during the transaction. Try a smaller amount or higher slippage."
+            : /no viable zap-(in|out) route|no route for this amount|route unavailable|unable to prepare single-token|unable to quote single-token|no single-token route/i.test(
+                  rawMessage,
+                )
+              ? "No single-token route is available for this amount. Try a smaller amount or use balanced mode."
+              : /reverted/i.test(rawMessage)
+                ? "Transaction was reverted. Please check your inputs and try again."
+                : /insufficient\s+funds/i.test(rawMessage)
+                  ? "Insufficient funds to complete this transaction."
+                  : /nonce/i.test(rawMessage)
+                    ? "Transaction conflict. Please try again."
+                    : "Something went wrong. Please try again.";
 
       // Mark step as error and stop
       setFlowAtom((prev) => {
