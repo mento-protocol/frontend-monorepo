@@ -218,17 +218,25 @@ export async function executeLiquidityFlow(
       console.error(`[LiquidityFlow] Step "${def.label}" failed:`, error);
 
       const friendlyMessage =
-        /no viable zap-(in|out) route|no route for this amount|route unavailable|unable to prepare single-token|unable to quote single-token|insufficient liquidity|insufficientliquidity|insufficient reserves|insufficient output amount|bb55fd27/i.test(
+        /pool liquidity is insufficient|insufficient liquidity|insufficientliquidity|insufficient reserves|insufficient output amount|bb55fd27/i.test(
           rawMessage,
         )
-          ? "No viable route for this amount. Reduce amount or use balanced mode."
-          : /reverted/i.test(rawMessage)
-            ? "Transaction was reverted. Please check your inputs and try again."
-            : /insufficient\s+funds/i.test(rawMessage)
-              ? "Insufficient funds to complete this transaction."
-              : /nonce/i.test(rawMessage)
-                ? "Transaction conflict. Please try again."
-                : "Something went wrong. Please try again.";
+          ? "This pool cannot convert enough of the selected token for this single-token amount. Try a smaller amount or use balanced mode."
+          : /current pool ratio|cannot be added|insufficient amount[ab]?|insufficient amount[ab] desired|0x8f66ec14|0x34c90624|0xdc6b2ef2|0xacee0513|0x5945ea56/i.test(
+                rawMessage,
+              )
+            ? "This single-token amount cannot be added at the current pool ratio. Try a smaller amount, higher slippage, or balanced mode."
+            : /no viable zap-(in|out) route|no route for this amount|route unavailable|unable to prepare single-token|unable to quote single-token/i.test(
+                  rawMessage,
+                )
+              ? "No single-token route is available for this amount. Try a smaller amount or use balanced mode."
+              : /reverted/i.test(rawMessage)
+                ? "Transaction was reverted. Please check your inputs and try again."
+                : /insufficient\s+funds/i.test(rawMessage)
+                  ? "Insufficient funds to complete this transaction."
+                  : /nonce/i.test(rawMessage)
+                    ? "Transaction conflict. Please try again."
+                    : "Something went wrong. Please try again.";
 
       // Mark step as error and stop
       setFlowAtom((prev) => {

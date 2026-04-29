@@ -39,6 +39,43 @@ import { getContractAddress } from "@mento-protocol/mento-sdk";
 import { useSetAtom } from "jotai";
 import { useQueryClient } from "@tanstack/react-query";
 
+function isSingleTokenLiquidityLimitError(message: string): boolean {
+  return /pool liquidity is insufficient|insufficient liquidity|insufficient reserves|insufficient output amount|bb55fd27/i.test(
+    message,
+  );
+}
+
+function isSingleTokenPoolRatioError(message: string): boolean {
+  return /current pool ratio|cannot be added|insufficient amount[ab]?|insufficient amount[ab] desired|0x8f66ec14|0x34c90624|0xdc6b2ef2|0xacee0513|0x5945ea56/i.test(
+    message,
+  );
+}
+
+function isSingleTokenRouteError(message: string): boolean {
+  return /no viable zap-in route|no viable route|no route|route unavailable|unable to prepare single-token/i.test(
+    message,
+  );
+}
+
+function getSingleTokenLiquidityErrorMessage(
+  message: string,
+  tokenSymbol: string,
+): string {
+  if (isSingleTokenLiquidityLimitError(message)) {
+    return `This pool cannot convert enough ${tokenSymbol} into the other token for this single-token amount. Try a smaller amount or use balanced mode.`;
+  }
+
+  if (isSingleTokenPoolRatioError(message)) {
+    return `This ${tokenSymbol} amount cannot be added at the current pool ratio. Try a smaller amount, higher slippage, or balanced mode.`;
+  }
+
+  if (isSingleTokenRouteError(message)) {
+    return "No single-token route is available for this amount. Try a smaller amount or use balanced mode.";
+  }
+
+  return message.replace(/zap-?in/gi, "single-token liquidity");
+}
+
 function TokenAmountInput({
   token,
   balance,
@@ -376,6 +413,9 @@ export function AddLiquidityForm({
     parsedZap !== null &&
     zapTokenBalance !== undefined &&
     parsedZap > zapTokenBalance;
+  const singleTokenLiquidityError = zapBuildError
+    ? getSingleTokenLiquidityErrorMessage(zapBuildError, zapToken.symbol)
+    : null;
 
   // === Button state ===
 
@@ -390,7 +430,15 @@ export function AddLiquidityForm({
           text: `Insufficient ${zapToken.symbol} balance`,
           disabled: true,
         };
-      if (zapBuildError) return { text: "Unavailable", disabled: true };
+      if (zapBuildError)
+        return {
+          text: isSingleTokenLiquidityLimitError(zapBuildError)
+            ? "Amount too large"
+            : isSingleTokenPoolRatioError(zapBuildError)
+              ? "Adjust amount"
+              : "Unavailable",
+          disabled: true,
+        };
       if (isZapBuilding || isZapQuoting)
         return { text: "Preparing...", disabled: true };
       if (!zapBuildResult) return { text: "Preparing...", disabled: true };
@@ -465,13 +513,13 @@ export function AddLiquidityForm({
 
     try {
       if (mode === "single" && zapBuildResult) {
-        // --- Zap-in flow ---
+        // --- Single-token liquidity flow ---
         const capturedZapAmount = parsedZap;
         const capturedZapTokenIn = zapTokenIn;
         const capturedSlippage = slippage;
 
         if (!capturedZapAmount || capturedZapAmount <= 0n) {
-          throw new Error("Invalid zap amount");
+          throw new Error("Invalid single-token amount");
         }
         if (zapBuildError) {
           throw new Error(zapBuildError);
@@ -509,8 +557,8 @@ export function AddLiquidityForm({
             );
             if (!freshBuild) {
               throw new Error(
-                zapBuildError ||
-                  "No viable zap-in route for this amount. Reduce amount or use balanced mode.",
+                singleTokenLiquidityError ||
+                  "No single-token route is available for this amount. Try a smaller amount or use balanced mode.",
               );
             }
             return freshBuild.zapIn.params;
@@ -614,11 +662,12 @@ export function AddLiquidityForm({
       const msg = err instanceof Error ? err.message : String(err);
       if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
         if (
-          /no viable zap-in route/i.test(msg) ||
-          /route unavailable/i.test(msg)
+          isSingleTokenRouteError(msg) ||
+          isSingleTokenLiquidityLimitError(msg) ||
+          isSingleTokenPoolRatioError(msg)
         ) {
           toast.error(
-            "No viable zap-in route for this amount. Reduce amount or use balanced mode.",
+            getSingleTokenLiquidityErrorMessage(msg, zapToken.symbol),
           );
         } else {
           toast.error("Something went wrong. Please try again.");
@@ -957,9 +1006,9 @@ export function AddLiquidityForm({
             >
               {buttonState.text}
             </Button>
-            {mode === "single" && zapBuildError && (
+            {mode === "single" && singleTokenLiquidityError && (
               <p className="text-xs leading-5 text-center text-muted-foreground">
-                {zapBuildError}
+                {singleTokenLiquidityError}
               </p>
             )}
           </>

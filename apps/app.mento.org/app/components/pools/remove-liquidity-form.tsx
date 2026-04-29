@@ -161,7 +161,7 @@ export function RemoveLiquidityForm({
   const zapOutQuoteErrorMessage = getErrorMessage(zapOutQuoteError);
   const zapOutQuoteUiError = isZapOutQuoteError
     ? isZapOutRouteUnavailableError(zapOutQuoteErrorMessage)
-      ? "No viable zap-out route for this amount. Reduce amount or use balanced mode."
+      ? "No single-token route is available for this amount. Try a smaller amount or use balanced mode."
       : "Unable to quote single-token removal right now."
     : null;
   const zapOutUiError = zapOutBuildError ?? zapOutQuoteUiError;
@@ -338,7 +338,7 @@ export function RemoveLiquidityForm({
         if (!preflightBuild) {
           throw new Error(
             zapOutUiError ||
-              "No viable zap-out route for this amount. Reduce amount or use balanced mode.",
+              "No single-token route is available for this amount. Try a smaller amount or use balanced mode.",
           );
         }
 
@@ -366,7 +366,7 @@ export function RemoveLiquidityForm({
             if (!freshBuild) {
               throw new Error(
                 zapOutBuildError ||
-                  "No viable zap-out route for this amount. Reduce amount or use balanced mode.",
+                  "No single-token route is available for this amount. Try a smaller amount or use balanced mode.",
               );
             }
             return freshBuild.zapOut.params;
@@ -460,7 +460,7 @@ export function RemoveLiquidityForm({
           )
         ) {
           toast.error(
-            "No viable zap-out route for this amount. Reduce amount or use balanced mode.",
+            "No single-token route is available for this amount. Try a smaller amount or use balanced mode.",
           );
         } else {
           toast.error("Something went wrong. Please try again.");

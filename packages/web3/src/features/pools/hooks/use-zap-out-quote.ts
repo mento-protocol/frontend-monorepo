@@ -37,7 +37,7 @@ function isDeterministicZapOutRouteError(message: string): boolean {
 
 function toZapOutQuoteErrorMessage(message: string): string {
   if (isDeterministicZapOutRouteError(message)) {
-    return "No viable zap-out route for this amount. Reduce amount or use balanced mode.";
+    return "No single-token route is available for this amount. Try a smaller amount or use balanced mode.";
   }
 
   return "Unable to quote single-token removal right now.";

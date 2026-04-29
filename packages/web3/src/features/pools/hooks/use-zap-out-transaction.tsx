@@ -13,7 +13,7 @@ import { getTransactionErrorMessage } from "../types";
 
 function getZapOutBuildError(message: string): string {
   if (/no viable zap-out route|route not found|no route/i.test(message)) {
-    return "No route for this amount. Reduce amount or use balanced mode.";
+    return "No single-token route is available for this amount. Try a smaller amount or use balanced mode.";
   }
 
   if (
@@ -21,7 +21,7 @@ function getZapOutBuildError(message: string): string {
       message,
     )
   ) {
-    return "No viable zap-out route for this amount. Reduce amount or use balanced mode.";
+    return "No single-token route is available for this amount. Try a smaller amount or use balanced mode.";
   }
 
   return "Unable to prepare single-token removal right now.";
@@ -82,7 +82,7 @@ export function useZapOutTransaction(pool: PoolDisplay, chainId?: ChainId) {
           });
         } else {
           toast.error(
-            "Zap-out transaction reverted on-chain. Try increasing slippage or reducing the amount.",
+            "Single-token removal transaction reverted on-chain. Try increasing slippage or reducing the amount.",
           );
           logger.error(
             "Zap-out transaction reverted:",
@@ -93,7 +93,7 @@ export function useZapOutTransaction(pool: PoolDisplay, chainId?: ChainId) {
       .catch((err) => {
         setIsConfirming(false);
         logger.error("Error waiting for zap-out receipt:", err);
-        toast.error("Failed to confirm zap-out transaction.");
+        toast.error("Failed to confirm single-token removal transaction.");
       });
   }, [txHash, publicClient, pool, resolvedChainId, queryClient]);
 
@@ -153,7 +153,7 @@ export function useZapOutTransaction(pool: PoolDisplay, chainId?: ChainId) {
         toast.error(
           getTransactionErrorMessage(
             err instanceof Error ? err.message : String(err),
-            "Unable to complete zap-out transaction.",
+            "Unable to complete single-token removal transaction.",
             "Remove liquidity",
           ),
         );
