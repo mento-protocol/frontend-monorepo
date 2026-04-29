@@ -30,7 +30,7 @@ function getZapOutQuoteRawError(error: unknown): string {
 }
 
 function isDeterministicZapOutRouteError(message: string): boolean {
-  return /no viable zap-out route|route not found|no route|route unavailable|insufficient liquidity|insufficientliquidity|insufficient reserves|insufficient output amount|bb55fd27|execution reverted|call execution error/i.test(
+  return /no viable zap-out route|route not found|no route|route unavailable|insufficient liquidity|insufficientliquidity|insufficient reserves|insufficient output amount|bb55fd27|execution reverted|call execution error|no single-token route/i.test(
     message,
   );
 }

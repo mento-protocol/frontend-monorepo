@@ -87,7 +87,7 @@ function extractFlowErrorString(error: unknown): string {
 function isLikelyDeterministicRevert(error: unknown): boolean {
   const message = extractFlowErrorString(error).toLowerCase();
 
-  return /execution reverted|call execution error|insufficient liquidity|insufficientliquidity|insufficient reserves|insufficient output amount|bb55fd27|always failing transaction|simulation failed|slippage|minimum amount|minimum output|no viable zap-(in|out) route|no route for this amount|route unavailable|unable to prepare single-token|unable to quote single-token/i.test(
+  return /execution reverted|call execution error|insufficient liquidity|insufficientliquidity|insufficient reserves|insufficient output amount|bb55fd27|always failing transaction|simulation failed|slippage|minimum amount|minimum output|no viable zap-(in|out) route|no route for this amount|route unavailable|unable to prepare single-token|unable to quote single-token|no single-token route/i.test(
     message,
   );
 }
@@ -231,7 +231,7 @@ export async function executeLiquidityFlow(
                 rawMessage,
               )
             ? "Pool ratio shifted during the transaction. Try a smaller amount or higher slippage."
-            : /no viable zap-(in|out) route|no route for this amount|route unavailable|unable to prepare single-token|unable to quote single-token/i.test(
+            : /no viable zap-(in|out) route|no route for this amount|route unavailable|unable to prepare single-token|unable to quote single-token|no single-token route/i.test(
                   rawMessage,
                 )
               ? "No single-token route is available for this amount. Try a smaller amount or use balanced mode."

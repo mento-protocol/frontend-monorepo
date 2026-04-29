@@ -55,7 +55,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 function isZapOutRouteUnavailableError(message: string): boolean {
-  return /no viable zap-out route|route not found|no route for this amount|route unavailable|insufficient liquidity|insufficientliquidity|insufficient reserves|insufficient output amount|bb55fd27|execution reverted|call execution error/i.test(
+  return /no viable zap-out route|route not found|no route for this amount|route unavailable|insufficient liquidity|insufficientliquidity|insufficient reserves|insufficient output amount|bb55fd27|execution reverted|call execution error|no single-token route/i.test(
     message,
   );
 }
@@ -455,7 +455,7 @@ export function RemoveLiquidityForm({
       const msg = err instanceof Error ? err.message : String(err);
       if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
         if (
-          /no viable zap-out route|no route for this amount|route unavailable|unable to quote single-token/i.test(
+          /no viable zap-out route|no route for this amount|route unavailable|unable to quote single-token|no single-token route/i.test(
             msg,
           )
         ) {

@@ -12,7 +12,11 @@ import type { PoolDisplay, SlippageOption } from "../types";
 import { getTransactionErrorMessage } from "../types";
 
 function getZapOutBuildError(message: string): string {
-  if (/no viable zap-out route|route not found|no route/i.test(message)) {
+  if (
+    /no viable zap-out route|route not found|no route|no single-token route/i.test(
+      message,
+    )
+  ) {
     return "No single-token route is available for this amount. Try a smaller amount or use balanced mode.";
   }
 

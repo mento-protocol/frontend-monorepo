@@ -22,7 +22,7 @@ const FPMM_FACTORY_POOL_ABI = parseAbi([
 type ZapRoute = ZapInTransaction["zapIn"]["routesA"];
 
 function getZapInBuildError(message: string): string | null {
-  if (/no viable zap-in route/i.test(message)) {
+  if (/no viable zap-in route|no single-token route/i.test(message)) {
     return "No route for this amount. Reduce amount or use balanced mode.";
   }
 

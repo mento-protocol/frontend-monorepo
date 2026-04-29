@@ -52,7 +52,7 @@ function isSingleTokenPoolRatioError(message: string): boolean {
 }
 
 function isSingleTokenRouteError(message: string): boolean {
-  return /no viable zap-in route|no viable route|no route|route unavailable|unable to prepare single-token/i.test(
+  return /no viable zap-in route|no viable route|no route|route unavailable|unable to prepare single-token|no single-token route/i.test(
     message,
   );
 }
