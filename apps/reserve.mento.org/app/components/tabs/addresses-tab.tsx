@@ -11,6 +11,18 @@ import { TabSkeleton } from "../tab-skeleton";
 const OTHER_KEY = "other" as const;
 type GroupKey = CustodyType | typeof OTHER_KEY;
 
+const KNOWN_CUSTODY_TYPES: ReadonlySet<CustodyType> = new Set(CUSTODY_ORDER);
+
+function groupKeyFor(addr: ReserveAddress): GroupKey {
+  // Route addresses without a custodian_type *or* with an unknown value
+  // (e.g. a future "warm" tier the frontend doesn't know about yet) into
+  // the OTHER bucket so nothing is silently dropped from the UI.
+  if (addr.custodian_type && KNOWN_CUSTODY_TYPES.has(addr.custodian_type)) {
+    return addr.custodian_type;
+  }
+  return OTHER_KEY;
+}
+
 export function AddressesTab() {
   const { data: addresses } = useV2Query("addresses");
 
@@ -18,14 +30,11 @@ export function AddressesTab() {
 
   const byCustody = new Map<GroupKey, ReserveAddress[]>();
   for (const addr of addresses.reserve) {
-    const key: GroupKey = addr.custodian_type ?? OTHER_KEY;
+    const key = groupKeyFor(addr);
     if (!byCustody.has(key)) byCustody.set(key, []);
     byCustody.get(key)!.push(addr);
   }
 
-  // Render known custody types in CUSTODY_ORDER, then anything missing a
-  // custodian_type (defensive — backend may add new categories before the
-  // frontend learns about them).
   const groups: Array<{ key: GroupKey; items: ReserveAddress[] }> = [
     ...CUSTODY_ORDER.map((c) => ({
       key: c as GroupKey,
