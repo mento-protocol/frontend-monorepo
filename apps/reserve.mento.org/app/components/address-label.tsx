@@ -122,9 +122,13 @@ export function AddressLabel({
 
     // Wrap the label/address with a tooltip when a description is provided
     // so callers can surface contextual metadata (e.g. the reserve-address
-    // role) without inflating the row height.
+    // role) without inflating the row height. tabIndex makes the span
+    // keyboard-focusable so the tooltip is reachable without a mouse.
     const triggerContent = (
-      <span className="gap-2 inline-flex cursor-help items-center">
+      <span
+        tabIndex={0}
+        className="gap-2 inline-flex cursor-help items-center rounded-sm focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+      >
         {labelEl}
         {addressEl}
       </span>
