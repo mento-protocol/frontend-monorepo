@@ -42,6 +42,7 @@
     "build:js": "tsup",
     "check-types": "tsc --noEmit",
     "clean": "rm -rf dist && rm -rf .turbo",
+    "deal": "node scripts/deal.mjs",
     "dev": "pnpm dev:js",
     "dev:js": "tsup --watch",
     "generate:component": "turbo gen react-component",

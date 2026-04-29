@@ -1,4 +1,5 @@
 export * from "./use-approve-transaction";
+export * from "./use-batch-swap-transaction";
 export * from "./use-gas-estimation";
 export * from "./use-swap-allowance";
 export * from "./use-swap-quote";

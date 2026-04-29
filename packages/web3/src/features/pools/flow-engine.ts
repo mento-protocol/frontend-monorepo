@@ -1,7 +1,9 @@
 import type { Config } from "wagmi";
 import {
   estimateGas,
+  sendCalls,
   sendTransaction,
+  waitForCallsStatus,
   waitForTransactionReceipt,
 } from "wagmi/actions";
 import type { Address, Hex } from "viem";
@@ -82,6 +84,13 @@ function extractFlowErrorString(error: unknown): string {
   ]
     .filter(Boolean)
     .join(" ");
+}
+
+function isSendCallsUnsupported(error: unknown): boolean {
+  const msg = extractFlowErrorString(error);
+  return /sendCalls.*not supported|not supported.*sendCalls|method.*not.*found|method does not exist|wallet_sendCalls/i.test(
+    msg,
+  );
 }
 
 function isLikelyDeterministicRevert(error: unknown): boolean {
@@ -247,4 +256,163 @@ export async function executeLiquidityFlow(
   }
 
   return { success: true, txHashes };
+}
+
+// ---------------------------------------------------------------------------
+// Batched engine — sends all calls atomically via wallet_sendCalls (EIP-5792)
+// ---------------------------------------------------------------------------
+
+export async function executeBatchedFlow(
+  wagmiConfig: Config,
+  setFlowAtom: SetFlowAtom,
+  operation: string,
+  stepDefs: LiquidityFlowStepDefinition[],
+  chainId?: number,
+): Promise<{ success: boolean; txHashes: string[] }> {
+  const initialSteps: LiquidityFlowStep[] = stepDefs.map((def) => ({
+    id: def.id,
+    label: def.label,
+    status: "idle" as const,
+  }));
+
+  setFlowAtom({ operation, steps: initialSteps, currentStepIndex: 0, chainId });
+
+  try {
+    // Build all tx params, tracking which steps are skipped
+    const calls: { to: Address; data: Hex; value: bigint }[] = [];
+    const skippedIndices = new Set<number>();
+
+    for (let i = 0; i < stepDefs.length; i++) {
+      const txParams = await stepDefs[i]!.buildTx();
+
+      if (txParams === null) {
+        skippedIndices.add(i);
+        setFlowAtom((prev) => {
+          if (!prev) return prev;
+          const steps = [...prev.steps];
+          steps[i] = {
+            ...steps[i]!,
+            status: "confirmed",
+            label: `${steps[i]!.label} — Skipped`,
+          };
+          return { ...prev, steps };
+        });
+        continue;
+      }
+
+      calls.push({
+        to: txParams.to as Address,
+        data: txParams.data as Hex,
+        value: BigInt(txParams.value || 0),
+      });
+    }
+
+    if (calls.length === 0) {
+      setFlowAtom((prev) =>
+        prev ? { ...prev, currentStepIndex: stepDefs.length } : prev,
+      );
+      return { success: true, txHashes: [] };
+    }
+
+    // Mark all non-skipped steps as pending
+    setFlowAtom((prev) => {
+      if (!prev) return prev;
+      const steps = prev.steps.map((s, i) =>
+        skippedIndices.has(i) ? s : { ...s, status: "pending" as const },
+      );
+      return { ...prev, steps };
+    });
+
+    // Submit the batch
+    const { id } = await sendCalls(wagmiConfig, {
+      calls,
+      ...(chainId != null && { chainId }),
+    });
+
+    // Mark non-skipped steps as confirming
+    setFlowAtom((prev) => {
+      if (!prev) return prev;
+      const steps = prev.steps.map((s, i) =>
+        skippedIndices.has(i) ? s : { ...s, status: "confirming" as const },
+      );
+      return { ...prev, steps };
+    });
+
+    // Wait for the batch to settle
+    const result = await waitForCallsStatus(wagmiConfig, { id });
+
+    if (result.status === "failure") {
+      throw new Error("Batch transaction failed on-chain");
+    }
+
+    // Mark all non-skipped steps as confirmed
+    setFlowAtom((prev) => {
+      if (!prev) return prev;
+      const steps = prev.steps.map((s, i) =>
+        skippedIndices.has(i) ? s : { ...s, status: "confirmed" as const },
+      );
+      return { ...prev, steps, currentStepIndex: stepDefs.length };
+    });
+
+    const txHashes =
+      result.receipts
+        ?.map((r) => r.transactionHash as string)
+        .filter(Boolean) ?? [];
+
+    return { success: true, txHashes };
+  } catch (error) {
+    const rawMessage = extractFlowErrorString(error);
+
+    if (
+      /user\s+rejected|denied\s+transaction|request\s+rejected/i.test(
+        rawMessage,
+      )
+    ) {
+      setFlowAtom(null);
+      return { success: false, txHashes: [] };
+    }
+
+    // wallet_sendCalls not supported — fall back to sequential execution
+    if (isSendCallsUnsupported(error)) {
+      console.info(
+        "[LiquidityFlow] wallet_sendCalls not supported, falling back to sequential",
+      );
+      return executeLiquidityFlow(
+        wagmiConfig,
+        setFlowAtom,
+        operation,
+        stepDefs,
+        chainId,
+      );
+    }
+
+    console.error(`[LiquidityFlow] Batch "${operation}" failed:`, error);
+
+    const friendlyMessage =
+      /no viable zap-(in|out) route|no route for this amount|route unavailable|insufficient liquidity|insufficientliquidity|insufficient reserves|insufficient output amount/i.test(
+        rawMessage,
+      )
+        ? "No viable route for this amount. Reduce amount or use balanced mode."
+        : /reverted/i.test(rawMessage)
+          ? "Transaction was reverted. Please check your inputs and try again."
+          : /insufficient\s+funds/i.test(rawMessage)
+            ? "Insufficient funds to complete this transaction."
+            : "Something went wrong. Please try again.";
+
+    setFlowAtom((prev) => {
+      if (!prev) return prev;
+      const steps = prev.steps.map((s) =>
+        s.status === "confirming" || s.status === "pending"
+          ? {
+              ...s,
+              status: "error" as const,
+              error: { message: friendlyMessage },
+            }
+          : s,
+      );
+      return { ...prev, steps };
+    });
+
+    return { success: false, txHashes: [] };
+  }
 }
