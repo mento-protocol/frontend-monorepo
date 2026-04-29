@@ -181,9 +181,9 @@ export function CollateralTab() {
 
   if (!reserve || !buildContext) return <TabSkeleton />;
 
-  // 4-level asset-type benefits from defaultOpenDepth=2 (peg → network).
-  // 3-level modes show second level (asset / custodian) by opening 1 deep.
-  const defaultOpenDepth = mode === "asset-type" ? 2 : 1;
+  // 4-level modes (asset-type, custody) open 2 deep so the second
+  // grouping level (network) is visible. 3-level network mode opens 1.
+  const defaultOpenDepth = mode === "network" ? 1 : 2;
 
   return (
     <div>
@@ -398,54 +398,72 @@ function buildRowsByCustody(
       const custodyUsd = apiTotalsByCustody[custody];
       const custodyPct = totalUsd > 0 ? (custodyUsd / totalUsd) * 100 : 0;
 
-      // Group by (chain, symbol) — symbols are not globally unique
-      // across chains (e.g. native BTC vs. wrapped BTC), so a flat
-      // symbol grouping would merge distinct tokens into one row.
-      const byChainSymbol = new Map<string, SourceRecord[]>();
+      const byChain = new Map<string, SourceRecord[]>();
       for (const rec of items) {
-        const key = `${rec.chain}:${rec.symbol}`;
-        if (!byChainSymbol.has(key)) byChainSymbol.set(key, []);
-        byChainSymbol.get(key)!.push(rec);
+        if (!byChain.has(rec.chain)) byChain.set(rec.chain, []);
+        byChain.get(rec.chain)!.push(rec);
       }
 
-      const assetChildren = [...byChainSymbol.entries()]
-        .map(([key, recs]) => {
-          const first = recs[0]!;
+      const networkChildren = [...byChain.entries()]
+        .map(([chain, chainRecs]) => ({
+          chain,
+          chainRecs,
+          chainUsd: chainRecs.reduce((s, r) => s + r.source.usd_value, 0),
+        }))
+        .sort((a, b) => b.chainUsd - a.chainUsd)
+        .map<TreeRow<CollateralRow>>((net) => {
+          // Symbols are not globally unique across chains, but within a
+          // single chain they are — so within each network bucket we can
+          // group by symbol alone.
+          const bySymbol = new Map<string, SourceRecord[]>();
+          for (const rec of net.chainRecs) {
+            if (!bySymbol.has(rec.symbol)) bySymbol.set(rec.symbol, []);
+            bySymbol.get(rec.symbol)!.push(rec);
+          }
+
+          const assetChildren = [...bySymbol.entries()]
+            .map(([symbol, recs]) => ({
+              symbol,
+              recs,
+              assetUsd: recs.reduce((s, r) => s + r.source.usd_value, 0),
+              assetBalance: recs.reduce((s, r) => {
+                const n = parseFloat(r.balance);
+                return Number.isFinite(n) ? s + n : s;
+              }, 0),
+            }))
+            .sort((a, b) => b.assetUsd - a.assetUsd)
+            .map<TreeRow<CollateralRow>>((entry) => ({
+              id: `custody:${custody}:chain:${net.chain}:asset:${entry.symbol}`,
+              kind: "asset",
+              symbol: entry.symbol,
+              chain: net.chain,
+              balance: entry.assetBalance.toString(),
+              usdValue: entry.assetUsd,
+              percentage: totalUsd > 0 ? (entry.assetUsd / totalUsd) * 100 : 0,
+              children: entry.recs
+                .slice()
+                .sort((a, b) => b.source.usd_value - a.source.usd_value)
+                .map<TreeRow<CollateralRow>>((rec, i) => ({
+                  id: `custody:${custody}:chain:${net.chain}:asset:${entry.symbol}:source:${rec.source.identifier}:${i}`,
+                  kind: "source",
+                  sourceType: rec.source.type,
+                  label: rec.source.label,
+                  identifier: rec.source.identifier,
+                  chain: rec.chain,
+                  balance: rec.balance,
+                  usdValue: rec.source.usd_value,
+                })),
+            }));
+
           return {
-            key,
-            symbol: first.symbol,
-            chain: first.chain,
-            recs,
-            assetUsd: recs.reduce((s, r) => s + r.source.usd_value, 0),
-            assetBalance: recs.reduce((s, r) => {
-              const n = parseFloat(r.balance);
-              return Number.isFinite(n) ? s + n : s;
-            }, 0),
+            id: `custody:${custody}:chain:${net.chain}`,
+            kind: "network",
+            chain: net.chain,
+            totalUsd: net.chainUsd,
+            percentage: totalUsd > 0 ? (net.chainUsd / totalUsd) * 100 : 0,
+            children: assetChildren,
           };
-        })
-        .sort((a, b) => b.assetUsd - a.assetUsd)
-        .map<TreeRow<CollateralRow>>((entry) => ({
-          id: `custody:${custody}:chain:${entry.chain}:asset:${entry.symbol}`,
-          kind: "asset",
-          symbol: entry.symbol,
-          chain: entry.chain,
-          balance: entry.assetBalance.toString(),
-          usdValue: entry.assetUsd,
-          percentage: totalUsd > 0 ? (entry.assetUsd / totalUsd) * 100 : 0,
-          children: entry.recs
-            .slice()
-            .sort((a, b) => b.source.usd_value - a.source.usd_value)
-            .map<TreeRow<CollateralRow>>((rec, i) => ({
-              id: `custody:${custody}:chain:${entry.chain}:asset:${entry.symbol}:source:${rec.source.identifier}:${i}`,
-              kind: "source",
-              sourceType: rec.source.type,
-              label: rec.source.label,
-              identifier: rec.source.identifier,
-              chain: rec.chain,
-              balance: rec.balance,
-              usdValue: rec.source.usd_value,
-            })),
-        }));
+        });
 
       return {
         id: `custody:${custody}`,
@@ -453,7 +471,7 @@ function buildRowsByCustody(
         custody,
         totalUsd: custodyUsd,
         percentage: custodyPct,
-        children: assetChildren,
+        children: networkChildren,
       };
     });
 

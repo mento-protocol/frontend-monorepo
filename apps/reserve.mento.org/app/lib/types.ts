@@ -263,19 +263,16 @@ export interface V2ReserveResponse {
   meta?: V2Meta;
 }
 
+export interface ReserveAddress {
+  address: string;
+  chains: Chain[];
+  label: string;
+  custodian_type?: CustodianType;
+  description?: string;
+}
+
 // GET /api/v2/addresses
 export interface V2AddressesResponse {
-  networks: Array<{
-    chain: Chain;
-    categories: Array<{
-      category: string;
-      addresses: Array<{
-        address: string;
-        label: string;
-        description?: string;
-        custodian_type?: CustodianType;
-      }>;
-    }>;
-  }>;
+  reserve: ReserveAddress[];
   meta?: V2Meta;
 }

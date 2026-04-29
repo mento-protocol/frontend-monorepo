@@ -428,14 +428,12 @@ function buildAddressLabelLookup(
 ): Map<string, string> {
   const lookup = new Map<string, string>();
   if (!addresses) return lookup;
-  for (const network of addresses.networks) {
-    for (const cat of network.categories) {
-      for (const addr of cat.addresses) {
-        lookup.set(
-          `${network.chain}:${addr.address.toLowerCase()}`,
-          addr.label,
-        );
-      }
+  // The new addresses shape gives each address a chains[] list, so emit
+  // one (chain:address)→label entry per chain the address is deployed on.
+  for (const addr of addresses.reserve) {
+    const lower = addr.address.toLowerCase();
+    for (const chain of addr.chains) {
+      lookup.set(`${chain}:${lower}`, addr.label);
     }
   }
   return lookup;
