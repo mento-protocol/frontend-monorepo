@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, ClipboardCopy } from "lucide-react";
 import * as Sentry from "@sentry/nextjs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@repo/ui";
 
 type AddressLabelVariant = "default" | "compact";
 
@@ -99,27 +100,52 @@ export function AddressLabel({
   const linkTitle = chain ? explorerTitle(chain) : displayAddress;
 
   if (variant === "compact") {
+    const addressEl = linkHref ? (
+      <a
+        href={linkHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={linkTitle}
+        className="font-mono text-xs text-muted-foreground transition-colors hover:text-[#a855f7]"
+      >
+        {truncated}
+      </a>
+    ) : (
+      <span className="font-mono text-xs text-muted-foreground">
+        {truncated}
+      </span>
+    );
+
+    const labelEl = label ? (
+      <span className="text-sm font-medium text-foreground">{label}</span>
+    ) : null;
+
+    // Wrap the label/address with a tooltip when a description is provided
+    // so callers can surface contextual metadata (e.g. the reserve-address
+    // role) without inflating the row height.
+    const triggerContent = (
+      <span className="gap-2 inline-flex cursor-help items-center">
+        {labelEl}
+        {addressEl}
+      </span>
+    );
+
     return (
       <span
         className={`group/address gap-2 inline-flex items-center ${className ?? ""}`}
       >
-        {label && (
-          <span className="text-sm font-medium text-foreground">{label}</span>
-        )}
-        {linkHref ? (
-          <a
-            href={linkHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={linkTitle}
-            className="font-mono text-xs text-muted-foreground transition-colors hover:text-[#a855f7]"
-          >
-            {truncated}
-          </a>
+        {description ? (
+          <Tooltip>
+            <TooltipTrigger asChild>{triggerContent}</TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              <p>{description}</p>
+            </TooltipContent>
+          </Tooltip>
         ) : (
-          <span className="font-mono text-xs text-muted-foreground">
-            {truncated}
-          </span>
+          <>
+            {labelEl}
+            {addressEl}
+          </>
         )}
         <button
           type="button"

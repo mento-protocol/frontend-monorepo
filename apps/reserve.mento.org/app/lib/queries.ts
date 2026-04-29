@@ -61,7 +61,7 @@ export const TAB_ENDPOINTS: Record<TabType, V2Endpoint[]> = {
   [TabType.overview]: ["overview"],
   [TabType.stablecoins]: ["stablecoins"],
   [TabType.collateral]: ["reserve"],
-  [TabType.positions]: ["reserve", "stablecoins"],
+  [TabType.positions]: ["reserve", "stablecoins", "addresses"],
   [TabType.addresses]: ["addresses"],
 };
 

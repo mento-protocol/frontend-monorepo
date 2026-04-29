@@ -1,7 +1,11 @@
 "use client";
 
 import Image from "next/image";
-import type { V2ReserveResponse, V2StablecoinsResponse } from "@/lib/types";
+import type {
+  V2AddressesResponse,
+  V2ReserveResponse,
+  V2StablecoinsResponse,
+} from "@/lib/types";
 import { formatUsd, formatNumber, formatPercent } from "@/lib/format";
 import { getBlockExplorerUrl } from "@/lib/format";
 import { chainLabel } from "@/lib/chains";
@@ -46,27 +50,61 @@ type LiquidityPosition = {
   positionName: string;
   tokens: Token[];
   holder: string;
+  holderAddress: string;
   chain: string;
 };
+
+// Lookup descriptions by address (lowercased — the API returns checksummed
+// addresses but anything we match against may not be).
+type AddressDescriptionMap = Map<string, string>;
+
+function buildAddressDescriptionMap(
+  addresses: V2AddressesResponse | undefined,
+): AddressDescriptionMap {
+  const map = new Map<string, string>();
+  if (!addresses) return map;
+  for (const addr of addresses.reserve) {
+    if (addr.description) map.set(addr.address.toLowerCase(), addr.description);
+  }
+  return map;
+}
+
+function lookupDescription(
+  map: AddressDescriptionMap,
+  address: string | undefined,
+): string | undefined {
+  if (!address) return undefined;
+  return map.get(address.toLowerCase());
+}
 
 export function PositionsTab() {
   const { data: reserve } = useV2Query("reserve");
   const { data: stablecoins } = useV2Query("stablecoins");
+  const { data: addresses } = useV2Query("addresses");
   if (!reserve || !stablecoins) return <TabSkeleton />;
-  return <PositionsTabView reserve={reserve} stablecoins={stablecoins} />;
+  return (
+    <PositionsTabView
+      reserve={reserve}
+      stablecoins={stablecoins}
+      addresses={addresses}
+    />
+  );
 }
 
 function PositionsTabView({
   reserve,
   stablecoins,
+  addresses,
 }: {
   reserve: V2ReserveResponse;
   stablecoins: V2StablecoinsResponse;
+  addresses: V2AddressesResponse | undefined;
 }) {
   const { positions } = reserve;
 
   const priceMap = buildPriceMap(reserve, stablecoins);
   const mentoSymbols = new Set(stablecoins.stablecoins.map((c) => c.symbol));
+  const descriptionMap = buildAddressDescriptionMap(addresses);
 
   // Trust is_mento_stable but fall back to the canonical stablecoin symbol
   // set in case the backend misses the flag for a known Mento stable.
@@ -108,9 +146,15 @@ function PositionsTabView({
         troveOverhead={troveOverheadTotal}
       />
       {stableHoldings.length > 0 && (
-        <OperationalHoldingsSection holdings={stableHoldings} />
+        <OperationalHoldingsSection
+          holdings={stableHoldings}
+          descriptionMap={descriptionMap}
+        />
       )}
-      <LiquidityPositionsSection positions={liquidityPositions} />
+      <LiquidityPositionsSection
+        positions={liquidityPositions}
+        descriptionMap={descriptionMap}
+      />
       <CdpTrovesSection troves={reserve.cdp_troves} />
     </div>
   );
@@ -239,6 +283,7 @@ type OpCustodyRow = {
   chain: string;
   label: string;
   address: string;
+  description?: string;
   balance: string;
   usd: number;
 };
@@ -250,8 +295,10 @@ type OpRow = OpAssetRow | OpCustodyRow | OpTotalRow;
 
 function OperationalHoldingsSection({
   holdings,
+  descriptionMap,
 }: {
   holdings: HoldingEntry[];
+  descriptionMap: AddressDescriptionMap;
 }) {
   const grouped = new Map<
     string,
@@ -297,6 +344,7 @@ function OperationalHoldingsSection({
             chain: c.chain,
             label: c.label,
             address: c.address,
+            description: lookupDescription(descriptionMap, c.address),
             balance: c.balance,
             usd: c.usd_value,
           }))
@@ -362,6 +410,7 @@ const opColumns: Column<OpRow>[] = [
               label={row.label}
               address={row.address}
               chain={row.chain}
+              description={row.description}
               context="positions_tab:operational_holdings"
             />
           </span>
@@ -437,6 +486,8 @@ type PositionRowData = {
   name: string;
   chain: string;
   holder: string;
+  holderAddress: string;
+  holderDescription?: string;
   mentoTokens: Token[];
   collateralTokens: Token[];
 };
@@ -459,8 +510,10 @@ type LiquidityRow =
 
 function LiquidityPositionsSection({
   positions,
+  descriptionMap,
 }: {
   positions: LiquidityPosition[];
+  descriptionMap: AddressDescriptionMap;
 }) {
   const byProtocol = new Map<Protocol, LiquidityPosition[]>();
   for (const p of positions) {
@@ -505,6 +558,11 @@ function LiquidityPositionsSection({
           name: pos.positionName,
           chain: pos.chain,
           holder: pos.holder,
+          holderAddress: pos.holderAddress,
+          holderDescription: lookupDescription(
+            descriptionMap,
+            pos.holderAddress,
+          ),
           mentoTokens: sortTokensBySymbol(
             nonZero.filter((t) => t.isMentoStable),
           ),
@@ -647,7 +705,14 @@ const liquidityColumns: Column<LiquidityRow>[] = [
     cell: (row) => {
       if (row.kind === "position")
         return (
-          <span className="text-sm text-muted-foreground">{row.holder}</span>
+          <AddressLabel
+            variant="compact"
+            label={row.holder}
+            address={row.holderAddress}
+            chain={row.chain}
+            description={row.holderDescription}
+            context="positions_tab:liquidity_holder"
+          />
         );
       return null;
     },
@@ -791,6 +856,7 @@ function normalizePositions(
         },
       ],
       holder: d.label,
+      holderAddress: d.address,
       chain: d.chain,
     });
   }
@@ -816,6 +882,7 @@ function normalizePositions(
         },
       ],
       holder: p.lp_holder_label,
+      holderAddress: p.lp_holder,
       chain: p.chain,
     });
   }
@@ -841,6 +908,7 @@ function normalizePositions(
         },
       ],
       holder: p.owner_label,
+      holderAddress: p.owner,
       chain: p.chain,
     });
   }
@@ -868,6 +936,7 @@ function normalizePositions(
       positionName: d.pool_label,
       tokens,
       holder: d.depositor_label,
+      holderAddress: d.depositor,
       chain: d.chain,
     });
   }
