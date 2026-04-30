@@ -13,6 +13,7 @@ export const ALL_CHAIN_IDS = [
   ChainId.CeloSepolia,
   ChainId.Monad,
   ChainId.MonadTestnet,
+  ChainId.PolygonAmoy,
 ] as const satisfies readonly ChainId[];
 
 export const MAINNET_CHAIN_IDS = [
@@ -23,6 +24,7 @@ export const MAINNET_CHAIN_IDS = [
 export const TESTNET_CHAIN_IDS = [
   ChainId.CeloSepolia,
   ChainId.MonadTestnet,
+  ChainId.PolygonAmoy,
 ] as const satisfies readonly ChainId[];
 
 const FEATURE_CHAIN_IDS: Record<AppFeature, readonly ChainId[]> = {

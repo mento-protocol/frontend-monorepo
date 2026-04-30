@@ -157,7 +157,7 @@ function formatSummaryAmount(amount: string): string {
 
 interface AddLiquidityFormProps {
   pool: PoolDisplay;
-  onLiquidityUpdated?: () => void | Promise<void>;
+  onLiquidityUpdated?: (txHash?: string) => void | Promise<void>;
   header?: React.ReactNode;
   disabled?: boolean;
 }
@@ -466,29 +466,38 @@ export function AddLiquidityForm({
 
   const buttonState = getButtonState();
 
-  const refreshLiquidityState = useCallback(async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["pools-list", chainId] }),
-      queryClient.invalidateQueries({ queryKey: ["readContract"] }),
-      queryClient.refetchQueries({
-        queryKey: ["readContract"],
-        type: "active",
-      }),
-      refetchToken0Balance(),
-      refetchToken1Balance(),
-      refetchToken0Allowance(),
-      refetchToken1Allowance(),
-      onLiquidityUpdated?.(),
-    ]);
-  }, [
-    queryClient,
-    chainId,
-    refetchToken0Balance,
-    refetchToken1Balance,
-    refetchToken0Allowance,
-    refetchToken1Allowance,
-    onLiquidityUpdated,
-  ]);
+  const refreshLiquidityState = useCallback(
+    async (txHash?: string) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["pools-list", chainId] }),
+        queryClient.invalidateQueries({ queryKey: ["readContract"] }),
+        queryClient.refetchQueries({
+          queryKey: ["readContract"],
+          type: "active",
+        }),
+        // useUserPosition's queryKey embeds lpBalance.toString(), so it only
+        // rebuilds when the refetched balance differs. On RPCs that lag
+        // post-confirmation (notably Polygon Amoy's public endpoint), the
+        // refetch returns the prior value and the position card stays stale.
+        // Invalidate the position query directly so it always rerenders.
+        queryClient.invalidateQueries({ queryKey: ["user-position"] }),
+        refetchToken0Balance(),
+        refetchToken1Balance(),
+        refetchToken0Allowance(),
+        refetchToken1Allowance(),
+        onLiquidityUpdated?.(txHash),
+      ]);
+    },
+    [
+      queryClient,
+      chainId,
+      refetchToken0Balance,
+      refetchToken1Balance,
+      refetchToken0Allowance,
+      refetchToken1Allowance,
+      onLiquidityUpdated,
+    ],
+  );
 
   const getLatestAllowances = useCallback(async () => {
     const [token0AllowanceResult, token1AllowanceResult] = await Promise.all([
@@ -584,7 +593,7 @@ export function AddLiquidityForm({
               chainId,
             });
           }
-          await refreshLiquidityState();
+          await refreshLiquidityState(lastTxHash);
           setZapAmount("");
         }
       } else if (mode === "balanced" && quote && buildResult) {
@@ -653,7 +662,7 @@ export function AddLiquidityForm({
               chainId,
             });
           }
-          await refreshLiquidityState();
+          await refreshLiquidityState(lastTxHash);
           setToken0Amount("");
           setToken1Amount("");
         }

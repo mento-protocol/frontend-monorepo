@@ -149,5 +149,8 @@ export function getNativeTokenSymbol(chainId: number): string {
   if (chainId === ChainId.Monad || chainId === ChainId.MonadTestnet) {
     return "MON";
   }
+  if (chainId === ChainId.PolygonAmoy) {
+    return "POL";
+  }
   return "CELO";
 }

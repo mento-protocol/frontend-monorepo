@@ -62,7 +62,7 @@ function isZapOutRouteUnavailableError(message: string): boolean {
 
 interface RemoveLiquidityFormProps {
   pool: PoolDisplay;
-  onLiquidityUpdated?: () => void | Promise<void>;
+  onLiquidityUpdated?: (txHash?: string) => void | Promise<void>;
   header?: React.ReactNode;
   disabled?: boolean;
 }
@@ -282,7 +282,7 @@ export function RemoveLiquidityForm({
 
   const buttonState = getButtonState();
 
-  const refreshLiquidityState = async () => {
+  const refreshLiquidityState = async (txHash?: string) => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["pools-list", chainId] }),
       queryClient.invalidateQueries({ queryKey: ["readContract"] }),
@@ -290,8 +290,14 @@ export function RemoveLiquidityForm({
         queryKey: ["readContract"],
         type: "active",
       }),
+      // useUserPosition's queryKey embeds lpBalance.toString(), so it only
+      // rebuilds when the refetched balance differs. On RPCs that lag
+      // post-confirmation (notably Polygon Amoy's public endpoint), the
+      // refetch returns the prior value and the position card stays stale.
+      // Invalidate the position query directly so it always rerenders.
+      queryClient.invalidateQueries({ queryKey: ["user-position"] }),
       refetchLpBalance(),
-      onLiquidityUpdated?.(),
+      onLiquidityUpdated?.(txHash),
     ]);
   };
 
@@ -392,7 +398,7 @@ export function RemoveLiquidityForm({
               chainId,
             });
           }
-          await refreshLiquidityState();
+          await refreshLiquidityState(lastTxHash);
           setLpAmount("");
           setZapBuildStateKey(null);
           setZapBuildReadyKey(null);
@@ -447,7 +453,7 @@ export function RemoveLiquidityForm({
               chainId,
             });
           }
-          await refreshLiquidityState();
+          await refreshLiquidityState(lastTxHash);
           setLpAmount("");
         }
       }

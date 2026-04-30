@@ -5,14 +5,23 @@ import {
   useExplorerUrl,
   getPoolDisplayOrder,
 } from "@repo/web3";
-import { useAccount, useReadContract, useBlockNumber } from "@repo/web3/wagmi";
-import { erc20Abi, type Address } from "viem";
+import {
+  useAccount,
+  useReadContract,
+  useBlockNumber,
+  useConfig,
+  waitForTransactionReceipt,
+} from "@repo/web3/wagmi";
+import { decodeEventLog, erc20Abi, type Address, type Hex } from "viem";
 import { useState, useEffect, useCallback } from "react";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import { AddLiquidityForm } from "./add-liquidity-form";
 import { RemoveLiquidityForm } from "./remove-liquidity-form";
 import { PoolFeePopover } from "./pool-fee-popover";
 import { UserPositionCard } from "./user-position-card";
+
+const LP_BALANCE_REFRESH_ATTEMPTS = 6;
+const LP_BALANCE_REFRESH_DELAY_MS = 1_500;
 
 interface LiquidityPanelProps {
   pool: PoolDisplay;
@@ -38,6 +47,7 @@ export function LiquidityPanel({
   const { address } = useAccount();
   const resolvedChainId = chainId ?? pool.chainId;
   const explorerUrl = useExplorerUrl(resolvedChainId);
+  const wagmiConfig = useConfig();
   const { data: blockNumber } = useBlockNumber({
     chainId: resolvedChainId,
     watch: !!address,
@@ -57,11 +67,30 @@ export function LiquidityPanel({
     },
   });
 
-  const hasLPTokens = lpBalance !== undefined && lpBalance > 0n;
+  const [optimisticLpBalance, setOptimisticLpBalance] = useState<
+    bigint | undefined
+  >();
+
+  useEffect(() => {
+    setOptimisticLpBalance(undefined);
+  }, [pool.poolAddr, address]);
+
+  useEffect(() => {
+    if (
+      optimisticLpBalance !== undefined &&
+      lpBalance === optimisticLpBalance
+    ) {
+      setOptimisticLpBalance(undefined);
+    }
+  }, [lpBalance, optimisticLpBalance]);
+
+  const effectiveLpBalance = optimisticLpBalance ?? lpBalance;
+  const hasLPTokens =
+    effectiveLpBalance !== undefined && effectiveLpBalance > 0n;
 
   const { data: position } = useUserPosition({
     pool,
-    lpBalance,
+    lpBalance: effectiveLpBalance,
     enabled: hasLPTokens,
     chainId: resolvedChainId,
   });
@@ -81,9 +110,85 @@ export function LiquidityPanel({
     void refetchLpBalance();
   }, [address, blockNumber, refetchLpBalance]);
 
-  const handleLiquidityUpdated = useCallback(async () => {
-    await refetchLpBalance();
-  }, [refetchLpBalance]);
+  const applyLpBalanceFromReceipt = useCallback(
+    async (txHash?: string) => {
+      if (!txHash || !address) return;
+
+      const receipt = await waitForTransactionReceipt(wagmiConfig, {
+        hash: txHash as Hex,
+        chainId: resolvedChainId,
+      }).catch(() => null);
+      if (!receipt) return;
+
+      let delta = 0n;
+      const account = address.toLowerCase();
+      const lpToken = pool.poolAddr.toLowerCase();
+
+      for (const log of receipt.logs) {
+        if (log.address.toLowerCase() !== lpToken) continue;
+
+        try {
+          const event = decodeEventLog({
+            abi: erc20Abi,
+            data: log.data,
+            topics: log.topics,
+          });
+
+          if (event.eventName !== "Transfer") continue;
+
+          const { from, to, value } = event.args;
+          if (to.toLowerCase() === account) delta += value;
+          if (from.toLowerCase() === account) delta -= value;
+        } catch {
+          // Ignore non-ERC20 logs from contracts that share the LP address.
+        }
+      }
+
+      if (delta === 0n) return;
+
+      const baseBalance = optimisticLpBalance ?? lpBalance ?? 0n;
+      const nextBalance = baseBalance + delta;
+      setOptimisticLpBalance(nextBalance > 0n ? nextBalance : 0n);
+    },
+    [
+      address,
+      lpBalance,
+      optimisticLpBalance,
+      pool.poolAddr,
+      resolvedChainId,
+      wagmiConfig,
+    ],
+  );
+
+  const handleLiquidityUpdated = useCallback(
+    async (txHash?: string) => {
+      await applyLpBalanceFromReceipt(txHash);
+
+      const previousBalance = optimisticLpBalance ?? lpBalance;
+
+      for (let attempt = 0; attempt < LP_BALANCE_REFRESH_ATTEMPTS; attempt++) {
+        const result = await refetchLpBalance();
+        const nextBalance = result.data;
+
+        if (
+          nextBalance !== undefined &&
+          (previousBalance === undefined || nextBalance !== previousBalance)
+        ) {
+          return;
+        }
+
+        await new Promise((resolve) =>
+          setTimeout(resolve, LP_BALANCE_REFRESH_DELAY_MS),
+        );
+      }
+    },
+    [
+      applyLpBalanceFromReceipt,
+      lpBalance,
+      optimisticLpBalance,
+      refetchLpBalance,
+    ],
+  );
 
   const isRemoveDisabled = !hasLPTokens;
 
@@ -243,7 +348,7 @@ export function LiquidityPanel({
         <UserPositionCard
           pool={pool}
           position={position}
-          lpBalance={lpBalance}
+          lpBalance={effectiveLpBalance}
         />
       )}
 

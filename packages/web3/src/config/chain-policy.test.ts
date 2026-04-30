@@ -6,6 +6,7 @@ vi.mock("./chains", () => ({
     CeloSepolia: 11142220,
     Monad: 143,
     MonadTestnet: 10143,
+    PolygonAmoy: 80002,
   },
 }));
 
@@ -23,6 +24,7 @@ const ChainId = {
   CeloSepolia: 11142220,
   Monad: 143,
   MonadTestnet: 10143,
+  PolygonAmoy: 80002,
 } as const;
 
 describe("chain-policy", () => {
@@ -39,6 +41,7 @@ describe("chain-policy", () => {
       ChainId.CeloSepolia,
       ChainId.Monad,
       ChainId.MonadTestnet,
+      ChainId.PolygonAmoy,
     ]);
   });
 
@@ -96,6 +99,7 @@ describe("chain-policy", () => {
   it("identifies testnet chains", () => {
     expect(isTestnetChain(ChainId.CeloSepolia)).toBe(true);
     expect(isTestnetChain(ChainId.MonadTestnet)).toBe(true);
+    expect(isTestnetChain(ChainId.PolygonAmoy)).toBe(true);
     expect(isTestnetChain(ChainId.Celo)).toBe(false);
   });
 });

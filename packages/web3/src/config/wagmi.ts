@@ -16,7 +16,14 @@ import {
   valoraWallet,
   walletConnectWallet,
 } from "@rainbow-me/rainbowkit/wallets";
-import { Celo, CeloSepolia, Monad, MonadTestnet, allChains } from "./chains";
+import {
+  Celo,
+  CeloSepolia,
+  Monad,
+  MonadTestnet,
+  PolygonAmoy,
+  allChains,
+} from "./chains";
 
 // Avoid creating WalletConnect connectors during SSR because they rely on
 // browser-only APIs like `indexedDB`.
@@ -59,6 +66,7 @@ export const wagmiConfig: Config = createConfig({
     [CeloSepolia.id]: http(CeloSepolia.rpcUrls.default.http[0]),
     [Monad.id]: http(Monad.rpcUrls.default.http[0]),
     [MonadTestnet.id]: http(MonadTestnet.rpcUrls.default.http[0]),
+    [PolygonAmoy.id]: http(PolygonAmoy.rpcUrls.default.http[0]),
   },
   ssr: true,
   storage: createStorage({
