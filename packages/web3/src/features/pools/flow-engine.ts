@@ -5,6 +5,7 @@ import {
   waitForTransactionReceipt,
 } from "wagmi/actions";
 import type { Address, Hex } from "viem";
+import { getTransactionFeeOverrides } from "@/utils/transaction-fees";
 import type { LiquidityFlowState, LiquidityFlowStep } from "./flow-atoms";
 
 // ---------------------------------------------------------------------------
@@ -157,23 +158,33 @@ export async function executeLiquidityFlow(
         ...(chainId != null && { chainId }),
       };
 
-      let txHash: Hex;
+      // Only estimateGas is fallible here. Letting sendTransaction run inside
+      // the catch block silently retries the wallet popup whenever the first
+      // broadcast fails for a non-revert reason (e.g. Polygon's gas-tip-cap
+      // rejection), which surfaces as "first tx fails, second succeeds".
+      let gasLimit: bigint | undefined;
       try {
         const gasEstimate = await estimateGas(wagmiConfig, txRequest);
-        const gasLimit =
+        gasLimit =
           gasEstimate + BigInt(Math.ceil(Number(gasEstimate) * GAS_HEADROOM));
-        txHash = await sendTransaction(wagmiConfig, {
-          ...txRequest,
-          gas: gasLimit,
-        });
       } catch (estimateError) {
         if (isLikelyDeterministicRevert(estimateError)) {
           throw estimateError;
         }
-
-        // Fall back to sending without explicit gas limit
-        txHash = await sendTransaction(wagmiConfig, txRequest);
+        // Estimation flaked for a non-deterministic reason; defer to wallet.
+        gasLimit = undefined;
       }
+
+      const feeOverrides = await getTransactionFeeOverrides(
+        wagmiConfig,
+        chainId,
+      );
+      const txHash = await sendTransaction(
+        wagmiConfig,
+        gasLimit !== undefined
+          ? { ...txRequest, ...feeOverrides, gas: gasLimit }
+          : { ...txRequest, ...feeOverrides },
+      );
 
       // Mark step as confirming with txHash
       setFlowAtom((prev) => {
