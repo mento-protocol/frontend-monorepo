@@ -5,12 +5,18 @@
 import * as Sentry from "@sentry/nextjs";
 import { env } from "@/env.mjs";
 import {
+  createDedupedSentryEventFilter,
   filterNoisySentryEvents,
   sentryDenyUrls,
   sentryIgnoreErrors,
 } from "@repo/web3/sentry-filter";
 
 const vercelEnv = process.env.NEXT_PUBLIC_VERCEL_ENV ?? "development";
+
+const beforeSend =
+  vercelEnv === "preview"
+    ? createDedupedSentryEventFilter()
+    : filterNoisySentryEvents;
 
 Sentry.init({
   dsn: env.NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE,
@@ -37,7 +43,7 @@ Sentry.init({
 
   ignoreErrors: sentryIgnoreErrors,
   denyUrls: sentryDenyUrls,
-  beforeSend: filterNoisySentryEvents,
+  beforeSend,
 
   tracesSampleRate: vercelEnv === "production" ? 0.1 : 0,
 

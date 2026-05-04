@@ -150,3 +150,34 @@ export function filterNoisySentryEvents(
 
   return event;
 }
+
+function eventFingerprint(event: ErrorEvent, hint?: EventHint): string {
+  const message = getEventMessage(event, hint);
+  const eventType = getEventType(event, hint);
+  const firstFrame = getFrameFilenames(event)[0] ?? "";
+  return `${eventType}|${message}|${firstFrame}`;
+}
+
+// Wraps `filterNoisySentryEvents` with an in-memory Set so identical
+// signatures only report once per page load. Intended for noisy
+// environments (Vercel previews) where a single tab can fire the same
+// fetch/CORS error dozens of times via React Query refetches.
+export function createDedupedSentryEventFilter(
+  options: { maxSize?: number } = {},
+): (event: ErrorEvent, hint?: EventHint) => ErrorEvent | null {
+  const maxSize = options.maxSize ?? 200;
+  const seen = new Set<string>();
+
+  return (event, hint) => {
+    const filtered = filterNoisySentryEvents(event, hint);
+    if (!filtered) return null;
+
+    const signature = eventFingerprint(filtered, hint);
+    if (seen.has(signature)) return null;
+
+    if (seen.size >= maxSize) seen.clear();
+    seen.add(signature);
+
+    return filtered;
+  };
+}

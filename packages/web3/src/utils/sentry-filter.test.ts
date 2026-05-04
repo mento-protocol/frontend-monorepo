@@ -1,6 +1,7 @@
 import type { ErrorEvent, EventHint } from "@sentry/nextjs";
 import { describe, expect, it } from "vitest";
 import {
+  createDedupedSentryEventFilter,
   filterNoisySentryEvents,
   sentryDenyUrls,
   sentryIgnoreErrors,
@@ -171,5 +172,78 @@ describe("sentry-filter", () => {
     } as EventHint;
 
     expect(filterNoisySentryEvents(event, hint)).toBeNull();
+  });
+});
+
+describe("createDedupedSentryEventFilter", () => {
+  it("forwards the first occurrence of an event and drops repeats with the same signature", () => {
+    const filter = createDedupedSentryEventFilter();
+    const first = makeEvent({
+      exceptionType: "TypeError",
+      exceptionValue: "Failed to fetch",
+      frames: ["https://reserve.mento.org/_next/static/chunks/app.js"],
+    });
+    const repeat = makeEvent({
+      exceptionType: "TypeError",
+      exceptionValue: "Failed to fetch",
+      frames: ["https://reserve.mento.org/_next/static/chunks/app.js"],
+    });
+
+    expect(filter(first)).toBe(first);
+    expect(filter(repeat)).toBeNull();
+  });
+
+  it("treats events with different messages as distinct signatures", () => {
+    const filter = createDedupedSentryEventFilter();
+    const first = makeEvent({
+      exceptionType: "TypeError",
+      exceptionValue: "Failed to fetch",
+      frames: ["https://reserve.mento.org/_next/static/chunks/app.js"],
+    });
+    const different = makeEvent({
+      exceptionType: "TypeError",
+      exceptionValue: "Load failed",
+      frames: ["https://reserve.mento.org/_next/static/chunks/app.js"],
+    });
+
+    expect(filter(first)).toBe(first);
+    expect(filter(different)).toBe(different);
+  });
+
+  it("still applies the underlying noise filter before deduping", () => {
+    const filter = createDedupedSentryEventFilter();
+    const noisy = makeEvent({ message: "Origin not allowed" });
+
+    expect(filter(noisy)).toBeNull();
+  });
+
+  it("clears its memory once it crosses the configured cap so long-lived tabs don't grow unbounded", () => {
+    const filter = createDedupedSentryEventFilter({ maxSize: 2 });
+    const first = makeEvent({
+      exceptionType: "TypeError",
+      exceptionValue: "Failed to fetch",
+      frames: ["https://reserve.mento.org/_next/static/chunks/a.js"],
+    });
+    const second = makeEvent({
+      exceptionType: "TypeError",
+      exceptionValue: "Load failed",
+      frames: ["https://reserve.mento.org/_next/static/chunks/b.js"],
+    });
+    const third = makeEvent({
+      exceptionType: "TypeError",
+      exceptionValue: "NetworkError",
+      frames: ["https://reserve.mento.org/_next/static/chunks/c.js"],
+    });
+    const repeatOfFirst = makeEvent({
+      exceptionType: "TypeError",
+      exceptionValue: "Failed to fetch",
+      frames: ["https://reserve.mento.org/_next/static/chunks/a.js"],
+    });
+
+    expect(filter(first)).toBe(first);
+    expect(filter(second)).toBe(second);
+    expect(filter(third)).toBe(third);
+    // The cache cleared when `third` arrived, so the original signature is fresh again.
+    expect(filter(repeatOfFirst)).toBe(repeatOfFirst);
   });
 });
