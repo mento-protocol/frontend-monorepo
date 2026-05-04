@@ -9,17 +9,20 @@ import {
   sentryIgnoreErrors,
 } from "@repo/web3/sentry-filter";
 
+const vercelEnv = process.env.VERCEL_ENV ?? "development";
+
 Sentry.init({
   dsn: env.NEXT_PUBLIC_SENTRY_DSN_SWAP,
 
   // Disable Sentry in development to avoid localhost errors
   enabled: process.env.NODE_ENV === "production",
 
+  environment: vercelEnv,
+
   ignoreErrors: sentryIgnoreErrors,
   beforeSend: filterNoisySentryEvents,
 
-  // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
-  tracesSampleRate: 0.1,
+  tracesSampleRate: vercelEnv === "production" ? 0.1 : 0,
 
   // Setting this option to true will print useful information to the console while you're setting up Sentry.
   debug: false,
