@@ -5,12 +5,14 @@ import {
   monad as viemMonad,
   monadTestnet as viemMonadTestnet,
   polygonAmoy as viemPolygonAmoy,
+  baseSepolia as viemBaseSepolia,
 } from "viem/chains";
 import { celo } from "wagmi/chains";
 import { MentoChain, MentoChainContracts } from "../types";
 import celoIcon from "./chain-icons/celo.svg";
 import monadIcon from "./chain-icons/monad.svg";
 import polygonIcon from "./chain-icons/polygon.svg";
+import baseIcon from "./chain-icons/base.svg";
 
 const useFork = isForkModeEnabled();
 
@@ -20,6 +22,7 @@ export enum ChainId {
   MonadTestnet = 10143,
   Monad = 143,
   PolygonAmoy = 80002,
+  BaseSepolia = 84532,
 }
 
 const RPC_OVERRIDE_CONFIG: Record<
@@ -51,6 +54,11 @@ const RPC_OVERRIDE_CONFIG: Record<
     envUrl: process.env.NEXT_PUBLIC_POLYGON_AMOY_RPC_URL,
     localStorageKey: "mento_custom_rpc_url_80002",
   },
+  [ChainId.BaseSepolia]: {
+    envVar: "NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL",
+    envUrl: process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL,
+    localStorageKey: "mento_custom_rpc_url_84532",
+  },
 };
 
 const LOCAL_FORK_EXPLORER = {
@@ -77,6 +85,10 @@ export const MONAD_TESTNET_EXPLORER = {
 export const POLYGON_AMOY_EXPLORER = {
   name: "PolygonScan (Amoy)",
   url: "https://amoy.polygonscan.com",
+};
+export const BASE_SEPOLIA_EXPLORER = {
+  name: "Base Sepolia Explorer",
+  url: "https://sepolia.basescan.org",
 };
 
 export const CeloSepolia: MentoChain = {
@@ -216,6 +228,33 @@ export const PolygonAmoy: MentoChain = {
   },
 } as const satisfies MentoChain;
 
+export const BaseSepolia: MentoChain = {
+  ...viemBaseSepolia,
+  id: ChainId.BaseSepolia,
+  iconUrl: baseIcon,
+  iconBackground: "transparent",
+  nativeCurrency: {
+    decimals: 18,
+    name: "ETH",
+    symbol: "ETH",
+  },
+  blockExplorers: {
+    default: BASE_SEPOLIA_EXPLORER,
+  },
+  rpcUrls: {
+    ...viemBaseSepolia.rpcUrls,
+    default: {
+      http: [getBaseSepoliaRpcUrl()],
+    },
+  },
+  contracts: {
+    ...viemBaseSepolia.contracts,
+    ...transformToChainContracts(
+      addresses[ChainId.BaseSepolia as unknown as keyof typeof addresses],
+    ),
+  },
+} as const satisfies MentoChain;
+
 function isForkModeEnabled(): boolean {
   if (typeof window === "undefined") {
     // During SSR, check environment variable
@@ -340,7 +379,12 @@ function getMonadRpcUrl(): string {
 
 function getPolygonAmoyRpcUrl(): string {
   const override = getChainSpecificRpcUrl(ChainId.PolygonAmoy);
-  return override ? override.url : "https://rpc-amoy.polygon.technology";
+  return override ? override.url : "https://polygon-amoy.drpc.org";
+}
+
+function getBaseSepoliaRpcUrl(): string {
+  const override = getChainSpecificRpcUrl(ChainId.BaseSepolia);
+  return override ? override.url : "https://sepolia.base.org";
 }
 
 export const chainIdToChain: Record<number, MentoChain> = {
@@ -349,6 +393,7 @@ export const chainIdToChain: Record<number, MentoChain> = {
   [ChainId.MonadTestnet]: MonadTestnet,
   [ChainId.Monad]: Monad,
   [ChainId.PolygonAmoy]: PolygonAmoy,
+  [ChainId.BaseSepolia]: BaseSepolia,
 };
 
 export const allChains = [
@@ -357,6 +402,7 @@ export const allChains = [
   Monad,
   MonadTestnet,
   PolygonAmoy,
+  BaseSepolia,
 ] as const satisfies readonly [MentoChain, ...MentoChain[]];
 
 /**

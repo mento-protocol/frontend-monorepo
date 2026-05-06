@@ -6,6 +6,7 @@ import {
   Monad,
   MonadTestnet,
   PolygonAmoy,
+  BaseSepolia,
   allChains,
 } from "./chains";
 
@@ -18,6 +19,7 @@ export const wagmiSsrConfig = createConfig({
     [Monad.id]: http(Monad.rpcUrls.default.http[0]),
     [MonadTestnet.id]: http(MonadTestnet.rpcUrls.default.http[0]),
     [PolygonAmoy.id]: http(PolygonAmoy.rpcUrls.default.http[0]),
+    [BaseSepolia.id]: http(BaseSepolia.rpcUrls.default.http[0]),
   },
   ssr: true,
   storage: createStorage({ storage: cookieStorage }),
