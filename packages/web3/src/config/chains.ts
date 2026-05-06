@@ -383,7 +383,6 @@ function getPolygonAmoyRpcUrl(): string {
 }
 
 function getBaseSepoliaRpcUrl(): string {
-  let url: string;
   const override = getChainSpecificRpcUrl(ChainId.BaseSepolia);
   return override ? override.url : "https://sepolia.base.org";
 }
