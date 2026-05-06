@@ -152,5 +152,8 @@ export function getNativeTokenSymbol(chainId: number): string {
   if (chainId === ChainId.PolygonAmoy) {
     return "POL";
   }
+  if (chainId === ChainId.BaseSepolia) {
+    return "ETH";
+  }
   return "CELO";
 }
