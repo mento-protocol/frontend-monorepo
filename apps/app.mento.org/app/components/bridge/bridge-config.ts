@@ -24,131 +24,59 @@ export function getBridgeTheme(mode: "dark" | "light"): WormholeConnectTheme {
   };
 }
 
+const WORMHOLE_TEST_USD_ADDRESS = "0xd7CeC29119b8aA3B8718bD07Eb334d3a0c6f5d75";
+const WORMHOLE_TEST_GBP_ADDRESS = "0x8c4E9828eb5a796Be7C1eBCBc20fC7554FAcB9d7";
+const USD_NTT_MANAGER_ADDRESS = "0x20b815C6dF47B22332a7434A0C54116BE6d77117";
+const USD_TRANSCEIVER_ADDRESS = "0xDF6B7D0521229D5BF21Fd69301d7eb0764dB632E";
+const GBP_NTT_MANAGER_ADDRESS = "0x5850A656E4d3E44eBF635A66d7f1D14ac46849de";
+const GBP_TRANSCEIVER_ADDRESS = "0x11aBC939306a02A60594C85e0f6dCFCBFac06178";
+
 const nttConfig: NttRoute.Config = {
   tokens: {
-    USDm: [
+    WormholeTestUSD: [
       {
         chain: "Celo",
-        manager: "0xa4096343485a44c0F8d05AE6dA311c18D63e38bC",
-        token: "0x765de816845861e75a25fca122bb6898b8b1282a",
-        transceiver: [
-          {
-            address: "0x40f8650ACd6cA771a822b6d8Da71B46b0bDe4C1B",
-            type: "wormhole",
-          },
-        ],
-        eta: 1_200_000, // ~20 min for Celo → Monad
+        manager: USD_NTT_MANAGER_ADDRESS,
+        token: WORMHOLE_TEST_USD_ADDRESS,
+        transceiver: [{ address: USD_TRANSCEIVER_ADDRESS, type: "wormhole" }],
+        eta: 1_200_000,
       },
       {
         chain: "Monad",
-        manager: "0xa4096343485a44c0F8d05AE6dA311c18D63e38bC",
-        token: "0xBC69212B8E4d445b2307C9D32dD68E2A4Df00115",
-        transceiver: [
-          {
-            address: "0x40f8650ACd6cA771a822b6d8Da71B46b0bDe4C1B",
-            type: "wormhole",
-          },
-        ],
+        manager: USD_NTT_MANAGER_ADDRESS,
+        token: WORMHOLE_TEST_USD_ADDRESS,
+        transceiver: [{ address: USD_TRANSCEIVER_ADDRESS, type: "wormhole" }],
+        eta: 1_200_000,
+      },
+      {
+        chain: "Polygon",
+        manager: USD_NTT_MANAGER_ADDRESS,
+        token: WORMHOLE_TEST_USD_ADDRESS,
+        transceiver: [{ address: USD_TRANSCEIVER_ADDRESS, type: "wormhole" }],
+        eta: 1_200_000,
       },
     ],
-    GBPm: [
+    WormholeTestGBP: [
       {
         chain: "Celo",
-        manager: "0x7895D03FfDeb14a57eF79c21C3eA14dADf2a7c3f",
-        token: "0xCCF663b1fF11028f0b19058d0f7B674004a40746",
-        transceiver: [
-          {
-            address: "0xcB55fE41C5437Ad6449C2978B061958C1EC1AB5f",
-            type: "wormhole",
-          },
-        ],
-        eta: 1_200_000, // ~20 min for Celo → Monad
+        manager: GBP_NTT_MANAGER_ADDRESS,
+        token: WORMHOLE_TEST_GBP_ADDRESS,
+        transceiver: [{ address: GBP_TRANSCEIVER_ADDRESS, type: "wormhole" }],
+        eta: 1_200_000,
       },
       {
         chain: "Monad",
-        manager: "0x7895D03FfDeb14a57eF79c21C3eA14dADf2a7c3f",
-        token: "0x39bb4E0a204412bB98e821d25e7d955e69d40Fd1",
-        transceiver: [
-          {
-            address: "0xcB55fE41C5437Ad6449C2978B061958C1EC1AB5f",
-            type: "wormhole",
-          },
-        ],
-      },
-    ],
-    EURm: [
-      {
-        chain: "Celo",
-        manager: "0x5F8a1e50F83f53951B89Fc73Ead80b27045C67fd",
-        token: "0xd8763cba276a3738e6de85b4b3bf5fded6d6ca73",
-        transceiver: [
-          {
-            address: "0x6467cfCA82184657F32F1195F9a26b5578399479",
-            type: "wormhole",
-          },
-        ],
-        eta: 1_200_000, // ~20 min for Celo → Monad
+        manager: GBP_NTT_MANAGER_ADDRESS,
+        token: WORMHOLE_TEST_GBP_ADDRESS,
+        transceiver: [{ address: GBP_TRANSCEIVER_ADDRESS, type: "wormhole" }],
+        eta: 1_200_000,
       },
       {
-        chain: "Monad",
-        manager: "0x5F8a1e50F83f53951B89Fc73Ead80b27045C67fd",
-        token: "0x4D502d735B4C574B487Ed641ae87cEaE884731C7",
-        transceiver: [
-          {
-            address: "0x6467cfCA82184657F32F1195F9a26b5578399479",
-            type: "wormhole",
-          },
-        ],
-      },
-    ],
-    JPYm: [
-      {
-        chain: "Celo",
-        manager: "0x7431419FE761e7da37587245c55a35E5a356c91B",
-        token: "0xc45eCF20f3CD864B32D9794d6f76814aE8892e20",
-        transceiver: [
-          {
-            address: "0x01C9d280150F932D4a2fe11f40b0d72BFfBCd339",
-            type: "wormhole",
-          },
-        ],
-        eta: 1_200_000, // ~20 min for Celo → Monad
-      },
-      {
-        chain: "Monad",
-        manager: "0x7431419FE761e7da37587245c55a35E5a356c91B",
-        token: "0x22f6A6752800eAB67b84748FeFc3cC658384aF72",
-        transceiver: [
-          {
-            address: "0x01C9d280150F932D4a2fe11f40b0d72BFfBCd339",
-            type: "wormhole",
-          },
-        ],
-      },
-    ],
-    CHFm: [
-      {
-        chain: "Celo",
-        manager: "0xbbFBE2791722E93f27c5cE80e3725c8DD8d09697",
-        token: "0xb55a79F398E759E43C95b979163f30eC87Ee131D",
-        transceiver: [
-          {
-            address: "0x0D05cf3F8d39Dc988E69CC1bF37f972eadBdC093",
-            type: "wormhole",
-          },
-        ],
-        eta: 1_200_000, // ~20 min for Celo → Monad
-      },
-      {
-        chain: "Monad",
-        manager: "0xbbFBE2791722E93f27c5cE80e3725c8DD8d09697",
-        token: "0xF64e91fFEf7ef43aA314F0Bc2AC39f770797990C",
-        transceiver: [
-          {
-            address: "0x0D05cf3F8d39Dc988E69CC1bF37f972eadBdC093",
-            type: "wormhole",
-          },
-        ],
+        chain: "Polygon",
+        manager: GBP_NTT_MANAGER_ADDRESS,
+        token: WORMHOLE_TEST_GBP_ADDRESS,
+        transceiver: [{ address: GBP_TRANSCEIVER_ADDRESS, type: "wormhole" }],
+        eta: 1_200_000,
       },
     ],
   },
@@ -156,97 +84,61 @@ const nttConfig: NttRoute.Config = {
 
 export const bridgeConfig: config.WormholeConnectConfig = {
   network: "Mainnet",
-  chains: ["Celo", "Monad"],
-  tokens: ["USDm", "GBPm", "EURm", "JPYm", "CHFm"],
+  cacheNamespace: "mento-wormhole-test-v3",
+  chains: ["Celo", "Monad", "Polygon"],
   tokensConfig: {
-    USDm_celo: {
-      symbol: "USDm",
+    WormholeTestUSD_celo: {
+      symbol: "WormholeTestUSD",
       decimals: 18,
       icon: "/tokens/USDm.svg",
       tokenId: {
         chain: "Celo",
-        address: "0x765de816845861e75a25fca122bb6898b8b1282a",
+        address: WORMHOLE_TEST_USD_ADDRESS,
       },
     },
-    USDm_monad: {
-      symbol: "USDm",
+    WormholeTestUSD_monad: {
+      symbol: "WormholeTestUSD",
       decimals: 18,
       icon: "/tokens/USDm.svg",
       tokenId: {
         chain: "Monad",
-        address: "0xBC69212B8E4d445b2307C9D32dD68E2A4Df00115",
+        address: WORMHOLE_TEST_USD_ADDRESS,
       },
     },
-    GBPm_celo: {
-      symbol: "GBPm",
+    WormholeTestUSD_polygon: {
+      symbol: "WormholeTestUSD",
+      decimals: 18,
+      icon: "/tokens/USDm.svg",
+      tokenId: {
+        chain: "Polygon",
+        address: WORMHOLE_TEST_USD_ADDRESS,
+      },
+    },
+    WormholeTestGBP_celo: {
+      symbol: "WormholeTestGBP",
       decimals: 18,
       icon: "/tokens/GBPm.svg",
       tokenId: {
         chain: "Celo",
-        address: "0xCCF663b1fF11028f0b19058d0f7B674004a40746",
+        address: WORMHOLE_TEST_GBP_ADDRESS,
       },
     },
-    GBPm_monad: {
-      symbol: "GBPm",
+    WormholeTestGBP_monad: {
+      symbol: "WormholeTestGBP",
       decimals: 18,
       icon: "/tokens/GBPm.svg",
       tokenId: {
         chain: "Monad",
-        address: "0x39bb4E0a204412bB98e821d25e7d955e69d40Fd1",
+        address: WORMHOLE_TEST_GBP_ADDRESS,
       },
     },
-    EURm_celo: {
-      symbol: "EURm",
+    WormholeTestGBP_polygon: {
+      symbol: "WormholeTestGBP",
       decimals: 18,
-      icon: "/tokens/EURm.svg",
+      icon: "/tokens/GBPm.svg",
       tokenId: {
-        chain: "Celo",
-        address: "0xd8763cba276a3738e6de85b4b3bf5fded6d6ca73",
-      },
-    },
-    EURm_monad: {
-      symbol: "EURm",
-      decimals: 18,
-      icon: "/tokens/EURm.svg",
-      tokenId: {
-        chain: "Monad",
-        address: "0x4D502d735B4C574B487Ed641ae87cEaE884731C7",
-      },
-    },
-    JPYm_celo: {
-      symbol: "JPYm",
-      decimals: 18,
-      icon: "/tokens/JPYm.svg",
-      tokenId: {
-        chain: "Celo",
-        address: "0xc45eCF20f3CD864B32D9794d6f76814aE8892e20",
-      },
-    },
-    JPYm_monad: {
-      symbol: "JPYm",
-      decimals: 18,
-      icon: "/tokens/JPYm.svg",
-      tokenId: {
-        chain: "Monad",
-        address: "0x22f6A6752800eAB67b84748FeFc3cC658384aF72",
-      },
-    },
-    CHFm_celo: {
-      symbol: "CHFm",
-      decimals: 18,
-      icon: "/tokens/CHFm.svg",
-      tokenId: {
-        chain: "Celo",
-        address: "0xb55a79F398E759E43C95b979163f30eC87Ee131D",
-      },
-    },
-    CHFm_monad: {
-      symbol: "CHFm",
-      decimals: 18,
-      icon: "/tokens/CHFm.svg",
-      tokenId: {
-        chain: "Monad",
-        address: "0xF64e91fFEf7ef43aA314F0Bc2AC39f770797990C",
+        chain: "Polygon",
+        address: WORMHOLE_TEST_GBP_ADDRESS,
       },
     },
   },
@@ -254,12 +146,13 @@ export const bridgeConfig: config.WormholeConnectConfig = {
   rpcs: {
     Celo: "https://forno.celo.org",
     Monad: "https://rpc3.monad.xyz",
+    Polygon: "https://polygon.drpc.org",
   },
   ui: {
     title: " ",
     defaultInputs: {
-      source: { chain: "Celo", token: "USDm" },
-      destination: { chain: "Monad", token: "USDm" },
+      source: { chain: "Celo", token: "WormholeTestUSD" },
+      destination: { chain: "Monad", token: "WormholeTestUSD" },
     },
     showFooter: true,
   },
