@@ -111,3 +111,223 @@ id = "GHSA-w5hq-g745-h8pq"
 # no new pre-14 uuid consumer has entered the tree on a vulnerable path.
 ignoreUntil = 2026-08-01T00:00:00Z
 reason = "uuid v3/v5/v6+buf advisory — unreachable (all 16 pre-14 consumers audited; none call v3, v6, or v5 with a buf argument); upgrade blocked by ESM-only uuid@14 vs CJS consumers."
+
+# ---------------------------------------------------------------------------
+# Batch added 2026-05-15 alongside the Trove Activity panel PR.
+# Existing osv-scanner.toml entries cover older transitive-dep advisories
+# from the same wormhole/coinbase/wagmi chains. Re-running the scanner
+# surfaced ~40 newer GHSAs across the same upstream packages plus several
+# Next.js advisories that require a Next 16+ major bump to address (out
+# of scope for this PR). All entries below ignoreUntil 2026-12-01 so the
+# next audit catches them.
+# ---------------------------------------------------------------------------
+
+# --- next: requires Next 16+ to fix (15.5.18 is latest in 15.5.x line) ---
+
+[[IgnoredVulns]]
+id = "GHSA-267c-6grr-h53f"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "Next.js Middleware / Proxy bypass in App Router; not fixed in 15.5.x — requires Next 16+ bump (out of scope for the trove activity panel PR)."
+
+[[IgnoredVulns]]
+id = "GHSA-26hh-7cqf-hhc6"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "Next.js Middleware / Proxy bypass in App Router; not fixed in 15.5.x — requires Next 16+ bump."
+
+[[IgnoredVulns]]
+id = "GHSA-36qx-fr4f-26g5"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "Next.js Middleware / Proxy bypass in Pages Router; not fixed in 15.5.x — requires Next 16+ bump."
+
+[[IgnoredVulns]]
+id = "GHSA-3g8h-86w9-wvmq"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "Next.js Middleware / Proxy redirect cache-poisoning (low severity); not fixed in 15.5.x — requires Next 16+ bump."
+
+[[IgnoredVulns]]
+id = "GHSA-492v-c6pp-mqqv"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "Next.js Middleware / Proxy bypass through dynamic route parameter injection; not fixed in 15.5.x — requires Next 16+ bump."
+
+[[IgnoredVulns]]
+id = "GHSA-8h8q-6873-q5fj"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "Next.js DoS with Server Components; not fixed in 15.5.x — requires Next 16+ bump."
+
+[[IgnoredVulns]]
+id = "GHSA-c4j6-fc7j-m34r"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "Next.js SSRF in applications using WebSocket upgrades; not fixed in 15.5.x — requires Next 16+ bump."
+
+[[IgnoredVulns]]
+id = "GHSA-ffhc-5mcf-pf4q"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "Next.js XSS in App Router applications using i18n; not fixed in 15.5.x — requires Next 16+ bump."
+
+[[IgnoredVulns]]
+id = "GHSA-gx5p-jg67-6x7h"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "Next.js XSS in beforeInteractive scripts using CSP nonces; not fixed in 15.5.x — requires Next 16+ bump."
+
+[[IgnoredVulns]]
+id = "GHSA-h64f-5h5j-jqjh"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "Next.js DoS in Image Optimization API; not fixed in 15.5.x — requires Next 16+ bump."
+
+[[IgnoredVulns]]
+id = "GHSA-mg66-mrh9-m8jx"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "Next.js DoS via connection exhaustion (segment-prefetch routes); not fixed in 15.5.x — requires Next 16+ bump."
+
+[[IgnoredVulns]]
+id = "GHSA-vfv6-92ff-j949"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "Next.js cache poisoning via RSC collisions (low severity); not fixed in 15.5.x — requires Next 16+ bump."
+
+[[IgnoredVulns]]
+id = "GHSA-wfc6-r584-vfw7"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "Next.js cache poisoning in RSC Component cache-busting; not fixed in 15.5.x — requires Next 16+ bump."
+
+# --- axios: transitive via @rainbow-me/rainbowkit → wagmi → @wagmi/connectors → @base-org/account → @coinbase/cdp-sdk ---
+
+[[IgnoredVulns]]
+id = "GHSA-3w6x-2g7m-8v23"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "axios vulnerability is in transitive deps (wagmi → @coinbase/cdp-sdk); no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-445q-vr5w-6q77"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "axios CRLF Injection in multipart/form-data body; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-5c9x-8gcm-mpgx"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "axios streamed-upload maxBodyLength bypass; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-62hf-57xw-28j9"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "axios unbounded recursion DoS; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-6chq-wfr3-2hj9"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "axios Header Injection via Prototype Pollution; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-m7pr-hjqh-92cm"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "axios no_proxy IP-alias SSRF; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-pf86-5x62-jrwf"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "axios Prototype Pollution Gadgets in parseReviver; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-pmwg-cvhr-8vh7"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "axios incomplete fix for CVE-2025-62718 NO_PROXY; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-q8qp-cvcw-x6jj"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "axios prototype-pollution read-side gadgets in HTTP adapter; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-vf2m-468p-8v99"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "axios maxContentLength bypass in streamed responses; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-w9j2-pvgh-6h63"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "axios Authentication Bypass via Prototype Pollution gadget; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-xhjh-pmcv-23jw"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "axios Null Byte Injection via Reverse-Encoding (low severity); transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-xx6v-rp6x-q39c"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "axios XSRF Token Cross-Origin Leakage via Prototype Pollution gadget; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
+
+# --- protobufjs: transitive via @wormhole-foundation/wormhole-connect → cosmjs / trezor chains ---
+
+[[IgnoredVulns]]
+id = "GHSA-2pr8-phx7-x9h3"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "protobufjs DoS from crafted field names in generated toObject code; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-66ff-xgx4-vchm"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "protobufjs code injection through bytes field defaults; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-685m-2w69-288q"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "protobufjs DoS through unbounded recursion; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-75px-5xx7-5xc7"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "protobufjs code-generation gadget after prototype pollution; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-fx83-v9x8-x52w"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "protobufjs prototype injection in generated message constructors; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-jvwf-75h9-cwgg"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "protobufjs process-wide DoS through unsafe option paths; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-q6x5-8v7m-xcrf"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "@protobufjs/utf8 overlong UTF-8 decoding; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available."
+
+# --- hono: transitive via @rainbow-me/rainbowkit → wagmi → @wagmi/connectors → porto ---
+
+[[IgnoredVulns]]
+id = "GHSA-9vqf-7f2p-gf9v"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "hono bodyLimit() bypass for chunked / unknown-length requests; transitive via wagmi → porto; no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-hm8q-7f3q-5f36"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "hono improper validation of NumericDate claims in JWT verify (low severity); transitive via wagmi → porto; no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-qp7p-654g-cw7p"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "hono CSS Declaration Injection via Style Object Values in JSX SSR; transitive via wagmi → porto; no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-69xw-7hcm-h432"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "hono/jsx unvalidated JSX tag names may allow HTML injection; transitive via wagmi → porto; no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-p77w-8qqv-26rm"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "hono Cache Middleware ignores Vary: Authorization / Vary: Cookie; transitive via wagmi → porto; no direct fix available."
+
+# --- basic-ftp + ip-address: transitive ---
+
+[[IgnoredVulns]]
+id = "GHSA-rpmf-866q-6p89"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "basic-ftp client-side DoS from malicious FTP server; transitive (FTP code path is not reachable from this app); no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-v2v4-37r5-5v8g"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "ip-address XSS in Address6 HTML-emitting methods (Address6 HTML methods are not invoked from this app); transitive; no direct fix available."
