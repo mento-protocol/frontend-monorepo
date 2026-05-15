@@ -1,4 +1,4 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import {
   getBorrowRegistry,
   resolveAddressesFromRegistry,
@@ -135,9 +135,12 @@ function parseRow(row: RawTroveOperation): TroveOperation {
 
 interface UseTroveOperationsOptions {
   pageSize?: number;
+  /** Refetch interval in ms. Set to false to disable. */
+  refetchInterval?: number | false;
 }
 
 const DEFAULT_PAGE_SIZE = 20;
+const DEFAULT_REFETCH_INTERVAL_MS = 30_000;
 
 /**
  * Fetches a trove's operation history (paginated) from the troves subgraph
@@ -146,7 +149,15 @@ const DEFAULT_PAGE_SIZE = 20;
  *
  * The URL trove id (`0x...`) gets namespaced with the branch's TroveManager
  * address to match the subgraph's entity id format
- * (`<troveManager>:<collIndex>:<troveIdHex>`).
+ * (`<troveManager>:<collIndex>:<troveIdHex>`). The TroveManager address is
+ * resolved via a separate cached query (staleTime: Infinity) — it's stable
+ * for a given (chainId, symbol), so we don't re-resolve it on each page
+ * fetch or refetch interval.
+ *
+ * The hook augments the standard react-query return with an
+ * `isUnsupportedChain` flag so the UI can distinguish "no subgraph
+ * configured for this chain" from "this trove has no on-chain history"
+ * — without that flag the two would collapse to the same empty result.
  */
 export function useTroveOperations(
   troveId: string | undefined,
@@ -156,22 +167,47 @@ export function useTroveOperations(
   const chainId = useChainId();
   const publicClient = usePublicClient({ chainId });
   const subgraphUrl = getTrovesSubgraphUrl(chainId);
+  const isUnsupportedChain = !subgraphUrl;
   const pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE;
+  const refetchInterval =
+    options.refetchInterval !== undefined
+      ? options.refetchInterval
+      : DEFAULT_REFETCH_INTERVAL_MS;
 
-  return useInfiniteQuery({
-    queryKey: ["borrow", "troveOperations", symbol, chainId, troveId, pageSize],
-    enabled: !!publicClient && !!troveId && !!subgraphUrl,
-    initialPageParam: 0,
-    queryFn: async ({ pageParam }: { pageParam: number }) => {
-      const skip = pageParam;
+  // The branch's TroveManager address is fixed for a given (chainId, symbol);
+  // it never changes once the deployment is wired. Cache forever and reuse
+  // across every page fetch and refetch interval of the operations query.
+  const troveManagerQuery = useQuery({
+    queryKey: ["borrow", "troveManagerAddress", chainId, symbol],
+    enabled: !!publicClient && !isUnsupportedChain,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    queryFn: async () => {
       const registryAddress = getBorrowRegistry(chainId, symbol);
       const addresses = await resolveAddressesFromRegistry(
         publicClient!,
         registryAddress,
       );
-      const troveManager = addresses.troveManager.toLowerCase();
-      const normalizedTroveId = troveId!.toLowerCase();
-      const subgraphId = `${troveManager}:0:${normalizedTroveId}`;
+      return addresses.troveManager.toLowerCase();
+    },
+  });
+
+  const troveManager = troveManagerQuery.data;
+
+  const operationsQuery = useInfiniteQuery({
+    queryKey: [
+      "borrow",
+      "troveOperations",
+      chainId,
+      symbol,
+      troveId,
+      pageSize,
+      troveManager,
+    ],
+    enabled: !isUnsupportedChain && !!troveId && !!troveManager,
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }: { pageParam: number }) => {
+      const subgraphId = `${troveManager!}:0:${troveId!.toLowerCase()}`;
 
       const response = await fetch(subgraphUrl!, {
         method: "POST",
@@ -181,7 +217,7 @@ export function useTroveOperations(
           variables: {
             troveId: subgraphId,
             first: pageSize,
-            skip,
+            skip: pageParam,
             hidden: HIDDEN_KINDS,
           },
         }),
@@ -212,6 +248,18 @@ export function useTroveOperations(
       if (lastPage.length < pageSize) return undefined;
       return allPages.reduce((n, page) => n + page.length, 0);
     },
-    refetchInterval: 30_000,
+    refetchInterval,
   });
+
+  return {
+    ...operationsQuery,
+    /** True when the current chain has no troves subgraph configured. */
+    isUnsupportedChain,
+    /**
+     * Surfaces the underlying TroveManager resolution error (e.g. the chain
+     * is supported by the subgraph but the on-chain registry call failed).
+     */
+    isError: operationsQuery.isError || troveManagerQuery.isError,
+    error: operationsQuery.error ?? troveManagerQuery.error,
+  };
 }

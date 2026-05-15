@@ -448,7 +448,11 @@ export function TroveActivityPanel({
         <div className="gap-3 pb-3 flex flex-wrap items-center justify-between">
           <div className="gap-2 flex items-center">
             <Filter size={14} className="text-muted-foreground" />
-            <div className="gap-1.5 flex flex-wrap">
+            <div
+              className="gap-1.5 flex flex-wrap"
+              role="group"
+              aria-label="Filter trove activity by type"
+            >
               {FILTERS.map((f) => {
                 const active = f.id === filter;
                 return (
@@ -456,6 +460,8 @@ export function TroveActivityPanel({
                     key={f.id}
                     type="button"
                     onClick={() => setFilter(f.id)}
+                    aria-pressed={active}
+                    aria-label={`${f.label} filter`}
                     className={`px-3 py-1 text-xs font-medium cursor-pointer border transition-colors ${
                       active
                         ? "border-primary/35 bg-primary/15 text-primary"
@@ -468,14 +474,18 @@ export function TroveActivityPanel({
               })}
             </div>
           </div>
-          {!query.isLoading && (
+          {!query.isLoading && !query.isUnsupportedChain && (
             <div className="text-xs text-muted-foreground">
               {filtered.length} event{filtered.length === 1 ? "" : "s"}
             </div>
           )}
         </div>
 
-        {query.isLoading ? (
+        {query.isUnsupportedChain ? (
+          <div className="py-12 text-sm text-center text-muted-foreground">
+            Trove history isn’t indexed on this network yet.
+          </div>
+        ) : query.isLoading ? (
           <div className="space-y-3 pt-1">
             <Skeleton className="h-12 w-full" />
             <Skeleton className="h-12 w-full" />
