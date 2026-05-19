@@ -30,6 +30,7 @@ import { getSupportedDebtTokens } from "@/lib/stability-route";
 import { AdjustForm } from "./adjust-form";
 import { CloseForm } from "./close-form";
 import { RateForm } from "./rate-form";
+import { TroveActivityPanel } from "./trove-activity-panel";
 import { TroveStatusBadge } from "../shared/trove-status-badge";
 
 const RISK_STATUS_LABELS: Record<
@@ -431,6 +432,12 @@ export function ManageTroveView({
           </Tabs>
         </CardContent>
       </Card>
+
+      <TroveActivityPanel
+        troveId={troveId}
+        debtToken={debtToken}
+        collateralSymbol={collateralSymbol}
+      />
     </div>
   );
 }

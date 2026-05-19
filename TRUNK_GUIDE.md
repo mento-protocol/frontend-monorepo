@@ -233,7 +233,7 @@ trunk check --filter=eslint --verbose
 
 ### Adding New Linters
 
-Here are [all linters supported by trunk](https://docs.trunk.io/code-quality/linters/supported)
+Run `trunk check list --filter=linter` (or browse [docs.trunk.io](https://docs.trunk.io)) to see all linters supported by trunk.
 
 To add a new linter, run:
 
