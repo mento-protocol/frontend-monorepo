@@ -344,3 +344,15 @@ reason = "protobufjs DoS via unbounded recursive JSON descriptor expansion; tran
 id = "GHSA-58qx-3vcg-4xpx"
 ignoreUntil = 2026-12-01T00:00:00Z
 reason = "ws (WebSocket) uninitialized memory disclosure; transitive via multiple wallet/RPC chains (rpc-websockets, viem ws transport, hardhat). No direct fix in the upstream wallet/RPC packages yet."
+
+# --- New Turbo advisories surfaced 2026-05-19 ---
+
+[[IgnoredVulns]]
+id = "GHSA-3qcw-2rhx-2726"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "Turbo local code execution during Yarn Berry detection (low severity); affects turbo + @turbo/workspaces in the build toolchain. Risk only applies during local Yarn Berry-flagged installs; we use pnpm. Bump to a patched turbo when one ships."
+
+[[IgnoredVulns]]
+id = "GHSA-hcf7-66rw-9f5r"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "Turbo login-callback CSRF / session fixation; only relevant to the `turbo login`/`turbo link` remote-cache flow which isn't used in CI or local dev. Bump to a patched turbo when one ships."
