@@ -206,6 +206,19 @@ export function useTroveOperations(
     ],
     enabled: !isUnsupportedChain && !!troveId && !!troveManager,
     initialPageParam: 0,
+    // Once the user has paged into history, stop auto-refetching. By default
+    // `useInfiniteQuery` refetches *every loaded page* on each `refetchInterval`
+    // tick, so polling cost scales linearly with page depth — a 6-page history
+    // would mean 6 fetches every 30s. The 1st page (most recent activity) is
+    // the only one that ever changes; once a user has paged back, they are
+    // exploring static history and don't need polling. They can still pull
+    // fresh data manually via the returned `refetch()`.
+    refetchInterval: (query) => {
+      if (refetchInterval === false) return false;
+      const pageCount = query.state.data?.pages.length ?? 0;
+      if (pageCount > 1) return false;
+      return refetchInterval;
+    },
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const subgraphId = `${troveManager!}:0:${troveId!.toLowerCase()}`;
 
@@ -248,13 +261,23 @@ export function useTroveOperations(
       if (lastPage.length < pageSize) return undefined;
       return allPages.reduce((n, page) => n + page.length, 0);
     },
-    refetchInterval,
   });
 
   return {
     ...operationsQuery,
     /** True when the current chain has no troves subgraph configured. */
     isUnsupportedChain,
+    /**
+     * True while *either* the TroveManager resolution OR the first
+     * subgraph page is still loading. Without this merge, the
+     * operations query reports `isLoading: false` whenever it is
+     * disabled (which it is until the TroveManager resolves), and
+     * consumers fall through to the empty-history branch and show
+     * "No activity yet" during the on-chain resolution window.
+     */
+    isLoading:
+      !isUnsupportedChain &&
+      (troveManagerQuery.isLoading || operationsQuery.isLoading),
     /**
      * Surfaces the underlying TroveManager resolution error (e.g. the chain
      * is supported by the subgraph but the on-chain registry call failed).

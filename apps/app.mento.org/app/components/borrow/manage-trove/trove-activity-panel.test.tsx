@@ -156,6 +156,19 @@ describe("TroveActivityPanel — state matrix", () => {
     expect(screen.getAllByTestId("skeleton").length).toBeGreaterThan(0);
   });
 
+  it("renders the skeleton (not the empty-history message) while the hook reports isLoading — covers the TroveManager-resolution window where the operations query is still disabled", () => {
+    // Hook is loading but data is undefined (operations query never started
+    // because the on-chain TroveManager resolution hasn't returned). Before
+    // the hook fix, isLoading would be `false` here and the component
+    // collapsed into "No on-chain activity yet for this trove."
+    mockQuery = { ...baseQuery, isLoading: true, data: undefined };
+    renderPanel();
+    expect(screen.getAllByTestId("skeleton").length).toBeGreaterThan(0);
+    expect(
+      screen.queryByText(/No on-chain activity yet for this trove\./i),
+    ).toBeNull();
+  });
+
   it("renders the error state when the query fails", () => {
     mockQuery = { ...baseQuery, isError: true };
     renderPanel();
