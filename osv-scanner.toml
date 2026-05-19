@@ -331,3 +331,16 @@ reason = "basic-ftp client-side DoS from malicious FTP server; transitive (FTP c
 id = "GHSA-v2v4-37r5-5v8g"
 ignoreUntil = 2026-12-01T00:00:00Z
 reason = "ip-address XSS in Address6 HTML-emitting methods (Address6 HTML methods are not invoked from this app); transitive; no direct fix available."
+
+# --- New advisories surfaced 2026-05-19 (same transitive chains as the
+#     2026-05-15 batch above) ---
+
+[[IgnoredVulns]]
+id = "GHSA-jggg-4jg4-v7c6"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "protobufjs DoS via unbounded recursive JSON descriptor expansion; transitive via wormhole-connect → @cosmjs/* / @trezor/* (affects both 6.11.4 and 7.5.5); no direct fix available."
+
+[[IgnoredVulns]]
+id = "GHSA-58qx-3vcg-4xpx"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "ws (WebSocket) uninitialized memory disclosure; transitive via multiple wallet/RPC chains (rpc-websockets, viem ws transport, hardhat). No direct fix in the upstream wallet/RPC packages yet."
