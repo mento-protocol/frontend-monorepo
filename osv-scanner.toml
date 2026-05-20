@@ -118,8 +118,38 @@ reason = "uuid v3/v5/v6+buf advisory — unreachable (all 16 pre-14 consumers au
 # from the same wormhole/coinbase/wagmi chains. Re-running the scanner
 # surfaced ~40 newer GHSAs across the same upstream packages plus several
 # Next.js advisories that require a Next 16+ major bump to address (out
-# of scope for this PR). All entries below ignoreUntil 2026-12-01 so the
+# of scope for that PR). All entries below ignoreUntil 2026-12-01 so the
 # next audit catches them.
+#
+# REVISIT CHECKLIST — before the 2026-12-01 expiry:
+#
+#   1. Run `osv-scanner` WITHOUT this toml (e.g. temporarily rename it) to
+#      surface a fresh, unfiltered list of advisories. Compare against the
+#      ignores below — anything not in the fresh list is no longer
+#      reachable and the ignore can be deleted.
+#   2. For each per-package group below, check the upstream chain for a
+#      patched release that resolves the GHSAs:
+#        - next.js     → look for 15.6.x / 16.x with the listed CVEs fixed.
+#                         Mostly Middleware / Proxy / RSC cache issues that
+#                         needed a 16.x major bump.
+#        - axios       → look for a bumped axios pin in @coinbase/cdp-sdk
+#                         (transitive: wagmi → @wagmi/connectors →
+#                         @base-org/account → @coinbase/cdp-sdk → axios).
+#        - protobufjs  → look for bumped protobufjs in wormhole-connect's
+#                         @cosmjs/* / @trezor/* sub-chains.
+#        - hono        → look for a bumped hono pin in porto
+#                         (wagmi → @wagmi/connectors → porto → hono).
+#        - turbo       → patched turbo release covering GHSA-3qcw-2rhx-2726
+#                         and GHSA-hcf7-66rw-9f5r.
+#        - basic-ftp / ip-address — both code paths confirmed unreachable
+#                         in this app. Delete the ignores when the upstream
+#                         chains finally bump to patched versions.
+#   3. For any group where upstream has shipped a fix → drop the ignore and
+#      bump the dep (or wait for the catalog/lockfile refresh to pull it).
+#   4. For anything still genuinely unfixable, RENEW the ignoreUntil with a
+#      shorter window (default to 90 days) and a fresh justification.
+#
+# Owner: TODO — pick this up during the November 2026 dependency review.
 # ---------------------------------------------------------------------------
 
 # --- next: requires Next 16+ to fix (15.5.18 is latest in 15.5.x line) ---
