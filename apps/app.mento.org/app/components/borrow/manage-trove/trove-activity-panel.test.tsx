@@ -175,6 +175,13 @@ describe("TroveActivityPanel — state matrix", () => {
     expect(screen.getByText(/Could not load trove history/i)).toBeTruthy();
   });
 
+  it("hides the header event count during error state (no '0 events' alongside the error message)", () => {
+    mockQuery = { ...baseQuery, isError: true };
+    renderPanel();
+    // The count label uses a regex that would match e.g. "0 events" / "1 event".
+    expect(screen.queryByText(/\d+ events?$/)).toBeNull();
+  });
+
   it("renders the empty-history message when the chain is supported but the trove has zero events", () => {
     mockQuery = { ...baseQuery, data: { pages: [[]] } };
     renderPanel();

@@ -474,7 +474,7 @@ export function TroveActivityPanel({
               })}
             </div>
           </div>
-          {!query.isLoading && !query.isUnsupportedChain && (
+          {!query.isLoading && !query.isUnsupportedChain && !query.isError && (
             <div className="text-xs text-muted-foreground">
               {filtered.length} event{filtered.length === 1 ? "" : "s"}
             </div>
