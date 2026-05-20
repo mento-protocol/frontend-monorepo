@@ -16,9 +16,3 @@ const TROVES_SUBGRAPH_URLS: Partial<Record<ChainId, string>> = {
 export function getTrovesSubgraphUrl(chainId: number): string | undefined {
   return TROVES_SUBGRAPH_URLS[chainId as ChainId];
 }
-
-// Re-export for the convenience of consumers reaching for the "subgraph
-// addressing" concept in one place. The implementation lives in
-// `./subgraph-id` so the test can import it without dragging in the SDK
-// + wagmi transitive graph that this file pulls via ChainId.
-export { formatSubgraphTroveId } from "./subgraph-id";
