@@ -4,6 +4,7 @@ import {
   resolveAddressesFromRegistry,
 } from "@mento-protocol/mento-sdk";
 import { useChainId, usePublicClient } from "wagmi";
+import { formatSubgraphTroveId } from "../subgraph-id";
 import { getTrovesSubgraphUrl } from "../troves-subgraph";
 
 // Mirrors the subgraph's TroveOperationKind enum. Order matches
@@ -220,7 +221,7 @@ export function useTroveOperations(
       return refetchInterval;
     },
     queryFn: async ({ pageParam }: { pageParam: number }) => {
-      const subgraphId = `${troveManager!}:0:${troveId!.toLowerCase()}`;
+      const subgraphId = formatSubgraphTroveId(troveManager!, troveId!);
 
       const response = await fetch(subgraphUrl!, {
         method: "POST",
