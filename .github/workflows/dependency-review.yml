@@ -18,11 +18,12 @@ jobs:
 
       - name: Enforce allow-ghsas expiry
         # dependency-review-action has no native expiry for allow-ghsas, so
-        # enforce it here: fail the workflow on/after 2026-06-01 until the
+        # enforce it here: fail the workflow on/after the expiry until the
         # allowlist below is re-evaluated. Keep this date in sync with the
         # matching osv-scanner.toml ignoreUntil for GHSA-xq3m-2v4x-88gg.
+        # Renewed 2026-06-05 → 2026-09-01 (90 days).
         run: |
-          expiry=2026-06-01
+          expiry=2026-09-01
           today=$(date -u +%Y-%m-%d)
           if [ "$today" \> "$expiry" ] || [ "$today" = "$expiry" ]; then
             echo "::error::allow-ghsas expiry reached ($expiry). Re-evaluate GHSA-xq3m-2v4x-88gg in .github/workflows/dependency-review.yml and osv-scanner.toml before bumping the expiry."
