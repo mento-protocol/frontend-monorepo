@@ -32,8 +32,10 @@ id = "GHSA-848j-6mx2-7j84"
 # Pulled in via multiple independent chains: ethers v5 (@ethersproject/signing-key),
 # @cosmjs/crypto, @toruslabs/eccrypto, and tiny-secp256k1. Removing any single
 # chain (e.g. ethers v5) will NOT eliminate the vulnerability.
+# Renewed 2026-06-05 — osv-scanner confirms no FIXED VERSION upstream; renewed
+# for 90 days per the toml's renewal guidance.
 # TODO: Remove once upstream releases a patched version.
-ignoreUntil = 2026-06-01T00:00:00Z
+ignoreUntil = 2026-09-01T00:00:00Z
 reason = "No upstream fix available for elliptic yet; pulled in via multiple chains (ethers v5, @cosmjs/crypto, @toruslabs/eccrypto, tiny-secp256k1)."
 
 [[IgnoredVulns]]
@@ -49,14 +51,6 @@ id = "GHSA-7r86-cg39-jmmj"
 reason = "minimatch ReDoS in transitive deps; pre-existing"
 
 [[IgnoredVulns]]
-id = "GHSA-xxjr-mmjv-4gpg"
-# Prototype Pollution vulnerability in lodash _.unset and _.omit functions
-# lodash 4.17.21 is the latest version and is a transitive dependency of @metamask/utils
-# TODO: Remove this ignore once lodash releases a patched version
-ignoreUntil = 2026-02-22T00:00:00Z
-reason = "No fix available - lodash 4.17.21 is the latest version. Transitive dependency from @metamask/utils."
-
-[[IgnoredVulns]]
 id = "GHSA-3x4c-7xq6-9pq8"
 reason = "Next.js unbounded image cache growth; 15.5.13 is latest stable, no fix available yet"
 
@@ -68,9 +62,11 @@ id = "GHSA-xq3m-2v4x-88gg"
 # that risks silently corrupting IBC/Cosmos proof parsing in the wormhole-connect
 # bridge stack used by app.mento.org. 7.x/8.x consumers are already covered by
 # the narrower pnpm overrides.
+# Renewed 2026-06-05 — @confio/ics23 still in tree, no upstream movement; renewed
+# for 90 days per the toml's renewal guidance.
 # TODO: Re-evaluate at ignoreUntil — check whether @confio/ics23 has been
 # removed from the dep tree or a safe fix path exists upstream.
-ignoreUntil = 2026-06-01T00:00:00Z
+ignoreUntil = 2026-09-01T00:00:00Z
 reason = "protobufjs 6.x advisory — no safe fix path; @confio/ics23@0.6.8 is deprecated and 7.x is an unsafe major jump for Cosmos proof parsing."
 
 [[IgnoredVulns]]
@@ -386,3 +382,100 @@ reason = "Turbo local code execution during Yarn Berry detection (low severity);
 id = "GHSA-hcf7-66rw-9f5r"
 ignoreUntil = 2026-12-01T00:00:00Z
 reason = "Turbo login-callback CSRF / session fixation; only relevant to the `turbo login`/`turbo link` remote-cache flow which isn't used in CI or local dev. Bump to a patched turbo when one ships."
+
+# ---------------------------------------------------------------------------
+# Batch added 2026-06-05 — surfaced after the 2026-06-01 expiry pass.
+# All entries follow the existing batch pattern (transitive chains, no direct
+# fix path) and ignoreUntil 2026-12-01 so they fold into the same audit window
+# as the 2026-05-15/05-19 batch above.
+# ---------------------------------------------------------------------------
+
+# --- axios 1.15.0 → 1.16.0: transitive via wagmi → @wagmi/connectors → @base-org/account → @coinbase/cdp-sdk ---
+# (Same chain as the existing 2026-05-15 axios batch. New CVEs surfaced after
+#  that batch was written. A 1.16.0 bump exists upstream but @coinbase/cdp-sdk
+#  hasn't pulled it in yet — same wait-for-upstream posture as before.)
+
+[[IgnoredVulns]]
+id = "GHSA-35jp-ww65-95wh"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "axios Full Man-in-the-Middle via Prototype Pollution Gadget in config.proxy; transitive via wagmi → @coinbase/cdp-sdk; fix available at 1.16.0 but upstream chain not yet bumped."
+
+[[IgnoredVulns]]
+id = "GHSA-3g43-6gmg-66jw"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "axios Credential Theft and Response Hijacking via Prototype Pollution Gadget in Config Merge; transitive via wagmi → @coinbase/cdp-sdk; fix at 1.15.2 but upstream chain not yet bumped."
+
+[[IgnoredVulns]]
+id = "GHSA-777c-7fjr-54vf"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "axios Allocation of Resources Without Limits or Throttling (DoS); transitive via wagmi → @coinbase/cdp-sdk; fix at 1.16.0 but upstream chain not yet bumped."
+
+[[IgnoredVulns]]
+id = "GHSA-898c-q2cr-xwhg"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "axios DoS & Header Injection via Prototype Pollution Read-Side Gadgets in merge functions; transitive via wagmi → @coinbase/cdp-sdk; fix at 1.16.0 but upstream chain not yet bumped."
+
+[[IgnoredVulns]]
+id = "GHSA-hfxv-24rg-xrqf"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "axios ReDoS via Cookie Name Injection; transitive via wagmi → @coinbase/cdp-sdk; fix at 1.16.0 but upstream chain not yet bumped."
+
+[[IgnoredVulns]]
+id = "GHSA-j5f8-grm9-p9fc"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "axios Proxy-Authorization header leaks to redirect target on proxy → direct fallback; transitive via wagmi → @coinbase/cdp-sdk; fix at 1.16.0 but upstream chain not yet bumped."
+
+[[IgnoredVulns]]
+id = "GHSA-p92q-9vqr-4j8v"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "axios Proxy-Authorization Credential Leak to Origin Server Across HTTP-to-HTTPS Redirect in Node.js HTTP Adapter; transitive via wagmi → @coinbase/cdp-sdk; fix at 1.16.0 but upstream chain not yet bumped."
+
+[[IgnoredVulns]]
+id = "GHSA-pjwm-pj3p-43mv"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "axios shouldBypassProxy does not recognize IPv4-mapped IPv6 addresses (incomplete fix for CVE-2025-62718); transitive via wagmi → @coinbase/cdp-sdk; fix at 1.16.0 but upstream chain not yet bumped."
+
+# --- hono 4.12.14 → 4.12.21: transitive via @rainbow-me/rainbowkit → wagmi → @wagmi/connectors → porto ---
+# (Same chain as the existing 2026-05-15 hono batch. New CVEs surfaced after.
+#  4.12.21 is patched upstream but porto hasn't bumped its hono pin yet.)
+
+[[IgnoredVulns]]
+id = "GHSA-2gcr-mfcq-wcc3"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "hono app.mount() strips mount prefix using undecoded path, causing incorrect routing for percent-encoded paths; transitive via wagmi → porto; fix at 4.12.21 but upstream not yet bumped."
+
+[[IgnoredVulns]]
+id = "GHSA-3hrh-pfw6-9m5x"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "hono Cookie helper does not sanitize sameSite and priority (Set-Cookie injection); transitive via wagmi → porto; fix at 4.12.21 but upstream not yet bumped."
+
+[[IgnoredVulns]]
+id = "GHSA-f577-qrjj-4474"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "hono JWT middleware accepts any Authorization scheme, not only Bearer; transitive via wagmi → porto; fix at 4.12.21 but upstream not yet bumped."
+
+[[IgnoredVulns]]
+id = "GHSA-xrhx-7g5j-rcj5"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "hono IP Restriction bypasses static deny rules for non-canonical IPv6; transitive via wagmi → porto; fix at 4.12.21 but upstream not yet bumped."
+
+# --- tmp 0.2.5 → 0.2.6: transitive via inquirer@7.3.3 / inquirer@8.2.4 → external-editor → tmp ---
+
+[[IgnoredVulns]]
+id = "GHSA-ph9p-34f9-6g65"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "tmp path traversal via unsanitized prefix/postfix; transitive via inquirer → external-editor → tmp; build-tool only (CLI prompts), not in runtime bundles; vulnerable path requires user-controlled prefix which doesn't occur in our usage. Fix at 0.2.6 but inquirer chain not yet bumped."
+
+# --- vitest 3.2.4 → 4.1.0: direct devDep (pnpm-workspace.yaml catalog) ---
+
+[[IgnoredVulns]]
+id = "GHSA-5xrq-8626-4rwp"
+ignoreUntil = 2026-09-01T00:00:00Z
+# Critical advisory (9.8): vitest UI server, when listening, allows arbitrary
+# file read/exec. Practical exposure is limited — `vitest --ui` is dev-only
+# and not invoked by our CI or default `pnpm test`. Bumping out of 3.2.4 is
+# already proposed in dependabot PR #352 (vitest 4.1.0), but that PR carries
+# a vitest/coverage-v8 v4/v3 skew that needs coverage to catch up before
+# landing. Short 90-day ignoreUntil to force re-evaluation alongside the
+# vitest 4 migration.
+reason = "vitest 3.2.4 UI server arbitrary file read/exec (CVSS 9.8); dev-only (`vitest --ui` not used in CI or default test runs). PR #352 bumps to 4.1.0; held pending @vitest/coverage-v8 v4 alignment."
