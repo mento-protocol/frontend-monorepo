@@ -109,9 +109,19 @@ vi.mock("../shared/trove-status-badge", () => ({
 }));
 
 vi.mock("lucide-react", () => ({
+  AlertOctagon: () => <span />,
+  ArrowDownToLine: () => <span />,
   Check: () => <span>✓</span>,
   ChevronLeft: () => <span>‹</span>,
+  Clock: () => <span />,
   Copy: () => <span>⎘</span>,
+  ExternalLink: () => <span />,
+  Filter: () => <span />,
+  MinusCircle: () => <span />,
+  Percent: () => <span />,
+  PlusCircle: () => <span />,
+  TrendingDown: () => <span />,
+  TrendingUp: () => <span />,
 }));
 
 import { ManageTroveView } from "./manage-trove-view";
