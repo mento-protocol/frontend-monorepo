@@ -28,7 +28,6 @@ export default defineConfig({
     "wagmi",
     "@wagmi/core",
     "@rainbow-me/rainbowkit",
-    "@repo/web3",
   ],
   loader: {
     ".svg": "dataurl",

@@ -174,10 +174,16 @@ The actual versions are defined once in `pnpm-workspace.yaml`:
 
 ```yaml
 catalog:
-  "react": ^19.1.0
-  "jotai": ^2.12.5
-  "@tanstack/react-query": ^5.83.0
+  "react": ^19.2.5
+  "jotai": ^2.16.2
+  "@tanstack/react-query": ^5.90.19
 ```
+
+Root `pnpm.overrides` are used for security patches and compatibility pins.
+`@tanstack/react-query` is pinned there to the verified app-compatible version;
+newer compatible-range releases caused a production QueryClient context split in
+`app.mento.org`. Remove that override only after a production build and browser
+verification of the swap and pools routes.
 
 #### Adding a New Dependency
 

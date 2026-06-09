@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "next build --turbopack",
+    "build": "next build",
     "clean": "rm -rf .next && rm -rf .turbo",
     "dev": "concurrently \"pnpm --filter @repo/web3 watch\" \"pnpm --filter @repo/ui watch\" \"next dev --turbopack --port 3000\" --names \"web3,ui,next\" --prefix-colors \"bgBlue,bgGreen,bgMagenta\"",
     "lint": "npx @trunkio/launcher check .",
