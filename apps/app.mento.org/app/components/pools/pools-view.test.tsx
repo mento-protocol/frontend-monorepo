@@ -30,8 +30,10 @@ vi.mock("next/image", () => ({
     const imageProps = { ...props };
     delete imageProps.unoptimized;
 
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img {...imageProps} alt={props.alt ?? ""} />;
+    return React.createElement("img", {
+      ...imageProps,
+      alt: props.alt ?? "",
+    });
   },
 }));
 
