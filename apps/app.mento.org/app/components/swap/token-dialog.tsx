@@ -183,7 +183,7 @@ export default function TokenDialog({
                 isLast={index === unavailableTokens.length - 1}
                 onSelect={() => {}}
                 testId={`tokenOption_${token.symbol}_invalid`}
-                className="pointer-events-none opacity-50"
+                disabled
               />
             ))}
           </ScrollArea>
@@ -218,28 +218,26 @@ function TokenRow({
   isLast,
   onSelect,
   testId,
-  className,
+  disabled = false,
 }: {
   token: TokenEntry;
   isSelected: boolean;
   isLast: boolean;
   onSelect: () => void;
   testId: string;
-  className?: string;
+  disabled?: boolean;
 }) {
   return (
     <>
-      <div
+      <button
+        type="button"
         className={cn(
-          "group p-2 flex w-full items-center justify-between text-left hover:cursor-pointer hover:bg-accent",
+          "group p-2 flex w-full items-center justify-between rounded-md border-0 bg-transparent text-left transition-colors hover:cursor-pointer hover:bg-accent focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
           isSelected && "bg-accent",
-          className,
         )}
         data-testid={testId}
         onClick={onSelect}
-        onKeyUp={(e) => {
-          if (e.key === "Enter") onSelect();
-        }}
+        disabled={disabled}
       >
         <div className="gap-2 flex items-center">
           <div className="group h-10 w-10 relative grid place-content-center">
@@ -267,7 +265,7 @@ function TokenRow({
             {token.balance} {token.symbol}
           </div>
         )}
-      </div>
+      </button>
       {!isLast && <hr className="border-[var(--border)]" />}
     </>
   );

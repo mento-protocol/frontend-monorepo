@@ -121,6 +121,7 @@ function SwapDirectionButton({ onReverse }: { onReverse: () => void }) {
         size="icon"
         className="!border-y-0"
         type="button"
+        aria-label="Reverse swap tokens"
       >
         <ArrowUpDown className="rotate-180 transition-transform" />
       </Button>

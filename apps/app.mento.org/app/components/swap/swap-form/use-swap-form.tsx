@@ -18,8 +18,8 @@ import { createLocalStore } from "@/lib/utils/local-store";
 import type { TokenSymbol } from "@mento-protocol/mento-sdk";
 import {
   CELO_EXPLORER,
+  ChainId,
   chainIdToChain,
-  type ChainId,
   confirmViewAtom,
   formatBalance,
   formatWithMaxDecimals,
@@ -33,6 +33,7 @@ import {
   MIN_ROUNDED_VALUE,
   parseAmount,
   parseAmountWithDefault,
+  type AccountBalances,
   type SwapFormValues,
   toWei,
   useAccountBalances,
@@ -77,10 +78,38 @@ function sanitizeRouteAmount(value?: string): string {
   return trimmedValue;
 }
 
+function getAvailableTokenSymbol(
+  value: string | undefined,
+  availableTokens: TokenSymbol[],
+): TokenSymbol | undefined {
+  if (!value) return undefined;
+  return availableTokens.find((token) => token === value);
+}
+
+function getTokenBalanceValue(
+  balances: AccountBalances,
+  tokenSymbol: TokenSymbol,
+): string | undefined {
+  return balances[tokenSymbol];
+}
+
+function getDefaultTokenInSymbol(
+  chainId: ChainId,
+  availableTokens: TokenSymbol[],
+): TokenSymbol {
+  const preferredQuoteToken = getPreferredUsdQuoteTokenSymbol(chainId);
+  if (preferredQuoteToken) return preferredQuoteToken;
+
+  const firstToken = availableTokens[0];
+  if (firstToken) return firstToken;
+
+  throw new Error(`No swap tokens configured for chain ${chainId}`);
+}
+
 export function useSwapForm(opts?: UseSwapFormOptions) {
   const { address, isConnected } = useAccount();
   const walletChainId = useChainId();
-  const formChainId = opts?.urlChainId ?? walletChainId ?? 42220;
+  const formChainId = opts?.urlChainId ?? walletChainId ?? ChainId.Celo;
   const nativeTokenSymbol = getNativeTokenSymbol(formChainId);
   const [formValues, setFormValues] = useAtom(formValuesAtom);
   const [, setConfirmView] = useAtom(confirmViewAtom);
@@ -112,35 +141,30 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
   );
 
   // Validate URL tokens exist on current chain, fall back to defaults if not
-  const validatedInitialFrom =
-    opts?.initialFrom &&
-    availableTokens.includes(opts.initialFrom as TokenSymbol)
-      ? (opts.initialFrom as TokenSymbol)
-      : undefined;
+  const validatedInitialFrom = getAvailableTokenSymbol(
+    opts?.initialFrom,
+    availableTokens,
+  );
 
-  const validatedInitialTo =
-    opts?.initialTo && availableTokens.includes(opts.initialTo as TokenSymbol)
-      ? (opts.initialTo as TokenSymbol)
-      : undefined;
+  const validatedInitialTo = getAvailableTokenSymbol(
+    opts?.initialTo,
+    availableTokens,
+  );
 
   const storedTokenInSymbol =
-    !hasUrlParams &&
-    formValues?.tokenInSymbol &&
-    availableTokens.includes(formValues.tokenInSymbol as TokenSymbol)
-      ? (formValues.tokenInSymbol as TokenSymbol)
+    !hasUrlParams && formValues?.tokenInSymbol
+      ? getAvailableTokenSymbol(formValues.tokenInSymbol, availableTokens)
       : undefined;
 
   const storedTokenOutSymbol =
-    !hasUrlParams &&
-    formValues?.tokenOutSymbol &&
-    availableTokens.includes(formValues.tokenOutSymbol as TokenSymbol)
-      ? (formValues.tokenOutSymbol as TokenSymbol)
+    !hasUrlParams && formValues?.tokenOutSymbol
+      ? getAvailableTokenSymbol(formValues.tokenOutSymbol, availableTokens)
       : undefined;
 
-  const defaultTokenInSymbol =
-    getPreferredUsdQuoteTokenSymbol(formChainId) ||
-    availableTokens[0] ||
-    ("USDC" as TokenSymbol);
+  const defaultTokenInSymbol = getDefaultTokenInSymbol(
+    formChainId,
+    availableTokens,
+  );
 
   const initialTokenInSymbol =
     validatedInitialFrom || storedTokenInSymbol || defaultTokenInSymbol;
@@ -193,14 +217,21 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
   );
   const lastRouteDrivenFormStateRef = useRef<RouteDrivenFormState | null>(null);
 
-  const tokenInSymbol = useWatch({
+  const watchedTokenInSymbol = useWatch({
     control: form.control,
     name: "tokenInSymbol",
-  }) as TokenSymbol;
-  const tokenOutSymbol = useWatch({
+  });
+  const watchedTokenOutSymbol = useWatch({
     control: form.control,
     name: "tokenOutSymbol",
-  }) as TokenSymbol;
+  });
+  const tokenInSymbol =
+    getAvailableTokenSymbol(watchedTokenInSymbol, availableTokens) ??
+    initialTokenInSymbol;
+  const tokenOutSymbol =
+    getAvailableTokenSymbol(watchedTokenOutSymbol, availableTokens) ??
+    getAvailableTokenSymbol(initialTokenOutSymbol, availableTokens) ??
+    initialTokenInSymbol;
   const amount = useWatch({ control: form.control, name: "amount" });
   const formQuote = useWatch({ control: form.control, name: "quote" });
 
@@ -213,18 +244,18 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
   // Token balances
   const fromTokenBalance = useMemo(() => {
-    const balanceValue = balances[tokenInSymbol as keyof typeof balances];
+    const balanceValue = getTokenBalanceValue(balances, tokenInSymbol);
     const balance = formatBalance(
-      balanceValue,
+      balanceValue ?? "0",
       getTokenDecimals(tokenInSymbol, formChainId),
     );
     return formatWithMaxDecimals(balance || "0.00");
   }, [balances, tokenInSymbol, formChainId]);
 
   const toTokenBalance = useMemo(() => {
-    const balanceValue = balances[tokenOutSymbol as keyof typeof balances];
+    const balanceValue = getTokenBalanceValue(balances, tokenOutSymbol);
     const balance = fromWeiRounded(
-      balanceValue,
+      balanceValue ?? "0",
       getTokenDecimals(tokenOutSymbol, formChainId),
     );
     return formatWithMaxDecimals(balance || "0.00");
@@ -260,7 +291,7 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
       const tokenInfo = allTokenOptions.find((t) => t.symbol === tokenInSymbol);
       if (!tokenInfo) return "Invalid token";
 
-      const balance = balances[tokenInSymbol as keyof typeof balances];
+      const balance = getTokenBalanceValue(balances, tokenInSymbol);
       if (typeof balance === "undefined") return "Balance unavailable";
 
       const amountInWei = toWei(parsedAmount, tokenInfo.decimals || 18);
@@ -427,7 +458,7 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
   const handleUseMaxBalance = () => {
     let maxAmountInWei: string = String(
-      balances[tokenInSymbol as keyof typeof balances] || "0",
+      getTokenBalanceValue(balances, tokenInSymbol) || "0",
     );
     const decimals = getTokenDecimals(tokenInSymbol, formChainId);
 
@@ -517,16 +548,25 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     prevChainIdRef.current = formChainId;
 
     const availableTokens = getTokenOptionsByChainId(formChainId);
-    const availableSet = new Set<TokenSymbol>(availableTokens);
 
-    const currentTokenIn = form.getValues("tokenInSymbol") as TokenSymbol;
-    const currentTokenOut = form.getValues("tokenOutSymbol") as TokenSymbol;
+    const currentTokenIn = getAvailableTokenSymbol(
+      form.getValues("tokenInSymbol"),
+      availableTokens,
+    );
+    const currentTokenOut = getAvailableTokenSymbol(
+      form.getValues("tokenOutSymbol"),
+      availableTokens,
+    );
 
-    const tokenInValid = availableSet.has(currentTokenIn);
-    const tokenOutValid = availableSet.has(currentTokenOut);
+    const tokenInValid = Boolean(currentTokenIn);
+    const tokenOutValid = Boolean(currentTokenOut);
 
     // If both tokens are valid on the new chain, just clear amount/quote
-    if (tokenInValid && tokenOutValid && currentTokenIn !== currentTokenOut) {
+    if (
+      currentTokenIn &&
+      currentTokenOut &&
+      currentTokenIn !== currentTokenOut
+    ) {
       form.setValue("amount", "");
       form.setValue("quote", "");
       setFormValues((prev) => (prev ? { ...prev, amount: "" } : prev));
@@ -535,10 +575,12 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
     const preferredQuote = getPreferredUsdQuoteTokenSymbol(formChainId);
 
-    const newTokenIn: string = tokenInValid
-      ? currentTokenIn
-      : preferredQuote || availableTokens[0] || "";
-    let newTokenOut: string = tokenOutValid ? currentTokenOut : "";
+    const newTokenIn: string =
+      tokenInValid && currentTokenIn
+        ? currentTokenIn
+        : preferredQuote || availableTokens[0] || "";
+    let newTokenOut: string =
+      tokenOutValid && currentTokenOut ? currentTokenOut : "";
 
     // Ensure tokenIn !== tokenOut
     if (newTokenIn && newTokenOut && newTokenIn === newTokenOut) {
@@ -559,8 +601,11 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
       prev
         ? {
             ...prev,
-            tokenInSymbol: newTokenIn as TokenSymbol,
-            tokenOutSymbol: newTokenOut as TokenSymbol,
+            tokenInSymbol: getAvailableTokenSymbol(newTokenIn, availableTokens),
+            tokenOutSymbol: getAvailableTokenSymbol(
+              newTokenOut,
+              availableTokens,
+            ),
             amount: "",
           }
         : prev,
