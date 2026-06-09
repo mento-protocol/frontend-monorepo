@@ -180,10 +180,11 @@ catalog:
 ```
 
 Root `pnpm.overrides` are used for security patches and compatibility pins.
-`@tanstack/react-query` is pinned there to the verified app-compatible version;
-newer compatible-range releases caused a production QueryClient context split in
-`app.mento.org`. Remove that override only after a production build and browser
-verification of the swap and pools routes.
+`@tanstack/react-query` and `@tanstack/query-core` are pinned there to the
+verified app-compatible version; newer compatible-range releases caused a
+production QueryClient context split in `app.mento.org`. Remove those overrides
+only after a production build and browser verification of the swap and pools
+routes.
 
 #### Adding a New Dependency
 
