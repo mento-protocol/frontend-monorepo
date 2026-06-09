@@ -210,7 +210,7 @@ function AddressLink({
       href={`${explorerUrl}/address/${address}`}
       target="_blank"
       rel="noopener noreferrer"
-      className="font-mono text-primary hover:underline"
+      className="font-mono text-foreground underline underline-offset-2 hover:text-primary"
     >
       {shortenAddressLabel(address)}
     </a>
@@ -269,7 +269,7 @@ function EventRow({
         : "text-muted-foreground";
   const debtColor =
     op.debtDelta > 0n
-      ? "text-primary"
+      ? "text-foreground"
       : op.debtDelta < 0n
         ? "text-green-500"
         : "text-muted-foreground";
@@ -295,12 +295,12 @@ function EventRow({
         <div className="text-sm font-medium text-foreground">{cfg.label}</div>
         <div className="mt-0.5 text-xs text-muted-foreground">{desc}</div>
         {extra && (
-          <div className="mt-0.5 text-xs text-muted-foreground/60">{extra}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">{extra}</div>
         )}
       </div>
 
       <div className="text-right tabular-nums">
-        <div className="font-mono font-medium tracking-wider text-[10px] text-muted-foreground/70 uppercase">
+        <div className="font-mono font-medium tracking-wider text-[10px] text-muted-foreground uppercase">
           Coll Δ
         </div>
         <div className={`text-sm font-medium ${collColor}`}>
@@ -309,7 +309,7 @@ function EventRow({
       </div>
 
       <div className="text-right tabular-nums">
-        <div className="font-mono font-medium tracking-wider text-[10px] text-muted-foreground/70 uppercase">
+        <div className="font-mono font-medium tracking-wider text-[10px] text-muted-foreground uppercase">
           Debt Δ
         </div>
         <div className={`text-sm font-medium ${debtColor}`}>
@@ -321,7 +321,7 @@ function EventRow({
         <div className="text-xs text-muted-foreground">
           {formatRelativeTime(op.timestamp)}
         </div>
-        <div className="font-mono text-xs text-muted-foreground/60">
+        <div className="font-mono text-xs text-muted-foreground">
           #{op.blockNumber.toString()}
         </div>
       </div>
@@ -464,7 +464,7 @@ export function TroveActivityPanel({
                     aria-label={`${f.label} filter`}
                     className={`px-3 py-1 text-xs font-medium cursor-pointer border transition-colors ${
                       active
-                        ? "border-primary/35 bg-primary/15 text-primary"
+                        ? "border-primary/35 bg-primary/15 text-foreground"
                         : "border-border bg-transparent text-muted-foreground hover:text-foreground"
                     }`}
                   >

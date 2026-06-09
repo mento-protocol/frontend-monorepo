@@ -35,6 +35,7 @@ export function TroveIdPopover({ troveId }: TroveIdPopoverProps) {
       <PopoverContent
         align="start"
         sideOffset={6}
+        aria-label="Trove ID"
         className="space-y-1.5 w-fit animate-none [&>span]:hidden"
       >
         <p className="text-xs font-medium text-foreground">Trove ID</p>
@@ -45,7 +46,8 @@ export function TroveIdPopover({ troveId }: TroveIdPopoverProps) {
           <CopyToClipboard
             text={troveId}
             toastMsg="Trove ID copied"
-            className="h-4 w-4 p-0"
+            ariaLabel="Copy trove ID"
+            className="h-6 w-6 p-0"
           />
         </div>
       </PopoverContent>

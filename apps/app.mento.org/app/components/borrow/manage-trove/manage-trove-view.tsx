@@ -105,7 +105,7 @@ function LtvHealthBar({
             {riskStyle.label}
           </span>
         </div>
-        <span className="font-mono text-[11px] text-muted-foreground/50">
+        <span className="font-mono text-[11px] text-muted-foreground">
           Liquidation at {maxLtvPct.toFixed(0)}%
         </span>
       </div>
@@ -300,7 +300,7 @@ export function ManageTroveView({
                   setCopied(true);
                   setTimeout(() => setCopied(false), 1500);
                 }}
-                className="p-0 text-muted-foreground/50 transition-colors hover:text-foreground"
+                className="h-6 w-6 p-0 inline-flex items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
                 aria-label="Copy trove ID"
               >
                 {copied ? (

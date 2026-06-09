@@ -23,6 +23,7 @@ interface TokenDropdownProps {
   onValueChange: (symbol: string) => void;
   options: TokenDropdownOption[];
   disabled?: boolean;
+  triggerAriaLabel?: string;
   triggerClassName?: string;
 }
 
@@ -31,6 +32,7 @@ export function TokenDropdown({
   onValueChange,
   options,
   disabled = false,
+  triggerAriaLabel,
   triggerClassName,
 }: TokenDropdownProps) {
   const chainId = useChainId();
@@ -46,6 +48,7 @@ export function TokenDropdown({
   return (
     <Select value={value} onValueChange={onValueChange} disabled={disabled}>
       <SelectTrigger
+        aria-label={triggerAriaLabel ?? `${value} token selector`}
         className={
           triggerClassName ??
           "gap-2 px-3 py-2 font-medium w-auto border border-border bg-transparent shadow-none"

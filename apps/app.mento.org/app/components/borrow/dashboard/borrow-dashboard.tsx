@@ -224,11 +224,11 @@ export function BorrowDashboard() {
       </Button>
 
       <div className="flex items-center justify-between">
-        <h3 className="font-mono font-semibold tracking-widest text-[11px] text-muted-foreground uppercase">
+        <h2 className="font-mono font-semibold tracking-widest text-[11px] text-muted-foreground uppercase">
           Your Troves
-        </h3>
+        </h2>
         {troves.length > 0 && (
-          <span className="font-mono text-xs text-muted-foreground/50">
+          <span className="font-mono text-xs text-muted-foreground">
             {troves.length} position{troves.length !== 1 ? "s" : ""}
           </span>
         )}
@@ -535,7 +535,7 @@ function StatCell({
         )}
       </div>
       {subtitle && (
-        <div className="font-mono mt-1 text-[11px] text-muted-foreground/40">
+        <div className="font-mono mt-1 text-[11px] text-muted-foreground">
           {subtitle}
         </div>
       )}
@@ -599,9 +599,9 @@ function EmptyState({
   return (
     <div className="space-y-8">
       <div>
-        <h3 className="mb-4 font-mono font-semibold tracking-widest text-[11px] text-muted-foreground uppercase">
+        <h2 className="mb-4 font-mono font-semibold tracking-widest text-[11px] text-muted-foreground uppercase">
           How borrowing works
-        </h3>
+        </h2>
         <div className="gap-4 md:grid-cols-3 grid grid-cols-1">
           {steps.map((step, i) => (
             <Card
@@ -613,14 +613,14 @@ function EmptyState({
                   <div className="h-10 w-10 flex items-center justify-center rounded-lg bg-primary/10 text-primary">
                     {step.icon}
                   </div>
-                  <span className="font-mono font-semibold text-[11px] text-muted-foreground/25">
+                  <span className="font-mono font-semibold text-[11px] text-muted-foreground">
                     {String(i + 1).padStart(2, "0")}
                   </span>
                 </div>
-                <h4 className="mb-1.5 font-semibold text-[15px]">
+                <h3 className="mb-1.5 font-semibold text-[15px]">
                   {step.title}
-                </h4>
-                <p className="leading-relaxed text-[13px] text-muted-foreground/60">
+                </h3>
+                <p className="leading-relaxed text-[13px] text-muted-foreground">
                   {step.desc}
                 </p>
               </CardContent>
@@ -646,11 +646,11 @@ function EmptyState({
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="font-mono font-semibold tracking-widest text-[11px] text-muted-foreground uppercase">
+          <h2 className="font-mono font-semibold tracking-widest text-[11px] text-muted-foreground uppercase">
             Available markets
-          </h3>
+          </h2>
           {supportedDebtTokens.length > 0 && (
-            <span className="font-mono text-xs text-muted-foreground/50">
+            <span className="font-mono text-xs text-muted-foreground">
               {supportedDebtTokens.length} market
               {supportedDebtTokens.length !== 1 ? "s" : ""}
             </span>
@@ -778,8 +778,8 @@ function MarketCard({
           className={[
             "h-4 w-4 transition-colors",
             interactive
-              ? "text-muted-foreground/50 group-hover:text-primary"
-              : "text-muted-foreground/30",
+              ? "text-muted-foreground group-hover:text-primary"
+              : "text-muted-foreground",
           ].join(" ")}
         />
       </div>
