@@ -491,9 +491,9 @@ export function EarnHub() {
 
       {/* How Earning Works */}
       <div>
-        <h3 className="mb-4 font-mono font-semibold tracking-widest text-[11px] text-muted-foreground uppercase">
+        <h2 className="mb-4 font-mono font-semibold tracking-widest text-[11px] text-muted-foreground uppercase">
           How earning works
-        </h3>
+        </h2>
         <div className="gap-4 md:grid-cols-3 grid grid-cols-1">
           {steps.map((step, i) => (
             <Card
@@ -505,14 +505,14 @@ export function EarnHub() {
                   <div className="h-10 w-10 flex items-center justify-center rounded-lg bg-primary/10 text-primary">
                     {step.icon}
                   </div>
-                  <span className="font-mono font-semibold text-[11px] text-muted-foreground/25">
+                  <span className="font-mono font-semibold text-[11px] text-muted-foreground">
                     {String(i + 1).padStart(2, "0")}
                   </span>
                 </div>
-                <h4 className="mb-1.5 font-semibold text-[15px]">
+                <h3 className="mb-1.5 font-semibold text-[15px]">
                   {step.title}
-                </h4>
-                <p className="leading-relaxed text-[13px] text-muted-foreground/60">
+                </h3>
+                <p className="leading-relaxed text-[13px] text-muted-foreground">
                   {step.desc}
                 </p>
               </CardContent>
@@ -523,9 +523,9 @@ export function EarnHub() {
 
       {/* Risk Disclosure */}
       <div className="gap-3 px-5 py-4 flex items-start rounded-xl border border-border/50 bg-accent/20">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/50" />
-        <div className="text-xs leading-relaxed text-muted-foreground/60">
-          <span className="font-semibold text-muted-foreground/80">
+        <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <div className="text-xs leading-relaxed text-muted-foreground">
+          <span className="font-semibold text-foreground">
             Risk varies by strategy.{" "}
           </span>
           Stability Pool deposits may be partially converted to collateral
@@ -541,7 +541,7 @@ export function EarnHub() {
           href="https://docs.mento.org/mento-v3/dive-deeper/protocol-economics"
           target="_blank"
           rel="noopener noreferrer"
-          className="gap-1.5 text-xs inline-flex items-center text-primary hover:underline"
+          className="gap-1.5 text-xs inline-flex items-center text-foreground underline underline-offset-4 hover:text-primary"
         >
           Learn more about the Mento protocol economics
           <ExternalLink className="h-3 w-3" />

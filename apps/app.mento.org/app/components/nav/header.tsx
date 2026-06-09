@@ -28,6 +28,9 @@ function ThemeSwitch() {
       size="switch"
       className=""
       onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+      aria-label={
+        theme === "light" ? "Switch to dark theme" : "Switch to light theme"
+      }
     >
       <div
         className={cn(

@@ -100,10 +100,7 @@ function TokenAmountInput({
           {token.symbol}
         </span>
         <span className="font-mono text-[11px] text-muted-foreground">
-          Balance:{" "}
-          <span className="text-muted-foreground/80">
-            {formatCompactBalance(balance)}
-          </span>
+          Balance: <span>{formatCompactBalance(balance)}</span>
         </span>
       </div>
       <div
@@ -114,12 +111,15 @@ function TokenAmountInput({
           onChange={onChange}
           placeholder="0.00"
           disabled={disabled}
+          aria-label={`Deposit amount in ${token.symbol}`}
           className="h-10 p-0 text-sm font-mono flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
         />
         <button
-          className="px-2 py-1 font-bold font-mono tracking-wider cursor-pointer rounded-md bg-primary/10 text-[11px] text-primary transition-colors hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-50"
+          type="button"
+          className="px-2 py-1 font-bold font-mono tracking-wider cursor-pointer rounded-md bg-primary/10 text-[11px] text-foreground transition-colors hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-50"
           onClick={onMax}
           disabled={disabled}
+          aria-label={`MAX ${token.symbol}`}
         >
           MAX
         </button>
@@ -809,9 +809,7 @@ export function AddLiquidityForm({
                   </span>
                   <span className="font-mono text-[11px] text-muted-foreground">
                     Balance:{" "}
-                    <span className="text-muted-foreground/80">
-                      {formatCompactBalance(formattedZapBalance)}
-                    </span>
+                    <span>{formatCompactBalance(formattedZapBalance)}</span>
                   </span>
                 </div>
                 <div
@@ -824,12 +822,15 @@ export function AddLiquidityForm({
                     }
                     placeholder="0.00"
                     disabled={disabled}
+                    aria-label={`Deposit amount in ${zapToken.symbol}`}
                     className="h-10 p-0 text-sm font-mono flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
                   />
                   <button
-                    className="px-2 py-1 font-bold font-mono tracking-wider cursor-pointer rounded-md bg-primary/10 text-[11px] text-primary transition-colors hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-50"
+                    type="button"
+                    className="px-2 py-1 font-bold font-mono tracking-wider cursor-pointer rounded-md bg-primary/10 text-[11px] text-foreground transition-colors hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-50"
                     onClick={() => setZapAmount(formattedZapBalance)}
                     disabled={disabled}
+                    aria-label={`MAX ${zapToken.symbol}`}
                   >
                     MAX
                   </button>
@@ -841,7 +842,10 @@ export function AddLiquidityForm({
                       setZapAmount("");
                     }}
                   >
-                    <SelectTrigger className="gap-1.5 px-3 py-1.5 font-semibold h-auto w-auto rounded-lg border-0 bg-muted/50 shadow-none">
+                    <SelectTrigger
+                      className="gap-1.5 px-3 py-1.5 font-semibold h-auto w-auto rounded-lg border-0 bg-muted/50 shadow-none"
+                      aria-label={`${zapToken.symbol} deposit token`}
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -922,9 +926,9 @@ export function AddLiquidityForm({
       <div className="gap-4 flex flex-col">
         {/* Summary card */}
         <div className="p-6 flex-1 rounded-xl border border-border bg-card">
-          <h3 className="text-sm font-semibold mb-5 text-muted-foreground">
+          <h2 className="text-sm font-semibold mb-5 text-muted-foreground">
             Transaction Summary
-          </h3>
+          </h2>
 
           <div className="space-y-3.5">
             {/* Deposit display token 0 */}
@@ -972,7 +976,7 @@ export function AddLiquidityForm({
             {/* LP fee */}
             <div className="flex items-center justify-between">
               <span className="text-xs text-muted-foreground">LP fee</span>
-              <span className="text-sm font-medium font-mono text-muted-foreground/80">
+              <span className="text-sm font-medium font-mono text-muted-foreground">
                 {pool.fees.lp.toFixed(1)}%
               </span>
             </div>
@@ -986,7 +990,10 @@ export function AddLiquidityForm({
                 value={String(slippage)}
                 onValueChange={(v) => setSlippage(Number(v) as SlippageOption)}
               >
-                <SelectTrigger className="h-7 text-xs font-mono w-[80px] border-border bg-muted/30">
+                <SelectTrigger
+                  className="h-7 text-xs font-mono w-[80px] border-border bg-muted/30"
+                  aria-label="Slippage tolerance"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1000,7 +1007,7 @@ export function AddLiquidityForm({
             </div>
           </div>
 
-          <p className="mt-4 leading-relaxed text-[11px] text-muted-foreground/60">
+          <p className="mt-4 leading-relaxed text-[11px] text-muted-foreground">
             Sets the minimum amounts for single-token deposits/withdrawals and
             liquidity mint/burn.
           </p>

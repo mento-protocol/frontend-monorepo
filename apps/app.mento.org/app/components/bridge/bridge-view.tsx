@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import Image from "next/image";
 import { useTheme } from "next-themes";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { getBridgeTheme, bridgeConfig } from "./bridge-config";
 import { Button } from "@repo/ui";
 import { Celo, isFeatureConfiguredOnChain } from "@repo/web3";
@@ -21,6 +21,44 @@ const WormholeConnect = dynamic(
     ),
   },
 );
+
+function compactText(element: Element) {
+  return element.textContent?.replace(/\s+/g, " ").trim() ?? "";
+}
+
+function setAttributeIfChanged(element: Element, name: string, value: string) {
+  if (element.getAttribute(name) !== value) {
+    element.setAttribute(name, value);
+  }
+}
+
+function normalizeAssetPicker(root: HTMLElement, testId: string) {
+  const picker = root.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+  if (!picker) return;
+
+  picker.removeAttribute("aria-label");
+  picker.removeAttribute("title");
+}
+
+function patchBridgeWidgetAccessibility(root: HTMLElement) {
+  normalizeAssetPicker(root, "source-asset-picker");
+  normalizeAssetPicker(root, "dest-asset-picker");
+
+  for (const button of root.querySelectorAll<HTMLButtonElement>("button")) {
+    if (compactText(button) || button.getAttribute("aria-label")) continue;
+
+    setAttributeIfChanged(button, "aria-label", "Swap source and destination");
+    setAttributeIfChanged(button, "title", "Swap source and destination");
+  }
+
+  const wormholeLink = root.querySelector<HTMLAnchorElement>(
+    'a[href*="wormhole.com/products/connect"]',
+  );
+  if (wormholeLink && !compactText(wormholeLink)) {
+    setAttributeIfChanged(wormholeLink, "aria-label", "Wormhole Connect");
+    setAttributeIfChanged(wormholeLink, "title", "Wormhole Connect");
+  }
+}
 
 function BridgeTestnetState() {
   const { switchChainAsync } = useSwitchChain();
@@ -85,6 +123,7 @@ function BridgeTestnetState() {
 
 export function BridgeView() {
   const chainId = useChainId();
+  const widgetRef = useRef<HTMLDivElement>(null);
   const isBridgeSupportedChain =
     !chainId ||
     isFeatureConfiguredOnChain({
@@ -97,6 +136,26 @@ export function BridgeView() {
     [resolvedTheme],
   );
 
+  useEffect(() => {
+    const root = widgetRef.current;
+    if (!root || !isBridgeSupportedChain) return;
+
+    patchBridgeWidgetAccessibility(root);
+
+    const observer = new MutationObserver(() => {
+      patchBridgeWidgetAccessibility(root);
+    });
+    observer.observe(root, {
+      attributes: true,
+      attributeFilter: ["aria-label"],
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+
+    return () => observer.disconnect();
+  }, [isBridgeSupportedChain]);
+
   return (
     <div className="mb-6 px-4 md:px-0 relative w-full max-w-[568px]">
       <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
@@ -105,7 +164,7 @@ export function BridgeView() {
           <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
             Cross-Chain
           </span>
-          <h2 className="mt-0 font-bold text-3xl">Bridge</h2>
+          <h1 className="mt-0 font-bold text-3xl">Bridge</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Bridge Mento tokens between supported networks.
           </p>
@@ -113,7 +172,7 @@ export function BridgeView() {
         {!isBridgeSupportedChain ? (
           <BridgeTestnetState />
         ) : (
-          <div className="bridge-widget">
+          <div ref={widgetRef} className="bridge-widget">
             <WormholeConnect theme={theme} config={bridgeConfig} />
           </div>
         )}

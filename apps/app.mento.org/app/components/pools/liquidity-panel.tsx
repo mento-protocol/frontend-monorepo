@@ -199,7 +199,7 @@ export function LiquidityPanel({
         className={cn(
           "px-6 py-3.5 text-sm font-semibold relative cursor-pointer transition-colors",
           activeTab === "add"
-            ? "text-primary"
+            ? "text-foreground"
             : "text-muted-foreground hover:text-foreground",
         )}
       >
@@ -216,7 +216,7 @@ export function LiquidityPanel({
           isRemoveDisabled
             ? "cursor-not-allowed text-muted-foreground/50"
             : activeTab === "remove"
-              ? "text-primary"
+              ? "text-foreground"
               : "text-muted-foreground hover:text-foreground",
         )}
         title={
@@ -275,7 +275,7 @@ export function LiquidityPanel({
                 className={cn(
                   "px-2 py-0 font-semibold tracking-wider font-mono text-[10px]",
                   pool.poolType === "FPMM" &&
-                    "bg-primary/10 text-primary dark:bg-primary/15 dark:text-primary",
+                    "bg-primary/10 text-foreground dark:bg-primary/15",
                 )}
               >
                 {pool.poolType === "FPMM" ? "FPMM" : "LEGACY"}
@@ -291,7 +291,7 @@ export function LiquidityPanel({
             href={`${explorerUrl}/address/${pool.poolAddr}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="gap-1.5 px-3.5 py-2 text-xs font-medium flex items-center rounded-lg border border-primary/20 bg-primary/5 text-primary transition-colors hover:bg-primary/10"
+            className="gap-1.5 px-3.5 py-2 text-xs font-medium flex items-center rounded-lg border border-primary/20 bg-primary/5 text-foreground transition-colors hover:bg-primary/10"
           >
             Explorer
             <ExternalLink className="h-3 w-3" />

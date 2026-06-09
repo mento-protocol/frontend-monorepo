@@ -87,7 +87,7 @@ export function UserPositionCard({
               : "--"}
           </div>
           {lpBalance !== undefined && lpBalance > 0n && (
-            <div className="mt-1 text-xs font-mono text-muted-foreground/50">
+            <div className="mt-1 text-xs font-mono text-muted-foreground">
               {formatLpBalance(lpBalance)} LP tokens
             </div>
           )}
@@ -115,14 +115,14 @@ export function UserPositionCard({
             <div className="mt-0.5 text-xs font-mono text-muted-foreground">
               {token0.token.symbol}
               {token0.data.price !== null && (
-                <span className="text-muted-foreground/60">
+                <span className="text-muted-foreground">
                   {" "}
                   @ {formatPrice(token0.data.price)}
                 </span>
               )}
             </div>
             {token0.data.usdValue !== null && (
-              <div className="text-xs font-mono text-muted-foreground/50">
+              <div className="text-xs font-mono text-muted-foreground">
                 {formatUsd(token0.data.usdValue)}
               </div>
             )}
@@ -146,14 +146,14 @@ export function UserPositionCard({
             <div className="mt-0.5 text-xs font-mono text-muted-foreground">
               {token1.token.symbol}
               {token1.data.price !== null && (
-                <span className="text-muted-foreground/60">
+                <span className="text-muted-foreground">
                   {" "}
                   @ {formatPrice(token1.data.price)}
                 </span>
               )}
             </div>
             {token1.data.usdValue !== null && (
-              <div className="text-xs font-mono text-muted-foreground/50">
+              <div className="text-xs font-mono text-muted-foreground">
                 {formatUsd(token1.data.usdValue)}
               </div>
             )}

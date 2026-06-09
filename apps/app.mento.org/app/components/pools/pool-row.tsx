@@ -233,11 +233,9 @@ export const PoolRow = memo(function PoolRow({
                       transform: "translateX(-50%)",
                     }}
                   />
-                  <div className="mt-1 font-semibold tracking-wide flex justify-between text-[10px]">
-                    <span className="text-primary">{token0Percent}%</span>
-                    <span className="text-primary-border">
-                      {token1Percent}%
-                    </span>
+                  <div className="mt-1 font-semibold tracking-wide flex justify-between text-[10px] text-foreground">
+                    <span>{token0Percent}%</span>
+                    <span>{token1Percent}%</span>
                   </div>
                 </div>
               ) : (
