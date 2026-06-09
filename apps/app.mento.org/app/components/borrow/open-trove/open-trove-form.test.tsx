@@ -321,7 +321,9 @@ describe("OpenTroveForm", () => {
 
     await waitFor(() => {
       expect(mutateMock).toHaveBeenCalledOnce();
-      const call = mutateMock.mock.calls[0][0];
+      const firstCall = mutateMock.mock.calls[0];
+      expect(firstCall).toBeDefined();
+      const call = firstCall![0];
       expect(call.symbol).toBe("GBPm");
       expect(call.params.owner).toBe(
         "0x0000000000000000000000000000000000000001",
@@ -417,7 +419,9 @@ describe("OpenTroveForm", () => {
 
     await waitFor(() => {
       expect(mutateMock).toHaveBeenCalledOnce();
-      expect(mutateMock.mock.calls[0][0].symbol).toBe("EURm");
+      const firstCall = mutateMock.mock.calls[0];
+      expect(firstCall).toBeDefined();
+      expect(firstCall![0].symbol).toBe("EURm");
     });
   });
 });

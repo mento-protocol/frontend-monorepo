@@ -9,13 +9,15 @@ import {
 
 vi.mock("next/image", () => ({
   default: (
-    props: React.ImgHTMLAttributes<HTMLImageElement> & { src: string },
+    props: React.ImgHTMLAttributes<HTMLImageElement> & {
+      src: string;
+      unoptimized?: boolean;
+    },
   ) => {
     const imageProps = { ...props };
     delete imageProps.unoptimized;
 
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img {...imageProps} />;
+    return React.createElement("img", imageProps);
   },
 }));
 
