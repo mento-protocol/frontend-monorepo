@@ -54,7 +54,7 @@ function Slider({
         <SliderPrimitive.Thumb
           data-slot="slider-thumb"
           key={index}
-          aria-label={ariaLabel ?? "Slider value"}
+          aria-label={ariaLabel}
           className="size-4 shadow-sm block shrink-0 cursor-pointer rounded-full border border-primary bg-background ring-ring/50 transition-[color,box-shadow] hover:ring-4 focus-visible:ring-4 focus-visible:outline-hidden disabled:pointer-events-none disabled:opacity-50"
         />
       ))}

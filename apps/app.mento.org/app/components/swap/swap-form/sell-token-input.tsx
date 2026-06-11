@@ -27,7 +27,7 @@ interface SellTokenInputProps {
   fromTokenBalance: string;
   handleUseMaxBalance: () => void;
   chainId: number;
-  tokenOutSymbol: TokenSymbol;
+  tokenOutSymbol?: TokenSymbol;
   allTokenOptions: TokenWithBalance[];
   setLastChangedToken: (t: "from" | "to" | null) => void;
 }

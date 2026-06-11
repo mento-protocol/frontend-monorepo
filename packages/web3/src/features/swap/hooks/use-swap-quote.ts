@@ -135,8 +135,8 @@ async function validateRouteLiquidity(params: {
  */
 export function useSwapQuote(
   amount: string | number,
-  tokenInSymbol: TokenSymbol,
-  tokenOutSymbol: TokenSymbol,
+  tokenInSymbol: TokenSymbol | undefined,
+  tokenOutSymbol: TokenSymbol | undefined,
   options: UseSwapQuoteOptions = {},
 ) {
   const {
@@ -155,8 +155,12 @@ export function useSwapQuote(
   // Memoize token objects to prevent unnecessary re-renders
   const { fromToken, toToken } = useMemo(
     () => ({
-      fromToken: getTokenBySymbol(tokenInSymbol, chainId),
-      toToken: getTokenBySymbol(tokenOutSymbol, chainId),
+      fromToken: tokenInSymbol
+        ? getTokenBySymbol(tokenInSymbol, chainId)
+        : null,
+      toToken: tokenOutSymbol
+        ? getTokenBySymbol(tokenOutSymbol, chainId)
+        : null,
     }),
     [tokenInSymbol, tokenOutSymbol, chainId],
   );
@@ -207,7 +211,8 @@ export function useSwapQuote(
   // Memoize swap intent for logging
   // Memoize the quote fetcher function
   const fetchQuote = useCallback(async (): Promise<ISwapData | null> => {
-    if (!validation.isQueryEnabled) return null;
+    if (!validation.isQueryEnabled || !tokenInSymbol || !tokenOutSymbol)
+      return null;
 
     // Guard clause: ensure tokens exist before proceeding
     if (!fromToken || !toToken) return null;
@@ -430,19 +435,19 @@ export function useSwapQuote(
  * Hook to calculate USD value for a token amount
  */
 export function useTokenUSDValue(
-  tokenSymbol: TokenSymbol,
+  tokenSymbol: TokenSymbol | undefined,
   amount: string | number,
   chainIdOverride?: number,
 ) {
   const walletChainId = useChainId();
   const chainId = chainIdOverride ?? walletChainId;
   const isUsdQuoteToken = useMemo(
-    () => isUsdQuoteTokenSymbol(tokenSymbol),
+    () => (tokenSymbol ? isUsdQuoteTokenSymbol(tokenSymbol) : false),
     [tokenSymbol],
   );
   const hasValidAmount = useMemo(
-    () => amount && amount !== "" && Number(amount) > 0,
-    [amount],
+    () => !!tokenSymbol && amount && amount !== "" && Number(amount) > 0,
+    [amount, tokenSymbol],
   );
   const usdQuoteTokenSymbol = useMemo(
     () => (chainId ? getPreferredUsdQuoteTokenSymbol(chainId) : null),
@@ -479,8 +484,8 @@ export function useTokenUSDValue(
  */
 export function useOptimizedSwapQuote(
   amount: string | number,
-  tokenInSymbol: TokenSymbol,
-  tokenOutSymbol: TokenSymbol,
+  tokenInSymbol: TokenSymbol | undefined,
+  tokenOutSymbol: TokenSymbol | undefined,
   options: Pick<
     UseSwapQuoteOptions,
     "chainId" | "insufficientLiquidityFallbackUrl"

@@ -27,8 +27,8 @@ export function useApproveTransaction({
   onSuccess,
 }: {
   chainId: number;
-  tokenInSymbol: TokenSymbol;
-  tokenOutSymbol: TokenSymbol;
+  tokenInSymbol: TokenSymbol | undefined;
+  tokenOutSymbol: TokenSymbol | undefined;
   amountInWei: string;
   accountAddress?: Address;
   onSuccess?: (receipt: TransactionReceipt) => void;
@@ -43,7 +43,13 @@ export function useApproveTransaction({
       accountAddress,
     ],
     queryFn: async () => {
-      if (!accountAddress || new BigNumber(amountInWei).lte(0)) return null;
+      if (
+        !accountAddress ||
+        !tokenInSymbol ||
+        !tokenOutSymbol ||
+        new BigNumber(amountInWei).lte(0)
+      )
+        return null;
 
       const tokenInAddr = getTokenAddress(chainId, tokenInSymbol);
       if (!tokenInAddr) {
