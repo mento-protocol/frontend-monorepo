@@ -36,8 +36,8 @@ async function fetchAllowance(
 
 export function useAppAllowance(
   chainId: number,
-  tokenInSymbol: TokenSymbol,
-  tokenOutSymbol: TokenSymbol,
+  tokenInSymbol: TokenSymbol | undefined,
+  tokenOutSymbol: TokenSymbol | undefined,
   address?: string,
 ) {
   const { data: allowance, isLoading } = useQuery({
@@ -49,7 +49,7 @@ export function useAppAllowance(
       address,
     ],
     queryFn: async () => {
-      if (!address) return "0";
+      if (!address || !tokenInSymbol || !tokenOutSymbol) return "0";
       return fetchAllowance(tokenInSymbol, tokenOutSymbol, address, chainId);
     },
     retry: false,
