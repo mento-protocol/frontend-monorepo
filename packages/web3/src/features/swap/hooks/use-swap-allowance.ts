@@ -4,8 +4,8 @@ import { useAppAllowance } from "./use-allowance";
 
 interface ISwapAllowanceOptions {
   chainId: number;
-  tokenInSymbol: TokenSymbol;
-  tokenOutSymbol: TokenSymbol;
+  tokenInSymbol: TokenSymbol | undefined;
+  tokenOutSymbol: TokenSymbol | undefined;
   approveAmount: string;
   address?: string;
 }
