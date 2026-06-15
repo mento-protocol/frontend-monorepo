@@ -44,4 +44,46 @@ describe("patchBridgeWidgetAccessibility", () => {
         ?.getAttribute("aria-label"),
     ).toBe("Select destination asset");
   });
+
+  it("labels the unlabeled swap button between asset pickers", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <button data-testid="source-asset-picker">USDm</button>
+      <button id="swap-direction"><svg /></button>
+      <button data-testid="dest-asset-picker">GBPm</button>
+    `;
+
+    patchBridgeWidgetAccessibility(root);
+
+    const swapButton = root.querySelector("#swap-direction");
+    expect(swapButton?.getAttribute("aria-label")).toBe(
+      "Swap source and destination",
+    );
+    expect(swapButton?.getAttribute("title")).toBe(
+      "Swap source and destination",
+    );
+  });
+
+  it("does not label unrelated unlabeled icon buttons", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <button id="dialog-close"><svg /></button>
+      <button data-testid="source-asset-picker">USDm</button>
+      <button id="swap-direction"><svg /></button>
+      <button data-testid="dest-asset-picker">GBPm</button>
+      <button id="settings"><svg /></button>
+    `;
+
+    patchBridgeWidgetAccessibility(root);
+
+    expect(
+      root.querySelector("#dialog-close")?.hasAttribute("aria-label"),
+    ).toBe(false);
+    expect(root.querySelector("#settings")?.hasAttribute("aria-label")).toBe(
+      false,
+    );
+    expect(
+      root.querySelector("#swap-direction")?.getAttribute("aria-label"),
+    ).toBe("Swap source and destination");
+  });
 });

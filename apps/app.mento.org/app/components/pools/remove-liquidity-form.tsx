@@ -775,7 +775,7 @@ export function RemoveLiquidityForm({
               >
                 <SelectTrigger
                   className="h-7 text-xs font-mono w-[80px] border-border bg-muted/30"
-                  aria-label="Slippage tolerance"
+                  aria-label={`Slippage tolerance: ${slippage}%`}
                 >
                   <SelectValue />
                 </SelectTrigger>
