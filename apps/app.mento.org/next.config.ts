@@ -1,10 +1,7 @@
 import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 import { env } from "@/env.mjs";
-import path from "node:path";
-import { createRequire } from "node:module";
 
-const require = createRequire(import.meta.url);
 const storageHostname = env.NEXT_PUBLIC_STORAGE_URL.replace(
   /^https?:\/\/([^/]+)\/?.*$/,
   "$1",
@@ -25,28 +22,7 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  transpilePackages: [
-    "@repo/ui",
-    "@repo/web3",
-    "@wagmi/core",
-    "@rainbow-me/rainbowkit",
-  ],
-  // NOTE: local dev uses --turbopack, which ignores this webpack hook.
-  // Production builds use the default Next.js compiler so this hook remains
-  // active for the React Native fallbacks and wagmi deduplication aliases.
-  webpack: (config) => {
-    config.resolve.fallback = {
-      ...config.resolve.fallback,
-      "@react-native-async-storage/async-storage": false,
-      "react-native": false,
-    };
-    config.resolve.alias = {
-      ...config.resolve.alias,
-      wagmi: path.dirname(require.resolve("wagmi/package.json")),
-      "@wagmi/core": path.dirname(require.resolve("@wagmi/core/package.json")),
-    };
-    return config;
-  },
+  transpilePackages: ["@repo/ui", "@repo/web3", "@rainbow-me/rainbowkit"],
 };
 
 export default withSentryConfig(nextConfig, {
