@@ -122,6 +122,7 @@ export function SwapSettingsPopover() {
       <PopoverContent
         align="end"
         className="gap-3 p-3! flex w-auto flex-col [&>span]:hidden"
+        aria-label="Swap settings"
       >
         <div className="gap-5 flex items-center">
           <div className="gap-1.5 flex items-center">

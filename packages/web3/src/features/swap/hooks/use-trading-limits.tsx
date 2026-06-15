@@ -15,8 +15,8 @@ function formatLimit(value: bigint, decimals: number): number {
 }
 
 export function useTradingLimits(
-  tokenInSymbol: string,
-  tokenOutSymbol: string,
+  tokenInSymbol: string | undefined,
+  tokenOutSymbol: string | undefined,
   chainId: number,
 ) {
   return useQuery({

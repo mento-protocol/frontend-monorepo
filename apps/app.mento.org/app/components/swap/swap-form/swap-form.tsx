@@ -53,7 +53,7 @@ export default function SwapForm({
             fromTokenBalance={swap.fromTokenBalance}
             handleUseMaxBalance={swap.handleUseMaxBalance}
             chainId={swap.formChainId}
-            tokenOutSymbol={swap.tokenOutSymbol}
+            tokenOutSymbol={swap.selectedTokenOutSymbol}
             allTokenOptions={swap.allTokenOptions}
             setLastChangedToken={swap.setLastChangedToken}
           />
@@ -67,7 +67,7 @@ export default function SwapForm({
             buyUSDValue={swap.buyUSDValue}
             toTokenBalance={swap.toTokenBalance}
             chainId={swap.formChainId}
-            tokenInSymbol={swap.tokenInSymbol}
+            tokenInSymbol={swap.selectedTokenInSymbol}
             allTokenOptions={swap.allTokenOptions}
             setLastChangedToken={swap.setLastChangedToken}
           />
@@ -121,6 +121,7 @@ function SwapDirectionButton({ onReverse }: { onReverse: () => void }) {
         size="icon"
         className="!border-y-0"
         type="button"
+        aria-label="Reverse swap tokens"
       >
         <ArrowUpDown className="rotate-180 transition-transform" />
       </Button>

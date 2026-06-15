@@ -26,7 +26,7 @@ interface BuyTokenInputProps {
   buyUSDValue: string;
   toTokenBalance: string;
   chainId: number;
-  tokenInSymbol: TokenSymbol;
+  tokenInSymbol?: TokenSymbol;
   allTokenOptions: TokenWithBalance[];
   setLastChangedToken: (t: "from" | "to" | null) => void;
 }
