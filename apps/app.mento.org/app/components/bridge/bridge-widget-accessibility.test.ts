@@ -45,6 +45,27 @@ describe("patchBridgeWidgetAccessibility", () => {
     ).toBe("Select destination asset: GBPm");
   });
 
+  it("updates fallback labels when selected assets change", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <button data-testid="source-asset-picker">USDm</button>
+      <button data-testid="dest-asset-picker">GBPm</button>
+    `;
+
+    patchBridgeWidgetAccessibility(root);
+
+    const sourcePicker = root.querySelector(
+      '[data-testid="source-asset-picker"]',
+    );
+    sourcePicker!.textContent = "cUSD";
+
+    patchBridgeWidgetAccessibility(root);
+
+    expect(sourcePicker?.getAttribute("aria-label")).toBe(
+      "Select source asset: cUSD",
+    );
+  });
+
   it("labels the unlabeled swap button between asset pickers", () => {
     const root = document.createElement("div");
     root.innerHTML = `

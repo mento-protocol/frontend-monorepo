@@ -8,6 +8,8 @@ function setAttributeIfChanged(element: Element, name: string, value: string) {
   }
 }
 
+const fallbackLabelMarker = "data-mento-bridge-fallback-label";
+
 function normalizeAssetPicker(
   root: HTMLElement,
   testId: string,
@@ -20,9 +22,17 @@ function normalizeAssetPicker(
   const fallbackWithSelection = visibleText
     ? `${fallbackLabel}: ${visibleText}`
     : fallbackLabel;
-  const label =
-    picker.getAttribute("aria-label")?.trim() || fallbackWithSelection;
+  const existingLabel = picker.getAttribute("aria-label")?.trim();
+  const hasFallbackLabel = picker.getAttribute(fallbackLabelMarker) === "true";
+  const shouldUseFallbackLabel = !existingLabel || hasFallbackLabel;
+  const label = shouldUseFallbackLabel ? fallbackWithSelection : existingLabel;
+
   setAttributeIfChanged(picker, "aria-label", label);
+  if (shouldUseFallbackLabel) {
+    setAttributeIfChanged(picker, fallbackLabelMarker, "true");
+  } else {
+    picker.removeAttribute(fallbackLabelMarker);
+  }
 }
 
 function isElementBefore(left: Element, right: Element): boolean {
