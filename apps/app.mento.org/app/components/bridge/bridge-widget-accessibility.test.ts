@@ -66,6 +66,33 @@ describe("patchBridgeWidgetAccessibility", () => {
     );
   });
 
+  it("preserves explicit widget labels that arrive after fallback labels", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <button data-testid="source-asset-picker">USDm</button>
+      <button data-testid="dest-asset-picker">GBPm</button>
+    `;
+
+    patchBridgeWidgetAccessibility(root);
+
+    const sourcePicker = root.querySelector(
+      '[data-testid="source-asset-picker"]',
+    );
+    sourcePicker!.setAttribute("aria-label", "Choose source token");
+
+    patchBridgeWidgetAccessibility(root);
+
+    expect(sourcePicker?.getAttribute("aria-label")).toBe(
+      "Choose source token",
+    );
+    expect(sourcePicker?.hasAttribute("data-mento-bridge-fallback-label")).toBe(
+      false,
+    );
+    expect(sourcePicker?.hasAttribute("data-mento-bridge-fallback-value")).toBe(
+      false,
+    );
+  });
+
   it("labels the unlabeled swap button between asset pickers", () => {
     const root = document.createElement("div");
     root.innerHTML = `

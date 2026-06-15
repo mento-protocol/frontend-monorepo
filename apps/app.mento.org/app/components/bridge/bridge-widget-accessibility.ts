@@ -9,6 +9,7 @@ function setAttributeIfChanged(element: Element, name: string, value: string) {
 }
 
 const fallbackLabelMarker = "data-mento-bridge-fallback-label";
+const fallbackLabelValue = "data-mento-bridge-fallback-value";
 
 function normalizeAssetPicker(
   root: HTMLElement,
@@ -23,15 +24,20 @@ function normalizeAssetPicker(
     ? `${fallbackLabel}: ${visibleText}`
     : fallbackLabel;
   const existingLabel = picker.getAttribute("aria-label")?.trim();
-  const hasFallbackLabel = picker.getAttribute(fallbackLabelMarker) === "true";
+  const previousFallbackLabel = picker.getAttribute(fallbackLabelValue)?.trim();
+  const hasFallbackLabel =
+    picker.getAttribute(fallbackLabelMarker) === "true" &&
+    existingLabel === previousFallbackLabel;
   const shouldUseFallbackLabel = !existingLabel || hasFallbackLabel;
   const label = shouldUseFallbackLabel ? fallbackWithSelection : existingLabel;
 
   setAttributeIfChanged(picker, "aria-label", label);
   if (shouldUseFallbackLabel) {
     setAttributeIfChanged(picker, fallbackLabelMarker, "true");
+    setAttributeIfChanged(picker, fallbackLabelValue, label);
   } else {
     picker.removeAttribute(fallbackLabelMarker);
+    picker.removeAttribute(fallbackLabelValue);
   }
 }
 
