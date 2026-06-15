@@ -51,8 +51,15 @@ import { OctagonAlert } from "lucide-react";
 
 import {
   getAvailableTokenSymbol,
+  getDefaultTokenInSymbol,
   getSelectedTokenSymbol,
 } from "./token-selection";
+import {
+  getRouteChangedTokenSide,
+  hasRouteDrivenFormStateChanged,
+  type LastChangedToken,
+  type RouteDrivenFormState,
+} from "./route-driven-state";
 import { defaultEmptyBalances, formSchema, type FormValues } from "./types";
 
 interface UseSwapFormOptions {
@@ -61,14 +68,6 @@ interface UseSwapFormOptions {
   initialAmount?: string;
   urlChainId?: ChainId;
 }
-
-type RouteDrivenFormState = {
-  amount: string;
-  tokenInSymbol: string;
-  tokenOutSymbol: string;
-};
-
-type LastChangedToken = "from" | "to" | null;
 
 function sanitizeRouteAmount(value?: string): string {
   if (!value) return "";
@@ -87,19 +86,6 @@ function getTokenBalanceValue(
   tokenSymbol: TokenSymbol,
 ): string | undefined {
   return balances[tokenSymbol];
-}
-
-function getDefaultTokenInSymbol(
-  chainId: ChainId,
-  availableTokens: TokenSymbol[],
-): TokenSymbol {
-  const preferredQuoteToken = getPreferredUsdQuoteTokenSymbol(chainId);
-  if (preferredQuoteToken) return preferredQuoteToken;
-
-  const firstToken = availableTokens[0];
-  if (firstToken) return firstToken;
-
-  throw new Error(`No swap tokens configured for chain ${chainId}`);
 }
 
 export function useSwapForm(opts?: UseSwapFormOptions) {
@@ -157,10 +143,11 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
       ? getAvailableTokenSymbol(formValues.tokenOutSymbol, availableTokens)
       : undefined;
 
-  const defaultTokenInSymbol = getDefaultTokenInSymbol(
-    formChainId,
-    availableTokens,
-  );
+  const defaultTokenInSymbol =
+    getDefaultTokenInSymbol(
+      getPreferredUsdQuoteTokenSymbol(formChainId),
+      availableTokens,
+    ) ?? "";
 
   const initialTokenInSymbol =
     validatedInitialFrom || storedTokenInSymbol || defaultTokenInSymbol;
@@ -227,8 +214,7 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     opts?.initialFrom,
     opts?.initialTo,
   ]);
-  const lastRouteDrivenFormStateRef =
-    useRef<RouteDrivenFormState>(routeDrivenFormState);
+  const lastRouteDrivenFormStateRef = useRef<RouteDrivenFormState | null>(null);
 
   const watchedTokenInSymbol = useWatch({
     control: form.control,
@@ -650,10 +636,10 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
   useEffect(() => {
     const previousRouteState = lastRouteDrivenFormStateRef.current;
-    const routeStateChanged =
-      previousRouteState.amount !== routeDrivenFormState.amount ||
-      previousRouteState.tokenInSymbol !== routeDrivenFormState.tokenInSymbol ||
-      previousRouteState.tokenOutSymbol !== routeDrivenFormState.tokenOutSymbol;
+    const routeStateChanged = hasRouteDrivenFormStateChanged(
+      previousRouteState,
+      routeDrivenFormState,
+    );
 
     lastRouteDrivenFormStateRef.current = routeDrivenFormState;
 
@@ -667,16 +653,10 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
     if (formAlreadyMatchesRoute) return;
 
-    const routeChangedTokenSide =
-      previousRouteState.tokenInSymbol !== routeDrivenFormState.tokenInSymbol
-        ? "from"
-        : previousRouteState.tokenOutSymbol !==
-            routeDrivenFormState.tokenOutSymbol
-          ? "to"
-          : routeDrivenFormState.tokenInSymbol &&
-              routeDrivenFormState.tokenOutSymbol
-            ? "from"
-            : null;
+    const routeChangedTokenSide = getRouteChangedTokenSide(
+      previousRouteState,
+      routeDrivenFormState,
+    );
 
     form.reset({
       ...currentValues,
