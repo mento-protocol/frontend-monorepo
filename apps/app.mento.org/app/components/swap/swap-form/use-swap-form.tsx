@@ -177,43 +177,38 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
       : "";
 
   const initialQuote = canReuseStoredDraft ? formValues?.quote || "" : "";
+  const shouldUseDefaultRouteTokens = !hasRequestedRouteTokens;
+  const routeTokenInSymbol = opts?.initialFrom
+    ? initialTokenInSymbol
+    : shouldUseDefaultRouteTokens
+      ? initialTokenInSymbol
+      : "";
+  const routeTokenOutSymbol = opts?.initialTo
+    ? initialTokenOutSymbol
+    : shouldUseDefaultRouteTokens
+      ? initialTokenOutSymbol
+      : "";
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       amount: initialAmount,
       quote: initialQuote,
-      tokenInSymbol: initialTokenInSymbol,
-      tokenOutSymbol: initialTokenOutSymbol,
+      tokenInSymbol: routeTokenInSymbol,
+      tokenOutSymbol: routeTokenOutSymbol,
       slippage: formValues?.slippage || "0.3",
     },
     mode: "onChange",
   });
 
-  const routeDrivenFormState = useMemo<RouteDrivenFormState>(() => {
-    const shouldUseDefaultRouteTokens = !hasRequestedRouteTokens;
-
-    return {
+  const routeDrivenFormState = useMemo<RouteDrivenFormState>(
+    () => ({
       amount: initialAmount,
-      tokenInSymbol: opts?.initialFrom
-        ? initialTokenInSymbol
-        : shouldUseDefaultRouteTokens
-          ? initialTokenInSymbol
-          : "",
-      tokenOutSymbol: opts?.initialTo
-        ? initialTokenOutSymbol
-        : shouldUseDefaultRouteTokens
-          ? initialTokenOutSymbol
-          : "",
-    };
-  }, [
-    hasRequestedRouteTokens,
-    initialAmount,
-    initialTokenInSymbol,
-    initialTokenOutSymbol,
-    opts?.initialFrom,
-    opts?.initialTo,
-  ]);
+      tokenInSymbol: routeTokenInSymbol,
+      tokenOutSymbol: routeTokenOutSymbol,
+    }),
+    [initialAmount, routeTokenInSymbol, routeTokenOutSymbol],
+  );
   const lastRouteDrivenFormStateRef = useRef<RouteDrivenFormState | null>(null);
 
   const watchedTokenInSymbol = useWatch({
