@@ -1,5 +1,6 @@
 import "./globals.css";
 
+import { Geist, Geist_Mono } from "next/font/google";
 import type { Metadata } from "next";
 import { ClientProviders } from "./components/providers";
 import localFont from "next/font/local";
@@ -10,7 +11,16 @@ import { headers } from "next/headers";
 
 const aspekta = localFont({
   src: "./fonts/AspektaVF.ttf",
-  variable: "--font-sans",
+});
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
 });
 
 export const metadata: Metadata = {
@@ -41,7 +51,7 @@ export default async function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${aspekta.variable} ${aspekta.className} min-h-screen antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${aspekta.className} min-h-screen antialiased`}
       >
         <ClientProviders initialState={initialState}>
           {children}
