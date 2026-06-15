@@ -85,7 +85,7 @@
     "@turbo/gen": "^2.7.5",
     "@types/react": "catalog:",
     "concurrently": "catalog:",
-    "esbuild": "^0.27.2",
+    "esbuild": "^0.28.1",
     "esbuild-plugin-preserve-directives": "catalog:",
     "eslint": "catalog:",
     "postcss": "catalog:",

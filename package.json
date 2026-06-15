@@ -26,7 +26,7 @@
   },
   "resolutions": {
     "brace-expansion": "2.0.3",
-    "esbuild": ">=0.25.0"
+    "esbuild": "0.28.1"
   },
   "devDependencies": {
     "@eslint/js": "catalog:",
@@ -79,6 +79,7 @@
       "color-string@<1.5.5": ">=1.5.5",
       "defu@<6.1.5": ">=6.1.5",
       "diff@<5.2.0": ">=5.2.0",
+      "esbuild": "0.28.1",
       "flatted@<3.4.2": ">=3.4.2",
       "follow-redirects@<1.16.0": ">=1.16.0",
       "form-data@<2.5.4": ">=2.5.4",
