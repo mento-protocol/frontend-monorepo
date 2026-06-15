@@ -23,6 +23,17 @@ import { useSanctionsCheck } from "./use-sanctions-check";
 
 const useAccountMock = vi.mocked(useAccount);
 
+type MockAccountState = {
+  address?: `0x${string}`;
+  isConnected: boolean;
+};
+
+function mockUseAccount(state: MockAccountState) {
+  useAccountMock.mockReturnValue(
+    state as unknown as ReturnType<typeof useAccount>,
+  );
+}
+
 function createWrapper() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -43,10 +54,10 @@ beforeEach(() => {
   toastErrorMock.mockClear();
   vi.unstubAllGlobals();
 
-  useAccountMock.mockReturnValue({
+  mockUseAccount({
     address: undefined,
     isConnected: false,
-  } as ReturnType<typeof useAccount>);
+  });
 });
 
 afterEach(() => {
@@ -65,10 +76,10 @@ describe("useSanctionsCheck", () => {
   });
 
   it("sets isChecking while query is in-flight", async () => {
-    useAccountMock.mockReturnValue({
+    mockUseAccount({
       address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
       isConnected: true,
-    } as ReturnType<typeof useAccount>);
+    });
 
     vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));
 
@@ -86,10 +97,10 @@ describe("useSanctionsCheck", () => {
   });
 
   it("returns isSanctioned: false for a clean address", async () => {
-    useAccountMock.mockReturnValue({
+    mockUseAccount({
       address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
       isConnected: true,
-    } as ReturnType<typeof useAccount>);
+    });
 
     vi.stubGlobal(
       "fetch",
@@ -112,10 +123,10 @@ describe("useSanctionsCheck", () => {
   });
 
   it("disconnects and toasts when address is sanctioned", async () => {
-    useAccountMock.mockReturnValue({
+    mockUseAccount({
       address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
       isConnected: true,
-    } as ReturnType<typeof useAccount>);
+    });
 
     vi.stubGlobal(
       "fetch",
@@ -142,10 +153,10 @@ describe("useSanctionsCheck", () => {
   });
 
   it("sets checkFailed on API error after retries", async () => {
-    useAccountMock.mockReturnValue({
+    mockUseAccount({
       address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
       isConnected: true,
-    } as ReturnType<typeof useAccount>);
+    });
 
     vi.stubGlobal(
       "fetch",
@@ -167,10 +178,10 @@ describe("useSanctionsCheck", () => {
   });
 
   it("treats non-boolean isSanctioned as a failure", async () => {
-    useAccountMock.mockReturnValue({
+    mockUseAccount({
       address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
       isConnected: true,
-    } as ReturnType<typeof useAccount>);
+    });
 
     vi.stubGlobal(
       "fetch",
@@ -193,10 +204,10 @@ describe("useSanctionsCheck", () => {
   });
 
   it("does not disconnect twice for the same address on re-render", async () => {
-    useAccountMock.mockReturnValue({
+    mockUseAccount({
       address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
       isConnected: true,
-    } as ReturnType<typeof useAccount>);
+    });
 
     vi.stubGlobal(
       "fetch",
@@ -224,10 +235,10 @@ describe("useSanctionsCheck", () => {
     const firstAddress = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
     const secondAddress = "0x71C7656EC7ab88b098defB751B7401B5f6d8976F";
 
-    useAccountMock.mockReturnValue({
+    mockUseAccount({
       address: firstAddress,
       isConnected: true,
-    } as ReturnType<typeof useAccount>);
+    });
 
     vi.stubGlobal(
       "fetch",
@@ -247,10 +258,10 @@ describe("useSanctionsCheck", () => {
     expect(disconnectMock).toHaveBeenCalledOnce();
 
     // Switch to a different sanctioned address
-    useAccountMock.mockReturnValue({
+    mockUseAccount({
       address: secondAddress,
       isConnected: true,
-    } as ReturnType<typeof useAccount>);
+    });
 
     await act(async () => rerender());
 
@@ -260,10 +271,10 @@ describe("useSanctionsCheck", () => {
   });
 
   it("stays blocked after sanctioned wallet is disconnected", async () => {
-    useAccountMock.mockReturnValue({
+    mockUseAccount({
       address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
       isConnected: true,
-    } as ReturnType<typeof useAccount>);
+    });
 
     vi.stubGlobal(
       "fetch",
@@ -282,10 +293,10 @@ describe("useSanctionsCheck", () => {
     });
 
     // Simulate disconnect (address becomes undefined)
-    useAccountMock.mockReturnValue({
+    mockUseAccount({
       address: undefined,
       isConnected: false,
-    } as ReturnType<typeof useAccount>);
+    });
 
     await act(async () => rerender());
 
@@ -297,10 +308,10 @@ describe("useSanctionsCheck", () => {
     const sanctionedAddress = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
     const cleanAddress = "0x71C7656EC7ab88b098defB751B7401B5f6d8976F";
 
-    useAccountMock.mockReturnValue({
+    mockUseAccount({
       address: sanctionedAddress,
       isConnected: true,
-    } as ReturnType<typeof useAccount>);
+    });
 
     vi.stubGlobal(
       "fetch",
@@ -327,10 +338,10 @@ describe("useSanctionsCheck", () => {
       }),
     );
 
-    useAccountMock.mockReturnValue({
+    mockUseAccount({
       address: cleanAddress,
       isConnected: true,
-    } as ReturnType<typeof useAccount>);
+    });
 
     await act(async () => rerender());
 
