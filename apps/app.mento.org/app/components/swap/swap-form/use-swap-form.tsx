@@ -239,13 +239,6 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
   const amount = useWatch({ control: form.control, name: "amount" });
   const formQuote = useWatch({ control: form.control, name: "quote" });
 
-  useSwapUrlSync({
-    amount,
-    tokenInSymbol,
-    tokenOutSymbol,
-    urlChainId: formChainId,
-  });
-
   // Token balances
   const fromTokenBalance = useMemo(() => {
     if (!selectedTokenInSymbol) return "0";
@@ -668,6 +661,13 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     });
     setLastChangedToken(routeChangedTokenSide);
   }, [form, formValues?.slippage, routeDrivenFormState, setLastChangedToken]);
+
+  useSwapUrlSync({
+    amount,
+    tokenInSymbol,
+    tokenOutSymbol,
+    urlChainId: formChainId,
+  });
 
   useEffect(() => {
     if (isError) {
