@@ -16,7 +16,12 @@ function normalizeAssetPicker(
   const picker = root.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
   if (!picker) return;
 
-  const label = picker.getAttribute("aria-label")?.trim() || fallbackLabel;
+  const visibleText = compactText(picker);
+  const fallbackWithSelection = visibleText
+    ? `${fallbackLabel}: ${visibleText}`
+    : fallbackLabel;
+  const label =
+    picker.getAttribute("aria-label")?.trim() || fallbackWithSelection;
   setAttributeIfChanged(picker, "aria-label", label);
 }
 

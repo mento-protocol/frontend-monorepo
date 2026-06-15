@@ -24,7 +24,7 @@ describe("patchBridgeWidgetAccessibility", () => {
     ).toBe("Select destination asset");
   });
 
-  it("adds specific fallback labels when the widget omits them", () => {
+  it("adds specific fallback labels with selected assets when the widget omits them", () => {
     const root = document.createElement("div");
     root.innerHTML = `
       <button data-testid="source-asset-picker">USDm</button>
@@ -37,12 +37,12 @@ describe("patchBridgeWidgetAccessibility", () => {
       root
         .querySelector('[data-testid="source-asset-picker"]')
         ?.getAttribute("aria-label"),
-    ).toBe("Select source asset");
+    ).toBe("Select source asset: USDm");
     expect(
       root
         .querySelector('[data-testid="dest-asset-picker"]')
         ?.getAttribute("aria-label"),
-    ).toBe("Select destination asset");
+    ).toBe("Select destination asset: GBPm");
   });
 
   it("labels the unlabeled swap button between asset pickers", () => {
