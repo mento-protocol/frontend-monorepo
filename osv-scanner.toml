@@ -70,6 +70,26 @@ ignoreUntil = 2026-09-01T00:00:00Z
 reason = "protobufjs 6.x advisory — no safe fix path; @confio/ics23@0.6.8 is deprecated and 7.x is an unsafe major jump for Cosmos proof parsing."
 
 [[IgnoredVulns]]
+id = "GHSA-f38q-mgvj-vph7"
+# New protobufjs schema-name shadowing advisory. 7.x/8.x consumers are covered
+# by pnpm overrides; the remaining 6.x instance is the same @confio/ics23
+# wormhole-connect chain documented above, where forcing 7.x is a semver-major
+# jump with Cosmos proof parsing risk.
+# TODO: Re-evaluate at ignoreUntil alongside GHSA-xq3m-2v4x-88gg.
+ignoreUntil = 2026-09-01T00:00:00Z
+reason = "protobufjs 6.x advisory — no safe fix path; remaining instance is @confio/ics23@0.6.8 via wormhole-connect, and 7.x is an unsafe major jump for Cosmos proof parsing."
+
+[[IgnoredVulns]]
+id = "GHSA-wcpc-wj8m-hjx6"
+# New protobufjs Any-expansion DoS advisory. 7.x/8.x consumers are covered by
+# pnpm overrides; the remaining 6.x instance is the same @confio/ics23
+# wormhole-connect chain documented above, where forcing 7.x is a semver-major
+# jump with Cosmos proof parsing risk.
+# TODO: Re-evaluate at ignoreUntil alongside GHSA-xq3m-2v4x-88gg.
+ignoreUntil = 2026-09-01T00:00:00Z
+reason = "protobufjs 6.x advisory — no safe fix path; remaining instance is @confio/ics23@0.6.8 via wormhole-connect, and 7.x is an unsafe major jump for Cosmos proof parsing."
+
+[[IgnoredVulns]]
 id = "GHSA-w5hq-g745-h8pq"
 # uuid: missing buffer bounds check in v3/v5/v6 when a `buf` argument is provided.
 # Fixed upstream in uuid@14.0.0, but uuid@14 is ESM-only. CJS transitive
