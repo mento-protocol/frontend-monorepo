@@ -8,6 +8,20 @@ export function getAvailableTokenSymbol(
   return availableTokens.find((token) => token === value);
 }
 
+export function getDefaultTokenInSymbol(
+  preferredQuoteToken: TokenSymbol | null | undefined,
+  availableTokens: TokenSymbol[],
+): TokenSymbol | undefined {
+  if (
+    preferredQuoteToken &&
+    getAvailableTokenSymbol(preferredQuoteToken, availableTokens)
+  ) {
+    return preferredQuoteToken;
+  }
+
+  return availableTokens[0];
+}
+
 export function getSelectedTokenSymbol(
   watchedValue: string | undefined,
   fallbackValue: string | undefined,
