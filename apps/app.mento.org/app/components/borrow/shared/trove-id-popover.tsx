@@ -26,7 +26,7 @@ export function TroveIdPopover({ troveId }: TroveIdPopoverProps) {
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="p-0 inline-flex cursor-help appearance-none border-0 bg-transparent"
+          className="h-6 w-6 p-0 inline-flex cursor-help appearance-none items-center justify-center border-0 bg-transparent"
           aria-label="View trove ID"
         >
           <Info className="h-4 w-4 text-muted-foreground" />
