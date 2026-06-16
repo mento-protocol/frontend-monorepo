@@ -4,6 +4,7 @@ import { Pie, PieChart, Cell, Sector } from "recharts";
 import { type ChartConfig, ChartContainer } from "./chart.js";
 import { useEffect, useState } from "react";
 import { PieSectorDataItem } from "recharts/types/polar/Pie.js";
+import { useMediaQuery } from "../../hooks/use-media-query.js";
 
 export interface ChartSegment {
   name: string;
@@ -53,6 +54,7 @@ export function ReserveChart({
   activeSegment,
   onActiveChanged,
 }: ReserveChartProps) {
+  const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const [activeSegmentInternal, setActiveSegmentInternal] = useState<
     string | undefined
   >(activeSegment);
@@ -112,6 +114,7 @@ export function ReserveChart({
             data={data}
             dataKey="value"
             nameKey="name"
+            isAnimationActive={!reducedMotion}
             innerRadius="60%" // Adjusted for inner ring space
             outerRadius="90%"
             strokeWidth={0} // stroke="var(--background)"
@@ -154,6 +157,7 @@ export function ReserveChart({
             data={data}
             dataKey="value"
             nameKey="name"
+            isAnimationActive={!reducedMotion}
             innerRadius="55%"
             outerRadius="60%" // Ends where the outer ring begins
             strokeWidth={0}
