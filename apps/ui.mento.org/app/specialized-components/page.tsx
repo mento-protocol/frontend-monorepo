@@ -25,6 +25,8 @@ import {
   ProposalListItem,
   ProposalListItemBody,
   ProposalListItemIndex,
+  BalanceGauge,
+  ReserveChart,
 } from "@repo/ui";
 import Image from "next/image";
 
@@ -126,6 +128,37 @@ export default function SpecializedComponentsPage() {
                 <ProposalListItemBody>Second proposal</ProposalListItemBody>
               </ProposalListItem>
             </ProposalList>
+          </CardContent>
+        </Card>
+        {/* Charts */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Charts</CardTitle>
+            <CardDescription>
+              Reserve and balance visualizations
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="gap-6 flex flex-wrap items-center justify-around">
+            <BalanceGauge
+              token0Percent={33.3}
+              token1Percent={66.7}
+              token0Reserves="333K"
+              token1Reserves="667K"
+              token0Symbol="GBPm"
+              token1Symbol="USDm"
+              exchangeRate="1.33"
+              inputSymbol="GBPm"
+              outputSymbol="USDm"
+            />
+            <div className="h-40 w-40">
+              <ReserveChart
+                data={[
+                  { name: "USDC", value: 40, color: "#3b82f6" },
+                  { name: "CELO", value: 35, color: "#f59e0b" },
+                  { name: "ETH", value: 25, color: "#10b981" },
+                ]}
+              />
+            </div>
           </CardContent>
         </Card>
       </div>

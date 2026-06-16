@@ -1,5 +1,5 @@
 import { argosScreenshot } from "@argos-ci/playwright";
-import { type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 
 import { arm, settle, test, type Theme } from "./fixtures";
 
@@ -51,6 +51,32 @@ const OVERLAYS: Overlay[] = [
     open: async (page) => {
       await page.getByRole("combobox").first().click();
       await page.getByRole("option", { name: "Option 1" }).waitFor();
+    },
+  },
+  {
+    name: "coin-select",
+    url: "/form-components",
+    open: async (page) => {
+      await page.getByRole("combobox").filter({ hasText: "CELO" }).click();
+      await page.getByRole("option", { name: "USDC" }).waitFor();
+    },
+  },
+  {
+    name: "datepicker",
+    url: "/form-components",
+    open: async (page) => {
+      await page.getByRole("button", { name: "1/15/2026" }).click();
+      // The page also has a standalone Calendar grid; wait for the popover's
+      // calendar to bring the count to 2 (unambiguous, vs strict-mode on one).
+      await expect(page.getByRole("grid")).toHaveCount(2);
+    },
+  },
+  {
+    name: "sheet",
+    url: "/interactive-components",
+    open: async (page) => {
+      await page.getByRole("button", { name: "Open Sheet" }).click();
+      await page.getByRole("dialog").waitFor();
     },
   },
 ];

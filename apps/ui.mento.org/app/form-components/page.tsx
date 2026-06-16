@@ -20,8 +20,18 @@ import {
   Slider,
   Calendar,
   CoinInput,
+  CoinSelect,
+  CoinSelectContent,
+  CoinSelectItem,
+  CoinSelectTrigger,
+  CoinSelectValue,
+  Datepicker,
 } from "@repo/ui";
 import { useState } from "react";
+
+// Stable reference — inlining `new Date(...)` would make a fresh object every
+// render and re-trigger Datepicker's value-sync effect.
+const DATEPICKER_DEFAULT_DATE = new Date(2026, 0, 15);
 
 export default function FormComponentsPage() {
   const [sliderValue, setSliderValue] = useState([50]);
@@ -29,6 +39,7 @@ export default function FormComponentsPage() {
   const [radioValue, setRadioValue] = useState("option1");
   const [selectValue, setSelectValue] = useState("");
   const [date, setDate] = useState<Date | undefined>(new Date());
+  const [coin, setCoin] = useState("CELO");
 
   return (
     <div className="gap-8 p-6 flex w-full flex-col">
@@ -146,6 +157,43 @@ export default function FormComponentsPage() {
           </CardHeader>
           <CardContent>
             <CoinInput defaultValue="123.456" />
+          </CardContent>
+        </Card>
+
+        {/* Coin Select */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Coin Select</CardTitle>
+            <CardDescription>Token selector dropdown</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CoinSelect value={coin} onValueChange={setCoin}>
+              <CoinSelectTrigger>
+                <CoinSelectValue />
+              </CoinSelectTrigger>
+              <CoinSelectContent>
+                <CoinSelectItem value="CELO">CELO</CoinSelectItem>
+                <CoinSelectItem value="USDC">USDC</CoinSelectItem>
+                <CoinSelectItem value="USDm">USDm</CoinSelectItem>
+              </CoinSelectContent>
+            </CoinSelect>
+          </CardContent>
+        </Card>
+
+        {/* Datepicker */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Datepicker</CardTitle>
+            <CardDescription>
+              Date selector with calendar popover
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Datepicker
+              value={DATEPICKER_DEFAULT_DATE}
+              onChange={() => {}}
+              formatter={(d) => d.toLocaleDateString("en-US")}
+            />
           </CardContent>
         </Card>
       </div>
