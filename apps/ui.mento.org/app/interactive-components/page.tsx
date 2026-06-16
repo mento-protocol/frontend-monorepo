@@ -20,6 +20,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
   Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "@repo/ui";
 
 export default function InteractiveComponentsPage() {
@@ -95,6 +101,28 @@ export default function InteractiveComponentsPage() {
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
+          </CardContent>
+        </Card>
+
+        {/* Dropdown Menu */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Dropdown Menu</CardTitle>
+            <CardDescription>Action menus</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline">Open Menu</Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem>Edit</DropdownMenuItem>
+                <DropdownMenuItem>Duplicate</DropdownMenuItem>
+                <DropdownMenuItem>Delete</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </CardContent>
         </Card>
       </div>

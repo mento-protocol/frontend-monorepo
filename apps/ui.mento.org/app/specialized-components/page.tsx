@@ -16,6 +16,15 @@ import {
   CoinCardSymbol,
   CommunityCard,
   ProposalStatus,
+  Skeleton,
+  ProposalCard,
+  ProposalCardBody,
+  ProposalCardFooter,
+  ProposalCardHeader,
+  ProposalList,
+  ProposalListItem,
+  ProposalListItemBody,
+  ProposalListItemIndex,
 } from "@repo/ui";
 import Image from "next/image";
 
@@ -69,6 +78,54 @@ export default function SpecializedComponentsPage() {
               <ProposalStatus variant="executed">Executed</ProposalStatus>
               <ProposalStatus variant="canceled">Canceled</ProposalStatus>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Skeleton */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Skeleton</CardTitle>
+            <CardDescription>Loading placeholders</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Skeleton className="h-12 w-12 rounded-full" />
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-4 w-1/2" />
+          </CardContent>
+        </Card>
+
+        {/* Proposal Card */}
+        <ProposalCard>
+          <ProposalCardHeader>
+            <span className="font-medium">Proposal #42</span>
+          </ProposalCardHeader>
+          <ProposalCardBody>
+            <p className="text-sm text-muted-foreground">
+              Increase the stability pool cap to 10M.
+            </p>
+          </ProposalCardBody>
+          <ProposalCardFooter>
+            <ProposalStatus variant="active">Active</ProposalStatus>
+          </ProposalCardFooter>
+        </ProposalCard>
+
+        {/* Proposal List */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Proposal List</CardTitle>
+            <CardDescription>Compact proposal rows</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ProposalList>
+              <ProposalListItem>
+                <ProposalListItemIndex index="1" />
+                <ProposalListItemBody>First proposal</ProposalListItemBody>
+              </ProposalListItem>
+              <ProposalListItem>
+                <ProposalListItemIndex index="2" />
+                <ProposalListItemBody>Second proposal</ProposalListItemBody>
+              </ProposalListItem>
+            </ProposalList>
           </CardContent>
         </Card>
       </div>
