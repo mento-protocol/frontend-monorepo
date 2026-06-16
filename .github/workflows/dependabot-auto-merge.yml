@@ -6,8 +6,8 @@ name: Dependabot auto-merge
 # 7-day cooldown (see dependabot.yml), have zero runtime/blast-radius impact
 # on the shipped apps, and are exactly the tier monitoring-monorepo already
 # auto-merges. npm tiers (web3-stack, frontend-core, ui-styling, prod patch)
-# are intentionally NOT handled yet — expand the `ecosystem` gate below once
-# Phase 1 has proven itself.
+# are intentionally NOT handled yet — widen the package-ecosystem gate below
+# once Phase 1 has proven itself.
 #
 # WHY THIS DIFFERS FROM monitoring-monorepo's workflow: this repo's `main`
 # ruleset requires 1 approving review in ADDITION to the `Build and Test`
@@ -15,10 +15,14 @@ name: Dependabot auto-merge
 # bot approval is required or nothing ever merges. The github-actions[bot]
 # approval (a different actor than dependabot[bot]) satisfies the rule.
 #
-# The job only runs `gh pr review` / `gh pr merge --auto` — no checkout, no
-# execution against the PR head — so `pull_request` is safe even though
-# Dependabot PRs carry external commits. The merge still waits for every
-# required status check in the branch ruleset.
+# TWO-JOB SPLIT (supply-chain hardening): the third-party fetch-metadata
+# action runs in a READ-ONLY `metadata` job. Under `pull_request`, a
+# Dependabot PR that bumps dependabot/fetch-metadata's own pin would run the
+# PR's bumped action — so we never give that step a write token. The
+# `auto-merge` job that approves/merges holds the write scopes but contains
+# NO third-party `uses:` (only `gh`), so a compromised action pin and the
+# write token never coexist. (The dependabot/* exclusion below still keeps
+# such self-bumps manual; the cooldown buys detection time.)
 #
 # Workflow-injection hygiene: every PR-derived value is passed through env:
 # instead of being interpolated into run: scripts.
@@ -32,7 +36,7 @@ on:
     types: [opened, synchronize]
 
 # checkov (CKV2_GHA_1) requires a top-level read-all. Job-level permissions
-# REPLACE this, so the auto-merge job sets exactly the write scopes it needs.
+# REPLACE this, so each job sets exactly the scopes it needs.
 permissions: read-all
 
 # Per-PR concurrency so rapid `synchronize` events (Dependabot rebasing on
@@ -43,13 +47,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  auto-merge:
-    if: github.event.pull_request.user.login == 'dependabot[bot]'
+  metadata:
+    # Author check (it's a Dependabot PR) AND actor check (THIS event was
+    # triggered by Dependabot, not a human pushing an extra commit to the
+    # branch — a `synchronize` from a maintainer keeps user.login as
+    # dependabot[bot], so the actor gate is what blocks approving a
+    # human-modified diff).
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]'
+      && github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 2
+    # READ-ONLY: the third-party action runs here with no write token.
     permissions:
-      contents: write # enable auto-merge
-      pull-requests: write # approve + enable auto-merge
+      pull-requests: read
+    outputs:
+      package-ecosystem: ${{ steps.meta.outputs.package-ecosystem }}
+      update-type: ${{ steps.meta.outputs.update-type }}
+      dependency-names: ${{ steps.meta.outputs.dependency-names }}
+      maintainer-changes: ${{ steps.meta.outputs.maintainer-changes }}
     steps:
       - name: Fetch Dependabot metadata
         id: meta
@@ -61,36 +77,46 @@ jobs:
 
       - name: Log classification
         env:
-          ECOSYSTEM: ${{ steps.meta.outputs.ecosystem }}
+          PACKAGE_ECOSYSTEM: ${{ steps.meta.outputs.package-ecosystem }}
           UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
           DEPENDENCY_NAMES: ${{ steps.meta.outputs.dependency-names }}
           DEPENDENCY_GROUP: ${{ steps.meta.outputs.dependency-group }}
           MAINTAINER_CHANGES: ${{ steps.meta.outputs.maintainer-changes }}
         run: |
-          echo "ecosystem:          $ECOSYSTEM"
+          echo "package-ecosystem:  $PACKAGE_ECOSYSTEM"
           echo "update-type:        $UPDATE_TYPE"
           echo "dependency-names:   $DEPENDENCY_NAMES"
           echo "dependency-group:   $DEPENDENCY_GROUP"
           echo "maintainer-changes: $MAINTAINER_CHANGES"
 
-      - name: Approve and enable auto-merge for low-risk GitHub Actions bumps
-        # Gates, all must hold:
-        #   1. ecosystem == github_actions — Phase 1 scope. npm PRs fall
-        #      through untouched (stay manual).
-        #   2. update-type is explicitly minor or patch. Positive allowlist
-        #      (not `!= major`) so unparsable versions / future classifications
-        #      fail CLOSED. fetch-metadata returns '' when it can't parse.
-        #   3. maintainer-changes not set — supply-chain ownership tripwire.
-        #   4. Not bumping anthropics/* (the claude-code-review reviewer) or
-        #      dependabot/* (fetch-metadata classifies THIS workflow) — both
-        #      are self-loops. Mirrors the exclude-patterns in dependabot.yml.
-        if: |
-          steps.meta.outputs.ecosystem == 'github_actions'
-          && (steps.meta.outputs.update-type == 'version-update:semver-minor'
-              || steps.meta.outputs.update-type == 'version-update:semver-patch')
-          && steps.meta.outputs.maintainer-changes != 'true'
-          && !contains(steps.meta.outputs.dependency-names, 'anthropics/')
-          && !contains(steps.meta.outputs.dependency-names, 'dependabot/')
+  auto-merge:
+    needs: metadata
+    # Gates, all must hold (a skipped `metadata` job — failed author/actor
+    # check — skips this job too, so the actor gate protects both):
+    #   1. package-ecosystem == github_actions — Phase 1 scope. npm PRs fall
+    #      through untouched (stay manual).
+    #   2. update-type is explicitly minor or patch. Positive allowlist
+    #      (not `!= major`) so unparsable versions / future classifications
+    #      fail CLOSED. fetch-metadata returns '' when it can't parse.
+    #   3. maintainer-changes not set — supply-chain ownership tripwire.
+    #   4. Not bumping anthropics/* (the claude-code-review reviewer) or
+    #      dependabot/* (fetch-metadata classifies THIS workflow) — self-loops.
+    #      Mirrors the exclude-patterns in dependabot.yml.
+    if: >-
+      needs.metadata.outputs.package-ecosystem == 'github_actions'
+      && (needs.metadata.outputs.update-type == 'version-update:semver-minor'
+          || needs.metadata.outputs.update-type == 'version-update:semver-patch')
+      && needs.metadata.outputs.maintainer-changes != 'true'
+      && !contains(needs.metadata.outputs.dependency-names, 'anthropics/')
+      && !contains(needs.metadata.outputs.dependency-names, 'dependabot/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    # WRITE scopes live here — but this job runs no third-party `uses:`.
+    permissions:
+      contents: write # enable auto-merge
+      pull-requests: write # approve + enable auto-merge
+    steps:
+      - name: Approve and enable auto-merge
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
