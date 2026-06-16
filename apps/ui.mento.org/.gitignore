@@ -13,6 +13,12 @@
 # testing
 /coverage
 
+# playwright / argos visual regression (baselines live in Argos cloud, not git)
+/test-results/
+/playwright-report/
+/playwright/.cache/
+/screenshots/
+
 # next.js
 /.next/
 /out/

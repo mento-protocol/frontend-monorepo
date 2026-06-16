@@ -19,6 +19,10 @@
       "ignoreDependencies": ["pino-pretty"]
     },
     "apps/reserve.mento.org": {},
+    "apps/ui.mento.org": {
+      "entry": ["e2e/**/*.spec.ts"],
+      "project": "{app,e2e}/**/*.{mjs,tsx,ts}"
+    },
     "packages/*": {
       "project": "**/*.{ts,tsx}"
     },
