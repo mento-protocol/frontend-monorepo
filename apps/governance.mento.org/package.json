@@ -21,7 +21,7 @@
     "@repo/web3": "workspace:*",
     "@sentry/nextjs": "catalog:",
     "@t3-oss/env-nextjs": "catalog:",
-    "@tailwindcss/typography": "^0.5.19",
+    "@tailwindcss/typography": "^0.5.20",
     "@tanstack/react-query": "catalog:",
     "@types/turndown": "^5.0.6",
     "@vercel/analytics": "catalog:",
