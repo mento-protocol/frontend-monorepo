@@ -28,7 +28,7 @@ const animatedRegions = (page: Page): Locator[] => [
 ];
 
 // Applied before navigation — order matters (all before app scripts run).
-async function arm(page: Page, theme: Theme): Promise<void> {
+export async function arm(page: Page, theme: Theme): Promise<void> {
   // Fix displayed time (calendar default month, any relative timestamps)
   // WITHOUT faking timers — clock.install() would stall React hydration;
   // setFixedTime only pins Date/Date.now.
@@ -58,7 +58,7 @@ async function arm(page: Page, theme: Theme): Promise<void> {
   }, theme);
 }
 
-async function settle(page: Page, theme: Theme): Promise<void> {
+export async function settle(page: Page, theme: Theme): Promise<void> {
   await page.waitForLoadState("networkidle");
   // The resolved theme must be on <html> before capture (next-themes is
   // two-phase; the SidebarProvider also shifts one frame post-hydration).
@@ -67,8 +67,13 @@ async function settle(page: Page, theme: Theme): Promise<void> {
   );
   // Vendored Inter must be ready so text never snapshots in a fallback face.
   await page.evaluate(() => document.fonts.ready);
-  // Stable scrollbar gutter — Linux/Docker scrollbars shift layout vs macOS.
-  await page.addStyleTag({ content: "html{scrollbar-gutter:stable}" });
+  // Stable scrollbar gutter (Linux/Docker scrollbars shift layout vs macOS) +
+  // kill animations/transitions so opened overlays (Radix dialogs/menus/
+  // popovers) snap to their final state instead of being caught mid-animation.
+  await page.addStyleTag({
+    content:
+      "html{scrollbar-gutter:stable}*,*::before,*::after{animation-duration:0s!important;animation-delay:0s!important;transition-duration:0s!important;transition-delay:0s!important}",
+  });
 }
 
 export async function snapshotPage(

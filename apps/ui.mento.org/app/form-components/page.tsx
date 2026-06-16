@@ -19,6 +19,7 @@ import {
   SelectValue,
   Slider,
   Calendar,
+  CoinInput,
 } from "@repo/ui";
 import { useState } from "react";
 
@@ -134,6 +135,17 @@ export default function FormComponentsPage() {
               onSelect={setDate}
               className="rounded-md border"
             />
+          </CardContent>
+        </Card>
+
+        {/* Coin Input */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Coin Input</CardTitle>
+            <CardDescription>Numeric token amount input</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CoinInput defaultValue="123.456" />
           </CardContent>
         </Card>
       </div>
