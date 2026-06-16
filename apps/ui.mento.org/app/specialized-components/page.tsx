@@ -16,6 +16,17 @@ import {
   CoinCardSymbol,
   CommunityCard,
   ProposalStatus,
+  Skeleton,
+  ProposalCard,
+  ProposalCardBody,
+  ProposalCardFooter,
+  ProposalCardHeader,
+  ProposalList,
+  ProposalListItem,
+  ProposalListItemBody,
+  ProposalListItemIndex,
+  BalanceGauge,
+  ReserveChart,
 } from "@repo/ui";
 import Image from "next/image";
 
@@ -68,6 +79,85 @@ export default function SpecializedComponentsPage() {
               <ProposalStatus variant="queued">Queued</ProposalStatus>
               <ProposalStatus variant="executed">Executed</ProposalStatus>
               <ProposalStatus variant="canceled">Canceled</ProposalStatus>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Skeleton */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Skeleton</CardTitle>
+            <CardDescription>Loading placeholders</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Skeleton className="h-12 w-12 rounded-full" />
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-4 w-1/2" />
+          </CardContent>
+        </Card>
+
+        {/* Proposal Card */}
+        <ProposalCard>
+          <ProposalCardHeader>
+            <span className="font-medium">Proposal #42</span>
+          </ProposalCardHeader>
+          <ProposalCardBody>
+            <p className="text-sm text-muted-foreground">
+              Increase the stability pool cap to 10M.
+            </p>
+          </ProposalCardBody>
+          <ProposalCardFooter>
+            <ProposalStatus variant="active">Active</ProposalStatus>
+          </ProposalCardFooter>
+        </ProposalCard>
+
+        {/* Proposal List */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Proposal List</CardTitle>
+            <CardDescription>Compact proposal rows</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ProposalList>
+              <ProposalListItem>
+                <ProposalListItemIndex index="1" />
+                <ProposalListItemBody>First proposal</ProposalListItemBody>
+              </ProposalListItem>
+              <ProposalListItem>
+                <ProposalListItemIndex index="2" />
+                <ProposalListItemBody>Second proposal</ProposalListItemBody>
+              </ProposalListItem>
+            </ProposalList>
+          </CardContent>
+        </Card>
+        {/* Charts */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Charts</CardTitle>
+            <CardDescription>
+              Reserve and balance visualizations
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="gap-6 flex flex-wrap items-center justify-around">
+            <BalanceGauge
+              token0Percent={33.3}
+              token1Percent={66.7}
+              token0Reserves="333K"
+              token1Reserves="667K"
+              token0Symbol="GBPm"
+              token1Symbol="USDm"
+              exchangeRate="1.33"
+              inputSymbol="GBPm"
+              outputSymbol="USDm"
+            />
+            <div className="h-40 w-40">
+              <ReserveChart
+                data={[
+                  { name: "USDC", value: 40, color: "#3b82f6" },
+                  { name: "CELO", value: 35, color: "#f59e0b" },
+                  { name: "ETH", value: 25, color: "#10b981" },
+                ]}
+              />
             </div>
           </CardContent>
         </Card>

@@ -52,6 +52,20 @@ Always use `--filter` to avoid building/running everything unnecessarily.
 2. Run `trunk check --fix` — confirm linting passes
 3. Verify changes visually on localhost (check the app's package.json `dev` script for the port)
 
+## Visual Regression Testing
+
+Two layers guard against unintended UI changes:
+
+- **DOM/aria snapshots** (`@repo/ui`) — run inside the normal `turbo test` step. After an _intended_ component change, re-record baselines with `pnpm --filter @repo/ui exec vitest run -u`.
+- **Pixel VRT** (`ui.mento.org` showcase) — Playwright + Argos, in CI via `.github/workflows/visual.yml` (pinned Playwright Docker image; baselines live in Argos, not git). Run locally:
+
+  ```bash
+  turbo build --filter=ui.mento.org       # build the showcase first
+  pnpm --filter ui.mento.org test:visual  # Playwright starts `next start` and captures
+  ```
+
+  An intended UI change shows as a diff in the Argos dashboard — approve it there to promote the baseline. Requires the `ARGOS_TOKEN` secret + the Argos GitHub App; `NEXT_PUBLIC_STORAGE_URL` must be set (CI uses `vars.STORAGE_URL`; locally use `apps/ui.mento.org/.env.local`).
+
 ## Coding Conventions
 
 - **Naming:** PascalCase for components, camelCase for variables/functions

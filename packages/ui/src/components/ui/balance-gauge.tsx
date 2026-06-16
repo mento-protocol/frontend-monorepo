@@ -2,6 +2,7 @@
 
 import { Cell, Pie, PieChart } from "recharts";
 import { type ChartConfig, ChartContainer } from "./chart.js";
+import { usePrefersReducedMotion } from "../../hooks/use-prefers-reduced-motion.js";
 
 /** Needle rendered as a custom SVG element inside the PieChart */
 function GaugeNeedle({
@@ -84,6 +85,10 @@ export function BalanceGauge({
   primaryColor = "var(--primary)",
   secondaryColor = "var(--primary-border)",
 }: BalanceGaugeProps) {
+  // Disable the recharts mount animation for users who prefer reduced motion —
+  // also makes the chart deterministic under visual-regression tests, which
+  // emulate prefers-reduced-motion.
+  const reducedMotion = usePrefersReducedMotion();
   const gaugeData = [
     { name: "token0", value: token0Percent },
     { name: "token1", value: token1Percent },
@@ -114,6 +119,7 @@ export function BalanceGauge({
               data={gaugeData}
               dataKey="value"
               nameKey="name"
+              isAnimationActive={!reducedMotion}
               cx="50%"
               cy="100%"
               startAngle={180}

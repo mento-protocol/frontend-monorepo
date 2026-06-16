@@ -10,6 +10,7 @@
     "lint": "npx @trunkio/launcher check .",
     "start": "next start",
     "test": "vitest run",
+    "test:visual": "playwright test",
     "test:watch": "vitest"
   },
   "dependencies": {
@@ -43,6 +44,8 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@argos-ci/playwright": "7.0.6",
+    "@playwright/test": "1.61.0",
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@repo/vitest-config": "workspace:*",

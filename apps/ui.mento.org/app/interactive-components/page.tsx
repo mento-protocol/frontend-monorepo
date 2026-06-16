@@ -20,9 +20,23 @@ import {
   TooltipProvider,
   TooltipTrigger,
   Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
 } from "@repo/ui";
+import { useState } from "react";
 
 export default function InteractiveComponentsPage() {
+  const [sheetOpen, setSheetOpen] = useState(false);
+
   return (
     <div className="gap-8 p-6 flex w-full flex-col">
       <div className="space-y-2">
@@ -95,6 +109,49 @@ export default function InteractiveComponentsPage() {
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
+          </CardContent>
+        </Card>
+
+        {/* Dropdown Menu */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Dropdown Menu</CardTitle>
+            <CardDescription>Action menus</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline">Open Menu</Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem>Edit</DropdownMenuItem>
+                <DropdownMenuItem>Duplicate</DropdownMenuItem>
+                <DropdownMenuItem>Delete</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </CardContent>
+        </Card>
+
+        {/* Sheet */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Sheet</CardTitle>
+            <CardDescription>Slide-over panels</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="outline" onClick={() => setSheetOpen(true)}>
+              Open Sheet
+            </Button>
+            <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+              <SheetContent>
+                <SheetHeader>
+                  <SheetTitle>Sheet Title</SheetTitle>
+                  <SheetDescription>A slide-over panel.</SheetDescription>
+                </SheetHeader>
+              </SheetContent>
+            </Sheet>
           </CardContent>
         </Card>
       </div>
