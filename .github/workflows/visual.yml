@@ -9,7 +9,7 @@ on:
 permissions: read-all
 
 # Cancel superseded visual runs on the same ref — VRT is expensive (Docker
-# pull + build + 24 screenshots) and rapid pushes shouldn't pile up.
+# pull + build + screenshots) and rapid pushes shouldn't pile up.
 concurrency:
   group: visual-${{ github.ref }}
   cancel-in-progress: true
@@ -21,9 +21,13 @@ env:
 
 jobs:
   visual:
-    name: Visual Regression (ui.mento.org)
-    timeout-minutes: 20
+    name: Visual Regression (${{ matrix.app }})
+    timeout-minutes: 25
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [ui.mento.org, app.mento.org]
     # Render in the SAME pinned image used to generate baselines — the CI
     # render must equal the baseline render (font subpixel rendering is the #1
     # false-positive source). Tag must match @playwright/test in package.json.
@@ -33,7 +37,15 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.61.0-noble
 
     env:
+      # ui.mento.org needs only STORAGE_URL; app.mento.org additionally needs a
+      # WalletConnect id + sanctions test-mode, and we disable Sentry entirely
+      # (empty DSN) for a clean, network-free render. Extra vars are harmless to
+      # whichever app doesn't use them. The fixtures block all external network.
       NEXT_PUBLIC_STORAGE_URL: ${{ vars.STORAGE_URL }}
+      NEXT_PUBLIC_WALLET_CONNECT_ID: ${{ vars.WALLET_CONNECT_ID }}
+      NEXT_PUBLIC_SANCTIONS_TEST_MODE: "true"
+      NEXT_PUBLIC_SENTRY_DSN_SWAP: ""
+      SENTRY_AUTH_TOKEN: ""
       ARGOS_TOKEN: ${{ secrets.ARGOS_TOKEN }}
 
     steps:
@@ -66,8 +78,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Build showcase
-        run: pnpm turbo build --filter=ui.mento.org
+      - name: Build app
+        run: pnpm turbo build --filter=${{ matrix.app }}
 
       - name: Visual regression (Playwright + Argos)
-        run: pnpm --filter ui.mento.org test:visual
+        run: pnpm --filter ${{ matrix.app }} test:visual
