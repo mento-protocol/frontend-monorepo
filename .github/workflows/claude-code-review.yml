@@ -14,7 +14,20 @@ permissions: read-all
 
 jobs:
   claude-review:
-    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    # Review human PRs (as before) AND Dependabot PRs — EXCEPT the
+    # github-actions tier. That tier is auto-merged (see
+    # dependabot-auto-merge.yml), and `gh pr merge --auto` waits only on the
+    # required checks, so this advisory review would land on an
+    # already-merged PR — decorative cost/noise. The npm tiers stay manual,
+    # so AI review there gives a human something to read before merging.
+    #
+    # REQUIRES `CLAUDE_CODE_OAUTH_TOKEN` in the *Dependabot* secrets store
+    # (Settings → Secrets and variables → Dependabot): Dependabot-triggered
+    # runs do NOT receive Actions secrets, so without it the action runs with
+    # an empty token and fails.
+    if: >-
+      github.event.pull_request.user.login != 'dependabot[bot]'
+      || !startsWith(github.head_ref, 'dependabot/github_actions/')
 
     runs-on: ubuntu-latest
     permissions:
