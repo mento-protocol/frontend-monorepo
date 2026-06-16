@@ -29,6 +29,10 @@ import {
 } from "@repo/ui";
 import { useState } from "react";
 
+// Stable reference — inlining `new Date(...)` would make a fresh object every
+// render and re-trigger Datepicker's value-sync effect.
+const DATEPICKER_DEFAULT_DATE = new Date(2026, 0, 15);
+
 export default function FormComponentsPage() {
   const [sliderValue, setSliderValue] = useState([50]);
   const [checkboxChecked, setCheckboxChecked] = useState(false);
@@ -186,7 +190,7 @@ export default function FormComponentsPage() {
           </CardHeader>
           <CardContent>
             <Datepicker
-              value={new Date(2026, 0, 15)}
+              value={DATEPICKER_DEFAULT_DATE}
               onChange={() => {}}
               formatter={(d) => d.toLocaleDateString("en-US")}
             />
