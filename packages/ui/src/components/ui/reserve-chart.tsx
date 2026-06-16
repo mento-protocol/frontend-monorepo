@@ -4,7 +4,7 @@ import { Pie, PieChart, Cell, Sector } from "recharts";
 import { type ChartConfig, ChartContainer } from "./chart.js";
 import { useEffect, useState } from "react";
 import { PieSectorDataItem } from "recharts/types/polar/Pie.js";
-import { useMediaQuery } from "../../hooks/use-media-query.js";
+import { usePrefersReducedMotion } from "../../hooks/use-prefers-reduced-motion.js";
 
 export interface ChartSegment {
   name: string;
@@ -54,7 +54,7 @@ export function ReserveChart({
   activeSegment,
   onActiveChanged,
 }: ReserveChartProps) {
-  const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const reducedMotion = usePrefersReducedMotion();
   const [activeSegmentInternal, setActiveSegmentInternal] = useState<
     string | undefined
   >(activeSegment);
