@@ -1,0 +1,67 @@
+name: Visual Regression
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize]
+
+permissions: read-all
+
+env:
+  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+
+jobs:
+  visual:
+    name: Visual Regression (ui.mento.org)
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    # Render in the SAME pinned image used to generate baselines — the CI
+    # render must equal the baseline render (font subpixel rendering is the #1
+    # false-positive source). Tag must match @playwright/test in package.json.
+    # NOTE: deliberate divergence from the deployment_status smoke-tests, which
+    # run against the live Vercel preview; that render env is not byte-pinnable.
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.0-noble
+
+    env:
+      NEXT_PUBLIC_STORAGE_URL: ${{ vars.STORAGE_URL }}
+      ARGOS_TOKEN: ${{ secrets.ARGOS_TOKEN }}
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0 # full history so Argos can compute the merge-base baseline
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@739bfe42ca9233c5e6aca07c1a25a9d34aca49b0 # v4
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build showcase
+        run: pnpm turbo build --filter=ui.mento.org
+
+      - name: Visual regression (Playwright + Argos)
+        run: pnpm --filter ui.mento.org test:visual
