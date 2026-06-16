@@ -16,11 +16,13 @@ const PLACEHOLDER_PNG = Buffer.from(
 // the storage CDN returns a fixed placeholder.
 async function blockNetwork(page: Page): Promise<void> {
   await page.route("**/*", (route) => {
-    const host = new URL(route.request().url()).host;
-    if (host.startsWith("localhost") || host.startsWith("127.0.0.1")) {
+    const { hostname } = new URL(route.request().url());
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
       return route.continue();
     }
-    if (host.endsWith("public.blob.vercel-storage.com")) {
+    // Leading dot so only real subdomains of the storage host match
+    // (`x.public.blob.vercel-storage.com`), not `evilpublic.blob...`.
+    if (hostname.endsWith(".public.blob.vercel-storage.com")) {
       return route.fulfill({
         status: 200,
         contentType: "image/png",
