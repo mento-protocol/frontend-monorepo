@@ -8,6 +8,12 @@ on:
 
 permissions: read-all
 
+# Cancel superseded visual runs on the same ref — VRT is expensive (Docker
+# pull + build + 24 screenshots) and rapid pushes shouldn't pile up.
+concurrency:
+  group: visual-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   TURBO_TEAM: ${{ vars.TURBO_TEAM }}
   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
