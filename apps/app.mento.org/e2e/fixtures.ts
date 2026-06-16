@@ -15,19 +15,37 @@ const PLACEHOLDER_PNG = Buffer.from(
 // / Merkl / Sentry / analytics / WalletConnect. Same-origin assets pass through;
 // the storage CDN returns a fixed placeholder.
 async function blockNetwork(page: Page): Promise<void> {
+  // Leading dot so only real subdomains of the storage host match
+  // (`x.public.blob.vercel-storage.com`), not `evilpublic.blob...`.
+  const isCdnHost = (h: string): boolean =>
+    h.endsWith(".public.blob.vercel-storage.com");
+  const placeholder = () =>
+    ({ status: 200, contentType: "image/png", body: PLACEHOLDER_PNG }) as const;
+
   await page.route("**/*", (route) => {
-    const { hostname } = new URL(route.request().url());
+    const url = new URL(route.request().url());
+    const { hostname, pathname } = url;
     if (hostname === "localhost" || hostname === "127.0.0.1") {
+      // Same-origin Next.js API routes (e.g. /api/merkl) proxy to live external
+      // services SERVER-side, which page.route can't intercept — block them so
+      // the shell renders its deterministic empty/default state.
+      if (pathname.startsWith("/api/")) {
+        return route.abort();
+      }
+      // next/image proxies remote images through /_next/image (a SERVER-side
+      // fetch of the CDN), so stub the CDN-backed ones — otherwise the baseline
+      // depends on live CDN content. Local images optimize deterministically.
+      if (pathname === "/_next/image") {
+        const target = url.searchParams.get("url") ?? "";
+        const targetHost = URL.canParse(target) ? new URL(target).hostname : "";
+        if (isCdnHost(targetHost)) {
+          return route.fulfill(placeholder());
+        }
+      }
       return route.continue();
     }
-    // Leading dot so only real subdomains of the storage host match
-    // (`x.public.blob.vercel-storage.com`), not `evilpublic.blob...`.
-    if (hostname.endsWith(".public.blob.vercel-storage.com")) {
-      return route.fulfill({
-        status: 200,
-        contentType: "image/png",
-        body: PLACEHOLDER_PNG,
-      });
+    if (isCdnHost(hostname)) {
+      return route.fulfill(placeholder());
     }
     return route.abort();
   });
