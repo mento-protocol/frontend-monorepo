@@ -1,0 +1,33 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Input > renders the 'default' state unchanged 1`] = `
+<input
+  class="shadow-xs h-9 min-w-0 px-3 py-1 text-base file:h-7 file:text-sm file:font-medium md:text-sm flex w-full rounded-none border border-input bg-transparent transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground file:inline-flex file:border-0 file:bg-transparent file:text-foreground placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-within:border-primary focus:border-primary aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40"
+  data-slot="input"
+/>
+`;
+
+exports[`Input > renders the 'disabled' state unchanged 1`] = `
+<input
+  class="shadow-xs h-9 min-w-0 px-3 py-1 text-base file:h-7 file:text-sm file:font-medium md:text-sm flex w-full rounded-none border border-input bg-transparent transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground file:inline-flex file:border-0 file:bg-transparent file:text-foreground placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-within:border-primary focus:border-primary aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40"
+  data-slot="input"
+  disabled=""
+/>
+`;
+
+exports[`Input > renders the 'invalid' state unchanged 1`] = `
+<input
+  aria-invalid="true"
+  class="shadow-xs h-9 min-w-0 px-3 py-1 text-base file:h-7 file:text-sm file:font-medium md:text-sm flex w-full rounded-none border border-input bg-transparent transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground file:inline-flex file:border-0 file:bg-transparent file:text-foreground placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-within:border-primary focus:border-primary aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40"
+  data-slot="input"
+/>
+`;
+
+exports[`Input > renders the 'text' state unchanged 1`] = `
+<input
+  class="shadow-xs h-9 min-w-0 px-3 py-1 text-base file:h-7 file:text-sm file:font-medium md:text-sm flex w-full rounded-none border border-input bg-transparent transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground file:inline-flex file:border-0 file:bg-transparent file:text-foreground placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-within:border-primary focus:border-primary aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40"
+  data-slot="input"
+  placeholder="Search"
+  type="text"
+/>
+`;

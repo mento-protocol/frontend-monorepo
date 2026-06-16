@@ -1,0 +1,55 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`CoinCard > renders a composed coin card unchanged 1`] = `
+<div
+  class="bg-card text-card-foreground flex flex-col w-full gap-6 py-4 md:max-w-xs"
+  data-slot="coin-card"
+>
+  <div
+    class="gap-6 px-4 flex flex-row items-start"
+    data-slot="coin-card-header"
+  >
+    <div
+      class="p-0"
+      data-slot="card-logo"
+    />
+    <div
+      class=""
+      data-slot="coin-card-header-group"
+    >
+      <div
+        class="text-xl font-medium"
+        data-slot="card-symbol"
+      >
+        USDm
+      </div>
+      <div
+        class="text-sm leading-5 text-muted-foreground"
+        data-slot="card-name"
+      >
+        Mento US Dollar
+      </div>
+    </div>
+  </div>
+  <div
+    class="gap-2 px-4 md:gap-6 flex flex-row items-center"
+    data-slot="card-footer"
+  >
+    <div
+      class="gap-2 flex flex-col"
+      data-slot="coin-card-supply"
+    >
+      <span
+        class="text-sm text-muted-foreground"
+      >
+        Supply:
+      </span>
+      <span
+        class="text-sm md:text-base leading-none"
+      >
+        1,000,000
+      </span>
+    </div>
+  </div>
+</div>
+`;

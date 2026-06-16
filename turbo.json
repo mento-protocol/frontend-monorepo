@@ -6,6 +6,7 @@
     "ETHERSCAN_API_KEY",
     "NODE_ENV",
     "NEXT_PUBLIC_STORAGE_URL",
+    "ARGOS_TOKEN",
     "NEXT_PUBLIC_USE_FORK",
     "NEXT_PUBLIC_ENABLE_DEBUG",
     "NEXT_PUBLIC_RPC_URL",
@@ -38,6 +39,10 @@
     "test:coverage": {
       "dependsOn": ["^build"],
       "outputs": ["coverage/**"],
+      "cache": false
+    },
+    "test:visual": {
+      "dependsOn": ["build"],
       "cache": false
     },
     "dev": {

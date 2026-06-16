@@ -30,6 +30,7 @@
     "dev:js": "tsup --watch",
     "generate:component": "turbo gen react-component",
     "lint": "eslint . --max-warnings 100",
+    "test": "vitest run",
     "watch": "pnpm dev"
   },
   "dependencies": {
@@ -80,16 +81,21 @@
   "devDependencies": {
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
+    "@repo/vitest-config": "workspace:*",
     "@tailwindcss/cli": "^4.1.18",
     "@tailwindcss/postcss": "catalog:",
+    "@testing-library/react": "^16.3.0",
     "@turbo/gen": "^2.7.5",
     "@types/react": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "concurrently": "catalog:",
     "esbuild": "^0.28.1",
     "esbuild-plugin-preserve-directives": "catalog:",
     "eslint": "catalog:",
+    "jsdom": "^26.1.0",
     "postcss": "catalog:",
     "tsup": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

@@ -12,13 +12,19 @@
       "project": "app/**/*.{mjs,tsx,ts}"
     },
     "apps/app.mento.org": {
-      "ignoreDependencies": ["pino-pretty"]
+      "entry": ["e2e/**/*.spec.ts"],
+      "project": "{app,e2e}/**/*.{mjs,tsx,ts}",
+      "ignoreDependencies": ["pino-pretty", "tailwindcss"]
     },
     "apps/governance.mento.org": {
       "entry": ["app/middleware.ts"],
       "ignoreDependencies": ["pino-pretty"]
     },
     "apps/reserve.mento.org": {},
+    "apps/ui.mento.org": {
+      "entry": ["e2e/**/*.spec.ts"],
+      "project": "{app,e2e}/**/*.{mjs,tsx,ts}"
+    },
     "packages/*": {
       "project": "**/*.{ts,tsx}"
     },

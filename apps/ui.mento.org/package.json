@@ -9,7 +9,8 @@
     "clean": "rm -rf .next && rm -rf .turbo",
     "dev": "next dev --turbopack --port 3003",
     "lint": "npx @trunkio/launcher check .",
-    "start": "next start"
+    "start": "next start",
+    "test:visual": "playwright test"
   },
   "dependencies": {
     "@repo/ui": "workspace:*",
@@ -22,6 +23,8 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@argos-ci/playwright": "7.0.6",
+    "@playwright/test": "1.61.0",
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@tailwindcss/postcss": "catalog:",
