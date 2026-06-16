@@ -1,8 +1,11 @@
 import { snapshotPage, test, type Theme } from "./fixtures";
 
-// Every @repo/ui component is mounted across these 6 data-free showcase pages.
-// A logic-only PR must leave all of these screenshots unchanged; any @repo/ui
-// or markup change surfaces as a reviewable Argos diff.
+// These 6 data-free showcase pages mount the @repo/ui components in their
+// default (closed/resting) states. A logic-only PR must leave all of these
+// screenshots unchanged; any @repo/ui or markup change to a covered component
+// surfaces as a reviewable Argos diff. Coverage is not exhaustive: some
+// exported components are not mounted here, and overlay/open states (dialog,
+// popover, tooltip, dropdown, select) render only behind closed triggers.
 const PAGES = [
   { url: "/basic-components", name: "basic-components" },
   { url: "/form-components", name: "form-components" },
