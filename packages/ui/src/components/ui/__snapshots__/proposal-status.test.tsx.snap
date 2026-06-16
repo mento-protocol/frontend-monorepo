@@ -1,0 +1,73 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ProposalStatus > renders the active variant unchanged 1`] = `
+<div
+  class="min-w-[72px] max-w-24 w-full h-8 flex flex-row items-center justify-center gap-0 text-xs lg:text-sm capitalize shrink-0 bg-active"
+  data-slot="div"
+>
+  active
+</div>
+`;
+
+exports[`ProposalStatus > renders the canceled variant unchanged 1`] = `
+<div
+  class="min-w-[72px] max-w-24 w-full h-8 flex flex-row items-center justify-center gap-0 text-xs lg:text-sm capitalize shrink-0 bg-canceled"
+  data-slot="div"
+>
+  canceled
+</div>
+`;
+
+exports[`ProposalStatus > renders the default variant unchanged 1`] = `
+<div
+  class="min-w-[72px] max-w-24 w-full h-8 flex flex-row items-center justify-center gap-0 text-xs lg:text-sm capitalize shrink-0 bg-[var(--expired)] text-[var(--expired-text)]"
+  data-slot="div"
+>
+  Expired
+</div>
+`;
+
+exports[`ProposalStatus > renders the defeated variant unchanged 1`] = `
+<div
+  class="min-w-[72px] max-w-24 w-full h-8 flex flex-row items-center justify-center gap-0 text-xs lg:text-sm capitalize shrink-0 bg-defeated"
+  data-slot="div"
+>
+  defeated
+</div>
+`;
+
+exports[`ProposalStatus > renders the executed variant unchanged 1`] = `
+<div
+  class="min-w-[72px] max-w-24 w-full h-8 flex flex-row items-center justify-center gap-0 text-xs lg:text-sm capitalize shrink-0 bg-executed text-black"
+  data-slot="div"
+>
+  executed
+</div>
+`;
+
+exports[`ProposalStatus > renders the pending variant unchanged 1`] = `
+<div
+  class="min-w-[72px] max-w-24 w-full h-8 flex flex-row items-center justify-center gap-0 text-xs lg:text-sm capitalize shrink-0 bg-pending"
+  data-slot="div"
+>
+  pending
+</div>
+`;
+
+exports[`ProposalStatus > renders the queued variant unchanged 1`] = `
+<div
+  class="min-w-[72px] max-w-24 w-full h-8 flex flex-row items-center justify-center gap-0 text-xs lg:text-sm capitalize shrink-0 bg-queued"
+  data-slot="div"
+>
+  queued
+</div>
+`;
+
+exports[`ProposalStatus > renders the succeeded variant unchanged 1`] = `
+<div
+  class="min-w-[72px] max-w-24 w-full h-8 flex flex-row items-center justify-center gap-0 text-xs lg:text-sm capitalize shrink-0 bg-succeeded"
+  data-slot="div"
+>
+  succeeded
+</div>
+`;
