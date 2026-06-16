@@ -42,7 +42,7 @@
       "cache": false
     },
     "test:visual": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["build"],
       "cache": false
     },
     "dev": {

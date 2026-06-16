@@ -11,6 +11,14 @@ if (process.env.ARGOS_TOKEN) {
 }
 reporter.push([process.env.CI ? "github" : "list"]);
 
+if (process.env.CI && !process.env.ARGOS_TOKEN) {
+  // Forked PRs don't get repo secrets (GitHub security), so Argos can't upload.
+  // Make the degraded mode explicit rather than silently passing the check.
+  console.warn(
+    "[visual] ARGOS_TOKEN not set in CI — screenshots are captured but NOT uploaded/compared. Expected on forked PRs; internal PRs always have the token.",
+  );
+}
+
 // Visual regression for the @repo/ui showcase. Renders the built app in a
 // pinned Playwright Docker image in CI (see .github/workflows/visual.yml) so
 // the CI render matches the baseline render. Screenshots are uploaded to Argos

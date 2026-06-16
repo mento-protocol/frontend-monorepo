@@ -10,6 +10,15 @@ export type Theme = "light" | "dark";
 
 const FROZEN_TIME = new Date("2026-01-01T00:00:00Z");
 
+// 1x1 PNG — deterministic stand-in for remote CDN images. CommunityCard on
+// /specialized-components loads NEXT_PUBLIC_STORAGE_URL assets; without this the
+// baseline would depend on live storage content/availability. `object-cover`
+// stretches it to fill the CSS-sized container.
+const PLACEHOLDER_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+  "base64",
+);
+
 // The animejs IconLoading spinner (the only svg with viewBox="0 0 24 25", on
 // /basic-components) is JS/rAF-driven; CSS animation disabling and
 // prefers-reduced-motion cannot freeze it, so we mask its region. A locator
@@ -25,6 +34,14 @@ async function arm(page: Page, theme: Theme): Promise<void> {
   // setFixedTime only pins Date/Date.now.
   await page.clock.setFixedTime(FROZEN_TIME);
   await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
+  // Stub remote CDN images so baselines don't depend on live storage content.
+  await page.route(/\.public\.blob\.vercel-storage\.com\//, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "image/png",
+      body: PLACEHOLDER_PNG,
+    }),
+  );
   await page.addInitScript((selectedTheme) => {
     try {
       window.localStorage.setItem("theme", selectedTheme);
