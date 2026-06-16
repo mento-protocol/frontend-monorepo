@@ -48,14 +48,16 @@ concurrency:
 
 jobs:
   metadata:
-    # Author check (it's a Dependabot PR) AND actor check (THIS event was
-    # triggered by Dependabot, not a human pushing an extra commit to the
-    # branch — a `synchronize` from a maintainer keeps user.login as
-    # dependabot[bot], so the actor gate is what blocks approving a
-    # human-modified diff).
+    # Author check (it's a Dependabot PR) AND triggering-actor check (THIS
+    # run/re-run was initiated by Dependabot, not a human — a `synchronize`
+    # from a maintainer keeps user.login as dependabot[bot], so the actor
+    # check is what blocks approving a human-modified diff). We use
+    # `triggering_actor`, not `actor`: on a re-run, `actor` stays sticky to
+    # the original Dependabot trigger, while `triggering_actor` is whoever
+    # initiated the re-run.
     if: >-
       github.event.pull_request.user.login == 'dependabot[bot]'
-      && github.actor == 'dependabot[bot]'
+      && github.triggering_actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 2
     # READ-ONLY: the third-party action runs here with no write token.
@@ -91,19 +93,26 @@ jobs:
 
   auto-merge:
     needs: metadata
-    # Gates, all must hold (a skipped `metadata` job — failed author/actor
-    # check — skips this job too, so the actor gate protects both):
-    #   1. package-ecosystem == github_actions — Phase 1 scope. npm PRs fall
+    # Gates, all must hold. The author + triggering-actor checks are
+    # RE-ASSERTED here (not just inherited via `needs: metadata`): "re-run
+    # failed jobs" reuses metadata's cached outputs and only re-evaluates
+    # THIS job's `if:`, so without re-checking the initiator, a maintainer
+    # could change the branch and re-run just this job to earn a fresh bot
+    # approval on their diff. `triggering_actor` (not `actor`) is the re-runner.
+    #   1. Author is Dependabot AND this run/re-run was initiated by it.
+    #   2. package-ecosystem == github_actions — Phase 1 scope. npm PRs fall
     #      through untouched (stay manual).
-    #   2. update-type is explicitly minor or patch. Positive allowlist
+    #   3. update-type is explicitly minor or patch. Positive allowlist
     #      (not `!= major`) so unparsable versions / future classifications
     #      fail CLOSED. fetch-metadata returns '' when it can't parse.
-    #   3. maintainer-changes not set — supply-chain ownership tripwire.
-    #   4. Not bumping anthropics/* (the claude-code-review reviewer) or
+    #   4. maintainer-changes not set — supply-chain ownership tripwire.
+    #   5. Not bumping anthropics/* (the claude-code-review reviewer) or
     #      dependabot/* (fetch-metadata classifies THIS workflow) — self-loops.
     #      Mirrors the exclude-patterns in dependabot.yml.
     if: >-
-      needs.metadata.outputs.package-ecosystem == 'github_actions'
+      github.event.pull_request.user.login == 'dependabot[bot]'
+      && github.triggering_actor == 'dependabot[bot]'
+      && needs.metadata.outputs.package-ecosystem == 'github_actions'
       && (needs.metadata.outputs.update-type == 'version-update:semver-minor'
           || needs.metadata.outputs.update-type == 'version-update:semver-patch')
       && needs.metadata.outputs.maintainer-changes != 'true'
