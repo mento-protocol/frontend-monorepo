@@ -28,6 +28,7 @@ export function PoolFeePopover({ pool }: PoolFeePopoverProps) {
       <PopoverContent
         align="start"
         sideOffset={6}
+        aria-label={`${feeLabel} breakdown`}
         className="space-y-2 w-fit animate-none [&>span]:hidden"
       >
         <div className="gap-1 flex flex-col">

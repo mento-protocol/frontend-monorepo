@@ -104,6 +104,10 @@ vi.mock("./rate-form", () => ({
   RateForm: () => <div data-testid="rate-form" />,
 }));
 
+vi.mock("./trove-activity-panel", () => ({
+  TroveActivityPanel: () => <div data-testid="trove-activity-panel" />,
+}));
+
 vi.mock("../shared/trove-status-badge", () => ({
   TroveStatusBadge: () => <span data-testid="trove-status-badge" />,
 }));
@@ -199,5 +203,23 @@ describe("ManageTroveView — token validation", () => {
         .find((b) => b.textContent?.includes("Back to Dashboard"));
       expect(backButton).toBeDefined();
     });
+  });
+
+  it("renders the trove ID copy control with an accessible touch target", async () => {
+    mockTroveData = {
+      status: "active",
+      collateral: 1n,
+      debt: 1n,
+      annualInterestRate: 1n,
+    };
+
+    render(<ManageTroveView troveId="0xabc123456789" tokenSymbol="GBPm" />);
+
+    const copyButton = await screen.findByRole("button", {
+      name: "Copy trove ID",
+    });
+
+    expect(copyButton.classList.contains("h-6")).toBe(true);
+    expect(copyButton.classList.contains("w-6")).toBe(true);
   });
 });

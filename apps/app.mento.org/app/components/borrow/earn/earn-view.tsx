@@ -151,13 +151,15 @@ export function EarnView({ chainId, debtToken }: EarnViewProps) {
               <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
                 Pool APY
               </span>
-              <div className="text-xl font-bold text-primary">
+              <div className="text-xl font-bold text-foreground">
                 {apyLoading ? (
                   <span className="h-6 w-12 animate-pulse rounded inline-block bg-muted" />
                 ) : (
                   <>
                     {apyDisplay}
-                    <span className="text-sm ml-0.5 text-primary/60">%</span>
+                    <span className="text-sm ml-0.5 text-muted-foreground">
+                      %
+                    </span>
                   </>
                 )}
               </div>

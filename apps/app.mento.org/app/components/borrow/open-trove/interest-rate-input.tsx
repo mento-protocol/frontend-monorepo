@@ -84,7 +84,7 @@ export function InterestRateInput({
           Annual Interest Rate
         </span>
         {annualCost !== null && (
-          <span className="font-mono text-[11px] text-muted-foreground/50">
+          <span className="font-mono text-[11px] text-muted-foreground">
             Annual cost: {formatDebtAmount(annualCost, debtToken)}
           </span>
         )}
@@ -97,6 +97,7 @@ export function InterestRateInput({
           step={SLIDER_STEP}
           value={[Math.min(Math.max(sliderValue, minRatePct), maxRatePct)]}
           onValueChange={handleSliderChange}
+          aria-label="Annual interest rate"
           className="flex-1"
         />
         <div className="gap-1 px-3 py-1.5 flex items-center border border-border bg-muted/20">
@@ -106,9 +107,10 @@ export function InterestRateInput({
             value={value}
             onChange={handleInputChange}
             placeholder={minRatePct.toFixed(1)}
+            aria-label="Annual interest rate percent"
             className="w-9 font-mono text-base font-semibold bg-transparent text-right outline-none"
           />
-          <span className="text-sm text-muted-foreground/50">%</span>
+          <span className="text-sm text-muted-foreground">%</span>
         </div>
       </div>
 
@@ -121,8 +123,8 @@ export function InterestRateInput({
               type="button"
               className={`py-1.5 font-mono text-xs font-medium flex-1 cursor-pointer border transition-colors ${
                 isActive
-                  ? "border-primary/30 bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground/50 hover:text-muted-foreground"
+                  ? "border-primary/30 bg-primary/10 text-foreground"
+                  : "border-border text-muted-foreground hover:text-foreground"
               }`}
               onClick={() => onChange(p.rate)}
             >

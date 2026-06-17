@@ -537,10 +537,7 @@ export function RemoveLiquidityForm({
                 LP Tokens to Burn
               </span>
               <span className="font-mono text-[11px] text-muted-foreground">
-                Balance:{" "}
-                <span className="text-muted-foreground/80">
-                  {formatCompactBalance(formattedLpBalance)}
-                </span>
+                Balance: <span>{formatCompactBalance(formattedLpBalance)}</span>
               </span>
             </div>
             <div
@@ -553,6 +550,7 @@ export function RemoveLiquidityForm({
                 }
                 placeholder="0.00"
                 disabled={disabled}
+                aria-label="LP token amount to burn"
                 className="h-10 p-0 text-sm font-mono flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
               />
               <div className="gap-1.5 px-3 py-1.5 flex items-center rounded-lg bg-muted/50">
@@ -612,7 +610,7 @@ export function RemoveLiquidityForm({
                   disabled={disabled}
                   className={`py-1.5 text-xs font-medium cursor-pointer rounded-md border text-center transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                     isActive
-                      ? "border-primary/30 bg-primary/10 text-primary"
+                      ? "border-primary/30 bg-primary/10 text-foreground"
                       : "border-border bg-background hover:bg-muted/50"
                   }`}
                 >
@@ -683,9 +681,9 @@ export function RemoveLiquidityForm({
       <div className="gap-4 flex flex-col">
         {/* Summary card */}
         <div className="p-6 flex-1 rounded-xl border border-border bg-card">
-          <h3 className="text-sm font-semibold mb-5 text-muted-foreground">
+          <h2 className="text-sm font-semibold mb-5 text-muted-foreground">
             Transaction Summary
-          </h3>
+          </h2>
 
           <div className="space-y-3.5">
             {mode === "balanced" ? (
@@ -761,7 +759,7 @@ export function RemoveLiquidityForm({
             {/* LP fee */}
             <div className="flex items-center justify-between">
               <span className="text-xs text-muted-foreground">LP fee</span>
-              <span className="text-sm font-medium font-mono text-muted-foreground/80">
+              <span className="text-sm font-medium font-mono text-muted-foreground">
                 {pool.fees.lp.toFixed(1)}%
               </span>
             </div>
@@ -775,7 +773,10 @@ export function RemoveLiquidityForm({
                 value={String(slippage)}
                 onValueChange={(v) => setSlippage(Number(v) as SlippageOption)}
               >
-                <SelectTrigger className="h-7 text-xs font-mono w-[80px] border-border bg-muted/30">
+                <SelectTrigger
+                  className="h-7 text-xs font-mono w-[80px] border-border bg-muted/30"
+                  aria-label={`Slippage tolerance: ${slippage}%`}
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -789,7 +790,7 @@ export function RemoveLiquidityForm({
             </div>
           </div>
 
-          <p className="mt-4 leading-relaxed text-[11px] text-muted-foreground/60">
+          <p className="mt-4 leading-relaxed text-[11px] text-muted-foreground">
             Sets the minimum amounts for single-token deposits/withdrawals and
             liquidity mint/burn.
           </p>

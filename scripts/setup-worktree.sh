@@ -36,6 +36,65 @@ print_error() {
 	echo -e "${RED}✗${NC} $1"
 }
 
+find_clawpatch_source_root() {
+	local result_var="$1"
+	local worktree_root
+	worktree_root=$(pwd -P)
+	local line
+	while IFS= read -r line; do
+		if [[ ${line} == worktree\ * ]]; then
+			local candidate="${line#worktree }"
+			if [[ ${candidate} != "${worktree_root}" && -d "${candidate}/.clawpatch" ]]; then
+				printf -v "${result_var}" "%s" "${candidate}"
+				return
+			fi
+		fi
+	done < <(git worktree list --porcelain 2>/dev/null || true)
+}
+
+refresh_clawpatch_metadata() {
+	local state_message="$1"
+	if command -v clawpatch &>/dev/null; then
+		if clawpatch init --force --json >/dev/null; then
+			print_success "${state_message}; refreshed local project metadata"
+		else
+			print_warning "${state_message}; 'clawpatch init --force' failed, continuing setup"
+		fi
+	else
+		print_warning "${state_message}; install clawpatch and run 'clawpatch init --force' before using it"
+	fi
+}
+
+copy_clawpatch_state() {
+	print_step "Checking Clawpatch local state..."
+
+	if [[ -f ".clawpatch/project.json" ]]; then
+		refresh_clawpatch_metadata "Clawpatch state already present"
+		echo ""
+		return
+	fi
+
+	local source_root
+	source_root=""
+	find_clawpatch_source_root source_root
+
+	if [[ -n ${source_root} ]]; then
+		mkdir -p ".clawpatch"
+		cp -R "${source_root}/.clawpatch/." ".clawpatch"
+		refresh_clawpatch_metadata "Copied Clawpatch state from ${source_root}"
+		echo ""
+		return
+	fi
+
+	if [[ -d ".clawpatch" ]]; then
+		refresh_clawpatch_metadata "Existing Clawpatch state is incomplete and no sibling state was found"
+	else
+		print_warning "No sibling .clawpatch state found; skipping Clawpatch state copy"
+	fi
+
+	echo ""
+}
+
 # Check if we're in the right directory
 if [[ ! -f "package.json" ]]; then
 	print_error "Error: package.json not found. Please run this script from the root of the frontend-monorepo."
@@ -44,6 +103,8 @@ fi
 
 print_step "Setting up worktree environment..."
 echo ""
+
+copy_clawpatch_state
 
 # Check Node version
 print_step "Checking Node.js version..."

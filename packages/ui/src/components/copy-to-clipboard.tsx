@@ -8,12 +8,14 @@ interface CopyToClipboardProps {
   text: string;
   className?: string;
   toastMsg?: string;
+  ariaLabel?: string;
 }
 
 export const CopyToClipboard = ({
   text,
   className,
   toastMsg,
+  ariaLabel = "Copy to clipboard",
 }: CopyToClipboardProps) => {
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -43,6 +45,7 @@ export const CopyToClipboard = ({
         className,
       )}
       onClick={handleCopyAddress}
+      aria-label={ariaLabel}
     >
       {copied === text ? (
         <Check className="h-5 w-5" />

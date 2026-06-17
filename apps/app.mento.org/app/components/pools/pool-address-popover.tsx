@@ -35,13 +35,14 @@ function AddressRow({ label, address, explorerUrl }: AddressRowProps) {
           <CopyToClipboard
             text={address}
             toastMsg={`${label} address copied`}
-            className="h-4 w-4 p-0"
+            ariaLabel={`Copy ${label} address`}
+            className="h-6 w-6 p-0"
           />
           <a
             href={`${explorerUrl}/address/${address}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-muted-foreground transition-colors hover:text-foreground"
+            className="h-6 w-6 inline-flex items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
             aria-label={`View ${label} on block explorer`}
           >
             <ExternalLink className="h-4 w-4" />
@@ -90,6 +91,7 @@ export function PoolAddressPopover({
       <PopoverContent
         align="start"
         sideOffset={6}
+        aria-label="Pool and token addresses"
         className="space-y-2.5 w-fit animate-none [&>span]:hidden"
       >
         <AddressRow

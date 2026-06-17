@@ -330,7 +330,7 @@ export function OpenTroveForm() {
     <div className="space-y-6">
       <button
         type="button"
-        className="gap-2 font-medium flex cursor-pointer items-center text-[13px] text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+        className="gap-2 font-medium flex cursor-pointer items-center text-[13px] text-muted-foreground transition-colors hover:text-foreground"
         onClick={() => router.push("/borrow")}
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -346,18 +346,18 @@ export function OpenTroveForm() {
       </button>
 
       <div className="p-6 border border-border/50 bg-card">
-        <span className="font-mono font-medium tracking-widest text-[11px] text-muted-foreground/50 uppercase">
+        <span className="font-mono font-medium tracking-widest text-[11px] text-muted-foreground uppercase">
           New Position
         </span>
         <h1 className="mt-4 font-bold tracking-tight text-3xl">Open a Trove</h1>
-        <p className="mt-1 leading-relaxed text-[15px] text-muted-foreground/60">
+        <p className="mt-1 leading-relaxed text-[15px] text-muted-foreground">
           Deposit collateral and borrow a stablecoin against it at your chosen
           interest rate.
         </p>
       </div>
 
       <div className="p-6 border border-border/50 bg-card">
-        <div className="mb-3 font-mono font-medium tracking-widest text-[11px] text-muted-foreground/40 uppercase">
+        <div className="mb-3 font-mono font-medium tracking-widest text-[11px] text-muted-foreground uppercase">
           Loan-to-Value
         </div>
         <LTVBar
@@ -385,7 +385,7 @@ export function OpenTroveForm() {
                   height="14"
                   viewBox="0 0 14 14"
                   fill="none"
-                  className="text-muted-foreground/40"
+                  className="text-muted-foreground"
                 >
                   <path
                     d="M7 3v8M4 8l3 3 3-3"

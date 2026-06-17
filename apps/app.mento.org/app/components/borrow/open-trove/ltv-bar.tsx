@@ -30,25 +30,25 @@ export function LTVBar({ ltv, maxLtv, risk }: LTVBarProps) {
       end: 40,
       label: "SAFE",
       color: "bg-green-400",
-      textColor: "text-green-400/30",
+      textColor: "text-green-400",
     },
     {
       end: 60,
       label: "MODERATE",
       color: "bg-amber-400",
-      textColor: "text-amber-400/30",
+      textColor: "text-amber-400",
     },
     {
       end: 80,
       label: "RISKY",
       color: "bg-orange-400",
-      textColor: "text-orange-400/30",
+      textColor: "text-orange-400",
     },
     {
       end: 90,
       label: "LIQ",
       color: "bg-red-400",
-      textColor: "text-red-400/30",
+      textColor: "text-red-400",
     },
   ];
 
@@ -72,7 +72,7 @@ export function LTVBar({ ltv, maxLtv, risk }: LTVBarProps) {
         <div className="gap-2.5 flex items-center">
           <span
             className={`text-2xl font-bold tracking-tight ${
-              hasValue && risk ? riskColors[risk] : "text-muted-foreground/15"
+              hasValue && risk ? riskColors[risk] : "text-muted-foreground"
             }`}
           >
             {hasValue ? `${ltv.toFixed(1)}%` : "\u2014"}
@@ -85,7 +85,7 @@ export function LTVBar({ ltv, maxLtv, risk }: LTVBarProps) {
             </span>
           )}
         </div>
-        <span className="font-mono text-[11px] text-muted-foreground/30">
+        <span className="font-mono text-[11px] text-muted-foreground">
           Liquidation at {Math.round(maxLtv)}%
         </span>
       </div>

@@ -3,12 +3,13 @@
 import dynamic from "next/dynamic";
 import Image from "next/image";
 import { useTheme } from "next-themes";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { getBridgeTheme, bridgeConfig } from "./bridge-config";
 import { Button } from "@repo/ui";
 import { Celo, isFeatureConfiguredOnChain } from "@repo/web3";
 import { useChainId, useSwitchChain } from "@repo/web3/wagmi";
 import { ArrowRightLeft } from "lucide-react";
+import { patchBridgeWidgetAccessibility } from "./bridge-widget-accessibility";
 
 const WormholeConnect = dynamic(
   () => import("@wormhole-foundation/wormhole-connect"),
@@ -85,6 +86,7 @@ function BridgeTestnetState() {
 
 export function BridgeView() {
   const chainId = useChainId();
+  const widgetRef = useRef<HTMLDivElement>(null);
   const isBridgeSupportedChain =
     !chainId ||
     isFeatureConfiguredOnChain({
@@ -97,6 +99,26 @@ export function BridgeView() {
     [resolvedTheme],
   );
 
+  useEffect(() => {
+    const root = widgetRef.current;
+    if (!root || !isBridgeSupportedChain) return;
+
+    patchBridgeWidgetAccessibility(root);
+
+    const observer = new MutationObserver(() => {
+      patchBridgeWidgetAccessibility(root);
+    });
+    observer.observe(root, {
+      attributes: true,
+      attributeFilter: ["aria-label"],
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+
+    return () => observer.disconnect();
+  }, [isBridgeSupportedChain]);
+
   return (
     <div className="mb-6 px-4 md:px-0 relative w-full max-w-[568px]">
       <div className="top-decorations after:-top-15 before:-left-5 before:-top-5 before:h-5 before:w-5 after:left-0 after:h-10 after:w-10 md:block hidden before:absolute before:block before:bg-primary after:absolute after:block after:bg-card"></div>
@@ -105,7 +127,7 @@ export function BridgeView() {
           <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
             Cross-Chain
           </span>
-          <h2 className="mt-0 font-bold text-3xl">Bridge</h2>
+          <h1 className="mt-0 font-bold text-3xl">Bridge</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Bridge Mento tokens between supported networks.
           </p>
@@ -113,7 +135,7 @@ export function BridgeView() {
         {!isBridgeSupportedChain ? (
           <BridgeTestnetState />
         ) : (
-          <div className="bridge-widget">
+          <div ref={widgetRef} className="bridge-widget">
             <WormholeConnect theme={theme} config={bridgeConfig} />
           </div>
         )}

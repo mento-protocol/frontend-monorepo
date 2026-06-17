@@ -38,15 +38,15 @@ const RISK_LABEL: Record<RiskLevel, string> = {
 const RISK_STYLE: Record<RiskLevel, { active: string; inactive: string }> = {
   low: {
     active: "border-green-400/40 bg-green-400/10 text-green-400",
-    inactive: "border-border text-muted-foreground/50",
+    inactive: "border-border text-muted-foreground",
   },
   medium: {
     active: "border-amber-400/40 bg-amber-400/10 text-amber-400",
-    inactive: "border-border text-muted-foreground/50",
+    inactive: "border-border text-muted-foreground",
   },
   high: {
     active: "border-orange-400/40 bg-orange-400/10 text-orange-400",
-    inactive: "border-border text-muted-foreground/50",
+    inactive: "border-border text-muted-foreground",
   },
 };
 
@@ -84,7 +84,7 @@ export function DebtInput({
           Borrow
         </span>
         {minDebtFormatted && (
-          <span className="font-mono text-[11px] text-muted-foreground/50">
+          <span className="font-mono text-[11px] text-muted-foreground">
             Min: {minDebtFormatted}
           </span>
         )}
@@ -96,13 +96,15 @@ export function DebtInput({
             onChange(e.target.value)
           }
           placeholder="0.00"
+          aria-label={`Borrow amount in ${debtToken.symbol}`}
           className="p-0 text-sm font-mono flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
         />
         <TokenDropdown
           value={debtToken.symbol}
           onValueChange={onDebtTokenChange}
           options={debtTokenOptions}
-          triggerClassName="gap-1.5 px-3 py-2 h-auto flex items-center bg-muted/50 border-0 shadow-none rounded-none text-sm font-semibold text-muted-foreground/70 focus:ring-0 focus-visible:ring-0"
+          triggerAriaLabel={`${debtToken.symbol} debt token`}
+          triggerClassName="gap-1.5 px-3 py-2 h-auto flex items-center bg-muted/50 border-0 shadow-none rounded-none text-sm font-semibold text-foreground focus:ring-0 focus-visible:ring-0"
         />
       </div>
 

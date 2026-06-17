@@ -209,6 +209,7 @@ export function RateForm({ troveId, troveData, debtToken }: RateFormProps) {
               ),
             ]}
             onValueChange={handleSliderChange}
+            aria-label="New annual interest rate"
             className="flex-1"
           />
           <div className="gap-1 flex items-center">
@@ -218,6 +219,7 @@ export function RateForm({ troveId, troveData, debtToken }: RateFormProps) {
               value={rateInput}
               onChange={handleInputChange}
               placeholder={currentRatePct.toFixed(1)}
+              aria-label="New annual interest rate percent"
               className="h-8 w-16 px-2 text-sm shadow-xs rounded-md border border-input bg-background text-right focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-hidden"
             />
             <span className="text-sm text-muted-foreground">%</span>

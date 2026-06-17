@@ -117,6 +117,7 @@ export function WithdrawForm({
             }
             disabled={disabled}
             placeholder="0.00"
+            aria-label={`Withdraw amount in ${debtToken.symbol}`}
             className="p-0 text-sm font-mono placeholder:text-sm h-auto flex-1 border-0 shadow-none focus-visible:border-0 focus-visible:ring-0"
           />
           <div className="gap-1.5 flex shrink-0 items-center">
@@ -159,6 +160,7 @@ export function WithdrawForm({
             disabled={disabled}
             className="py-1.5 text-xs font-medium flex-1 rounded-md border border-border text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground/70"
             onClick={handleMax}
+            aria-label={`MAX withdraw ${debtToken.symbol}`}
           >
             MAX
           </button>

@@ -1,0 +1,4 @@
+# Files copied into new agent worktrees (gitignore syntax; only gitignored files are copied).
+# Clawpatch keeps local generated state here; scripts/setup-worktree.sh refreshes
+# checkout-specific project metadata after the copy.
+.clawpatch/

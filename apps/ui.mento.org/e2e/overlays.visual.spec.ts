@@ -1,7 +1,7 @@
 import { argosScreenshot } from "@argos-ci/playwright";
 import { expect, type Page } from "@playwright/test";
 
-import { arm, settle, test, type Theme } from "./fixtures";
+import { arm, settle, stabilizeOverlay, test, type Theme } from "./fixtures";
 
 // Overlay/open states render only after interaction and live in portals, so the
 // full-page showcase snapshots never capture them. Open each one, then snapshot
@@ -90,6 +90,7 @@ for (const overlay of OVERLAYS) {
       await page.goto(overlay.url, { waitUntil: "domcontentloaded" });
       await settle(page, theme);
       await overlay.open(page);
+      await stabilizeOverlay(page);
       await argosScreenshot(
         page,
         `overlay-${overlay.name}-${theme}-${testInfo.project.name}`,

@@ -416,7 +416,7 @@ export function RebalancePanel({
                     </span>
                   </div>
                 </div>
-                <div className="font-mono text-[10px] text-muted-foreground/60">
+                <div className="font-mono text-[10px] text-muted-foreground">
                   {hasWalletScopedPreview
                     ? isWalletLimited
                       ? "From your current wallet balance"
@@ -448,7 +448,7 @@ export function RebalancePanel({
                     </span>
                   </div>
                 </div>
-                <div className="font-mono text-[10px] text-muted-foreground/60">
+                <div className="font-mono text-[10px] text-muted-foreground">
                   {hasWalletScopedPreview
                     ? "Expected from your current rebalance"
                     : "Expected if this rebalance is executed now"}
@@ -457,7 +457,7 @@ export function RebalancePanel({
 
               {/* Bonus */}
               <div className="border-green-500/15 bg-green-500/5 p-3 space-y-1 rounded-lg border">
-                <div className="font-mono font-semibold tracking-wider text-green-600/60 dark:text-green-400/60 text-[10px] uppercase">
+                <div className="font-mono font-semibold tracking-wider text-green-600 dark:text-green-400 text-[10px] uppercase">
                   Bonus
                 </div>
                 <div className="gap-2 flex items-center">
@@ -472,11 +472,11 @@ export function RebalancePanel({
                   <span className="text-xl font-bold text-green-600 dark:text-green-400 tabular-nums">
                     {formattedBonusAmount}
                   </span>
-                  <span className="text-sm font-medium text-green-600/60 dark:text-green-400/60">
+                  <span className="text-sm font-medium text-green-600 dark:text-green-400">
                     {outputSymbol}
                   </span>
                 </div>
-                <div className="font-mono text-green-600/40 dark:text-green-400/40 text-[10px]">
+                <div className="font-mono text-green-600 dark:text-green-400 text-[10px]">
                   +{incentivePercent.toFixed(2)}% incentive
                 </div>
               </div>
@@ -510,7 +510,7 @@ export function RebalancePanel({
                     <span className="font-semibold text-foreground">
                       {token0Percent}% {displayToken0.symbol}
                     </span>
-                    <span className="text-muted-foreground/40"> | </span>
+                    <span className="text-muted-foreground"> | </span>
                     <span className="font-semibold text-foreground">
                       {token1Percent}% {displayToken1.symbol}
                     </span>
@@ -541,7 +541,7 @@ export function RebalancePanel({
                 .
               </p>
 
-              <div className="gap-x-4 gap-y-1 font-mono flex flex-wrap items-center text-[10px] text-muted-foreground/80">
+              <div className="gap-x-4 gap-y-1 font-mono flex flex-wrap items-center text-[10px] text-muted-foreground">
                 <span className="gap-1.5 inline-flex items-center">
                   <span className="h-3 w-0.5 rounded-full bg-foreground/70 shadow-[0_0_4px_rgba(255,255,255,0.3)]" />
                   - Target 50/50
