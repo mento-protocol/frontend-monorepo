@@ -69,8 +69,12 @@ function parseCatalog(blockLines) {
 
   for (const line of blockLines) {
     if (/^\s*(#.*)?$/.test(line)) continue;
+    // Value capture is `[^"'\s]+` (not `[^"'\s#]+`): a `#` is only a YAML
+    // comment when preceded by whitespace (handled by the trailing `\s*#.*`),
+    // so an in-value `#` — e.g. a git ref like `github:org/repo#sha` — is kept
+    // intact rather than truncated.
     const match = line.match(
-      /^ {2}["']?([^"':\s]+)["']?:\s*["']?([^"'\s#]+)["']?\s*(?:#.*)?$/,
+      /^ {2}["']?([^"':\s]+)["']?:\s*["']?([^"'\s]+)["']?\s*(?:#.*)?$/,
     );
     if (!match) continue;
     catalog.set(match[1], match[2]);
@@ -126,7 +130,12 @@ const memberDirs = parseWorkspacePackages(
   readTopLevelBlock(workspaceText, "packages"),
 ).flatMap(expandMember);
 const manifestDirs = [".", ...memberDirs];
-const sections = ["dependencies", "devDependencies", "optionalDependencies"];
+const sections = [
+  "dependencies",
+  "devDependencies",
+  "optionalDependencies",
+  "peerDependencies",
+];
 
 for (const dir of manifestDirs) {
   const packageJsonPath = join(ROOT, dir, "package.json");

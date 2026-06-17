@@ -386,6 +386,23 @@ test("passes when packages: contains a remote https tarball dependency without i
   );
 });
 
+// 18b. A remote tarball that is NOT on the allowlist (not @metamask/jazzicon)
+// and has no integrity hash must FAIL — the exemption is name-scoped, so an
+// arbitrary integrity-less remote tarball cannot slip through.
+test("fails when a non-allowlisted remote tarball has no integrity", () => {
+  const lockfile =
+    `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n` +
+    `  typescript@5.0.0:\n    resolution: {integrity: ${VALID_SHA512}}\n\n` +
+    `  'evil-pkg@https://codeload.github.com/evil/pkg/tar.gz/deadbeef':\n` +
+    `    resolution: {tarball: https://codeload.github.com/evil/pkg/tar.gz/deadbeef}\n\n` +
+    `snapshots:\n`;
+  const { exitCode, stdout, stderr } = run(lockfile);
+  assert(
+    exitCode !== 0,
+    `Expected non-zero (non-allowlisted tarball must fail), got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+});
+
 // 19. Parser-out-of-sync must fail loudly, not silently pass with 0 packages.
 test("fails loudly when the parser matches zero entries against a non-empty packages: section", () => {
   const lockfile = `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n  some-future-key-shape:\n    resolution: {integrity: ${VALID_SHA512}}\n\nsnapshots:\n`;

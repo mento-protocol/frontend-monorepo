@@ -127,20 +127,25 @@ const LOCAL_SOURCE_ENTRY =
   /^ {2}('[^':\n]+@(?:file|link):[^\n']+'|[^':\n]+@(?:file|link):[^\n:']+):/gm;
 
 /**
- * Remote HTTPS-tarball entries keyed as `<name>@https://<url>`. pnpm v9 stores
- * these as `resolution: {tarball: <url>}` with NO integrity hash, so they
- * cannot satisfy the sha512 gate. Frontend pins exactly one such dep —
- * `@metamask/jazzicon` (github-codeload tarball at commit 7a8df28). Exempt it,
- * narrowly, from the integrity requirement.
+ * Remote HTTPS-tarball entries that pnpm v9 stores as
+ * `resolution: {tarball: <url>}` with NO integrity hash, so they cannot satisfy
+ * the sha512 gate. Scoped to the ONE known such dep — `@metamask/jazzicon`
+ * (github-codeload tarball at commit 7a8df28) — by package name.
+ *
+ * Deliberately NOT a generic `@https://` matcher: any OTHER integrity-less
+ * remote tarball must FAIL the gate, forcing a conscious decision to add it to
+ * this allowlist rather than silently exempting an unaudited dependency.
  *
  * Conscious tradeoff: a github tag/commit tarball is mutable, so this is a
- * weaker guarantee than a registry sha512. Scoped to direct `@https://` /
- * `@http://` version keys only — `@git+https:` / `@git+ssh:` keys do NOT match
- * (the `@` there precedes `git+`, not `http`), so those still go through the
- * sha512 gate as the comment above intends.
+ * weaker guarantee than a registry sha512.
  */
-const REMOTE_TARBALL_ENTRY =
-  /^ {2}('[^':\n]+@https?:\/\/[^\n']+'|[^':\n]+@https?:\/\/[^\n:']+):/gm;
+const REMOTE_TARBALL_ALLOWLIST = ["@metamask/jazzicon"];
+const REMOTE_TARBALL_ENTRY = new RegExp(
+  `^ {2}'?(?:${REMOTE_TARBALL_ALLOWLIST.map((name) =>
+    name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+  ).join("|")})@https?://[^\\n']+'?:`,
+  "gm",
+);
 
 /**
  * sha512 integrity. SHA-512 = 64 raw bytes = exactly 88 base64 chars total
@@ -218,6 +223,17 @@ if (expectedRegistryEntries !== totalPackages) {
     fail(
       `${missingIntegrity} package(s) in pnpm-lock.yaml have a resolution block without a sha512 ` +
         "integrity hash. Re-run `pnpm install` from a known-good registry and re-inspect.",
+    );
+  }
+  // Neither delta is positive yet the counts still disagree — the counters are
+  // out of sync with the lockfile shape. Fail loudly instead of falling through
+  // to a silent "passed".
+  if (missingResolution <= 0 && missingIntegrity <= 0) {
+    fail(
+      `Package-entry accounting mismatch: expected ${expectedRegistryEntries} registry ` +
+        `entries to carry sha512 integrity, matched ${totalPackages}. The lockfile-lint ` +
+        "counters are likely out of sync with pnpm v9's on-disk format — inspect " +
+        "`scripts/lockfile-lint.mjs`.",
     );
   }
 } else if (integrityErrors === 0) {

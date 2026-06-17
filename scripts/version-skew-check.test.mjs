@@ -205,5 +205,49 @@ test("passes when glob members are all catalog-aligned", () => {
   assert(stdout.includes("all catalog-pinned"), `stdout: ${stdout}`);
 });
 
+// A catalog value with a git ref (`github:org/repo#sha`) must NOT be truncated
+// at the `#` — otherwise a full pin falsely fails and a truncated pin passes.
+test("does not truncate catalog values containing a git ref (#)", () => {
+  const ws = `packages:\n  - app\n\ncatalog:\n  jazz: github:org/jazz#abc123\n`;
+  const okRun = run(ws, {
+    "package.json": { name: "root" },
+    "app/package.json": {
+      name: "app",
+      dependencies: { jazz: "github:org/jazz#abc123" },
+    },
+  });
+  assert(
+    okRun.exitCode === 0,
+    `expected exit 0 for full git-ref pin, got ${okRun.exitCode}\n${okRun.stderr}`,
+  );
+  const badRun = run(ws, {
+    "package.json": { name: "root" },
+    "app/package.json": {
+      name: "app",
+      dependencies: { jazz: "github:org/jazz" },
+    },
+  });
+  assert(
+    badRun.exitCode !== 0,
+    `expected non-zero for truncated pin, got ${badRun.exitCode}`,
+  );
+});
+
+test("fails when a peerDependency drifts from the catalog", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog:\n  react: 19.2.5\n`,
+    {
+      "package.json": { name: "root" },
+      "app/package.json": {
+        name: "app",
+        peerDependencies: { react: "18.0.0" },
+      },
+    },
+  );
+
+  assert(exitCode !== 0, `expected non-zero exit, got ${exitCode}`);
+  assert(stderr.includes("peerDependencies.react"), `stderr: ${stderr}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
