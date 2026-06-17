@@ -508,9 +508,21 @@ for (const absPath of workspaceFiles) {
             registryErrors++;
           }
         }
-      } else {
+      } else if (inlineValue === "") {
         // Block-style mapping — validate the indented child entries below.
         registryMapLabel = label;
+      } else {
+        // A bare scalar value on the header line (e.g. `registries: <url>`):
+        // validate it directly so an off-npmjs scalar can't slip past the
+        // flow/block branches.
+        const url = unquote(inlineValue);
+        if (!isOfficialNpmRegistry(url)) {
+          fail(
+            `${rel}:${i + 1} — ${label} entry points off-npmjs: "${url}". ` +
+              "All packages must resolve from https://registry.npmjs.org.",
+          );
+          registryErrors++;
+        }
       }
       continue;
     }
@@ -529,6 +541,27 @@ for (const absPath of workspaceFiles) {
         }
       }
     }
+  }
+}
+
+// Tarball-host gate: any `resolution: {... tarball: <url> ...}` in the packages
+// section must resolve from npmjs OR be on the remote-tarball allowlist.
+// A valid sha512 does NOT make an off-npmjs tarball safe: in a tampered
+// lockfile the integrity is attacker-controlled too, so pnpm would fetch
+// attacker content from the off-host URL that matches an attacker-chosen hash.
+const allowedTarballs = new Set(REMOTE_TARBALL_ALLOWLIST.map((e) => e.tarball));
+const TARBALL_FIELD = /resolution:\s*\{[^}\n]*\btarball:\s*([^\s,}]+)/g;
+/** @type {RegExpExecArray | null} */
+let tarballMatch;
+while ((tarballMatch = TARBALL_FIELD.exec(packagesSection)) !== null) {
+  const url = tarballMatch[1];
+  if (!isOfficialNpmRegistry(url) && !allowedTarballs.has(url)) {
+    fail(
+      `pnpm-lock.yaml has a resolution tarball pointing off-npmjs: "${url}". ` +
+        "Registry packages must resolve from https://registry.npmjs.org; add an " +
+        "explicit entry to REMOTE_TARBALL_ALLOWLIST if this is intentional.",
+    );
+    registryErrors++;
   }
 }
 

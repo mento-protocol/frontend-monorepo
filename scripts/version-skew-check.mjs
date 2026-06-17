@@ -127,15 +127,16 @@ function parseWorkspacePatterns(blockLines) {
 }
 
 /**
- * Convert a pnpm workspace glob to an anchored RegExp over a POSIX dir path.
- * `**` matches any characters (incl. `/`); `*` matches within a path segment.
+ * Convert a pnpm workspace glob (fast-glob style) to a regex body. `**` matches
+ * any characters (incl. `/`); `*` matches within a path segment; `{a,b}` brace
+ * alternation becomes `(?:a|b)` (options converted recursively); every other
+ * regex-special char is escaped. Built char-by-char to keep escaping
+ * unambiguous.
  *
  * @param {string} glob
- * @returns {RegExp}
+ * @returns {string}
  */
-function globToRegExp(glob) {
-  // Built char-by-char to keep escaping unambiguous: `**` -> `.*`,
-  // `*` -> `[^/]*`, every other regex-special char escaped.
+function globBody(glob) {
   let body = "";
   for (let i = 0; i < glob.length; i += 1) {
     const ch = glob[i];
@@ -146,13 +147,33 @@ function globToRegExp(glob) {
       } else {
         body += "[^/]*";
       }
-    } else if (/[.+^${}()|[\]\\]/.test(ch)) {
+    } else if (ch === "{") {
+      const end = glob.indexOf("}", i);
+      if (end === -1) {
+        body += "\\{";
+      } else {
+        const options = glob
+          .slice(i + 1, end)
+          .split(",")
+          .map((option) => globBody(option.trim()));
+        body += `(?:${options.join("|")})`;
+        i = end;
+      }
+    } else if (/[.+^$()|[\]\\]/.test(ch)) {
       body += `\\${ch}`;
     } else {
       body += ch;
     }
   }
-  return new RegExp(`^${body}$`);
+  return body;
+}
+
+/**
+ * @param {string} glob
+ * @returns {RegExp}
+ */
+function globToRegExp(glob) {
+  return new RegExp(`^${globBody(glob)}$`);
 }
 
 /**

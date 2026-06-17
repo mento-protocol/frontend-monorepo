@@ -384,5 +384,24 @@ test("parses catalog entries indented with four spaces", () => {
   assert(stderr.includes("dependencies.viem"), `stderr: ${stderr}`);
 });
 
+// Brace-alternation globs (`{apps,packages}/*`, fast-glob style) must expand.
+test("expands brace-alternation globs", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - "{apps,packages}/*"\n\ncatalog:\n  viem: 2.50.4\n`,
+    {
+      "package.json": { name: "root" },
+      "packages/ui/package.json": {
+        name: "ui",
+        dependencies: { viem: "2.40.0" },
+      },
+    },
+  );
+  assert(
+    exitCode !== 0,
+    `expected drift in brace-glob member, got ${exitCode}\n${stderr}`,
+  );
+  assert(stderr.includes("packages/ui/package.json"), `stderr: ${stderr}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

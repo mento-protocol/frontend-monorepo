@@ -565,6 +565,60 @@ test("accepts a pnpm npm: alias entry with valid integrity", () => {
   );
 });
 
+// 18m. An off-npmjs resolution.tarball must fail even WITH a valid integrity —
+// in a tampered lockfile the integrity is attacker-controlled, so the host
+// matters. (Only the allowlisted jazzicon codeload tarball is exempt.)
+test("fails when a resolution tarball points off-npmjs even with valid integrity", () => {
+  const lockfile =
+    `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n` +
+    `  'evil-pkg@https://evil.example.com/e.tgz':\n    resolution: {tarball: https://evil.example.com/e.tgz, integrity: ${VALID_SHA512}}\n\n` +
+    `snapshots:\n`;
+  const { exitCode, stdout, stderr } = run(lockfile);
+  assert(
+    exitCode !== 0,
+    `Expected non-zero (off-npmjs tarball), got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+  const out = stdout + stderr;
+  assert(
+    out.includes("resolution tarball pointing off-npmjs"),
+    `expected tarball-host error: ${out}`,
+  );
+});
+
+// 18n. An npmjs resolution.tarball (lockfileIncludeTarballUrl) is fine.
+test("passes when a resolution tarball points at npmjs", () => {
+  const lockfile =
+    `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n` +
+    `  typescript@5.0.0:\n    resolution: {tarball: https://registry.npmjs.org/typescript/-/typescript-5.0.0.tgz, integrity: ${VALID_SHA512}}\n\n` +
+    `snapshots:\n`;
+  const { exitCode, stdout, stderr } = run(lockfile);
+  assert(
+    exitCode === 0,
+    `Expected exit 0 (npmjs tarball), got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+});
+
+// 18o. A bare scalar URL on a `registries:` header (not flow, not block) must
+// be validated, not silently treated as opening a block.
+test("fails when registries: header has a bare off-npmjs scalar URL", () => {
+  const { exitCode, stdout, stderr } = run(
+    makeLockfile([{ name: "typescript@5.0.0", integrity: VALID_SHA512 }]),
+    {
+      "pnpm-workspace.yaml":
+        "packages:\n  - shared-config\nregistries: https://evil.example.com/\n",
+    },
+  );
+  assert(
+    exitCode !== 0,
+    `Expected non-zero, got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+  const out = stdout + stderr;
+  assert(
+    out.includes("registries entry points off-npmjs"),
+    `expected bare-scalar registries error: ${out}`,
+  );
+});
+
 // 19. Parser-out-of-sync must fail loudly, not silently pass with 0 packages.
 test("fails loudly when the parser matches zero entries against a non-empty packages: section", () => {
   const lockfile = `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n  some-future-key-shape:\n    resolution: {integrity: ${VALID_SHA512}}\n\nsnapshots:\n`;
