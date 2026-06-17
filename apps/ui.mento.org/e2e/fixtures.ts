@@ -76,6 +76,40 @@ export async function settle(page: Page, theme: Theme): Promise<void> {
   });
 }
 
+// Radix popper overlays (popover/tooltip/dropdown/select/datepicker) mount
+// their content — which is when `getByRole(...).waitFor()` resolves — BEFORE
+// floating-ui commits the final `transform: translate()` on the popper wrapper
+// a frame or two later. Snapshotting in that window catches the panel at a
+// transient position (ghosted/offset text vs a settled baseline). Animations
+// are already zeroed in settle(); this closes the *positional* settle gap by
+// waiting until every open overlay's box stops moving across consecutive frames.
+export async function stabilizeOverlay(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const boxes = () =>
+      Array.from(
+        document.querySelectorAll<HTMLElement>(
+          "[data-radix-popper-content-wrapper],[data-slot$='-content'],[role='dialog'],[role='tooltip'],[role='menu']",
+        ),
+      )
+        .map((node) => {
+          const r = node.getBoundingClientRect();
+          return `${r.x},${r.y},${r.width},${r.height}`;
+        })
+        .join("|");
+    const frame = () =>
+      new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    let previous = boxes();
+    // Stop once positions hold steady for two consecutive frames (cap at 30
+    // frames ~0.5s so a perpetually-animating element can't hang the run).
+    for (let stable = 0, i = 0; stable < 2 && i < 30; i++) {
+      await frame();
+      const next = boxes();
+      stable = next === previous ? stable + 1 : 0;
+      previous = next;
+    }
+  });
+}
+
 export async function snapshotPage(
   page: Page,
   url: string,

@@ -86,10 +86,20 @@ export async function snapshotPage(
   url: string,
   name: string,
   theme: Theme,
+  // Pages with async client-mounted content (e.g. the bridge's dynamically
+  // imported Wormhole widget) must wait for it to render before capture —
+  // networkidle returns early because the widget's external calls are blocked,
+  // so the snapshot otherwise races the mount (loading skeleton vs full form).
+  ready?: (page: Page) => Promise<void>,
 ): Promise<void> {
   await arm(page, theme);
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await settle(page, theme);
+  if (ready) {
+    await ready(page);
+    // The just-mounted content may pull its own webfonts/icons in.
+    await page.evaluate(() => document.fonts.ready);
+  }
   await argosScreenshot(page, name);
 }
 
