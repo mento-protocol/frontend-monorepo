@@ -461,5 +461,21 @@ test("fails loudly on flow-style named catalogs", () => {
   assert(stderr.includes("catalogs"), `stderr: ${stderr}`);
 });
 
+// A comment-only / empty `catalogs:` stub has no real entries, so it must NOT
+// trip the fail-closed guard (the default catalog is still checked normally).
+test("comment-only catalogs: does not trip the fail-closed guard", () => {
+  const { exitCode, stdout } = run(
+    `packages:\n  - app\n\ncatalogs:\n  # planned, not used yet\n\ncatalog:\n  viem: 2.50.4\n`,
+    {
+      "package.json": { name: "root" },
+      "app/package.json": { name: "app", dependencies: { viem: "catalog:" } },
+    },
+  );
+  assert(
+    exitCode === 0,
+    `expected exit 0 (comment-only catalogs ignored), got ${exitCode}\n${stdout}`,
+  );
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

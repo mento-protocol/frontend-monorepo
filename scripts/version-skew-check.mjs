@@ -129,6 +129,30 @@ function topLevelHeaderValue(text, key) {
 }
 
 /**
+ * Whether the workspace declares actual named-catalog ENTRIES (block- or
+ * flow-style). A bare/empty/comment-only `catalogs:` header has no entries (and
+ * no `catalog:<name>` blind spot), so it must NOT trip the fail-closed guard.
+ *
+ * @param {string} text
+ * @returns {boolean}
+ */
+function hasNamedCatalogEntries(text) {
+  const header = topLevelHeaderValue(text, "catalogs");
+  if (header === null) return false;
+  if (header.startsWith("{")) {
+    const open = header.indexOf("{");
+    const close = header.lastIndexOf("}");
+    return (
+      open !== -1 && close > open && header.slice(open + 1, close).trim() !== ""
+    );
+  }
+  // Block style: a non-comment, non-blank child line is a real entry.
+  return readTopLevelBlock(text, "catalogs").some(
+    (line) => line.trim() !== "" && !line.trim().startsWith("#"),
+  );
+}
+
+/**
  * Parse a flow-style catalog mapping `{ pkg: ver, ... }` into name -> version.
  *
  * @param {string} flow
@@ -257,7 +281,7 @@ const workspaceText = readFileSync(workspacePath, "utf8");
 // checker validates only the default `catalog:`; named catalogs would otherwise
 // silently pass with real drift in `catalog:<name>` consumers. Fail loudly so
 // the script is extended rather than relied on with a blind spot.
-if (topLevelHeaderValue(workspaceText, "catalogs") !== null) {
+if (hasNamedCatalogEntries(workspaceText)) {
   fail(
     "pnpm-workspace.yaml defines named `catalogs:`, which this checker does not " +
       "yet validate. Extend scripts/version-skew-check.mjs to parse named " +
