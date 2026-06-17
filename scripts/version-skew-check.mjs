@@ -115,6 +115,38 @@ function parseCatalog(blockLines) {
 }
 
 /**
+ * Return the inline value after a top-level `key:` header, or null if the key is
+ * absent. Yields "" for a bare block header, "{...}" for a flow mapping, or a
+ * trailing comment. (`^catalog:` does not match `catalogs:`.)
+ *
+ * @param {string} text
+ * @param {string} key
+ * @returns {string | null}
+ */
+function topLevelHeaderValue(text, key) {
+  const match = new RegExp(`^${key}:[ \\t]*(.*)$`, "m").exec(text);
+  return match ? match[1].trim() : null;
+}
+
+/**
+ * Parse a flow-style catalog mapping `{ pkg: ver, ... }` into name -> version.
+ *
+ * @param {string} flow
+ * @returns {Map<string, string>}
+ */
+function parseFlowCatalog(flow) {
+  const open = flow.indexOf("{");
+  const close = flow.lastIndexOf("}");
+  const inner = open !== -1 && close > open ? flow.slice(open + 1, close) : "";
+  const catalog = new Map();
+  for (const part of inner.split(",")) {
+    const match = /^\s*["']?([^"':\s]+)["']?\s*:\s*(.+)$/.exec(part);
+    if (match) catalog.set(match[1], parseScalarValue(match[2]));
+  }
+  return catalog;
+}
+
+/**
  * @param {string[]} blockLines
  * @returns {string[]} raw `packages:` patterns (including `!` negations)
  */
@@ -221,13 +253,11 @@ function resolveWorkspaceMembers(patterns) {
 const workspacePath = resolve(ROOT, "pnpm-workspace.yaml");
 const workspaceText = readFileSync(workspacePath, "utf8");
 
-// Fail closed on named catalogs (`catalogs:`). This checker validates only the
-// default `catalog:` block; a workspace that adopts named catalogs would
-// otherwise silently pass with real drift in `catalog:<name>` consumers. Fail
-// loudly so the script is extended (and `catalogs:` parsing + fixtures added)
-// rather than relied on with a blind spot. (`^catalogs:` does not match the
-// singular `catalog:` header.)
-if (readTopLevelBlock(workspaceText, "catalogs").some((l) => l.trim() !== "")) {
+// Fail closed on named catalogs (`catalogs:`), block- OR flow-style. This
+// checker validates only the default `catalog:`; named catalogs would otherwise
+// silently pass with real drift in `catalog:<name>` consumers. Fail loudly so
+// the script is extended rather than relied on with a blind spot.
+if (topLevelHeaderValue(workspaceText, "catalogs") !== null) {
   fail(
     "pnpm-workspace.yaml defines named `catalogs:`, which this checker does not " +
       "yet validate. Extend scripts/version-skew-check.mjs to parse named " +
@@ -236,7 +266,14 @@ if (readTopLevelBlock(workspaceText, "catalogs").some((l) => l.trim() !== "")) {
   process.exit(1);
 }
 
-const catalog = parseCatalog(readTopLevelBlock(workspaceText, "catalog"));
+// Default catalog — block-style (`catalog:\n  pkg: ver`) or flow-style
+// (`catalog: { pkg: ver }`). A flow header was previously treated as absent
+// (false green); parse it explicitly.
+const catalogHeader = topLevelHeaderValue(workspaceText, "catalog");
+const catalog =
+  catalogHeader && catalogHeader.startsWith("{")
+    ? parseFlowCatalog(catalogHeader)
+    : parseCatalog(readTopLevelBlock(workspaceText, "catalog"));
 
 if (catalog.size === 0) {
   ok("no catalog entries - nothing to check");

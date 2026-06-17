@@ -423,5 +423,43 @@ test("fails loudly when named catalogs (catalogs:) are present", () => {
   );
 });
 
+// Flow-style top-level catalog (`catalog: { pkg: ver }`) must be parsed, not
+// treated as absent (which would be a false green on drift).
+test("parses a flow-style catalog and detects drift", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog: { viem: 2.50.4 }\n`,
+    {
+      "package.json": { name: "root" },
+      "app/package.json": { name: "app", dependencies: { viem: "2.40.0" } },
+    },
+  );
+  assert(exitCode !== 0, `expected drift detected, got ${exitCode}\n${stderr}`);
+  assert(stderr.includes("dependencies.viem"), `stderr: ${stderr}`);
+});
+
+test("passes a flow-style catalog when aligned", () => {
+  const { exitCode, stdout } = run(
+    `packages:\n  - app\n\ncatalog: { viem: 2.50.4 }\n`,
+    {
+      "package.json": { name: "root" },
+      "app/package.json": { name: "app", dependencies: { viem: "catalog:" } },
+    },
+  );
+  assert(exitCode === 0, `expected exit 0, got ${exitCode}\n${stdout}`);
+});
+
+// Flow-style named catalogs must also trip the fail-closed guard.
+test("fails loudly on flow-style named catalogs", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalogs: { react18: { react: ^18.3.1 } }\n`,
+    {
+      "package.json": { name: "root" },
+      "app/package.json": { name: "app", dependencies: { react: "17.0.2" } },
+    },
+  );
+  assert(exitCode !== 0, `expected non-zero, got ${exitCode}\n${stderr}`);
+  assert(stderr.includes("catalogs"), `stderr: ${stderr}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
