@@ -129,21 +129,24 @@ const LOCAL_SOURCE_ENTRY =
 /**
  * Remote HTTPS-tarball entries that pnpm v9 stores as
  * `resolution: {tarball: <url>}` with NO integrity hash, so they cannot satisfy
- * the sha512 gate. Scoped to the ONE known such dep — `@metamask/jazzicon`
- * (github-codeload tarball at commit 7a8df28) — by package name.
+ * the sha512 gate. Pinned to the EXACT lockfile key (name + full URL incl.
+ * commit) of the ONE known such dep — `@metamask/jazzicon` at commit 7a8df28.
  *
- * Deliberately NOT a generic `@https://` matcher: any OTHER integrity-less
- * remote tarball must FAIL the gate, forcing a conscious decision to add it to
- * this allowlist rather than silently exempting an unaudited dependency.
+ * Pinning the full URL (not just the package name) is deliberate: if the
+ * catalog repoints jazzicon to another host or commit, the key changes, this
+ * exemption no longer matches, and the gate FAILS — forcing a conscious update
+ * here rather than silently exempting a different, unaudited tarball.
  *
  * Conscious tradeoff: a github tag/commit tarball is mutable, so this is a
  * weaker guarantee than a registry sha512.
  */
-const REMOTE_TARBALL_ALLOWLIST = ["@metamask/jazzicon"];
+const REMOTE_TARBALL_ALLOWLIST = [
+  "@metamask/jazzicon@https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28",
+];
 const REMOTE_TARBALL_ENTRY = new RegExp(
-  `^ {2}'?(?:${REMOTE_TARBALL_ALLOWLIST.map((name) =>
-    name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-  ).join("|")})@https?://[^\\n']+'?:`,
+  `^ {2}'?(?:${REMOTE_TARBALL_ALLOWLIST.map((key) =>
+    key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+  ).join("|")})'?:`,
   "gm",
 );
 

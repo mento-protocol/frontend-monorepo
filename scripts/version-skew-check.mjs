@@ -48,7 +48,11 @@ function ok(message) {
  */
 function readTopLevelBlock(text, blockName) {
   const lines = text.split(/\r?\n/);
-  const start = lines.findIndex((line) => line === `${blockName}:`);
+  // Tolerate an inline comment on the header (e.g. `catalog: # default catalog`),
+  // which pnpm accepts — an exact-string match would miss the block entirely
+  // and silently report "no catalog entries" / skip workspace members.
+  const headerRe = new RegExp(`^${blockName}:\\s*(#.*)?$`);
+  const start = lines.findIndex((line) => headerRe.test(line));
   if (start === -1) return [];
 
   const block = [];

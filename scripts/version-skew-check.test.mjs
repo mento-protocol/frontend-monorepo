@@ -249,5 +249,23 @@ test("fails when a peerDependency drifts from the catalog", () => {
   assert(stderr.includes("peerDependencies.react"), `stderr: ${stderr}`);
 });
 
+// pnpm accepts an inline comment on a top-level header; the block-header match
+// must tolerate it (else the catalog/packages block is silently missed).
+test("parses catalog/packages headers that have inline comments", () => {
+  const { exitCode, stderr } = run(
+    `packages: # workspace members\n  - app\n\ncatalog: # default catalog\n  viem: 2.50.4\n`,
+    {
+      "package.json": { name: "root" },
+      "app/package.json": { name: "app", dependencies: { viem: "2.40.0" } },
+    },
+  );
+
+  assert(
+    exitCode !== 0,
+    `expected drift detected despite header comments, got ${exitCode}\n${stderr}`,
+  );
+  assert(stderr.includes("app/package.json"), `stderr: ${stderr}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

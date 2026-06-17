@@ -50,6 +50,11 @@ jobs:
       scan-args: |-
         --config=osv-scanner.toml
         --lockfile=pnpm-lock.yaml
+      # SARIF upload needs `security-events: write`, which Dependabot and forked
+      # `pull_request` runs don't get (read-only GITHUB_TOKEN) — uploading there
+      # fails the check even when the scan passes. Upload only on schedule/main
+      # runs; PRs still block via fail-on-vuln (default true).
+      upload-sarif: ${{ github.event_name != 'pull_request' }}
 
   lockfile-lint:
     name: lockfile integrity + registry

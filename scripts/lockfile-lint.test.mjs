@@ -403,6 +403,22 @@ test("fails when a non-allowlisted remote tarball has no integrity", () => {
   );
 });
 
+// 18c. The exemption is pinned to the exact jazzicon URL, so the same package
+// name at a DIFFERENT (non-allowlisted) URL/commit must fail the gate.
+test("fails when @metamask/jazzicon points at a non-allowlisted URL", () => {
+  const lockfile =
+    `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n` +
+    `  typescript@5.0.0:\n    resolution: {integrity: ${VALID_SHA512}}\n\n` +
+    `  '@metamask/jazzicon@https://evil.example.com/jazzicon/tar.gz/deadbeef':\n` +
+    `    resolution: {tarball: https://evil.example.com/jazzicon/tar.gz/deadbeef}\n\n` +
+    `snapshots:\n`;
+  const { exitCode, stdout, stderr } = run(lockfile);
+  assert(
+    exitCode !== 0,
+    `Expected non-zero (repointed jazzicon must fail), got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+});
+
 // 19. Parser-out-of-sync must fail loudly, not silently pass with 0 packages.
 test("fails loudly when the parser matches zero entries against a non-empty packages: section", () => {
   const lockfile = `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n  some-future-key-shape:\n    resolution: {integrity: ${VALID_SHA512}}\n\nsnapshots:\n`;
