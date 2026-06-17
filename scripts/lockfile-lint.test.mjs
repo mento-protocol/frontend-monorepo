@@ -419,6 +419,23 @@ test("fails when @metamask/jazzicon points at a non-allowlisted URL", () => {
   );
 });
 
+// 18d. An allowlisted key with a TAMPERED resolution.tarball (pointing
+// off the expected URL) must fail — the exemption validates the resolution
+// URL, not just the key.
+test("fails when an allowlisted tarball key has a tampered resolution URL", () => {
+  const lockfile =
+    `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n` +
+    `  typescript@5.0.0:\n    resolution: {integrity: ${VALID_SHA512}}\n\n` +
+    `  '@metamask/jazzicon@https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28':\n` +
+    `    resolution: {tarball: https://evil.example.com/x/tar.gz/7a8df28}\n\n` +
+    `snapshots:\n`;
+  const { exitCode, stdout, stderr } = run(lockfile);
+  assert(
+    exitCode !== 0,
+    `Expected non-zero (tampered resolution must fail), got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+});
+
 // 19. Parser-out-of-sync must fail loudly, not silently pass with 0 packages.
 test("fails loudly when the parser matches zero entries against a non-empty packages: section", () => {
   const lockfile = `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n  some-future-key-shape:\n    resolution: {integrity: ${VALID_SHA512}}\n\nsnapshots:\n`;

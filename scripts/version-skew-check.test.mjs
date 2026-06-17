@@ -267,5 +267,39 @@ test("parses catalog/packages headers that have inline comments", () => {
   assert(stderr.includes("app/package.json"), `stderr: ${stderr}`);
 });
 
+// Cataloged spec with spaces (quoted OR range) must still be parsed + checked.
+test("checks cataloged deps whose spec contains spaces (OR range)", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog:\n  react: "^18.0.0 || ^19.0.0"\n`,
+    {
+      "package.json": { name: "root" },
+      "app/package.json": { name: "app", dependencies: { react: "^18.0.0" } },
+    },
+  );
+
+  assert(exitCode !== 0, `expected drift detected, got ${exitCode}\n${stderr}`);
+  assert(stderr.includes("dependencies.react"), `stderr: ${stderr}`);
+});
+
+// A glob member with a trailing inline comment must still be expanded.
+test("expands glob members that have a trailing inline comment", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - "apps/*" # frontend apps\n\ncatalog:\n  viem: 2.50.4\n`,
+    {
+      "package.json": { name: "root" },
+      "apps/web/package.json": {
+        name: "web",
+        dependencies: { viem: "2.40.0" },
+      },
+    },
+  );
+
+  assert(
+    exitCode !== 0,
+    `expected drift in commented-glob member, got ${exitCode}\n${stderr}`,
+  );
+  assert(stderr.includes("apps/web/package.json"), `stderr: ${stderr}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

@@ -137,16 +137,28 @@ const LOCAL_SOURCE_ENTRY =
  * exemption no longer matches, and the gate FAILS — forcing a conscious update
  * here rather than silently exempting a different, unaudited tarball.
  *
+ * The match also requires the entry's `resolution: {tarball: <url>}` to equal
+ * the expected URL, so a lockfile that keeps the allowlisted key but tampers
+ * the resolution to a different host is NOT exempted (it fails the gate).
+ *
  * Conscious tradeoff: a github tag/commit tarball is mutable, so this is a
  * weaker guarantee than a registry sha512.
  */
 const REMOTE_TARBALL_ALLOWLIST = [
-  "@metamask/jazzicon@https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28",
+  {
+    key: "@metamask/jazzicon@https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28",
+    tarball: "https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28",
+  },
 ];
+/** @param {string} s */
+const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const REMOTE_TARBALL_ENTRY = new RegExp(
-  `^ {2}'?(?:${REMOTE_TARBALL_ALLOWLIST.map((key) =>
-    key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-  ).join("|")})'?:`,
+  REMOTE_TARBALL_ALLOWLIST.map(
+    ({ key, tarball }) =>
+      `^ {2}'?${escapeRegExp(key)}'?:\\n\\s+resolution:\\s*\\{tarball:\\s*${escapeRegExp(
+        tarball,
+      )}\\}`,
+  ).join("|"),
   "gm",
 );
 

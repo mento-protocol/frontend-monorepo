@@ -73,15 +73,18 @@ function parseCatalog(blockLines) {
 
   for (const line of blockLines) {
     if (/^\s*(#.*)?$/.test(line)) continue;
-    // Value capture is `[^"'\s]+` (not `[^"'\s#]+`): a `#` is only a YAML
-    // comment when preceded by whitespace (handled by the trailing `\s*#.*`),
-    // so an in-value `#` — e.g. a git ref like `github:org/repo#sha` — is kept
-    // intact rather than truncated.
+    // Value forms, in order: double-quoted (may contain spaces, e.g. an OR
+    // range `"^18.0.0 || ^19.0.0"`), single-quoted, or a bare token. The bare
+    // token starts with a non-`#`/non-space char and then takes any non-space
+    // run, so an in-value `#` (a git ref like `github:org/repo#sha`) is kept
+    // intact while a whitespace-preceded `# comment` is stripped by `\s*#.*`.
     const match = line.match(
-      /^ {2}["']?([^"':\s]+)["']?:\s*["']?([^"'\s]+)["']?\s*(?:#.*)?$/,
+      /^ {2}["']?([^"':\s]+)["']?:\s*(?:"([^"]*)"|'([^']*)'|([^\s#][^\s]*))\s*(?:#.*)?$/,
     );
     if (!match) continue;
-    catalog.set(match[1], match[2]);
+    const value = match[2] ?? match[3] ?? match[4];
+    if (value === undefined) continue;
+    catalog.set(match[1], value);
   }
 
   return catalog;
@@ -93,7 +96,9 @@ function parseCatalog(blockLines) {
  */
 function parseWorkspacePackages(blockLines) {
   return blockLines.flatMap((line) => {
-    const match = line.match(/^\s*-\s*["']?([^"'\s]+)["']?\s*$/);
+    // Tolerate a trailing inline comment (`- apps/* # frontend apps`), which
+    // pnpm accepts — otherwise the whole member subtree is silently skipped.
+    const match = line.match(/^\s*-\s*["']?([^"'\s]+)["']?\s*(?:#.*)?$/);
     return match ? [match[1]] : [];
   });
 }
