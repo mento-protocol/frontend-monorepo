@@ -122,9 +122,14 @@ if (!packagesSection.trim()) {
  * wildcard. `\{[^}\n]*` before `integrity:` allows other resolution fields
  * (e.g. a `tarball:` from `lockfileIncludeTarballUrl`) to precede it, so field
  * order doesn't cause a false "missing integrity".
+ *
+ * The key is captured lazily up to the `:` that ends its line, so keys that
+ * contain a `:` — pnpm alias entries like `lodash1@npm:lodash@1.0.0` — are
+ * recognized (a `[^:]` key class would truncate them and false-flag missing
+ * integrity). The `\n\s+resolution:` anchor keeps the match to real entries.
  */
 const PKG_ENTRY =
-  /^ {2}('?[^':\n]+@[^\n:']+?'?):\s*\n\s+resolution:\s*\{[^}\n]*\bintegrity:\s*(sha512-[^,}\n]+)[^}\n]*\}/gm;
+  /^ {2}('?.+?'?):\s*\n\s+resolution:\s*\{[^}\n]*\bintegrity:\s*(sha512-[^,}\n]+)[^}\n]*\}/gm;
 
 /**
  * Regex to identify TRULY LOCAL entries (`file:` / `link:` only) that
@@ -436,23 +441,47 @@ function findPnpmWorkspaces(dir, out) {
 const workspaceFiles = [];
 findPnpmWorkspaces(ROOT, workspaceFiles);
 
-// Check every pnpm-workspace.yaml for BOTH the singular `registry:` top-level
-// key AND the plural `registries:` block — either can redirect installs away
-// from npmjs.org.
+/**
+ * Extract the URL values from a YAML flow mapping such as
+ * `{ work: https://x, pub: 'https://y' }`. Each `key: value` value is returned
+ * (quotes stripped); keys are ignored.
+ *
+ * @param {string} flow
+ * @returns {string[]}
+ */
+function flowMapUrls(flow) {
+  const inner = flow.replace(/^\s*\{/, "").replace(/\}\s*$/, "");
+  /** @type {string[]} */ const urls = [];
+  for (const part of inner.split(",")) {
+    const match = /^\s*["']?[^"':\s]+["']?\s*:\s*(.+)$/.exec(part);
+    if (match) urls.push(unquote(match[1].trim()));
+  }
+  return urls;
+}
+
+// Check every pnpm-workspace.yaml for the registry source of truth:
+//   - singular `registry: <url>` (default registry)
+//   - `registries:` and `namedRegistries:` alias→url maps (block OR flow style)
+// pnpm resolves `alias:@scope/pkg` specs through namedRegistries, so a non-npmjs
+// URL in any of these is a registry redirect just like a bare `registry=`. We
+// validate each configured URL rather than rejecting the block outright (an
+// all-npmjs map is harmless).
 for (const absPath of workspaceFiles) {
   const rel = relative(ROOT, absPath);
   const ws = readFileSync(absPath, "utf8");
   const lines = ws.split("\n");
-  let inNamedRegistries = false;
+  /** @type {string | null} */ let registryMapLabel = null;
   for (const [i, line] of lines.entries()) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
-    // Any column-0 line ends an open `namedRegistries:` block.
-    if (inNamedRegistries && /^\S/.test(line)) inNamedRegistries = false;
-    // Top-level `registry: <url>` key (column 0, quoted variants accepted).
-    const singularMatch = /^['"]?(registry)['"]?\s*:\s*(.+?)\s*$/.exec(line);
-    if (singularMatch && /^\s/.test(line) === false) {
-      const raw = unquote(singularMatch[2].trim());
+    const isTopLevel = /^\S/.test(line);
+    // Any column-0 line ends an open block-style registry map.
+    if (registryMapLabel && isTopLevel) registryMapLabel = null;
+
+    // Singular top-level `registry: <url>`.
+    const singularMatch = /^['"]?registry['"]?\s*:\s*(.+?)\s*$/.exec(line);
+    if (singularMatch && isTopLevel) {
+      const raw = unquote(singularMatch[1].trim());
       if (!isOfficialNpmRegistry(raw)) {
         fail(
           `${rel}:${i + 1} — non-npmjs default registry: "${raw}". ` +
@@ -461,35 +490,40 @@ for (const absPath of workspaceFiles) {
         registryErrors++;
       }
     }
-    // Plural `registries:` mapping — quoted or unquoted.
-    if (
-      /^['"]?registries['"]?\s*:/.test(trimmed) &&
-      /^\s/.test(line) === false
-    ) {
-      fail(
-        `${rel}:${i + 1} — \`registries:\` block configures custom package ` +
-          "registries. Verify this is intentional and every non-npmjs registry entry is audited.",
-      );
-      registryErrors++;
-    }
-    // Top-level `namedRegistries:` block. pnpm resolves `alias:@scope/pkg`
-    // specs through these aliases, so a non-npmjs alias URL is a registry
-    // redirect just like `registry=`. Validate each alias entry's URL.
-    if (
-      /^['"]?namedRegistries['"]?\s*:/.test(trimmed) &&
-      /^\s/.test(line) === false
-    ) {
-      inNamedRegistries = true;
+
+    // `registries:` / `namedRegistries:` alias→url map header.
+    const mapHeader =
+      /^['"]?(registries|namedRegistries)['"]?\s*:\s*(.*)$/.exec(trimmed);
+    if (mapHeader && isTopLevel) {
+      const label = mapHeader[1];
+      const inlineValue = mapHeader[2].trim();
+      if (inlineValue.startsWith("{")) {
+        // Flow-style mapping on the same line.
+        for (const url of flowMapUrls(inlineValue)) {
+          if (!isOfficialNpmRegistry(url)) {
+            fail(
+              `${rel}:${i + 1} — ${label} entry points off-npmjs: "${url}". ` +
+                "All packages must resolve from https://registry.npmjs.org.",
+            );
+            registryErrors++;
+          }
+        }
+      } else {
+        // Block-style mapping — validate the indented child entries below.
+        registryMapLabel = label;
+      }
       continue;
     }
-    if (inNamedRegistries) {
+
+    // Block-style child entry: `alias: <url>`.
+    if (registryMapLabel) {
       const entry = /^\s+["']?[^"':\s]+["']?\s*:\s*(.+?)\s*$/.exec(line);
       if (entry) {
         const url = unquote(entry[1].trim());
         if (!isOfficialNpmRegistry(url)) {
           fail(
-            `${rel}:${i + 1} — namedRegistries alias points off-npmjs: "${url}". ` +
-              "All packages must resolve from https://registry.npmjs.org; verify and audit if intentional.",
+            `${rel}:${i + 1} — ${registryMapLabel} entry points off-npmjs: "${url}". ` +
+              "All packages must resolve from https://registry.npmjs.org.",
           );
           registryErrors++;
         }

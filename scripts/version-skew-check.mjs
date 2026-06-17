@@ -102,7 +102,9 @@ function parseCatalog(blockLines) {
 
   for (const line of blockLines) {
     if (/^\s*(#.*)?$/.test(line)) continue;
-    const match = line.match(/^ {2}["']?([^"':\s]+)["']?:\s*(.*)$/);
+    // Accept any (non-zero) indentation — YAML permits 2-space, 4-space, etc.;
+    // a fixed 2-space match would silently skip reindented entries.
+    const match = line.match(/^ +["']?([^"':\s]+)["']?:\s*(.*)$/);
     if (!match) continue;
     const value = parseScalarValue(match[2]);
     if (value === "") continue;

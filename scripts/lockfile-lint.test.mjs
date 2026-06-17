@@ -226,8 +226,8 @@ test("fails when .npmrc has a scoped non-npmjs registry", () => {
   );
 });
 
-// 9. pnpm-workspace.yaml with registries: block.
-test("fails when pnpm-workspace.yaml has a registries: block", () => {
+// 9. pnpm-workspace.yaml `registries:` block with a non-npmjs entry.
+test("fails when a registries: block entry is non-npmjs", () => {
   const { exitCode, stderr, stdout } = run(
     makeLockfile([{ name: "typescript@5.0.0", integrity: VALID_SHA512 }]),
     {
@@ -238,8 +238,8 @@ test("fails when pnpm-workspace.yaml has a registries: block", () => {
   assert(exitCode !== 0, `Expected non-zero exit, got ${exitCode}`);
   const out = stdout + stderr;
   assert(
-    out.includes("registries:"),
-    `expected registries block error: ${out}`,
+    out.includes("registries entry points off-npmjs"),
+    `expected registries entry error: ${out}`,
   );
 });
 
@@ -512,6 +512,56 @@ test("accepts a resolution where integrity is not the first key", () => {
   assert(
     exitCode === 0,
     `Expected exit 0 (integrity present, just not first), got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+});
+
+// 18j. A `registries:` block whose entries are all npmjs is harmless — must
+// pass (we validate entries, not reject the block outright).
+test("passes when a registries: block points only at npmjs", () => {
+  const { exitCode, stdout, stderr } = run(
+    makeLockfile([{ name: "typescript@5.0.0", integrity: VALID_SHA512 }]),
+    {
+      "pnpm-workspace.yaml":
+        "packages:\n  - shared-config\nregistries:\n  default: https://registry.npmjs.org/\n",
+    },
+  );
+  assert(
+    exitCode === 0,
+    `Expected exit 0 (all-npmjs registries), got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+});
+
+// 18k. Flow-style `namedRegistries: { ... }` URLs must be validated.
+test("fails when flow-style namedRegistries points off-npmjs", () => {
+  const { exitCode, stdout, stderr } = run(
+    makeLockfile([{ name: "typescript@5.0.0", integrity: VALID_SHA512 }]),
+    {
+      "pnpm-workspace.yaml":
+        "packages:\n  - shared-config\nnamedRegistries: { work: https://evil.example.com/, pub: https://registry.npmjs.org/ }\n",
+    },
+  );
+  assert(
+    exitCode !== 0,
+    `Expected non-zero, got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+  const out = stdout + stderr;
+  assert(
+    out.includes("namedRegistries entry points off-npmjs"),
+    `expected flow-style namedRegistries error: ${out}`,
+  );
+});
+
+// 18l. A pnpm `npm:` alias entry with a valid integrity must be recognized as
+// integrity-bearing (the key contains a `:`), not false-flagged as missing.
+test("accepts a pnpm npm: alias entry with valid integrity", () => {
+  const lockfile =
+    `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n` +
+    `  'lodash1@npm:lodash@1.0.0':\n    resolution: {integrity: ${VALID_SHA512}}\n\n` +
+    `snapshots:\n`;
+  const { exitCode, stdout, stderr } = run(lockfile);
+  assert(
+    exitCode === 0,
+    `Expected exit 0 (alias entry has integrity), got ${exitCode}\n${stdout}\n${stderr}`,
   );
 });
 

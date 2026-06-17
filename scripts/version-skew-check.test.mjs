@@ -370,5 +370,19 @@ test("honors negated workspace globs (excluded members not checked)", () => {
   );
 });
 
+// Catalog entries indented with 4 spaces (valid YAML, e.g. after a reindent)
+// must still be parsed and checked.
+test("parses catalog entries indented with four spaces", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog:\n    viem: 2.50.4\n`,
+    {
+      "package.json": { name: "root" },
+      "app/package.json": { name: "app", dependencies: { viem: "2.40.0" } },
+    },
+  );
+  assert(exitCode !== 0, `expected drift detected, got ${exitCode}\n${stderr}`);
+  assert(stderr.includes("dependencies.viem"), `stderr: ${stderr}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
