@@ -169,7 +169,7 @@ export function OpportunityCard({ opp }: { opp: Opportunity }) {
               <div className="text-2xl font-bold tracking-tight text-emerald-400">
                 {formatOpportunityApy(opp.apy)}%
               </div>
-              <div className="font-mono text-[10px] text-muted-foreground/50">
+              <div className="font-mono text-[10px] text-muted-foreground">
                 {opp.apyLabel}
               </div>
             </div>
@@ -177,7 +177,7 @@ export function OpportunityCard({ opp }: { opp: Opportunity }) {
 
           {/* How you earn */}
           <div className="p-3 rounded-lg border border-border/30 bg-accent/20">
-            <div className="mb-2 font-mono font-semibold tracking-wider text-[10px] text-muted-foreground/50 uppercase">
+            <div className="mb-2 font-mono font-semibold tracking-wider text-[10px] text-muted-foreground uppercase">
               How you earn
             </div>
             <div className="gap-2 flex flex-wrap">
@@ -209,7 +209,7 @@ export function OpportunityCard({ opp }: { opp: Opportunity }) {
           <div className="gap-6 flex">
             {opp.stats.map((s, i) => (
               <div key={i}>
-                <div className="font-mono tracking-wider text-[10px] text-muted-foreground/50 uppercase">
+                <div className="font-mono tracking-wider text-[10px] text-muted-foreground uppercase">
                   {s.label}
                 </div>
                 <div className="mt-0.5 text-sm font-semibold tracking-tight">
@@ -233,7 +233,7 @@ export function OpportunityCard({ opp }: { opp: Opportunity }) {
               </div>
               {opp.userPosition.rewards && (
                 <div className="gap-1.5 flex items-center">
-                  <span className="text-xs text-muted-foreground/60">
+                  <span className="text-xs text-muted-foreground">
                     Rewards:
                   </span>
                   <span className="font-mono font-semibold text-emerald-400 text-[13px]">

@@ -163,7 +163,7 @@ function FlowStep({
             href={`${explorerUrl}/tx/${step.txHash}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-primary hover:underline"
+            className="text-xs text-foreground underline underline-offset-2 hover:text-primary"
           >
             {shortenHash(step.txHash)}
           </a>
