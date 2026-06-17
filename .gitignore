@@ -57,3 +57,6 @@ yarn-error.log*
 deliverables
 .codex.reviews/
 .codex
+
+# Clawpatch local state and generated review artifacts
+.clawpatch/

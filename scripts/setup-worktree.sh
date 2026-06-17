@@ -36,6 +36,50 @@ print_error() {
 	echo -e "${RED}✗${NC} $1"
 }
 
+copy_clawpatch_state() {
+	print_step "Checking Clawpatch local state..."
+
+	if [[ -d ".clawpatch" ]]; then
+		if command -v clawpatch &>/dev/null; then
+			clawpatch init --force --json >/dev/null
+			print_success "Clawpatch state already present; refreshed local project metadata"
+		else
+			print_success "Clawpatch state already present"
+		fi
+		echo ""
+		return
+	fi
+
+	local worktree_root
+	worktree_root=$(pwd -P)
+	local source_root=""
+	local line
+	while IFS= read -r line; do
+		if [[ ${line} == worktree\ * ]]; then
+			local candidate="${line#worktree }"
+			if [[ ${candidate} != "${worktree_root}" && -d "${candidate}/.clawpatch" ]]; then
+				source_root="${candidate}"
+				break
+			fi
+		fi
+	done < <(git worktree list --porcelain 2>/dev/null || true)
+
+	if [[ -z ${source_root} ]]; then
+		print_warning "No sibling .clawpatch state found; skipping Clawpatch state copy"
+		echo ""
+		return
+	fi
+
+	cp -R "${source_root}/.clawpatch" ".clawpatch"
+	if command -v clawpatch &>/dev/null; then
+		clawpatch init --force --json >/dev/null
+		print_success "Copied Clawpatch state from ${source_root} and refreshed local project metadata"
+	else
+		print_warning "Copied Clawpatch state from ${source_root}; install clawpatch and run 'clawpatch init --force' before using it"
+	fi
+	echo ""
+}
+
 # Check if we're in the right directory
 if [[ ! -f "package.json" ]]; then
 	print_error "Error: package.json not found. Please run this script from the root of the frontend-monorepo."
@@ -44,6 +88,8 @@ fi
 
 print_step "Setting up worktree environment..."
 echo ""
+
+copy_clawpatch_state
 
 # Check Node version
 print_step "Checking Node.js version..."
