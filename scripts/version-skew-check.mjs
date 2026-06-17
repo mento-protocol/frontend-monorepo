@@ -55,9 +55,10 @@ function ok(message) {
  */
 function readTopLevelBlock(text, blockName) {
   const lines = text.split(/\r?\n/);
-  // Tolerate an inline comment on the header (e.g. `catalog: # default catalog`),
-  // which pnpm accepts — an exact-string match would miss the block entirely.
-  const headerRe = new RegExp(`^${blockName}:\\s*(#.*)?$`);
+  // Tolerate an inline comment on the header (e.g. `catalog: # default catalog`)
+  // and a quoted key (`"catalog":`) — both are valid YAML that pnpm honors; an
+  // exact bare-key match would miss the block entirely.
+  const headerRe = new RegExp(`^["']?${blockName}["']?:\\s*(#.*)?$`);
   const start = lines.findIndex((line) => headerRe.test(line));
   if (start === -1) return [];
 
@@ -125,14 +126,15 @@ function parseCatalog(blockLines) {
 /**
  * Return the inline value after a top-level `key:` header, or null if the key is
  * absent. Yields "" for a bare block header, "{...}" for a flow mapping, or a
- * trailing comment. (`^catalog:` does not match `catalogs:`.)
+ * trailing comment. Accepts a quoted key (`"catalog":`). (`^catalog:` does not
+ * match `catalogs:`.)
  *
  * @param {string} text
  * @param {string} key
  * @returns {string | null}
  */
 function topLevelHeaderValue(text, key) {
-  const match = new RegExp(`^${key}:[ \\t]*(.*)$`, "m").exec(text);
+  const match = new RegExp(`^["']?${key}["']?:[ \\t]*(.*)$`, "m").exec(text);
   return match ? match[1].trim() : null;
 }
 

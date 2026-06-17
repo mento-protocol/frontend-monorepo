@@ -560,5 +560,32 @@ test("fails closed when packages: is declared but matches no members", () => {
   assert(stderr.includes("no workspace members"), `stderr: ${stderr}`);
 });
 
+// Quoted top-level keys are valid YAML pnpm honors — a quoted `catalog:` must
+// still be parsed (not silently treated as "no catalog").
+test("parses a quoted catalog header", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n"catalog":\n  viem: 2.50.4\n`,
+    {
+      "package.json": { name: "root" },
+      "app/package.json": { name: "app", dependencies: { viem: "1.0.0" } },
+    },
+  );
+  assert(exitCode !== 0, `expected drift detected, got ${exitCode}\n${stderr}`);
+  assert(stderr.includes("dependencies.viem"), `stderr: ${stderr}`);
+});
+
+// A quoted `catalogs:` must still trip the fail-closed named-catalog guard.
+test("fails closed on a quoted named-catalogs header", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n'catalogs':\n  react18:\n    react: ^18.3.1\n`,
+    {
+      "package.json": { name: "root" },
+      "app/package.json": { name: "app", dependencies: { react: "17.0.2" } },
+    },
+  );
+  assert(exitCode !== 0, `expected non-zero, got ${exitCode}\n${stderr}`);
+  assert(stderr.includes("catalogs"), `stderr: ${stderr}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
