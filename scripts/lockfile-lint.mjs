@@ -114,12 +114,17 @@ if (!packagesSection.trim()) {
 
 /**
  * Regex to extract a registry-tarball package entry + its sha512 integrity.
- * The `[^}\n]*` before the closing brace tolerates additional resolution
- * fields (e.g. `{integrity: sha512-..., tarball: https://...}` when
- * `lockfileIncludeTarballUrl` is enabled) — the sha512 is still captured.
+ *
+ * The integrity value is captured up to the next `,` or `}` (`sha512-[^,}\n]+`)
+ * and then validated WHOLE by SHA512_RE — so trailing garbage inside the value
+ * (e.g. `sha512-<88 chars>EXTRA`) is part of the captured token and fails the
+ * canonical-shape check, instead of being silently dropped by a trailing
+ * wildcard. `\{[^}\n]*` before `integrity:` allows other resolution fields
+ * (e.g. a `tarball:` from `lockfileIncludeTarballUrl`) to precede it, so field
+ * order doesn't cause a false "missing integrity".
  */
 const PKG_ENTRY =
-  /^ {2}('?[^':\n]+@[^\n:']+?'?):\s*\n\s+resolution:\s*\{integrity:\s*(sha512-[A-Za-z0-9+/]+=*)[^}\n]*\}/gm;
+  /^ {2}('?[^':\n]+@[^\n:']+?'?):\s*\n\s+resolution:\s*\{[^}\n]*\bintegrity:\s*(sha512-[^,}\n]+)[^}\n]*\}/gm;
 
 /**
  * Regex to identify TRULY LOCAL entries (`file:` / `link:` only) that
@@ -302,9 +307,11 @@ function findNpmrcs(dir, out) {
       (entry.isFile() || entry.isSymbolicLink()) &&
       entry.name === ".npmrc"
     ) {
-      // Include symlinks — pnpm follows them at install time, so a `.npmrc`
-      // pointing to a malicious file via symlink would bypass the gate
-      // unless we read the resolved target.
+      // Include a symlinked `.npmrc` FILE — pnpm follows it at install time, so
+      // a `.npmrc` pointing to a malicious file via symlink would bypass the
+      // gate unless we read the resolved target. (Symlinked directories are not
+      // recursed into — see the `entry.isDirectory()` branch above — which
+      // avoids symlink-cycle hangs.)
       out.push(full);
     }
   }

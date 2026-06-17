@@ -486,6 +486,35 @@ test("passes when namedRegistries points at npmjs", () => {
   );
 });
 
+// 18h. Trailing garbage inside the integrity value (e.g. tampering after the
+// canonical padding) must FAIL — the whole token is validated, not a prefix.
+test("fails when integrity has trailing garbage after the canonical hash", () => {
+  const tampered = VALID_SHA512.replace(/==$/, "==EXTRA");
+  const lockfile =
+    `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n` +
+    `  typescript@5.0.0:\n    resolution: {integrity: ${tampered}}\n\n` +
+    `snapshots:\n`;
+  const { exitCode, stdout, stderr } = run(lockfile);
+  assert(
+    exitCode !== 0,
+    `Expected non-zero (tampered integrity), got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+});
+
+// 18i. integrity need not be the first key in the resolution object — a leading
+// `tarball:` (lockfileIncludeTarballUrl ordering) must not cause a false RED.
+test("accepts a resolution where integrity is not the first key", () => {
+  const lockfile =
+    `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n` +
+    `  typescript@5.0.0:\n    resolution: {tarball: https://registry.npmjs.org/typescript/-/typescript-5.0.0.tgz, integrity: ${VALID_SHA512}}\n\n` +
+    `snapshots:\n`;
+  const { exitCode, stdout, stderr } = run(lockfile);
+  assert(
+    exitCode === 0,
+    `Expected exit 0 (integrity present, just not first), got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+});
+
 // 19. Parser-out-of-sync must fail loudly, not silently pass with 0 packages.
 test("fails loudly when the parser matches zero entries against a non-empty packages: section", () => {
   const lockfile = `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n  some-future-key-shape:\n    resolution: {integrity: ${VALID_SHA512}}\n\nsnapshots:\n`;

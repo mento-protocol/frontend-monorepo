@@ -219,7 +219,13 @@ for (const dir of manifestDirs) {
   const packageJsonPath = join(ROOT, dir, "package.json");
   if (!existsSync(packageJsonPath)) continue;
 
-  const manifest = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+  } catch {
+    fail(`${dir}/package.json is not valid JSON`);
+    continue;
+  }
   for (const section of sections) {
     for (const [name, rawSpec] of Object.entries(manifest[section] ?? {})) {
       const expected = catalog.get(name);
