@@ -549,5 +549,16 @@ test("parses a flow-style packages sequence", () => {
   assert(stderr.includes("packages/ui/package.json"), `stderr: ${stderr}`);
 });
 
+// Fail closed when `packages:` is declared with a catalog but matches no
+// members (would otherwise silently validate only the root manifest).
+test("fails closed when packages: is declared but matches no members", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - "apps/*"\n\ncatalog:\n  viem: 2.50.4\n`,
+    { "package.json": { name: "root" } },
+  );
+  assert(exitCode !== 0, `expected fail-closed, got ${exitCode}\n${stderr}`);
+  assert(stderr.includes("no workspace members"), `stderr: ${stderr}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

@@ -386,6 +386,21 @@ const patterns =
     ? parseFlowSequence(packagesHeader)
     : parseWorkspacePatterns(readTopLevelBlock(workspaceText, "packages"));
 const memberDirs = resolveWorkspaceMembers(patterns);
+
+// Fail closed if `packages:` is declared but resolves to zero members while a
+// catalog exists: that means the patterns matched nothing (a parsing bug or a
+// typo'd/relocated workspace file), and validating only the root manifest would
+// silently pass drift in every member. (`packages:` entirely absent is a
+// genuine single-package repo where root-only is correct, so don't fail there.)
+if (packagesHeader !== null && memberDirs.length === 0) {
+  fail(
+    "`packages:` is declared in pnpm-workspace.yaml but resolved to no workspace " +
+      "members — refusing to validate only the root manifest (likely a parsing " +
+      "issue or a typo in the package globs).",
+  );
+  process.exit(1);
+}
+
 const manifestDirs = [".", ...memberDirs];
 const sections = [
   "dependencies",

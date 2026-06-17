@@ -41,6 +41,19 @@ import process from "node:process";
 // eslint-disable-next-line turbo/no-undeclared-env-vars
 const ROOT = process.env["LOCKFILE_LINT_ROOT"] ?? process.cwd();
 
+// Directories never walked when discovering .npmrc / pnpm-workspace.yaml files
+// (build output + VCS/agent dirs). Scanning generated trees risks false-REDs on
+// vendored config and wastes time.
+const SKIP_WALK_DIRS = new Set([
+  ".git",
+  ".claude",
+  "node_modules",
+  ".next",
+  ".turbo",
+  "dist",
+  "build",
+]);
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 /** @param {string} msg */
@@ -298,11 +311,7 @@ function findNpmrcs(dir, out) {
     return;
   }
   for (const entry of entries) {
-    if (
-      entry.name === ".git" ||
-      entry.name === ".claude" ||
-      entry.name === "node_modules"
-    ) {
+    if (SKIP_WALK_DIRS.has(entry.name)) {
       continue;
     }
     const full = join(dir, entry.name);
@@ -418,11 +427,7 @@ function findPnpmWorkspaces(dir, out) {
     return;
   }
   for (const entry of entries) {
-    if (
-      entry.name === ".git" ||
-      entry.name === ".claude" ||
-      entry.name === "node_modules"
-    ) {
+    if (SKIP_WALK_DIRS.has(entry.name)) {
       continue;
     }
     const full = join(dir, entry.name);

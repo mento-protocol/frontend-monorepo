@@ -635,6 +635,19 @@ test("fails when a dependency is git-sourced", () => {
   assert(out.includes("git-sourced"), `expected git-source error: ${out}`);
 });
 
+// 18q. A `.npmrc` under a build-output dir (dist/) is not scanned — generated
+// trees are skipped (consistent with version-skew's SKIP_DIRS).
+test("skips .npmrc under build-output dirs (dist)", () => {
+  const { exitCode, stdout, stderr } = run(
+    makeLockfile([{ name: "typescript@5.0.0", integrity: VALID_SHA512 }]),
+    { "dist/.npmrc": "registry=https://evil.example.com/\n" },
+  );
+  assert(
+    exitCode === 0,
+    `Expected exit 0 (dist/.npmrc skipped), got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+});
+
 // 19. Parser-out-of-sync must fail loudly, not silently pass with 0 packages.
 test("fails loudly when the parser matches zero entries against a non-empty packages: section", () => {
   const lockfile = `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n  some-future-key-shape:\n    resolution: {integrity: ${VALID_SHA512}}\n\nsnapshots:\n`;
