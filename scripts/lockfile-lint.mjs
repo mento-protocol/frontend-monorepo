@@ -452,11 +452,40 @@ findPnpmWorkspaces(ROOT, workspaceFiles);
 function flowMapUrls(flow) {
   const inner = flow.replace(/^\s*\{/, "").replace(/\}\s*$/, "");
   /** @type {string[]} */ const urls = [];
-  for (const part of inner.split(",")) {
+  for (const part of splitTopLevelCommas(inner)) {
     const match = /^\s*["']?[^"':\s]+["']?\s*:\s*(.+)$/.exec(part);
     if (match) urls.push(unquote(match[1].trim()));
   }
   return urls;
+}
+
+/**
+ * Split a YAML flow body on top-level commas only — commas inside single or
+ * double quotes are preserved.
+ *
+ * @param {string} str
+ * @returns {string[]}
+ */
+function splitTopLevelCommas(str) {
+  const parts = [];
+  let current = "";
+  /** @type {string | null} */ let quote = null;
+  for (const ch of str) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      current += ch;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+    } else if (ch === ",") {
+      parts.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  parts.push(current);
+  return parts;
 }
 
 // Check every pnpm-workspace.yaml for the registry source of truth:

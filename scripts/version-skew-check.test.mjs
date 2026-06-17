@@ -477,5 +477,22 @@ test("comment-only catalogs: does not trip the fail-closed guard", () => {
   );
 });
 
+// A quoted flow-catalog value containing a comma must not be split apart.
+test("parses a flow catalog value that contains a quoted comma", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog: { viem: "2.50.4", pkg: ">=1.0.0,<2.0.0" }\n`,
+    {
+      "package.json": { name: "root" },
+      "app/package.json": {
+        name: "app",
+        dependencies: { pkg: "1.5.0" },
+      },
+    },
+  );
+  // `pkg` is cataloged as ">=1.0.0,<2.0.0"; the manifest pins "1.5.0" -> drift.
+  assert(exitCode !== 0, `expected drift on pkg, got ${exitCode}\n${stderr}`);
+  assert(stderr.includes("dependencies.pkg"), `stderr: ${stderr}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

@@ -163,11 +163,41 @@ function parseFlowCatalog(flow) {
   const close = flow.lastIndexOf("}");
   const inner = open !== -1 && close > open ? flow.slice(open + 1, close) : "";
   const catalog = new Map();
-  for (const part of inner.split(",")) {
+  for (const part of splitTopLevelCommas(inner)) {
     const match = /^\s*["']?([^"':\s]+)["']?\s*:\s*(.+)$/.exec(part);
     if (match) catalog.set(match[1], parseScalarValue(match[2]));
   }
   return catalog;
+}
+
+/**
+ * Split a YAML flow body on top-level commas only — commas inside single or
+ * double quotes are preserved (so a quoted value containing a comma is not torn
+ * into invalid fragments).
+ *
+ * @param {string} str
+ * @returns {string[]}
+ */
+function splitTopLevelCommas(str) {
+  const parts = [];
+  let current = "";
+  /** @type {string | null} */ let quote = null;
+  for (const ch of str) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      current += ch;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+    } else if (ch === ",") {
+      parts.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  parts.push(current);
+  return parts;
 }
 
 /**
