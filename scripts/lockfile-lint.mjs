@@ -112,9 +112,14 @@ if (!packagesSection.trim()) {
 // Those entries don't carry an integrity hash (they're not registry tarballs)
 // and must be exempted from the integrity check.
 
-/** Regex to extract a registry-tarball package entry + its sha512 integrity. */
+/**
+ * Regex to extract a registry-tarball package entry + its sha512 integrity.
+ * The `[^}\n]*` before the closing brace tolerates additional resolution
+ * fields (e.g. `{integrity: sha512-..., tarball: https://...}` when
+ * `lockfileIncludeTarballUrl` is enabled) — the sha512 is still captured.
+ */
 const PKG_ENTRY =
-  /^ {2}('?[^':\n]+@[^\n:']+?'?):\s*\n\s+resolution:\s*\{integrity:\s*(sha512-[A-Za-z0-9+/]+=*)\}/gm;
+  /^ {2}('?[^':\n]+@[^\n:']+?'?):\s*\n\s+resolution:\s*\{integrity:\s*(sha512-[A-Za-z0-9+/]+=*)[^}\n]*\}/gm;
 
 /**
  * Regex to identify TRULY LOCAL entries (`file:` / `link:` only) that
@@ -431,9 +436,12 @@ for (const absPath of workspaceFiles) {
   const rel = relative(ROOT, absPath);
   const ws = readFileSync(absPath, "utf8");
   const lines = ws.split("\n");
+  let inNamedRegistries = false;
   for (const [i, line] of lines.entries()) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
+    // Any column-0 line ends an open `namedRegistries:` block.
+    if (inNamedRegistries && /^\S/.test(line)) inNamedRegistries = false;
     // Top-level `registry: <url>` key (column 0, quoted variants accepted).
     const singularMatch = /^['"]?(registry)['"]?\s*:\s*(.+?)\s*$/.exec(line);
     if (singularMatch && /^\s/.test(line) === false) {
@@ -456,6 +464,29 @@ for (const absPath of workspaceFiles) {
           "registries. Verify this is intentional and every non-npmjs registry entry is audited.",
       );
       registryErrors++;
+    }
+    // Top-level `namedRegistries:` block. pnpm resolves `alias:@scope/pkg`
+    // specs through these aliases, so a non-npmjs alias URL is a registry
+    // redirect just like `registry=`. Validate each alias entry's URL.
+    if (
+      /^['"]?namedRegistries['"]?\s*:/.test(trimmed) &&
+      /^\s/.test(line) === false
+    ) {
+      inNamedRegistries = true;
+      continue;
+    }
+    if (inNamedRegistries) {
+      const entry = /^\s+["']?[^"':\s]+["']?\s*:\s*(.+?)\s*$/.exec(line);
+      if (entry) {
+        const url = unquote(entry[1].trim());
+        if (!isOfficialNpmRegistry(url)) {
+          fail(
+            `${rel}:${i + 1} — namedRegistries alias points off-npmjs: "${url}". ` +
+              "All packages must resolve from https://registry.npmjs.org; verify and audit if intentional.",
+          );
+          registryErrors++;
+        }
+      }
     }
   }
 }

@@ -436,6 +436,56 @@ test("fails when an allowlisted tarball key has a tampered resolution URL", () =
   );
 });
 
+// 18e. A registry entry with integrity AND a trailing tarball field (pnpm's
+// lockfileIncludeTarballUrl) must still be recognized as having integrity.
+test("accepts a registry entry with integrity and a trailing tarball field", () => {
+  const lockfile =
+    `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n` +
+    `  typescript@5.0.0:\n    resolution: {integrity: ${VALID_SHA512}, tarball: https://registry.npmjs.org/typescript/-/typescript-5.0.0.tgz}\n\n` +
+    `snapshots:\n`;
+  const { exitCode, stdout, stderr } = run(lockfile);
+  assert(
+    exitCode === 0,
+    `Expected exit 0 (integrity present despite extra field), got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+});
+
+// 18f. A `namedRegistries:` alias pointing off-npmjs is a registry redirect and
+// must fail the gate.
+test("fails when pnpm-workspace.yaml namedRegistries points off-npmjs", () => {
+  const { exitCode, stdout, stderr } = run(
+    makeLockfile([{ name: "typescript@5.0.0", integrity: VALID_SHA512 }]),
+    {
+      "pnpm-workspace.yaml":
+        "packages:\n  - shared-config\nnamedRegistries:\n  work: https://evil.example.com/\n",
+    },
+  );
+  assert(
+    exitCode !== 0,
+    `Expected non-zero, got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+  const out = stdout + stderr;
+  assert(
+    out.includes("namedRegistries"),
+    `expected namedRegistries error: ${out}`,
+  );
+});
+
+// 18g. A namedRegistries alias pointing at npmjs is fine — no false positive.
+test("passes when namedRegistries points at npmjs", () => {
+  const { exitCode, stdout, stderr } = run(
+    makeLockfile([{ name: "typescript@5.0.0", integrity: VALID_SHA512 }]),
+    {
+      "pnpm-workspace.yaml":
+        "packages:\n  - shared-config\nnamedRegistries:\n  pub: https://registry.npmjs.org/\n",
+    },
+  );
+  assert(
+    exitCode === 0,
+    `Expected exit 0, got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+});
+
 // 19. Parser-out-of-sync must fail loudly, not silently pass with 0 packages.
 test("fails loudly when the parser matches zero entries against a non-empty packages: section", () => {
   const lockfile = `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n  some-future-key-shape:\n    resolution: {integrity: ${VALID_SHA512}}\n\nsnapshots:\n`;

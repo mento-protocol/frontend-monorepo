@@ -301,5 +301,74 @@ test("expands glob members that have a trailing inline comment", () => {
   assert(stderr.includes("apps/web/package.json"), `stderr: ${stderr}`);
 });
 
+// Unquoted YAML plain scalar with spaces is a valid catalog range too.
+test("checks cataloged deps whose spec is an unquoted range with spaces", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog:\n  react: ^18.0.0 || ^19.0.0\n`,
+    {
+      "package.json": { name: "root" },
+      "app/package.json": { name: "app", dependencies: { react: "^18.0.0" } },
+    },
+  );
+  assert(exitCode !== 0, `expected drift detected, got ${exitCode}\n${stderr}`);
+  assert(stderr.includes("dependencies.react"), `stderr: ${stderr}`);
+});
+
+// Recursive `**` globs must expand to nested members.
+test("expands recursive ** globs to nested members", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - "packages/**"\n\ncatalog:\n  viem: 2.50.4\n`,
+    {
+      "package.json": { name: "root" },
+      "packages/group/inner/package.json": {
+        name: "inner",
+        dependencies: { viem: "2.40.0" },
+      },
+    },
+  );
+  assert(exitCode !== 0, `expected nested drift, got ${exitCode}\n${stderr}`);
+  assert(
+    stderr.includes("packages/group/inner/package.json"),
+    `stderr: ${stderr}`,
+  );
+});
+
+// `catalog:default` is an alias for the default catalog and must be accepted.
+test("accepts catalog:default as a default-catalog reference", () => {
+  const { exitCode, stdout } = run(
+    `packages:\n  - app\n\ncatalog:\n  viem: 2.50.4\n`,
+    {
+      "package.json": { name: "root" },
+      "app/package.json": {
+        name: "app",
+        dependencies: { viem: "catalog:default" },
+      },
+    },
+  );
+  assert(exitCode === 0, `expected exit 0, got ${exitCode}\n${stdout}`);
+});
+
+// Negated `!` globs exclude members; drift in an excluded dir must not fail.
+test("honors negated workspace globs (excluded members not checked)", () => {
+  const { exitCode, stdout } = run(
+    `packages:\n  - "packages/*"\n  - "!packages/fixtures"\n\ncatalog:\n  viem: 2.50.4\n`,
+    {
+      "package.json": { name: "root" },
+      "packages/ui/package.json": {
+        name: "ui",
+        dependencies: { viem: "catalog:" },
+      },
+      "packages/fixtures/package.json": {
+        name: "fixtures",
+        dependencies: { viem: "1.0.0" },
+      },
+    },
+  );
+  assert(
+    exitCode === 0,
+    `expected exit 0 (excluded member ignored), got ${exitCode}\n${stdout}`,
+  );
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
