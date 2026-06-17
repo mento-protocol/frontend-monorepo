@@ -33,6 +33,13 @@ lint:
     - linters: [trufflehog]
       paths:
         - packages/**/assets/** # Skip secret scanning on asset files (icons, etc.)
+    - linters: [osv-scanner]
+      paths:
+        # Dependency CVE scanning is decoupled from trunk and runs in
+        # .github/workflows/supply-chain.yml (osv-scanner + osv-scanner.toml),
+        # so the `trunk check --all` pre-push hook no longer blocks pushes on
+        # pre-existing repo-wide lockfile advisories.
+        - pnpm-lock.yaml
     - linters: [ALL]
       paths:
         - scripts/ralph/** # Ralph autonomous agent tooling — externally managed
