@@ -64,7 +64,15 @@ function readTopLevelBlock(text, blockName) {
   const block = [];
   for (let index = start + 1; index < lines.length; index += 1) {
     const line = lines[index] ?? "";
-    if (/^\S/.test(line) && line.trim() !== "") break;
+    // A column-0 non-blank line ends the block — EXCEPT a column-0 comment,
+    // which is valid YAML inside a sequence/map and must not truncate it.
+    if (
+      /^\S/.test(line) &&
+      line.trim() !== "" &&
+      !line.trimStart().startsWith("#")
+    ) {
+      break;
+    }
     block.push(line);
   }
   return block;
@@ -213,35 +221,49 @@ function parseWorkspacePatterns(blockLines) {
 }
 
 /**
- * Convert a pnpm workspace glob (fast-glob style) to a regex body. `**` matches
- * any characters (incl. `/`); `*` matches within a path segment; `{a,b}` brace
- * alternation becomes `(?:a|b)` (options converted recursively); every other
- * regex-special char is escaped. Built char-by-char to keep escaping
- * unambiguous.
+ * Parse a YAML flow sequence (`["apps/*", "packages/*"]`) into its items.
+ * Commas inside quotes are preserved.
  *
- * @param {string} glob
+ * @param {string} flow
+ * @returns {string[]}
+ */
+function parseFlowSequence(flow) {
+  const open = flow.indexOf("[");
+  const close = flow.lastIndexOf("]");
+  const inner = open !== -1 && close > open ? flow.slice(open + 1, close) : "";
+  return splitTopLevelCommas(inner)
+    .map((part) =>
+      part
+        .trim()
+        .replace(/^["']|["']$/g, "")
+        .trim(),
+    )
+    .filter((part) => part !== "");
+}
+
+/**
+ * Convert a single path SEGMENT (no `/`) to a regex body: `*` -> `[^/]*`,
+ * `{a,b}` -> `(?:a|b)` (options converted recursively), every other
+ * regex-special char escaped. Built char-by-char to keep escaping unambiguous.
+ *
+ * @param {string} segment
  * @returns {string}
  */
-function globBody(glob) {
+function segmentBody(segment) {
   let body = "";
-  for (let i = 0; i < glob.length; i += 1) {
-    const ch = glob[i];
+  for (let i = 0; i < segment.length; i += 1) {
+    const ch = segment[i];
     if (ch === "*") {
-      if (glob[i + 1] === "*") {
-        body += ".*";
-        i += 1;
-      } else {
-        body += "[^/]*";
-      }
+      body += "[^/]*";
     } else if (ch === "{") {
-      const end = glob.indexOf("}", i);
+      const end = segment.indexOf("}", i);
       if (end === -1) {
         body += "\\{";
       } else {
-        const options = glob
+        const options = segment
           .slice(i + 1, end)
           .split(",")
-          .map((option) => globBody(option.trim()));
+          .map((option) => segmentBody(option.trim()));
         body += `(?:${options.join("|")})`;
         i = end;
       }
@@ -255,11 +277,32 @@ function globBody(glob) {
 }
 
 /**
+ * Convert a pnpm workspace glob to an anchored RegExp over a POSIX dir path.
+ * Split into `/`-segments so a globstar segment matches ZERO or more path
+ * segments: a non-trailing globstar becomes an optional dir-prefix group, and a
+ * trailing globstar matches the rest. So a globstar-then-`web` pattern matches
+ * both `web` and `a/web`; a plain globstar-to-dot-star would instead require a
+ * leading directory. A single star matches within a segment; `{a,b}` is brace
+ * alternation.
+ *
  * @param {string} glob
  * @returns {RegExp}
  */
 function globToRegExp(glob) {
-  return new RegExp(`^${globBody(glob)}$`);
+  const segments = glob.split("/");
+  let body = "";
+  for (let k = 0; k < segments.length; k += 1) {
+    const last = k === segments.length - 1;
+    if (segments[k] === "**") {
+      // Globstar: zero-or-more leading segments (`(?:.*/)?`) when followed by
+      // more, or "the rest" (`.*`) when trailing.
+      body += last ? ".*" : "(?:.*/)?";
+    } else {
+      body += segmentBody(segments[k]);
+      if (!last) body += "/";
+    }
+  }
+  return new RegExp(`^${body}$`);
 }
 
 /**
@@ -334,9 +377,15 @@ if (catalog.size === 0) {
   process.exit(0);
 }
 
-const memberDirs = resolveWorkspaceMembers(
-  parseWorkspacePatterns(readTopLevelBlock(workspaceText, "packages")),
-);
+// `packages:` may be a block sequence (`- apps/*`) or a flow sequence
+// (`["apps/*", "packages/*"]`). A flow header was previously read as an empty
+// block (only the root manifest checked); parse it explicitly.
+const packagesHeader = topLevelHeaderValue(workspaceText, "packages");
+const patterns =
+  packagesHeader && packagesHeader.startsWith("[")
+    ? parseFlowSequence(packagesHeader)
+    : parseWorkspacePatterns(readTopLevelBlock(workspaceText, "packages"));
+const memberDirs = resolveWorkspaceMembers(patterns);
 const manifestDirs = [".", ...memberDirs];
 const sections = [
   "dependencies",

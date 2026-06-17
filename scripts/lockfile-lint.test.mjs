@@ -619,6 +619,22 @@ test("fails when registries: header has a bare off-npmjs scalar URL", () => {
   );
 });
 
+// 18p. A git-sourced dependency (resolution {repo:..., type: git}) must fail
+// even WITH a valid integrity — git sources aren't validated like the registry.
+test("fails when a dependency is git-sourced", () => {
+  const lockfile =
+    `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n` +
+    `  'some-pkg@git+https://evil.example.com/x.git#abc':\n    resolution: {repo: https://evil.example.com/x.git, type: git, commit: abc123, integrity: ${VALID_SHA512}}\n\n` +
+    `snapshots:\n`;
+  const { exitCode, stdout, stderr } = run(lockfile);
+  assert(
+    exitCode !== 0,
+    `Expected non-zero (git source), got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+  const out = stdout + stderr;
+  assert(out.includes("git-sourced"), `expected git-source error: ${out}`);
+});
+
 // 19. Parser-out-of-sync must fail loudly, not silently pass with 0 packages.
 test("fails loudly when the parser matches zero entries against a non-empty packages: section", () => {
   const lockfile = `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n  some-future-key-shape:\n    resolution: {integrity: ${VALID_SHA512}}\n\nsnapshots:\n`;

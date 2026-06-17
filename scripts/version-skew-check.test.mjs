@@ -494,5 +494,60 @@ test("parses a flow catalog value that contains a quoted comma", () => {
   assert(stderr.includes("dependencies.pkg"), `stderr: ${stderr}`);
 });
 
+// A column-0 comment inside `packages:` must not truncate the block.
+test("does not stop at a column-0 comment inside packages:", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - "apps/*"\n# shared\n  - "packages/*"\n\ncatalog:\n  viem: 2.50.4\n`,
+    {
+      "package.json": { name: "root" },
+      "apps/web/package.json": {
+        name: "web",
+        dependencies: { viem: "catalog:" },
+      },
+      "packages/ui/package.json": {
+        name: "ui",
+        dependencies: { viem: "2.40.0" },
+      },
+    },
+  );
+  assert(
+    exitCode !== 0,
+    `expected drift after comment, got ${exitCode}\n${stderr}`,
+  );
+  assert(stderr.includes("packages/ui/package.json"), `stderr: ${stderr}`);
+});
+
+// Globstar must match zero leading directories (`**/web` matches root `web`).
+test("globstar matches zero leading directories", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - "**/web"\n\ncatalog:\n  viem: 2.50.4\n`,
+    {
+      "package.json": { name: "root" },
+      "web/package.json": { name: "web", dependencies: { viem: "2.40.0" } },
+    },
+  );
+  assert(exitCode !== 0, `expected root web drift, got ${exitCode}\n${stderr}`);
+  assert(stderr.includes("web/package.json"), `stderr: ${stderr}`);
+});
+
+// Flow-style `packages: ["apps/*", "packages/*"]` must be parsed.
+test("parses a flow-style packages sequence", () => {
+  const { exitCode, stderr } = run(
+    `packages: ["apps/*", "packages/*"]\n\ncatalog:\n  viem: 2.50.4\n`,
+    {
+      "package.json": { name: "root" },
+      "packages/ui/package.json": {
+        name: "ui",
+        dependencies: { viem: "2.40.0" },
+      },
+    },
+  );
+  assert(
+    exitCode !== 0,
+    `expected drift in flow-seq member, got ${exitCode}\n${stderr}`,
+  );
+  assert(stderr.includes("packages/ui/package.json"), `stderr: ${stderr}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

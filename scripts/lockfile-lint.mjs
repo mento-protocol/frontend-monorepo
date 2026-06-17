@@ -594,6 +594,28 @@ while ((tarballMatch = TARBALL_FIELD.exec(packagesSection)) !== null) {
   }
 }
 
+// Git-source gate: a git dependency entry carries `resolution: {repo: <url>,
+// type: git, ...}`. Such an entry also has an integrity hash, so it passes the
+// integrity gate, but its source host is never the npm registry. Like the
+// tarball gate, a valid sha512 does NOT make an off-registry git source safe
+// (tampered lockfile = attacker-controlled integrity). Reject any git source
+// unless explicitly allowlisted (none are today).
+const GIT_REPO_ALLOWLIST = new Set();
+const REPO_FIELD = /resolution:\s*\{[^}\n]*\brepo:\s*([^\s,}]+)/g;
+/** @type {RegExpExecArray | null} */
+let repoMatch;
+while ((repoMatch = REPO_FIELD.exec(packagesSection)) !== null) {
+  const url = repoMatch[1];
+  if (!GIT_REPO_ALLOWLIST.has(url)) {
+    fail(
+      `pnpm-lock.yaml has a git-sourced dependency: "${url}". Git sources are ` +
+        "not audited like the npm registry; resolve from npmjs or add an " +
+        "explicit GIT_REPO_ALLOWLIST entry if this is intentional.",
+    );
+    registryErrors++;
+  }
+}
+
 if (registryErrors === 0) {
   ok(
     "No custom registry overrides detected — all packages resolve from registry.npmjs.org.",
