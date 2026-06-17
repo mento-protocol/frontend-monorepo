@@ -220,6 +220,22 @@ function resolveWorkspaceMembers(patterns) {
 
 const workspacePath = resolve(ROOT, "pnpm-workspace.yaml");
 const workspaceText = readFileSync(workspacePath, "utf8");
+
+// Fail closed on named catalogs (`catalogs:`). This checker validates only the
+// default `catalog:` block; a workspace that adopts named catalogs would
+// otherwise silently pass with real drift in `catalog:<name>` consumers. Fail
+// loudly so the script is extended (and `catalogs:` parsing + fixtures added)
+// rather than relied on with a blind spot. (`^catalogs:` does not match the
+// singular `catalog:` header.)
+if (readTopLevelBlock(workspaceText, "catalogs").some((l) => l.trim() !== "")) {
+  fail(
+    "pnpm-workspace.yaml defines named `catalogs:`, which this checker does not " +
+      "yet validate. Extend scripts/version-skew-check.mjs to parse named " +
+      "catalogs and their `catalog:<name>` consumers before relying on the gate.",
+  );
+  process.exit(1);
+}
+
 const catalog = parseCatalog(readTopLevelBlock(workspaceText, "catalog"));
 
 if (catalog.size === 0) {

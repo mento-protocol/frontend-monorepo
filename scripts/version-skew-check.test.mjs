@@ -403,5 +403,25 @@ test("expands brace-alternation globs", () => {
   assert(stderr.includes("packages/ui/package.json"), `stderr: ${stderr}`);
 });
 
+// Named catalogs (`catalogs:`) are not validated — the gate must fail loudly
+// (fail-closed) rather than silently pass with a blind spot.
+test("fails loudly when named catalogs (catalogs:) are present", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalogs:\n  react18:\n    react: ^18.3.1\n`,
+    {
+      "package.json": { name: "root" },
+      "app/package.json": { name: "app", dependencies: { react: "17.0.2" } },
+    },
+  );
+  assert(
+    exitCode !== 0,
+    `expected non-zero (named catalogs unsupported), got ${exitCode}\n${stderr}`,
+  );
+  assert(
+    stderr.includes("named") && stderr.includes("catalogs"),
+    `stderr: ${stderr}`,
+  );
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
