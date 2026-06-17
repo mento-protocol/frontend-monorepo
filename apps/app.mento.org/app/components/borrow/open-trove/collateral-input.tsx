@@ -85,10 +85,7 @@ export function CollateralInput({
           Collateral
         </span>
         <span className="font-mono text-[11px] text-muted-foreground">
-          Balance:{" "}
-          <span className="text-muted-foreground/70">
-            {formatCompactBalance(formattedBalance)}
-          </span>{" "}
+          Balance: <span>{formatCompactBalance(formattedBalance)}</span>{" "}
           {collateralSymbol}
         </span>
       </div>
@@ -103,12 +100,14 @@ export function CollateralInput({
             onChange(e.target.value)
           }
           placeholder="0.00"
+          aria-label={`Collateral amount in ${collateralSymbol}`}
           className="p-0 text-sm font-mono flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
         />
         <button
           type="button"
-          className="px-2 py-1 font-mono font-bold tracking-wider cursor-pointer bg-primary/10 text-[11px] text-primary transition-colors hover:bg-primary/20"
+          className="px-2 py-1 font-mono font-bold tracking-wider cursor-pointer bg-primary/10 text-[11px] text-foreground transition-colors hover:bg-primary/20"
           onClick={handleMax}
+          aria-label={`Use max ${collateralSymbol} balance`}
         >
           MAX
         </button>
@@ -117,11 +116,12 @@ export function CollateralInput({
           onValueChange={onCollateralChange ?? (() => {})}
           options={collateralOptions}
           disabled={!onCollateralChange}
-          triggerClassName="gap-1.5 px-3 py-2 h-auto flex items-center bg-muted/50 border-0 shadow-none rounded-none text-sm font-semibold text-muted-foreground/70 focus:ring-0 focus-visible:ring-0"
+          triggerAriaLabel={`${collateralSymbol} collateral token`}
+          triggerClassName="gap-1.5 px-3 py-2 h-auto flex items-center bg-muted/50 border-0 shadow-none rounded-none text-sm font-semibold text-foreground focus:ring-0 focus-visible:ring-0"
         />
       </div>
       {debtCurrencyValue && (
-        <p className="pl-0.5 font-mono text-[11px] text-muted-foreground/40">
+        <p className="pl-0.5 font-mono text-[11px] text-muted-foreground">
           ≈ {debtCurrencyValue}
         </p>
       )}

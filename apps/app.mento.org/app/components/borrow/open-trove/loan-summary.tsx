@@ -72,9 +72,9 @@ export function LoanSummary({
 
   return (
     <div className="p-6 top-6 sticky border border-border/50 bg-card">
-      <div className="mb-5 font-semibold tracking-wide text-[13px] text-muted-foreground/70">
+      <h2 className="mb-5 font-semibold tracking-wide text-[13px] text-muted-foreground">
         Loan Summary
-      </div>
+      </h2>
 
       <div className="flex flex-col">
         <MetricRow label="Collateral">

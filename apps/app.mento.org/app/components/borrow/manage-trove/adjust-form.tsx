@@ -314,6 +314,7 @@ export function AdjustForm({
               setCollInput(e.target.value)
             }
             placeholder="0.00"
+            aria-label={`${collDirection === "add" ? "Add" : "Remove"} collateral amount in ${collateralSymbol}`}
             className={`p-0 text-xl font-semibold flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0 ${
               insufficientCollBalance || exceedsCurrentCollateral
                 ? "text-destructive"
@@ -322,8 +323,9 @@ export function AdjustForm({
           />
           <button
             type="button"
-            className="px-2 py-1 font-bold font-mono tracking-wider cursor-pointer rounded-md bg-primary/10 text-[11px] text-primary transition-colors hover:bg-primary/20"
+            className="px-2 py-1 font-bold font-mono tracking-wider cursor-pointer rounded-md bg-primary/10 text-[11px] text-foreground transition-colors hover:bg-primary/20"
             onClick={handleMaxColl}
+            aria-label={`MAX ${collateralSymbol}`}
           >
             MAX
           </button>
@@ -379,13 +381,15 @@ export function AdjustForm({
               setDebtInput(e.target.value)
             }
             placeholder="0.00"
+            aria-label={`${debtDirection === "borrow" ? "Borrow more" : "Repay"} amount in ${debtToken.symbol}`}
             className="p-0 text-xl font-semibold flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
           />
           {debtDirection === "repay" && (
             <button
               type="button"
-              className="px-2 py-1 font-bold font-mono tracking-wider cursor-pointer rounded-md bg-primary/10 text-[11px] text-primary transition-colors hover:bg-primary/20"
+              className="px-2 py-1 font-bold font-mono tracking-wider cursor-pointer rounded-md bg-primary/10 text-[11px] text-foreground transition-colors hover:bg-primary/20"
               onClick={handleMaxDebt}
+              aria-label={`MAX ${debtToken.symbol}`}
             >
               MAX
             </button>

@@ -84,7 +84,7 @@ function LtvHealthBar({
             {riskStyle.label}
           </span>
         </div>
-        <span className="font-mono text-[11px] text-muted-foreground/50">
+        <span className="font-mono text-[11px] text-muted-foreground">
           Liq. at {maxLtvPct.toFixed(0)}%
         </span>
       </div>
@@ -176,7 +176,7 @@ export function TroveCard({ position, debtToken }: TroveCardProps) {
                 <TroveIdPopover troveId={position.troveId} />
               </div>
               <div className="gap-2 flex flex-wrap items-center">
-                <span className="font-mono text-[11px] text-muted-foreground/50">
+                <span className="font-mono text-[11px] text-muted-foreground">
                   Trove #{position.troveId.slice(0, 8)}
                 </span>
                 <TroveStatusBadge status={position.status} />
@@ -185,7 +185,7 @@ export function TroveCard({ position, debtToken }: TroveCardProps) {
           </div>
 
           <div className="gap-3 flex items-center">
-            <span className="font-mono text-[11px] text-muted-foreground/50">
+            <span className="font-mono text-[11px] text-muted-foreground">
               {formatInterestRate(position.annualInterestRate)} APR
             </span>
             <Button
@@ -238,7 +238,7 @@ export function TroveCard({ position, debtToken }: TroveCardProps) {
 function DataCell({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground/50 uppercase">
+      <span className="font-medium tracking-widest font-mono text-[11px] text-muted-foreground uppercase">
         {label}
       </span>
       <div className="mt-1 font-semibold tracking-tight">{value}</div>
