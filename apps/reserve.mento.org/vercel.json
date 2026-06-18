@@ -1,4 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "ignoreCommand": "git fetch --quiet origin main:refs/remotes/origin/main 2>/dev/null; npx turbo-ignore reserve.mento.org --fallback=origin/main"
+  "ignoreCommand": "if [ \"$VERCEL_GIT_COMMIT_REF\" = \"main\" ]; then npx --yes turbo-ignore reserve.mento.org; else git fetch --quiet origin main:refs/remotes/origin/main 2>/dev/null; npx --yes turbo-ignore reserve.mento.org --fallback=origin/main; fi"
 }
