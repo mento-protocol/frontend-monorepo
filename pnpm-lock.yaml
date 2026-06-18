@@ -122,7 +122,7 @@ overrides:
   color-string@<1.5.5: '>=1.5.5'
   defu@<6.1.5: '>=6.1.5'
   diff@<5.2.0: '>=5.2.0'
-  dompurify@<3.4.10: 3.4.10
+  dompurify@<3.4.11: 3.4.11
   flatted@<3.4.2: '>=3.4.2'
   follow-redirects@<1.16.0: '>=1.16.0'
   form-data@>=4.0.0 <4.0.6: 4.0.6
@@ -386,8 +386,8 @@ importers:
         specifier: ^3.2.0
         version: 3.2.0(date-fns@4.1.0)
       dompurify:
-        specifier: 3.4.10
-        version: 3.4.10
+        specifier: 3.4.11
+        version: 3.4.11
       graphql:
         specifier: ^16.12.0
         version: 16.12.0
@@ -793,13 +793,13 @@ importers:
         version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       '@turbo/gen':
         specifier: ^2.7.5
-        version: 2.7.5(@types/node@25.9.3)(typescript@5.9.3)
+        version: 2.7.5(@types/node@25.5.0)(typescript@5.9.3)
       '@types/react':
         specifier: 'catalog:'
         version: 19.2.14
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 3.2.4(vitest@3.2.6(@types/debug@4.1.13)(@types/node@25.9.3)(jiti@2.7.0)(jsdom@26.1.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))(lightningcss@1.32.0)(terser@5.48.0)(yaml@2.9.0))
+        version: 3.2.4(vitest@3.2.6(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(jsdom@26.1.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))(lightningcss@1.32.0)(terser@5.48.0)(yaml@2.9.0))
       concurrently:
         specifier: 'catalog:'
         version: 9.2.1
@@ -826,7 +826,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: 'catalog:'
-        version: 3.2.6(@types/debug@4.1.13)(@types/node@25.9.3)(jiti@2.7.0)(jsdom@26.1.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))(lightningcss@1.32.0)(terser@5.48.0)(yaml@2.9.0)
+        version: 3.2.6(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(jsdom@26.1.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))(lightningcss@1.32.0)(terser@5.48.0)(yaml@2.9.0)
 
   packages/vitest-config:
     devDependencies:
@@ -8724,8 +8724,8 @@ packages:
   dom-helpers@5.2.1:
     resolution: {integrity: sha512-nRCa7CK3VTrM2NmGkIy4cbK7IZlgBE/PYMn55rrXefr5xXDP0LdtfPnblFDoVdcAfslJ7or6iqAUnx0CCGIWQA==}
 
-  dompurify@3.4.10:
-    resolution: {integrity: sha512-0xzNv0e7oYC6yyuOGZIABPM4qtg3QxLFniDNPP4ZP90wR8Yq3zgwpRbrNiT4N3IKqDbbYFEJLV+JWEs19aZ//w==}
+  dompurify@3.4.11:
+    resolution: {integrity: sha512-zhlUV12GsaRzMsf9q5M254YhA4+VuF0fG+QFqu6aYpoGlKtz+w8//jBcGVYBgQkR5GHjUomejY84AV+/uPbWdw==}
 
   dot-case@2.1.1:
     resolution: {integrity: sha512-HnM6ZlFqcajLsyudHq7LeeLDr2rFAVYtDv/hV5qchQEidSck8j9OPUsXY9KwJv/lHMtYlX4DjRQqwFYa+0r8Ug==}
@@ -21906,7 +21906,7 @@ snapshots:
   '@turbo/darwin-arm64@2.9.18':
     optional: true
 
-  '@turbo/gen@2.7.5(@types/node@25.9.3)(typescript@5.9.3)':
+  '@turbo/gen@2.7.5(@types/node@25.5.0)(typescript@5.9.3)':
     dependencies:
       '@turbo/workspaces': 2.7.5
       commander: 10.0.0
@@ -21916,7 +21916,7 @@ snapshots:
       node-plop: 0.26.3
       picocolors: 1.0.1
       proxy-agent: 6.5.0
-      ts-node: 10.9.2(@types/node@25.9.3)(typescript@5.9.3)
+      ts-node: 10.9.2(@types/node@25.5.0)(typescript@5.9.3)
       update-check: 1.5.4
       validate-npm-package-name: 5.0.0
     transitivePeerDependencies:
@@ -22352,25 +22352,6 @@ snapshots:
       test-exclude: 7.0.2
       tinyrainbow: 2.0.0
       vitest: 3.2.6(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(jsdom@26.1.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))(lightningcss@1.32.0)(terser@5.48.0)(yaml@2.9.0)
-    transitivePeerDependencies:
-      - supports-color
-
-  '@vitest/coverage-v8@3.2.4(vitest@3.2.6(@types/debug@4.1.13)(@types/node@25.9.3)(jiti@2.7.0)(jsdom@26.1.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))(lightningcss@1.32.0)(terser@5.48.0)(yaml@2.9.0))':
-    dependencies:
-      '@ampproject/remapping': 2.3.0
-      '@bcoe/v8-coverage': 1.0.2
-      ast-v8-to-istanbul: 0.3.12
-      debug: 4.4.3
-      istanbul-lib-coverage: 3.2.2
-      istanbul-lib-report: 3.0.1
-      istanbul-lib-source-maps: 5.0.6
-      istanbul-reports: 3.2.0
-      magic-string: 0.30.21
-      magicast: 0.3.5
-      std-env: 3.10.0
-      test-exclude: 7.0.2
-      tinyrainbow: 2.0.0
-      vitest: 3.2.6(@types/debug@4.1.13)(@types/node@25.9.3)(jiti@2.7.0)(jsdom@26.1.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))(lightningcss@1.32.0)(terser@5.48.0)(yaml@2.9.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -25822,7 +25803,7 @@ snapshots:
       '@babel/runtime': 7.29.2
       csstype: 3.2.3
 
-  dompurify@3.4.10:
+  dompurify@3.4.11:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
 
@@ -30785,14 +30766,14 @@ snapshots:
 
   ts-mixer@6.0.4: {}
 
-  ts-node@10.9.2(@types/node@25.9.3)(typescript@5.9.3):
+  ts-node@10.9.2(@types/node@25.5.0)(typescript@5.9.3):
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
       '@tsconfig/node10': 1.0.12
       '@tsconfig/node12': 1.0.11
       '@tsconfig/node14': 1.0.3
       '@tsconfig/node16': 1.0.4
-      '@types/node': 25.9.3
+      '@types/node': 25.5.0
       acorn: 8.15.0
       acorn-walk: 8.3.4
       arg: 4.1.3
