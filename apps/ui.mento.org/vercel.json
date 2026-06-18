@@ -1,3 +1,4 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "ignoreCommand": "git fetch --quiet origin main:refs/remotes/origin/main 2>/dev/null; npx turbo-ignore ui.mento.org --fallback=origin/main"
 }
