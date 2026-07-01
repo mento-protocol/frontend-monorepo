@@ -38,9 +38,9 @@
     "@types/node": "catalog:",
     "eslint": "catalog:",
     "eslint-config-prettier": "catalog:",
-    "knip": "^5.82.1",
-    "prettier": "^3.8.0",
-    "prettier-plugin-tailwindcss": "^0.7.2",
+    "knip": "^6.16.1",
+    "prettier": "^3.8.5",
+    "prettier-plugin-tailwindcss": "^0.8.0",
     "turbo": "^2.9.14",
     "typescript": "catalog:",
     "typescript-eslint": "catalog:"

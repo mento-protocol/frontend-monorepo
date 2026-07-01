@@ -44,8 +44,8 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@argos-ci/playwright": "7.0.6",
-    "@playwright/test": "1.61.0",
+    "@argos-ci/playwright": "7.0.9",
+    "@playwright/test": "1.61.1",
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@repo/vitest-config": "workspace:*",
@@ -57,7 +57,7 @@
     "@vitest/coverage-v8": "catalog:",
     "concurrently": "catalog:",
     "eslint": "catalog:",
-    "jsdom": "^26.1.0",
+    "jsdom": "^29.1.1",
     "pino-pretty": "catalog:",
     "postcss": "catalog:",
     "typescript": "catalog:",
