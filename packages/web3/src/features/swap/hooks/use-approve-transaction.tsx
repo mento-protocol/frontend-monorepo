@@ -167,15 +167,15 @@ export function useApproveTransaction({
 
   const sendApproveTx = useCallback(async () => {
     if (isSendingRef.current || isPending) return null;
-    isSendingRef.current = true;
-    reset();
 
     if (!txRequest?.to || !txRequest?.data) {
       toast.error("Unable to prepare approval transaction");
       return null;
     }
 
+    reset();
     try {
+      isSendingRef.current = true;
       validateAddress(txRequest.to, "approval transaction");
       const hash = await sendTransactionAsync({
         gas: data,

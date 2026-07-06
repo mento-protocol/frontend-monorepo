@@ -70,7 +70,11 @@
     "wagmi": "catalog:"
   },
   "devDependencies": {
+    "@tanstack/react-query": "catalog:",
+    "@testing-library/react": "^16.3.0",
     "@vitest/coverage-v8": "catalog:",
+    "jsdom": "^26.1.0",
+    "react-dom": "catalog:",
     "vitest": "catalog:"
   },
   "peerDependencies": {
