@@ -5,7 +5,8 @@
     ".claude/worktrees/**",
     ".trunk/**",
     "apps/governance.mento.org/app/graphql/**/generated/**",
-    "commitlint.config.mjs"
+    "commitlint.config.mjs",
+    "scripts/security-headers.d.mts"
   ],
   "workspaces": {
     "apps/*": {
