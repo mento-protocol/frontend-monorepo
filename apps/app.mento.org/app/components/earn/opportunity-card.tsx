@@ -1,10 +1,10 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { Card, CardContent, cn, TokenIcon } from "@repo/ui";
-import { chainIdToChain, type ChainId } from "@repo/web3";
+import type { ChainId } from "@repo/web3";
 import { ChevronRight } from "lucide-react";
+import { ChainIcon } from "../shared/chain-icon";
 
 interface EarnMechanic {
   label: string;
@@ -56,32 +56,6 @@ const mechanicDotColor: Record<EarnMechanic["color"], string> = {
 
 function formatOpportunityApy(apy: number): string {
   return apy > 0 && apy < 1 ? apy.toFixed(2) : apy.toFixed(1);
-}
-
-function ChainIcon({ chainId }: { chainId: ChainId }) {
-  const chain = chainIdToChain[chainId];
-  const iconUrl = (chain as unknown as Record<string, unknown>)?.iconUrl as
-    | string
-    | undefined;
-
-  if (!iconUrl) return null;
-
-  return (
-    <span
-      title={chain?.name ?? ""}
-      aria-label={chain?.name ?? ""}
-      className="inline-flex"
-    >
-      <Image
-        src={iconUrl}
-        alt={chain?.name ?? ""}
-        width={16}
-        height={16}
-        className="h-4 w-4 rounded-full"
-        unoptimized
-      />
-    </span>
-  );
 }
 
 export function OpportunityCard({ opp }: { opp: Opportunity }) {
@@ -149,7 +123,7 @@ export function OpportunityCard({ opp }: { opp: Opportunity }) {
                   {opp.name}
                 </span>
                 <div className="gap-1.5 mt-1 flex flex-wrap items-center">
-                  <ChainIcon chainId={opp.chainId} />
+                  <ChainIcon chainId={opp.chainId} wrapper />
                   <span
                     className={cn(
                       "rounded px-1.5 py-0.5 font-mono font-semibold text-[9px]",
