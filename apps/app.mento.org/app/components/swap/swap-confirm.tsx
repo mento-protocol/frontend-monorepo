@@ -4,6 +4,7 @@ import { env } from "@/env.mjs";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import { Button, IconLoading, TokenIcon } from "@repo/ui";
 import {
+  type ChainId,
   formatWithMaxDecimals,
   formValuesAtom,
   getNativeTokenSymbol,
@@ -21,13 +22,18 @@ import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { useAtom } from "jotai";
 import { ArrowRight } from "lucide-react";
 import { useMemo } from "react";
+import { ChainMismatchBanner } from "@/components/shared/chain-mismatch-banner";
 import { SwapInsufficientLiquidityNotice } from "./insufficient-liquidity-notice";
 
-export function SwapConfirm() {
+export function SwapConfirm({ chainId }: { chainId: ChainId }) {
   const [formValues] = useAtom(formValuesAtom);
 
   const { address, isConnected } = useAccount();
-  const chainId = useChainId();
+  const walletChainId = useChainId();
+  // The reviewed quote and calldata are built for the route chain (`chainId`);
+  // wagmi submits on whatever chain the wallet is on, so block execution when
+  // they disagree.
+  const isWalletOnWrongChain = isConnected && walletChainId !== chainId;
   const nativeTokenSymbol = getNativeTokenSymbol(chainId) as TokenSymbol;
 
   const amount = String(formValues?.amount || "");
@@ -49,6 +55,7 @@ export function SwapConfirm() {
     fromTokenUSDValue,
     toTokenUSDValue,
   } = useOptimizedSwapQuote(amount, tokenInSymbol, tokenOutSymbol, {
+    chainId,
     insufficientLiquidityFallbackUrl: env.NEXT_PUBLIC_BANNER_LINK,
   });
 
@@ -63,6 +70,16 @@ export function SwapConfirm() {
 
   const { fromAmount, fromAmountWei, toAmount } = swapValues;
 
+  const approveAmount = amountWei;
+
+  const { skipApprove, isAllowanceLoading } = useSwapAllowance({
+    chainId,
+    tokenInSymbol,
+    tokenOutSymbol,
+    approveAmount,
+    address,
+  });
+
   const { sendSwapTx, isSwapTxLoading, isSwapTxReceiptLoading } =
     useSwapTransaction(
       chainId,
@@ -70,23 +87,13 @@ export function SwapConfirm() {
       tokenOutSymbol,
       fromAmountWei,
       address,
-      true,
+      skipApprove,
       {
         fromAmount,
         toAmount,
       },
       env.NEXT_PUBLIC_BANNER_LINK,
     );
-
-  const approveAmount = amountWei;
-
-  const { skipApprove } = useSwapAllowance({
-    chainId,
-    tokenInSymbol,
-    tokenOutSymbol,
-    approveAmount,
-    address,
-  });
 
   const {
     data: gasEstimate,
@@ -134,7 +141,8 @@ export function SwapConfirm() {
   }, [formValues?.buyUSDValue, tokenOutSymbol, quote, toTokenUSDValue]);
 
   async function onSubmit() {
-    if (!rate || !amountWei || !address || !isConnected) return;
+    if (!rate || !amountWei || !address || !isConnected || isWalletOnWrongChain)
+      return;
 
     try {
       await sendSwapTx();
@@ -157,6 +165,7 @@ export function SwapConfirm() {
 
   return (
     <div className="gap-6 flex h-full flex-col">
+      {isWalletOnWrongChain && <ChainMismatchBanner targetChainId={chainId} />}
       <div className="md:w-[520px] gap-2 flex w-full flex-row items-center justify-between">
         <div className="md:h-50 md:w-50 h-32 gap-2 flex flex-1 flex-col items-center justify-center bg-incard">
           <TokenIcon
@@ -271,6 +280,8 @@ export function SwapConfirm() {
           isSwapTxLoading ||
           isSwapTxReceiptLoading ||
           isGasEstimating ||
+          isAllowanceLoading ||
+          isWalletOnWrongChain ||
           isQuoteError ||
           hasInsufficientLiquidityError ||
           !rate ||
@@ -281,6 +292,8 @@ export function SwapConfirm() {
       >
         {isSwapTxLoading || isSwapTxReceiptLoading ? (
           <IconLoading />
+        ) : isWalletOnWrongChain ? (
+          "Wrong network"
         ) : isQuoteError ? (
           hasQuoteInsufficientLiquidityError ? (
             SWAP_INSUFFICIENT_LIQUIDITY_LABEL

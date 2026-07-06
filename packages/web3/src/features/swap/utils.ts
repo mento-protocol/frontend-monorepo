@@ -1,3 +1,7 @@
+import {
+  DEFAULT_SLIPPAGE_PERCENT,
+  MAX_SLIPPAGE_PERCENT,
+} from "@/config/constants";
 import { getTokenBySymbol, getTokenDecimals } from "@/config/tokens";
 import { type NumberT, parseAmountWithDefault, toWei } from "@/utils/amount";
 import { logger } from "@/utils/logger";
@@ -63,24 +67,27 @@ export const formatWithMaxDecimals = (
   useThousandSeparators = true,
 ): string => {
   if (!value || value === "0") return "0";
-  const num = Number.parseFloat(value);
-  if (Number.isNaN(num)) return "0";
+  const num = new BigNumber(value);
+  if (num.isNaN() || !num.isFinite()) return "0";
 
-  // If the number has more decimals than allowed, truncate it
-  const factor = 10 ** maxDecimals;
-  const truncated = Math.floor(num * factor) / factor;
+  // Decimal, arbitrary-precision truncation — no IEEE-754 round-trip.
+  const truncated = num.decimalPlaces(maxDecimals, BigNumber.ROUND_DOWN);
 
-  // Format with or without thousand separators based on the parameter
-  if (useThousandSeparators) {
-    return truncated.toLocaleString("en-US", {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: maxDecimals,
-    });
-  } else {
-    // Return plain number string without thousand separators for form inputs
-    return truncated.toFixed(maxDecimals).replace(/\.?0+$/, "");
-  }
+  // toFormat() groups thousands with ","; toFixed() (no dp arg) emits no trailing zeros.
+  return useThousandSeparators ? truncated.toFormat() : truncated.toFixed();
 };
+
+export function parseSlippage(slippage?: string): number {
+  const parsed = Number.parseFloat(slippage ?? "");
+  if (
+    !Number.isFinite(parsed) ||
+    parsed <= 0 ||
+    parsed > MAX_SLIPPAGE_PERCENT
+  ) {
+    return DEFAULT_SLIPPAGE_PERCENT;
+  }
+  return parsed;
+}
 
 /**
  * Validates if a token pair is valid for swapping

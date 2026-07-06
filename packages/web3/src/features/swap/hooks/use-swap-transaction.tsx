@@ -6,7 +6,7 @@ import {
   isInsufficientLiquidityError,
   SWAP_INSUFFICIENT_LIQUIDITY_LABEL,
 } from "@/features/swap/error-handlers";
-import { formatWithMaxDecimals } from "@/features/swap/utils";
+import { formatWithMaxDecimals, parseSlippage } from "@/features/swap/utils";
 import { validateAddress } from "@/utils/addresses";
 import { logger } from "@/utils/logger";
 import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
@@ -113,7 +113,7 @@ export function useSwapTransaction(
         BigInt(amountInWei),
         accountAddress,
         {
-          slippageTolerance: parseFloat(formValues?.slippage || "0.3"),
+          slippageTolerance: parseSlippage(formValues?.slippage),
           deadline,
         },
         route,
