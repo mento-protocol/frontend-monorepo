@@ -5,6 +5,7 @@ import { CELO_BLOCK_TIME } from "@repo/web3";
 import { ensureChainId } from "@repo/web3";
 import { useProposal } from "@/contracts/governor";
 import { useAccount, useBlock, useBlockNumber } from "@repo/web3/wagmi";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMemo } from "react";
 import { ExecutionCode } from "./execution-code/ExecutionCode";
@@ -16,7 +17,11 @@ import { ProposalHeader } from "./ProposalHeader";
 export const ProposalContent = () => {
   const params = useParams();
   const id = params.id as string;
-  const { proposal, refetch: refetchProposal } = useProposal(BigInt(id));
+  const {
+    proposal,
+    isLoading,
+    refetch: refetchProposal,
+  } = useProposal(BigInt(id));
   const { chainId } = useAccount();
 
   // Only fetch block data if wallet is connected, otherwise use fallback
@@ -80,10 +85,21 @@ export const ProposalContent = () => {
     );
   }, [transactions]);
 
-  if (!proposal) {
+  if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <IconLoading />
+      </div>
+    );
+  }
+
+  if (!proposal) {
+    return (
+      <div className="gap-4 flex min-h-screen flex-col items-center justify-center">
+        <p>Proposal not found</p>
+        <Link href="/" className="underline">
+          Back to home
+        </Link>
       </div>
     );
   }
