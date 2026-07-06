@@ -45,19 +45,19 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@graphql-codegen/add": "^6.0.0",
-    "@graphql-codegen/cli": "^6.1.0",
-    "@graphql-codegen/typescript": "^5.0.7",
-    "@graphql-codegen/typescript-apollo-client-helpers": "^3.0.1",
-    "@graphql-codegen/typescript-operations": "^5.0.7",
-    "@graphql-codegen/typescript-react-apollo": "^4.4.0",
+    "@graphql-codegen/add": "^7.0.1",
+    "@graphql-codegen/cli": "^7.1.2",
+    "@graphql-codegen/typescript": "^6.0.2",
+    "@graphql-codegen/typescript-apollo-client-helpers": "^4.0.1",
+    "@graphql-codegen/typescript-operations": "^6.0.4",
+    "@graphql-codegen/typescript-react-apollo": "^4.4.2",
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@tailwindcss/postcss": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "dotenv": "^17.2.3",
+    "dotenv": "^17.4.2",
     "pino-pretty": "catalog:",
     "typescript": "catalog:"
   }
