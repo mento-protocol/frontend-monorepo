@@ -5,7 +5,7 @@ import { HiddenTestnetState } from "./hidden-testnet-state";
 const refreshMock = vi.fn();
 const pushMock = vi.fn();
 const setTestnetModeMock = vi.fn();
-const switchChainAsyncMock = vi.fn();
+const switchToChainMock = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -22,11 +22,9 @@ vi.mock("@repo/web3", () => ({
     42220: { name: "Celo" },
   },
   useTestnetMode: () => [false, setTestnetModeMock],
-}));
-
-vi.mock("@repo/web3/wagmi", () => ({
-  useSwitchChain: () => ({
-    switchChainAsync: switchChainAsyncMock,
+  useSwitchChainWithFeedback: () => ({
+    switchToChain: switchToChainMock,
+    isSwitching: false,
   }),
 }));
 
@@ -35,7 +33,7 @@ describe("HiddenTestnetState", () => {
     refreshMock.mockReset();
     pushMock.mockReset();
     setTestnetModeMock.mockReset();
-    switchChainAsyncMock.mockReset();
+    switchToChainMock.mockReset();
   });
 
   it("enables testnet mode and refreshes when requested", () => {
@@ -60,6 +58,6 @@ describe("HiddenTestnetState", () => {
 
     fireEvent.click(screen.getByText("Switch to Celo"));
 
-    expect(switchChainAsyncMock).toHaveBeenCalledWith({ chainId: 42220 });
+    expect(switchToChainMock).toHaveBeenCalledWith(42220);
   });
 });
