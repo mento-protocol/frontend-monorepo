@@ -130,23 +130,12 @@ if ! command -v pnpm &>/dev/null; then
 	# Use corepack (built into Node.js) for secure package manager installation
 	# Corepack uses the packageManager field in package.json for version pinning
 	corepack enable
-	corepack prepare pnpm@10.17.1 --activate
+	PACKAGE_MANAGER_VERSION=$(node -p "require('./package.json').packageManager")
+	corepack prepare "${PACKAGE_MANAGER_VERSION}" --activate
 fi
 
 PNPM_VERSION=$(pnpm -v)
 print_success "pnpm version: ${PNPM_VERSION}"
-echo ""
-
-# Install turbo globally
-print_step "Installing turbo globally..."
-pnpm add -g turbo
-if ! command -v turbo &>/dev/null; then
-	print_error "Turbo installation failed. Please check your pnpm configuration."
-	exit 1
-fi
-TURBO_FULL_OUTPUT=$(turbo --version)
-TURBO_VERSION=$(echo "${TURBO_FULL_OUTPUT}" | head -n 1)
-print_success "Turbo version: ${TURBO_VERSION}"
 echo ""
 
 # Install dependencies
@@ -155,16 +144,21 @@ pnpm install --frozen-lockfile
 print_success "Dependencies installed"
 echo ""
 
+TURBO_FULL_OUTPUT=$(pnpm exec turbo --version)
+TURBO_VERSION=$(echo "${TURBO_FULL_OUTPUT}" | head -n 1)
+print_success "Turbo version: ${TURBO_VERSION}"
+echo ""
+
 # Build packages (required before running dev)
 print_step "Building packages..."
 print_warning "This may take a few minutes..."
-turbo run build --filter "./packages/*"
+pnpm exec turbo run build --filter "./packages/*"
 print_success "Packages built successfully"
 echo ""
 
 # Check types
 print_step "Verifying TypeScript configuration..."
-turbo run check-types
+pnpm exec turbo run check-types
 print_success "TypeScript checks passed"
 echo ""
 

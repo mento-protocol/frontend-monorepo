@@ -12,7 +12,7 @@ A monorepo for all our frontend apps, designed to simplify sharing of code like 
 - **[shadcn/ui](https://ui.shadcn.com/)**: Our UI component base library to extend from
 - **[Trunk CLI](https://trunk.io/)**: Metalinter and formatter (ESLint, Prettier, Markdown, YAML, Shell, Commitlint)
 - **[Vercel](https://vercel.com/)**: For deployments and turborepo build remote caching
-- **[GitHub Actions](https://github.com/features/actions)**: For CI/CD (with Turborepo caching for builds via Vercel)
+- **[GitHub Actions](https://github.com/features/actions)**: For CI (with Turborepo caching for builds via Vercel)
 
 ## Repo Structure
 
@@ -21,7 +21,6 @@ frontend-monorepo/
 ├── apps/                     # Frontend applications
 │   ├── app.mento.org/        # Mento Exchange UI
 │   ├── governance.mento.org/ # Governance UI
-│   ├── minipay.mento.org/    # MiniPay DApp
 │   ├── reserve.mento.org/    # Reserve UI
 │   └── ui.mento.org/         # Component Library Showcase
 │
@@ -29,6 +28,7 @@ frontend-monorepo/
 │   ├── eslint-config/        # Shared ESLint configuration
 │   ├── typescript-config/    # Shared TypeScript configuration
 │   ├── ui/                   # Shared UI library with tailwind styles and shadcn/ui components
+│   ├── vitest-config/        # Shared Vitest configuration
 │   └── web3/                 # Shared library with web3-specific components and hooks
 │
 ├── .github/                  # GitHub workflows
@@ -71,6 +71,27 @@ frontend-monorepo/
    ```bash
    turbo dev
    ```
+
+### Environment Variables
+
+Each app has its own `.env.example` listing the variables it needs:
+
+- `apps/app.mento.org/.env.example`
+- `apps/governance.mento.org/.env.example`
+- `apps/reserve.mento.org/.env.example`
+- `apps/ui.mento.org/.env.example`
+
+For each app you run locally, copy its example file and fill in the values:
+
+```bash
+cd apps/<app-name>
+cp .env.example .env.local
+```
+
+Most values are public config and safe to copy as-is. A few require secrets from a teammate or the Vercel project settings:
+
+- `governance.mento.org` needs `NEXT_PUBLIC_GRAPH_API_KEY` and `ETHERSCAN_API_KEY`
+- `ui.mento.org` needs `NEXT_PUBLIC_STORAGE_URL`
 
 ## Development Workflow
 
@@ -297,10 +318,10 @@ feat(ui): add new button component
 
 ## CI/CD Pipeline
 
-The repository is set up with GitHub Actions for CI/CD:
+The repository is set up with GitHub Actions for CI:
 
 - **CI**: On every PR, it runs linting (via Trunk), type checking, and builds all packages
-- **CD**: On merges to main, it deploys applications to Vercel
+- **CD**: Deployments are handled by the Vercel Git integration — each app is a Vercel project that builds on push to main (previews on PRs). GitHub Actions does not deploy.
 
 ### Trunk in CI
 

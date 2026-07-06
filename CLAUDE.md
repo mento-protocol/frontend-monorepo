@@ -21,13 +21,13 @@ Monorepo for Mento Protocol frontend applications (DeFi on Celo blockchain).
 
 ## Tech Stack
 
-- **Framework:** Next.js 16, React 19, TypeScript 5.9
+- **Framework:** Next.js 15, React 19, TypeScript 5.9
 - **Package management:** pnpm 10, Turborepo, Node >= 22
-- **Styling:** Tailwind CSS 4, React Aria Components
+- **Styling:** Tailwind CSS 4
 - **Web3:** wagmi, viem, @mento-protocol/mento-sdk, RainbowKit
 - **State:** jotai (atoms), @tanstack/react-query (data fetching)
 - **Linting/Formatting:** Trunk CLI (ESLint + Prettier)
-- **Testing:** Vitest (app.mento.org and @repo/web3 only)
+- **Testing:** Vitest (app.mento.org, @repo/web3, @repo/ui)
 - **Monitoring:** Sentry
 - **Deployment:** Vercel
 
@@ -71,7 +71,7 @@ Two layers guard against unintended UI changes:
 - **Naming:** PascalCase for components, camelCase for variables/functions
 - **No acronyms:** Use `errorMessage` not `errMsg`, `button` not `btn`, `authentication` not `auth`
 - **No `any` type:** Use specific types, or `unknown` in the worst case
-- **Components:** Use `@repo/ui` components. Use `onPress` instead of `onClick`. Prefer React Aria Components.
+- **Components:** Use `@repo/ui` components (Radix UI primitives via shadcn/ui-style components); standard `onClick` handlers.
 - **Block explorer links:** Use `AddressLink` and `TransactionLink` components
 - **Dependencies:** Never add new npm dependencies without explicit approval
 - **Commits:** Conventional Commits enforced by commitlint (`feat|fix|docs|chore(scope): message`)
@@ -93,3 +93,5 @@ The audit covers three codebases:
 - `../mento-sdk` — Mento protocol SDK (external, relative to monorepo root)
 
 The SDK repo is external at `../mento-sdk` — agents auditing it should read but NOT modify files there unless explicitly told to.
+
+Verify ../mento-sdk is current (git -C ../mento-sdk pull) before auditing; it has been observed years stale.
