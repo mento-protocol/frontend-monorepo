@@ -1,20 +1,49 @@
 import type { NextConfig } from "next";
 import { env } from "@/env.mjs";
+import { buildSecurityHeaders } from "../../scripts/security-headers.mjs";
+
+const storageHostname = env.NEXT_PUBLIC_STORAGE_URL.replace(
+  /^https?:\/\/([^/]+)\/?.*$/,
+  "$1",
+);
+
+// Showcase app: no wallet, no Sentry. Report-only violations still log to the
+// browser console, which is enough here — so no report-uri.
+const reportOnlyCsp = [
+  "default-src 'self'",
+  // 'unsafe-inline' 'unsafe-eval' are required by Next 15 today.
+  // Tightening target: replace with per-request nonces/hashes in production.
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  "style-src 'self' 'unsafe-inline'",
+  `img-src 'self' data: blob: https://${storageHostname}`,
+  "font-src 'self' data:",
+  `connect-src 'self' https://${storageHostname}`,
+  "worker-src 'self' blob:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+].join("; ");
 
 const nextConfig: NextConfig = {
   /* Performance Optimizations */
   // Enable React Server Components (default in App Router)
   reactStrictMode: true,
 
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: buildSecurityHeaders({ reportOnlyCsp }),
+      },
+    ];
+  },
+
   // Image optimization config
   images: {
     remotePatterns: [
       {
         protocol: "https",
-        hostname: env.NEXT_PUBLIC_STORAGE_URL.replace(
-          /^https?:\/\/([^/]+)\/?.*$/,
-          "$1",
-        ),
+        hostname: storageHostname,
         pathname: "/shared/*",
       },
     ],

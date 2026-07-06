@@ -1,8 +1,51 @@
 import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 import { env } from "@/env.mjs";
+import {
+  buildSecurityHeaders,
+  sentryCspReportUri,
+} from "../../scripts/security-headers.mjs";
+
+const storageHostname = env.NEXT_PUBLIC_STORAGE_URL.replace(
+  /^https?:\/\/([^/]+)\/?.*$/,
+  "$1",
+);
+
+// Reserve is a read-only dashboard with no wallet — no WalletConnect entries.
+const connectSrc = [
+  "'self'",
+  "https://forno.celo.org",
+  "https://forno.celo-sepolia.celo-testnet.org",
+  `https://${storageHostname}`,
+];
+
+const reportUri = sentryCspReportUri(env.NEXT_PUBLIC_SENTRY_DSN_RESERVE);
+
+const reportOnlyCsp = [
+  "default-src 'self'",
+  // 'unsafe-inline' 'unsafe-eval' are required by Next 15 today.
+  // Tightening target: replace with per-request nonces/hashes in production.
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  "style-src 'self' 'unsafe-inline'",
+  `img-src 'self' data: blob: https://${storageHostname} https://raw.githubusercontent.com`,
+  "font-src 'self' data:",
+  `connect-src ${connectSrc.join(" ")}`,
+  "worker-src 'self' blob:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  ...(reportUri ? [`report-uri ${reportUri}`] : []),
+].join("; ");
 
 const nextConfig: NextConfig = {
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: buildSecurityHeaders({ reportOnlyCsp }),
+      },
+    ];
+  },
   async redirects() {
     return [
       {
@@ -30,10 +73,7 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: "https",
-        hostname: env.NEXT_PUBLIC_STORAGE_URL.replace(
-          /^https?:\/\/([^/]+)\/?.*$/,
-          "$1",
-        ),
+        hostname: storageHostname,
         pathname: "/reserve/*|/shared/*",
       },
       {

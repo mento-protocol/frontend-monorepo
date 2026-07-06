@@ -1,16 +1,74 @@
 import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 import { env } from "@/env.mjs";
+import {
+  buildSecurityHeaders,
+  originOf,
+  sentryCspReportUri,
+} from "../../scripts/security-headers.mjs";
+
+const storageHostname = env.NEXT_PUBLIC_STORAGE_URL.replace(
+  /^https?:\/\/([^/]+)\/?.*$/,
+  "$1",
+);
+
+// Client-side API hosts governance talks to directly, as origins.
+const apiOrigins = [
+  env.NEXT_PUBLIC_BLOCKSCOUT_API_URL,
+  env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL,
+  env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA,
+  env.NEXT_PUBLIC_ETHERSCAN_API_URL,
+  env.NEXT_PUBLIC_SUBGRAPH_URL,
+  env.NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA,
+]
+  .map(originOf)
+  .filter(Boolean);
+
+const connectSrc = [
+  "'self'",
+  "https://forno.celo.org",
+  "https://forno.celo-sepolia.celo-testnet.org",
+  "https://*.walletconnect.com",
+  "wss://*.walletconnect.com",
+  "https://*.walletconnect.org",
+  "wss://*.walletconnect.org",
+  `https://${storageHostname}`,
+  ...apiOrigins,
+];
+
+const reportUri = sentryCspReportUri(env.NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE);
+
+const reportOnlyCsp = [
+  "default-src 'self'",
+  // 'unsafe-inline' 'unsafe-eval' are required by Next 15 + wagmi today.
+  // Tightening target: replace with per-request nonces/hashes in production.
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  "style-src 'self' 'unsafe-inline'",
+  `img-src 'self' data: blob: https://${storageHostname} https://raw.githubusercontent.com`,
+  "font-src 'self' data:",
+  `connect-src ${connectSrc.join(" ")}`,
+  "frame-src 'self' https://verify.walletconnect.com https://verify.walletconnect.org",
+  "worker-src 'self' blob:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  ...(reportUri ? [`report-uri ${reportUri}`] : []),
+].join("; ");
 
 const nextConfig: NextConfig = {
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: buildSecurityHeaders({ reportOnlyCsp }),
+      },
+    ];
+  },
   images: {
     remotePatterns: [
       {
         protocol: "https",
-        hostname: env.NEXT_PUBLIC_STORAGE_URL.replace(
-          /^https?:\/\/([^/]+)\/?.*$/,
-          "$1",
-        ),
+        hostname: storageHostname,
         pathname: "/governance/*|/shared/*",
       },
       {
