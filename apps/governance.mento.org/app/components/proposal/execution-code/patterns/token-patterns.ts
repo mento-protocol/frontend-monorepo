@@ -10,10 +10,11 @@ export const tokenPatterns: PatternRegistry = {
   "transfer(address,uint256)": createPattern(
     (contract, args) => {
       const [recipient, amount] = args;
-      const recipientName = getAddressNameFromCache(String(recipient!.value));
+      if (recipient === undefined || amount === undefined) return null;
+      const recipientName = getAddressNameFromCache(String(recipient.value));
       const token = getContractInfo(contract.address);
       const formattedAmount = formatTokenAmount(
-        String(amount!.value),
+        String(amount.value),
         token?.decimals || DEFAULT_TOKEN_DECIMALS,
       );
 
@@ -26,10 +27,11 @@ export const tokenPatterns: PatternRegistry = {
   "approve(address,uint256)": createPattern(
     (contract, args) => {
       const [spender, amount] = args;
-      const spenderName = getAddressNameFromCache(String(spender!.value));
+      if (spender === undefined || amount === undefined) return null;
+      const spenderName = getAddressNameFromCache(String(spender.value));
       const token = getContractInfo(contract.address);
       const formattedAmount = formatTokenAmount(
-        String(amount!.value),
+        String(amount.value),
         token?.decimals || DEFAULT_TOKEN_DECIMALS,
       );
 
@@ -42,10 +44,11 @@ export const tokenPatterns: PatternRegistry = {
   "mint(address,uint256)": createPattern(
     (contract, args) => {
       const [recipient, amount] = args;
-      const recipientName = getAddressNameFromCache(String(recipient!.value));
+      if (recipient === undefined || amount === undefined) return null;
+      const recipientName = getAddressNameFromCache(String(recipient.value));
       const token = getContractInfo(contract.address);
       const formattedAmount = formatTokenAmount(
-        String(amount!.value),
+        String(amount.value),
         token?.decimals || DEFAULT_TOKEN_DECIMALS,
       );
 
@@ -58,9 +61,10 @@ export const tokenPatterns: PatternRegistry = {
   "burn(uint256)": createPattern(
     (contract, args) => {
       const [amount] = args;
+      if (amount === undefined) return null;
       const token = getContractInfo(contract.address);
       const formattedAmount = formatTokenAmount(
-        String(amount!.value),
+        String(amount.value),
         token?.decimals || DEFAULT_TOKEN_DECIMALS,
       );
 
@@ -74,9 +78,16 @@ export const tokenPatterns: PatternRegistry = {
   "lock(address,address,uint96,uint32,uint32)": createPattern(
     (contract, args) => {
       const [account, , amount, slopePeriod, cliff] = args;
-      const accountName = getAddressNameFromCache(String(account!.value));
-      const formattedAmount = formatTokenAmount(String(amount!.value), 18);
-      return `Lock ${formattedAmount} MENTO for ${accountName} with ${String(cliff!.value)} weeks cliff and ${String(slopePeriod!.value)} weeks slope period`;
+      if (
+        account === undefined ||
+        amount === undefined ||
+        slopePeriod === undefined ||
+        cliff === undefined
+      )
+        return null;
+      const accountName = getAddressNameFromCache(String(account.value));
+      const formattedAmount = formatTokenAmount(String(amount.value), 18);
+      return `Lock ${formattedAmount} MENTO for ${accountName} with ${String(cliff.value)} weeks cliff and ${String(slopePeriod.value)} weeks slope period`;
     },
     5,
     "lock",
@@ -85,8 +96,9 @@ export const tokenPatterns: PatternRegistry = {
   "delegateTo(uint256,address)": createPattern(
     (contract, args) => {
       const [id, newDelegate] = args;
-      const delegateName = getAddressNameFromCache(String(newDelegate!.value));
-      return `Delegate voting power from lock #${id!.value} to ${delegateName}`;
+      if (id === undefined || newDelegate === undefined) return null;
+      const delegateName = getAddressNameFromCache(String(newDelegate.value));
+      return `Delegate voting power from lock #${id.value} to ${delegateName}`;
     },
     2,
     "delegateTo",
@@ -96,10 +108,11 @@ export const tokenPatterns: PatternRegistry = {
   "setName(string)": createPattern(
     (contract, args) => {
       const [newName] = args;
+      if (newName === undefined) return null;
       const token = getContractInfo(contract.address);
       const contractName =
         token?.name || getAddressNameFromCache(contract.address);
-      return `Set name for ${contractName} to "${String(newName!.value)}"`;
+      return `Set name for ${contractName} to "${String(newName.value)}"`;
     },
     1,
     "setName",
@@ -108,10 +121,11 @@ export const tokenPatterns: PatternRegistry = {
   "setSymbol(string)": createPattern(
     (contract, args) => {
       const [newSymbol] = args;
+      if (newSymbol === undefined) return null;
       const token = getContractInfo(contract.address);
       const contractName =
         token?.name || getAddressNameFromCache(contract.address);
-      return `Set symbol for ${contractName} to "${String(newSymbol!.value)}"`;
+      return `Set symbol for ${contractName} to "${String(newSymbol.value)}"`;
     },
     1,
     "setSymbol",

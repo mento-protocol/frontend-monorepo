@@ -10,7 +10,9 @@
     "codegen": "graphql-codegen",
     "dev": "next dev --turbopack --port 3002",
     "lint": "npx @trunkio/launcher check",
-    "start": "next start"
+    "start": "next start",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@apollo/client": "^3.14.0",
@@ -53,12 +55,17 @@
     "@graphql-codegen/typescript-react-apollo": "^4.4.0",
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
+    "@repo/vitest-config": "workspace:*",
     "@tailwindcss/postcss": "catalog:",
+    "@testing-library/react": "^16.3.0",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "dotenv": "^17.2.3",
+    "jsdom": "^26.1.0",
     "pino-pretty": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

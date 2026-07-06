@@ -13,6 +13,7 @@ import {
   TabsTrigger,
 } from "@repo/ui";
 import { useMemo, useState } from "react";
+import { ErrorBoundary } from "@sentry/nextjs";
 import type { Transaction } from "../types/transaction";
 import { useExecutionCodeData } from "./hooks/useExecutionCodeData";
 import { EmptyExecutionMessage } from "./EmptyExecutionMessage";
@@ -55,35 +56,47 @@ export function ExecutionCode({ transactions, className }: ExecutionCodeProps) {
           {!hasTransactions || isEmptyExecutionCode ? (
             <EmptyExecutionMessage />
           ) : (
-            <Tabs defaultValue="simple">
-              <TabsList>
-                <TabsTrigger value="simple">Simple View</TabsTrigger>
-                <TabsTrigger value="technical">Technical View</TabsTrigger>
-                <TabsTrigger value="raw">Raw JSON</TabsTrigger>
-              </TabsList>
+            <ErrorBoundary
+              fallback={
+                <div>
+                  <p className="mb-4 text-muted-foreground">
+                    Could not decode this proposal&apos;s execution code — raw
+                    calldata shown below.
+                  </p>
+                  <RawView transactions={transactions} />
+                </div>
+              }
+            >
+              <Tabs defaultValue="simple">
+                <TabsList>
+                  <TabsTrigger value="simple">Simple View</TabsTrigger>
+                  <TabsTrigger value="technical">Technical View</TabsTrigger>
+                  <TabsTrigger value="raw">Raw JSON</TabsTrigger>
+                </TabsList>
 
-              <TabsContent value="simple" className="mt-6">
-                <SimpleView
-                  isLoading={isLoading}
-                  summaries={summaries}
-                  transactions={transactions}
-                  decodedTransactions={decodedTransactions}
-                />
-              </TabsContent>
+                <TabsContent value="simple" className="mt-6">
+                  <SimpleView
+                    isLoading={isLoading}
+                    summaries={summaries}
+                    transactions={transactions}
+                    decodedTransactions={decodedTransactions}
+                  />
+                </TabsContent>
 
-              <TabsContent value="technical" className="mt-6">
-                <TechnicalView
-                  isLoading={isLoading}
-                  transactions={transactions}
-                  decodedTransactions={decodedTransactions}
-                  contractNames={contractNames}
-                />
-              </TabsContent>
+                <TabsContent value="technical" className="mt-6">
+                  <TechnicalView
+                    isLoading={isLoading}
+                    transactions={transactions}
+                    decodedTransactions={decodedTransactions}
+                    contractNames={contractNames}
+                  />
+                </TabsContent>
 
-              <TabsContent value="raw" className="mt-6">
-                <RawView transactions={transactions} />
-              </TabsContent>
-            </Tabs>
+                <TabsContent value="raw" className="mt-6">
+                  <RawView transactions={transactions} />
+                </TabsContent>
+              </Tabs>
+            </ErrorBoundary>
           )}
         </CardContent>
       )}
