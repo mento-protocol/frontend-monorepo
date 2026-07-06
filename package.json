@@ -28,10 +28,6 @@
     "test": "turbo run test",
     "test:coverage": "turbo run test:coverage"
   },
-  "resolutions": {
-    "brace-expansion": "2.0.3",
-    "esbuild": "0.28.1"
-  },
   "devDependencies": {
     "@eslint/js": "catalog:",
     "@repo/eslint-config": "workspace:*",
@@ -50,23 +46,6 @@
     "node": ">=22"
   },
   "pnpm": {
-    "onlyBuiltDependencies": [
-      "@parcel/watcher",
-      "@sentry/cli",
-      "@tailwindcss/oxide",
-      "bufferutil",
-      "core-js",
-      "core-js-pure",
-      "es5-ext",
-      "esbuild",
-      "keccak",
-      "secp256k1",
-      "sharp",
-      "utf-8-validate",
-      "web3",
-      "web3-bzz",
-      "web3-shh"
-    ],
     "overrides": {
       "@babel/core@<7.29.6": ">=7.29.6 <8",
       "@eslint/plugin-kit@<0.3.4": ">=0.3.4",
@@ -123,7 +102,7 @@
       "ws@>=7.0.0 <7.5.11": "7.5.11",
       "yaml@>=2.0.0 <2.8.3": ">=2.8.3",
       "yaml@<1.10.3": ">=1.10.3 <2",
-      "zod": "^4.3.5"
+      "zod": "^4.4.3"
     }
   }
 }

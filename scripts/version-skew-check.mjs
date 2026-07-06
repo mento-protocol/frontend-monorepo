@@ -6,6 +6,13 @@
  * `catalog:default`, or exactly the catalog version. This keeps workspace
  * members from silently drifting off the shared catalog with a literal pin.
  *
+ * Also checks the root `pnpm.overrides` block: pnpm overrides rewrite EVERY
+ * specifier for a package name, including `catalog:` references, so an
+ * unconditional override (a bare package name, no `@<range>` selector) that
+ * targets a cataloged package must match the catalog string exactly. Range-
+ * scoped CVE-floor overrides (`axios@<1.15.0`) are skipped — they self-expire
+ * and can never equal a plain catalog key. See docs/dependency-overrides.md.
+ *
  * This intentionally checks only the default `catalog:` block. If this
  * workspace adopts pnpm named catalogs via `catalogs:`, extend this checker
  * and its fixtures in the same change.
@@ -440,6 +447,37 @@ for (const dir of manifestDirs) {
         `${dir}/package.json ${section}.${name} is "${spec}" - expected "catalog:" or "${expected}"`,
       );
     }
+  }
+}
+
+// pnpm.overrides rewrites every specifier for a package name, including
+// `catalog:` references — an unconditional override targeting a cataloged
+// package must match the catalog string exactly, or a catalog bump is a
+// silent no-op. Range-scoped keys (`axios@<1.15.0`) self-expire and are
+// skipped: `indexOf("@", 1)` finds a `@<selector>` suffix while leaving a
+// scoped bare name (`@tanstack/react-query`) intact.
+const rootPackageJsonPath = join(ROOT, "package.json");
+if (existsSync(rootPackageJsonPath)) {
+  let rootManifest;
+  try {
+    rootManifest = JSON.parse(readFileSync(rootPackageJsonPath, "utf8"));
+  } catch {
+    rootManifest = undefined;
+  }
+
+  for (const [key, rawValue] of Object.entries(
+    rootManifest?.pnpm?.overrides ?? {},
+  )) {
+    if (key.indexOf("@", 1) !== -1) continue; // range-scoped — self-expires
+    const expected = catalog.get(key);
+    if (!expected) continue;
+
+    const value = String(rawValue);
+    if (value === expected) continue;
+
+    fail(
+      `package.json pnpm.overrides.${key} is "${value}" - conflicts with catalog "${expected}" (overrides rewrite catalog: references, so the catalog entry is dead)`,
+    );
   }
 }
 
