@@ -8,6 +8,7 @@ import {
   isReferenceRateUnavailableError,
   USER_ERROR_MESSAGES,
 } from "@/features/swap/error-handlers";
+import { isUserRejection } from "@/utils/is-user-rejection";
 import { logger } from "@/utils/logger";
 
 export function getSwapTransactionErrorMessage(
@@ -43,11 +44,7 @@ export function getSwapTransactionErrorMessage(
   }
 
   switch (true) {
-    case /user\s+rejected/i.test(errorMessage):
-      return USER_ERROR_MESSAGES.SWAP_REJECTED_BY_USER;
-    case /denied\s+transaction\s+signature/i.test(errorMessage):
-      return USER_ERROR_MESSAGES.SWAP_REJECTED_BY_USER;
-    case /request\s+rejected/i.test(errorMessage):
+    case isUserRejection(errorMessage):
       return USER_ERROR_MESSAGES.SWAP_REJECTED_BY_USER;
     case errorMessage.includes("No route found for tokens") ||
       errorMessage.includes("tradable path"):

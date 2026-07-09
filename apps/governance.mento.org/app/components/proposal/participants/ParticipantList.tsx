@@ -1,7 +1,6 @@
 "use client";
-import { Identicon } from "@/components/identicon";
 import { CopyToClipboard } from "@repo/ui";
-import { useCurrentChain } from "@repo/web3";
+import { Identicon, useCurrentChain } from "@repo/web3";
 import { useMemo } from "react";
 import { formatUnits } from "viem";
 import { getAddressNameFromCache } from "../services/address-resolver-service";

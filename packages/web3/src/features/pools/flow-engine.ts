@@ -5,6 +5,7 @@ import {
   waitForTransactionReceipt,
 } from "wagmi/actions";
 import type { Address, Hex } from "viem";
+import { isUserRejection } from "@/utils/is-user-rejection";
 import { getTransactionFeeOverrides } from "@/utils/transaction-fees";
 import type { LiquidityFlowState, LiquidityFlowStep } from "./flow-atoms";
 
@@ -216,11 +217,7 @@ export async function executeLiquidityFlow(
       const rawMessage = extractFlowErrorString(error);
 
       // If user rejected, clear the flow entirely
-      if (
-        /user\s+rejected|denied\s+transaction|request\s+rejected/i.test(
-          rawMessage,
-        )
-      ) {
+      if (isUserRejection(rawMessage)) {
         setFlowAtom(null);
         return { success: false, txHashes };
       }

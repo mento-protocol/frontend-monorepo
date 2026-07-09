@@ -5,11 +5,11 @@ export default defineConfig({
   entry: ["src/index.ts"],
   format: ["esm", "cjs"],
   dts: true,
-  splitting: false, // keeps everything in one JS file
-  minify: true,
+  splitting: true,
+  minify: false,
   sourcemap: true,
   target: "esnext",
-  external: ["react", "react-dom"],
+  skipNodeModulesBundle: true,
   publicDir: "src/assets",
   esbuildOptions(options) {
     // ✅ give the plugin the metafile

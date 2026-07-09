@@ -14,6 +14,7 @@ import {
   type Hex,
   type TransactionReceipt,
 } from "viem";
+import { isUserRejection } from "@/utils/is-user-rejection";
 import type { CallParams } from "../types";
 
 const DEFAULT_GAS_HEADROOM = 0.25;
@@ -99,11 +100,7 @@ function normalizeTxError(error: unknown, txData?: Hex): Error {
       ? `${message}\n${details.join("\n")}`
       : message;
 
-  if (
-    /user\s+rejected|denied\s+transaction|request\s+rejected/i.test(
-      combinedMessage,
-    )
-  )
+  if (isUserRejection(combinedMessage))
     return new Error("Transaction rejected by user");
 
   if (
