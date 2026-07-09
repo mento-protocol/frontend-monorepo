@@ -11,15 +11,13 @@ import {
 import {
   type PoolDisplay,
   type PoolRewardInfo,
-  chainIdToChain,
-  type ChainId,
   getPoolDisplayOrder,
 } from "@repo/web3";
 import Link from "next/link";
-import Image from "next/image";
 import { PoolAddressPopover } from "./pool-address-popover";
 import { PoolFeePopover } from "./pool-fee-popover";
 import { RebalancePanel } from "./rebalance-panel";
+import { ChainIcon } from "../shared/chain-icon";
 
 function formatCompactTvl(value: number): string {
   if (value >= 1_000_000) {
@@ -109,7 +107,7 @@ export const PoolRow = memo(function PoolRow({
                   <span className="text-sm font-medium">
                     {displayToken0.symbol} / {displayToken1.symbol}
                   </span>
-                  <ChainBadge chainId={pool.chainId} />
+                  <ChainIcon chainId={pool.chainId} withTitle />
                   <PoolAddressPopover pool={pool} />
                 </div>
 
@@ -307,26 +305,3 @@ export const PoolRow = memo(function PoolRow({
     </Collapsible>
   );
 });
-
-function ChainBadge({ chainId }: { chainId: ChainId }) {
-  const chain = chainIdToChain[chainId];
-  if (!chain) return null;
-
-  const iconUrl = (chain as unknown as Record<string, unknown>)?.iconUrl as
-    | string
-    | undefined;
-
-  if (!iconUrl) return null;
-
-  return (
-    <Image
-      src={iconUrl}
-      alt={chain.name}
-      width={16}
-      height={16}
-      className="h-4 w-4 rounded-full"
-      title={chain.name}
-      unoptimized
-    />
-  );
-}

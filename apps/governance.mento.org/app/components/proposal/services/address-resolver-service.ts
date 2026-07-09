@@ -1,7 +1,8 @@
 "use client";
 
+import { shortenAddress } from "@repo/web3";
 import { ContractInfo } from "../types/transaction";
-import { normalizeAddress, formatAddress } from "../utils/address-utils";
+import { normalizeAddress } from "../utils/address-utils";
 import contractsConfig from "../config/contract-registry.json";
 import { ContractAPIService } from "./contract-api-service";
 import * as Sentry from "@sentry/nextjs";
@@ -99,7 +100,7 @@ class AddressResolverService {
       // Return formatted address as fallback
       return {
         address: normalizedAddress,
-        name: formatAddress(normalizedAddress),
+        name: shortenAddress(normalizedAddress, false),
         source: "formatted",
       };
     } finally {
@@ -196,7 +197,7 @@ class AddressResolverService {
     // Return formatted address as fallback
     return {
       address: normalizedAddress,
-      name: formatAddress(normalizedAddress),
+      name: shortenAddress(normalizedAddress, false),
       source: "formatted",
     };
   }
@@ -355,7 +356,7 @@ class AddressResolverService {
     // 3. Fallback to formatted address
     return {
       address: normalizedAddress,
-      name: formatAddress(normalizedAddress),
+      name: shortenAddress(normalizedAddress, false),
       source: "formatted",
     };
   }
