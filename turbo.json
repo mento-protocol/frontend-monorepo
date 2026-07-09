@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/turbo/schema.json",
   "ui": "tui",
-  "globalDependencies": ["**/.env.*local"],
+  "globalDependencies": ["**/.env.*local", "scripts/security-headers.mjs"],
   "globalEnv": [
     "ETHERSCAN_API_KEY",
     "NODE_ENV",

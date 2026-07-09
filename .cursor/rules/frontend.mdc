@@ -23,11 +23,11 @@ Carefully follow these instructions for frontend TypeScript and React developmen
    - Never use `any` type. Always prefer specific types. In the worst case, use `unknown`.
    - Prioritize code readability and maintainability.
    - Never introduce new npm dependencies without asking and receiving explicit approval before
-   - Prefer React Aria Components wherever possible
+   - Prefer the existing `@repo/ui` component APIs before adding primitives directly
 
 2. Use the following React patterns and libraries:
    - Use components from `@repo/ui`.
-   - Use `onPress` instead of `onClick` for event handlers.
+   - Use standard `onClick` handlers unless an existing component exposes a different callback API.
    - Use the `AddressLink` and `TransactionLink` components for all links to block explorers.
 
 3. Always follow these steps when implementing changes:
@@ -40,7 +40,7 @@ Carefully follow these instructions for frontend TypeScript and React developmen
 5. Before submitting a PR, run the full validation:
    - Run `trunk check --all` to run all linters
    - Run `trunk format --all` to run all formatters
-   - Run `turbo build` to build the entire project
+   - Run `pnpm build` to build the entire project
    - Fix any warnings or failures before proceeding.
 
 ## Examples
