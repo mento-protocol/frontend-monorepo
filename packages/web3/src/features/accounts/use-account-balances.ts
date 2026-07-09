@@ -1,12 +1,11 @@
 import { BALANCE_STALE_TIME } from "@/config/constants";
 import { getTokenOptionsByChainId } from "@/config/tokens";
-import { getProvider } from "@/features/providers";
+import { getPublicClient } from "@/features/sdk";
 import { validateAddress } from "@/utils/addresses";
 import { logger } from "@/utils/logger";
 import { getTokenAddress, TokenSymbol } from "@mento-protocol/mento-sdk";
 import { useQuery } from "@tanstack/react-query";
-import { Contract } from "ethers";
-import { erc20Abi } from "viem";
+import { type Address, erc20Abi } from "viem";
 
 /**
  * Account balances mapped by token symbol
@@ -35,10 +34,15 @@ async function getTokenBalance({
       `${tokenSymbol} token address not found on chain ${chainId}`,
     );
   }
-  const provider = getProvider(chainId);
+  const publicClient = getPublicClient(chainId);
   try {
-    const tokenContract = new Contract(tokenAddress, erc20Abi, provider);
-    return (await tokenContract.balanceOf(address)).toString();
+    const balance = await publicClient.readContract({
+      address: tokenAddress as Address,
+      abi: erc20Abi,
+      functionName: "balanceOf",
+      args: [address as Address],
+    });
+    return balance.toString();
   } catch (error) {
     logger.error(
       `Error on getting balance of '${tokenSymbol}' token. Address: ${address}, ChainId: ${chainId}`,
