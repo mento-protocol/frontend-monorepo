@@ -7,7 +7,7 @@ import { type NumberT, parseAmountWithDefault, toWei } from "@/utils/amount";
 import { logger } from "@/utils/logger";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import BigNumber from "bignumber.js";
-import { ethers } from "ethers";
+import { formatUnits } from "viem";
 
 export function parseInputExchangeAmount(
   amount: NumberT | null | undefined,
@@ -29,8 +29,8 @@ export function calcExchangeRate(
 ) {
   try {
     const rate = new BigNumber(
-      ethers.utils.formatUnits(fromAmountWei.toString(), fromDecimals),
-    ).dividedBy(ethers.utils.formatUnits(toAmountWei.toString(), toDecimals));
+      formatUnits(BigInt(fromAmountWei.toString()), fromDecimals),
+    ).dividedBy(formatUnits(BigInt(toAmountWei.toString()), toDecimals));
     if (rate.isFinite()) return rate.toFixed(4, BigNumber.ROUND_DOWN);
     return "0";
   } catch (error) {
@@ -52,7 +52,7 @@ export function invertExchangeRate(rate: NumberT) {
 
 export const formatBalance = (value: string, decimals: number): string => {
   try {
-    const formatted = ethers.utils.formatUnits(value, decimals);
+    const formatted = formatUnits(BigInt(value), decimals);
     const decimalPoint = formatted.indexOf(".");
     if (decimalPoint === -1) return formatted;
     return formatted.slice(0, decimalPoint + 5);

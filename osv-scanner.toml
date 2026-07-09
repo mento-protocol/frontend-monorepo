@@ -29,14 +29,14 @@ reason = "bn.js infinite loop in transitive deps; pre-existing"
 [[IgnoredVulns]]
 id = "GHSA-848j-6mx2-7j84"
 # No official upstream fix exists for elliptic as of 2026-04-21.
-# Pulled in via multiple independent chains: ethers v5 (@ethersproject/signing-key),
-# @cosmjs/crypto, @toruslabs/eccrypto, and tiny-secp256k1. Removing any single
-# chain (e.g. ethers v5) will NOT eliminate the vulnerability.
+# Pulled in via multiple independent chains: @cosmjs/crypto,
+# @toruslabs/eccrypto, and tiny-secp256k1. Removing any single chain will NOT
+# eliminate the vulnerability.
 # Renewed 2026-06-05 — osv-scanner confirms no FIXED VERSION upstream; renewed
 # for 90 days per the toml's renewal guidance.
 # TODO: Remove once upstream releases a patched version.
 ignoreUntil = 2026-09-01T00:00:00Z
-reason = "No upstream fix available for elliptic yet; pulled in via multiple chains (ethers v5, @cosmjs/crypto, @toruslabs/eccrypto, tiny-secp256k1)."
+reason = "No upstream fix available for elliptic yet; pulled in via multiple chains (@cosmjs/crypto, @toruslabs/eccrypto, tiny-secp256k1)."
 
 [[IgnoredVulns]]
 id = "GHSA-23c5-xmqv-rm74"

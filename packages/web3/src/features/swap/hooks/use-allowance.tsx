@@ -1,12 +1,11 @@
-import { ERC20_ABI } from "@/config/constants";
-import { getProvider } from "@/features/providers";
+import { getPublicClient } from "@/features/sdk";
 import {
   getContractAddress,
   getTokenAddress,
   TokenSymbol,
 } from "@mento-protocol/mento-sdk";
 import { useQuery } from "@tanstack/react-query";
-import { Contract } from "ethers";
+import { type Address, erc20Abi } from "viem";
 
 async function fetchAllowance(
   tokenInSymbol: TokenSymbol,
@@ -25,10 +24,13 @@ async function fetchAllowance(
 
   // For Debugging
   // logger.info(`Fetching allowance for token ${tokenAddr} on chain ${chainId}`);
-  const provider = getProvider(chainId);
-  const contract = new Contract(tokenAddr, ERC20_ABI, provider);
-
-  const allowance = await contract.allowance(accountAddress, routerAddress);
+  const publicClient = getPublicClient(chainId);
+  const allowance = await publicClient.readContract({
+    address: tokenAddr as Address,
+    abi: erc20Abi,
+    functionName: "allowance",
+    args: [accountAddress as Address, routerAddress as Address],
+  });
   // For Debugging
   // logger.info(`Allowance: ${allowance.toString()}`);
   return allowance.toString();
