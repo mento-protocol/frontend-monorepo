@@ -1,5 +1,5 @@
 "use client";
-import { Identicon } from "@/components/identicon";
+import { Identicon } from "@repo/web3";
 import {
   Breadcrumb,
   BreadcrumbItem,
