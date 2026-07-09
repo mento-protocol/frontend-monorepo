@@ -31,6 +31,33 @@ Production builds and local development both use Turbopack.
 
 Tailwind CSS is configured through the v4 CSS-first setup. The app imports Tailwind in `app/globals.css`; shared UI source scanning lives in `packages/ui/src/globals.css`.
 
+## Visual Regression Testing
+
+`app.mento.org` has a Playwright + Argos visual suite for disconnected app
+shells. Create `apps/app.mento.org/.env` from `.env.example` before running it.
+The required visual-run variables are:
+
+- `NEXT_PUBLIC_STORAGE_URL`
+- `NEXT_PUBLIC_WALLET_CONNECT_ID`
+- `NEXT_PUBLIC_SENTRY_DSN_SWAP`
+- `SENTRY_AUTH_TOKEN`
+
+For local screenshot renders, the Sentry DSN and auth token may be empty
+strings.
+
+```bash
+# From the repository root:
+pnpm exec turbo run build --filter app.mento.org
+pnpm --filter app.mento.org test:visual
+```
+
+Diffs are reviewed and baselines are promoted in the Argos dashboard.
+
+The CI workflow runs this suite only when files that can affect the app shells
+change, such as `apps/app.mento.org/**`, `packages/ui/**`, `packages/web3/**`,
+root package manager files, `.npmrc`, `turbo.json`,
+`scripts/security-headers.mjs`, or `.github/workflows/visual.yml`.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

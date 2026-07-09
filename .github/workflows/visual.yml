@@ -62,7 +62,7 @@ jobs:
             [[ -z "$file" ]] && continue
 
             case "$file" in
-              .github/workflows/visual.yml | package.json | pnpm-lock.yaml | pnpm-workspace.yaml | turbo.json | patches/*)
+              .github/workflows/visual.yml | .npmrc | package.json | pnpm-lock.yaml | pnpm-workspace.yaml | turbo.json | patches/* | scripts/security-headers.mjs)
                 run_app=true
                 run_ui=true
                 ;;

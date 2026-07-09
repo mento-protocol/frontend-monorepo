@@ -50,6 +50,7 @@ yarn-error.log*
 # Cursor
 .cursor/screenshots/
 .claude/audit-report.md
+.claude/worktrees/
 *.zip
 
 .claude/skills/

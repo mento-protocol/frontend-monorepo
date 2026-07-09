@@ -61,7 +61,8 @@ Two layers guard against unintended UI changes:
   The workflow plans from changed files and only runs the app checks whose
   rendered surfaces can be affected: `apps/ui.mento.org/**` and `packages/ui/**`
   run the showcase; `apps/app.mento.org/**`, `packages/ui/**`, and
-  `packages/web3/**` run the app shells; and root package/workflow changes run
+  `packages/web3/**` run the app shells; and root package, workflow, `.npmrc`,
+  `turbo.json`, `patches/**`, and `scripts/security-headers.mjs` changes run
   both. `apps/reserve.mento.org/**`-only changes skip the current Argos jobs
   because reserve has no pixel VRT suite yet. Run locally:
 
@@ -72,7 +73,7 @@ Two layers guard against unintended UI changes:
   pnpm --filter app.mento.org test:visual
   ```
 
-  An intended UI change shows as a diff in the Argos dashboard — approve it there to promote the baseline. Requires the `ARGOS_TOKEN` secret + the Argos GitHub App; `NEXT_PUBLIC_STORAGE_URL` must be set (CI uses `vars.STORAGE_URL`; locally use `apps/ui.mento.org/.env.local`).
+  An intended UI change shows as a diff in the Argos dashboard — approve it there to promote the baseline. Requires the `ARGOS_TOKEN` secret + the Argos GitHub App. `ui.mento.org` needs `NEXT_PUBLIC_STORAGE_URL` (CI uses `vars.STORAGE_URL`; locally use `apps/ui.mento.org/.env.local`). `app.mento.org` needs the env vars from `apps/app.mento.org/.env.example`; for local screenshot renders, `NEXT_PUBLIC_SENTRY_DSN_SWAP` and `SENTRY_AUTH_TOKEN` may be empty strings.
 
   If CI shows all Playwright visual tests passing and then Argos fails with HTTP 402 / Free Plan screenshot capacity, classify it as Argos account quota rather than a visual regression. Report the pass counts and do not disable VRT or change baselines for that failure.
 
