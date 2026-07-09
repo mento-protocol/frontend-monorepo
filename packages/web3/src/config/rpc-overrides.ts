@@ -1,6 +1,6 @@
 import { IS_DEBUG, IS_PROD } from "../utils/environment";
 
-export type StorageLike = Pick<Storage, "getItem">;
+type StorageLike = Pick<Storage, "getItem">;
 
 /** localStorage RPC/fork overrides are honoured only outside production-public
  *  builds, or when the debug flag was baked in at build time. */
