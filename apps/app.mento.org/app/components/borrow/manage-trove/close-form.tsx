@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { Button } from "@repo/ui";
 import {
   useCloseTrove,
+  computeBufferedDebt,
   formatCollateralAmount,
   formatDebtTokenAmount,
   type DebtTokenConfig,
@@ -40,6 +41,8 @@ export function CloseForm({
 
   // Total debt to repay (debt includes accrued interest from SDK)
   const totalDebt = troveData.debt;
+  // Buffered debt accounts for interest accrual between quote and execution
+  const bufferedDebt = computeBufferedDebt(totalDebt);
   const collateralToReceive = troveData.collateral;
 
   // Debt token wallet balance
@@ -59,7 +62,7 @@ export function CloseForm({
   const insufficientBalance =
     debtTokenBalance !== undefined &&
     totalDebt > 0n &&
-    debtTokenBalance < totalDebt;
+    debtTokenBalance < bufferedDebt;
 
   const buttonDisabledReason = useMemo(() => {
     if (!isConnected) return "Connect wallet";
@@ -138,8 +141,9 @@ export function CloseForm({
       {insufficientBalance && (
         <p className="text-sm text-destructive">
           Your {debtToken.symbol} balance is insufficient to repay the full
-          debt. You need {formatDebtTokenAmount(totalDebt, debtToken)} but only
-          have {formatDebtTokenAmount(debtTokenBalance ?? 0n, debtToken)}.
+          debt. You need {formatDebtTokenAmount(bufferedDebt, debtToken)}{" "}
+          (includes a small buffer for interest accrual) but only have{" "}
+          {formatDebtTokenAmount(debtTokenBalance ?? 0n, debtToken)}.
         </p>
       )}
 

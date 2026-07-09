@@ -1,10 +1,13 @@
 "use client";
 
-import { chainIdToChain, type ChainId } from "@repo/web3";
-import { useAccount, useChainId, useSwitchChain } from "@repo/web3/wagmi";
+import {
+  chainIdToChain,
+  useSwitchChainWithFeedback,
+  type ChainId,
+} from "@repo/web3";
+import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { Button } from "@repo/ui";
 import { ArrowRightLeft } from "lucide-react";
-import { toast } from "sonner";
 
 export function ChainMismatchBanner({
   targetChainId,
@@ -13,7 +16,7 @@ export function ChainMismatchBanner({
 }) {
   const { isConnected } = useAccount();
   const walletChainId = useChainId();
-  const { switchChainAsync } = useSwitchChain();
+  const { switchToChain } = useSwitchChainWithFeedback({ onFailure: "toast" });
 
   if (!isConnected || walletChainId === targetChainId) return null;
 
@@ -23,13 +26,7 @@ export function ChainMismatchBanner({
   const targetName = targetChain?.name ?? `Chain ${targetChainId}`;
 
   const handleSwitch = async () => {
-    try {
-      await switchChainAsync({ chainId: targetChainId });
-    } catch {
-      toast.error(
-        `Could not switch to ${targetName}. Please switch networks in your wallet.`,
-      );
-    }
+    await switchToChain(targetChainId);
   };
 
   return (

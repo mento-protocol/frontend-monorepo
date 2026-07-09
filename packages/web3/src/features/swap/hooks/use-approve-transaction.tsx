@@ -1,7 +1,8 @@
 import { chainIdToChain } from "@/config/chains";
+import { buildApproveTransactionRequest } from "@/features/swap/hooks/build-approve-transaction-request";
 import { logger } from "@/utils";
 import { toViemAddress, validateAddress } from "@/utils/addresses";
-import { buildApproveTransactionRequest } from "@/features/swap/hooks/build-approve-transaction-request";
+import { isUserRejection } from "@/utils/is-user-rejection";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import { toast } from "@repo/ui";
 import { useQuery } from "@tanstack/react-query";
@@ -58,6 +59,7 @@ export function useApproveTransaction({
   const [approveTxHash, setApproveTxHash] = useState<Address | null>(null);
 
   const { data, error: sendPrepError } = useEstimateGas({
+    chainId,
     to: toViemAddress(txRequest?.to as string),
     data: txRequest?.data as Hex | undefined,
   });
@@ -152,6 +154,7 @@ export function useApproveTransaction({
     try {
       validateAddress(txRequest.to, "approval transaction");
       const hash = await sendTransactionAsync({
+        chainId,
         gas: data,
         to: txRequest.to as Address,
         data: txRequest?.data as Hex,
@@ -180,7 +183,7 @@ export function useApproveTransaction({
     } finally {
       isSendingRef.current = false;
     }
-  }, [reset, sendTransactionAsync, data, txRequest, isPending]);
+  }, [reset, sendTransactionAsync, data, txRequest, isPending, chainId]);
 
   return {
     sendApproveTx,
@@ -194,11 +197,7 @@ export function useApproveTransaction({
 function getApproveToastErrorMessage(errorMessage: string): string {
   switch (true) {
     // Normalize user rejection messages across wallets (MetaMask, Rabby, Valora/WalletConnect)
-    case /user\s+rejected/i.test(errorMessage):
-      return "Approval transaction rejected by user.";
-    case /denied\s+transaction\s+signature/i.test(errorMessage):
-      return "Approval transaction rejected by user.";
-    case /request\s+rejected/i.test(errorMessage):
+    case isUserRejection(errorMessage):
       return "Approval transaction rejected by user.";
     case /insufficient\s+funds/i.test(errorMessage):
       return "Insufficient funds for transaction.";
