@@ -110,6 +110,30 @@ function parseScalarValue(rest) {
 }
 
 /**
+ * @param {string} entry
+ * @returns {[string, string] | null}
+ */
+function parseMappingEntry(entry) {
+  const trimmed = entry.trim();
+  if (trimmed === "" || trimmed.startsWith("#")) return null;
+
+  const quote = trimmed[0];
+  if (quote === '"' || quote === "'") {
+    const end = trimmed.indexOf(quote, 1);
+    if (end === -1) return null;
+    const afterKey = trimmed.slice(end + 1).trimStart();
+    if (!afterKey.startsWith(":")) return null;
+    return [trimmed.slice(1, end), parseScalarValue(afterKey.slice(1))];
+  }
+
+  const separator = trimmed.indexOf(":");
+  if (separator === -1) return null;
+  const key = trimmed.slice(0, separator).trim();
+  if (key === "") return null;
+  return [key, parseScalarValue(trimmed.slice(separator + 1))];
+}
+
+/**
  * @param {string[]} blockLines
  * @returns {Map<string, string>}
  */
@@ -118,13 +142,13 @@ function parseCatalog(blockLines) {
 
   for (const line of blockLines) {
     if (/^\s*(#.*)?$/.test(line)) continue;
-    // Accept any (non-zero) indentation — YAML permits 2-space, 4-space, etc.;
-    // a fixed 2-space match would silently skip reindented entries.
-    const match = line.match(/^ +["']?([^"':\s]+)["']?:\s*(.*)$/);
-    if (!match) continue;
-    const value = parseScalarValue(match[2]);
+    if (!/^ +/.test(line)) continue;
+    // Accept any (non-zero) indentation — YAML permits 2-space, 4-space, etc.
+    const entry = parseMappingEntry(line);
+    if (!entry) continue;
+    const [key, value] = entry;
     if (value === "") continue;
-    catalog.set(match[1], value);
+    catalog.set(key, value);
   }
 
   return catalog;
@@ -181,8 +205,8 @@ function parseFlowCatalog(flow) {
   const inner = open !== -1 && close > open ? flow.slice(open + 1, close) : "";
   const catalog = new Map();
   for (const part of splitTopLevelCommas(inner)) {
-    const match = /^\s*["']?([^"':\s]+)["']?\s*:\s*(.+)$/.exec(part);
-    if (match) catalog.set(match[1], parseScalarValue(match[2]));
+    const entry = parseMappingEntry(part);
+    if (entry) catalog.set(entry[0], entry[1]);
   }
   return catalog;
 }
@@ -374,18 +398,46 @@ function resolveWorkspaceMembers(patterns) {
 }
 
 /**
- * Split a pnpm override key into package name and optional selector. Scoped
- * package names start with `@`, so look for a second `@` only.
+ * @param {string} key
+ * @returns {number}
+ */
+function findParentOverrideSeparator(key) {
+  for (let index = key.length - 1; index >= 0; index -= 1) {
+    if (key[index] !== ">") continue;
+    const previous = key[index - 1] ?? "";
+    const next = key[index + 1] ?? "";
+    if (
+      next === "" ||
+      next === "=" ||
+      /\d/.test(next) ||
+      /\s/.test(previous) ||
+      previous === "@"
+    ) {
+      continue;
+    }
+    return index;
+  }
+  return -1;
+}
+
+/**
+ * Split a pnpm override key into the overridden package name and optional
+ * selector. Parent-scoped overrides (`parent>child`) target the package after
+ * the final parent separator; range selectors can also contain comparator `>`
+ * tokens, so those are not treated as parent separators. Scoped package names
+ * start with `@`, so look for a second `@` only after that.
  *
  * @param {string} key
  * @returns {{ name: string; selector: string | null }}
  */
 function parseOverrideKey(key) {
-  const selectorIndex = key.indexOf("@", 1);
-  if (selectorIndex === -1) return { name: key, selector: null };
+  const separator = findParentOverrideSeparator(key);
+  const target = separator === -1 ? key : key.slice(separator + 1);
+  const selectorIndex = target.indexOf("@", 1);
+  if (selectorIndex === -1) return { name: target, selector: null };
   return {
-    name: key.slice(0, selectorIndex),
-    selector: key.slice(selectorIndex + 1),
+    name: target.slice(0, selectorIndex),
+    selector: target.slice(selectorIndex + 1),
   };
 }
 
@@ -447,21 +499,32 @@ function simpleRangeUpperBound(range) {
 }
 
 /**
- * Conservative overlap check for pnpm range-scoped override keys. It returns
- * false only when simple bounds prove the override selector cannot match the
- * catalog range; otherwise it returns true and the override must align.
- *
  * @param {string} selector
  * @param {string} catalogRange
  * @returns {boolean}
  */
-function selectorCanMatchCatalog(selector, catalogRange) {
+function selectorArmCanMatchCatalog(selector, catalogRange) {
   if (selector === catalogRange || isDefaultCatalogReference(selector)) {
     return true;
   }
 
   const catalogLower = parseVersionTuple(catalogRange);
   if (!catalogLower) return true;
+  const catalogUpper = simpleRangeUpperBound(catalogRange);
+
+  const hyphen = selector.match(
+    /^\s*(\d+\.\d+\.\d+)\s+-\s+(\d+\.\d+\.\d+)\s*$/,
+  );
+  if (hyphen) {
+    const lower = parseVersionTuple(hyphen[1]);
+    const upper = parseVersionTuple(hyphen[2]);
+    if (!lower || !upper) return true;
+    if (compareVersionTuples(upper, catalogLower) < 0) return false;
+    if (catalogUpper && compareVersionTuples(lower, catalogUpper) >= 0) {
+      return false;
+    }
+    return true;
+  }
 
   const selectorUpper = simpleRangeUpperBound(selector);
   if (selectorUpper && compareVersionTuples(catalogLower, selectorUpper) >= 0) {
@@ -469,7 +532,6 @@ function selectorCanMatchCatalog(selector, catalogRange) {
   }
 
   const selectorLower = parseVersionTuple(selector);
-  const catalogUpper = simpleRangeUpperBound(catalogRange);
   if (
     selectorLower &&
     catalogUpper &&
@@ -512,6 +574,21 @@ function selectorCanMatchCatalog(selector, catalogRange) {
   }
 
   return true;
+}
+
+/**
+ * Conservative overlap check for pnpm range-scoped override keys. It returns
+ * false only when every selector arm is proven not to match the catalog range;
+ * otherwise the override must align.
+ *
+ * @param {string} selector
+ * @param {string} catalogRange
+ * @returns {boolean}
+ */
+function selectorCanMatchCatalog(selector, catalogRange) {
+  return selector
+    .split("||")
+    .some((arm) => selectorArmCanMatchCatalog(arm.trim(), catalogRange));
 }
 
 const workspacePath = resolve(ROOT, "pnpm-workspace.yaml");
@@ -576,6 +653,26 @@ const sections = [
   "peerDependencies",
 ];
 
+/** @type {Map<string, string>} */
+const rootDependencySpecs = new Map();
+const rootPackageJsonPath = join(ROOT, "package.json");
+let rootManifest;
+if (existsSync(rootPackageJsonPath)) {
+  try {
+    rootManifest = JSON.parse(readFileSync(rootPackageJsonPath, "utf8"));
+  } catch {
+    rootManifest = undefined;
+  }
+
+  for (const section of sections) {
+    for (const [name, rawSpec] of Object.entries(
+      rootManifest?.[section] ?? {},
+    )) {
+      rootDependencySpecs.set(name, String(rawSpec));
+    }
+  }
+}
+
 for (const dir of manifestDirs) {
   const packageJsonPath = join(ROOT, dir, "package.json");
   if (!existsSync(packageJsonPath)) continue;
@@ -626,15 +723,7 @@ function addOverrideEntries(source, overrides) {
   }
 }
 
-const rootPackageJsonPath = join(ROOT, "package.json");
-if (existsSync(rootPackageJsonPath)) {
-  let rootManifest;
-  try {
-    rootManifest = JSON.parse(readFileSync(rootPackageJsonPath, "utf8"));
-  } catch {
-    rootManifest = undefined;
-  }
-
+if (rootManifest) {
   addOverrideEntries(
     "package.json pnpm.overrides",
     rootManifest?.pnpm?.overrides,
@@ -655,7 +744,8 @@ for (const entry of overrideEntries) {
   ) {
     continue;
   }
-  if (isCatalogAlignedSpec(entry.value, expected)) continue;
+  const value = resolveOverrideValue(entry.name, entry.value);
+  if (isCatalogAlignedSpec(value, expected)) continue;
 
   fail(
     `${entry.source}.${entry.key} is "${entry.value}" - conflicts with catalog "${expected}" (overrides rewrite catalog: references, so the catalog entry is dead)`,
@@ -674,12 +764,50 @@ function findUnconditionalOverride(packageName) {
 
 /**
  * @param {string} packageName
+ * @returns {string | undefined}
+ */
+function catalogValueForOverride(packageName) {
+  return (
+    catalog.get(packageName) ??
+    (packageName === "@tanstack/query-core"
+      ? catalog.get("@tanstack/react-query")
+      : undefined)
+  );
+}
+
+/**
+ * @param {string} packageName
+ * @param {string} spec
+ * @returns {string}
+ */
+function resolveCatalogReferenceSpec(packageName, spec) {
+  if (!isDefaultCatalogReference(spec)) return spec;
+  return catalogValueForOverride(packageName) ?? spec;
+}
+
+/**
+ * @param {string} packageName
+ * @param {string} value
+ * @returns {string}
+ */
+function resolveOverrideValue(packageName, value) {
+  if (value.startsWith("$")) {
+    const referencedPackage = value.slice(1);
+    const referencedSpec = rootDependencySpecs.get(referencedPackage);
+    return referencedSpec
+      ? resolveCatalogReferenceSpec(referencedPackage, referencedSpec)
+      : value;
+  }
+  return resolveCatalogReferenceSpec(packageName, value);
+}
+
+/**
+ * @param {string} packageName
  * @param {string} value
  * @returns {string}
  */
 function normalizeOverrideValue(packageName, value) {
-  if (!isDefaultCatalogReference(value)) return value;
-  return catalog.get(packageName) ?? value;
+  return resolveOverrideValue(packageName, value);
 }
 
 const tanstackReactQueryOverride = findUnconditionalOverride(
