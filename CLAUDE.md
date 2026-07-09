@@ -21,13 +21,13 @@ Monorepo for Mento Protocol frontend applications (DeFi on Celo blockchain).
 
 ## Tech Stack
 
-- **Framework:** Next.js 16, React 19, TypeScript 5.9
+- **Framework:** Next.js 15, React 19, TypeScript 5.9
 - **Package management:** pnpm 10, Turborepo, Node >= 22
-- **Styling:** Tailwind CSS 4, React Aria Components
+- **Styling:** Tailwind CSS 4
 - **Web3:** wagmi, viem, @mento-protocol/mento-sdk, RainbowKit
 - **State:** jotai (atoms), @tanstack/react-query (data fetching)
 - **Linting/Formatting:** Trunk CLI (ESLint + Prettier)
-- **Testing:** Vitest (app.mento.org and @repo/web3 only)
+- **Testing:** Vitest (app.mento.org, @repo/web3, @repo/ui)
 - **Monitoring:** Sentry
 - **Deployment:** Vercel
 
@@ -35,20 +35,20 @@ Monorepo for Mento Protocol frontend applications (DeFi on Celo blockchain).
 
 ```bash
 pnpm install                          # Install dependencies
-turbo dev --filter <app-name>         # Dev server for one app (use package.json name)
-turbo build                           # Build all
-turbo build --filter <app-name>       # Build one app
-turbo check-types                     # TypeScript type checking
+pnpm exec turbo run dev --filter <app-name>    # Dev server for one app (use package.json name)
+pnpm build                           # Build all
+pnpm exec turbo run build --filter <app-name>  # Build one app
+pnpm check-types                     # TypeScript type checking
 trunk check --fix                     # Lint with autofix
 trunk fmt                             # Format
-turbo test                            # Run tests
+pnpm test                            # Run tests
 ```
 
 Always use `--filter` to avoid building/running everything unnecessarily.
 
 ## After Making Changes
 
-1. Run `turbo check-types` — confirm types pass
+1. Run `pnpm check-types` — confirm types pass
 2. Run `trunk check --fix` — confirm linting passes
 3. Verify changes visually on localhost (check the app's package.json `dev` script for the port)
 
@@ -56,11 +56,11 @@ Always use `--filter` to avoid building/running everything unnecessarily.
 
 Two layers guard against unintended UI changes:
 
-- **DOM/aria snapshots** (`@repo/ui`) — run inside the normal `turbo test` step. After an _intended_ component change, re-record baselines with `pnpm --filter @repo/ui exec vitest run -u`.
+- **DOM/aria snapshots** (`@repo/ui`) — run inside the normal `pnpm test` step. After an _intended_ component change, re-record baselines with `pnpm --filter @repo/ui exec vitest run -u`.
 - **Pixel VRT** (`ui.mento.org` showcase) — Playwright + Argos, in CI via `.github/workflows/visual.yml` (pinned Playwright Docker image; baselines live in Argos, not git). Run locally:
 
   ```bash
-  turbo build --filter=ui.mento.org       # build the showcase first
+  pnpm exec turbo run build --filter ui.mento.org  # build the showcase first
   pnpm --filter ui.mento.org test:visual  # Playwright starts `next start` and captures
   ```
 
@@ -71,7 +71,7 @@ Two layers guard against unintended UI changes:
 - **Naming:** PascalCase for components, camelCase for variables/functions
 - **No acronyms:** Use `errorMessage` not `errMsg`, `button` not `btn`, `authentication` not `auth`
 - **No `any` type:** Use specific types, or `unknown` in the worst case
-- **Components:** Use `@repo/ui` components. Use `onPress` instead of `onClick`. Prefer React Aria Components.
+- **Components:** Use `@repo/ui` components (Radix UI primitives via shadcn/ui-style components); standard `onClick` handlers.
 - **Block explorer links:** Use `AddressLink` and `TransactionLink` components
 - **Dependencies:** Never add new npm dependencies without explicit approval
 - **Commits:** Conventional Commits enforced by commitlint (`feat|fix|docs|chore(scope): message`)
@@ -93,3 +93,5 @@ The audit covers three codebases:
 - `../mento-sdk` — Mento protocol SDK (external, relative to monorepo root)
 
 The SDK repo is external at `../mento-sdk` — agents auditing it should read but NOT modify files there unless explicitly told to.
+
+Before auditing `../mento-sdk`, check whether it is current. If it is stale, report that to the user; do not pull or otherwise mutate the SDK checkout unless explicitly told to.
