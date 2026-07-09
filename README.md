@@ -206,7 +206,7 @@ The actual versions are defined once in `pnpm-workspace.yaml`:
 catalog:
   "react": ^19.2.5
   "jotai": ^2.16.2
-  "@tanstack/react-query": ^5.90.19
+  "@tanstack/react-query": 5.90.16
 ```
 
 Root `pnpm.overrides` are used for security patches and compatibility pins.
@@ -214,7 +214,11 @@ Root `pnpm.overrides` are used for security patches and compatibility pins.
 verified app-compatible version; newer compatible-range releases caused a
 production QueryClient context split in `app.mento.org`. Remove those overrides
 only after a production build and browser verification of the swap and pools
-routes.
+routes. Note the catalog entry above matches the override exactly (`5.90.16`,
+not a caret range) — pnpm overrides rewrite `catalog:` references too, so the
+catalog value must stay truthful about what's actually installed. See
+[`docs/dependency-overrides.md`](docs/dependency-overrides.md) for the reason
+and removal condition behind every unconditional override.
 
 #### Adding a New Dependency
 
