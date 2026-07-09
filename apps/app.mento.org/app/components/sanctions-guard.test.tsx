@@ -27,7 +27,11 @@ function renderGuard() {
 
 describe("SanctionsGuard", () => {
   it("renders children when address is clean", () => {
-    useSanctionsCheckMock.mockReturnValue({ isSanctioned: false });
+    useSanctionsCheckMock.mockReturnValue({
+      isSanctioned: false,
+      isChecking: false,
+      checkFailed: false,
+    });
 
     renderGuard();
 
@@ -35,16 +39,26 @@ describe("SanctionsGuard", () => {
     expect(screen.queryByText("Access Restricted")).toBeNull();
   });
 
-  it("renders children while checking", () => {
-    useSanctionsCheckMock.mockReturnValue({ isSanctioned: false });
+  it("renders a neutral loading state while checking, not children", () => {
+    useSanctionsCheckMock.mockReturnValue({
+      isSanctioned: false,
+      isChecking: true,
+      checkFailed: false,
+    });
 
     renderGuard();
 
-    expect(screen.queryByTestId("app-content")).not.toBeNull();
+    expect(screen.queryByTestId("app-content")).toBeNull();
+    expect(screen.queryByText("Access Restricted")).toBeNull();
+    expect(screen.queryByText("Verification unavailable")).toBeNull();
   });
 
   it("renders blocked screen and hides children for sanctioned address", () => {
-    useSanctionsCheckMock.mockReturnValue({ isSanctioned: true });
+    useSanctionsCheckMock.mockReturnValue({
+      isSanctioned: true,
+      isChecking: false,
+      checkFailed: false,
+    });
 
     renderGuard();
 
@@ -52,5 +66,19 @@ describe("SanctionsGuard", () => {
     expect(screen.queryByText("App")).toBeNull();
     expect(screen.queryByText("Access Restricted")).not.toBeNull();
     expect(screen.queryByText(/identified on a sanctions list/)).not.toBeNull();
+  });
+
+  it("renders blocked screen when the check fails, without claiming sanctioned", () => {
+    useSanctionsCheckMock.mockReturnValue({
+      isSanctioned: false,
+      isChecking: false,
+      checkFailed: true,
+    });
+
+    renderGuard();
+
+    expect(screen.queryByTestId("app-content")).toBeNull();
+    expect(screen.queryByText("Verification unavailable")).not.toBeNull();
+    expect(screen.queryByText("Access Restricted")).toBeNull();
   });
 });
