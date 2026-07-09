@@ -57,7 +57,7 @@
     "@vitest/coverage-v8": "catalog:",
     "concurrently": "catalog:",
     "eslint": "catalog:",
-    "jsdom": "^26.1.0",
+    "jsdom": "^29.1.1",
     "pino-pretty": "catalog:",
     "postcss": "catalog:",
     "typescript": "catalog:",

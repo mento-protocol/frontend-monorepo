@@ -1,6 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "ignoreBinaries": ["anvil"],
+  "ignoreWorkspaces": ["packages/typescript-config"],
   "ignore": [
     ".trunk/**",
     "apps/governance.mento.org/app/graphql/**/generated/**",
@@ -39,11 +40,6 @@
     "packages/vitest-config": {
       "entry": "*.js",
       "project": "**/*.js"
-    },
-    "packages/typescript-config": {
-      "entry": "*.json",
-      "project": "**/*.json",
-      "ignoreDependencies": ["next"]
     }
   }
 }
