@@ -11,8 +11,20 @@ describe("canUseStorageOverrides", () => {
     expect(canUseStorageOverrides(true, true)).toBe(true);
   });
 
-  it("allows overrides outside production", () => {
+  it("allows overrides outside production on non-public hosts", () => {
     expect(canUseStorageOverrides(false, false)).toBe(true);
+    expect(canUseStorageOverrides(false, false, "preview.vercel.app")).toBe(
+      true,
+    );
+  });
+
+  it("blocks overrides on public Mento hosts without the debug flag", () => {
+    expect(canUseStorageOverrides(false, false, "app.mento.org")).toBe(false);
+    expect(canUseStorageOverrides(false, false, "mento.org")).toBe(false);
+  });
+
+  it("allows overrides on public Mento hosts when the debug flag is set", () => {
+    expect(canUseStorageOverrides(false, true, "app.mento.org")).toBe(true);
   });
 });
 
@@ -34,6 +46,23 @@ describe("readStorageOverride", () => {
     };
 
     const result = readStorageOverride("some-key", storage, true, false);
+
+    expect(result).toBeNull();
+    expect(storage.getItem).not.toHaveBeenCalled();
+  });
+
+  it("returns null without reading storage on public Mento hosts", () => {
+    const storage = {
+      getItem: vi.fn().mockReturnValue("http://localhost:9999"),
+    };
+
+    const result = readStorageOverride(
+      "some-key",
+      storage,
+      false,
+      false,
+      "app.mento.org",
+    );
 
     expect(result).toBeNull();
     expect(storage.getItem).not.toHaveBeenCalled();
