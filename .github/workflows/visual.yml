@@ -20,21 +20,97 @@ env:
   TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
 
 jobs:
-  visual:
-    name: Visual Regression (${{ matrix.app }})
+  visual-plan:
+    name: Visual Regression Plan
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.detect.outputs.app }}
+      ui: ${{ steps.detect.outputs.ui }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Detect visual impact
+        id: detect
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          head="$HEAD_SHA"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base="${BASE_SHA:?pull_request base SHA is required}"
+          else
+            base="${BEFORE_SHA:-}"
+            if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
+              base="$(git rev-parse "${head}^")"
+            fi
+          fi
+
+          git diff --name-only "$base" "$head" > changed-files.txt
+
+          run_app=false
+          run_ui=false
+
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+
+            case "$file" in
+              .github/workflows/visual.yml | package.json | pnpm-lock.yaml | pnpm-workspace.yaml | turbo.json | patches/*)
+                run_app=true
+                run_ui=true
+                ;;
+              apps/app.mento.org/*)
+                run_app=true
+                ;;
+              apps/ui.mento.org/*)
+                run_ui=true
+                ;;
+              packages/ui/*)
+                run_app=true
+                run_ui=true
+                ;;
+              packages/web3/*)
+                run_app=true
+                ;;
+            esac
+          done < changed-files.txt
+
+          echo "app=$run_app" >> "$GITHUB_OUTPUT"
+          echo "ui=$run_ui" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Visual regression plan"
+            echo
+            echo "- app.mento.org: \`$run_app\`"
+            echo "- ui.mento.org: \`$run_ui\`"
+            echo
+            echo "<details><summary>Changed files</summary>"
+            echo
+            sed 's/^/- `/' changed-files.txt | sed 's/$/`/'
+            echo
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  visual-ui:
+    name: Visual Regression (ui.mento.org)
+    needs: visual-plan
+    if: ${{ always() && (needs.visual-plan.result != 'success' || needs.visual-plan.outputs.ui == 'true') }}
     timeout-minutes: 25
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        app: [ui.mento.org, app.mento.org]
     # Render in the SAME pinned image used to generate baselines — the CI
     # render must equal the baseline render (font subpixel rendering is the #1
     # false-positive source). Tag must match @playwright/test in package.json.
     # NOTE: deliberate divergence from the deployment_status smoke-tests, which
     # run against the live Vercel preview; that render env is not byte-pinnable.
     container:
-      image: mcr.microsoft.com/playwright:v1.61.0-noble
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
 
     env:
       # ui.mento.org needs only STORAGE_URL; app.mento.org additionally needs a
@@ -49,6 +125,12 @@ jobs:
       ARGOS_TOKEN: ${{ secrets.ARGOS_TOKEN }}
 
     steps:
+      - name: Require successful visual plan
+        if: needs.visual-plan.result != 'success'
+        run: |
+          echo "visual-plan did not complete successfully: ${{ needs.visual-plan.result }}"
+          exit 1
+
       - name: Check out code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -65,7 +147,7 @@ jobs:
 
       - name: Get pnpm store directory
         shell: bash
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
 
       - name: Setup pnpm cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -79,7 +161,75 @@ jobs:
         run: pnpm install
 
       - name: Build app
-        run: pnpm turbo build --filter=${{ matrix.app }}
+        run: pnpm turbo build --filter=ui.mento.org
 
       - name: Visual regression (Playwright + Argos)
-        run: pnpm --filter ${{ matrix.app }} test:visual
+        run: pnpm --filter ui.mento.org test:visual
+
+  visual-app:
+    name: Visual Regression (app.mento.org)
+    needs: visual-plan
+    if: ${{ always() && (needs.visual-plan.result != 'success' || needs.visual-plan.outputs.app == 'true') }}
+    timeout-minutes: 25
+    runs-on: ubuntu-latest
+    # Render in the SAME pinned image used to generate baselines — the CI
+    # render must equal the baseline render (font subpixel rendering is the #1
+    # false-positive source). Tag must match @playwright/test in package.json.
+    # NOTE: deliberate divergence from the deployment_status smoke-tests, which
+    # run against the live Vercel preview; that render env is not byte-pinnable.
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+
+    env:
+      # ui.mento.org needs only STORAGE_URL; app.mento.org additionally needs a
+      # WalletConnect id + sanctions test-mode, and we disable Sentry entirely
+      # (empty DSN) for a clean, network-free render. Extra vars are harmless to
+      # whichever app doesn't use them. The fixtures block all external network.
+      NEXT_PUBLIC_STORAGE_URL: ${{ vars.STORAGE_URL }}
+      NEXT_PUBLIC_WALLET_CONNECT_ID: ${{ vars.WALLET_CONNECT_ID }}
+      NEXT_PUBLIC_SANCTIONS_TEST_MODE: "true"
+      NEXT_PUBLIC_SENTRY_DSN_SWAP: ""
+      SENTRY_AUTH_TOKEN: ""
+      ARGOS_TOKEN: ${{ secrets.ARGOS_TOKEN }}
+
+    steps:
+      - name: Require successful visual plan
+        if: needs.visual-plan.result != 'success'
+        run: |
+          echo "visual-plan did not complete successfully: ${{ needs.visual-plan.result }}"
+          exit 1
+
+      - name: Check out code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0 # full history so Argos can compute the merge-base baseline
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v4
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - name: Setup pnpm cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build app
+        run: pnpm turbo build --filter=app.mento.org
+
+      - name: Visual regression (Playwright + Argos)
+        run: pnpm --filter app.mento.org test:visual
