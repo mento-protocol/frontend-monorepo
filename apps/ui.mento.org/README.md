@@ -33,8 +33,9 @@ pnpm build
 ## Visual Regression Testing
 
 ```bash
-pnpm build        # build the showcase first
-pnpm test:visual  # Playwright starts `next start` and captures screenshots
+# From the repository root:
+pnpm exec turbo run build --filter ui.mento.org...
+pnpm --filter ui.mento.org test:visual
 ```
 
 Diffs are reviewed and baselines are promoted in the Argos dashboard.
