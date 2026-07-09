@@ -13,12 +13,11 @@ interface ISwapAllowanceOptions {
 export function useSwapAllowance(options: ISwapAllowanceOptions) {
   const { chainId, tokenInSymbol, tokenOutSymbol, approveAmount, address } =
     options;
-  const { allowance, isLoading: isAllowanceLoading } = useAppAllowance(
-    chainId,
-    tokenInSymbol,
-    tokenOutSymbol,
-    address,
-  );
+  const {
+    allowance,
+    isLoading: isAllowanceLoading,
+    refetchAllowance,
+  } = useAppAllowance(chainId, tokenInSymbol, tokenOutSymbol, address);
 
   const needsApproval =
     !isAllowanceLoading && new BigNumber(allowance).lt(approveAmount);
@@ -28,6 +27,7 @@ export function useSwapAllowance(options: ISwapAllowanceOptions) {
     allowance,
     isAllowanceLoading,
     needsApproval,
+    refetchAllowance,
     skipApprove,
   };
 }

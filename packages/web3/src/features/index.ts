@@ -4,7 +4,6 @@ export * from "./borrow";
 export * from "./contracts";
 export * from "./polling";
 export * from "./pools";
-export * from "./providers";
 export * from "./sdk";
 export * from "./swap";
 export * from "./tokens";
