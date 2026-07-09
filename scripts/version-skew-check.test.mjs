@@ -676,6 +676,21 @@ test("fails when a matching range-scoped override conflicts with the catalog", (
   assert(stderr.includes("pnpm.overrides.zod@^4.4.3"), `stderr: ${stderr}`);
 });
 
+test("fails when a broad caret override selector overlaps the catalog", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog:\n  zod: ^4.4.3\n`,
+    {
+      "package.json": {
+        name: "root",
+        pnpm: { overrides: { "zod@^4.0.0": "^4.3.5" } },
+      },
+      "app/package.json": { name: "app", dependencies: { zod: "catalog:" } },
+    },
+  );
+  assert(exitCode !== 0, `expected non-zero exit, got ${exitCode}`);
+  assert(stderr.includes("pnpm.overrides.zod@^4.0.0"), `stderr: ${stderr}`);
+});
+
 test("fails when a parent-scoped override targets a cataloged package", () => {
   const { exitCode, stderr } = run(
     `packages:\n  - app\n\ncatalog:\n  zod: ^4.4.3\n`,
@@ -851,6 +866,33 @@ test("fails when any TanStack query-core override drifts", () => {
   assert(exitCode !== 0, `expected non-zero exit, got ${exitCode}`);
   assert(
     stderr.includes("pnpm-workspace.yaml overrides.@tanstack/query-core"),
+    `stderr: ${stderr}`,
+  );
+});
+
+test("fails when a range-scoped TanStack query-core override drifts", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog:\n  "@tanstack/react-query": 5.90.16\n`,
+    {
+      "package.json": {
+        name: "root",
+        pnpm: {
+          overrides: {
+            "@tanstack/react-query": "5.90.16",
+            "@tanstack/query-core": "5.90.16",
+            "@tanstack/query-core@5.90.16": "5.90.19",
+          },
+        },
+      },
+      "app/package.json": {
+        name: "app",
+        dependencies: { "@tanstack/react-query": "catalog:" },
+      },
+    },
+  );
+  assert(exitCode !== 0, `expected non-zero exit, got ${exitCode}`);
+  assert(
+    stderr.includes("pnpm.overrides.@tanstack/query-core@5.90.16"),
     `stderr: ${stderr}`,
   );
 });

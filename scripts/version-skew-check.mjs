@@ -549,6 +549,7 @@ function selectorArmCanMatchCatalog(selector, catalogRange) {
     const operator = comparator[1] ?? "=";
     const version = parseVersionTuple(comparator[2]);
     if (!version) continue;
+    const rangePrefix = selector[comparator.index - 1];
 
     if (operator === "<" && compareVersionTuples(catalogLower, version) >= 0) {
       return false;
@@ -563,7 +564,7 @@ function selectorArmCanMatchCatalog(selector, catalogRange) {
     ) {
       return false;
     }
-    if (operator === "=") {
+    if (operator === "=" && rangePrefix !== "^" && rangePrefix !== "~") {
       if (
         compareVersionTuples(version, catalogLower) < 0 ||
         (catalogUpper && compareVersionTuples(version, catalogUpper) >= 0)
@@ -761,9 +762,14 @@ for (const entry of overrideEntries) {
  * @param {string} packageName
  * @returns {{ source: string; key: string; value: string }[]}
  */
-function findUnconditionalOverrides(packageName) {
+function findCatalogMatchingOverrides(packageName) {
+  const expected = catalogValueForOverride(packageName);
+  if (!expected) return [];
   return overrideEntries.filter(
-    (entry) => entry.name === packageName && entry.selector === null,
+    (entry) =>
+      entry.name === packageName &&
+      (entry.selector === null ||
+        selectorCanMatchCatalog(entry.selector, expected)),
   );
 }
 
@@ -815,10 +821,10 @@ function normalizeOverrideValue(packageName, value) {
   return resolveOverrideValue(packageName, value);
 }
 
-const tanstackReactQueryOverrides = findUnconditionalOverrides(
+const tanstackReactQueryOverrides = findCatalogMatchingOverrides(
   "@tanstack/react-query",
 );
-const tanstackQueryCoreOverrides = findUnconditionalOverrides(
+const tanstackQueryCoreOverrides = findCatalogMatchingOverrides(
   "@tanstack/query-core",
 );
 
