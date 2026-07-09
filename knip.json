@@ -2,7 +2,6 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "ignoreBinaries": ["anvil"],
   "ignore": [
-    ".claude/worktrees/**",
     ".trunk/**",
     "apps/governance.mento.org/app/graphql/**/generated/**",
     "commitlint.config.mjs"
@@ -14,7 +13,6 @@
     "apps/app.mento.org": {
       "entry": ["e2e/**/*.spec.ts"],
       "project": "{app,e2e}/**/*.{mjs,tsx,ts}",
-      "ignoreBinaries": ["playwright"],
       "ignoreDependencies": ["pino-pretty", "tailwindcss"]
     },
     "apps/governance.mento.org": {
