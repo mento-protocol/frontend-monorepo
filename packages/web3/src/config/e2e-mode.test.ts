@@ -74,6 +74,19 @@ describe("isE2eTestMode", () => {
     expect(isE2eTestMode()).toBe(false);
   });
 
+  it("returns false for hostnames that merely contain an allowlisted host as a substring", () => {
+    vi.stubEnv("NEXT_PUBLIC_E2E_TEST", "true");
+
+    stubWindow("localhost.attacker.com", { mento_e2e_wallet: "true" });
+    expect(isE2eTestMode()).toBe(false);
+
+    stubWindow("evil-localhost", { mento_e2e_wallet: "true" });
+    expect(isE2eTestMode()).toBe(false);
+
+    stubWindow("127.0.0.1.attacker.com", { mento_e2e_wallet: "true" });
+    expect(isE2eTestMode()).toBe(false);
+  });
+
   it("returns false for localhost with neither the env flag nor localStorage set", () => {
     stubWindow("localhost");
 
