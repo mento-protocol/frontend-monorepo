@@ -63,13 +63,13 @@ frontend-monorepo/
 3. Build all packages:
 
    ```bash
-   turbo build
+   pnpm build
    ```
 
 4. Start the development server for all applications:
 
    ```bash
-   turbo dev
+   pnpm dev
    ```
 
 ### Environment Variables
@@ -90,8 +90,10 @@ cp .env.example .env.local
 
 Most values are public config and safe to copy as-is. A few require secrets from a teammate or the Vercel project settings:
 
+- `app.mento.org` needs `NEXT_PUBLIC_STORAGE_URL`
 - `governance.mento.org` needs `NEXT_PUBLIC_GRAPH_API_KEY` and `ETHERSCAN_API_KEY`
-- `ui.mento.org` needs `NEXT_PUBLIC_STORAGE_URL`
+- `reserve.mento.org` needs `NEXT_PUBLIC_STORAGE_URL`
+- `ui.mento.org` needs `NEXT_PUBLIC_STORAGE_URL` for showcase static assets
 
 ## Development Workflow
 

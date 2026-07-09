@@ -35,20 +35,20 @@ Monorepo for Mento Protocol frontend applications (DeFi on Celo blockchain).
 
 ```bash
 pnpm install                          # Install dependencies
-turbo dev --filter <app-name>         # Dev server for one app (use package.json name)
-turbo build                           # Build all
-turbo build --filter <app-name>       # Build one app
-turbo check-types                     # TypeScript type checking
+pnpm exec turbo run dev --filter <app-name>    # Dev server for one app (use package.json name)
+pnpm build                           # Build all
+pnpm exec turbo run build --filter <app-name>  # Build one app
+pnpm check-types                     # TypeScript type checking
 trunk check --fix                     # Lint with autofix
 trunk fmt                             # Format
-turbo test                            # Run tests
+pnpm test                            # Run tests
 ```
 
 Always use `--filter` to avoid building/running everything unnecessarily.
 
 ## After Making Changes
 
-1. Run `turbo check-types` — confirm types pass
+1. Run `pnpm check-types` — confirm types pass
 2. Run `trunk check --fix` — confirm linting passes
 3. Verify changes visually on localhost (check the app's package.json `dev` script for the port)
 
