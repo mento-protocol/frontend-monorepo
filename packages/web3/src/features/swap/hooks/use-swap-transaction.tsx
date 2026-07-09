@@ -152,6 +152,7 @@ export function useSwapTransaction(
       }
 
       const txHash = await sendTransactionAsync({
+        chainId,
         to: swapDetails.params.to as Address,
         data: swapDetails.params.data as `0x${string}`,
         value: BigInt(swapDetails.params.value || 0),
