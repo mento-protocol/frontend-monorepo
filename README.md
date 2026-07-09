@@ -92,7 +92,7 @@ Most values are public config and safe to copy as-is. A few require secrets from
 
 - `app.mento.org` needs `NEXT_PUBLIC_STORAGE_URL`
 - `governance.mento.org` needs `NEXT_PUBLIC_GRAPH_API_KEY` and `ETHERSCAN_API_KEY`
-- `reserve.mento.org` needs `NEXT_PUBLIC_STORAGE_URL`
+- `reserve.mento.org` needs `NEXT_PUBLIC_STORAGE_URL` and `NEXT_PUBLIC_ANALYTICS_API_URL`
 - `ui.mento.org` needs `NEXT_PUBLIC_STORAGE_URL` for showcase static assets
 
 ## Development Workflow

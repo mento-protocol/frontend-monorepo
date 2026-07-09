@@ -15,7 +15,7 @@ cp .env.example .env.local
 Then, run the development server:
 
 ```bash
-turbo dev --filter ui.mento.org
+pnpm dev
 ```
 
 <!-- markdown-link-check-disable -->
@@ -27,14 +27,14 @@ Open [http://localhost:3003](http://localhost:3003) with your browser to see the
 ## Building
 
 ```bash
-turbo build --filter ui.mento.org
+pnpm build
 ```
 
 ## Visual Regression Testing
 
 ```bash
-turbo build --filter=ui.mento.org       # build the showcase first
-pnpm test:visual                        # Playwright starts `next start` and captures screenshots
+pnpm build        # build the showcase first
+pnpm test:visual  # Playwright starts `next start` and captures screenshots
 ```
 
 Diffs are reviewed and baselines are promoted in the Argos dashboard.

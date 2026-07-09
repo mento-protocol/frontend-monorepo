@@ -16,7 +16,7 @@ The example file lists the storage URL, analytics API URL, and Sentry DSN/auth t
 Then, run the development server:
 
 ```bash
-turbo dev --filter reserve.mento.org
+pnpm dev
 ```
 
 <!-- markdown-link-check-disable -->
@@ -28,7 +28,7 @@ Open [http://localhost:3001](http://localhost:3001) with your browser to see the
 ## Building
 
 ```bash
-turbo build --filter reserve.mento.org
+pnpm build
 ```
 
 ## Learn More

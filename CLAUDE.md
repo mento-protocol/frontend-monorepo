@@ -60,7 +60,7 @@ Two layers guard against unintended UI changes:
 - **Pixel VRT** (`ui.mento.org` showcase) — Playwright + Argos, in CI via `.github/workflows/visual.yml` (pinned Playwright Docker image; baselines live in Argos, not git). Run locally:
 
   ```bash
-  turbo build --filter=ui.mento.org       # build the showcase first
+  pnpm exec turbo run build --filter ui.mento.org  # build the showcase first
   pnpm --filter ui.mento.org test:visual  # Playwright starts `next start` and captures
   ```
 
