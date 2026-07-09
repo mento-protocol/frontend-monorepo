@@ -1,8 +1,12 @@
 "use client";
 
 import { Button, TokenIcon } from "@repo/ui";
-import { Celo, getDebtTokenConfig, type DebtTokenConfig } from "@repo/web3";
-import { useSwitchChain } from "@repo/web3/wagmi";
+import {
+  Celo,
+  getDebtTokenConfig,
+  useSwitchChainWithFeedback,
+  type DebtTokenConfig,
+} from "@repo/web3";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 import { ArrowRightLeft } from "lucide-react";
 
@@ -13,7 +17,7 @@ export function UnsupportedChainState({
   feature: "borrow" | "earn";
   debtToken?: DebtTokenConfig;
 }) {
-  const { switchChainAsync } = useSwitchChain();
+  const { switchToChain } = useSwitchChainWithFeedback();
   const targetChain = Celo;
 
   const collateralSymbol = debtToken.collateralSymbol;
@@ -41,11 +45,7 @@ export function UnsupportedChainState({
   })();
 
   const handleSwitch = async () => {
-    try {
-      await switchChainAsync({ chainId: targetChain.id });
-    } catch {
-      // wallet rejected or doesn't support switching
-    }
+    await switchToChain(targetChain.id);
   };
 
   const title =

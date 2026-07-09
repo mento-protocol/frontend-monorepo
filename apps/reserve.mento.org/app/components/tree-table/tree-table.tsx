@@ -29,7 +29,7 @@ export type Column<T> = {
   className?: string;
 };
 
-export type TreeTableProps<T> = {
+type TreeTableProps<T> = {
   rows: TreeRow<T>[];
   columns: Column<T>[];
   defaultOpenDepth?: number;

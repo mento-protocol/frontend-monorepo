@@ -9,9 +9,11 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { formatUnits } from "viem";
 
-// Helper to convert bigint limit to number using token decimals
-function formatLimit(value: bigint, decimals: number): number {
-  return parseFloat(formatUnits(value, decimals));
+// Helper to convert a bigint limit to an exact decimal string using token
+// decimals. Kept as a string (not a float) so downstream comparisons stay
+// precise for amounts near a limit boundary.
+function formatLimit(value: bigint, decimals: number): string {
+  return formatUnits(value, decimals);
 }
 
 export function useTradingLimits(

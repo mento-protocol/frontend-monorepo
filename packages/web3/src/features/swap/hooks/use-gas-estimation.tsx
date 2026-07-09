@@ -1,17 +1,17 @@
 import { ChainId } from "@/config/chains";
 import { getNativeTokenSymbol } from "@/config/tokens";
 import { getMentoSdk, getTradablePairForTokens } from "@/features/sdk";
+import { buildApproveTransactionRequest } from "@/features/swap/hooks/build-approve-transaction-request";
 import {
   isInsufficientLiquidityError,
   SWAP_INSUFFICIENT_LIQUIDITY_LABEL,
 } from "@/features/swap/error-handlers";
-import { parseInputExchangeAmount } from "@/features/swap/utils";
+import { parseInputExchangeAmount, parseSlippage } from "@/features/swap/utils";
 import { fromWei } from "@/utils/amount";
 import { validateAddress } from "@/utils/addresses";
 import { logger } from "@/utils/logger";
 import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
 import { useQuery } from "@tanstack/react-query";
-import { ethers } from "ethers";
 import type { Address, Hex } from "viem";
 import { usePublicClient } from "wagmi";
 
@@ -36,6 +36,8 @@ interface GasEstimationResult {
   totalFeeUSD: string;
 }
 
+type GasEstimationPublicClient = ReturnType<typeof usePublicClient>;
+
 function getApproxNativeTokenUsdPrice(chainId: number): number | null {
   switch (chainId) {
     case ChainId.Celo:
@@ -56,6 +58,183 @@ function formatTotalFeeUsd(totalFeeFormatted: string, chainId: number): string {
   }
 
   return (parseFloat(totalFeeFormatted) * nativeTokenPrice).toFixed(4);
+}
+
+/**
+ * Estimates the gas cost of the transaction the user is about to sign.
+ *
+ * When an ERC20 approval is still pending, this estimates the real
+ * `approve(Router, amountInWei)` transaction (not a stand-in transfer). When
+ * approval is already in place (or the input is the native token), it estimates
+ * the actual swap. If estimation fails for any non-liquidity reason the fee is
+ * unavailable and the function returns `null` — it never fabricates a number.
+ * Insufficient-liquidity errors are re-thrown so the UI can surface them.
+ */
+export async function fetchGasEstimation(
+  params: Omit<GasEstimationParams, "enabled">,
+  publicClient: GasEstimationPublicClient,
+): Promise<GasEstimationResult | null> {
+  const {
+    amount,
+    quote,
+    tokenInSymbol,
+    tokenOutSymbol,
+    address,
+    chainId,
+    slippage,
+    deadlineMinutes = "5",
+    skipApprove,
+  } = params;
+
+  if (
+    !publicClient ||
+    !amount ||
+    !quote ||
+    !address ||
+    amount === "0" ||
+    quote === "0"
+  ) {
+    return null;
+  }
+
+  try {
+    // Approval still pending: estimate the exact approve tx the user will sign.
+    if (!skipApprove && tokenInSymbol !== getNativeTokenSymbol(chainId)) {
+      const approveRequest = buildApproveTransactionRequest(
+        chainId,
+        tokenInSymbol,
+        parseInputExchangeAmount(amount, tokenInSymbol, chainId),
+      );
+
+      const gasEstimate = await publicClient.estimateGas({
+        account: address as Address,
+        to: approveRequest.to,
+        data: approveRequest.data,
+      });
+
+      const gasPrice = await publicClient.getGasPrice();
+      const totalFeeWei = gasEstimate * gasPrice;
+      const totalFeeFormatted = fromWei(totalFeeWei.toString(), 18);
+      const totalFeeUSD = formatTotalFeeUsd(totalFeeFormatted, chainId);
+
+      return {
+        gasEstimate: gasEstimate.toString(),
+        gasPrice: gasPrice.toString(),
+        totalFeeWei: totalFeeWei.toString(),
+        totalFeeFormatted,
+        totalFeeUSD,
+      };
+    }
+
+    // If approval is not needed, estimate the actual swap
+    const sdk = await getMentoSdk(chainId);
+    const fromTokenAddr = getTokenAddress(chainId, tokenInSymbol);
+    const toTokenAddr = getTokenAddress(chainId, tokenOutSymbol);
+    if (!fromTokenAddr) {
+      throw new Error(
+        `${tokenInSymbol} token address not found on chain ${chainId}`,
+      );
+    }
+    if (!toTokenAddr) {
+      throw new Error(
+        `${tokenOutSymbol} token address not found on chain ${chainId}`,
+      );
+    }
+    const tradablePair = await getTradablePairForTokens(
+      chainId,
+      tokenInSymbol,
+      tokenOutSymbol,
+    );
+
+    // swapIn: amount is fromToken (sell), quote is toToken (receive)
+    const amountInWei = parseInputExchangeAmount(
+      amount,
+      tokenInSymbol,
+      chainId,
+    );
+
+    // Build transaction for gas estimation
+    const deadlineSeconds = parseInt(deadlineMinutes, 10) * 60;
+    const block = await publicClient.getBlock();
+    const deadline = block.timestamp + BigInt(deadlineSeconds);
+
+    const { swap } = await sdk.swap.buildSwapTransaction(
+      fromTokenAddr,
+      toTokenAddr,
+      BigInt(amountInWei),
+      address, // recipient
+      address, // owner
+      { slippageTolerance: parseSlippage(slippage), deadline },
+      tradablePair,
+    );
+    const txRequest = swap.params;
+
+    logger.info("Gas estimation tx request:", {
+      to: txRequest.to,
+      account: address as Address,
+      method: "swap.buildSwapTransaction",
+    });
+
+    validateAddress(txRequest.to, "gas estimation");
+
+    let estimatedGas: bigint;
+
+    // Try to estimate gas
+    try {
+      const gasEstimate = await publicClient.estimateGas({
+        account: address as Address,
+        to: txRequest.to as Address,
+        data: txRequest.data as Hex | undefined,
+        value: txRequest.value ? BigInt(txRequest.value.toString()) : undefined,
+      });
+
+      estimatedGas = (gasEstimate * 120n) / 100n;
+      logger.info("Estimated gas with buffer:", estimatedGas.toString());
+    } catch (estimateError: unknown) {
+      logger.error("Gas estimation tx response:", estimateError);
+
+      const errorMessage =
+        estimateError instanceof Error
+          ? estimateError.message
+          : String(estimateError);
+
+      // Insufficient liquidity - surface to UI instead of falling back
+      if (isInsufficientLiquidityError(errorMessage)) {
+        throw new Error(SWAP_INSUFFICIENT_LIQUIDITY_LABEL);
+      }
+
+      // Estimation failed for another reason — the fee is unavailable.
+      logger.warn("Gas estimation failed:", errorMessage);
+      return null;
+    }
+
+    // Get current gas price
+    const gasPrice = await publicClient.getGasPrice();
+    const totalFeeWei = estimatedGas * gasPrice;
+    const totalFeeFormatted = fromWei(totalFeeWei.toString(), 18);
+
+    const totalFeeUSD = formatTotalFeeUsd(totalFeeFormatted, chainId);
+
+    return {
+      gasEstimate: estimatedGas.toString(),
+      gasPrice: gasPrice.toString(),
+      totalFeeWei: totalFeeWei.toString(),
+      totalFeeFormatted,
+      totalFeeUSD,
+    };
+  } catch (error: unknown) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+
+    // Insufficient liquidity - re-throw to surface in UI
+    if (isInsufficientLiquidityError(errorMsg)) {
+      throw error;
+    }
+
+    logger.error("Gas estimation error:", { error: errorMsg });
+
+    // Estimation is unavailable — return null rather than a fabricated fee.
+    return null;
+  }
 }
 
 export function useGasEstimation({
@@ -84,202 +263,21 @@ export function useGasEstimation({
       slippage,
       skipApprove,
     ],
-    queryFn: async () => {
-      if (
-        !publicClient ||
-        !amount ||
-        !quote ||
-        !address ||
-        amount === "0" ||
-        quote === "0"
-      ) {
-        return null;
-      }
-
-      try {
-        // For swap quote, we just need to estimate a simple transfer
-        // This gives us a baseline gas cost without needing approval
-        if (!skipApprove && tokenInSymbol !== getNativeTokenSymbol(chainId)) {
-          // Estimate gas for a simple transfer as a baseline
-          const fromTokenAddr = getTokenAddress(chainId, tokenInSymbol);
-          if (!fromTokenAddr) {
-            throw new Error(
-              `${tokenInSymbol} token address not found on chain ${chainId}`,
-            );
-          }
-
-          // swapIn - check allowance for the amount (fromToken)
-          const valueToCheck = amount;
-
-          const transferData = ethers.utils.defaultAbiCoder.encode(
-            ["address", "uint256"],
-            [
-              address,
-              parseInputExchangeAmount(valueToCheck, tokenInSymbol, chainId),
-            ],
-          );
-
-          const gasEstimate = await publicClient
-            .estimateGas({
-              account: address as Address,
-              to: fromTokenAddr as Address,
-              data: ("0xa9059cbb" + transferData.slice(2)) as Hex,
-            })
-            .catch(() => 100000n); // Fallback for transfer
-
-          const gasPrice = await publicClient.getGasPrice();
-          const totalFeeWei = gasEstimate * gasPrice;
-          const totalFeeFormatted = fromWei(totalFeeWei.toString(), 18);
-          const totalFeeUSD = formatTotalFeeUsd(totalFeeFormatted, chainId);
-
-          return {
-            gasEstimate: gasEstimate.toString(),
-            gasPrice: gasPrice.toString(),
-            totalFeeWei: totalFeeWei.toString(),
-            totalFeeFormatted,
-            totalFeeUSD,
-          };
-        }
-
-        // If approval is not needed, estimate the actual swap
-        const sdk = await getMentoSdk(chainId);
-        const fromTokenAddr = getTokenAddress(chainId, tokenInSymbol);
-        const toTokenAddr = getTokenAddress(chainId, tokenOutSymbol);
-        if (!fromTokenAddr) {
-          throw new Error(
-            `${tokenInSymbol} token address not found on chain ${chainId}`,
-          );
-        }
-        if (!toTokenAddr) {
-          throw new Error(
-            `${tokenOutSymbol} token address not found on chain ${chainId}`,
-          );
-        }
-        const tradablePair = await getTradablePairForTokens(
-          chainId,
+    queryFn: () =>
+      fetchGasEstimation(
+        {
+          amount,
+          quote,
           tokenInSymbol,
           tokenOutSymbol,
-        );
-
-        // swapIn: amount is fromToken (sell), quote is toToken (receive)
-        const amountInWei = parseInputExchangeAmount(
-          amount,
-          tokenInSymbol,
+          address,
           chainId,
-        );
-        const amountWeiBN = ethers.BigNumber.from(amountInWei);
-
-        // Build transaction for gas estimation
-        const deadlineSeconds = parseInt(deadlineMinutes, 10) * 60;
-        const block = await publicClient.getBlock();
-        const deadline = block.timestamp + BigInt(deadlineSeconds);
-
-        const { swap } = await sdk.swap.buildSwapTransaction(
-          fromTokenAddr,
-          toTokenAddr,
-          BigInt(amountWeiBN.toString()),
-          address, // recipient
-          address, // owner
-          { slippageTolerance: parseFloat(slippage), deadline },
-          tradablePair,
-        );
-        const txRequest = swap.params;
-
-        logger.info("Gas estimation tx request:", {
-          to: txRequest.to,
-          account: address as Address,
-          method: "swap.buildSwapTransaction",
-        });
-
-        validateAddress(txRequest.to, "gas estimation");
-
-        let estimatedGas: ethers.BigNumber;
-
-        // Try to estimate gas
-        try {
-          const gasEstimate = await publicClient.estimateGas({
-            account: address as Address,
-            to: txRequest.to as Address,
-            data: txRequest.data as Hex | undefined,
-            value: txRequest.value
-              ? BigInt(txRequest.value.toString())
-              : undefined,
-          });
-
-          const gasEstimateBN = ethers.BigNumber.from(gasEstimate);
-          estimatedGas = gasEstimateBN.mul(120).div(100);
-          logger.info("Estimated gas with buffer:", estimatedGas.toString());
-        } catch (estimateError: unknown) {
-          logger.error("Gas estimation tx response:", estimateError);
-
-          const errorMessage =
-            estimateError instanceof Error
-              ? estimateError.message
-              : String(estimateError);
-
-          // Insufficient liquidity - surface to UI instead of falling back
-          if (isInsufficientLiquidityError(errorMessage)) {
-            throw new Error(SWAP_INSUFFICIENT_LIQUIDITY_LABEL);
-          }
-
-          // If estimation fails, check if it's due to approval
-          if (
-            errorMessage.includes("SafeERC20") ||
-            errorMessage.includes("low-level call failed")
-          ) {
-            logger.warn("Gas estimation failed due to missing approval");
-            // Return a reasonable estimate for UI display
-            estimatedGas = ethers.BigNumber.from("250000");
-          } else {
-            // Other errors - use fallback
-            logger.warn("Gas estimation failed:", errorMessage);
-            estimatedGas = ethers.BigNumber.from("300000");
-          }
-        }
-
-        // Get current gas price
-        const gasPrice = await publicClient.getGasPrice();
-        const totalFeeWei = estimatedGas.mul(gasPrice);
-        const totalFeeFormatted = fromWei(totalFeeWei.toString(), 18);
-
-        const totalFeeUSD = formatTotalFeeUsd(totalFeeFormatted, chainId);
-
-        return {
-          gasEstimate: estimatedGas.toString(),
-          gasPrice: gasPrice.toString(),
-          totalFeeWei: totalFeeWei.toString(),
-          totalFeeFormatted,
-          totalFeeUSD,
-        };
-      } catch (error: unknown) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-
-        // Insufficient liquidity - re-throw to surface in UI
-        if (isInsufficientLiquidityError(errorMsg)) {
-          throw error;
-        }
-
-        logger.error("Gas estimation error:", { error: errorMsg });
-
-        // Return a reasonable estimate instead of null
-        // This allows the UI to show an approximate fee
-        const fallbackGas = ethers.BigNumber.from("250000");
-        const gasPrice = await publicClient.getGasPrice().catch(
-          () => ethers.BigNumber.from("5000000000"), // 5 gwei fallback
-        );
-        const totalFeeWei = fallbackGas.mul(gasPrice);
-        const totalFeeFormatted = fromWei(totalFeeWei.toString(), 18);
-        const totalFeeUSD = formatTotalFeeUsd(totalFeeFormatted, chainId);
-
-        return {
-          gasEstimate: fallbackGas.toString(),
-          gasPrice: gasPrice.toString(),
-          totalFeeWei: totalFeeWei.toString(),
-          totalFeeFormatted: totalFeeFormatted + " (est.)",
-          totalFeeUSD,
-        };
-      }
-    },
+          slippage,
+          deadlineMinutes,
+          skipApprove,
+        },
+        publicClient,
+      ),
     enabled: enabled && !!address && !!amount && !!quote && !!publicClient,
     staleTime: 10000,
     gcTime: 30000,

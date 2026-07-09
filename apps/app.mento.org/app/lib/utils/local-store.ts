@@ -1,4 +1,4 @@
-export interface LocalStore<T> {
+interface LocalStore<T> {
   getSnapshot: () => T;
   set: (nextValue: T) => void;
   subscribe: (listener: () => void) => () => void;

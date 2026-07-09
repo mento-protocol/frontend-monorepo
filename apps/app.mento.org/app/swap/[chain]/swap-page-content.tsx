@@ -105,7 +105,7 @@ export function SwapPageContent({
             </div>
             {!confirmView && <SwapSettingsPopover />}
           </div>
-          {confirmView && <SwapConfirm />}
+          {confirmView && <SwapConfirm chainId={chainId} />}
           {/*
            * Keep SwapForm always mounted; only toggle visibility with `hidden`.
            * Using `display: contents` (or conditional rendering) here caused a

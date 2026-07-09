@@ -17,7 +17,6 @@
   "dependencies": {
     "@apollo/client": "^3.14.0",
     "@apollo/client-integration-nextjs": "^0.12.3",
-    "@metamask/jazzicon": "catalog:",
     "@rainbow-me/rainbowkit": "catalog:",
     "@repo/ui": "workspace:*",
     "@repo/web3": "workspace:*",
@@ -47,12 +46,12 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@graphql-codegen/add": "^6.0.0",
-    "@graphql-codegen/cli": "^6.1.0",
-    "@graphql-codegen/typescript": "^5.0.7",
-    "@graphql-codegen/typescript-apollo-client-helpers": "^3.0.1",
-    "@graphql-codegen/typescript-operations": "^5.0.7",
-    "@graphql-codegen/typescript-react-apollo": "^4.4.0",
+    "@graphql-codegen/add": "^7.0.1",
+    "@graphql-codegen/cli": "^7.1.2",
+    "@graphql-codegen/typescript": "^6.0.2",
+    "@graphql-codegen/typescript-apollo-client-helpers": "^4.0.1",
+    "@graphql-codegen/typescript-operations": "^6.0.4",
+    "@graphql-codegen/typescript-react-apollo": "^4.4.2",
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@repo/vitest-config": "workspace:*",
@@ -62,8 +61,8 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitest/coverage-v8": "catalog:",
-    "dotenv": "^17.2.3",
-    "jsdom": "^26.1.0",
+    "dotenv": "^17.4.2",
+    "jsdom": "^29.1.1",
     "pino-pretty": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

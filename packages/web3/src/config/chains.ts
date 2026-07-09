@@ -13,6 +13,7 @@ import celoIcon from "./chain-icons/celo.svg";
 import monadIcon from "./chain-icons/monad.svg";
 import polygonIcon from "./chain-icons/polygon.svg";
 import baseIcon from "./chain-icons/base.svg";
+import { readStorageOverride } from "./rpc-overrides";
 
 const useFork = isForkModeEnabled();
 
@@ -262,7 +263,7 @@ function isForkModeEnabled(): boolean {
   }
 
   // In browser, check localStorage first, then environment variable
-  const storedValue = localStorage.getItem("mento_use_fork");
+  const storedValue = readStorageOverride("mento_use_fork");
   if (storedValue !== null) {
     return storedValue === "true";
   }
@@ -277,10 +278,8 @@ function isForkModeEnabled(): boolean {
 }
 
 function getLegacyCustomRpcUrl(): string | undefined {
-  if (typeof window !== "undefined") {
-    const stored = localStorage.getItem("mento_custom_rpc_url");
-    if (stored) return stored;
-  }
+  const stored = readStorageOverride("mento_custom_rpc_url");
+  if (stored) return stored;
   return process.env.NEXT_PUBLIC_RPC_URL || undefined;
 }
 
@@ -289,14 +288,12 @@ function getChainSpecificRpcUrl(
 ): { url: string; source: string } | undefined {
   const config = RPC_OVERRIDE_CONFIG[chainId];
 
-  if (typeof window !== "undefined") {
-    const stored = localStorage.getItem(config.localStorageKey);
-    if (stored) {
-      return {
-        url: stored,
-        source: `custom RPC (${config.localStorageKey})`,
-      };
-    }
+  const stored = readStorageOverride(config.localStorageKey);
+  if (stored) {
+    return {
+      url: stored,
+      source: `custom RPC (${config.localStorageKey})`,
+    };
   }
 
   const envUrl = config.envUrl;

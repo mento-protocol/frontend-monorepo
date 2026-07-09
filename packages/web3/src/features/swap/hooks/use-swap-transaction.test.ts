@@ -15,6 +15,9 @@ import {
 } from "@/features/swap/error-handlers";
 import { getSwapTransactionErrorMessage } from "./swap-transaction-error";
 
+// Dynamic import after the vi.mock declaration above, mirroring use-open-trove.test.ts.
+const { parseDeadlineMinutes } = await import("./use-swap-transaction");
+
 describe("getSwapTransactionErrorMessage", () => {
   const testCases: Array<{
     name: string;
@@ -161,5 +164,27 @@ describe("getSwapTransactionErrorMessage", () => {
       const result = getSwapTransactionErrorMessage(input as Error);
       expect(result).toBe(expected);
     });
+  });
+});
+
+describe("parseDeadlineMinutes", () => {
+  const fallbackCases: Array<{ name: string; input: string | undefined }> = [
+    { name: "undefined", input: undefined },
+    { name: "empty string", input: "" },
+    { name: "non-numeric", input: "abc" },
+    { name: "zero", input: "0" },
+    { name: "negative", input: "-3" },
+  ];
+
+  it.each(fallbackCases)("returns 5 for $name", ({ input }) => {
+    expect(parseDeadlineMinutes(input)).toBe(5);
+  });
+
+  it("returns the parsed value for a valid positive integer string", () => {
+    expect(parseDeadlineMinutes("20")).toBe(20);
+  });
+
+  it("truncates a decimal string via parseInt", () => {
+    expect(parseDeadlineMinutes("2.9")).toBe(2);
   });
 });

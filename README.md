@@ -12,7 +12,7 @@ A monorepo for all our frontend apps, designed to simplify sharing of code like 
 - **[shadcn/ui](https://ui.shadcn.com/)**: Our UI component base library to extend from
 - **[Trunk CLI](https://trunk.io/)**: Metalinter and formatter (ESLint, Prettier, Markdown, YAML, Shell, Commitlint)
 - **[Vercel](https://vercel.com/)**: For deployments and turborepo build remote caching
-- **[GitHub Actions](https://github.com/features/actions)**: For CI/CD (with Turborepo caching for builds via Vercel)
+- **[GitHub Actions](https://github.com/features/actions)**: For CI (with Turborepo caching for builds via Vercel)
 
 ## Repo Structure
 
@@ -21,7 +21,6 @@ frontend-monorepo/
 ├── apps/                     # Frontend applications
 │   ├── app.mento.org/        # Mento Exchange UI
 │   ├── governance.mento.org/ # Governance UI
-│   ├── minipay.mento.org/    # MiniPay DApp
 │   ├── reserve.mento.org/    # Reserve UI
 │   └── ui.mento.org/         # Component Library Showcase
 │
@@ -29,6 +28,7 @@ frontend-monorepo/
 │   ├── eslint-config/        # Shared ESLint configuration
 │   ├── typescript-config/    # Shared TypeScript configuration
 │   ├── ui/                   # Shared UI library with tailwind styles and shadcn/ui components
+│   ├── vitest-config/        # Shared Vitest configuration
 │   └── web3/                 # Shared library with web3-specific components and hooks
 │
 ├── .github/                  # GitHub workflows
@@ -60,17 +60,47 @@ frontend-monorepo/
    pnpm install
    ```
 
-3. Build all packages:
+3. Configure environment variables for each app you plan to build or run:
 
    ```bash
-   turbo build
+   cd apps/<app-name>
+   cp .env.example .env.local
    ```
 
-4. Start the development server for all applications:
+4. Build all packages:
 
    ```bash
-   turbo dev
+   pnpm build
    ```
+
+5. Start the development server for all applications:
+
+   ```bash
+   pnpm dev
+   ```
+
+### Environment Variables
+
+Each app has its own `.env.example` listing the variables it needs:
+
+- `apps/app.mento.org/.env.example`
+- `apps/governance.mento.org/.env.example`
+- `apps/reserve.mento.org/.env.example`
+- `apps/ui.mento.org/.env.example`
+
+For each app you run locally, copy its example file to `.env.local` and fill in the values before building or starting dev:
+
+```bash
+cd apps/<app-name>
+cp .env.example .env.local
+```
+
+Most values are public config and safe to copy as-is. A few require secrets from a teammate or the Vercel project settings:
+
+- `app.mento.org` needs `NEXT_PUBLIC_STORAGE_URL`, `NEXT_PUBLIC_WALLET_CONNECT_ID`, and `CHAINALYSIS_API_KEY`
+- `governance.mento.org` needs `NEXT_PUBLIC_WALLET_CONNECT_ID`, `NEXT_PUBLIC_GRAPH_API_KEY`, and `ETHERSCAN_API_KEY`
+- `reserve.mento.org` needs `NEXT_PUBLIC_STORAGE_URL` and `NEXT_PUBLIC_ANALYTICS_API_URL`
+- `ui.mento.org` needs `NEXT_PUBLIC_STORAGE_URL` for showcase static assets
 
 ## Development Workflow
 
@@ -176,7 +206,7 @@ The actual versions are defined once in `pnpm-workspace.yaml`:
 catalog:
   "react": ^19.2.5
   "jotai": ^2.16.2
-  "@tanstack/react-query": ^5.90.19
+  "@tanstack/react-query": 5.90.16
 ```
 
 Root `pnpm.overrides` are used for security patches and compatibility pins.
@@ -184,7 +214,11 @@ Root `pnpm.overrides` are used for security patches and compatibility pins.
 verified app-compatible version; newer compatible-range releases caused a
 production QueryClient context split in `app.mento.org`. Remove those overrides
 only after a production build and browser verification of the swap and pools
-routes.
+routes. Note the catalog entry above matches the override exactly (`5.90.16`,
+not a caret range) — pnpm overrides rewrite `catalog:` references too, so the
+catalog value must stay truthful about what's actually installed. See
+[`docs/dependency-overrides.md`](docs/dependency-overrides.md) for the reason
+and removal condition behind every unconditional override.
 
 #### Adding a New Dependency
 
@@ -297,10 +331,10 @@ feat(ui): add new button component
 
 ## CI/CD Pipeline
 
-The repository is set up with GitHub Actions for CI/CD:
+The repository is set up with GitHub Actions for CI:
 
 - **CI**: On every PR, it runs linting (via Trunk), type checking, and builds all packages
-- **CD**: On merges to main, it deploys applications to Vercel
+- **CD**: Deployments are handled by the Vercel Git integration — each app is a Vercel project that builds on push to main (previews on PRs). GitHub Actions does not deploy.
 
 ### Trunk in CI
 

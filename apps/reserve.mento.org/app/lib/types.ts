@@ -6,8 +6,8 @@ export enum Chain {
   MONAD = "monad",
 }
 
-export type BackingType = "reserve" | "cdp";
-export type TroveStatus = "active" | "pending";
+type BackingType = "reserve" | "cdp";
+type TroveStatus = "active" | "pending";
 
 // Present on a v2 response only when the API fell back to cached data or
 // had partial failures. Absent on fully healthy responses.
@@ -17,7 +17,7 @@ export interface V2MetaWarning {
   cached_since?: string;
 }
 
-export interface V2Meta {
+interface V2Meta {
   timestamp: string;
   warnings: V2MetaWarning[];
 }
@@ -55,7 +55,7 @@ export interface V2OverviewResponse {
 }
 
 // Supply breakdown (shared between aggregate and per-network)
-export interface StablecoinSupply {
+interface StablecoinSupply {
   total: string;
   total_usd: number;
   debt: string;
@@ -66,7 +66,7 @@ export interface StablecoinSupply {
   lost_usd: number;
 }
 
-export interface NetworkSupply {
+interface NetworkSupply {
   chain: Chain;
   address: string;
   supply: StablecoinSupply;

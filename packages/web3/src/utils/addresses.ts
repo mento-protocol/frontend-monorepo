@@ -1,5 +1,4 @@
-import { getAddress } from "@ethersproject/address";
-import { type Address, isAddress } from "viem";
+import { type Address, getAddress, isAddress } from "viem";
 import { logger } from "./logger";
 
 // To declare once and reuse everywhere
