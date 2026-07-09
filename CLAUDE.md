@@ -56,7 +56,7 @@ Always use `--filter` to avoid building/running everything unnecessarily.
 
 Two layers guard against unintended UI changes:
 
-- **DOM/aria snapshots** (`@repo/ui`) — run inside the normal `turbo test` step. After an _intended_ component change, re-record baselines with `pnpm --filter @repo/ui exec vitest run -u`.
+- **DOM/aria snapshots** (`@repo/ui`) — run inside the normal `pnpm test` step. After an _intended_ component change, re-record baselines with `pnpm --filter @repo/ui exec vitest run -u`.
 - **Pixel VRT** (`ui.mento.org` showcase) — Playwright + Argos, in CI via `.github/workflows/visual.yml` (pinned Playwright Docker image; baselines live in Argos, not git). Run locally:
 
   ```bash

@@ -40,7 +40,7 @@ Carefully follow these instructions for frontend TypeScript and React developmen
 5. Before submitting a PR, run the full validation:
    - Run `trunk check --all` to run all linters
    - Run `trunk format --all` to run all formatters
-   - Run `turbo build` to build the entire project
+   - Run `pnpm build` to build the entire project
    - Fix any warnings or failures before proceeding.
 
 ## Examples
