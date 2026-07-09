@@ -17,7 +17,6 @@
       "ignoreDependencies": ["pino-pretty", "tailwindcss"]
     },
     "apps/governance.mento.org": {
-      "entry": ["app/middleware.ts"],
       "ignoreDependencies": ["pino-pretty"]
     },
     "apps/reserve.mento.org": {},

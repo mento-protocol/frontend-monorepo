@@ -1,18 +1,14 @@
 import { chainIdToChain } from "@/config/chains";
+import { buildApproveTransactionRequest } from "@/features/swap/hooks/build-approve-transaction-request";
 import { logger } from "@/utils";
 import { toViemAddress, validateAddress } from "@/utils/addresses";
 import { isUserRejection } from "@/utils/is-user-rejection";
-import {
-  TokenSymbol,
-  getTokenAddress,
-  getContractAddress,
-} from "@mento-protocol/mento-sdk";
+import { TokenSymbol } from "@mento-protocol/mento-sdk";
 import { toast } from "@repo/ui";
 import { useQuery } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Address, Hex, TransactionReceipt } from "viem";
-import { encodeFunctionData } from "viem";
 import {
   useEstimateGas,
   useSendTransaction,
@@ -52,39 +48,18 @@ export function useApproveTransaction({
       )
         return null;
 
-      const tokenInAddr = getTokenAddress(chainId, tokenInSymbol);
-      if (!tokenInAddr) {
-        throw new Error(
-          `${tokenInSymbol} token address not found on chain ${chainId}`,
-        );
-      }
-
-      const spender = getContractAddress(chainId, "Router");
-
-      const data = encodeFunctionData({
-        abi: [
-          {
-            name: "approve",
-            type: "function",
-            stateMutability: "nonpayable",
-            inputs: [
-              { name: "spender", type: "address" },
-              { name: "amount", type: "uint256" },
-            ],
-            outputs: [{ type: "bool" }],
-          },
-        ],
-        functionName: "approve",
-        args: [spender as Address, BigInt(amountInWei)],
-      });
-
-      return { to: tokenInAddr, data };
+      return buildApproveTransactionRequest(
+        chainId,
+        tokenInSymbol,
+        amountInWei,
+      );
     },
   });
 
   const [approveTxHash, setApproveTxHash] = useState<Address | null>(null);
 
   const { data, error: sendPrepError } = useEstimateGas({
+    chainId,
     to: toViemAddress(txRequest?.to as string),
     data: txRequest?.data as Hex | undefined,
   });
@@ -182,6 +157,7 @@ export function useApproveTransaction({
     try {
       validateAddress(txRequest.to, "approval transaction");
       const hash = await sendTransactionAsync({
+        chainId,
         gas: data,
         to: txRequest.to as Address,
         data: txRequest?.data as Hex,
@@ -210,7 +186,7 @@ export function useApproveTransaction({
     } finally {
       isSendingRef.current = false;
     }
-  }, [reset, sendTransactionAsync, data, txRequest, isPending]);
+  }, [reset, sendTransactionAsync, data, txRequest, isPending, chainId]);
 
   return {
     sendApproveTx,

@@ -19,7 +19,6 @@ catalog:
   esbuild-plugin-preserve-directives: ^0.0.11
   eslint: ^9.39.2
   eslint-config-prettier: ^10.1.8
-  ethers: ^5.7.2
   jotai: ^2.20.0
   lucide-react: ^0.562.0
   next: ^15.5.19

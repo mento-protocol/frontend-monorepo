@@ -27,6 +27,7 @@ export const useProposal = (proposalId: bigint) => {
     context: {
       apiName: getSubgraphApiName(ensuredChainId),
     },
+    notifyOnNetworkStatusChange: true,
     refetchWritePolicy: "merge",
     initialFetchPolicy: "network-only",
     nextFetchPolicy: "cache-and-network",
@@ -73,7 +74,9 @@ export const useProposal = (proposalId: bigint) => {
   return {
     proposal,
     isLoading:
-      graphNetworkStatus === NetworkStatus.loading || isChainDataLoading,
+      graphNetworkStatus === NetworkStatus.loading ||
+      graphNetworkStatus === NetworkStatus.setVariables ||
+      isChainDataLoading,
     refetch,
   };
 };

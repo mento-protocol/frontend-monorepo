@@ -1,6 +1,7 @@
 import { ProposalContent } from "@/components/proposal/content";
 import { env } from "@/env.mjs";
 import { Metadata } from "next";
+import { notFound } from "next/navigation";
 
 const GET_PROPOSAL_METADATA = `
   query GetProposalMetadata($id: BigInt) {
@@ -177,7 +178,10 @@ export async function generateMetadata({
   };
 }
 
-export default function ProposalPage() {
+export default async function ProposalPage({ params }: PageProps) {
+  const { id } = await params;
+  if (!/^\d+$/.test(id)) notFound();
+
   return (
     <main className="md:px-22 px-4 py-8 md:py-16 relative w-full">
       <ProposalContent />
