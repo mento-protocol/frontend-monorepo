@@ -85,7 +85,7 @@ export const ProposalContent = () => {
     );
   }, [transactions]);
 
-  if (isLoading) {
+  if (!proposal && isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <IconLoading />
