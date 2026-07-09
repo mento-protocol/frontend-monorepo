@@ -13,13 +13,28 @@ export function canUseStorageOverrides(
 
 export function readStorageOverride(
   key: string,
-  storage: StorageLike | undefined = typeof window === "undefined"
-    ? undefined
-    : window.localStorage,
+  storage?: StorageLike,
   isProduction: boolean = IS_PROD,
   isDebugEnabled: boolean = IS_DEBUG,
 ): string | null {
-  if (!storage) return null;
   if (!canUseStorageOverrides(isProduction, isDebugEnabled)) return null;
-  return storage.getItem(key);
+
+  const storageSource = storage ?? readWindowStorage();
+  if (!storageSource) return null;
+
+  try {
+    return storageSource.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function readWindowStorage(): StorageLike | undefined {
+  if (typeof window === "undefined") return undefined;
+
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
 }

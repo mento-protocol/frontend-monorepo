@@ -39,6 +39,52 @@ describe("readStorageOverride", () => {
     expect(storage.getItem).not.toHaveBeenCalled();
   });
 
+  it("does not touch window localStorage when overrides are blocked", () => {
+    const originalWindow = globalThis.window;
+    const localStorageGetter = vi.fn(() => {
+      throw new Error("localStorage is blocked");
+    });
+
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: Object.defineProperty({}, "localStorage", {
+        get: localStorageGetter,
+      }),
+    });
+
+    const result = readStorageOverride("some-key", undefined, true, false);
+
+    expect(result).toBeNull();
+    expect(localStorageGetter).not.toHaveBeenCalled();
+
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow,
+    });
+  });
+
+  it("returns null when browser storage access is blocked", () => {
+    const originalWindow = globalThis.window;
+
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: Object.defineProperty({}, "localStorage", {
+        get() {
+          throw new Error("localStorage is blocked");
+        },
+      }),
+    });
+
+    const result = readStorageOverride("some-key", undefined, false, false);
+
+    expect(result).toBeNull();
+
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow,
+    });
+  });
+
   it("returns null when storage is undefined (SSR)", () => {
     const result = readStorageOverride("some-key", undefined, false, false);
 
