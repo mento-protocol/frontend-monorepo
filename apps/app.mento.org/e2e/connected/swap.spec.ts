@@ -38,7 +38,10 @@ test.beforeEach(async () => {
   snapshotId = await snapshot();
 });
 test.afterEach(async () => {
-  await revert(snapshotId);
+  // Guard against beforeEach failing before assignment (e.g. anvil not
+  // running) — reverting an unset snapshotId would throw a second, masking
+  // error on top of the real root cause.
+  if (snapshotId) await revert(snapshotId);
 });
 
 test("swaps 1 EURm (cEUR) for USDm (cUSD)", async ({ page }) => {
