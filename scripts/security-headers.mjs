@@ -1,3 +1,22 @@
+import process from "node:process";
+
+const VERCEL_LIVE_ORIGIN = "https://vercel.live";
+
+const vercelPreviewCspExtensions = {
+  "script-src": {
+    additionalSources: [VERCEL_LIVE_ORIGIN],
+    fallbackSources: ["'self'", VERCEL_LIVE_ORIGIN],
+  },
+  "connect-src": {
+    additionalSources: [VERCEL_LIVE_ORIGIN],
+    fallbackSources: ["'self'", VERCEL_LIVE_ORIGIN],
+  },
+  "frame-src": {
+    additionalSources: [VERCEL_LIVE_ORIGIN],
+    fallbackSources: ["'self'", VERCEL_LIVE_ORIGIN],
+  },
+};
+
 /**
  * Shared HTTP security headers for all four Next.js apps.
  *
@@ -23,6 +42,7 @@
  * @returns {{ key: string, value: string }[]}
  */
 export function buildSecurityHeaders({ reportOnlyCsp } = {}) {
+  const resolvedReportOnlyCsp = allowVercelLiveInPreview(reportOnlyCsp);
   const headers = [
     { key: "X-Frame-Options", value: "DENY" },
     // Enforced now — keep this to exactly `frame-ancestors 'none'`. Pasting the
@@ -36,14 +56,67 @@ export function buildSecurityHeaders({ reportOnlyCsp } = {}) {
     },
   ];
 
-  if (reportOnlyCsp) {
+  if (resolvedReportOnlyCsp) {
     headers.push({
       key: "Content-Security-Policy-Report-Only",
-      value: reportOnlyCsp,
+      value: resolvedReportOnlyCsp,
     });
   }
 
   return headers;
+}
+
+/**
+ * Vercel injects the preview feedback widget from https://vercel.live on preview
+ * deployments. Keep production CSP telemetry stricter while avoiding noisy
+ * report-only violations during PR review.
+ *
+ * @param {string | undefined} reportOnlyCsp
+ * @returns {string | undefined}
+ */
+function allowVercelLiveInPreview(reportOnlyCsp) {
+  if (!reportOnlyCsp || process.env.VERCEL_ENV !== "preview") {
+    return reportOnlyCsp;
+  }
+
+  return appendCspSources(reportOnlyCsp, vercelPreviewCspExtensions);
+}
+
+/**
+ * @param {string} csp
+ * @param {Record<string, { additionalSources: string[], fallbackSources: string[] }>} extensions
+ * @returns {string}
+ */
+function appendCspSources(csp, extensions) {
+  const seenDirectiveNames = new Set();
+  const directives = csp
+    .split(";")
+    .map((directive) => directive.trim())
+    .filter(Boolean)
+    .map((directive) => {
+      const [name, ...sources] = directive.split(/\s+/);
+      const extension = extensions[name];
+
+      if (!extension) {
+        return directive;
+      }
+
+      seenDirectiveNames.add(name);
+      const existingSources = new Set(sources);
+      const missingSources = extension.additionalSources.filter(
+        (source) => !existingSources.has(source),
+      );
+
+      return [name, ...sources, ...missingSources].join(" ");
+    });
+
+  for (const [name, extension] of Object.entries(extensions)) {
+    if (!seenDirectiveNames.has(name)) {
+      directives.push([name, ...extension.fallbackSources].join(" "));
+    }
+  }
+
+  return directives.join("; ");
 }
 
 /**
