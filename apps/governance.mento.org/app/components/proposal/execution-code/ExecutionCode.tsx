@@ -40,6 +40,12 @@ export function ExecutionCode({ transactions, className }: ExecutionCodeProps) {
     );
   }, [transactions]);
 
+  const transactionBoundaryKey = useMemo(() => {
+    return transactions
+      .map(({ address, value, data }) => `${address}:${value}:${data}`)
+      .join("|");
+  }, [transactions]);
+
   const hasTransactions = transactions && transactions.length > 0;
 
   return (
@@ -57,6 +63,7 @@ export function ExecutionCode({ transactions, className }: ExecutionCodeProps) {
             <EmptyExecutionMessage />
           ) : (
             <ErrorBoundary
+              key={transactionBoundaryKey}
               fallback={
                 <div>
                   <p className="mb-4 text-muted-foreground">
