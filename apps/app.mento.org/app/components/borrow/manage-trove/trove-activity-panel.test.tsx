@@ -95,6 +95,8 @@ vi.mock("@repo/web3", () => ({
     return `${amount / divisor}.00 ${token.symbol}`;
   },
   formatInterestRate: (rate: bigint) => `${Number(rate) / 1e16}%`,
+  shortenAddress: (address: string) =>
+    `${address.slice(0, 6)}...${address.slice(-4)}`,
   useExplorerUrl: () => "https://example-explorer.test",
   useTroveOperations: () => mockQuery,
 }));

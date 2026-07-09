@@ -15,13 +15,10 @@ import {
   liquidityFlowAtom,
   type LiquidityFlowStepDefinition,
   getPoolDisplayOrder,
+  useSwitchChainWithFeedback,
+  isUserRejection,
 } from "@repo/web3";
-import {
-  useAccount,
-  useChainId,
-  useConfig,
-  useSwitchChain,
-} from "@repo/web3/wagmi";
+import { useAccount, useChainId, useConfig } from "@repo/web3/wagmi";
 import { formatUnits, type Address } from "viem";
 import { toast } from "sonner";
 
@@ -105,7 +102,7 @@ export function RebalancePanel({
   const [nowTs, setNowTs] = useState(() => Math.floor(Date.now() / 1000));
   const { address, isConnected } = useAccount();
   const walletChainId = useChainId();
-  const { switchChainAsync } = useSwitchChain();
+  const { switchToChain } = useSwitchChainWithFeedback({ onFailure: "toast" });
   const wagmiConfig = useConfig();
   const setFlow = useSetAtom(liquidityFlowAtom);
   const {
@@ -208,25 +205,14 @@ export function RebalancePanel({
           : "Failed to prepare rebalance. Please try again.";
 
       // Avoid duplicating wallet rejection toasts if the flow already surfaced one.
-      if (
-        !/user rejected|request rejected|denied transaction signature/i.test(
-          message,
-        )
-      ) {
+      if (!isUserRejection(error)) {
         toast.error(message);
       }
     }
   };
 
   const handleSwitchChain = async () => {
-    try {
-      if (!switchChainAsync) throw new Error("switchChainAsync unavailable");
-      await switchChainAsync({ chainId: pool.chainId });
-    } catch {
-      toast.error(
-        `Could not switch to ${targetChainName}. Please switch networks in your wallet.`,
-      );
-    }
+    await switchToChain(pool.chainId);
   };
 
   if (

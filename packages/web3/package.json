@@ -46,7 +46,7 @@
     "dev:js": "tsup --watch",
     "generate:component": "turbo gen react-component",
     "lint": "eslint . --max-warnings 100",
-    "test": "vitest run",
+    "test": "vitest run --coverage",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "watch": "pnpm dev:js"

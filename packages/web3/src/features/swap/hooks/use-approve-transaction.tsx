@@ -1,6 +1,7 @@
 import { chainIdToChain } from "@/config/chains";
 import { logger } from "@/utils";
 import { toViemAddress, validateAddress } from "@/utils/addresses";
+import { isUserRejection } from "@/utils/is-user-rejection";
 import {
   TokenSymbol,
   getTokenAddress,
@@ -220,11 +221,7 @@ export function useApproveTransaction({
 function getApproveToastErrorMessage(errorMessage: string): string {
   switch (true) {
     // Normalize user rejection messages across wallets (MetaMask, Rabby, Valora/WalletConnect)
-    case /user\s+rejected/i.test(errorMessage):
-      return "Approval transaction rejected by user.";
-    case /denied\s+transaction\s+signature/i.test(errorMessage):
-      return "Approval transaction rejected by user.";
-    case /request\s+rejected/i.test(errorMessage):
+    case isUserRejection(errorMessage):
       return "Approval transaction rejected by user.";
     case /insufficient\s+funds/i.test(errorMessage):
       return "Insufficient funds for transaction.";

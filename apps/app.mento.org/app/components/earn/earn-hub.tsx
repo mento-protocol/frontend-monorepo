@@ -30,13 +30,13 @@ import {
 import { useAccount } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 import { RewardsCampaignBanner } from "../pools/rewards-campaign-banner";
+import { ChainIcon } from "../shared/chain-icon";
 import {
   OpportunityCard,
   type Opportunity,
   type StabilityOpportunity,
   type LpOpportunity,
 } from "./opportunity-card";
-import Image from "next/image";
 import { Clock, Plus, TrendingUp, Info, ExternalLink } from "lucide-react";
 import { formatUnits } from "viem";
 
@@ -446,8 +446,6 @@ export function EarnHub() {
           </button>
           {visibleEarnChains.map((id) => {
             const chain = chainIdToChain[id];
-            const iconUrl = (chain as unknown as Record<string, unknown>)
-              ?.iconUrl as string | undefined;
             return (
               <button
                 key={id}
@@ -460,16 +458,7 @@ export function EarnHub() {
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
-                {iconUrl && (
-                  <Image
-                    src={iconUrl}
-                    alt={chain?.name ?? ""}
-                    width={16}
-                    height={16}
-                    className="h-4 w-4 rounded-full"
-                    unoptimized
-                  />
-                )}
+                <ChainIcon chainId={id} />
                 {chain?.name ?? `Chain ${id}`}
               </button>
             );

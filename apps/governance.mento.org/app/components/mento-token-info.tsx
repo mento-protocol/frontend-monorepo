@@ -7,7 +7,7 @@ import {
   AccordionTrigger,
   CopyToClipboard,
 } from "@repo/ui";
-import { useContracts, NumbersService } from "@repo/web3";
+import { useContracts, NumbersService, shortenAddress } from "@repo/web3";
 import { useGovernanceDetails } from "@/contracts";
 import { useCurrentChain } from "@/hooks/use-current-chain";
 import { useAccount, useTokens } from "@repo/web3";
@@ -156,10 +156,6 @@ const ContractAddressDisplay = ({
     return <span>-</span>;
   }
 
-  const formatAddress = (address: string) => {
-    return `${address.slice(0, 6)}...${address.slice(-4)}`;
-  };
-
   const explorerUrl = currentChain.blockExplorers?.default?.url;
   const addressUrl = explorerUrl ? `${explorerUrl}/address/${address}` : null;
 
@@ -173,11 +169,11 @@ const ContractAddressDisplay = ({
           className="text-sm text-muted-foreground hover:underline"
           data-testid={dataTestId}
         >
-          {formatAddress(address)}
+          {shortenAddress(address, false)}
         </a>
       ) : (
         <span className="text-sm text-muted-foreground">
-          {formatAddress(address)}
+          {shortenAddress(address, false)}
         </span>
       )}
       <CopyToClipboard text={address} />
