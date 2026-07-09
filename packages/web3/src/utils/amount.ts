@@ -1,6 +1,5 @@
-import { formatUnits, parseUnits } from "@ethersproject/units";
 import BigNumber from "bignumber.js";
-import { parseUnits as viemParseUnits } from "viem";
+import { formatUnits, parseUnits } from "viem";
 import {
   DISPLAY_DECIMALS,
   MIN_ROUNDED_VALUE,
@@ -20,7 +19,7 @@ export function fromWei(
     0,
     BigNumber.ROUND_FLOOR,
   );
-  return formatUnits(flooredValue, decimals);
+  return formatUnits(BigInt(flooredValue), decimals);
 }
 
 // Similar to fromWei above but rounds to set number of decimals
@@ -32,7 +31,7 @@ export function fromWeiRounded(
 ): string {
   if (!value) return "0";
   const flooredValue = new BigNumber(value).toFixed(0, BigNumber.ROUND_FLOOR);
-  const amount = new BigNumber(formatUnits(flooredValue, decimals));
+  const amount = new BigNumber(formatUnits(BigInt(flooredValue), decimals));
   if (amount.isZero()) return "0";
 
   // If amount is less than min value
@@ -86,7 +85,7 @@ export function parseAmountWithDefault(
 
 export function tryParseUnits(value: string, decimals: number): bigint | null {
   try {
-    return viemParseUnits(value, decimals);
+    return parseUnits(value, decimals);
   } catch (err) {
     logger.warn("Failed to parse units", { value, decimals, err });
     return null;
