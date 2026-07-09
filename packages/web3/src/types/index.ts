@@ -9,7 +9,7 @@ export type MentoChainContracts = {
   [K in keyof ContractAddresses]-?: ChainContract;
 };
 
-export type MentoChain = Chain;
+export type MentoChain = Chain & { iconUrl?: string };
 
 export type TokenBalance = {
   decimals: number;

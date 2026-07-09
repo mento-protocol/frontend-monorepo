@@ -6,6 +6,7 @@ import {
   formatCollateralAmount,
   formatDebtAmount,
   formatInterestRate,
+  shortenAddress,
   useExplorerUrl,
   useTroveOperations,
   type DebtTokenConfig,
@@ -193,11 +194,6 @@ function shortenHash(hash: string): string {
   return `${hash.slice(0, 6)}...${hash.slice(-4)}`;
 }
 
-function shortenAddressLabel(address: string): string {
-  if (address.length <= 12) return address;
-  return `${address.slice(0, 6)}…${address.slice(-4)}`;
-}
-
 function AddressLink({
   address,
   explorerUrl,
@@ -212,7 +208,7 @@ function AddressLink({
       rel="noopener noreferrer"
       className="font-mono text-foreground underline underline-offset-2 hover:text-primary"
     >
-      {shortenAddressLabel(address)}
+      {shortenAddress(address, false)}
     </a>
   );
 }

@@ -1,7 +1,7 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 
 # Exit immediately if a command exits with a non-zero status.
-# set -euo pipefail
+set -euo pipefail
 
 echo "🚀 Running Health Checks..."
 
@@ -17,9 +17,8 @@ pnpm lint
 printf "\n🧐 Checking types...\n"
 pnpm check-types
 
-# Once we have a test suite, uncomment this.
-# printf "\n🧪 Running tests...\n"
-# pnpm test
+printf "\n🧪 Running tests...\n"
+pnpm test
 
 printf "\n🧱 Building...\n"
 pnpm build
