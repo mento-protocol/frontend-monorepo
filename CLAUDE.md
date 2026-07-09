@@ -66,6 +66,8 @@ Two layers guard against unintended UI changes:
 
   An intended UI change shows as a diff in the Argos dashboard — approve it there to promote the baseline. Requires the `ARGOS_TOKEN` secret + the Argos GitHub App; `NEXT_PUBLIC_STORAGE_URL` must be set (CI uses `vars.STORAGE_URL`; locally use `apps/ui.mento.org/.env.local`).
 
+  If CI shows all Playwright visual tests passing and then Argos fails with HTTP 402 / Free Plan screenshot capacity, classify it as Argos account quota rather than a visual regression. Report the pass counts and do not disable VRT or change baselines for that failure.
+
 ## Coding Conventions
 
 - **Naming:** PascalCase for components, camelCase for variables/functions
