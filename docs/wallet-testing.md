@@ -1,3 +1,5 @@
+<!-- trunk-ignore-all(markdown-link-check) -->
+
 # Wallet-Connected Testing (local anvil fork)
 
 How to test connected-wallet flows (swap, approve, lock) in the local apps
@@ -37,7 +39,7 @@ runs against an anvil fork of Celo mainnet — no real network is ever touched.
    NEXT_PUBLIC_E2E_TEST=true NEXT_PUBLIC_USE_FORK=true pnpm exec turbo run dev --filter app.mento.org
    ```
 
-4. Open http://localhost:3000, click Connect — the modal shows only
+4. Open [http://localhost:3000](http://localhost:3000), click Connect — the modal shows only
    "E2E Test Wallet". Click it. You are connected as
    `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266` (anvil junk account 0).
 
@@ -93,7 +95,7 @@ Check a transaction receipt (hash from the app's success toast or anvil logs):
 cast receipt <TX_HASH> --rpc-url http://127.0.0.1:8545
 ```
 
-Browse blocks/txs visually with Otterscan (http://localhost:5100):
+Browse blocks/txs visually with Otterscan ([http://localhost:5100](http://localhost:5100)):
 
 ```bash
 pnpm blockexplorer:start   # docker; stop with pnpm blockexplorer:stop
