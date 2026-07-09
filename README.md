@@ -180,6 +180,18 @@ To build a specific application:
 pnpm build --filter <app-name>
 ```
 
+### Local Celo fork
+
+For wallet-gated testing against real Mento contracts, run a local anvil fork of Celo mainnet:
+
+```bash
+pnpm fork:mainnet  # anvil --celo --auto-impersonate --fork-url https://forno.celo.org --port 8545
+pnpm fork:seed     # fund anvil's junk accounts (CELO + cUSD/cEUR/USDC/MENTO) and re-report oracle prices
+pnpm fork:testnet  # same, forking Celo Sepolia instead
+```
+
+`--celo` requires [Foundry](https://book.getfoundry.sh/) >= 1.4 — without it, CELO's native/ERC-20 token duality breaks and `transfer()` silently no-ops. `fork:seed` is idempotent; re-run it after every `evm_revert` and whenever Broker quotes start reverting (SortedOracles reports go stale on a wall-clock timescale).
+
 ### Dependency Management with PNPM Catalog
 
 This monorepo uses [PNPM's catalog feature](https://pnpm.io/catalogs) to centralize dependency version management. This ensures all packages and apps use consistent versions of shared dependencies, reducing conflicts and simplifying updates.

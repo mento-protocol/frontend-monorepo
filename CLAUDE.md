@@ -42,6 +42,8 @@ pnpm check-types                     # TypeScript type checking
 trunk check --fix                     # Lint with autofix
 trunk fmt                             # Format
 pnpm test                            # Run tests
+pnpm fork:mainnet                    # Local anvil fork of Celo mainnet (--celo --auto-impersonate)
+pnpm fork:seed                       # Fund fork accounts + re-report oracle prices (idempotent)
 ```
 
 Always use `--filter` to avoid building/running everything unnecessarily.
