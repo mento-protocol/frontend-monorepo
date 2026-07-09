@@ -112,8 +112,11 @@ export function useApproveTransaction({
   const lastErrorKeyRef = useRef<string | null>(null);
   const lastErrorAtRef = useRef<number>(0);
   const onSuccessRef = useRef(onSuccess);
-  onSuccessRef.current = onSuccess;
   const onSuccessFiredForHashRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    onSuccessRef.current = onSuccess;
+  }, [onSuccess]);
 
   useEffect(() => {
     if (txPrepError || sendPrepError?.message) {
