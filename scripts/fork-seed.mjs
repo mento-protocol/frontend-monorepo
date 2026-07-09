@@ -360,14 +360,24 @@ async function fundTokens() {
         continue;
       }
 
-      await withImpersonation(token.whale, () =>
-        sendAndWait(
-          token.whale,
-          token.address,
-          encodeTransfer(recipient, target),
-        ),
-      );
-      ok(`${token.symbol} -> ${recipient}: funded to ${target}`);
+      try {
+        await withImpersonation(token.whale, () =>
+          sendAndWait(
+            token.whale,
+            token.address,
+            encodeTransfer(recipient, target),
+          ),
+        );
+        ok(`${token.symbol} -> ${recipient}: funded to ${target}`);
+      } catch (/** @type {unknown} */ error) {
+        // Same skip-with-warning policy as a dry whale: a per-recipient
+        // transfer failure (e.g. paused token, blocklisted whale) must not
+        // abort the run — oracle re-reporting below still needs to happen.
+        const message = error instanceof Error ? error.message : String(error);
+        warn(
+          `${token.symbol} -> ${recipient}: transfer from whale failed (${message}) — skipping`,
+        );
+      }
     }
   }
 }

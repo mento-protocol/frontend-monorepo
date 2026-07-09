@@ -186,8 +186,8 @@ For wallet-gated testing against real Mento contracts, run a local anvil fork of
 
 ```bash
 pnpm fork:mainnet  # anvil --celo --auto-impersonate --fork-url https://forno.celo.org --port 8545
-pnpm fork:seed     # fund anvil's junk accounts (CELO + cUSD/cEUR/USDC/MENTO) and re-report oracle prices
-pnpm fork:testnet  # same, forking Celo Sepolia instead
+pnpm fork:seed     # fund anvil's junk accounts (CELO + cUSD/cEUR/USDC/MENTO) and re-report oracle prices (mainnet forks only)
+pnpm fork:testnet  # same anvil flags, forking Celo Sepolia instead (fork:seed does not support testnet forks)
 ```
 
 `--celo` requires [Foundry](https://book.getfoundry.sh/) >= 1.4 — without it, CELO's native/ERC-20 token duality breaks and `transfer()` silently no-ops. `fork:seed` is idempotent; re-run it after every `evm_revert` and whenever Broker quotes start reverting (SortedOracles reports go stale on a wall-clock timescale).
