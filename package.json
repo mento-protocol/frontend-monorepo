@@ -43,7 +43,8 @@
     "prettier-plugin-tailwindcss": "^0.8.0",
     "turbo": "^2.10.0",
     "typescript": "catalog:",
-    "typescript-eslint": "catalog:"
+    "typescript-eslint": "catalog:",
+    "zod": "catalog:"
   },
   "packageManager": "pnpm@10.24.0",
   "engines": {
@@ -123,7 +124,14 @@
       "ws@>=7.0.0 <7.5.11": "7.5.11",
       "yaml@>=2.0.0 <2.8.3": ">=2.8.3",
       "yaml@<1.10.3": ">=1.10.3 <2",
-      "zod": "^4.3.5"
+      "zod": "^4.4.3"
+    },
+    "packageExtensions": {
+      "@hookform/resolvers@5.2.2": {
+        "peerDependencies": {
+          "zod": "^3.25.0 || ^4.0.0"
+        }
+      }
     }
   }
 }

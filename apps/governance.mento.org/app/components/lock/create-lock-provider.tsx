@@ -3,7 +3,7 @@ import { useCurrentChain } from "@/hooks/use-current-chain";
 import { toast } from "@repo/ui";
 import { LockingABI, useContracts } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
-import React, { ReactNode, createContext, useContext } from "react";
+import React, { ReactNode, createContext, useContext, useMemo } from "react";
 import { Address, parseEther } from "viem";
 import { useReadContract } from "@repo/web3/wagmi";
 
@@ -340,7 +340,7 @@ export const CreateLockProvider = ({
     currentChain.blockExplorers?.default?.url,
   ]);
 
-  const txMessage = React.useMemo(() => {
+  const txMessage = useMemo(() => {
     const isApprovalPhase =
       (approve.isAwaitingUserSignature || approve.isConfirming) &&
       !hasApprovedForCurrentLock;
@@ -357,9 +357,9 @@ export const CreateLockProvider = ({
       </div>
     );
   }, [
+    CreateLockTxStatus,
     approve.isAwaitingUserSignature,
     approve.isConfirming,
-    CreateLockTxStatus,
     hasApprovedForCurrentLock,
   ]);
 

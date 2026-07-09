@@ -1,4 +1,4 @@
-export type OpportunitySource = "earn" | "pools";
+type OpportunitySource = "earn" | "pools";
 
 export function resolveOpportunitySource(
   source: string | null | undefined,

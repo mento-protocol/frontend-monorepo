@@ -14,7 +14,7 @@ export interface FlowStepDefinition {
   buildTx: () => Promise<CallParams | null>;
 }
 
-export interface ExecuteFlowOptions {
+interface ExecuteFlowOptions {
   successHref?: string;
 }
 
