@@ -833,7 +833,7 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
   // ── Allowance & approval ────────────────────────────────────────────
 
-  const { skipApprove } = useSwapAllowance({
+  const { refetchAllowance, skipApprove } = useSwapAllowance({
     chainId: formChainId,
     tokenInSymbol: selectedTokenInSymbol,
     tokenOutSymbol: selectedTokenOutSymbol,
@@ -871,22 +871,34 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
           )}
         </>,
       );
-      setIsApprovalProcessing(false);
+      void (async () => {
+        try {
+          await refetchAllowance();
+        } catch (error) {
+          logger.error(
+            "Failed to refresh swap allowance after approval",
+            error,
+          );
+        } finally {
+          setIsApprovalProcessing(false);
 
-      const currentFormValues = form.getValues();
-      const formData: SwapFormValues = {
-        ...currentFormValues,
-        slippage: formValues?.slippage || currentFormValues.slippage || "0.3",
-        isAutoSlippage: formValues?.isAutoSlippage,
-        deadlineMinutes: formValues?.deadlineMinutes,
-        tokenInSymbol: selectedTokenInSymbol,
-        tokenOutSymbol: selectedTokenOutSymbol,
-        buyUSDValue,
-        sellUSDValue,
-      };
+          const currentFormValues = form.getValues();
+          const formData: SwapFormValues = {
+            ...currentFormValues,
+            slippage:
+              formValues?.slippage || currentFormValues.slippage || "0.3",
+            isAutoSlippage: formValues?.isAutoSlippage,
+            deadlineMinutes: formValues?.deadlineMinutes,
+            tokenInSymbol: selectedTokenInSymbol,
+            tokenOutSymbol: selectedTokenOutSymbol,
+            buyUSDValue,
+            sellUSDValue,
+          };
 
-      setFormValues(formData);
-      setConfirmView(true);
+          setFormValues(formData);
+          setConfirmView(true);
+        }
+      })();
     },
   });
 

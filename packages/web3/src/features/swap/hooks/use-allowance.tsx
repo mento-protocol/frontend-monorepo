@@ -42,7 +42,12 @@ export function useAppAllowance(
   tokenOutSymbol: TokenSymbol | undefined,
   address?: string,
 ) {
-  const { data: allowance, isLoading } = useQuery({
+  const {
+    data: allowance,
+    isLoading,
+    isFetching,
+    refetch,
+  } = useQuery({
     queryKey: [
       "tokenAllowance",
       chainId,
@@ -61,6 +66,7 @@ export function useAppAllowance(
 
   return {
     allowance: allowance || "0",
-    isLoading,
+    isLoading: isLoading || isFetching,
+    refetchAllowance: refetch,
   };
 }

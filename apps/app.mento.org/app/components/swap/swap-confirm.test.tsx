@@ -111,7 +111,7 @@ beforeEach(() => {
     isSwapTxReceiptLoading: false,
   });
   hooks.useSwapAllowance.mockReturnValue({
-    skipApprove: false,
+    skipApprove: true,
     isAllowanceLoading: false,
   });
   hooks.useGasEstimation.mockReturnValue({
@@ -176,5 +176,17 @@ describe("SwapConfirm chain threading", () => {
 
     const button = getByTestId("swapButton") as HTMLButtonElement;
     expect(button.disabled).toBe(false);
+  });
+
+  it("disables the Swap button while approval is not confirmed", () => {
+    hooks.useSwapAllowance.mockReturnValue({
+      skipApprove: false,
+      isAllowanceLoading: false,
+    });
+    hooks.useChainId.mockReturnValue(CELO);
+    const { getByTestId } = renderConfirm(CELO);
+
+    const button = getByTestId("swapButton") as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
   });
 });

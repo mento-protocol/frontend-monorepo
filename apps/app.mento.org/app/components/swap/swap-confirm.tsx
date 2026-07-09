@@ -141,7 +141,15 @@ export function SwapConfirm({ chainId }: { chainId: ChainId }) {
   }, [formValues?.buyUSDValue, tokenOutSymbol, quote, toTokenUSDValue]);
 
   async function onSubmit() {
-    if (!rate || !amountWei || !address || !isConnected || isWalletOnWrongChain)
+    if (
+      !rate ||
+      !amountWei ||
+      !address ||
+      !isConnected ||
+      isWalletOnWrongChain ||
+      isAllowanceLoading ||
+      !skipApprove
+    )
       return;
 
     try {
@@ -281,6 +289,7 @@ export function SwapConfirm({ chainId }: { chainId: ChainId }) {
           isSwapTxReceiptLoading ||
           isGasEstimating ||
           isAllowanceLoading ||
+          !skipApprove ||
           isWalletOnWrongChain ||
           isQuoteError ||
           hasInsufficientLiquidityError ||
@@ -306,6 +315,10 @@ export function SwapConfirm({ chainId }: { chainId: ChainId }) {
           )
         ) : hasInsufficientLiquidityError ? (
           SWAP_INSUFFICIENT_LIQUIDITY_LABEL
+        ) : isAllowanceLoading ? (
+          "Checking approval..."
+        ) : !skipApprove ? (
+          "Approval required"
         ) : (
           "Swap"
         )}
