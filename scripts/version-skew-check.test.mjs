@@ -724,6 +724,21 @@ test("fails when any OR selector arm can match the catalog", () => {
   );
 });
 
+test("fails when a selector matches any catalog OR arm", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog:\n  react: ^18.0.0 || ^19.0.0\n`,
+    {
+      "package.json": {
+        name: "root",
+        pnpm: { overrides: { "react@^19.0.0": "^18.0.0" } },
+      },
+      "app/package.json": { name: "app", dependencies: { react: "catalog:" } },
+    },
+  );
+  assert(exitCode !== 0, `expected non-zero exit, got ${exitCode}`);
+  assert(stderr.includes("pnpm.overrides.react@^19.0.0"), `stderr: ${stderr}`);
+});
+
 test("skips range-scoped overrides proven not to match the catalog", () => {
   const { exitCode, stdout } = run(
     `packages:\n  - app\n\ncatalog:\n  zod: ^4.4.3\n`,
@@ -812,6 +827,32 @@ test("fails when the TanStack override pair drifts", () => {
   );
   assert(exitCode !== 0, `expected non-zero exit, got ${exitCode}`);
   assert(stderr.includes("@tanstack/query-core"), `stderr: ${stderr}`);
+});
+
+test("fails when any TanStack query-core override drifts", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog:\n  "@tanstack/react-query": 5.90.16\n\noverrides:\n  "@tanstack/query-core": 5.90.19\n`,
+    {
+      "package.json": {
+        name: "root",
+        pnpm: {
+          overrides: {
+            "@tanstack/react-query": "5.90.16",
+            "@tanstack/query-core": "5.90.16",
+          },
+        },
+      },
+      "app/package.json": {
+        name: "app",
+        dependencies: { "@tanstack/react-query": "catalog:" },
+      },
+    },
+  );
+  assert(exitCode !== 0, `expected non-zero exit, got ${exitCode}`);
+  assert(
+    stderr.includes("pnpm-workspace.yaml overrides.@tanstack/query-core"),
+    `stderr: ${stderr}`,
+  );
 });
 
 test("accepts TanStack catalog-backed override pairs", () => {

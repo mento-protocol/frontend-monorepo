@@ -586,9 +586,14 @@ function selectorArmCanMatchCatalog(selector, catalogRange) {
  * @returns {boolean}
  */
 function selectorCanMatchCatalog(selector, catalogRange) {
+  const catalogArms = catalogRange.split("||").map((arm) => arm.trim());
   return selector
     .split("||")
-    .some((arm) => selectorArmCanMatchCatalog(arm.trim(), catalogRange));
+    .some((selectorArm) =>
+      catalogArms.some((catalogArm) =>
+        selectorArmCanMatchCatalog(selectorArm.trim(), catalogArm),
+      ),
+    );
 }
 
 const workspacePath = resolve(ROOT, "pnpm-workspace.yaml");
@@ -754,10 +759,10 @@ for (const entry of overrideEntries) {
 
 /**
  * @param {string} packageName
- * @returns {{ source: string; key: string; value: string } | undefined}
+ * @returns {{ source: string; key: string; value: string }[]}
  */
-function findUnconditionalOverride(packageName) {
-  return overrideEntries.find(
+function findUnconditionalOverrides(packageName) {
+  return overrideEntries.filter(
     (entry) => entry.name === packageName && entry.selector === null,
   );
 }
@@ -810,31 +815,38 @@ function normalizeOverrideValue(packageName, value) {
   return resolveOverrideValue(packageName, value);
 }
 
-const tanstackReactQueryOverride = findUnconditionalOverride(
+const tanstackReactQueryOverrides = findUnconditionalOverrides(
   "@tanstack/react-query",
 );
-const tanstackQueryCoreOverride = findUnconditionalOverride(
+const tanstackQueryCoreOverrides = findUnconditionalOverrides(
   "@tanstack/query-core",
 );
 
-if (tanstackReactQueryOverride || tanstackQueryCoreOverride) {
-  if (!tanstackReactQueryOverride || !tanstackQueryCoreOverride) {
+if (tanstackReactQueryOverrides.length || tanstackQueryCoreOverrides.length) {
+  if (
+    !tanstackReactQueryOverrides.length ||
+    !tanstackQueryCoreOverrides.length
+  ) {
     fail(
       "@tanstack/react-query and @tanstack/query-core overrides must be declared together so pnpm cannot force a mismatched TanStack Query pair",
     );
   } else {
-    const reactQueryValue = normalizeOverrideValue(
-      "@tanstack/react-query",
-      tanstackReactQueryOverride.value,
-    );
-    const queryCoreValue = normalizeOverrideValue(
-      "@tanstack/query-core",
-      tanstackQueryCoreOverride.value,
-    );
-    if (reactQueryValue !== queryCoreValue) {
-      fail(
-        `${tanstackReactQueryOverride.source}.${tanstackReactQueryOverride.key} (${tanstackReactQueryOverride.value}) must match ${tanstackQueryCoreOverride.source}.${tanstackQueryCoreOverride.key} (${tanstackQueryCoreOverride.value})`,
+    for (const reactQueryOverride of tanstackReactQueryOverrides) {
+      const reactQueryValue = normalizeOverrideValue(
+        "@tanstack/react-query",
+        reactQueryOverride.value,
       );
+      for (const queryCoreOverride of tanstackQueryCoreOverrides) {
+        const queryCoreValue = normalizeOverrideValue(
+          "@tanstack/query-core",
+          queryCoreOverride.value,
+        );
+        if (reactQueryValue !== queryCoreValue) {
+          fail(
+            `${reactQueryOverride.source}.${reactQueryOverride.key} (${reactQueryOverride.value}) must match ${queryCoreOverride.source}.${queryCoreOverride.key} (${queryCoreOverride.value})`,
+          );
+        }
+      }
     }
   }
 }
