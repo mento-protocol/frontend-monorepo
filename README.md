@@ -192,6 +192,8 @@ pnpm fork:testnet  # same anvil flags, forking Celo Sepolia instead (fork:seed d
 
 `--celo` requires [Foundry](https://book.getfoundry.sh/) >= 1.4 — without it, CELO's native/ERC-20 token duality breaks and `transfer()` silently no-ops. `fork:seed` is idempotent; re-run it after every `evm_revert` and whenever Broker quotes start reverting (SortedOracles reports go stale on a wall-clock timescale).
 
+Full runbook with localStorage activation, on-chain verification, safety rules, and troubleshooting: [docs/wallet-testing.md](docs/wallet-testing.md)
+
 ### Dependency Management with PNPM Catalog
 
 This monorepo uses [PNPM's catalog feature](https://pnpm.io/catalogs) to centralize dependency version management. This ensures all packages and apps use consistent versions of shared dependencies, reducing conflicts and simplifying updates.
