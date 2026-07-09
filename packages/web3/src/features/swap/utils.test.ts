@@ -7,6 +7,7 @@ import {
   invertExchangeRate,
   isValidTokenPair,
   parseInputExchangeAmount,
+  parseSlippage,
 } from "./utils";
 
 type TokenArg = Parameters<typeof isValidTokenPair>[2];
@@ -116,23 +117,44 @@ describe("formatWithMaxDecimals", () => {
     expect(formatWithMaxDecimals("abc")).toBe("0");
   });
 
-  // test.fails: documents the current float bug — flips to a normal test when "fix(web3): float math in max-balance & trading-limit paths + NaN slippage guard" lands.
-  it.fails(
-    "preserves >15-significant-digit integers (currently loses precision)",
-    () => {
-      expect(formatWithMaxDecimals("999999999999999999")).toBe(
-        "999,999,999,999,999,999",
-      );
-    },
-  );
+  it("preserves >15-significant-digit integers without precision loss", () => {
+    expect(formatWithMaxDecimals("999999999999999999")).toBe(
+      "999,999,999,999,999,999",
+    );
+  });
 
-  // test.fails: documents the current float bug — flips to a normal test when "fix(web3): float math in max-balance & trading-limit paths + NaN slippage guard" lands.
-  it.fails(
-    "does not round 4.35 down to 4.34 via Math.floor float error",
-    () => {
-      expect(formatWithMaxDecimals("4.35", 2)).toBe("4.35");
-    },
-  );
+  it("does not round 4.35 down to 4.34", () => {
+    expect(formatWithMaxDecimals("4.35", 2)).toBe("4.35");
+  });
+
+  it("preserves a high-precision decimal without separators", () => {
+    expect(formatWithMaxDecimals("123456789012345678.1234", 4, false)).toBe(
+      "123456789012345678.1234",
+    );
+  });
+});
+
+describe("parseSlippage", () => {
+  const fallbackCases: Array<{ name: string; input: string | undefined }> = [
+    { name: "non-numeric", input: "garbage" },
+    { name: "empty string", input: "" },
+    { name: "undefined", input: undefined },
+    { name: "negative", input: "-1" },
+    { name: "zero", input: "0" },
+    { name: "above the max", input: "25" },
+  ];
+
+  it.each(fallbackCases)("returns the default 0.3 for $name", ({ input }) => {
+    expect(parseSlippage(input)).toBe(0.3);
+  });
+
+  it("returns a valid in-range value", () => {
+    expect(parseSlippage("0.5")).toBe(0.5);
+  });
+
+  it("accepts the max boundary value", () => {
+    expect(parseSlippage("20")).toBe(20);
+  });
 });
 
 describe("formatBalance", () => {
