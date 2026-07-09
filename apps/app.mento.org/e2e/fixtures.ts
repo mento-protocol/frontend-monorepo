@@ -51,6 +51,73 @@ async function blockNetwork(page: Page): Promise<void> {
   });
 }
 
+// Connected-wallet specs need real backend behavior (RPC calls, tx-receipt
+// polling, react-query retries) so they can't freeze time or block localhost.
+// Modeled on blockNetwork above (same CDN-placeholder + localhost passthrough
+// logic), with one addition: fulfill /api/sanctions with the route's clean-check
+// success shape (see app/api/sanctions/route.ts + app/hooks/use-sanctions-check.ts)
+// so the sanctions gate doesn't fail closed without a CHAINALYSIS_API_KEY.
+async function connectedNetworkPolicy(page: Page): Promise<void> {
+  const isCdnHost = (h: string): boolean =>
+    h.endsWith(".public.blob.vercel-storage.com");
+  const placeholder = () =>
+    ({ status: 200, contentType: "image/png", body: PLACEHOLDER_PNG }) as const;
+
+  await page.route("**/*", (route) => {
+    const url = new URL(route.request().url());
+    const { hostname, pathname } = url;
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      // Fulfill the sanctions check before the generic /api/* abort below —
+      // Playwright uses the most recently registered matching handler, so this
+      // branch must run first, not as a second competing page.route() call.
+      if (pathname.startsWith("/api/sanctions")) {
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ isSanctioned: false }),
+        });
+      }
+      if (pathname.startsWith("/api/")) {
+        return route.abort();
+      }
+      if (pathname === "/_next/image") {
+        const target = url.searchParams.get("url") ?? "";
+        const targetHost = URL.canParse(target) ? new URL(target).hostname : "";
+        if (isCdnHost(targetHost)) {
+          return route.fulfill(placeholder());
+        }
+      }
+      // Anvil's RPC (127.0.0.1:8545, path "/") and the mock connector's
+      // forwarded eth_sendTransaction calls pass through here unaffected.
+      return route.continue();
+    }
+    if (isCdnHost(hostname)) {
+      return route.fulfill(placeholder());
+    }
+    return route.abort();
+  });
+}
+
+export const connectedTest = base.extend<{ page: Page }>({
+  // Playwright's fixture-provider callback's 2nd param is conventionally named
+  // `use`, but that collides with React's built-in `use` hook and trips
+  // eslint-plugin-react-hooks's rules-of-hooks on this non-component
+  // function — renamed to `runTest` to avoid the false positive.
+  page: async ({ page }, runTest) => {
+    await connectedNetworkPolicy(page);
+    await page.addInitScript(() => {
+      try {
+        window.localStorage.setItem("mento_e2e_wallet", "true");
+        window.localStorage.setItem("mento_e2e_eager_connect", "true");
+        window.localStorage.setItem("mento_use_fork", "true");
+      } catch {
+        /* localStorage may be unavailable before navigation */
+      }
+    });
+    await runTest(page);
+  },
+});
+
 async function arm(page: Page, theme: Theme): Promise<void> {
   await blockNetwork(page);
   await page.clock.setFixedTime(FROZEN_TIME);

@@ -28,8 +28,23 @@ export default defineConfig({
   reporter,
   use: { baseURL: `http://localhost:${PORT}`, deviceScaleFactor: 1 },
   projects: [
-    { name: "desktop", use: { viewport: { width: 1280, height: 900 } } },
-    { name: "mobile", use: { viewport: { width: 375, height: 812 } } },
+    {
+      name: "desktop",
+      testIgnore: /connected\//,
+      use: { viewport: { width: 1280, height: 900 } },
+    },
+    {
+      name: "mobile",
+      testIgnore: /connected\//,
+      use: { viewport: { width: 375, height: 812 } },
+    },
+    {
+      name: "connected",
+      testMatch: /connected\/.*\.spec\.ts/,
+      fullyParallel: false,
+      timeout: 120_000,
+      use: { viewport: { width: 1280, height: 900 } },
+    },
   ],
   webServer: {
     command: `next start -p ${PORT}`,
