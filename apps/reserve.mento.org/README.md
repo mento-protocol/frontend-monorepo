@@ -31,6 +31,17 @@ Open [http://localhost:3001](http://localhost:3001) with your browser to see the
 pnpm build
 ```
 
+## Token Assets
+
+Reserve token icons are served from this app's own `public/` directory. The
+Reserve tabs render data-driven `/tokens/${symbol}.svg` paths, so adding an
+icon under another app's `public/tokens` directory does not make it available
+here.
+
+When the analytics API starts returning a new token symbol, add the matching
+SVG under `apps/reserve.mento.org/public/tokens/` and browser-check the affected
+Reserve tab plus the network log for image 404s.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the [Next.js Documentation](https://nextjs.org/docs).
