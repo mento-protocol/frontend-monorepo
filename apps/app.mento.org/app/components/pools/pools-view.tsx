@@ -2,7 +2,6 @@
 
 import { useMemo, useCallback, useEffect, memo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Image from "next/image";
 import { Search, Star, Droplets, RefreshCw, AlertTriangle } from "lucide-react";
 import { Button, Input, cn, useDebounce } from "@repo/ui";
 import {
@@ -18,6 +17,7 @@ import {
   type PoolDisplay,
 } from "@repo/web3";
 import { useAccount, useReadContracts } from "@repo/web3/wagmi";
+import { ChainIcon } from "../shared/chain-icon";
 import { erc20Abi, type Address } from "viem";
 import { PoolsTable } from "./pools-table";
 import { LiquidityFlowDialog } from "./liquidity-flow-dialog";
@@ -415,26 +415,6 @@ const PoolsSearchInput = memo(function PoolsSearchInput({
     </div>
   );
 });
-
-function ChainIcon({ chainId }: { chainId: ChainId }) {
-  const chain = chainIdToChain[chainId];
-  const iconUrl = (chain as unknown as Record<string, unknown>)?.iconUrl as
-    | string
-    | undefined;
-
-  if (!iconUrl) return null;
-
-  return (
-    <Image
-      src={iconUrl}
-      alt={chain?.name ?? ""}
-      width={16}
-      height={16}
-      className="h-4 w-4 rounded-full"
-      unoptimized
-    />
-  );
-}
 
 function PoolsErrorState({ onRetry }: { onRetry: () => void }) {
   return (

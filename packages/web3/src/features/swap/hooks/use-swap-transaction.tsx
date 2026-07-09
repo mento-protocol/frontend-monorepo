@@ -24,7 +24,7 @@ import {
 import { getSwapTransactionErrorMessage } from "./swap-transaction-error";
 import { confirmViewAtom, formValuesAtom } from "../swap-atoms";
 
-function parseDeadlineMinutes(deadlineMinutes?: string): number {
+export function parseDeadlineMinutes(deadlineMinutes?: string): number {
   const parsed = Number.parseInt(deadlineMinutes ?? "", 10);
 
   if (!Number.isFinite(parsed) || parsed <= 0) {

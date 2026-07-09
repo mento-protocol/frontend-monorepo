@@ -1,4 +1,5 @@
 import type { ChainId } from "@/config/chains";
+import { isUserRejection } from "@/utils/is-user-rejection";
 
 export type PoolFilterType = "all" | "positions";
 export type ChainFilterType = "all" | ChainId;
@@ -87,11 +88,7 @@ export function getTransactionErrorMessage(
   fallback = "Unable to complete transaction.",
   actionLabel?: string,
 ): string {
-  if (
-    /user\s+rejected/i.test(rawMessage) ||
-    /denied\s+transaction/i.test(rawMessage) ||
-    /request\s+rejected/i.test(rawMessage)
-  ) {
+  if (isUserRejection(rawMessage)) {
     return actionLabel ? `${actionLabel} rejected.` : "Transaction rejected.";
   }
   if (/insufficient/i.test(rawMessage)) {
