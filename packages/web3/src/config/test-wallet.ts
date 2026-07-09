@@ -2,8 +2,8 @@ import type { Wallet } from "@rainbow-me/rainbowkit";
 import { createConnector } from "wagmi";
 import { mock } from "wagmi/connectors";
 
-/** Exact string doubles as the prod-bundle leak marker checked in CI. */
-export const E2E_TEST_WALLET_ID = "mento-e2e-mock";
+/** Exact string doubles as the prod-bundle leak marker checked in CI (#444). */
+const E2E_TEST_WALLET_ID = "mento-e2e-mock";
 
 const E2E_EAGER_CONNECT_STORAGE_KEY = "mento_e2e_eager_connect";
 

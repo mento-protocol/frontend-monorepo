@@ -2,7 +2,7 @@ type StorageLike = Pick<Storage, "getItem">;
 
 const E2E_WALLET_STORAGE_KEY = "mento_e2e_wallet";
 
-export function isE2eHostname(hostname: string | undefined): boolean {
+function isE2eHostname(hostname: string | undefined): boolean {
   if (!hostname) return false;
   const normalized = hostname.toLowerCase();
   return normalized === "localhost" || normalized === "127.0.0.1";
