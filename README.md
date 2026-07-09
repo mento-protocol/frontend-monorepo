@@ -60,13 +60,20 @@ frontend-monorepo/
    pnpm install
    ```
 
-3. Build all packages:
+3. Configure environment variables for each app you plan to build or run:
+
+   ```bash
+   cd apps/<app-name>
+   cp .env.example .env.local
+   ```
+
+4. Build all packages:
 
    ```bash
    pnpm build
    ```
 
-4. Start the development server for all applications:
+5. Start the development server for all applications:
 
    ```bash
    pnpm dev
@@ -81,7 +88,7 @@ Each app has its own `.env.example` listing the variables it needs:
 - `apps/reserve.mento.org/.env.example`
 - `apps/ui.mento.org/.env.example`
 
-For each app you run locally, copy its example file and fill in the values:
+For each app you run locally, copy its example file to `.env.local` and fill in the values before building or starting dev:
 
 ```bash
 cd apps/<app-name>

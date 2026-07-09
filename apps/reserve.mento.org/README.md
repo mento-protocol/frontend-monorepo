@@ -4,11 +4,11 @@ Reserve dashboard for the Mento Protocol, showing reserve holdings and compositi
 
 ## Getting Started
 
-First, create a local `.env` and fill in all values:
+First, create a local `.env.local` and fill in all values:
 
 ```sh
-cp .env.example .env
-vim .env # or your editor of choice
+cp .env.example .env.local
+vim .env.local # or your editor of choice
 ```
 
 The example file lists the storage URL, analytics API URL, and Sentry DSN/auth token used by this app — find the real values in the Vercel project settings.

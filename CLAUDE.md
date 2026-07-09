@@ -94,4 +94,4 @@ The audit covers three codebases:
 
 The SDK repo is external at `../mento-sdk` — agents auditing it should read but NOT modify files there unless explicitly told to.
 
-Verify ../mento-sdk is current (git -C ../mento-sdk pull) before auditing; it has been observed years stale.
+Before auditing `../mento-sdk`, check whether it is current. If it is stale, report that to the user; do not pull or otherwise mutate the SDK checkout unless explicitly told to.

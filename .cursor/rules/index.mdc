@@ -8,14 +8,14 @@ alwaysApply: true
 
 - Always check if the app you need is already running on localhost:[3000-3005]
   - The Governance App is usually running on localhost:3002
-- Run apps via `turbo dev --filter <app-name-as-defined-in-package-json>`, but only do so after you confirmed there's no existing local server running ont that port
-- Use turbo's `--filter` flag whenever possible to avoid wasting resources. I.e., when asked to make changes in the reserve.mento.org app, run `turbo dev --filter reserve.mento.org` (and NOT `turbo dev` which would start every server for every project)
+- Run apps via `pnpm exec turbo run dev --filter <app-name-as-defined-in-package-json>`, but only do so after you confirmed there's no existing local server running on that port
+- Use turbo's `--filter` flag whenever possible to avoid wasting resources. I.e., when asked to make changes in the reserve.mento.org app, run `pnpm exec turbo run dev --filter reserve.mento.org` (and NOT `pnpm dev` which would start every server for every project)
 
 ## After making changes
 
 Always test your changes by doing at least the following:
 
-- Run `turbo check-types` to confirm the TypeScript build still works
+- Run `pnpm exec turbo run check-types --filter <app-name-or-package>` to confirm the TypeScript build still works
 - Run `trunk check --fix` to confirm our linters are still passing
 - Confirm your changes actually work by checking the edited page on localhost (you can get the right port from looking at the respective "dev" script in package.json, i.e. when developing app.mento.org you'd check the "dev" script in `./apps/app.mento.org/package.json` for the port etc.)
 
