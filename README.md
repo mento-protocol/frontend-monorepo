@@ -90,8 +90,8 @@ cp .env.example .env.local
 
 Most values are public config and safe to copy as-is. A few require secrets from a teammate or the Vercel project settings:
 
-- `app.mento.org` needs `NEXT_PUBLIC_STORAGE_URL` and `CHAINALYSIS_API_KEY`
-- `governance.mento.org` needs `NEXT_PUBLIC_GRAPH_API_KEY` and `ETHERSCAN_API_KEY`
+- `app.mento.org` needs `NEXT_PUBLIC_STORAGE_URL`, `NEXT_PUBLIC_WALLET_CONNECT_ID`, and `CHAINALYSIS_API_KEY`
+- `governance.mento.org` needs `NEXT_PUBLIC_WALLET_CONNECT_ID`, `NEXT_PUBLIC_GRAPH_API_KEY`, and `ETHERSCAN_API_KEY`
 - `reserve.mento.org` needs `NEXT_PUBLIC_STORAGE_URL` and `NEXT_PUBLIC_ANALYTICS_API_URL`
 - `ui.mento.org` needs `NEXT_PUBLIC_STORAGE_URL` for showcase static assets
 
