@@ -11,7 +11,11 @@ export interface ContractInfo {
 // knip ignore because it doesn't understand the implicit need of the PatternManagerImpl of this interface
 /** @public */
 export interface PatternFunction {
-  (contract: ContractInfo, args: DecodedArg[], value: string | number): string;
+  (
+    contract: ContractInfo,
+    args: DecodedArg[],
+    value: string | number,
+  ): string | null;
 }
 
 export type PatternRegistry = Record<string, PatternFunction>;

@@ -80,15 +80,19 @@ async function translateDecodedTransaction(
     const pattern = patternManager.getPattern(decoded.functionSignature);
     if (pattern) {
       const contractInfo = { address: transaction.address };
-      const description = pattern(
+      const patternDescription = pattern(
         contractInfo,
         decoded.args || [],
         transaction.value,
       );
-      return {
-        description,
-        confidence: "high",
-      };
+      if (patternDescription !== null) {
+        return {
+          description: patternDescription,
+          confidence: "high",
+        };
+      }
+      // Pattern couldn't match the decoded args' shape - fall through to
+      // the generic ABI-based description below.
     }
 
     // Use provided contract name, or fall back to local registry, or formatted address

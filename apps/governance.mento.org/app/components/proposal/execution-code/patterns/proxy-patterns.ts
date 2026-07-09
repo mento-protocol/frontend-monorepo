@@ -9,8 +9,9 @@ export const proxyPatterns: PatternRegistry = {
   "changeProxyAdmin(address,address)": createPattern(
     (contract, args) => {
       const [proxy, newAdmin] = args;
-      const proxyName = getAddressNameFromCache(String(proxy!.value));
-      const adminName = getAddressNameFromCache(String(newAdmin!.value));
+      if (proxy === undefined || newAdmin === undefined) return null;
+      const proxyName = getAddressNameFromCache(String(proxy.value));
+      const adminName = getAddressNameFromCache(String(newAdmin.value));
       return `Change proxy admin for ${proxyName} to ${adminName}`;
     },
     2,
@@ -20,8 +21,9 @@ export const proxyPatterns: PatternRegistry = {
   "upgrade(address,address)": createPattern(
     (contract, args) => {
       const [proxy, implementation] = args;
-      const proxyName = getAddressNameFromCache(String(proxy!.value));
-      const implName = getAddressNameFromCache(String(implementation!.value));
+      if (proxy === undefined || implementation === undefined) return null;
+      const proxyName = getAddressNameFromCache(String(proxy.value));
+      const implName = getAddressNameFromCache(String(implementation.value));
       return `Upgrade ${proxyName} to implementation ${implName}`;
     },
     2,
@@ -31,8 +33,9 @@ export const proxyPatterns: PatternRegistry = {
   "upgradeAndCall(address,address,bytes)": createPattern(
     (contract, args) => {
       const [proxy, implementation] = args;
-      const proxyName = getAddressNameFromCache(String(proxy!.value));
-      const implName = getAddressNameFromCache(String(implementation!.value));
+      if (proxy === undefined || implementation === undefined) return null;
+      const proxyName = getAddressNameFromCache(String(proxy.value));
+      const implName = getAddressNameFromCache(String(implementation.value));
       return `Upgrade ${proxyName} to implementation ${implName} and execute initialization`;
     },
     3,
@@ -42,6 +45,7 @@ export const proxyPatterns: PatternRegistry = {
   "_setImplementation(address)": createPattern(
     (contract, args) => {
       const [implementation] = args;
+      if (implementation === undefined) return null;
       const contractInfo = getContractInfo(contract.address);
       const contractName =
         contractInfo?.friendlyName ||
@@ -49,7 +53,7 @@ export const proxyPatterns: PatternRegistry = {
         getAddressNameFromCache(contract.address);
       // Include the implementation address in the description so AddressParser can make it a link
       // The address will be resolved to its friendly name (if available) and become clickable
-      const implAddress = String(implementation!.value);
+      const implAddress = String(implementation.value);
       return `Set implementation for ${contractName} to ${implAddress}`;
     },
     1,

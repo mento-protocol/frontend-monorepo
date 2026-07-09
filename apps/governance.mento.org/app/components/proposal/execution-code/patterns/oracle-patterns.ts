@@ -9,12 +9,13 @@ export const oraclePatterns: PatternRegistry = {
   "addOracle(address,address)": createPattern(
     (contract, args) => {
       const [token, oracle] = args;
+      if (token === undefined || oracle === undefined) return null;
       // Use context-aware resolution: when contract is SortedOracles, prioritize rateFeeds
       const rateFeedName = addressResolverService.resolveFromCacheWithContext(
-        String(token!.value),
+        String(token.value),
         contract.address, // Pass contract address as context
       ).name;
-      const oracleAddress = String(oracle!.value);
+      const oracleAddress = String(oracle.value);
       const oracleDisplay = getAddressNameFromCache(oracleAddress);
       return `Add ${oracleDisplay} as price oracle for the ${rateFeedName}`;
     },
@@ -25,12 +26,13 @@ export const oraclePatterns: PatternRegistry = {
   "removeOracle(address,address,uint256)": createPattern(
     (contract, args) => {
       const [token, oracle] = args;
+      if (token === undefined || oracle === undefined) return null;
       // Use context-aware resolution: when contract is SortedOracles, prioritize rateFeeds
       const rateFeedName = addressResolverService.resolveFromCacheWithContext(
-        String(token!.value),
+        String(token.value),
         contract.address, // Pass contract address as context
       ).name;
-      const oracleAddress = String(oracle!.value);
+      const oracleAddress = String(oracle.value);
       const oracleDisplay = getAddressNameFromCache(oracleAddress);
       return `Remove ${oracleDisplay} as price oracle for the ${rateFeedName}`;
     },
