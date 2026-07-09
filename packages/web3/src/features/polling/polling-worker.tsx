@@ -2,7 +2,7 @@
 
 import { latestBlockAtom } from "@/features/blocks/block-atoms";
 import type { BlockStub } from "@/features/blocks/types";
-import { getProvider } from "@/features/providers";
+import { getPublicClient } from "@/features/sdk";
 import { logger } from "@/utils/logger";
 import { useInterval } from "@/utils/timeout";
 import { useQueryClient } from "@tanstack/react-query";
@@ -25,15 +25,15 @@ export function PollingWorker() {
 
     logger.debug("Polling for latest block and balances");
     try {
-      const provider = getProvider(chainId);
-      const latest = await provider.getBlock("latest");
+      const publicClient = getPublicClient(chainId);
+      const latest = await publicClient.getBlock();
       if (latest) {
         const blockStub: BlockStub = {
-          hash: latest.hash,
+          hash: latest.hash ?? "",
           parentHash: latest.parentHash,
-          number: latest.number,
-          timestamp: latest.timestamp,
-          nonce: latest.nonce,
+          number: Number(latest.number),
+          timestamp: Number(latest.timestamp),
+          nonce: latest.nonce ?? "0x",
         };
         setLatestBlock(blockStub);
       } else {
