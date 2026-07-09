@@ -2,7 +2,7 @@ import type { Config } from "wagmi";
 import { getPublicClient } from "wagmi/actions";
 import { ChainId } from "@/config/chains";
 
-export type TransactionFeeOverrides = {
+type TransactionFeeOverrides = {
   maxFeePerGas?: bigint;
   maxPriorityFeePerGas?: bigint;
 };

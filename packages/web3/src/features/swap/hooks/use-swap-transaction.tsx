@@ -6,7 +6,7 @@ import {
   isInsufficientLiquidityError,
   SWAP_INSUFFICIENT_LIQUIDITY_LABEL,
 } from "@/features/swap/error-handlers";
-import { formatWithMaxDecimals } from "@/features/swap/utils";
+import { formatWithMaxDecimals, parseSlippage } from "@/features/swap/utils";
 import { validateAddress } from "@/utils/addresses";
 import { logger } from "@/utils/logger";
 import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
@@ -24,7 +24,7 @@ import {
 import { getSwapTransactionErrorMessage } from "./swap-transaction-error";
 import { confirmViewAtom, formValuesAtom } from "../swap-atoms";
 
-function parseDeadlineMinutes(deadlineMinutes?: string): number {
+export function parseDeadlineMinutes(deadlineMinutes?: string): number {
   const parsed = Number.parseInt(deadlineMinutes ?? "", 10);
 
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -113,7 +113,7 @@ export function useSwapTransaction(
         BigInt(amountInWei),
         accountAddress,
         {
-          slippageTolerance: parseFloat(formValues?.slippage || "0.3"),
+          slippageTolerance: parseSlippage(formValues?.slippage),
           deadline,
         },
         route,
@@ -152,6 +152,7 @@ export function useSwapTransaction(
       }
 
       const txHash = await sendTransactionAsync({
+        chainId,
         to: swapDetails.params.to as Address,
         data: swapDetails.params.data as `0x${string}`,
         value: BigInt(swapDetails.params.value || 0),

@@ -16,7 +16,7 @@
     "fork:testnet": "anvil --fork-url https://forno.celo-sepolia.celo-testnet.org --port 8545",
     "format": "npx @trunkio/launcher fmt",
     "format:check": "npx @trunkio/launcher check --filter=prettier",
-    "health": "sh ./scripts/healthcheck.sh",
+    "health": "bash ./scripts/healthcheck.sh",
     "knip": "knip",
     "lint": "npx @trunkio/launcher check",
     "lint:fix": "npx @trunkio/launcher check --fix",
@@ -28,45 +28,25 @@
     "test": "turbo run test",
     "test:coverage": "turbo run test:coverage"
   },
-  "resolutions": {
-    "brace-expansion": "2.0.3",
-    "esbuild": "0.28.1"
-  },
   "devDependencies": {
     "@eslint/js": "catalog:",
     "@repo/eslint-config": "workspace:*",
     "@types/node": "catalog:",
     "eslint": "catalog:",
     "eslint-config-prettier": "catalog:",
-    "knip": "^5.82.1",
-    "prettier": "^3.8.0",
-    "prettier-plugin-tailwindcss": "^0.7.2",
-    "turbo": "^2.9.14",
+    "knip": "^6.16.1",
+    "prettier": "^3.9.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "turbo": "^2.10.0",
     "typescript": "catalog:",
-    "typescript-eslint": "catalog:"
+    "typescript-eslint": "catalog:",
+    "zod": "catalog:"
   },
   "packageManager": "pnpm@10.24.0",
   "engines": {
     "node": ">=22"
   },
   "pnpm": {
-    "onlyBuiltDependencies": [
-      "@parcel/watcher",
-      "@sentry/cli",
-      "@tailwindcss/oxide",
-      "bufferutil",
-      "core-js",
-      "core-js-pure",
-      "es5-ext",
-      "esbuild",
-      "keccak",
-      "secp256k1",
-      "sharp",
-      "utf-8-validate",
-      "web3",
-      "web3-bzz",
-      "web3-shh"
-    ],
     "overrides": {
       "@babel/core@<7.29.6": ">=7.29.6 <8",
       "@eslint/plugin-kit@<0.3.4": ">=0.3.4",
@@ -104,7 +84,7 @@
       "markdown-it@<14.2.0": ">=14.2.0",
       "mdast-util-to-hast": "^13.2.1",
       "minimatch@>=10.0.0 <10.2.4": ">=10.2.4",
-      "next": "^15.5.18",
+      "next": "^15.5.19",
       "picomatch": "4.0.4",
       "postcss@<8.5.10": ">=8.5.10",
       "preact": ">=10.28.2",
@@ -123,7 +103,14 @@
       "ws@>=7.0.0 <7.5.11": "7.5.11",
       "yaml@>=2.0.0 <2.8.3": ">=2.8.3",
       "yaml@<1.10.3": ">=1.10.3 <2",
-      "zod": "^4.3.5"
+      "zod": "^4.4.3"
+    },
+    "packageExtensions": {
+      "@hookform/resolvers@5.2.2": {
+        "peerDependencies": {
+          "zod": "^3.25.0 || ^4.0.0"
+        }
+      }
     }
   }
 }

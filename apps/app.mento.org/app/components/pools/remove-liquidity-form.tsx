@@ -24,6 +24,7 @@ import {
   showLiquiditySuccessToast,
   type LiquidityFlowStepDefinition,
   getPoolDisplayOrder,
+  isUserRejection,
 } from "@repo/web3";
 import {
   useAccount,
@@ -459,7 +460,7 @@ export function RemoveLiquidityForm({
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (!/user\s+rejected/i.test(msg) && !/denied/i.test(msg)) {
+      if (!isUserRejection(err)) {
         if (
           /no viable zap-out route|no route for this amount|route unavailable|unable to quote single-token|no single-token route/i.test(
             msg,

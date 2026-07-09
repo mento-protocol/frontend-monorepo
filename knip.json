@@ -1,11 +1,12 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "ignoreBinaries": ["anvil"],
+  "ignoreWorkspaces": ["packages/typescript-config"],
   "ignore": [
-    ".claude/worktrees/**",
     ".trunk/**",
     "apps/governance.mento.org/app/graphql/**/generated/**",
-    "commitlint.config.mjs"
+    "commitlint.config.mjs",
+    "scripts/security-headers.d.mts"
   ],
   "workspaces": {
     "apps/*": {
@@ -14,11 +15,9 @@
     "apps/app.mento.org": {
       "entry": ["e2e/**/*.spec.ts"],
       "project": "{app,e2e}/**/*.{mjs,tsx,ts}",
-      "ignoreBinaries": ["playwright"],
       "ignoreDependencies": ["pino-pretty", "tailwindcss"]
     },
     "apps/governance.mento.org": {
-      "entry": ["app/middleware.ts"],
       "ignoreDependencies": ["pino-pretty"]
     },
     "apps/reserve.mento.org": {},
@@ -41,11 +40,6 @@
     "packages/vitest-config": {
       "entry": "*.js",
       "project": "**/*.js"
-    },
-    "packages/typescript-config": {
-      "entry": "*.json",
-      "project": "**/*.json",
-      "ignoreDependencies": ["next"]
     }
   }
 }

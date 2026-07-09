@@ -22,6 +22,5 @@ export const MIN_ROUNDED_VALUE = 0.0001;
 export const DISPLAY_DECIMALS = 4;
 export const MAX_EXCHANGE_SPREAD = 0.1; // 10%
 
-export const ERC20_ABI = [
-  "function allowance(address owner, address spender) view returns (uint256)",
-];
+export const DEFAULT_SLIPPAGE_PERCENT = 0.3;
+export const MAX_SLIPPAGE_PERCENT = 20;

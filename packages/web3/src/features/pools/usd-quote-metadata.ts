@@ -50,7 +50,7 @@ type PoolUsdPricingSdk = {
   };
 };
 
-export type PoolUsdPricingContext = {
+type PoolUsdPricingContext = {
   sdk: PoolUsdPricingSdk;
   chainId: ChainId;
   eurToUsdPricePromise?: Promise<number | null>;

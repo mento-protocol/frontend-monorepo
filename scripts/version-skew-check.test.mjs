@@ -587,5 +587,337 @@ test("fails closed on a quoted named-catalogs header", () => {
   assert(stderr.includes("catalogs"), `stderr: ${stderr}`);
 });
 
+// pnpm.overrides rewrites catalog: references too — an unconditional override
+// that disagrees with the catalog must fail loudly. This reproduces the real
+// zod incident: catalog bumped to ^4.4.3, override left behind at ^4.3.5.
+test("fails when an unconditional override conflicts with the catalog", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog:\n  zod: ^4.4.3\n`,
+    {
+      "package.json": {
+        name: "root",
+        pnpm: { overrides: { zod: "^4.3.5" } },
+      },
+      "app/package.json": { name: "app", dependencies: { zod: "catalog:" } },
+    },
+  );
+  assert(exitCode !== 0, `expected non-zero exit, got ${exitCode}`);
+  assert(stderr.includes("pnpm.overrides.zod"), `stderr: ${stderr}`);
+});
+
+test("passes when an override matches the catalog exactly", () => {
+  const { exitCode, stdout } = run(
+    `packages:\n  - app\n\ncatalog:\n  zod: ^4.4.3\n`,
+    {
+      "package.json": {
+        name: "root",
+        pnpm: { overrides: { zod: "^4.4.3" } },
+      },
+      "app/package.json": { name: "app", dependencies: { zod: "catalog:" } },
+    },
+  );
+  assert(exitCode === 0, `expected exit 0, got ${exitCode}\n${stdout}`);
+});
+
+test("fails when a workspace override conflicts with the catalog", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog:\n  zod: ^4.4.3\n\noverrides:\n  zod: ^4.3.5\n`,
+    {
+      "package.json": { name: "root" },
+      "app/package.json": { name: "app", dependencies: { zod: "catalog:" } },
+    },
+  );
+  assert(exitCode !== 0, `expected non-zero exit, got ${exitCode}`);
+  assert(
+    stderr.includes("pnpm-workspace.yaml overrides.zod"),
+    `stderr: ${stderr}`,
+  );
+});
+
+test("accepts catalog-backed override values as aligned", () => {
+  const { exitCode, stdout } = run(
+    `packages:\n  - app\n\ncatalog:\n  zod: ^4.4.3\n\noverrides: { zod: "catalog:" }\n`,
+    {
+      "package.json": { name: "root" },
+      "app/package.json": { name: "app", dependencies: { zod: "catalog:" } },
+    },
+  );
+  assert(exitCode === 0, `expected exit 0, got ${exitCode}\n${stdout}`);
+});
+
+// A range-scoped key (`viem@<2.0.0`) self-expires and is not the same thing
+// as an unconditional pin — it must be skipped even though `viem` is cataloged.
+test("skips a range-scoped override key targeting a cataloged package", () => {
+  const { exitCode, stdout } = run(
+    `packages:\n  - app\n\ncatalog:\n  viem: ^2.52.2\n`,
+    {
+      "package.json": {
+        name: "root",
+        pnpm: { overrides: { "viem@<2.0.0": ">=2.0.0" } },
+      },
+      "app/package.json": { name: "app", dependencies: { viem: "catalog:" } },
+    },
+  );
+  assert(exitCode === 0, `expected exit 0, got ${exitCode}\n${stdout}`);
+});
+
+test("fails when a matching range-scoped override conflicts with the catalog", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog:\n  zod: ^4.4.3\n`,
+    {
+      "package.json": {
+        name: "root",
+        pnpm: { overrides: { "zod@^4.4.3": "^4.3.5" } },
+      },
+      "app/package.json": { name: "app", dependencies: { zod: "catalog:" } },
+    },
+  );
+  assert(exitCode !== 0, `expected non-zero exit, got ${exitCode}`);
+  assert(stderr.includes("pnpm.overrides.zod@^4.4.3"), `stderr: ${stderr}`);
+});
+
+test("fails when a broad caret override selector overlaps the catalog", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog:\n  zod: ^4.4.3\n`,
+    {
+      "package.json": {
+        name: "root",
+        pnpm: { overrides: { "zod@^4.0.0": "^4.3.5" } },
+      },
+      "app/package.json": { name: "app", dependencies: { zod: "catalog:" } },
+    },
+  );
+  assert(exitCode !== 0, `expected non-zero exit, got ${exitCode}`);
+  assert(stderr.includes("pnpm.overrides.zod@^4.0.0"), `stderr: ${stderr}`);
+});
+
+test("fails when a parent-scoped override targets a cataloged package", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog:\n  zod: ^4.4.3\n`,
+    {
+      "package.json": {
+        name: "root",
+        pnpm: { overrides: { "foo>zod": "^4.3.5" } },
+      },
+      "app/package.json": { name: "app", dependencies: { zod: "catalog:" } },
+    },
+  );
+  assert(exitCode !== 0, `expected non-zero exit, got ${exitCode}`);
+  assert(stderr.includes("pnpm.overrides.foo>zod"), `stderr: ${stderr}`);
+});
+
+test("fails when a quoted workspace range override conflicts with the catalog", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog:\n  zod: ^4.4.3\n\noverrides:\n  "zod@>=4.0.0 <5.0.0": ^4.3.5\n`,
+    {
+      "package.json": { name: "root" },
+      "app/package.json": { name: "app", dependencies: { zod: "catalog:" } },
+    },
+  );
+  assert(exitCode !== 0, `expected non-zero exit, got ${exitCode}`);
+  assert(
+    stderr.includes("pnpm-workspace.yaml overrides.zod@>=4.0.0 <5.0.0"),
+    `stderr: ${stderr}`,
+  );
+});
+
+test("fails when any OR selector arm can match the catalog", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog:\n  zod: ^4.4.3\n`,
+    {
+      "package.json": {
+        name: "root",
+        pnpm: { overrides: { "zod@<4.0.0 || 4.4.4": "^4.3.5" } },
+      },
+      "app/package.json": { name: "app", dependencies: { zod: "catalog:" } },
+    },
+  );
+  assert(exitCode !== 0, `expected non-zero exit, got ${exitCode}`);
+  assert(
+    stderr.includes("pnpm.overrides.zod@<4.0.0 || 4.4.4"),
+    `stderr: ${stderr}`,
+  );
+});
+
+test("fails when a selector matches any catalog OR arm", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog:\n  react: ^18.0.0 || ^19.0.0\n`,
+    {
+      "package.json": {
+        name: "root",
+        pnpm: { overrides: { "react@^19.0.0": "^18.0.0" } },
+      },
+      "app/package.json": { name: "app", dependencies: { react: "catalog:" } },
+    },
+  );
+  assert(exitCode !== 0, `expected non-zero exit, got ${exitCode}`);
+  assert(stderr.includes("pnpm.overrides.react@^19.0.0"), `stderr: ${stderr}`);
+});
+
+test("skips range-scoped overrides proven not to match the catalog", () => {
+  const { exitCode, stdout } = run(
+    `packages:\n  - app\n\ncatalog:\n  zod: ^4.4.3\n`,
+    {
+      "package.json": {
+        name: "root",
+        pnpm: { overrides: { "zod@<4.4.0": ">=4.4.0" } },
+      },
+      "app/package.json": { name: "app", dependencies: { zod: "catalog:" } },
+    },
+  );
+  assert(exitCode === 0, `expected exit 0, got ${exitCode}\n${stdout}`);
+});
+
+test("accepts override values that reference cataloged root dependencies", () => {
+  const { exitCode, stdout } = run(
+    `packages:\n  - app\n\ncatalog:\n  zod: ^4.4.3\n`,
+    {
+      "package.json": {
+        name: "root",
+        dependencies: { zod: "catalog:" },
+        pnpm: { overrides: { zod: "$zod" } },
+      },
+      "app/package.json": { name: "app", dependencies: { zod: "catalog:" } },
+    },
+  );
+  assert(exitCode === 0, `expected exit 0, got ${exitCode}\n${stdout}`);
+});
+
+test("passes when an override targets a non-cataloged package", () => {
+  const { exitCode, stdout } = run(
+    `packages:\n  - app\n\ncatalog:\n  zod: ^4.4.3\n`,
+    {
+      "package.json": {
+        name: "root",
+        pnpm: { overrides: { "left-pad": "1.3.0" } },
+      },
+      "app/package.json": { name: "app", dependencies: { zod: "catalog:" } },
+    },
+  );
+  assert(exitCode === 0, `expected exit 0, got ${exitCode}\n${stdout}`);
+});
+
+// A scoped name (`@tanstack/react-query`) starts with `@` at position 0 —
+// splitting on the first `@` would mangle it into a range-scoped skip.
+// `indexOf("@", 1)` must find no selector and still catch the conflict.
+test("fails on a scoped override name that conflicts with the catalog", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog:\n  "@tanstack/react-query": 5.90.16\n`,
+    {
+      "package.json": {
+        name: "root",
+        pnpm: { overrides: { "@tanstack/react-query": "5.90.19" } },
+      },
+      "app/package.json": {
+        name: "app",
+        dependencies: { "@tanstack/react-query": "catalog:" },
+      },
+    },
+  );
+  assert(exitCode !== 0, `expected non-zero exit, got ${exitCode}`);
+  assert(
+    stderr.includes("pnpm.overrides.@tanstack/react-query"),
+    `stderr: ${stderr}`,
+  );
+});
+
+test("fails when the TanStack override pair drifts", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog:\n  "@tanstack/react-query": 5.90.19\n`,
+    {
+      "package.json": {
+        name: "root",
+        pnpm: {
+          overrides: {
+            "@tanstack/react-query": "5.90.19",
+            "@tanstack/query-core": "5.90.16",
+          },
+        },
+      },
+      "app/package.json": {
+        name: "app",
+        dependencies: { "@tanstack/react-query": "catalog:" },
+      },
+    },
+  );
+  assert(exitCode !== 0, `expected non-zero exit, got ${exitCode}`);
+  assert(stderr.includes("@tanstack/query-core"), `stderr: ${stderr}`);
+});
+
+test("fails when any TanStack query-core override drifts", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog:\n  "@tanstack/react-query": 5.90.16\n\noverrides:\n  "@tanstack/query-core": 5.90.19\n`,
+    {
+      "package.json": {
+        name: "root",
+        pnpm: {
+          overrides: {
+            "@tanstack/react-query": "5.90.16",
+            "@tanstack/query-core": "5.90.16",
+          },
+        },
+      },
+      "app/package.json": {
+        name: "app",
+        dependencies: { "@tanstack/react-query": "catalog:" },
+      },
+    },
+  );
+  assert(exitCode !== 0, `expected non-zero exit, got ${exitCode}`);
+  assert(
+    stderr.includes("pnpm-workspace.yaml overrides.@tanstack/query-core"),
+    `stderr: ${stderr}`,
+  );
+});
+
+test("fails when a range-scoped TanStack query-core override drifts", () => {
+  const { exitCode, stderr } = run(
+    `packages:\n  - app\n\ncatalog:\n  "@tanstack/react-query": 5.90.16\n`,
+    {
+      "package.json": {
+        name: "root",
+        pnpm: {
+          overrides: {
+            "@tanstack/react-query": "5.90.16",
+            "@tanstack/query-core": "5.90.16",
+            "@tanstack/query-core@5.90.16": "5.90.19",
+          },
+        },
+      },
+      "app/package.json": {
+        name: "app",
+        dependencies: { "@tanstack/react-query": "catalog:" },
+      },
+    },
+  );
+  assert(exitCode !== 0, `expected non-zero exit, got ${exitCode}`);
+  assert(
+    stderr.includes("pnpm.overrides.@tanstack/query-core@5.90.16"),
+    `stderr: ${stderr}`,
+  );
+});
+
+test("accepts TanStack catalog-backed override pairs", () => {
+  const { exitCode, stdout } = run(
+    `packages:\n  - app\n\ncatalog:\n  "@tanstack/react-query": 5.90.16\n`,
+    {
+      "package.json": {
+        name: "root",
+        pnpm: {
+          overrides: {
+            "@tanstack/react-query": "catalog:",
+            "@tanstack/query-core": "catalog:",
+          },
+        },
+      },
+      "app/package.json": {
+        name: "app",
+        dependencies: { "@tanstack/react-query": "catalog:" },
+      },
+    },
+  );
+  assert(exitCode === 0, `expected exit 0, got ${exitCode}\n${stdout}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

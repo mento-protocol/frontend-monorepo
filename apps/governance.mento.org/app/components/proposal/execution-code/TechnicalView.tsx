@@ -1,8 +1,8 @@
 "use client";
 
 import { CopyToClipboard } from "@repo/ui";
+import { shortenAddress } from "@repo/web3";
 import { Transaction, type DecodedTransaction } from "../types/transaction";
-import { formatAddress } from "../utils/address-utils";
 import { AddressLink } from "../components/AddressLink";
 import { removeProxySuffix } from "./utils/removeProxySuffix";
 import { LoadingState } from "./LoadingState";
@@ -71,7 +71,7 @@ function DecodedTransactionView({
             className="gap-1 text-sm flex items-center hover:underline"
           >
             {removeProxySuffix(contractName) ||
-              formatAddress(transaction.address)}
+              shortenAddress(transaction.address, false)}
           </AddressLink>
           <CopyToClipboard text={transaction.address} />
         </div>

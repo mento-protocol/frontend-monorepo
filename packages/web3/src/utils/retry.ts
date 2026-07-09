@@ -1,3 +1,4 @@
+import { isUserRejection } from "@/utils/is-user-rejection";
 import { logger } from "@/utils/logger";
 import { sleep } from "@/utils/timeout";
 
@@ -17,12 +18,7 @@ export async function retryAsync<T>(
       saveError = error;
 
       // Don't retry if user rejected the transaction
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      if (
-        errorMessage.toLowerCase().includes("denied") ||
-        errorMessage.toLowerCase().includes("rejected")
-      ) {
+      if (isUserRejection(error)) {
         logger.error(
           `retryAsync: User rejected transaction, not retrying:`,
           error,
