@@ -197,9 +197,6 @@ importers:
       typescript-eslint:
         specifier: 'catalog:'
         version: 8.53.1(eslint@9.39.2(jiti@2.7.0))(typescript@5.9.3)
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
 
   apps/app.mento.org:
     dependencies:

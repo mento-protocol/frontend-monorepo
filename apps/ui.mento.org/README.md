@@ -1,6 +1,7 @@
 # ui.mento.org
 
-Component library showcase for `@repo/ui`, and the host app for Argos visual regression testing (VRT) screenshots.
+Component library showcase for `@repo/ui`, and the host app for `@repo/ui`
+Argos visual regression testing (VRT) screenshots.
 
 ## Getting Started
 
@@ -39,6 +40,10 @@ pnpm --filter ui.mento.org test:visual
 ```
 
 Diffs are reviewed and baselines are promoted in the Argos dashboard.
+
+The CI workflow runs this suite only when files that can affect the showcase
+change, such as `apps/ui.mento.org/**`, `packages/ui/**`, root package manager
+files, or `.github/workflows/visual.yml`.
 
 ## Learn More
 

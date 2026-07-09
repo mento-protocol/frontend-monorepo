@@ -4,11 +4,13 @@
   "ignoreWorkspaces": ["packages/typescript-config"],
   "ignore": [
     ".trunk/**",
-    "apps/governance.mento.org/app/graphql/**/generated/**",
     "commitlint.config.mjs",
     "scripts/security-headers.d.mts"
   ],
   "workspaces": {
+    ".": {
+      "ignoreDependencies": ["zod"]
+    },
     "apps/*": {
       "project": "app/**/*.{mjs,tsx,ts}"
     },
