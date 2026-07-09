@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 import { env } from "@/env.mjs";
 import {
   buildSecurityHeaders,
+  originOf,
   sentryCspReportUri,
 } from "../../scripts/security-headers.mjs";
 
@@ -10,6 +11,7 @@ const storageHostname = env.NEXT_PUBLIC_STORAGE_URL.replace(
   /^https?:\/\/([^/]+)\/?.*$/,
   "$1",
 );
+const analyticsApiOrigin = originOf(process.env.NEXT_PUBLIC_ANALYTICS_API_URL);
 
 // Reserve is a read-only dashboard with no wallet — no WalletConnect entries.
 const connectSrc = [
@@ -17,6 +19,7 @@ const connectSrc = [
   "https://forno.celo.org",
   "https://forno.celo-sepolia.celo-testnet.org",
   `https://${storageHostname}`,
+  ...(analyticsApiOrigin ? [analyticsApiOrigin] : []),
 ];
 
 const reportUri = sentryCspReportUri(env.NEXT_PUBLIC_SENTRY_DSN_RESERVE);
@@ -41,7 +44,7 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        source: "/(.*)",
+        source: "/:path*",
         headers: buildSecurityHeaders({ reportOnlyCsp }),
       },
     ];

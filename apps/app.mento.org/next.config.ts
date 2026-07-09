@@ -20,6 +20,8 @@ const rpcOverrideOrigins = [
   env.NEXT_PUBLIC_CELO_SEPOLIA_RPC_URL,
   env.NEXT_PUBLIC_MONAD_RPC_URL,
   env.NEXT_PUBLIC_MONAD_TESTNET_RPC_URL,
+  process.env.NEXT_PUBLIC_POLYGON_AMOY_RPC_URL,
+  process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL,
 ]
   .map(originOf)
   .filter(Boolean);
@@ -28,7 +30,12 @@ const connectSrc = [
   "'self'",
   "https://forno.celo.org",
   "https://forno.celo-sepolia.celo-testnet.org",
+  "https://rpc.monad.xyz",
+  "https://testnet-rpc.monad.xyz",
   "https://rpc3.monad.xyz",
+  "https://polygon-amoy.drpc.org",
+  "https://sepolia.base.org",
+  "https://api.studio.thegraph.com",
   "https://*.walletconnect.com",
   "wss://*.walletconnect.com",
   "https://*.walletconnect.org",
@@ -60,7 +67,7 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        source: "/(.*)",
+        source: "/:path*",
         headers: buildSecurityHeaders({ reportOnlyCsp }),
       },
     ];

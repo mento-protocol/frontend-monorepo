@@ -24,16 +24,36 @@ const apiOrigins = [
   .map(originOf)
   .filter(Boolean);
 
+// @repo/web3 reads these optional per-chain RPC overrides directly.
+const rpcOverrideOrigins = [
+  process.env.NEXT_PUBLIC_RPC_URL,
+  process.env.NEXT_PUBLIC_CELO_RPC_URL,
+  process.env.NEXT_PUBLIC_CELO_SEPOLIA_RPC_URL,
+  process.env.NEXT_PUBLIC_MONAD_RPC_URL,
+  process.env.NEXT_PUBLIC_MONAD_TESTNET_RPC_URL,
+  process.env.NEXT_PUBLIC_POLYGON_AMOY_RPC_URL,
+  process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL,
+]
+  .map(originOf)
+  .filter(Boolean);
+
 const connectSrc = [
   "'self'",
   "https://forno.celo.org",
   "https://forno.celo-sepolia.celo-testnet.org",
+  "https://rpc.monad.xyz",
+  "https://testnet-rpc.monad.xyz",
+  "https://polygon-amoy.drpc.org",
+  "https://sepolia.base.org",
+  "https://safe-transaction-celo.safe.global",
+  "https://safe-transaction-celo-testnet.safe.global",
   "https://*.walletconnect.com",
   "wss://*.walletconnect.com",
   "https://*.walletconnect.org",
   "wss://*.walletconnect.org",
   `https://${storageHostname}`,
   ...apiOrigins,
+  ...rpcOverrideOrigins,
 ];
 
 const reportUri = sentryCspReportUri(env.NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE);
@@ -59,7 +79,7 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        source: "/(.*)",
+        source: "/:path*",
         headers: buildSecurityHeaders({ reportOnlyCsp }),
       },
     ];
