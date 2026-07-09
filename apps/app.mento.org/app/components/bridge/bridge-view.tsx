@@ -6,8 +6,12 @@ import { useTheme } from "next-themes";
 import { useEffect, useMemo, useRef } from "react";
 import { getBridgeTheme, bridgeConfig } from "./bridge-config";
 import { Button } from "@repo/ui";
-import { Celo, isFeatureConfiguredOnChain } from "@repo/web3";
-import { useChainId, useSwitchChain } from "@repo/web3/wagmi";
+import {
+  Celo,
+  isFeatureConfiguredOnChain,
+  useSwitchChainWithFeedback,
+} from "@repo/web3";
+import { useChainId } from "@repo/web3/wagmi";
 import { ArrowRightLeft } from "lucide-react";
 import { patchBridgeWidgetAccessibility } from "./bridge-widget-accessibility";
 
@@ -24,14 +28,10 @@ const WormholeConnect = dynamic(
 );
 
 function BridgeTestnetState() {
-  const { switchChainAsync } = useSwitchChain();
+  const { switchToChain } = useSwitchChainWithFeedback();
 
   const handleSwitch = async () => {
-    try {
-      await switchChainAsync({ chainId: Celo.id });
-    } catch {
-      // wallet rejected or doesn't support switching
-    }
+    await switchToChain(Celo.id);
   };
 
   return (

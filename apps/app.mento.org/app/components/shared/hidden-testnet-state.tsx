@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@repo/ui";
-import { ChainId, chainIdToChain, useTestnetMode } from "@repo/web3";
-import { useSwitchChain } from "@repo/web3/wagmi";
+import {
+  ChainId,
+  chainIdToChain,
+  useSwitchChainWithFeedback,
+  useTestnetMode,
+} from "@repo/web3";
 import { ArrowRightLeft, FlaskConical } from "lucide-react";
 
 interface HiddenTestnetStateProps {
@@ -29,8 +32,7 @@ export function HiddenTestnetState({
 }: HiddenTestnetStateProps) {
   const router = useRouter();
   const [, setTestnetMode] = useTestnetMode();
-  const { switchChainAsync } = useSwitchChain();
-  const [isSwitching, setIsSwitching] = useState(false);
+  const { switchToChain, isSwitching } = useSwitchChainWithFeedback();
 
   const handleEnable = async () => {
     setTestnetMode(true);
@@ -41,16 +43,8 @@ export function HiddenTestnetState({
   };
 
   const handleSwitch = async () => {
-    if (!switchChainAsync || !switchChainId) return;
-
-    try {
-      setIsSwitching(true);
-      await switchChainAsync({ chainId: switchChainId });
-    } catch {
-      // wallet rejected or doesn't support switching
-    } finally {
-      setIsSwitching(false);
-    }
+    if (!switchChainId) return;
+    await switchToChain(switchChainId);
   };
 
   const switchLabel = switchChainId
