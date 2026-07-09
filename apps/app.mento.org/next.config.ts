@@ -36,6 +36,7 @@ const connectSrc = [
   "https://polygon-amoy.drpc.org",
   "https://sepolia.base.org",
   "https://api.studio.thegraph.com",
+  "https://api.web3modal.org",
   "https://*.walletconnect.com",
   "wss://*.walletconnect.com",
   "https://*.walletconnect.org",

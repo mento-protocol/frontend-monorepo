@@ -47,6 +47,7 @@ const connectSrc = [
   "https://sepolia.base.org",
   "https://safe-transaction-celo.safe.global",
   "https://safe-transaction-celo-testnet.safe.global",
+  "https://api.web3modal.org",
   "https://*.walletconnect.com",
   "wss://*.walletconnect.com",
   "https://*.walletconnect.org",
