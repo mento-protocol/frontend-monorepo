@@ -10,17 +10,20 @@ type StandardPatternFunction = (
   contract: ContractInfo,
   args: DecodedArg[],
   value?: string | number,
-) => string;
+) => string | null;
 
 /**
- * Create a pattern function with standardized error handling
+ * Create a pattern function with standardized error handling.
+ * Returns `null` when the shape of the decoded args doesn't match what the
+ * pattern expects, so callers can fall back to the generic description
+ * instead of rendering a misleading summary.
  */
 export function createPattern(
   fn: (
     contract: ContractInfo,
     args: DecodedArg[],
     value?: string | number,
-  ) => string,
+  ) => string | null,
   requiredArgsCount?: number,
   functionName?: string,
 ): StandardPatternFunction {
@@ -28,12 +31,12 @@ export function createPattern(
     contract: ContractInfo,
     args: DecodedArg[],
     value?: string | number,
-  ): string => {
+  ): string | null => {
     try {
       // Validate arguments if specified
       if (requiredArgsCount !== undefined && functionName) {
         if (args.length < requiredArgsCount) {
-          return `Error: ${functionName} requires at least ${requiredArgsCount} arguments, got ${args.length}`;
+          return null;
         }
 
         // Check that required arguments have values
@@ -43,7 +46,7 @@ export function createPattern(
             args[i]?.value === undefined ||
             args[i]?.value === null
           ) {
-            return `Error: Missing required argument ${i + 1} for ${functionName}`;
+            return null;
           }
         }
       }
@@ -54,7 +57,7 @@ export function createPattern(
         `Pattern execution error for ${functionName || "unknown function"}:`,
         error,
       );
-      return `Error: Failed to process ${functionName || "function"} call`;
+      return null;
     }
   };
 }
