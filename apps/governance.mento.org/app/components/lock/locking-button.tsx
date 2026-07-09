@@ -523,8 +523,7 @@ export const LockingButton = ({
     relock.isConfirming,
   ]);
 
-  // Transaction dialog message component
-  const TxMessage = useCallback(() => {
+  const txMessage = useMemo(() => {
     const isApprovalActive =
       (approve.isAwaitingUserSignature || approve.isConfirming) &&
       !hasApprovedForCurrentRelock;
@@ -623,7 +622,7 @@ export const LockingButton = ({
         error={relockTxStatus === "ERROR"}
         title="Update Lock"
         retry={handleRelock}
-        message={<TxMessage />}
+        message={txMessage}
         dataTestId="relock-tx-dialog"
         preventClose={isRelocking}
         isPending={isRelocking}

@@ -340,7 +340,7 @@ export const CreateLockProvider = ({
     currentChain.blockExplorers?.default?.url,
   ]);
 
-  const TxMessage = () => {
+  const txMessage = React.useMemo(() => {
     const isApprovalPhase =
       (approve.isAwaitingUserSignature || approve.isConfirming) &&
       !hasApprovedForCurrentLock;
@@ -356,7 +356,12 @@ export const CreateLockProvider = ({
         ) : null}
       </div>
     );
-  };
+  }, [
+    approve.isAwaitingUserSignature,
+    approve.isConfirming,
+    CreateLockTxStatus,
+    hasApprovedForCurrentLock,
+  ]);
 
   return (
     <CreateLockContext.Provider
@@ -381,7 +386,7 @@ export const CreateLockProvider = ({
         error={CreateLockTxStatus === LOCK_TX_STATUS.ERROR}
         title="Create Lock"
         retry={retry}
-        message={<TxMessage />}
+        message={txMessage}
         preventClose={
           CreateLockTxStatus === LOCK_TX_STATUS.AWAITING_SIGNATURE ||
           CreateLockTxStatus === LOCK_TX_STATUS.CONFIRMING_APPROVE_TX ||
