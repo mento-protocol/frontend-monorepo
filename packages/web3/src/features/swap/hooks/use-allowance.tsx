@@ -45,7 +45,6 @@ export function useAppAllowance(
   const {
     data: allowance,
     isLoading,
-    isFetching,
     refetch,
   } = useQuery({
     queryKey: [
@@ -66,7 +65,7 @@ export function useAppAllowance(
 
   return {
     allowance: allowance || "0",
-    isLoading: isLoading || isFetching,
+    isLoading,
     refetchAllowance: refetch,
   };
 }
