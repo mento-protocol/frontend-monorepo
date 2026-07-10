@@ -79,6 +79,10 @@ Two layers guard against unintended UI changes:
 
   If CI shows all Playwright visual tests passing and then Argos fails with HTTP 402 / Free Plan screenshot capacity, classify it as Argos account quota rather than a visual regression. Report the pass counts and do not disable VRT or change baselines for that failure.
 
+## Connected-Wallet E2E (app.mento.org)
+
+A functional connected-wallet swap E2E (not VRT) that runs against a seeded local anvil `--celo` fork. Prerequisites, in order: `pnpm fork:mainnet` (anvil fork), `pnpm fork:seed` (seed balances/oracles), and `pnpm exec turbo run build --filter app.mento.org` before the first run — the suite starts `next start` via Playwright's webServer. Then run `pnpm --filter app.mento.org test:connected`. See #445 for the full runbook.
+
 ## Coding Conventions
 
 - **Naming:** PascalCase for components, camelCase for variables/functions

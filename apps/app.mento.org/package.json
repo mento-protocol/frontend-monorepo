@@ -10,7 +10,8 @@
     "lint": "npx @trunkio/launcher check .",
     "start": "next start",
     "test": "vitest run",
-    "test:visual": "playwright test",
+    "test:connected": "playwright test --project=connected --workers=1",
+    "test:visual": "playwright test --project=desktop --project=mobile",
     "test:watch": "vitest"
   },
   "dependencies": {
