@@ -10,18 +10,18 @@ const PLACEHOLDER_PNG = Buffer.from(
   "base64",
 );
 
+// Leading dot so only real subdomains of the storage host match
+// (`x.public.blob.vercel-storage.com`), not `evilpublic.blob...`.
+const isCdnHost = (h: string): boolean =>
+  h.endsWith(".public.blob.vercel-storage.com");
+const placeholder = () =>
+  ({ status: 200, contentType: "image/png", body: PLACEHOLDER_PNG }) as const;
+
 // The whole point of the disconnected-shell approach: no wallet, no live data.
 // Block every external request so a logic-only PR can't flake on RPC / subgraph
 // / Merkl / Sentry / analytics / WalletConnect. Same-origin assets pass through;
 // the storage CDN returns a fixed placeholder.
 async function blockNetwork(page: Page): Promise<void> {
-  // Leading dot so only real subdomains of the storage host match
-  // (`x.public.blob.vercel-storage.com`), not `evilpublic.blob...`.
-  const isCdnHost = (h: string): boolean =>
-    h.endsWith(".public.blob.vercel-storage.com");
-  const placeholder = () =>
-    ({ status: 200, contentType: "image/png", body: PLACEHOLDER_PNG }) as const;
-
   await page.route("**/*", (route) => {
     const url = new URL(route.request().url());
     const { hostname, pathname } = url;
@@ -58,11 +58,6 @@ async function blockNetwork(page: Page): Promise<void> {
 // success shape (see app/api/sanctions/route.ts + app/hooks/use-sanctions-check.ts)
 // so the sanctions gate doesn't fail closed without a CHAINALYSIS_API_KEY.
 async function connectedNetworkPolicy(page: Page): Promise<void> {
-  const isCdnHost = (h: string): boolean =>
-    h.endsWith(".public.blob.vercel-storage.com");
-  const placeholder = () =>
-    ({ status: 200, contentType: "image/png", body: PLACEHOLDER_PNG }) as const;
-
   await page.route("**/*", (route) => {
     const url = new URL(route.request().url());
     const { hostname, pathname } = url;
