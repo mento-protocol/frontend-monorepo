@@ -1,0 +1,146 @@
+name: E2E (Connected Wallet)
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - apps/app.mento.org/**
+      - packages/web3/**
+      - scripts/fork-seed.mjs
+      - .github/workflows/e2e.yml
+  # Only usable once this workflow exists on the default branch.
+  workflow_dispatch:
+
+permissions: read-all
+
+# Cancel superseded runs on the same ref — anvil boot + seed + build + specs
+# is expensive and rapid pushes shouldn't pile up.
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+  # Pinned Celo mainnet block for the anvil fork: keeps the run deterministic
+  # and makes anvil's forno RPC cache (~/.foundry/cache) reusable across runs.
+  # Verified live (fork boot + seed + real Broker swapIn) against this block on
+  # 2026-07-09 — see #447. Bump roughly monthly so the fork doesn't drift too
+  # far from live oracle/liquidity state.
+  FORK_BLOCK: "71727341"
+
+jobs:
+  e2e-connected:
+    name: Connected swap (anvil fork)
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    # Render in the same pinned Playwright container as visual.yml so the two
+    # workflows stay in sync on browser version.
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+
+    env:
+      NEXT_PUBLIC_STORAGE_URL: ${{ vars.STORAGE_URL }}
+      # Still required non-empty by t3-env validation even though E2E mode
+      # never renders the WalletConnect connector.
+      NEXT_PUBLIC_WALLET_CONNECT_ID: ${{ vars.WALLET_CONNECT_ID }}
+      NEXT_PUBLIC_SENTRY_DSN_SWAP: ""
+      SENTRY_AUTH_TOKEN: ""
+      # Activates the mock wallet and points Celo RPC at http://localhost:8545.
+      # NEVER set NEXT_PUBLIC_SANCTIONS_TEST_MODE here — it force-BLOCKS the
+      # app (simulates a sanctioned wallet); the Playwright fixtures in
+      # e2e/fixtures.ts fulfill /api/sanctions instead, so no
+      # CHAINALYSIS_API_KEY is needed either.
+      NEXT_PUBLIC_E2E_TEST: "true"
+      NEXT_PUBLIC_USE_FORK: "true"
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v4
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - name: Setup pnpm cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1.9.0
+        with:
+          version: v1.7.1 # anvil --celo requires foundry >= 1.4; pinned for determinism
+          cache: false # we cache ~/.foundry/cache ourselves, keyed on the fork block
+
+      - name: Cache anvil fork state
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.foundry/cache
+          key: foundry-rpc-celo-${{ env.FORK_BLOCK }}
+
+      - name: Start anvil (Celo mainnet fork)
+        shell: bash
+        run: |
+          start_anvil() {
+            nohup anvil --celo --auto-impersonate \
+              --fork-url https://forno.celo.org \
+              --fork-block-number "$FORK_BLOCK" \
+              --port 8545 > anvil.log 2>&1 &
+            echo $! > anvil.pid
+          }
+          wait_ready() {
+            for _ in $(seq 1 60); do
+              if curl -sf -X POST http://127.0.0.1:8545 \
+                -H 'Content-Type: application/json' \
+                --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' \
+                | grep -q result; then return 0; fi
+              sleep 2
+            done
+            return 1
+          }
+          start_anvil
+          if ! wait_ready; then
+            echo "::warning::anvil not ready after 120s - retrying once (forno flakiness)"
+            kill "$(cat anvil.pid)" 2>/dev/null || true
+            sleep 5
+            start_anvil
+            wait_ready || { echo "anvil failed to start after retry"; tail -50 anvil.log; exit 1; }
+          fi
+          echo "anvil ready at block $(cast block-number --rpc-url http://127.0.0.1:8545)"
+
+      - name: Seed fork (balances, ERC-20s, oracle freshness)
+        run: node scripts/fork-seed.mjs
+
+      - name: Build app.mento.org (E2E mode)
+        run: pnpm turbo build --filter=app.mento.org
+
+      - name: Run connected E2E specs
+        run: pnpm --filter app.mento.org test:connected
+
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-connected-artifacts
+          path: |
+            apps/app.mento.org/test-results/
+            anvil.log
+          if-no-files-found: ignore
+          retention-days: 7

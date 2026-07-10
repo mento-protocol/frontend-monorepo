@@ -83,6 +83,8 @@ Two layers guard against unintended UI changes:
 
 A functional connected-wallet swap E2E (not VRT) that runs against a seeded local anvil `--celo` fork. Prerequisites, in order: `pnpm fork:mainnet` (anvil fork), `pnpm fork:seed` (seed balances/oracles), and `pnpm exec turbo run build --filter app.mento.org` before the first run — the suite starts `next start` via Playwright's webServer. Then run `pnpm --filter app.mento.org test:connected`. See #445 for the full runbook.
 
+In CI, `.github/workflows/e2e.yml` runs the same suite on PRs touching `apps/app.mento.org/**`, `packages/web3/**`, `scripts/fork-seed.mjs`, or the workflow itself (plus manual `workflow_dispatch`), against an anvil fork pinned to `FORK_BLOCK` (bump roughly monthly so it doesn't drift too far from live oracle/liquidity state); it is intentionally not a required check yet.
+
 ## Coding Conventions
 
 - **Naming:** PascalCase for components, camelCase for variables/functions
