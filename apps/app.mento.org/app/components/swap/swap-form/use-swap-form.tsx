@@ -13,7 +13,6 @@ import {
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { useSwapUrlSync } from "@/hooks/use-swap-url-sync";
-import { createLocalStore } from "@/lib/utils/local-store";
 
 import type { TokenSymbol } from "@mento-protocol/mento-sdk";
 import {
@@ -60,6 +59,10 @@ import {
   type LastChangedToken,
   type RouteDrivenFormState,
 } from "./route-driven-state";
+import {
+  createWaitingForQuoteStore,
+  getTokenPairKey,
+} from "./waiting-for-quote-store";
 import { defaultEmptyBalances, formSchema, type FormValues } from "./types";
 
 interface UseSwapFormOptions {
@@ -728,12 +731,8 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
   const isLoading =
     quoteFetching && canQuote && !tradingLimitError && !limitsLoading;
 
-  const prevTokenPairRef = useRef<{
-    tokenInSymbol: TokenSymbol | undefined;
-    tokenOutSymbol: TokenSymbol | undefined;
-  }>({ tokenInSymbol: undefined, tokenOutSymbol: undefined });
   const waitingForQuotePairStore = useMemo(
-    () => createLocalStore<string | null>(null),
+    () => createWaitingForQuoteStore(),
     [],
   );
   const waitingForQuotePair = useSyncExternalStore(
@@ -741,41 +740,20 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     waitingForQuotePairStore.getSnapshot,
     waitingForQuotePairStore.getSnapshot,
   );
-  const tokenPairKey =
-    selectedTokenInSymbol && selectedTokenOutSymbol
-      ? `${selectedTokenInSymbol}:${selectedTokenOutSymbol}`
-      : null;
+  const tokenPairKey = getTokenPairKey({
+    tokenInSymbol: selectedTokenInSymbol,
+    tokenOutSymbol: selectedTokenOutSymbol,
+  });
 
   useEffect(() => {
-    const tokensChanged =
-      prevTokenPairRef.current.tokenInSymbol !== selectedTokenInSymbol ||
-      prevTokenPairRef.current.tokenOutSymbol !== selectedTokenOutSymbol;
-
-    if (tokensChanged) {
-      prevTokenPairRef.current = {
-        tokenInSymbol: selectedTokenInSymbol,
-        tokenOutSymbol: selectedTokenOutSymbol,
-      };
-      waitingForQuotePairStore.set(
-        hasAmount && tokenPairKey ? tokenPairKey : null,
-      );
-      return;
-    }
-
-    if (!hasAmount || !tokenPairKey || isTradingSuspended) {
-      waitingForQuotePairStore.set(null);
-      return;
-    }
-
-    if (
-      waitingForQuotePair === tokenPairKey &&
-      quote &&
-      quote !== "0" &&
-      Number(quote) > 0 &&
-      !quoteFetching
-    ) {
-      waitingForQuotePairStore.set(null);
-    }
+    waitingForQuotePairStore.update({
+      hasAmount,
+      isTradingSuspended,
+      quote,
+      quoteFetching,
+      tokenInSymbol: selectedTokenInSymbol,
+      tokenOutSymbol: selectedTokenOutSymbol,
+    });
   }, [
     hasAmount,
     isTradingSuspended,
@@ -783,8 +761,6 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     quoteFetching,
     selectedTokenInSymbol,
     selectedTokenOutSymbol,
-    tokenPairKey,
-    waitingForQuotePair,
     waitingForQuotePairStore,
   ]);
 
