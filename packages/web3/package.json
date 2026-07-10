@@ -28,6 +28,11 @@
       "types": "./dist/borrow-server.d.ts",
       "import": "./dist/borrow-server.js",
       "require": "./dist/borrow-server.cjs"
+    },
+    "./is-user-rejection": {
+      "types": "./dist/is-user-rejection.d.ts",
+      "import": "./dist/is-user-rejection.js",
+      "require": "./dist/is-user-rejection.cjs"
     }
   },
   "main": "dist/index.js",

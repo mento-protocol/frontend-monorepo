@@ -16,6 +16,10 @@ describe("getGovernanceTransactionErrorMessage", () => {
     expect(
       getGovernanceTransactionErrorMessage(new Error("request rejected")),
     ).toBeNull();
+    expect(
+      getGovernanceTransactionErrorMessage(new Error("User denied")),
+    ).toBeNull();
+    expect(getGovernanceTransactionErrorMessage({ code: 4001 })).toBeNull();
   });
 
   it("returns insufficient funds copy", () => {

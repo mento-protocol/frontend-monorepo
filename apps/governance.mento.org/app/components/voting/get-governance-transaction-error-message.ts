@@ -1,8 +1,4 @@
-const USER_REJECTION_PATTERNS = [
-  /user\s+rejected/i,
-  /denied\s+transaction\s+signature/i,
-  /request\s+rejected/i,
-];
+import { isUserRejection } from "@repo/web3/is-user-rejection";
 
 const INSUFFICIENT_FUNDS_PATTERN = /insufficient funds/i;
 
@@ -46,7 +42,7 @@ export function getGovernanceTransactionErrorMessage(
 ): string | null {
   const errorText = extractErrorText(error);
 
-  if (USER_REJECTION_PATTERNS.some((pattern) => pattern.test(errorText))) {
+  if (isUserRejection(error) || isUserRejection(errorText)) {
     return null;
   }
 
