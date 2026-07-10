@@ -52,6 +52,15 @@ runs against an anvil fork of Celo mainnet — no real network is ever touched.
 
 5. Drive the UI (e.g. swap 1 CELO -> cUSD), then verify on-chain (next section).
 
+## Automated Playwright specs
+
+Instead of driving the UI by hand, both apps have a `connected` Playwright
+project that does steps 3-5 above automatically against the same seeded fork:
+`pnpm --filter app.mento.org test:connected` (swap) and
+`pnpm --filter governance.mento.org test:connected` (create a MENTO lock). See
+`CLAUDE.md`'s "Connected-Wallet E2E" section for the exact build + run
+commands per app.
+
 ## Activation flags
 
 Two equivalent activation paths. Env vars are read at build/dev-server start;
