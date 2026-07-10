@@ -4,13 +4,14 @@ import {
   GetLocksQueryResult,
   useGetLocksQuery,
 } from "@/graphql/subgraph/generated/subgraph";
+import { reportSubgraphError } from "@/utils/report-subgraph-error";
 import { useEnsureChainId } from "@repo/web3";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import LockingHelper from "./locking-helper";
 import { useLockingWeek } from "./use-locking-week";
 
 interface UseLocksProps {
-  account: string;
+  account: string | undefined;
 }
 
 export const useLocksByAccount = ({
@@ -21,18 +22,27 @@ export const useLocksByAccount = ({
   const { currentWeek: currentLockingWeek } = useLockingWeek();
   const ensuredChainId = useEnsureChainId();
 
-  const { data, ...rest } = useGetLocksQuery({
+  const { data, error, ...rest } = useGetLocksQuery({
     refetchWritePolicy: "overwrite",
     fetchPolicy: "network-only",
-    errorPolicy: "ignore",
+    errorPolicy: "all",
+    skip: !account,
     variables: {
-      address: account,
+      address: account ?? "",
     },
     context: {
       apiName: getSubgraphApiName(ensuredChainId),
     },
     ssr: false,
   });
+
+  useEffect(() => {
+    if (!error) {
+      return;
+    }
+
+    reportSubgraphError(error, "GetLocks");
+  }, [error]);
 
   const locks = useMemo(() => {
     if (!data) {
@@ -72,6 +82,7 @@ export const useLocksByAccount = ({
 
   return {
     locks,
+    error,
     ...rest,
   };
 };

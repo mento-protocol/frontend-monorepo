@@ -53,7 +53,7 @@ export const VoteCard = ({
 
   // Get locks for delegation calculation
   const { locks } = useLocksByAccount({
-    account: address as string,
+    account: address,
   });
 
   // Calculate total voting power including received delegations
