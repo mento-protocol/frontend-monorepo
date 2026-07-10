@@ -89,6 +89,10 @@ To test connected-wallet flows (swaps, approvals, locking) locally without a rea
 
 Full runbook — localStorage activation, on-chain verification with `cast`, snapshot/revert discipline, safety rules, troubleshooting: [docs/wallet-testing.md](docs/wallet-testing.md)
 
+## Connected-Wallet E2E (app.mento.org)
+
+A functional connected-wallet swap E2E (not VRT) that runs against a seeded local anvil `--celo` fork. Prerequisites, in order: `pnpm fork:mainnet` (anvil fork), `pnpm fork:seed` (seed balances/oracles), and `pnpm exec turbo run build --filter app.mento.org` before the first run — the suite starts `next start` via Playwright's webServer. Then run `pnpm --filter app.mento.org test:connected`. See [docs/wallet-testing.md](docs/wallet-testing.md) for the full runbook.
+
 ## Coding Conventions
 
 - **Naming:** PascalCase for components, camelCase for variables/functions

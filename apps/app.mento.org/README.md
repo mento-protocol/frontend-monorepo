@@ -58,6 +58,16 @@ change, such as `apps/app.mento.org/**`, `packages/ui/**`, `packages/web3/**`,
 root package manager files, `.npmrc`, `turbo.json`,
 `scripts/security-headers.mjs`, or `.github/workflows/visual.yml`.
 
+## Connected-Wallet E2E
+
+The same Playwright setup also hosts a functional connected-wallet swap E2E
+suite (not VRT) that runs against a seeded local anvil `--celo` fork. From the
+repository root, start `pnpm fork:mainnet`, run `pnpm fork:seed`, and build the
+app first (`pnpm exec turbo run build --filter app.mento.org` — the suite
+starts `next start`). Then run `pnpm --filter app.mento.org test:connected`.
+See [#445](https://github.com/mento-protocol/frontend-monorepo/issues/445) for
+the full runbook.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
