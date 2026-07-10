@@ -79,9 +79,19 @@ Two layers guard against unintended UI changes:
 
   If CI shows all Playwright visual tests passing and then Argos fails with HTTP 402 / Free Plan screenshot capacity, classify it as Argos account quota rather than a visual regression. Report the pass counts and do not disable VRT or change baselines for that failure.
 
+## Wallet-Connected Testing (local fork)
+
+To test connected-wallet flows (swaps, approvals, locking) locally without a real wallet:
+
+1. `pnpm fork:mainnet` — anvil fork of Celo mainnet on port 8545 (Foundry >= 1.4)
+2. `pnpm fork:seed` — fund test accounts + refresh oracle rates (re-run after `evm_revert` or when quotes stall)
+3. `NEXT_PUBLIC_E2E_TEST=true NEXT_PUBLIC_USE_FORK=true pnpm exec turbo run dev --filter app.mento.org`, then connect the "E2E Test Wallet" (requires `CHAINALYSIS_API_KEY` in `apps/app.mento.org/.env.local`)
+
+Full runbook — localStorage activation, on-chain verification with `cast`, snapshot/revert discipline, safety rules, troubleshooting: [docs/wallet-testing.md](docs/wallet-testing.md)
+
 ## Connected-Wallet E2E (app.mento.org)
 
-A functional connected-wallet swap E2E (not VRT) that runs against a seeded local anvil `--celo` fork. Prerequisites, in order: `pnpm fork:mainnet` (anvil fork), `pnpm fork:seed` (seed balances/oracles), and `pnpm exec turbo run build --filter app.mento.org` before the first run — the suite starts `next start` via Playwright's webServer. Then run `pnpm --filter app.mento.org test:connected`. See #445 for the full runbook.
+A functional connected-wallet swap E2E (not VRT) that runs against a seeded local anvil `--celo` fork. Prerequisites, in order: `pnpm fork:mainnet` (anvil fork), `pnpm fork:seed` (seed balances/oracles), and `pnpm exec turbo run build --filter app.mento.org` before the first run — the suite starts `next start` via Playwright's webServer. Then run `pnpm --filter app.mento.org test:connected`. See [docs/wallet-testing.md](docs/wallet-testing.md) for the full runbook.
 
 ## Coding Conventions
 
