@@ -10,9 +10,16 @@ runs against an anvil fork of Celo mainnet — no real network is ever touched.
 
 - Foundry >= 1.4 (`anvil --celo` requires it). Install/update: `foundryup`.
 - Node >= 22, `pnpm install` done.
-- `CHAINALYSIS_API_KEY` set in `apps/app.mento.org/.env.local` (any valid key;
-  never commit it). Without it the app BLOCKS after wallet connect — the
-  sanctions API route fails closed by design. See Troubleshooting.
+- App env file: copy `apps/app.mento.org/.env.example` to
+  `apps/app.mento.org/.env.local` and fill it — the env schema
+  (`apps/app.mento.org/app/env.mjs`) fails the dev server at startup otherwise.
+  `NEXT_PUBLIC_STORAGE_URL` must be a valid URL (real value: see the Vercel
+  link in `.env.example`); `NEXT_PUBLIC_WALLET_CONNECT_ID`,
+  `NEXT_PUBLIC_SENTRY_DSN_SWAP`, and `SENTRY_AUTH_TOKEN` must be present but
+  may be empty strings for local dev (E2E mode replaces WalletConnect).
+- `CHAINALYSIS_API_KEY` set in the same `.env.local` (any valid key; never
+  commit it). Without it the app BLOCKS after wallet connect — the sanctions
+  API route fails closed by design. See Troubleshooting.
 - Docker (optional, only for the Otterscan block explorer).
 
 ## Quick start
@@ -49,8 +56,12 @@ runs against an anvil fork of Celo mainnet — no real network is ever touched.
 
 Two equivalent activation paths. Env vars are read at build/dev-server start;
 localStorage keys work on an already-running dev server (reload after setting).
-Both only activate on `localhost` / `127.0.0.1` — the E2E wallet is
-hostname-allowlisted and cannot be enabled on deployed hostnames.
+The E2E wallet is hostname-allowlisted to `localhost` / `127.0.0.1` and cannot
+be enabled on deployed hostnames. Fork mode is NOT allowlisted the same way:
+the `mento_use_fork` localStorage key is only ignored on production builds and
+public `mento.org` hostnames (deny-list), and `NEXT_PUBLIC_USE_FORK=true`
+applies wherever it is baked into the build — never set it for a deployed
+build, or its Celo RPC points at `http://localhost:8545` and the app breaks.
 
 | Purpose                   | Env var (start-time)        | localStorage key (runtime + reload)  |
 | ------------------------- | --------------------------- | ------------------------------------ |
@@ -125,12 +136,12 @@ cast rpc evm_revert 0x0 --rpc-url http://127.0.0.1:8545        # returns true
 
 ## Troubleshooting
 
-| Symptom                                                              | Cause / fix                                                                                                                                        |
-| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm fork:mainnet` fails: port 8545 in use                          | `lsof -i :8545`, kill the stale anvil, restart.                                                                                                    |
-| CELO transfers silently no-op on the fork                            | anvil started without `--celo` (manual command or pre-fix script). Use `pnpm fork:mainnet`.                                                        |
-| Swap quotes stall or swaps revert after the fork has been up a while | Oracle medians went stale (wall-clock expiry). Re-run `pnpm fork:seed`; if still stuck, restart the fork and re-seed.                              |
-| App shows a blocking screen right after connecting                   | Sanctions check failed closed — `CHAINALYSIS_API_KEY` missing from `apps/app.mento.org/.env.local`. Not a bug.                                     |
-| "E2E Test Wallet" not in the connect modal                           | Not on localhost/127.0.0.1, or neither `NEXT_PUBLIC_E2E_TEST=true` nor `mento_e2e_wallet` set, or you forgot to reload after setting localStorage. |
-| governance.mento.org dev server has stale `@repo/web3`               | Its `dev` script does not watch `@repo/web3` (app.mento.org's does). Run `pnpm exec turbo run build --filter governance.mento.org` first.          |
-| Governance proposal lists look inconsistent with fork state          | Proposals load from a live-mainnet subgraph, not the fork. Chain-only flows (lock, approve) are unaffected.                                        |
+| Symptom                                                              | Cause / fix                                                                                                                                                                                                                                                        |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm fork:mainnet` fails: port 8545 in use                          | `lsof -i :8545`, kill the stale anvil, restart.                                                                                                                                                                                                                    |
+| CELO transfers silently no-op on the fork                            | anvil started without `--celo` (manual command or pre-fix script). Use `pnpm fork:mainnet`.                                                                                                                                                                        |
+| Swap quotes stall or swaps revert after the fork has been up a while | Oracle medians went stale (wall-clock expiry). Re-run `pnpm fork:seed`; if still stuck, restart the fork and re-seed.                                                                                                                                              |
+| App shows a blocking screen right after connecting                   | Sanctions check failed closed — `CHAINALYSIS_API_KEY` missing from `apps/app.mento.org/.env.local`. Not a bug.                                                                                                                                                     |
+| "E2E Test Wallet" not in the connect modal                           | Not on localhost/127.0.0.1, or neither `NEXT_PUBLIC_E2E_TEST=true` nor `mento_e2e_wallet` set, or you forgot to reload after setting localStorage.                                                                                                                 |
+| governance.mento.org dev server has stale `@repo/web3`               | Its `dev` script does not watch `@repo/web3` (app.mento.org's does). Run `pnpm exec turbo run build --filter governance.mento.org` first.                                                                                                                          |
+| Governance proposal or lock lists look inconsistent with fork state  | Proposal AND lock lists load from a live-mainnet subgraph, not the fork (`useLocksByAccount` queries the subgraph). Lock/approve transactions still execute on the fork — verify them on-chain with `cast` (section above) instead of trusting the rendered lists. |
