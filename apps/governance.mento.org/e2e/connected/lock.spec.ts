@@ -124,7 +124,13 @@ test.afterEach(async () => {
 });
 
 test("creates a 1 MENTO lock and mints veMENTO", async ({ page }) => {
-  test.setTimeout(180_000);
+  // Headroom above the sum of this test's own explicit assertion timeouts
+  // (30_000 + 30_000 + 120_000 = 180_000) — that sum alone leaves zero slack
+  // for page.goto, the form interactions, and the trailing mineBlocks(2) +
+  // balance reads, so a merely-slow (not stuck) CI run could otherwise trip
+  // the outer test timeout before the real assertions get a chance to
+  // resolve or fail on their own.
+  test.setTimeout(240_000);
 
   const mentoBefore = await erc20BalanceOf(MENTO, ACCT0);
   const veMentoBefore = await erc20BalanceOf(LOCKING, ACCT0);
