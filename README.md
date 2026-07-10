@@ -274,13 +274,13 @@ shadcn/ui is our component base layer we extend from.
 1. Install the shadcn/ui component you need: `pnpm dlx shadcn@latest add button`
 1. Customize it to your needs by simply editing `./packages/ui/src/components/ui/button.tsx`
 1. Export the new component from the main barrel file `./packages/ui/src/index.ts`
-1. Build the UI package: `pnpm build --filter @repo/ui`
+1. Build the UI package: `pnpm build --filter @mento-protocol/ui`
 
 #### Adding a New Custom Component (without shadcn/ui)
 
 1. Create a new component in `packages/ui/src/components`
 1. Export it from `packages/ui/src/index.ts`
-1. Build the UI package: `pnpm build --filter @repo/ui`
+1. Build the UI package: `pnpm build --filter @mento-protocol/ui`
 
 #### Using UI Components in Applications
 
@@ -288,9 +288,32 @@ Import components into an application:
 
 ```tsx
 // layout.tsx
-import "@repo/ui/globals.css"; // Import once at the top of the app
-import { Button } from "@repo/ui";
+import "@mento-protocol/ui/globals.css"; // Import once at the top of the app
+import { Button } from "@mento-protocol/ui";
 ```
+
+#### Using UI Components Outside This Monorepo
+
+Install the public package once it has been manually published:
+
+```bash
+pnpm add @mento-protocol/ui
+```
+
+Import the bundled stylesheet once at the app root, then import components from
+the package entrypoint:
+
+```tsx
+import "@mento-protocol/ui/globals.css";
+import { Button } from "@mento-protocol/ui";
+```
+
+`globals.css` includes the Mento token layer, Tailwind-generated utilities,
+component styles, and the bundled unmodified Aspekta font. Consumers that only
+need the CSS variables and Tailwind v4 token declarations can import
+`@mento-protocol/ui/theme.css` instead. React and React DOM are peer
+dependencies; Tailwind CSS is an optional peer dependency unless the consuming
+app compiles or extends the package's Tailwind token layer.
 
 ### Commit Convention
 

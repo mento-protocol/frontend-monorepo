@@ -79,7 +79,7 @@ each sub-view is a self-contained component.
 ```text
 ┌──────────────────────────────────────────────────────────┐
 │  UI Layer (apps/app.mento.org/app/components/borrow/)    │
-│  Built with @repo/ui (shadcn + Tailwind)                 │
+│  Built with @mento-protocol/ui (shadcn + Tailwind)                 │
 │  Follows pool/ component pattern for consistency         │
 ├──────────────────────────────────────────────────────────┤
 │  View Logic (Jotai atoms + React hooks)                  │
@@ -250,7 +250,7 @@ biggest simplification to the project plan.
 | **Transaction signing/sending**   | Bridge SDK's `CallParams` → wagmi `sendTransaction` |
 | **Gas estimation**                | `publicClient.estimateGas()` on SDK's CallParams    |
 | **Multi-step flow orchestration** | Jotai-based tx flow engine                          |
-| **All UI components**             | Rewrite with @repo/ui (shadcn/Tailwind)             |
+| **All UI components**             | Rewrite with @mento-protocol/ui (shadcn/Tailwind)   |
 | **FX-aware price formatting**     | Currency display component                          |
 
 ### SDK integration pattern
@@ -728,7 +728,7 @@ The following Phase 0 tasks from the previous plan are **eliminated**:
   - Block explorer links via `useExplorerUrl()` from `@repo/web3`
   - Tailwind `animate-spin` for spinner, no external icon library
 - [x] **P2-7: Flow dialog component** (`shared/flow-dialog.tsx`)
-  - Uses `@repo/ui` Dialog (Radix-based) with `open` prop controlled by `borrowFlowAtom`
+  - Uses `@mento-protocol/ui` Dialog (Radix-based) with `open` prop controlled by `borrowFlowAtom`
   - Three states: in-progress (wallet prompt), success (all confirmed + "Back to Dashboard"), error (message + "Try Again")
   - Self-managing: visible when `borrowFlowAtom` not null, hidden when null
   - "Back to Dashboard" clears flow atom + sets `borrowViewAtom` to "dashboard"
@@ -800,9 +800,9 @@ The following Phase 0 tasks from the previous plan are **eliminated**:
   - **Key learning:** `SystemParams.minAnnualInterestRate` (not `minInterestRate`) — 18-decimal bigint, convert via `Number(bigint) / 1e16`
   - **Key learning:** Radix Slider `value` must be an array even for single thumb — `value={[number]}`
 - [x] **P3-5: Interest rate chart** (`open-trove/interest-rate-chart.tsx`)
-  - Recharts `BarChart` via `ChartContainer` from `@repo/ui` — highlights selected rate bar
-  - Exported `ChartContainer` + `ChartConfig` from `@repo/ui` (was internal-only)
-  - Added `recharts` as direct app dependency (was only in `@repo/ui`)
+  - Recharts `BarChart` via `ChartContainer` from `@mento-protocol/ui` — highlights selected rate bar
+  - Exported `ChartContainer` + `ChartConfig` from `@mento-protocol/ui` (was internal-only)
+  - Added `recharts` as direct app dependency (was only in `@mento-protocol/ui`)
   - **Key learning:** Recharts `Cell` for per-bar colors, `ChartConfig` uses `satisfies ChartConfig` pattern
 - [x] **P3-6: Loan summary** (`open-trove/loan-summary.tsx`)
   - Real-time LTV, liquidation price, risk badge, collateral ratio, upfront fee, annual cost
@@ -821,7 +821,7 @@ The following Phase 0 tasks from the previous plan are **eliminated**:
 
 - [x] **P3-9: Manage trove view** (`manage-trove/manage-trove-view.tsx`)
   - Tab container (Adjust | Interest Rate | Close) + trove header with `TroveMetrics`
-  - Loading state with `Skeleton` from `@repo/ui`
+  - Loading state with `Skeleton` from `@mento-protocol/ui`
   - **Key learning:** `useTroveData(troveId, symbol)` — troveId first, symbol second (opposite of other hooks)
 - [x] **P3-10: Adjust form** (`manage-trove/adjust-form.tsx`)
   - Add/Remove collateral toggle + Borrow more/Repay toggle
@@ -1060,7 +1060,7 @@ These BOLD features are **not included** in the Mento borrow section:
 | Legacy V1 migration flows          | Not applicable                                                |
 | Allocation voting / bribe claiming | Liquity-specific governance                                   |
 | Account statistics screen          | Not needed for MVP                                            |
-| PandaCSS UIKit                     | Replaced by @repo/ui (shadcn/Tailwind)                        |
+| PandaCSS UIKit                     | Replaced by @mento-protocol/ui (shadcn/Tailwind)              |
 | ConnectKit wallet connection       | Replaced by RainbowKit (already in Mento)                     |
 | ENS resolution                     | Celo doesn't use ENS                                          |
 | VPN/blocking list                  | Not needed initially                                          |
@@ -1091,26 +1091,26 @@ These BOLD features are **not included** in the Mento borrow section:
 
 ### What comes from where
 
-| Capability                 | Source                 | Notes                                      |
-| -------------------------- | ---------------------- | ------------------------------------------ |
-| Trove transaction building | **SDK**                | `buildOpenTroveTransaction()` etc.         |
-| Trove reads                | **SDK**                | `getTroveData()`, `getUserTroves()`        |
-| System params              | **SDK**                | `getSystemParams()`                        |
-| Price reads                | **SDK**                | `getCollateralPrice()`                     |
-| Loan math                  | **SDK**                | `getLoanDetails()`, `getLtv()`, risk calcs |
-| Fee predictions            | **SDK**                | `predictOpenTroveUpfrontFee()` etc.        |
-| Approvals + allowances     | **SDK**                | `buildCollateralApprovalParams()` etc.     |
-| Hint computation           | **SDK**                | Internal to transaction builders           |
-| ABIs                       | **SDK**                | All exported (except StabilityPool)        |
-| Address resolution         | **SDK**                | Via `AddressesRegistry`                    |
-| Multi-deployment           | **SDK**                | `borrowRegistries[chainId][symbol]`        |
-| Stability Pool ops         | **BOLD** (adapt)       | Copy ABI + build tx encoders               |
-| Leverage math              | **BOLD** (extract)     | `liquity-leverage.ts` pure functions       |
-| Redemptions                | **BOLD** (adapt)       | `CollateralRegistry.redeemCollateral()`    |
-| Tx flow engine             | **BOLD** (reimplement) | State machine → Jotai atoms                |
-| All UI components          | **Rewrite**            | shadcn/@repo/ui, using BOLD as wireframes  |
-| Wallet connection          | **Mento monorepo**     | RainbowKit (existing @repo/web3)           |
-| State management           | **Mento monorepo**     | Jotai (existing pattern)                   |
+| Capability                 | Source                 | Notes                                               |
+| -------------------------- | ---------------------- | --------------------------------------------------- |
+| Trove transaction building | **SDK**                | `buildOpenTroveTransaction()` etc.                  |
+| Trove reads                | **SDK**                | `getTroveData()`, `getUserTroves()`                 |
+| System params              | **SDK**                | `getSystemParams()`                                 |
+| Price reads                | **SDK**                | `getCollateralPrice()`                              |
+| Loan math                  | **SDK**                | `getLoanDetails()`, `getLtv()`, risk calcs          |
+| Fee predictions            | **SDK**                | `predictOpenTroveUpfrontFee()` etc.                 |
+| Approvals + allowances     | **SDK**                | `buildCollateralApprovalParams()` etc.              |
+| Hint computation           | **SDK**                | Internal to transaction builders                    |
+| ABIs                       | **SDK**                | All exported (except StabilityPool)                 |
+| Address resolution         | **SDK**                | Via `AddressesRegistry`                             |
+| Multi-deployment           | **SDK**                | `borrowRegistries[chainId][symbol]`                 |
+| Stability Pool ops         | **BOLD** (adapt)       | Copy ABI + build tx encoders                        |
+| Leverage math              | **BOLD** (extract)     | `liquity-leverage.ts` pure functions                |
+| Redemptions                | **BOLD** (adapt)       | `CollateralRegistry.redeemCollateral()`             |
+| Tx flow engine             | **BOLD** (reimplement) | State machine → Jotai atoms                         |
+| All UI components          | **Rewrite**            | shadcn/@mento-protocol/ui, using BOLD as wireframes |
+| Wallet connection          | **Mento monorepo**     | RainbowKit (existing @repo/web3)                    |
+| State management           | **Mento monorepo**     | Jotai (existing pattern)                            |
 
 ### Concept mapping
 
@@ -1125,7 +1125,7 @@ These BOLD features are **not included** in the Mento borrow section:
 | `PrefixedTroveId` ("0:0xabc")   | SDK uses `troveId: string` per debt token symbol         |
 | Manual contract config          | SDK's `AddressesRegistry` auto-resolution                |
 | ConnectKit                      | RainbowKit                                               |
-| PandaCSS / UIKit                | Tailwind / shadcn / @repo/ui                             |
+| PandaCSS / UIKit                | Tailwind / shadcn / @mento-protocol/ui                   |
 | React Context (TransactionFlow) | Jotai atoms                                              |
 | Subgraph (required)             | SDK direct reads (MVP) → Subgraph (later)                |
 

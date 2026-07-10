@@ -19,7 +19,7 @@ import {
   Label,
   Slider,
   useDebounce,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { isValidAddress } from "@repo/web3";
 import {
   forwardRef,

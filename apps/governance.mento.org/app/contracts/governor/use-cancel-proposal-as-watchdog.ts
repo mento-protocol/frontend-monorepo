@@ -11,7 +11,7 @@ import {
   getSafeUrl,
   getSafeNetworkSlug,
 } from "@/config";
-import { toast } from "@repo/ui";
+import { toast } from "@mento-protocol/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { ProposalQueryKey } from "@/contracts/governor/use-proposal";
 import * as Sentry from "@sentry/nextjs";

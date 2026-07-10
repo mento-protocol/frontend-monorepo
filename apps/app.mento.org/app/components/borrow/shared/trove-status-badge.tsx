@@ -1,4 +1,9 @@
-import { Badge, Tooltip, TooltipContent, TooltipTrigger } from "@repo/ui";
+import {
+  Badge,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@mento-protocol/ui";
 import { ExternalLink } from "lucide-react";
 import type { TroveStatus } from "@repo/web3";
 

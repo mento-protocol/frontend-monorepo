@@ -1,7 +1,7 @@
 import type { ChainId } from "@/config/chains";
 import { getMentoSdk } from "@/features/sdk";
 import { logger } from "@/utils/logger";
-import { toast } from "@repo/ui";
+import { toast } from "@mento-protocol/ui";
 import {
   FPMM_ABI,
   ROUTER_ABI,

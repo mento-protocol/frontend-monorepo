@@ -1,6 +1,6 @@
 "use client";
 
-import { Slider } from "@repo/ui";
+import { Slider } from "@mento-protocol/ui";
 import {
   type DebtTokenConfig,
   useSystemParams,

@@ -13,7 +13,7 @@ vi.mock("@repo/web3", () => ({
   }),
 }));
 
-vi.mock("@repo/ui", () => ({
+vi.mock("@mento-protocol/ui", () => ({
   cn: (...classes: unknown[]) =>
     classes.filter((value) => typeof value === "string" && value).join(" "),
   Input: React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(

@@ -7,7 +7,7 @@ import { SwapSettingsPopover } from "@/components/swap/swap-settings-popover";
 import { SwapConfirm } from "@/components/swap/swap-confirm";
 import SwapForm from "@/components/swap/swap-form";
 import { confirmViewAtom, formValuesAtom, type ChainId } from "@repo/web3";
-import { Button, cn } from "@repo/ui";
+import { Button, cn } from "@mento-protocol/ui";
 import { ChainMismatchBanner } from "@/components/shared/chain-mismatch-banner";
 
 interface SwapPageContentProps {

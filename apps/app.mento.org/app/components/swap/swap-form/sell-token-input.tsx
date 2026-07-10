@@ -1,6 +1,6 @@
 "use client";
 
-import { TokenIcon } from "@repo/ui";
+import { TokenIcon } from "@mento-protocol/ui";
 import {
   CoinInput,
   FormControl,
@@ -9,7 +9,7 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { type TokenWithBalance, formatWithMaxDecimals } from "@repo/web3";
 import type { TokenSymbol } from "@mento-protocol/mento-sdk";
 import { ChevronDown } from "lucide-react";

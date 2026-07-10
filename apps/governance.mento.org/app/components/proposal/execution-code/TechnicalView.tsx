@@ -1,6 +1,6 @@
 "use client";
 
-import { CopyToClipboard } from "@repo/ui";
+import { CopyToClipboard } from "@mento-protocol/ui";
 import { shortenAddress } from "@repo/web3";
 import { Transaction, type DecodedTransaction } from "../types/transaction";
 import { AddressLink } from "../components/AddressLink";

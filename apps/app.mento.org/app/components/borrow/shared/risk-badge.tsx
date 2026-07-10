@@ -1,4 +1,4 @@
-import { Badge } from "@repo/ui";
+import { Badge } from "@mento-protocol/ui";
 import type { RiskLevel } from "@repo/web3";
 
 const RISK_CONFIG: Record<RiskLevel, { label: string; className: string }> = {

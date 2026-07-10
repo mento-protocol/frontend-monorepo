@@ -8,7 +8,7 @@ import {
   TabsList,
   TabsTrigger,
   TabsContent,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import {
   useStabilityPool,
   useStabilityPoolApy,
@@ -18,7 +18,7 @@ import {
 } from "@repo/web3";
 import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
-import { TokenIcon } from "@repo/ui";
+import { TokenIcon } from "@mento-protocol/ui";
 import { FlowDialog } from "../shared/flow-dialog";
 import { ChainMismatchBanner } from "@/components/shared/chain-mismatch-banner";
 import { getOpportunityBackLink } from "@/lib/opportunity-navigation";

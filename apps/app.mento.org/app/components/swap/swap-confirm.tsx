@@ -2,7 +2,7 @@
 
 import { env } from "@/env.mjs";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
-import { Button, IconLoading, TokenIcon } from "@repo/ui";
+import { Button, IconLoading, TokenIcon } from "@mento-protocol/ui";
 import {
   type ChainId,
   formatWithMaxDecimals,

@@ -7,7 +7,7 @@ import {
   CollapsibleContent,
   TokenIcon,
   cn,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import {
   type PoolDisplay,
   type PoolRewardInfo,

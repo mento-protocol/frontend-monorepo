@@ -75,7 +75,7 @@ This phase is purely UI — building the form components, wiring them to hooks, 
 
 - [ ] Create `apps/app.mento.org/app/components/borrow/open-trove/interest-rate-input.tsx`
 - [ ] Shows "Annual Interest Rate" heading
-- [ ] Slider component (from `@repo/ui`) with range: min from `useSystemParams().minInterestRate` to a reasonable max (e.g., 15% or from SDK constants)
+- [ ] Slider component (from `@mento-protocol/ui`) with range: min from `useSystemParams().minInterestRate` to a reasonable max (e.g., 15% or from SDK constants)
 - [ ] Manual numeric input field synced with slider (editing one updates the other)
 - [ ] Display current rate as percentage (e.g., "5.5%")
 - [ ] Show annual cost estimate: `debtAmount * rate` formatted in debt token currency
@@ -90,7 +90,7 @@ This phase is purely UI — building the form components, wiring them to hooks, 
 **Acceptance Criteria:**
 
 - [ ] Create `apps/app.mento.org/app/components/borrow/open-trove/interest-rate-chart.tsx`
-- [ ] Uses Recharts via `@repo/ui` Chart components (`ChartContainer`, etc.)
+- [ ] Uses Recharts via `@mento-protocol/ui` Chart components (`ChartContainer`, etc.)
 - [ ] Data from `useInterestRateChartData(selectedRate)` hook — returns `{ rate: number, debt: number, isCurrentRate: boolean }[]`
 - [ ] Bar chart: x-axis = interest rate, y-axis = total debt at that rate
 - [ ] Highlights the bar matching the user's selected rate (different color or border)
@@ -160,7 +160,7 @@ This phase is purely UI — building the form components, wiring them to hooks, 
 - [ ] Accepts `troveId: string` from the `borrowViewAtom` state (`{ view: "manage-trove", troveId }`)
 - [ ] Uses `useTroveData(symbol, troveId)` to load current trove state
 - [ ] Header showing: current collateral, debt, interest rate, risk level
-- [ ] Tab navigation using `@repo/ui` Tabs: "Adjust" | "Interest Rate" | "Close"
+- [ ] Tab navigation using `@mento-protocol/ui` Tabs: "Adjust" | "Interest Rate" | "Close"
 - [ ] Renders the appropriate sub-form based on selected tab
 - [ ] Loading state while trove data loads
 - [ ] "Back to Dashboard" link/button
@@ -325,11 +325,11 @@ interface AdjustTroveParams {
 ### UI component patterns (from existing monorepo)
 
 - **Form layout:** Use `Card` > `CardHeader` > `CardTitle` + `CardContent` for each form section
-- **Token inputs:** Reference `CoinInput` from `@repo/ui` or the pool form's token input pattern
-- **Sliders:** `@repo/ui` Slider (Radix-based) — `min`, `max`, `step`, `value`, `onValueChange`
-- **Tabs:** `@repo/ui` Tabs > TabsList > TabsTrigger + TabsContent
-- **Buttons:** `@repo/ui` Button with `variant` prop (default, outline, destructive)
-- **Charts:** `@repo/ui` Chart (Recharts wrapper) — `ChartContainer` with theme-aware colors
+- **Token inputs:** Reference `CoinInput` from `@mento-protocol/ui` or the pool form's token input pattern
+- **Sliders:** `@mento-protocol/ui` Slider (Radix-based) — `min`, `max`, `step`, `value`, `onValueChange`
+- **Tabs:** `@mento-protocol/ui` Tabs > TabsList > TabsTrigger + TabsContent
+- **Buttons:** `@mento-protocol/ui` Button with `variant` prop (default, outline, destructive)
+- **Charts:** `@mento-protocol/ui` Chart (Recharts wrapper) — `ChartContainer` with theme-aware colors
 - **Number formatting:** Use `formatDebtAmount`, `formatCollateralAmount`, `formatInterestRate` from `features/borrow/format.ts`
 - **Bigint conversion:** `parseUnits(inputString, 18)` for user input → bigint, `formatUnits(bigintValue, 18)` for display
 

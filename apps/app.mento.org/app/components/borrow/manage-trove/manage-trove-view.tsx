@@ -11,7 +11,7 @@ import {
   TabsTrigger,
   Skeleton,
   TokenIcon,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import {
   formatCollateralAmount,
   formatDebtAmount,

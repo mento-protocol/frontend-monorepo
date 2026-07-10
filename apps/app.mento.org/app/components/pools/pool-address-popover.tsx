@@ -5,7 +5,7 @@ import {
   PopoverContent,
   PopoverTrigger,
   CopyToClipboard,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { getExplorerUrl, shortenAddress, chainIdToSlug } from "@repo/web3";
 import type { PoolDisplay } from "@repo/web3";
 import { Info, ExternalLink, Link2, Check } from "lucide-react";

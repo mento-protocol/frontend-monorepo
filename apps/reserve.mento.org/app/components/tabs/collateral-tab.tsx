@@ -8,7 +8,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import type { V2ReserveResponse, CollateralSource } from "@/lib/types";
 import { formatUsd, formatNumber, formatPercent } from "@/lib/format";
 import { CHAIN_ICON, chainLabel } from "@/lib/chains";

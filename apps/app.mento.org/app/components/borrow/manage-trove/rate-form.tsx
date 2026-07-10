@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Button, Slider } from "@repo/ui";
+import { Button, Slider } from "@mento-protocol/ui";
 import {
   type DebtTokenConfig,
   useAdjustInterestRate,

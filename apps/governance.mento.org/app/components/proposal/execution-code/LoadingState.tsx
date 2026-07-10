@@ -1,4 +1,4 @@
-import { IconLoading } from "@repo/ui";
+import { IconLoading } from "@mento-protocol/ui";
 
 export function LoadingState() {
   return (

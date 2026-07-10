@@ -20,7 +20,7 @@ import {
   ProposalListItemBody,
   ProposalListItemIndex,
   ProposalStatus,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { formatUnits } from "viem";

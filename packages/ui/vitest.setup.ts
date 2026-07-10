@@ -1,5 +1,5 @@
 // jsdom omits several browser APIs that Radix UI primitives and the
-// @repo/ui media-query hooks (use-mobile / use-media-query) rely on.
+// @mento-protocol/ui media-query hooks (use-mobile / use-media-query) rely on.
 // Provide minimal stubs so real components render under jsdom without throwing.
 
 if (typeof window.matchMedia !== "function") {

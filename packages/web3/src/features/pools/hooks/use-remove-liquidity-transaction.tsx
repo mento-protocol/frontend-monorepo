@@ -1,7 +1,7 @@
 import type { ChainId } from "@/config/chains";
 import { getMentoSdk } from "@/features/sdk";
 import { logger } from "@/utils/logger";
-import { toast } from "@repo/ui";
+import { toast } from "@mento-protocol/ui";
 import type { RemoveLiquidityTransaction } from "@mento-protocol/mento-sdk";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Star, X, ExternalLink } from "lucide-react";
-import { Badge, Button } from "@repo/ui";
+import { Badge, Button } from "@mento-protocol/ui";
 import {
   getPoolRewardKey,
   type PoolRewardInfo,

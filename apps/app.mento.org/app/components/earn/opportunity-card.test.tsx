@@ -44,7 +44,7 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-vi.mock("@repo/ui", () => ({
+vi.mock("@mento-protocol/ui", () => ({
   Card: ({ children, ...rest }: React.HTMLAttributes<HTMLDivElement>) => (
     <div {...rest}>{children}</div>
   ),

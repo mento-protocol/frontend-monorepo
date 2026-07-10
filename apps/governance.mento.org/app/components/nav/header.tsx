@@ -9,7 +9,7 @@ import {
   NavigationMenuItem,
   NavigationMenuLink,
   NavigationMenuList,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { Celo, CeloSepolia, ChainButton, ConnectButton } from "@repo/web3";
 import { usePathname } from "next/navigation";
 

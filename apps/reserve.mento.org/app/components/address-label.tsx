@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, ClipboardCopy } from "lucide-react";
 import * as Sentry from "@sentry/nextjs";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@repo/ui";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@mento-protocol/ui";
 
 type AddressLabelVariant = "default" | "compact";
 

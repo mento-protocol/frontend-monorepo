@@ -26,7 +26,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
   type BadgeType,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { Identicon, useCurrentChain, WalletHelper } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
 import { subWeeks } from "date-fns";

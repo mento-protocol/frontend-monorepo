@@ -2,7 +2,7 @@
 import { NumbersService, useTokens } from "@repo/web3";
 import { useLockInfo, useLocksByAccount } from "@/contracts/locking";
 import { useVeMentoDelegationSummary } from "@/hooks/use-ve-mento-delegation-summary";
-import { Button } from "@repo/ui";
+import { Button } from "@mento-protocol/ui";
 import { ChevronsRight, Zap } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect, useMemo } from "react";

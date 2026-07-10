@@ -189,7 +189,7 @@ Phase 1 builds the read-only data layer and dashboard UI for the Mento V3 Borrow
 - [ ] Renders a dropdown or segmented control showing available debt tokens
 - [ ] GBPm is active/selectable; CHFm and JPYm show "Coming soon" badge and are disabled
 - [ ] Selecting a token updates `selectedDebtTokenAtom`
-- [ ] Uses `@repo/ui` components (e.g., Select, Button) where appropriate
+- [ ] Uses `@mento-protocol/ui` components (e.g., Select, Button) where appropriate
 - [ ] Typecheck passes (pnpm check-types)
 - [ ] Verify in browser using dev-browser skill: selector shows GBPm selected, other options disabled
 
@@ -203,7 +203,7 @@ Phase 1 builds the read-only data layer and dashboard UI for the Mento V3 Borrow
 - [ ] Accepts `risk: RiskLevel | null` prop (from SDK: `"low"` | `"medium"` | `"high"`)
 - [ ] Renders colored badge: Low = green, Medium = amber/yellow, High = red
 - [ ] When `null`, renders nothing or a muted "N/A" state
-- [ ] Uses existing Tailwind color utilities and `@repo/ui` Badge component if available
+- [ ] Uses existing Tailwind color utilities and `@mento-protocol/ui` Badge component if available
 - [ ] Compact size suitable for use inside cards and table rows
 - [ ] Typecheck passes (pnpm check-types)
 - [ ] Verify in browser using dev-browser skill: badge renders correctly with all three states
@@ -236,7 +236,7 @@ Phase 1 builds the read-only data layer and dashboard UI for the Mento V3 Borrow
 - [ ] Uses `useLoanDetails` derived hook to compute LTV and risk from the position data
 - [ ] Uses `useCollateralPrice` hook for price data
 - [ ] Clicking the card navigates to manage-trove view (updates `borrowViewAtom` to `{ view: "manage-trove", troveId }`)
-- [ ] Uses `@repo/ui` Card component for consistent styling
+- [ ] Uses `@mento-protocol/ui` Card component for consistent styling
 - [ ] Typecheck passes (pnpm check-types)
 - [ ] Verify in browser using dev-browser skill
 
@@ -251,7 +251,7 @@ Phase 1 builds the read-only data layer and dashboard UI for the Mento V3 Borrow
 - [ ] Displays: deposit amount (formatted in local currency), collateral gain (USDm from liquidations), debt token yield gain
 - [ ] Shows pool share percentage if total pool size is available (from `useStabilityPoolStats`)
 - [ ] Clicking the card navigates to earn view (updates `borrowViewAtom` to `"earn"`)
-- [ ] Uses `@repo/ui` Card component for consistent styling
+- [ ] Uses `@mento-protocol/ui` Card component for consistent styling
 - [ ] Typecheck passes (pnpm check-types)
 - [ ] Verify in browser using dev-browser skill
 
@@ -299,7 +299,7 @@ Phase 1 builds the read-only data layer and dashboard UI for the Mento V3 Borrow
 ## Design Considerations
 
 - Follow the existing pools dashboard layout pattern (`pools-view.tsx`) for the borrow dashboard
-- Use `@repo/ui` Card, Badge, Button, Select components for consistency
+- Use `@mento-protocol/ui` Card, Badge, Button, Select components for consistency
 - Position cards should show the most critical info at a glance: collateral, debt, LTV, risk
 - Use the same max-width container (`max-w-5xl`) as the pools view
 - Loading states should use skeleton/shimmer placeholders, not spinners

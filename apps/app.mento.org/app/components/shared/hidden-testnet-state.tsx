@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Button } from "@repo/ui";
+import { Button } from "@mento-protocol/ui";
 import {
   ChainId,
   chainIdToChain,

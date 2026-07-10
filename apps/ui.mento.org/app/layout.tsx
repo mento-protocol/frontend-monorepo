@@ -1,4 +1,4 @@
-import "@repo/ui/globals.css";
+import "@mento-protocol/ui/globals.css";
 import "./globals.css";
 
 import type { Metadata } from "next";

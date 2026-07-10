@@ -1,6 +1,6 @@
 "use client";
 
-import { links } from "@repo/ui";
+import { links } from "@mento-protocol/ui";
 import { logger } from "@repo/web3";
 import { Frown } from "lucide-react";
 import { Component, PropsWithChildren, type ErrorInfo } from "react";

@@ -8,7 +8,7 @@ import {
   SelectValue,
   CoinInput,
   toast,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import type { PoolDisplay, SlippageOption } from "@repo/web3";
 import {
   SLIPPAGE_OPTIONS,

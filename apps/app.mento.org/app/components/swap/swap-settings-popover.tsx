@@ -10,7 +10,7 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { useAtom } from "jotai";
 import { Info, Settings } from "lucide-react";
 import { useEffect, useState } from "react";

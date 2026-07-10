@@ -18,7 +18,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
   Button,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { useState } from "react";
 
 export default function LayoutComponentsPage() {

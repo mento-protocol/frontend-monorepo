@@ -11,7 +11,7 @@ import {
   useAccountModal,
   useConnectModal,
 } from "@rainbow-me/rainbowkit";
-import { toast } from "@repo/ui";
+import { toast } from "@mento-protocol/ui";
 import {
   ChevronDown,
   ClipboardCopy,
@@ -31,7 +31,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 
 type ConnectButtonProps = ButtonProps & {
   size?: "sm" | "lg";

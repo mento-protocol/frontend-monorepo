@@ -2,7 +2,7 @@ import { GovernorABI } from "@repo/web3";
 import { ProposalQueryKey } from "@/contracts/governor/use-proposal";
 import { useContracts } from "@repo/web3";
 import { useCurrentChain } from "@/hooks/use-current-chain";
-import { toast } from "@repo/ui";
+import { toast } from "@mento-protocol/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect } from "react";
 import {

@@ -19,7 +19,7 @@ if (process.env.CI && !process.env.ARGOS_TOKEN) {
   );
 }
 
-// Visual regression for the @repo/ui showcase. Renders the built app in a
+// Visual regression for the @mento-protocol/ui showcase. Renders the built app in a
 // pinned Playwright Docker image in CI (see .github/workflows/visual.yml) so
 // the CI render matches the baseline render. Screenshots are uploaded to Argos
 // only in CI (the reporter requires ARGOS_TOKEN); locally the specs still run

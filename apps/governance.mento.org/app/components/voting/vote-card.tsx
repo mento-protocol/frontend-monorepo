@@ -26,7 +26,7 @@ import {
   CardHeader,
   CardTitle,
   IconLoading,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { ConnectButton, NumbersService } from "@repo/web3";
 import { useAccount, useChainId } from "@repo/web3/wagmi";
 import * as Sentry from "@sentry/nextjs";

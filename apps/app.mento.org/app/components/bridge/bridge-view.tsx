@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useTheme } from "next-themes";
 import { useEffect, useMemo, useRef } from "react";
 import { getBridgeTheme, bridgeConfig } from "./bridge-config";
-import { Button } from "@repo/ui";
+import { Button } from "@mento-protocol/ui";
 import {
   Celo,
   isFeatureConfiguredOnChain,

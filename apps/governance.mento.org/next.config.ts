@@ -100,7 +100,7 @@ const nextConfig: NextConfig = {
     ],
   },
   transpilePackages: [
-    "@repo/ui",
+    "@mento-protocol/ui",
     "@repo/web3",
     "@wagmi/core",
     "@rainbow-me/rainbowkit",

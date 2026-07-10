@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { cn } from "@repo/ui";
+import { cn } from "@mento-protocol/ui";
 
 interface ProgressSegmentProps {
   filled: boolean;

@@ -1,6 +1,6 @@
 "use client";
 import { VoteCard } from "@/components/voting/vote-card";
-import { IconLoading } from "@repo/ui";
+import { IconLoading } from "@mento-protocol/ui";
 import { CELO_BLOCK_TIME } from "@repo/web3";
 import { ensureChainId } from "@repo/web3";
 import { useProposal } from "@/contracts/governor";

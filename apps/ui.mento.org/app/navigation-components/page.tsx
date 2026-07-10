@@ -17,7 +17,7 @@ import {
   PaginationLink,
   PaginationNext,
   PaginationPrevious,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 
 export default function NavigationComponentsPage() {
   return (

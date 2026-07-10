@@ -10,7 +10,7 @@ import { formatWithMaxDecimals, parseSlippage } from "@/features/swap/utils";
 import { validateAddress } from "@/utils/addresses";
 import { logger } from "@/utils/logger";
 import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
-import { toast } from "@repo/ui";
+import { toast } from "@mento-protocol/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
 import { useAtom, useSetAtom } from "jotai";

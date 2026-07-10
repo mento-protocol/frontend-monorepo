@@ -11,7 +11,7 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { useMemo, useState } from "react";
 import { ErrorBoundary } from "@sentry/nextjs";
 import type { Transaction } from "../types/transaction";

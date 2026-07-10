@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
   toast,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useChainId, useSwitchChain } from "wagmi";

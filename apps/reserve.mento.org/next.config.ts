@@ -86,7 +86,7 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  transpilePackages: ["@repo/ui"],
+  transpilePackages: ["@mento-protocol/ui"],
 };
 
 export default withSentryConfig(nextConfig, {

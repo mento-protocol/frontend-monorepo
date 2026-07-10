@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAccount, useDisconnect } from "@repo/web3/wagmi";
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import { toast } from "@repo/ui";
+import { toast } from "@mento-protocol/ui";
 import { createLocalStore } from "@/lib/utils/local-store";
 
 const isTestMode =

@@ -17,7 +17,7 @@ import { LiquidityFlowDialog } from "@/components/pools/liquidity-flow-dialog";
 import { ChainMismatchBanner } from "@/components/shared/chain-mismatch-banner";
 import { HiddenTestnetState } from "@/components/shared/hidden-testnet-state";
 import { getOpportunityBackLink } from "@/lib/opportunity-navigation";
-import { Skeleton } from "@repo/ui";
+import { Skeleton } from "@mento-protocol/ui";
 import { ArrowLeft, Droplets } from "lucide-react";
 import Link from "next/link";
 
