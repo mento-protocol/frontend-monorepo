@@ -2,7 +2,7 @@ import { ProgressBar } from "@/components/progress-bar";
 import { TransactionLink } from "@/components/proposal/components/TransactionLink";
 import { Timer } from "@/components/timer";
 import { deriveVoteCardState } from "@/components/voting/derive-vote-card-state";
-import { ProposalCancelButton } from "@/components/voting/proposal-cancel-button";
+import { VoteCardCancelActions } from "@/components/voting/vote-card-cancel-actions";
 import { getWatchdogMultisigAddress } from "@/config";
 import { useLocksByAccount } from "@/contracts";
 import {
@@ -581,6 +581,26 @@ export const VoteCard = ({
       return "Propose Cancellation in Safe";
     }
   }, [isWatchdogSafe, isAwaitingCancelSignature, isCancelConfirming]);
+  const watchdogCancelAction = {
+    isWatchdog,
+    hasPendingCancellation,
+    isPendingCancellationStatusUnavailable,
+    onCancel: handleCancelByWatchdog,
+    isAwaitingCancelSignature,
+    isCancelConfirming,
+    cancelButtonText,
+    signaturesCollected,
+    signaturesRequired,
+    chainId,
+    watchdogAddress,
+  };
+  const proposerCancelAction = {
+    canProposerCancel,
+    onCancel: handleCancelByProposer,
+    isAwaitingProposerCancelSignature,
+    isProposerCancelConfirming,
+    isProposerCancelConfirmed,
+  };
 
   const description = useMemo(() => {
     switch (currentState) {
@@ -806,20 +826,8 @@ export const VoteCard = ({
                     ? "Executing..."
                     : "Execute Proposal"}
               </Button>
-              <ProposalCancelButton
-                isWatchdog={isWatchdog}
-                hasPendingCancellation={hasPendingCancellation}
-                isPendingCancellationStatusUnavailable={
-                  isPendingCancellationStatusUnavailable
-                }
-                onCancel={handleCancelByWatchdog}
-                isAwaitingCancelSignature={isAwaitingCancelSignature}
-                isCancelConfirming={isCancelConfirming}
-                cancelButtonText={cancelButtonText}
-                signaturesCollected={signaturesCollected}
-                signaturesRequired={signaturesRequired}
-                chainId={chainId}
-                watchdogAddress={watchdogAddress}
+              <VoteCardCancelActions
+                watchdogCancelAction={watchdogCancelAction}
               />
             </div>
           );
@@ -836,20 +844,8 @@ export const VoteCard = ({
             >
               In Veto Period
             </Button>
-            <ProposalCancelButton
-              isWatchdog={isWatchdog}
-              hasPendingCancellation={hasPendingCancellation}
-              isPendingCancellationStatusUnavailable={
-                isPendingCancellationStatusUnavailable
-              }
-              onCancel={handleCancelByWatchdog}
-              isAwaitingCancelSignature={isAwaitingCancelSignature}
-              isCancelConfirming={isCancelConfirming}
-              cancelButtonText={cancelButtonText}
-              signaturesCollected={signaturesCollected}
-              signaturesRequired={signaturesRequired}
-              chainId={chainId}
-              watchdogAddress={watchdogAddress}
+            <VoteCardCancelActions
+              watchdogCancelAction={watchdogCancelAction}
             />
           </div>
         );
@@ -905,41 +901,10 @@ export const VoteCard = ({
                   ? "Queueing..."
                   : "Queue for Execution"}
             </Button>
-            <ProposalCancelButton
-              isWatchdog={isWatchdog}
-              hasPendingCancellation={hasPendingCancellation}
-              isPendingCancellationStatusUnavailable={
-                isPendingCancellationStatusUnavailable
-              }
-              onCancel={handleCancelByWatchdog}
-              isAwaitingCancelSignature={isAwaitingCancelSignature}
-              isCancelConfirming={isCancelConfirming}
-              cancelButtonText={cancelButtonText}
-              signaturesCollected={signaturesCollected}
-              signaturesRequired={signaturesRequired}
-              chainId={chainId}
-              watchdogAddress={watchdogAddress}
+            <VoteCardCancelActions
+              watchdogCancelAction={watchdogCancelAction}
+              proposerCancelAction={proposerCancelAction}
             />
-            {canProposerCancel && (
-              <Button
-                variant="reject"
-                size="lg"
-                clipped="default"
-                onClick={handleCancelByProposer}
-                disabled={
-                  isAwaitingProposerCancelSignature ||
-                  isProposerCancelConfirming ||
-                  isProposerCancelConfirmed
-                }
-                className="mt-4 w-full"
-              >
-                {isAwaitingProposerCancelSignature
-                  ? "Confirm in Wallet"
-                  : isProposerCancelConfirming || isProposerCancelConfirmed
-                    ? "Cancelling..."
-                    : "Cancel Proposal"}
-              </Button>
-            )}
           </div>
         );
 
@@ -958,26 +923,9 @@ export const VoteCard = ({
                 Voting Not Started
               </Button>
             </div>
-            {canProposerCancel && (
-              <Button
-                variant="reject"
-                size="lg"
-                clipped="default"
-                onClick={handleCancelByProposer}
-                disabled={
-                  isAwaitingProposerCancelSignature ||
-                  isProposerCancelConfirming ||
-                  isProposerCancelConfirmed
-                }
-                className="mt-4 w-full"
-              >
-                {isAwaitingProposerCancelSignature
-                  ? "Confirm in Wallet"
-                  : isProposerCancelConfirming || isProposerCancelConfirmed
-                    ? "Cancelling..."
-                    : "Cancel Proposal"}
-              </Button>
-            )}
+            <VoteCardCancelActions
+              proposerCancelAction={proposerCancelAction}
+            />
           </>
         );
 
@@ -1039,26 +987,9 @@ export const VoteCard = ({
                 Vote NO
               </Button>
             </div>
-            {canProposerCancel && (
-              <Button
-                variant="reject"
-                size="lg"
-                clipped="default"
-                onClick={handleCancelByProposer}
-                disabled={
-                  isAwaitingProposerCancelSignature ||
-                  isProposerCancelConfirming ||
-                  isProposerCancelConfirmed
-                }
-                className="mt-4 w-full"
-              >
-                {isAwaitingProposerCancelSignature
-                  ? "Confirm in Wallet"
-                  : isProposerCancelConfirming || isProposerCancelConfirmed
-                    ? "Cancelling..."
-                    : "Cancel Proposal"}
-              </Button>
-            )}
+            <VoteCardCancelActions
+              proposerCancelAction={proposerCancelAction}
+            />
           </>
         );
 
