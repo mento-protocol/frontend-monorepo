@@ -1187,7 +1187,7 @@ export const VoteCard = ({
               {renderActions()}
             </div>
 
-            {(error || executeError || queueError || cancelError) &&
+            {activeTransactionErrorMessage &&
               (currentState === "ready" ||
                 currentState === "succeeded" ||
                 currentState === "queued") && (
@@ -1201,9 +1201,7 @@ export const VoteCard = ({
                           ? "Error cancelling proposal"
                           : "Error submitting vote"}
                   </span>
-                  {activeTransactionErrorMessage && (
-                    <span>{activeTransactionErrorMessage}</span>
-                  )}
+                  <span>{activeTransactionErrorMessage}</span>
                 </div>
               )}
           </>
