@@ -102,37 +102,57 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.foundry/cache
-          key: foundry-rpc-celo-${{ env.FORK_BLOCK }}
+          # Per-run key + prefix restore: every run starts from the newest
+          # previous cache for this block and saves its own enlarged copy, so
+          # anvil's local RPC cache warms progressively and later runs barely
+          # touch the remote at all.
+          key: foundry-rpc-celo-${{ env.FORK_BLOCK }}-${{ github.run_id }}
+          restore-keys: |
+            foundry-rpc-celo-${{ env.FORK_BLOCK }}-
 
       - name: Select fork RPC (archive state at the pinned block required)
         shell: bash
         run: |
           # See the FORK_BLOCK env comment: forno cannot serve a pinned-block
           # fork, so probe keyless public Celo endpoints for archive state at
-          # the pinned block (an eth_getStorageAt there is exactly the call
-          # anvil makes lazily while forking) and take the first that answers.
+          # the pinned block. A single successful probe is NOT enough: it can
+          # be a gateway cache hit or one lucky archive backend in a mixed
+          # pool (run 29062331257: drpc answered one probe, then anvil's very
+          # next account fetches hit pruned backends). Sample each candidate
+          # repeatedly with varied params across the account methods anvil
+          # actually issues, and require every request to pass.
           block_hex=$(printf '0x%x' "$FORK_BLOCK")
           candidates=(
-            https://celo.drpc.org
             https://celo-rpc.publicnode.com
+            https://celo.api.onfinality.io/public
+            https://1rpc.io/celo
             https://rpc.ankr.com/celo
+            https://celo.drpc.org
             https://forno.celo.org
           )
-          probe() {
+          call() { # url method params
             curl -sf -m 15 -X POST "$1" \
               -H 'Content-Type: application/json' \
-              --data '{"jsonrpc":"2.0","id":1,"method":"eth_getStorageAt","params":["0x765DE816845861e75A25fCA122bb6898B8B1282a","0x0","'"$block_hex"'"]}'
+              --data '{"jsonrpc":"2.0","id":1,"method":"'"$2"'","params":'"$3"'}' \
+              | grep -q '"result":"0x'
+          }
+          probe() {
+            local url="$1" i
+            for i in 1 2 3 4 5; do
+              call "$url" eth_getBalance '["0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","'"$block_hex"'"]' || return 1
+              call "$url" eth_getTransactionCount '["0x70997970C51812dc3A010C7d01b50e0d17dc79C8","'"$block_hex"'"]' || return 1
+              call "$url" eth_getStorageAt '["0x765DE816845861e75A25fCA122bb6898B8B1282a","0x'"$i"'","'"$block_hex"'"]' || return 1
+            done
           }
           for url in "${candidates[@]}"; do
-            response="$(probe "$url" || true)"
-            echo "$url -> ${response:-<no response>}"
-            if [[ "$response" == *'"result":"0x'* ]]; then
+            if probe "$url"; then
               echo "FORK_URL=$url" >> "$GITHUB_ENV"
-              echo "Selected $url (serves state at block $FORK_BLOCK)"
+              echo "Selected $url (15/15 archive-state probes at block $FORK_BLOCK passed)"
               exit 0
             fi
+            echo "$url failed an archive-state probe at block $FORK_BLOCK - skipping"
           done
-          echo "::error::no candidate RPC serves archive state at block $FORK_BLOCK - cannot fork deterministically"
+          echo "::error::no candidate RPC consistently serves archive state at block $FORK_BLOCK"
           exit 1
 
       - name: Start anvil (Celo mainnet fork)
