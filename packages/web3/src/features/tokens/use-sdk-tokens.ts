@@ -3,6 +3,7 @@ import {
   Token,
   TokenSymbol,
 } from "@mento-protocol/mento-sdk";
+import { logger } from "@/utils/logger";
 import { useMemo } from "react";
 import { Address } from "viem";
 import { useChainId } from "wagmi";
@@ -34,7 +35,7 @@ export function useSDKTokens(chainIdOverride?: number) {
 
       return tokenMap;
     } catch (error) {
-      console.error(
+      logger.error(
         `❌ Failed to load cached tokens for chain ${chainId}:`,
         error,
       );
