@@ -2,6 +2,7 @@ import { ProgressBar } from "@/components/progress-bar";
 import { TransactionLink } from "@/components/proposal/components/TransactionLink";
 import { Timer } from "@/components/timer";
 import { deriveVoteCardState } from "@/components/voting/derive-vote-card-state";
+import { getGovernanceTransactionErrorMessage } from "@/components/voting/get-governance-transaction-error-message";
 import { VoteCardCancelActions } from "@/components/voting/vote-card-cancel-actions";
 import { useDelayedVoteCardRefire } from "@/components/voting/use-delayed-vote-card-refire";
 import { getWatchdogMultisigAddress } from "@/config";
@@ -34,7 +35,7 @@ import { useAccount, useChainId } from "@repo/web3/wagmi";
 import * as Sentry from "@sentry/nextjs";
 import { CheckCircle2, CircleCheck, XCircle, XCircleIcon } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import spacetime from "spacetime";
 import { formatUnits, keccak256, toHex } from "viem";
 
@@ -428,6 +429,36 @@ export const VoteCard = ({
     abstainVotes > forVotes &&
     abstainVotes > againstVotes;
   const hasQuorum = totalVotingPower >= (quorumNeeded || BigInt(0));
+  const activeTransactionError =
+    executeError ?? queueError ?? cancelError ?? error;
+  const activeTransactionErrorMessage = activeTransactionError
+    ? getGovernanceTransactionErrorMessage(activeTransactionError)
+    : null;
+  const capturedTransactionErrorsRef = useRef<Set<unknown>>(new Set());
+
+  useEffect(() => {
+    for (const transactionError of [
+      error,
+      executeError,
+      queueError,
+      cancelError,
+    ]) {
+      if (!transactionError) {
+        continue;
+      }
+
+      if (getGovernanceTransactionErrorMessage(transactionError) === null) {
+        continue;
+      }
+
+      if (capturedTransactionErrorsRef.current.has(transactionError)) {
+        continue;
+      }
+
+      Sentry.captureException(transactionError);
+      capturedTransactionErrorsRef.current.add(transactionError);
+    }
+  }, [error, executeError, queueError, cancelError]);
 
   const currentState = useMemo(() => {
     return deriveVoteCardState({
@@ -1161,28 +1192,17 @@ export const VoteCard = ({
                 currentState === "succeeded" ||
                 currentState === "queued") && (
                 <div className="gap-1 text-sm text-red-500 flex w-full flex-col items-center justify-center">
-                  {(
-                    error?.message ||
-                    executeError?.message ||
-                    queueError?.message
-                  )?.includes("rejected") ? null : (
-                    <>
-                      <span>
-                        {executeError
-                          ? "Error executing proposal"
-                          : queueError
-                            ? "Error queueing proposal"
-                            : cancelError
-                              ? "Error cancelling proposal"
-                              : "Error casting vote"}
-                      </span>
-                      <span>
-                        {
-                          (error || executeError || queueError || cancelError)
-                            ?.message
-                        }
-                      </span>
-                    </>
+                  <span>
+                    {executeError
+                      ? "Error executing proposal"
+                      : queueError
+                        ? "Error queueing proposal"
+                        : cancelError
+                          ? "Error cancelling proposal"
+                          : "Error submitting vote"}
+                  </span>
+                  {activeTransactionErrorMessage && (
+                    <span>{activeTransactionErrorMessage}</span>
                   )}
                 </div>
               )}
