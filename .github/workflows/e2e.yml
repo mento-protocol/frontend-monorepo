@@ -225,6 +225,21 @@ jobs:
       - name: Run connected E2E specs
         run: pnpm --filter app.mento.org test:connected --trace retain-on-failure
 
+      # anvil only flushes its RPC fetch cache to ~/.foundry/cache on graceful
+      # shutdown — without this step the path never exists and the post-step
+      # of "Cache anvil fork state" has nothing to save (run 29063800940:
+      # "Path Validation Error ... no cache is being saved").
+      - name: Stop anvil (flush RPC cache to disk)
+        if: always()
+        shell: bash
+        run: |
+          kill "$(cat anvil.pid)" 2>/dev/null || true
+          for _ in $(seq 1 10); do
+            kill -0 "$(cat anvil.pid)" 2>/dev/null || exit 0
+            sleep 1
+          done
+          echo "::warning::anvil did not exit within 10s - RPC cache may not be saved"
+
       - name: Upload Playwright artifacts on failure
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
