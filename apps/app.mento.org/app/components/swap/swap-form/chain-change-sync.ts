@@ -1,9 +1,6 @@
 import type { TokenSymbol } from "@mento-protocol/mento-sdk";
 
-import {
-  getAvailableTokenSymbol,
-  getDefaultTokenInSymbol,
-} from "./token-selection";
+import { getAvailableTokenSymbol } from "./token-selection";
 
 type ClearAmountOnlyPlan = {
   kind: "clear-amount-only";
@@ -48,9 +45,7 @@ export function getChainChangeSyncPlan({
   }
 
   const tokenInSymbol =
-    resolvedTokenIn ??
-    getDefaultTokenInSymbol(preferredQuoteTokenSymbol, availableTokens) ??
-    "";
+    resolvedTokenIn ?? preferredQuoteTokenSymbol ?? availableTokens[0] ?? "";
 
   let tokenOutSymbol: TokenSymbol | "" = resolvedTokenOut ?? "";
   if (tokenInSymbol && tokenOutSymbol && tokenInSymbol === tokenOutSymbol) {

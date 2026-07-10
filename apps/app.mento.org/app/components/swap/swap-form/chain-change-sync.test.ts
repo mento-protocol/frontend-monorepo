@@ -32,6 +32,21 @@ describe("getChainChangeSyncPlan", () => {
     });
   });
 
+  it("preserves an unavailable preferred quote token before falling back to the first available token", () => {
+    expect(
+      getChainChangeSyncPlan({
+        availableTokens,
+        currentTokenInSymbol: "invalid",
+        currentTokenOutSymbol: "",
+        preferredQuoteTokenSymbol: "cUSD" as TokenSymbol,
+      }),
+    ).toEqual({
+      kind: "reset-tokens",
+      tokenInSymbol: "cUSD",
+      tokenOutSymbol: "USDm",
+    });
+  });
+
   it("picks a distinct tokenOut when the resolved pair would be duplicated", () => {
     expect(
       getChainChangeSyncPlan({
@@ -47,13 +62,28 @@ describe("getChainChangeSyncPlan", () => {
     });
   });
 
-  it("handles chains without available tokens", () => {
+  it("keeps the preferred quote when no tokens are available", () => {
     expect(
       getChainChangeSyncPlan({
         availableTokens: [],
         currentTokenInSymbol: "USDm",
         currentTokenOutSymbol: "cEUR",
         preferredQuoteTokenSymbol: "cREAL" as TokenSymbol,
+      }),
+    ).toEqual({
+      kind: "reset-tokens",
+      tokenInSymbol: "cREAL",
+      tokenOutSymbol: "",
+    });
+  });
+
+  it("handles chains without available tokens or a preferred quote", () => {
+    expect(
+      getChainChangeSyncPlan({
+        availableTokens: [],
+        currentTokenInSymbol: "USDm",
+        currentTokenOutSymbol: "cEUR",
+        preferredQuoteTokenSymbol: null,
       }),
     ).toEqual({
       kind: "reset-tokens",

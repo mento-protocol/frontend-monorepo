@@ -476,8 +476,14 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
       prev
         ? {
             ...prev,
-            tokenInSymbol: plan.tokenInSymbol || undefined,
-            tokenOutSymbol: plan.tokenOutSymbol || undefined,
+            tokenInSymbol: getAvailableTokenSymbol(
+              plan.tokenInSymbol,
+              availableTokens,
+            ),
+            tokenOutSymbol: getAvailableTokenSymbol(
+              plan.tokenOutSymbol,
+              availableTokens,
+            ),
             amount: "",
           }
         : prev,
