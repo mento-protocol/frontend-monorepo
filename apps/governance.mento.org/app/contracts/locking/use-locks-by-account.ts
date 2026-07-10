@@ -35,17 +35,18 @@ export const useLocksByAccount = ({
     },
     ssr: false,
   });
+  const activeError = account ? error : undefined;
 
   useEffect(() => {
-    if (!error) {
+    if (!activeError) {
       return;
     }
 
-    reportSubgraphError(error, "GetLocks");
-  }, [error]);
+    reportSubgraphError(activeError, "GetLocks");
+  }, [activeError]);
 
   const locks = useMemo(() => {
-    if (!data) {
+    if (!account || !data) {
       return [] as LockWithExpiration[];
     }
 
@@ -78,11 +79,11 @@ export const useLocksByAccount = ({
     mapped.sort((a, b) => Number(b.lockId) - Number(a.lockId));
 
     return mapped;
-  }, [data, currentLockingWeek]) as LockWithExpiration[];
+  }, [account, data, currentLockingWeek]) as LockWithExpiration[];
 
   return {
     locks,
-    error,
+    error: activeError,
     ...rest,
   };
 };
