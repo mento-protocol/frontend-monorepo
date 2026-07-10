@@ -52,7 +52,12 @@ export function getWaitingForQuoteTransition(
     return {
       nextPreviousTokenPair: currentTokenPair,
       nextWaitingForQuotePair:
-        update.hasAmount && tokenPairKey ? tokenPairKey : null,
+        update.hasAmount &&
+        tokenPairKey &&
+        !update.isTradingSuspended &&
+        !hasValidQuote(update.quote, update.quoteFetching)
+          ? tokenPairKey
+          : null,
     };
   }
 

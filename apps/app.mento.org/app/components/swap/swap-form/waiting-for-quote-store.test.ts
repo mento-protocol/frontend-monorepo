@@ -81,6 +81,19 @@ describe("getWaitingForQuoteTransition", () => {
       ).nextWaitingForQuotePair,
     ).toBe("USDm:GBPm");
   });
+
+  it("does not wait on a pair change when the new pair already has a fresh quote", () => {
+    expect(
+      getWaitingForQuoteTransition(
+        { tokenInSymbol: gbp, tokenOutSymbol: usd },
+        null,
+        update({ quote: "1.25", quoteFetching: false }),
+      ),
+    ).toEqual({
+      nextPreviousTokenPair: { tokenInSymbol: usd, tokenOutSymbol: gbp },
+      nextWaitingForQuotePair: null,
+    });
+  });
 });
 
 describe("createWaitingForQuoteStore", () => {
