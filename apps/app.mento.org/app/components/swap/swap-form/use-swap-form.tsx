@@ -55,8 +55,7 @@ import {
   getSelectedTokenSymbol,
 } from "./token-selection";
 import {
-  getRouteChangedTokenSide,
-  hasRouteDrivenFormStateChanged,
+  getRouteDrivenFormStateSyncPlan,
   type LastChangedToken,
   type RouteDrivenFormState,
 } from "./route-driven-state";
@@ -493,37 +492,20 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
   useEffect(() => {
     const previousRouteState = lastRouteDrivenFormStateRef.current;
-    const routeStateChanged = hasRouteDrivenFormStateChanged(
-      previousRouteState,
-      routeDrivenFormState,
-    );
 
     lastRouteDrivenFormStateRef.current = routeDrivenFormState;
 
-    if (!routeStateChanged) return;
-
-    const currentValues = form.getValues();
-    const formAlreadyMatchesRoute =
-      currentValues.amount === routeDrivenFormState.amount &&
-      currentValues.tokenInSymbol === routeDrivenFormState.tokenInSymbol &&
-      currentValues.tokenOutSymbol === routeDrivenFormState.tokenOutSymbol;
-
-    if (formAlreadyMatchesRoute) return;
-
-    const routeChangedTokenSide = getRouteChangedTokenSide(
+    const plan = getRouteDrivenFormStateSyncPlan({
+      currentValues: form.getValues(),
+      formValuesSlippage: formValues?.slippage,
       previousRouteState,
       routeDrivenFormState,
-    );
-
-    form.reset({
-      ...currentValues,
-      amount: routeDrivenFormState.amount,
-      quote: "",
-      tokenInSymbol: routeDrivenFormState.tokenInSymbol,
-      tokenOutSymbol: routeDrivenFormState.tokenOutSymbol,
-      slippage: currentValues.slippage || formValues?.slippage || "0.3",
     });
-    setLastChangedToken(routeChangedTokenSide);
+
+    if (!plan.shouldReset) return;
+
+    form.reset(plan.resetValues);
+    setLastChangedToken(plan.routeChangedTokenSide);
   }, [form, formValues?.slippage, routeDrivenFormState, setLastChangedToken]);
 
   useSwapUrlSync({
