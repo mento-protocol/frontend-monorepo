@@ -371,6 +371,35 @@ async function assertMainnetFork() {
   ok(`Connected to Celo mainnet fork at ${RPC_URL}`);
 }
 
+/**
+ * Advances the fork's clock to wall-clock time. A fork pinned to a past
+ * block boots with chain time hours behind the real world, and anvil stamps
+ * descendant blocks parent+1s — so `block.timestamp` stays in the past. The
+ * mento-sdk validates swap deadlines against wall-clock `Date.now()`
+ * (SwapService.prepareSwap), so every app swap on such a fork fails with
+ * "Deadline must be in the future" (PR #456 run 29063449487). Syncing the
+ * clock BEFORE the oracle re-reports below also means every re-reported
+ * median carries a fresh wall-clock timestamp.
+ */
+async function syncClockToWallTime() {
+  /** @type {{timestamp: string}} */
+  const latest = await rpc("eth_getBlockByNumber", ["latest", false]);
+  const chainNow = BigInt(latest.timestamp);
+  const wallNow = BigInt(Math.floor(Date.now() / 1000));
+  if (wallNow <= chainNow) {
+    ok(
+      `Fork clock (${chainNow}) is at/ahead of wall clock (${wallNow}) — no sync needed`,
+    );
+    return;
+  }
+  await rpc("evm_setNextBlockTimestamp", [toHexQuantity(wallNow)]);
+  await rpc("evm_mine", []);
+  ok(
+    `Advanced fork clock by ${wallNow - chainNow}s to wall-clock time ${wallNow} ` +
+      "(pinned-block forks boot in the past, which breaks SDK swap-deadline validation)",
+  );
+}
+
 async function fundNativeCelo() {
   try {
     for (const account of ANVIL_ACCOUNTS) {
@@ -643,6 +672,7 @@ function printSummary(rows) {
 
 async function main() {
   await assertMainnetFork();
+  await syncClockToWallTime();
   await fundNativeCelo();
   await fundTokens();
   const oracleRows = await reportOracles();
