@@ -215,6 +215,16 @@ jobs:
             | grep -q result \
             || { echo "::error::anvil is no longer reachable after seeding"; tail -50 anvil.log; exit 1; }
 
+      # wagmi's watch queries (balances, allowance) refetch on NEW blocks, but
+      # anvil automine only mines when a transaction arrives — on an idle fork
+      # the app can starve waiting for a refetch that never fires (same
+      # failure class as the governance confirmation flow in #448). Emit an
+      # empty block every second during the specs; transactions still mine
+      # within <=1s (verified against anvil directly), well inside the spec
+      # timeouts. Seeding above stays on pure automine, which is faster.
+      - name: Enable interval mining (1s) for the specs
+        run: cast rpc evm_setIntervalMining 1 --rpc-url http://127.0.0.1:8545
+
       # --trace retain-on-failure keeps a full Playwright trace (console,
       # network, DOM snapshots) only when a spec fails; it lands in
       # test-results/ and ships with the failure artifact below. Passed as a
@@ -228,17 +238,20 @@ jobs:
       # anvil only flushes its RPC fetch cache to ~/.foundry/cache on graceful
       # shutdown — without this step the path never exists and the post-step
       # of "Cache anvil fork state" has nothing to save (run 29063800940:
-      # "Path Validation Error ... no cache is being saved").
+      # "Path Validation Error ... no cache is being saved"). Shutdown can
+      # take a while with a warm fork cache (run 29064161616 exceeded 10s and
+      # still saved), so wait generously and stop interval mining first.
       - name: Stop anvil (flush RPC cache to disk)
         if: always()
         shell: bash
         run: |
+          cast rpc evm_setIntervalMining 0 --rpc-url http://127.0.0.1:8545 > /dev/null 2>&1 || true
           kill "$(cat anvil.pid)" 2>/dev/null || true
-          for _ in $(seq 1 10); do
+          for _ in $(seq 1 30); do
             kill -0 "$(cat anvil.pid)" 2>/dev/null || exit 0
             sleep 1
           done
-          echo "::warning::anvil did not exit within 10s - RPC cache may not be saved"
+          echo "::warning::anvil still shutting down after 30s - RPC cache save may be incomplete"
 
       - name: Upload Playwright artifacts on failure
         if: failure()
