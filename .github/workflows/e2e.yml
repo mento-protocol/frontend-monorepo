@@ -215,8 +215,13 @@ jobs:
             | grep -q result \
             || { echo "::error::anvil is no longer reachable after seeding"; tail -50 anvil.log; exit 1; }
 
+      # --trace retain-on-failure keeps a full Playwright trace (console,
+      # network, DOM snapshots) only when a spec fails; it lands in
+      # test-results/ and ships with the failure artifact below. Passed as a
+      # CLI arg because playwright.config.ts is shared with local runs and
+      # owned by #446.
       - name: Run connected E2E specs
-        run: pnpm --filter app.mento.org test:connected
+        run: pnpm --filter app.mento.org test:connected -- --trace retain-on-failure
 
       - name: Upload Playwright artifacts on failure
         if: failure()
