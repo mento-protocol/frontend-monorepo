@@ -345,7 +345,7 @@ Check what the SDK exposes and use the simplest working approach.
 
 ## Success Metrics
 
-- All typechecks pass (`pnpm check-types` + `tsc --noEmit` in app)
+- All typechecks pass (`pnpm check-types`)
 - `tsup` build succeeds for `packages/web3`
 - Dashboard renders with empty state for wallets with no positions
 - Dashboard renders position cards for wallets with open troves (testable on Celo mainnet/fork)
