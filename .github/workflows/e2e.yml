@@ -23,12 +23,14 @@ env:
   TURBO_TEAM: ${{ vars.TURBO_TEAM }}
   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
   TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
-  # Pinned Celo mainnet block for the anvil fork: keeps the run deterministic
-  # and makes anvil's forno RPC cache (~/.foundry/cache) reusable across runs.
-  # Verified live (fork boot + seed + real Broker swapIn) against this block on
-  # 2026-07-09 — see #447. Bump roughly monthly so the fork doesn't drift too
-  # far from live oracle/liquidity state.
-  FORK_BLOCK: "71727341"
+  # FORK_BLOCK (the Celo mainnet block anvil forks at) is resolved dynamically
+  # by the "Resolve fork block" step below. #447 originally specified a
+  # statically pinned block for determinism + cross-run RPC-cache reuse, but
+  # forno.celo.org is a pruned full node: it stops serving state for a block
+  # within hours, so any static pin fails anvil genesis with "historical
+  # state ... is not available" (the first run on PR #456 proved this with a
+  # block only ~5h old). Pinning to head-32 at run time keeps the run
+  # internally deterministic while staying inside forno's state window.
 
 jobs:
   e2e-connected:
@@ -87,13 +89,35 @@ jobs:
         uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1.9.0
         with:
           version: v1.7.1 # anvil --celo requires foundry >= 1.4; pinned for determinism
-          cache: false # we cache ~/.foundry/cache ourselves, keyed on the fork block
+          # No fork-state caching: the fork block is resolved per run (see the
+          # env comment above), so a block-keyed ~/.foundry/cache entry would
+          # never be hit by a later run.
+          cache: false
 
-      - name: Cache anvil fork state
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.foundry/cache
-          key: foundry-rpc-celo-${{ env.FORK_BLOCK }}
+      - name: Resolve fork block
+        shell: bash
+        run: |
+          # head-32: far enough behind that every load-balanced forno backend
+          # has the block, close enough that its state cannot have been pruned.
+          resolve_head() {
+            curl -sf -X POST https://forno.celo.org \
+              -H 'Content-Type: application/json' \
+              --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' \
+              | sed -n 's/.*"result":"\(0x[0-9a-fA-F]*\)".*/\1/p'
+          }
+          head_hex=""
+          for _ in 1 2 3; do
+            head_hex="$(resolve_head || true)"
+            [[ -n "$head_hex" ]] && break
+            sleep 5
+          done
+          if [[ -z "$head_hex" ]]; then
+            echo "::error::could not resolve the Celo head block from forno.celo.org"
+            exit 1
+          fi
+          fork_block=$((head_hex - 32))
+          echo "FORK_BLOCK=$fork_block" >> "$GITHUB_ENV"
+          echo "Forking Celo mainnet at block $fork_block (head $((head_hex)))"
 
       - name: Start anvil (Celo mainnet fork)
         shell: bash
@@ -107,6 +131,11 @@ jobs:
           }
           wait_ready() {
             for _ in $(seq 1 60); do
+              if ! kill -0 "$(cat anvil.pid)" 2>/dev/null; then
+                echo "anvil process exited early:"
+                tail -20 anvil.log
+                return 1
+              fi
               if curl -sf -X POST http://127.0.0.1:8545 \
                 -H 'Content-Type: application/json' \
                 --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' \
@@ -117,7 +146,7 @@ jobs:
           }
           start_anvil
           if ! wait_ready; then
-            echo "::warning::anvil not ready after 120s - retrying once (forno flakiness)"
+            echo "::warning::anvil not ready - retrying once (forno flakiness)"
             kill "$(cat anvil.pid)" 2>/dev/null || true
             sleep 5
             start_anvil
@@ -125,11 +154,22 @@ jobs:
           fi
           echo "anvil ready at block $(cast block-number --rpc-url http://127.0.0.1:8545)"
 
+      # First seed run, straight after fork creation: funds balances AND pulls
+      # every contract/account the suite touches out of forno into anvil's
+      # local state while the fork block is guaranteed to still be servable.
       - name: Seed fork (balances, ERC-20s, oracle freshness)
         run: node scripts/fork-seed.mjs
 
       - name: Build app.mento.org (E2E mode)
         run: pnpm turbo build --filter=app.mento.org
+
+      # Second seed run, right before the specs: SortedOracles medians go
+      # stale on wall-clock time and the build above can take minutes, which
+      # would burn the freshness window (flagged by Codex review on #456).
+      # The re-run is idempotent (funding no-ops) and needs no forno fetches —
+      # the first run already localized all required state.
+      - name: Re-seed fork (refresh oracle reports after build)
+        run: node scripts/fork-seed.mjs
 
       - name: Run connected E2E specs
         run: pnpm --filter app.mento.org test:connected
