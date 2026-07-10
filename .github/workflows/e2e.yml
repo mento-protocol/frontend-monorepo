@@ -1,0 +1,265 @@
+name: E2E (Connected Wallet)
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - apps/app.mento.org/**
+      - packages/web3/**
+      - scripts/fork-seed.mjs
+      - .github/workflows/e2e.yml
+  # Only usable once this workflow exists on the default branch.
+  workflow_dispatch:
+
+permissions: read-all
+
+# Cancel superseded runs on the same ref — anvil boot + seed + build + specs
+# is expensive and rapid pushes shouldn't pile up.
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+  # Pinned Celo mainnet block for the anvil fork: keeps the run deterministic
+  # and makes anvil's RPC cache (~/.foundry/cache) reusable across runs.
+  # Verified live (fork boot + seed + real Broker swapIn) against this block
+  # on 2026-07-09 — see #447. Bump roughly monthly so the fork doesn't drift
+  # too far from live oracle/liquidity state.
+  #
+  # IMPORTANT: a pinned-block fork needs an ARCHIVE RPC, which forno.celo.org
+  # is not — it prunes a block's state within minutes. On forno, anvil
+  # genesis fails on any stale pin ("historical state ... is not available",
+  # run 29060983949 on PR #456), and even a freshly-resolved head-32 fork
+  # panics anvil ~3 minutes in, because mining each block lazily reads a new
+  # EIP-2935 history-contract slot at the fork block (run 29061781044). The
+  # "Select fork RPC" step probes keyless public archive endpoints for state
+  # at this exact block and fails loudly if none can serve it.
+  FORK_BLOCK: "71727341"
+
+jobs:
+  e2e-connected:
+    name: Connected swap (anvil fork)
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    # Render in the same pinned Playwright container as visual.yml so the two
+    # workflows stay in sync on browser version.
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+
+    env:
+      NEXT_PUBLIC_STORAGE_URL: ${{ vars.STORAGE_URL }}
+      # Still required non-empty by t3-env validation even though E2E mode
+      # never renders the WalletConnect connector.
+      NEXT_PUBLIC_WALLET_CONNECT_ID: ${{ vars.WALLET_CONNECT_ID }}
+      NEXT_PUBLIC_SENTRY_DSN_SWAP: ""
+      SENTRY_AUTH_TOKEN: ""
+      # Activates the mock wallet and points Celo RPC at http://localhost:8545.
+      # NEVER set NEXT_PUBLIC_SANCTIONS_TEST_MODE here — it force-BLOCKS the
+      # app (simulates a sanctioned wallet); the Playwright fixtures in
+      # e2e/fixtures.ts fulfill /api/sanctions instead, so no
+      # CHAINALYSIS_API_KEY is needed either.
+      NEXT_PUBLIC_E2E_TEST: "true"
+      NEXT_PUBLIC_USE_FORK: "true"
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v4
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - name: Setup pnpm cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1.9.0
+        with:
+          version: v1.7.1 # anvil --celo requires foundry >= 1.4; pinned for determinism
+          cache: false # we cache ~/.foundry/cache ourselves, keyed on the fork block
+
+      - name: Cache anvil fork state
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.foundry/cache
+          # Per-run key + prefix restore: every run starts from the newest
+          # previous cache for this block and saves its own enlarged copy, so
+          # anvil's local RPC cache warms progressively and later runs barely
+          # touch the remote at all.
+          key: foundry-rpc-celo-${{ env.FORK_BLOCK }}-${{ github.run_id }}
+          restore-keys: |
+            foundry-rpc-celo-${{ env.FORK_BLOCK }}-
+
+      - name: Select fork RPC (archive state at the pinned block required)
+        shell: bash
+        run: |
+          # See the FORK_BLOCK env comment: forno cannot serve a pinned-block
+          # fork, so probe keyless public Celo endpoints for archive state at
+          # the pinned block. A single successful probe is NOT enough: it can
+          # be a gateway cache hit or one lucky archive backend in a mixed
+          # pool (run 29062331257: drpc answered one probe, then anvil's very
+          # next account fetches hit pruned backends). Sample each candidate
+          # repeatedly with varied params across the account methods anvil
+          # actually issues, and require every request to pass.
+          block_hex=$(printf '0x%x' "$FORK_BLOCK")
+          candidates=(
+            https://celo-rpc.publicnode.com
+            https://celo.api.onfinality.io/public
+            https://1rpc.io/celo
+            https://rpc.ankr.com/celo
+            https://celo.drpc.org
+            https://forno.celo.org
+          )
+          call() { # url method params
+            curl -sf -m 15 -X POST "$1" \
+              -H 'Content-Type: application/json' \
+              --data '{"jsonrpc":"2.0","id":1,"method":"'"$2"'","params":'"$3"'}' \
+              | grep -q '"result":"0x'
+          }
+          probe() {
+            local url="$1" i
+            for i in 1 2 3 4 5; do
+              call "$url" eth_getBalance '["0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","'"$block_hex"'"]' || return 1
+              call "$url" eth_getTransactionCount '["0x70997970C51812dc3A010C7d01b50e0d17dc79C8","'"$block_hex"'"]' || return 1
+              call "$url" eth_getStorageAt '["0x765DE816845861e75A25fCA122bb6898B8B1282a","0x'"$i"'","'"$block_hex"'"]' || return 1
+            done
+          }
+          for url in "${candidates[@]}"; do
+            if probe "$url"; then
+              echo "FORK_URL=$url" >> "$GITHUB_ENV"
+              echo "Selected $url (15/15 archive-state probes at block $FORK_BLOCK passed)"
+              exit 0
+            fi
+            echo "$url failed an archive-state probe at block $FORK_BLOCK - skipping"
+          done
+          echo "::error::no candidate RPC consistently serves archive state at block $FORK_BLOCK"
+          exit 1
+
+      - name: Start anvil (Celo mainnet fork)
+        shell: bash
+        run: |
+          start_anvil() {
+            nohup anvil --celo --auto-impersonate \
+              --fork-url "$FORK_URL" \
+              --fork-block-number "$FORK_BLOCK" \
+              --port 8545 > anvil.log 2>&1 &
+            echo $! > anvil.pid
+          }
+          wait_ready() {
+            for _ in $(seq 1 60); do
+              if ! kill -0 "$(cat anvil.pid)" 2>/dev/null; then
+                echo "anvil process exited early:"
+                tail -20 anvil.log
+                return 1
+              fi
+              if curl -sf -X POST http://127.0.0.1:8545 \
+                -H 'Content-Type: application/json' \
+                --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' \
+                | grep -q result; then return 0; fi
+              sleep 2
+            done
+            return 1
+          }
+          start_anvil
+          if ! wait_ready; then
+            echo "::warning::anvil not ready - retrying once (RPC flakiness)"
+            kill "$(cat anvil.pid)" 2>/dev/null || true
+            sleep 5
+            start_anvil
+            wait_ready || { echo "anvil failed to start after retry"; tail -50 anvil.log; exit 1; }
+          fi
+          echo "anvil ready at block $(cast block-number --rpc-url http://127.0.0.1:8545)"
+
+      # First seed run, straight after fork creation: funds balances and pulls
+      # the contracts/accounts the suite touches into anvil's local state.
+      - name: Seed fork (balances, ERC-20s, oracle freshness)
+        run: node scripts/fork-seed.mjs
+
+      - name: Build app.mento.org (E2E mode)
+        run: pnpm turbo build --filter=app.mento.org
+
+      # Second seed run, right before the specs: SortedOracles medians go
+      # stale on wall-clock time and the build above can take minutes, which
+      # would burn the freshness window (flagged by Codex review on #456).
+      # The re-run is idempotent (funding no-ops). fork-seed.mjs deliberately
+      # warns-and-continues on per-item RPC errors, which would mask a dead
+      # anvil as a green step (it did exactly that on run 29061781044) — so
+      # assert the fork is still alive before handing over to Playwright.
+      - name: Re-seed fork (refresh oracle reports after build)
+        shell: bash
+        run: |
+          node scripts/fork-seed.mjs
+          curl -sf -X POST http://127.0.0.1:8545 \
+            -H 'Content-Type: application/json' \
+            --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' \
+            | grep -q result \
+            || { echo "::error::anvil is no longer reachable after seeding"; tail -50 anvil.log; exit 1; }
+
+      # wagmi's watch queries (balances, allowance) refetch on NEW blocks, but
+      # anvil automine only mines when a transaction arrives — on an idle fork
+      # the app can starve waiting for a refetch that never fires (same
+      # failure class as the governance confirmation flow in #448). Emit an
+      # empty block every second during the specs; transactions still mine
+      # within <=1s (verified against anvil directly), well inside the spec
+      # timeouts. Seeding above stays on pure automine, which is faster.
+      - name: Enable interval mining (1s) for the specs
+        run: cast rpc evm_setIntervalMining 1 --rpc-url http://127.0.0.1:8545
+
+      # --trace retain-on-failure keeps a full Playwright trace (console,
+      # network, DOM snapshots) only when a spec fails; it lands in
+      # test-results/ and ships with the failure artifact below. Passed as a
+      # CLI arg because playwright.config.ts is shared with local runs and
+      # owned by #446. NOTE: no `--` separator before the flag — pnpm forwards
+      # the `--` literally and Playwright would then parse the flag as a test
+      # filter instead of an option (run 29063029354).
+      - name: Run connected E2E specs
+        run: pnpm --filter app.mento.org test:connected --trace retain-on-failure
+
+      # anvil only flushes its RPC fetch cache to ~/.foundry/cache on graceful
+      # shutdown — without this step the path never exists and the post-step
+      # of "Cache anvil fork state" has nothing to save (run 29063800940:
+      # "Path Validation Error ... no cache is being saved"). Shutdown can
+      # take a while with a warm fork cache (run 29064161616 exceeded 10s and
+      # still saved), so wait generously and stop interval mining first.
+      - name: Stop anvil (flush RPC cache to disk)
+        if: always()
+        shell: bash
+        run: |
+          cast rpc evm_setIntervalMining 0 --rpc-url http://127.0.0.1:8545 > /dev/null 2>&1 || true
+          kill "$(cat anvil.pid)" 2>/dev/null || true
+          for _ in $(seq 1 30); do
+            kill -0 "$(cat anvil.pid)" 2>/dev/null || exit 0
+            sleep 1
+          done
+          echo "::warning::anvil still shutting down after 30s - RPC cache save may be incomplete"
+
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-connected-artifacts
+          path: |
+            apps/app.mento.org/test-results/
+            anvil.log
+          if-no-files-found: ignore
+          retention-days: 7

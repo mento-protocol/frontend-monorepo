@@ -7,8 +7,10 @@
  *      10,000 native CELO each via `anvil_setBalance`.
  *   2. Tops each junk account up to >= 1,000 units of cUSD, cEUR, USDC, and
  *      MENTO by impersonating a mainnet whale per token and transferring.
- *   3. Re-reports every SortedOracles median (impersonating the feed's
- *      chainlink relayer) so Broker quotes don't revert on stale reports.
+ *   3. Re-reports every SortedOracles median so Broker quotes don't revert on
+ *      stale reports — both the chainlink-relayer feeds (impersonating each
+ *      relayer) and the legacy-token feeds (impersonating the oracles
+ *      returned by getOracles(rateFeedId); see #452).
  *
  * Idempotent: token funding is skipped once a recipient already holds the
  * target balance; oracle re-reporting is safe to repeat (same median, fresh
@@ -114,6 +116,26 @@ const RELAYERS = {
   zar_usd: "0x4FF9042aF59AF2B507b9423bE385f664FF87F7af",
 };
 
+// Legacy-token rate feeds NOT covered by the RELAYERS map above (#452): their
+// rateFeedId is a fixed address (the stable-token address for the CELO/*
+// feeds, a dedicated feed address for the rest) and their oracle set is
+// discovered on-chain via SortedOracles.getOracles(rateFeedId) instead of a
+// hardcoded relayer, so this list self-heals when oracles rotate. Without
+// re-reporting these, routes through the cUSD/USDC or cEUR/axlEUROC pools
+// revert once the fork's chain time passes the feed expiry (360s) — exactly
+// what broke the connected swap spec in CI (PR #456 runs 29062599607 and
+// 29063029354: USDC/USD and EUROC/EUR were 176s old at fork block 71727341).
+const LEGACY_RATE_FEEDS = {
+  celo_usd: "0x765DE816845861e75A25fCA122bb6898B8B1282a", // rateFeedId = cUSD
+  celo_eur: "0xD8763CBa276a3738E6DE85b4b3bF5FDed6D6cA73", // rateFeedId = cEUR
+  celo_brl: "0xe8537a3d056DA446677B9E9d6c5dB704EaAb4787", // rateFeedId = cREAL
+  usdc_usd: "0xA1A8003936862E7a15092A91898D69fa8bCE290c",
+  usdc_eur: "0x206B25Ea01E188Ee243131aFdE526bA6E131a016",
+  usdc_brl: "0x25F21A1f97607Edf6852339fad709728cffb9a9d",
+  euroc_eur: "0x26076B9702885d475ac8c3dB3Bd9F250Dc5A318B",
+  euroc_xof: "0xed35e46b095197da30ddffa5b91d386886d5ce0d",
+};
+
 // Function selectors (keccak-256 of the canonical signature, first 4 bytes).
 const SEL = {
   transfer: "0xa9059cbb", // transfer(address,uint256)
@@ -123,6 +145,7 @@ const SEL = {
   tokenReportExpirySeconds: "0x2e86bc01", // tokenReportExpirySeconds(address)
   reportExpirySeconds: "0x493a353c", // reportExpirySeconds()
   rateFeedId: "0xa1bd91da", // rateFeedId()
+  getOracles: "0x8e749281", // getOracles(address)
 };
 
 const TARGET_ACCOUNT_CELO = 10_000n * 10n ** 18n;
@@ -185,10 +208,35 @@ export function encodeReport(rateFeedId, median) {
   );
 }
 
+/** @param {string} rateFeedId */
+export function encodeGetOracles(rateFeedId) {
+  return SEL.getOracles + padAddress(rateFeedId);
+}
+
 /** Decodes an address returned as a single 32-byte word (last 20 bytes). */
 /** @param {string} word */
 export function decodeAddressWord(word) {
   return "0x" + strip0x(word).slice(-40);
+}
+
+/**
+ * Decodes an `address[]` return value (32-byte offset word, 32-byte length
+ * word, then one 32-byte word per address).
+ *
+ * @param {string} data
+ */
+export function decodeAddressArray(data) {
+  const body = strip0x(data);
+  if (body.length < 128) return [];
+  const count = Number(BigInt("0x" + body.slice(64, 128)));
+  /** @type {string[]} */
+  const addresses = [];
+  for (let index = 0; index < count; index++) {
+    const word = body.slice(128 + index * 64, 128 + (index + 1) * 64);
+    if (word.length < 64) break;
+    addresses.push("0x" + word.slice(-40));
+  }
+  return addresses;
 }
 
 // ── JSON-RPC ─────────────────────────────────────────────────────────────────
@@ -323,6 +371,35 @@ async function assertMainnetFork() {
   ok(`Connected to Celo mainnet fork at ${RPC_URL}`);
 }
 
+/**
+ * Advances the fork's clock to wall-clock time. A fork pinned to a past
+ * block boots with chain time hours behind the real world, and anvil stamps
+ * descendant blocks parent+1s — so `block.timestamp` stays in the past. The
+ * mento-sdk validates swap deadlines against wall-clock `Date.now()`
+ * (SwapService.prepareSwap), so every app swap on such a fork fails with
+ * "Deadline must be in the future" (PR #456 run 29063449487). Syncing the
+ * clock BEFORE the oracle re-reports below also means every re-reported
+ * median carries a fresh wall-clock timestamp.
+ */
+async function syncClockToWallTime() {
+  /** @type {{timestamp: string}} */
+  const latest = await rpc("eth_getBlockByNumber", ["latest", false]);
+  const chainNow = BigInt(latest.timestamp);
+  const wallNow = BigInt(Math.floor(Date.now() / 1000));
+  if (wallNow <= chainNow) {
+    ok(
+      `Fork clock (${chainNow}) is at/ahead of wall clock (${wallNow}) — no sync needed`,
+    );
+    return;
+  }
+  await rpc("evm_setNextBlockTimestamp", [toHexQuantity(wallNow)]);
+  await rpc("evm_mine", []);
+  ok(
+    `Advanced fork clock by ${wallNow - chainNow}s to wall-clock time ${wallNow} ` +
+      "(pinned-block forks boot in the past, which breaks SDK swap-deadline validation)",
+  );
+}
+
 async function fundNativeCelo() {
   try {
     for (const account of ANVIL_ACCOUNTS) {
@@ -450,6 +527,101 @@ async function reportOracles() {
 }
 
 /**
+ * Re-reports the legacy-token rate feeds (LEGACY_RATE_FEEDS) whose oracles
+ * are discovered via SortedOracles.getOracles(rateFeedId) rather than the
+ * RELAYERS map. Reports the current median from every listed oracle with the
+ * same zero lesser/greater hints as reportOracles() — valid while each feed
+ * has a single oracle (verified on mainnet 2026-07-10, see #452); if a feed
+ * grows multiple oracles again the extra reports revert and are skipped with
+ * a warning, keeping the run alive.
+ */
+async function reportLegacyOracles() {
+  /** @type {Array<{pair: string, relayer: string, rateFeedId: string | null, median: bigint | null, expiry: bigint | null, status: string}>} */
+  const rows = [];
+  for (const [pair, rateFeedId] of Object.entries(LEGACY_RATE_FEEDS)) {
+    try {
+      const oracles = decodeAddressArray(
+        await ethCall(SORTED_ORACLES, encodeGetOracles(rateFeedId)),
+      );
+      if (oracles.length === 0) {
+        rows.push({
+          pair,
+          relayer: "-",
+          rateFeedId,
+          median: null,
+          expiry: null,
+          status: "skipped (no oracles)",
+        });
+        continue;
+      }
+      const oracleLabel =
+        oracles[0] + (oracles.length > 1 ? ` (+${oracles.length - 1})` : "");
+
+      const medianWord = await ethCall(
+        SORTED_ORACLES,
+        encodeMedianRate(rateFeedId),
+      );
+      const median = BigInt(medianWord.slice(0, 66));
+      if (median === 0n) {
+        rows.push({
+          pair,
+          relayer: oracleLabel,
+          rateFeedId,
+          median,
+          expiry: null,
+          status: "skipped (no rate)",
+        });
+        continue;
+      }
+
+      let reportedCount = 0;
+      for (const oracle of oracles) {
+        try {
+          await withImpersonation(oracle, () =>
+            sendAndWait(
+              oracle,
+              SORTED_ORACLES,
+              encodeReport(rateFeedId, median),
+            ),
+          );
+          reportedCount++;
+        } catch (/** @type {unknown} */ error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          warn(
+            `${pair}: report from oracle ${oracle} failed (${message}) — skipping`,
+          );
+        }
+      }
+      const expiry = await readReportExpirySeconds(rateFeedId);
+      rows.push({
+        pair,
+        relayer: oracleLabel,
+        rateFeedId,
+        median,
+        expiry,
+        status:
+          reportedCount > 0
+            ? "reported"
+            : "failed: all oracle reports reverted",
+      });
+    } catch (/** @type {unknown} */ error) {
+      const message = error instanceof Error ? error.message : String(error);
+      warn(`${pair}: ${message}`);
+      rows.push({
+        pair,
+        relayer: "-",
+        rateFeedId,
+        median: null,
+        expiry: null,
+        status: `failed: ${message}`,
+      });
+    }
+  }
+  return rows;
+}
+
+/**
  * @param {Array<{pair: string, relayer: string, rateFeedId: string | null, median: bigint | null, expiry: bigint | null, status: string}>} rows
  */
 function printSummary(rows) {
@@ -500,10 +672,12 @@ function printSummary(rows) {
 
 async function main() {
   await assertMainnetFork();
+  await syncClockToWallTime();
   await fundNativeCelo();
   await fundTokens();
   const oracleRows = await reportOracles();
-  printSummary(oracleRows);
+  const legacyRows = await reportLegacyOracles();
+  printSummary([...oracleRows, ...legacyRows]);
 }
 
 // Only run when executed directly (`node scripts/fork-seed.mjs` /
