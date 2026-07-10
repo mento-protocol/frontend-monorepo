@@ -39,6 +39,14 @@ export default defineConfig({
       use: { viewport: { width: 375, height: 812 } },
     },
     {
+      // INVARIANT: all connected specs share ONE anvil fork and isolate via
+      // consumed evm_snapshot/evm_revert ids, so they must never run in
+      // parallel. `fullyParallel: false` only serializes tests WITHIN a spec
+      // file, not across spec files, and Playwright has no per-project
+      // `workers` option — the `--workers=1` flag in the `test:connected`
+      // npm script is load-bearing. Always run this project via
+      // `pnpm --filter app.mento.org test:connected`, never via a bare
+      // `playwright test --project=connected`.
       name: "connected",
       testMatch: /connected\/.*\.spec\.ts/,
       fullyParallel: false,

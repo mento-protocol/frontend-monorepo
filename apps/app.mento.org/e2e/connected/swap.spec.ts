@@ -1,6 +1,6 @@
 import { expect } from "@playwright/test";
 import { connectedTest as test } from "../fixtures";
-import { erc20BalanceOf, revert, snapshot } from "./rpc";
+import { erc20BalanceOf, revert, rpc, snapshot } from "./rpc";
 
 // Prerequisite: anvil must be running and seeded before this spec runs —
 //   pnpm fork:mainnet   (anvil --celo --auto-impersonate on 127.0.0.1:8545)
@@ -32,6 +32,18 @@ const ACCT0 = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 const CUSD = "0x765DE816845861e75A25fCA122bb6898B8B1282a";
 
 let snapshotId: string | undefined;
+
+// Preflight: without anvil running, snapshot() in beforeEach dies with an
+// opaque "TypeError: fetch failed" — fail fast with an actionable message.
+test.beforeAll(async () => {
+  try {
+    await rpc<string>("eth_chainId");
+  } catch {
+    throw new Error(
+      "anvil fork not reachable at 127.0.0.1:8545 — start it with `pnpm fork:mainnet` and seed with `pnpm fork:seed` before running test:connected (see spec header comment)",
+    );
+  }
+});
 
 // anvil snapshots are CONSUMED by evm_revert — a fresh snapshot per test.
 test.beforeEach(async () => {
