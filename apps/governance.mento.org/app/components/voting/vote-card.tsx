@@ -2,6 +2,7 @@ import { ProgressBar } from "@/components/progress-bar";
 import { TransactionLink } from "@/components/proposal/components/TransactionLink";
 import { Timer } from "@/components/timer";
 import { deriveVoteCardState } from "@/components/voting/derive-vote-card-state";
+import { getActiveGovernanceTransactionError } from "@/components/voting/get-active-governance-transaction-error";
 import { getGovernanceTransactionErrorMessage } from "@/components/voting/get-governance-transaction-error-message";
 import { VoteCardCancelActions } from "@/components/voting/vote-card-cancel-actions";
 import { useDelayedVoteCardRefire } from "@/components/voting/use-delayed-vote-card-refire";
@@ -429,11 +430,12 @@ export const VoteCard = ({
     abstainVotes > forVotes &&
     abstainVotes > againstVotes;
   const hasQuorum = totalVotingPower >= (quorumNeeded || BigInt(0));
-  const activeTransactionError =
-    executeError ?? queueError ?? cancelError ?? error;
-  const activeTransactionErrorMessage = activeTransactionError
-    ? getGovernanceTransactionErrorMessage(activeTransactionError)
-    : null;
+  const activeTransactionError = getActiveGovernanceTransactionError([
+    { kind: "execute", error: executeError },
+    { kind: "queue", error: queueError },
+    { kind: "cancel", error: cancelError },
+    { kind: "vote", error },
+  ]);
   const capturedTransactionErrorsRef = useRef<Set<unknown>>(new Set());
 
   useEffect(() => {
@@ -1187,21 +1189,13 @@ export const VoteCard = ({
               {renderActions()}
             </div>
 
-            {activeTransactionErrorMessage &&
+            {activeTransactionError &&
               (currentState === "ready" ||
                 currentState === "succeeded" ||
                 currentState === "queued") && (
                 <div className="gap-1 text-sm text-red-500 flex w-full flex-col items-center justify-center">
-                  <span>
-                    {executeError
-                      ? "Error executing proposal"
-                      : queueError
-                        ? "Error queueing proposal"
-                        : cancelError
-                          ? "Error cancelling proposal"
-                          : "Error submitting vote"}
-                  </span>
-                  <span>{activeTransactionErrorMessage}</span>
+                  <span>{activeTransactionError.label}</span>
+                  <span>{activeTransactionError.message}</span>
                 </div>
               )}
           </>
