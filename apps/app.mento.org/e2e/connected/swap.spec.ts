@@ -31,7 +31,7 @@ import { erc20BalanceOf, revert, snapshot } from "./rpc";
 const ACCT0 = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 const CUSD = "0x765DE816845861e75A25fCA122bb6898B8B1282a";
 
-let snapshotId: string;
+let snapshotId: string | undefined;
 
 // anvil snapshots are CONSUMED by evm_revert — a fresh snapshot per test.
 test.beforeEach(async () => {
@@ -41,7 +41,14 @@ test.afterEach(async () => {
   // Guard against beforeEach failing before assignment (e.g. anvil not
   // running) — reverting an unset snapshotId would throw a second, masking
   // error on top of the real root cause.
-  if (snapshotId) await revert(snapshotId);
+  if (snapshotId === undefined) return;
+  // Clear before awaiting so a later test never reverts this stale,
+  // already-consumed id.
+  const id = snapshotId;
+  snapshotId = undefined;
+  // anvil returns false (not an error) for an unknown/consumed snapshot id,
+  // so assert the result — a silent no-op here would break fork isolation.
+  expect(await revert(id)).toBe(true);
 });
 
 test("swaps 1 EURm (cEUR) for USDm (cUSD)", async ({ page }) => {
@@ -69,6 +76,10 @@ test("swaps 1 EURm (cEUR) for USDm (cUSD)", async ({ page }) => {
   const submit = page.getByTestId(/^(approveButton|swapButton)$/);
   await expect(submit).toBeEnabled({ timeout: 30_000 });
   if ((await submit.getAttribute("data-testid")) === "approveButton") {
+    test.info().annotations.push({
+      type: "flow",
+      description: "approve-then-swap",
+    });
     await submit.click();
     await expect(page.getByText("Approve Successful")).toBeVisible({
       timeout: 60_000,
@@ -77,7 +88,8 @@ test("swaps 1 EURm (cEUR) for USDm (cUSD)", async ({ page }) => {
     // (setConfirmView(true) in use-swap-form.tsx) — do not click swapButton
     // again on the form; it's already gone.
   } else {
-    await page.getByTestId("swapButton").click();
+    test.info().annotations.push({ type: "flow", description: "direct-swap" });
+    await submit.click();
   }
   await expect(page.getByText("Confirm Swap")).toBeVisible({
     timeout: 30_000,
