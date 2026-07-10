@@ -56,7 +56,6 @@
     "@metamask/jazzicon": "catalog:",
     "@rainbow-me/rainbowkit": "catalog:",
     "@repo/ui": "workspace:*",
-    "@sentry/nextjs": "catalog:",
     "@tanstack/react-query": "catalog:",
     "bignumber.js": "^9.3.1",
     "jotai": "catalog:",
@@ -69,6 +68,7 @@
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
     "@repo/vitest-config": "workspace:*",
+    "@sentry/nextjs": "catalog:",
     "@testing-library/react": "^16.3.0",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
