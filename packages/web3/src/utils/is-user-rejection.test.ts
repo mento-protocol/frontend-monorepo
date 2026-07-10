@@ -13,6 +13,8 @@ describe("isUserRejection", () => {
         "MetaMask Tx Signature: User denied transaction signature.",
       ),
     ).toBe(true);
+    expect(isUserRejection("User denied")).toBe(true);
+    expect(isUserRejection("denied transaction signature by user")).toBe(true);
   });
 
   it("detects WalletConnect rejection messages", () => {
@@ -29,6 +31,8 @@ describe("isUserRejection", () => {
   });
 
   it("does not misclassify unrelated errors", () => {
+    expect(isUserRejection("access denied")).toBe(false);
+    expect(isUserRejection("contract rejected the call")).toBe(false);
     expect(isUserRejection("insufficient funds")).toBe(false);
     expect(isUserRejection("execution reverted")).toBe(false);
     expect(isUserRejection(undefined)).toBe(false);

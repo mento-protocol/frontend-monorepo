@@ -45,5 +45,13 @@ describe("getGovernanceTransactionErrorMessage", () => {
     expect(
       getGovernanceTransactionErrorMessage(new Error("execution reverted")),
     ).toBe("Something went wrong. Please try again.");
+    expect(
+      getGovernanceTransactionErrorMessage(new Error("access denied")),
+    ).toBe("Something went wrong. Please try again.");
+    expect(
+      getGovernanceTransactionErrorMessage(
+        new Error("contract rejected the call"),
+      ),
+    ).toBe("Something went wrong. Please try again.");
   });
 });
