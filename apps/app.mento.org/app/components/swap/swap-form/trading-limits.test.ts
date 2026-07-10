@@ -1,39 +1,45 @@
 import { describe, expect, it, vi } from "vitest";
 
-class ParsedAmount {
-  constructor(private readonly value: number) {}
+const { parseAmountWithDefault } = vi.hoisted(() => {
+  class ParsedAmount {
+    constructor(private readonly value: number) {}
 
-  gt(other: string | number) {
-    return this.value > Number(other);
+    gt(other: string | number) {
+      return this.value > Number(other);
+    }
+
+    isZero() {
+      return this.value === 0;
+    }
+
+    isNaN() {
+      return Number.isNaN(this.value);
+    }
+
+    isFinite() {
+      return Number.isFinite(this.value);
+    }
+
+    toFormat() {
+      return this.value.toLocaleString("en-US");
+    }
   }
 
-  isZero() {
-    return this.value === 0;
-  }
-
-  isNaN() {
-    return Number.isNaN(this.value);
-  }
-
-  isFinite() {
-    return Number.isFinite(this.value);
-  }
-
-  toFormat() {
-    return this.value.toLocaleString("en-US");
-  }
-}
+  return {
+    parseAmountWithDefault: (
+      value: string | number | null | undefined,
+      defaultValue: string | number,
+    ) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed)
+        ? new ParsedAmount(parsed)
+        : new ParsedAmount(Number(defaultValue));
+    },
+  };
+});
 
 vi.mock("@repo/web3", () => ({
-  parseAmountWithDefault: (
-    value: string | number | null | undefined,
-    defaultValue: string | number,
-  ) => {
-    const parsed = Number(value);
-    return Number.isFinite(parsed)
-      ? new ParsedAmount(parsed)
-      : new ParsedAmount(Number(defaultValue));
-  },
+  parseAmountWithDefault,
 }));
 
 import {
@@ -70,16 +76,6 @@ function createLimits(tokenToCheck: string): SwapTradingLimits {
 
 function getExpectedDate(timestamp: number) {
   return new Date(timestamp * 1000).toLocaleString();
-}
-
-function parseAmountWithDefault(
-  value: string | number | null | undefined,
-  defaultValue: string | number,
-) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed)
-    ? new ParsedAmount(parsed)
-    : new ParsedAmount(Number(defaultValue));
 }
 
 describe("checkTradingLimitViolation", () => {
