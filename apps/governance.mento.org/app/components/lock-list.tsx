@@ -153,7 +153,7 @@ export const LockList = () => {
     setIsUpdateDialogOpen(false);
   };
 
-  if (error && locks.length === 0) {
+  if (address && error && locks.length === 0) {
     return (
       <div className="mt-20 gap-3 flex flex-col items-start">
         <p className="text-sm text-white">Could not load your locks.</p>

@@ -182,7 +182,7 @@ export const ProposalList = () => {
           <div className="gap-4 absolute top-1/2 left-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center">
             <IconLoading />
           </div>
-        ) : error && filteredProposals.length === 0 ? (
+        ) : error && proposals.length === 0 ? (
           <div className="gap-3 max-w-xs px-6 absolute top-1/2 left-1/2 flex w-full -translate-x-1/2 -translate-y-1/2 flex-col items-center text-center">
             <span className="font-medium text-white">
               Could not load proposals.
