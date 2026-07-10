@@ -26,6 +26,17 @@ describe("getGovernanceTransactionErrorMessage", () => {
     ).toBe("Insufficient funds for this transaction.");
   });
 
+  it("reads viem details from Error instances", () => {
+    const error = new Error("Transaction failed") as Error & {
+      details: string;
+    };
+    error.details = "insufficient funds for gas * price + value";
+
+    expect(getGovernanceTransactionErrorMessage(error)).toBe(
+      "Insufficient funds for this transaction.",
+    );
+  });
+
   it("returns the generic fallback for unknown errors", () => {
     expect(
       getGovernanceTransactionErrorMessage(new Error("execution reverted")),

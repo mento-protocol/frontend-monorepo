@@ -22,8 +22,11 @@ function extractErrorText(error: unknown): string {
   }
 
   if (error instanceof Error) {
-    const causeMessage = extractErrorText(error.cause);
-    return [error.message, causeMessage].filter(Boolean).join(" ");
+    const { shortMessage, details, cause } = error as ErrorWithDetails;
+    return [error.message, shortMessage, details, extractErrorText(cause)]
+      .map((value) => (typeof value === "string" ? value : ""))
+      .filter(Boolean)
+      .join(" ");
   }
 
   if (typeof error !== "object" || error === null) {
