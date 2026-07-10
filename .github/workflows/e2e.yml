@@ -219,9 +219,11 @@ jobs:
       # network, DOM snapshots) only when a spec fails; it lands in
       # test-results/ and ships with the failure artifact below. Passed as a
       # CLI arg because playwright.config.ts is shared with local runs and
-      # owned by #446.
+      # owned by #446. NOTE: no `--` separator before the flag — pnpm forwards
+      # the `--` literally and Playwright would then parse the flag as a test
+      # filter instead of an option (run 29063029354).
       - name: Run connected E2E specs
-        run: pnpm --filter app.mento.org test:connected -- --trace retain-on-failure
+        run: pnpm --filter app.mento.org test:connected --trace retain-on-failure
 
       - name: Upload Playwright artifacts on failure
         if: failure()

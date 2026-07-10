@@ -23,7 +23,9 @@ import {
   encodeMedianRate,
   encodeTokenReportExpirySeconds,
   encodeReport,
+  encodeGetOracles,
   decodeAddressWord,
+  decodeAddressArray,
 } from "./fork-seed.mjs";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -162,6 +164,46 @@ test("encodeReport matches report(address,uint256,address,address) with zero hin
 test("decodeAddressWord extracts the trailing 20 bytes of a 32-byte word", () => {
   const word = "0x" + padAddress(ACCT0);
   assertEqual(decodeAddressWord(word), ACCT0.toLowerCase(), "decoded address");
+});
+
+test("encodeGetOracles matches getOracles(address) calldata", () => {
+  const calldata = encodeGetOracles(ACCT0);
+  assertEqual(calldata.slice(0, 10), "0x8e749281", "getOracles selector");
+  assertEqual(
+    calldata,
+    "0x8e749281" + padAddress(ACCT0),
+    "getOracles calldata",
+  );
+});
+
+// A second fixture address for multi-element array decoding (anvil acct1).
+const ACCT1 = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+
+test("decodeAddressArray decodes a two-element address[]", () => {
+  const data =
+    "0x" +
+    padUint(0x20) + // offset
+    padUint(2) + // length
+    padAddress(ACCT0) +
+    padAddress(ACCT1);
+  const decoded = decodeAddressArray(data);
+  assertEqual(decoded.length, 2, "array length");
+  assertEqual(decoded[0], ACCT0.toLowerCase(), "first element");
+  assertEqual(decoded[1], ACCT1.toLowerCase(), "second element");
+});
+
+test("decodeAddressArray decodes an empty address[]", () => {
+  const data = "0x" + padUint(0x20) + padUint(0);
+  assertEqual(decodeAddressArray(data).length, 0, "empty array");
+});
+
+test("decodeAddressArray returns [] for malformed/short data", () => {
+  assertEqual(decodeAddressArray("0x").length, 0, "0x");
+  assertEqual(
+    decodeAddressArray("0x" + padUint(0x20)).length,
+    0,
+    "offset only",
+  );
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
