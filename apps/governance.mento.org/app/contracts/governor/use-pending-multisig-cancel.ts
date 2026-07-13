@@ -176,8 +176,8 @@ export const usePendingMultisigCancellation = (
         throw normalizedError;
       }
     },
-    // Refetch every 3 seconds to keep signatures count updated
-    refetchInterval: 3000,
+    // Poll conservatively; this status is useful but does not need near-real-time churn.
+    refetchInterval: 15_000,
     // Keep previous data while refetching
     placeholderData: (previousData) => previousData,
   });
