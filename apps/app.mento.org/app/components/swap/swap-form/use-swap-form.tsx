@@ -48,6 +48,7 @@ import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { useAtom } from "jotai";
 import { OctagonAlert } from "lucide-react";
 
+import { getChainChangeSyncPlan } from "./chain-change-sync";
 import {
   getAvailableTokenSymbol,
   getDefaultTokenInSymbol,
@@ -452,52 +453,22 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     prevChainIdRef.current = formChainId;
 
     const availableTokens = getTokenOptionsByChainId(formChainId);
-
-    const currentTokenIn = getAvailableTokenSymbol(
-      form.getValues("tokenInSymbol"),
+    const plan = getChainChangeSyncPlan({
       availableTokens,
-    );
-    const currentTokenOut = getAvailableTokenSymbol(
-      form.getValues("tokenOutSymbol"),
-      availableTokens,
-    );
+      currentTokenInSymbol: form.getValues("tokenInSymbol"),
+      currentTokenOutSymbol: form.getValues("tokenOutSymbol"),
+      preferredQuoteTokenSymbol: getPreferredUsdQuoteTokenSymbol(formChainId),
+    });
 
-    const tokenInValid = Boolean(currentTokenIn);
-    const tokenOutValid = Boolean(currentTokenOut);
-
-    // If both tokens are valid on the new chain, just clear amount/quote
-    if (
-      currentTokenIn &&
-      currentTokenOut &&
-      currentTokenIn !== currentTokenOut
-    ) {
+    if (plan.kind === "clear-amount-only") {
       form.setValue("amount", "");
       form.setValue("quote", "");
       setFormValues((prev) => (prev ? { ...prev, amount: "" } : prev));
       return;
     }
 
-    const preferredQuote = getPreferredUsdQuoteTokenSymbol(formChainId);
-
-    const newTokenIn: string =
-      tokenInValid && currentTokenIn
-        ? currentTokenIn
-        : preferredQuote || availableTokens[0] || "";
-    let newTokenOut: string =
-      tokenOutValid && currentTokenOut ? currentTokenOut : "";
-
-    // Ensure tokenIn !== tokenOut
-    if (newTokenIn && newTokenOut && newTokenIn === newTokenOut) {
-      newTokenOut = "";
-    }
-
-    // Pick a default tokenOut if needed
-    if (!newTokenOut && availableTokens.length > 1) {
-      newTokenOut = availableTokens.find((t) => t !== newTokenIn) || "";
-    }
-
-    form.setValue("tokenInSymbol", newTokenIn);
-    form.setValue("tokenOutSymbol", newTokenOut);
+    form.setValue("tokenInSymbol", plan.tokenInSymbol);
+    form.setValue("tokenOutSymbol", plan.tokenOutSymbol);
     form.setValue("amount", "");
     form.setValue("quote", "");
 
@@ -505,9 +476,12 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
       prev
         ? {
             ...prev,
-            tokenInSymbol: getAvailableTokenSymbol(newTokenIn, availableTokens),
+            tokenInSymbol: getAvailableTokenSymbol(
+              plan.tokenInSymbol,
+              availableTokens,
+            ),
             tokenOutSymbol: getAvailableTokenSymbol(
-              newTokenOut,
+              plan.tokenOutSymbol,
               availableTokens,
             ),
             amount: "",
