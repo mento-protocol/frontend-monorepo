@@ -51,7 +51,6 @@ import { OctagonAlert } from "lucide-react";
 import { getChainChangeSyncPlan } from "./chain-change-sync";
 import {
   getAvailableTokenSymbol,
-  getDefaultTokenInSymbol,
   getSelectedTokenSymbol,
 } from "./token-selection";
 import {
@@ -65,26 +64,12 @@ import {
 } from "./waiting-for-quote-store";
 import { getMaxSellAmount } from "./max-sell-amount";
 import { checkTradingLimitViolation } from "./trading-limits";
+import {
+  getSwapFormInitialState,
+  type SwapFormRouteOptions,
+  useStableRouteDrivenFormState,
+} from "./swap-form-initial-state";
 import { defaultEmptyBalances, formSchema, type FormValues } from "./types";
-
-interface UseSwapFormOptions {
-  initialFrom?: string;
-  initialTo?: string;
-  initialAmount?: string;
-  urlChainId?: ChainId;
-}
-
-function sanitizeRouteAmount(value?: string): string {
-  if (!value) return "";
-  const trimmedValue = value.trim();
-  if (!trimmedValue) return "";
-  if (!/^(?:\d+\.?\d*|\.\d+)$/.test(trimmedValue)) return "";
-
-  const parsedValue = parseAmount(trimmedValue);
-  if (!parsedValue || parsedValue.isNegative()) return "";
-
-  return trimmedValue;
-}
 
 function getTokenBalanceValue(
   balances: AccountBalances,
@@ -93,7 +78,7 @@ function getTokenBalanceValue(
   return balances[tokenSymbol];
 }
 
-export function useSwapForm(opts?: UseSwapFormOptions) {
+export function useSwapForm(opts?: SwapFormRouteOptions) {
   const { address, isConnected } = useAccount();
   const walletChainId = useChainId();
   const formChainId = opts?.urlChainId ?? walletChainId ?? ChainId.Celo;
@@ -119,100 +104,31 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
   const prevTradingSuspensionErrorRef = useRef<string | null>(null);
   const suspensionToastIdRef = useRef<string | number | null>(null);
   const prevChainIdRef = useRef<number>(formChainId);
-  const hasUrlParams = Boolean(
-    opts?.initialFrom || opts?.initialTo || opts?.initialAmount,
-  );
   const availableTokens = useMemo(
     () => getTokenOptionsByChainId(formChainId),
     [formChainId],
   );
-
-  // Validate URL tokens exist on current chain, fall back to defaults if not
-  const validatedInitialFrom = getAvailableTokenSymbol(
-    opts?.initialFrom,
+  const {
+    defaultValues,
+    initialTokenInSymbol,
+    initialTokenOutSymbol,
+    routeDrivenFormState: nextRouteDrivenFormState,
+  } = getSwapFormInitialState({
     availableTokens,
-  );
-
-  const validatedInitialTo = getAvailableTokenSymbol(
-    opts?.initialTo,
-    availableTokens,
-  );
-
-  const storedTokenInSymbol =
-    !hasUrlParams && formValues?.tokenInSymbol
-      ? getAvailableTokenSymbol(formValues.tokenInSymbol, availableTokens)
-      : undefined;
-
-  const storedTokenOutSymbol =
-    !hasUrlParams && formValues?.tokenOutSymbol
-      ? getAvailableTokenSymbol(formValues.tokenOutSymbol, availableTokens)
-      : undefined;
-
-  const defaultTokenInSymbol =
-    getDefaultTokenInSymbol(
-      getPreferredUsdQuoteTokenSymbol(formChainId),
-      availableTokens,
-    ) ?? "";
-
-  const initialTokenInSymbol =
-    validatedInitialFrom || storedTokenInSymbol || defaultTokenInSymbol;
-
-  const requestedTokenOut = validatedInitialTo || storedTokenOutSymbol;
-  const initialTokenOutSymbol =
-    requestedTokenOut && requestedTokenOut !== initialTokenInSymbol
-      ? requestedTokenOut
-      : availableTokens.find((token) => token !== initialTokenInSymbol) || "";
-  const sanitizedInitialAmount = sanitizeRouteAmount(opts?.initialAmount);
-  const hasRequestedRouteTokens = Boolean(opts?.initialFrom || opts?.initialTo);
-  const routeUsesRequestedTokens =
-    (!opts?.initialFrom || validatedInitialFrom === initialTokenInSymbol) &&
-    (!opts?.initialTo || validatedInitialTo === initialTokenOutSymbol);
-
-  const canReuseStoredDraft =
-    !hasUrlParams &&
-    storedTokenInSymbol === initialTokenInSymbol &&
-    storedTokenOutSymbol === initialTokenOutSymbol;
-
-  const initialAmount = hasUrlParams
-    ? !hasRequestedRouteTokens || routeUsesRequestedTokens
-      ? sanitizedInitialAmount
-      : ""
-    : canReuseStoredDraft
-      ? formValues?.amount || ""
-      : "";
-
-  const initialQuote = canReuseStoredDraft ? formValues?.quote || "" : "";
-  const shouldUseDefaultRouteTokens = !hasRequestedRouteTokens;
-  const routeTokenInSymbol = opts?.initialFrom
-    ? initialTokenInSymbol
-    : shouldUseDefaultRouteTokens
-      ? initialTokenInSymbol
-      : "";
-  const routeTokenOutSymbol = opts?.initialTo
-    ? initialTokenOutSymbol
-    : shouldUseDefaultRouteTokens
-      ? initialTokenOutSymbol
-      : "";
+    formValues,
+    options: opts,
+    preferredQuoteTokenSymbol: getPreferredUsdQuoteTokenSymbol(formChainId),
+  });
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: {
-      amount: initialAmount,
-      quote: initialQuote,
-      tokenInSymbol: routeTokenInSymbol,
-      tokenOutSymbol: routeTokenOutSymbol,
-      slippage: formValues?.slippage || "0.3",
-    },
+    defaultValues,
     mode: "onChange",
   });
-
-  const routeDrivenFormState = useMemo<RouteDrivenFormState>(
-    () => ({
-      amount: initialAmount,
-      tokenInSymbol: routeTokenInSymbol,
-      tokenOutSymbol: routeTokenOutSymbol,
-    }),
-    [initialAmount, routeTokenInSymbol, routeTokenOutSymbol],
+  const routeDrivenFormState = useStableRouteDrivenFormState(
+    nextRouteDrivenFormState.amount,
+    nextRouteDrivenFormState.tokenInSymbol,
+    nextRouteDrivenFormState.tokenOutSymbol,
   );
   const lastRouteDrivenFormStateRef = useRef<RouteDrivenFormState | null>(null);
 
