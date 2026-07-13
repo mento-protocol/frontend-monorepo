@@ -87,30 +87,57 @@ function extractRevertReason(
     if (decoded) return decoded;
   }
 
-  const reasonMatch = `${message}\n${details.join("\n")}`.match(
-    /reason:\s*(.+?)(?:\n|$)|reverted with reason string '(.+?)'|execution reverted:?\s*([^\n]+)/i,
-  );
+  const rawReason = extractReasonText(`${message}\n${details.join("\n")}`);
   const customErrorMatch = message.match(
     /custom error ['"]?([A-Za-z0-9_.:]+)['"]?/i,
   );
-  const rawReason =
-    reasonMatch?.[1] ??
-    reasonMatch?.[2] ??
-    reasonMatch?.[3] ??
-    customErrorMatch?.[1];
+  const reason = rawReason ?? customErrorMatch?.[1];
 
-  if (!rawReason) {
+  if (!reason) {
     const detail = summarizeUsefulDetail(details);
     return detail ? `unknown reason (${detail})` : "unknown reason";
   }
 
-  if (/for an unknown reason|unknown reason/i.test(rawReason)) {
+  if (/for an unknown reason|unknown reason/i.test(reason)) {
     const detail = summarizeUsefulDetail(details);
     return detail ? `unknown reason (${detail})` : "unknown reason";
   }
 
-  const normalizedCode = normalizeRevertCode(rawReason);
-  return REVERT_REASON_MAP[normalizedCode] ?? rawReason.trim();
+  const normalizedCode = normalizeRevertCode(reason);
+  return REVERT_REASON_MAP[normalizedCode] ?? reason.trim();
+}
+
+function extractReasonText(message: string): string | undefined {
+  const lowerMessage = message.toLowerCase();
+  const reasonMarker = "reason:";
+  const reasonIndex = lowerMessage.indexOf(reasonMarker);
+  if (reasonIndex >= 0) {
+    return firstLine(message.slice(reasonIndex + reasonMarker.length));
+  }
+
+  const quotedReasonMarker = "reverted with reason string '";
+  const quotedReasonIndex = lowerMessage.indexOf(quotedReasonMarker);
+  if (quotedReasonIndex >= 0) {
+    const start = quotedReasonIndex + quotedReasonMarker.length;
+    const end = message.indexOf("'", start);
+    return message.slice(start, end >= 0 ? end : undefined).trim() || undefined;
+  }
+
+  const executionMarker = "execution reverted";
+  const executionIndex = lowerMessage.indexOf(executionMarker);
+  if (executionIndex >= 0) {
+    const start = executionIndex + executionMarker.length;
+    const suffix = message.slice(start).trimStart().replace(/^:/, "");
+    return firstLine(suffix);
+  }
+
+  return undefined;
+}
+
+function firstLine(value: string): string | undefined {
+  const newlineIndex = value.indexOf("\n");
+  const line = value.slice(0, newlineIndex >= 0 ? newlineIndex : undefined);
+  return line.trim() || undefined;
 }
 
 function decodeKnownCustomError(data: Hex): string | null {
