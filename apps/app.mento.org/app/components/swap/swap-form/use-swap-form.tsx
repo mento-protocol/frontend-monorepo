@@ -63,6 +63,7 @@ import {
   createWaitingForQuoteStore,
   getTokenPairKey,
 } from "./waiting-for-quote-store";
+import { getMaxSellAmount } from "./max-sell-amount";
 import { defaultEmptyBalances, formSchema, type FormValues } from "./types";
 
 interface UseSwapFormOptions {
@@ -470,25 +471,14 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
   const handleUseMaxBalance = () => {
     if (!selectedTokenInSymbol) return;
 
-    let maxAmountInWei: string = String(
+    const balanceInWei = String(
       getTokenBalanceValue(balances, selectedTokenInSymbol) || "0",
     );
-    const decimals = getTokenDecimals(selectedTokenInSymbol, formChainId);
-
-    if (selectedTokenInSymbol === nativeTokenSymbol) {
-      const gasReserveWei = BigInt("10000000000000000"); // 0.01 CELO
-      const balance = BigInt(maxAmountInWei);
-      if (balance > gasReserveWei) {
-        maxAmountInWei = (balance - gasReserveWei).toString();
-      }
-    }
-
-    const formattedAmount = formatBalance(maxAmountInWei, decimals);
-    const formattedAmountWithMaxDecimals = formatWithMaxDecimals(
-      formattedAmount,
-      4,
-      false,
-    );
+    const formattedAmountWithMaxDecimals = getMaxSellAmount({
+      balanceInWei,
+      decimals: getTokenDecimals(selectedTokenInSymbol, formChainId),
+      isNativeToken: selectedTokenInSymbol === nativeTokenSymbol,
+    });
     form.setValue("amount", formattedAmountWithMaxDecimals);
 
     if (selectedTokenInSymbol === nativeTokenSymbol) {
