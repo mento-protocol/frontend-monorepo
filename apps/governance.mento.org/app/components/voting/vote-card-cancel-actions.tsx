@@ -1,7 +1,7 @@
 import { ProposalCancelButton } from "@/components/voting/proposal-cancel-button";
 import { Button } from "@repo/ui";
 
-interface WatchdogCancelActionProps {
+export interface WatchdogCancelActionProps {
   isWatchdog: boolean;
   hasPendingCancellation: boolean;
   isPendingCancellationStatusUnavailable: boolean;
@@ -15,7 +15,7 @@ interface WatchdogCancelActionProps {
   watchdogAddress: string;
 }
 
-interface ProposerCancelActionProps {
+export interface ProposerCancelActionProps {
   canProposerCancel: boolean;
   onCancel: () => void;
   isAwaitingProposerCancelSignature: boolean;
