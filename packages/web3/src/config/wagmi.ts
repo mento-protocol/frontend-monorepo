@@ -8,6 +8,8 @@ import {
   http,
 } from "wagmi";
 import { config } from "./config";
+import { isE2eTestMode } from "./e2e-mode";
+import { e2eTestWallet } from "./test-wallet";
 
 import {
   metaMaskWallet,
@@ -40,24 +42,33 @@ if (!isServer && !config.walletConnectProjectId) {
 
 const connectors = isServer
   ? []
-  : connectorsForWallets(
-      [
-        {
-          groupName: "Recommended",
-          wallets: [
-            walletConnectWallet,
-            rabbyWallet,
-            metaMaskWallet,
-            rainbowWallet,
-            valoraWallet,
-          ],
-        },
-      ],
-      {
-        projectId: config.walletConnectProjectId,
+  : isE2eTestMode()
+    ? connectorsForWallets([{ groupName: "E2E", wallets: [e2eTestWallet] }], {
+        // The test wallet never uses WalletConnect. RainbowKit only validates
+        // projectId inside getWalletConnectConnector, which is never invoked
+        // for this wallet (verified in @rainbow-me/rainbowkit 2.2.11), so a
+        // placeholder is safe when NEXT_PUBLIC_WALLET_CONNECT_ID is unset.
+        projectId: config.walletConnectProjectId || "e2e-test",
         appName: "MENTO Protocol",
-      },
-    );
+      })
+    : connectorsForWallets(
+        [
+          {
+            groupName: "Recommended",
+            wallets: [
+              walletConnectWallet,
+              rabbyWallet,
+              metaMaskWallet,
+              rainbowWallet,
+              valoraWallet,
+            ],
+          },
+        ],
+        {
+          projectId: config.walletConnectProjectId,
+          appName: "MENTO Protocol",
+        },
+      );
 
 export const wagmiConfig: Config = createConfig({
   chains: allChains as readonly [Chain, ...Chain[]],

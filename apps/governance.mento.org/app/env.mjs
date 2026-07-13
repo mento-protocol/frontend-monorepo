@@ -24,6 +24,7 @@ export const env = createEnv({
       .optional()
       .default("https://celo-sepolia.blockscout.com/api/v1/graphql"),
     NEXT_PUBLIC_ETHERSCAN_API_URL: z.string().url(),
+    NEXT_PUBLIC_E2E_TEST: z.enum(["true", "false"]).optional().default("false"),
     NEXT_PUBLIC_GRAPH_API_KEY: z.string(),
     NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE: z.string(),
     NEXT_PUBLIC_STORAGE_URL: z.string().url(),
@@ -46,6 +47,7 @@ export const env = createEnv({
       process.env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA,
     ETHERSCAN_API_KEY: process.env.ETHERSCAN_API_KEY,
     NEXT_PUBLIC_ETHERSCAN_API_URL: process.env.NEXT_PUBLIC_ETHERSCAN_API_URL,
+    NEXT_PUBLIC_E2E_TEST: process.env.NEXT_PUBLIC_E2E_TEST,
     NEXT_PUBLIC_GRAPH_API_KEY: process.env.NEXT_PUBLIC_GRAPH_API_KEY,
     NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE:
       process.env.NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE,

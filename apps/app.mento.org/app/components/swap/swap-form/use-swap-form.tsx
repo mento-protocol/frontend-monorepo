@@ -48,14 +48,14 @@ import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { useAtom } from "jotai";
 import { OctagonAlert } from "lucide-react";
 
+import { getChainChangeSyncPlan } from "./chain-change-sync";
 import {
   getAvailableTokenSymbol,
   getDefaultTokenInSymbol,
   getSelectedTokenSymbol,
 } from "./token-selection";
 import {
-  getRouteChangedTokenSide,
-  hasRouteDrivenFormStateChanged,
+  getRouteDrivenFormStateSyncPlan,
   type LastChangedToken,
   type RouteDrivenFormState,
 } from "./route-driven-state";
@@ -64,6 +64,7 @@ import {
   getTokenPairKey,
 } from "./waiting-for-quote-store";
 import { getMaxSellAmount } from "./max-sell-amount";
+import { checkTradingLimitViolation } from "./trading-limits";
 import { defaultEmptyBalances, formSchema, type FormValues } from "./types";
 
 interface UseSwapFormOptions {
@@ -315,104 +316,6 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     [balances, selectedTokenInSymbol, allTokenOptions],
   );
 
-  const checkTradingLimitViolation = useCallback(
-    (
-      amountIn: ReturnType<typeof parseAmountWithDefault>,
-      amountOut: ReturnType<typeof parseAmountWithDefault>,
-      limits: NonNullable<ReturnType<typeof useTradingLimits>["data"]>,
-      tokenInSymbol: string,
-      tokenOutSymbol: string,
-    ) => {
-      const { L0, L1, LG, tokenToCheck } = limits;
-
-      // A limit of "0" means "not configured" for that tier (mirrors the old
-      // falsy-0 check); guard it so a zero limit never flags a valid amount.
-      const exceedsLimit = (
-        amount: ReturnType<typeof parseAmountWithDefault>,
-        max: string | undefined,
-      ) => !!max && !parseAmountWithDefault(max, 0).isZero() && amount.gt(max);
-
-      let amountToCheck: ReturnType<typeof parseAmountWithDefault>;
-      let exceeds = false;
-      let limit = "0";
-      let total = "0";
-      let timestamp = 0;
-      let exceededTier: "L0" | "L1" | "LG" | null = null;
-      let isImplicitLimit = false;
-
-      if (tokenToCheck === tokenInSymbol) {
-        amountToCheck = amountIn;
-        if (LG && exceedsLimit(amountToCheck, LG.maxIn)) {
-          exceeds = true;
-          limit = LG.maxIn;
-          timestamp = LG.until || 0;
-          exceededTier = "LG";
-          total = LG.total || "0";
-        } else if (L1 && exceedsLimit(amountToCheck, L1.maxIn)) {
-          exceeds = true;
-          limit = L1.maxIn;
-          timestamp = L1.until || 0;
-          exceededTier = "L1";
-          total = L1.total || "0";
-        } else if (L0 && exceedsLimit(amountToCheck, L0.maxIn)) {
-          exceeds = true;
-          limit = L0.maxIn;
-          timestamp = L0.until || 0;
-          exceededTier = "L0";
-          total = L0.total || "0";
-        }
-      } else if (tokenToCheck === tokenOutSymbol) {
-        amountToCheck = amountOut;
-
-        if (LG && exceedsLimit(amountToCheck, LG.maxOut)) {
-          exceeds = true;
-          limit = LG.maxOut;
-          timestamp = LG.until || 0;
-          exceededTier = "LG";
-          total = LG.total || "0";
-        } else if (L1 && exceedsLimit(amountToCheck, L1.maxOut)) {
-          exceeds = true;
-          limit = L1.maxOut;
-          timestamp = L1.until || 0;
-          exceededTier = "L1";
-          total = L1.total || "0";
-        } else if (L0 && exceedsLimit(amountToCheck, L0.maxOut)) {
-          exceeds = true;
-          limit = L0.maxOut;
-          timestamp = L0.until || 0;
-          exceededTier = "L0";
-          total = L0.total || "0";
-        }
-        isImplicitLimit = true;
-      }
-
-      if (exceeds) {
-        const limitFormatted = parseAmountWithDefault(limit, 0).toFormat();
-        const totalFormatted = parseAmountWithDefault(total, 0).toFormat();
-        if (isImplicitLimit) {
-          if (exceededTier === "LG") {
-            return `Cannot buy more than ${limitFormatted} ${tokenToCheck}. This exceeds the global trading limit.`;
-          } else {
-            const date = new Date(timestamp * 1000).toLocaleString();
-            const timeframe = exceededTier === "L0" ? "5min" : "1d";
-            return `Cannot buy more than ${limitFormatted} ${tokenToCheck} within ${timeframe}. The limit will reset to ${totalFormatted} ${tokenToCheck} at ${date}.`;
-          }
-        } else {
-          if (exceededTier === "LG") {
-            return `The ${tokenToCheck} amount exceeds the global trading limit of ${limitFormatted} ${tokenToCheck}.`;
-          } else {
-            const date = new Date(timestamp * 1000).toLocaleString();
-            const timeframe = exceededTier === "L0" ? "5min" : "1d";
-            return `The ${tokenToCheck} amount exceeds the current trading limit of ${limitFormatted} ${tokenToCheck} within ${timeframe}. It will be reset again to ${totalFormatted} ${tokenToCheck} at ${date}.`;
-          }
-        }
-      }
-
-      return null;
-    },
-    [],
-  );
-
   const validateLimits = useCallback(
     async (value: string) => {
       if (!value || limitsLoading || !limits || !limits.tokenToCheck)
@@ -422,24 +325,17 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
       const parsedAmount = parseAmount(value);
       if (!parsedAmount) return true;
 
-      const violation = checkTradingLimitViolation(
-        parsedAmount,
-        parseAmountWithDefault(formQuote, 0),
+      const violation = checkTradingLimitViolation({
+        amountIn: parsedAmount,
+        amountOut: parseAmountWithDefault(formQuote, 0),
         limits,
         tokenInSymbol,
         tokenOutSymbol,
-      );
+      });
 
       return violation || true;
     },
-    [
-      limitsLoading,
-      limits,
-      checkTradingLimitViolation,
-      tokenInSymbol,
-      tokenOutSymbol,
-      formQuote,
-    ],
+    [limitsLoading, limits, tokenInSymbol, tokenOutSymbol, formQuote],
   );
 
   const validateAmount = useCallback(
@@ -556,52 +452,22 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     prevChainIdRef.current = formChainId;
 
     const availableTokens = getTokenOptionsByChainId(formChainId);
-
-    const currentTokenIn = getAvailableTokenSymbol(
-      form.getValues("tokenInSymbol"),
+    const plan = getChainChangeSyncPlan({
       availableTokens,
-    );
-    const currentTokenOut = getAvailableTokenSymbol(
-      form.getValues("tokenOutSymbol"),
-      availableTokens,
-    );
+      currentTokenInSymbol: form.getValues("tokenInSymbol"),
+      currentTokenOutSymbol: form.getValues("tokenOutSymbol"),
+      preferredQuoteTokenSymbol: getPreferredUsdQuoteTokenSymbol(formChainId),
+    });
 
-    const tokenInValid = Boolean(currentTokenIn);
-    const tokenOutValid = Boolean(currentTokenOut);
-
-    // If both tokens are valid on the new chain, just clear amount/quote
-    if (
-      currentTokenIn &&
-      currentTokenOut &&
-      currentTokenIn !== currentTokenOut
-    ) {
+    if (plan.kind === "clear-amount-only") {
       form.setValue("amount", "");
       form.setValue("quote", "");
       setFormValues((prev) => (prev ? { ...prev, amount: "" } : prev));
       return;
     }
 
-    const preferredQuote = getPreferredUsdQuoteTokenSymbol(formChainId);
-
-    const newTokenIn: string =
-      tokenInValid && currentTokenIn
-        ? currentTokenIn
-        : preferredQuote || availableTokens[0] || "";
-    let newTokenOut: string =
-      tokenOutValid && currentTokenOut ? currentTokenOut : "";
-
-    // Ensure tokenIn !== tokenOut
-    if (newTokenIn && newTokenOut && newTokenIn === newTokenOut) {
-      newTokenOut = "";
-    }
-
-    // Pick a default tokenOut if needed
-    if (!newTokenOut && availableTokens.length > 1) {
-      newTokenOut = availableTokens.find((t) => t !== newTokenIn) || "";
-    }
-
-    form.setValue("tokenInSymbol", newTokenIn);
-    form.setValue("tokenOutSymbol", newTokenOut);
+    form.setValue("tokenInSymbol", plan.tokenInSymbol);
+    form.setValue("tokenOutSymbol", plan.tokenOutSymbol);
     form.setValue("amount", "");
     form.setValue("quote", "");
 
@@ -609,9 +475,12 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
       prev
         ? {
             ...prev,
-            tokenInSymbol: getAvailableTokenSymbol(newTokenIn, availableTokens),
+            tokenInSymbol: getAvailableTokenSymbol(
+              plan.tokenInSymbol,
+              availableTokens,
+            ),
             tokenOutSymbol: getAvailableTokenSymbol(
-              newTokenOut,
+              plan.tokenOutSymbol,
               availableTokens,
             ),
             amount: "",
@@ -623,37 +492,20 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
 
   useEffect(() => {
     const previousRouteState = lastRouteDrivenFormStateRef.current;
-    const routeStateChanged = hasRouteDrivenFormStateChanged(
-      previousRouteState,
-      routeDrivenFormState,
-    );
 
     lastRouteDrivenFormStateRef.current = routeDrivenFormState;
 
-    if (!routeStateChanged) return;
-
-    const currentValues = form.getValues();
-    const formAlreadyMatchesRoute =
-      currentValues.amount === routeDrivenFormState.amount &&
-      currentValues.tokenInSymbol === routeDrivenFormState.tokenInSymbol &&
-      currentValues.tokenOutSymbol === routeDrivenFormState.tokenOutSymbol;
-
-    if (formAlreadyMatchesRoute) return;
-
-    const routeChangedTokenSide = getRouteChangedTokenSide(
+    const plan = getRouteDrivenFormStateSyncPlan({
+      currentValues: form.getValues(),
+      formValuesSlippage: formValues?.slippage,
       previousRouteState,
       routeDrivenFormState,
-    );
-
-    form.reset({
-      ...currentValues,
-      amount: routeDrivenFormState.amount,
-      quote: "",
-      tokenInSymbol: routeDrivenFormState.tokenInSymbol,
-      tokenOutSymbol: routeDrivenFormState.tokenOutSymbol,
-      slippage: currentValues.slippage || formValues?.slippage || "0.3",
     });
-    setLastChangedToken(routeChangedTokenSide);
+
+    if (!plan.shouldReset) return;
+
+    form.reset(plan.resetValues);
+    setLastChangedToken(plan.routeChangedTokenSide);
   }, [form, formValues?.slippage, routeDrivenFormState, setLastChangedToken]);
 
   useSwapUrlSync({
@@ -672,13 +524,13 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
   const tradingLimitError = useMemo(() => {
     if (!hasAmount || !limits || limitsLoading) return null;
 
-    return checkTradingLimitViolation(
-      parseAmountWithDefault(amount, 0),
-      parseAmountWithDefault(quote, 0),
+    return checkTradingLimitViolation({
+      amountIn: parseAmountWithDefault(amount, 0),
+      amountOut: parseAmountWithDefault(quote, 0),
       limits,
       tokenInSymbol,
       tokenOutSymbol,
-    );
+    });
   }, [
     amount,
     quote,
@@ -687,7 +539,6 @@ export function useSwapForm(opts?: UseSwapFormOptions) {
     tokenInSymbol,
     tokenOutSymbol,
     hasAmount,
-    checkTradingLimitViolation,
   ]);
 
   useEffect(() => {
