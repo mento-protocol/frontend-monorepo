@@ -3,6 +3,7 @@ import { TransactionLink } from "@/components/proposal/components/TransactionLin
 import { Timer } from "@/components/timer";
 import { deriveVoteCardState } from "@/components/voting/derive-vote-card-state";
 import { VoteCardCancelActions } from "@/components/voting/vote-card-cancel-actions";
+import { useDelayedVoteCardRefire } from "@/components/voting/use-delayed-vote-card-refire";
 import { getWatchdogMultisigAddress } from "@/config";
 import { useLocksByAccount } from "@/contracts";
 import {
@@ -215,83 +216,13 @@ export const VoteCard = ({
     return () => clearInterval(interval);
   }, [votingDeadline, proposal.state]);
 
-  useEffect(() => {
-    if (isConfirmed) {
-      refetchVoteReceipt();
-
-      const voteReceiptTimeout1 = setTimeout(() => {
-        refetchVoteReceipt();
-      }, 2000);
-
-      const voteReceiptTimeout2 = setTimeout(() => {
-        refetchVoteReceipt();
-      }, 5000);
-
-      if (onVoteConfirmed) {
-        onVoteConfirmed();
-
-        const timeout1 = setTimeout(() => {
-          onVoteConfirmed();
-        }, 2000);
-
-        const timeout2 = setTimeout(() => {
-          onVoteConfirmed();
-        }, 5000);
-
-        return () => {
-          clearTimeout(timeout1);
-          clearTimeout(timeout2);
-          clearTimeout(voteReceiptTimeout1);
-          clearTimeout(voteReceiptTimeout2);
-        };
-      }
-
-      return () => {
-        clearTimeout(voteReceiptTimeout1);
-        clearTimeout(voteReceiptTimeout2);
-      };
-    }
-  }, [isConfirmed, refetchVoteReceipt, onVoteConfirmed]);
-
-  // Trigger onVoteConfirmed when queue transaction is confirmed
-  useEffect(() => {
-    if (isQueueConfirmed && onVoteConfirmed) {
-      onVoteConfirmed();
-
-      const timeout1 = setTimeout(() => {
-        onVoteConfirmed();
-      }, 2000);
-
-      const timeout2 = setTimeout(() => {
-        onVoteConfirmed();
-      }, 5000);
-
-      return () => {
-        clearTimeout(timeout1);
-        clearTimeout(timeout2);
-      };
-    }
-  }, [isQueueConfirmed, onVoteConfirmed]);
-
-  // Trigger onVoteConfirmed when proposer cancel transaction is confirmed
-  useEffect(() => {
-    if (isProposerCancelConfirmed && onVoteConfirmed) {
-      onVoteConfirmed();
-
-      const timeout1 = setTimeout(() => {
-        onVoteConfirmed();
-      }, 2000);
-
-      const timeout2 = setTimeout(() => {
-        onVoteConfirmed();
-      }, 5000);
-
-      return () => {
-        clearTimeout(timeout1);
-        clearTimeout(timeout2);
-      };
-    }
-  }, [isProposerCancelConfirmed, onVoteConfirmed]);
+  useDelayedVoteCardRefire({
+    isVoteConfirmed: isConfirmed,
+    isQueueConfirmed,
+    isProposerCancelConfirmed,
+    refetchVoteReceipt,
+    onVoteConfirmed,
+  });
 
   // Calculate total voting power for quorum display
   const totalVotingPower = useMemo(() => {
