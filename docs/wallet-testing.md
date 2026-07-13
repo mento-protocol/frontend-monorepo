@@ -76,9 +76,45 @@ runs against an anvil fork of Celo mainnet — no real network is ever touched.
 Instead of driving the UI by hand, both apps have a `connected` Playwright
 project that does steps 3-5 above automatically against the same seeded fork:
 `pnpm --filter app.mento.org test:connected` (swap) and
-`pnpm --filter governance.mento.org test:connected` (create a MENTO lock). See
+`pnpm --filter governance.mento.org test:connected` (governance). See
 `CLAUDE.md`'s "Connected-Wallet E2E" section for the exact build + run
 commands per app.
+
+The governance `connected` project has two specs:
+
+- `e2e/connected/lock.spec.ts` — creates a MENTO lock and asserts the
+  veMENTO/MENTO deltas on-chain.
+- `e2e/connected/update-lock.spec.ts` — tops up **and** extends an existing
+  lock through the `UpdateLockDialog` relock flow.
+
+### The subgraph-mock pattern (update-lock.spec.ts)
+
+The update/relock flow's only UI entry is the "Update" button on a
+`LockCard`, and `LockList` renders those cards exclusively from
+`useGetLocksQuery` against the **live-mainnet** subgraph
+(`NEXT_PUBLIC_SUBGRAPH_URL`, host `gateway.thegraph.com`). On the fork that
+host is aborted by the network policy, so no card — and therefore no update
+button — ever renders (this is the "mixed-state caveat" the lock specs
+describe). Impersonating a real locked mainnet account is not an option: the
+mock connector is hardcoded to anvil junk accounts, and live-subgraph vs
+pinned-fork-block drift is non-deterministic.
+
+`update-lock.spec.ts` therefore extends the network policy with one special
+case: it creates a real lock on the fork, reads that lock's true parameters
+out of the Locking contract's `LockCreate` event, and `route.fulfill()`s the
+`getLocks` GraphQL operation with a **synthetic response built from that
+on-chain state** — so `LockList` renders a card backed by a lock that
+genuinely exists on the fork, and the relock transaction it drives is
+fork-correct. Every other subgraph operation (proposals, withdrawals) is
+answered with empty data. Success is still asserted **only** via the toast and
+on-chain reads, never via the (mocked) card UI.
+
+Maintenance coupling worth recording: the synthetic response is hand-shaped to
+match `getLocks.graphql` / the generated `GetLocksQuery` type. If that query
+gains or renames a selected field, the mock in `update-lock.spec.ts`
+(`buildGetLocksResponse`) must be updated in lockstep. This subgraph-mock
+technique is reusable for any future connected spec that needs a subgraph-fed
+list to reflect fork state.
 
 ## Preview smoke
 
