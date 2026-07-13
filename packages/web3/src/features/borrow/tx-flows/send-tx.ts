@@ -112,7 +112,9 @@ function extractReasonText(message: string): string | undefined {
   const reasonMarker = "reason:";
   const reasonIndex = lowerMessage.indexOf(reasonMarker);
   if (reasonIndex >= 0) {
-    return firstLine(message.slice(reasonIndex + reasonMarker.length));
+    return firstLine(
+      message.slice(reasonIndex + reasonMarker.length).trimStart(),
+    );
   }
 
   const quotedReasonMarker = "reverted with reason string '";

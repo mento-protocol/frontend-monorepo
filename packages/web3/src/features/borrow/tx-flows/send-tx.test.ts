@@ -9,6 +9,10 @@ describe("normalizeTxError", () => {
       "Interest rate is above the allowed maximum",
     ],
     ["execution reverted\nreason: ICRBelowMCR", "Collateral ratio is too low"],
+    [
+      "execution reverted\nThe contract function reverted with the following reason:\nDebtBelowMin",
+      "Debt is below protocol minimum",
+    ],
   ])("extracts a revert reason from %s", (message, expectedReason) => {
     expect(normalizeTxError(new Error(message)).message).toContain(
       expectedReason,
