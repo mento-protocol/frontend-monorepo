@@ -6,6 +6,22 @@ export type RouteDrivenFormState = {
 
 export type LastChangedToken = "from" | "to" | null;
 
+type RouteDrivenFormValues = {
+  amount: string;
+  quote: string;
+  tokenInSymbol: string;
+  tokenOutSymbol: string;
+  slippage?: string;
+};
+
+export type RouteDrivenFormStateSyncPlan =
+  | { shouldReset: false }
+  | {
+      shouldReset: true;
+      resetValues: RouteDrivenFormValues;
+      routeChangedTokenSide: LastChangedToken;
+    };
+
 export function hasRouteDrivenFormStateChanged(
   previousRouteState: RouteDrivenFormState | null,
   routeDrivenFormState: RouteDrivenFormState,
@@ -42,4 +58,50 @@ export function getRouteChangedTokenSide(
     routeDrivenFormState.tokenOutSymbol
     ? "from"
     : null;
+}
+
+export function getRouteDrivenFormStateSyncPlan({
+  currentValues,
+  formValuesSlippage,
+  previousRouteState,
+  routeDrivenFormState,
+}: {
+  currentValues: RouteDrivenFormValues;
+  formValuesSlippage?: string;
+  previousRouteState: RouteDrivenFormState | null;
+  routeDrivenFormState: RouteDrivenFormState;
+}): RouteDrivenFormStateSyncPlan {
+  const routeStateChanged = hasRouteDrivenFormStateChanged(
+    previousRouteState,
+    routeDrivenFormState,
+  );
+
+  if (!routeStateChanged) {
+    return { shouldReset: false };
+  }
+
+  const formAlreadyMatchesRoute =
+    currentValues.amount === routeDrivenFormState.amount &&
+    currentValues.tokenInSymbol === routeDrivenFormState.tokenInSymbol &&
+    currentValues.tokenOutSymbol === routeDrivenFormState.tokenOutSymbol;
+
+  if (formAlreadyMatchesRoute) {
+    return { shouldReset: false };
+  }
+
+  return {
+    shouldReset: true,
+    resetValues: {
+      ...currentValues,
+      amount: routeDrivenFormState.amount,
+      quote: "",
+      tokenInSymbol: routeDrivenFormState.tokenInSymbol,
+      tokenOutSymbol: routeDrivenFormState.tokenOutSymbol,
+      slippage: currentValues.slippage || formValuesSlippage || "0.3",
+    },
+    routeChangedTokenSide: getRouteChangedTokenSide(
+      previousRouteState,
+      routeDrivenFormState,
+    ),
+  };
 }
