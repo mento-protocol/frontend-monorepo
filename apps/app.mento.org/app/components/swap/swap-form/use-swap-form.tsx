@@ -12,7 +12,6 @@ import {
 } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
-import { useSwapUrlSync } from "@/hooks/use-swap-url-sync";
 
 import {
   CELO_EXPLORER,
@@ -41,13 +40,8 @@ import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { useAtom } from "jotai";
 import { OctagonAlert } from "lucide-react";
 
-import { getChainChangeSyncPlan } from "./chain-change-sync";
+import { getSelectedTokenSymbol } from "./token-selection";
 import {
-  getAvailableTokenSymbol,
-  getSelectedTokenSymbol,
-} from "./token-selection";
-import {
-  getRouteDrivenFormStateSyncPlan,
   type LastChangedToken,
   type RouteDrivenFormState,
 } from "./route-driven-state";
@@ -65,6 +59,7 @@ import {
 import { getTokenBalanceValue } from "./swap-form-validation";
 import { defaultEmptyBalances, formSchema, type FormValues } from "./types";
 import { useSwapFormValidation } from "./use-swap-form-validation";
+import { useSwapFormSync } from "./use-swap-form-sync";
 
 export function useSwapForm(opts?: SwapFormRouteOptions) {
   const { address, isConnected } = useAccount();
@@ -232,82 +227,21 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
     lastChangedTokenRef.current = value;
   }, []);
 
-  // ── Side effects ────────────────────────────────────────────────────
-
-  // Reset token selections when chain changes
-  useEffect(() => {
-    if (prevChainIdRef.current === formChainId) return;
-    prevChainIdRef.current = formChainId;
-
-    const availableTokens = getTokenOptionsByChainId(formChainId);
-    const plan = getChainChangeSyncPlan({
-      availableTokens,
-      currentTokenInSymbol: form.getValues("tokenInSymbol"),
-      currentTokenOutSymbol: form.getValues("tokenOutSymbol"),
-      preferredQuoteTokenSymbol: getPreferredUsdQuoteTokenSymbol(formChainId),
-    });
-
-    if (plan.kind === "clear-amount-only") {
-      form.setValue("amount", "");
-      form.setValue("quote", "");
-      setFormValues((prev) => (prev ? { ...prev, amount: "" } : prev));
-      return;
-    }
-
-    form.setValue("tokenInSymbol", plan.tokenInSymbol);
-    form.setValue("tokenOutSymbol", plan.tokenOutSymbol);
-    form.setValue("amount", "");
-    form.setValue("quote", "");
-
-    setFormValues((prev) =>
-      prev
-        ? {
-            ...prev,
-            tokenInSymbol: getAvailableTokenSymbol(
-              plan.tokenInSymbol,
-              availableTokens,
-            ),
-            tokenOutSymbol: getAvailableTokenSymbol(
-              plan.tokenOutSymbol,
-              availableTokens,
-            ),
-            amount: "",
-          }
-        : prev,
-    );
-    setLastChangedToken(null);
-  }, [form, formChainId, setFormValues, setLastChangedToken]);
-
-  useEffect(() => {
-    const previousRouteState = lastRouteDrivenFormStateRef.current;
-
-    lastRouteDrivenFormStateRef.current = routeDrivenFormState;
-
-    const plan = getRouteDrivenFormStateSyncPlan({
-      currentValues: form.getValues(),
-      formValuesSlippage: formValues?.slippage,
-      previousRouteState,
-      routeDrivenFormState,
-    });
-
-    if (!plan.shouldReset) return;
-
-    form.reset(plan.resetValues);
-    setLastChangedToken(plan.routeChangedTokenSide);
-  }, [form, formValues?.slippage, routeDrivenFormState, setLastChangedToken]);
-
-  useSwapUrlSync({
+  useSwapFormSync({
     amount,
+    form,
+    formChainId,
+    formValues,
+    isQuoteError: isError,
+    lastRouteDrivenFormStateRef,
+    prevChainIdRef,
+    routeDrivenFormState,
+    setConfirmView,
+    setFormValues,
+    setLastChangedToken,
     tokenInSymbol,
     tokenOutSymbol,
-    urlChainId: formChainId,
   });
-
-  useEffect(() => {
-    if (isError) {
-      setConfirmView(false);
-    }
-  }, [isError, setConfirmView]);
 
   const tradingLimitError = useMemo(() => {
     if (!hasAmount || !limits || limitsLoading) return null;
