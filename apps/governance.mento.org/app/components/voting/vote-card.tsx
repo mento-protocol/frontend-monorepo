@@ -2,7 +2,10 @@ import { ProgressBar } from "@/components/progress-bar";
 import { TransactionLink } from "@/components/proposal/components/TransactionLink";
 import { Timer } from "@/components/timer";
 import { deriveVoteCardState } from "@/components/voting/derive-vote-card-state";
-import { ProposalCancelButton } from "@/components/voting/proposal-cancel-button";
+import { getActiveGovernanceTransactionError } from "@/components/voting/get-active-governance-transaction-error";
+import { VoteCardActions } from "@/components/voting/vote-card-actions";
+import { VoteCardSpecialContent } from "@/components/voting/vote-card-special-content";
+import { useDelayedVoteCardRefire } from "@/components/voting/use-delayed-vote-card-refire";
 import { getWatchdogMultisigAddress } from "@/config";
 import { useLocksByAccount } from "@/contracts";
 import {
@@ -20,19 +23,16 @@ import { getTimelockOperationId } from "@/contracts/governor/utils/get-timelock-
 import { Proposal, ProposalState } from "@/graphql/subgraph/generated/subgraph";
 import { useVeMentoDelegationSummary } from "@/hooks/use-ve-mento-delegation-summary";
 import {
-  Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-  IconLoading,
 } from "@mento-protocol/ui";
-import { ConnectButton, NumbersService } from "@repo/web3";
+import { NumbersService } from "@repo/web3";
 import { useAccount, useChainId } from "@repo/web3/wagmi";
 import * as Sentry from "@sentry/nextjs";
 import { CheckCircle2, CircleCheck, XCircle, XCircleIcon } from "lucide-react";
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import spacetime from "spacetime";
 import { formatUnits, keccak256, toHex } from "viem";
@@ -215,83 +215,13 @@ export const VoteCard = ({
     return () => clearInterval(interval);
   }, [votingDeadline, proposal.state]);
 
-  useEffect(() => {
-    if (isConfirmed) {
-      refetchVoteReceipt();
-
-      const voteReceiptTimeout1 = setTimeout(() => {
-        refetchVoteReceipt();
-      }, 2000);
-
-      const voteReceiptTimeout2 = setTimeout(() => {
-        refetchVoteReceipt();
-      }, 5000);
-
-      if (onVoteConfirmed) {
-        onVoteConfirmed();
-
-        const timeout1 = setTimeout(() => {
-          onVoteConfirmed();
-        }, 2000);
-
-        const timeout2 = setTimeout(() => {
-          onVoteConfirmed();
-        }, 5000);
-
-        return () => {
-          clearTimeout(timeout1);
-          clearTimeout(timeout2);
-          clearTimeout(voteReceiptTimeout1);
-          clearTimeout(voteReceiptTimeout2);
-        };
-      }
-
-      return () => {
-        clearTimeout(voteReceiptTimeout1);
-        clearTimeout(voteReceiptTimeout2);
-      };
-    }
-  }, [isConfirmed, refetchVoteReceipt, onVoteConfirmed]);
-
-  // Trigger onVoteConfirmed when queue transaction is confirmed
-  useEffect(() => {
-    if (isQueueConfirmed && onVoteConfirmed) {
-      onVoteConfirmed();
-
-      const timeout1 = setTimeout(() => {
-        onVoteConfirmed();
-      }, 2000);
-
-      const timeout2 = setTimeout(() => {
-        onVoteConfirmed();
-      }, 5000);
-
-      return () => {
-        clearTimeout(timeout1);
-        clearTimeout(timeout2);
-      };
-    }
-  }, [isQueueConfirmed, onVoteConfirmed]);
-
-  // Trigger onVoteConfirmed when proposer cancel transaction is confirmed
-  useEffect(() => {
-    if (isProposerCancelConfirmed && onVoteConfirmed) {
-      onVoteConfirmed();
-
-      const timeout1 = setTimeout(() => {
-        onVoteConfirmed();
-      }, 2000);
-
-      const timeout2 = setTimeout(() => {
-        onVoteConfirmed();
-      }, 5000);
-
-      return () => {
-        clearTimeout(timeout1);
-        clearTimeout(timeout2);
-      };
-    }
-  }, [isProposerCancelConfirmed, onVoteConfirmed]);
+  useDelayedVoteCardRefire({
+    isVoteConfirmed: isConfirmed,
+    isQueueConfirmed,
+    isProposerCancelConfirmed,
+    refetchVoteReceipt,
+    onVoteConfirmed,
+  });
 
   // Calculate total voting power for quorum display
   const totalVotingPower = useMemo(() => {
@@ -497,6 +427,12 @@ export const VoteCard = ({
     abstainVotes > forVotes &&
     abstainVotes > againstVotes;
   const hasQuorum = totalVotingPower >= (quorumNeeded || BigInt(0));
+  const activeTransactionError = getActiveGovernanceTransactionError([
+    { kind: "execute", error: executeError },
+    { kind: "queue", error: queueError },
+    { kind: "cancel", error: cancelError },
+    { kind: "vote", error },
+  ]);
 
   const currentState = useMemo(() => {
     return deriveVoteCardState({
@@ -581,6 +517,26 @@ export const VoteCard = ({
       return "Propose Cancellation in Safe";
     }
   }, [isWatchdogSafe, isAwaitingCancelSignature, isCancelConfirming]);
+  const watchdogCancelAction = {
+    isWatchdog,
+    hasPendingCancellation,
+    isPendingCancellationStatusUnavailable,
+    onCancel: handleCancelByWatchdog,
+    isAwaitingCancelSignature,
+    isCancelConfirming,
+    cancelButtonText,
+    signaturesCollected,
+    signaturesRequired,
+    chainId,
+    watchdogAddress,
+  };
+  const proposerCancelAction = {
+    canProposerCancel,
+    onCancel: handleCancelByProposer,
+    isAwaitingProposerCancelSignature,
+    isProposerCancelConfirming,
+    isProposerCancelConfirmed,
+  };
 
   const description = useMemo(() => {
     switch (currentState) {
@@ -708,455 +664,6 @@ export const VoteCard = ({
   const isVotedForAbstain = voteReceipt?.support === 2;
   const isVotedForReject = voteReceipt?.support === 0;
   const hasVoted = voteReceipt?.hasVoted;
-  const usedVoteOptionButtonLocator = "usedVoteOptionButton";
-
-  // Render vote buttons based on state
-  const renderActions = () => {
-    switch (currentState) {
-      case "loading":
-      case "confirming":
-      case "signing":
-        return null;
-
-      case "insufficient-mento":
-        return (
-          <Button variant="default" size="lg" clipped="default" asChild>
-            <Link href="/voting-power">Lock MENTO Tokens</Link>
-          </Button>
-        );
-
-      case "voted":
-      case "defeated":
-      case "expired":
-      case "finished":
-        // Show disabled buttons for finished proposals
-        if (hasVoted) {
-          return (
-            <div className="gap-4 md:grid-cols-3 grid grid-cols-1">
-              {isVotedForApprove && (
-                <Button
-                  variant="approve"
-                  size="lg"
-                  data-testid={usedVoteOptionButtonLocator}
-                  disabled
-                >
-                  Your vote: YES
-                </Button>
-              )}
-              {isVotedForAbstain && (
-                <Button
-                  variant="abstain"
-                  size="lg"
-                  data-testid={usedVoteOptionButtonLocator}
-                  disabled
-                >
-                  Your vote: Abstain
-                </Button>
-              )}
-              {isVotedForReject && (
-                <Button
-                  variant="reject"
-                  size="lg"
-                  data-testid={usedVoteOptionButtonLocator}
-                  disabled
-                >
-                  Your vote: NO
-                </Button>
-              )}
-            </div>
-          );
-        }
-
-        return null;
-
-      case "queued": {
-        // canExecute derives from isVetoPeriodOver (ticks every second) so the
-        // CTA flips in sync with the header countdown when ETA passes.
-        const canExecute = queueEndTime && isVetoPeriodOver;
-
-        if (!address) {
-          return (
-            <div className="col-span-full flex justify-center">
-              <ConnectButton
-                size="lg"
-                text={
-                  canExecute ? "Connect Wallet to Execute" : "Proposal Queued"
-                }
-                fullWidth
-                disabled={!canExecute}
-              />
-            </div>
-          );
-        }
-        if (canExecute) {
-          return (
-            <div className="gap-4 flex flex-col">
-              <Button
-                variant="default"
-                size="lg"
-                clipped="default"
-                onClick={handleExecute}
-                disabled={isAwaitingExecuteSignature || isExecuteConfirming}
-                data-testid="executeProposalButton"
-                className="w-full"
-              >
-                {isAwaitingExecuteSignature
-                  ? "Confirm in Wallet"
-                  : isExecuteConfirming
-                    ? "Executing..."
-                    : "Execute Proposal"}
-              </Button>
-              <ProposalCancelButton
-                isWatchdog={isWatchdog}
-                hasPendingCancellation={hasPendingCancellation}
-                isPendingCancellationStatusUnavailable={
-                  isPendingCancellationStatusUnavailable
-                }
-                onCancel={handleCancelByWatchdog}
-                isAwaitingCancelSignature={isAwaitingCancelSignature}
-                isCancelConfirming={isCancelConfirming}
-                cancelButtonText={cancelButtonText}
-                signaturesCollected={signaturesCollected}
-                signaturesRequired={signaturesRequired}
-                chainId={chainId}
-                watchdogAddress={watchdogAddress}
-              />
-            </div>
-          );
-        }
-        // Show disabled button during veto period or cancel button for watchdog
-        return (
-          <div className="gap-4 flex flex-col">
-            <Button
-              variant="default"
-              size="lg"
-              clipped="default"
-              disabled
-              className="w-full"
-            >
-              In Veto Period
-            </Button>
-            <ProposalCancelButton
-              isWatchdog={isWatchdog}
-              hasPendingCancellation={hasPendingCancellation}
-              isPendingCancellationStatusUnavailable={
-                isPendingCancellationStatusUnavailable
-              }
-              onCancel={handleCancelByWatchdog}
-              isAwaitingCancelSignature={isAwaitingCancelSignature}
-              isCancelConfirming={isCancelConfirming}
-              cancelButtonText={cancelButtonText}
-              signaturesCollected={signaturesCollected}
-              signaturesRequired={signaturesRequired}
-              chainId={chainId}
-              watchdogAddress={watchdogAddress}
-            />
-          </div>
-        );
-      }
-
-      case "executed": {
-        // Show link to execution transaction if available
-        const executionTxHash = proposal.proposalExecuted?.[0]?.transaction?.id;
-        return (
-          <div className="flex justify-center">
-            {executionTxHash ? (
-              <Button variant="outline" size="lg" asChild>
-                <TransactionLink txHash={executionTxHash} className="w-full">
-                  View Execution Transaction
-                </TransactionLink>
-              </Button>
-            ) : (
-              <Button variant="default" size="lg" disabled>
-                Proposal Executed
-              </Button>
-            )}
-          </div>
-        );
-      }
-
-      case "succeeded":
-        // Show queue button for succeeded proposals
-        if (!address) {
-          return (
-            <div className="col-span-full flex justify-center">
-              <ConnectButton
-                size="lg"
-                text="Connect Wallet to Queue"
-                fullWidth
-              />
-            </div>
-          );
-        }
-        return (
-          <div className="gap-4 flex flex-col">
-            <Button
-              variant="default"
-              size="lg"
-              clipped="default"
-              onClick={handleQueue}
-              disabled={isAwaitingQueueSignature || isQueueConfirming}
-              data-testid="queueProposalButton"
-              className="w-full"
-            >
-              {isAwaitingQueueSignature
-                ? "Confirm in Wallet"
-                : isQueueConfirming
-                  ? "Queueing..."
-                  : "Queue for Execution"}
-            </Button>
-            <ProposalCancelButton
-              isWatchdog={isWatchdog}
-              hasPendingCancellation={hasPendingCancellation}
-              isPendingCancellationStatusUnavailable={
-                isPendingCancellationStatusUnavailable
-              }
-              onCancel={handleCancelByWatchdog}
-              isAwaitingCancelSignature={isAwaitingCancelSignature}
-              isCancelConfirming={isCancelConfirming}
-              cancelButtonText={cancelButtonText}
-              signaturesCollected={signaturesCollected}
-              signaturesRequired={signaturesRequired}
-              chainId={chainId}
-              watchdogAddress={watchdogAddress}
-            />
-            {canProposerCancel && (
-              <Button
-                variant="reject"
-                size="lg"
-                clipped="default"
-                onClick={handleCancelByProposer}
-                disabled={
-                  isAwaitingProposerCancelSignature ||
-                  isProposerCancelConfirming ||
-                  isProposerCancelConfirmed
-                }
-                className="mt-4 w-full"
-              >
-                {isAwaitingProposerCancelSignature
-                  ? "Confirm in Wallet"
-                  : isProposerCancelConfirming || isProposerCancelConfirmed
-                    ? "Cancelling..."
-                    : "Cancel Proposal"}
-              </Button>
-            )}
-          </div>
-        );
-
-      case "pending":
-        // Show disabled buttons for pending proposals
-        return (
-          <>
-            <div className="gap-4 md:grid-cols-3 grid grid-cols-1">
-              <Button variant="approve" size="lg" disabled>
-                Voting Not Started
-              </Button>
-              <Button variant="abstain" size="lg" disabled>
-                Voting Not Started
-              </Button>
-              <Button variant="reject" size="lg" disabled>
-                Voting Not Started
-              </Button>
-            </div>
-            {canProposerCancel && (
-              <Button
-                variant="reject"
-                size="lg"
-                clipped="default"
-                onClick={handleCancelByProposer}
-                disabled={
-                  isAwaitingProposerCancelSignature ||
-                  isProposerCancelConfirming ||
-                  isProposerCancelConfirmed
-                }
-                className="mt-4 w-full"
-              >
-                {isAwaitingProposerCancelSignature
-                  ? "Confirm in Wallet"
-                  : isProposerCancelConfirming || isProposerCancelConfirmed
-                    ? "Cancelling..."
-                    : "Cancel Proposal"}
-              </Button>
-            )}
-          </>
-        );
-
-      case "ready":
-        if (!address) {
-          return (
-            <div className="col-span-full flex justify-center">
-              <ConnectButton
-                size="lg"
-                text="Connect Wallet to Vote"
-                fullWidth
-              />
-            </div>
-          );
-        }
-        return (
-          <>
-            <div className="gap-4 md:grid-cols-3 grid grid-cols-1">
-              <Button
-                variant="approve"
-                size="lg"
-                onClick={() => handleVote(1)}
-                disabled={
-                  proposalState !== ProposalState.Active ||
-                  isDeadlinePassed ||
-                  isAwaitingUserSignature ||
-                  isConfirming
-                }
-                data-testid="yesProposalButton"
-              >
-                Vote YES
-              </Button>
-              <Button
-                variant="abstain"
-                size="lg"
-                onClick={() => handleVote(2)}
-                disabled={
-                  proposalState !== ProposalState.Active ||
-                  isDeadlinePassed ||
-                  isAwaitingUserSignature ||
-                  isConfirming
-                }
-                data-testid="abstainProposalButton"
-              >
-                Abstain
-              </Button>
-              <Button
-                variant="reject"
-                size="lg"
-                onClick={() => handleVote(0)}
-                disabled={
-                  proposalState !== ProposalState.Active ||
-                  isDeadlinePassed ||
-                  isAwaitingUserSignature ||
-                  isConfirming
-                }
-                data-testid="noProposalButton"
-              >
-                Vote NO
-              </Button>
-            </div>
-            {canProposerCancel && (
-              <Button
-                variant="reject"
-                size="lg"
-                clipped="default"
-                onClick={handleCancelByProposer}
-                disabled={
-                  isAwaitingProposerCancelSignature ||
-                  isProposerCancelConfirming ||
-                  isProposerCancelConfirmed
-                }
-                className="mt-4 w-full"
-              >
-                {isAwaitingProposerCancelSignature
-                  ? "Confirm in Wallet"
-                  : isProposerCancelConfirming || isProposerCancelConfirmed
-                    ? "Cancelling..."
-                    : "Cancel Proposal"}
-              </Button>
-            )}
-          </>
-        );
-
-      default:
-        return null;
-    }
-  };
-
-  // Get loading text based on state
-  const getLoadingText = () => {
-    switch (currentState) {
-      case "loading":
-        return "Loading voting information...";
-      case "signing":
-        if (isAwaitingExecuteSignature) {
-          return "Waiting for execution confirmation...";
-        }
-        if (isAwaitingQueueSignature) {
-          return "Waiting for queue confirmation...";
-        }
-        return "Waiting for confirmation...";
-      case "confirming":
-        if (isExecuteConfirming) {
-          return "Proposal is being executed";
-        }
-        if (isQueueConfirming) {
-          return "Proposal is being queued";
-        }
-        return "Your vote is being processed";
-      default:
-        return "";
-    }
-  };
-
-  // Special content for certain states
-  const renderSpecialContent = () => {
-    const loadingStates = ["loading", "signing", "confirming"];
-
-    if (loadingStates.includes(currentState)) {
-      return (
-        <div className="gap-4 flex flex-col items-center">
-          <IconLoading />
-          <p
-            className="text-muted-foreground"
-            data-testid={
-              currentState === "signing" && "waitingForConfirmationLabel"
-            }
-          >
-            {getLoadingText()}
-          </p>
-          {currentState === "signing" &&
-            !isAwaitingExecuteSignature &&
-            !isAwaitingQueueSignature && (
-              <p
-                className="text-sm text-muted-foreground"
-                data-testid="waitingForConfirmationDescriptionLabel"
-              >
-                You are voting{" "}
-                {variables?.args?.[1] === 1
-                  ? "YES"
-                  : variables?.args?.[1] === 0
-                    ? "NO"
-                    : "ABSTAIN"}{" "}
-                on this proposal
-              </p>
-            )}
-          {currentState === "signing" && isAwaitingExecuteSignature && (
-            <p
-              className="text-sm text-muted-foreground"
-              data-testid="waitingForExecutionDescriptionLabel"
-            >
-              You are executing this proposal
-            </p>
-          )}
-          {currentState === "signing" && isAwaitingQueueSignature && (
-            <p
-              className="text-sm text-muted-foreground"
-              data-testid="waitingForQueueDescriptionLabel"
-            >
-              You are queueing this proposal for execution
-            </p>
-          )}
-          {currentState === "confirming" &&
-            currentTxHash &&
-            (hash || executeHash || queueHash) && (
-              <Button variant="outline" size="sm" asChild className="mt-2">
-                <TransactionLink txHash={currentTxHash}>
-                  View on explorer
-                </TransactionLink>
-              </Button>
-            )}
-        </div>
-      );
-    }
-
-    return null;
-  };
-
   const quorumLabel = useMemo(() => {
     let label = "";
 
@@ -1258,7 +765,18 @@ export const VoteCard = ({
             : "space-y-8 p-4 xl:p-8"
         }
       >
-        {renderSpecialContent()}
+        <VoteCardSpecialContent
+          currentState={currentState}
+          isAwaitingExecuteSignature={isAwaitingExecuteSignature}
+          isAwaitingQueueSignature={isAwaitingQueueSignature}
+          isExecuteConfirming={isExecuteConfirming}
+          isQueueConfirming={isQueueConfirming}
+          voteSupport={variables?.args?.[1] as number | undefined}
+          currentTxHash={currentTxHash}
+          hash={hash}
+          executeHash={executeHash}
+          queueHash={queueHash}
+        />
 
         {!["loading", "confirming", "signing"].includes(currentState) && (
           <>
@@ -1291,37 +809,39 @@ export const VoteCard = ({
                   : "mt-8"
               }
             >
-              {renderActions()}
+              <VoteCardActions
+                currentState={currentState}
+                address={address}
+                proposal={proposal}
+                proposalState={proposalState}
+                hasVoted={hasVoted}
+                isVotedForApprove={isVotedForApprove}
+                isVotedForAbstain={isVotedForAbstain}
+                isVotedForReject={isVotedForReject}
+                queueEndTime={queueEndTime}
+                isVetoPeriodOver={isVetoPeriodOver}
+                isDeadlinePassed={isDeadlinePassed}
+                isAwaitingUserSignature={isAwaitingUserSignature}
+                isConfirming={isConfirming}
+                isAwaitingExecuteSignature={isAwaitingExecuteSignature}
+                isExecuteConfirming={isExecuteConfirming}
+                isAwaitingQueueSignature={isAwaitingQueueSignature}
+                isQueueConfirming={isQueueConfirming}
+                onExecute={handleExecute}
+                onQueue={handleQueue}
+                onVote={handleVote}
+                watchdogCancelAction={watchdogCancelAction}
+                proposerCancelAction={proposerCancelAction}
+              />
             </div>
 
-            {(error || executeError || queueError || cancelError) &&
+            {activeTransactionError &&
               (currentState === "ready" ||
                 currentState === "succeeded" ||
                 currentState === "queued") && (
                 <div className="gap-1 text-sm text-red-500 flex w-full flex-col items-center justify-center">
-                  {(
-                    error?.message ||
-                    executeError?.message ||
-                    queueError?.message
-                  )?.includes("rejected") ? null : (
-                    <>
-                      <span>
-                        {executeError
-                          ? "Error executing proposal"
-                          : queueError
-                            ? "Error queueing proposal"
-                            : cancelError
-                              ? "Error cancelling proposal"
-                              : "Error casting vote"}
-                      </span>
-                      <span>
-                        {
-                          (error || executeError || queueError || cancelError)
-                            ?.message
-                        }
-                      </span>
-                    </>
-                  )}
+                  <span>{activeTransactionError.label}</span>
+                  <span>{activeTransactionError.message}</span>
                 </div>
               )}
           </>
