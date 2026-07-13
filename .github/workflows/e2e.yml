@@ -3,11 +3,6 @@ name: E2E (Connected Wallet)
 on:
   pull_request:
     types: [opened, synchronize]
-    paths:
-      - apps/app.mento.org/**
-      - packages/web3/**
-      - scripts/fork-seed.mjs
-      - .github/workflows/e2e.yml
   # Nightly chain-drift check: PR runs only fire when FRONTEND files change,
   # but the chain can drift under an unchanged frontend (oracle config, pool
   # liquidity, contract upgrades, RPC behavior). The scheduled run repeats the
@@ -50,8 +45,107 @@ env:
   FORK_BLOCK: "71727341"
 
 jobs:
+  # Mirrors visual.yml's visual-plan job: the workflow now triggers on every
+  # PR (no path filter — see the `on.pull_request` comment above), so this
+  # job always creates a check run and, on PRs that don't touch the fork
+  # suites, fast-no-ops the expensive jobs to a green "skipped" success
+  # instead of never reporting at all. That "always reports" property is the
+  # prerequisite for eventually adding "Connected swap (anvil fork)" to the
+  # branch protection ruleset's required checks (strict_required_status_
+  # checks_policy would otherwise deadlock non-matching PRs forever).
+  e2e-plan:
+    name: E2E Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run_app: ${{ steps.detect.outputs.run_app }}
+      run_gov: ${{ steps.detect.outputs.run_gov }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Detect E2E impact
+        id: detect
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          # Scheduled (nightly chain-drift) runs always exercise both suites —
+          # there is no "changed files" concept for a cron trigger.
+          if [[ "$EVENT_NAME" == "schedule" ]]; then
+            echo "run_app=true" >> "$GITHUB_OUTPUT"
+            echo "run_gov=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "### E2E plan"
+              echo
+              echo "Scheduled run: forcing app.mento.org and governance.mento.org."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          head="$HEAD_SHA"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base="${BASE_SHA:?pull_request base SHA is required}"
+          else
+            base="${BEFORE_SHA:-}"
+            if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
+              base="$(git rev-parse "${head}^")"
+            fi
+          fi
+
+          git diff --name-only "$base" "$head" > changed-files.txt
+
+          run_app=false
+          run_gov=false
+
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+
+            case "$file" in
+              .github/workflows/e2e.yml | .npmrc | package.json | pnpm-lock.yaml | pnpm-workspace.yaml | turbo.json | patches/* | scripts/security-headers.mjs | scripts/fork-seed.mjs | scripts/fork-seed.test.mjs)
+                run_app=true
+                run_gov=true
+                ;;
+              apps/app.mento.org/*)
+                run_app=true
+                ;;
+              apps/governance.mento.org/*)
+                run_gov=true
+                ;;
+              packages/web3/*)
+                run_app=true
+                run_gov=true
+                ;;
+            esac
+          done < changed-files.txt
+
+          echo "run_app=$run_app" >> "$GITHUB_OUTPUT"
+          echo "run_gov=$run_gov" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### E2E plan"
+            echo
+            echo "- app.mento.org: \`$run_app\`"
+            echo "- governance.mento.org: \`$run_gov\`"
+            echo
+            echo "<details><summary>Changed files</summary>"
+            echo
+            sed 's/^/- `/' changed-files.txt | sed 's/$/`/'
+            echo
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   e2e-connected:
     name: Connected swap (anvil fork)
+    needs: e2e-plan
+    if: ${{ always() && (needs.e2e-plan.result != 'success' || needs.e2e-plan.outputs.run_app == 'true') }}
     timeout-minutes: 30
     runs-on: ubuntu-latest
     # Render in the same pinned Playwright container as visual.yml so the two
@@ -75,6 +169,12 @@ jobs:
       NEXT_PUBLIC_USE_FORK: "true"
 
     steps:
+      - name: Require successful E2E plan
+        if: needs.e2e-plan.result != 'success'
+        run: |
+          echo "e2e-plan did not complete successfully: ${{ needs.e2e-plan.result }}"
+          exit 1
+
       - name: Check out code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
