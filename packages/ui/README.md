@@ -50,4 +50,4 @@ The package bundles the unmodified `AspektaVF.ttf` font as `dist/AspektaVF.ttf` 
 
 This package is prepared for public npm publishing, but publishing is intentionally manual. Create a release tag such as `@mento-protocol/ui@0.1.0` only when the npm release is approved.
 
-The tag-driven publish workflow uses npm trusted publishing with GitHub Actions OIDC, builds the package before publishing, and `prepublishOnly` runs the same build for any manual `pnpm publish`. During local package development, `pnpm dev` also watches `src/theme.css` and keeps the exported `dist/theme.css` file fresh.
+The tag-driven publish workflow uses npm trusted publishing with GitHub Actions OIDC, pins npm 11.5.1 for trusted-publishing support, builds the package before publishing, and `prepublishOnly` runs the same build for any manual `pnpm publish`. During local package development, `pnpm dev` also watches `src/theme.css` and keeps the exported `dist/theme.css` file fresh.
