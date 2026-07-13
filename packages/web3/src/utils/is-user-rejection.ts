@@ -1,5 +1,13 @@
 import { BaseError, UserRejectedRequestError } from "viem";
 
+const USER_REJECTION_PATTERNS = [
+  /user\s+rejected/i,
+  /user\s+denied/i,
+  /denied\s+transaction\s+signature/i,
+  /rejected\s+by\s+user/i,
+  /request\s+rejected/i,
+];
+
 /**
  * Detects whether an error represents a user rejecting a wallet action
  * (e.g. declining to sign or switch chains). Checks viem's typed
@@ -30,5 +38,5 @@ export function isUserRejection(error: unknown): boolean {
         ? error.message
         : String(error ?? "");
 
-  return /rejected|denied/i.test(message);
+  return USER_REJECTION_PATTERNS.some((pattern) => pattern.test(message));
 }
