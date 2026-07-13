@@ -2,14 +2,7 @@
 
 import { env } from "@/env.mjs";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -25,10 +18,7 @@ import {
   getTokenDecimals,
   getTokenOptionsByChainId,
   logger,
-  parseAmount,
-  parseAmountWithDefault,
   type SwapFormValues,
-  toWei,
   useAccountBalances,
   useApproveTransaction,
   useOptimizedSwapQuote,
@@ -45,12 +35,7 @@ import {
   type LastChangedToken,
   type RouteDrivenFormState,
 } from "./route-driven-state";
-import {
-  createWaitingForQuoteStore,
-  getTokenPairKey,
-} from "./waiting-for-quote-store";
 import { getMaxSellAmount } from "./max-sell-amount";
-import { checkTradingLimitViolation } from "./trading-limits";
 import {
   getSwapFormInitialState,
   type SwapFormRouteOptions,
@@ -59,6 +44,7 @@ import {
 import { getTokenBalanceValue } from "./swap-form-validation";
 import { defaultEmptyBalances, formSchema, type FormValues } from "./types";
 import { useSwapFormValidation } from "./use-swap-form-validation";
+import { useSwapQuoteState } from "./use-swap-quote-state";
 import { useSwapFormSync } from "./use-swap-form-sync";
 
 export function useSwapForm(opts?: SwapFormRouteOptions) {
@@ -243,132 +229,35 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
     tokenOutSymbol,
   });
 
-  const tradingLimitError = useMemo(() => {
-    if (!hasAmount || !limits || limitsLoading) return null;
-
-    return checkTradingLimitViolation({
-      amountIn: parseAmountWithDefault(amount, 0),
-      amountOut: parseAmountWithDefault(quote, 0),
-      limits,
-      tokenInSymbol,
-      tokenOutSymbol,
-    });
-  }, [
+  const {
+    amountInWei,
+    buyUSDValue,
+    isButtonLoading,
+    isLoading,
+    sellUSDValue,
+    tradingLimitError,
+  } = useSwapQuoteState({
     amount,
-    quote,
+    canQuote,
+    chainId: formChainId,
+    formQuote,
+    fromTokenUSDValue,
+    hasAmount,
+    isQuoteError: isError,
+    isTradingSuspended,
     limits,
     limitsLoading,
-    tokenInSymbol,
-    tokenOutSymbol,
-    hasAmount,
-  ]);
-
-  useEffect(() => {
-    if (tradingLimitError) {
-      toast.error(tradingLimitError, { duration: 20000 });
-    }
-  }, [tradingLimitError]);
-
-  useEffect(() => {
-    const prevError = prevTradingSuspensionErrorRef.current;
-    const hasError = tradingSuspensionError !== null;
-    const errorChanged = prevError !== tradingSuspensionError;
-
-    if (hasError && errorChanged) {
-      if (suspensionToastIdRef.current) {
-        toast.dismiss(suspensionToastIdRef.current);
-      }
-      suspensionToastIdRef.current = toast.error(tradingSuspensionError, {
-        duration: 20000,
-      });
-    } else if (prevError !== null && !hasError) {
-      if (suspensionToastIdRef.current) {
-        toast.dismiss(suspensionToastIdRef.current);
-        suspensionToastIdRef.current = null;
-      }
-    }
-
-    prevTradingSuspensionErrorRef.current = tradingSuspensionError;
-  }, [tradingSuspensionError]);
-
-  const isLoading =
-    quoteFetching && canQuote && !tradingLimitError && !limitsLoading;
-
-  const waitingForQuotePairStore = useMemo(
-    () => createWaitingForQuoteStore(),
-    [],
-  );
-  const waitingForQuotePair = useSyncExternalStore(
-    waitingForQuotePairStore.subscribe,
-    waitingForQuotePairStore.getSnapshot,
-    waitingForQuotePairStore.getSnapshot,
-  );
-  const tokenPairKey = getTokenPairKey({
-    tokenInSymbol: selectedTokenInSymbol,
-    tokenOutSymbol: selectedTokenOutSymbol,
-  });
-
-  useEffect(() => {
-    waitingForQuotePairStore.update({
-      hasAmount,
-      isTradingSuspended,
-      quote,
-      quoteFetching,
-      tokenInSymbol: selectedTokenInSymbol,
-      tokenOutSymbol: selectedTokenOutSymbol,
-    });
-  }, [
-    hasAmount,
-    isTradingSuspended,
+    prevTradingSuspensionErrorRef,
     quote,
     quoteFetching,
     selectedTokenInSymbol,
     selectedTokenOutSymbol,
-    waitingForQuotePairStore,
-  ]);
-
-  const isWaitingForQuote =
-    tokenPairKey !== null && waitingForQuotePair === tokenPairKey;
-
-  const isButtonLoading = useMemo(
-    () =>
-      !isTradingSuspended &&
-      !isError &&
-      (quoteFetching || isWaitingForQuote) &&
-      hasAmount &&
-      !!selectedTokenInSymbol &&
-      !!selectedTokenOutSymbol,
-    [
-      quoteFetching,
-      isWaitingForQuote,
-      hasAmount,
-      selectedTokenInSymbol,
-      selectedTokenOutSymbol,
-      isTradingSuspended,
-      isError,
-    ],
-  );
-
-  const sellUSDValue = useMemo(() => {
-    return tokenInSymbol === "USDm" ? amount || "0" : fromTokenUSDValue || "0";
-  }, [tokenInSymbol, amount, fromTokenUSDValue]);
-
-  const buyUSDValue = useMemo(() => {
-    return tokenOutSymbol === "USDm"
-      ? formQuote || "0"
-      : toTokenUSDValue || "0";
-  }, [tokenOutSymbol, formQuote, toTokenUSDValue]);
-
-  const amountInWei = useMemo(() => {
-    if (!selectedTokenInSymbol) return "0";
-    const parsedAmount = parseAmount(amount);
-    if (!parsedAmount || !parsedAmount.gt(0)) return "0";
-
-    return toWei(
-      parsedAmount,
-      getTokenDecimals(selectedTokenInSymbol, formChainId),
-    ).toFixed(0);
-  }, [amount, selectedTokenInSymbol, formChainId]);
+    suspensionToastIdRef,
+    toTokenUSDValue,
+    tokenInSymbol,
+    tokenOutSymbol,
+    tradingSuspensionError,
+  });
 
   // ── Allowance & approval ────────────────────────────────────────────
 
