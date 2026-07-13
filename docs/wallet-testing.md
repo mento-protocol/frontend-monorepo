@@ -46,11 +46,26 @@ runs against an anvil fork of Celo mainnet — no real network is ever touched.
    NEXT_PUBLIC_E2E_TEST=true NEXT_PUBLIC_USE_FORK=true pnpm exec turbo run dev --filter app.mento.org
    ```
 
+   For governance flows (lock MENTO / voting power — the lock UI lives in
+   `governance.mento.org`, not `app.mento.org`), start that app instead and use
+   [http://localhost:3002/voting-power](http://localhost:3002/voting-power):
+
+   ```bash
+   NEXT_PUBLIC_E2E_TEST=true NEXT_PUBLIC_USE_FORK=true pnpm exec turbo run dev --filter governance.mento.org
+   ```
+
+   Note: governance's `dev` script does not watch `@repo/web3` — after changing
+   that package, run `pnpm exec turbo run build --filter @repo/web3` first (see
+   Troubleshooting).
+
 4. Open [http://localhost:3000](http://localhost:3000), click Connect — the modal shows only
    "E2E Test Wallet". Click it. You are connected as
    `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266` (anvil junk account 0).
 
-5. Drive the UI (e.g. swap 1 CELO -> cUSD), then verify on-chain (next section).
+5. Drive the UI (e.g. swap 1 EURm -> USDm — native CELO is not a selectable
+   swap token: the pinned mento-sdk's token map has no CELO entry for Celo
+   mainnet, so `?from=CELO` silently falls back to the default pair), then
+   verify on-chain (next section).
 
 ## Automated Playwright specs
 
