@@ -48,6 +48,10 @@ jobs:
       - name: Build package
         run: pnpm --filter @mento-protocol/ui build
 
+      - name: Pack package
+        run: pnpm --filter @mento-protocol/ui pack --pack-destination "$RUNNER_TEMP/ui-package"
+
       - name: Publish package
-        working-directory: packages/ui
-        run: npm publish --access public
+        run: |
+          package_version="$(node -p "require('./packages/ui/package.json').version")"
+          npm publish "$RUNNER_TEMP/ui-package/mento-protocol-ui-${package_version}.tgz" --access public
