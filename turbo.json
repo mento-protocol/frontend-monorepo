@@ -29,8 +29,8 @@
     },
     "lint": {},
     "check-types": {
-      "outputs": [".tsbuildinfo", "tsconfig.tsbuildinfo"],
-      "cache": true
+      "dependsOn": ["^build"],
+      "cache": false
     },
     "test": {
       "dependsOn": ["^build"],
