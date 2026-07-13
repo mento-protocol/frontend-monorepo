@@ -15,7 +15,7 @@ on:
   # block") instead of the pinned FORK_BLOCK. Like workflow_dispatch, this
   # only takes effect once the workflow exists on the default branch.
   schedule:
-    - cron: "20 4 * * *" # 04:20 UTC nightly (off the top-of-hour cron rush)
+    - cron: 20 4 * * * # 04:20 UTC nightly (off the top-of-hour cron rush)
   # Only usable once this workflow exists on the default branch.
   workflow_dispatch:
 
