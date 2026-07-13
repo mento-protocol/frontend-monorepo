@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "private": false,
   "description": "Mento Protocol React component library and design tokens.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mento-protocol/frontend-monorepo.git",
+    "directory": "packages/ui"
+  },
   "license": "BUSL-1.1",
   "sideEffects": [
     "**/*.css"
