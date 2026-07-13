@@ -1,4 +1,4 @@
-import "@repo/ui/globals.css";
+import "@mento-protocol/ui/globals.css";
 import "./globals.css";
 
 import localFont from "next/font/local";
@@ -8,7 +8,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Providers from "./lib/providers";
 import { env } from "@/env.mjs";
 import Image from "next/image";
-import { CommunityCard } from "@repo/ui";
+import { CommunityCard } from "@mento-protocol/ui";
 
 const aspekta = localFont({
   src: "./fonts/AspektaVF.ttf",

@@ -1,6 +1,6 @@
 "use client";
 
-import { toast } from "@repo/ui";
+import { toast } from "@mento-protocol/ui";
 import { useSwitchChain } from "wagmi";
 import { chainIdToChain } from "../../config/chains";
 

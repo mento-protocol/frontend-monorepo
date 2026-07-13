@@ -179,7 +179,7 @@ The `sendSdkTransaction()` and `waitForTx()` bridge functions already exist from
 
 - [ ] Create `apps/app.mento.org/app/components/borrow/shared/flow-dialog.tsx`
 - [ ] Reads `borrowFlowAtom` to display current flow state
-- [ ] Shows as a modal/dialog overlay (use @repo/ui Dialog component if available, otherwise a card overlay)
+- [ ] Shows as a modal/dialog overlay (use @mento-protocol/ui Dialog component if available, otherwise a card overlay)
 - [ ] Displays a list of steps, each showing: step label, status icon (spinner for pending, check for confirmed, X for error)
 - [ ] For steps with a txHash: shows a link to Celo block explorer (celoscan.io)
 - [ ] Error state: shows error message + "Try Again" button (resets flow atom to null)
@@ -291,5 +291,5 @@ SP operations need direct contract interaction:
 ## Open Questions
 
 - **Toast utility:** Which toast library does the app use? Check existing swap/pools hooks for the import pattern.
-- **Dialog component:** Does `@repo/ui` export a Dialog component? If not, use a card overlay with backdrop.
+- **Dialog component:** Does `@mento-protocol/ui` export a Dialog component? If not, use a card overlay with backdrop.
 - **Celo explorer URL:** Is it `celoscan.io` or `explorer.celo.org`? Check existing code for the block explorer URL pattern.

@@ -27,7 +27,7 @@ import {
   ProposalListItemIndex,
   BalanceGauge,
   ReserveChart,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import Image from "next/image";
 
 export default function SpecializedComponentsPage() {

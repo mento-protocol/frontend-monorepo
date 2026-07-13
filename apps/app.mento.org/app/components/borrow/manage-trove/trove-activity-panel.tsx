@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { Card, CardContent, Skeleton } from "@repo/ui";
+import { Card, CardContent, Skeleton } from "@mento-protocol/ui";
 import {
   formatCollateralAmount,
   formatDebtAmount,

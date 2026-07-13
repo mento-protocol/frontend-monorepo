@@ -9,7 +9,7 @@ import {
   type SetStateAction,
 } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Card, CardContent, TokenIcon } from "@repo/ui";
+import { Button, Card, CardContent, TokenIcon } from "@mento-protocol/ui";
 import {
   ConnectButton,
   formatCollateralAmount,

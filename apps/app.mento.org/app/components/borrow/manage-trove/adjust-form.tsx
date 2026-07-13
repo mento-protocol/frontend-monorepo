@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
-import { Button, CoinInput } from "@repo/ui";
+import { Button, CoinInput } from "@mento-protocol/ui";
 import {
   type DebtTokenConfig,
   useAdjustTrove,

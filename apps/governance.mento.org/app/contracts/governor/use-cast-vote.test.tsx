@@ -30,7 +30,7 @@ vi.mock("@repo/web3/wagmi", () => ({
   }),
 }));
 
-vi.mock("@repo/ui", () => ({
+vi.mock("@mento-protocol/ui", () => ({
   toast: {
     success: toastSuccessMock,
     error: toastErrorMock,

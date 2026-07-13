@@ -8,7 +8,7 @@ import {
   SelectValue,
   Badge,
   TokenIcon,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { useChainId } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 

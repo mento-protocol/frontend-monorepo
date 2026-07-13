@@ -1,5 +1,5 @@
 "use client";
-import { CopyToClipboard } from "@repo/ui";
+import { CopyToClipboard } from "@mento-protocol/ui";
 import { Identicon, useCurrentChain } from "@repo/web3";
 import { useMemo } from "react";
 import { formatUnits } from "viem";

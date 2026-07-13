@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button, CoinInput, TokenIcon } from "@repo/ui";
+import { Button, CoinInput, TokenIcon } from "@mento-protocol/ui";
 import {
   useSpWithdraw,
   formatCompactBalance,

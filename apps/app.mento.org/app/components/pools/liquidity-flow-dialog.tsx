@@ -13,7 +13,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 
 // ---------------------------------------------------------------------------
 // Status icons

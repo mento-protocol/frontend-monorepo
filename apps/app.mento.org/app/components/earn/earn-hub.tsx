@@ -12,7 +12,7 @@ import {
   getSupportedDeployments,
 } from "@/lib/stability-route";
 import { withOpportunitySource } from "@/lib/opportunity-navigation";
-import { Card, CardContent, cn } from "@repo/ui";
+import { Card, CardContent, cn } from "@mento-protocol/ui";
 import {
   useStabilityPool,
   useStabilityPoolApy,

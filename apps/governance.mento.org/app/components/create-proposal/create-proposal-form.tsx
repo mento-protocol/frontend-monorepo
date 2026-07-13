@@ -31,7 +31,7 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { ArrowLeft, ArrowRight, HelpCircle } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";

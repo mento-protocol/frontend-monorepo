@@ -1,8 +1,8 @@
 import { snapshotPage, test, type Theme } from "./fixtures";
 
-// These 6 data-free showcase pages mount the @repo/ui components in their
+// These 6 data-free showcase pages mount the @mento-protocol/ui components in their
 // default (closed/resting) states. A logic-only PR must leave all of these
-// screenshots unchanged; any @repo/ui or markup change to a covered component
+// screenshots unchanged; any @mento-protocol/ui or markup change to a covered component
 // surfaces as a reviewable Argos diff. Coverage is not exhaustive: some
 // exported components are not mounted here, and overlay/open states (dialog,
 // popover, tooltip, dropdown, select) render only behind closed triggers.

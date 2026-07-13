@@ -1,8 +1,8 @@
 import "@rainbow-me/rainbowkit/styles.css";
-import "@repo/ui/globals.css";
+import "@mento-protocol/ui/globals.css";
 import "./globals.css";
 
-import { CommunityCard, Footer, IconCheck, Toaster } from "@repo/ui";
+import { CommunityCard, Footer, IconCheck, Toaster } from "@mento-protocol/ui";
 import { ApolloProvider } from "./apollo-provider";
 import { cookieToInitialState, wagmiSsrConfig } from "@repo/web3/wagmi-ssr";
 import { Analytics } from "@vercel/analytics/react";

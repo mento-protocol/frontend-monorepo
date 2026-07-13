@@ -52,7 +52,7 @@ vi.mock("@mento-protocol/mento-sdk", () => ({
   getTokenAddress: () => "0x0000000000000000000000000000000000000001",
 }));
 
-vi.mock("@repo/ui", () => ({
+vi.mock("@mento-protocol/ui", () => ({
   Button: ({
     children,
     onClick,

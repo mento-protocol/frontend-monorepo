@@ -1,4 +1,4 @@
-import { toast } from "@repo/ui";
+import { toast } from "@mento-protocol/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSetAtom } from "jotai";
 import type { Config } from "wagmi";

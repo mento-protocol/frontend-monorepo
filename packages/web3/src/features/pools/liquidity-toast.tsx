@@ -1,6 +1,6 @@
 import { chainIdToChain, CELO_EXPLORER } from "@/config/chains";
 import { getExplorerUrl } from "@/utils/chain";
-import { toast } from "@repo/ui";
+import { toast } from "@mento-protocol/ui";
 
 export function showLiquiditySuccessToast({
   action,

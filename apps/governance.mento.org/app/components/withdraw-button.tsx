@@ -1,4 +1,4 @@
-import { Button, toast } from "@repo/ui";
+import { Button, toast } from "@mento-protocol/ui";
 import { formatUnitsWithThousandSeparators } from "@repo/web3";
 import { useCurrentChain } from "@/hooks/use-current-chain";
 

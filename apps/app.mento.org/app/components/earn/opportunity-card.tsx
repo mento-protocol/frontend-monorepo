@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Card, CardContent, cn, TokenIcon } from "@repo/ui";
+import { Card, CardContent, cn, TokenIcon } from "@mento-protocol/ui";
 import type { ChainId } from "@repo/web3";
 import { ChevronRight } from "lucide-react";
 import { ChainIcon } from "../shared/chain-icon";

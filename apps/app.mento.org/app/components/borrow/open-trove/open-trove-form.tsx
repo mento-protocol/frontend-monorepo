@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@repo/ui";
+import { Button } from "@mento-protocol/ui";
 import {
   getDebtTokenConfig,
   useLoanDetails,

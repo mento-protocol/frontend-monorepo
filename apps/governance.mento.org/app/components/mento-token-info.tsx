@@ -6,7 +6,7 @@ import {
   AccordionItem,
   AccordionTrigger,
   CopyToClipboard,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { useContracts, NumbersService, shortenAddress } from "@repo/web3";
 import { useGovernanceDetails } from "@/contracts";
 import { useCurrentChain } from "@/hooks/use-current-chain";

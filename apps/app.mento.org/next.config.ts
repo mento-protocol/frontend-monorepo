@@ -89,7 +89,11 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  transpilePackages: ["@repo/ui", "@repo/web3", "@rainbow-me/rainbowkit"],
+  transpilePackages: [
+    "@mento-protocol/ui",
+    "@repo/web3",
+    "@rainbow-me/rainbowkit",
+  ],
 };
 
 export default withSentryConfig(nextConfig, {

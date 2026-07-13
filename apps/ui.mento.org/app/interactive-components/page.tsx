@@ -31,7 +31,7 @@ import {
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { useState } from "react";
 
 export default function InteractiveComponentsPage() {

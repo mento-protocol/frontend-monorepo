@@ -1,5 +1,5 @@
 import { logger } from "@/utils/logger";
-import { toast } from "@repo/ui";
+import { toast } from "@mento-protocol/ui";
 import type { TokenApproval } from "@mento-protocol/mento-sdk";
 import { useEffect, useRef, useState } from "react";
 import type { Address, Hex } from "viem";

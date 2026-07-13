@@ -12,7 +12,7 @@ import {
   Input,
   ScrollArea,
   TokenIcon,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import {
   formatBalance,
   formatWithMaxDecimals,

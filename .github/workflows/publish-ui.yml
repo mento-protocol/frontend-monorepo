@@ -1,0 +1,53 @@
+name: Publish UI Package
+
+on:
+  push:
+    tags:
+      - "@mento-protocol/ui@*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-ui-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish @mento-protocol/ui
+    if: startsWith(github.ref, 'refs/tags/@mento-protocol/ui@')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v4
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate tag version
+        run: |
+          tag_version="${GITHUB_REF_NAME#@mento-protocol/ui@}"
+          package_version="$(node -p "require('./packages/ui/package.json').version")"
+          if [ "$tag_version" != "$package_version" ]; then
+            echo "Tag version $tag_version does not match package version $package_version"
+            exit 1
+          fi
+
+      - name: Build package
+        run: pnpm --filter @mento-protocol/ui build
+
+      - name: Publish package
+        run: pnpm --filter @mento-protocol/ui publish --access public --no-git-checks

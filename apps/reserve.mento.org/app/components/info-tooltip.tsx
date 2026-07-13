@@ -1,6 +1,11 @@
 "use client";
 
-import { IconInfo, Tooltip, TooltipTrigger, TooltipContent } from "@repo/ui";
+import {
+  IconInfo,
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@mento-protocol/ui";
 
 export function InfoTooltip({
   children,

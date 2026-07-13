@@ -20,7 +20,7 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 
 const tokenSymbols = [
   "CELO",

@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { TokenSymbol } from "@mento-protocol/mento-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@repo/ui", () => ({
+vi.mock("@mento-protocol/ui", () => ({
   cn: (...classes: unknown[]) =>
     classes.filter((value) => typeof value === "string" && value).join(" "),
   Dialog: ({ children }: { children: React.ReactNode }) => <>{children}</>,

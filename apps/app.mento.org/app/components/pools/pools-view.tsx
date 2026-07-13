@@ -3,7 +3,7 @@
 import { useMemo, useCallback, useEffect, memo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Search, Star, Droplets, RefreshCw, AlertTriangle } from "lucide-react";
-import { Button, Input, cn, useDebounce } from "@repo/ui";
+import { Button, Input, cn, useDebounce } from "@mento-protocol/ui";
 import {
   useAllPoolsList,
   usePoolRewards,

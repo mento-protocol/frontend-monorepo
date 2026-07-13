@@ -26,7 +26,7 @@ import {
   CoinSelectTrigger,
   CoinSelectValue,
   Datepicker,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { useState } from "react";
 
 // Stable reference — inlining `new Date(...)` would make a fresh object every

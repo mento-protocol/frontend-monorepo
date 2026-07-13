@@ -5,7 +5,7 @@ import {
   PopoverContent,
   PopoverTrigger,
   CopyToClipboard,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { Info } from "lucide-react";
 import { useState } from "react";
 

@@ -37,7 +37,7 @@ vi.mock("next/image", () => ({
   },
 }));
 
-vi.mock("@repo/ui", () => ({
+vi.mock("@mento-protocol/ui", () => ({
   Button: ({
     children,
     ...rest

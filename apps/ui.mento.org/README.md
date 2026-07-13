@@ -1,6 +1,6 @@
 # ui.mento.org
 
-Component library showcase for `@repo/ui`, and the host app for `@repo/ui`
+Component library showcase for `@mento-protocol/ui`, and the host app for `@mento-protocol/ui`
 Argos visual regression testing (VRT) screenshots.
 
 ## Getting Started

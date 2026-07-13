@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
   cn,
   toast,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSetAtom } from "jotai";
 import { Check, ChevronDown } from "lucide-react";

@@ -5,7 +5,7 @@ import {
   DialogHeader,
   DialogTitle,
   IconLoading,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 
 export interface ITxDialog {
   isOpen: boolean;

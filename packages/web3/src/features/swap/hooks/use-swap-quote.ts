@@ -1,4 +1,4 @@
-import { toast } from "@repo/ui";
+import { toast } from "@mento-protocol/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { type Address } from "viem";

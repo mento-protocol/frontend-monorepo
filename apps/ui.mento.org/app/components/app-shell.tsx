@@ -1,6 +1,10 @@
 "use client";
 
-import { SidebarProvider, SidebarTrigger, SidebarInset } from "@repo/ui";
+import {
+  SidebarProvider,
+  SidebarTrigger,
+  SidebarInset,
+} from "@mento-protocol/ui";
 import { CustomAppSidebar } from "./app-sidebar";
 import { ThemeProvider } from "next-themes";
 

@@ -57,8 +57,8 @@ vi.mock("@/components/shared/chain-mismatch-banner", () => ({
   ChainMismatchBanner: () => null,
 }));
 
-// Lightweight replacements for @repo/ui primitives.
-vi.mock("@repo/ui", () => ({
+// Lightweight replacements for @mento-protocol/ui primitives.
+vi.mock("@mento-protocol/ui", () => ({
   Button: ({
     children,
     onClick,

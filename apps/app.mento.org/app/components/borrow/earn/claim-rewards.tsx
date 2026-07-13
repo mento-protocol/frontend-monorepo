@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@repo/ui";
+import { Button } from "@mento-protocol/ui";
 import { useSpClaimRewards, type DebtTokenConfig } from "@repo/web3";
 import { useAccount, useConfig } from "@repo/web3/wagmi";
 

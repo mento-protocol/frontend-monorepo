@@ -8,7 +8,7 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { ParticipantList } from "./ParticipantList";
 
 interface ParticipantsProps {

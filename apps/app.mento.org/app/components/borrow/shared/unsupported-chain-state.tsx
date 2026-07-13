@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, TokenIcon } from "@repo/ui";
+import { Button, TokenIcon } from "@mento-protocol/ui";
 import {
   Celo,
   getDebtTokenConfig,

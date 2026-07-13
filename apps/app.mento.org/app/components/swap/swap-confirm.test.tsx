@@ -38,7 +38,7 @@ vi.mock("./insufficient-liquidity-notice", () => ({
   SwapInsufficientLiquidityNotice: () => null,
 }));
 
-vi.mock("@repo/ui", () => ({
+vi.mock("@mento-protocol/ui", () => ({
   Button: ({
     children,
     onClick,

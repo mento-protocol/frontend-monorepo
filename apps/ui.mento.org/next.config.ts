@@ -57,7 +57,7 @@ const nextConfig: NextConfig = {
 
   // Transpile monorepo packages used by this app
   // https://nextjs.org/docs/architecture/nextjs-compiler#module-transpilation
-  transpilePackages: ["@repo/ui"],
+  transpilePackages: ["@mento-protocol/ui"],
 };
 
 export default nextConfig;

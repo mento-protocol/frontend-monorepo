@@ -1,6 +1,6 @@
 import { useApprove, useLockMento as useCreateLockOnChain } from "@/contracts";
 import { useCurrentChain } from "@/hooks/use-current-chain";
-import { toast } from "@repo/ui";
+import { toast } from "@mento-protocol/ui";
 import { LockingABI, useContracts } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
 import React, { ReactNode, createContext, useContext, useMemo } from "react";

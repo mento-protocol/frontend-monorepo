@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button, CoinInput, TokenIcon } from "@repo/ui";
+import { Button, CoinInput, TokenIcon } from "@mento-protocol/ui";
 import Link from "next/link";
 import { ArrowRightLeft } from "lucide-react";
 import { getStabilitySwapRoute } from "@/lib/stability-route";

@@ -4,7 +4,7 @@ import { logger } from "@/utils";
 import { toViemAddress, validateAddress } from "@/utils/addresses";
 import { isUserRejection } from "@/utils/is-user-rejection";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
-import { toast } from "@repo/ui";
+import { toast } from "@mento-protocol/ui";
 import { useQuery } from "@tanstack/react-query";
 import BigNumber from "bignumber.js";
 import { useCallback, useEffect, useRef, useState } from "react";

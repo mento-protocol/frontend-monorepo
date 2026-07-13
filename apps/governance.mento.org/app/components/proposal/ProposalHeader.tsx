@@ -9,7 +9,7 @@ import {
   BreadcrumbSeparator,
   CopyToClipboard,
   ProposalStatus,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { ProposalState } from "@/graphql/subgraph/generated/subgraph";
 import { format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";

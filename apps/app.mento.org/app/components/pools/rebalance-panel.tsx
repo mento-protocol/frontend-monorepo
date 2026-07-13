@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useSetAtom } from "jotai";
 import { AlertTriangle, ArrowRightLeft } from "lucide-react";
 
-import { Button, TokenIcon } from "@repo/ui";
+import { Button, TokenIcon } from "@mento-protocol/ui";
 import {
   chainIdToChain,
   type ChainId,

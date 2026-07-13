@@ -6,7 +6,7 @@ import {
   rabbyWallet,
   trustWallet,
 } from "@rainbow-me/rainbowkit/wallets";
-import { toast } from "@repo/ui";
+import { toast } from "@mento-protocol/ui";
 
 interface WalletOptions {
   projectId: string;

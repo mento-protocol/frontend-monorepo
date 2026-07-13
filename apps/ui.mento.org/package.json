@@ -13,7 +13,7 @@
     "test:visual": "playwright test"
   },
   "dependencies": {
-    "@repo/ui": "workspace:*",
+    "@mento-protocol/ui": "workspace:*",
     "@t3-oss/env-nextjs": "catalog:",
     "lucide-react": "catalog:",
     "next": "catalog:",
