@@ -74,6 +74,46 @@ describe("isE2eTestMode", () => {
     expect(isE2eTestMode()).toBe(false);
   });
 
+  it("returns true for a team hash preview hostname with localStorage set (no env flag)", () => {
+    stubWindow("appmento-abc123-mentolabs.vercel.app", {
+      mento_e2e_wallet: "true",
+    });
+
+    expect(isE2eTestMode()).toBe(true);
+  });
+
+  it("returns true for a team branch-alias preview hostname with the env flag set", () => {
+    vi.stubEnv("NEXT_PUBLIC_E2E_TEST", "true");
+    stubWindow("frontend-monorepo-git-feat-x-mentolabs.vercel.app");
+
+    expect(isE2eTestMode()).toBe(true);
+  });
+
+  it("returns false for lookalike/structure-attack hostnames even with both the env flag and localStorage set", () => {
+    vi.stubEnv("NEXT_PUBLIC_E2E_TEST", "true");
+    const storageValues = { mento_e2e_wallet: "true" };
+
+    // Unchanged: production domain.
+    stubWindow("app.mento.org", storageValues);
+    expect(isE2eTestMode()).toBe(false);
+
+    // Subdomain injection — two labels before "vercel.app".
+    stubWindow("foo.bar-mentolabs.vercel.app", storageValues);
+    expect(isE2eTestMode()).toBe(false);
+
+    // Suffix forgery — real host does not end in "vercel.app".
+    stubWindow("appmento-abc-mentolabs.vercel.app.evil.com", storageValues);
+    expect(isE2eTestMode()).toBe(false);
+
+    // No "-mentolabs" label ending.
+    stubWindow("mentolabs.vercel.app", storageValues);
+    expect(isE2eTestMode()).toBe(false);
+
+    // Different (non-team) Vercel project.
+    stubWindow("appmento-abc-otherteam.vercel.app", storageValues);
+    expect(isE2eTestMode()).toBe(false);
+  });
+
   it("returns false for hostnames that merely contain an allowlisted host as a substring", () => {
     vi.stubEnv("NEXT_PUBLIC_E2E_TEST", "true");
 
