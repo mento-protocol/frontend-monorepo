@@ -448,6 +448,9 @@ importers:
       '@graphql-codegen/typescript-react-apollo':
         specifier: ^4.4.2
         version: 4.4.2(graphql@16.12.0)
+      '@playwright/test':
+        specifier: 1.61.1
+        version: 1.61.1
       '@repo/eslint-config':
         specifier: workspace:*
         version: link:../../packages/eslint-config

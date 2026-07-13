@@ -12,6 +12,7 @@
     "lint": "npx @trunkio/launcher check",
     "start": "next start",
     "test": "vitest run",
+    "test:connected": "playwright test --project=connected",
     "test:watch": "vitest"
   },
   "dependencies": {
@@ -52,6 +53,7 @@
     "@graphql-codegen/typescript-apollo-client-helpers": "^4.0.1",
     "@graphql-codegen/typescript-operations": "^6.0.4",
     "@graphql-codegen/typescript-react-apollo": "^4.4.2",
+    "@playwright/test": "1.61.1",
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@repo/vitest-config": "workspace:*",
