@@ -14,25 +14,20 @@ import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { useSwapUrlSync } from "@/hooks/use-swap-url-sync";
 
-import type { TokenSymbol } from "@mento-protocol/mento-sdk";
 import {
   CELO_EXPLORER,
   ChainId,
   chainIdToChain,
   confirmViewAtom,
-  formatBalance,
   formatWithMaxDecimals,
   formValuesAtom,
-  fromWeiRounded,
   getNativeTokenSymbol,
   getPreferredUsdQuoteTokenSymbol,
   getTokenDecimals,
   getTokenOptionsByChainId,
   logger,
-  MIN_ROUNDED_VALUE,
   parseAmount,
   parseAmountWithDefault,
-  type AccountBalances,
   type SwapFormValues,
   toWei,
   useAccountBalances,
@@ -69,14 +64,15 @@ import {
   type SwapFormRouteOptions,
   useStableRouteDrivenFormState,
 } from "./swap-form-initial-state";
+import {
+  getFormattedTokenInBalance,
+  getFormattedTokenOutBalance,
+  getTokenBalanceValue,
+  getTradingSuspensionError,
+  hasSwapAmount,
+  validateSwapBalance,
+} from "./swap-form-validation";
 import { defaultEmptyBalances, formSchema, type FormValues } from "./types";
-
-function getTokenBalanceValue(
-  balances: AccountBalances,
-  tokenSymbol: TokenSymbol,
-): string | undefined {
-  return balances[tokenSymbol];
-}
 
 export function useSwapForm(opts?: SwapFormRouteOptions) {
   const { address, isConnected } = useAccount();
@@ -156,27 +152,25 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
   const formQuote = useWatch({ control: form.control, name: "quote" });
 
   // Token balances
-  const fromTokenBalance = useMemo(() => {
-    if (!selectedTokenInSymbol) return "0";
+  const fromTokenBalance = useMemo(
+    () =>
+      getFormattedTokenInBalance({
+        balances,
+        chainId: formChainId,
+        tokenSymbol: selectedTokenInSymbol,
+      }),
+    [balances, selectedTokenInSymbol, formChainId],
+  );
 
-    const balanceValue = getTokenBalanceValue(balances, selectedTokenInSymbol);
-    const balance = formatBalance(
-      balanceValue ?? "0",
-      getTokenDecimals(selectedTokenInSymbol, formChainId),
-    );
-    return formatWithMaxDecimals(balance || "0.00");
-  }, [balances, selectedTokenInSymbol, formChainId]);
-
-  const toTokenBalance = useMemo(() => {
-    if (!selectedTokenOutSymbol) return "0";
-
-    const balanceValue = getTokenBalanceValue(balances, selectedTokenOutSymbol);
-    const balance = fromWeiRounded(
-      balanceValue ?? "0",
-      getTokenDecimals(selectedTokenOutSymbol, formChainId),
-    );
-    return formatWithMaxDecimals(balance || "0.00");
-  }, [balances, selectedTokenOutSymbol, formChainId]);
+  const toTokenBalance = useMemo(
+    () =>
+      getFormattedTokenOutBalance({
+        balances,
+        chainId: formChainId,
+        tokenSymbol: selectedTokenOutSymbol,
+      }),
+    [balances, selectedTokenOutSymbol, formChainId],
+  );
 
   // Trading limits
   const { data: limits, isLoading: limitsLoading } = useTradingLimits(
@@ -198,37 +192,13 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
   // ── Validation ──────────────────────────────────────────────────────
 
   const validateBalance = useCallback(
-    (value: string) => {
-      if (!value || !selectedTokenInSymbol) return true;
-      if (value === "0." || value === "0") return true;
-
-      const parsedAmount = parseAmount(value);
-      if (!parsedAmount) return true;
-
-      if (parsedAmount.lte(MIN_ROUNDED_VALUE) && !parsedAmount.isZero()) {
-        return "Amount too small";
-      }
-
-      const tokenInfo = allTokenOptions.find(
-        (t) => t.symbol === selectedTokenInSymbol,
-      );
-      if (!tokenInfo) return "Invalid token";
-
-      const balance = getTokenBalanceValue(balances, selectedTokenInSymbol);
-      if (typeof balance === "undefined") return "Balance unavailable";
-
-      const amountInWei = toWei(parsedAmount, tokenInfo.decimals || 18);
-      const balanceInWei = parseAmountWithDefault(balance, "0");
-
-      if (
-        amountInWei.gt(0) &&
-        (balanceInWei.isZero() || balanceInWei.lt(amountInWei))
-      ) {
-        return "Insufficient balance";
-      }
-
-      return true;
-    },
+    (value: string) =>
+      validateSwapBalance({
+        allTokenOptions,
+        balances,
+        tokenInSymbol: selectedTokenInSymbol,
+        value,
+      }),
     [balances, selectedTokenInSymbol, allTokenOptions],
   );
 
@@ -307,12 +277,7 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
   // ── Derived state ───────────────────────────────────────────────────
 
   const { errors } = form.formState;
-  const hasAmount =
-    !!amount &&
-    amount !== "" &&
-    amount !== "0" &&
-    amount !== "0." &&
-    Number(amount) > 0;
+  const hasAmount = hasSwapAmount(amount);
 
   const balanceError = useMemo(() => {
     if (!hasAmount || !selectedTokenInSymbol) return null;
@@ -321,10 +286,15 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
     return balanceCheck !== true ? balanceCheck : null;
   }, [amount, hasAmount, selectedTokenInSymbol, validateBalance]);
 
-  const tradingSuspensionError = useMemo(() => {
-    if (!isTradingSuspended) return null;
-    return `Trading temporarily paused for ${tokenInSymbol} -> ${tokenOutSymbol}. Unable to determine accurate exchange rate now. Please try again later.`;
-  }, [isTradingSuspended, tokenInSymbol, tokenOutSymbol]);
+  const tradingSuspensionError = useMemo(
+    () =>
+      getTradingSuspensionError({
+        isTradingSuspended,
+        tokenInSymbol,
+        tokenOutSymbol,
+      }),
+    [isTradingSuspended, tokenInSymbol, tokenOutSymbol],
+  );
 
   const canQuote =
     !!hasAmount &&
