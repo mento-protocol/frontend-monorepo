@@ -42,6 +42,8 @@ pnpm check-types                     # TypeScript type checking; builds workspac
 trunk check --fix                     # Lint with autofix
 trunk fmt                             # Format
 pnpm test                            # Run tests
+pnpm fork:mainnet                    # Local anvil fork of Celo mainnet (--celo --auto-impersonate)
+pnpm fork:seed                       # Fund fork accounts + re-report oracle prices (idempotent)
 ```
 
 Always use `--filter` to avoid building/running everything unnecessarily.
@@ -76,6 +78,27 @@ Two layers guard against unintended UI changes:
   An intended UI change shows as a diff in the Argos dashboard — approve it there to promote the baseline. Requires the `ARGOS_TOKEN` secret + the Argos GitHub App. `ui.mento.org` needs `NEXT_PUBLIC_STORAGE_URL` (CI uses `vars.STORAGE_URL`; locally use `apps/ui.mento.org/.env.local`). `app.mento.org` needs the env vars from `apps/app.mento.org/.env.example`; for local screenshot renders, `NEXT_PUBLIC_SENTRY_DSN_SWAP` and `SENTRY_AUTH_TOKEN` may be empty strings.
 
   If CI shows all Playwright visual tests passing and then Argos fails with HTTP 402 / Free Plan screenshot capacity, classify it as Argos account quota rather than a visual regression. Report the pass counts and do not disable VRT or change baselines for that failure.
+
+## Wallet-Connected Testing (local fork)
+
+To test connected-wallet flows (swaps, approvals, locking) locally without a real wallet:
+
+1. `pnpm fork:mainnet` — anvil fork of Celo mainnet on port 8545 (Foundry >= 1.4)
+2. `pnpm fork:seed` — fund test accounts + refresh oracle rates (re-run after `evm_revert` or when quotes stall)
+3. `NEXT_PUBLIC_E2E_TEST=true NEXT_PUBLIC_USE_FORK=true pnpm exec turbo run dev --filter app.mento.org`, then connect the "E2E Test Wallet" (first run: copy `apps/app.mento.org/.env.example` to `.env.local` and fill it — the env schema fails startup otherwise; `CHAINALYSIS_API_KEY` needs a real key, the Sentry vars may stay empty — see the runbook's prerequisites). For governance flows (lock/voting power), start `governance.mento.org` (port 3002) the same way.
+
+Full runbook — localStorage activation, on-chain verification with `cast`, snapshot/revert discipline, safety rules, troubleshooting: [docs/wallet-testing.md](docs/wallet-testing.md)
+
+## Connected-Wallet E2E
+
+Functional connected-wallet Playwright specs (not VRT) that run against a seeded local anvil `--celo` fork. Prerequisites, in order: `pnpm fork:mainnet` (anvil fork), `pnpm fork:seed` (seed balances/oracles).
+
+- **app.mento.org** — a swap E2E. Build with `pnpm exec turbo run build --filter app.mento.org` before the first run — the suite starts `next start` via Playwright's webServer. Then run `pnpm --filter app.mento.org test:connected`.
+- **governance.mento.org** — a create-lock E2E (approve MENTO → lock, two-step, single click). Build with `NEXT_PUBLIC_E2E_TEST=true NEXT_PUBLIC_USE_FORK=true pnpm exec turbo run build --filter governance.mento.org` (copy `apps/governance.mento.org/.env.example` to `.env.local` first — values don't need to be real, but URL-typed vars must be syntactically valid). Then run `pnpm --filter governance.mento.org test:connected`. No vote-casting spec yet (needs an active proposal + subgraph/snapshot orchestration; tracked as future work in #441). Lock/proposal LISTS render from a live subgraph, not the fork, so assertions are on-chain (via the rpc helper) and toast-only, never via the lock list.
+
+See [docs/wallet-testing.md](docs/wallet-testing.md) for the full runbook.
+
+In CI, `.github/workflows/e2e.yml` runs the same suite on PRs touching `apps/app.mento.org/**`, `packages/web3/**`, `scripts/fork-seed.mjs`, or the workflow itself (plus manual `workflow_dispatch`), against an anvil fork pinned to `FORK_BLOCK` (bump roughly monthly). The fork source is a keyless public archive RPC probed at run time — forno cannot serve pinned-block forks because it prunes a block's state within minutes. A nightly scheduled run (04:20 UTC) repeats the suite at a freshly resolved recent block instead of the pin, to catch chain drift (oracle config, pool, or contract changes) that paths-filtered PR runs never see. The workflow is intentionally not a required check yet.
 
 ## Coding Conventions
 

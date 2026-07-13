@@ -13,6 +13,11 @@
 # testing
 /coverage
 
+# playwright (baselines are not applicable here — no visual coverage, see #448)
+/test-results/
+/playwright-report/
+/playwright/.cache/
+
 # next.js
 /.next/
 /out/
