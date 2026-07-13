@@ -11,7 +11,7 @@ import { getChainId, getPublicClient } from "wagmi/actions";
 import { borrowFlowAtom } from "../atoms/flow-atoms";
 import type { CallParams, OpenTroveParams } from "../types";
 import { deriveBorrowTroveId } from "../sdk";
-import { executeFlow } from "../tx-flows/engine";
+import { executeFlow } from "../tx-flows/flow";
 import { useBorrowService } from "./use-borrow-service";
 
 interface OpenTroveMutationParams {

@@ -1,23 +1,7 @@
-import type { Config } from "wagmi";
-import {
-  estimateGas,
-  getAccount,
-  sendTransaction,
-  waitForTransactionReceipt,
-} from "wagmi/actions";
 import { BORROWER_OPERATIONS_ABI } from "@mento-protocol/mento-sdk";
-import {
-  decodeErrorResult,
-  isHex,
-  parseAbi,
-  type Address,
-  type Hex,
-  type TransactionReceipt,
-} from "viem";
+import { decodeErrorResult, isHex, parseAbi, type Hex } from "viem";
 import { isUserRejection } from "@/utils/is-user-rejection";
-import type { CallParams } from "../types";
 
-const DEFAULT_GAS_HEADROOM = 0.25;
 const MAX_ERROR_WALK_DEPTH = 8;
 const REVERT_REASON_MAP: Record<string, string> = {
   DebtBelowMin: "Debt is below protocol minimum",
@@ -45,52 +29,7 @@ const ERC20_CUSTOM_ERRORS_ABI = parseAbi([
 ]);
 const REVERT_DATA_REGEX = /0x[a-fA-F0-9]{8,}/g;
 
-/**
- * Sends an SDK-built transaction through wagmi, applying a gas headroom buffer.
- */
-export async function sendSdkTransaction(
-  wagmiConfig: Config,
-  callParams: CallParams,
-  gasHeadroom: number = DEFAULT_GAS_HEADROOM,
-  account?: string,
-): Promise<Hex> {
-  const connectedAccount = account ?? getAccount(wagmiConfig).address;
-  const txRequest = {
-    ...(connectedAccount ? { account: connectedAccount as Address } : {}),
-    to: callParams.to as Address,
-    data: callParams.data as Hex,
-    value: BigInt(callParams.value || 0),
-  };
-
-  try {
-    const gasEstimate = await estimateGas(wagmiConfig, txRequest);
-    const gasLimit =
-      gasEstimate + BigInt(Math.ceil(Number(gasEstimate) * gasHeadroom));
-
-    return await sendTransaction(wagmiConfig, {
-      ...txRequest,
-      gas: gasLimit,
-    });
-  } catch (error) {
-    throw normalizeTxError(error, txRequest.data);
-  }
-}
-
-/**
- * Waits for a transaction to be mined and returns the receipt.
- * Uses multiple confirmations to ensure the sequencer has fully processed
- * the transaction before proceeding (prevents nonce-too-low errors in
- * multi-step flows on L2s).
- */
-export async function waitForTx(
-  wagmiConfig: Config,
-  hash: Hex,
-  confirmations: number = 3,
-): Promise<TransactionReceipt> {
-  return waitForTransactionReceipt(wagmiConfig, { hash, confirmations });
-}
-
-function normalizeTxError(error: unknown, txData?: Hex): Error {
+export function normalizeTxError(error: unknown, txData?: Hex): Error {
   const message =
     error instanceof Error ? error.message : String(error ?? "Unknown error");
   const details = extractNestedErrorDetails(error);
