@@ -78,14 +78,20 @@ jobs:
           set -euo pipefail
 
           # Scheduled (nightly chain-drift) runs always exercise both suites —
-          # there is no "changed files" concept for a cron trigger.
-          if [[ "$EVENT_NAME" == "schedule" ]]; then
+          # there is no "changed files" concept for a cron trigger. Manual
+          # workflow_dispatch runs get the same treatment: before this plan
+          # gate existed, workflow_dispatch had no paths: filter and always
+          # ran the full suite, and a manual run's whole point is "run it
+          # regardless of what changed" — diffing HEAD^..HEAD (the fallback
+          # below) would otherwise skip both suites whenever the dispatched
+          # commit itself doesn't touch app/gov paths.
+          if [[ "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
             echo "run_app=true" >> "$GITHUB_OUTPUT"
             echo "run_gov=true" >> "$GITHUB_OUTPUT"
             {
               echo "### E2E plan"
               echo
-              echo "Scheduled run: forcing app.mento.org and governance.mento.org."
+              echo "$EVENT_NAME run: forcing app.mento.org and governance.mento.org."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -119,7 +125,7 @@ jobs:
               apps/governance.mento.org/*)
                 run_gov=true
                 ;;
-              packages/web3/*)
+              packages/web3/* | packages/ui/*)
                 run_app=true
                 run_gov=true
                 ;;
@@ -166,7 +172,14 @@ jobs:
   e2e-connected:
     name: Connected swap (anvil fork)
     needs: [e2e-plan, fork-seed-self-test]
-    if: ${{ always() && needs['fork-seed-self-test'].result == 'success' && (needs.e2e-plan.result != 'success' || needs.e2e-plan.outputs.run_app == 'true') }}
+    # NOTE: fork-seed-self-test's result is deliberately NOT part of this
+    # condition (see the in-job guard step below) — a job this `if` skips
+    # reports "skipped" on the check run, and GitHub treats a skipped
+    # required check as passing. Gating here on self-test success would let
+    # a broken fork-seed.mjs silently pass "Connected swap (anvil fork)"
+    # once it's a required check. Instead the job still starts and its first
+    # real step fails loudly.
+    if: ${{ always() && (needs.e2e-plan.result != 'success' || needs.e2e-plan.outputs.run_app == 'true') }}
     timeout-minutes: 30
     runs-on: ubuntu-latest
     # Render in the same pinned Playwright container as visual.yml so the two
@@ -194,6 +207,12 @@ jobs:
         if: needs.e2e-plan.result != 'success'
         run: |
           echo "e2e-plan did not complete successfully: ${{ needs.e2e-plan.result }}"
+          exit 1
+
+      - name: Require successful fork-seed self-test
+        if: needs['fork-seed-self-test'].result != 'success'
+        run: |
+          echo "fork-seed-self-test did not pass: ${{ needs['fork-seed-self-test'].result }}"
           exit 1
 
       - name: Check out code
@@ -433,7 +452,12 @@ jobs:
   e2e-governance:
     name: Connected governance (anvil fork)
     needs: [e2e-plan, fork-seed-self-test]
-    if: ${{ always() && needs['fork-seed-self-test'].result == 'success' && (needs.e2e-plan.result != 'success' || needs.e2e-plan.outputs.run_gov == 'true') }}
+    # NOTE: fork-seed-self-test's result is deliberately NOT part of this
+    # condition — see the matching comment on e2e-connected above. Gating
+    # here would let a broken fork-seed.mjs silently "pass" this check via a
+    # skip once it's required; the in-job guard step below fails loudly
+    # instead.
+    if: ${{ always() && (needs.e2e-plan.result != 'success' || needs.e2e-plan.outputs.run_gov == 'true') }}
     timeout-minutes: 30
     runs-on: ubuntu-latest
     # Render in the same pinned Playwright container as visual.yml so the two
@@ -473,6 +497,12 @@ jobs:
         if: needs.e2e-plan.result != 'success'
         run: |
           echo "e2e-plan did not complete successfully: ${{ needs.e2e-plan.result }}"
+          exit 1
+
+      - name: Require successful fork-seed self-test
+        if: needs['fork-seed-self-test'].result != 'success'
+        run: |
+          echo "fork-seed-self-test did not pass: ${{ needs['fork-seed-self-test'].result }}"
           exit 1
 
       - name: Check out code
