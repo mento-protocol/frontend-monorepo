@@ -8,6 +8,7 @@ import {
   isFxMarketClosedError,
   isReferenceRateUnavailableError,
 } from "@/features/swap/error-handlers";
+import { logger } from "@/utils/logger";
 import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
 
 interface TradingSuspensionCheckResult {
@@ -45,7 +46,7 @@ export function useTradingSuspensionCheck(
     queryKey,
     queryFn: async () => {
       if (!tokenInSymbol || !tokenOutSymbol) {
-        console.warn(`[Trading Suspension Check] Missing token symbols:`, {
+        logger.warn(`[Trading Suspension Check] Missing token symbols:`, {
           tokenInSymbol,
           tokenOutSymbol,
         });
@@ -56,7 +57,7 @@ export function useTradingSuspensionCheck(
       const toTokenAddr = getTokenAddress(chainId, tokenOutSymbol);
 
       if (!fromTokenAddr || !toTokenAddr) {
-        console.warn(`[Trading Suspension Check] Token addresses not found:`, {
+        logger.warn(`[Trading Suspension Check] Token addresses not found:`, {
           tokenInSymbol,
           tokenOutSymbol,
           fromTokenAddr,
@@ -88,7 +89,7 @@ export function useTradingSuspensionCheck(
         const isReferenceRateUnavailable =
           isReferenceRateUnavailableError(errorMessage);
 
-        console.error(
+        logger.error(
           `[Trading Suspension Check] Error checking isPairTradable(${tokenInSymbol} -> ${tokenOutSymbol}):`,
           err,
         );

@@ -15,6 +15,10 @@
     "NEXT_PUBLIC_CELO_SEPOLIA_RPC_URL",
     "NEXT_PUBLIC_MONAD_RPC_URL",
     "NEXT_PUBLIC_MONAD_TESTNET_RPC_URL",
+    "NEXT_PUBLIC_POLYGON_AMOY_RPC_URL",
+    "NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL",
+    "NEXT_PUBLIC_VERSION",
+    "NEXT_PUBLIC_WALLET_CONNECT_ID",
     "NEXT_RUNTIME",
     "CI",
     "SENTRY_AUTH_TOKEN",
@@ -30,8 +34,8 @@
     },
     "lint": {},
     "check-types": {
-      "outputs": [".tsbuildinfo", "tsconfig.tsbuildinfo"],
-      "cache": true
+      "dependsOn": ["^build"],
+      "cache": false
     },
     "test": {
       "dependsOn": ["^build"],

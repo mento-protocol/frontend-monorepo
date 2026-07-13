@@ -14,17 +14,7 @@ export interface SwapFormValues {
   sellUSDValue?: string;
 }
 
-export type ToCeloRates = Partial<Record<TokenSymbol, ExchangeRate>>;
-
-// Raw Mento chain data from an Exchange contract
-export interface ExchangeRate {
-  stableBucket: string;
-  celoBucket: string;
-  spread: string;
-  lastUpdated: number;
-}
-
-// Result after ExchangeRate gets processed
+// Result after an exchange rate gets processed for display.
 export interface SimpleExchangeRate {
   rate: number;
   lastUpdated: number;
