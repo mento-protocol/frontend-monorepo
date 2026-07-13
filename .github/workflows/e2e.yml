@@ -126,10 +126,13 @@ jobs:
             https://forno.celo.org
           )
           for url in "${candidates[@]}"; do
+            # `|| true`: this step runs under bash -eo pipefail, so a failed
+            # curl in the substitution would otherwise abort the whole step
+            # instead of falling through to the next candidate.
             head_hex=$(curl -sf -m 15 -X POST "$url" \
               -H 'Content-Type: application/json' \
               --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' \
-              | sed -n 's/.*"result":"\(0x[0-9a-fA-F]*\)".*/\1/p')
+              | sed -n 's/.*"result":"\(0x[0-9a-fA-F]*\)".*/\1/p' || true)
             if [ -n "$head_hex" ]; then
               fresh=$(( head_hex - 64 ))
               echo "FORK_BLOCK=$fresh" >> "$GITHUB_ENV"
