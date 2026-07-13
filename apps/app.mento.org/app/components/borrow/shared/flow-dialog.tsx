@@ -12,7 +12,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { FlowStep } from "./flow-step";
 
 // ---------------------------------------------------------------------------

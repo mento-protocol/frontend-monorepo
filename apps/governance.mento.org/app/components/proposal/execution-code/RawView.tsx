@@ -1,5 +1,5 @@
 import type { Transaction } from "../types/transaction";
-import { CopyToClipboard } from "@repo/ui";
+import { CopyToClipboard } from "@mento-protocol/ui";
 
 interface RawViewProps {
   transactions: Transaction[];

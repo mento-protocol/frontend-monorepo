@@ -6,7 +6,7 @@ import {
   type ChainId,
 } from "@repo/web3";
 import { useAccount, useChainId } from "@repo/web3/wagmi";
-import { Button } from "@repo/ui";
+import { Button } from "@mento-protocol/ui";
 import { ArrowRightLeft } from "lucide-react";
 
 export function ChainMismatchBanner({

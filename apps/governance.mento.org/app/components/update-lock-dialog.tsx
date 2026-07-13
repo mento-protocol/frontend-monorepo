@@ -6,7 +6,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { useTokens } from "@repo/web3";
 import { useAccount } from "@repo/web3/wagmi";
 import { useMemo, useState } from "react";

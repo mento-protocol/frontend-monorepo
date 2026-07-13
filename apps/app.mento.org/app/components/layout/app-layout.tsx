@@ -1,6 +1,6 @@
 "use client";
 
-import { Footer, IconCheck, Toaster } from "@repo/ui";
+import { Footer, IconCheck, Toaster } from "@mento-protocol/ui";
 import { Header } from "@/components/nav/header";
 import { Banner } from "@/components/layout/banner";
 import { PollingWorker } from "@repo/web3";
@@ -8,7 +8,7 @@ import type { PropsWithChildren } from "react";
 import Image from "next/image";
 import { useTheme } from "next-themes";
 
-import "@repo/ui/globals.css";
+import "@mento-protocol/ui/globals.css";
 import { env } from "@/env.mjs";
 
 export function AppLayout({ children }: PropsWithChildren) {

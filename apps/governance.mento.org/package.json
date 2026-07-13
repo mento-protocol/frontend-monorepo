@@ -18,8 +18,8 @@
   "dependencies": {
     "@apollo/client": "^3.14.0",
     "@apollo/client-integration-nextjs": "^0.12.3",
+    "@mento-protocol/ui": "workspace:*",
     "@rainbow-me/rainbowkit": "catalog:",
-    "@repo/ui": "workspace:*",
     "@repo/web3": "workspace:*",
     "@sentry/nextjs": "catalog:",
     "@t3-oss/env-nextjs": "catalog:",

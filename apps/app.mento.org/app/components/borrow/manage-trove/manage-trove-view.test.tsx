@@ -33,7 +33,7 @@ vi.mock("@mento-protocol/mento-sdk", () => ({
   getTokenAddress: () => undefined,
 }));
 
-vi.mock("@repo/ui", () => ({
+vi.mock("@mento-protocol/ui", () => ({
   Card: ({ children, ...rest }: React.HTMLAttributes<HTMLDivElement>) => (
     <div {...rest}>{children}</div>
   ),

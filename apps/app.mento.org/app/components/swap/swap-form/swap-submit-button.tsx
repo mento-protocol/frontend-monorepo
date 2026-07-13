@@ -1,7 +1,7 @@
 "use client";
 
-import { IconLoading } from "@repo/ui";
-import { Button } from "@repo/ui";
+import { IconLoading } from "@mento-protocol/ui";
+import { Button } from "@mento-protocol/ui";
 import { ConnectButton, SWAP_INSUFFICIENT_LIQUIDITY_LABEL } from "@repo/web3";
 
 import type { TokenWithBalance } from "@repo/web3";

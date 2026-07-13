@@ -13,7 +13,7 @@ Monorepo for Mento Protocol frontend applications (DeFi on Celo blockchain).
 
 ### Shared Packages
 
-- **@repo/ui** — Component library (Radix UI + Tailwind, built with tsup)
+- **@mento-protocol/ui** — Component library (Radix UI + Tailwind, built with tsup)
 - **@repo/web3** — Web3 hooks and transaction logic (wagmi/viem)
 - **@repo/eslint-config** — Shared ESLint configs
 - **@repo/typescript-config** — Shared TS configs
@@ -27,7 +27,7 @@ Monorepo for Mento Protocol frontend applications (DeFi on Celo blockchain).
 - **Web3:** wagmi, viem, @mento-protocol/mento-sdk, RainbowKit
 - **State:** jotai (atoms), @tanstack/react-query (data fetching)
 - **Linting/Formatting:** Trunk CLI (ESLint + Prettier)
-- **Testing:** Vitest (app.mento.org, @repo/web3, @repo/ui)
+- **Testing:** Vitest (app.mento.org, @repo/web3, @mento-protocol/ui)
 - **Monitoring:** Sentry
 - **Deployment:** Vercel
 
@@ -58,7 +58,7 @@ Always use `--filter` to avoid building/running everything unnecessarily.
 
 Two layers guard against unintended UI changes:
 
-- **DOM/aria snapshots** (`@repo/ui`) — run inside the normal `pnpm test` step. After an _intended_ component change, re-record baselines with `pnpm --filter @repo/ui exec vitest run -u`.
+- **DOM/aria snapshots** (`@mento-protocol/ui`) — run inside the normal `pnpm test` step. After an _intended_ component change, re-record baselines with `pnpm --filter @mento-protocol/ui exec vitest run -u`.
 - **Pixel VRT** (`ui.mento.org` showcase and `app.mento.org` disconnected shells) — Playwright + Argos, in CI via `.github/workflows/visual.yml` (pinned Playwright Docker image; baselines live in Argos, not git).
   The workflow plans from changed files and only runs the app checks whose
   rendered surfaces can be affected: `apps/ui.mento.org/**` and `packages/ui/**`
@@ -100,12 +100,14 @@ See [docs/wallet-testing.md](docs/wallet-testing.md) for the full runbook.
 
 In CI, `.github/workflows/e2e.yml` runs the same suite on PRs touching `apps/app.mento.org/**`, `packages/web3/**`, `scripts/fork-seed.mjs`, or the workflow itself (plus manual `workflow_dispatch`), against an anvil fork pinned to `FORK_BLOCK` (bump roughly monthly). The fork source is a keyless public archive RPC probed at run time — forno cannot serve pinned-block forks because it prunes a block's state within minutes. A nightly scheduled run (04:20 UTC) repeats the suite at a freshly resolved recent block instead of the pin, to catch chain drift (oracle config, pool, or contract changes) that paths-filtered PR runs never see. The workflow is intentionally not a required check yet.
 
+Deployed Vercel previews additionally get a walletless smoke via `.github/workflows/preview-smoke.yml`: mock wallet connect on `*-mentolabs.vercel.app` hosts, real-chain reads (no fork), no transactions.
+
 ## Coding Conventions
 
 - **Naming:** PascalCase for components, camelCase for variables/functions
 - **No acronyms:** Use `errorMessage` not `errMsg`, `button` not `btn`, `authentication` not `auth`
 - **No `any` type:** Use specific types, or `unknown` in the worst case
-- **Components:** Use `@repo/ui` components (Radix UI primitives via shadcn/ui-style components); standard `onClick` handlers.
+- **Components:** Use `@mento-protocol/ui` components (Radix UI primitives via shadcn/ui-style components); standard `onClick` handlers.
 - **Block explorer links:** Use `AddressLink` and `TransactionLink` components
 - **Dependencies:** Never add new npm dependencies without explicit approval
 - **Commits:** Conventional Commits enforced by commitlint (`feat|fix|docs|chore(scope): message`)

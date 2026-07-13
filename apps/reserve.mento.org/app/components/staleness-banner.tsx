@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@repo/ui";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@mento-protocol/ui";
 import { useV2Query } from "@/lib/use-v2-query";
 import type { V2MetaWarning } from "@/lib/types";
 

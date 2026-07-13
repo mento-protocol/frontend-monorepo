@@ -1,4 +1,4 @@
-import { Badge, TokenIcon, cn } from "@repo/ui";
+import { Badge, TokenIcon, cn } from "@mento-protocol/ui";
 import type { PoolDisplay } from "@repo/web3";
 import {
   useUserPosition,

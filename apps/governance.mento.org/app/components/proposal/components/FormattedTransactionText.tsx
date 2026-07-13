@@ -5,7 +5,7 @@ import { Transaction, DecodedTransaction } from "../types/transaction";
 import { useExplorerUrl } from "@repo/web3";
 import { AddressParser } from "./AddressParser";
 import { CodeStyler } from "./CodeStyler";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@repo/ui";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@mento-protocol/ui";
 
 interface AddressReplacement {
   match: string;

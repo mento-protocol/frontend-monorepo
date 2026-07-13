@@ -6,7 +6,7 @@ import {
 } from "@/components/voting/vote-card-cancel-actions";
 import { VoteCardState } from "@/components/voting/derive-vote-card-state";
 import { Proposal, ProposalState } from "@/graphql/subgraph/generated/subgraph";
-import { Button } from "@repo/ui";
+import { Button } from "@mento-protocol/ui";
 import { ConnectButton } from "@repo/web3";
 import Link from "next/link";
 

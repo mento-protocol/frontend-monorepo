@@ -12,7 +12,7 @@ import { useChainId } from "@repo/web3/wagmi";
 
 import { useTheme } from "next-themes";
 import { useAtomValue } from "jotai";
-import { Button, cn, Logo } from "@repo/ui";
+import { Button, cn, Logo } from "@mento-protocol/ui";
 import { Moon, Sun } from "lucide-react";
 import { type AppTab, activeTabAtom } from "@/atoms/navigation";
 import { useRef, useEffect, useState, useMemo } from "react";

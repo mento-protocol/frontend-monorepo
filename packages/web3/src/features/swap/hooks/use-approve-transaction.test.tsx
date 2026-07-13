@@ -20,7 +20,9 @@ vi.mock("wagmi", () => ({
 vi.mock("@tanstack/react-query", () => ({
   useQuery: () => ({ error: null, data: mockTxRequest }),
 }));
-vi.mock("@repo/ui", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock("@mento-protocol/ui", () => ({
+  toast: { error: vi.fn(), success: vi.fn() },
+}));
 vi.mock("@/utils", () => ({ logger: { error: vi.fn(), info: vi.fn() } }));
 vi.mock("@/config/chains", () => ({ chainIdToChain: {} })); // real module imports .svg — unloadable in vitest
 vi.mock("@mento-protocol/mento-sdk", () => ({

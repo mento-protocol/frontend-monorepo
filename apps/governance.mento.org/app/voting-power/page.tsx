@@ -7,7 +7,7 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import VotingPowerForm from "../components/voting-power-form";
 
 export default function VotingPowerPage() {

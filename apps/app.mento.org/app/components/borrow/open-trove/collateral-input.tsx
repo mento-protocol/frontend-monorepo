@@ -1,6 +1,6 @@
 "use client";
 
-import { CoinInput } from "@repo/ui";
+import { CoinInput } from "@mento-protocol/ui";
 import {
   type DebtTokenConfig,
   formatCompactBalance,

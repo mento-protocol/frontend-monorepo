@@ -1,4 +1,4 @@
-import { TokenIcon } from "@repo/ui";
+import { TokenIcon } from "@mento-protocol/ui";
 import type { PoolDisplay, UserPosition } from "@repo/web3";
 import { getPoolDisplayOrder } from "@repo/web3";
 import { formatUnits } from "viem";

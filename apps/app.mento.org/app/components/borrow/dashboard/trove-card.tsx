@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Button, TokenIcon } from "@repo/ui";
+import { Button, TokenIcon } from "@mento-protocol/ui";
 import type { BorrowPosition, DebtTokenConfig, RiskLevel } from "@repo/web3";
 import {
   useLoanDetails,

@@ -2,7 +2,7 @@
 
 import { NumbersService } from "@/utils/numbers";
 import { useAddTokens, useTokens } from "@/features/tokens";
-import { IconMento } from "@repo/ui";
+import { IconMento } from "@mento-protocol/ui";
 
 export function BalancesSummaryMento() {
   const { mentoBalance, veMentoBalance } = useTokens();

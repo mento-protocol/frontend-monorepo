@@ -33,7 +33,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 
 // Component categories with their pages and individual components
 const componentCategories = [

@@ -1,4 +1,4 @@
-import { toast } from "@repo/ui";
+import { toast } from "@mento-protocol/ui";
 import {
   useCreateProposalOnChain,
   useProposals,

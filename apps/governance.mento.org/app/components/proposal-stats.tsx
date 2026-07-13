@@ -1,5 +1,10 @@
 "use client";
-import { IconInfo, Tooltip, TooltipContent, TooltipTrigger } from "@repo/ui";
+import {
+  IconInfo,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@mento-protocol/ui";
 import { NumbersService, useTokens, ensureChainId } from "@repo/web3";
 import { useAllLocks, useLockingWeek } from "@/contracts/locking";
 import { useProposals } from "@/contracts/governor";

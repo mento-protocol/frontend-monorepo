@@ -13,7 +13,7 @@ import {
   CardHeader,
   cn,
   IconLoading,
-} from "@repo/ui";
+} from "@mento-protocol/ui";
 import { useAccount, useTokens } from "@repo/web3";
 import { useMemo, useRef, useState } from "react";
 import { FormProvider, useForm } from "react-hook-form";

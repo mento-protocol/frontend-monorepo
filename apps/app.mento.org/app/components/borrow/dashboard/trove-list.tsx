@@ -1,4 +1,4 @@
-import { Skeleton } from "@repo/ui";
+import { Skeleton } from "@mento-protocol/ui";
 import type { BorrowPosition, DebtTokenConfig } from "@repo/web3";
 import { TroveCard } from "./trove-card";
 

@@ -1,6 +1,6 @@
 import { TransactionLink } from "@/components/proposal/components/TransactionLink";
 import { VoteCardState } from "@/components/voting/derive-vote-card-state";
-import { Button, IconLoading } from "@repo/ui";
+import { Button, IconLoading } from "@mento-protocol/ui";
 
 interface VoteCardSpecialContentProps {
   currentState: VoteCardState;

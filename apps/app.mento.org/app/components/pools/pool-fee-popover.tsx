@@ -1,6 +1,6 @@
 "use client";
 
-import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui";
+import { Popover, PopoverContent, PopoverTrigger } from "@mento-protocol/ui";
 import type { PoolDisplay } from "@repo/web3";
 import { Info } from "lucide-react";
 import { useState } from "react";

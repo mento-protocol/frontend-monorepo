@@ -1,5 +1,5 @@
 import { ProposalCancelButton } from "@/components/voting/proposal-cancel-button";
-import { Button } from "@repo/ui";
+import { Button } from "@mento-protocol/ui";
 
 export interface WatchdogCancelActionProps {
   isWatchdog: boolean;

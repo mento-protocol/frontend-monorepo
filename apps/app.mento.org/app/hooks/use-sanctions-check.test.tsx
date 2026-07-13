@@ -14,7 +14,7 @@ vi.mock("@repo/web3/wagmi", () => ({
   useDisconnect: () => ({ disconnect: disconnectMock }),
 }));
 
-vi.mock("@repo/ui", () => ({
+vi.mock("@mento-protocol/ui", () => ({
   toast: { error: toastErrorMock },
 }));
 

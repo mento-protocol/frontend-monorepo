@@ -1,4 +1,4 @@
-import { Skeleton } from "@repo/ui";
+import { Skeleton } from "@mento-protocol/ui";
 
 export function SwapSkeleton() {
   return (
