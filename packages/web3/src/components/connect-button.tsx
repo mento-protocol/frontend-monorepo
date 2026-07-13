@@ -5,6 +5,7 @@ import { BalancesSummaryMento } from "@/components/balances-summary-mento";
 import { Identicon } from "@/components/identicon";
 import { useTestnetMode } from "@/config/testnet-mode";
 import { tryClipboardSet } from "@/utils/clipboard";
+import { logger } from "@/utils/logger";
 import { WalletHelper } from "@/utils/wallet.helper";
 import {
   ConnectButton as RainbowConnectButton,
@@ -62,7 +63,7 @@ function ConnectedDropdown({
       await tryClipboardSet(account.address);
       toast.success("Address copied to clipboard", { duration: 2000 });
     } catch (error) {
-      console.error("Failed to copy address", error);
+      logger.error("Failed to copy address", error);
     }
   };
 

@@ -2,9 +2,10 @@ import { getSubgraphApiName } from "@/config";
 import { LockWithExpiration } from "@/contracts/types";
 import { useGetWithdrawalsQuery } from "@/graphql/subgraph/generated/subgraph";
 import { LockAmounts } from "@/types/lock-amounts";
+import { reportSubgraphError } from "@/utils/report-subgraph-error";
 import { calculateLockAmountsFromWithdrawals } from "@/utils/calculate-lock-amounts-from-withdrawals";
 import { useEnsureChainId } from "@repo/web3";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 interface UseLockAmountsFromWithdrawalsParams {
   locks: LockWithExpiration[] | undefined;
@@ -42,15 +43,23 @@ export function useLockAmountsFromWithdrawals({
   const { data, loading, error } = useGetWithdrawalsQuery({
     skip: !address,
     fetchPolicy: "network-only",
-    errorPolicy: "ignore",
+    errorPolicy: "all",
     variables: {
-      address: address as `0x${string}`,
+      address: address ?? "",
     },
     context: {
       apiName: getSubgraphApiName(ensuredChainId),
     },
     ssr: false,
   });
+
+  useEffect(() => {
+    if (!error) {
+      return;
+    }
+
+    reportSubgraphError(error, "GetWithdrawals");
+  }, [error]);
 
   // Calculate lock amounts using withdrawal events
   const lockAmounts = useMemo(() => {
@@ -74,6 +83,6 @@ export function useLockAmountsFromWithdrawals({
     lockAmounts,
     lockAmountsMap,
     loading,
-    error: error as Error | undefined,
+    error: error ?? undefined,
   };
 }

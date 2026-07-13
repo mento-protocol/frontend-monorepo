@@ -9,8 +9,9 @@ import {
   Proposal,
   useGetProposalsQuery,
 } from "@/graphql/subgraph/generated/subgraph";
+import { reportSubgraphError } from "@/utils/report-subgraph-error";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useReadContracts } from "@repo/web3/wagmi";
 
 export const useProposals = () => {
@@ -19,6 +20,7 @@ export const useProposals = () => {
 
   const {
     data: graphData,
+    error,
     refetch,
     loading,
   } = useGetProposalsQuery({
@@ -28,8 +30,8 @@ export const useProposals = () => {
     initialFetchPolicy: "network-only",
     nextFetchPolicy: "cache-and-network",
     refetchWritePolicy: "merge",
-    errorPolicy: "ignore",
-    pollInterval: 5000,
+    errorPolicy: "all",
+    pollInterval: 60_000,
   });
 
   const { data: chainData, isLoading } = useReadContracts({
@@ -46,10 +48,32 @@ export const useProposals = () => {
         )
       : [],
     query: {
-      refetchInterval: 5000,
+      refetchInterval: 60_000,
+      refetchOnWindowFocus: true,
       enabled: graphData && graphData.proposals.length > 0,
     },
   });
+
+  useEffect(() => {
+    if (!error) {
+      return;
+    }
+
+    reportSubgraphError(error, "GetProposals");
+  }, [error]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void refetch();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [refetch]);
 
   const proposals: Proposal[] = useMemo<Proposal[]>(() => {
     if (chainData === undefined) return [];
@@ -86,6 +110,7 @@ export const useProposals = () => {
   );
 
   return {
+    error,
     isLoading: isLoading || loading,
     proposals,
     proposalExists,
