@@ -36,8 +36,6 @@ import {
   useSwapAllowance,
   useTokenOptions,
   useTradablePairs,
-  useTradingLimits,
-  useTradingSuspensionCheck,
 } from "@repo/web3";
 import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { useAtom } from "jotai";
@@ -64,15 +62,9 @@ import {
   type SwapFormRouteOptions,
   useStableRouteDrivenFormState,
 } from "./swap-form-initial-state";
-import {
-  getFormattedTokenInBalance,
-  getFormattedTokenOutBalance,
-  getTokenBalanceValue,
-  getTradingSuspensionError,
-  hasSwapAmount,
-  validateSwapBalance,
-} from "./swap-form-validation";
+import { getTokenBalanceValue } from "./swap-form-validation";
 import { defaultEmptyBalances, formSchema, type FormValues } from "./types";
+import { useSwapFormValidation } from "./use-swap-form-validation";
 
 export function useSwapForm(opts?: SwapFormRouteOptions) {
   const { address, isConnected } = useAccount();
@@ -151,91 +143,31 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
   const amount = useWatch({ control: form.control, name: "amount" });
   const formQuote = useWatch({ control: form.control, name: "quote" });
 
-  // Token balances
-  const fromTokenBalance = useMemo(
-    () =>
-      getFormattedTokenInBalance({
-        balances,
-        chainId: formChainId,
-        tokenSymbol: selectedTokenInSymbol,
-      }),
-    [balances, selectedTokenInSymbol, formChainId],
-  );
-
-  const toTokenBalance = useMemo(
-    () =>
-      getFormattedTokenOutBalance({
-        balances,
-        chainId: formChainId,
-        tokenSymbol: selectedTokenOutSymbol,
-      }),
-    [balances, selectedTokenOutSymbol, formChainId],
-  );
-
-  // Trading limits
-  const { data: limits, isLoading: limitsLoading } = useTradingLimits(
-    selectedTokenInSymbol,
-    selectedTokenOutSymbol,
-    formChainId,
-  );
-
-  // Trading suspension
+  const { errors } = form.formState;
   const {
-    isSuspended: isTradingSuspended,
-    isLoading: isSuspensionCheckLoading,
-  } = useTradingSuspensionCheck(
+    balanceError,
+    canQuote,
+    fromTokenBalance,
+    hasAmount,
+    isSuspensionCheckLoading,
+    isTradingSuspended,
+    limits,
+    limitsLoading,
+    toTokenBalance,
+    tradingSuspensionError,
+    validateAmount,
+  } = useSwapFormValidation({
+    allTokenOptions,
+    amount,
+    balances,
+    chainId: formChainId,
+    formQuote,
+    hasAmountError: Boolean(errors.amount),
     selectedTokenInSymbol,
     selectedTokenOutSymbol,
-    formChainId,
-  );
-
-  // ── Validation ──────────────────────────────────────────────────────
-
-  const validateBalance = useCallback(
-    (value: string) =>
-      validateSwapBalance({
-        allTokenOptions,
-        balances,
-        tokenInSymbol: selectedTokenInSymbol,
-        value,
-      }),
-    [balances, selectedTokenInSymbol, allTokenOptions],
-  );
-
-  const validateLimits = useCallback(
-    async (value: string) => {
-      if (!value || limitsLoading || !limits || !limits.tokenToCheck)
-        return true;
-      if (value === "0." || value === "0") return true;
-
-      const parsedAmount = parseAmount(value);
-      if (!parsedAmount) return true;
-
-      const violation = checkTradingLimitViolation({
-        amountIn: parsedAmount,
-        amountOut: parseAmountWithDefault(formQuote, 0),
-        limits,
-        tokenInSymbol,
-        tokenOutSymbol,
-      });
-
-      return violation || true;
-    },
-    [limitsLoading, limits, tokenInSymbol, tokenOutSymbol, formQuote],
-  );
-
-  const validateAmount = useCallback(
-    async (value: string) => {
-      const balanceCheck = validateBalance(value);
-      if (balanceCheck !== true) return balanceCheck;
-
-      const limitsCheck = await validateLimits(value);
-      if (limitsCheck !== true) return limitsCheck;
-
-      return true;
-    },
-    [validateBalance, validateLimits],
-  );
+    tokenInSymbol,
+    tokenOutSymbol,
+  });
 
   // ── Handlers ────────────────────────────────────────────────────────
 
@@ -273,36 +205,6 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
       });
     }
   };
-
-  // ── Derived state ───────────────────────────────────────────────────
-
-  const { errors } = form.formState;
-  const hasAmount = hasSwapAmount(amount);
-
-  const balanceError = useMemo(() => {
-    if (!hasAmount || !selectedTokenInSymbol) return null;
-
-    const balanceCheck = validateBalance(amount);
-    return balanceCheck !== true ? balanceCheck : null;
-  }, [amount, hasAmount, selectedTokenInSymbol, validateBalance]);
-
-  const tradingSuspensionError = useMemo(
-    () =>
-      getTradingSuspensionError({
-        isTradingSuspended,
-        tokenInSymbol,
-        tokenOutSymbol,
-      }),
-    [isTradingSuspended, tokenInSymbol, tokenOutSymbol],
-  );
-
-  const canQuote =
-    !!hasAmount &&
-    !errors.amount &&
-    !limitsLoading &&
-    !isTradingSuspended &&
-    !!selectedTokenInSymbol &&
-    !!selectedTokenOutSymbol;
 
   // ── Quote ───────────────────────────────────────────────────────────
 
