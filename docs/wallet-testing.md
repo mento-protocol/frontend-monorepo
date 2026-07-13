@@ -54,9 +54,13 @@ runs against an anvil fork of Celo mainnet — no real network is ever touched.
    NEXT_PUBLIC_E2E_TEST=true NEXT_PUBLIC_USE_FORK=true pnpm exec turbo run dev --filter governance.mento.org
    ```
 
-   Note: governance's `dev` script does not watch `@repo/web3` — after changing
-   that package, run `pnpm exec turbo run build --filter @repo/web3` first (see
-   Troubleshooting).
+   First run: copy `apps/governance.mento.org/.env.example` to
+   `apps/governance.mento.org/.env.local` — governance validates its own env
+   schema at startup. The example's prefilled URLs work as-is and the empty
+   values (`NEXT_PUBLIC_GRAPH_API_KEY`, Sentry DSN) may stay empty for local
+   E2E use; there is no sanctions gate here. Note: governance's `dev` script
+   does not watch `@repo/web3` — after changing that package, run
+   `pnpm exec turbo run build --filter @repo/web3` first (see Troubleshooting).
 
 4. Open [http://localhost:3000](http://localhost:3000), click Connect — the modal shows only
    "E2E Test Wallet". Click it. You are connected as
