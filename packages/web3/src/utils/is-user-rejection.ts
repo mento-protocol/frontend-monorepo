@@ -4,6 +4,7 @@ const USER_REJECTION_PATTERNS = [
   /user\s+rejected/i,
   /user\s+denied/i,
   /denied\s+transaction\s+signature/i,
+  /rejected\s+by\s+user/i,
   /request\s+rejected/i,
 ];
 

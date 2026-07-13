@@ -19,6 +19,11 @@ describe("getGovernanceTransactionErrorMessage", () => {
     expect(
       getGovernanceTransactionErrorMessage(new Error("User denied")),
     ).toBeNull();
+    expect(
+      getGovernanceTransactionErrorMessage(
+        new Error("Transaction rejected by user"),
+      ),
+    ).toBeNull();
     expect(getGovernanceTransactionErrorMessage({ code: 4001 })).toBeNull();
   });
 

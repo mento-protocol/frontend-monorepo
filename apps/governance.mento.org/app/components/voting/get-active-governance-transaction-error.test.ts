@@ -17,19 +17,16 @@ describe("getActiveGovernanceTransactionError", () => {
     });
   });
 
-  it("skips user rejections before lower-priority displayable errors", () => {
+  it("suppresses lower-priority errors after a higher-priority user rejection", () => {
     expect(
       getActiveGovernanceTransactionError([
         {
           kind: "execute",
-          error: new Error("MetaMask Tx Signature: User rejected the request."),
+          error: new Error("Transaction rejected by user"),
         },
         { kind: "queue", error: new Error("execution reverted") },
       ]),
-    ).toEqual({
-      label: "Error queueing proposal",
-      message: "Something went wrong. Please try again.",
-    });
+    ).toBeNull();
   });
 
   it("returns null when only user rejections are present", () => {

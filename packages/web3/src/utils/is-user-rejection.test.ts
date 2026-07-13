@@ -21,6 +21,11 @@ describe("isUserRejection", () => {
     expect(isUserRejection("Request rejected")).toBe(true);
   });
 
+  it("detects rejected-by-user transaction messages", () => {
+    expect(isUserRejection("Transaction rejected by user")).toBe(true);
+    expect(isUserRejection("Swap transaction rejected by user.")).toBe(true);
+  });
+
   it("detects a UserRejectedRequestError instance via BaseError#walk", () => {
     const error = new UserRejectedRequestError(new Error("denied"));
     expect(isUserRejection(error)).toBe(true);

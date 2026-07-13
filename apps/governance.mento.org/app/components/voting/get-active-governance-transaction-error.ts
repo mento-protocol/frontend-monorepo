@@ -31,7 +31,7 @@ export function getActiveGovernanceTransactionError(
     const message = getGovernanceTransactionErrorMessage(candidate.error);
 
     if (message === null) {
-      continue;
+      return null;
     }
 
     return {
