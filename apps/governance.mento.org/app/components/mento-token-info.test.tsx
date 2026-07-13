@@ -1,12 +1,14 @@
 import React from "react";
 import { cleanup, render, screen } from "@testing-library/react";
+import { addresses, ChainId } from "@mento-protocol/mento-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const GOVERNOR_ADDRESS = "0x47036d78bB3169b4F5560dD77BF93f4412A59852";
-const MENTO_ADDRESS = "0x7FF62f59e3e89EA34163EA1458EEBCc81177Cfb6";
-const TIMELOCK_ADDRESS = "0x890DB8A597940165901372Dd7DB61C9f246e2147";
-const VE_MENTO_ADDRESS = "0x001Bb66636dCd149A1A2bA8C50E408BdDd80279C";
 const CELO_MAINNET_EXPLORER_URL = "https://celoscan.io";
+// The real Celo mainnet contract addresses, straight from the SDK's own
+// mapping. Using these (instead of hardcoded copies) both for the mock and
+// the assertions means a change to the SDK's addresses, or a regression in
+// how the component wires them up, actually fails this test.
+const celoAddresses = addresses[ChainId.CELO];
 
 vi.mock("@mento-protocol/ui", () => ({
   Accordion: ({ children }: { children: React.ReactNode }) => (
@@ -24,12 +26,20 @@ vi.mock("@mento-protocol/ui", () => ({
   CopyToClipboard: () => <span>Copy</span>,
 }));
 
+// useContracts stays mocked: unmocking it means importing @repo/web3's real
+// barrel, which transitively pulls in RainbowKit's CSS. Vitest's CSS
+// pipeline then runs the app's postcss.config.mjs (a Next.js-style config,
+// string plugin names) and fails ("Invalid PostCSS Plugin") — an unrelated
+// build-pipeline problem, not something this test should have to fix. So the
+// mock stays, but its addresses come straight from the SDK instead of being
+// copy-pasted, so a change to the SDK's mapping (or a wiring bug that swaps
+// which contract goes where) still fails this test.
 vi.mock("@repo/web3", () => ({
   useContracts: () => ({
-    MentoToken: { address: MENTO_ADDRESS },
-    TimelockController: { address: TIMELOCK_ADDRESS },
-    MentoGovernor: { address: GOVERNOR_ADDRESS },
-    Locking: { address: VE_MENTO_ADDRESS },
+    MentoToken: { address: celoAddresses.MentoToken },
+    TimelockController: { address: celoAddresses.TimelockController },
+    MentoGovernor: { address: celoAddresses.MentoGovernor },
+    Locking: { address: celoAddresses.Locking },
   }),
   useAccount: () => ({ chain: undefined }),
   useTokens: () => ({
@@ -66,15 +76,19 @@ describe("MentoTokenInfo contract address links", () => {
 
     expect(
       (screen.getByTestId("governor-address-button") as HTMLAnchorElement).href,
-    ).toBe(`${CELO_MAINNET_EXPLORER_URL}/address/${GOVERNOR_ADDRESS}`);
+    ).toBe(
+      `${CELO_MAINNET_EXPLORER_URL}/address/${celoAddresses.MentoGovernor}`,
+    );
     expect(
       (screen.getByTestId("mento-address-button") as HTMLAnchorElement).href,
-    ).toBe(`${CELO_MAINNET_EXPLORER_URL}/address/${MENTO_ADDRESS}`);
+    ).toBe(`${CELO_MAINNET_EXPLORER_URL}/address/${celoAddresses.MentoToken}`);
     expect(
       (screen.getByTestId("timelock-address-button") as HTMLAnchorElement).href,
-    ).toBe(`${CELO_MAINNET_EXPLORER_URL}/address/${TIMELOCK_ADDRESS}`);
+    ).toBe(
+      `${CELO_MAINNET_EXPLORER_URL}/address/${celoAddresses.TimelockController}`,
+    );
     expect(
       (screen.getByTestId("veMento-address-button") as HTMLAnchorElement).href,
-    ).toBe(`${CELO_MAINNET_EXPLORER_URL}/address/${VE_MENTO_ADDRESS}`);
+    ).toBe(`${CELO_MAINNET_EXPLORER_URL}/address/${celoAddresses.Locking}`);
   });
 });
