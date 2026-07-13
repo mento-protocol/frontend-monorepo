@@ -25,6 +25,7 @@ import {
   BaseSepolia,
   allChains,
 } from "./chains";
+import { logger } from "@/utils/logger";
 
 // Avoid creating WalletConnect connectors during SSR because they rely on
 // browser-only APIs like `indexedDB`.
@@ -32,7 +33,7 @@ const isServer = typeof window === "undefined";
 
 // Validate WalletConnect project ID
 if (!isServer && !config.walletConnectProjectId) {
-  console.warn(
+  logger.warn(
     "NEXT_PUBLIC_WALLET_CONNECT_ID is not set. WalletConnect functionality may not work properly.",
   );
 }
