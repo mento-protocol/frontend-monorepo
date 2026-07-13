@@ -80,12 +80,33 @@ project that does steps 3-5 above automatically against the same seeded fork:
 `CLAUDE.md`'s "Connected-Wallet E2E" section for the exact build + run
 commands per app.
 
+## Preview smoke
+
+A separate, walletless smoke runs against REAL deployed Vercel previews
+(real forno reads, no fork, no transactions) — no local anvil, no build
+step. `.github/workflows/preview-smoke.yml` triggers on `deployment_status`
+for team `*-mentolabs.vercel.app` previews of app.mento.org and
+governance.mento.org, and runs
+`PREVIEW_URL=<deployment url> pnpm --filter app.mento.org test:preview`
+(config: `apps/app.mento.org/playwright.preview.config.ts`, spec:
+`apps/app.mento.org/e2e/preview/smoke.spec.ts`). It checks that the deployed
+bundle boots and lists the real wallet options, then that the mock wallet
+can connect on a preview host. Run it locally against any live preview URL:
+
+```bash
+PREVIEW_URL=https://appmento-<hash>-mentolabs.vercel.app pnpm --filter app.mento.org test:preview
+```
+
 ## Activation flags
 
 Two equivalent activation paths. Env vars are read at build/dev-server start;
 localStorage keys work on an already-running dev server (reload after setting).
-The E2E wallet is hostname-allowlisted to `localhost` / `127.0.0.1` and cannot
-be enabled on deployed hostnames. Fork mode is NOT allowlisted the same way:
+The E2E wallet is hostname-allowlisted to `localhost` / `127.0.0.1` plus the
+team's `*-mentolabs.vercel.app` Vercel previews — never production domains
+— and enabled there for the same reason fork-mode debug knobs already are
+(see below): the mock connector holds no keys, can't send unsigned
+transactions through public RPCs, and its accounts are fixed public junk
+addresses. Fork mode is NOT allowlisted the same way:
 the `mento_use_fork` localStorage key is only ignored on production builds and
 public `mento.org` hostnames (deny-list), and `NEXT_PUBLIC_USE_FORK=true`
 applies wherever it is baked into the build — never set it for a deployed
@@ -96,6 +117,16 @@ build, or its Celo RPC points at `http://localhost:8545` and the app breaks.
 | Enable "E2E Test Wallet"  | `NEXT_PUBLIC_E2E_TEST=true` | `mento_e2e_wallet` = `"true"`        |
 | Auto-connect on page load | —                           | `mento_e2e_eager_connect` = `"true"` |
 | Point app RPC at the fork | `NEXT_PUBLIC_USE_FORK=true` | `mento_use_fork` = `"true"`          |
+
+`mento_e2e_eager_connect` only works paired with `mento_use_fork`: it relies
+on wagmi's reconnect-on-mount, which calls the mock connector's
+`isAuthorized()` → an `eth_accounts` RPC call — the mock connector only
+special-cases `eth_requestAccounts` (used by an explicit `connect()`), so
+`eth_accounts` hits the real configured RPC. Public nodes (forno included)
+return `[]` for `eth_accounts` (no unlocked accounts), so auto-reconnect
+silently no-ops off the fork; only anvil answers it with real addresses.
+Without the fork, connect explicitly (click the wallet in the modal) instead
+of relying on eager-connect — see `e2e/preview/smoke.spec.ts` for the pattern.
 
 localStorage path (paste in the browser console of a running dev server):
 
@@ -159,7 +190,10 @@ cast rpc evm_revert 0x0 --rpc-url http://127.0.0.1:8545        # returns true
   force-BLOCKS the app (simulates a sanctioned wallet). It is not a bypass.
 - NEVER weaken `apps/app.mento.org/app/api/sanctions/route.ts` — it fails
   closed without `CHAINALYSIS_API_KEY` by design.
-- NEVER loosen the E2E wallet's localhost hostname allowlist.
+- NEVER further loosen the E2E wallet's hostname allowlist beyond
+  `localhost` / `127.0.0.1` / the anchored `*-mentolabs.vercel.app` pattern
+  in `e2e-mode.ts` — extending it again requires the same no-keys/public
+  junk-address rationale and an anchored regex reviewed for lookalike hosts.
 - NEVER point fork tooling or the E2E wallet at a real network RPC.
 
 ## Troubleshooting
