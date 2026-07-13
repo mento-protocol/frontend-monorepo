@@ -8,6 +8,14 @@ on:
       - packages/web3/**
       - scripts/fork-seed.mjs
       - .github/workflows/e2e.yml
+  # Nightly chain-drift check: PR runs only fire when FRONTEND files change,
+  # but the chain can drift under an unchanged frontend (oracle config, pool
+  # liquidity, contract upgrades, RPC behavior). The scheduled run repeats the
+  # suite at a freshly resolved recent block (see "Resolve nightly fork
+  # block") instead of the pinned FORK_BLOCK. Like workflow_dispatch, this
+  # only takes effect once the workflow exists on the default branch.
+  schedule:
+    - cron: "20 4 * * *" # 04:20 UTC nightly (off the top-of-hour cron rush)
   # Only usable once this workflow exists on the default branch.
   workflow_dispatch:
 
@@ -37,6 +45,8 @@ env:
   # EIP-2935 history-contract slot at the fork block (run 29061781044). The
   # "Select fork RPC" step probes keyless public archive endpoints for state
   # at this exact block and fails loudly if none can serve it.
+  # Scheduled (nightly) runs override this with a freshly resolved recent
+  # block — see the "Resolve nightly fork block" step.
   FORK_BLOCK: "71727341"
 
 jobs:
@@ -97,6 +107,38 @@ jobs:
         with:
           version: v1.7.1 # anvil --celo requires foundry >= 1.4; pinned for determinism
           cache: false # we cache ~/.foundry/cache ourselves, keyed on the fork block
+
+      # Nightly runs test CURRENT chain state instead of the pinned block —
+      # resolve head-64 (deep enough that lagging archive-pool backends have
+      # it, recent enough to reflect live oracle/pool/contract state) from the
+      # first candidate that answers, and override FORK_BLOCK for all later
+      # steps (fork-state cache key, archive probe, anvil).
+      - name: Resolve nightly fork block (scheduled runs only)
+        if: github.event_name == 'schedule'
+        shell: bash
+        run: |
+          candidates=(
+            https://celo-rpc.publicnode.com
+            https://celo.api.onfinality.io/public
+            https://1rpc.io/celo
+            https://rpc.ankr.com/celo
+            https://celo.drpc.org
+            https://forno.celo.org
+          )
+          for url in "${candidates[@]}"; do
+            head_hex=$(curl -sf -m 15 -X POST "$url" \
+              -H 'Content-Type: application/json' \
+              --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' \
+              | sed -n 's/.*"result":"\(0x[0-9a-fA-F]*\)".*/\1/p')
+            if [ -n "$head_hex" ]; then
+              fresh=$(( head_hex - 64 ))
+              echo "FORK_BLOCK=$fresh" >> "$GITHUB_ENV"
+              echo "Nightly run: forking at freshly resolved block $fresh (head $((head_hex)) from $url, minus 64)"
+              exit 0
+            fi
+          done
+          echo "::error::could not resolve a fresh head block from any candidate RPC"
+          exit 1
 
       - name: Cache anvil fork state
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
