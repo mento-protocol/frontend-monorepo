@@ -3,7 +3,6 @@ import { TransactionLink } from "@/components/proposal/components/TransactionLin
 import { Timer } from "@/components/timer";
 import { deriveVoteCardState } from "@/components/voting/derive-vote-card-state";
 import { getActiveGovernanceTransactionError } from "@/components/voting/get-active-governance-transaction-error";
-import { getGovernanceTransactionErrorMessage } from "@/components/voting/get-governance-transaction-error-message";
 import { VoteCardActions } from "@/components/voting/vote-card-actions";
 import { VoteCardSpecialContent } from "@/components/voting/vote-card-special-content";
 import { useDelayedVoteCardRefire } from "@/components/voting/use-delayed-vote-card-refire";
@@ -34,7 +33,7 @@ import { NumbersService } from "@repo/web3";
 import { useAccount, useChainId } from "@repo/web3/wagmi";
 import * as Sentry from "@sentry/nextjs";
 import { CheckCircle2, CircleCheck, XCircle, XCircleIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import spacetime from "spacetime";
 import { formatUnits, keccak256, toHex } from "viem";
 
@@ -434,31 +433,6 @@ export const VoteCard = ({
     { kind: "cancel", error: cancelError },
     { kind: "vote", error },
   ]);
-  const capturedTransactionErrorsRef = useRef<Set<unknown>>(new Set());
-
-  useEffect(() => {
-    for (const transactionError of [
-      error,
-      executeError,
-      queueError,
-      cancelError,
-    ]) {
-      if (!transactionError) {
-        continue;
-      }
-
-      if (getGovernanceTransactionErrorMessage(transactionError) === null) {
-        continue;
-      }
-
-      if (capturedTransactionErrorsRef.current.has(transactionError)) {
-        continue;
-      }
-
-      Sentry.captureException(transactionError);
-      capturedTransactionErrorsRef.current.add(transactionError);
-    }
-  }, [error, executeError, queueError, cancelError]);
 
   const currentState = useMemo(() => {
     return deriveVoteCardState({
