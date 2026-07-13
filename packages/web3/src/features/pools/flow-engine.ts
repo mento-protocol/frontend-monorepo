@@ -4,6 +4,7 @@ import {
   sendTransaction,
   waitForTransactionReceipt,
 } from "wagmi/actions";
+import { logger } from "@/utils/logger";
 import type { Address, Hex } from "viem";
 import { isUserRejection } from "@/utils/is-user-rejection";
 import { getTransactionFeeOverrides } from "@/utils/transaction-fees";
@@ -223,7 +224,7 @@ export async function executeLiquidityFlow(
       }
 
       // Log full error for debugging, show friendly message to user
-      console.error(`[LiquidityFlow] Step "${def.label}" failed:`, error);
+      logger.error(`[LiquidityFlow] Step "${def.label}" failed:`, error);
 
       // The InsufficientAmount* / InsufficientLiquidity selectors fire in
       // both balanced add-liquidity and single-token zap-in. Phrase the copy
