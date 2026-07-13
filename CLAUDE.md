@@ -98,7 +98,7 @@ Functional connected-wallet Playwright specs (not VRT) that run against a seeded
 
 See [docs/wallet-testing.md](docs/wallet-testing.md) for the full runbook.
 
-In CI, `.github/workflows/e2e.yml` runs the same suite on PRs touching `apps/app.mento.org/**`, `packages/web3/**`, `scripts/fork-seed.mjs`, or the workflow itself (plus manual `workflow_dispatch`), against an anvil fork pinned to `FORK_BLOCK` (bump roughly monthly). The fork source is a keyless public archive RPC probed at run time — forno cannot serve pinned-block forks because it prunes a block's state within minutes. The workflow is intentionally not a required check yet.
+In CI, `.github/workflows/e2e.yml` runs the same suite on PRs touching `apps/app.mento.org/**`, `packages/web3/**`, `scripts/fork-seed.mjs`, or the workflow itself (plus manual `workflow_dispatch`), against an anvil fork pinned to `FORK_BLOCK` (bump roughly monthly). The fork source is a keyless public archive RPC probed at run time — forno cannot serve pinned-block forks because it prunes a block's state within minutes. A nightly scheduled run (04:20 UTC) repeats the suite at a freshly resolved recent block instead of the pin, to catch chain drift (oracle config, pool, or contract changes) that paths-filtered PR runs never see. The workflow is intentionally not a required check yet.
 
 ## Coding Conventions
 
