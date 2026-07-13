@@ -1,5 +1,6 @@
 import { deriveVoteCardState } from "@/components/voting/derive-vote-card-state";
 import { getActiveGovernanceTransactionError } from "@/components/voting/get-active-governance-transaction-error";
+import { getGovernanceTransactionErrorMessage } from "@/components/voting/get-governance-transaction-error-message";
 import { VoteCardContent } from "@/components/voting/vote-card-content";
 import { useDelayedVoteCardRefire } from "@/components/voting/use-delayed-vote-card-refire";
 import { getWatchdogMultisigAddress } from "@/config";
@@ -21,7 +22,7 @@ import { useVeMentoDelegationSummary } from "@/hooks/use-ve-mento-delegation-sum
 import { NumbersService } from "@repo/web3";
 import { useAccount, useChainId } from "@repo/web3/wagmi";
 import * as Sentry from "@sentry/nextjs";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatUnits, keccak256, toHex } from "viem";
 
 interface VoteCardProps {
@@ -408,6 +409,22 @@ export const VoteCard = ({
     { kind: "cancel", error: cancelError },
     { kind: "vote", error },
   ]);
+  const capturedVoteErrorsRef = useRef<Set<unknown>>(new Set());
+
+  // Execute, queue, and cancel errors are captured by their callbacks or hooks.
+  // Cast-vote does not receive an onError callback, so capture its hook state here.
+  useEffect(() => {
+    if (
+      !error ||
+      getGovernanceTransactionErrorMessage(error) === null ||
+      capturedVoteErrorsRef.current.has(error)
+    ) {
+      return;
+    }
+
+    Sentry.captureException(error);
+    capturedVoteErrorsRef.current.add(error);
+  }, [error]);
 
   const currentState = useMemo(() => {
     return deriveVoteCardState({
