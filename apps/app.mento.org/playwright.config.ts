@@ -50,7 +50,11 @@ export default defineConfig({
       name: "connected",
       testMatch: /connected\/.*\.spec\.ts/,
       fullyParallel: false,
-      timeout: 120_000,
+      // Headroom above the sum of the swap spec's chained assertion budgets
+      // (20s connect + 30s enable + 60s approve + 30s confirm + 30s enable +
+      // 60s swap ≈ 230s worst case on the approve path) — same rationale as
+      // the governance connected project's 240s budget.
+      timeout: 240_000,
       use: { viewport: { width: 1280, height: 900 } },
     },
   ],
