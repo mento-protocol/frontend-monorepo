@@ -68,10 +68,6 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-  // TODO: Remove once stable
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   images: {
     remotePatterns: [
       {

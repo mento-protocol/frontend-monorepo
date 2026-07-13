@@ -4,13 +4,14 @@ import {
   GetLocksQueryResult,
   useGetLocksQuery,
 } from "@/graphql/subgraph/generated/subgraph";
+import { reportSubgraphError } from "@/utils/report-subgraph-error";
 import { useEnsureChainId } from "@repo/web3";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import LockingHelper from "./locking-helper";
 import { useLockingWeek } from "./use-locking-week";
 
 interface UseLocksProps {
-  account: string;
+  account: string | undefined;
 }
 
 export const useLocksByAccount = ({
@@ -21,21 +22,31 @@ export const useLocksByAccount = ({
   const { currentWeek: currentLockingWeek } = useLockingWeek();
   const ensuredChainId = useEnsureChainId();
 
-  const { data, ...rest } = useGetLocksQuery({
+  const { data, error, ...rest } = useGetLocksQuery({
     refetchWritePolicy: "overwrite",
     fetchPolicy: "network-only",
-    errorPolicy: "ignore",
+    errorPolicy: "all",
+    skip: !account,
     variables: {
-      address: account,
+      address: account ?? "",
     },
     context: {
       apiName: getSubgraphApiName(ensuredChainId),
     },
     ssr: false,
   });
+  const activeError = account ? error : undefined;
+
+  useEffect(() => {
+    if (!activeError) {
+      return;
+    }
+
+    reportSubgraphError(activeError, "GetLocks");
+  }, [activeError]);
 
   const locks = useMemo(() => {
-    if (!data) {
+    if (!account || !data) {
       return [] as LockWithExpiration[];
     }
 
@@ -68,10 +79,11 @@ export const useLocksByAccount = ({
     mapped.sort((a, b) => Number(b.lockId) - Number(a.lockId));
 
     return mapped;
-  }, [data, currentLockingWeek]) as LockWithExpiration[];
+  }, [account, data, currentLockingWeek]) as LockWithExpiration[];
 
   return {
     locks,
+    error: activeError,
     ...rest,
   };
 };

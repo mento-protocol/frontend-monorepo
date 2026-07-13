@@ -4,7 +4,6 @@ import {
   calcExchangeRate,
   formatBalance,
   formatWithMaxDecimals,
-  invertExchangeRate,
   isValidTokenPair,
   parseInputExchangeAmount,
   parseSlippage,
@@ -54,20 +53,6 @@ describe("calcExchangeRate", () => {
   it("returns '0' and warns on unparseable input (catch path)", () => {
     expect(calcExchangeRate("garbage", 18, "1", 18)).toBe("0");
     expect(warnSpy).toHaveBeenCalled();
-  });
-});
-
-describe("invertExchangeRate", () => {
-  it("inverts a normal rate", () => {
-    expect(invertExchangeRate("2")).toBe("0.5000");
-  });
-
-  it("returns '0' for a zero rate", () => {
-    expect(invertExchangeRate("0")).toBe("0");
-  });
-
-  it("returns '0' for unparseable input", () => {
-    expect(invertExchangeRate("garbage")).toBe("0");
   });
 });
 

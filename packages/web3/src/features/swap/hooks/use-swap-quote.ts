@@ -26,6 +26,7 @@ import {
 } from "@/features/swap/utils";
 import { fromWei } from "@/utils/amount";
 import { useDebounce } from "@/utils/debounce";
+import { IS_DEBUG } from "@/utils/environment";
 import { logger } from "@/utils/logger";
 import {
   ROUTER_ABI,
@@ -67,7 +68,7 @@ export function useSwapQuote(
   options: UseSwapQuoteOptions = {},
 ) {
   const {
-    skipDebugLogs = false,
+    skipDebugLogs = !IS_DEBUG,
     debounceMs = 350,
     validatePoolLiquidity = true,
     insufficientLiquidityFallbackUrl,
@@ -151,7 +152,7 @@ export function useSwapQuote(
       const existingData = queryClient.getQueryData(queryKey);
       const isRefetch = !!existingData;
 
-      console.log(
+      logger.debug(
         `${isRefetch ? "🔄 Refetching" : "🆕 Fetching"} quote for: ${swapIntent}`,
       );
     }
@@ -219,7 +220,7 @@ export function useSwapQuote(
           toTokenAddr,
           chainId,
         );
-        console.log(`Swap route: ${routeStr}`);
+        logger.debug(`Swap route: ${routeStr}`);
       }
     }
 
@@ -243,7 +244,7 @@ export function useSwapQuote(
       const existingData = queryClient.getQueryData(queryKey);
       const isRefetch = !!existingData;
 
-      console.log(
+      logger.debug(
         `✅ ${isRefetch ? "Refetched" : "Fetched"} quote for: ${quoteLog}`,
       );
     }
@@ -405,8 +406,9 @@ export function useTokenUSDValue(
 }
 
 /**
- * Hook that optimizes swap quotes and USD value calculations.
- * Reduces the number of useSwapQuote calls from 3 to 1 when possible.
+ * Hook that coordinates the primary swap quote plus the two USD-value quote
+ * lookups. All three useSwapQuote instances share React Query cache entries,
+ * so repeated requests for the same pair and amount reuse the same cached quote.
  * Only supports exact input swaps (selling exact amount to receive output).
  */
 export function useOptimizedSwapQuote(

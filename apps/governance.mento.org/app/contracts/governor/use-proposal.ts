@@ -1,5 +1,4 @@
 import { getSubgraphApiName } from "@/config";
-import { CELO_BLOCK_TIME } from "@repo/web3";
 import { GovernorABI } from "@repo/web3";
 import {
   STATE_FROM_NUMBER,
@@ -47,7 +46,7 @@ export const useProposal = (proposalId: bigint) => {
     args: [proposalId],
     chainId: ensuredChainId,
     query: {
-      refetchInterval: CELO_BLOCK_TIME * 10,
+      refetchInterval: 30_000,
       enabled: graphProposals.length > 0,
     },
   });

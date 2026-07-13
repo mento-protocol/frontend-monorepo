@@ -29,7 +29,7 @@ export const ProposalContent = () => {
     chainId: ensureChainId(chainId),
     query: {
       enabled: proposal !== undefined,
-      refetchInterval: CELO_BLOCK_TIME,
+      refetchInterval: 30_000,
     },
   });
 

@@ -12,12 +12,11 @@ import { useAccount } from "@repo/web3/wagmi";
 export const VotingPowerCard = () => {
   const { isConnected, address } = useAccount();
   const { mentoBalance } = useTokens();
-  const account = useAccount();
-  const { lock, hasLock, activeLocks } = useLockInfo(account.address);
+  const { lock, hasLock, activeLocks } = useLockInfo(address);
 
   // Get locks for delegation calculation
   const { locks } = useLocksByAccount({
-    account: address as string,
+    account: address,
   });
 
   // Calculate total voting power including received delegations

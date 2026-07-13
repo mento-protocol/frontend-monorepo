@@ -1,6 +1,7 @@
 import { ProgressBar } from "@/components/progress-bar";
 import { TransactionLink } from "@/components/proposal/components/TransactionLink";
 import { Timer } from "@/components/timer";
+import { deriveVoteCardState } from "@/components/voting/derive-vote-card-state";
 import { ProposalCancelButton } from "@/components/voting/proposal-cancel-button";
 import { getWatchdogMultisigAddress } from "@/config";
 import { useLocksByAccount } from "@/contracts";
@@ -53,7 +54,7 @@ export const VoteCard = ({
 
   // Get locks for delegation calculation
   const { locks } = useLocksByAccount({
-    account: address as string,
+    account: address,
   });
 
   // Calculate total voting power including received delegations
@@ -498,57 +499,24 @@ export const VoteCard = ({
   const hasQuorum = totalVotingPower >= (quorumNeeded || BigInt(0));
 
   const currentState = useMemo(() => {
-    if (isInitializing) return "loading";
-
-    // Show normal loading states during queue transaction
-    if (isConfirming || isExecuteConfirming || isQueueConfirming)
-      return "confirming";
-    if (
-      isAwaitingUserSignature ||
-      isAwaitingExecuteSignature ||
-      isAwaitingQueueSignature
-    )
-      return "signing";
-
-    // Only show queued state after queue transaction is confirmed
-    if (proposalState === ProposalState.Succeeded && isQueueConfirmed) {
-      return "succeeded";
-    }
-    if (
-      (proposalState === ProposalState.Active && voteReceipt?.hasVoted) ||
-      isConfirmed
-    )
-      return "voted";
-
-    if (!isVotingOpen) {
-      if (proposalState === ProposalState.Active && isDeadlinePassed) {
-        return "finished";
-      }
-
-      switch (proposalState) {
-        case ProposalState.Executed:
-          return "executed";
-        case ProposalState.Queued:
-          return "queued";
-        case ProposalState.Succeeded:
-          // Keep showing the queueing state if the queue transaction is pending
-          if (isQueueTransactionPending) return "confirming";
-          return "succeeded";
-        case ProposalState.Defeated:
-          return "defeated";
-        case ProposalState.Canceled:
-          return "canceled";
-        case ProposalState.Expired:
-          return "expired";
-        case ProposalState.Pending:
-          return "pending";
-        default:
-          return "finished";
-      }
-    }
-
-    if (!hasEnoughLockedMentoToVote && isConnected) return "insufficient-mento";
-    return "ready";
+    return deriveVoteCardState({
+      isInitializing,
+      isConfirmed,
+      isConfirming,
+      isExecuteConfirming,
+      isQueueConfirming,
+      isQueueConfirmed,
+      isQueueTransactionPending: Boolean(isQueueTransactionPending),
+      isAwaitingUserSignature,
+      isAwaitingExecuteSignature,
+      isAwaitingQueueSignature,
+      hasVoted: Boolean(voteReceipt?.hasVoted),
+      hasEnoughLockedMentoToVote,
+      isConnected,
+      isVotingOpen,
+      proposalState,
+      isDeadlinePassed,
+    });
   }, [
     isInitializing,
     isConfirmed,

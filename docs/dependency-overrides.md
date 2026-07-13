@@ -14,6 +14,36 @@ sync is a requirement, not a suggestion — a catalog bump for an overridden
 package is silently defeated otherwise (this happened to `zod`; see the table
 below).
 
+## Wormhole Connect (`@wormhole-foundation/wormhole-connect`)
+
+`app.mento.org` uses Wormhole Connect only for the `/bridge` route. The widget
+UI is lazy-loaded in `apps/app.mento.org/app/components/bridge/bridge-view.tsx`
+with `next/dynamic` and `ssr: false`, so the UI package should not enter the
+shared application bundle. The route config in
+`apps/app.mento.org/app/components/bridge/bridge-config.ts` also imports the
+`@wormhole-foundation/wormhole-connect/ntt` subpath; that value import belongs
+to the bridge route chunk.
+
+The app declares `@mui/icons-material`, `@mui/material`,
+`@mui/styled-engine`, `@mui/system`, `@emotion/react`, and `@emotion/styled`
+only to satisfy Wormhole Connect peer ranges. There are no direct TypeScript,
+TSX, or app config imports of those packages in `apps/app.mento.org`. Do not
+remove them independently, and do not start using them directly in Mento UI
+code.
+
+As of the 2026-07-10 check for issue #418, `osv-scanner.toml` has 74 ignored
+vulnerability blocks, and 15 blocks mention the Wormhole Connect dependency
+chain in the reason or surrounding comments. That cluster is currently axios
+(3 blocks), protobufjs including `@protobufjs/utf8` (11 blocks), and uuid (1
+block). Do not attribute the elliptic or bn.js suppressions to Wormhole; their
+documented chains are separate.
+
+Removing Wormhole Connect is intentionally out of scope for this document. At
+the next quarterly dependency review, check `/bridge` traffic in Vercel
+Analytics for the `app.mento.org` project. Record the review date and traffic
+figure on the tracking issue; if traffic is near zero, open a dedicated removal
+proposal before changing dependencies.
+
 ## Range-scoped entries need no row here
 
 Most entries in `pnpm.overrides` are range-scoped CVE floors, e.g.:

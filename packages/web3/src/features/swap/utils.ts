@@ -39,17 +39,6 @@ export function calcExchangeRate(
   }
 }
 
-export function invertExchangeRate(rate: NumberT) {
-  try {
-    const inverted = new BigNumber(1).dividedBy(rate);
-    if (inverted.isFinite()) return inverted.toFixed(4, BigNumber.ROUND_DOWN);
-    return "0";
-  } catch (error) {
-    logger.warn("Error inverting exchange values", error);
-    return "0";
-  }
-}
-
 export const formatBalance = (value: string, decimals: number): string => {
   try {
     const formatted = formatUnits(BigInt(value), decimals);

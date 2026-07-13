@@ -15,6 +15,7 @@ import {
   sortPoolsByTvl,
 } from "../types";
 import { POOL_REFETCH_INTERVAL } from "@/config/constants";
+import { logger } from "@/utils/logger";
 import {
   createPoolUsdPricingContext,
   getUsdTokenPrices,
@@ -183,7 +184,7 @@ export async function fetchPoolsList(
         );
 
         if (!token0Info || !token1Info) {
-          console.warn(
+          logger.warn(
             `[usePoolsList] Token not found for pool ${pool.poolAddr}: token0=${details.token0} (${!!token0Info}), token1=${details.token1} (${!!token1Info})`,
           );
           return null;
@@ -360,7 +361,7 @@ export async function fetchPoolsList(
         if (isTransient) {
           throw error;
         }
-        console.warn(`[usePoolsList] Skipping pool ${pool.poolAddr}:`, error);
+        logger.warn(`[usePoolsList] Skipping pool ${pool.poolAddr}:`, error);
         return null;
       }
     }),

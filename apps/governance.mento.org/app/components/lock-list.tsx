@@ -3,6 +3,7 @@ import { useLockedAmount, useLocksByAccount } from "@/contracts";
 import { LockWithExpiration } from "@/contracts/types";
 import { useLockAmountsFromWithdrawals } from "@/hooks/use-lock-amounts-from-withdrawals";
 import {
+  Button,
   CopyToClipboard,
   LockCard,
   LockCardActions,
@@ -37,8 +38,8 @@ import { UpdateLockDialog } from "./update-lock-dialog";
 
 export const LockList = () => {
   const { address } = useAccount();
-  const { locks, loading, refetch } = useLocksByAccount({
-    account: address as string,
+  const { locks, loading, error, refetch } = useLocksByAccount({
+    account: address,
   });
   const { refetch: refetchLockedAmount } = useLockedAmount();
 
@@ -152,7 +153,18 @@ export const LockList = () => {
     setIsUpdateDialogOpen(false);
   };
 
-  if (!locks || locks.length === 0) {
+  if (address && error && locks.length === 0) {
+    return (
+      <div className="mt-20 gap-3 flex flex-col items-start">
+        <p className="text-sm text-white">Could not load your locks.</p>
+        <Button type="button" onClick={() => void refetch()}>
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
+  if (locks.length === 0) {
     return <></>;
   }
 

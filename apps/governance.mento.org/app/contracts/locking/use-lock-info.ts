@@ -10,7 +10,7 @@ const formatNumber = (value: bigint | undefined, decimals: number): string =>
   Number(formatUnits(value ?? BigInt(0), decimals)).toFixed(3);
 
 export const useLockInfo = (address: string | undefined) => {
-  const { locks, refetch } = useLocksByAccount({ account: address! });
+  const { locks, refetch } = useLocksByAccount({ account: address });
 
   const { data: unlockedMento, isLoading: isUnlockedMentoLoading } =
     useUnlockedMento();

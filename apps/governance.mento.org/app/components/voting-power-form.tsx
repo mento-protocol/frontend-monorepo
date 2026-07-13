@@ -38,7 +38,7 @@ export default function VotingPowerForm() {
 
   const { mentoBalance, veMentoBalance, refetchBalances } = useTokens();
   const { locks, refetch: refetchLocks } = useLocksByAccount({
-    account: address!,
+    account: address,
   });
 
   // Get on-chain withdrawable principal

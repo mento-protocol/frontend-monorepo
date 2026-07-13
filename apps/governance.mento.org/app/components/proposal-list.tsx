@@ -81,7 +81,7 @@ const usePagination = ({
 };
 
 export const ProposalList = () => {
-  const { proposals, isLoading } = useProposals();
+  const { proposals, isLoading, error, refetchProposals } = useProposals();
   const { veMentoBalance, isBalanceLoading } = useTokens();
   const { proposalThreshold, isLoadingProposalThreshold } =
     useProposalThreshold();
@@ -181,6 +181,15 @@ export const ProposalList = () => {
         {isLoading ? (
           <div className="gap-4 absolute top-1/2 left-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center">
             <IconLoading />
+          </div>
+        ) : error && proposals.length === 0 ? (
+          <div className="gap-3 max-w-xs px-6 absolute top-1/2 left-1/2 flex w-full -translate-x-1/2 -translate-y-1/2 flex-col items-center text-center">
+            <span className="font-medium text-white">
+              Could not load proposals.
+            </span>
+            <Button type="button" onClick={() => void refetchProposals()}>
+              Retry
+            </Button>
           </div>
         ) : filteredProposals.length === 0 ? (
           <div className="gap-2 text-sm text-white/70 absolute top-1/2 left-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center text-center">
