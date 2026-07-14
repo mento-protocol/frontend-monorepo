@@ -27,7 +27,7 @@ Monorepo for Mento Protocol frontend applications (DeFi on Celo blockchain).
 - **Web3:** wagmi, viem, @mento-protocol/mento-sdk, RainbowKit
 - **State:** jotai (atoms), @tanstack/react-query (data fetching)
 - **Linting/Formatting:** Trunk CLI (ESLint + Prettier)
-- **Testing:** Vitest (app.mento.org, @repo/web3, @mento-protocol/ui)
+- **Testing:** Vitest (app.mento.org, governance.mento.org, @repo/web3, @mento-protocol/ui)
 - **Monitoring:** Sentry
 - **Deployment:** Vercel
 
@@ -39,10 +39,15 @@ pnpm exec turbo run dev --filter <app-name>    # Dev server for one app (use pac
 pnpm build                           # Build all
 pnpm exec turbo run build --filter <app-name>  # Build one app
 pnpm check-types                     # TypeScript type checking; builds workspace package types first
+pnpm ci:action-pins                  # Verify third-party GitHub Actions use documented SHA pins
+pnpm ci:action-pins:test             # Test the action-pin scanner and REST materializer
 pnpm ci:change-plan:test             # Test docs-only CI planning, mandatory Trunk, and fail-closed behavior
 trunk check --fix                     # Lint with autofix
 trunk fmt                             # Format
 pnpm test                            # Run tests
+pnpm quality:budgets:test            # Unit/structural tests for quality gates + notifier
+pnpm quality:coverage                # Enforce measured coverage floors in tested workspaces
+pnpm quality:budgets                 # Coverage + production builds + route bundle limits
 pnpm fork:mainnet                    # Local anvil fork of Celo mainnet (--celo --auto-impersonate)
 pnpm fork:seed                       # Fund fork accounts + re-report oracle prices (idempotent)
 pnpm pr:description:test             # Test the required PR-description format validator
@@ -63,13 +68,16 @@ Two layers guard against unintended UI changes:
 
 - **DOM/aria snapshots** (`@mento-protocol/ui`) — run inside the normal `pnpm test` step. After an _intended_ component change, re-record baselines with `pnpm --filter @mento-protocol/ui exec vitest run -u`.
 - **Pixel VRT** (`ui.mento.org` showcase and `app.mento.org` disconnected shells) — Playwright + Argos, in CI via `.github/workflows/visual.yml` (pinned Playwright Docker image; baselines live in Argos, not git).
-  The workflow plans from changed files and only runs the app checks whose
-  rendered surfaces can be affected: `apps/ui.mento.org/**` and `packages/ui/**`
-  run the showcase; `apps/app.mento.org/**`, `packages/ui/**`, and
-  `packages/web3/**` run the app shells; and root package, workflow, `.npmrc`,
-  `turbo.json`, `patches/**`, and `scripts/security-headers.mjs` changes run
-  both. `apps/reserve.mento.org/**`-only changes skip the current Argos jobs
-  because reserve has no pixel VRT suite yet. Run locally:
+  On pull requests, the workflow plans from changed files and only runs the app
+  checks whose rendered surfaces can be affected: `apps/ui.mento.org/**` and
+  `packages/ui/**` run the showcase; `apps/app.mento.org/**`,
+  `packages/ui/**`, and `packages/web3/**` run the app shells; and root package,
+  workflow, `.npmrc`, `turbo.json`, `patches/**`, and
+  `scripts/security-headers.mjs` changes run both. On `main`, the push trigger
+  uses that union of visual-impact paths and every started run executes both
+  suites, so a workflow-level success can safely recover its managed CI failure
+  issue. `apps/reserve.mento.org/**`-only changes do not start the visual
+  workflow because reserve has no pixel VRT suite yet. Run locally:
 
   ```bash
   pnpm exec turbo run build --filter ui.mento.org  # build the showcase

@@ -1,6 +1,11 @@
 import { getSubgraphApiName } from "@/config";
 import { LockWithExpiration } from "@/contracts/types";
-import { useGetWithdrawalsQuery } from "@/graphql/subgraph/generated/subgraph";
+import {
+  GetWithdrawalsDocument,
+  GetWithdrawalsQuery,
+  GetWithdrawalsQueryVariables,
+} from "@/graphql/subgraph/generated/subgraph";
+import { useQuery } from "@apollo/client/react";
 import { LockAmounts } from "@/types/lock-amounts";
 import { reportSubgraphError } from "@/utils/report-subgraph-error";
 import { calculateLockAmountsFromWithdrawals } from "@/utils/calculate-lock-amounts-from-withdrawals";
@@ -40,7 +45,10 @@ export function useLockAmountsFromWithdrawals({
   const ensuredChainId = useEnsureChainId();
 
   // Fetch withdrawal events for the account
-  const { data, loading, error } = useGetWithdrawalsQuery({
+  const { data, loading, error } = useQuery<
+    GetWithdrawalsQuery,
+    GetWithdrawalsQueryVariables
+  >(GetWithdrawalsDocument, {
     skip: !address,
     fetchPolicy: "network-only",
     errorPolicy: "all",

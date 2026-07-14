@@ -53,10 +53,13 @@ pnpm --filter app.mento.org test:visual
 
 Diffs are reviewed and baselines are promoted in the Argos dashboard.
 
-The CI workflow runs this suite only when files that can affect the app shells
-change, such as `apps/app.mento.org/**`, `packages/ui/**`, `packages/web3/**`,
-root package manager files, `.npmrc`, `turbo.json`,
-`scripts/security-headers.mjs`, or `.github/workflows/visual.yml`.
+On pull requests, the CI workflow runs this suite only when files that can
+affect the app shells change, such as `apps/app.mento.org/**`, `packages/ui/**`,
+`packages/web3/**`, root package manager files, `.npmrc`, `turbo.json`,
+`scripts/security-headers.mjs`, or `.github/workflows/visual.yml`. On `main`,
+that union of visual-impact paths controls whether the workflow starts; every
+started run executes both the app and UI suites so its workflow-level success
+is valid recovery evidence for the CI failure notifier.
 
 ## Connected-Wallet E2E
 

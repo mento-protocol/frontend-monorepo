@@ -32,9 +32,11 @@ const config: CodegenConfig = {
       ],
       config: {
         reactApolloVersion: 3,
-        withHooks: true,
-        withReturnType: true,
         avoidOptionals: true,
+        withHooks: false,
+        withMutationFn: false,
+        withMutationOptionsType: false,
+        withResultType: false,
       },
     },
     "./app/graphql/celo-explorer/generated/celoGraph.tsx": {
@@ -53,8 +55,10 @@ const config: CodegenConfig = {
       ],
       config: {
         reactApolloVersion: 3,
-        withHooks: true,
-        withReturnType: true,
+        withHooks: false,
+        withMutationFn: false,
+        withMutationOptionsType: false,
+        withResultType: false,
       },
     },
   },

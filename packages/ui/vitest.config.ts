@@ -17,5 +17,24 @@ export default mergeConfig(sharedConfig, {
     environment: "jsdom",
     setupFiles: ["./vitest.setup.ts"],
     include: ["src/**/*.test.tsx"],
+    coverage: {
+      all: true,
+      include: ["src/**/*.{js,jsx,ts,tsx}"],
+      exclude: [
+        "src/**/*.test.{js,jsx,ts,tsx}",
+        "src/**/*.spec.{js,jsx,ts,tsx}",
+        "src/**/__tests__/**",
+        "src/**/__snapshots__/**",
+        "src/**/__generated__/**",
+        "src/**/generated/**",
+        "src/**/*.d.ts",
+      ],
+      thresholds: {
+        statements: 5,
+        branches: 80,
+        functions: 80,
+        lines: 5,
+      },
+    },
   },
 });

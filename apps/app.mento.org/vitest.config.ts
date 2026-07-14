@@ -16,5 +16,29 @@ export default mergeConfig(sharedConfig, {
   test: {
     environment: "jsdom",
     include: ["app/**/*.test.ts", "app/**/*.test.tsx"],
+    coverage: {
+      all: true,
+      include: [
+        "app/**/*.{js,jsx,mjs,ts,tsx}",
+        "instrumentation.ts",
+        "instrumentation-client.ts",
+        "sentry.edge.config.ts",
+        "sentry.server.config.ts",
+      ],
+      exclude: [
+        "app/**/*.test.{js,jsx,mjs,ts,tsx}",
+        "app/**/*.spec.{js,jsx,mjs,ts,tsx}",
+        "app/**/__tests__/**",
+        "app/**/__generated__/**",
+        "app/**/generated/**",
+        "app/**/*.d.ts",
+      ],
+      thresholds: {
+        statements: 30,
+        branches: 72,
+        functions: 72,
+        lines: 30,
+      },
+    },
   },
 });

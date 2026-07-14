@@ -11,7 +11,7 @@
 // WHY THIS SPEC MOCKS THE SUBGRAPH (the hard part — read before editing):
 // The ONLY UI entry to the relock/update flow is the "Update" button on a
 // LockCard in LockList, which renders exclusively from useLocksByAccount ->
-// Apollo useGetLocksQuery (app/graphql/subgraph/queries/getLocks.graphql,
+// Apollo useQuery(GetLocksDocument) (app/graphql/subgraph/queries/getLocks.graphql,
 // fetchPolicy: network-only) against env.NEXT_PUBLIC_SUBGRAPH_URL — a LIVE
 // mainnet Graph gateway. On the fork that host is unreachable/aborted by the
 // network policy (see the "mixed-state caveat" in lock.spec.ts), so LockList
@@ -35,9 +35,9 @@
 // the subgraph-mock technique (also noted in docs/wallet-testing.md).
 //
 // Mixed-state caveat still applies: the lock CARD amounts are driven by the
-// (mocked/blocked) subgraph and by useGetWithdrawalsQuery, which we DELIBERATELY
-// leave empty — so success is asserted ONLY via the toast and on-chain reads
-// (erc20BalanceOf against the fork), NEVER via the lock-card UI.
+// (mocked/blocked) subgraph and by useQuery(GetWithdrawalsDocument), which we
+// DELIBERATELY leave empty — so success is asserted ONLY via the toast and
+// on-chain reads (erc20BalanceOf against the fork), NEVER via the lock-card UI.
 import { expect, test, type Page } from "@playwright/test";
 import { erc20BalanceOf, mineBlocks, revert, rpc, snapshot } from "./rpc";
 

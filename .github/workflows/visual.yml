@@ -3,6 +3,24 @@ name: Visual Regression
 on:
   push:
     branches: [main]
+    # A completed default-branch run is recovery evidence for the workflow-level
+    # CI failure issue, so only start for visual-impact changes. Once started,
+    # the plan below runs both surfaces rather than reporting success with a
+    # previously failing surface skipped.
+    paths:
+      - .github/workflows/visual.yml
+      - .github/actions/pnpm-install/**
+      - .npmrc
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - turbo.json
+      - patches/**
+      - scripts/security-headers.mjs
+      - apps/app.mento.org/**
+      - apps/ui.mento.org/**
+      - packages/ui/**
+      - packages/web3/**
   pull_request:
     types: [opened, synchronize]
 
@@ -58,29 +76,34 @@ jobs:
           run_app=false
           run_ui=false
 
-          while IFS= read -r file; do
-            [[ -z "$file" ]] && continue
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            run_app=true
+            run_ui=true
+          else
+            while IFS= read -r file; do
+              [[ -z "$file" ]] && continue
 
-            case "$file" in
-              .github/workflows/visual.yml | .github/actions/pnpm-install/* | .npmrc | package.json | pnpm-lock.yaml | pnpm-workspace.yaml | turbo.json | patches/* | scripts/security-headers.mjs)
-                run_app=true
-                run_ui=true
-                ;;
-              apps/app.mento.org/*)
-                run_app=true
-                ;;
-              apps/ui.mento.org/*)
-                run_ui=true
-                ;;
-              packages/ui/*)
-                run_app=true
-                run_ui=true
-                ;;
-              packages/web3/*)
-                run_app=true
-                ;;
-            esac
-          done < changed-files.txt
+              case "$file" in
+                .github/workflows/visual.yml | .github/actions/pnpm-install/* | .npmrc | package.json | pnpm-lock.yaml | pnpm-workspace.yaml | turbo.json | patches/* | scripts/security-headers.mjs)
+                  run_app=true
+                  run_ui=true
+                  ;;
+                apps/app.mento.org/*)
+                  run_app=true
+                  ;;
+                apps/ui.mento.org/*)
+                  run_ui=true
+                  ;;
+                packages/ui/*)
+                  run_app=true
+                  run_ui=true
+                  ;;
+                packages/web3/*)
+                  run_app=true
+                  ;;
+              esac
+            done < changed-files.txt
+          fi
 
           echo "app=$run_app" >> "$GITHUB_OUTPUT"
           echo "ui=$run_ui" >> "$GITHUB_OUTPUT"

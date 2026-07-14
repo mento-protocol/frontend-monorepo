@@ -31,6 +31,30 @@ export default mergeConfig(sharedConfig, {
   test: {
     environment: "jsdom",
     include: ["app/**/*.test.ts", "app/**/*.test.tsx"],
+    coverage: {
+      all: true,
+      include: [
+        "app/**/*.{js,jsx,mjs,ts,tsx}",
+        "instrumentation.ts",
+        "instrumentation-client.ts",
+        "sentry.edge.config.ts",
+        "sentry.server.config.ts",
+      ],
+      exclude: [
+        "app/**/*.test.{js,jsx,mjs,ts,tsx}",
+        "app/**/*.spec.{js,jsx,mjs,ts,tsx}",
+        "app/**/__tests__/**",
+        "app/**/__generated__/**",
+        "app/**/generated/**",
+        "app/**/*.d.ts",
+      ],
+      thresholds: {
+        statements: 8,
+        branches: 60,
+        functions: 50,
+        lines: 8,
+      },
+    },
     // The SDK ships an ESM build with extensionless relative imports that Node's
     // native resolver rejects; inlining lets Vite transform and resolve it.
     // (Mirrors packages/web3/vitest.config.ts, which hit the same issue.)

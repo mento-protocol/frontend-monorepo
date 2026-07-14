@@ -13,11 +13,12 @@
     "start": "next start",
     "test": "vitest run",
     "test:connected": "playwright test --project=connected",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@apollo/client": "^3.14.0",
-    "@apollo/client-integration-nextjs": "^0.12.3",
+    "@apollo/client": "^4.2.7",
+    "@apollo/client-integration-nextjs": "^0.14.5",
     "@mento-protocol/ui": "workspace:*",
     "@rainbow-me/rainbowkit": "catalog:",
     "@repo/web3": "workspace:*",
@@ -39,6 +40,7 @@
     "react-hook-form": "catalog:",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "rxjs": "^7.8.2",
     "spacetime": "^7.12.0",
     "tailwindcss": "catalog:",
     "turndown": "^7.2.2",

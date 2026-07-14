@@ -122,7 +122,33 @@ pnpm format
 
 # Check formatting without making changes
 pnpm format:check
+
+# Verify every third-party GitHub Action uses an immutable SHA + version comment
+pnpm ci:action-pins
+
+# Run the action-pin scanner and REST materializer fixture suites
+pnpm ci:action-pins:test
 ```
+
+Two always-run checks protect the policy on every pull request:
+`GitHub Actions Policy` runs the trusted base-branch checker against only the
+PR head's Actions YAML, fetched as inert blobs from its exact commit through the
+GitHub Git API. It never checks out or executes pull-request files. `GitHub
+Actions Policy Source` runs the proposed checker, REST materializer, and fixtures
+in a credential-free `pull_request` workflow. After these workflows merge, branch
+protection must require both `Action Pin Policy` and `Action Pin Policy Source`
+so neither trusted enforcement nor proposed-policy validation can be skipped.
+Because the source lane necessarily runs pull-request-controlled policy code,
+changes to either policy workflow, checker, or fixture suite must also require
+protected human/code-owner review or an organization required-workflow rule;
+the two status contexts alone are not a tamper-proof approval boundary.
+Canonical structure changes such as pnpm/Node versions, commands, or triggers
+intentionally require a protected two-PR transition: first teach the trusted
+checker to allow the transition while retaining the old workflow, then change
+the workflow and tighten the checker. Immutable action SHA bumps are normalized
+by the checker and can remain a single PR. When adding or updating a third-party
+action, pin its full 40-character commit SHA and retain the release tag as an
+inline comment (for example, `uses: org/action@<sha> # v1.2.3`).
 
 #### App-Specific Linting
 
@@ -371,6 +397,10 @@ feat(ui): add new button component
 The repository is set up with GitHub Actions for CI:
 
 - **CI**: On every PR, it plans the changed-file scope, fans build, unit tests, and static analysis out in parallel, then reports the existing required `Build and Test` sentinel. Markdown- and `docs/**`-only changes skip builds, unit tests, type checking, and Knip, but retain the Trunk static checks for Markdown validation and secret scanning. Scope-planning errors and all other paths fail closed into full validation.
+- **Quality budgets**: The always-reported [Quality Budgets](docs/quality-budgets.md)
+  check enforces production-source coverage and gzip route limits. Its general
+  CI failure notifier opens or updates one issue for an operational workflow
+  failure and closes the issue after recovery.
 - **CD**: Deployments are handled by the Vercel Git integration — each app is a Vercel project that builds on push to main (previews on PRs). GitHub Actions does not deploy.
 
 Dependency-installing jobs use `.github/actions/pnpm-install`, which pins the

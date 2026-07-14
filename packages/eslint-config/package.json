@@ -14,7 +14,7 @@
   },
   "devDependencies": {
     "@eslint/js": "catalog:",
-    "@next/eslint-plugin-next": "^16.2.9",
+    "@next/eslint-plugin-next": "^16.2.10",
     "eslint": "catalog:",
     "eslint-config-prettier": "catalog:",
     "eslint-plugin-only-warn": "^1.2.1",

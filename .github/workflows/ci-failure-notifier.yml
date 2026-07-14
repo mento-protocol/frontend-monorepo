@@ -1,0 +1,66 @@
+name: CI Failure Notifier
+
+# workflow_run executes this trusted default-branch workflow after monitored
+# workflows complete. Never check out or execute the triggering head SHA here.
+on:
+  workflow_run:
+    workflows:
+      - CI/CD
+      - E2E (Connected Wallet)
+      - Publish UI Package
+      - Quality Budgets
+      - Scorecard supply-chain security
+      - Supply Chain
+      - Visual Regression
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile-issue:
+    name: reconcile failure issue
+    if: >-
+      contains(fromJSON('["push", "schedule", "workflow_dispatch"]'), github.event.workflow_run.event) &&
+      contains(fromJSON('["success", "action_required", "failure", "startup_failure", "timed_out"]'), github.event.workflow_run.conclusion) &&
+      (
+        github.event.workflow_run.event == 'schedule' ||
+        (
+          github.event.workflow_run.event == 'push' &&
+          (
+            github.event.workflow_run.head_branch == github.event.repository.default_branch ||
+            github.event.workflow_run.name == 'Publish UI Package'
+          )
+        ) ||
+        (
+          github.event.workflow_run.event == 'workflow_dispatch' &&
+          github.event.workflow_run.head_branch == github.event.repository.default_branch
+        )
+      )
+    concurrency:
+      group: ci-failure-${{ github.event.workflow_run.workflow_id }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - name: Check out trusted notifier
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Open, update, or close the managed failure issue
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { pathToFileURL } = require("node:url");
+            const moduleUrl = pathToFileURL(
+              `${process.env.GITHUB_WORKSPACE}/scripts/ci-failure-issue.mjs`,
+            );
+            const { reconcileCiFailureIssue } = await import(moduleUrl.href);
+            await reconcileCiFailureIssue({ github, context, core });

@@ -1,0 +1,59 @@
+name: GitHub Actions Policy
+
+# This workflow intentionally has no path filter: once `Action Pin Policy` is
+# required, every PR must report the context instead of being left pending.
+on:
+  # Run the workflow definition from the trusted base branch. The job never
+  # executes or checks out code from the pull request. Trusted code fetches
+  # only the exact head commit's Actions YAML through GitHub's Git API.
+  pull_request_target:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  action-pins:
+    name: Action Pin Policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out trusted policy
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted-base
+          persist-credentials: false
+      - name: Setup PNPM
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v4
+        with:
+          version: 10.24.0
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+      - name: Install trusted policy dependencies
+        working-directory: trusted-base
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter .
+      - name: Test action-pin policy
+        # Proposed policy changes run separately in the credential-free
+        # pull_request workflow defined by action-pins-source.yml.
+        working-directory: trusted-base
+        run: pnpm ci:action-pins:test
+      - name: Fetch pull request Actions YAML
+        working-directory: trusted-base
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          ACTION_PIN_OUTPUT_DIR: ${{ runner.temp }}/action-pin-pr-head
+        run: node scripts/fetch-action-pin-yaml.mjs
+      - name: Enforce immutable action pins
+        working-directory: trusted-base
+        env:
+          GITHUB_ACTION_PINS_ROOT: ${{ runner.temp }}/action-pin-pr-head
+        run: node scripts/check-github-action-pins.mjs
