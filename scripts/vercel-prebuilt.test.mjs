@@ -169,6 +169,7 @@ test("all Next configs and app Turbo inputs use one custom ID variable", () => {
       new RegExp(`process\\.env\\.${CUSTOM_DEPLOYMENT_ID_ENV}`),
     );
     assert.match(nextConfig, /deploymentId/);
+    assert.match(nextConfig, /runtimeServerDeploymentId: false/);
     assert.match(turboConfig, new RegExp(CUSTOM_DEPLOYMENT_ID_ENV));
   }
 });

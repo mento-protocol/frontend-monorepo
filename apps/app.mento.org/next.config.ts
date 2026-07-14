@@ -78,6 +78,11 @@ const reportOnlyCsp = [
 
 const nextConfig: NextConfig = {
   deploymentId,
+  experimental: deploymentId
+    ? {
+        runtimeServerDeploymentId: false,
+      }
+    : undefined,
   async headers() {
     return [
       {

@@ -29,6 +29,11 @@ const reportOnlyCsp = [
 
 const nextConfig: NextConfig = {
   deploymentId,
+  experimental: deploymentId
+    ? {
+        runtimeServerDeploymentId: false,
+      }
+    : undefined,
   /* Performance Optimizations */
   // Enable React Server Components (default in App Router)
   reactStrictMode: true,

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 import process from "node:process";
-import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { parseEnv } from "node:util";
 import { fileURLToPath } from "node:url";
 
 export const BUILD_VARIABLE_CLASSIFICATIONS = [
@@ -50,7 +52,7 @@ const TARGET_VARIABLES = {
     pullable("NEXT_PUBLIC_BLOCKSCOUT_API_URL"),
     pullable("NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL"),
     pullable("NEXT_PUBLIC_ETHERSCAN_API_URL"),
-    pullable("NEXT_PUBLIC_GRAPH_API_KEY", { allowEmpty: true }),
+    pullable("NEXT_PUBLIC_GRAPH_API_KEY"),
     pullable("NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE", { allowEmpty: true }),
     pullable("NEXT_PUBLIC_STORAGE_URL"),
     pullable("NEXT_PUBLIC_SUBGRAPH_URL"),
@@ -67,6 +69,7 @@ const TARGET_VARIABLES = {
     }),
   ],
   reserve: [
+    pullable("NEXT_PUBLIC_ANALYTICS_API_URL"),
     pullable("NEXT_PUBLIC_STORAGE_URL"),
     pullable("NEXT_PUBLIC_SENTRY_DSN_RESERVE", { allowEmpty: true }),
     sensitive("SENTRY_AUTH_TOKEN", {
@@ -170,6 +173,33 @@ export function validateVercelBuildEnvironment({
   return { target, environment, checked: requirements.length };
 }
 
+export function loadVercelPulledEnvironment({
+  projectDirectory,
+  environment,
+  values = process.env,
+}) {
+  if (typeof projectDirectory !== "string" || projectDirectory.length === 0) {
+    throw new Error("Vercel project directory is required");
+  }
+  const environmentPath = join(
+    projectDirectory,
+    ".vercel",
+    `.env.${environment}.local`,
+  );
+  let pulledValues;
+  try {
+    pulledValues = parseEnv(readFileSync(environmentPath, "utf8"));
+  } catch {
+    throw new Error(
+      `Missing or invalid Vercel-pulled environment file: ${environmentPath}`,
+    );
+  }
+
+  // Explicit workflow constants and narrowly scoped GitHub secrets take
+  // precedence over ordinary values written by `vercel pull`.
+  return { ...pulledValues, ...values };
+}
+
 function parseArguments(argv) {
   const options = {};
   for (let index = 1; index < argv.length; index += 1) {
@@ -197,16 +227,27 @@ if (isCliEntrypoint()) {
       )}\n`,
     );
   } else if (command === "check") {
+    if (
+      typeof options["project-directory"] !== "string" ||
+      options["project-directory"].length === 0
+    ) {
+      throw new Error("--project-directory is required for environment checks");
+    }
+    const values = loadVercelPulledEnvironment({
+      environment: options.environment,
+      projectDirectory: resolve(options["project-directory"]),
+    });
     const result = validateVercelBuildEnvironment({
       target: options.target,
       environment: options.environment,
+      values,
     });
     process.stdout.write(
       `Vercel build environment verified for ${result.target}/${result.environment} (${result.checked} variables)\n`,
     );
   } else {
     throw new Error(
-      "Usage: vercel-build-environment.mjs inventory|check --target <target> --environment <environment>",
+      "Usage: vercel-build-environment.mjs inventory|check --target <target> --environment <environment> [--project-directory <path>]",
     );
   }
 }

@@ -99,9 +99,12 @@ and reruns, is at most 32 characters, uses only Vercel's supported character
 set, and never begins with the reserved `dpl_` prefix.
 
 All four `next.config.ts` files map `MENTO_NEXT_DEPLOYMENT_ID` to Next.js's
-`deploymentId` option. Each app's `turbo.json` includes that variable in the
-build hash. Local and native Vercel Git builds leave it unset and preserve their
-existing behavior.
+`deploymentId` option and disable Next.js's runtime deployment-ID override only
+when that custom ID is set. This is the scoped workaround for
+[vercel/next.js#94734](https://github.com/vercel/next.js/issues/94734): it
+preserves the build-time custom ID used by prebuilt Skew Protection while
+leaving native Vercel Git builds unchanged. Each app's `turbo.json` includes the
+variable in the build hash.
 
 After `vercel build`, verify the build-bound ID before uploading anything:
 
@@ -112,10 +115,12 @@ pnpm vercel:prebuilt:assert \
 ```
 
 The assertion reads `.vercel/output/config.json` and fails when `deploymentId`
-is missing or different. `vercel deploy --prebuilt` must upload that exact,
-unchanged `.vercel/output` directory in the same job. Do not regenerate the ID,
-rebuild, transfer an unverified artifact, or pass an invented deployment-ID
-option to `vercel deploy`.
+is missing or different. Next.js first writes the custom ID to its
+`routes-manifest.json`; the pinned Vercel CLI carries that value into the final
+Build Output API `config.json` that `--prebuilt` uploads. `vercel deploy
+--prebuilt` must upload that exact, unchanged `.vercel/output` directory in the
+same job. Do not regenerate the ID, rebuild, transfer an unverified artifact, or
+pass an invented deployment-ID option to `vercel deploy`.
 
 ## Build-environment contract
 
@@ -157,11 +162,18 @@ Validate the complete required-variable contract after `vercel pull` and after
 adding only the applicable GitHub secret mirrors:
 
 ```bash
-pnpm vercel:env:check --target "$TARGET" --environment "$ENVIRONMENT"
+pnpm vercel:env:check \
+  --target "$TARGET" \
+  --environment "$ENVIRONMENT" \
+  --project-directory "$PROJECT_DIRECTORY"
 ```
 
-The checker prints variable names on failure but never values. Its machine-
-readable inventory is available directly:
+`PROJECT_DIRECTORY` must be the same app directory used by `vercel pull` and
+`vercel build` (for example, `apps/ui.mento.org`). The checker loads
+`$PROJECT_DIRECTORY/.vercel/.env.<environment>.local`, then overlays explicit
+workflow constants and scoped GitHub secrets so they take precedence. A missing
+or invalid pulled file fails closed. The checker prints variable names on
+failure but never values. Its machine-readable inventory is available directly:
 
 ```bash
 node scripts/vercel-build-environment.mjs inventory \
@@ -194,6 +206,7 @@ scope documented below.
 | governance | `ETHERSCAN_API_KEY`                     | preview, production       | `sensitive-non-exportable` |
 | governance | `SENTRY_AUTH_TOKEN`                     | production semantics only | `sensitive-non-exportable` |
 | reserve    | `NEXT_PUBLIC_STORAGE_URL`               | preview, production       | `vercel-pull`              |
+| reserve    | `NEXT_PUBLIC_ANALYTICS_API_URL`         | preview, production       | `vercel-pull`              |
 | reserve    | `NEXT_PUBLIC_SENTRY_DSN_RESERVE`        | preview, production       | `vercel-pull`              |
 | reserve    | `SENTRY_AUTH_TOKEN`                     | production semantics only | `sensitive-non-exportable` |
 | ui         | `NEXT_PUBLIC_STORAGE_URL`               | preview, production       | `vercel-pull`              |
@@ -202,10 +215,10 @@ The code also has optional build-time reads that alter behavior only when set:
 RPC overrides (`NEXT_PUBLIC_RPC_URL`, chain-specific RPC variables), feature and
 test flags (`NEXT_PUBLIC_ENABLE_DEBUG`, `NEXT_PUBLIC_E2E_TEST`,
 `NEXT_PUBLIC_USE_FORK`, `NEXT_PUBLIC_SANCTIONS_TEST_MODE`), banner values,
-`NEXT_PUBLIC_VERSION`, Reserve's `NEXT_PUBLIC_ANALYTICS_API_URL`, and
-Governance's optional Celo Sepolia Blockscout URL. These are pulled when they
-exist but are not missing-build failures. `CHAINALYSIS_API_KEY` is optional in
-the app schema and is not a prebuilt-build prerequisite.
+`NEXT_PUBLIC_VERSION`, and Governance's optional Celo Sepolia Blockscout URL.
+These are pulled when they exist but are not missing-build failures.
+`CHAINALYSIS_API_KEY` is optional in the app schema and is not a prebuilt-build
+prerequisite.
 
 ### Required GitHub secret mirrors from issue #517
 

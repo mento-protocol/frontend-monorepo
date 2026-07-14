@@ -1,11 +1,23 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import process from "node:process";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   BUILD_VARIABLE_CLASSIFICATIONS,
   getVercelBuildRequirements,
+  loadVercelPulledEnvironment,
   validateVercelBuildEnvironment,
 } from "./vercel-build-environment.mjs";
+
+const repoRoot = fileURLToPath(new URL("../", import.meta.url));
+const scriptPath = fileURLToPath(
+  new URL("./vercel-build-environment.mjs", import.meta.url),
+);
 
 const TARGET_ENVIRONMENTS = {
   app: ["preview", "v3", "production"],
@@ -123,6 +135,125 @@ test("production Sentry auth is required only for production semantics", () => {
       ),
       false,
     );
+  }
+});
+
+test("runtime-critical application variables reject empty values", () => {
+  const governance = validValues("governance", "preview");
+  governance.NEXT_PUBLIC_GRAPH_API_KEY = "";
+  assert.throws(
+    () =>
+      validateVercelBuildEnvironment({
+        target: "governance",
+        environment: "preview",
+        values: governance,
+      }),
+    /NEXT_PUBLIC_GRAPH_API_KEY/,
+  );
+
+  const reserveRequirements = getVercelBuildRequirements("reserve", "preview");
+  assert.ok(
+    reserveRequirements.some(
+      (item) => item.name === "NEXT_PUBLIC_ANALYTICS_API_URL",
+    ),
+  );
+  const reserve = validValues("reserve", "preview");
+  delete reserve.NEXT_PUBLIC_ANALYTICS_API_URL;
+  assert.throws(
+    () =>
+      validateVercelBuildEnvironment({
+        target: "reserve",
+        environment: "preview",
+        values: reserve,
+      }),
+    /NEXT_PUBLIC_ANALYTICS_API_URL/,
+  );
+});
+
+test("Vercel-pulled files are loaded before explicit workflow values", () => {
+  const directory = mkdtempSync(join(tmpdir(), "vercel-env-"));
+  try {
+    mkdirSync(join(directory, ".vercel"));
+    writeFileSync(
+      join(directory, ".vercel", ".env.preview.local"),
+      [
+        "NEXT_PUBLIC_STORAGE_URL=https://pulled.example",
+        "NEXT_PUBLIC_WALLET_CONNECT_ID=pulled-wallet",
+        "VERCEL_ENV=pulled-wrong-value",
+      ].join("\n"),
+    );
+    assert.deepEqual(
+      loadVercelPulledEnvironment({
+        projectDirectory: directory,
+        environment: "preview",
+        values: { VERCEL_ENV: "preview" },
+      }),
+      {
+        NEXT_PUBLIC_STORAGE_URL: "https://pulled.example",
+        NEXT_PUBLIC_WALLET_CONNECT_ID: "pulled-wallet",
+        VERCEL_ENV: "preview",
+      },
+    );
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("missing Vercel-pulled files fail closed without exposing values", () => {
+  const directory = mkdtempSync(join(tmpdir(), "vercel-env-"));
+  try {
+    assert.throws(
+      () =>
+        loadVercelPulledEnvironment({
+          projectDirectory: directory,
+          environment: "v3",
+          values: { SECRET_VALUE: "do-not-print-this-secret-value" },
+        }),
+      (error) => {
+        assert.match(error.message, /.env.v3.local/);
+        assert.doesNotMatch(error.message, /do-not-print-this-secret-value/);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("root CLI validates the exact linked project directory", () => {
+  const directory = mkdtempSync(join(tmpdir(), "vercel-env-cli-"));
+  const projectDirectory = join(directory, "apps", "ui.mento.org");
+  try {
+    mkdirSync(join(projectDirectory, ".vercel"), { recursive: true });
+    writeFileSync(
+      join(projectDirectory, ".vercel", ".env.preview.local"),
+      "NEXT_PUBLIC_STORAGE_URL=https://pulled.example\n",
+    );
+    const output = execFileSync(
+      process.execPath,
+      [
+        scriptPath,
+        "check",
+        "--target",
+        "ui",
+        "--environment",
+        "preview",
+        "--project-directory",
+        projectDirectory,
+      ],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          NEXT_PUBLIC_VERCEL_ENV: "preview",
+          VERCEL_ENV: "preview",
+          VERCEL_TARGET_ENV: "preview",
+        },
+      },
+    );
+    assert.match(output, /verified for ui\/preview/);
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
   }
 });
 
