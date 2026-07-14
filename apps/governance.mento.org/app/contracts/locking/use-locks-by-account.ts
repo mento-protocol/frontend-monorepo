@@ -1,9 +1,11 @@
 import { getSubgraphApiName } from "@/config";
 import { LockWithExpiration } from "@/contracts/types";
 import {
-  GetLocksQueryResult,
-  useGetLocksQuery,
+  GetLocksDocument,
+  GetLocksQuery,
+  GetLocksQueryVariables,
 } from "@/graphql/subgraph/generated/subgraph";
+import { useQuery } from "@apollo/client/react";
 import { reportSubgraphError } from "@/utils/report-subgraph-error";
 import { useEnsureChainId } from "@repo/web3";
 import { useEffect, useMemo } from "react";
@@ -16,13 +18,19 @@ interface UseLocksProps {
 
 export const useLocksByAccount = ({
   account,
-}: UseLocksProps): Omit<GetLocksQueryResult, "data"> & {
+}: UseLocksProps): Omit<
+  useQuery.Result<GetLocksQuery, GetLocksQueryVariables>,
+  "data"
+> & {
   locks: LockWithExpiration[];
 } => {
   const { currentWeek: currentLockingWeek } = useLockingWeek();
   const ensuredChainId = useEnsureChainId();
 
-  const { data, error, ...rest } = useGetLocksQuery({
+  const { data, error, ...rest } = useQuery<
+    GetLocksQuery,
+    GetLocksQueryVariables
+  >(GetLocksDocument, {
     refetchWritePolicy: "overwrite",
     fetchPolicy: "network-only",
     errorPolicy: "all",

@@ -22,7 +22,7 @@
 // read through wagmi (useReadContract/useReadContracts -> RPC at
 // http://localhost:8545) reflects the FORK, but everything read through
 // Apollo/the-graph (the proposals list, and the lock cards -
-// useGetLocksQuery in app/contracts/locking/use-locks-by-account.ts)
+// useQuery(GetLocksDocument) in app/contracts/locking/use-locks-by-account.ts)
 // reflects LIVE Celo mainnet, or renders empty because the network policy
 // below blocks the subgraph host. A lock created on the fork will therefore
 // NEVER appear in the lock-card list, and that is not a bug. Assert success

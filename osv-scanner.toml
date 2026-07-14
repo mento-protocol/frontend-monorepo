@@ -19,10 +19,6 @@ id = "GHSA-vqpr-j7v3-hqw9"
 reason = "valibot ReDoS vulnerability is in transitive deps; no direct fix available"
 
 [[IgnoredVulns]]
-id = "GHSA-5f7q-jpqc-wp7h"
-reason = "Next.js PPR vulnerability; pre-existing, not related to bridge changes"
-
-[[IgnoredVulns]]
 id = "GHSA-378v-28hj-76wf"
 reason = "bn.js infinite loop in transitive deps; pre-existing"
 
@@ -49,10 +45,6 @@ reason = "minimatch ReDoS in transitive deps; pre-existing"
 [[IgnoredVulns]]
 id = "GHSA-7r86-cg39-jmmj"
 reason = "minimatch ReDoS in transitive deps; pre-existing"
-
-[[IgnoredVulns]]
-id = "GHSA-3x4c-7xq6-9pq8"
-reason = "Next.js unbounded image cache growth; 15.5.13 is latest stable, no fix available yet"
 
 [[IgnoredVulns]]
 id = "GHSA-xq3m-2v4x-88gg"
@@ -132,10 +124,8 @@ reason = "uuid v3/v5/v6+buf advisory — unreachable (all 16 pre-14 consumers au
 # Batch added 2026-05-15 alongside the Trove Activity panel PR.
 # Existing osv-scanner.toml entries cover older transitive-dep advisories
 # from the same wormhole/coinbase/wagmi chains. Re-running the scanner
-# surfaced ~40 newer GHSAs across the same upstream packages plus several
-# Next.js advisories that require a Next 16+ major bump to address (out
-# of scope for that PR). All entries below ignoreUntil 2026-12-01 so the
-# next audit catches them.
+# surfaced ~40 newer GHSAs across the same upstream packages. All entries
+# below ignoreUntil 2026-12-01 so the next audit catches them.
 #
 # REVISIT CHECKLIST — before the 2026-12-01 expiry:
 #
@@ -145,9 +135,6 @@ reason = "uuid v3/v5/v6+buf advisory — unreachable (all 16 pre-14 consumers au
 #      reachable and the ignore can be deleted.
 #   2. For each per-package group below, check the upstream chain for a
 #      patched release that resolves the GHSAs:
-#        - next.js     → look for 15.6.x / 16.x with the listed CVEs fixed.
-#                         Mostly Middleware / Proxy / RSC cache issues that
-#                         needed a 16.x major bump.
 #        - axios       → look for a bumped axios pin in @coinbase/cdp-sdk
 #                         (transitive: wagmi → @wagmi/connectors →
 #                         @base-org/account → @coinbase/cdp-sdk → axios).
@@ -167,73 +154,6 @@ reason = "uuid v3/v5/v6+buf advisory — unreachable (all 16 pre-14 consumers au
 #
 # Owner: TODO — pick this up during the November 2026 dependency review.
 # ---------------------------------------------------------------------------
-
-# --- next: requires Next 16+ to fix (15.5.18 is latest in 15.5.x line) ---
-
-[[IgnoredVulns]]
-id = "GHSA-267c-6grr-h53f"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "Next.js Middleware / Proxy bypass in App Router; not fixed in 15.5.x — requires Next 16+ bump (out of scope for the trove activity panel PR)."
-
-[[IgnoredVulns]]
-id = "GHSA-26hh-7cqf-hhc6"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "Next.js Middleware / Proxy bypass in App Router; not fixed in 15.5.x — requires Next 16+ bump."
-
-[[IgnoredVulns]]
-id = "GHSA-36qx-fr4f-26g5"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "Next.js Middleware / Proxy bypass in Pages Router; not fixed in 15.5.x — requires Next 16+ bump."
-
-[[IgnoredVulns]]
-id = "GHSA-3g8h-86w9-wvmq"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "Next.js Middleware / Proxy redirect cache-poisoning (low severity); not fixed in 15.5.x — requires Next 16+ bump."
-
-[[IgnoredVulns]]
-id = "GHSA-492v-c6pp-mqqv"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "Next.js Middleware / Proxy bypass through dynamic route parameter injection; not fixed in 15.5.x — requires Next 16+ bump."
-
-[[IgnoredVulns]]
-id = "GHSA-8h8q-6873-q5fj"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "Next.js DoS with Server Components; not fixed in 15.5.x — requires Next 16+ bump."
-
-[[IgnoredVulns]]
-id = "GHSA-c4j6-fc7j-m34r"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "Next.js SSRF in applications using WebSocket upgrades; not fixed in 15.5.x — requires Next 16+ bump."
-
-[[IgnoredVulns]]
-id = "GHSA-ffhc-5mcf-pf4q"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "Next.js XSS in App Router applications using i18n; not fixed in 15.5.x — requires Next 16+ bump."
-
-[[IgnoredVulns]]
-id = "GHSA-gx5p-jg67-6x7h"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "Next.js XSS in beforeInteractive scripts using CSP nonces; not fixed in 15.5.x — requires Next 16+ bump."
-
-[[IgnoredVulns]]
-id = "GHSA-h64f-5h5j-jqjh"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "Next.js DoS in Image Optimization API; not fixed in 15.5.x — requires Next 16+ bump."
-
-[[IgnoredVulns]]
-id = "GHSA-mg66-mrh9-m8jx"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "Next.js DoS via connection exhaustion (segment-prefetch routes); not fixed in 15.5.x — requires Next 16+ bump."
-
-[[IgnoredVulns]]
-id = "GHSA-vfv6-92ff-j949"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "Next.js cache poisoning via RSC collisions (low severity); not fixed in 15.5.x — requires Next 16+ bump."
-
-[[IgnoredVulns]]
-id = "GHSA-wfc6-r584-vfw7"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "Next.js cache poisoning in RSC Component cache-busting; not fixed in 15.5.x — requires Next 16+ bump."
 
 # --- axios: transitive via @rainbow-me/rainbowkit → wagmi → @wagmi/connectors → @base-org/account → @coinbase/cdp-sdk ---
 

@@ -1,18 +1,20 @@
 "use client";
 
 import { ProposalPolicy } from "./subgraph/policies/Proposal";
-import { ApolloLink, createHttpLink } from "@apollo/client";
+import { ApolloLink } from "@apollo/client";
 import {
   ApolloClient,
   InMemoryCache,
   SSRMultipartLink,
 } from "@apollo/client-integration-nextjs";
-import { setContext } from "@apollo/client/link/context";
+import { SetContextLink } from "@apollo/client/link/context";
+import { HttpLink } from "@apollo/client/link/http";
+import { LocalState } from "@apollo/client/local-state";
 import { env } from "@/env.mjs";
 
 // have a function to create a client for you
 export function makeClient() {
-  const httpLink = createHttpLink({
+  const httpLink = new HttpLink({
     // needs to be an absolute url, as relative urls cannot be used in SSR
     uri: (operation) => {
       const { apiName } = operation.getContext();
@@ -40,9 +42,7 @@ export function makeClient() {
   });
 
   // Auth link to add API keys to requests
-  const authLink = setContext((_, { headers, ...context }) => {
-    const { apiName } = context;
-
+  const authLink = new SetContextLink(({ apiName, headers }) => {
     // Determine which API key to use based on the API name
     let authToken = "";
 
@@ -74,6 +74,12 @@ export function makeClient() {
 
   return new ApolloClient({
     cache,
+    localState: new LocalState(),
+    defaultOptions: {
+      watchQuery: {
+        notifyOnNetworkStatusChange: false,
+      },
+    },
     link:
       typeof window === "undefined"
         ? ApolloLink.from([

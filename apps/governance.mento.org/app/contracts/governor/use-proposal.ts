@@ -5,11 +5,14 @@ import {
   isStateNumber,
 } from "@/contracts/governor/hook-helpers";
 import {
+  GetProposalDocument,
+  GetProposalQuery,
+  GetProposalQueryVariables,
   Proposal,
-  useGetProposalQuery,
 } from "@/graphql/subgraph/generated/subgraph";
 import { useContracts, useEnsureChainId } from "@repo/web3";
 import { NetworkStatus } from "@apollo/client";
+import { useQuery } from "@apollo/client/react";
 import { useMemo } from "react";
 import { useReadContract } from "@repo/web3/wagmi";
 export const ProposalQueryKey = "proposal";
@@ -22,18 +25,21 @@ export const useProposal = (proposalId: bigint) => {
     data: { proposals: graphProposals } = { proposals: [] },
     networkStatus: graphNetworkStatus,
     refetch: refetchProposal,
-  } = useGetProposalQuery({
-    context: {
-      apiName: getSubgraphApiName(ensuredChainId),
+  } = useQuery<GetProposalQuery, GetProposalQueryVariables>(
+    GetProposalDocument,
+    {
+      context: {
+        apiName: getSubgraphApiName(ensuredChainId),
+      },
+      notifyOnNetworkStatusChange: true,
+      refetchWritePolicy: "merge",
+      initialFetchPolicy: "network-only",
+      nextFetchPolicy: "cache-and-network",
+      variables: {
+        id: proposalId.toString(),
+      },
     },
-    notifyOnNetworkStatusChange: true,
-    refetchWritePolicy: "merge",
-    initialFetchPolicy: "network-only",
-    nextFetchPolicy: "cache-and-network",
-    variables: {
-      id: proposalId.toString(),
-    },
-  });
+  );
 
   const {
     data: chainData,
