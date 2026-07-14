@@ -115,6 +115,41 @@ test("the quality workflow is always reported and runs the canonical command", (
   assert.match(workflow, /run: pnpm quality:budgets/);
 });
 
+test("default-branch visual successes prove that both surfaces recovered", () => {
+  const workflow = read(".github/workflows/visual.yml");
+  const pushBlock = /^ {2}push:\n([\s\S]*?)^ {2}pull_request:/m.exec(
+    workflow,
+  )?.[1];
+  assert.ok(pushBlock, "the visual workflow must declare its push trigger");
+  const pushPaths = [...pushBlock.matchAll(/^ {6}- (.+)$/gm)].map(
+    (match) => match[1],
+  );
+  assert.deepEqual(pushPaths, [
+    ".github/workflows/visual.yml",
+    ".github/actions/pnpm-install/**",
+    ".npmrc",
+    "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "turbo.json",
+    "patches/**",
+    "scripts/security-headers.mjs",
+    "apps/app.mento.org/**",
+    "apps/ui.mento.org/**",
+    "packages/ui/**",
+    "packages/web3/**",
+  ]);
+  assert.match(
+    workflow,
+    /if \[\[ "\$EVENT_NAME" == "push" \]\]; then\n {12}run_app=true\n {12}run_ui=true\n {10}else/,
+  );
+  assert.match(
+    workflow,
+    /else\n {12}while IFS= read -r file; do[\s\S]*done < changed-files\.txt\n {10}fi/,
+    "pull requests must retain per-surface changed-file planning",
+  );
+});
+
 test("the notifier is loop-safe, secretless, and least privilege", () => {
   const workflow = read(".github/workflows/ci-failure-notifier.yml");
   const monitoredNames = [

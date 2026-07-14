@@ -39,6 +39,9 @@ the update procedure live in `docs/quality-budgets.md`.
 `.github/workflows/ci-failure-notifier.yml` owns one managed issue per monitored
 workflow, operational trigger, and target ref for default-branch, scheduled, and
 release-tag failures, then closes it only after recovery in that same partition.
+`Visual Regression` filters default-branch pushes to visual-impact paths and
+runs both surfaces whenever it starts, making workflow success valid recovery
+evidence; pull requests remain path-gated per surface.
 When adding or renaming an operational workflow, update its static allowlist and
 the structural test in the same PR. Never execute a triggering head SHA from
 this privileged `workflow_run` workflow.

@@ -90,6 +90,11 @@ operational trigger, and target ref, then:
   current state; neutral, skipped, and cancelled runs do not suppress a
   decisive result.
 
+`Visual Regression` is path-filtered before a default-branch run starts. Any
+default-branch run that does start executes both the app and UI visual suites,
+so its workflow-level success proves that either previously failing surface
+recovered. Pull requests retain the cheaper per-surface changed-file plan.
+
 The notifier uses only the repository `GITHUB_TOKEN`, with `actions: read`,
 `contents: read`, and `issues: write` on its single job. It checks out the
 event-time trusted `github.workflow_sha` and never the triggering SHA. Its own name is absent
