@@ -1,6 +1,5 @@
 /* eslint-disable */
 import { gql } from "@apollo/client";
-import * as Apollo from "@apollo/client";
 import {
   FieldPolicy,
   FieldReadFunction,
@@ -27,7 +26,6 @@ export type Incremental<T> =
   | {
       [P in keyof T]?: P extends " $fragmentName" | "__typename" ? T[P] : never;
     };
-const defaultOptions = {} as const;
 /** All built-in and custom scalars, mapped to their actual values */
 export type Scalars = {
   ID: { input: string; output: string };
@@ -6843,73 +6841,6 @@ export const GetAllLocksDocument = gql`
   }
 `;
 
-/**
- * __useGetAllLocksQuery__
- *
- * To run a query within a React component, call `useGetAllLocksQuery` and pass it any options that fit your needs.
- * When your component renders, `useGetAllLocksQuery` returns an object from Apollo Client that contains loading, error, and data properties
- * you can use to render your UI.
- *
- * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
- *
- * @example
- * const { data, loading, error } = useGetAllLocksQuery({
- *   variables: {
- *   },
- * });
- */
-export function useGetAllLocksQuery(
-  baseOptions?: Apollo.QueryHookOptions<
-    GetAllLocksQuery,
-    GetAllLocksQueryVariables
-  >,
-) {
-  const options = { ...defaultOptions, ...baseOptions };
-  return Apollo.useQuery<GetAllLocksQuery, GetAllLocksQueryVariables>(
-    GetAllLocksDocument,
-    options,
-  );
-}
-export function useGetAllLocksLazyQuery(
-  baseOptions?: Apollo.LazyQueryHookOptions<
-    GetAllLocksQuery,
-    GetAllLocksQueryVariables
-  >,
-) {
-  const options = { ...defaultOptions, ...baseOptions };
-  return Apollo.useLazyQuery<GetAllLocksQuery, GetAllLocksQueryVariables>(
-    GetAllLocksDocument,
-    options,
-  );
-}
-export function useGetAllLocksSuspenseQuery(
-  baseOptions?:
-    | Apollo.SkipToken
-    | Apollo.SuspenseQueryHookOptions<
-        GetAllLocksQuery,
-        GetAllLocksQueryVariables
-      >,
-) {
-  const options =
-    baseOptions === Apollo.skipToken
-      ? baseOptions
-      : { ...defaultOptions, ...baseOptions };
-  return Apollo.useSuspenseQuery<GetAllLocksQuery, GetAllLocksQueryVariables>(
-    GetAllLocksDocument,
-    options,
-  );
-}
-export type GetAllLocksQueryHookResult = ReturnType<typeof useGetAllLocksQuery>;
-export type GetAllLocksLazyQueryHookResult = ReturnType<
-  typeof useGetAllLocksLazyQuery
->;
-export type GetAllLocksSuspenseQueryHookResult = ReturnType<
-  typeof useGetAllLocksSuspenseQuery
->;
-export type GetAllLocksQueryResult = Apollo.QueryResult<
-  GetAllLocksQuery,
-  GetAllLocksQueryVariables
->;
 export const GetDelegatesDocument = gql`
   query getDelegates($skip: Int, $first: Int) {
     locks(skip: $skip, first: $first) {
@@ -6920,77 +6851,6 @@ export const GetDelegatesDocument = gql`
   }
 `;
 
-/**
- * __useGetDelegatesQuery__
- *
- * To run a query within a React component, call `useGetDelegatesQuery` and pass it any options that fit your needs.
- * When your component renders, `useGetDelegatesQuery` returns an object from Apollo Client that contains loading, error, and data properties
- * you can use to render your UI.
- *
- * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
- *
- * @example
- * const { data, loading, error } = useGetDelegatesQuery({
- *   variables: {
- *      skip: // value for 'skip'
- *      first: // value for 'first'
- *   },
- * });
- */
-export function useGetDelegatesQuery(
-  baseOptions?: Apollo.QueryHookOptions<
-    GetDelegatesQuery,
-    GetDelegatesQueryVariables
-  >,
-) {
-  const options = { ...defaultOptions, ...baseOptions };
-  return Apollo.useQuery<GetDelegatesQuery, GetDelegatesQueryVariables>(
-    GetDelegatesDocument,
-    options,
-  );
-}
-export function useGetDelegatesLazyQuery(
-  baseOptions?: Apollo.LazyQueryHookOptions<
-    GetDelegatesQuery,
-    GetDelegatesQueryVariables
-  >,
-) {
-  const options = { ...defaultOptions, ...baseOptions };
-  return Apollo.useLazyQuery<GetDelegatesQuery, GetDelegatesQueryVariables>(
-    GetDelegatesDocument,
-    options,
-  );
-}
-export function useGetDelegatesSuspenseQuery(
-  baseOptions?:
-    | Apollo.SkipToken
-    | Apollo.SuspenseQueryHookOptions<
-        GetDelegatesQuery,
-        GetDelegatesQueryVariables
-      >,
-) {
-  const options =
-    baseOptions === Apollo.skipToken
-      ? baseOptions
-      : { ...defaultOptions, ...baseOptions };
-  return Apollo.useSuspenseQuery<GetDelegatesQuery, GetDelegatesQueryVariables>(
-    GetDelegatesDocument,
-    options,
-  );
-}
-export type GetDelegatesQueryHookResult = ReturnType<
-  typeof useGetDelegatesQuery
->;
-export type GetDelegatesLazyQueryHookResult = ReturnType<
-  typeof useGetDelegatesLazyQuery
->;
-export type GetDelegatesSuspenseQueryHookResult = ReturnType<
-  typeof useGetDelegatesSuspenseQuery
->;
-export type GetDelegatesQueryResult = Apollo.QueryResult<
-  GetDelegatesQuery,
-  GetDelegatesQueryVariables
->;
 export const GetLocksDocument = gql`
   query getLocks($address: Bytes) {
     locks(
@@ -7033,68 +6893,6 @@ export const GetLocksDocument = gql`
   }
 `;
 
-/**
- * __useGetLocksQuery__
- *
- * To run a query within a React component, call `useGetLocksQuery` and pass it any options that fit your needs.
- * When your component renders, `useGetLocksQuery` returns an object from Apollo Client that contains loading, error, and data properties
- * you can use to render your UI.
- *
- * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
- *
- * @example
- * const { data, loading, error } = useGetLocksQuery({
- *   variables: {
- *      address: // value for 'address'
- *   },
- * });
- */
-export function useGetLocksQuery(
-  baseOptions?: Apollo.QueryHookOptions<GetLocksQuery, GetLocksQueryVariables>,
-) {
-  const options = { ...defaultOptions, ...baseOptions };
-  return Apollo.useQuery<GetLocksQuery, GetLocksQueryVariables>(
-    GetLocksDocument,
-    options,
-  );
-}
-export function useGetLocksLazyQuery(
-  baseOptions?: Apollo.LazyQueryHookOptions<
-    GetLocksQuery,
-    GetLocksQueryVariables
-  >,
-) {
-  const options = { ...defaultOptions, ...baseOptions };
-  return Apollo.useLazyQuery<GetLocksQuery, GetLocksQueryVariables>(
-    GetLocksDocument,
-    options,
-  );
-}
-export function useGetLocksSuspenseQuery(
-  baseOptions?:
-    | Apollo.SkipToken
-    | Apollo.SuspenseQueryHookOptions<GetLocksQuery, GetLocksQueryVariables>,
-) {
-  const options =
-    baseOptions === Apollo.skipToken
-      ? baseOptions
-      : { ...defaultOptions, ...baseOptions };
-  return Apollo.useSuspenseQuery<GetLocksQuery, GetLocksQueryVariables>(
-    GetLocksDocument,
-    options,
-  );
-}
-export type GetLocksQueryHookResult = ReturnType<typeof useGetLocksQuery>;
-export type GetLocksLazyQueryHookResult = ReturnType<
-  typeof useGetLocksLazyQuery
->;
-export type GetLocksSuspenseQueryHookResult = ReturnType<
-  typeof useGetLocksSuspenseQuery
->;
-export type GetLocksQueryResult = Apollo.QueryResult<
-  GetLocksQuery,
-  GetLocksQueryVariables
->;
 export const GetProposalDocument = gql`
   query getProposal($id: BigInt) {
     proposals(where: { proposalId: $id }) {
@@ -7113,74 +6911,6 @@ export const GetProposalDocument = gql`
   ${ProposalFieldsFragmentDoc}
 `;
 
-/**
- * __useGetProposalQuery__
- *
- * To run a query within a React component, call `useGetProposalQuery` and pass it any options that fit your needs.
- * When your component renders, `useGetProposalQuery` returns an object from Apollo Client that contains loading, error, and data properties
- * you can use to render your UI.
- *
- * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
- *
- * @example
- * const { data, loading, error } = useGetProposalQuery({
- *   variables: {
- *      id: // value for 'id'
- *   },
- * });
- */
-export function useGetProposalQuery(
-  baseOptions?: Apollo.QueryHookOptions<
-    GetProposalQuery,
-    GetProposalQueryVariables
-  >,
-) {
-  const options = { ...defaultOptions, ...baseOptions };
-  return Apollo.useQuery<GetProposalQuery, GetProposalQueryVariables>(
-    GetProposalDocument,
-    options,
-  );
-}
-export function useGetProposalLazyQuery(
-  baseOptions?: Apollo.LazyQueryHookOptions<
-    GetProposalQuery,
-    GetProposalQueryVariables
-  >,
-) {
-  const options = { ...defaultOptions, ...baseOptions };
-  return Apollo.useLazyQuery<GetProposalQuery, GetProposalQueryVariables>(
-    GetProposalDocument,
-    options,
-  );
-}
-export function useGetProposalSuspenseQuery(
-  baseOptions?:
-    | Apollo.SkipToken
-    | Apollo.SuspenseQueryHookOptions<
-        GetProposalQuery,
-        GetProposalQueryVariables
-      >,
-) {
-  const options =
-    baseOptions === Apollo.skipToken
-      ? baseOptions
-      : { ...defaultOptions, ...baseOptions };
-  return Apollo.useSuspenseQuery<GetProposalQuery, GetProposalQueryVariables>(
-    GetProposalDocument,
-    options,
-  );
-}
-export type GetProposalQueryHookResult = ReturnType<typeof useGetProposalQuery>;
-export type GetProposalLazyQueryHookResult = ReturnType<
-  typeof useGetProposalLazyQuery
->;
-export type GetProposalSuspenseQueryHookResult = ReturnType<
-  typeof useGetProposalSuspenseQuery
->;
-export type GetProposalQueryResult = Apollo.QueryResult<
-  GetProposalQuery,
-  GetProposalQueryVariables
->;
 export const GetProposalsDocument = gql`
   query getProposals {
     proposals(first: 1000, orderBy: startBlock, orderDirection: desc) {
@@ -7190,75 +6920,6 @@ export const GetProposalsDocument = gql`
   ${ProposalFieldsFragmentDoc}
 `;
 
-/**
- * __useGetProposalsQuery__
- *
- * To run a query within a React component, call `useGetProposalsQuery` and pass it any options that fit your needs.
- * When your component renders, `useGetProposalsQuery` returns an object from Apollo Client that contains loading, error, and data properties
- * you can use to render your UI.
- *
- * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
- *
- * @example
- * const { data, loading, error } = useGetProposalsQuery({
- *   variables: {
- *   },
- * });
- */
-export function useGetProposalsQuery(
-  baseOptions?: Apollo.QueryHookOptions<
-    GetProposalsQuery,
-    GetProposalsQueryVariables
-  >,
-) {
-  const options = { ...defaultOptions, ...baseOptions };
-  return Apollo.useQuery<GetProposalsQuery, GetProposalsQueryVariables>(
-    GetProposalsDocument,
-    options,
-  );
-}
-export function useGetProposalsLazyQuery(
-  baseOptions?: Apollo.LazyQueryHookOptions<
-    GetProposalsQuery,
-    GetProposalsQueryVariables
-  >,
-) {
-  const options = { ...defaultOptions, ...baseOptions };
-  return Apollo.useLazyQuery<GetProposalsQuery, GetProposalsQueryVariables>(
-    GetProposalsDocument,
-    options,
-  );
-}
-export function useGetProposalsSuspenseQuery(
-  baseOptions?:
-    | Apollo.SkipToken
-    | Apollo.SuspenseQueryHookOptions<
-        GetProposalsQuery,
-        GetProposalsQueryVariables
-      >,
-) {
-  const options =
-    baseOptions === Apollo.skipToken
-      ? baseOptions
-      : { ...defaultOptions, ...baseOptions };
-  return Apollo.useSuspenseQuery<GetProposalsQuery, GetProposalsQueryVariables>(
-    GetProposalsDocument,
-    options,
-  );
-}
-export type GetProposalsQueryHookResult = ReturnType<
-  typeof useGetProposalsQuery
->;
-export type GetProposalsLazyQueryHookResult = ReturnType<
-  typeof useGetProposalsLazyQuery
->;
-export type GetProposalsSuspenseQueryHookResult = ReturnType<
-  typeof useGetProposalsSuspenseQuery
->;
-export type GetProposalsQueryResult = Apollo.QueryResult<
-  GetProposalsQuery,
-  GetProposalsQueryVariables
->;
 export const GetWithdrawalsDocument = gql`
   query getWithdrawals($address: Bytes) {
     withdraws(
@@ -7287,76 +6948,6 @@ export const GetWithdrawalsDocument = gql`
   }
 `;
 
-/**
- * __useGetWithdrawalsQuery__
- *
- * To run a query within a React component, call `useGetWithdrawalsQuery` and pass it any options that fit your needs.
- * When your component renders, `useGetWithdrawalsQuery` returns an object from Apollo Client that contains loading, error, and data properties
- * you can use to render your UI.
- *
- * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
- *
- * @example
- * const { data, loading, error } = useGetWithdrawalsQuery({
- *   variables: {
- *      address: // value for 'address'
- *   },
- * });
- */
-export function useGetWithdrawalsQuery(
-  baseOptions?: Apollo.QueryHookOptions<
-    GetWithdrawalsQuery,
-    GetWithdrawalsQueryVariables
-  >,
-) {
-  const options = { ...defaultOptions, ...baseOptions };
-  return Apollo.useQuery<GetWithdrawalsQuery, GetWithdrawalsQueryVariables>(
-    GetWithdrawalsDocument,
-    options,
-  );
-}
-export function useGetWithdrawalsLazyQuery(
-  baseOptions?: Apollo.LazyQueryHookOptions<
-    GetWithdrawalsQuery,
-    GetWithdrawalsQueryVariables
-  >,
-) {
-  const options = { ...defaultOptions, ...baseOptions };
-  return Apollo.useLazyQuery<GetWithdrawalsQuery, GetWithdrawalsQueryVariables>(
-    GetWithdrawalsDocument,
-    options,
-  );
-}
-export function useGetWithdrawalsSuspenseQuery(
-  baseOptions?:
-    | Apollo.SkipToken
-    | Apollo.SuspenseQueryHookOptions<
-        GetWithdrawalsQuery,
-        GetWithdrawalsQueryVariables
-      >,
-) {
-  const options =
-    baseOptions === Apollo.skipToken
-      ? baseOptions
-      : { ...defaultOptions, ...baseOptions };
-  return Apollo.useSuspenseQuery<
-    GetWithdrawalsQuery,
-    GetWithdrawalsQueryVariables
-  >(GetWithdrawalsDocument, options);
-}
-export type GetWithdrawalsQueryHookResult = ReturnType<
-  typeof useGetWithdrawalsQuery
->;
-export type GetWithdrawalsLazyQueryHookResult = ReturnType<
-  typeof useGetWithdrawalsLazyQuery
->;
-export type GetWithdrawalsSuspenseQueryHookResult = ReturnType<
-  typeof useGetWithdrawalsSuspenseQuery
->;
-export type GetWithdrawalsQueryResult = Apollo.QueryResult<
-  GetWithdrawalsQuery,
-  GetWithdrawalsQueryVariables
->;
 export type AccessControlKeySpecifier = (
   | "asAccount"
   | "id"

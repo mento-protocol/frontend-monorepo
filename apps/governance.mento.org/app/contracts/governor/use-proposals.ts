@@ -6,9 +6,12 @@ import {
 } from "@/contracts/governor/hook-helpers";
 import { useContracts, useEnsureChainId } from "@repo/web3";
 import {
+  GetProposalsDocument,
+  GetProposalsQuery,
+  GetProposalsQueryVariables,
   Proposal,
-  useGetProposalsQuery,
 } from "@/graphql/subgraph/generated/subgraph";
+import { useQuery } from "@apollo/client/react";
 import { reportSubgraphError } from "@/utils/report-subgraph-error";
 
 import { useCallback, useEffect, useMemo } from "react";
@@ -23,16 +26,19 @@ export const useProposals = () => {
     error,
     refetch,
     loading,
-  } = useGetProposalsQuery({
-    context: {
-      apiName: getSubgraphApiName(ensuredChainId),
+  } = useQuery<GetProposalsQuery, GetProposalsQueryVariables>(
+    GetProposalsDocument,
+    {
+      context: {
+        apiName: getSubgraphApiName(ensuredChainId),
+      },
+      initialFetchPolicy: "network-only",
+      nextFetchPolicy: "cache-and-network",
+      refetchWritePolicy: "merge",
+      errorPolicy: "all",
+      pollInterval: 60_000,
     },
-    initialFetchPolicy: "network-only",
-    nextFetchPolicy: "cache-and-network",
-    refetchWritePolicy: "merge",
-    errorPolicy: "all",
-    pollInterval: 60_000,
-  });
+  );
 
   const { data: chainData, isLoading } = useReadContracts({
     contracts: graphData

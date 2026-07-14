@@ -1,6 +1,5 @@
 /* eslint-disable */
 import { gql } from "@apollo/client";
-import * as Apollo from "@apollo/client";
 export type Maybe<T> = T | null;
 export type InputMaybe<T> = Maybe<T>;
 export type Exact<T extends { [key: string]: unknown }> = {
@@ -21,7 +20,6 @@ export type Incremental<T> =
   | {
       [P in keyof T]?: P extends " $fragmentName" | "__typename" ? T[P] : never;
     };
-const defaultOptions = {} as const;
 /** All built-in and custom scalars, mapped to their actual values */
 export type Scalars = {
   ID: { input: string; output: string };
@@ -483,78 +481,3 @@ export const GetContractsInfoDocument = gql`
     }
   }
 `;
-
-/**
- * __useGetContractsInfoQuery__
- *
- * To run a query within a React component, call `useGetContractsInfoQuery` and pass it any options that fit your needs.
- * When your component renders, `useGetContractsInfoQuery` returns an object from Apollo Client that contains loading, error, and data properties
- * you can use to render your UI.
- *
- * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
- *
- * @example
- * const { data, loading, error } = useGetContractsInfoQuery({
- *   variables: {
- *      addresses: // value for 'addresses'
- *   },
- * });
- */
-export function useGetContractsInfoQuery(
-  baseOptions: Apollo.QueryHookOptions<
-    GetContractsInfoQuery,
-    GetContractsInfoQueryVariables
-  > &
-    (
-      | { variables: GetContractsInfoQueryVariables; skip?: boolean }
-      | { skip: boolean }
-    ),
-) {
-  const options = { ...defaultOptions, ...baseOptions };
-  return Apollo.useQuery<GetContractsInfoQuery, GetContractsInfoQueryVariables>(
-    GetContractsInfoDocument,
-    options,
-  );
-}
-export function useGetContractsInfoLazyQuery(
-  baseOptions?: Apollo.LazyQueryHookOptions<
-    GetContractsInfoQuery,
-    GetContractsInfoQueryVariables
-  >,
-) {
-  const options = { ...defaultOptions, ...baseOptions };
-  return Apollo.useLazyQuery<
-    GetContractsInfoQuery,
-    GetContractsInfoQueryVariables
-  >(GetContractsInfoDocument, options);
-}
-export function useGetContractsInfoSuspenseQuery(
-  baseOptions?:
-    | Apollo.SkipToken
-    | Apollo.SuspenseQueryHookOptions<
-        GetContractsInfoQuery,
-        GetContractsInfoQueryVariables
-      >,
-) {
-  const options =
-    baseOptions === Apollo.skipToken
-      ? baseOptions
-      : { ...defaultOptions, ...baseOptions };
-  return Apollo.useSuspenseQuery<
-    GetContractsInfoQuery,
-    GetContractsInfoQueryVariables
-  >(GetContractsInfoDocument, options);
-}
-export type GetContractsInfoQueryHookResult = ReturnType<
-  typeof useGetContractsInfoQuery
->;
-export type GetContractsInfoLazyQueryHookResult = ReturnType<
-  typeof useGetContractsInfoLazyQuery
->;
-export type GetContractsInfoSuspenseQueryHookResult = ReturnType<
-  typeof useGetContractsInfoSuspenseQuery
->;
-export type GetContractsInfoQueryResult = Apollo.QueryResult<
-  GetContractsInfoQuery,
-  GetContractsInfoQueryVariables
->;
