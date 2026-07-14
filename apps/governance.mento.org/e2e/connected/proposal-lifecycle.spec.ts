@@ -33,17 +33,33 @@
 //
 // ── votingPeriod FAST-FORWARD (D2) — benchmarked decision: STORAGE SHRINK ────
 // votingPeriod = 691,200 blocks. Batch-mining that many empty blocks was
-// benchmarked on this fork and REJECTED: `anvil_mine("0xA8C00", …)` did not
-// finish within a 180s cap, and even a 50,000-block batch exceeded 150s (≫ the
-// 60s budget) — empty-block mining recomputes state roots over forked state and
-// is far too slow. Instead we shrink `_votingPeriod` to 120 via
-// `anvil_setStorageAt` BEFORE proposing (slot located by scanning the Governor
-// proxy for the live votingPeriod() value, then verified by reading it back),
-// and mine ~130 blocks to close voting. Measured cost: storage write + 130-block
-// mine < 1s, with only ~130s of chain-clock advance — which keeps the
-// chain-vs-wall skew well under the ~2-minute budget (D4). Storage is the only
-// shortcut: `setVotingPeriod` reverts even from an impersonated Timelock because
-// OZ's onlyGovernance deque rejects direct calls.
+// benchmarked on this fork and REJECTED: empty-block mining recomputes state
+// roots over forked Celo state and runs at only ~18 blocks/s, and a single
+// large `anvil_mine` batch (2,000 blocks) reliably PANICS anvil in
+// `do_mine_block` (~93s in, then the process dies). Instead we shrink
+// `_votingPeriod` to VOTING_PERIOD_SHRUNK via `anvil_setStorageAt` BEFORE
+// proposing (slot located by scanning the Governor proxy for the live
+// votingPeriod() value, then verified by reading it back), and mine just enough
+// blocks to close voting once the vote is in.
+//
+// Why 400 blocks (not a tighter value): votingDelay is 0, so the on-chain
+// deadline is snapshotBlock + VOTING_PERIOD_SHRUNK, and the vote is only valid
+// while the proposal is Active (block <= deadline). The 500ms background miner
+// (plus CI's extra `evm_setIntervalMining 1`) advances the chain at ~2–3
+// blocks/s all through the create→vote UI sequence, so a too-tight window can be
+// crossed before castVote lands on a slow CI runner (this is why the original
+// 120 was raised — retries:0 makes any single overrun a red required check). A
+// 400-block window is ~2–4× the worst-case create→vote block consumption
+// (~90–180 blocks), while the fast-forward that closes it stays a single
+// ~350-block `anvil_mine` call — ~20s at the measured ~18 blocks/s and safely
+// under the observed panic point (500 blocks mine cleanly in ~27s; 2,000 crash).
+// The fast-forward advances chain-time ~1s/block (~400s ≈ 7 min); that skew is
+// immaterial here because every assertion is on-chain block-based (Governor
+// .state / proposalVotes), the badge reads Governor.state (not a timestamp), the
+// execute CTA gates on the mock's wall-clock eta, and no governance page in this
+// flow reads SortedOracles (D4). Storage is the only shortcut: `setVotingPeriod`
+// reverts even from an impersonated Timelock because OZ's onlyGovernance deque
+// rejects direct calls.
 //
 // ── TIMELOCK / EXECUTE GATING (D3) ───────────────────────────────────────────
 // The UI execute gate (`isVetoPeriodOver`, vote-card.tsx) compares
@@ -111,7 +127,7 @@ const SUBGRAPH_HOST = "gateway.thegraph.com";
 const LOCK_CREATE_TOPIC =
   "0x9024bda3efb3f3701e8d25fdb8d8adb67deb176633f590ee4a3cd1dad74dc73e";
 
-const VOTING_PERIOD_SHRUNK = 120; // blocks — small deadline, see header (D2)
+const VOTING_PERIOD_SHRUNK = 400; // blocks — small deadline, see header (D2)
 const TIMELOCK_MIN_DELAY_SHRUNK = 2n; // seconds — see header (D3)
 
 // ── viem ABIs (reads via eth_call, writes hand-fed to sendAs) ────────────────
@@ -651,10 +667,13 @@ test("proposal lifecycle: create -> vote -> queue -> execute on the fork", async
     }
     const proposalId = created.proposalId;
 
-    // Cross-check: re-derive the id via OZ hashProposal from the event's exact
-    // targets/values/calldatas/description and fail loudly on mismatch (proves
-    // the app's client-side id == the on-chain id, i.e. the redirect target is
-    // real).
+    // Decode sanity check: re-derive the id via OZ hashProposal from the event's
+    // own targets/values/calldatas/description. This confirms our local viem
+    // encoding/decoding of those fields is self-consistent with the emitted
+    // proposalId — it does NOT independently prove the app's client-side id
+    // (that coupling is enforced below: the success toast and the
+    // `/proposals/<id>` redirect only fire when the app's own id == the mocked
+    // id == this on-chain id, or they time out).
     const descriptionHash = keccak256(stringToBytes(created.description));
     const recomputedId = hexToBigInt(
       keccak256(

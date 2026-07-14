@@ -142,14 +142,24 @@ Maintenance couplings specific to this spec:
   `proposalFields.graphql`. Renaming or adding a selected non-`@client` field
   requires updating the mock in lockstep (same cost as the `getLocks` mock).
 - **votingPeriod storage slot:** to close the 691,200-block voting period
-  cheaply, the spec shrinks `_votingPeriod` to 120 via `anvil_setStorageAt`. It
+  cheaply, the spec shrinks `_votingPeriod` to 400 via `anvil_setStorageAt`. It
   does **not** hardcode the slot — it scans the Governor proxy for the slot
   holding the live `votingPeriod()` value and verifies the write with a
   read-back. If the Governor's storage layout changes, the scan self-heals or
   fails loudly; no manual slot to maintain. (Batch-mining the full period was
-  benchmarked and rejected: a 50,000-block `anvil_mine` alone exceeded 150s on
-  this fork, ≫ the budget — empty-block mining recomputes state roots over
-  forked state and is far too slow.)
+  benchmarked and rejected: empty-block mining recomputes state roots over
+  forked Celo state at only ~18 blocks/s, and a single large `anvil_mine`
+  batch — 2,000 blocks — reliably panics anvil in `do_mine_block`. The 400-block
+  window is chosen to sit in the safe band: `votingDelay` is 0 so the deadline is
+  `snapshot + 400`, which is ~2–4× the blocks the ~2–3 blocks/s background+CI
+  interval miner consumes during the create→vote UI sequence — so the vote can't
+  be crossed out of `Active` on a slow CI runner (the earlier 120 was too tight;
+  `retries:0` makes any single overrun a red required check) — while the
+  fast-forward that closes it stays a single ~350-block `anvil_mine` (~20s, well
+  under the panic point; 500 blocks mine cleanly in ~27s). Its ~400s of
+  chain-clock advance is immaterial: every assertion is block-based on-chain
+  state, the status badge reads `Governor.state`, and no page in this flow reads
+  SortedOracles.)
 - **Timelock delay shrink:** before queue, the spec shrinks the
   TimelockController min-delay to 2s via the Timelock's self-only `updateDelay`
   (impersonating the Timelock calling itself) so the on-chain execute eta is
@@ -160,8 +170,10 @@ Maintenance couplings specific to this spec:
   (≈2.29M veMENTO) are met out-of-band — the Timelock (the MENTO whale) transfers
   2×quorum MENTO to junk-0, which approves + locks it at max slope (104 weeks,
   self-delegated). This funding is spec-local (not in `fork-seed.mjs`).
-- **Runtime cost:** ~1 minute locally end-to-end (`test.setTimeout` is 480s as a
-  ceiling; the time-travel is simulated, not waited out).
+- **Runtime cost:** ~3 minutes locally end-to-end (`test.setTimeout` is 480s as a
+  ceiling; the time-travel is simulated, not waited out — most of the wall-clock
+  is the ~350-block fast-forward mine at ~18 blocks/s plus the UI create→vote→
+  queue→execute round-trips).
 
 ## Preview smoke
 
