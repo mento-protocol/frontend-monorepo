@@ -243,16 +243,38 @@ export function decodeAddressArray(data) {
 
 let requestId = 0;
 
+// Armed by assertMainnetFork() once anvil has answered. Before that, a
+// connection failure falls through to the preflight's friendlier "start the
+// fork first" handling; after it, losing the connection mid-seed means anvil
+// crashed (e.g. run 29311411018: a mid-run upstream-RPC 403 panicked anvil),
+// and every remaining step would fail the same way — so abort immediately
+// instead of drowning the real error in per-item warnings and exiting 0.
+let anvilConfirmedReachable = false;
+
 /**
  * @param {string} method
  * @param {unknown[]} [params]
  */
 async function rpc(method, params = []) {
-  const response = await fetch(RPC_URL, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: ++requestId, method, params }),
-  });
+  /** @type {Response} */
+  let response;
+  try {
+    response = await fetch(RPC_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: ++requestId, method, params }),
+    });
+  } catch (/** @type {unknown} */ error) {
+    if (anvilConfirmedReachable) {
+      const message = error instanceof Error ? error.message : String(error);
+      fail(
+        `Lost connection to anvil at ${RPC_URL} mid-seed (${method}: ${message}).`,
+      );
+      fail("The fork process has likely crashed — check its log for a panic.");
+      process.exit(1);
+    }
+    throw error;
+  }
   const json = await response.json();
   if (json.error) throw new Error(`${method}: ${json.error.message}`);
   return json.result;
@@ -369,6 +391,7 @@ async function assertMainnetFork() {
     process.exit(1);
   }
   ok(`Connected to Celo mainnet fork at ${RPC_URL}`);
+  anvilConfirmedReachable = true;
 }
 
 /**
