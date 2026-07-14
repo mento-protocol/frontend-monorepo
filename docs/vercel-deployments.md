@@ -342,9 +342,11 @@ The worker runs this sequence in one standard `ubuntu-latest` job:
 5. assertions for the UI project mapping, Build Output API v3 config, custom
    deployment ID, preview target, and pinned CLI build record;
 6. `vercel deploy --prebuilt --target preview --archive=tgz --format=json`;
-7. `vercel inspect --wait --timeout 5m --format=json`, then direct HTTP smoke of
-   the immutable URL, navigation, custom build identity, representative JS/CSS/
-   font assets, and preview security headers.
+7. `vercel inspect --wait --timeout 5m --format=json --scope <org-id>`, then
+   direct HTTP smoke of the immutable URL, navigation, custom build identity,
+   representative JS/CSS/font assets, and preview security headers. The
+   explicit scope prevents inspection from falling back to the token owner's
+   default Vercel team.
 
 The upload command supplies `githubCommitOrg`, `githubCommitRepo`,
 `githubCommitSha`, and `githubCommitRef`. It intentionally omits

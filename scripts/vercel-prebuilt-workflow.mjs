@@ -235,7 +235,7 @@ export function buildVercelDeployArguments({
   return arguments_;
 }
 
-export function buildVercelInspectArguments(deploymentUrl) {
+export function buildVercelInspectArguments(deploymentUrl, vercelOrgId) {
   return [
     "inspect",
     immutableVercelUrl(deploymentUrl),
@@ -243,6 +243,8 @@ export function buildVercelInspectArguments(deploymentUrl) {
     "--timeout",
     "5m",
     "--format=json",
+    "--scope",
+    requiredText(vercelOrgId, "Vercel organization ID"),
   ];
 }
 
@@ -707,7 +709,10 @@ function deployFromEnvironment() {
 
 function verifyFromEnvironment() {
   const raw = runVercel(
-    buildVercelInspectArguments(process.env.VERCEL_DEPLOYMENT_URL),
+    buildVercelInspectArguments(
+      process.env.VERCEL_DEPLOYMENT_URL,
+      process.env.VERCEL_ORG_ID,
+    ),
     { capture: true },
   );
   assertVercelInspection(raw, {

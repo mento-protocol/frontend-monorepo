@@ -226,14 +226,19 @@ test("pinned CLI arguments preserve preview branch and exact commit metadata", (
       "githubCommitRef=feature/promote---prod-copy",
     ]),
   );
-  assert.deepEqual(buildVercelInspectArguments(DEPLOYMENT_URL), [
-    "inspect",
-    DEPLOYMENT_URL,
-    "--wait",
-    "--timeout",
-    "5m",
-    "--format=json",
-  ]);
+  assert.deepEqual(
+    buildVercelInspectArguments(DEPLOYMENT_URL, "team_example"),
+    [
+      "inspect",
+      DEPLOYMENT_URL,
+      "--wait",
+      "--timeout",
+      "5m",
+      "--format=json",
+      "--scope",
+      "team_example",
+    ],
+  );
 });
 
 test("deploy and inspect JSON retain one immutable URL and Vercel ID", () => {
