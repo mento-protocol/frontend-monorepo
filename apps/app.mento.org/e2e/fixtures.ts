@@ -113,6 +113,76 @@ export const connectedTest = base.extend<{ page: Page }>({
   },
 });
 
+// Monad sibling of connectedTest, deliberately WITHOUT mento_use_fork. That
+// flag only redirects the pre-switch Celo chain (chains[0], where the mock
+// wallet joins before the test switches to Monad) to localhost:8545 — a port
+// with no anvil in the Monad-only CI job, producing connection-refused churn.
+// Monad's own RPC routing (getMonadRpcUrl() in packages/web3 chains.ts) reads
+// NEXT_PUBLIC_MONAD_RPC_URL directly and is never gated on mento_use_fork, so
+// the Monad spec doesn't need it: pre-switch Celo reads fall through to forno
+// and are aborted by connectedNetworkPolicy's non-localhost route.abort()
+// branch, and the mock wallet + eager-connect still work since they key off
+// mento_e2e_wallet/mento_e2e_eager_connect, not this flag.
+export const connectedMonadTest = base.extend<{ page: Page }>({
+  page: async ({ page }, runTest) => {
+    await connectedNetworkPolicy(page);
+    // wagmi's `reconnect()` (what makes the mock wallet appear already
+    // connected on load, instead of requiring a manual click) calls the
+    // connector's isAuthorized() -> getAccounts(), which issues a REAL
+    // `eth_accounts` JSON-RPC call against chains[0] (Celo) — the one method
+    // wagmi's mock() connector does NOT synthesize locally (unlike
+    // eth_chainId/eth_requestAccounts/wallet_switchEthereumChain, which it
+    // answers in-process). With no mento_use_fork redirect that request goes
+    // to real Celo infra, where connectedNetworkPolicy's non-localhost
+    // route.abort() above turns it into a hard network failure. wagmi's
+    // reconnect() has no try/catch around that call, so the failure escapes
+    // as an unhandled rejection and the wallet is left stuck disconnected.
+    // Registered AFTER connectedNetworkPolicy so it runs FIRST (Playwright:
+    // "the most recently registered route takes precedence") and stubs just
+    // this one method before the abort branch ever sees it; everything else
+    // falls through unchanged via route.fallback().
+    await page.route("**/*", (route) => {
+      const request = route.request();
+      if (request.method() !== "POST") return route.fallback();
+      const hostname = new URL(request.url()).hostname;
+      if (hostname === "localhost" || hostname === "127.0.0.1") {
+        return route.fallback();
+      }
+      let body: unknown;
+      try {
+        body = request.postDataJSON();
+      } catch {
+        return route.fallback();
+      }
+      if (
+        !body ||
+        typeof body !== "object" ||
+        (body as { method?: unknown }).method !== "eth_accounts"
+      ) {
+        return route.fallback();
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: (body as { id?: number }).id ?? 1,
+          result: ["0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"],
+        }),
+      });
+    });
+    await page.addInitScript(() => {
+      try {
+        window.localStorage.setItem("mento_e2e_wallet", "true");
+        window.localStorage.setItem("mento_e2e_eager_connect", "true");
+      } catch {
+        /* localStorage may be unavailable before navigation */
+      }
+    });
+    await runTest(page);
+  },
+});
+
 async function arm(page: Page, theme: Theme): Promise<void> {
   await blockNetwork(page);
   await page.clock.setFixedTime(FROZEN_TIME);

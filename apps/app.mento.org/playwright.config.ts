@@ -70,12 +70,14 @@ export default defineConfig({
       // Monad connected swap — same one-fork/serial invariant as `connected`,
       // but against the Monad fork (127.0.0.1:8546). Run via
       // `pnpm --filter app.mento.org test:connected:monad` (adds --workers=1);
-      // never a bare `playwright test --project=connected-monad`. Adds the
-      // extra 20s chain-switch step to the budget above.
+      // never a bare `playwright test --project=connected-monad`. Worst-case
+      // chained assertion budget is ~270s (Celo's ~230s plus the two extra
+      // chain-switch waits — visible then hidden — the Celo spec never has),
+      // so this gets 300s instead of Celo's 240s to keep ~30s margin.
       name: "connected-monad",
       testMatch: /connected\/swap-monad\.spec\.ts/,
       fullyParallel: false,
-      timeout: 240_000,
+      timeout: 300_000,
       use: { viewport: { width: 1280, height: 900 } },
     },
   ],

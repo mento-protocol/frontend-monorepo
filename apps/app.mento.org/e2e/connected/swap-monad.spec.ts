@@ -1,5 +1,5 @@
 import { expect } from "@playwright/test";
-import { connectedTest as test } from "../fixtures";
+import { connectedMonadTest as test } from "../fixtures";
 import { createRpcClient } from "./rpc";
 
 // Prerequisite: a Monad mainnet anvil fork must be running and seeded before
