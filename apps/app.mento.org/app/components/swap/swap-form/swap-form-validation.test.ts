@@ -1,5 +1,7 @@
 import type { TokenSymbol } from "@mento-protocol/mento-sdk";
-import { describe, expect, it, vi } from "vitest";
+import { renderHook } from "@testing-library/react";
+import type { ChainId } from "@repo/web3";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const web3Mocks = vi.hoisted(() => {
   const decimal = (value: number) => ({
@@ -19,10 +21,17 @@ const web3Mocks = vi.hoisted(() => {
     parseAmount: vi.fn((value: string) => decimal(Number(value))),
     parseAmountWithDefault: vi.fn((value: string) => decimal(Number(value))),
     toWei: vi.fn((value: { value: number }) => decimal(value.value * 10)),
+    useTradingLimits: vi.fn(),
+    useTradingSuspensionCheck: vi.fn(),
   };
 });
 
+const tradingLimitMocks = vi.hoisted(() => ({
+  checkTradingLimitViolation: vi.fn(),
+}));
+
 vi.mock("@repo/web3", () => web3Mocks);
+vi.mock("./trading-limits", () => tradingLimitMocks);
 
 import {
   getFormattedTokenInBalance,
@@ -31,8 +40,24 @@ import {
   hasSwapAmount,
   validateSwapBalance,
 } from "./swap-form-validation";
+import { useSwapFormValidation } from "./use-swap-form-validation";
 
 const tokenInSymbol = "CELO" as TokenSymbol;
+const tokenOutSymbol = "USDm" as TokenSymbol;
+const chainId = 42220 as ChainId;
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  web3Mocks.useTradingLimits.mockReturnValue({
+    data: { tokenToCheck: tokenInSymbol },
+    isLoading: false,
+  });
+  web3Mocks.useTradingSuspensionCheck.mockReturnValue({
+    isLoading: false,
+    isSuspended: false,
+  });
+  tradingLimitMocks.checkTradingLimitViolation.mockReturnValue(null);
+});
 
 describe("swap form balance helpers", () => {
   it("preserves the distinct sell and buy balance formatting paths", () => {
@@ -134,5 +159,58 @@ describe("getTradingSuspensionError", () => {
         tokenOutSymbol: "USDm",
       }),
     ).toBeNull();
+  });
+});
+
+describe("useSwapFormValidation", () => {
+  const renderValidation = () =>
+    renderHook(() =>
+      useSwapFormValidation({
+        allTokenOptions: [{ decimals: 1, symbol: tokenInSymbol }],
+        amount: "1",
+        balances: { [tokenInSymbol]: "20" },
+        chainId,
+        formQuote: "2",
+        hasAmountError: false,
+        selectedTokenInSymbol: tokenInSymbol,
+        selectedTokenOutSymbol: tokenOutSymbol,
+        tokenInSymbol,
+        tokenOutSymbol,
+      }),
+    );
+
+  it("preserves the valid quote and composed amount-validation path", async () => {
+    const { result } = renderValidation();
+
+    expect(result.current.canQuote).toBe(true);
+    expect(result.current.hasAmount).toBe(true);
+    await expect(result.current.validateAmount("1")).resolves.toBe(true);
+    expect(tradingLimitMocks.checkTradingLimitViolation).toHaveBeenCalledWith(
+      expect.objectContaining({ tokenInSymbol, tokenOutSymbol }),
+    );
+  });
+
+  it("surfaces the current trading-limit message through validateAmount", async () => {
+    tradingLimitMocks.checkTradingLimitViolation.mockReturnValue(
+      "Limit reached",
+    );
+    const { result } = renderValidation();
+
+    await expect(result.current.validateAmount("1")).resolves.toBe(
+      "Limit reached",
+    );
+  });
+
+  it("blocks quotes and exposes the pair message while trading is suspended", () => {
+    web3Mocks.useTradingSuspensionCheck.mockReturnValue({
+      isLoading: false,
+      isSuspended: true,
+    });
+    const { result } = renderValidation();
+
+    expect(result.current.canQuote).toBe(false);
+    expect(result.current.tradingSuspensionError).toContain(
+      "Trading temporarily paused for CELO -> USDm",
+    );
   });
 });
