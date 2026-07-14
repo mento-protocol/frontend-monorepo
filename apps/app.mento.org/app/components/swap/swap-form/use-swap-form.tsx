@@ -2,7 +2,7 @@
 
 import { env } from "@/env.mjs";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -58,7 +58,11 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
   const [formValues, setFormValues] = useAtom(formValuesAtom);
   const [, setConfirmView] = useAtom(confirmViewAtom);
   const [isApprovalProcessing, setIsApprovalProcessing] = useState(false);
-  const allowanceVerificationInFlightRef = useRef(false);
+  const [isApprovalVerificationPending, setIsApprovalVerificationPending] =
+    useState(false);
+  const allowanceVerificationInFlightRef = useRef<string | null>(null);
+  const approvalTransactionContextRef = useRef<string | null>(null);
+  const approvedSwapContextRef = useRef<string | null>(null);
 
   const { data: balancesFromHook } = useAccountBalances({
     address,
@@ -273,6 +277,96 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
     address,
   });
 
+  const approvalContext = [
+    formChainId,
+    address ?? "",
+    selectedTokenInSymbol ?? "",
+    selectedTokenOutSymbol ?? "",
+    amountInWei,
+  ].join(":");
+  const currentApprovalContextRef = useRef(approvalContext);
+  currentApprovalContextRef.current = approvalContext;
+
+  useEffect(() => {
+    if (
+      approvedSwapContextRef.current !== null &&
+      approvedSwapContextRef.current !== approvalContext
+    ) {
+      approvedSwapContextRef.current = null;
+      setIsApprovalVerificationPending(false);
+    }
+  }, [approvalContext]);
+
+  async function synchronizeAllowanceAndOpenConfirm() {
+    const verificationContext = approvedSwapContextRef.current;
+    if (
+      verificationContext === null ||
+      verificationContext !== currentApprovalContextRef.current ||
+      allowanceVerificationInFlightRef.current !== null
+    ) {
+      return;
+    }
+
+    allowanceVerificationInFlightRef.current = verificationContext;
+    setIsApprovalProcessing(true);
+    const isVerificationCurrent = () =>
+      approvedSwapContextRef.current === verificationContext &&
+      currentApprovalContextRef.current === verificationContext;
+    try {
+      await waitForSufficientAllowance({
+        requiredAmount: amountInWei,
+        isVerificationCurrent,
+        readAllowance: async () => {
+          const result = await refetchAllowance({ throwOnError: true });
+          if (result.data === undefined) {
+            throw (
+              result.error ??
+              new Error("Allowance refresh completed without a value")
+            );
+          }
+          return result.data;
+        },
+      });
+
+      if (!isVerificationCurrent()) return;
+
+      const currentFormValues = form.getValues();
+      const formData: SwapFormValues = {
+        ...currentFormValues,
+        slippage: formValues?.slippage || currentFormValues.slippage || "0.3",
+        isAutoSlippage: formValues?.isAutoSlippage,
+        deadlineMinutes: formValues?.deadlineMinutes,
+        tokenInSymbol: selectedTokenInSymbol,
+        tokenOutSymbol: selectedTokenOutSymbol,
+        buyUSDValue,
+        sellUSDValue,
+      };
+
+      approvedSwapContextRef.current = null;
+      setIsApprovalVerificationPending(false);
+      setFormValues(formData);
+      setConfirmView(true);
+    } catch (error) {
+      if (!isVerificationCurrent()) return;
+
+      logger.error("Failed to verify swap allowance after approval", error);
+      toast.error(
+        "Approval confirmed, but the updated allowance could not be verified.",
+        {
+          action: {
+            label: "Retry",
+            onClick: () => void synchronizeAllowanceAndOpenConfirm(),
+          },
+        },
+      );
+    } finally {
+      if (allowanceVerificationInFlightRef.current === verificationContext) {
+        allowanceVerificationInFlightRef.current = null;
+        setIsApprovalProcessing(false);
+      }
+    }
+  }
+
   const { sendApproveTx, isApproveTxLoading } = useApproveTransaction({
     chainId: formChainId,
     tokenInSymbol: selectedTokenInSymbol,
@@ -280,6 +374,8 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
     amountInWei,
     accountAddress: address,
     onSuccess: (receipt) => {
+      const confirmedApprovalContext = approvalTransactionContextRef.current;
+      approvalTransactionContextRef.current = null;
       logger.info("Approval transaction confirmed");
       const chain = chainIdToChain[formChainId];
       const explorerUrl = chain?.blockExplorers?.default.url;
@@ -303,57 +399,16 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
           )}
         </>,
       );
-      async function synchronizeAllowanceAndOpenConfirm() {
-        if (allowanceVerificationInFlightRef.current) return;
-
-        allowanceVerificationInFlightRef.current = true;
-        setIsApprovalProcessing(true);
-        try {
-          await waitForSufficientAllowance({
-            requiredAmount: amountInWei,
-            readAllowance: async () => {
-              const result = await refetchAllowance({ throwOnError: true });
-              if (result.data === undefined) {
-                throw (
-                  result.error ??
-                  new Error("Allowance refresh completed without a value")
-                );
-              }
-              return result.data;
-            },
-          });
-
-          const currentFormValues = form.getValues();
-          const formData: SwapFormValues = {
-            ...currentFormValues,
-            slippage:
-              formValues?.slippage || currentFormValues.slippage || "0.3",
-            isAutoSlippage: formValues?.isAutoSlippage,
-            deadlineMinutes: formValues?.deadlineMinutes,
-            tokenInSymbol: selectedTokenInSymbol,
-            tokenOutSymbol: selectedTokenOutSymbol,
-            buyUSDValue,
-            sellUSDValue,
-          };
-
-          setFormValues(formData);
-          setConfirmView(true);
-        } catch (error) {
-          logger.error("Failed to verify swap allowance after approval", error);
-          toast.error(
-            "Approval confirmed, but the updated allowance could not be verified.",
-            {
-              action: {
-                label: "Retry",
-                onClick: () => void synchronizeAllowanceAndOpenConfirm(),
-              },
-            },
-          );
-        } finally {
-          allowanceVerificationInFlightRef.current = false;
-          setIsApprovalProcessing(false);
-        }
+      if (
+        confirmedApprovalContext === null ||
+        confirmedApprovalContext !== currentApprovalContextRef.current
+      ) {
+        setIsApprovalProcessing(false);
+        return;
       }
+
+      approvedSwapContextRef.current = confirmedApprovalContext;
+      setIsApprovalVerificationPending(true);
       void synchronizeAllowanceAndOpenConfirm();
     },
   });
@@ -371,12 +426,16 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
 
   const onSubmit = async (values: FormValues) => {
     try {
-      if (!skipApprove && sendApproveTx) {
+      if (isApprovalVerificationPending) {
+        await synchronizeAllowanceAndOpenConfirm();
+      } else if (!skipApprove && sendApproveTx) {
+        approvalTransactionContextRef.current = approvalContext;
         setIsApprovalProcessing(true);
         logger.info("Approval needed, sending approve transaction");
         const hash = await sendApproveTx();
 
         if (!hash) {
+          approvalTransactionContextRef.current = null;
           setIsApprovalProcessing(false);
         }
 
@@ -399,6 +458,7 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
       }
     } catch (error) {
       logger.error("Error in swap form submission", error);
+      approvalTransactionContextRef.current = null;
       setIsApprovalProcessing(false);
     }
   };
@@ -406,7 +466,12 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
   const hasValidQuote = !!quote && Number(quote) > 0;
 
   const shouldApprove =
-    !skipApprove && hasAmount && hasValidQuote && !isLoading && !balanceError;
+    !isApprovalVerificationPending &&
+    !skipApprove &&
+    hasAmount &&
+    hasValidQuote &&
+    !isLoading &&
+    !balanceError;
 
   // ── Token pair validation ───────────────────────────────────────────
 
@@ -473,6 +538,7 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
     isButtonLoading,
     isApproveTxLoading,
     isApprovalProcessing,
+    isApprovalVerificationPending,
 
     // Approval
     shouldApprove,

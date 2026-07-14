@@ -21,12 +21,14 @@ function parseAllowance(value: string, label: string): bigint {
 export async function waitForSufficientAllowance({
   requiredAmount,
   readAllowance,
+  isVerificationCurrent = () => true,
   maxAttempts = DEFAULT_MAX_ATTEMPTS,
   initialRetryDelayMs = DEFAULT_INITIAL_RETRY_DELAY_MS,
   wait = sleep,
 }: {
   requiredAmount: string;
   readAllowance: () => Promise<string>;
+  isVerificationCurrent?: () => boolean;
   maxAttempts?: number;
   initialRetryDelayMs?: number;
   wait?: Sleep;
@@ -46,8 +48,15 @@ export async function waitForSufficientAllowance({
   let lastError: unknown;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    if (!isVerificationCurrent()) {
+      throw new Error("Allowance verification context changed");
+    }
+
     try {
       const observedAllowance = await readAllowance();
+      if (!isVerificationCurrent()) {
+        throw new Error("Allowance verification context changed");
+      }
       lastObservedAllowance = observedAllowance;
       lastError = undefined;
 
@@ -58,6 +67,11 @@ export async function waitForSufficientAllowance({
         return observedAllowance;
       }
     } catch (error) {
+      if (!isVerificationCurrent()) {
+        throw new Error("Allowance verification context changed", {
+          cause: error,
+        });
+      }
       lastError = error;
     }
 

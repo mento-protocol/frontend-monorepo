@@ -28,6 +28,7 @@ const baseProps = {
   isButtonLoading: false,
   isApproveTxLoading: false,
   isApprovalProcessing: false,
+  isApprovalVerificationPending: false,
   tradingLimitError: null,
   balanceError: null,
   isTradingSuspended: false,
@@ -104,5 +105,21 @@ describe("SwapSubmitButton", () => {
     expect(
       (screen.getByTestId("swapButton") as HTMLButtonElement).disabled,
     ).toBe(false);
+  });
+
+  it("offers allowance verification instead of another approval after confirmation", () => {
+    render(
+      <SwapSubmitButton
+        {...baseProps}
+        isApprovalVerificationPending
+        shouldApprove={false}
+      />,
+    );
+
+    const button = screen.getByTestId(
+      "verifyApprovalButton",
+    ) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    expect(button.textContent).toBe("Retry allowance check");
   });
 });

@@ -65,6 +65,34 @@ describe("waitForSufficientAllowance", () => {
     expect(wait).toHaveBeenCalledWith(10);
   });
 
+  it("cancels a deferred read when the approval context changes", async () => {
+    let resolveAllowance: ((value: string) => void) | undefined;
+    let isCurrent = true;
+    const readAllowance = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveAllowance = resolve;
+        }),
+    );
+    const wait = vi.fn().mockResolvedValue(undefined);
+
+    const verification = waitForSufficientAllowance({
+      requiredAmount: "1000",
+      readAllowance,
+      isVerificationCurrent: () => isCurrent,
+      wait,
+      ...retryOptions,
+    });
+    isCurrent = false;
+    resolveAllowance?.("1000");
+
+    await expect(verification).rejects.toThrow(
+      "Allowance verification context changed",
+    );
+    expect(readAllowance).toHaveBeenCalledOnce();
+    expect(wait).not.toHaveBeenCalled();
+  });
+
   it("fails after the bounded attempts are exhausted", async () => {
     const readAllowance = vi.fn().mockResolvedValue("999");
     const wait = vi.fn().mockResolvedValue(undefined);

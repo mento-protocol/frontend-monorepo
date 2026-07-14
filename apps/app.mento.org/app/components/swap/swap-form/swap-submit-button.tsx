@@ -15,6 +15,7 @@ interface SwapSubmitButtonProps {
   isButtonLoading: boolean;
   isApproveTxLoading: boolean;
   isApprovalProcessing: boolean;
+  isApprovalVerificationPending: boolean;
   tradingLimitError: string | null;
   balanceError: string | null;
   isTradingSuspended: boolean;
@@ -37,6 +38,7 @@ export function SwapSubmitButton({
   isButtonLoading,
   isApproveTxLoading,
   isApprovalProcessing,
+  isApprovalVerificationPending,
   tradingLimitError,
   balanceError,
   isTradingSuspended,
@@ -80,6 +82,7 @@ export function SwapSubmitButton({
         balanceError,
         tradingLimitError,
         isTradingSuspended,
+        isApprovalVerificationPending,
         shouldApprove,
         tokenInSymbol,
         tokenOutSymbol,
@@ -131,6 +134,8 @@ export function SwapSubmitButton({
         errors.amount?.message
       ) : isApproveTxLoading || isApprovalProcessing ? (
         <IconLoading />
+      ) : isApprovalVerificationPending ? (
+        "Retry allowance check"
       ) : shouldApprove ? (
         `Approve ${allTokenOptions.find((t) => t.symbol === tokenInSymbol)?.symbol || tokenInSymbol}`
       ) : (
@@ -144,6 +149,7 @@ function defineButtonLocator({
   balanceError,
   tradingLimitError,
   isTradingSuspended,
+  isApprovalVerificationPending,
   shouldApprove,
   tokenInSymbol,
   tokenOutSymbol,
@@ -151,6 +157,7 @@ function defineButtonLocator({
   balanceError: string | null;
   tradingLimitError: string | null;
   isTradingSuspended: boolean;
+  isApprovalVerificationPending: boolean;
   shouldApprove: string | boolean;
   tokenInSymbol: string;
   tokenOutSymbol: string;
@@ -162,6 +169,8 @@ function defineButtonLocator({
       return "insufficientBalanceButton";
     case Boolean(tradingLimitError):
       return "swapsExceedsTradingLimitButton";
+    case isApprovalVerificationPending:
+      return "verifyApprovalButton";
     case Boolean(shouldApprove && tokenInSymbol && tokenOutSymbol):
       return "approveButton";
     case !tokenInSymbol:
