@@ -43,7 +43,8 @@
     "prettier-plugin-tailwindcss": "^0.8.0",
     "turbo": "^2.10.0",
     "typescript": "catalog:",
-    "typescript-eslint": "catalog:"
+    "typescript-eslint": "catalog:",
+    "yaml": "2.9.0"
   },
   "packageManager": "pnpm@10.24.0",
   "engines": {

@@ -2,13 +2,31 @@
 /** Fixture tests for scripts/check-github-action-pins.mjs. */
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import process from "node:process";
+import { parse } from "yaml";
 
 const SCRIPT = resolve("scripts/check-github-action-pins.mjs");
 const PINNED_SHA = "0123456789abcdef0123456789abcdef01234567";
+const POLICY_WORKFLOW_PATHS = [
+  ".github/workflows/action-pins.yml",
+  ".github/workflows/action-pins-source.yml",
+];
+const POLICY_WORKFLOW_FIXTURES = new Map(
+  POLICY_WORKFLOW_PATHS.map((path) => [
+    path,
+    readFileSync(resolve(path), "utf8"),
+  ]),
+);
 const tests = [];
 
 /** @param {string} name @param {() => void} run */
@@ -18,7 +36,11 @@ function test(name, run) {
 
 /** @param {string} name */
 function fixtureRoot(name) {
-  return mkdtempSync(join(tmpdir(), `action-pin-${name}-`));
+  const root = mkdtempSync(join(tmpdir(), `action-pin-${name}-`));
+  for (const path of POLICY_WORKFLOW_PATHS) {
+    write(root, path, POLICY_WORKFLOW_FIXTURES.get(path));
+  }
+  return root;
 }
 
 /** @param {string} root @param {string} path @param {string} content */
@@ -48,6 +70,13 @@ function equal(actual, expected, message) {
 function contains(haystack, needle, message) {
   if (!haystack.includes(needle)) {
     throw new Error(`${message}: missing ${needle}\n${haystack}`);
+  }
+}
+
+/** @param {string} haystack @param {string} needle @param {string} message */
+function excludes(haystack, needle, message) {
+  if (haystack.includes(needle)) {
+    throw new Error(`${message}: unexpectedly found ${needle}\n${haystack}`);
   }
 }
 
@@ -91,7 +120,7 @@ runs:
     equal(result.status, 0, result.stderr);
     contains(
       result.stdout,
-      "All 3 workflow/composite-action YAML files",
+      "All 5 workflow/composite-action YAML files",
       "recursive scan count",
     );
   } finally {
@@ -214,6 +243,45 @@ runs:
   }
 });
 
+test("rejects symlinked local action manifests", () => {
+  const root = fixtureRoot("local-symlink-fail");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs:
+  test:
+    steps:
+      - uses: ./.github/actions/linked
+`,
+    );
+    write(
+      root,
+      "shared/action.yml",
+      `
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v6
+`,
+    );
+    const link = join(root, ".github/actions/linked/action.yml");
+    mkdirSync(dirname(link), { recursive: true });
+    symlinkSync("../../../shared/action.yml", link);
+
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(
+      result.stderr,
+      "unsafe local action manifest",
+      "symlinked manifest",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("rejects mutable flow-style steps", () => {
   const root = fixtureRoot("flow-fail");
   try {
@@ -286,6 +354,49 @@ jobs:
   }
 });
 
+test("rejects mutable flow-style reusable workflow jobs", () => {
+  const root = fixtureRoot("flow-reusable-job-fail");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs:
+  call: { uses: org/repo/.github/workflows/reuse.yml@v1 }
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(
+      result.stderr,
+      "uses: org/repo/.github/workflows/reuse.yml@v1",
+      "flow-style reusable workflow",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("accepts pinned flow-style reusable workflow jobs", () => {
+  const root = fixtureRoot("flow-reusable-job-pass");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs:
+  call: { uses: org/repo/.github/workflows/reuse.yml@${PINNED_SHA} } # v1.2.3
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("ignores uses input names in nested flow mappings", () => {
   const root = fixtureRoot("nested-flow-pass");
   try {
@@ -303,6 +414,55 @@ jobs:
 
     const result = runChecker(root);
     equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ignores uses input names in nested block mappings", () => {
+  const root = fixtureRoot("nested-block-pass");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs:
+  test:
+    steps:
+      - uses: actions/checkout@${PINNED_SHA} # v7.0.0
+        with:
+          uses: "some-input"
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("resumes scanning after nested block mappings", () => {
+  const root = fixtureRoot("after-nested-block-fail");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs:
+  test:
+    steps:
+      - uses: actions/checkout@${PINNED_SHA} # v7.0.0
+        with:
+          uses: "some-input"
+      - uses: actions/cache@v6
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(result.stderr, "uses: actions/cache@v6", "following action step");
+    excludes(result.stderr, "some-input", "nested input name");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -459,6 +619,538 @@ jobs:
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("rejects mutable actions behind quoted structural keys", () => {
+  const root = fixtureRoot("quoted-structure-fail");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+"jobs":
+  test:
+    "steps":
+      - "uses": actions/checkout@v7
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(result.stderr, "uses: actions/checkout@v7", "quoted structure");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects mutable actions in indentless step sequences", () => {
+  const root = fixtureRoot("indentless-steps-fail");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs:
+  test:
+    steps:
+    - uses: actions/checkout@v7
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(result.stderr, "uses: actions/checkout@v7", "indentless step");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects mutable actions in fully flow-style workflows", () => {
+  const root = fixtureRoot("fully-flow-fail");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs: { test: { steps: [{ uses: actions/checkout@v7 }] } }
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(result.stderr, "uses: actions/checkout@v7", "fully flow step");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects mutable reusable jobs in multiline flow mappings", () => {
+  const root = fixtureRoot("multiline-flow-job-fail");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs:
+  call: {
+    uses: org/repo/.github/workflows/reuse.yml@v1
+  }
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(
+      result.stderr,
+      "uses: org/repo/.github/workflows/reuse.yml@v1",
+      "multiline flow job",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects mutable actions behind explicit, alias, and tagged uses keys", () => {
+  const root = fixtureRoot("semantic-keys-fail");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+name: &uses-key uses
+jobs:
+  test:
+    steps:
+      - ? "uses"
+        : actions/checkout@v7
+      - ? *uses-key
+        : actions/setup-node@v6
+      - !!str uses: actions/cache@v6
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(result.stderr, "uses: actions/checkout@v7", "explicit key");
+    contains(result.stderr, "uses: actions/setup-node@v6", "alias key");
+    contains(result.stderr, "uses: actions/cache@v6", "tagged key");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects duplicate semantic uses keys introduced by aliases", () => {
+  const root = fixtureRoot("duplicate-alias-key-fail");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+name: &uses-key uses
+jobs:
+  test:
+    steps:
+      - uses: actions/checkout@${PINNED_SHA} # v7.0.0
+        ? *uses-key
+        : actions/cache@v6
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(
+      result.stderr,
+      "duplicate semantic `uses` keys",
+      "alias duplicate",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects unresolved structural aliases", () => {
+  const root = fixtureRoot("unresolved-alias-fail");
+  try {
+    write(root, ".github/workflows/ci.yml", "jobs: *missing\n");
+
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(
+      result.stderr,
+      "unresolved YAML alias `*missing`",
+      "missing alias",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ignores nested paths that only happen to end in steps.uses", () => {
+  const root = fixtureRoot("exact-paths-pass");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs:
+  test:
+    strategy:
+      matrix:
+        include:
+          - steps:
+              uses: matrix-input
+    steps:
+      - uses: actions/checkout@${PINNED_SHA} # v7.0.0
+        with:
+          steps:
+            uses: action-input
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects pinned multiline uses values", () => {
+  const root = fixtureRoot("pinned-multiline-fail");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs:
+  test:
+    steps:
+      - uses:
+          actions/checkout@${PINNED_SHA} # v7.0.0
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(
+      result.stderr,
+      `.github/workflows/ci.yml:5 uses: actions/checkout@${PINNED_SHA}`,
+      "pinned multiline value",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects folded and literal uses scalars", () => {
+  for (const [name, indicator] of [
+    ["folded", ">-"],
+    ["literal", "|-"],
+  ]) {
+    const root = fixtureRoot(`${name}-scalar-fail`);
+    try {
+      write(
+        root,
+        ".github/workflows/ci.yml",
+        `
+jobs:
+  test:
+    steps:
+      - uses: ${indicator} # v7.0.0
+          actions/checkout@${PINNED_SHA}
+`,
+      );
+
+      const result = runChecker(root);
+      equal(result.status, 1, result.stdout);
+      contains(
+        result.stderr,
+        `.github/workflows/ci.yml:5 uses: actions/checkout@${PINNED_SHA}`,
+        `${name} scalar`,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("does not share one release comment across multiple actions", () => {
+  const root = fixtureRoot("shared-comment-fail");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs: { test: { steps: [{ uses: org/first@${PINNED_SHA} }, { uses: org/second@${PINNED_SHA} }] } } # v1.2.3
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(result.stderr, `uses: org/first@${PINNED_SHA}`, "first action");
+    contains(result.stderr, `uses: org/second@${PINNED_SHA}`, "second action");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("requires alias values to document the executable use site", () => {
+  const root = fixtureRoot("alias-comment-fail");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+name: &checkout-ref actions/checkout@${PINNED_SHA} # v7.0.0
+jobs:
+  test:
+    steps:
+      - uses: *checkout-ref
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(
+      result.stderr,
+      `uses: actions/checkout@${PINNED_SHA}`,
+      "alias use",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("accepts documented alias values at the executable use site", () => {
+  const root = fixtureRoot("alias-comment-pass");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+name: &checkout-ref actions/checkout@${PINNED_SHA}
+jobs:
+  test:
+    steps:
+      - uses: *checkout-ref # v7.0.0
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("deduplicates reused anchored step sequences", () => {
+  const root = fixtureRoot("reused-step-sequence-pass");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs:
+  first:
+    steps: &shared-steps
+      - uses: actions/checkout@${PINNED_SHA} # v7.0.0
+  second:
+    steps: *shared-steps
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("requires policy paths to be regular files", () => {
+  const directoryRoot = fixtureRoot("policy-directory-fail");
+  try {
+    const path = join(directoryRoot, ".github/workflows/action-pins.yml");
+    rmSync(path);
+    mkdirSync(path);
+
+    const result = runChecker(directoryRoot);
+    equal(result.status, 1, result.stdout);
+    contains(result.stderr, "action-pins.yml", "directory policy path");
+  } finally {
+    rmSync(directoryRoot, { recursive: true, force: true });
+  }
+
+  const symlinkRoot = fixtureRoot("policy-symlink-fail");
+  try {
+    const path = join(symlinkRoot, ".github/workflows/action-pins.yml");
+    rmSync(path);
+    symlinkSync(
+      join(symlinkRoot, ".github/workflows/action-pins-source.yml"),
+      path,
+    );
+
+    const result = runChecker(symlinkRoot);
+    equal(result.status, 1, result.stdout);
+    contains(result.stderr, "action-pins.yml", "symlink policy path");
+  } finally {
+    rmSync(symlinkRoot, { recursive: true, force: true });
+  }
+});
+
+test("requires both action-pin policy workflows", () => {
+  for (const path of POLICY_WORKFLOW_PATHS) {
+    const root = fixtureRoot("missing-policy");
+    try {
+      rmSync(join(root, path));
+
+      const result = runChecker(root);
+      equal(result.status, 1, result.stdout);
+      contains(result.stderr, path, "missing policy workflow");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("rejects same-name no-op replacements for both policy workflows", () => {
+  for (const [path, name, jobId, checkName] of [
+    [
+      ".github/workflows/action-pins.yml",
+      "GitHub Actions Policy",
+      "action-pins",
+      "Action Pin Policy",
+    ],
+    [
+      ".github/workflows/action-pins-source.yml",
+      "GitHub Actions Policy Source",
+      "policy-source",
+      "Action Pin Policy Source",
+    ],
+  ]) {
+    const root = fixtureRoot("noop-policy-fail");
+    try {
+      write(
+        root,
+        path,
+        `
+name: ${name}
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  ${jobId}:
+    name: ${checkName}
+    runs-on: ubuntu-latest
+    steps:
+      - run: true
+`,
+      );
+
+      const result = runChecker(root);
+      equal(result.status, 1, result.stdout);
+      contains(result.stderr, path, "policy path");
+      contains(
+        result.stderr,
+        "invalid action-pin policy workflow",
+        "trusted structure failure",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("allows immutable action SHA bumps in canonical policy workflows", () => {
+  for (const path of POLICY_WORKFLOW_PATHS) {
+    const root = fixtureRoot("policy-sha-bump-pass");
+    try {
+      const updated = POLICY_WORKFLOW_FIXTURES.get(path).replace(
+        /@[0-9a-f]{40}/,
+        `@${PINNED_SHA}`,
+      );
+      write(root, path, updated);
+
+      const result = runChecker(root);
+      equal(result.status, 0, result.stderr);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("isolates trusted enforcement from PR-head source validation", () => {
+  const trusted = readFileSync(
+    resolve(".github/workflows/action-pins.yml"),
+    "utf8",
+  );
+  const source = readFileSync(
+    resolve(".github/workflows/action-pins-source.yml"),
+    "utf8",
+  );
+  const trustedWorkflow = parse(trusted);
+  const sourceWorkflow = parse(source);
+  const trustedSteps = trustedWorkflow.jobs["action-pins"].steps;
+  const sourceSteps = sourceWorkflow.jobs["policy-source"].steps;
+
+  contains(trusted, "pull_request_target:", "trusted trigger");
+  excludes(trusted, "\n  pull_request:", "trusted workflow PR-head trigger");
+  contains(source, "\n  pull_request:", "source-validation trigger");
+  excludes(source, "pull_request_target:", "source workflow trusted trigger");
+  contains(source, "persist-credentials: false", "credential-free checkout");
+  equal(
+    trustedSteps.find((step) => step.name === "Check out pull request").with[
+      "allow-unsafe-pr-checkout"
+    ],
+    true,
+    "fork-head checkout opt-in",
+  );
+  for (const step of trustedSteps.filter((candidate) => candidate.run)) {
+    equal(
+      step["working-directory"],
+      "trusted-base",
+      `${step.name} runs only trusted code`,
+    );
+  }
+  contains(
+    trustedSteps.find((step) => step.name === "Setup PNPM").uses,
+    "pnpm/action-setup@",
+    "trusted PNPM setup",
+  );
+  contains(
+    sourceSteps.find((step) => step.name === "Setup PNPM").uses,
+    "pnpm/action-setup@",
+    "source PNPM setup",
+  );
+  contains(
+    trustedSteps.find(
+      (step) => step.name === "Install trusted policy dependencies",
+    ).run,
+    "--frozen-lockfile --ignore-scripts --filter .",
+    "trusted dependency install",
+  );
+  contains(
+    sourceSteps.find(
+      (step) => step.name === "Install proposed policy dependencies",
+    ).run,
+    "--frozen-lockfile --ignore-scripts --filter .",
+    "source dependency install",
+  );
+  excludes(source, "Enforce proposed", "source validation wording");
+  equal(
+    trustedWorkflow.jobs["action-pins"].name ===
+      sourceWorkflow.jobs["policy-source"].name,
+    false,
+    "distinct required check names",
+  );
+  contains(
+    source,
+    "node scripts/check-github-action-pins.test.mjs",
+    "proposed policy tests",
+  );
+  contains(
+    source,
+    "node scripts/check-github-action-pins.mjs",
+    "proposed policy scan",
+  );
 });
 
 let failures = 0;

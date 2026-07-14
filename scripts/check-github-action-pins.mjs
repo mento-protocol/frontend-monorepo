@@ -5,24 +5,168 @@
  * followed recursively so actions outside `.github/actions` are covered too.
  */
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import process from "node:process";
+import { isDeepStrictEqual } from "node:util";
+import {
+  LineCounter,
+  isAlias,
+  isMap,
+  isScalar,
+  isSeq,
+  parseDocument,
+} from "yaml";
 
 // Script-local fixture knob, not an input to the Turbo task graph.
 // eslint-disable-next-line turbo/no-undeclared-env-vars
 const ROOT = resolve(process.env["GITHUB_ACTION_PINS_ROOT"] ?? process.cwd());
+const REAL_ROOT = realpathSync(ROOT);
 const PINNED_REF = /^[0-9a-f]{40}$/i;
+const RELEASE_TAG = /^v\d+(?:[.\w-].*)?$/;
 const SCAN_DIRS = [".github/workflows", ".github/actions"];
+const REQUIRED_POLICY_FILES = [
+  ".github/workflows/action-pins.yml",
+  ".github/workflows/action-pins-source.yml",
+];
+const NORMALIZED_POLICY_WORKFLOWS = new Map([
+  [
+    ".github/workflows/action-pins.yml",
+    {
+      name: "GitHub Actions Policy",
+      on: { pull_request_target: { branches: ["main"] } },
+      concurrency: {
+        group: "${{ github.workflow }}-${{ github.event.pull_request.number }}",
+        "cancel-in-progress": true,
+      },
+      permissions: { contents: "read" },
+      jobs: {
+        "action-pins": {
+          name: "Action Pin Policy",
+          "runs-on": "ubuntu-latest",
+          "timeout-minutes": 5,
+          steps: [
+            {
+              name: "Check out trusted policy",
+              uses: "actions/checkout@<sha>",
+              with: {
+                ref: "${{ github.event.pull_request.base.sha }}",
+                path: "trusted-base",
+                "persist-credentials": false,
+              },
+            },
+            {
+              name: "Check out pull request",
+              uses: "actions/checkout@<sha>",
+              with: {
+                repository:
+                  "${{ github.event.pull_request.head.repo.full_name }}",
+                ref: "${{ github.event.pull_request.head.sha }}",
+                path: "pr-head",
+                "persist-credentials": false,
+                "allow-unsafe-pr-checkout": true,
+              },
+            },
+            {
+              name: "Setup PNPM",
+              uses: "pnpm/action-setup@<sha>",
+              with: { version: "10.24.0" },
+            },
+            {
+              name: "Set up Node.js",
+              uses: "actions/setup-node@<sha>",
+              with: { "node-version": 22 },
+            },
+            {
+              name: "Install trusted policy dependencies",
+              "working-directory": "trusted-base",
+              run: "pnpm install --frozen-lockfile --ignore-scripts --filter .",
+            },
+            {
+              name: "Test action-pin policy",
+              "working-directory": "trusted-base",
+              run: "node scripts/check-github-action-pins.test.mjs",
+            },
+            {
+              name: "Enforce immutable action pins",
+              "working-directory": "trusted-base",
+              env: {
+                GITHUB_ACTION_PINS_ROOT: "${{ github.workspace }}/pr-head",
+              },
+              run: "node scripts/check-github-action-pins.mjs",
+            },
+          ],
+        },
+      },
+    },
+  ],
+  [
+    ".github/workflows/action-pins-source.yml",
+    {
+      name: "GitHub Actions Policy Source",
+      on: { pull_request: { branches: ["main"] } },
+      concurrency: {
+        group: "${{ github.workflow }}-${{ github.event.pull_request.number }}",
+        "cancel-in-progress": true,
+      },
+      permissions: { contents: "read" },
+      jobs: {
+        "policy-source": {
+          name: "Action Pin Policy Source",
+          "runs-on": "ubuntu-latest",
+          "timeout-minutes": 5,
+          steps: [
+            {
+              name: "Check out proposed policy",
+              uses: "actions/checkout@<sha>",
+              with: { "persist-credentials": false },
+            },
+            {
+              name: "Setup PNPM",
+              uses: "pnpm/action-setup@<sha>",
+              with: { version: "10.24.0" },
+            },
+            {
+              name: "Set up Node.js",
+              uses: "actions/setup-node@<sha>",
+              with: { "node-version": 22 },
+            },
+            {
+              name: "Install proposed policy dependencies",
+              run: "pnpm install --frozen-lockfile --ignore-scripts --filter .",
+            },
+            {
+              name: "Test proposed action-pin policy",
+              run: "node scripts/check-github-action-pins.test.mjs",
+            },
+            {
+              name: "Scan proposed action pins",
+              run: "node scripts/check-github-action-pins.mjs",
+            },
+          ],
+        },
+      },
+    },
+  ],
+]);
 
 /** @param {string} path */
 function isYaml(path) {
   return path.endsWith(".yml") || path.endsWith(".yaml");
 }
 
+/** @param {string} path */
+function isRegularFile(path) {
+  try {
+    return lstatSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
 /** @param {string} directory */
 function* walkYaml(directory) {
-  if (!existsSync(directory)) return;
+  if (!isDirectory(directory)) return;
 
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
@@ -31,6 +175,15 @@ function* walkYaml(directory) {
     } else if (entry.isFile() && isYaml(path)) {
       yield path;
     }
+  }
+}
+
+/** @param {string} path */
+function isDirectory(path) {
+  try {
+    return lstatSync(path).isDirectory();
+  } catch {
+    return false;
   }
 }
 
@@ -58,150 +211,210 @@ function splitInlineComment(raw) {
   return { value: raw.trim(), comment: "" };
 }
 
-/** @param {string} raw */
-function normalizeUsesValue(raw) {
-  const { value } = splitInlineComment(raw);
-  if (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
-    return value.slice(1, -1).trim();
-  }
-  return value;
-}
+/** @param {unknown} node @param {import("yaml").Document} document */
+function resolveAliases(node, document) {
+  const aliases = new Set();
+  let resolved = node;
 
-/** @param {string} raw */
-function stripLeadingAnchor(raw) {
-  return raw.replace(/^(?:&[^\s[\]{},]+\s+)*/, "");
-}
-
-/** @param {string} raw @param {string} delimiter */
-function findTopLevelDelimiter(raw, delimiter) {
-  let quote = "";
-  let depth = 0;
-
-  for (let index = 0; index < raw.length; index++) {
-    const character = raw[index];
-
-    if (quote === '"') {
-      if (character === "\\") index++;
-      else if (character === '"') quote = "";
-      continue;
+  while (isAlias(resolved)) {
+    if (aliases.has(resolved)) throw new Error("cyclic YAML alias");
+    aliases.add(resolved);
+    const target = resolved.resolve(document);
+    if (target == null) {
+      throw new Error(`unresolved YAML alias \`*${resolved.source}\``);
     }
-
-    if (quote === "'") {
-      if (character === "'" && raw[index + 1] === "'") index++;
-      else if (character === "'") quote = "";
-      continue;
-    }
-
-    if (character === '"' || character === "'") {
-      quote = character;
-    } else if (character === "{" || character === "[") {
-      depth++;
-    } else if (character === "}" || character === "]") {
-      depth--;
-    } else if (character === delimiter && depth === 0) {
-      return index;
-    }
+    resolved = target;
   }
 
-  return -1;
+  return resolved;
 }
 
-/** @param {string} body */
-function splitFlowFields(body) {
-  const fields = [];
-  let rest = body;
-
-  while (rest.length > 0) {
-    const commaIndex = findTopLevelDelimiter(rest, ",");
-    if (commaIndex === -1) {
-      fields.push(rest);
-      break;
-    }
-
-    fields.push(rest.slice(0, commaIndex));
-    rest = rest.slice(commaIndex + 1);
-  }
-
-  return fields;
-}
-
-/** @param {string} line */
-function extractFlowMappingBody(line) {
-  let candidate = line.trim();
-  const sequencePrefix = candidate.match(/^-\s+/)?.[0];
-  if (!sequencePrefix) return null;
-
-  candidate = candidate.slice(sequencePrefix.length);
-  candidate = stripLeadingAnchor(candidate).trimStart();
-  if (!candidate.startsWith("{") || !candidate.endsWith("}")) return null;
-  return candidate.slice(1, -1);
-}
-
-/** @param {string} raw */
-function normalizeFlowKey(raw) {
-  let key = raw.trim();
-  if (/^\?\s+/.test(key)) key = key.replace(/^\?\s+/, "");
-  return stripLeadingAnchor(key);
-}
-
-/** @param {string} line */
-function extractUsesRawValues(line) {
-  const plain = line.match(
-    /^\s*(?:-\s+)?(?:&[^\s[\]{},]+\s+)*(?:"uses"|'uses'|uses)\s*:\s*(.*?)\s*$/,
-  );
-  if (plain) return [plain[1] ?? ""];
-
-  const { value: lineWithoutComment, comment } = splitInlineComment(line);
-  const body = extractFlowMappingBody(lineWithoutComment);
-  if (body == null) return [];
-
-  return splitFlowFields(body).flatMap((field) => {
-    const colonIndex = findTopLevelDelimiter(field, ":");
-    if (colonIndex === -1) return [];
-
-    const key = normalizeFlowKey(field.slice(0, colonIndex));
-    if (key !== "uses" && key !== '"uses"' && key !== "'uses'") return [];
-
-    const value = field.slice(colonIndex + 1).trim();
-    return [comment ? `${value} # ${comment}` : value];
-  });
-}
-
-/** @param {string} line */
-function blockScalarState(line) {
-  const { value } = splitInlineComment(line);
-  const indicator = value.match(/:\s*([>|](?:[+-][1-9]?|[1-9][+-]?)?)\s*$/);
-  if (!indicator) return null;
-
-  const leadingIndent = value.match(/^\s*/)?.[0].length ?? 0;
-  const sequencePrefix = value.slice(leadingIndent).match(/^-\s+/)?.[0] ?? "";
-  const parentIndent = leadingIndent + sequencePrefix.length;
-  const explicitIndent = indicator[1]?.match(/[1-9]/)?.[0];
-
-  return {
-    parentIndent,
-    contentIndent: explicitIndent
-      ? parentIndent + Number(explicitIndent)
-      : null,
-  };
+/** @param {unknown} node @param {import("yaml").Document} document */
+function scalarValue(node, document) {
+  const resolved = resolveAliases(node, document);
+  return isScalar(resolved) && typeof resolved.value === "string"
+    ? resolved.value
+    : null;
 }
 
 /**
- * @param {string} line
- * @param {{ parentIndent: number, contentIndent: number | null }} state
+ * Match mapping keys by their YAML value, including quoted, tagged, explicit,
+ * and alias keys. `YAMLMap#get()` intentionally does not resolve alias keys.
+ * @param {unknown} node
+ * @param {string} key
+ * @param {import("yaml").Document} document
  */
-function isBlockScalarContent(line, state) {
-  if (/^\s*(?:#.*)?$/.test(line)) return true;
+function findPair(node, key, document) {
+  const mapping = resolveAliases(node, document);
+  if (!isMap(mapping)) return null;
+  const matches = mapping.items.filter(
+    (pair) => scalarValue(pair.key, document) === key,
+  );
+  if (matches.length > 1) {
+    throw new Error(`duplicate semantic \`${key}\` keys`);
+  }
+  return matches[0] ?? null;
+}
 
-  const indent = line.match(/^\s*/)?.[0].length ?? 0;
-  if (state.contentIndent != null) return indent >= state.contentIndent;
-  if (indent <= state.parentIndent) return false;
+/**
+ * Reject duplicate semantic keys even when YAML aliases hide them from the
+ * parser's ordinary duplicate-key check. This also makes `toJS()` safe for
+ * trust-boundary comparisons below.
+ * @param {unknown} node
+ * @param {import("yaml").Document} document
+ * @param {WeakSet<object>} [visited]
+ */
+function assertUniqueSemanticMappings(node, document, visited = new WeakSet()) {
+  const resolved = resolveAliases(node, document);
+  if (!isMap(resolved) && !isSeq(resolved)) return;
+  if (visited.has(resolved)) return;
+  visited.add(resolved);
 
-  state.contentIndent = indent;
-  return true;
+  if (isSeq(resolved)) {
+    for (const item of resolved.items) {
+      assertUniqueSemanticMappings(item, document, visited);
+    }
+    return;
+  }
+
+  const keys = new Set();
+  for (const pair of resolved.items) {
+    const key = scalarValue(pair.key, document);
+    if (key == null) throw new Error("non-string YAML mapping key");
+    if (keys.has(key)) throw new Error(`duplicate semantic \`${key}\` keys`);
+    keys.add(key);
+    assertUniqueSemanticMappings(pair.value, document, visited);
+  }
+}
+
+/** @param {unknown} value */
+function normalizePolicyWorkflow(value) {
+  if (Array.isArray(value)) return value.map(normalizePolicyWorkflow);
+  if (value != null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nested]) => [
+        key,
+        normalizePolicyWorkflow(nested),
+      ]),
+    );
+  }
+  if (typeof value !== "string") return value;
+
+  for (const action of [
+    "actions/checkout",
+    "actions/setup-node",
+    "pnpm/action-setup",
+  ]) {
+    const prefix = `${action}@`;
+    if (
+      value.startsWith(prefix) &&
+      PINNED_REF.test(value.slice(prefix.length))
+    ) {
+      return `${prefix}<sha>`;
+    }
+  }
+
+  return value;
+}
+
+/**
+ * These workflows form the policy's trust boundary. The target workflow runs
+ * only base-branch code; the source workflow exercises proposed checker code
+ * without credentials. Validate their complete executable structure from the
+ * trusted checker so a PR cannot replace either required check with a no-op.
+ * Action SHAs are normalized; other canonical changes intentionally use the
+ * protected two-PR transition documented in README.md.
+ * @param {string} path
+ * @param {import("yaml").Document} document
+ */
+function assertPolicyWorkflowStructure(path, document) {
+  const expected = NORMALIZED_POLICY_WORKFLOWS.get(path);
+  if (!expected) return;
+
+  assertUniqueSemanticMappings(document.contents, document);
+  const actual = normalizePolicyWorkflow(document.toJS({ maxAliasCount: 100 }));
+  if (!isDeepStrictEqual(actual, expected)) {
+    throw new Error("does not match the trusted action-pin workflow structure");
+  }
+}
+
+/** @param {unknown} node @param {string} source */
+function sourceLine(node, source) {
+  const offset = Array.isArray(node?.range) ? node.range[0] : 0;
+  const start = source.lastIndexOf("\n", Math.max(0, offset - 1)) + 1;
+  const end = source.indexOf("\n", offset);
+  return source.slice(start, end === -1 ? source.length : end);
+}
+
+/** @param {unknown} node @param {string} source */
+function hasReleaseTagComment(node, source) {
+  return RELEASE_TAG.test(splitInlineComment(sourceLine(node, source)).comment);
+}
+
+/** @param {unknown} node @param {LineCounter} lineCounter */
+function lineNumber(node, lineCounter) {
+  const offset = Array.isArray(node?.range) ? node.range[0] : 0;
+  return lineCounter.linePos(offset).line;
+}
+
+/**
+ * Collect only executable `uses` fields: a reusable-workflow job's direct
+ * field or a direct item in a workflow/composite action's `steps` sequence.
+ * Nested inputs such as `with.uses` are ordinary data and are ignored.
+ * @param {unknown} root
+ * @param {import("yaml").Document} document
+ */
+function collectUses(root, document) {
+  const references = [];
+
+  /** @param {unknown} executable */
+  const addDirectUses = (executable) => {
+    const uses = findPair(executable, "uses", document);
+    if (!uses) return;
+
+    const reference = {
+      keyNode: uses.key,
+      valueNode: uses.value,
+      // If the executable mapping is itself an alias, the version comment
+      // belongs at that use site. Otherwise preserve the original value node
+      // so a value alias cannot borrow a comment from its anchor definition.
+      commentNode: isAlias(executable) ? executable : (uses.value ?? uses.key),
+    };
+    if (
+      references.some(
+        (existing) =>
+          existing.keyNode === reference.keyNode &&
+          existing.valueNode === reference.valueNode &&
+          existing.commentNode === reference.commentNode,
+      )
+    ) {
+      return;
+    }
+    references.push(reference);
+  };
+
+  /** @param {unknown} stepsNode */
+  const addSteps = (stepsNode) => {
+    const steps = resolveAliases(stepsNode, document);
+    if (!isSeq(steps)) return;
+    for (const step of steps.items) addDirectUses(step);
+  };
+
+  const jobsPair = findPair(root, "jobs", document);
+  const jobs = resolveAliases(jobsPair?.value, document);
+  if (isMap(jobs)) {
+    for (const jobPair of jobs.items) {
+      const job = jobPair.value;
+      addDirectUses(job);
+      addSteps(findPair(job, "steps", document)?.value);
+    }
+  }
+
+  const runsPair = findPair(root, "runs", document);
+  const runs = resolveAliases(runsPair?.value, document);
+  if (isMap(runs)) addSteps(findPair(runs, "steps", document)?.value);
+
+  return references;
 }
 
 /** @param {string} value */
@@ -213,12 +426,6 @@ function isLocalAction(value) {
 function isPinnedExternalAction(value) {
   const atIndex = value.lastIndexOf("@");
   return atIndex !== -1 && PINNED_REF.test(value.slice(atIndex + 1));
-}
-
-/** @param {string} raw */
-function hasReleaseTagComment(raw) {
-  const { comment } = splitInlineComment(raw);
-  return /^v\d+(?:[.\w-].*)?$/.test(comment);
 }
 
 /** @param {string} root @param {string} path */
@@ -238,9 +445,36 @@ function localActionManifestPaths(fromFile, value) {
 
   if (!isInsideRoot(ROOT, actionDirectory)) return [];
 
-  return ["action.yml", "action.yaml"]
-    .map((name) => join(actionDirectory, name))
-    .filter((path) => existsSync(path));
+  const manifests = [];
+  for (const name of ["action.yml", "action.yaml"]) {
+    const path = join(actionDirectory, name);
+    let stats;
+    try {
+      stats = lstatSync(path);
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      throw error;
+    }
+    if (!stats.isFile()) {
+      throw new Error(`${relative(ROOT, path)} is not a regular file`);
+    }
+
+    const expectedRealPath = resolve(REAL_ROOT, relative(ROOT, path));
+    if (realpathSync(path) !== expectedRealPath) {
+      throw new Error(`${relative(ROOT, path)} resolves through a symlink`);
+    }
+    manifests.push(path);
+  }
+  return manifests;
+}
+
+const missingPolicyFiles = REQUIRED_POLICY_FILES.filter(
+  (path) => !isRegularFile(join(ROOT, path)),
+);
+if (missingPolicyFiles.length > 0) {
+  console.error("Required action-pin policy workflows are missing:");
+  for (const path of missingPolicyFiles) console.error(`- ${path}`);
+  process.exit(1);
 }
 
 const failures = [];
@@ -251,42 +485,136 @@ const queuedFiles = new Set(files);
 
 for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
   const file = files[fileIndex];
-  const lines = readFileSync(file, "utf8").split(/\r?\n/);
-  let blockScalar = null;
+  const relativeFile = relative(ROOT, file);
+  const source = readFileSync(file, "utf8");
+  const lineCounter = new LineCounter();
+  const document = parseDocument(source, {
+    lineCounter,
+    prettyErrors: false,
+    uniqueKeys: true,
+  });
 
-  lines.forEach((line, lineIndex) => {
-    if (blockScalar && isBlockScalarContent(line, blockScalar)) return;
-    blockScalar = blockScalarState(line);
-
-    for (const rawValue of extractUsesRawValues(line)) {
-      const value = normalizeUsesValue(rawValue);
-      if (isLocalAction(value)) {
-        for (const manifest of localActionManifestPaths(file, value)) {
-          if (!queuedFiles.has(manifest)) {
-            queuedFiles.add(manifest);
-            files.push(manifest);
-          }
-        }
-        continue;
-      }
-
-      if (isPinnedExternalAction(value) && hasReleaseTagComment(rawValue)) {
-        continue;
-      }
-
+  const yamlProblems = [...document.errors, ...document.warnings];
+  if (yamlProblems.length > 0) {
+    for (const error of yamlProblems) {
       failures.push({
-        file: relative(ROOT, file),
-        line: lineIndex + 1,
-        value,
+        file: relativeFile,
+        line:
+          Array.isArray(error.pos) && error.pos.length > 0
+            ? lineCounter.linePos(error.pos[0]).line
+            : 1,
+        problem: `invalid YAML (${error.message})`,
       });
     }
-  });
+    continue;
+  }
+
+  try {
+    assertPolicyWorkflowStructure(relativeFile, document);
+  } catch (error) {
+    failures.push({
+      file: relativeFile,
+      line: 1,
+      problem: `invalid action-pin policy workflow (${error instanceof Error ? error.message : String(error)})`,
+    });
+    continue;
+  }
+
+  let references;
+  try {
+    references = collectUses(document.contents, document);
+  } catch (error) {
+    failures.push({
+      file: relativeFile,
+      line: 1,
+      problem: `invalid YAML structure (${error instanceof Error ? error.message : String(error)})`,
+    });
+    continue;
+  }
+
+  const referencesPerLine = new Map();
+  for (const reference of references) {
+    const line = lineNumber(reference.commentNode, lineCounter);
+    referencesPerLine.set(line, (referencesPerLine.get(line) ?? 0) + 1);
+  }
+
+  for (const reference of references) {
+    let resolvedValue;
+    try {
+      resolvedValue = resolveAliases(reference.valueNode, document);
+    } catch (error) {
+      failures.push({
+        file: relativeFile,
+        line: lineNumber(reference.keyNode, lineCounter),
+        problem: `invalid YAML alias (${error instanceof Error ? error.message : String(error)})`,
+      });
+      continue;
+    }
+
+    const value =
+      isScalar(resolvedValue) && typeof resolvedValue.value === "string"
+        ? resolvedValue.value.trim()
+        : "";
+    const commentLine = lineNumber(reference.commentNode, lineCounter);
+    const singleLine =
+      lineNumber(reference.keyNode, lineCounter) ===
+      lineNumber(reference.valueNode, lineCounter);
+    const inlineScalar =
+      isScalar(resolvedValue) &&
+      resolvedValue.type !== "BLOCK_FOLDED" &&
+      resolvedValue.type !== "BLOCK_LITERAL";
+    if (!singleLine || !inlineScalar) {
+      failures.push({
+        file: relativeFile,
+        line: lineNumber(reference.keyNode, lineCounter),
+        value,
+      });
+      continue;
+    }
+
+    if (isLocalAction(value)) {
+      let manifests;
+      try {
+        manifests = localActionManifestPaths(file, value);
+      } catch (error) {
+        failures.push({
+          file: relativeFile,
+          line: lineNumber(reference.keyNode, lineCounter),
+          problem: `unsafe local action manifest (${error instanceof Error ? error.message : String(error)})`,
+        });
+        continue;
+      }
+
+      for (const manifest of manifests) {
+        if (!queuedFiles.has(manifest)) {
+          queuedFiles.add(manifest);
+          files.push(manifest);
+        }
+      }
+      continue;
+    }
+
+    if (
+      isPinnedExternalAction(value) &&
+      referencesPerLine.get(commentLine) === 1 &&
+      hasReleaseTagComment(reference.commentNode, source)
+    ) {
+      continue;
+    }
+
+    failures.push({
+      file: relativeFile,
+      line: lineNumber(reference.keyNode, lineCounter),
+      value,
+    });
+  }
 }
 
 if (failures.length > 0) {
   console.error("Unpinned or undocumented GitHub Actions references found:");
   for (const failure of failures) {
-    console.error(`- ${failure.file}:${failure.line} uses: ${failure.value}`);
+    const detail = failure.problem ?? `uses: ${failure.value}`;
+    console.error(`- ${failure.file}:${failure.line} ${detail}`);
   }
   console.error(
     "Third-party actions must use a full 40-character commit SHA and keep " +
