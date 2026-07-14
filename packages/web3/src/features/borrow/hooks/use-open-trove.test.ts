@@ -1,9 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@mento-protocol/mento-sdk", () => ({
-  getBorrowRegistry: vi.fn(),
-  resolveAddressesFromRegistry: vi.fn(),
-}));
+vi.mock("@mento-protocol/mento-sdk", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@mento-protocol/mento-sdk")>();
+
+  return {
+    ...actual,
+    getBorrowRegistry: vi.fn(),
+    resolveAddressesFromRegistry: vi.fn(),
+  };
+});
 
 const { buildOpenTroveSuccessHref } = await import("./use-open-trove");
 

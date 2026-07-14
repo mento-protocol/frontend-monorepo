@@ -11,7 +11,7 @@ vi.mock("@/utils/transaction-fees", () => ({
   getTransactionFeeOverrides: vi.fn(),
 }));
 
-const { executeLiquidityFlow } = await import("./flow-engine");
+const { executeLiquidityFlow } = await import("./flow");
 const wagmiActions = await import("wagmi/actions");
 const transactionFees = await import("@/utils/transaction-fees");
 

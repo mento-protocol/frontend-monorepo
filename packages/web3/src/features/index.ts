@@ -7,4 +7,5 @@ export * from "./pools";
 export * from "./sdk";
 export * from "./swap";
 export * from "./tokens";
+export * from "./tx-flow";
 export * from "./wallets";

@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSetAtom } from "jotai";
 import type { Config } from "wagmi";
 import { borrowFlowAtom } from "../atoms/flow-atoms";
-import { executeFlow } from "../tx-flows/engine";
+import { executeFlow } from "../tx-flows/flow";
 import { useBorrowService } from "./use-borrow-service";
 
 interface ClaimCollateralMutationParams {

@@ -8,7 +8,7 @@ import {
   resolveAddressesFromRegistry,
 } from "@mento-protocol/mento-sdk";
 import { borrowFlowAtom } from "../atoms/flow-atoms";
-import { executeFlow } from "../tx-flows/engine";
+import { executeFlow } from "../tx-flows/flow";
 import { buildSpWithdraw } from "../stability-pool/tx-builders";
 
 interface SpWithdrawMutationParams {
