@@ -122,7 +122,15 @@ pnpm format
 
 # Check formatting without making changes
 pnpm format:check
+
+# Verify every third-party GitHub Action uses an immutable SHA + version comment
+pnpm ci:action-pins
 ```
+
+The always-run `GitHub Actions Policy` workflow executes the policy's fixture
+tests and the repository scan on every pull request. When adding or updating a
+third-party action, pin its full 40-character commit SHA and retain the release
+tag as an inline comment (for example, `uses: org/action@<sha> # v1.2.3`).
 
 #### App-Specific Linting
 
