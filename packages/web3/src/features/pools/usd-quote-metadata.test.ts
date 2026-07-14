@@ -9,6 +9,7 @@ vi.mock("@mento-protocol/mento-sdk", () => {
     AUSD: "AUSD",
     EURm: "EURm",
     axlEUROC: "axlEUROC",
+    EUROP: "EUROP",
   };
 
   return {
@@ -22,6 +23,7 @@ vi.mock("@mento-protocol/mento-sdk", () => {
         [TokenSymbol.AUSD]: "0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a",
         [TokenSymbol.EURm]: "0xD8763CBa276a3738E6DE85b4b3bF5FDed6D6cA73",
         [TokenSymbol.axlEUROC]: "0x061cc5a2C863E0C1Cb404006D559dB18A34C762d",
+        [TokenSymbol.EUROP]: "0x62A5E599c4f4bFA1024effFA15799a7a2Bb29dEC",
       },
     },
   };
@@ -36,6 +38,7 @@ const chainId = 42220;
 const USDM = "0x765DE816845861e75A25fCA122bb6898B8B1282a";
 const EURM = "0xD8763CBa276a3738E6DE85b4b3bF5FDed6D6cA73";
 const AXL_EUROC = "0x061cc5a2C863E0C1Cb404006D559dB18A34C762d";
+const EUROP = "0x62A5E599c4f4bFA1024effFA15799a7a2Bb29dEC";
 
 function createMockSdk(
   overrides?: Partial<{
@@ -103,6 +106,31 @@ describe("getUsdTokenPrices", () => {
 
     const prices = await getUsdTokenPrices({
       token0Address: AXL_EUROC,
+      token1Address: EURM,
+      oraclePrice: 1,
+      chainId,
+      context,
+    });
+
+    expect(prices).toEqual({
+      token0PriceUsd: 1 / 0.92,
+      token1PriceUsd: 1 / 0.92,
+    });
+  });
+
+  it("derives EUROP/EURm pool pricing from the EURm/USDm reference pool", async () => {
+    const sdk = createMockSdk({
+      details: {
+        poolType: "FPMM",
+        token0: USDM,
+        token1: EURM,
+        pricing: { oraclePrice: 0.92 },
+      },
+    });
+    const context = createPoolUsdPricingContext(sdk, chainId);
+
+    const prices = await getUsdTokenPrices({
+      token0Address: EUROP,
       token1Address: EURM,
       oraclePrice: 1,
       chainId,
