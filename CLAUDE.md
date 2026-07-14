@@ -53,8 +53,14 @@ pnpm fork:seed                       # Fund fork accounts + re-report oracle pri
 pnpm fork:monad                      # Local anvil fork of Monad mainnet (chain 143, port 8546; no --celo)
 pnpm fork:seed:monad                 # Monad sibling of fork:seed (Reserve collateral + swap-to-seed, idempotent)
 pnpm pr:description:test             # Test the required PR-description format validator
+pnpm vercel:primitives:test          # Test affected planning, custom deployment IDs, and build-env contracts
+pnpm vercel:versions:check           # Verify pinned Next.js/Vercel CLI custom-ID prerequisites
+pnpm vercel:plan --base <sha> --head <sha>  # Emit the fail-closed Vercel target plan
 gh pr view --json body --jq .body | pnpm pr:description:check  # Validate the current PR body
 ```
+
+The full custom-CI primitive contract, environment matrix, and prebuilt-output
+assertion are documented in [docs/vercel-deployments.md](docs/vercel-deployments.md).
 
 Always use `--filter` to avoid building/running everything unnecessarily.
 

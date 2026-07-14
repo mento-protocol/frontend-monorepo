@@ -128,6 +128,12 @@ pnpm ci:action-pins
 
 # Run the action-pin scanner and REST materializer fixture suites
 pnpm ci:action-pins:test
+
+# Test the network-free Vercel planning and prebuilt-build primitives
+pnpm vercel:primitives:test
+
+# Verify exact Next.js and Vercel CLI custom deployment-ID prerequisites
+pnpm vercel:versions:check
 ```
 
 Two always-run checks protect the policy on every pull request:
@@ -412,7 +418,7 @@ The repository is set up with GitHub Actions for CI:
   check enforces production-source coverage and gzip route limits. Its general
   CI failure notifier opens or updates one issue for an operational workflow
   failure and closes the issue after recovery.
-- **CD**: Deployments are handled by the Vercel Git integration — each app is a Vercel project that builds on push to main (previews on PRs). Dependabot branches skip Vercel previews because GitHub Actions already builds and validates them. GitHub Actions does not deploy.
+- **CD**: Deployments are currently handled by the Vercel Git integration — each app is a Vercel project that builds on push to main (previews on PRs). Dependabot branches skip Vercel previews because GitHub Actions already builds and validates them. GitHub Actions does not deploy yet. The tested planning, deployment-ID, and build-environment foundations for the tracked custom-CI migration are documented in [`docs/vercel-deployments.md`](docs/vercel-deployments.md); those primitives do not change deployment ownership by themselves.
 
 Dependency-installing jobs use `.github/actions/pnpm-install`, which pins the
 Node/pnpm bootstrap, relies on `actions/setup-node` as the single pnpm-store
