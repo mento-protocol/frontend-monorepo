@@ -7,6 +7,13 @@ import {
   sentryCspReportUri,
 } from "../../scripts/security-headers.mjs";
 
+const uploadSentrySourceMaps = process.env.VERCEL_ENV === "production";
+const sentryAuthToken = env.SENTRY_AUTH_TOKEN;
+
+if (uploadSentrySourceMaps && !sentryAuthToken) {
+  throw new Error("SENTRY_AUTH_TOKEN is required for production builds");
+}
+
 const storageHostname = env.NEXT_PUBLIC_STORAGE_URL.replace(
   /^https?:\/\/([^/]+)\/?.*$/,
   "$1",
@@ -94,15 +101,20 @@ export default withSentryConfig(nextConfig, {
   org: "mento-labs",
   project: "reserve-mento-org",
 
-  // Only print logs for uploading source maps in CI
-  silent: !process.env.CI,
+  // Preview builds skip source-map work entirely; keep upload logs for production CI.
+  silent: !process.env.CI || !uploadSentrySourceMaps,
 
-  // Sentry authentication token, required for readable stack traces
+  // Sentry authentication token, required for production source-map uploads
   // https://docs.sentry.io/platforms/javascript/guides/nextjs/manual-setup/#step-4-add-readable-stack-traces-with-source-maps-optional
-  authToken: process.env.SENTRY_AUTH_TOKEN,
+  authToken: uploadSentrySourceMaps ? sentryAuthToken : undefined,
 
-  // Upload a larger set of source maps for prettier stack traces (increases build time)
-  widenClientFileUpload: true,
+  sourcemaps: {
+    disable: !uploadSentrySourceMaps,
+  },
+  useRunAfterProductionCompileHook: uploadSentrySourceMaps,
+
+  // Production keeps the wider maps for readable stack traces; previews build faster.
+  widenClientFileUpload: uploadSentrySourceMaps,
 
   // Capture React component names to see which component a user clicked on in Session Replays
   reactComponentAnnotation: {
