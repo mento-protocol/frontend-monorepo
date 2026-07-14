@@ -23,6 +23,8 @@
     "knip": "knip",
     "lint": "npx @trunkio/launcher check",
     "lint:fix": "npx @trunkio/launcher check --fix",
+    "pr:description:check": "node scripts/check-pr-description.mjs",
+    "pr:description:test": "node scripts/check-pr-description.test.mjs",
     "rebuild": "pnpm run clean && turbo run build",
     "supply-chain:lockfile-lint": "node scripts/lockfile-lint.mjs",
     "supply-chain:lockfile-lint:test": "node scripts/lockfile-lint.test.mjs",
