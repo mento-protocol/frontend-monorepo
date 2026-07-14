@@ -77,6 +77,7 @@ test("root commands cover every Vitest workspace with a measured threshold", () 
 
 test("the quality workflow is always reported and runs the canonical command", () => {
   const workflow = read(".github/workflows/quality-budgets.yml");
+  const ciWorkflow = read(".github/workflows/ci.yml");
 
   assert.match(workflow, /^name: Quality Budgets$/m);
   assert.match(workflow, /^ {2}pull_request:$/m);
@@ -90,6 +91,18 @@ test("the quality workflow is always reported and runs the canonical command", (
   assert.match(workflow, /uses: \.\/\.github\/actions\/pnpm-install/);
   assert.doesNotMatch(workflow, /uses: pnpm\/action-setup/);
   assert.doesNotMatch(workflow, /uses: actions\/setup-node/);
+  const ciAnalyticsUrl = /^ {6}NEXT_PUBLIC_ANALYTICS_API_URL: (.+)$/m.exec(
+    ciWorkflow,
+  )?.[1];
+  const qualityAnalyticsUrl = /^ {2}NEXT_PUBLIC_ANALYTICS_API_URL: (.+)$/m.exec(
+    workflow,
+  )?.[1];
+  assert.ok(ciAnalyticsUrl, "CI must configure the reserve analytics URL");
+  assert.equal(
+    qualityAnalyticsUrl,
+    ciAnalyticsUrl,
+    "the quality build must mirror CI's reserve analytics URL",
+  );
   assert.match(
     workflow,
     /group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.event_name == 'pull_request' && github\.ref \|\| github\.sha \}\}/,

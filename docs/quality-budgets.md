@@ -79,14 +79,16 @@ that would mix server/build-cache artifacts into the browser budget.
 `.github/workflows/ci-failure-notifier.yml`. It ignores pull-request and feature
 branch runs; branch protection already surfaces those failures. It tracks
 default-branch `push`, `schedule`, and `workflow_dispatch` runs plus allowlisted
-release-tag `push` workflows. For each source workflow it:
+release-tag `push` workflows. It partitions state by source workflow,
+operational trigger, and target ref, then:
 
-- opens one bot-authored, marker-keyed issue per source workflow on failure;
-- updates/reopens that same issue for repeated failures;
-- closes it after a newer successful run; and
+- opens one bot-authored, marker-keyed issue per partition on failure;
+- updates/reopens that same issue for repeated failures in the partition;
+- closes it only after a newer successful run in the same partition; and
 - paginates all completed runs and reconciles to the latest decisive success or
-  failure, so delayed or dropped callbacks still converge on current state;
-  neutral, skipped, and cancelled runs do not suppress a decisive result.
+  failure for that partition, so delayed or dropped callbacks still converge on
+  current state; neutral, skipped, and cancelled runs do not suppress a
+  decisive result.
 
 The notifier uses only the repository `GITHUB_TOKEN`, with `actions: read`,
 `contents: read`, and `issues: write` on its single job. It checks out the

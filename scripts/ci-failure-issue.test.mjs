@@ -3,6 +3,10 @@ import { test } from "node:test";
 
 import { reconcileCiFailureIssue } from "./ci-failure-issue.mjs";
 
+function managedMarker(event = "push", targetRef = "main") {
+  return `<!-- managed-ci-failure:77:${event}:${encodeURIComponent(targetRef)} -->`;
+}
+
 function workflowRun(overrides = {}) {
   const runNumber = overrides.run_number ?? 12;
   return {
@@ -25,7 +29,7 @@ function managedIssue(overrides = {}) {
   return {
     number: 42,
     state: "open",
-    body: "failure\n\n<!-- managed-ci-failure:77 -->",
+    body: `failure\n\n${managedMarker()}`,
     user: { login: "github-actions[bot]" },
     ...overrides,
   };
@@ -49,6 +53,7 @@ function harness({
   paginate.iterator = async function* (method, parameters) {
     assert.equal(method, listWorkflowRuns);
     assert.equal(parameters.exclude_pull_requests, true);
+    assert.equal(parameters.event, run.event);
     assert.equal(parameters.status, "completed");
     assert.equal(parameters.per_page, 100);
     for (const page of runPages ?? [latestRuns ?? [run]]) {
@@ -92,14 +97,18 @@ test("opens one marker-keyed issue for a default-branch failure", async () => {
 
   assert.deepEqual(result, { action: "opened", issueNumber: 91 });
   assert.equal(calls.create.length, 1);
-  assert.match(calls.create[0].body, /managed-ci-failure:77/);
+  assert.equal(
+    calls.create[0].title,
+    "CI: Quality Budgets is failing (main; push)",
+  );
+  assert.match(calls.create[0].body, /managed-ci-failure:77:push:main/);
   assert.match(calls.create[0].body, /run #12, attempt 1/);
 });
 
 test("updates and reopens the existing issue instead of adding comments", async () => {
   const existing = managedIssue({
     state: "closed",
-    body: "old failure\n\n<!-- managed-ci-failure:77 -->",
+    body: `old failure\n\n${managedMarker()}`,
   });
   const { github, context, calls } = harness({ issues: [existing] });
   const result = await reconcileCiFailureIssue({ github, context });
@@ -139,7 +148,6 @@ test("a stale failure callback closes the issue for a newer success", async () =
   const stale = workflowRun({ run_number: 12 });
   const latest = workflowRun({
     run_number: 13,
-    event: "schedule",
     conclusion: "success",
   });
   const { github, context, calls } = harness({
@@ -280,7 +288,75 @@ test("tracks scheduled failures when GitHub omits the head branch", async () => 
   const result = await reconcileCiFailureIssue({ github, context });
 
   assert.deepEqual(result, { action: "opened", issueNumber: 91 });
+  assert.equal(
+    calls.create[0].title,
+    "CI: Quality Budgets is failing (main; schedule)",
+  );
   assert.match(calls.create[0].body, /failed for `main`/);
+  assert.match(calls.create[0].body, /managed-ci-failure:77:schedule:main/);
+});
+
+test("exposes the manual trigger in the incident title", async () => {
+  const run = workflowRun({ event: "workflow_dispatch" });
+  const { github, context, calls } = harness({ run });
+  const result = await reconcileCiFailureIssue({ github, context });
+
+  assert.deepEqual(result, { action: "opened", issueNumber: 91 });
+  assert.equal(
+    calls.create[0].title,
+    "CI: Quality Budgets is failing (main; workflow_dispatch)",
+  );
+});
+
+test("a manual success does not close a scheduled failure issue", async () => {
+  const scheduledFailure = workflowRun({
+    event: "schedule",
+    head_branch: null,
+    run_number: 12,
+  });
+  const manualSuccess = workflowRun({
+    event: "workflow_dispatch",
+    conclusion: "success",
+    run_number: 13,
+  });
+  const { github, context, calls } = harness({
+    run: manualSuccess,
+    issues: [managedIssue({ body: `failure\n\n${managedMarker("schedule")}` })],
+    latestRuns: [manualSuccess, scheduledFailure],
+  });
+  const result = await reconcileCiFailureIssue({ github, context });
+
+  assert.deepEqual(result, { action: "ignored", reason: "nothing-to-close" });
+  assert.equal(calls.update.length, 0);
+  assert.equal(calls.create.length, 0);
+});
+
+test("a later scheduled success recovers only the scheduled partition", async () => {
+  const staleFailure = workflowRun({
+    event: "schedule",
+    head_branch: null,
+    run_number: 12,
+  });
+  const scheduledSuccess = workflowRun({
+    event: "schedule",
+    conclusion: "success",
+    run_number: 13,
+  });
+  const newerManualSuccess = workflowRun({
+    event: "workflow_dispatch",
+    conclusion: "success",
+    run_number: 14,
+  });
+  const { github, context, calls } = harness({
+    run: staleFailure,
+    issues: [managedIssue({ body: `failure\n\n${managedMarker("schedule")}` })],
+    latestRuns: [newerManualSuccess, scheduledSuccess, staleFailure],
+  });
+  const result = await reconcileCiFailureIssue({ github, context });
+
+  assert.deepEqual(result, { action: "closed", issueNumber: 42 });
+  assert.match(calls.update[0].body, /run #13, attempt 1/);
+  assert.doesNotMatch(calls.update[0].body, /run #14/);
 });
 
 test("ignores pull-request, feature push/dispatch, and cancelled runs", async () => {
@@ -307,4 +383,8 @@ test("tracks release-tag push failures without executing their source", async ()
 
   assert.equal(result.action, "opened");
   assert.match(calls.create[0].body, /failed for `release tag`/);
+  assert.match(
+    calls.create[0].body,
+    /managed-ci-failure:77:push:release%20tag/,
+  );
 });

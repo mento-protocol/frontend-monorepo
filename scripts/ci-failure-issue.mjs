@@ -29,8 +29,20 @@ function runIdentity(run) {
   return `${runId}:${run.run_attempt ?? 1}`;
 }
 
-function markerFor(run) {
-  return `<!-- managed-ci-failure:${run.workflow_id} -->`;
+function targetRefFor(run, defaultBranch) {
+  return (
+    run.head_branch || (run.event === "push" ? "release tag" : defaultBranch)
+  );
+}
+
+function partitionIdentity(run, defaultBranch) {
+  return [run.workflow_id, run.event, targetRefFor(run, defaultBranch)]
+    .map((part) => encodeURIComponent(String(part)))
+    .join(":");
+}
+
+function markerFor(run, defaultBranch) {
+  return `<!-- managed-ci-failure:${partitionIdentity(run, defaultBranch)} -->`;
 }
 
 function runLink(run) {
@@ -38,10 +50,13 @@ function runLink(run) {
 }
 
 function issueTitle(run, targetRef) {
-  return `CI: ${run.name} is failing (${targetRef})`.slice(0, 255);
+  return `CI: ${run.name} is failing (${targetRef}; ${run.event})`.slice(
+    0,
+    255,
+  );
 }
 
-function failureBody(run, targetRef) {
+function failureBody(run, targetRef, marker) {
   return [
     `The **${run.name}** workflow failed for \`${targetRef}\`.`,
     "",
@@ -51,7 +66,7 @@ function failureBody(run, targetRef) {
     "",
     "This issue is managed by the CI Failure Notifier. It is updated for repeated failures and closed automatically after a newer successful run.",
     "",
-    markerFor(run),
+    marker,
   ].join("\n");
 }
 
@@ -112,6 +127,7 @@ async function listCompletedWorkflowRuns(
     {
       ...repo,
       exclude_pull_requests: true,
+      event: callbackRun.event,
       workflow_id: workflowId,
       status: "completed",
       per_page: 100,
@@ -132,13 +148,15 @@ async function listCompletedWorkflowRuns(
   return runs;
 }
 
-function findLatestDecisiveRun(runs, defaultBranch) {
+function findLatestDecisiveRun(runs, defaultBranch, partition) {
   const seen = new Set();
 
   return runs
     .filter(
       (candidate) =>
-        isRelevantRun(candidate, defaultBranch) && isDecisiveRun(candidate),
+        isRelevantRun(candidate, defaultBranch) &&
+        isDecisiveRun(candidate) &&
+        partitionIdentity(candidate, defaultBranch) === partition,
     )
     .filter((candidate) => {
       const identity = runIdentity(candidate);
@@ -166,6 +184,7 @@ export async function reconcileCiFailureIssue({ github, context, core }) {
     return { action: "ignored", reason: "neutral-conclusion" };
   }
 
+  const partition = partitionIdentity(run, defaultBranch);
   const completedRuns = await listCompletedWorkflowRuns(
     github,
     repo,
@@ -175,6 +194,7 @@ export async function reconcileCiFailureIssue({ github, context, core }) {
   const effectiveRun = findLatestDecisiveRun(
     [run, ...completedRuns],
     defaultBranch,
+    partition,
   );
   if (!effectiveRun) {
     return { action: "ignored", reason: "no-decisive-run" };
@@ -185,14 +205,12 @@ export async function reconcileCiFailureIssue({ github, context, core }) {
     );
   }
 
-  const targetRef =
-    effectiveRun.head_branch ||
-    (effectiveRun.event === "push" ? "release tag" : defaultBranch);
-  const marker = markerFor(effectiveRun);
+  const targetRef = targetRefFor(effectiveRun, defaultBranch);
+  const marker = markerFor(effectiveRun, defaultBranch);
   const existing = await findManagedIssue(github, repo, marker);
 
   if (FAILURE_CONCLUSIONS.has(effectiveRun.conclusion)) {
-    const body = failureBody(effectiveRun, targetRef);
+    const body = failureBody(effectiveRun, targetRef, marker);
     if (existing) {
       await github.rest.issues.update({
         ...repo,

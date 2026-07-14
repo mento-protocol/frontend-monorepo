@@ -37,8 +37,8 @@ gate is `pnpm quality:budgets`. Exact baselines, thresholds, bundle limits, and
 the update procedure live in `docs/quality-budgets.md`.
 
 `.github/workflows/ci-failure-notifier.yml` owns one managed issue per monitored
-workflow for default-branch, scheduled, and release-tag failures, then closes it
-after recovery.
+workflow, operational trigger, and target ref for default-branch, scheduled, and
+release-tag failures, then closes it only after recovery in that same partition.
 When adding or renaming an operational workflow, update its static allowlist and
 the structural test in the same PR. Never execute a triggering head SHA from
 this privileged `workflow_run` workflow.
