@@ -1,0 +1,77 @@
+const DEFAULT_MAX_ATTEMPTS = 5;
+const DEFAULT_INITIAL_RETRY_DELAY_MS = 250;
+
+type Sleep = (delayMs: number) => Promise<void>;
+
+const sleep: Sleep = (delayMs) =>
+  new Promise((resolve) => setTimeout(resolve, delayMs));
+
+function parseAllowance(value: string, label: string): bigint {
+  try {
+    const parsed = BigInt(value);
+    if (parsed < 0n) throw new Error(`${label} cannot be negative`);
+    return parsed;
+  } catch (error) {
+    throw new Error(`${label} is not a valid token amount: ${value}`, {
+      cause: error,
+    });
+  }
+}
+
+export async function waitForSufficientAllowance({
+  requiredAmount,
+  readAllowance,
+  maxAttempts = DEFAULT_MAX_ATTEMPTS,
+  initialRetryDelayMs = DEFAULT_INITIAL_RETRY_DELAY_MS,
+  wait = sleep,
+}: {
+  requiredAmount: string;
+  readAllowance: () => Promise<string>;
+  maxAttempts?: number;
+  initialRetryDelayMs?: number;
+  wait?: Sleep;
+}): Promise<string> {
+  if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
+    throw new Error("maxAttempts must be a positive integer");
+  }
+  if (!Number.isFinite(initialRetryDelayMs) || initialRetryDelayMs < 0) {
+    throw new Error("initialRetryDelayMs must be non-negative");
+  }
+
+  const requiredAllowance = parseAllowance(
+    requiredAmount,
+    "Required allowance",
+  );
+  let lastObservedAllowance: string | undefined;
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const observedAllowance = await readAllowance();
+      lastObservedAllowance = observedAllowance;
+      lastError = undefined;
+
+      if (
+        parseAllowance(observedAllowance, "Observed allowance") >=
+        requiredAllowance
+      ) {
+        return observedAllowance;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+
+    if (attempt < maxAttempts - 1) {
+      await wait(initialRetryDelayMs * 2 ** attempt);
+    }
+  }
+
+  const observedDetail =
+    lastObservedAllowance === undefined
+      ? "no allowance was observed"
+      : `last observed ${lastObservedAllowance}`;
+  throw new Error(
+    `Allowance remained below ${requiredAmount} after ${maxAttempts} attempts (${observedDetail})`,
+    { cause: lastError },
+  );
+}

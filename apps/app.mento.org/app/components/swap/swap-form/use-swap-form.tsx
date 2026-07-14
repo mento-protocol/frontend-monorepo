@@ -28,6 +28,7 @@ import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { useAtom } from "jotai";
 import { OctagonAlert } from "lucide-react";
 
+import { waitForSufficientAllowance } from "./approval-allowance";
 import { getSelectedTokenSymbol } from "./token-selection";
 import {
   type LastChangedToken,
@@ -301,16 +302,22 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
           )}
         </>,
       );
-      void (async () => {
+      async function synchronizeAllowanceAndOpenConfirm() {
+        setIsApprovalProcessing(true);
         try {
-          await refetchAllowance();
-        } catch (error) {
-          logger.error(
-            "Failed to refresh swap allowance after approval",
-            error,
-          );
-        } finally {
-          setIsApprovalProcessing(false);
+          await waitForSufficientAllowance({
+            requiredAmount: amountInWei,
+            readAllowance: async () => {
+              const result = await refetchAllowance({ throwOnError: true });
+              if (result.data === undefined) {
+                throw (
+                  result.error ??
+                  new Error("Allowance refresh completed without a value")
+                );
+              }
+              return result.data;
+            },
+          });
 
           const currentFormValues = form.getValues();
           const formData: SwapFormValues = {
@@ -327,8 +334,22 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
 
           setFormValues(formData);
           setConfirmView(true);
+        } catch (error) {
+          logger.error("Failed to verify swap allowance after approval", error);
+          toast.error(
+            "Approval confirmed, but the updated allowance could not be verified.",
+            {
+              action: {
+                label: "Retry",
+                onClick: () => void synchronizeAllowanceAndOpenConfirm(),
+              },
+            },
+          );
+        } finally {
+          setIsApprovalProcessing(false);
         }
-      })();
+      }
+      void synchronizeAllowanceAndOpenConfirm();
     },
   });
 

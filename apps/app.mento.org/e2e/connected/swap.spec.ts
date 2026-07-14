@@ -30,6 +30,21 @@ import { erc20BalanceOf, revert, rpc, snapshot } from "./rpc";
 // ON-CHAIN" check.
 const ACCT0 = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 const CUSD = "0x765DE816845861e75A25fCA122bb6898B8B1282a";
+const APPROVE_SELECTOR = "0x095ea7b3";
+const ALLOWANCE_SELECTOR = "0xdd62ed3e";
+const ZERO_UINT256 = `0x${"0".repeat(64)}`;
+
+type JsonRpcRequest = {
+  id: number | string;
+  method: string;
+  params?: unknown[];
+};
+
+type JsonRpcResponse = {
+  id: number | string;
+  result?: unknown;
+  error?: unknown;
+};
 
 let snapshotId: string | undefined;
 
@@ -123,4 +138,133 @@ test("swaps 1 EURm (cEUR) for USDm (cUSD)", async ({ page }) => {
 
   const balanceAfter = await erc20BalanceOf(CUSD, ACCT0);
   expect(balanceAfter > balanceBefore).toBe(true);
+});
+
+test("recovers when the first post-approval allowance read is stale", async ({
+  page,
+}) => {
+  let approvalHash: string | undefined;
+  let approvalReceiptObserved = false;
+  let staleAllowanceInjected = false;
+
+  await page.route(
+    /http:\/\/(?:localhost|127\.0\.0\.1):8545\/.*/,
+    async (route) => {
+      let body: JsonRpcRequest | JsonRpcRequest[];
+      try {
+        body = route.request().postDataJSON() as
+          | JsonRpcRequest
+          | JsonRpcRequest[];
+      } catch {
+        return route.continue();
+      }
+
+      const requests = Array.isArray(body) ? body : [body];
+      const upstream = await route.fetch();
+      const responseBody = (await upstream.json()) as
+        | JsonRpcResponse
+        | JsonRpcResponse[];
+      const responses = Array.isArray(responseBody)
+        ? responseBody
+        : [responseBody];
+
+      const approveRequest = requests.find((request) => {
+        if (request.method !== "eth_sendTransaction") return false;
+        const transaction = request.params?.[0] as
+          | { data?: unknown; to?: unknown }
+          | undefined;
+        return (
+          typeof transaction?.data === "string" &&
+          transaction.data.toLowerCase().startsWith(APPROVE_SELECTOR) &&
+          typeof transaction.to === "string" &&
+          transaction.to.toLowerCase() === CUSD.toLowerCase()
+        );
+      });
+      if (approveRequest) {
+        const approveResponse = responses.find(
+          (response) => response.id === approveRequest.id,
+        );
+        if (typeof approveResponse?.result === "string") {
+          approvalHash = approveResponse.result;
+        }
+      }
+
+      const receiptRequest = requests.find(
+        (request) =>
+          request.method === "eth_getTransactionReceipt" &&
+          request.params?.[0] === approvalHash,
+      );
+      if (receiptRequest) {
+        const receiptResponse = responses.find(
+          (response) => response.id === receiptRequest.id,
+        );
+        const receipt = receiptResponse?.result as
+          | { status?: unknown }
+          | null
+          | undefined;
+        if (receipt?.status === "0x1") approvalReceiptObserved = true;
+      }
+
+      const staleAllowanceRequest = requests.find((request) => {
+        if (
+          request.method !== "eth_call" ||
+          !approvalReceiptObserved ||
+          staleAllowanceInjected
+        ) {
+          return false;
+        }
+        const call = request.params?.[0] as
+          | { data?: unknown; to?: unknown }
+          | undefined;
+        return (
+          typeof call?.data === "string" &&
+          call.data.toLowerCase().startsWith(ALLOWANCE_SELECTOR) &&
+          typeof call.to === "string" &&
+          call.to.toLowerCase() === CUSD.toLowerCase()
+        );
+      });
+
+      if (!staleAllowanceRequest) {
+        return route.fulfill({ response: upstream });
+      }
+
+      staleAllowanceInjected = true;
+      const patchedResponses = responses.map((response) =>
+        response.id === staleAllowanceRequest.id
+          ? { jsonrpc: "2.0", id: response.id, result: ZERO_UINT256 }
+          : response,
+      );
+      return route.fulfill({
+        response: upstream,
+        json: Array.isArray(responseBody)
+          ? patchedResponses
+          : patchedResponses[0],
+      });
+    },
+  );
+
+  await page.goto("/swap/celo?from=USDm&to=GBPm", {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(
+    page.getByText("0xf39F...2266").filter({ visible: true }),
+  ).toBeVisible({ timeout: 20_000 });
+
+  await page.getByTestId("sellAmountInput").fill("1.1");
+  const approveButton = page.getByTestId("approveButton");
+  await expect(approveButton).toBeEnabled({ timeout: 30_000 });
+  await approveButton.click();
+
+  await expect(page.getByText("Approve Successful")).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(page.getByText("Confirm Swap")).toBeVisible({
+    timeout: 30_000,
+  });
+  expect(staleAllowanceInjected).toBe(true);
+
+  const confirmSwapButton = page
+    .getByTestId("swapButton")
+    .filter({ visible: true });
+  await expect(confirmSwapButton).toBeEnabled({ timeout: 15_000 });
 });
