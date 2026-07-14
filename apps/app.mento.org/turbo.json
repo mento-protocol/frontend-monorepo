@@ -3,7 +3,7 @@
   "extends": ["//"],
   "tasks": {
     "build": {
-      "env": ["$TURBO_EXTENDS$", "VERCEL_ENV"],
+      "env": ["$TURBO_EXTENDS$", "MENTO_NEXT_DEPLOYMENT_ID", "VERCEL_ENV"],
       "inputs": ["$TURBO_EXTENDS$", "$TURBO_ROOT$/scripts/security-headers.mjs"]
     }
   }

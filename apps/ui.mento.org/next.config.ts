@@ -2,6 +2,9 @@ import type { NextConfig } from "next";
 import { env } from "@/env.mjs";
 import { buildSecurityHeaders } from "../../scripts/security-headers.mjs";
 
+// Declared in this app's turbo.json so deployment attempts do not invalidate shared-package caches.
+// eslint-disable-next-line turbo/no-undeclared-env-vars
+const deploymentId = process.env.MENTO_NEXT_DEPLOYMENT_ID;
 const storageHostname = env.NEXT_PUBLIC_STORAGE_URL.replace(
   /^https?:\/\/([^/]+)\/?.*$/,
   "$1",
@@ -25,6 +28,7 @@ const reportOnlyCsp = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  deploymentId,
   /* Performance Optimizations */
   // Enable React Server Components (default in App Router)
   reactStrictMode: true,
