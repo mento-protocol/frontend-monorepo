@@ -45,6 +45,7 @@ pnpm test                            # Run tests
 pnpm fork:mainnet                    # Local anvil fork of Celo mainnet (--celo --auto-impersonate)
 pnpm fork:seed                       # Fund fork accounts + re-report oracle prices (idempotent)
 pnpm pr:description:test             # Test the required PR-description format validator
+gh pr view --json body --jq .body | pnpm pr:description:check  # Validate the current PR body
 ```
 
 Always use `--filter` to avoid building/running everything unnecessarily.

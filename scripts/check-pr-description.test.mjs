@@ -150,6 +150,109 @@ Context.
   );
 });
 
+test("does not treat HTML comment markers rendered as inline code as comments", () => {
+  assertFail(
+    `## The Problem
+
+Context.
+
+\`<!--\`
+
+## Background
+
+More context.
+
+\`-->\`
+
+## The Solution
+
+Implementation.
+`,
+    /then '## The Solution'/,
+  );
+});
+
+test("does not pair inline-code delimiters across Markdown blocks", () => {
+  assertFail(
+    `## The Problem
+
+Context \`
+
+## Background
+
+Details \`
+
+## The Solution
+
+Implementation.
+`,
+    /then '## The Solution'/,
+  );
+});
+
+test("allows inline code to span soft line breaks within one block", () => {
+  assertPass(
+    `## The Problem
+
+\`<!--
+still rendered as code -->\`
+
+## The Solution
+
+Implementation.
+`,
+  );
+});
+
+test("allows inline code to span an indented paragraph continuation", () => {
+  assertFail(
+    `## The Problem
+
+\`code begins
+    <!--
+still rendered as code\`
+
+## Background
+
+\`-->\`
+
+## The Solution
+
+Implementation.
+`,
+    /then '## The Solution'/,
+  );
+});
+
+test("closes HTML comments before interpreting backticks inside them", () => {
+  assertFail(
+    `<!--
+\`-->\`
+
+## Background
+
+-->
+
+${validBody()}`,
+    /must start with exact '## The Problem'/,
+  );
+});
+
+test("ignores HTML comment markers and headings inside fenced code", () => {
+  assertPass(
+    validBody(`
+
+## Details
+
+\`\`\`md
+<!--
+## Example heading
+-->
+\`\`\`
+`),
+  );
+});
+
 test("fails an unclosed fenced block", () => {
   assertFail(
     validBody(`
@@ -196,6 +299,18 @@ test("CLI guard accepts a valid body from a relative script path", () => {
     cwd: repoRoot,
     encoding: "utf8",
     env: { ...process.env, PR_BODY: validBody() },
+  });
+  assert.match(output, /PR description OK/);
+});
+
+test("CLI guard accepts a valid body from stdin", () => {
+  const environment = { ...process.env };
+  delete environment.PR_BODY;
+  const output = execFileSync(process.execPath, [relativeScriptPath], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: environment,
+    input: validBody(),
   });
   assert.match(output, /PR description OK/);
 });

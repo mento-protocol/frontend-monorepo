@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -8,74 +9,138 @@ const PROBLEM_HEADING_RE = /^##\s+The Problem\s*$/;
 const SOLUTION_HEADING_RE = /^##\s+The Solution\s*$/;
 const PLACEHOLDER_RE =
   /\[(?:Describe the problem|Explain how this PR solves|List commands and results)/;
+const CODE_BLOCK_MARKER = "PR_DESCRIPTION_FENCED_CODE";
+const INLINE_CODE_MARKER = "PR_DESCRIPTION_INLINE_CODE";
 
 function linesOf(body) {
   return body.split(/\r?\n/);
 }
 
-function stripHtmlComments(body) {
-  let inComment = false;
-  const kept = [];
-
-  for (const originalLine of linesOf(body)) {
-    let line = originalLine;
-    let output = "";
-    let strippedComment = false;
-
-    while (line !== "") {
-      if (inComment) {
-        const close = line.indexOf("-->");
-        if (close === -1) break;
-        inComment = false;
-        strippedComment = true;
-        line = line.slice(close + 3);
-        continue;
-      }
-
-      const open = line.indexOf("<!--");
-      if (open === -1) {
-        output += line;
-        break;
-      }
-
-      output += line.slice(0, open);
-      strippedComment = true;
-      const close = line.indexOf("-->", open + 4);
-      if (close === -1) {
-        inComment = true;
-        break;
-      }
-      line = line.slice(close + 3);
-    }
-
-    if (strippedComment && output.trim() === "") continue;
-    kept.push(strippedComment ? output.trimStart() : output);
-  }
-
-  return kept.join("\n");
+function backtickRunLength(body, start) {
+  let end = start;
+  while (body[end] === "`") end += 1;
+  return end - start;
 }
 
-function stripFencedBlocks(body) {
-  let fence = null;
-  const kept = [];
+function isInlineBlockBoundary(line) {
+  return (
+    /^\s*$/.test(line) ||
+    /^[ \t]{0,3}(?:#{1,6}(?:[ \t]+|$)|`{3,}|~{3,}|>|<!--)/.test(line) ||
+    /^[ \t]{0,3}(?:=+|-+)[ \t]*$/.test(line)
+  );
+}
 
-  for (const line of linesOf(body)) {
-    if (fence === null) {
-      const opening = /^\s*(`{3,}|~{3,})/.exec(line);
-      if (opening) {
-        fence = { character: opening[1][0], length: opening[1].length };
-        continue;
-      }
-      kept.push(line);
+function inlineBlockEnd(body, start) {
+  let newline = body.indexOf("\n", start);
+
+  while (newline !== -1) {
+    const nextLineStart = newline + 1;
+    const nextNewline = body.indexOf("\n", nextLineStart);
+    const nextLineEnd = nextNewline === -1 ? body.length : nextNewline;
+    const rawLine = body.slice(nextLineStart, nextLineEnd);
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+    if (isInlineBlockBoundary(line)) return newline;
+    newline = nextNewline;
+  }
+
+  return body.length;
+}
+
+function findClosingBackticks(body, start, length, end) {
+  let cursor = start;
+
+  while (cursor < end) {
+    const candidate = body.indexOf("`", cursor);
+    if (candidate === -1 || candidate >= end) return -1;
+    const candidateLength = backtickRunLength(body, candidate);
+    if (candidateLength === length) return candidate;
+    cursor = candidate + candidateLength;
+  }
+
+  return -1;
+}
+
+function maskNonStructuralMarkdown(body) {
+  let output = "";
+  let cursor = 0;
+  let inComment = false;
+  let fence = null;
+
+  while (cursor < body.length) {
+    if (fence !== null) {
+      const newline = body.indexOf("\n", cursor);
+      const lineEnd = newline === -1 ? body.length : newline;
+      const rawLine = body.slice(cursor, lineEnd);
+      const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+      const closing = new RegExp(
+        `^[ \\t]{0,3}${fence.character}{${fence.length},}[ \\t]*$`,
+      );
+      if (closing.test(line)) fence = null;
+      if (newline !== -1) output += "\n";
+      cursor = newline === -1 ? body.length : newline + 1;
       continue;
     }
 
-    const escaped = fence.character === "`" ? "`" : "~";
-    const closing = new RegExp(`^\\s*${escaped}{${fence.length},}\\s*$`);
-    if (closing.test(line)) fence = null;
+    if (inComment) {
+      if (body.startsWith("-->", cursor)) {
+        inComment = false;
+        cursor += 3;
+      } else {
+        if (body[cursor] === "\n") output += "\n";
+        cursor += 1;
+      }
+      continue;
+    }
+
+    const atLineStart = cursor === 0 || body[cursor - 1] === "\n";
+    if (atLineStart) {
+      const newline = body.indexOf("\n", cursor);
+      const lineEnd = newline === -1 ? body.length : newline;
+      const rawLine = body.slice(cursor, lineEnd);
+      const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+      const opening = /^[ \\t]{0,3}(`{3,}|~{3,})/.exec(line);
+      if (opening) {
+        fence = { character: opening[1][0], length: opening[1].length };
+        output += CODE_BLOCK_MARKER;
+        if (newline !== -1) output += "\n";
+        cursor = newline === -1 ? body.length : newline + 1;
+        continue;
+      }
+    }
+
+    if (body.startsWith("<!--", cursor)) {
+      inComment = true;
+      cursor += 4;
+      continue;
+    }
+
+    if (body[cursor] !== "`") {
+      output += body[cursor];
+      cursor += 1;
+      continue;
+    }
+
+    const openingLength = backtickRunLength(body, cursor);
+    const contentStart = cursor + openingLength;
+    const closing = findClosingBackticks(
+      body,
+      contentStart,
+      openingLength,
+      inlineBlockEnd(body, contentStart),
+    );
+    if (closing === -1) {
+      output += "`".repeat(openingLength);
+      cursor = contentStart;
+      continue;
+    }
+
+    const codeContent = body.slice(contentStart, closing);
+    output += INLINE_CODE_MARKER;
+    output += "\n".repeat(codeContent.split("\n").length - 1);
+    cursor = closing + openingLength;
   }
 
-  return { body: kept.join("\n"), hasUnclosedFence: fence !== null };
+  return { body: output, hasUnclosedFence: fence !== null };
 }
 
 function firstNonBlankLine(body) {
@@ -103,10 +168,9 @@ export function validatePrDescription(body) {
     };
   }
 
-  const commentStripped = stripHtmlComments(body);
-  const firstLine = firstNonBlankLine(commentStripped);
-  const { body: fenceStripped, hasUnclosedFence } =
-    stripFencedBlocks(commentStripped);
+  // A single state machine preserves Markdown precedence: fences and inline
+  // code mask comment-like text only when they begin outside an HTML comment.
+  const { body: structure, hasUnclosedFence } = maskNonStructuralMarkdown(body);
 
   if (hasUnclosedFence) {
     return {
@@ -116,7 +180,8 @@ export function validatePrDescription(body) {
     };
   }
 
-  const secondHeading = h2Headings(fenceStripped)[1] ?? "";
+  const firstLine = firstNonBlankLine(structure);
+  const secondHeading = h2Headings(structure)[1] ?? "";
   if (
     !PROBLEM_HEADING_RE.test(firstLine) ||
     !SOLUTION_HEADING_RE.test(secondHeading)
@@ -135,6 +200,17 @@ export function validatePrDescription(body) {
   };
 }
 
+function readCliBody() {
+  // Workflow-local input, not a Turbo task dependency.
+
+  if (Object.hasOwn(process.env, "PR_BODY")) {
+    // eslint-disable-next-line turbo/no-undeclared-env-vars
+    return process.env.PR_BODY ?? "";
+  }
+
+  return process.stdin.isTTY ? "" : readFileSync(0, "utf8");
+}
+
 function isCliEntrypoint() {
   return (
     process.argv[1] !== undefined &&
@@ -143,9 +219,7 @@ function isCliEntrypoint() {
 }
 
 if (isCliEntrypoint()) {
-  // Workflow-local input, not a Turbo task dependency.
-  // eslint-disable-next-line turbo/no-undeclared-env-vars
-  const result = validatePrDescription(process.env.PR_BODY ?? "");
+  const result = validatePrDescription(readCliBody());
   if (result.ok) {
     console.log(result.message);
   } else {

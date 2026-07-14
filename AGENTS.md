@@ -33,6 +33,8 @@ that the checkout was unavailable.
 Every non-draft, non-Dependabot pull request body must start with the exact
 top-level headings `## The Problem` then `## The Solution` as its first two H2
 sections. Only HTML comments may appear before `## The Problem`. Validate the
-format with `pnpm pr:description:check`; run the validator tests with
-`pnpm pr:description:test`. The `PR description format` job is designed to be
-a required status and therefore must keep running without path filters.
+current PR with
+`gh pr view --json body --jq .body | pnpm pr:description:check`; run the
+validator tests with `pnpm pr:description:test`. The `PR description format`
+job is designed to be a required status and therefore must keep running without
+path filters.
