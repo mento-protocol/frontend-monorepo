@@ -94,6 +94,23 @@ test("fails unfilled template placeholders", () => {
   );
 });
 
+test("allows template prompt text when rendered as code or hidden in a comment", () => {
+  assertPass(
+    validBody(`
+
+## Validation
+
+- Example: \`[List commands and results, plus any manual verification.]\`
+
+\`\`\`md
+[Describe the problem, user impact, or maintenance risk this PR addresses.]
+\`\`\`
+
+<!-- [Explain how this PR solves the problem in plain English.] -->
+`),
+  );
+});
+
 test("fails content before The Problem", () => {
   assertFail(
     `# Summary\n\n${validBody()}`,
@@ -147,6 +164,24 @@ Context.
 - Tests pass.
 `,
     /then '## The Solution'/,
+  );
+});
+
+test("does not treat a t-prefixed fence as fenced code", () => {
+  assertFail(
+    `## The Problem
+
+Context.
+
+t\`\`\`md
+## Background
+\`\`\`
+
+## The Solution
+
+Implementation.
+`,
+    /unclosed fenced code block/,
   );
 });
 
@@ -215,6 +250,26 @@ still rendered as code\`
 ## Background
 
 \`-->\`
+
+## The Solution
+
+Implementation.
+`,
+    /then '## The Solution'/,
+  );
+});
+
+test("does not interpret comment markers in indented code as HTML comments", () => {
+  assertFail(
+    `## The Problem
+
+Context.
+
+    <!--
+
+## Background
+
+    -->
 
 ## The Solution
 

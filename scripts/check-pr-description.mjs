@@ -60,10 +60,22 @@ function findClosingBackticks(body, start, length, end) {
   return -1;
 }
 
+function previousLineIsBlank(body, lineStart) {
+  if (lineStart === 0) return true;
+  const previousLineEnd = lineStart - 1;
+  const previousLineStart = body.lastIndexOf("\n", previousLineEnd - 1) + 1;
+  return /^\s*$/.test(body.slice(previousLineStart, previousLineEnd));
+}
+
+function isIndentedCodeLine(line) {
+  return /^(?: {4}|\t)/.test(line);
+}
+
 function maskNonStructuralMarkdown(body) {
   let output = "";
   let cursor = 0;
   let inComment = false;
+  let inIndentedCode = false;
   let fence = null;
 
   while (cursor < body.length) {
@@ -98,7 +110,26 @@ function maskNonStructuralMarkdown(body) {
       const lineEnd = newline === -1 ? body.length : newline;
       const rawLine = body.slice(cursor, lineEnd);
       const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-      const opening = /^[ \\t]{0,3}(`{3,}|~{3,})/.exec(line);
+
+      if (inIndentedCode) {
+        if (/^\s*$/.test(line) || isIndentedCodeLine(line)) {
+          if (!/^\s*$/.test(line)) output += CODE_BLOCK_MARKER;
+          if (newline !== -1) output += "\n";
+          cursor = newline === -1 ? body.length : newline + 1;
+          continue;
+        }
+        inIndentedCode = false;
+      }
+
+      if (isIndentedCodeLine(line) && previousLineIsBlank(body, cursor)) {
+        inIndentedCode = true;
+        output += CODE_BLOCK_MARKER;
+        if (newline !== -1) output += "\n";
+        cursor = newline === -1 ? body.length : newline + 1;
+        continue;
+      }
+
+      const opening = /^[ \t]{0,3}(`{3,}|~{3,})/.exec(line);
       if (opening) {
         fence = { character: opening[1][0], length: opening[1].length };
         output += CODE_BLOCK_MARKER;
@@ -160,16 +191,9 @@ export function validatePrDescription(body) {
     };
   }
 
-  if (PLACEHOLDER_RE.test(body)) {
-    return {
-      ok: false,
-      message:
-        "PR description still contains template placeholders. Replace each bracketed prompt with real content.",
-    };
-  }
-
-  // A single state machine preserves Markdown precedence: fences and inline
-  // code mask comment-like text only when they begin outside an HTML comment.
+  // A single state machine preserves Markdown precedence: fenced/indented
+  // code and inline code mask comment-like text only when they begin outside
+  // an HTML comment.
   const { body: structure, hasUnclosedFence } = maskNonStructuralMarkdown(body);
 
   if (hasUnclosedFence) {
@@ -177,6 +201,14 @@ export function validatePrDescription(body) {
       ok: false,
       message:
         "PR description contains an unclosed fenced code block. Close it before the required sections.",
+    };
+  }
+
+  if (PLACEHOLDER_RE.test(structure)) {
+    return {
+      ok: false,
+      message:
+        "PR description still contains template placeholders. Replace each bracketed prompt with real content.",
     };
   }
 

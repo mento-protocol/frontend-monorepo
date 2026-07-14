@@ -45,7 +45,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           path: pr-head
 
-      - name: Validate PR description
+      - name: Test and validate PR description
         # Never interpolate user-controlled PR content into the shell script.
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
@@ -53,11 +53,14 @@ jobs:
           set -euo pipefail
 
           if [ -f trusted-base/scripts/check-pr-description.mjs ]; then
-            node trusted-base/scripts/check-pr-description.mjs
+            validator_root=trusted-base
           elif [ -f pr-head/scripts/check-pr-description.mjs ]; then
             echo "::warning::The trusted base does not have the validator yet; using the PR copy to bootstrap this policy."
-            node pr-head/scripts/check-pr-description.mjs
+            validator_root=pr-head
           else
             echo "::error::PR-description validator is missing from both the target branch and PR head."
             exit 1
           fi
+
+          node "$validator_root/scripts/check-pr-description.test.mjs"
+          node "$validator_root/scripts/check-pr-description.mjs"
