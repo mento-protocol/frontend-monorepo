@@ -54,6 +54,7 @@ pnpm fork:monad                      # Local anvil fork of Monad mainnet (chain 
 pnpm fork:seed:monad                 # Monad sibling of fork:seed (Reserve collateral + swap-to-seed, idempotent)
 pnpm pr:description:test             # Test the required PR-description format validator
 pnpm vercel:primitives:test          # Test affected planning, custom deployment IDs, and build-env contracts
+pnpm vercel:workflow:test            # Test the manual prebuilt pilot, REST lifecycle, CLI args, and direct smoke
 pnpm vercel:versions:check           # Verify pinned Next.js/Vercel CLI custom-ID prerequisites
 pnpm vercel:plan --base <sha> --head <sha>  # Emit the fail-closed Vercel target plan
 gh pr view --json body --jq .body | pnpm pr:description:check  # Validate the current PR body

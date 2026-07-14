@@ -1,0 +1,381 @@
+name: Reusable Vercel Prebuilt
+
+on:
+  workflow_call:
+    inputs:
+      logical_target:
+        description: Logical deployment target
+        required: true
+        type: string
+      workspace_package:
+        description: Target workspace package name
+        required: true
+        type: string
+      expected_root_directory:
+        description: Vercel project Root Directory relative to the monorepo root
+        required: true
+        type: string
+      vercel_org_id:
+        description: Vercel organization ID repository variable
+        required: true
+        type: string
+      vercel_project_id:
+        description: Vercel project ID repository variable
+        required: true
+        type: string
+      vercel_environment:
+        description: Vercel environment used by pull
+        required: true
+        type: string
+      vercel_target:
+        description: Vercel build and deploy target
+        required: true
+        type: string
+      commit_sha:
+        description: Immutable lowercase 40-character commit SHA
+        required: true
+        type: string
+      git_branch:
+        description: Validated same-repository branch containing commit_sha
+        required: true
+        type: string
+      deployment_mode:
+        description: Deployment mode (preview, custom target, or staged production)
+        required: true
+        type: string
+      deploy_permitted:
+        description: Explicit caller authorization to upload a deployment
+        required: true
+        type: boolean
+      github_environment:
+        description: Deterministic GitHub Deployment environment name
+        required: true
+        type: string
+      deployment_idempotency_key:
+        description: Caller-owned exact-SHA GitHub Deployment idempotency key
+        required: true
+        type: string
+      turbo_team:
+        description: Existing Turbo remote-cache team variable
+        required: true
+        type: string
+      pull_request_number:
+        description: Optional pull request provenance
+        required: false
+        default: ""
+        type: string
+      provenance:
+        description: Optional non-secret controller provenance
+        required: false
+        default: ""
+        type: string
+    secrets:
+      vercel_token:
+        description: Preview-scoped Vercel CLI token
+        required: true
+      turbo_token:
+        description: Turbo remote-cache token
+        required: true
+      turbo_remote_cache_signature_key:
+        description: Turbo signed-cache verification key
+        required: true
+      vercel_automation_bypass_secret:
+        description: Optional Vercel deployment-protection bypass for smoke
+        required: false
+    outputs:
+      deployment_url:
+        description: Immutable verified Vercel deployment URL
+        value: ${{ jobs.prebuilt.outputs.deployment_url }}
+      vercel_deployment_id:
+        description: Vercel deployment ID
+        value: ${{ jobs.prebuilt.outputs.vercel_deployment_id }}
+      github_deployment_id:
+        description: Canonical GitHub Deployment ID
+        value: ${{ jobs.prebuilt.outputs.github_deployment_id }}
+      final_state:
+        description: Final canonical GitHub Deployment state
+        value: ${{ jobs.prebuilt.outputs.final_state }}
+      commit_sha:
+        description: Exact checked-out commit SHA
+        value: ${{ jobs.prebuilt.outputs.commit_sha }}
+      logical_target:
+        description: Logical deployment target
+        value: ${{ jobs.prebuilt.outputs.logical_target }}
+      build_duration_ms:
+        description: Measured Vercel build duration in milliseconds
+        value: ${{ jobs.prebuilt.outputs.build_duration_ms }}
+      deploy_duration_ms:
+        description: Measured Vercel upload duration in milliseconds
+        value: ${{ jobs.prebuilt.outputs.deploy_duration_ms }}
+      total_duration_ms:
+        description: Measured controller duration in milliseconds
+        value: ${{ jobs.prebuilt.outputs.total_duration_ms }}
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: ${{ inputs.deployment_idempotency_key }}
+  cancel-in-progress: false
+
+jobs:
+  prebuilt:
+    name: Prebuilt ${{ inputs.logical_target }} preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      deployments: write
+    outputs:
+      deployment_url: ${{ steps.smoke.outputs.smoke_deployment_url || steps.deploy.outputs.vercel_deployment_url }}
+      vercel_deployment_id: ${{ steps.deploy.outputs.vercel_deployment_id }}
+      github_deployment_id: ${{ steps.create.outputs.github_deployment_id }}
+      final_state: ${{ steps.success.outputs.github_deployment_state || steps.finalizer.outputs.github_deployment_state }}
+      commit_sha: ${{ steps.source.outputs.checked_out_sha }}
+      logical_target: ${{ inputs.logical_target }}
+      build_duration_ms: ${{ steps.build.outputs.build_duration_ms }}
+      deploy_duration_ms: ${{ steps.deploy.outputs.deploy_duration_ms }}
+      total_duration_ms: ${{ steps.total.outputs.total_duration_ms }}
+    steps:
+      - name: Check out trusted workflow controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Check out exact deployment source and full history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          path: source
+          persist-credentials: false
+          ref: ${{ inputs.commit_sha }}
+
+      - name: Set up pinned pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v4
+        with:
+          version: 10.24.0
+
+      - name: Set up pinned Node.js and pnpm cache
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: source/pnpm-lock.yaml
+
+      - name: Validate pilot contract and prepare immutable build identity
+        id: prepare
+        env:
+          DEPLOYMENT_IDEMPOTENCY_KEY: ${{ inputs.deployment_idempotency_key }}
+          DEPLOYMENT_MODE: ${{ inputs.deployment_mode }}
+          DEPLOY_PERMITTED: ${{ inputs.deploy_permitted }}
+          DEPLOY_SHA: ${{ inputs.commit_sha }}
+          EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
+          GIT_BRANCH: ${{ inputs.git_branch }}
+          GITHUB_DEPLOYMENT_ENVIRONMENT: ${{ inputs.github_environment }}
+          LOGICAL_TARGET: ${{ inputs.logical_target }}
+          VERCEL_ENVIRONMENT: ${{ inputs.vercel_environment }}
+          VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
+          VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
+          VERCEL_TARGET: ${{ inputs.vercel_target }}
+          WORKFLOW_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          WORKSPACE_PACKAGE: ${{ inputs.workspace_package }}
+        run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" prepare
+
+      - name: Validate same-repository branch reachability and exact HEAD
+        id: source
+        env:
+          DEPLOY_SHA: ${{ inputs.commit_sha }}
+          GIT_BRANCH: ${{ inputs.git_branch }}
+          SOURCE_PATH: ${{ github.workspace }}/source
+        run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" validate-source
+
+      - name: Install frozen dependencies
+        working-directory: source
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify pinned Vercel prerequisites
+        working-directory: source
+        run: pnpm vercel:versions:check
+
+      - name: Materialize trusted repo-level UI project mapping
+        env:
+          EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
+          SOURCE_PATH: ${{ github.workspace }}/source
+          VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
+          VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
+        run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" prepare-link
+
+      - name: Create or reuse canonical GitHub Deployment
+        id: create
+        env:
+          DEPLOYMENT_IDEMPOTENCY_KEY: ${{ inputs.deployment_idempotency_key }}
+          DEPLOYMENT_PROVENANCE: ${{ inputs.provenance }}
+          DEPLOY_SHA: ${{ steps.source.outputs.checked_out_sha }}
+          GIT_BRANCH: ${{ inputs.git_branch }}
+          GITHUB_DEPLOYMENT_ENVIRONMENT: ${{ inputs.github_environment }}
+          GITHUB_TOKEN: ${{ github.token }}
+          LOGICAL_TARGET: ${{ inputs.logical_target }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
+          WORKFLOW_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: node "$GITHUB_WORKSPACE/controller/scripts/github-deployment.mjs" ensure
+
+      - name: Mark GitHub Deployment queued
+        env:
+          GITHUB_DEPLOYMENT_ID: ${{ steps.create.outputs.github_deployment_id }}
+          GITHUB_DEPLOYMENT_STATE: queued
+          GITHUB_TOKEN: ${{ github.token }}
+          WORKFLOW_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: node "$GITHUB_WORKSPACE/controller/scripts/github-deployment.mjs" status
+
+      - name: Mark GitHub Deployment in progress
+        env:
+          GITHUB_DEPLOYMENT_ID: ${{ steps.create.outputs.github_deployment_id }}
+          GITHUB_DEPLOYMENT_STATE: in_progress
+          GITHUB_TOKEN: ${{ github.token }}
+          WORKFLOW_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: node "$GITHUB_WORKSPACE/controller/scripts/github-deployment.mjs" status
+
+      - name: Pull branch-specific UI preview settings
+        id: pull
+        env:
+          GIT_BRANCH: ${{ inputs.git_branch }}
+          SOURCE_PATH: ${{ github.workspace }}/source
+          VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
+          VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
+          VERCEL_TOKEN: ${{ secrets.vercel_token }}
+        run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" pull
+
+      - name: Assert pulled UI project mapping
+        env:
+          EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
+          SOURCE_PATH: ${{ github.workspace }}/source
+          VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
+          VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
+        run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" validate-pull
+
+      - name: Validate app-root preview build variables
+        working-directory: source
+        env:
+          CI: 1
+          NEXT_PUBLIC_VERCEL_ENV: preview
+          VERCEL: 1
+          VERCEL_ENV: preview
+          VERCEL_TARGET_ENV: preview
+        run: >-
+          node "$GITHUB_WORKSPACE/controller/scripts/vercel-build-environment.mjs"
+          check --target ui --environment preview
+          --project-directory apps/ui.mento.org
+
+      - name: Build and assert the UI prebuilt output
+        id: build
+        env:
+          CI: 1
+          EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
+          GIT_BRANCH: ${{ inputs.git_branch }}
+          MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.prepare.outputs.next_deployment_id }}
+          NEXT_PUBLIC_VERCEL_ENV: preview
+          SOURCE_PATH: ${{ github.workspace }}/source
+          TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.turbo_remote_cache_signature_key }}
+          TURBO_TEAM: ${{ inputs.turbo_team }}
+          TURBO_TOKEN: ${{ secrets.turbo_token }}
+          VERCEL: 1
+          VERCEL_ENV: preview
+          VERCEL_GIT_COMMIT_REF: ${{ inputs.git_branch }}
+          VERCEL_GIT_COMMIT_SHA: ${{ steps.source.outputs.checked_out_sha }}
+          VERCEL_GIT_PROVIDER: github
+          VERCEL_GIT_REPO_OWNER: mento-protocol
+          VERCEL_GIT_REPO_SLUG: frontend-monorepo
+          VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
+          VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
+          VERCEL_TARGET_ENV: preview
+          VERCEL_TOKEN: ${{ secrets.vercel_token }}
+        run: |
+          node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" build
+          node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" assert-output
+
+      - name: Upload the verified prebuilt output
+        id: deploy
+        env:
+          DEPLOY_SHA: ${{ steps.source.outputs.checked_out_sha }}
+          GIT_BRANCH: ${{ inputs.git_branch }}
+          SOURCE_PATH: ${{ github.workspace }}/source
+          VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
+          VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
+          VERCEL_TOKEN: ${{ secrets.vercel_token }}
+        run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" deploy
+
+      - name: Verify and smoke the immutable preview
+        id: smoke
+        env:
+          DEPLOY_SHA: ${{ steps.source.outputs.checked_out_sha }}
+          GITHUB_DEPLOYMENT_ID: ${{ steps.create.outputs.github_deployment_id }}
+          MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.prepare.outputs.next_deployment_id }}
+          SOURCE_PATH: ${{ github.workspace }}/source
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.vercel_automation_bypass_secret }}
+          VERCEL_DEPLOYMENT_ID: ${{ steps.deploy.outputs.vercel_deployment_id }}
+          VERCEL_DEPLOYMENT_URL: ${{ steps.deploy.outputs.vercel_deployment_url }}
+          VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
+          VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
+          VERCEL_TOKEN: ${{ secrets.vercel_token }}
+        run: |
+          node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" verify
+          node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" smoke
+
+      - name: Measure total controller duration
+        id: total
+        if: always() && steps.prepare.outputs.started_at_ms != ''
+        env:
+          STARTED_AT_MS: ${{ steps.prepare.outputs.started_at_ms }}
+        run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" total
+
+      - name: Mark GitHub Deployment successful after smoke
+        id: success
+        env:
+          GITHUB_DEPLOYMENT_ID: ${{ steps.create.outputs.github_deployment_id }}
+          GITHUB_DEPLOYMENT_STATE: success
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_DEPLOYMENT_URL: ${{ steps.smoke.outputs.smoke_deployment_url }}
+          WORKFLOW_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: node "$GITHUB_WORKSPACE/controller/scripts/github-deployment.mjs" status
+
+      - name: Record comparison evidence
+        if: steps.success.outcome == 'success'
+        env:
+          BUILD_DURATION_MS: ${{ steps.build.outputs.build_duration_ms }}
+          COMMIT_SHA: ${{ steps.smoke.outputs.smoke_commit_sha }}
+          DEPLOY_DURATION_MS: ${{ steps.deploy.outputs.deploy_duration_ms }}
+          GITHUB_DEPLOYMENT_ID: ${{ steps.smoke.outputs.smoke_github_deployment_id }}
+          TOTAL_DURATION_MS: ${{ steps.total.outputs.total_duration_ms }}
+          VERCEL_DEPLOYMENT_ID: ${{ steps.smoke.outputs.smoke_deployment_id }}
+          VERCEL_DEPLOYMENT_URL: ${{ steps.smoke.outputs.smoke_deployment_url }}
+        run: |
+          {
+            echo "### GitHub prebuilt pilot"
+            echo
+            echo "- Commit: \`$COMMIT_SHA\`"
+            echo "- GitHub Deployment: \`$GITHUB_DEPLOYMENT_ID\`"
+            echo "- Vercel Deployment: \`$VERCEL_DEPLOYMENT_ID\`"
+            echo "- Immutable URL: $VERCEL_DEPLOYMENT_URL"
+            echo "- Build: \`$BUILD_DURATION_MS ms\`"
+            echo "- Deploy/upload: \`$DEPLOY_DURATION_MS ms\`"
+            echo "- Controller total: \`$TOTAL_DURATION_MS ms\`"
+            echo
+            echo "Turbo cache hit/miss details are preserved in the build log above."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Close a non-terminal GitHub Deployment
+        id: finalizer
+        if: always() && steps.create.outputs.github_deployment_id != '' && steps.success.outcome != 'success'
+        env:
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          GITHUB_DEPLOYMENT_ID: ${{ steps.create.outputs.github_deployment_id }}
+          GITHUB_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          WORKFLOW_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: node "$GITHUB_WORKSPACE/controller/scripts/github-deployment.mjs" finalize
