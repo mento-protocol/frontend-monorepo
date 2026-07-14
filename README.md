@@ -125,12 +125,17 @@ pnpm format:check
 
 # Verify every third-party GitHub Action uses an immutable SHA + version comment
 pnpm ci:action-pins
+
+# Run the action-pin scanner and REST materializer fixture suites
+pnpm ci:action-pins:test
 ```
 
 Two always-run checks protect the policy on every pull request:
-`GitHub Actions Policy` runs the trusted base-branch checker against the PR,
-while `GitHub Actions Policy Source` runs the proposed checker and fixtures in
-a credential-free `pull_request` workflow. After these workflows merge, branch
+`GitHub Actions Policy` runs the trusted base-branch checker against only the
+PR head's Actions YAML, fetched as inert blobs from its exact commit through the
+GitHub Git API. It never checks out or executes pull-request files. `GitHub
+Actions Policy Source` runs the proposed checker, REST materializer, and fixtures
+in a credential-free `pull_request` workflow. After these workflows merge, branch
 protection must require both `Action Pin Policy` and `Action Pin Policy Source`
 so neither trusted enforcement nor proposed-policy validation can be skipped.
 Because the source lane necessarily runs pull-request-controlled policy code,

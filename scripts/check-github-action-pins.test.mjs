@@ -282,6 +282,115 @@ runs:
   }
 });
 
+test("rejects local action references without a materialized manifest", () => {
+  const root = fixtureRoot("local-missing-fail");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs:
+  test:
+    steps:
+      - uses: ./tools/actions/missing
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(
+      result.stderr,
+      "does not contain action.yml or action.yaml",
+      "missing local action manifest",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects local action paths that escape the repository root", () => {
+  const root = fixtureRoot("local-escape-fail");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs:
+  test:
+    steps:
+      - uses: ../outside
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(
+      result.stderr,
+      "local action path escapes the repository root",
+      "escaping local action",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("accepts existing local reusable workflows", () => {
+  const root = fixtureRoot("local-workflow-pass");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs:
+  call:
+    uses: ./.github/workflows/reusable.yml
+`,
+    );
+    write(
+      root,
+      ".github/workflows/reusable.yml",
+      `
+on: workflow_call
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@${PINNED_SHA} # v7.0.0
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects missing local reusable workflows", () => {
+  const root = fixtureRoot("local-workflow-missing-fail");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs:
+  call:
+    uses: ./.github/workflows/missing.yml
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(
+      result.stderr,
+      "unsafe local reusable workflow",
+      "missing local reusable workflow",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("rejects mutable flow-style steps", () => {
   const root = fixtureRoot("flow-fail");
   try {
@@ -1096,13 +1205,19 @@ test("isolates trusted enforcement from PR-head source validation", () => {
   contains(source, "\n  pull_request:", "source-validation trigger");
   excludes(source, "pull_request_target:", "source workflow trusted trigger");
   contains(source, "persist-credentials: false", "credential-free checkout");
-  equal(
-    trustedSteps.find((step) => step.name === "Check out pull request").with[
-      "allow-unsafe-pr-checkout"
-    ],
-    true,
-    "fork-head checkout opt-in",
+  excludes(trusted, "Check out pull request", "untrusted checkout step");
+  excludes(trusted, "allow-unsafe-pr-checkout", "unsafe checkout opt-in");
+  const trustedCheckouts = trustedSteps.filter((step) =>
+    step.uses?.startsWith("actions/checkout@"),
   );
+  equal(trustedCheckouts.length, 1, "only one trusted checkout");
+  equal(
+    trustedCheckouts[0].with.ref,
+    "${{ github.event.pull_request.base.sha }}",
+    "checkout stays on exact base SHA",
+  );
+  excludes(trusted, "download-artifact", "untrusted artifact download");
+  excludes(trusted, "unzip", "untrusted archive extraction");
   for (const step of trustedSteps.filter((candidate) => candidate.run)) {
     equal(
       step["working-directory"],
@@ -1134,6 +1249,45 @@ test("isolates trusted enforcement from PR-head source validation", () => {
     "--frozen-lockfile --ignore-scripts --filter .",
     "source dependency install",
   );
+  const fetchStep = trustedSteps.find(
+    (step) => step.name === "Fetch pull request Actions YAML",
+  );
+  equal(
+    fetchStep.run,
+    "node scripts/fetch-action-pin-yaml.mjs",
+    "trusted fetcher",
+  );
+  equal(
+    fetchStep.env.GITHUB_TOKEN,
+    "${{ github.token }}",
+    "fetch-only token env",
+  );
+  equal(
+    trustedSteps.filter((step) => step.env?.GITHUB_TOKEN).length,
+    1,
+    "token is exposed only to the trusted fetch step",
+  );
+  equal(
+    fetchStep.env.PR_HEAD_REPOSITORY,
+    "${{ github.event.pull_request.head.repo.full_name }}",
+    "exact fork repository input",
+  );
+  equal(
+    fetchStep.env.PR_HEAD_SHA,
+    "${{ github.event.pull_request.head.sha }}",
+    "exact PR head SHA input",
+  );
+  equal(
+    fetchStep.env.ACTION_PIN_OUTPUT_DIR,
+    "${{ runner.temp }}/action-pin-pr-head",
+    "isolated materializer output",
+  );
+  equal(
+    trustedSteps.find((step) => step.name === "Enforce immutable action pins")
+      .env.GITHUB_ACTION_PINS_ROOT,
+    "${{ runner.temp }}/action-pin-pr-head",
+    "materialized scanner root",
+  );
   excludes(source, "Enforce proposed", "source validation wording");
   equal(
     trustedWorkflow.jobs["action-pins"].name ===
@@ -1143,8 +1297,8 @@ test("isolates trusted enforcement from PR-head source validation", () => {
   );
   contains(
     source,
-    "node scripts/check-github-action-pins.test.mjs",
-    "proposed policy tests",
+    "pnpm ci:action-pins:test",
+    "proposed scanner and fetcher tests",
   );
   contains(
     source,

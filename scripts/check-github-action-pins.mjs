@@ -6,7 +6,7 @@
  */
 
 import { lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import process from "node:process";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -56,18 +56,6 @@ const NORMALIZED_POLICY_WORKFLOWS = new Map([
               },
             },
             {
-              name: "Check out pull request",
-              uses: "actions/checkout@<sha>",
-              with: {
-                repository:
-                  "${{ github.event.pull_request.head.repo.full_name }}",
-                ref: "${{ github.event.pull_request.head.sha }}",
-                path: "pr-head",
-                "persist-credentials": false,
-                "allow-unsafe-pr-checkout": true,
-              },
-            },
-            {
               name: "Setup PNPM",
               uses: "pnpm/action-setup@<sha>",
               with: { version: "10.24.0" },
@@ -85,13 +73,26 @@ const NORMALIZED_POLICY_WORKFLOWS = new Map([
             {
               name: "Test action-pin policy",
               "working-directory": "trusted-base",
-              run: "node scripts/check-github-action-pins.test.mjs",
+              run: "pnpm ci:action-pins:test",
+            },
+            {
+              name: "Fetch pull request Actions YAML",
+              "working-directory": "trusted-base",
+              env: {
+                GITHUB_TOKEN: "${{ github.token }}",
+                PR_HEAD_REPOSITORY:
+                  "${{ github.event.pull_request.head.repo.full_name }}",
+                PR_HEAD_SHA: "${{ github.event.pull_request.head.sha }}",
+                ACTION_PIN_OUTPUT_DIR: "${{ runner.temp }}/action-pin-pr-head",
+              },
+              run: "node scripts/fetch-action-pin-yaml.mjs",
             },
             {
               name: "Enforce immutable action pins",
               "working-directory": "trusted-base",
               env: {
-                GITHUB_ACTION_PINS_ROOT: "${{ github.workspace }}/pr-head",
+                GITHUB_ACTION_PINS_ROOT:
+                  "${{ runner.temp }}/action-pin-pr-head",
               },
               run: "node scripts/check-github-action-pins.mjs",
             },
@@ -137,7 +138,7 @@ const NORMALIZED_POLICY_WORKFLOWS = new Map([
             },
             {
               name: "Test proposed action-pin policy",
-              run: "node scripts/check-github-action-pins.test.mjs",
+              run: "pnpm ci:action-pins:test",
             },
             {
               name: "Scan proposed action pins",
@@ -367,12 +368,13 @@ function lineNumber(node, lineCounter) {
 function collectUses(root, document) {
   const references = [];
 
-  /** @param {unknown} executable */
-  const addDirectUses = (executable) => {
+  /** @param {unknown} executable @param {"action" | "workflow"} kind */
+  const addDirectUses = (executable, kind) => {
     const uses = findPair(executable, "uses", document);
     if (!uses) return;
 
     const reference = {
+      kind,
       keyNode: uses.key,
       valueNode: uses.value,
       // If the executable mapping is itself an alias, the version comment
@@ -385,7 +387,8 @@ function collectUses(root, document) {
         (existing) =>
           existing.keyNode === reference.keyNode &&
           existing.valueNode === reference.valueNode &&
-          existing.commentNode === reference.commentNode,
+          existing.commentNode === reference.commentNode &&
+          existing.kind === reference.kind,
       )
     ) {
       return;
@@ -397,7 +400,7 @@ function collectUses(root, document) {
   const addSteps = (stepsNode) => {
     const steps = resolveAliases(stepsNode, document);
     if (!isSeq(steps)) return;
-    for (const step of steps.items) addDirectUses(step);
+    for (const step of steps.items) addDirectUses(step, "action");
   };
 
   const jobsPair = findPair(root, "jobs", document);
@@ -405,7 +408,7 @@ function collectUses(root, document) {
   if (isMap(jobs)) {
     for (const jobPair of jobs.items) {
       const job = jobPair.value;
-      addDirectUses(job);
+      addDirectUses(job, "workflow");
       addSteps(findPair(job, "steps", document)?.value);
     }
   }
@@ -418,7 +421,7 @@ function collectUses(root, document) {
 }
 
 /** @param {string} value */
-function isLocalAction(value) {
+function isLocalReference(value) {
   return value.startsWith("./") || value.startsWith("../");
 }
 
@@ -433,17 +436,19 @@ function isInsideRoot(root, path) {
   const relativePath = relative(root, path);
   return (
     relativePath === "" ||
-    (!relativePath.startsWith("..") && !relativePath.startsWith("/"))
+    (relativePath !== ".." &&
+      !relativePath.startsWith(`..${sep}`) &&
+      !isAbsolute(relativePath))
   );
 }
 
-/** @param {string} fromFile @param {string} value */
-function localActionManifestPaths(fromFile, value) {
-  const actionDirectory = value.startsWith("../")
-    ? resolve(dirname(fromFile), value)
-    : resolve(ROOT, value);
+/** @param {string} value */
+function localActionManifestPaths(value) {
+  const actionDirectory = resolve(ROOT, value);
 
-  if (!isInsideRoot(ROOT, actionDirectory)) return [];
+  if (!isInsideRoot(ROOT, actionDirectory)) {
+    throw new Error("local action path escapes the repository root");
+  }
 
   const manifests = [];
   for (const name of ["action.yml", "action.yaml"]) {
@@ -465,7 +470,48 @@ function localActionManifestPaths(fromFile, value) {
     }
     manifests.push(path);
   }
+  if (manifests.length === 0) {
+    throw new Error(
+      `${relative(ROOT, actionDirectory) || "."} does not contain action.yml or action.yaml`,
+    );
+  }
   return manifests;
+}
+
+/** @param {string} value */
+function localReusableWorkflowPath(value) {
+  if (!value.startsWith("./.github/workflows/")) {
+    throw new Error(
+      "local reusable workflows must use ./.github/workflows/<file>.yml",
+    );
+  }
+  const path = resolve(ROOT, value);
+  const relativePath = relative(ROOT, path);
+  if (
+    !isInsideRoot(ROOT, path) ||
+    !relativePath.startsWith(".github/workflows/") ||
+    !/\.ya?ml$/.test(relativePath)
+  ) {
+    throw new Error("local reusable workflow path is unsafe");
+  }
+
+  let stats;
+  try {
+    stats = lstatSync(path);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      throw new Error(`${relativePath} does not exist`);
+    }
+    throw error;
+  }
+  if (!stats.isFile()) {
+    throw new Error(`${relativePath} is not a regular file`);
+  }
+  const expectedRealPath = resolve(REAL_ROOT, relativePath);
+  if (realpathSync(path) !== expectedRealPath) {
+    throw new Error(`${relativePath} resolves through a symlink`);
+  }
+  return path;
 }
 
 const missingPolicyFiles = REQUIRED_POLICY_FILES.filter(
@@ -572,23 +618,26 @@ for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
       continue;
     }
 
-    if (isLocalAction(value)) {
-      let manifests;
+    if (isLocalReference(value)) {
+      let localFiles;
       try {
-        manifests = localActionManifestPaths(file, value);
+        localFiles =
+          reference.kind === "workflow"
+            ? [localReusableWorkflowPath(value)]
+            : localActionManifestPaths(value);
       } catch (error) {
         failures.push({
           file: relativeFile,
           line: lineNumber(reference.keyNode, lineCounter),
-          problem: `unsafe local action manifest (${error instanceof Error ? error.message : String(error)})`,
+          problem: `unsafe local ${reference.kind === "workflow" ? "reusable workflow" : "action manifest"} (${error instanceof Error ? error.message : String(error)})`,
         });
         continue;
       }
 
-      for (const manifest of manifests) {
-        if (!queuedFiles.has(manifest)) {
-          queuedFiles.add(manifest);
-          files.push(manifest);
+      for (const localFile of localFiles) {
+        if (!queuedFiles.has(localFile)) {
+          queuedFiles.add(localFile);
+          files.push(localFile);
         }
       }
       continue;

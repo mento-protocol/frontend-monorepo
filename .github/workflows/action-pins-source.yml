@@ -35,6 +35,6 @@ jobs:
       - name: Install proposed policy dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts --filter .
       - name: Test proposed action-pin policy
-        run: node scripts/check-github-action-pins.test.mjs
+        run: pnpm ci:action-pins:test
       - name: Scan proposed action pins
         run: node scripts/check-github-action-pins.mjs

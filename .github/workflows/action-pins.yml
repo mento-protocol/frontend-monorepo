@@ -4,7 +4,8 @@ name: GitHub Actions Policy
 # required, every PR must report the context instead of being left pending.
 on:
   # Run the workflow definition from the trusted base branch. The job never
-  # executes code from the pull request; it only scans its YAML files.
+  # executes or checks out code from the pull request. Trusted code fetches
+  # only the exact head commit's Actions YAML through GitHub's Git API.
   pull_request_target:
     branches: [main]
 
@@ -27,16 +28,6 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           path: trusted-base
           persist-credentials: false
-      - name: Check out pull request
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.sha }}
-          path: pr-head
-          persist-credentials: false
-          # checkout v7 requires this for fork heads. Safe here because PR files
-          # are input to the trusted-base checker and are never executed.
-          allow-unsafe-pr-checkout: true
       - name: Setup PNPM
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v4
         with:
@@ -52,9 +43,17 @@ jobs:
         # Proposed policy changes run separately in the credential-free
         # pull_request workflow defined by action-pins-source.yml.
         working-directory: trusted-base
-        run: node scripts/check-github-action-pins.test.mjs
+        run: pnpm ci:action-pins:test
+      - name: Fetch pull request Actions YAML
+        working-directory: trusted-base
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          ACTION_PIN_OUTPUT_DIR: ${{ runner.temp }}/action-pin-pr-head
+        run: node scripts/fetch-action-pin-yaml.mjs
       - name: Enforce immutable action pins
         working-directory: trusted-base
         env:
-          GITHUB_ACTION_PINS_ROOT: ${{ github.workspace }}/pr-head
+          GITHUB_ACTION_PINS_ROOT: ${{ runner.temp }}/action-pin-pr-head
         run: node scripts/check-github-action-pins.mjs
