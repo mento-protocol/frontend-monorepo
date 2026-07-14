@@ -173,7 +173,12 @@ test("documentation-only changes retain the always-on Trunk static checks", () =
     /^ {4}if: needs\.changes\.outputs\.run_quality == 'true'$/m,
     "the static job must run for documentation-only changes",
   );
-  for (const stepName of ["Install pnpm dependencies", "Type check", "Knip"]) {
+  assert.match(
+    staticJob,
+    /- name: Install pnpm dependencies\n {8}uses: \.\/\.github\/actions\/pnpm-install/,
+    "Trunk's repository plugins require dependencies on every diff",
+  );
+  for (const stepName of ["Type check", "Knip"]) {
     assert.match(
       staticJob,
       new RegExp(

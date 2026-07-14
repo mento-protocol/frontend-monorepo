@@ -194,7 +194,6 @@ jobs:
         with:
           fetch-depth: 2
       - name: Install pnpm dependencies
-        if: needs.changes.outputs.run_quality == 'true'
         uses: ./.github/actions/pnpm-install
       - name: Type check
         if: needs.changes.outputs.run_quality == 'true'
