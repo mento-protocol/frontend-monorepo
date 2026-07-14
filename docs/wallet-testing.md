@@ -14,9 +14,10 @@ runs against an anvil fork of Celo mainnet — no real network is ever touched.
   `apps/app.mento.org/.env.local` and fill it — the env schema
   (`apps/app.mento.org/app/env.mjs`) fails the dev server at startup otherwise.
   `NEXT_PUBLIC_STORAGE_URL` must be a valid URL (real value: see the Vercel
-  link in `.env.example`); `NEXT_PUBLIC_WALLET_CONNECT_ID`,
-  `NEXT_PUBLIC_SENTRY_DSN_SWAP`, and `SENTRY_AUTH_TOKEN` must be present but
-  may be empty strings for local dev (E2E mode replaces WalletConnect).
+  link in `.env.example`); `NEXT_PUBLIC_WALLET_CONNECT_ID` and
+  `NEXT_PUBLIC_SENTRY_DSN_SWAP` must be present but may be empty strings for
+  local dev (E2E mode replaces WalletConnect). `SENTRY_AUTH_TOKEN` is needed
+  only for Vercel production source-map uploads.
 - `CHAINALYSIS_API_KEY` set in the same `.env.local` (any valid key; never
   commit it). Without it the app BLOCKS after wallet connect — the sanctions
   API route fails closed by design. See Troubleshooting.

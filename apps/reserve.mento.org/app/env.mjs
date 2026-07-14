@@ -8,7 +8,7 @@ export const env = createEnv({
    * Will throw if you access these variables on the client.
    */
   server: {
-    SENTRY_AUTH_TOKEN: z.string(),
+    SENTRY_AUTH_TOKEN: z.string().optional(),
   },
   /*
    * Environment variables available on the client (and server).
