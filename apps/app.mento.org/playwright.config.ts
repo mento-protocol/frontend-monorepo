@@ -53,11 +53,28 @@ export default defineConfig({
       // `playwright test --project=connected`.
       name: "connected",
       testMatch: /connected\/.*\.spec\.ts/,
+      // The Monad spec targets a DIFFERENT anvil fork (chain 143 on 8546) than
+      // the Celo specs (8545), so it has its own project + npm script and its
+      // own CI job. Excluded here so `pnpm test:connected` (the Celo job) never
+      // fails on an 8546 fork it didn't start.
+      testIgnore: [/connected\/swap-monad\.spec\.ts/],
       fullyParallel: false,
       // Headroom above the sum of the swap spec's chained assertion budgets
       // (20s connect + 30s enable + 60s approve + 30s confirm + 30s enable +
       // 60s swap ≈ 230s worst case on the approve path) — same rationale as
       // the governance connected project's 240s budget.
+      timeout: 240_000,
+      use: { viewport: { width: 1280, height: 900 } },
+    },
+    {
+      // Monad connected swap — same one-fork/serial invariant as `connected`,
+      // but against the Monad fork (127.0.0.1:8546). Run via
+      // `pnpm --filter app.mento.org test:connected:monad` (adds --workers=1);
+      // never a bare `playwright test --project=connected-monad`. Adds the
+      // extra 20s chain-switch step to the budget above.
+      name: "connected-monad",
+      testMatch: /connected\/swap-monad\.spec\.ts/,
+      fullyParallel: false,
       timeout: 240_000,
       use: { viewport: { width: 1280, height: 900 } },
     },

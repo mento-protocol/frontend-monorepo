@@ -71,6 +71,40 @@ runs against an anvil fork of Celo mainnet — no real network is ever touched.
    mainnet, so `?from=CELO` silently falls back to the default pair), then
    verify on-chain (next section).
 
+## Monad fork (chain 143)
+
+Monad mainnet runs a different Mento stack than Celo (Router + FPMM, no
+Broker/BiPoolManager), so it has its own scripts and its own port (8546), and
+you can run both forks at once.
+
+1. Start + seed the Monad fork:
+
+   ```bash
+   pnpm fork:monad       # anvil fork of Monad mainnet (chain 143) on port 8546, NO --celo
+   pnpm fork:seed:monad  # MON gas + Reserve collateral + every stable via real Router swaps; re-reports oracles
+   ```
+
+   `fork:seed:monad` is idempotent — re-run it after every `evm_revert` and
+   whenever quotes stall (the EURm/USDm feed's report expiry is 360s). It seeds
+   stables by executing REAL Router swaps (USDC -> USDm -> X) rather than
+   whale-transferring, because pulling a leg straight out of an FPMM pool drops
+   its balance below its stored reserve and every later swap through it reverts.
+
+2. Start the app pointed at the Monad fork. Monad has NO `--celo`/
+   `NEXT_PUBLIC_USE_FORK` redirect, so the RPC override IS the seam — it
+   redirects both wagmi and the mento-sdk's public client:
+
+   ```bash
+   NEXT_PUBLIC_E2E_TEST=true NEXT_PUBLIC_MONAD_RPC_URL=http://localhost:8546 \
+     pnpm exec turbo run dev --filter app.mento.org
+   ```
+
+3. Open [http://localhost:3000/swap/monad?from=EURm&to=USDm](http://localhost:3000/swap/monad?from=EURm&to=USDm),
+   connect the E2E Test Wallet. It joins on Celo (the first configured chain),
+   so a "Switch to Monad" banner appears — click it to move the wallet to chain
+   143, then swap. Verify on-chain against port 8546 (`--rpc-url
+http://127.0.0.1:8546` in the `cast` recipes below).
+
 ## Automated Playwright specs
 
 Instead of driving the UI by hand, both apps have a `connected` Playwright
@@ -79,6 +113,14 @@ project that does steps 3-5 above automatically against the same seeded fork:
 `pnpm --filter governance.mento.org test:connected` (governance). See
 `CLAUDE.md`'s "Connected-Wallet E2E" section for the exact build + run
 commands per app.
+
+The Monad swap has its own project + spec
+(`apps/app.mento.org/e2e/connected/swap-monad.spec.ts`), run with
+`pnpm --filter app.mento.org test:connected:monad` against a `pnpm fork:monad` +
+`pnpm fork:seed:monad` fork (port 8546). It is kept separate from the Celo
+`test:connected` project so that job never needs the 8546 fork; the spec drives
+the "Switch to Monad" banner before swapping and asserts UI + network (8546) +
+on-chain balance delta.
 
 The governance `connected` project has three specs:
 
