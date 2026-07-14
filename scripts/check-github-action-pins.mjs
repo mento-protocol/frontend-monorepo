@@ -73,7 +73,7 @@ function normalizeUsesValue(raw) {
 /** @param {string} line */
 function extractUsesRawValue(line) {
   const plain = line.match(
-    /^\s*(?:-\s*)?(?:"uses"|'uses'|uses)\s*:\s*(.+?)\s*$/,
+    /^\s*(?:-\s*)?(?:"uses"|'uses'|uses)\s*:\s*(.*?)\s*$/,
   );
   if (plain) return plain[1] ?? "";
 
@@ -141,8 +141,6 @@ for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
     if (rawValue == null) return;
 
     const value = normalizeUsesValue(rawValue);
-    if (value === "") return;
-
     if (isLocalAction(value)) {
       for (const manifest of localActionManifestPaths(file, value)) {
         if (!queuedFiles.has(manifest)) {

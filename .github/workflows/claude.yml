@@ -14,8 +14,8 @@ permissions: read-all
 
 jobs:
   claude:
-    # Only trusted repository members may turn a comment, review, or issue into
-    # an authenticated Claude invocation.
+    # Only trusted repository members may invoke Claude directly. An assignment
+    # by a maintainer is also a trusted activation for an existing issue.
     if: |
       (
         github.event_name == 'issue_comment' &&
@@ -35,7 +35,10 @@ jobs:
       (
         github.event_name == 'issues' &&
         (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) &&
-        contains(fromJSON('["OWNER","MEMBER"]'), github.event.issue.author_association)
+        (
+          github.event.action == 'assigned' ||
+          contains(fromJSON('["OWNER","MEMBER"]'), github.event.issue.author_association)
+        )
       )
     runs-on: ubuntu-latest
     timeout-minutes: 30

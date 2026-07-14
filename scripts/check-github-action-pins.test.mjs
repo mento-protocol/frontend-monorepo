@@ -125,6 +125,33 @@ jobs:
   }
 });
 
+test("rejects multiline uses values", () => {
+  const root = fixtureRoot("multiline-fail");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs:
+  test:
+    steps:
+      - uses:
+          actions/checkout@v7
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(
+      result.stderr,
+      ".github/workflows/ci.yml:5 uses:",
+      "multiline key location",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("rejects mutable tags in composite actions", () => {
   const root = fixtureRoot("composite-fail");
   try {
