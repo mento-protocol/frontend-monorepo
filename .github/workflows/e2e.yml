@@ -307,6 +307,16 @@ jobs:
           # repeatedly with varied params across the account methods anvil
           # actually issues, and require every request to pass.
           block_hex=$(printf '0x%x' "$FORK_BLOCK")
+          # A fresh (nightly) FORK_BLOCK sits only ~64 blocks behind head, so
+          # a NON-archive node passes every probe at it — and then, at one
+          # Celo block per second, the fork block slides out of that node's
+          # retention window minutes into the run. Exactly this killed the
+          # first nightly (run 29311411018): publicnode answered 15/15 probes,
+          # then started returning 403 "Archive requests require a personal
+          # token" mid-seed and anvil panicked. Only true archive nodes can
+          # also answer ~28h (100k blocks) below the fork block, so require
+          # that as well.
+          deep_hex=$(printf '0x%x' $((FORK_BLOCK - 100000)))
           candidates=(
             https://celo-rpc.publicnode.com
             https://celo.api.onfinality.io/public
@@ -327,12 +337,13 @@ jobs:
               call "$url" eth_getBalance '["0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","'"$block_hex"'"]' || return 1
               call "$url" eth_getTransactionCount '["0x70997970C51812dc3A010C7d01b50e0d17dc79C8","'"$block_hex"'"]' || return 1
               call "$url" eth_getStorageAt '["0x765DE816845861e75A25fCA122bb6898B8B1282a","0x'"$i"'","'"$block_hex"'"]' || return 1
+              call "$url" eth_getBalance '["0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","'"$deep_hex"'"]' || return 1
             done
           }
           for url in "${candidates[@]}"; do
             if probe "$url"; then
               echo "FORK_URL=$url" >> "$GITHUB_ENV"
-              echo "Selected $url (15/15 archive-state probes at block $FORK_BLOCK passed)"
+              echo "Selected $url (20/20 archive-state probes passed at block $FORK_BLOCK and 100k below)"
               exit 0
             fi
             echo "$url failed an archive-state probe at block $FORK_BLOCK - skipping"
@@ -600,6 +611,16 @@ jobs:
           # repeatedly with varied params across the account methods anvil
           # actually issues, and require every request to pass.
           block_hex=$(printf '0x%x' "$FORK_BLOCK")
+          # A fresh (nightly) FORK_BLOCK sits only ~64 blocks behind head, so
+          # a NON-archive node passes every probe at it — and then, at one
+          # Celo block per second, the fork block slides out of that node's
+          # retention window minutes into the run. Exactly this killed the
+          # first nightly (run 29311411018): publicnode answered 15/15 probes,
+          # then started returning 403 "Archive requests require a personal
+          # token" mid-seed and anvil panicked. Only true archive nodes can
+          # also answer ~28h (100k blocks) below the fork block, so require
+          # that as well.
+          deep_hex=$(printf '0x%x' $((FORK_BLOCK - 100000)))
           candidates=(
             https://celo-rpc.publicnode.com
             https://celo.api.onfinality.io/public
@@ -620,12 +641,13 @@ jobs:
               call "$url" eth_getBalance '["0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","'"$block_hex"'"]' || return 1
               call "$url" eth_getTransactionCount '["0x70997970C51812dc3A010C7d01b50e0d17dc79C8","'"$block_hex"'"]' || return 1
               call "$url" eth_getStorageAt '["0x765DE816845861e75A25fCA122bb6898B8B1282a","0x'"$i"'","'"$block_hex"'"]' || return 1
+              call "$url" eth_getBalance '["0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","'"$deep_hex"'"]' || return 1
             done
           }
           for url in "${candidates[@]}"; do
             if probe "$url"; then
               echo "FORK_URL=$url" >> "$GITHUB_ENV"
-              echo "Selected $url (15/15 archive-state probes at block $FORK_BLOCK passed)"
+              echo "Selected $url (20/20 archive-state probes passed at block $FORK_BLOCK and 100k below)"
               exit 0
             fi
             echo "$url failed an archive-state probe at block $FORK_BLOCK - skipping"
