@@ -803,13 +803,21 @@ jobs:
 
       # Unlike Celo (which pins a known-archived FORK_BLOCK), the Monad job
       # resolves a fresh block near `finalized` on EVERY trigger and forks
-      # there. Rationale: Monad's public RPCs' DEEP archive retention is
-      # unproven, but forking a hair behind `finalized` is exactly what Phase 0
-      # verified live (rpc.monad.xyz serves state at/near finalized), so this is
-      # the reliably-servable window. rpc.monad.xyz is primary, monad.drpc.org
-      # the fallback; rpc2.monad.xyz is intentionally omitted (add only once it
-      # clears this full probe set — see #489). Sets FORK_URL + FORK_BLOCK for
-      # all later steps.
+      # there. Forking a hair behind `finalized` is exactly what Phase 0 proved
+      # live (rpc.monad.xyz serves state at/near finalized). But anvil keeps
+      # fetching state at the FIXED fork block for the whole run, and at Monad's
+      # ~0.4s/block the head races ahead: a ~30-min run slides the pinned block
+      # ~4,500 blocks behind head, so a NON-archive backend that answers every
+      # finalized-64 probe here can still prune the fork block out of its
+      # retention window mid-run and panic anvil (the Celo analogue is documented
+      # on the Celo probe above, run 29311411018). Guard it exactly as Celo does:
+      # also require state ~100k blocks below the fork block (~11h of Monad
+      # history) — verified live that both candidates serve head-1,000,000, so
+      # this rejects a shallow/degraded backend with no false-reject cost on the
+      # current pool. rpc.monad.xyz is primary, monad.drpc.org the fallback;
+      # rpc2.monad.xyz is intentionally omitted (add only once it clears this
+      # full probe set — see #489). Sets FORK_URL + FORK_BLOCK for all later
+      # steps.
       - name: Select Monad fork RPC + block (archive state near finalized)
         shell: bash
         run: |
@@ -839,6 +847,10 @@ jobs:
             # A hair behind finalized so the pin stays stable during anvil boot.
             fork=$(( fin_hex - 64 ))
             block_hex="$(printf '0x%x' "$fork")"
+            # ~100k blocks below the fork block (~11h of Monad history): only a
+            # true archive backend answers here, and one that does still serves
+            # the fork block after a full run's worth of head advance.
+            deep_hex="$(printf '0x%x' $(( fork - 100000 )))"
             ok=1
             # Sample the account methods anvil actually issues, repeatedly, and
             # require every request to pass (a lone hit can be a gateway cache).
@@ -846,11 +858,12 @@ jobs:
               call "$url" eth_getBalance '["0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","'"$block_hex"'"]' || { ok=0; break; }
               call "$url" eth_getTransactionCount '["0x70997970C51812dc3A010C7d01b50e0d17dc79C8","'"$block_hex"'"]' || { ok=0; break; }
               call "$url" eth_getStorageAt '["'"$usdm"'","0x'"$i"'","'"$block_hex"'"]' || { ok=0; break; }
+              call "$url" eth_getBalance '["0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","'"$deep_hex"'"]' || { ok=0; break; }
             done
             if [ "$ok" = 1 ]; then
               echo "FORK_URL=$url" >> "$GITHUB_ENV"
               echo "FORK_BLOCK=$fork" >> "$GITHUB_ENV"
-              echo "Selected $url (15/15 archive-state probes passed at block $fork, finalized $((fin_hex)) minus 64)"
+              echo "Selected $url (20/20 archive-state probes passed at block $fork and 100k below, finalized $((fin_hex)) minus 64)"
               exit 0
             fi
             echo "$url failed an archive-state probe at block $fork - skipping"
