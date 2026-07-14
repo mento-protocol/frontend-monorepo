@@ -12,7 +12,7 @@ made required or tuned independently.
 pnpm quality:budgets:test  # bundle checker, notifier, and workflow structure tests
 pnpm quality:coverage      # all four Vitest workspaces with thresholds
 pnpm build                 # production artifacts required by the bundle checker
-pnpm quality:bundle:check  # inspect .next/app-build-manifest.json for every app
+pnpm quality:bundle:check  # inspect Turbopack route bundle stats for every app
 pnpm quality:budgets       # canonical full sequence used in CI
 ```
 
@@ -34,7 +34,7 @@ material regressions.
 | Workspace                   | Measured statements | Measured branches | Measured functions | Measured lines | Enforced statements | Enforced branches | Enforced functions | Enforced lines |
 | --------------------------- | ------------------: | ----------------: | -----------------: | -------------: | ------------------: | ----------------: | -----------------: | -------------: |
 | `app.mento.org`             |              31.25% |            73.75% |             73.64% |         31.25% |                 30% |               72% |                72% |            30% |
-| `governance.mento.org`      |               8.77% |            61.53% |             51.63% |          8.77% |                  8% |               60% |                50% |             8% |
+| `governance.mento.org`      |               9.52% |            61.90% |             51.28% |          9.52% |                  8% |               60% |                50% |             8% |
 | `@mento-protocol/ui`        |               5.40% |            82.07% |             81.37% |          5.40% |                  5% |               80% |                80% |             5% |
 | `@repo/web3` critical files |              98.62% |            95.31% |            100.00% |         98.62% |                 90% |               90% |                90% |            90% |
 
@@ -44,22 +44,23 @@ full configured source surface.
 
 ## Production bundle budgets
 
-`scripts/check-bundle-size.mjs` reads each production
-`.next/app-build-manifest.json`, deduplicates the JavaScript files loaded by a
-route, gzip-compresses each file at level 9, and fails on the largest route. It
-does not count CSS, server chunks, source maps, or the same shared chunk twice.
+`scripts/check-bundle-size.mjs` reads each production Turbopack
+`.next/diagnostics/route-bundle-stats.json`, deduplicates the JavaScript files
+loaded by a route, gzip-compresses each file at level 9, and fails on the
+largest route. It does not count CSS, server chunks, source maps, or the same
+shared chunk twice.
 
-The observed values came from successful `main` CI run
-[`29320972122`](https://github.com/mento-protocol/frontend-monorepo/actions/runs/29320972122)
-at `8e7f2e66` on 2026-07-14. Next's build table rounds displayed baselines; the
-enforced limits are exact bytes in the checker.
+The observed values were remeasured with Next 16.2.10 at `87ce21c` on
+2026-07-14 using the deterministic environment from
+`.github/workflows/quality-budgets.yml`. Displayed baselines are rounded; the
+measurements and enforced limits are exact bytes in the checker.
 
 | App                    | Largest observed route    | Observed gzip baseline | Exact enforced limit | Headroom |
 | ---------------------- | ------------------------- | ---------------------: | -------------------: | -------: |
-| `app.mento.org`        | `/bridge`                 |                1.60 MB |      1,760,000 bytes |    10.0% |
-| `governance.mento.org` | `/proposals/[id]`         |                1.18 MB |      1,300,000 bytes |    10.2% |
-| `reserve.mento.org`    | `/`                       |                 670 kB |        740,000 bytes |    10.4% |
-| `ui.mento.org`         | `/specialized-components` |                 461 kB |        510,000 bytes |    10.6% |
+| `app.mento.org`        | `/bridge`                 |                1.60 MB |      1,760,000 bytes |     9.8% |
+| `governance.mento.org` | `/proposals/[id]`         |                1.20 MB |      1,300,000 bytes |     8.5% |
+| `reserve.mento.org`    | `/`                       |                 688 kB |        740,000 bytes |     7.6% |
+| `ui.mento.org`         | `/specialized-components` |                 487 kB |        510,000 bytes |     4.7% |
 
 When a deliberate feature exceeds a limit:
 
