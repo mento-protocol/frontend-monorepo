@@ -40,10 +40,9 @@ The required visual-run variables are:
 - `NEXT_PUBLIC_STORAGE_URL`
 - `NEXT_PUBLIC_WALLET_CONNECT_ID`
 - `NEXT_PUBLIC_SENTRY_DSN_SWAP`
-- `SENTRY_AUTH_TOKEN`
 
-For local screenshot renders, the Sentry DSN and auth token may be empty
-strings.
+For local screenshot renders, the Sentry DSN may be an empty string.
+`SENTRY_AUTH_TOKEN` is needed only for Vercel production source-map uploads.
 
 ```bash
 # From the repository root:

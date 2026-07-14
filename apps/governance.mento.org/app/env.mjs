@@ -9,6 +9,7 @@ export const env = createEnv({
    */
   server: {
     ETHERSCAN_API_KEY: z.string(),
+    SENTRY_AUTH_TOKEN: z.string().optional(),
   },
   /*
    * Environment variables available on the client (and server).
@@ -46,6 +47,7 @@ export const env = createEnv({
     NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA:
       process.env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA,
     ETHERSCAN_API_KEY: process.env.ETHERSCAN_API_KEY,
+    SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
     NEXT_PUBLIC_ETHERSCAN_API_URL: process.env.NEXT_PUBLIC_ETHERSCAN_API_URL,
     NEXT_PUBLIC_E2E_TEST: process.env.NEXT_PUBLIC_E2E_TEST,
     NEXT_PUBLIC_GRAPH_API_KEY: process.env.NEXT_PUBLIC_GRAPH_API_KEY,

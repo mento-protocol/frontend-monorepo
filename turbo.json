@@ -1,35 +1,36 @@
 {
   "$schema": "./node_modules/turbo/schema.json",
   "ui": "tui",
-  "globalDependencies": ["**/.env.*local", "scripts/security-headers.mjs"],
-  "globalEnv": [
-    "ETHERSCAN_API_KEY",
-    "NODE_ENV",
-    "NEXT_PUBLIC_STORAGE_URL",
-    "ARGOS_TOKEN",
-    "PREVIEW_URL",
-    "NEXT_PUBLIC_USE_FORK",
-    "NEXT_PUBLIC_E2E_TEST",
-    "NEXT_PUBLIC_ENABLE_DEBUG",
-    "NEXT_PUBLIC_RPC_URL",
-    "NEXT_PUBLIC_CELO_RPC_URL",
-    "NEXT_PUBLIC_CELO_SEPOLIA_RPC_URL",
-    "NEXT_PUBLIC_MONAD_RPC_URL",
-    "NEXT_PUBLIC_MONAD_TESTNET_RPC_URL",
-    "NEXT_PUBLIC_POLYGON_AMOY_RPC_URL",
-    "NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL",
-    "NEXT_PUBLIC_VERSION",
-    "NEXT_PUBLIC_WALLET_CONNECT_ID",
-    "NEXT_RUNTIME",
+  "globalPassThroughEnv": [
     "CI",
-    "SENTRY_AUTH_TOKEN",
-    "CHAINALYSIS_API_KEY",
-    "VERCEL_ENV",
-    "NEXT_PUBLIC_VERCEL_ENV"
+    "NEXT_RUNTIME",
+    "PREVIEW_URL",
+    "SENTRY_DSN",
+    "VERCEL_ENV"
   ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", ".env*"],
+      "env": [
+        "NODE_ENV",
+        "NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL",
+        "NEXT_PUBLIC_CELO_RPC_URL",
+        "NEXT_PUBLIC_CELO_SEPOLIA_RPC_URL",
+        "NEXT_PUBLIC_E2E_TEST",
+        "NEXT_PUBLIC_ENABLE_DEBUG",
+        "NEXT_PUBLIC_MONAD_RPC_URL",
+        "NEXT_PUBLIC_MONAD_TESTNET_RPC_URL",
+        "NEXT_PUBLIC_POLYGON_AMOY_RPC_URL",
+        "NEXT_PUBLIC_RPC_URL",
+        "NEXT_PUBLIC_STORAGE_URL",
+        "NEXT_PUBLIC_USE_FORK",
+        "NEXT_PUBLIC_VERCEL_ENV",
+        "NEXT_PUBLIC_VERSION",
+        "NEXT_PUBLIC_WALLET_CONNECT_ID",
+        "SENTRY_AUTH_TOKEN"
+      ],
+      "passThroughEnv": ["CHAINALYSIS_API_KEY", "ETHERSCAN_API_KEY"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"],
       "cache": true
     },
@@ -49,6 +50,7 @@
     },
     "test:visual": {
       "dependsOn": ["build"],
+      "passThroughEnv": ["ARGOS_TOKEN"],
       "cache": false
     },
     "dev": {
