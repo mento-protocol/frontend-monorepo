@@ -34,7 +34,7 @@ material regressions.
 | Workspace                   | Measured statements | Measured branches | Measured functions | Measured lines | Enforced statements | Enforced branches | Enforced functions | Enforced lines |
 | --------------------------- | ------------------: | ----------------: | -----------------: | -------------: | ------------------: | ----------------: | -----------------: | -------------: |
 | `app.mento.org`             |              31.25% |            73.75% |             73.64% |         31.25% |                 30% |               72% |                72% |            30% |
-| `governance.mento.org`      |               8.77% |            61.53% |             51.63% |          8.77% |                  8% |               60% |                50% |             8% |
+| `governance.mento.org`      |               9.52% |            61.90% |             51.28% |          9.52% |                  8% |               60% |                50% |             8% |
 | `@mento-protocol/ui`        |               5.40% |            82.07% |             81.37% |          5.40% |                  5% |               80% |                80% |             5% |
 | `@repo/web3` critical files |              98.62% |            95.31% |            100.00% |         98.62% |                 90% |               90% |                90% |            90% |
 
