@@ -90,6 +90,11 @@ operational trigger, and target ref, then:
   current state; neutral, skipped, and cancelled runs do not suppress a
   decisive result.
 
+`CI/CD` forces its full build, unit-test, type-check, Knip, and Trunk suite on
+every default-branch push. Documentation-only planning is limited to pull
+requests, so a successful default-branch `CI/CD` run proves the previously
+failing checks recovered before the notifier closes its managed issue.
+
 `Visual Regression` is path-filtered before a default-branch run starts. Any
 default-branch run that does start executes both the app and UI visual suites,
 so its workflow-level success proves that either previously failing surface

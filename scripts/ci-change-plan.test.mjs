@@ -160,6 +160,41 @@ test("workflow executes the planner from the trusted base after bootstrap", () =
   assert.match(workflow, /run: pnpm ci:change-plan:test/);
 });
 
+test("default-branch pushes force full quality before change planning", () => {
+  const workflow = readFileSync(
+    new URL("../.github/workflows/ci.yml", import.meta.url),
+    "utf8",
+  );
+  const pushGuard = workflow.indexOf('if [[ "$EVENT_NAME" == "push" ]]');
+  const plannerGuard = workflow.indexOf('if [[ "$BASE_SHA" =~ ^0+$ ]]');
+
+  assert.match(workflow, /EVENT_NAME: \$\{\{ github\.event_name \}\}/);
+  assert.notEqual(
+    pushGuard,
+    -1,
+    "the workflow must guard default-branch pushes",
+  );
+  assert.notEqual(
+    plannerGuard,
+    -1,
+    "the workflow must retain planner bootstrap",
+  );
+  assert.ok(
+    pushGuard < plannerGuard,
+    "default-branch pushes must short-circuit before diff planning",
+  );
+
+  const pushBlock = workflow.slice(pushGuard, plannerGuard);
+  assert.match(pushBlock, /echo "run_quality=true"/);
+  assert.match(pushBlock, /echo "changed_count=unknown"/);
+  assert.match(pushBlock, /echo "reason=default-branch-push-full-quality"/);
+  assert.match(
+    pushBlock,
+    /Default-branch pushes always run full quality checks/,
+  );
+  assert.match(pushBlock, /exit 0/);
+});
+
 test("documentation-only changes retain the always-on Trunk static checks", () => {
   const workflow = readFileSync(
     new URL("../.github/workflows/ci.yml", import.meta.url),

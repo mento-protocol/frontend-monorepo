@@ -396,7 +396,7 @@ feat(ui): add new button component
 
 The repository is set up with GitHub Actions for CI:
 
-- **CI**: On every PR, it plans the changed-file scope, fans build, unit tests, and static analysis out in parallel, then reports the existing required `Build and Test` sentinel. Markdown- and `docs/**`-only changes skip builds, unit tests, type checking, and Knip, but retain the Trunk static checks for Markdown validation and secret scanning. Scope-planning errors and all other paths fail closed into full validation.
+- **CI**: On every PR, it plans the changed-file scope, fans build, unit tests, and static analysis out in parallel, then reports the existing required `Build and Test` sentinel. Markdown- and `docs/**`-only PRs skip builds, unit tests, type checking, and Knip, but retain the Trunk static checks for Markdown validation and secret scanning. Scope-planning errors and all other PR paths fail closed into full validation. Every `main` push runs the full suite so a successful `CI/CD` workflow is trustworthy recovery evidence for the failure notifier.
 - **Quality budgets**: The always-reported [Quality Budgets](docs/quality-budgets.md)
   check enforces production-source coverage and gzip route limits. Its general
   CI failure notifier opens or updates one issue for an operational workflow
@@ -420,7 +420,10 @@ Rename detection is disabled for the planning diff so both the old and new
 paths are classified; moving source into `docs/**` cannot masquerade as a
 documentation-only change. Until the target branch contains a trusted planner
 (including the workflow's bootstrap PR), CI runs the full quality suite instead
-of executing planner code from the pull-request checkout.
+of executing planner code from the pull-request checkout. Default-branch pushes
+also bypass changed-file planning and always run the full build, unit-test,
+type-check, Knip, and Trunk suite before `CI/CD` can report a successful
+recovery.
 
 ### Trunk in CI
 

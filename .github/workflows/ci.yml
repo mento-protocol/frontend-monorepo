@@ -45,10 +45,21 @@ jobs:
         id: plan
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
           HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         shell: bash
         run: |
           set -euo pipefail
+
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            {
+              echo "run_quality=true"
+              echo "changed_count=unknown"
+              echo "reason=default-branch-push-full-quality"
+            } >> "$GITHUB_OUTPUT"
+            echo "::notice::Default-branch pushes always run full quality checks so CI recovery is trustworthy."
+            exit 0
+          fi
 
           planner=scripts/ci-change-plan.mjs
           if [[ "$BASE_SHA" =~ ^0+$ ]] || ! git cat-file -e "$BASE_SHA:$planner" 2>/dev/null; then
