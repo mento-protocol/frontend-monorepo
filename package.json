@@ -8,6 +8,7 @@
     "check-types": "turbo run check-types",
     "ci:action-pins": "node scripts/check-github-action-pins.mjs",
     "ci:action-pins:test": "node scripts/check-github-action-pins.test.mjs && node scripts/fetch-action-pin-yaml.test.mjs",
+    "ci:change-plan:test": "node scripts/ci-change-plan.test.mjs",
     "clean": "rm -rf .turbo && turbo run clean",
     "dev": "turbo run dev",
     "dev:app.mento.org": "turbo run dev --filter=app.mento.org",

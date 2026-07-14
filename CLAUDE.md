@@ -41,6 +41,7 @@ pnpm exec turbo run build --filter <app-name>  # Build one app
 pnpm check-types                     # TypeScript type checking; builds workspace package types first
 pnpm ci:action-pins                  # Verify third-party GitHub Actions use documented SHA pins
 pnpm ci:action-pins:test             # Test the action-pin scanner and REST materializer
+pnpm ci:change-plan:test             # Test PR scoping, full main pushes, mandatory Trunk, and fail-closed behavior
 trunk check --fix                     # Lint with autofix
 trunk fmt                             # Format
 pnpm test                            # Run tests
