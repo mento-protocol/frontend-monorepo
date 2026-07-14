@@ -7,6 +7,7 @@ const sendTransactionAsyncMock = vi.fn();
 let mockTxRequest: { to: string; data: string } | null = null;
 
 vi.mock("wagmi", () => ({
+  useConfig: () => ({}),
   useEstimateGas: () => ({ data: undefined, error: null }),
   useSendTransaction: () => ({
     data: undefined,
@@ -16,6 +17,9 @@ vi.mock("wagmi", () => ({
     reset: vi.fn(),
   }),
   useWaitForTransactionReceipt: () => ({ data: undefined, isSuccess: false }),
+}));
+vi.mock("@/utils/transaction-fees", () => ({
+  getTransactionFeeOverrides: vi.fn().mockResolvedValue({}),
 }));
 vi.mock("@tanstack/react-query", () => ({
   useQuery: () => ({ error: null, data: mockTxRequest }),
