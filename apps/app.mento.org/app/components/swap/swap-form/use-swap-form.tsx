@@ -2,7 +2,7 @@
 
 import { env } from "@/env.mjs";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -11,7 +11,6 @@ import {
   ChainId,
   chainIdToChain,
   confirmViewAtom,
-  formatWithMaxDecimals,
   formValuesAtom,
   getNativeTokenSymbol,
   getPreferredUsdQuoteTokenSymbol,
@@ -24,7 +23,6 @@ import {
   useOptimizedSwapQuote,
   useSwapAllowance,
   useTokenOptions,
-  useTradablePairs,
 } from "@repo/web3";
 import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { useAtom } from "jotai";
@@ -43,6 +41,10 @@ import {
 } from "./swap-form-initial-state";
 import { getTokenBalanceValue } from "./swap-form-validation";
 import { defaultEmptyBalances, formSchema, type FormValues } from "./types";
+import {
+  useSwapQuoteFormEffects,
+  useSwapTokenPairEffects,
+} from "./use-swap-form-effects";
 import { useSwapFormValidation } from "./use-swap-form-validation";
 import { useSwapQuoteState } from "./use-swap-quote-state";
 import { useSwapFormSync } from "./use-swap-form-sync";
@@ -330,25 +332,14 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
     },
   });
 
-  useEffect(() => {
-    if (quote !== undefined) {
-      const formattedQuote = formatWithMaxDecimals(quote, 4, false);
-      if (formQuote !== formattedQuote) {
-        form.setValue("quote", formattedQuote, { shouldValidate: true });
-      }
-    }
-  }, [quote, form, formQuote]);
-
-  useEffect(() => {
-    if (
-      errors.amount?.message &&
-      errors.amount.message !== "Invalid input" &&
-      errors.amount.message !== "Amount is required" &&
-      hasAmount
-    ) {
-      toast.error(errors.amount.message);
-    }
-  }, [errors.amount, hasAmount, amount]);
+  useSwapQuoteFormEffects({
+    amount,
+    amountError: errors.amount,
+    form,
+    formQuote,
+    hasAmount,
+    quote,
+  });
 
   // ── Submit ──────────────────────────────────────────────────────────
 
@@ -393,67 +384,15 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
 
   // ── Token pair validation ───────────────────────────────────────────
 
-  const {
-    data: fromTokenTradablePairs,
-    isLoading: isFromTokenTradablePairsLoading,
-  } = useTradablePairs(selectedTokenInSymbol, formChainId);
-  const {
-    data: toTokenTradablePairs,
-    isLoading: isToTokenTradablePairsLoading,
-  } = useTradablePairs(selectedTokenOutSymbol, formChainId);
-
-  // Reset form fields after a successful swap (formValues.amount is cleared but tokens preserved)
-  useEffect(() => {
-    if (!formValues?.amount && formValues?.tokenInSymbol) {
-      setLastChangedToken(null);
-      form.reset({
-        amount: "",
-        quote: "",
-        tokenInSymbol: formValues.tokenInSymbol,
-        tokenOutSymbol: formValues.tokenOutSymbol || "USDm",
-        slippage: formValues?.slippage || "0.3",
-      });
-    }
-  }, [
-    formValues?.amount,
-    formValues?.tokenInSymbol,
-    formValues?.tokenOutSymbol,
-    formValues?.slippage,
+  useSwapTokenPairEffects({
+    chainId: formChainId,
     form,
-    setLastChangedToken,
-  ]);
-
-  useEffect(() => {
-    const lastChangedToken = lastChangedTokenRef.current;
-
-    if (!selectedTokenInSymbol || !selectedTokenOutSymbol || !lastChangedToken)
-      return;
-    if (isFromTokenTradablePairsLoading || isToTokenTradablePairsLoading)
-      return;
-    if (!fromTokenTradablePairs || !toTokenTradablePairs) return;
-
-    const isValidPair =
-      fromTokenTradablePairs.includes(selectedTokenOutSymbol) ||
-      toTokenTradablePairs.includes(selectedTokenInSymbol);
-
-    if (!isValidPair) {
-      if (lastChangedToken === "from") {
-        form.setValue("tokenOutSymbol", "", { shouldValidate: false });
-      } else if (lastChangedToken === "to") {
-        form.setValue("tokenInSymbol", "", { shouldValidate: false });
-      }
-      setLastChangedToken(null);
-    }
-  }, [
+    formValues,
+    lastChangedTokenRef,
     selectedTokenInSymbol,
     selectedTokenOutSymbol,
-    fromTokenTradablePairs,
-    toTokenTradablePairs,
-    isFromTokenTradablePairsLoading,
-    isToTokenTradablePairsLoading,
-    form,
     setLastChangedToken,
-  ]);
+  });
 
   // ── Return ──────────────────────────────────────────────────────────
 
