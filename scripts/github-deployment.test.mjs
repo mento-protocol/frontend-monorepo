@@ -7,6 +7,7 @@ import {
   ensureGitHubDeployment,
   ensureGitHubDeploymentStatus,
   selectFinalDeploymentState,
+  selectWorkflowDeploymentState,
 } from "./github-deployment.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
@@ -266,5 +267,42 @@ test("finalizer maps build/deploy/smoke failures to failure and infrastructure t
       smokeOutcome: "skipped",
     }),
     "error",
+  );
+});
+
+test("cross-job finalization follows build and smoke truth only", () => {
+  assert.equal(
+    selectWorkflowDeploymentState({
+      prebuiltResult: "success",
+      smokeResult: "success",
+    }),
+    "success",
+  );
+  for (const [prebuiltResult, smokeResult] of [
+    ["failure", "skipped"],
+    ["success", "failure"],
+  ]) {
+    assert.equal(
+      selectWorkflowDeploymentState({ prebuiltResult, smokeResult }),
+      "failure",
+    );
+  }
+  for (const [prebuiltResult, smokeResult] of [
+    ["cancelled", "skipped"],
+    ["success", "cancelled"],
+    ["skipped", "skipped"],
+  ]) {
+    assert.equal(
+      selectWorkflowDeploymentState({ prebuiltResult, smokeResult }),
+      "error",
+    );
+  }
+  assert.throws(
+    () =>
+      selectWorkflowDeploymentState({
+        prebuiltResult: "success",
+        smokeResult: "unknown",
+      }),
+    /job result is invalid/,
   );
 });

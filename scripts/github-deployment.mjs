@@ -267,6 +267,20 @@ export function selectFinalDeploymentState({
   return "error";
 }
 
+export function selectWorkflowDeploymentState({ prebuiltResult, smokeResult }) {
+  const allowed = new Set(["success", "failure", "cancelled", "skipped"]);
+  if (!allowed.has(prebuiltResult) || !allowed.has(smokeResult)) {
+    throw new Error("Reusable workflow job result is invalid");
+  }
+  if (prebuiltResult === "success" && smokeResult === "success") {
+    return "success";
+  }
+  if (prebuiltResult === "failure" || smokeResult === "failure") {
+    return "failure";
+  }
+  return "error";
+}
+
 function createGitHubApi({
   token,
   apiUrl,
@@ -385,6 +399,24 @@ async function finalizeFromEnvironment() {
   await statusFromEnvironment(state);
 }
 
+async function completeFromEnvironment() {
+  const state = selectWorkflowDeploymentState({
+    prebuiltResult: environment("PREBUILT_RESULT"),
+    smokeResult: environment("SMOKE_RESULT"),
+  });
+  if (!/^[1-9][0-9]*$/.test(environment("GITHUB_DEPLOYMENT_ID") ?? "")) {
+    appendOutput("github_deployment_state", "error");
+    return;
+  }
+  await statusFromEnvironment(state);
+  if (state === "success") {
+    appendOutput(
+      "verified_deployment_url",
+      httpsUrl(environment("VERCEL_DEPLOYMENT_URL"), "Deployment URL"),
+    );
+  }
+}
+
 function isCliEntrypoint() {
   return (
     process.argv[1] !== undefined &&
@@ -400,7 +432,11 @@ if (isCliEntrypoint()) {
     await statusFromEnvironment();
   } else if (command === "finalize") {
     await finalizeFromEnvironment();
+  } else if (command === "complete") {
+    await completeFromEnvironment();
   } else {
-    throw new Error("Usage: github-deployment.mjs ensure|status|finalize");
+    throw new Error(
+      "Usage: github-deployment.mjs ensure|status|finalize|complete",
+    );
   }
 }

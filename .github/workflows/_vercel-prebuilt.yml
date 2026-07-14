@@ -79,13 +79,10 @@ on:
       turbo_remote_cache_signature_key:
         description: Turbo signed-cache verification key
         required: true
-      vercel_automation_bypass_secret:
-        description: Optional Vercel deployment-protection bypass for smoke
-        required: false
     outputs:
       deployment_url:
         description: Immutable verified Vercel deployment URL
-        value: ${{ jobs.prebuilt.outputs.deployment_url }}
+        value: ${{ jobs.finalize.outputs.deployment_url }}
       vercel_deployment_id:
         description: Vercel deployment ID
         value: ${{ jobs.prebuilt.outputs.vercel_deployment_id }}
@@ -94,7 +91,7 @@ on:
         value: ${{ jobs.prebuilt.outputs.github_deployment_id }}
       final_state:
         description: Final canonical GitHub Deployment state
-        value: ${{ jobs.prebuilt.outputs.final_state }}
+        value: ${{ jobs.finalize.outputs.final_state }}
       commit_sha:
         description: Exact checked-out commit SHA
         value: ${{ jobs.prebuilt.outputs.commit_sha }}
@@ -109,11 +106,9 @@ on:
         value: ${{ jobs.prebuilt.outputs.deploy_duration_ms }}
       total_duration_ms:
         description: Measured controller duration in milliseconds
-        value: ${{ jobs.prebuilt.outputs.total_duration_ms }}
+        value: ${{ jobs.finalize.outputs.total_duration_ms }}
 
-permissions:
-  contents: read
-  deployments: write
+permissions: {}
 
 concurrency:
   group: ${{ inputs.deployment_idempotency_key }}
@@ -128,15 +123,15 @@ jobs:
       contents: read
       deployments: write
     outputs:
-      deployment_url: ${{ steps.smoke.outputs.smoke_deployment_url || steps.deploy.outputs.vercel_deployment_url }}
+      verified_deployment_url: ${{ steps.verify.outputs.verified_deployment_url }}
       vercel_deployment_id: ${{ steps.deploy.outputs.vercel_deployment_id }}
       github_deployment_id: ${{ steps.create.outputs.github_deployment_id }}
-      final_state: ${{ steps.success.outputs.github_deployment_state || steps.finalizer.outputs.github_deployment_state }}
       commit_sha: ${{ steps.source.outputs.checked_out_sha }}
       logical_target: ${{ inputs.logical_target }}
+      next_deployment_id: ${{ steps.prepare.outputs.next_deployment_id }}
+      started_at_ms: ${{ steps.prepare.outputs.started_at_ms }}
       build_duration_ms: ${{ steps.build.outputs.build_duration_ms }}
       deploy_duration_ms: ${{ steps.deploy.outputs.deploy_duration_ms }}
-      total_duration_ms: ${{ steps.total.outputs.total_duration_ms }}
     steps:
       - name: Check out trusted workflow controller
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -308,50 +303,99 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.vercel_token }}
         run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" deploy
 
-      - name: Verify and smoke the immutable preview
-        id: smoke
+      - name: Verify immutable Vercel deployment metadata
+        id: verify
         env:
-          DEPLOY_SHA: ${{ steps.source.outputs.checked_out_sha }}
-          GITHUB_DEPLOYMENT_ID: ${{ steps.create.outputs.github_deployment_id }}
-          MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.prepare.outputs.next_deployment_id }}
           SOURCE_PATH: ${{ github.workspace }}/source
-          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.vercel_automation_bypass_secret }}
           VERCEL_DEPLOYMENT_ID: ${{ steps.deploy.outputs.vercel_deployment_id }}
           VERCEL_DEPLOYMENT_URL: ${{ steps.deploy.outputs.vercel_deployment_url }}
           VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
           VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
           VERCEL_TOKEN: ${{ secrets.vercel_token }}
-        run: |
-          node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" verify
-          node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" smoke
+        run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" verify
 
-      - name: Measure total controller duration
-        id: total
-        if: always() && steps.prepare.outputs.started_at_ms != ''
+  smoke:
+    name: Smoke verified ${{ inputs.logical_target }} preview
+    needs: prebuilt
+    if: needs.prebuilt.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      deployment_url: ${{ steps.smoke.outputs.smoke_deployment_url }}
+      smoke_commit_sha: ${{ steps.smoke.outputs.smoke_commit_sha }}
+    steps:
+      - name: Check out trusted smoke controller only
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Smoke immutable UI preview without deployment credentials
+        id: smoke
         env:
-          STARTED_AT_MS: ${{ steps.prepare.outputs.started_at_ms }}
+          DEPLOY_SHA: ${{ needs.prebuilt.outputs.commit_sha }}
+          GITHUB_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.github_deployment_id }}
+          MENTO_NEXT_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.next_deployment_id }}
+          VERCEL_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.vercel_deployment_id }}
+          VERCEL_DEPLOYMENT_URL: ${{ needs.prebuilt.outputs.verified_deployment_url }}
+        run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" smoke
+
+  finalize:
+    name: Finalize ${{ inputs.logical_target }} deployment lifecycle
+    needs: [prebuilt, smoke]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      deployments: write
+    outputs:
+      deployment_url: ${{ steps.complete.outputs.verified_deployment_url }}
+      final_state: ${{ steps.complete.outputs.github_deployment_state }}
+      total_duration_ms: ${{ steps.total.outputs.total_duration_ms }}
+    steps:
+      - name: Check out trusted lifecycle controller only
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Measure total controller duration (best effort)
+        id: total
+        if: needs.prebuilt.outputs.started_at_ms != ''
+        continue-on-error: true
+        env:
+          STARTED_AT_MS: ${{ needs.prebuilt.outputs.started_at_ms }}
         run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" total
 
-      - name: Mark GitHub Deployment successful after smoke
-        id: success
+      - name: Post truthful terminal GitHub Deployment state
+        id: complete
         env:
-          GITHUB_DEPLOYMENT_ID: ${{ steps.create.outputs.github_deployment_id }}
-          GITHUB_DEPLOYMENT_STATE: success
+          GITHUB_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.github_deployment_id }}
           GITHUB_TOKEN: ${{ github.token }}
-          VERCEL_DEPLOYMENT_URL: ${{ steps.smoke.outputs.smoke_deployment_url }}
+          PREBUILT_RESULT: ${{ needs.prebuilt.result }}
+          SMOKE_RESULT: ${{ needs.smoke.result }}
+          VERCEL_DEPLOYMENT_URL: ${{ needs.smoke.outputs.deployment_url }}
           WORKFLOW_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
-        run: node "$GITHUB_WORKSPACE/controller/scripts/github-deployment.mjs" status
+        run: node "$GITHUB_WORKSPACE/controller/scripts/github-deployment.mjs" complete
 
-      - name: Record comparison evidence
-        if: steps.success.outcome == 'success'
+      - name: Record comparison evidence (best effort)
+        if: steps.complete.outputs.github_deployment_state == 'success'
+        continue-on-error: true
         env:
-          BUILD_DURATION_MS: ${{ steps.build.outputs.build_duration_ms }}
-          COMMIT_SHA: ${{ steps.smoke.outputs.smoke_commit_sha }}
-          DEPLOY_DURATION_MS: ${{ steps.deploy.outputs.deploy_duration_ms }}
-          GITHUB_DEPLOYMENT_ID: ${{ steps.smoke.outputs.smoke_github_deployment_id }}
+          BUILD_DURATION_MS: ${{ needs.prebuilt.outputs.build_duration_ms }}
+          COMMIT_SHA: ${{ needs.smoke.outputs.smoke_commit_sha }}
+          DEPLOY_DURATION_MS: ${{ needs.prebuilt.outputs.deploy_duration_ms }}
+          GITHUB_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.github_deployment_id }}
           TOTAL_DURATION_MS: ${{ steps.total.outputs.total_duration_ms }}
-          VERCEL_DEPLOYMENT_ID: ${{ steps.smoke.outputs.smoke_deployment_id }}
-          VERCEL_DEPLOYMENT_URL: ${{ steps.smoke.outputs.smoke_deployment_url }}
+          VERCEL_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.vercel_deployment_id }}
+          VERCEL_DEPLOYMENT_URL: ${{ steps.complete.outputs.verified_deployment_url }}
         run: |
           {
             echo "### GitHub prebuilt pilot"
@@ -366,16 +410,3 @@ jobs:
             echo
             echo "Turbo cache hit/miss details are preserved in the build log above."
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Close a non-terminal GitHub Deployment
-        id: finalizer
-        if: always() && steps.create.outputs.github_deployment_id != '' && steps.success.outcome != 'success'
-        env:
-          BUILD_OUTCOME: ${{ steps.build.outcome }}
-          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
-          GITHUB_DEPLOYMENT_ID: ${{ steps.create.outputs.github_deployment_id }}
-          GITHUB_TOKEN: ${{ github.token }}
-          JOB_STATUS: ${{ job.status }}
-          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
-          WORKFLOW_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
-        run: node "$GITHUB_WORKSPACE/controller/scripts/github-deployment.mjs" finalize

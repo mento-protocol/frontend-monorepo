@@ -470,15 +470,6 @@ export function assertPrebuiltOutput({
   return outputDirectory;
 }
 
-function smokeHeaders(bypassSecret) {
-  return bypassSecret
-    ? {
-        "x-vercel-protection-bypass": bypassSecret,
-        "x-vercel-set-bypass-cookie": "true",
-      }
-    : {};
-}
-
 function requireHeader(response, name, expected) {
   const value = response.headers.get(name);
   if (
@@ -499,13 +490,10 @@ async function successfulText(response, label) {
 export async function smokeUiPreview({
   deploymentUrl,
   deploymentId,
-  bypassSecret,
   fetchImplementation = fetch,
 }) {
   const baseUrl = immutableVercelUrl(deploymentUrl);
-  const headers = smokeHeaders(bypassSecret);
   const mainResponse = await fetchImplementation(baseUrl, {
-    headers,
     redirect: "follow",
   });
   const html = await successfulText(mainResponse, "UI preview");
@@ -532,7 +520,7 @@ export async function smokeUiPreview({
 
   const navigationResponse = await fetchImplementation(
     new URL("/form-components", baseUrl),
-    { headers, redirect: "follow" },
+    { redirect: "follow" },
   );
   const navigationHtml = await successfulText(
     navigationResponse,
@@ -557,7 +545,6 @@ export async function smokeUiPreview({
   }
   for (const asset of representatives) {
     const response = await fetchImplementation(new URL(asset, baseUrl), {
-      headers,
       redirect: "follow",
     });
     if (!response.ok) {
@@ -719,6 +706,11 @@ function verifyFromEnvironment() {
     deploymentId: process.env.VERCEL_DEPLOYMENT_ID,
     deploymentUrl: process.env.VERCEL_DEPLOYMENT_URL,
   });
+  output("verified_deployment_id", process.env.VERCEL_DEPLOYMENT_ID);
+  output(
+    "verified_deployment_url",
+    immutableVercelUrl(process.env.VERCEL_DEPLOYMENT_URL),
+  );
 }
 
 async function smokeFromEnvironment() {
@@ -728,7 +720,6 @@ async function smokeFromEnvironment() {
   const result = await smokeUiPreview({
     deploymentUrl: process.env.VERCEL_DEPLOYMENT_URL,
     deploymentId: process.env.MENTO_NEXT_DEPLOYMENT_ID,
-    bypassSecret: process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
   });
   output("smoke_deployment_url", result.deploymentUrl);
   output("smoke_deployment_id", process.env.VERCEL_DEPLOYMENT_ID);

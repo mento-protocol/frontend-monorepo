@@ -428,7 +428,6 @@ test("direct UI smoke binds URL, custom build ID, navigation, assets, and header
     await smokeUiPreview({
       deploymentUrl: DEPLOYMENT_URL,
       deploymentId: DEPLOYMENT_ID,
-      bypassSecret: "redacted-fixture-secret",
       fetchImplementation,
     }),
     {
@@ -438,12 +437,7 @@ test("direct UI smoke binds URL, custom build ID, navigation, assets, and header
     },
   );
   assert.equal(requested.length, 5);
-  assert.ok(
-    requested.every(
-      ({ headers }) =>
-        headers["x-vercel-protection-bypass"] === "redacted-fixture-secret",
-    ),
-  );
+  assert.ok(requested.every(({ headers }) => headers === undefined));
 });
 
 test("direct UI smoke fails closed on missing build identity or security evidence", async () => {

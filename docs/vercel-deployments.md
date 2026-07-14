@@ -271,14 +271,14 @@ The caller maps only the UI preview configuration:
 - repository variables `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID_UI`, and
   `TURBO_TEAM`;
 - repository secrets `VERCEL_TOKEN_PREVIEW`, `TURBO_TOKEN`, and
-  `TURBO_REMOTE_CACHE_SIGNATURE_KEY`;
-- optional repository secret `VERCEL_AUTOMATION_BYPASS_SECRET`, used only as
-  an HTTP header by direct preview smoke when deployment protection requires
-  it.
+  `TURBO_REMOTE_CACHE_SIGNATURE_KEY`.
 
 The reusable worker declares each secret separately. It never inherits all
 caller secrets, never receives a production Vercel token, never selects a
-production GitHub environment, and never passes a token on a command line.
+production GitHub environment, and never passes a token on a command line. The
+separate smoke job receives no Vercel or Turbo credential and has only
+`contents: read` permission; the immutable preview must therefore be publicly
+reachable for this pilot.
 
 ### Dispatch
 
@@ -330,7 +330,8 @@ controller validates the ID variables but deliberately withholds them from the
 Vercel CLI child process: CLI `56.2.0` otherwise gives those variables
 precedence over `repo.json` and loses the monorepo Root Directory mapping.
 
-The worker runs this sequence in one standard `ubuntu-latest` job:
+The credentialed worker runs this sequence in one standard `ubuntu-latest`
+job:
 
 1. materialize the exact repo-level UI link from repository variables;
 2. `vercel pull --yes --environment preview --git-branch <validated-branch>`;
@@ -342,11 +343,17 @@ The worker runs this sequence in one standard `ubuntu-latest` job:
 5. assertions for the UI project mapping, Build Output API v3 config, custom
    deployment ID, preview target, and pinned CLI build record;
 6. `vercel deploy --prebuilt --target preview --archive=tgz --format=json`;
-7. `vercel inspect --wait --timeout 5m --format=json --scope <org-id>`, then
-   direct HTTP smoke of the immutable URL, navigation, custom build identity,
-   representative JS/CSS/font assets, and preview security headers. The
+7. `vercel inspect --wait --timeout 5m --format=json --scope <org-id>`. The
    explicit scope prevents inspection from falling back to the token owner's
    default Vercel team.
+
+Only after that job emits the verified immutable URL does a second trusted job
+perform direct HTTP smoke of the URL, navigation, custom build identity,
+representative JS/CSS/font assets, and preview security headers. That smoke job
+checks out only `github.workflow_sha`; it never checks out or executes the
+deployment source, downloads an executable artifact, or receives a
+Vercel/Turbo/protection-bypass credential. A third always-run trusted job owns
+the terminal GitHub Deployment status.
 
 The upload command supplies `githubCommitOrg`, `githubCommitRepo`,
 `githubCommitSha`, and `githubCommitRef`. It intentionally omits
@@ -374,8 +381,12 @@ non-secret provenance is stored in the payload.
 Statuses progress through `queued` and `in_progress`. `success` is posted with
 the immutable Vercel `environment_url` and Actions `log_url` only after direct
 smoke passes. Build, deploy, or smoke failures post `failure`; cancellation or
-controller/infrastructure failures post `error`. An `if: always()` finalizer
-closes any record that did not reach success.
+controller/infrastructure failures post `error`. The `if: always()` lifecycle
+job closes any record that did not reach success. It is independent of
+best-effort timing and run-summary steps, so a metrics failure cannot overwrite
+a verified deployment's lifecycle truth. The reusable workflow publishes
+`deployment_url` only from the smoke-backed success step; it never falls back
+to the unverified upload output.
 
 A Deployment or status created with the repository `GITHUB_TOKEN` does not
 trigger another workflow run. Therefore `.github/workflows/preview-smoke.yml`

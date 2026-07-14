@@ -43,15 +43,22 @@ test("manual pilot exposes only the three UI-only deployment selectors", () => {
   );
 });
 
-test("caller and worker have only contents-read and deployments-write permissions", () => {
-  const expected = { contents: "read", deployments: "write" };
+test("build, smoke, and finalizer jobs keep separate least-privilege tokens", () => {
+  const deploymentWriter = { contents: "read", deployments: "write" };
   const pilot = workflow(pilotPath);
   const reusable = workflow(reusablePath);
-  assert.deepEqual(pilot.permissions, expected);
-  assert.deepEqual(pilot.jobs["deploy-ui-preview"].permissions, expected);
-  assert.deepEqual(reusable.permissions, expected);
-  assert.deepEqual(reusable.jobs.prebuilt.permissions, expected);
-  assert.equal(Object.hasOwn(reusable.jobs.prebuilt, "environment"), false);
+  assert.deepEqual(pilot.permissions, deploymentWriter);
+  assert.deepEqual(
+    pilot.jobs["deploy-ui-preview"].permissions,
+    deploymentWriter,
+  );
+  assert.deepEqual(reusable.permissions, {});
+  assert.deepEqual(reusable.jobs.prebuilt.permissions, deploymentWriter);
+  assert.deepEqual(reusable.jobs.smoke.permissions, { contents: "read" });
+  assert.deepEqual(reusable.jobs.finalize.permissions, deploymentWriter);
+  for (const job of Object.values(reusable.jobs)) {
+    assert.equal(Object.hasOwn(job, "environment"), false);
+  }
 });
 
 test("reusable workflow declares exact inputs, explicit secrets, and evidence outputs", () => {
@@ -83,7 +90,6 @@ test("reusable workflow declares exact inputs, explicit secrets, and evidence ou
     "vercel_token",
     "turbo_token",
     "turbo_remote_cache_signature_key",
-    "vercel_automation_bypass_secret",
   ]);
   assert.deepEqual(Object.keys(call.outputs), [
     "deployment_url",
@@ -103,7 +109,7 @@ test("pilot maps only preview credentials and never exposes a production path", 
   const raw = read(pilotPath);
   assert.match(raw, /VERCEL_TOKEN_PREVIEW/);
   assert.match(raw, /VERCEL_PROJECT_ID_UI/);
-  assert.match(raw, /VERCEL_AUTOMATION_BYPASS_SECRET/);
+  assert.doesNotMatch(raw, /VERCEL_AUTOMATION_BYPASS_SECRET|bypass/i);
   assert.doesNotMatch(raw, /VERCEL_TOKEN_PRODUCTION|vercel-cli-production/);
   assert.doesNotMatch(raw, /--prod|\bpromote\b|production_environment/);
   assert.doesNotMatch(raw, /pull_request(?:_target)?:|\bpush:|\bschedule:/);
@@ -111,7 +117,11 @@ test("pilot maps only preview credentials and never exposes a production path", 
 
 test("exact source, build, and upload remain in one standard-runner job", () => {
   const reusable = workflow(reusablePath);
-  assert.deepEqual(Object.keys(reusable.jobs), ["prebuilt"]);
+  assert.deepEqual(Object.keys(reusable.jobs), [
+    "prebuilt",
+    "smoke",
+    "finalize",
+  ]);
   const job = reusable.jobs.prebuilt;
   assert.equal(job["runs-on"], "ubuntu-latest");
   assert.equal(job["timeout-minutes"], 30);
@@ -145,33 +155,78 @@ test("monorepo-root CLI execution and app-root env validation use one mapping", 
   );
 });
 
-test("success follows direct smoke and the always finalizer closes orphaned records", () => {
+test("uncredentialed smoke gates the always-run trusted lifecycle finalizer", () => {
   const reusable = workflow(reusablePath);
-  const steps = reusable.jobs.prebuilt.steps;
-  const smokeIndex = steps.findIndex(
-    ({ name }) => name === "Verify and smoke the immutable preview",
+  const smoke = reusable.jobs.smoke;
+  const finalize = reusable.jobs.finalize;
+  assert.equal(smoke.needs, "prebuilt");
+  assert.match(smoke.if, /needs\.prebuilt\.result == 'success'/);
+  assert.deepEqual(finalize.needs, ["prebuilt", "smoke"]);
+  assert.equal(finalize.if, "always()");
+  assert.deepEqual(
+    smoke.steps.map(({ name }) => name),
+    [
+      "Check out trusted smoke controller only",
+      "Smoke immutable UI preview without deployment credentials",
+    ],
   );
-  const successIndex = steps.findIndex(
-    ({ name }) => name === "Mark GitHub Deployment successful after smoke",
+  const smokeStep = smoke.steps[1];
+  assert.match(smokeStep.run, /vercel-prebuilt-workflow\.mjs" smoke/);
+  assert.doesNotMatch(
+    JSON.stringify(smoke),
+    /VERCEL_TOKEN|TURBO_TOKEN|TURBO_REMOTE_CACHE_SIGNATURE_KEY|BYPASS|secrets\./i,
   );
-  const finalizer = steps.find(
-    ({ name }) => name === "Close a non-terminal GitHub Deployment",
+  const complete = finalize.steps.find(
+    ({ name }) => name === "Post truthful terminal GitHub Deployment state",
   );
-  assert.ok(smokeIndex >= 0 && successIndex > smokeIndex);
-  assert.match(steps[smokeIndex].run, / verify\n.* smoke/s);
-  assert.match(
-    steps[successIndex].env.VERCEL_DEPLOYMENT_URL,
-    /steps\.smoke\.outputs\.smoke_deployment_url/,
-  );
-  assert.match(finalizer.if, /always\(\)/);
-  assert.match(finalizer.run, /github-deployment\.mjs" finalize/);
-  assert.equal(
-    steps[smokeIndex].env.GITHUB_DEPLOYMENT_ID,
-    steps[successIndex].env.GITHUB_DEPLOYMENT_ID,
-  );
+  assert.match(complete.run, /github-deployment\.mjs" complete/);
+  assert.match(complete.env.VERCEL_DEPLOYMENT_URL, /needs\.smoke\.outputs/);
+  assert.match(complete.env.PREBUILT_RESULT, /needs\.prebuilt\.result/);
+  assert.match(complete.env.SMOKE_RESULT, /needs\.smoke\.result/);
   assert.match(
     reusable.jobs.prebuilt.outputs.github_deployment_id,
     /steps\.create\.outputs\.github_deployment_id/,
+  );
+});
+
+test("public deployment URL exists only after smoke-backed success", () => {
+  const reusable = workflow(reusablePath);
+  assert.equal(
+    reusable.on.workflow_call.outputs.deployment_url.value,
+    "${{ jobs.finalize.outputs.deployment_url }}",
+  );
+  assert.equal(
+    reusable.jobs.finalize.outputs.deployment_url,
+    "${{ steps.complete.outputs.verified_deployment_url }}",
+  );
+  assert.doesNotMatch(
+    reusable.on.workflow_call.outputs.deployment_url.value,
+    /jobs\.prebuilt|\|\|/,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(reusable.jobs.prebuilt.outputs),
+    /deployment_url.*\|\|/,
+  );
+});
+
+test("best-effort metrics cannot override verified lifecycle truth", () => {
+  const reusable = workflow(reusablePath);
+  const steps = reusable.jobs.finalize.steps;
+  const total = steps.find(
+    ({ name }) => name === "Measure total controller duration (best effort)",
+  );
+  const complete = steps.find(
+    ({ name }) => name === "Post truthful terminal GitHub Deployment state",
+  );
+  const evidence = steps.find(
+    ({ name }) => name === "Record comparison evidence (best effort)",
+  );
+  assert.equal(total["continue-on-error"], true);
+  assert.equal(evidence["continue-on-error"], true);
+  assert.equal(Object.hasOwn(complete, "continue-on-error"), false);
+  assert.match(
+    evidence.if,
+    /steps\.complete\.outputs\.github_deployment_state == 'success'/,
   );
 });
 
