@@ -103,11 +103,12 @@ test("source validation proves exact HEAD is reachable from the same-repo branch
       }),
       { commitSha: sha, gitBranch: "main" },
     );
+    const mismatchedSha = `${sha.startsWith("0") ? "1" : "0"}${sha.slice(1)}`;
     assert.throws(
       () =>
         validateSourceCheckout({
           repoRoot: source,
-          commitSha: `1${sha.slice(1)}`,
+          commitSha: mismatchedSha,
           gitBranch: "main",
           githubRepository: remote,
         }),
