@@ -2,6 +2,16 @@
 
 Read `CLAUDE.md` for repo-local frontend conventions and commands.
 
+## Pull request state
+
+Always create pull requests as normal, ready-for-review PRs directly. Never
+create a draft PR, never pass `--draft`, and never use a draft as a temporary
+staging state. Draft PRs suppress automated AI reviews.
+
+After creating or locating a PR, verify `isDraft: false`. If a pre-existing PR
+is unexpectedly draft, run `gh pr ready <number>` immediately before requesting
+reviews or starting the babysit loop.
+
 For any protocol-level question that crosses beyond this frontend repo, first
 read the private `mento-master-context` router when the checkout is available:
 
