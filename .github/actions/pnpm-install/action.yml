@@ -1,0 +1,45 @@
+name: Install pnpm dependencies
+description: Set up pnpm and Node.js, restore the pnpm cache, and install from the lockfile
+
+# Callers must check out the repository before invoking this action. Keeping the
+# package-manager bootstrap here gives every dependency-installing workflow one
+# cache implementation and one frozen-lockfile policy.
+inputs:
+  node-version:
+    description: Node.js version to install
+    required: false
+    default: "22"
+  registry-url:
+    description: Optional package registry URL for publishing workflows
+    required: false
+    default: ""
+  cache:
+    description: Whether actions/setup-node should cache the pnpm store
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Set up pnpm
+      uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v4
+
+    - name: Set up Node.js with pnpm cache
+      if: inputs.cache == 'true'
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: pnpm
+        registry-url: ${{ inputs.registry-url }}
+
+    - name: Set up Node.js without package-manager cache
+      if: inputs.cache != 'true'
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      with:
+        node-version: ${{ inputs.node-version }}
+        package-manager-cache: false
+        registry-url: ${{ inputs.registry-url }}
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile
