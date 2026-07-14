@@ -1,17 +1,19 @@
-# Description
+<!-- markdownlint-disable MD041 -->
 
-_Provide a clear and concise summary of what this pull request changes and why. Explain the main goals and the expected impact (e.g., Updated token names accordingly to the rebranding)._
+## The Problem
 
-## Other changes
+- [Describe the problem, user impact, or maintenance risk this PR addresses.]
 
-_Describe any minor or "drive-by" changes here. (e.g., Updated the `zod` package dependency)_
+## The Solution
 
-## Testing
+- [Explain how this PR solves the problem in plain English.]
 
-_Explain how you tested your changes. List manual steps, automated tests, or checks performed to confirm your changes work as intended (e.g., Go to the App-Mento and swap on mainnet and testnet chains)._
+## Validation
 
-## Checklist before requesting a review
+- [List commands and results, plus any manual verification.]
+
+## Ship Checklist
 
 - [ ] PR title follows the [conventions](https://www.notion.so/Git-Branching-and-Commit-Message-Conventions-18f66f7d06444cfcbac5725ffbc7c04a?pvs=4#9355048863c549ef92fe210a8a1298aa)
-- [ ] Performed a self-review of my own code changes
-- [ ] Smoke Test Run/s passed on the CI
+- [ ] Performed a self-review of my own changes
+- [ ] Relevant automated checks and smoke tests pass

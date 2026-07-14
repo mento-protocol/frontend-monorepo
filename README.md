@@ -394,6 +394,12 @@ The repository is set up with GitHub Actions for CI:
 - **CI**: On every PR, it runs linting (via Trunk), type checking, and builds all packages
 - **CD**: Deployments are handled by the Vercel Git integration — each app is a Vercel project that builds on push to main (previews on PRs). GitHub Actions does not deploy.
 
+Dependency-installing jobs use `.github/actions/pnpm-install`, which pins the
+Node/pnpm bootstrap, relies on `actions/setup-node` as the single pnpm-store
+cache owner, and enforces `pnpm install --frozen-lockfile`. Publishing overrides
+the composite's Node version and disables its cache; zero-dependency jobs may
+set up Node directly.
+
 ### Trunk in CI
 
 The CI pipeline uses the [Trunk GitHub Action](https://github.com/trunk-io/trunk-action) to:
@@ -463,7 +469,9 @@ Never commit the key. If you don't set it, nothing breaks — you just lose the 
 <!-- markdown-link-check-disable -->
 
 - [x] ~~Add [syncpack](https://www.npmjs.com/package/syncpack) for consistent dependency versions across all monorepo packages~~ (Now using PNPM catalog)
+
 <!-- markdown-link-check-enable -->
+
 - [ ] Finetune builds. There's probably ways to make the builds of both packages and apps smaller and/or more performant.
 - [ ] Make VS Code's "Go To Definition" on a component jump to the actual TypeScript source file instead of the compiled JS file in ./dist
 - [ ] Enable additional Trunk linters for production CI (security scanning, image optimization)
