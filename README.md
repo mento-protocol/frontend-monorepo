@@ -380,14 +380,15 @@ the composite's Node version and disables its cache; zero-dependency jobs may
 set up Node directly.
 
 The docs-only decision is implemented by `scripts/ci-change-plan.mjs` and
-covered by `pnpm ci:change-plan:test`. The always-run sentinel accepts skipped
-quality jobs only when that planner explicitly reports a documentation-only
-diff; failures, cancellations, unexpected skips, and invalid planner outputs
-remain blocking. Rename detection is disabled for the planning diff so both the
-old and new paths are classified; moving source into `docs/**` cannot masquerade
-as a documentation-only change. Until the target branch contains a trusted
-planner (including the workflow's bootstrap PR), CI runs the full quality suite
-instead of executing planner code from the pull-request checkout.
+covered by `pnpm ci:change-plan:test`, which the Unit tests job runs before the
+workspace test suite. The always-run sentinel accepts skipped quality jobs only
+when that planner explicitly reports a documentation-only diff; failures,
+cancellations, unexpected skips, and invalid planner outputs remain blocking.
+Rename detection is disabled for the planning diff so both the old and new
+paths are classified; moving source into `docs/**` cannot masquerade as a
+documentation-only change. Until the target branch contains a trusted planner
+(including the workflow's bootstrap PR), CI runs the full quality suite instead
+of executing planner code from the pull-request checkout.
 
 ### Trunk in CI
 

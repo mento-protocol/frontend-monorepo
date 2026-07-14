@@ -157,4 +157,5 @@ test("workflow executes the planner from the trusted base after bootstrap", () =
   assert.match(workflow, /git show "\$BASE_SHA:\$planner"/);
   assert.match(workflow, /node "\$trusted_planner" --null/);
   assert.match(workflow, /git diff --no-renames --name-only -z/);
+  assert.match(workflow, /run: pnpm ci:change-plan:test/);
 });
