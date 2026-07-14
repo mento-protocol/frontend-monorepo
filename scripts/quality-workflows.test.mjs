@@ -156,7 +156,11 @@ test("the notifier is loop-safe, secretless, and least privilege", () => {
   assert.match(workflow, /workflow_run\.name == 'Publish UI Package'/);
   assert.match(
     workflow,
-    /workflow_run\.head_branch == github\.event\.repository\.default_branch/,
+    /workflow_run\.event == 'schedule' \|\|\n {8}\(\n {10}github\.event\.workflow_run\.event == 'push'/,
+  );
+  assert.match(
+    workflow,
+    /workflow_run\.event == 'workflow_dispatch' &&\n {10}github\.event\.workflow_run\.head_branch == github\.event\.repository\.default_branch/,
   );
   assert.match(workflow, /ref: \$\{\{ github\.workflow_sha \}\}/);
   assert.doesNotMatch(workflow, /workflow_run\.head_sha/);

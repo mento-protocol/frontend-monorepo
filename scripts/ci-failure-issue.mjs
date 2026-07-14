@@ -70,10 +70,14 @@ function isRelevantRun(run, defaultBranch) {
     run.event === "push" &&
     (run.head_branch === defaultBranch ||
       TAG_PUSH_WORKFLOW_NAMES.has(run.name));
+  const isOperationalRun =
+    run.event === "schedule" ||
+    isOperationalPush ||
+    (run.event === "workflow_dispatch" && run.head_branch === defaultBranch);
 
   return (
     TRACKED_EVENTS.has(run.event) &&
-    (isOperationalPush || run.head_branch === defaultBranch) &&
+    isOperationalRun &&
     run.name !== NOTIFIER_WORKFLOW_NAME
   );
 }

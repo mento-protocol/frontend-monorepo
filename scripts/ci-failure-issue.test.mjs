@@ -274,6 +274,15 @@ test("finds a newer decisive run beyond the first API page", async () => {
   assert.match(calls.update[0].body, /run #200/);
 });
 
+test("tracks scheduled failures when GitHub omits the head branch", async () => {
+  const run = workflowRun({ event: "schedule", head_branch: null });
+  const { github, context, calls } = harness({ run });
+  const result = await reconcileCiFailureIssue({ github, context });
+
+  assert.deepEqual(result, { action: "opened", issueNumber: 91 });
+  assert.match(calls.create[0].body, /failed for `main`/);
+});
+
 test("ignores pull-request, feature push/dispatch, and cancelled runs", async () => {
   for (const run of [
     workflowRun({ event: "pull_request" }),
