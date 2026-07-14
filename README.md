@@ -397,6 +397,10 @@ feat(ui): add new button component
 The repository is set up with GitHub Actions for CI:
 
 - **CI**: On every PR, it runs linting (via Trunk), type checking, and builds all packages
+- **Quality budgets**: The always-reported [Quality Budgets](docs/quality-budgets.md)
+  check enforces production-source coverage and gzip route limits. Its general
+  CI failure notifier opens or updates one issue for an operational workflow
+  failure and closes the issue after recovery.
 - **CD**: Deployments are handled by the Vercel Git integration — each app is a Vercel project that builds on push to main (previews on PRs). GitHub Actions does not deploy.
 
 Dependency-installing jobs use `.github/actions/pnpm-install`, which pins the

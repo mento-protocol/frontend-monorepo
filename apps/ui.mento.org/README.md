@@ -41,9 +41,12 @@ pnpm --filter ui.mento.org test:visual
 
 Diffs are reviewed and baselines are promoted in the Argos dashboard.
 
-The CI workflow runs this suite only when files that can affect the showcase
-change, such as `apps/ui.mento.org/**`, `packages/ui/**`, root package manager
-files, or `.github/workflows/visual.yml`.
+On pull requests, the CI workflow runs this suite only when files that can
+affect the showcase change, such as `apps/ui.mento.org/**`, `packages/ui/**`,
+root package manager files, or `.github/workflows/visual.yml`. On `main`, the
+union of app and UI visual-impact paths controls whether the workflow starts;
+every started run executes both suites so its workflow-level success is valid
+recovery evidence for the CI failure notifier.
 
 ## Learn More
 
