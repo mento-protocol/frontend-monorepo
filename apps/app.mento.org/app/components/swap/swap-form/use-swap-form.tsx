@@ -58,6 +58,7 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
   const [formValues, setFormValues] = useAtom(formValuesAtom);
   const [, setConfirmView] = useAtom(confirmViewAtom);
   const [isApprovalProcessing, setIsApprovalProcessing] = useState(false);
+  const allowanceVerificationInFlightRef = useRef(false);
 
   const { data: balancesFromHook } = useAccountBalances({
     address,
@@ -303,6 +304,9 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
         </>,
       );
       async function synchronizeAllowanceAndOpenConfirm() {
+        if (allowanceVerificationInFlightRef.current) return;
+
+        allowanceVerificationInFlightRef.current = true;
         setIsApprovalProcessing(true);
         try {
           await waitForSufficientAllowance({
@@ -346,6 +350,7 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
             },
           );
         } finally {
+          allowanceVerificationInFlightRef.current = false;
           setIsApprovalProcessing(false);
         }
       }
