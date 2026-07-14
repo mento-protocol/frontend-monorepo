@@ -2,61 +2,38 @@
 
 import { env } from "@/env.mjs";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
-import { useSwapUrlSync } from "@/hooks/use-swap-url-sync";
 
 import {
   CELO_EXPLORER,
   ChainId,
   chainIdToChain,
   confirmViewAtom,
-  formatWithMaxDecimals,
   formValuesAtom,
   getNativeTokenSymbol,
   getPreferredUsdQuoteTokenSymbol,
   getTokenDecimals,
   getTokenOptionsByChainId,
   logger,
-  parseAmount,
-  parseAmountWithDefault,
   type SwapFormValues,
-  toWei,
   useAccountBalances,
   useApproveTransaction,
   useOptimizedSwapQuote,
   useSwapAllowance,
   useTokenOptions,
-  useTradablePairs,
 } from "@repo/web3";
 import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { useAtom } from "jotai";
 import { OctagonAlert } from "lucide-react";
 
-import { getChainChangeSyncPlan } from "./chain-change-sync";
+import { getSelectedTokenSymbol } from "./token-selection";
 import {
-  getAvailableTokenSymbol,
-  getSelectedTokenSymbol,
-} from "./token-selection";
-import {
-  getRouteDrivenFormStateSyncPlan,
   type LastChangedToken,
   type RouteDrivenFormState,
 } from "./route-driven-state";
-import {
-  createWaitingForQuoteStore,
-  getTokenPairKey,
-} from "./waiting-for-quote-store";
 import { getMaxSellAmount } from "./max-sell-amount";
-import { checkTradingLimitViolation } from "./trading-limits";
 import {
   getSwapFormInitialState,
   type SwapFormRouteOptions,
@@ -64,7 +41,13 @@ import {
 } from "./swap-form-initial-state";
 import { getTokenBalanceValue } from "./swap-form-validation";
 import { defaultEmptyBalances, formSchema, type FormValues } from "./types";
+import {
+  useSwapQuoteFormEffects,
+  useSwapTokenPairEffects,
+} from "./use-swap-form-effects";
 import { useSwapFormValidation } from "./use-swap-form-validation";
+import { useSwapQuoteState } from "./use-swap-quote-state";
+import { useSwapFormSync } from "./use-swap-form-sync";
 
 export function useSwapForm(opts?: SwapFormRouteOptions) {
   const { address, isConnected } = useAccount();
@@ -232,209 +215,51 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
     lastChangedTokenRef.current = value;
   }, []);
 
-  // ── Side effects ────────────────────────────────────────────────────
-
-  // Reset token selections when chain changes
-  useEffect(() => {
-    if (prevChainIdRef.current === formChainId) return;
-    prevChainIdRef.current = formChainId;
-
-    const availableTokens = getTokenOptionsByChainId(formChainId);
-    const plan = getChainChangeSyncPlan({
-      availableTokens,
-      currentTokenInSymbol: form.getValues("tokenInSymbol"),
-      currentTokenOutSymbol: form.getValues("tokenOutSymbol"),
-      preferredQuoteTokenSymbol: getPreferredUsdQuoteTokenSymbol(formChainId),
-    });
-
-    if (plan.kind === "clear-amount-only") {
-      form.setValue("amount", "");
-      form.setValue("quote", "");
-      setFormValues((prev) => (prev ? { ...prev, amount: "" } : prev));
-      return;
-    }
-
-    form.setValue("tokenInSymbol", plan.tokenInSymbol);
-    form.setValue("tokenOutSymbol", plan.tokenOutSymbol);
-    form.setValue("amount", "");
-    form.setValue("quote", "");
-
-    setFormValues((prev) =>
-      prev
-        ? {
-            ...prev,
-            tokenInSymbol: getAvailableTokenSymbol(
-              plan.tokenInSymbol,
-              availableTokens,
-            ),
-            tokenOutSymbol: getAvailableTokenSymbol(
-              plan.tokenOutSymbol,
-              availableTokens,
-            ),
-            amount: "",
-          }
-        : prev,
-    );
-    setLastChangedToken(null);
-  }, [form, formChainId, setFormValues, setLastChangedToken]);
-
-  useEffect(() => {
-    const previousRouteState = lastRouteDrivenFormStateRef.current;
-
-    lastRouteDrivenFormStateRef.current = routeDrivenFormState;
-
-    const plan = getRouteDrivenFormStateSyncPlan({
-      currentValues: form.getValues(),
-      formValuesSlippage: formValues?.slippage,
-      previousRouteState,
-      routeDrivenFormState,
-    });
-
-    if (!plan.shouldReset) return;
-
-    form.reset(plan.resetValues);
-    setLastChangedToken(plan.routeChangedTokenSide);
-  }, [form, formValues?.slippage, routeDrivenFormState, setLastChangedToken]);
-
-  useSwapUrlSync({
+  useSwapFormSync({
     amount,
+    form,
+    formChainId,
+    formValues,
+    isQuoteError: isError,
+    lastRouteDrivenFormStateRef,
+    prevChainIdRef,
+    routeDrivenFormState,
+    setConfirmView,
+    setFormValues,
+    setLastChangedToken,
     tokenInSymbol,
     tokenOutSymbol,
-    urlChainId: formChainId,
   });
 
-  useEffect(() => {
-    if (isError) {
-      setConfirmView(false);
-    }
-  }, [isError, setConfirmView]);
-
-  const tradingLimitError = useMemo(() => {
-    if (!hasAmount || !limits || limitsLoading) return null;
-
-    return checkTradingLimitViolation({
-      amountIn: parseAmountWithDefault(amount, 0),
-      amountOut: parseAmountWithDefault(quote, 0),
-      limits,
-      tokenInSymbol,
-      tokenOutSymbol,
-    });
-  }, [
+  const {
+    amountInWei,
+    buyUSDValue,
+    isButtonLoading,
+    isLoading,
+    sellUSDValue,
+    tradingLimitError,
+  } = useSwapQuoteState({
     amount,
-    quote,
+    canQuote,
+    chainId: formChainId,
+    formQuote,
+    fromTokenUSDValue,
+    hasAmount,
+    isQuoteError: isError,
+    isTradingSuspended,
     limits,
     limitsLoading,
-    tokenInSymbol,
-    tokenOutSymbol,
-    hasAmount,
-  ]);
-
-  useEffect(() => {
-    if (tradingLimitError) {
-      toast.error(tradingLimitError, { duration: 20000 });
-    }
-  }, [tradingLimitError]);
-
-  useEffect(() => {
-    const prevError = prevTradingSuspensionErrorRef.current;
-    const hasError = tradingSuspensionError !== null;
-    const errorChanged = prevError !== tradingSuspensionError;
-
-    if (hasError && errorChanged) {
-      if (suspensionToastIdRef.current) {
-        toast.dismiss(suspensionToastIdRef.current);
-      }
-      suspensionToastIdRef.current = toast.error(tradingSuspensionError, {
-        duration: 20000,
-      });
-    } else if (prevError !== null && !hasError) {
-      if (suspensionToastIdRef.current) {
-        toast.dismiss(suspensionToastIdRef.current);
-        suspensionToastIdRef.current = null;
-      }
-    }
-
-    prevTradingSuspensionErrorRef.current = tradingSuspensionError;
-  }, [tradingSuspensionError]);
-
-  const isLoading =
-    quoteFetching && canQuote && !tradingLimitError && !limitsLoading;
-
-  const waitingForQuotePairStore = useMemo(
-    () => createWaitingForQuoteStore(),
-    [],
-  );
-  const waitingForQuotePair = useSyncExternalStore(
-    waitingForQuotePairStore.subscribe,
-    waitingForQuotePairStore.getSnapshot,
-    waitingForQuotePairStore.getSnapshot,
-  );
-  const tokenPairKey = getTokenPairKey({
-    tokenInSymbol: selectedTokenInSymbol,
-    tokenOutSymbol: selectedTokenOutSymbol,
-  });
-
-  useEffect(() => {
-    waitingForQuotePairStore.update({
-      hasAmount,
-      isTradingSuspended,
-      quote,
-      quoteFetching,
-      tokenInSymbol: selectedTokenInSymbol,
-      tokenOutSymbol: selectedTokenOutSymbol,
-    });
-  }, [
-    hasAmount,
-    isTradingSuspended,
+    prevTradingSuspensionErrorRef,
     quote,
     quoteFetching,
     selectedTokenInSymbol,
     selectedTokenOutSymbol,
-    waitingForQuotePairStore,
-  ]);
-
-  const isWaitingForQuote =
-    tokenPairKey !== null && waitingForQuotePair === tokenPairKey;
-
-  const isButtonLoading = useMemo(
-    () =>
-      !isTradingSuspended &&
-      !isError &&
-      (quoteFetching || isWaitingForQuote) &&
-      hasAmount &&
-      !!selectedTokenInSymbol &&
-      !!selectedTokenOutSymbol,
-    [
-      quoteFetching,
-      isWaitingForQuote,
-      hasAmount,
-      selectedTokenInSymbol,
-      selectedTokenOutSymbol,
-      isTradingSuspended,
-      isError,
-    ],
-  );
-
-  const sellUSDValue = useMemo(() => {
-    return tokenInSymbol === "USDm" ? amount || "0" : fromTokenUSDValue || "0";
-  }, [tokenInSymbol, amount, fromTokenUSDValue]);
-
-  const buyUSDValue = useMemo(() => {
-    return tokenOutSymbol === "USDm"
-      ? formQuote || "0"
-      : toTokenUSDValue || "0";
-  }, [tokenOutSymbol, formQuote, toTokenUSDValue]);
-
-  const amountInWei = useMemo(() => {
-    if (!selectedTokenInSymbol) return "0";
-    const parsedAmount = parseAmount(amount);
-    if (!parsedAmount || !parsedAmount.gt(0)) return "0";
-
-    return toWei(
-      parsedAmount,
-      getTokenDecimals(selectedTokenInSymbol, formChainId),
-    ).toFixed(0);
-  }, [amount, selectedTokenInSymbol, formChainId]);
+    suspensionToastIdRef,
+    toTokenUSDValue,
+    tokenInSymbol,
+    tokenOutSymbol,
+    tradingSuspensionError,
+  });
 
   // ── Allowance & approval ────────────────────────────────────────────
 
@@ -507,25 +332,14 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
     },
   });
 
-  useEffect(() => {
-    if (quote !== undefined) {
-      const formattedQuote = formatWithMaxDecimals(quote, 4, false);
-      if (formQuote !== formattedQuote) {
-        form.setValue("quote", formattedQuote, { shouldValidate: true });
-      }
-    }
-  }, [quote, form, formQuote]);
-
-  useEffect(() => {
-    if (
-      errors.amount?.message &&
-      errors.amount.message !== "Invalid input" &&
-      errors.amount.message !== "Amount is required" &&
-      hasAmount
-    ) {
-      toast.error(errors.amount.message);
-    }
-  }, [errors.amount, hasAmount, amount]);
+  useSwapQuoteFormEffects({
+    amount,
+    amountError: errors.amount,
+    form,
+    formQuote,
+    hasAmount,
+    quote,
+  });
 
   // ── Submit ──────────────────────────────────────────────────────────
 
@@ -570,67 +384,15 @@ export function useSwapForm(opts?: SwapFormRouteOptions) {
 
   // ── Token pair validation ───────────────────────────────────────────
 
-  const {
-    data: fromTokenTradablePairs,
-    isLoading: isFromTokenTradablePairsLoading,
-  } = useTradablePairs(selectedTokenInSymbol, formChainId);
-  const {
-    data: toTokenTradablePairs,
-    isLoading: isToTokenTradablePairsLoading,
-  } = useTradablePairs(selectedTokenOutSymbol, formChainId);
-
-  // Reset form fields after a successful swap (formValues.amount is cleared but tokens preserved)
-  useEffect(() => {
-    if (!formValues?.amount && formValues?.tokenInSymbol) {
-      setLastChangedToken(null);
-      form.reset({
-        amount: "",
-        quote: "",
-        tokenInSymbol: formValues.tokenInSymbol,
-        tokenOutSymbol: formValues.tokenOutSymbol || "USDm",
-        slippage: formValues?.slippage || "0.3",
-      });
-    }
-  }, [
-    formValues?.amount,
-    formValues?.tokenInSymbol,
-    formValues?.tokenOutSymbol,
-    formValues?.slippage,
+  useSwapTokenPairEffects({
+    chainId: formChainId,
     form,
-    setLastChangedToken,
-  ]);
-
-  useEffect(() => {
-    const lastChangedToken = lastChangedTokenRef.current;
-
-    if (!selectedTokenInSymbol || !selectedTokenOutSymbol || !lastChangedToken)
-      return;
-    if (isFromTokenTradablePairsLoading || isToTokenTradablePairsLoading)
-      return;
-    if (!fromTokenTradablePairs || !toTokenTradablePairs) return;
-
-    const isValidPair =
-      fromTokenTradablePairs.includes(selectedTokenOutSymbol) ||
-      toTokenTradablePairs.includes(selectedTokenInSymbol);
-
-    if (!isValidPair) {
-      if (lastChangedToken === "from") {
-        form.setValue("tokenOutSymbol", "", { shouldValidate: false });
-      } else if (lastChangedToken === "to") {
-        form.setValue("tokenInSymbol", "", { shouldValidate: false });
-      }
-      setLastChangedToken(null);
-    }
-  }, [
+    formValues,
+    lastChangedTokenRef,
     selectedTokenInSymbol,
     selectedTokenOutSymbol,
-    fromTokenTradablePairs,
-    toTokenTradablePairs,
-    isFromTokenTradablePairsLoading,
-    isToTokenTradablePairsLoading,
-    form,
     setLastChangedToken,
-  ]);
+  });
 
   // ── Return ──────────────────────────────────────────────────────────
 
