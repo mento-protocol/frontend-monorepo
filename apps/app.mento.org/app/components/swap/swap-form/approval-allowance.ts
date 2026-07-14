@@ -8,6 +8,21 @@ export type ApprovalRequirement = {
   identity: string;
 };
 
+export function buildApprovalIdentity({
+  account,
+  chainId,
+  tokenInSymbol,
+}: {
+  account?: string;
+  chainId: number;
+  tokenInSymbol?: string;
+}) {
+  // ERC-20 allowances are keyed by owner, sell-token contract, and spender.
+  // The Router spender is chain-specific; the buy token is not part of the
+  // allowance slot and must not invalidate a confirmed approval.
+  return [chainId, account ?? "", tokenInSymbol ?? ""].join(":");
+}
+
 const sleep: Sleep = (delayMs) =>
   new Promise((resolve) => setTimeout(resolve, delayMs));
 

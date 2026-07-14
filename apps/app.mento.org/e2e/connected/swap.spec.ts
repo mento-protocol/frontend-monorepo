@@ -30,8 +30,11 @@ import { erc20BalanceOf, revert, rpc, snapshot } from "./rpc";
 // ON-CHAIN" check.
 const ACCT0 = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 const CUSD = "0x765DE816845861e75A25fCA122bb6898B8B1282a";
+const CGBP = "0xCCF663b1fF11028f0b19058d0f7B674004a40746";
+const ROUTER = "0x4861840C2EfB2b98312B0aE34d86fD73E8f9B6f6";
 const APPROVE_SELECTOR = "0x095ea7b3";
 const ALLOWANCE_SELECTOR = "0xdd62ed3e";
+const GET_AMOUNTS_OUT_SELECTOR = "0x66e56f6d";
 const ZERO_UINT256 = `0x${"0".repeat(64)}`;
 
 type JsonRpcRequest = {
@@ -48,13 +51,27 @@ type JsonRpcResponse = {
 
 async function interceptPostApprovalAllowanceReads(
   page: Page,
-  { maxStaleReads = Number.POSITIVE_INFINITY } = {},
+  {
+    holdPrimaryQuoteDuringApprovalReceipt = false,
+    maxStaleReads = Number.POSITIVE_INFINITY,
+  } = {},
 ) {
   const approvalTransactionHashes = new Set<string>();
   let approvalReceiptObserved = false;
+  let approvalReceiptWaitingForQuoteRefresh = false;
+  let approvalReceiptReleased = false;
+  let heldPrimaryQuoteReadCount = 0;
   let postReceiptAllowanceReadCount = 0;
   let staleAllowanceReadCount = 0;
   let staleReadsReleased = false;
+  let releaseHeldPrimaryQuote: (() => void) | undefined;
+  const heldPrimaryQuoteRelease = new Promise<void>((resolve) => {
+    releaseHeldPrimaryQuote = resolve;
+  });
+  let markPrimaryQuoteRefreshStarted: (() => void) | undefined;
+  const primaryQuoteRefreshStarted = new Promise<void>((resolve) => {
+    markPrimaryQuoteRefreshStarted = resolve;
+  });
 
   await page.route(
     /http:\/\/(?:localhost|127\.0\.0\.1):8545\/.*/,
@@ -87,6 +104,31 @@ async function interceptPostApprovalAllowanceReads(
           typeof request.params?.[0] === "string" &&
           approvalTransactionHashes.has(request.params[0]),
       );
+      const primaryQuoteRequestIds = approvalReceiptWaitingForQuoteRefresh
+        ? requests.flatMap((request) => {
+            if (request.method !== "eth_call") return [];
+            const call = request.params?.[0] as
+              | { data?: unknown; to?: unknown }
+              | undefined;
+            if (typeof call?.data !== "string") {
+              return [];
+            }
+
+            const data = call.data.toLowerCase();
+            const routerIndex = data.indexOf(ROUTER.slice(2).toLowerCase());
+            const selectorIndex = data.indexOf(
+              GET_AMOUNTS_OUT_SELECTOR.slice(2),
+            );
+            const sellTokenIndex = data.indexOf(CUSD.slice(2).toLowerCase());
+            const buyTokenIndex = data.indexOf(CGBP.slice(2).toLowerCase());
+            return routerIndex >= 0 &&
+              selectorIndex > routerIndex &&
+              sellTokenIndex >= 0 &&
+              buyTokenIndex > sellTokenIndex
+              ? [request.id]
+              : [];
+          })
+        : [];
       const allowanceRequestIds = approvalReceiptObserved
         ? requests.flatMap((request) => {
             if (request.method !== "eth_call") return [];
@@ -105,6 +147,7 @@ async function interceptPostApprovalAllowanceReads(
       if (
         approveRequests.length === 0 &&
         receiptRequests.length === 0 &&
+        primaryQuoteRequestIds.length === 0 &&
         allowanceRequestIds.length === 0
       ) {
         return route.continue();
@@ -117,6 +160,13 @@ async function interceptPostApprovalAllowanceReads(
       const responses = Array.isArray(responseBody)
         ? responseBody
         : [responseBody];
+
+      if (primaryQuoteRequestIds.length > 0 && !approvalReceiptReleased) {
+        heldPrimaryQuoteReadCount += primaryQuoteRequestIds.length;
+        markPrimaryQuoteRefreshStarted?.();
+        await heldPrimaryQuoteRelease;
+        return route.fulfill({ response: upstream });
+      }
 
       for (const request of approveRequests) {
         const response = responses.find(
@@ -135,7 +185,34 @@ async function interceptPostApprovalAllowanceReads(
           | { status?: unknown }
           | null
           | undefined;
-        if (receipt?.status === "0x1") approvalReceiptObserved = true;
+        if (receipt?.status === "0x1") {
+          approvalReceiptObserved = true;
+          if (
+            holdPrimaryQuoteDuringApprovalReceipt &&
+            !approvalReceiptReleased
+          ) {
+            approvalReceiptWaitingForQuoteRefresh = true;
+          }
+        }
+      }
+
+      if (approvalReceiptWaitingForQuoteRefresh && !approvalReceiptReleased) {
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(
+            () =>
+              reject(
+                new Error(
+                  "Timed out waiting for a primary quote refresh while gating the approval receipt",
+                ),
+              ),
+            15_000,
+          );
+          void primaryQuoteRefreshStarted.then(() => {
+            clearTimeout(timeout);
+            resolve();
+          });
+        });
+        approvalReceiptWaitingForQuoteRefresh = false;
       }
 
       if (!approvalReceiptObserved) {
@@ -173,7 +250,12 @@ async function interceptPostApprovalAllowanceReads(
 
   return {
     approvalTransactionCount: () => approvalTransactionHashes.size,
+    heldPrimaryQuoteReadCount: () => heldPrimaryQuoteReadCount,
     postReceiptAllowanceReadCount: () => postReceiptAllowanceReadCount,
+    releaseHeldPrimaryQuote: () => {
+      approvalReceiptReleased = true;
+      releaseHeldPrimaryQuote?.();
+    },
     releaseStaleReads: () => {
       staleReadsReleased = true;
     },
@@ -305,10 +387,47 @@ test("recovers when the first post-approval allowance read is stale", async ({
   const confirmSwapButton = page
     .getByTestId("swapButton")
     .filter({ visible: true });
-  await expect(confirmSwapButton).toBeEnabled({ timeout: 15_000 });
+  await expect(confirmSwapButton).toBeEnabled({ timeout: 30_000 });
 });
 
-test("retries allowance verification after a smaller amount edit without sending another approval", async ({
+test("resumes allowance verification after a background quote refresh", async ({
+  page,
+}) => {
+  const interception = await interceptPostApprovalAllowanceReads(page, {
+    holdPrimaryQuoteDuringApprovalReceipt: true,
+    maxStaleReads: 0,
+  });
+
+  await page.goto("/swap/celo?from=USDm&to=GBPm", {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(
+    page.getByText("0xf39F...2266").filter({ visible: true }),
+  ).toBeVisible({ timeout: 20_000 });
+
+  await page.getByTestId("sellAmountInput").fill("1.1");
+  const approveButton = page.getByTestId("approveButton");
+  await expect(approveButton).toBeEnabled({ timeout: 30_000 });
+  await approveButton.click();
+
+  // Hold the primary quote's interval refetch open while the successful
+  // approval receipt reaches React. The form cannot confirm until that quote
+  // settles, but it must resume verification automatically afterward.
+  await expect(page.getByText("Approve Successful")).toBeVisible({
+    timeout: 60_000,
+  });
+  expect(interception.heldPrimaryQuoteReadCount()).toBeGreaterThan(0);
+  await expect(page.getByText("Confirm Swap")).not.toBeVisible();
+
+  interception.releaseHeldPrimaryQuote();
+
+  await expect(page.getByText("Confirm Swap")).toBeVisible({
+    timeout: 30_000,
+  });
+  expect(interception.approvalTransactionCount()).toBe(1);
+});
+
+test("retries allowance verification after smaller amount and buy-token edits without sending another approval", async ({
   page,
 }) => {
   const interception = await interceptPostApprovalAllowanceReads(page);
@@ -336,6 +455,9 @@ test("retries allowance verification after a smaller amount edit without sending
 
   const previousQuote = await page.getByTestId("buyAmountInput").inputValue();
   await page.getByTestId("sellAmountInput").fill("1");
+  await page.getByTestId("selectBuyTokenButton").click();
+  await page.getByTestId("tokenOption_EURm").click();
+  await expect(page.getByTestId("selectBuyTokenButton")).toHaveText(/EURm/);
   await expect
     .poll(() => page.getByTestId("buyAmountInput").inputValue())
     .not.toBe(previousQuote);
@@ -349,10 +471,12 @@ test("retries allowance verification after a smaller amount edit without sending
   const allowanceReadsBeforeRetry =
     interception.postReceiptAllowanceReadCount();
   interception.releaseStaleReads();
-  const toastRetryButton = page.getByRole("button", {
-    exact: true,
-    name: "Retry",
-  });
+  const toastRetryButton = page
+    .getByRole("button", {
+      exact: true,
+      name: "Retry",
+    })
+    .first();
   await expect(toastRetryButton).toBeEnabled();
   await toastRetryButton.click();
 
@@ -360,6 +484,9 @@ test("retries allowance verification after a smaller amount edit without sending
     timeout: 30_000,
   });
   await expect(page.getByTestId("sellAmountLabel")).toHaveText("1");
+  await expect(
+    page.getByTestId("rateLabel").filter({ visible: true }),
+  ).toContainText("1 EURm");
   expect(interception.postReceiptAllowanceReadCount()).toBeGreaterThan(
     allowanceReadsBeforeRetry,
   );

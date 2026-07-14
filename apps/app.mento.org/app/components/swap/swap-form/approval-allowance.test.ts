@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  buildApprovalIdentity,
   canReuseConfirmedApproval,
   isSameApprovalRequirement,
   waitForSufficientAllowance,
@@ -12,7 +13,44 @@ const retryOptions = {
 };
 
 describe("approval requirement context", () => {
-  const confirmed = { amount: "1000", identity: "celo:account:USDm:GBPm" };
+  const identity = buildApprovalIdentity({
+    account: "account",
+    chainId: 42220,
+    tokenInSymbol: "USDm",
+  });
+  const confirmed = { amount: "1000", identity };
+
+  it("keys approval reuse by chain, account, and sell token", () => {
+    expect(identity).toBe("42220:account:USDm");
+    expect(
+      buildApprovalIdentity({
+        account: "account",
+        chainId: 42220,
+        tokenInSymbol: "USDm",
+      }),
+    ).toBe(identity);
+    expect(
+      buildApprovalIdentity({
+        account: "other-account",
+        chainId: 42220,
+        tokenInSymbol: "USDm",
+      }),
+    ).not.toBe(identity);
+    expect(
+      buildApprovalIdentity({
+        account: "account",
+        chainId: 42220,
+        tokenInSymbol: "EURm",
+      }),
+    ).not.toBe(identity);
+    expect(
+      buildApprovalIdentity({
+        account: "account",
+        chainId: 44787,
+        tokenInSymbol: "USDm",
+      }),
+    ).not.toBe(identity);
+  });
 
   it("reuses a confirmed approval for the same or a smaller amount", () => {
     expect(canReuseConfirmedApproval(confirmed, confirmed)).toBe(true);
@@ -21,14 +59,14 @@ describe("approval requirement context", () => {
     ).toBe(true);
   });
 
-  it("does not reuse it for a larger amount or a different swap identity", () => {
+  it("does not reuse it for a larger amount or a different allowance identity", () => {
     expect(
       canReuseConfirmedApproval(confirmed, { ...confirmed, amount: "1001" }),
     ).toBe(false);
     expect(
       canReuseConfirmedApproval(confirmed, {
         ...confirmed,
-        identity: "celo:account:USDm:EURm",
+        identity: "42220:other-account:USDm",
       }),
     ).toBe(false);
   });
