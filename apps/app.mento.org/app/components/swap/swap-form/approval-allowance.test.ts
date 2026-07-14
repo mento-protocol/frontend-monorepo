@@ -1,11 +1,45 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { waitForSufficientAllowance } from "./approval-allowance";
+import {
+  canReuseConfirmedApproval,
+  isSameApprovalRequirement,
+  waitForSufficientAllowance,
+} from "./approval-allowance";
 
 const retryOptions = {
   initialRetryDelayMs: 10,
   maxAttempts: 3,
 };
+
+describe("approval requirement context", () => {
+  const confirmed = { amount: "1000", identity: "celo:account:USDm:GBPm" };
+
+  it("reuses a confirmed approval for the same or a smaller amount", () => {
+    expect(canReuseConfirmedApproval(confirmed, confirmed)).toBe(true);
+    expect(
+      canReuseConfirmedApproval(confirmed, { ...confirmed, amount: "999" }),
+    ).toBe(true);
+  });
+
+  it("does not reuse it for a larger amount or a different swap identity", () => {
+    expect(
+      canReuseConfirmedApproval(confirmed, { ...confirmed, amount: "1001" }),
+    ).toBe(false);
+    expect(
+      canReuseConfirmedApproval(confirmed, {
+        ...confirmed,
+        identity: "celo:account:USDm:EURm",
+      }),
+    ).toBe(false);
+  });
+
+  it("distinguishes allowance reads for different required amounts", () => {
+    expect(isSameApprovalRequirement(confirmed, confirmed)).toBe(true);
+    expect(
+      isSameApprovalRequirement(confirmed, { ...confirmed, amount: "999" }),
+    ).toBe(false);
+  });
+});
 
 describe("waitForSufficientAllowance", () => {
   it("accepts an allowance equal to the required amount on the first read", async () => {

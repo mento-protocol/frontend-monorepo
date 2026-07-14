@@ -308,7 +308,7 @@ test("recovers when the first post-approval allowance read is stale", async ({
   await expect(confirmSwapButton).toBeEnabled({ timeout: 15_000 });
 });
 
-test("retries allowance verification without sending another approval", async ({
+test("retries allowance verification after a smaller amount edit without sending another approval", async ({
   page,
 }) => {
   const interception = await interceptPostApprovalAllowanceReads(page);
@@ -334,6 +334,12 @@ test("retries allowance verification without sending another approval", async ({
     ),
   ).toBeVisible({ timeout: 30_000 });
 
+  const previousQuote = await page.getByTestId("buyAmountInput").inputValue();
+  await page.getByTestId("sellAmountInput").fill("1");
+  await expect
+    .poll(() => page.getByTestId("buyAmountInput").inputValue())
+    .not.toBe(previousQuote);
+
   const verifyApprovalButton = page.getByTestId("verifyApprovalButton");
   await expect(verifyApprovalButton).toBeEnabled({ timeout: 30_000 });
   await expect(verifyApprovalButton).toHaveText("Retry allowance check");
@@ -343,11 +349,17 @@ test("retries allowance verification without sending another approval", async ({
   const allowanceReadsBeforeRetry =
     interception.postReceiptAllowanceReadCount();
   interception.releaseStaleReads();
-  await verifyApprovalButton.click();
+  const toastRetryButton = page.getByRole("button", {
+    exact: true,
+    name: "Retry",
+  });
+  await expect(toastRetryButton).toBeEnabled();
+  await toastRetryButton.click();
 
   await expect(page.getByText("Confirm Swap")).toBeVisible({
     timeout: 30_000,
   });
+  await expect(page.getByTestId("sellAmountLabel")).toHaveText("1");
   expect(interception.postReceiptAllowanceReadCount()).toBeGreaterThan(
     allowanceReadsBeforeRetry,
   );

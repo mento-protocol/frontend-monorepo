@@ -3,6 +3,11 @@ const DEFAULT_INITIAL_RETRY_DELAY_MS = 250;
 
 type Sleep = (delayMs: number) => Promise<void>;
 
+export type ApprovalRequirement = {
+  amount: string;
+  identity: string;
+};
+
 const sleep: Sleep = (delayMs) =>
   new Promise((resolve) => setTimeout(resolve, delayMs));
 
@@ -16,6 +21,29 @@ function parseAllowance(value: string, label: string): bigint {
       cause: error,
     });
   }
+}
+
+export function canReuseConfirmedApproval(
+  confirmed: ApprovalRequirement,
+  current: ApprovalRequirement,
+) {
+  if (confirmed.identity !== current.identity) return false;
+
+  try {
+    return (
+      parseAllowance(confirmed.amount, "Confirmed approval") >=
+      parseAllowance(current.amount, "Current approval requirement")
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isSameApprovalRequirement(
+  left: ApprovalRequirement,
+  right: ApprovalRequirement,
+) {
+  return left.identity === right.identity && left.amount === right.amount;
 }
 
 export async function waitForSufficientAllowance({
