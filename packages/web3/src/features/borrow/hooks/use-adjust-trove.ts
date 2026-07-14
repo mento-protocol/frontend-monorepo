@@ -4,7 +4,7 @@ import { useSetAtom } from "jotai";
 import type { Config } from "wagmi";
 import { borrowFlowAtom } from "../atoms/flow-atoms";
 import type { AdjustTroveParams, CallParams, TroveStatus } from "../types";
-import { executeFlow } from "../tx-flows/engine";
+import { executeFlow } from "../tx-flows/flow";
 import { buildAdjustTroveCall } from "./adjust-trove-transaction";
 import { useBorrowService } from "./use-borrow-service";
 

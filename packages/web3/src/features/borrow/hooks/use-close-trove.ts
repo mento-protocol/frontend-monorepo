@@ -7,7 +7,7 @@ import { getBorrowRegistry } from "@mento-protocol/mento-sdk";
 import { resolveAddressesFromRegistry } from "@mento-protocol/mento-sdk";
 import { borrowFlowAtom } from "../atoms/flow-atoms";
 import type { CallParams } from "../types";
-import { executeFlow } from "../tx-flows/engine";
+import { executeFlow } from "../tx-flows/flow";
 import { buildCloseTroveApprovalCall } from "./close-trove-approval";
 import { useBorrowService } from "./use-borrow-service";
 

@@ -1,5 +1,13 @@
 # PRD: Phase 2 — Write Hooks + Transaction Flow Engine
 
+> **Implementation update (2026-07):** The feature-specific borrow engine and
+> transport bridge described in this archived plan were later consolidated in
+> `packages/web3/src/features/tx-flow/engine.ts`. Borrow now adapts that shared
+> engine through `packages/web3/src/features/borrow/tx-flows/flow.ts`, while
+> `send-tx.ts` retains only borrow-specific error normalization. References to
+> `sendSdkTransaction()` and `waitForTx()` below describe the original design,
+> not the current transport API.
+
 ## Introduction
 
 Phase 2 adds the write (mutation) layer to the borrow feature: hooks that build and send transactions via the SDK, a flow state atom for tracking multi-step operations, and a flow dialog UI for user feedback. This phase makes it possible for Phase 3's forms to trigger trove operations (open, adjust, close, etc.) and stability pool operations.
@@ -40,7 +48,9 @@ The `sendSdkTransaction()` and `waitForTx()` bridge functions already exist from
 
 **Acceptance Criteria:**
 
-- [ ] Create `packages/web3/src/features/borrow/tx-flows/engine.ts`
+- [ ] Create the shared engine at
+      `packages/web3/src/features/tx-flow/engine.ts` and the borrow adapter at
+      `packages/web3/src/features/borrow/tx-flows/flow.ts`
 - [ ] `executeFlow(config, flowAtom, steps)` function that:
   - Sets the flow atom with initial state (all steps "idle")
   - Iterates through steps sequentially
@@ -275,7 +285,8 @@ SP operations need direct contract interaction:
 ### Key patterns from Phase 1 progress
 
 - `Config` type from `"wagmi"` (not `@wagmi/core`)
-- `sendSdkTransaction` and `waitForTx` at `features/borrow/tx-flows/send-tx.ts`
+- Shared transport at `features/tx-flow/engine.ts`; borrow error normalization
+  at `features/borrow/tx-flows/send-tx.ts`
 - `useAccount()` from `@repo/web3/wagmi` for connected address
 - `useStabilityPoolAddress` resolves SP address via SDK registry helpers
 

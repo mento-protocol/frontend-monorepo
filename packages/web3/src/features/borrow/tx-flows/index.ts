@@ -1,4 +1,4 @@
 // Borrow transaction flows — barrel export
-export { executeFlow } from "./engine";
-export type { FlowStepDefinition } from "./engine";
-export { sendSdkTransaction, waitForTx } from "./send-tx";
+export { executeFlow } from "./flow";
+export type { FlowStepDefinition } from "./flow";
+export { normalizeTxError } from "./send-tx";

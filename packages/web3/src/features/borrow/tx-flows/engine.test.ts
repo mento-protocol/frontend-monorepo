@@ -1,16 +1,30 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BorrowFlowState } from "../atoms/flow-atoms";
 
-vi.mock("./send-tx", () => ({
-  sendSdkTransaction: vi.fn(),
-  waitForTx: vi.fn(),
+vi.mock("wagmi/actions", () => ({
+  estimateGas: vi.fn(),
+  getChainId: vi.fn(),
+  sendTransaction: vi.fn(),
+  waitForTransactionReceipt: vi.fn(),
 }));
 
-const { executeFlow } = await import("./engine");
-const sendTxModule = await import("./send-tx");
+vi.mock("@/utils/transaction-fees", () => ({
+  getTransactionFeeOverrides: vi.fn(),
+}));
 
-const sendSdkTransactionMock = vi.mocked(sendTxModule.sendSdkTransaction);
-const waitForTxMock = vi.mocked(sendTxModule.waitForTx);
+const { executeFlow } = await import("./flow");
+const wagmiActions = await import("wagmi/actions");
+const transactionFees = await import("@/utils/transaction-fees");
+
+const estimateGasMock = vi.mocked(wagmiActions.estimateGas);
+const getChainIdMock = vi.mocked(wagmiActions.getChainId);
+const sendTransactionMock = vi.mocked(wagmiActions.sendTransaction);
+const waitForTransactionReceiptMock = vi.mocked(
+  wagmiActions.waitForTransactionReceipt,
+);
+const getTransactionFeeOverridesMock = vi.mocked(
+  transactionFees.getTransactionFeeOverrides,
+);
 
 function createFlowRecorder() {
   let state: BorrowFlowState | null = null;
@@ -43,6 +57,9 @@ describe("executeFlow", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    getChainIdMock.mockReturnValue(42220);
+    estimateGasMock.mockResolvedValue(100n);
+    getTransactionFeeOverridesMock.mockResolvedValue({});
   });
 
   it("runs a two-step happy path and preserves the borrow flow shape", async () => {
@@ -58,10 +75,10 @@ describe("executeFlow", () => {
       value: 2n,
     });
 
-    sendSdkTransactionMock
+    sendTransactionMock
       .mockResolvedValueOnce(firstHash as never)
       .mockResolvedValueOnce(secondHash as never);
-    waitForTxMock
+    waitForTransactionReceiptMock
       .mockResolvedValueOnce({ status: "success" } as never)
       .mockResolvedValueOnce({ status: "success" } as never);
 
@@ -82,27 +99,31 @@ describe("executeFlow", () => {
       success: true,
       txHashes: [firstHash, secondHash],
     });
-    expect(sendSdkTransactionMock).toHaveBeenNthCalledWith(
+    expect(sendTransactionMock).toHaveBeenNthCalledWith(1, wagmiConfig, {
+      account,
+      to: "0x0000000000000000000000000000000000000011",
+      data: "0x11",
+      value: 1n,
+      chainId: 42220,
+      gas: 125n,
+    });
+    expect(sendTransactionMock).toHaveBeenNthCalledWith(2, wagmiConfig, {
+      account,
+      to: "0x0000000000000000000000000000000000000012",
+      data: "0x12",
+      value: 2n,
+      chainId: 42220,
+      gas: 125n,
+    });
+    expect(waitForTransactionReceiptMock).toHaveBeenNthCalledWith(
       1,
       wagmiConfig,
-      {
-        to: "0x0000000000000000000000000000000000000011",
-        data: "0x11",
-        value: 1n,
-      },
-      undefined,
-      account,
+      { hash: firstHash, confirmations: 3 },
     );
-    expect(sendSdkTransactionMock).toHaveBeenNthCalledWith(
+    expect(waitForTransactionReceiptMock).toHaveBeenNthCalledWith(
       2,
       wagmiConfig,
-      {
-        to: "0x0000000000000000000000000000000000000012",
-        data: "0x12",
-        value: 2n,
-      },
-      undefined,
-      account,
+      { hash: secondHash, confirmations: 3 },
     );
     expect(recorder.snapshots).toEqual([
       {
@@ -244,8 +265,10 @@ describe("executeFlow", () => {
   it("marks skipped steps as confirmed with an exact skipped label", async () => {
     const recorder = createFlowRecorder();
 
-    sendSdkTransactionMock.mockResolvedValueOnce(firstHash as never);
-    waitForTxMock.mockResolvedValueOnce({ status: "success" } as never);
+    sendTransactionMock.mockResolvedValueOnce(firstHash as never);
+    waitForTransactionReceiptMock.mockResolvedValueOnce({
+      status: "success",
+    } as never);
 
     const result = await executeFlow(
       wagmiConfig,
@@ -272,7 +295,7 @@ describe("executeFlow", () => {
     );
 
     expect(result).toEqual({ success: true, txHashes: [firstHash] });
-    expect(sendSdkTransactionMock).toHaveBeenCalledTimes(1);
+    expect(sendTransactionMock).toHaveBeenCalledTimes(1);
     expect(recorder.snapshots[1]).toEqual({
       flowId: "close-trove",
       operation: "Close Trove",
@@ -294,10 +317,12 @@ describe("executeFlow", () => {
     const recorder = createFlowRecorder();
     const stepThreeBuildTx = vi.fn();
 
-    sendSdkTransactionMock
+    sendTransactionMock
       .mockResolvedValueOnce(firstHash as never)
       .mockRejectedValueOnce(new Error("rpc exploded"));
-    waitForTxMock.mockResolvedValueOnce({ status: "success" } as never);
+    waitForTransactionReceiptMock.mockResolvedValueOnce({
+      status: "success",
+    } as never);
 
     const result = await executeFlow(
       wagmiConfig,
@@ -361,8 +386,10 @@ describe("executeFlow", () => {
   it("stores the raw reverted receipt message on the failing borrow step", async () => {
     const recorder = createFlowRecorder();
 
-    sendSdkTransactionMock.mockResolvedValueOnce(firstHash as never);
-    waitForTxMock.mockResolvedValueOnce({ status: "reverted" } as never);
+    sendTransactionMock.mockResolvedValueOnce(firstHash as never);
+    waitForTransactionReceiptMock.mockResolvedValueOnce({
+      status: "reverted",
+    } as never);
 
     const result = await executeFlow(
       wagmiConfig,
@@ -402,10 +429,60 @@ describe("executeFlow", () => {
     });
   });
 
+  it("falls back to wallet estimation, applies fee overrides, and keeps three confirmations", async () => {
+    const recorder = createFlowRecorder();
+
+    getChainIdMock.mockReturnValueOnce(80002);
+    estimateGasMock.mockRejectedValueOnce(new Error("rpc timeout"));
+    getTransactionFeeOverridesMock.mockResolvedValueOnce({
+      maxFeePerGas: 50n,
+      maxPriorityFeePerGas: 5n,
+    });
+    sendTransactionMock.mockResolvedValueOnce(firstHash as never);
+    waitForTransactionReceiptMock.mockResolvedValueOnce({
+      status: "success",
+    } as never);
+
+    const result = await executeFlow(
+      wagmiConfig,
+      recorder.setFlowAtom,
+      "deposit-sp",
+      "Deposit SP",
+      account,
+      [
+        {
+          id: "deposit",
+          label: "Deposit",
+          buildTx: vi.fn().mockResolvedValue({
+            to: "0x0000000000000000000000000000000000000018",
+            data: "0x18",
+            value: 0n,
+          }),
+        },
+      ],
+    );
+
+    expect(result).toEqual({ success: true, txHashes: [firstHash] });
+    expect(sendTransactionMock).toHaveBeenCalledWith(wagmiConfig, {
+      account,
+      to: "0x0000000000000000000000000000000000000018",
+      data: "0x18",
+      value: 0n,
+      chainId: 80002,
+      maxFeePerGas: 50n,
+      maxPriorityFeePerGas: 5n,
+    });
+    expect(sendTransactionMock.mock.calls[0]?.[1]).not.toHaveProperty("gas");
+    expect(waitForTransactionReceiptMock).toHaveBeenCalledWith(wagmiConfig, {
+      hash: firstHash,
+      confirmations: 3,
+    });
+  });
+
   it("keeps the flow state and marks the step as error on user rejection", async () => {
     const recorder = createFlowRecorder();
 
-    sendSdkTransactionMock.mockRejectedValueOnce(
+    sendTransactionMock.mockRejectedValueOnce(
       new Error("Transaction rejected by user"),
     );
 
