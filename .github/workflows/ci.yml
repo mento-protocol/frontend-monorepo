@@ -51,19 +51,19 @@ jobs:
           set -euo pipefail
 
           planner=scripts/ci-change-plan.mjs
-          if ! [[ "$BASE_SHA" =~ ^0+$ ]] && git cat-file -e "$BASE_SHA:$planner" 2>/dev/null; then
-            trusted_planner="$RUNNER_TEMP/ci-change-plan.mjs"
-            git show "$BASE_SHA:$planner" > "$trusted_planner"
-            planner=$trusted_planner
-          else
-            echo "::warning::The base commit does not contain the CI planner yet; using the checked-out copy to bootstrap it."
+          if [[ "$BASE_SHA" =~ ^0+$ ]] || ! git cat-file -e "$BASE_SHA:$planner" 2>/dev/null; then
+            {
+              echo "run_quality=true"
+              echo "changed_count=unknown"
+              echo "reason=planner-bootstrap-full-quality"
+            } >> "$GITHUB_OUTPUT"
+            echo "::notice::The base commit does not contain the trusted CI planner yet; running full quality checks."
+            exit 0
           fi
 
-          if [[ "$BASE_SHA" =~ ^0+$ ]]; then
-            git ls-files -z | node "$planner" --null >> "$GITHUB_OUTPUT"
-          else
-            git diff --no-renames --name-only -z "$BASE_SHA" "$HEAD_SHA" | node "$planner" --null >> "$GITHUB_OUTPUT"
-          fi
+          trusted_planner="$RUNNER_TEMP/ci-change-plan.mjs"
+          git show "$BASE_SHA:$planner" > "$trusted_planner"
+          git diff --no-renames --name-only -z "$BASE_SHA" "$HEAD_SHA" | node "$trusted_planner" --null >> "$GITHUB_OUTPUT"
 
       - name: Summarize CI plan
         env:

@@ -385,7 +385,9 @@ quality jobs only when that planner explicitly reports a documentation-only
 diff; failures, cancellations, unexpected skips, and invalid planner outputs
 remain blocking. Rename detection is disabled for the planning diff so both the
 old and new paths are classified; moving source into `docs/**` cannot masquerade
-as a documentation-only change.
+as a documentation-only change. Until the target branch contains a trusted
+planner (including the workflow's bootstrap PR), CI runs the full quality suite
+instead of executing planner code from the pull-request checkout.
 
 ### Trunk in CI
 

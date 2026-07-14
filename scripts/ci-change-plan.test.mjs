@@ -145,7 +145,16 @@ test("workflow executes the planner from the trusted base after bootstrap", () =
     "utf8",
   );
 
-  assert.match(workflow, /git cat-file -e "\$BASE_SHA:\$planner"/);
+  assert.match(
+    workflow,
+    /\[\[ "\$BASE_SHA" =~ \^0\+\$ \]\] \|\| ! git cat-file -e "\$BASE_SHA:\$planner"/,
+  );
+  assert.match(workflow, /echo "run_quality=true"/);
+  assert.match(workflow, /echo "changed_count=unknown"/);
+  assert.match(workflow, /echo "reason=planner-bootstrap-full-quality"/);
+  assert.match(workflow, /running full quality checks/);
+  assert.doesNotMatch(workflow, /using the checked-out copy/);
   assert.match(workflow, /git show "\$BASE_SHA:\$planner"/);
+  assert.match(workflow, /node "\$trusted_planner" --null/);
   assert.match(workflow, /git diff --no-renames --name-only -z/);
 });
