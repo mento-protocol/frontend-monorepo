@@ -10,61 +10,73 @@ export const BUNDLE_BUDGETS = [
   {
     name: "app.mento.org",
     appDirectory: "apps/app.mento.org",
-    observedMaxRouteGzipBytes: 1_600_000,
+    observedMaxRouteGzipBytes: 1_602_714,
     maxRouteGzipBytes: 1_760_000,
   },
   {
     name: "governance.mento.org",
     appDirectory: "apps/governance.mento.org",
-    observedMaxRouteGzipBytes: 1_180_000,
+    observedMaxRouteGzipBytes: 1_198_702,
     maxRouteGzipBytes: 1_300_000,
   },
   {
     name: "reserve.mento.org",
     appDirectory: "apps/reserve.mento.org",
-    observedMaxRouteGzipBytes: 670_000,
+    observedMaxRouteGzipBytes: 687_703,
     maxRouteGzipBytes: 740_000,
   },
   {
     name: "ui.mento.org",
     appDirectory: "apps/ui.mento.org",
-    observedMaxRouteGzipBytes: 461_000,
+    observedMaxRouteGzipBytes: 486_905,
     maxRouteGzipBytes: 510_000,
   },
 ];
 
-function parseManifest(manifestPath) {
-  let manifest;
+function parseRouteBundleStats(statsPath) {
+  let rows;
 
   try {
-    manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    rows = JSON.parse(readFileSync(statsPath, "utf8"));
   } catch (error) {
     throw new Error(
-      `Cannot read ${manifestPath}. Run a production build before checking bundle budgets.`,
+      `Cannot read ${statsPath}. Run a Turbopack production build before checking bundle budgets.`,
       { cause: error },
     );
   }
 
-  if (
-    manifest === null ||
-    typeof manifest !== "object" ||
-    manifest.pages === null ||
-    typeof manifest.pages !== "object" ||
-    Array.isArray(manifest.pages)
-  ) {
-    throw new Error(`${manifestPath} does not contain a valid pages manifest.`);
+  if (!Array.isArray(rows)) {
+    throw new Error(`${statsPath} does not contain a valid route stats array.`);
   }
 
-  return manifest.pages;
+  for (const [index, row] of rows.entries()) {
+    if (
+      row === null ||
+      typeof row !== "object" ||
+      typeof row.route !== "string" ||
+      row.route.length === 0 ||
+      typeof row.firstLoadUncompressedJsBytes !== "number" ||
+      !Number.isFinite(row.firstLoadUncompressedJsBytes) ||
+      row.firstLoadUncompressedJsBytes < 0 ||
+      !Array.isArray(row.firstLoadChunkPaths) ||
+      !row.firstLoadChunkPaths.every((path) => typeof path === "string")
+    ) {
+      throw new Error(
+        `${statsPath} contains an invalid route at index ${index}.`,
+      );
+    }
+  }
+
+  return rows;
 }
 
-function resolveBuildAsset(buildDirectory, relativePath) {
-  const assetPath = resolve(buildDirectory, relativePath);
+function resolveBuildAsset(appDirectory, buildDirectory, relativePath) {
+  const assetPath = resolve(appDirectory, relativePath);
   const buildPrefix = `${resolve(buildDirectory)}${sep}`;
 
   if (!assetPath.startsWith(buildPrefix)) {
     throw new Error(
-      `Bundle manifest asset escapes the build directory: ${relativePath}`,
+      `Bundle stats asset escapes the build directory: ${relativePath}`,
     );
   }
 
@@ -82,20 +94,15 @@ function gzipFileSize(path, cache) {
 }
 
 export function measureAppBundle(repoRoot, budget) {
-  const buildDirectory = resolve(repoRoot, budget.appDirectory, ".next");
-  const pages = parseManifest(
-    resolve(buildDirectory, "app-build-manifest.json"),
+  const appDirectory = resolve(repoRoot, budget.appDirectory);
+  const buildDirectory = resolve(appDirectory, ".next");
+  const routeStats = parseRouteBundleStats(
+    resolve(buildDirectory, "diagnostics", "route-bundle-stats.json"),
   );
   const gzipSizes = new Map();
   const routes = [];
 
-  for (const [route, assets] of Object.entries(pages)) {
-    if (!Array.isArray(assets)) {
-      throw new Error(
-        `Bundle manifest route ${route} does not contain an asset list.`,
-      );
-    }
-
+  for (const { route, firstLoadChunkPaths: assets } of routeStats) {
     const javascriptAssets = [
       ...new Set(assets.filter((asset) => asset.endsWith(".js"))),
     ];
@@ -104,7 +111,10 @@ export function measureAppBundle(repoRoot, budget) {
     const gzipBytes = javascriptAssets.reduce(
       (total, asset) =>
         total +
-        gzipFileSize(resolveBuildAsset(buildDirectory, asset), gzipSizes),
+        gzipFileSize(
+          resolveBuildAsset(appDirectory, buildDirectory, asset),
+          gzipSizes,
+        ),
       0,
     );
     routes.push({ route, gzipBytes, javascriptAssets });

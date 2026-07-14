@@ -24,6 +24,7 @@ function fixture() {
   const buildDirectory = join(repoRoot, "apps/example/.next");
   const chunksDirectory = join(buildDirectory, "static/chunks");
   mkdirSync(chunksDirectory, { recursive: true });
+  mkdirSync(join(buildDirectory, "diagnostics"), { recursive: true });
 
   writeFileSync(join(chunksDirectory, "shared.js"), "shared".repeat(2_000));
   writeFileSync(join(chunksDirectory, "small.js"), "small".repeat(500));
@@ -32,19 +33,32 @@ function fixture() {
     Array.from({ length: 4_000 }, (_, index) => `${index};`).join(""),
   );
   writeFileSync(
-    join(buildDirectory, "app-build-manifest.json"),
-    JSON.stringify({
-      pages: {
-        "/small/page": [
-          "static/chunks/shared.js",
-          "static/chunks/shared.js",
-          "static/chunks/small.js",
-          "static/chunks/styles.css",
+    join(buildDirectory, "diagnostics/route-bundle-stats.json"),
+    JSON.stringify([
+      {
+        route: "/small",
+        firstLoadUncompressedJsBytes: 1,
+        firstLoadChunkPaths: [
+          ".next/static/chunks/shared.js",
+          ".next/static/chunks/shared.js",
+          ".next/static/chunks/small.js",
+          ".next/static/chunks/styles.css",
         ],
-        "/large/page": ["static/chunks/shared.js", "static/chunks/large.js"],
-        "/api/route": [],
       },
-    }),
+      {
+        route: "/large",
+        firstLoadUncompressedJsBytes: 1,
+        firstLoadChunkPaths: [
+          ".next/static/chunks/shared.js",
+          ".next/static/chunks/large.js",
+        ],
+      },
+      {
+        route: "/api/route",
+        firstLoadUncompressedJsBytes: 0,
+        firstLoadChunkPaths: [],
+      },
+    ]),
   );
 
   return {
@@ -82,10 +96,10 @@ test("measures unique gzip-compressed JavaScript per production route", () => {
   const { repoRoot, budget } = fixture();
   const measurement = measureAppBundle(repoRoot, budget);
 
-  assert.equal(measurement.largestRoute.route, "/large/page");
+  assert.equal(measurement.largestRoute.route, "/large");
   assert.deepEqual(
     measurement.routes.map(({ route }) => route),
-    ["/large/page", "/small/page"],
+    ["/large", "/small"],
   );
   assert.equal(measurement.routes[1].javascriptAssets.length, 2);
 });
@@ -110,15 +124,21 @@ test("fails only when the largest route exceeds its configured budget", () => {
   assert.equal(failure.overBudgetBytes, 1);
 });
 
-test("rejects manifest assets outside the Next build directory", () => {
+test("rejects route stats assets outside the Next build directory", () => {
   const { repoRoot, budget } = fixture();
-  const manifestPath = join(
+  const statsPath = join(
     repoRoot,
-    "apps/example/.next/app-build-manifest.json",
+    "apps/example/.next/diagnostics/route-bundle-stats.json",
   );
   writeFileSync(
-    manifestPath,
-    JSON.stringify({ pages: { "/page": ["../../outside.js"] } }),
+    statsPath,
+    JSON.stringify([
+      {
+        route: "/",
+        firstLoadUncompressedJsBytes: 1,
+        firstLoadChunkPaths: [".next/../outside.js"],
+      },
+    ]),
   );
 
   assert.throws(
@@ -129,10 +149,41 @@ test("rejects manifest assets outside the Next build directory", () => {
 
 test("explains that a production build is required when output is absent", () => {
   const { repoRoot, budget } = fixture();
-  rmSync(join(repoRoot, "apps/example/.next/app-build-manifest.json"));
+  rmSync(
+    join(repoRoot, "apps/example/.next/diagnostics/route-bundle-stats.json"),
+  );
 
   assert.throws(
     () => measureAppBundle(repoRoot, budget),
-    /Run a production build before checking bundle budgets/,
+    /Run a Turbopack production build before checking bundle budgets/,
+  );
+});
+
+test("rejects malformed route bundle stats", () => {
+  const { repoRoot, budget } = fixture();
+  const statsPath = join(
+    repoRoot,
+    "apps/example/.next/diagnostics/route-bundle-stats.json",
+  );
+
+  writeFileSync(statsPath, JSON.stringify({ route: "/" }));
+  assert.throws(
+    () => measureAppBundle(repoRoot, budget),
+    /does not contain a valid route stats array/,
+  );
+
+  writeFileSync(
+    statsPath,
+    JSON.stringify([
+      {
+        route: "/",
+        firstLoadUncompressedJsBytes: "unknown",
+        firstLoadChunkPaths: [],
+      },
+    ]),
+  );
+  assert.throws(
+    () => measureAppBundle(repoRoot, budget),
+    /contains an invalid route at index 0/,
   );
 });
