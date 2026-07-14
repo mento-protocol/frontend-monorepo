@@ -166,7 +166,6 @@ jobs:
   static:
     name: Static analysis
     needs: changes
-    if: needs.changes.outputs.run_quality == 'true'
     timeout-minutes: 10
     runs-on: ubuntu-latest
     permissions:
@@ -195,10 +194,13 @@ jobs:
         with:
           fetch-depth: 2
       - name: Install pnpm dependencies
+        if: needs.changes.outputs.run_quality == 'true'
         uses: ./.github/actions/pnpm-install
       - name: Type check
+        if: needs.changes.outputs.run_quality == 'true'
         run: pnpm check-types
       - name: Knip
+        if: needs.changes.outputs.run_quality == 'true'
         run: pnpm knip
       - name: Trunk Code Quality
         uses: trunk-io/trunk-action@04ba50e7658c81db7356da96657e6e77f220bfa3 # v1.3.1
@@ -244,8 +246,7 @@ jobs:
           failed=0
           for result in \
             "Build:$BUILD_RESULT" \
-            "Unit tests:$TEST_RESULT" \
-            "Static analysis:$STATIC_RESULT"; do
+            "Unit tests:$TEST_RESULT"; do
             name=${result%%:*}
             value=${result#*:}
             if [[ "$value" != "$expected" ]]; then
@@ -253,5 +254,10 @@ jobs:
               failed=1
             fi
           done
+
+          if [[ "$STATIC_RESULT" != "success" ]]; then
+            echo "::error::Static analysis result was '$STATIC_RESULT'; expected 'success'"
+            failed=1
+          fi
 
           exit "$failed"

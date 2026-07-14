@@ -159,3 +159,37 @@ test("workflow executes the planner from the trusted base after bootstrap", () =
   assert.match(workflow, /git diff --no-renames --name-only -z/);
   assert.match(workflow, /run: pnpm ci:change-plan:test/);
 });
+
+test("documentation-only changes retain the always-on Trunk static checks", () => {
+  const workflow = readFileSync(
+    new URL("../.github/workflows/ci.yml", import.meta.url),
+    "utf8",
+  );
+  const staticJob = /^ {2}static:\n([\s\S]*?)^ {2}ci:/m.exec(workflow)?.[1];
+  assert.ok(staticJob, "the workflow must define the static analysis job");
+
+  assert.doesNotMatch(
+    staticJob,
+    /^ {4}if: needs\.changes\.outputs\.run_quality == 'true'$/m,
+    "the static job must run for documentation-only changes",
+  );
+  for (const stepName of ["Install pnpm dependencies", "Type check", "Knip"]) {
+    assert.match(
+      staticJob,
+      new RegExp(
+        `- name: ${stepName}\\n {8}if: needs\\.changes\\.outputs\\.run_quality == 'true'`,
+      ),
+      `${stepName} should remain limited to full-quality runs`,
+    );
+  }
+  assert.match(
+    staticJob,
+    /- name: Trunk Code Quality\n {8}uses: trunk-io\/trunk-action@/,
+    "Trunk must remain unconditional inside the always-on static job",
+  );
+  assert.match(
+    workflow,
+    /Static analysis result was '\$STATIC_RESULT'; expected 'success'/,
+    "the required sentinel must demand successful static analysis",
+  );
+});

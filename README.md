@@ -370,7 +370,7 @@ feat(ui): add new button component
 
 The repository is set up with GitHub Actions for CI:
 
-- **CI**: On every PR, it plans the changed-file scope, fans build, unit tests, and static analysis out in parallel, then reports the existing required `Build and Test` sentinel. Markdown- and `docs/**`-only changes skip the expensive jobs; scope-planning errors and all other paths fail closed into full validation.
+- **CI**: On every PR, it plans the changed-file scope, fans build, unit tests, and static analysis out in parallel, then reports the existing required `Build and Test` sentinel. Markdown- and `docs/**`-only changes skip builds, unit tests, type checking, and Knip, but retain the Trunk static checks for Markdown validation and secret scanning. Scope-planning errors and all other paths fail closed into full validation.
 - **CD**: Deployments are handled by the Vercel Git integration — each app is a Vercel project that builds on push to main (previews on PRs). GitHub Actions does not deploy.
 
 Dependency-installing jobs use `.github/actions/pnpm-install`, which pins the
@@ -381,9 +381,11 @@ set up Node directly.
 
 The docs-only decision is implemented by `scripts/ci-change-plan.mjs` and
 covered by `pnpm ci:change-plan:test`, which the Unit tests job runs before the
-workspace test suite. The always-run sentinel accepts skipped quality jobs only
-when that planner explicitly reports a documentation-only diff; failures,
-cancellations, unexpected skips, and invalid planner outputs remain blocking.
+workspace test suite. The always-run sentinel accepts skipped build and unit
+test jobs only when that planner explicitly reports a documentation-only diff;
+the static-analysis job must always succeed. Its dependency-heavy type-check
+and Knip steps follow the planner, while Trunk remains mandatory for every diff.
+Failures, cancellations, unexpected skips, and invalid planner outputs remain blocking.
 Rename detection is disabled for the planning diff so both the old and new
 paths are classified; moving source into `docs/**` cannot masquerade as a
 documentation-only change. Until the target branch contains a trusted planner
