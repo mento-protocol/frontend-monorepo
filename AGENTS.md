@@ -42,3 +42,14 @@ release-tag failures, then closes it only after recovery in that same partition.
 When adding or renaming an operational workflow, update its static allowlist and
 the structural test in the same PR. Never execute a triggering head SHA from
 this privileged `workflow_run` workflow.
+
+## Pull request descriptions
+
+Every non-draft, non-Dependabot pull request body must start with the exact
+top-level headings `## The Problem` then `## The Solution` as its first two H2
+sections. Only HTML comments may appear before `## The Problem`. Validate the
+current PR with
+`gh pr view --json body --jq .body | pnpm pr:description:check`; run the
+validator tests with `pnpm pr:description:test`. The `PR description format`
+job is designed to be a required status and therefore must keep running without
+path filters.
