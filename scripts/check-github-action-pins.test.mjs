@@ -238,6 +238,153 @@ jobs:
   }
 });
 
+test("rejects flow-style uses before later uses-like text", () => {
+  const root = fixtureRoot("flow-decoy-fail");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs:
+  test:
+    steps:
+      - { uses: actions/checkout@v7, name: "uses: ./ignored" }
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(
+      result.stderr,
+      "uses: actions/checkout@v7",
+      "first flow mapping field",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects explicit uses keys in flow-style steps", () => {
+  const root = fixtureRoot("flow-explicit-key-fail");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs:
+  test:
+    steps:
+      - { ? uses : actions/checkout@v7 }
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(result.stderr, "uses: actions/checkout@v7", "explicit flow key");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ignores uses input names in nested flow mappings", () => {
+  const root = fixtureRoot("nested-flow-pass");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs:
+  test:
+    steps:
+      - uses: actions/checkout@${PINNED_SHA} # v7.0.0
+        with: { uses: "some-input" }
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects mutable uses keys with YAML anchors", () => {
+  const root = fixtureRoot("anchor-fail");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs:
+  test:
+    steps:
+      - &checkout uses: actions/checkout@v7
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(result.stderr, "uses: actions/checkout@v7", "anchored uses key");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ignores uses-like text inside block scalars", () => {
+  const root = fixtureRoot("block-scalars-pass");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs:
+  test:
+    steps:
+      - run: |
+          echo "example:"
+          - uses: actions/checkout@v7
+        shell: bash
+      - run: >-
+          uses: actions/cache@v6
+      - uses: actions/setup-node@${PINNED_SHA} # v6.4.0
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("resumes scanning after block scalars", () => {
+  const root = fixtureRoot("after-block-scalar-fail");
+  try {
+    write(
+      root,
+      ".github/workflows/ci.yml",
+      `
+jobs:
+  test:
+    steps:
+      - run: |
+          uses: actions/cache@v6
+      - uses: actions/checkout@v7
+`,
+    );
+
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(
+      result.stderr,
+      ".github/workflows/ci.yml:7 uses: actions/checkout@v7",
+      "step after block scalar",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("rejects SHA pins without release-tag comments", () => {
   const root = fixtureRoot("missing-comment");
   try {

@@ -70,21 +70,138 @@ function normalizeUsesValue(raw) {
   return value;
 }
 
+/** @param {string} raw */
+function stripLeadingAnchor(raw) {
+  return raw.replace(/^(?:&[^\s[\]{},]+\s+)*/, "");
+}
+
+/** @param {string} raw @param {string} delimiter */
+function findTopLevelDelimiter(raw, delimiter) {
+  let quote = "";
+  let depth = 0;
+
+  for (let index = 0; index < raw.length; index++) {
+    const character = raw[index];
+
+    if (quote === '"') {
+      if (character === "\\") index++;
+      else if (character === '"') quote = "";
+      continue;
+    }
+
+    if (quote === "'") {
+      if (character === "'" && raw[index + 1] === "'") index++;
+      else if (character === "'") quote = "";
+      continue;
+    }
+
+    if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === "{" || character === "[") {
+      depth++;
+    } else if (character === "}" || character === "]") {
+      depth--;
+    } else if (character === delimiter && depth === 0) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+/** @param {string} body */
+function splitFlowFields(body) {
+  const fields = [];
+  let rest = body;
+
+  while (rest.length > 0) {
+    const commaIndex = findTopLevelDelimiter(rest, ",");
+    if (commaIndex === -1) {
+      fields.push(rest);
+      break;
+    }
+
+    fields.push(rest.slice(0, commaIndex));
+    rest = rest.slice(commaIndex + 1);
+  }
+
+  return fields;
+}
+
 /** @param {string} line */
-function extractUsesRawValue(line) {
+function extractFlowMappingBody(line) {
+  let candidate = line.trim();
+  const sequencePrefix = candidate.match(/^-\s+/)?.[0];
+  if (!sequencePrefix) return null;
+
+  candidate = candidate.slice(sequencePrefix.length);
+  candidate = stripLeadingAnchor(candidate).trimStart();
+  if (!candidate.startsWith("{") || !candidate.endsWith("}")) return null;
+  return candidate.slice(1, -1);
+}
+
+/** @param {string} raw */
+function normalizeFlowKey(raw) {
+  let key = raw.trim();
+  if (/^\?\s+/.test(key)) key = key.replace(/^\?\s+/, "");
+  return stripLeadingAnchor(key);
+}
+
+/** @param {string} line */
+function extractUsesRawValues(line) {
   const plain = line.match(
-    /^\s*(?:-\s*)?(?:"uses"|'uses'|uses)\s*:\s*(.*?)\s*$/,
+    /^\s*(?:-\s+)?(?:&[^\s[\]{},]+\s+)*(?:"uses"|'uses'|uses)\s*:\s*(.*?)\s*$/,
   );
-  if (plain) return plain[1] ?? "";
+  if (plain) return [plain[1] ?? ""];
 
   const { value: lineWithoutComment, comment } = splitInlineComment(line);
-  const flow = lineWithoutComment.match(
-    /^\s*-\s*\{.*(?:"uses"|'uses'|uses)\s*:\s*([^,}]+).*}\s*$/,
-  );
-  if (!flow) return null;
+  const body = extractFlowMappingBody(lineWithoutComment);
+  if (body == null) return [];
 
-  const value = flow[1] ?? "";
-  return comment ? `${value} # ${comment}` : value;
+  return splitFlowFields(body).flatMap((field) => {
+    const colonIndex = findTopLevelDelimiter(field, ":");
+    if (colonIndex === -1) return [];
+
+    const key = normalizeFlowKey(field.slice(0, colonIndex));
+    if (key !== "uses" && key !== '"uses"' && key !== "'uses'") return [];
+
+    const value = field.slice(colonIndex + 1).trim();
+    return [comment ? `${value} # ${comment}` : value];
+  });
+}
+
+/** @param {string} line */
+function blockScalarState(line) {
+  const { value } = splitInlineComment(line);
+  const indicator = value.match(/:\s*([>|](?:[+-][1-9]?|[1-9][+-]?)?)\s*$/);
+  if (!indicator) return null;
+
+  const leadingIndent = value.match(/^\s*/)?.[0].length ?? 0;
+  const sequencePrefix = value.slice(leadingIndent).match(/^-\s+/)?.[0] ?? "";
+  const parentIndent = leadingIndent + sequencePrefix.length;
+  const explicitIndent = indicator[1]?.match(/[1-9]/)?.[0];
+
+  return {
+    parentIndent,
+    contentIndent: explicitIndent
+      ? parentIndent + Number(explicitIndent)
+      : null,
+  };
+}
+
+/**
+ * @param {string} line
+ * @param {{ parentIndent: number, contentIndent: number | null }} state
+ */
+function isBlockScalarContent(line, state) {
+  if (/^\s*(?:#.*)?$/.test(line)) return true;
+
+  const indent = line.match(/^\s*/)?.[0].length ?? 0;
+  if (state.contentIndent != null) return indent >= state.contentIndent;
+  if (indent <= state.parentIndent) return false;
+
+  state.contentIndent = indent;
+  return true;
 }
 
 /** @param {string} value */
@@ -135,29 +252,34 @@ const queuedFiles = new Set(files);
 for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
   const file = files[fileIndex];
   const lines = readFileSync(file, "utf8").split(/\r?\n/);
+  let blockScalar = null;
 
   lines.forEach((line, lineIndex) => {
-    const rawValue = extractUsesRawValue(line);
-    if (rawValue == null) return;
+    if (blockScalar && isBlockScalarContent(line, blockScalar)) return;
+    blockScalar = blockScalarState(line);
 
-    const value = normalizeUsesValue(rawValue);
-    if (isLocalAction(value)) {
-      for (const manifest of localActionManifestPaths(file, value)) {
-        if (!queuedFiles.has(manifest)) {
-          queuedFiles.add(manifest);
-          files.push(manifest);
+    for (const rawValue of extractUsesRawValues(line)) {
+      const value = normalizeUsesValue(rawValue);
+      if (isLocalAction(value)) {
+        for (const manifest of localActionManifestPaths(file, value)) {
+          if (!queuedFiles.has(manifest)) {
+            queuedFiles.add(manifest);
+            files.push(manifest);
+          }
         }
+        continue;
       }
-      return;
+
+      if (isPinnedExternalAction(value) && hasReleaseTagComment(rawValue)) {
+        continue;
+      }
+
+      failures.push({
+        file: relative(ROOT, file),
+        line: lineIndex + 1,
+        value,
+      });
     }
-
-    if (isPinnedExternalAction(value) && hasReleaseTagComment(rawValue)) return;
-
-    failures.push({
-      file: relative(ROOT, file),
-      line: lineIndex + 1,
-      value,
-    });
   });
 }
 
