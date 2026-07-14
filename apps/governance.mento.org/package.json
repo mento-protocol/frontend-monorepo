@@ -13,6 +13,7 @@
     "start": "next start",
     "test": "vitest run",
     "test:connected": "playwright test --project=connected",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest"
   },
   "dependencies": {

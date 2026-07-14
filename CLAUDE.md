@@ -27,7 +27,7 @@ Monorepo for Mento Protocol frontend applications (DeFi on Celo blockchain).
 - **Web3:** wagmi, viem, @mento-protocol/mento-sdk, RainbowKit
 - **State:** jotai (atoms), @tanstack/react-query (data fetching)
 - **Linting/Formatting:** Trunk CLI (ESLint + Prettier)
-- **Testing:** Vitest (app.mento.org, @repo/web3, @mento-protocol/ui)
+- **Testing:** Vitest (app.mento.org, governance.mento.org, @repo/web3, @mento-protocol/ui)
 - **Monitoring:** Sentry
 - **Deployment:** Vercel
 
@@ -42,6 +42,9 @@ pnpm check-types                     # TypeScript type checking; builds workspac
 trunk check --fix                     # Lint with autofix
 trunk fmt                             # Format
 pnpm test                            # Run tests
+pnpm quality:budgets:test            # Unit/structural tests for quality gates + notifier
+pnpm quality:coverage                # Enforce measured coverage floors in tested workspaces
+pnpm quality:budgets                 # Coverage + production builds + route bundle limits
 pnpm fork:mainnet                    # Local anvil fork of Celo mainnet (--celo --auto-impersonate)
 pnpm fork:seed                       # Fund fork accounts + re-report oracle prices (idempotent)
 ```

@@ -47,6 +47,7 @@
     "lint": "eslint . --max-warnings 100",
     "prepublishOnly": "pnpm build",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "watch": "pnpm dev"
   },
   "dependencies": {

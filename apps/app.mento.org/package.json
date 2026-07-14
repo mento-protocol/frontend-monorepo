@@ -12,6 +12,7 @@
     "start": "next start",
     "test": "vitest run",
     "test:connected": "playwright test --project=connected --workers=1",
+    "test:coverage": "vitest run --coverage",
     "test:preview": "playwright test -c playwright.preview.config.ts",
     "test:visual": "playwright test --project=desktop --project=mobile",
     "test:watch": "vitest"

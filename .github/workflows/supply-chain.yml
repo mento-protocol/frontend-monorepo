@@ -20,6 +20,8 @@ name: Supply Chain
 # No path filter on `pull_request`: the osv job is meant to be a required check,
 # and a path-filtered required check that gets skipped sits "pending" forever
 # and blocks merges. The jobs are cheap enough to run on every PR.
+# Scheduled failures are handled by ci-failure-notifier.yml, which owns the
+# repository-wide deduplicated failure issue lifecycle.
 
 on:
   pull_request:
@@ -87,59 +89,3 @@ jobs:
         run: node scripts/version-skew-check.test.mjs
       - name: catalog version-skew check
         run: node scripts/version-skew-check.mjs
-
-  # Frontend has no Slack/notify workflow, so a failing daily cron would be
-  # silent — defeating the disclosure backstop. Surface scheduled failures by
-  # opening/updating a tracking issue.
-  cron-failure-issue:
-    name: report scheduled failure
-    if: ${{ failure() && github.event_name == 'schedule' }}
-    needs: [osv, lockfile-lint, version-skew]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      issues: write
-    steps:
-      - name: Open or update the supply-chain failure issue
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        with:
-          script: |
-            const marker = "<!-- supply-chain-cron-failure -->";
-            const runUrl =
-              `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}` +
-              `/actions/runs/${context.runId}`;
-            const body =
-              `The daily **Supply Chain** scan failed on \`main\`.\n\n` +
-              `This usually means a newly-disclosed CVE against a pinned dependency, ` +
-              `or an \`ignoreUntil\` in \`osv-scanner.toml\` has expired.\n\n` +
-              `[Failed run](${runUrl})\n\n` +
-              `Triage: re-run \`osv-scanner scan source --lockfile=pnpm-lock.yaml ` +
-              `--config=osv-scanner.toml\` locally, then either bump the dep / add a ` +
-              `\`pnpm.overrides\` floor, or renew the \`osv-scanner.toml\` ignore with ` +
-              `a fresh justification + expiry.\n\n${marker}`;
-            const existing = (
-              await github.paginate(github.rest.issues.listForRepo, {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                state: "open",
-                labels: "supply-chain",
-                per_page: 100,
-              })
-            ).find((issue) => issue.body && issue.body.includes(marker));
-            if (existing) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: existing.number,
-                body: `Daily scan failed again — [run](${runUrl}).`,
-              });
-            } else {
-              await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title: "Supply Chain: daily scan failing",
-                body,
-                labels: ["supply-chain", "dependencies"],
-              });
-            }
