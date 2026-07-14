@@ -14,22 +14,27 @@ permissions: read-all
 
 jobs:
   claude-review:
-    # Review human PRs (as before) AND Dependabot PRs — EXCEPT the
+    # Review same-repository human PRs AND Dependabot PRs — EXCEPT the
     # github-actions tier. That tier is auto-merged (see
     # dependabot-auto-merge.yml), and `gh pr merge --auto` waits only on the
     # required checks, so this advisory review would land on an
     # already-merged PR — decorative cost/noise. The npm tiers stay manual,
-    # so AI review there gives a human something to read before merging.
+    # so AI review there gives a human something to read before merging. Fork
+    # PRs cannot access the required OAuth secret and are skipped explicitly.
     #
     # REQUIRES `CLAUDE_CODE_OAUTH_TOKEN` in the *Dependabot* secrets store
     # (Settings → Secrets and variables → Dependabot): Dependabot-triggered
     # runs do NOT receive Actions secrets, so without it the action runs with
     # an empty token and fails.
     if: >-
-      github.event.pull_request.user.login != 'dependabot[bot]'
-      || !startsWith(github.head_ref, 'dependabot/github_actions/')
+      github.event.pull_request.head.repo.full_name == github.repository
+      && (
+        github.event.pull_request.user.login != 'dependabot[bot]'
+        || !startsWith(github.head_ref, 'dependabot/github_actions/')
+      )
 
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       pull-requests: read
@@ -38,13 +43,13 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 1
 
       - name: Run Claude Code Review
         id: claude-review
-        uses: anthropics/claude-code-action@v1.0.166
+        uses: anthropics/claude-code-action@f87768c6d25f92ae6efa7175e223ef77d4cbf97f # v1.0.166
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: https://github.com/anthropics/claude-code.git

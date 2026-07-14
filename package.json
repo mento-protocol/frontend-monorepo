@@ -6,6 +6,8 @@
     "blockexplorer:stop": "docker stop otterscan && docker rm otterscan",
     "build": "turbo run build",
     "check-types": "turbo run check-types",
+    "ci:action-pins": "node scripts/check-github-action-pins.mjs",
+    "ci:action-pins:test": "node scripts/check-github-action-pins.test.mjs && node scripts/fetch-action-pin-yaml.test.mjs",
     "clean": "rm -rf .turbo && turbo run clean",
     "dev": "turbo run dev",
     "dev:app.mento.org": "turbo run dev --filter=app.mento.org",
@@ -43,7 +45,8 @@
     "prettier-plugin-tailwindcss": "^0.8.0",
     "turbo": "^2.10.0",
     "typescript": "catalog:",
-    "typescript-eslint": "catalog:"
+    "typescript-eslint": "catalog:",
+    "yaml": "2.9.0"
   },
   "packageManager": "pnpm@10.24.0",
   "engines": {

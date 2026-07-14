@@ -122,7 +122,33 @@ pnpm format
 
 # Check formatting without making changes
 pnpm format:check
+
+# Verify every third-party GitHub Action uses an immutable SHA + version comment
+pnpm ci:action-pins
+
+# Run the action-pin scanner and REST materializer fixture suites
+pnpm ci:action-pins:test
 ```
+
+Two always-run checks protect the policy on every pull request:
+`GitHub Actions Policy` runs the trusted base-branch checker against only the
+PR head's Actions YAML, fetched as inert blobs from its exact commit through the
+GitHub Git API. It never checks out or executes pull-request files. `GitHub
+Actions Policy Source` runs the proposed checker, REST materializer, and fixtures
+in a credential-free `pull_request` workflow. After these workflows merge, branch
+protection must require both `Action Pin Policy` and `Action Pin Policy Source`
+so neither trusted enforcement nor proposed-policy validation can be skipped.
+Because the source lane necessarily runs pull-request-controlled policy code,
+changes to either policy workflow, checker, or fixture suite must also require
+protected human/code-owner review or an organization required-workflow rule;
+the two status contexts alone are not a tamper-proof approval boundary.
+Canonical structure changes such as pnpm/Node versions, commands, or triggers
+intentionally require a protected two-PR transition: first teach the trusted
+checker to allow the transition while retaining the old workflow, then change
+the workflow and tighten the checker. Immutable action SHA bumps are normalized
+by the checker and can remain a single PR. When adding or updating a third-party
+action, pin its full 40-character commit SHA and retain the release tag as an
+inline comment (for example, `uses: org/action@<sha> # v1.2.3`).
 
 #### App-Specific Linting
 
