@@ -1,0 +1,63 @@
+name: PR Description
+
+# This workflow is intended to become a required status after it lands on the
+# default branch. It deliberately has no paths filter, and synchronize reruns
+# it for every new head SHA. Editing the PR body also reruns it immediately.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: PR description format
+    # Draft descriptions are allowed to evolve. Dependabot uses generated
+    # bodies that cannot follow the repository template. GitHub reports an
+    # intentionally skipped job as successful, so either case remains safe if
+    # this job is configured as a required status.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted validator
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted-base
+
+      - name: Checkout bootstrap validator
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr-head
+
+      - name: Validate PR description
+        # Never interpolate user-controlled PR content into the shell script.
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+
+          if [ -f trusted-base/scripts/check-pr-description.mjs ]; then
+            node trusted-base/scripts/check-pr-description.mjs
+          elif [ -f pr-head/scripts/check-pr-description.mjs ]; then
+            echo "::warning::The trusted base does not have the validator yet; using the PR copy to bootstrap this policy."
+            node pr-head/scripts/check-pr-description.mjs
+          else
+            echo "::error::PR-description validator is missing from both the target branch and PR head."
+            exit 1
+          fi
