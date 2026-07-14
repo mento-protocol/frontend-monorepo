@@ -1,0 +1,10 @@
+{
+  "$schema": "../../node_modules/turbo/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "env": ["$TURBO_EXTENDS$", "VERCEL_ENV"],
+      "inputs": ["$TURBO_EXTENDS$", "$TURBO_ROOT$/scripts/security-headers.mjs"]
+    }
+  }
+}

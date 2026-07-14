@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
@@ -88,6 +94,25 @@ test("defines a bounded production-route budget for every Next app", () => {
     assert.ok(
       budget.maxRouteGzipBytes <= budget.observedMaxRouteGzipBytes * 1.11,
       `${budget.name} must not carry more than 11% baseline headroom`,
+    );
+  }
+});
+
+test("requires Turbopack builds for every budgeted app", () => {
+  for (const budget of BUNDLE_BUDGETS) {
+    const packageJson = JSON.parse(
+      readFileSync(
+        new URL(`../${budget.appDirectory}/package.json`, import.meta.url),
+        "utf8",
+      ),
+    );
+    const buildScript = packageJson.scripts?.build;
+
+    assert.equal(typeof buildScript, "string");
+    assert.match(
+      buildScript,
+      /(?:^|\s)--turbopack(?:\s|$)/,
+      `${budget.name} must use Turbopack so route bundle stats are generated`,
     );
   }
 });

@@ -25,8 +25,8 @@ const vercelPreviewCspExtensions = {
  * a Node config context on a clean checkout — before any package `dist/` is
  * built — and ui.mento.org does not depend on @repo/web3 at all.
  *
- * Registered in `turbo.json` `globalDependencies` so edits invalidate every
- * cached app build.
+ * Registered as an input in each app's `turbo.json` so edits invalidate every
+ * cached app build without invalidating unrelated package tasks.
  *
  * Two layers ship together:
  *   1. Enforced anti-framing + hardening headers (frame-ancestors 'none',

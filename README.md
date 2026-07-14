@@ -401,7 +401,7 @@ The repository is set up with GitHub Actions for CI:
   check enforces production-source coverage and gzip route limits. Its general
   CI failure notifier opens or updates one issue for an operational workflow
   failure and closes the issue after recovery.
-- **CD**: Deployments are handled by the Vercel Git integration — each app is a Vercel project that builds on push to main (previews on PRs). GitHub Actions does not deploy.
+- **CD**: Deployments are handled by the Vercel Git integration — each app is a Vercel project that builds on push to main (previews on PRs). Dependabot branches skip Vercel previews because GitHub Actions already builds and validates them. GitHub Actions does not deploy.
 
 Dependency-installing jobs use `.github/actions/pnpm-install`, which pins the
 Node/pnpm bootstrap, relies on `actions/setup-node` as the single pnpm-store
