@@ -10,10 +10,12 @@ import BigNumber from "bignumber.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Address, Hex, TransactionReceipt } from "viem";
 import {
+  useConfig,
   useEstimateGas,
   useSendTransaction,
   useWaitForTransactionReceipt,
 } from "wagmi";
+import { getTransactionFeeOverrides } from "@/utils/transaction-fees";
 
 export function useApproveTransaction({
   chainId,
@@ -68,6 +70,8 @@ export function useApproveTransaction({
     useWaitForTransactionReceipt({
       hash: approveTxHash as Address,
     });
+
+  const wagmiConfig = useConfig();
 
   const {
     data: sendTxHash,
@@ -156,11 +160,16 @@ export function useApproveTransaction({
     try {
       isSendingRef.current = true;
       validateAddress(txRequest.to, "approval transaction");
+      const feeOverrides = await getTransactionFeeOverrides(
+        wagmiConfig,
+        chainId,
+      );
       const hash = await sendTransactionAsync({
         chainId,
         gas: data,
         to: txRequest.to as Address,
         data: txRequest?.data as Hex,
+        ...feeOverrides,
       });
 
       setApproveTxHash(hash);
@@ -186,7 +195,15 @@ export function useApproveTransaction({
     } finally {
       isSendingRef.current = false;
     }
-  }, [reset, sendTransactionAsync, data, txRequest, isPending, chainId]);
+  }, [
+    reset,
+    sendTransactionAsync,
+    data,
+    txRequest,
+    isPending,
+    chainId,
+    wagmiConfig,
+  ]);
 
   return {
     sendApproveTx,

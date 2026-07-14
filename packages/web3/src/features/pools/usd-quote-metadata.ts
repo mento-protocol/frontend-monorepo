@@ -130,6 +130,16 @@ function getDirectUsdTokenPrices({
   };
 }
 
+/**
+ * EUR-denominated collateral tokens that trade ~1:1 against EURm. A pool
+ * pairing EURm with one of these is priced by valuing both sides at the
+ * EUR/USD reference rate.
+ */
+const EUR_COLLATERAL_TOKEN_SYMBOLS: readonly TokenSymbol[] = [
+  TokenSymbol.axlEUROC,
+  TokenSymbol.EUROP,
+];
+
 function isSupportedEurPool(
   token0Address: string,
   token1Address: string,
@@ -137,11 +147,19 @@ function isSupportedEurPool(
 ): boolean {
   const tokenAddresses = TOKEN_ADDRESSES_BY_CHAIN[chainId];
   const eurAddress = tokenAddresses?.[TokenSymbol.EURm];
-  const eurocAddress = tokenAddresses?.[TokenSymbol.axlEUROC];
 
-  if (!eurAddress || !eurocAddress) return false;
+  if (!eurAddress) return false;
 
-  return isPairMatch(token0Address, token1Address, eurAddress, eurocAddress);
+  return EUR_COLLATERAL_TOKEN_SYMBOLS.some((symbol) => {
+    const collateralAddress = tokenAddresses?.[symbol];
+    if (!collateralAddress) return false;
+    return isPairMatch(
+      token0Address,
+      token1Address,
+      eurAddress,
+      collateralAddress,
+    );
+  });
 }
 
 async function resolveEurToUsdPrice(

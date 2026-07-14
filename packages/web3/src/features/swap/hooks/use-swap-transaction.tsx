@@ -17,10 +17,12 @@ import { useAtom, useSetAtom } from "jotai";
 import { useEffect } from "react";
 import type { Address, Hex } from "viem";
 import {
+  useConfig,
   usePublicClient,
   useSendTransaction,
   useWaitForTransactionReceipt,
 } from "wagmi";
+import { getTransactionFeeOverrides } from "@/utils/transaction-fees";
 import { getSwapTransactionErrorMessage } from "./swap-transaction-error";
 import { confirmViewAtom, formValuesAtom } from "../swap-atoms";
 
@@ -59,6 +61,7 @@ export function useSwapTransaction(
   const [formValues, setFormValues] = useAtom(formValuesAtom);
   const setConfirmView = useSetAtom(confirmViewAtom);
   const publicClient = usePublicClient({ chainId });
+  const wagmiConfig = useConfig();
 
   const { data: swapTxHash, sendTransactionAsync } = useSendTransaction();
 
@@ -151,11 +154,16 @@ export function useSwapTransaction(
         throw estimateError;
       }
 
+      const feeOverrides = await getTransactionFeeOverrides(
+        wagmiConfig,
+        chainId,
+      );
       const txHash = await sendTransactionAsync({
         chainId,
         to: swapDetails.params.to as Address,
         data: swapDetails.params.data as `0x${string}`,
         value: BigInt(swapDetails.params.value || 0),
+        ...feeOverrides,
       });
 
       logger.debug("Transaction sent, waiting for confirmation...", {
