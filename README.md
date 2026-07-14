@@ -407,7 +407,7 @@ feat(ui): add new button component
 
 The repository is set up with GitHub Actions for CI:
 
-- **CI**: On every PR, it runs linting (via Trunk), type checking, and builds all packages
+- **CI**: On every PR, it plans the changed-file scope, fans build, unit tests, and static analysis out in parallel, then reports the existing required `Build and Test` sentinel. Markdown- and `docs/**`-only PRs skip builds, unit tests, type checking, and Knip, but retain the Trunk static checks for Markdown validation and secret scanning. Scope-planning errors and all other PR paths fail closed into full validation. Every `main` push runs the full suite so a successful `CI/CD` workflow is trustworthy recovery evidence for the failure notifier.
 - **Quality budgets**: The always-reported [Quality Budgets](docs/quality-budgets.md)
   check enforces production-source coverage and gzip route limits. Its general
   CI failure notifier opens or updates one issue for an operational workflow
@@ -419,6 +419,22 @@ Node/pnpm bootstrap, relies on `actions/setup-node` as the single pnpm-store
 cache owner, and enforces `pnpm install --frozen-lockfile`. Publishing overrides
 the composite's Node version and disables its cache; zero-dependency jobs may
 set up Node directly.
+
+The docs-only decision is implemented by `scripts/ci-change-plan.mjs` and
+covered by `pnpm ci:change-plan:test`, which the Unit tests job runs before the
+workspace test suite. The always-run sentinel accepts skipped build and unit
+test jobs only when that planner explicitly reports a documentation-only diff;
+the static-analysis job must always succeed. Its dependency-heavy type-check
+and Knip steps follow the planner, while Trunk remains mandatory for every diff.
+Failures, cancellations, unexpected skips, and invalid planner outputs remain blocking.
+Rename detection is disabled for the planning diff so both the old and new
+paths are classified; moving source into `docs/**` cannot masquerade as a
+documentation-only change. Until the target branch contains a trusted planner
+(including the workflow's bootstrap PR), CI runs the full quality suite instead
+of executing planner code from the pull-request checkout. Default-branch pushes
+also bypass changed-file planning and always run the full build, unit-test,
+type-check, Knip, and Trunk suite before `CI/CD` can report a successful
+recovery.
 
 ### Trunk in CI
 

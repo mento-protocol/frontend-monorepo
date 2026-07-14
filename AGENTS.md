@@ -39,6 +39,9 @@ the update procedure live in `docs/quality-budgets.md`.
 `.github/workflows/ci-failure-notifier.yml` owns one managed issue per monitored
 workflow, operational trigger, and target ref for default-branch, scheduled, and
 release-tag failures, then closes it only after recovery in that same partition.
+`CI/CD` forces the full build, unit-test, type-check, Knip, and Trunk suite on
+every default-branch push so a workflow success is valid recovery evidence;
+documentation-only scoping applies only to pull requests.
 `Visual Regression` filters default-branch pushes to visual-impact paths and
 runs both surfaces whenever it starts, making workflow success valid recovery
 evidence; pull requests remain path-gated per surface.
