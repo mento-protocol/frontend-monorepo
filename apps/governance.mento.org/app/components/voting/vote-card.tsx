@@ -1,10 +1,7 @@
-import { ProgressBar } from "@/components/progress-bar";
-import { TransactionLink } from "@/components/proposal/components/TransactionLink";
-import { Timer } from "@/components/timer";
 import { deriveVoteCardState } from "@/components/voting/derive-vote-card-state";
 import { getActiveGovernanceTransactionError } from "@/components/voting/get-active-governance-transaction-error";
-import { VoteCardActions } from "@/components/voting/vote-card-actions";
-import { VoteCardSpecialContent } from "@/components/voting/vote-card-special-content";
+import { getGovernanceTransactionErrorMessage } from "@/components/voting/get-governance-transaction-error-message";
+import { VoteCardContent } from "@/components/voting/vote-card-content";
 import { useDelayedVoteCardRefire } from "@/components/voting/use-delayed-vote-card-refire";
 import { getWatchdogMultisigAddress } from "@/config";
 import { useLocksByAccount } from "@/contracts";
@@ -22,19 +19,10 @@ import {
 import { getTimelockOperationId } from "@/contracts/governor/utils/get-timelock-operation-id";
 import { Proposal, ProposalState } from "@/graphql/subgraph/generated/subgraph";
 import { useVeMentoDelegationSummary } from "@/hooks/use-ve-mento-delegation-summary";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@mento-protocol/ui";
 import { NumbersService } from "@repo/web3";
 import { useAccount, useChainId } from "@repo/web3/wagmi";
 import * as Sentry from "@sentry/nextjs";
-import { CheckCircle2, CircleCheck, XCircle, XCircleIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import spacetime from "spacetime";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatUnits, keccak256, toHex } from "viem";
 
 interface VoteCardProps {
@@ -42,8 +30,6 @@ interface VoteCardProps {
   votingDeadline: Date | undefined;
   onVoteConfirmed?: () => void;
 }
-
-const cardClassName = "w-full pt-0 border-none gap-0 pb-0";
 
 export const VoteCard = ({
   proposal,
@@ -416,16 +402,6 @@ export const VoteCard = ({
 
   const isVotingOpen =
     proposalState === ProposalState.Active && !isDeadlinePassed;
-  const isApproved =
-    proposalState === ProposalState.Succeeded ||
-    proposalState === ProposalState.Queued ||
-    proposalState === ProposalState.Executed;
-  const isRejected = proposalState === ProposalState.Defeated;
-  const isCanceled = proposalState === ProposalState.Canceled;
-  const isAbstained =
-    proposalState === ProposalState.Defeated &&
-    abstainVotes > forVotes &&
-    abstainVotes > againstVotes;
   const hasQuorum = totalVotingPower >= (quorumNeeded || BigInt(0));
   const activeTransactionError = getActiveGovernanceTransactionError([
     { kind: "execute", error: executeError },
@@ -433,6 +409,22 @@ export const VoteCard = ({
     { kind: "cancel", error: cancelError },
     { kind: "vote", error },
   ]);
+  const capturedVoteErrorsRef = useRef<Set<unknown>>(new Set());
+
+  // Execute, queue, and cancel errors are captured by their callbacks or hooks.
+  // Cast-vote does not receive an onError callback, so capture its hook state here.
+  useEffect(() => {
+    if (
+      !error ||
+      getGovernanceTransactionErrorMessage(error) === null ||
+      capturedVoteErrorsRef.current.has(error)
+    ) {
+      return;
+    }
+
+    Sentry.captureException(error);
+    capturedVoteErrorsRef.current.add(error);
+  }, [error]);
 
   const currentState = useMemo(() => {
     return deriveVoteCardState({
@@ -472,381 +464,61 @@ export const VoteCard = ({
     isDeadlinePassed,
   ]);
 
-  const title = useMemo(() => {
-    switch (currentState) {
-      case "loading":
-        return null;
-      case "confirming":
-        return "Vote Submitted";
-      case "signing":
-        return "Confirm Your Vote";
-      case "insufficient-mento":
-        return "Lock MENTO to Vote";
-      case "executed":
-        return "Proposal Executed";
-      case "queued":
-        return "Proposal Queued";
-      case "succeeded":
-        return "Proposal Succeeded";
-      case "defeated":
-        if (isAbstained) return "Majority Abstained";
-        if (!hasQuorum) return "Quorum Not Met";
-        return "Proposal Defeated";
-      case "canceled":
-        return "Proposal Canceled";
-      case "expired":
-        return "Proposal Expired";
-      case "pending":
-        return "Voting Pending";
-      case "finished":
-        return "Voting Finished";
-      default:
-        if (isVotingOpen) return "Voting is Open";
-        return "Voting Finished";
-    }
-  }, [currentState, isVotingOpen, isAbstained, hasQuorum]);
-
-  const cancelButtonText = useMemo(() => {
-    if (isWatchdogSafe) {
-      // Connected AS the Safe (via WalletConnect) - direct execution
-      if (isAwaitingCancelSignature) return "Confirm in Safe UI";
-      if (isCancelConfirming) return "Cancelling...";
-      return "Cancel Proposal";
-    } else {
-      // Connected as individual watchdog signer - propose in Safe UI
-      return "Propose Cancellation in Safe";
-    }
-  }, [isWatchdogSafe, isAwaitingCancelSignature, isCancelConfirming]);
-  const watchdogCancelAction = {
-    isWatchdog,
-    hasPendingCancellation,
-    isPendingCancellationStatusUnavailable,
-    onCancel: handleCancelByWatchdog,
-    isAwaitingCancelSignature,
-    isCancelConfirming,
-    cancelButtonText,
-    signaturesCollected,
-    signaturesRequired,
-    chainId,
-    watchdogAddress,
-  };
-  const proposerCancelAction = {
-    canProposerCancel,
-    onCancel: handleCancelByProposer,
-    isAwaitingProposerCancelSignature,
-    isProposerCancelConfirming,
-    isProposerCancelConfirmed,
-  };
-
-  const description = useMemo(() => {
-    switch (currentState) {
-      case "loading":
-        return null;
-      case "confirming":
-        return null;
-      case "signing":
-        return "Please confirm the transaction in your wallet to cast your vote.";
-      case "insufficient-mento":
-        return "You need to lock your MENTO tokens to participate in governance voting.";
-      case "executed":
-        return (
-          <>
-            This proposal has been successfully executed.
-            <br />
-            The changes outlined in the proposal are now in effect.
-          </>
-        );
-      case "queued":
-        return (
-          <>This proposal has been approved and is queued for execution.</>
-        );
-      case "succeeded":
-        return (
-          <>
-            The community has voted in favor of this proposal.
-            <br />
-            It can now be queued for execution by anyone.
-          </>
-        );
-      case "defeated":
-        if (forVotes > againstVotes) {
-          return (
-            <>
-              The proposal did not reach the required quorum of{" "}
-              {quorumNeededFormatted} votes.
-              <br />
-              It will not move forward.
-            </>
-          );
-        }
-        if (abstainVotes > forVotes && abstainVotes > againstVotes) {
-          return (
-            <>
-              While quorum was met, most voters chose to abstain.
-              <br />
-              As a result, the proposal did not receive enough support to pass.
-            </>
-          );
-        }
-        return (
-          <>
-            The proposal did not receive enough YES votes.
-            <br />
-            It will not move forward.
-          </>
-        );
-      case "expired":
-        return (
-          <>
-            This proposal has expired and can no longer be executed.
-            <br />
-            The execution deadline has passed.
-          </>
-        );
-      case "pending":
-        return (
-          <>
-            Voting for this proposal has not yet started.
-            <br />
-            Please check back when the voting period begins.
-          </>
-        );
-      case "finished":
-        return (
-          <>
-            Voting for this proposal has concluded.
-            <br />
-            The final results are displayed above.
-          </>
-        );
-      case "canceled": {
-        const cancelTxHash = proposal.proposalCanceled?.[0]?.transaction?.id;
-        return (
-          <>
-            This proposal has been canceled. It will not move forward.
-            <br />
-            {cancelTxHash && (
-              <>
-                {" "}
-                <TransactionLink
-                  txHash={cancelTxHash}
-                  className="underline underline-offset-4"
-                >
-                  View cancel transaction &rarr;
-                </TransactionLink>
-              </>
-            )}
-          </>
-        );
-      }
-
-      default:
-        if (isVotingOpen) {
-          return <>Your vote matters - participate in the decision.</>;
-        }
-        return <>Your vote matters - participate in the decision.</>;
-    }
-  }, [
-    currentState,
-    isVotingOpen,
-    forVotes,
-    againstVotes,
-    abstainVotes,
-    quorumNeededFormatted,
-    proposal.proposalCanceled,
-  ]);
-
-  // Show header based on state
-  const showHeader = !["loading", "confirming", "signing"].includes(
-    currentState,
-  );
-  const isVotedForApprove = voteReceipt?.support === 1;
-  const isVotedForAbstain = voteReceipt?.support === 2;
-  const isVotedForReject = voteReceipt?.support === 0;
-  const hasVoted = voteReceipt?.hasVoted;
-  const quorumLabel = useMemo(() => {
-    let label = "";
-
-    if (isVotingOpen) label = hasQuorum ? "Quorum met" : "Quorum not yet met";
-    else label = hasQuorum ? "Quorum met" : "Quorum not met";
-
-    return label;
-  }, [isVotingOpen, hasQuorum]);
-
   return (
-    <Card className={cardClassName}>
-      {showHeader && (
-        <CardHeader className="mb-0 gap-2 p-4 md:flex-row md:items-center xl:px-8 xl:py-6 flex flex-col items-start justify-between bg-incard">
-          <div className="gap-2 text-sm md:flex-row md:items-center md:gap-8 flex flex-col">
-            {isCanceled && proposal.proposalCanceled?.[0] ? (
-              <div className="gap-2 flex items-center">
-                <div className="gap-1 flex items-center">
-                  <XCircleIcon size={16} />
-                  <span>Cancelled:</span>
-                </div>
-                {proposal.proposalCanceled[0].transaction?.id &&
-                proposal.proposalCanceled[0].timestamp ? (
-                  <TransactionLink
-                    txHash={proposal.proposalCanceled[0].transaction.id}
-                    className="text-muted-foreground underline-offset-4 hover:underline"
-                  >
-                    {spacetime(
-                      new Date(
-                        Number(proposal.proposalCanceled[0].timestamp) * 1000,
-                      ),
-                    ).format("{date-ordinal} {month}, {year}")}
-                  </TransactionLink>
-                ) : proposal.proposalCanceled[0].timestamp ? (
-                  <span className="text-muted-foreground">
-                    {spacetime(
-                      new Date(
-                        Number(proposal.proposalCanceled[0].timestamp) * 1000,
-                      ),
-                    ).format("{date-ordinal} {month}, {year}")}
-                  </span>
-                ) : null}
-              </div>
-            ) : !isCanceled &&
-              !isProposerCancelConfirmed &&
-              currentState === "queued" &&
-              queueEndTime ? (
-              <Timer
-                until={queueEndTime}
-                label="Executable in:"
-                expiredLabel="Executable since"
-              />
-            ) : !isCanceled && !isProposerCancelConfirmed && votingDeadline ? (
-              <Timer until={votingDeadline} />
-            ) : null}
-
-            <div className="gap-2 flex items-center">
-              {!hasQuorum ? (
-                <XCircleIcon size={16} className="text-white" />
-              ) : (
-                <CheckCircle2 size={16} className="text-white" />
-              )}
-              <span>{quorumLabel}</span>
-              <span
-                className="text-sm text-muted-foreground"
-                data-testid="quorumReachedLabel"
-              >
-                Min. {quorumNeededFormatted} veMENTO
-              </span>
-            </div>
-          </div>
-
-          {!hasVoted && currentState === "ready" && isConnected && (
-            <div className="gap-2 text-sm flex items-center">
-              <span>Your Voting Power:</span>
-              <span className="text-muted-foreground">
-                {formattedVeMentoBalance} veMENTO
-              </span>
-            </div>
-          )}
-
-          {hasVoted && currentState !== "ready" && isConnected && (
-            <div className="gap-2 text-sm flex items-center">
-              <span>Total Votes:</span>
-              <span
-                className="text-muted-foreground"
-                data-testid="totalVotesLabel"
-              >
-                {formattedTotalVotingPower} veMENTO
-              </span>
-            </div>
-          )}
-        </CardHeader>
-      )}
-
-      <CardContent
-        className={
-          ["loading", "signing", "confirming"].includes(currentState)
-            ? "py-16 flex items-center justify-center"
-            : "space-y-8 p-4 xl:p-8"
-        }
-      >
-        <VoteCardSpecialContent
-          currentState={currentState}
-          isAwaitingExecuteSignature={isAwaitingExecuteSignature}
-          isAwaitingQueueSignature={isAwaitingQueueSignature}
-          isExecuteConfirming={isExecuteConfirming}
-          isQueueConfirming={isQueueConfirming}
-          voteSupport={variables?.args?.[1] as number | undefined}
-          currentTxHash={currentTxHash}
-          hash={hash}
-          executeHash={executeHash}
-          queueHash={queueHash}
-        />
-
-        {!["loading", "confirming", "signing"].includes(currentState) && (
-          <>
-            <div className="space-y-4">
-              <CardTitle
-                className="gap-2 font-medium text-white flex items-center text-3xl"
-                data-testid="voteStatus"
-              >
-                {isApproved && <CircleCheck size={32} />}
-                {isRejected && <XCircle size={32} />}
-                {isCanceled && <XCircle size={32} />}
-                {title}
-              </CardTitle>
-
-              {description && (
-                <CardDescription className="space-y-1 text-lg text-muted-foreground">
-                  {description}
-                </CardDescription>
-              )}
-            </div>
-
-            <div className="py-0">
-              <ProgressBar mode="vote" data={voteData} />
-            </div>
-
-            <div
-              className={
-                currentState === "insufficient-mento"
-                  ? "mt-8 gap-4 flex flex-col"
-                  : "mt-8"
-              }
-            >
-              <VoteCardActions
-                currentState={currentState}
-                address={address}
-                proposal={proposal}
-                proposalState={proposalState}
-                hasVoted={hasVoted}
-                isVotedForApprove={isVotedForApprove}
-                isVotedForAbstain={isVotedForAbstain}
-                isVotedForReject={isVotedForReject}
-                queueEndTime={queueEndTime}
-                isVetoPeriodOver={isVetoPeriodOver}
-                isDeadlinePassed={isDeadlinePassed}
-                isAwaitingUserSignature={isAwaitingUserSignature}
-                isConfirming={isConfirming}
-                isAwaitingExecuteSignature={isAwaitingExecuteSignature}
-                isExecuteConfirming={isExecuteConfirming}
-                isAwaitingQueueSignature={isAwaitingQueueSignature}
-                isQueueConfirming={isQueueConfirming}
-                onExecute={handleExecute}
-                onQueue={handleQueue}
-                onVote={handleVote}
-                watchdogCancelAction={watchdogCancelAction}
-                proposerCancelAction={proposerCancelAction}
-              />
-            </div>
-
-            {activeTransactionError &&
-              (currentState === "ready" ||
-                currentState === "succeeded" ||
-                currentState === "queued") && (
-                <div className="gap-1 text-sm text-red-500 flex w-full flex-col items-center justify-center">
-                  <span>{activeTransactionError.label}</span>
-                  <span>{activeTransactionError.message}</span>
-                </div>
-              )}
-          </>
-        )}
-      </CardContent>
-    </Card>
+    <VoteCardContent
+      currentState={currentState}
+      proposal={proposal}
+      proposalState={proposalState}
+      votingDeadline={votingDeadline}
+      address={address}
+      isConnected={isConnected}
+      isVotingOpen={isVotingOpen}
+      hasQuorum={hasQuorum}
+      forVotes={forVotes}
+      againstVotes={againstVotes}
+      abstainVotes={abstainVotes}
+      quorumNeededFormatted={quorumNeededFormatted}
+      formattedVeMentoBalance={formattedVeMentoBalance}
+      formattedTotalVotingPower={formattedTotalVotingPower}
+      voteData={voteData}
+      hasVoted={voteReceipt?.hasVoted}
+      pendingVoteSupport={variables?.args?.[1] as number | undefined}
+      recordedVoteSupport={voteReceipt?.support}
+      queueEndTime={queueEndTime}
+      isVetoPeriodOver={isVetoPeriodOver}
+      isDeadlinePassed={isDeadlinePassed}
+      isAwaitingUserSignature={isAwaitingUserSignature}
+      isConfirming={isConfirming}
+      isAwaitingExecuteSignature={isAwaitingExecuteSignature}
+      isExecuteConfirming={isExecuteConfirming}
+      isAwaitingQueueSignature={isAwaitingQueueSignature}
+      isQueueConfirming={isQueueConfirming}
+      currentTxHash={currentTxHash}
+      hash={hash}
+      executeHash={executeHash}
+      queueHash={queueHash}
+      onExecute={handleExecute}
+      onQueue={handleQueue}
+      onVote={handleVote}
+      isWatchdogSafe={isWatchdogSafe}
+      isWatchdog={isWatchdog}
+      hasPendingCancellation={hasPendingCancellation}
+      isPendingCancellationStatusUnavailable={
+        isPendingCancellationStatusUnavailable
+      }
+      onWatchdogCancel={handleCancelByWatchdog}
+      isAwaitingCancelSignature={isAwaitingCancelSignature}
+      isCancelConfirming={isCancelConfirming}
+      signaturesCollected={signaturesCollected}
+      signaturesRequired={signaturesRequired}
+      chainId={chainId}
+      watchdogAddress={watchdogAddress}
+      canProposerCancel={canProposerCancel}
+      onProposerCancel={handleCancelByProposer}
+      isAwaitingProposerCancelSignature={isAwaitingProposerCancelSignature}
+      isProposerCancelConfirming={isProposerCancelConfirming}
+      isProposerCancelConfirmed={isProposerCancelConfirmed}
+      activeTransactionError={activeTransactionError}
+    />
   );
 };
