@@ -20,6 +20,11 @@ The bundle-only command intentionally does not build. This keeps it useful for
 checking an existing production artifact; it reports a missing build explicitly.
 CI guarantees freshness by running `pnpm build` immediately before the checker.
 
+The canonical gate is sequential: when an early step fails, later build and
+bundle steps have not been validated. After fixing a failed step or rebasing
+over a framework or toolchain change, run the full `pnpm quality:budgets`
+command against the latest `main`, not only the previously failing subcommand.
+
 ## Coverage floors
 
 The baselines below were measured with Node 22, Vitest 3.2.6, and
