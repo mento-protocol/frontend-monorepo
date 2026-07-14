@@ -218,6 +218,17 @@ pnpm fork:testnet  # same anvil flags, forking Celo Sepolia instead (fork:seed d
 
 `--celo` requires [Foundry](https://book.getfoundry.sh/) >= 1.4 — without it, CELO's native/ERC-20 token duality breaks and `transfer()` silently no-ops. `fork:seed` is idempotent; re-run it after every `evm_revert` and whenever Broker quotes start reverting (SortedOracles reports go stale on a wall-clock timescale).
 
+### Local Monad fork
+
+Monad mainnet (chain 143) runs a different Mento stack than Celo (Router + FPMM, no Broker), so it has its own scripts and port:
+
+```bash
+pnpm fork:monad       # anvil --auto-impersonate --fork-url https://rpc.monad.xyz --fork-block-number <finalized> --port 8546 (no --celo)
+pnpm fork:seed:monad  # fund anvil's junk accounts with MON + Reserve collateral + every Mento stable (via real Router swaps), re-report oracles
+```
+
+`fork:seed:monad` is idempotent (re-run after every `evm_revert` / when quotes stall). To point the app at this fork, dev/build with `NEXT_PUBLIC_MONAD_RPC_URL=http://localhost:8546` — Monad has no `--celo`/`NEXT_PUBLIC_USE_FORK` redirect, so that override is the seam (it redirects both wagmi and the mento-sdk). See [docs/wallet-testing.md](docs/wallet-testing.md) for the full Monad runbook.
+
 Full runbook with localStorage activation, on-chain verification, safety rules, and troubleshooting: [docs/wallet-testing.md](docs/wallet-testing.md)
 
 ### Dependency Management with PNPM Catalog

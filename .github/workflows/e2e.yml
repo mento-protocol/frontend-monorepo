@@ -60,6 +60,7 @@ jobs:
     outputs:
       run_app: ${{ steps.detect.outputs.run_app }}
       run_gov: ${{ steps.detect.outputs.run_gov }}
+      run_monad: ${{ steps.detect.outputs.run_monad }}
     steps:
       - name: Check out code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -88,10 +89,11 @@ jobs:
           if [[ "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
             echo "run_app=true" >> "$GITHUB_OUTPUT"
             echo "run_gov=true" >> "$GITHUB_OUTPUT"
+            echo "run_monad=true" >> "$GITHUB_OUTPUT"
             {
               echo "### E2E plan"
               echo
-              echo "$EVENT_NAME run: forcing app.mento.org and governance.mento.org."
+              echo "$EVENT_NAME run: forcing app.mento.org, governance.mento.org, and the Monad app fork."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -110,17 +112,30 @@ jobs:
 
           run_app=false
           run_gov=false
+          run_monad=false
 
           while IFS= read -r file; do
             [[ -z "$file" ]] && continue
 
             case "$file" in
-              .github/workflows/e2e.yml | .github/actions/pnpm-install/* | .npmrc | package.json | pnpm-lock.yaml | pnpm-workspace.yaml | turbo.json | patches/* | scripts/security-headers.mjs | scripts/fork-seed.mjs | scripts/fork-seed.test.mjs)
+              # Shared infra affects every fork suite, Monad included.
+              .github/workflows/e2e.yml | .github/actions/pnpm-install/* | .npmrc | package.json | pnpm-lock.yaml | pnpm-workspace.yaml | turbo.json | patches/* | scripts/security-headers.mjs)
+                run_app=true
+                run_gov=true
+                run_monad=true
+                ;;
+              # Celo seed script — the Celo app + governance forks only.
+              scripts/fork-seed.mjs | scripts/fork-seed.test.mjs)
                 run_app=true
                 run_gov=true
                 ;;
+              # Monad seed script — the Monad app fork only.
+              scripts/fork-seed-monad.mjs | scripts/fork-seed-monad.test.mjs)
+                run_monad=true
+                ;;
               apps/app.mento.org/*)
                 run_app=true
+                run_monad=true
                 ;;
               apps/governance.mento.org/*)
                 run_gov=true
@@ -128,18 +143,21 @@ jobs:
               packages/web3/* | packages/ui/*)
                 run_app=true
                 run_gov=true
+                run_monad=true
                 ;;
             esac
           done < changed-files.txt
 
           echo "run_app=$run_app" >> "$GITHUB_OUTPUT"
           echo "run_gov=$run_gov" >> "$GITHUB_OUTPUT"
+          echo "run_monad=$run_monad" >> "$GITHUB_OUTPUT"
 
           {
             echo "### E2E plan"
             echo
             echo "- app.mento.org: \`$run_app\`"
             echo "- governance.mento.org: \`$run_gov\`"
+            echo "- app.mento.org (Monad fork): \`$run_monad\`"
             echo
             echo "<details><summary>Changed files</summary>"
             echo
@@ -168,6 +186,9 @@ jobs:
 
       - name: Run fork-seed self-test
         run: node scripts/fork-seed.test.mjs
+
+      - name: Run fork-seed-monad self-test
+        run: node scripts/fork-seed-monad.test.mjs
 
   e2e-connected:
     name: Connected swap (anvil fork)
@@ -712,6 +733,254 @@ jobs:
           name: e2e-governance-artifacts
           path: |
             apps/governance.mento.org/test-results/
+            anvil.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # Monad sibling of e2e-connected: same connected-swap flow, but against a
+  # Monad mainnet fork (chain 143) on port 8546 instead of the Celo fork on
+  # 8545. Separate job (not a matrix entry) so it can run its own fork, its own
+  # seed script, and its own archive-RPC probe list. NOT a required check —
+  # mirrors e2e-connected; promotion to required is tracked separately (#487).
+  e2e-connected-monad:
+    name: Connected swap (Monad anvil fork)
+    needs: [e2e-plan, fork-seed-self-test]
+    # NOTE: fork-seed-self-test's result is deliberately NOT part of this
+    # condition — see the matching comment on e2e-connected above. The in-job
+    # guard step below fails loudly instead of letting a broken seed script
+    # "pass" via a skip.
+    if: ${{ always() && (needs.e2e-plan.result != 'success' || needs.e2e-plan.outputs.run_monad == 'true') }}
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    # Render in the same pinned Playwright container as visual.yml so the two
+    # workflows stay in sync on browser version.
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+
+    env:
+      NEXT_PUBLIC_STORAGE_URL: ${{ vars.STORAGE_URL }}
+      # Still required non-empty by t3-env validation even though E2E mode
+      # never renders the WalletConnect connector.
+      NEXT_PUBLIC_WALLET_CONNECT_ID: ${{ vars.WALLET_CONNECT_ID }}
+      NEXT_PUBLIC_SENTRY_DSN_SWAP: ""
+      SENTRY_AUTH_TOKEN: ""
+      # Activates the mock wallet. NEVER set NEXT_PUBLIC_SANCTIONS_TEST_MODE
+      # here (it force-BLOCKS the app); e2e/fixtures.ts fulfills /api/sanctions
+      # instead, so no CHAINALYSIS_API_KEY is needed either.
+      NEXT_PUBLIC_E2E_TEST: "true"
+      # Redirects BOTH wagmi's Monad transport and the mento-sdk public client
+      # (packages/web3 config/chains.ts getMonadRpcUrl + features/sdk.ts) to
+      # the local fork. Unlike Celo, Monad has no NEXT_PUBLIC_USE_FORK redirect
+      # branch — this env override IS the seam, so it must be set at build time.
+      # (No NEXT_PUBLIC_USE_FORK here: it only redirects the Celo transports to
+      # 8545, which this Monad-only job never touches after the chain switch.)
+      NEXT_PUBLIC_MONAD_RPC_URL: http://localhost:8546
+
+    steps:
+      - name: Require successful E2E plan
+        if: needs.e2e-plan.result != 'success'
+        run: |
+          echo "e2e-plan did not complete successfully: ${{ needs.e2e-plan.result }}"
+          exit 1
+
+      - name: Require successful fork-seed self-test
+        if: needs['fork-seed-self-test'].result != 'success'
+        run: |
+          echo "fork-seed-self-test did not pass: ${{ needs['fork-seed-self-test'].result }}"
+          exit 1
+
+      - name: Check out code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install pnpm dependencies
+        uses: ./.github/actions/pnpm-install
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1.9.0
+        with:
+          version: v1.7.1 # pinned for determinism (matches the Celo jobs)
+          cache: false # we cache ~/.foundry/cache ourselves, keyed on the fork block
+
+      # Unlike Celo (which pins a known-archived FORK_BLOCK), the Monad job
+      # resolves a fresh block near `finalized` on EVERY trigger and forks
+      # there. Forking a hair behind `finalized` is exactly what Phase 0 proved
+      # live (rpc.monad.xyz serves state at/near finalized). But anvil keeps
+      # fetching state at the FIXED fork block for the whole run, and at Monad's
+      # ~0.4s/block the head races ahead: a ~30-min run slides the pinned block
+      # ~4,500 blocks behind head, so a NON-archive backend that answers every
+      # finalized-64 probe here can still prune the fork block out of its
+      # retention window mid-run and panic anvil (the Celo analogue is documented
+      # on the Celo probe above, run 29311411018). Guard it exactly as Celo does:
+      # also require state ~100k blocks below the fork block (~11h of Monad
+      # history) — verified live that both candidates serve head-1,000,000, so
+      # this rejects a shallow/degraded backend with no false-reject cost on the
+      # current pool. rpc.monad.xyz is primary, monad.drpc.org the fallback;
+      # rpc2.monad.xyz is intentionally omitted (add only once it clears this
+      # full probe set — see #489). Sets FORK_URL + FORK_BLOCK for all later
+      # steps.
+      - name: Select Monad fork RPC + block (archive state near finalized)
+        shell: bash
+        run: |
+          usdm=0xBC69212B8E4d445b2307C9D32dD68E2A4Df00115 # storage-probe target
+          candidates=(
+            https://rpc.monad.xyz
+            https://monad.drpc.org
+          )
+          call() { # url method params
+            curl -sf -m 15 -X POST "$1" \
+              -H 'Content-Type: application/json' \
+              --data '{"jsonrpc":"2.0","id":1,"method":"'"$2"'","params":'"$3"'}' \
+              | grep -q '"result":"0x'
+          }
+          finalized_hex() { # url -> finalized block number hex (or empty)
+            curl -sf -m 15 -X POST "$1" \
+              -H 'Content-Type: application/json' \
+              --data '{"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["finalized",false]}' \
+              | sed -n 's/.*"number":"\(0x[0-9a-fA-F]*\)".*/\1/p'
+          }
+          for url in "${candidates[@]}"; do
+            fin_hex="$(finalized_hex "$url" || true)"
+            if [ -z "$fin_hex" ]; then
+              echo "$url: no finalized block - skipping"
+              continue
+            fi
+            # A hair behind finalized so the pin stays stable during anvil boot.
+            fork=$(( fin_hex - 64 ))
+            block_hex="$(printf '0x%x' "$fork")"
+            # ~100k blocks below the fork block (~11h of Monad history): only a
+            # true archive backend answers here, and one that does still serves
+            # the fork block after a full run's worth of head advance.
+            deep_hex="$(printf '0x%x' $(( fork - 100000 )))"
+            ok=1
+            # Sample the account methods anvil actually issues, repeatedly, and
+            # require every request to pass (a lone hit can be a gateway cache).
+            for i in 1 2 3 4 5; do
+              call "$url" eth_getBalance '["0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","'"$block_hex"'"]' || { ok=0; break; }
+              call "$url" eth_getTransactionCount '["0x70997970C51812dc3A010C7d01b50e0d17dc79C8","'"$block_hex"'"]' || { ok=0; break; }
+              call "$url" eth_getStorageAt '["'"$usdm"'","0x'"$i"'","'"$block_hex"'"]' || { ok=0; break; }
+              call "$url" eth_getBalance '["0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","'"$deep_hex"'"]' || { ok=0; break; }
+            done
+            if [ "$ok" = 1 ]; then
+              echo "FORK_URL=$url" >> "$GITHUB_ENV"
+              echo "FORK_BLOCK=$fork" >> "$GITHUB_ENV"
+              echo "Selected $url (20/20 archive-state probes passed at block $fork and 100k below, finalized $((fin_hex)) minus 64)"
+              exit 0
+            fi
+            echo "$url failed an archive-state probe at block $fork - skipping"
+          done
+          echo "::error::no Monad candidate RPC consistently serves archive state near finalized"
+          exit 1
+
+      - name: Cache anvil fork state
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.foundry/cache
+          # "-monad-" infix so this save never collides with the Celo jobs'
+          # caches. The block is resolved fresh per run, so the exact key is
+          # usually a miss; the prefix restore still warms overlapping slots
+          # from the newest previous Monad cache.
+          key: foundry-rpc-monad-${{ env.FORK_BLOCK }}-${{ github.run_id }}
+          restore-keys: |
+            foundry-rpc-monad-
+
+      - name: Start anvil (Monad mainnet fork)
+        shell: bash
+        run: |
+          start_anvil() {
+            # NO --celo: Monad runs a different Mento stack (Router + FPMM,
+            # no Broker). Port 8546 keeps it clear of the Celo fork's 8545.
+            nohup anvil --auto-impersonate \
+              --fork-url "$FORK_URL" \
+              --fork-block-number "$FORK_BLOCK" \
+              --port 8546 > anvil.log 2>&1 &
+            echo $! > anvil.pid
+          }
+          wait_ready() {
+            for _ in $(seq 1 60); do
+              if ! kill -0 "$(cat anvil.pid)" 2>/dev/null; then
+                echo "anvil process exited early:"
+                tail -20 anvil.log
+                return 1
+              fi
+              if curl -sf -X POST http://127.0.0.1:8546 \
+                -H 'Content-Type: application/json' \
+                --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' \
+                | grep -q result; then return 0; fi
+              sleep 2
+            done
+            return 1
+          }
+          start_anvil
+          if ! wait_ready; then
+            echo "::warning::anvil not ready - retrying once (RPC flakiness)"
+            kill "$(cat anvil.pid)" 2>/dev/null || true
+            sleep 5
+            start_anvil
+            wait_ready || { echo "anvil failed to start after retry"; tail -50 anvil.log; exit 1; }
+          fi
+          echo "anvil ready at block $(cast block-number --rpc-url http://127.0.0.1:8546)"
+
+      # First seed run, straight after fork creation: funds balances, re-reports
+      # oracles, and pulls the contracts/accounts the suite touches into anvil's
+      # local state.
+      - name: Seed Monad fork (balances, ERC-20s, oracle freshness)
+        run: node scripts/fork-seed-monad.mjs
+
+      - name: Build app.mento.org (E2E mode, Monad RPC)
+        run: pnpm turbo build --filter=app.mento.org
+
+      # Second seed run, right before the specs: the EURm/USDm feed's report
+      # expiry is only 360s and the build above can take minutes, which would
+      # burn the freshness window. The re-run is idempotent (funding no-ops).
+      # fork-seed-monad.mjs warns-and-continues on per-item RPC errors, which
+      # would mask a dead anvil as a green step — so assert the fork is still
+      # alive before handing over to Playwright.
+      - name: Re-seed Monad fork (refresh oracle reports after build)
+        shell: bash
+        run: |
+          node scripts/fork-seed-monad.mjs
+          curl -sf -X POST http://127.0.0.1:8546 \
+            -H 'Content-Type: application/json' \
+            --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' \
+            | grep -q result \
+            || { echo "::error::anvil is no longer reachable after seeding"; tail -50 anvil.log; exit 1; }
+
+      # wagmi's watch queries (balances, allowance) refetch on NEW blocks, but
+      # anvil automine only mines when a transaction arrives — emit an empty
+      # block every second during the specs so a refetch never starves (same
+      # rationale as e2e-connected). Seeding above stays on pure automine.
+      - name: Enable interval mining (1s) for the specs
+        run: cast rpc evm_setIntervalMining 1 --rpc-url http://127.0.0.1:8546
+
+      # Runs ONLY swap-monad.spec.ts (its own Playwright project), so this job
+      # never touches the Celo specs that would need an 8545 fork. NOTE: no `--`
+      # before the flag — pnpm forwards `--` literally and Playwright would then
+      # parse it as a test filter (same trap as e2e-connected, run 29063029354).
+      - name: Run connected Monad E2E spec
+        run: pnpm --filter app.mento.org test:connected:monad --trace retain-on-failure
+
+      # anvil only flushes its RPC fetch cache to ~/.foundry/cache on graceful
+      # shutdown — without this the post-step of "Cache anvil fork state" has
+      # nothing to save. Wait generously and stop interval mining first.
+      - name: Stop anvil (flush RPC cache to disk)
+        if: always()
+        shell: bash
+        run: |
+          cast rpc evm_setIntervalMining 0 --rpc-url http://127.0.0.1:8546 > /dev/null 2>&1 || true
+          kill "$(cat anvil.pid)" 2>/dev/null || true
+          for _ in $(seq 1 30); do
+            kill -0 "$(cat anvil.pid)" 2>/dev/null || exit 0
+            sleep 1
+          done
+          echo "::warning::anvil still shutting down after 30s - RPC cache save may be incomplete"
+
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-connected-monad-artifacts
+          path: |
+            apps/app.mento.org/test-results/
             anvil.log
           if-no-files-found: ignore
           retention-days: 7

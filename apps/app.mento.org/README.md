@@ -70,6 +70,12 @@ starts `next start`). Then run `pnpm --filter app.mento.org test:connected`.
 See [#445](https://github.com/mento-protocol/frontend-monorepo/issues/445) for
 the full runbook.
 
+A sibling Monad-fork variant exercises the same flow on a Monad mainnet fork
+(chain 143, port 8546, no `--celo`). Start `pnpm fork:monad`, run
+`pnpm fork:seed:monad`, build the app, then run
+`pnpm --filter app.mento.org test:connected:monad`. See
+[#489](https://github.com/mento-protocol/frontend-monorepo/issues/489).
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
