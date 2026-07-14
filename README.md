@@ -370,7 +370,7 @@ feat(ui): add new button component
 
 The repository is set up with GitHub Actions for CI:
 
-- **CI**: On every PR, it runs linting (via Trunk), type checking, and builds all packages
+- **CI**: On every PR, it plans the changed-file scope, fans build, unit tests, and static analysis out in parallel, then reports the existing required `Build and Test` sentinel. Markdown- and `docs/**`-only changes skip the expensive jobs; scope-planning errors and all other paths fail closed into full validation.
 - **CD**: Deployments are handled by the Vercel Git integration — each app is a Vercel project that builds on push to main (previews on PRs). GitHub Actions does not deploy.
 
 Dependency-installing jobs use `.github/actions/pnpm-install`, which pins the
@@ -378,6 +378,12 @@ Node/pnpm bootstrap, relies on `actions/setup-node` as the single pnpm-store
 cache owner, and enforces `pnpm install --frozen-lockfile`. Publishing overrides
 the composite's Node version and disables its cache; zero-dependency jobs may
 set up Node directly.
+
+The docs-only decision is implemented by `scripts/ci-change-plan.mjs` and
+covered by `pnpm ci:change-plan:test`. The always-run sentinel accepts skipped
+quality jobs only when that planner explicitly reports a documentation-only
+diff; failures, cancellations, unexpected skips, and invalid planner outputs
+remain blocking.
 
 ### Trunk in CI
 

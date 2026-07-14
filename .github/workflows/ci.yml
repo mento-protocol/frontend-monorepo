@@ -4,15 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, reopened]
 
 permissions: read-all
 
-# Cancel superseded CI runs on the same ref — rapid pushes shouldn't stack
-# full 15-minute runs.
+# New PR heads supersede older runs. Main pushes are keyed by SHA so a
+# fast-follow merge cannot cancel validation for the previous commit.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   TURBO_TEAM: ${{ vars.TURBO_TEAM }}
@@ -20,26 +20,81 @@ env:
   TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
 
 jobs:
+  changes:
+    name: Plan CI scope
+    timeout-minutes: 2
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      run_quality: ${{ steps.plan.outputs.run_quality }}
+      reason: ${{ steps.plan.outputs.reason }}
+    steps:
+      - name: Check out code and history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Plan quality jobs
+        id: plan
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          planner=scripts/ci-change-plan.mjs
+          if ! [[ "$BASE_SHA" =~ ^0+$ ]] && git cat-file -e "$BASE_SHA:$planner" 2>/dev/null; then
+            trusted_planner="$RUNNER_TEMP/ci-change-plan.mjs"
+            git show "$BASE_SHA:$planner" > "$trusted_planner"
+            planner=$trusted_planner
+          else
+            echo "::warning::The base commit does not contain the CI planner yet; using the checked-out copy to bootstrap it."
+          fi
+
+          if [[ "$BASE_SHA" =~ ^0+$ ]]; then
+            git ls-files -z | node "$planner" --null >> "$GITHUB_OUTPUT"
+          else
+            git diff --name-only -z "$BASE_SHA" "$HEAD_SHA" | node "$planner" --null >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Summarize CI plan
+        env:
+          CHANGED_COUNT: ${{ steps.plan.outputs.changed_count }}
+          PLAN_REASON: ${{ steps.plan.outputs.reason }}
+          RUN_QUALITY: ${{ steps.plan.outputs.run_quality }}
+        run: |
+          {
+            echo "### CI plan"
+            echo
+            echo "- Changed paths: \`$CHANGED_COUNT\`"
+            echo "- Run quality jobs: \`$RUN_QUALITY\`"
+            echo "- Reason: \`$PLAN_REASON\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   build:
-    name: Build and Test
+    name: Build
+    needs: changes
+    if: needs.changes.outputs.run_quality == 'true'
     timeout-minutes: 15
     runs-on: ubuntu-latest
     permissions:
-      checks: write # For trunk to post annotations
-      contents: read # For repo checkout
-
+      contents: read
     env:
       NEXT_PUBLIC_STORAGE_URL: ${{ vars.STORAGE_URL }}
       NEXT_PUBLIC_WALLET_CONNECT_ID: ${{ vars.WALLET_CONNECT_ID }}
       NEXT_PUBLIC_ANALYTICS_API_URL: ${{ vars.ANALYTICS_API_URL }}
-
-      # Sentry
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
       NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE }}
       NEXT_PUBLIC_SENTRY_DSN_RESERVE: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN_RESERVE }}
       NEXT_PUBLIC_SENTRY_DSN_SWAP: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN_SWAP }}
-
-      # Governance app environment variables
       NEXT_PUBLIC_VERCEL_ENV: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
       ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
       NEXT_PUBLIC_ETHERSCAN_API_URL: ${{ vars.ETHERSCAN_API_URL }}
@@ -49,46 +104,152 @@ jobs:
       NEXT_PUBLIC_SUBGRAPH_URL: ${{ vars.SUBGRAPH_URL }}
       NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA: ${{ vars.SUBGRAPH_URL_CELO_SEPOLIA }}
       NEXT_PUBLIC_GRAPH_API_KEY: ${{ secrets.GRAPH_API_KEY }}
-
     steps:
       - name: Check out code
-        # Using commit SHA instead of version tag for security: pins to a specific commit
-        # to prevent supply chain attacks if a version tag is compromised or moved
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 2
-
       - name: Install pnpm dependencies
         uses: ./.github/actions/pnpm-install
-
       - name: Build
         run: pnpm build
 
+  test:
+    name: Unit tests
+    needs: changes
+    if: needs.changes.outputs.run_quality == 'true'
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      NEXT_PUBLIC_STORAGE_URL: ${{ vars.STORAGE_URL }}
+      NEXT_PUBLIC_WALLET_CONNECT_ID: ${{ vars.WALLET_CONNECT_ID }}
+      NEXT_PUBLIC_ANALYTICS_API_URL: ${{ vars.ANALYTICS_API_URL }}
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE }}
+      NEXT_PUBLIC_SENTRY_DSN_RESERVE: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN_RESERVE }}
+      NEXT_PUBLIC_SENTRY_DSN_SWAP: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN_SWAP }}
+      NEXT_PUBLIC_VERCEL_ENV: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
+      ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+      NEXT_PUBLIC_ETHERSCAN_API_URL: ${{ vars.ETHERSCAN_API_URL }}
+      NEXT_PUBLIC_BLOCKSCOUT_API_URL: ${{ vars.BLOCKSCOUT_API_URL }}
+      NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL: ${{ vars.BLOCKSCOUT_GRAPHQL_URL }}
+      NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA: ${{ vars.BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA }}
+      NEXT_PUBLIC_SUBGRAPH_URL: ${{ vars.SUBGRAPH_URL }}
+      NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA: ${{ vars.SUBGRAPH_URL_CELO_SEPOLIA }}
+      NEXT_PUBLIC_GRAPH_API_KEY: ${{ secrets.GRAPH_API_KEY }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 2
+      - name: Install pnpm dependencies
+        uses: ./.github/actions/pnpm-install
       - name: E2E mock wallet gate tripwire
         run: |
           GATE=packages/web3/src/config/e2e-mode.ts
-          # 1. Gate must read the env var literally (build-time inlining contract)
           grep -qF 'process.env.NEXT_PUBLIC_E2E_TEST === "true"' "$GATE" \
             || { echo "::error::literal env read missing in $GATE - dynamic access breaks Next.js inlining"; exit 1; }
-          # 2. Hostname allowlist must be present
           grep -qF '"localhost"' "$GATE" \
             || { echo "::error::localhost allowlist entry missing in $GATE"; exit 1; }
           grep -qF '"127.0.0.1"' "$GATE" \
             || { echo "::error::127.0.0.1 allowlist entry missing in $GATE"; exit 1; }
-          # 3. Connector list must remain behind the gate
           grep -qF 'isE2eTestMode()' packages/web3/src/config/wagmi.ts \
             || { echo "::error::wagmi.ts no longer gates connectors on isE2eTestMode()"; exit 1; }
-          # 4. Enforced gate: production-hostname unit tests must pass
           pnpm --filter @repo/web3 exec vitest run src/config/e2e-mode.test.ts
-
       - name: Test
         run: pnpm test
 
+  static:
+    name: Static analysis
+    needs: changes
+    if: needs.changes.outputs.run_quality == 'true'
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      contents: read
+    env:
+      NEXT_PUBLIC_STORAGE_URL: ${{ vars.STORAGE_URL }}
+      NEXT_PUBLIC_WALLET_CONNECT_ID: ${{ vars.WALLET_CONNECT_ID }}
+      NEXT_PUBLIC_ANALYTICS_API_URL: ${{ vars.ANALYTICS_API_URL }}
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE }}
+      NEXT_PUBLIC_SENTRY_DSN_RESERVE: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN_RESERVE }}
+      NEXT_PUBLIC_SENTRY_DSN_SWAP: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN_SWAP }}
+      NEXT_PUBLIC_VERCEL_ENV: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
+      ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+      NEXT_PUBLIC_ETHERSCAN_API_URL: ${{ vars.ETHERSCAN_API_URL }}
+      NEXT_PUBLIC_BLOCKSCOUT_API_URL: ${{ vars.BLOCKSCOUT_API_URL }}
+      NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL: ${{ vars.BLOCKSCOUT_GRAPHQL_URL }}
+      NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA: ${{ vars.BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA }}
+      NEXT_PUBLIC_SUBGRAPH_URL: ${{ vars.SUBGRAPH_URL }}
+      NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA: ${{ vars.SUBGRAPH_URL_CELO_SEPOLIA }}
+      NEXT_PUBLIC_GRAPH_API_KEY: ${{ secrets.GRAPH_API_KEY }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 2
+      - name: Install pnpm dependencies
+        uses: ./.github/actions/pnpm-install
       - name: Type check
         run: pnpm check-types
-
       - name: Knip
         run: pnpm knip
-
       - name: Trunk Code Quality
         uses: trunk-io/trunk-action@04ba50e7658c81db7356da96657e6e77f220bfa3 # v1.3.1
+
+  ci:
+    name: Build and Test
+    needs: [changes, build, test, static]
+    if: always()
+    timeout-minutes: 2
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require the planned quality results
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          RUN_QUALITY: ${{ needs.changes.outputs.run_quality }}
+          STATIC_RESULT: ${{ needs.static.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$CHANGES_RESULT" != "success" ]]; then
+            echo "::error::CI scope planning did not succeed: $CHANGES_RESULT"
+            exit 1
+          fi
+
+          case "$RUN_QUALITY" in
+            true)
+              expected=success
+              ;;
+            false)
+              expected=skipped
+              ;;
+            *)
+              echo "::error::CI scope planner returned an invalid run-quality value: '$RUN_QUALITY'"
+              exit 1
+              ;;
+          esac
+
+          failed=0
+          for result in \
+            "Build:$BUILD_RESULT" \
+            "Unit tests:$TEST_RESULT" \
+            "Static analysis:$STATIC_RESULT"; do
+            name=${result%%:*}
+            value=${result#*:}
+            if [[ "$value" != "$expected" ]]; then
+              echo "::error::$name result was '$value'; expected '$expected'"
+              failed=1
+            fi
+          done
+
+          exit "$failed"

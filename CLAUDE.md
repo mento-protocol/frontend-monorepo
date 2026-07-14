@@ -39,6 +39,7 @@ pnpm exec turbo run dev --filter <app-name>    # Dev server for one app (use pac
 pnpm build                           # Build all
 pnpm exec turbo run build --filter <app-name>  # Build one app
 pnpm check-types                     # TypeScript type checking; builds workspace package types first
+pnpm ci:change-plan:test             # Test docs-only CI planning and its fail-closed behavior
 trunk check --fix                     # Lint with autofix
 trunk fmt                             # Format
 pnpm test                            # Run tests

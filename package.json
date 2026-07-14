@@ -6,6 +6,7 @@
     "blockexplorer:stop": "docker stop otterscan && docker rm otterscan",
     "build": "turbo run build",
     "check-types": "turbo run check-types",
+    "ci:change-plan:test": "node scripts/ci-change-plan.test.mjs",
     "clean": "rm -rf .turbo && turbo run clean",
     "dev": "turbo run dev",
     "dev:app.mento.org": "turbo run dev --filter=app.mento.org",
