@@ -1,26 +1,10 @@
 [[IgnoredVulns]]
-id = "GHSA-ffrw-9mx8-89p8"
-reason = "There is no fix for this vulnerability and it's only low risk"
-
-[[IgnoredVulns]]
-id = "GHSA-43fc-jf86-j433"
-reason = "axios vulnerability is in transitive deps (wormhole-connect); no direct fix available"
-
-[[IgnoredVulns]]
-id = "GHSA-4hjh-wcwx-xvwj"
-reason = "axios vulnerability is in transitive deps (wormhole-connect); no direct fix available"
-
-[[IgnoredVulns]]
 id = "GHSA-3gc7-fjrx-p6mg"
 reason = "bigint-buffer vulnerability is in transitive deps; no direct fix available"
 
 [[IgnoredVulns]]
 id = "GHSA-vqpr-j7v3-hqw9"
 reason = "valibot ReDoS vulnerability is in transitive deps; no direct fix available"
-
-[[IgnoredVulns]]
-id = "GHSA-378v-28hj-76wf"
-reason = "bn.js infinite loop in transitive deps; pre-existing"
 
 [[IgnoredVulns]]
 id = "GHSA-848j-6mx2-7j84"
@@ -259,40 +243,6 @@ id = "GHSA-q6x5-8v7m-xcrf"
 ignoreUntil = 2026-12-01T00:00:00Z
 reason = "@protobufjs/utf8 overlong UTF-8 decoding; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available."
 
-# --- hono: transitive via @rainbow-me/rainbowkit → wagmi → @wagmi/connectors → porto ---
-
-[[IgnoredVulns]]
-id = "GHSA-9vqf-7f2p-gf9v"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "hono bodyLimit() bypass for chunked / unknown-length requests; transitive via wagmi → porto; no direct fix available."
-
-[[IgnoredVulns]]
-id = "GHSA-hm8q-7f3q-5f36"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "hono improper validation of NumericDate claims in JWT verify (low severity); transitive via wagmi → porto; no direct fix available."
-
-[[IgnoredVulns]]
-id = "GHSA-qp7p-654g-cw7p"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "hono CSS Declaration Injection via Style Object Values in JSX SSR; transitive via wagmi → porto; no direct fix available."
-
-[[IgnoredVulns]]
-id = "GHSA-69xw-7hcm-h432"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "hono/jsx unvalidated JSX tag names may allow HTML injection; transitive via wagmi → porto; no direct fix available."
-
-[[IgnoredVulns]]
-id = "GHSA-p77w-8qqv-26rm"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "hono Cache Middleware ignores Vary: Authorization / Vary: Cookie; transitive via wagmi → porto; no direct fix available."
-
-# --- basic-ftp + ip-address: transitive ---
-
-[[IgnoredVulns]]
-id = "GHSA-rpmf-866q-6p89"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "basic-ftp client-side DoS from malicious FTP server; transitive (FTP code path is not reachable from this app); no direct fix available."
-
 [[IgnoredVulns]]
 id = "GHSA-v2v4-37r5-5v8g"
 ignoreUntil = 2026-12-01T00:00:00Z
@@ -305,23 +255,6 @@ reason = "ip-address XSS in Address6 HTML-emitting methods (Address6 HTML method
 id = "GHSA-jggg-4jg4-v7c6"
 ignoreUntil = 2026-12-01T00:00:00Z
 reason = "protobufjs DoS via unbounded recursive JSON descriptor expansion; transitive via wormhole-connect → @cosmjs/* / @trezor/* (affects both 6.11.4 and 7.5.5); no direct fix available."
-
-[[IgnoredVulns]]
-id = "GHSA-58qx-3vcg-4xpx"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "ws (WebSocket) uninitialized memory disclosure; transitive via multiple wallet/RPC chains (rpc-websockets, viem ws transport, hardhat). No direct fix in the upstream wallet/RPC packages yet."
-
-# --- New Turbo advisories surfaced 2026-05-19 ---
-
-[[IgnoredVulns]]
-id = "GHSA-3qcw-2rhx-2726"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "Turbo local code execution during Yarn Berry detection (low severity); affects turbo + @turbo/workspaces in the build toolchain. Risk only applies during local Yarn Berry-flagged installs; we use pnpm. Bump to a patched turbo when one ships."
-
-[[IgnoredVulns]]
-id = "GHSA-hcf7-66rw-9f5r"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "Turbo login-callback CSRF / session fixation; only relevant to the `turbo login`/`turbo link` remote-cache flow which isn't used in CI or local dev. Bump to a patched turbo when one ships."
 
 # ---------------------------------------------------------------------------
 # Batch added 2026-06-05 — surfaced after the 2026-06-01 expiry pass.
@@ -375,47 +308,18 @@ id = "GHSA-pjwm-pj3p-43mv"
 ignoreUntil = 2026-12-01T00:00:00Z
 reason = "axios shouldBypassProxy does not recognize IPv4-mapped IPv6 addresses (incomplete fix for CVE-2025-62718); transitive via wagmi → @coinbase/cdp-sdk; fix at 1.16.0 but upstream chain not yet bumped."
 
-# --- hono 4.12.14 → 4.12.21: transitive via @rainbow-me/rainbowkit → wagmi → @wagmi/connectors → porto ---
-# (Same chain as the existing 2026-05-15 hono batch. New CVEs surfaced after.
-#  4.12.21 is patched upstream but porto hasn't bumped its hono pin yet.)
+# --- Vercel Sandbox CLI package-name reuse ---
+# These advisories describe the legacy gf3/sandbox evaluator (last affected
+# release 0.8.2). The locked sandbox@3.4.0 is Vercel's unrelated CLI backed by
+# @vercel/sandbox and does not expose the legacy in-process evaluator. Our
+# deployment workflows also never invoke the sandbox subcommand.
 
 [[IgnoredVulns]]
-id = "GHSA-2gcr-mfcq-wcc3"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "hono app.mount() strips mount prefix using undecoded path, causing incorrect routing for percent-encoded paths; transitive via wagmi → porto; fix at 4.12.21 but upstream not yet bumped."
+id = "GHSA-fm4j-4xhm-xpwx"
+ignoreUntil = 2026-10-14T00:00:00Z
+reason = "False positive from npm package-name reuse: advisory targets legacy gf3/sandbox <=0.8.2; sandbox@3.4.0 is Vercel's unrelated CLI and this repo never invokes its sandbox command."
 
 [[IgnoredVulns]]
-id = "GHSA-3hrh-pfw6-9m5x"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "hono Cookie helper does not sanitize sameSite and priority (Set-Cookie injection); transitive via wagmi → porto; fix at 4.12.21 but upstream not yet bumped."
-
-[[IgnoredVulns]]
-id = "GHSA-f577-qrjj-4474"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "hono JWT middleware accepts any Authorization scheme, not only Bearer; transitive via wagmi → porto; fix at 4.12.21 but upstream not yet bumped."
-
-[[IgnoredVulns]]
-id = "GHSA-xrhx-7g5j-rcj5"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "hono IP Restriction bypasses static deny rules for non-canonical IPv6; transitive via wagmi → porto; fix at 4.12.21 but upstream not yet bumped."
-
-# --- tmp 0.2.5 → 0.2.6: transitive via inquirer@7.3.3 / inquirer@8.2.4 → external-editor → tmp ---
-
-[[IgnoredVulns]]
-id = "GHSA-ph9p-34f9-6g65"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "tmp path traversal via unsanitized prefix/postfix; transitive via inquirer → external-editor → tmp; build-tool only (CLI prompts), not in runtime bundles; vulnerable path requires user-controlled prefix which doesn't occur in our usage. Fix at 0.2.6 but inquirer chain not yet bumped."
-
-# --- vitest 3.2.4 → 4.1.0: direct devDep (pnpm-workspace.yaml catalog) ---
-
-[[IgnoredVulns]]
-id = "GHSA-5xrq-8626-4rwp"
-ignoreUntil = 2026-09-01T00:00:00Z
-# Critical advisory (9.8): vitest UI server, when listening, allows arbitrary
-# file read/exec. Practical exposure is limited — `vitest --ui` is dev-only
-# and not invoked by our CI or default `pnpm test`. Bumping out of 3.2.4 is
-# already proposed in dependabot PR #352 (vitest 4.1.0), but that PR carries
-# a vitest/coverage-v8 v4/v3 skew that needs coverage to catch up before
-# landing. Short 90-day ignoreUntil to force re-evaluation alongside the
-# vitest 4 migration.
-reason = "vitest 3.2.4 UI server arbitrary file read/exec (CVSS 9.8); dev-only (`vitest --ui` not used in CI or default test runs). PR #352 bumps to 4.1.0; held pending @vitest/coverage-v8 v4 alignment."
+id = "GHSA-gc25-3vc5-2jf9"
+ignoreUntil = 2026-10-14T00:00:00Z
+reason = "False positive from npm package-name reuse: advisory targets legacy gf3/sandbox <=0.8.2; sandbox@3.4.0 is Vercel's unrelated CLI and this repo never invokes its sandbox command."
