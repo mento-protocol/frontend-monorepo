@@ -115,7 +115,7 @@ jobs:
             [[ -z "$file" ]] && continue
 
             case "$file" in
-              .github/workflows/e2e.yml | .npmrc | package.json | pnpm-lock.yaml | pnpm-workspace.yaml | turbo.json | patches/* | scripts/security-headers.mjs | scripts/fork-seed.mjs | scripts/fork-seed.test.mjs)
+              .github/workflows/e2e.yml | .github/actions/pnpm-install/* | .npmrc | package.json | pnpm-lock.yaml | pnpm-workspace.yaml | turbo.json | patches/* | scripts/security-headers.mjs | scripts/fork-seed.mjs | scripts/fork-seed.test.mjs)
                 run_app=true
                 run_gov=true
                 ;;
