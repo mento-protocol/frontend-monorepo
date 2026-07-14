@@ -80,12 +80,17 @@ project that does steps 3-5 above automatically against the same seeded fork:
 `CLAUDE.md`'s "Connected-Wallet E2E" section for the exact build + run
 commands per app.
 
-The governance `connected` project has two specs:
+The governance `connected` project has three specs:
 
 - `e2e/connected/lock.spec.ts` — creates a MENTO lock and asserts the
   veMENTO/MENTO deltas on-chain.
 - `e2e/connected/update-lock.spec.ts` — tops up **and** extends an existing
   lock through the `UpdateLockDialog` relock flow.
+- `e2e/connected/proposal-lifecycle.spec.ts` — drives one serial happy-path
+  proposal lifecycle (**create → vote → queue → execute**) through the real UI,
+  asserting each transition on-chain (`Governor.state`) plus a concrete MENTO
+  balance delta for the executed action. See the next section for its
+  maintenance couplings and runtime cost.
 
 ### The subgraph-mock pattern (update-lock.spec.ts)
 
@@ -115,6 +120,48 @@ gains or renames a selected field, the mock in `update-lock.spec.ts`
 (`buildGetLocksResponse`) must be updated in lockstep. This subgraph-mock
 technique is reusable for any future connected spec that needs a subgraph-fed
 list to reflect fork state.
+
+### The proposal-lifecycle spec (proposal-lifecycle.spec.ts)
+
+`proposal-lifecycle.spec.ts` extends the same subgraph-mock pattern to the whole
+governor lifecycle. It reuses `getLocks` (so the connected account's voting
+power ungates the vote card) and additionally mocks **`getProposals`** (list)
+and **`getProposal`** (detail), building the synthetic proposal object from fork
+truth: the real on-chain `proposalId`, `targets/values/calldatas/description`,
+`startBlock/endBlock` are read out of the Governor's `ProposalCreated` event
+after the create transaction lands, and the client-side id is cross-checked by
+re-deriving OZ `hashProposal` from those exact bytes. The mock is **mutated
+between stages** — it grows a `proposalQueued[0].eta` after the queue step so the
+Execute button ungates. Success is asserted **only** via toasts and on-chain
+reads, never via the mocked list/detail UI.
+
+Maintenance couplings specific to this spec:
+
+- **Query shapes:** the two proposal mocks (`buildProposalResponse`) are
+  hand-shaped to `getProposals.graphql` / `getProposal.graphql` +
+  `proposalFields.graphql`. Renaming or adding a selected non-`@client` field
+  requires updating the mock in lockstep (same cost as the `getLocks` mock).
+- **votingPeriod storage slot:** to close the 691,200-block voting period
+  cheaply, the spec shrinks `_votingPeriod` to 120 via `anvil_setStorageAt`. It
+  does **not** hardcode the slot — it scans the Governor proxy for the slot
+  holding the live `votingPeriod()` value and verifies the write with a
+  read-back. If the Governor's storage layout changes, the scan self-heals or
+  fails loudly; no manual slot to maintain. (Batch-mining the full period was
+  benchmarked and rejected: a 50,000-block `anvil_mine` alone exceeded 150s on
+  this fork, ≫ the budget — empty-block mining recomputes state roots over
+  forked state and is far too slow.)
+- **Timelock delay shrink:** before queue, the spec shrinks the
+  TimelockController min-delay to 2s via the Timelock's self-only `updateDelay`
+  (impersonating the Timelock calling itself) so the on-chain execute eta is
+  reachable within the chain-vs-wall clock-skew budget. The UI execute gate
+  compares the mocked `eta` against wall-clock `Date.now()`, so the mock's `eta`
+  is set in the past independently.
+- **Voting-power setup:** `proposalThreshold` (10,000 veMENTO) and quorum
+  (≈2.29M veMENTO) are met out-of-band — the Timelock (the MENTO whale) transfers
+  2×quorum MENTO to junk-0, which approves + locks it at max slope (104 weeks,
+  self-delegated). This funding is spec-local (not in `fork-seed.mjs`).
+- **Runtime cost:** ~1 minute locally end-to-end (`test.setTimeout` is 480s as a
+  ceiling; the time-travel is simulated, not waited out).
 
 ## Preview smoke
 
