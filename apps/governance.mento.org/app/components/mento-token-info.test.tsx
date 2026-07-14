@@ -10,6 +10,12 @@ const CELO_MAINNET_EXPLORER_URL = "https://celoscan.io";
 // how the component wires them up, actually fails this test.
 const celoAddresses = addresses[ChainId.CELO];
 
+// Hoisting constraint: vi.mock factories run while the (hoisted) component
+// import resolves — BEFORE the consts above are initialized. Referencing them
+// is only safe inside the arrow functions a factory returns (accessed at
+// render time), as done below. Dereferencing them directly in a factory body
+// would throw a TDZ ReferenceError.
+
 vi.mock("@mento-protocol/ui", () => ({
   Accordion: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
