@@ -1,4 +1,6 @@
 import { expect, type Page } from "@playwright/test";
+import { decodeFunctionData, type Hex, multicall3Abi, parseAbi } from "viem";
+import { celo } from "viem/chains";
 import { connectedTest as test } from "../fixtures";
 import { erc20BalanceOf, revert, rpc, snapshot } from "./rpc";
 
@@ -32,9 +34,12 @@ const ACCT0 = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 const CUSD = "0x765DE816845861e75A25fCA122bb6898B8B1282a";
 const CGBP = "0xCCF663b1fF11028f0b19058d0f7B674004a40746";
 const ROUTER = "0x4861840C2EfB2b98312B0aE34d86fD73E8f9B6f6";
+const MULTICALL3 = celo.contracts.multicall3.address;
 const APPROVE_SELECTOR = "0x095ea7b3";
 const ALLOWANCE_SELECTOR = "0xdd62ed3e";
-const GET_AMOUNTS_OUT_SELECTOR = "0x66e56f6d";
+const GET_AMOUNTS_OUT_ABI = parseAbi([
+  "function getAmountsOut(uint256 amountIn, (address from, address to, address factory)[] routes) view returns (uint256[] amounts)",
+]);
 const ZERO_UINT256 = `0x${"0".repeat(64)}`;
 
 type JsonRpcRequest = {
@@ -48,6 +53,62 @@ type JsonRpcResponse = {
   result?: unknown;
   error?: unknown;
 };
+
+function isPrimaryQuoteCalldata(data: string) {
+  try {
+    const decoded = decodeFunctionData({
+      abi: GET_AMOUNTS_OUT_ABI,
+      data: data as Hex,
+    });
+    if (decoded.functionName !== "getAmountsOut") return false;
+
+    const routes = decoded.args[1];
+    const firstRoute = routes[0];
+    const lastRoute = routes[routes.length - 1];
+    return (
+      firstRoute?.from.toLowerCase() === CUSD.toLowerCase() &&
+      lastRoute?.to.toLowerCase() === CGBP.toLowerCase()
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isPrimaryQuoteCall(
+  call: { data?: unknown; to?: unknown } | undefined,
+) {
+  if (typeof call?.data !== "string" || typeof call.to !== "string") {
+    return false;
+  }
+
+  const target = call.to.toLowerCase();
+  if (target === ROUTER.toLowerCase()) {
+    return isPrimaryQuoteCalldata(call.data);
+  }
+  if (target !== MULTICALL3.toLowerCase()) return false;
+
+  // viem normally batches quote reads through Multicall3. Decode the outer
+  // call so the gate matches a nested Router target rather than arbitrary
+  // address/selector bytes elsewhere in the aggregate calldata.
+  try {
+    const decoded = decodeFunctionData({
+      abi: multicall3Abi,
+      data: call.data as Hex,
+    });
+    if (decoded.functionName !== "aggregate3") return false;
+
+    const [calls] = decoded.args as readonly [
+      readonly { callData: Hex; target: string }[],
+    ];
+    return calls.some(
+      (nestedCall) =>
+        nestedCall.target.toLowerCase() === ROUTER.toLowerCase() &&
+        isPrimaryQuoteCalldata(nestedCall.callData),
+    );
+  } catch {
+    return false;
+  }
+}
 
 async function interceptPostApprovalAllowanceReads(
   page: Page,
@@ -110,23 +171,7 @@ async function interceptPostApprovalAllowanceReads(
             const call = request.params?.[0] as
               | { data?: unknown; to?: unknown }
               | undefined;
-            if (typeof call?.data !== "string") {
-              return [];
-            }
-
-            const data = call.data.toLowerCase();
-            const routerIndex = data.indexOf(ROUTER.slice(2).toLowerCase());
-            const selectorIndex = data.indexOf(
-              GET_AMOUNTS_OUT_SELECTOR.slice(2),
-            );
-            const sellTokenIndex = data.indexOf(CUSD.slice(2).toLowerCase());
-            const buyTokenIndex = data.indexOf(CGBP.slice(2).toLowerCase());
-            return routerIndex >= 0 &&
-              selectorIndex > routerIndex &&
-              sellTokenIndex >= 0 &&
-              buyTokenIndex > sellTokenIndex
-              ? [request.id]
-              : [];
+            return isPrimaryQuoteCall(call) ? [request.id] : [];
           })
         : [];
       const allowanceRequestIds = approvalReceiptObserved
@@ -417,6 +462,7 @@ test("resumes allowance verification after a background quote refresh", async ({
     timeout: 60_000,
   });
   expect(interception.heldPrimaryQuoteReadCount()).toBeGreaterThan(0);
+  expect(interception.postReceiptAllowanceReadCount()).toBe(0);
   await expect(page.getByText("Confirm Swap")).not.toBeVisible();
 
   interception.releaseHeldPrimaryQuote();
@@ -424,6 +470,7 @@ test("resumes allowance verification after a background quote refresh", async ({
   await expect(page.getByText("Confirm Swap")).toBeVisible({
     timeout: 30_000,
   });
+  expect(interception.postReceiptAllowanceReadCount()).toBe(1);
   expect(interception.approvalTransactionCount()).toBe(1);
 });
 
