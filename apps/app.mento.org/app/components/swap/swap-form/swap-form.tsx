@@ -94,6 +94,7 @@ export default function SwapForm({
           isButtonLoading={swap.isButtonLoading}
           isApproveTxLoading={swap.isApproveTxLoading}
           isApprovalProcessing={swap.isApprovalProcessing}
+          isApprovalVerificationPending={swap.isApprovalVerificationPending}
           tradingLimitError={swap.tradingLimitError}
           balanceError={swap.balanceError}
           isTradingSuspended={swap.isTradingSuspended}
