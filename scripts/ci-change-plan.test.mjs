@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { relative } from "node:path";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, relative } from "node:path";
 import process from "node:process";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -9,10 +17,10 @@ import { fileURLToPath } from "node:url";
 import { planCiForPaths } from "./ci-change-plan.mjs";
 
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
-const scriptPath = relative(
-  repoRoot,
-  fileURLToPath(new URL("./ci-change-plan.mjs", import.meta.url)),
+const scriptAbsolutePath = fileURLToPath(
+  new URL("./ci-change-plan.mjs", import.meta.url),
 );
+const scriptPath = relative(repoRoot, scriptAbsolutePath);
 
 test("skips expensive quality jobs for documentation-only changes", () => {
   assert.deepEqual(planCiForPaths(["README.md", "docs/wallet-testing.md"]), {
@@ -79,6 +87,58 @@ test("CLI fails safe when stdin is empty", () => {
   assert.match(output, /^reason=empty-diff-full-quality$/m);
 });
 
+test("rename from source into docs still runs full quality", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ci-change-plan-"));
+  const source = join(directory, "apps/app.mento.org/app/page.tsx");
+  const destination = join(directory, "docs/page.md");
+
+  try {
+    execFileSync("git", ["init", "--quiet"], { cwd: directory });
+    mkdirSync(dirname(source), { recursive: true });
+    writeFileSync(source, "export default function Page() {}\n");
+    execFileSync("git", ["add", "."], { cwd: directory });
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "user.name=CI Plan Test",
+        "-c",
+        "user.email=ci-plan@example.invalid",
+        "commit",
+        "--quiet",
+        "-m",
+        "initial",
+      ],
+      { cwd: directory },
+    );
+
+    mkdirSync(dirname(destination), { recursive: true });
+    renameSync(source, destination);
+    execFileSync("git", ["add", "--all"], { cwd: directory });
+
+    const changedPaths = execFileSync(
+      "git",
+      ["diff", "--cached", "--no-renames", "--name-only", "-z"],
+      { cwd: directory },
+    );
+    const output = execFileSync(
+      process.execPath,
+      [scriptAbsolutePath, "--null"],
+      {
+        cwd: directory,
+        encoding: "utf8",
+        input: changedPaths,
+      },
+    );
+
+    assert.match(output, /^run_quality=true$/m);
+    assert.match(output, /^changed_count=2$/m);
+    assert.match(output, /^reason=code-or-policy-change$/m);
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
 test("workflow executes the planner from the trusted base after bootstrap", () => {
   const workflow = readFileSync(
     new URL("../.github/workflows/ci.yml", import.meta.url),
@@ -87,5 +147,5 @@ test("workflow executes the planner from the trusted base after bootstrap", () =
 
   assert.match(workflow, /git cat-file -e "\$BASE_SHA:\$planner"/);
   assert.match(workflow, /git show "\$BASE_SHA:\$planner"/);
-  assert.match(workflow, /git diff --name-only -z/);
+  assert.match(workflow, /git diff --no-renames --name-only -z/);
 });

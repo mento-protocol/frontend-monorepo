@@ -62,7 +62,7 @@ jobs:
           if [[ "$BASE_SHA" =~ ^0+$ ]]; then
             git ls-files -z | node "$planner" --null >> "$GITHUB_OUTPUT"
           else
-            git diff --name-only -z "$BASE_SHA" "$HEAD_SHA" | node "$planner" --null >> "$GITHUB_OUTPUT"
+            git diff --no-renames --name-only -z "$BASE_SHA" "$HEAD_SHA" | node "$planner" --null >> "$GITHUB_OUTPUT"
           fi
 
       - name: Summarize CI plan
