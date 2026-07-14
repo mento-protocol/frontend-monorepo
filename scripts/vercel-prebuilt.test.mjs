@@ -143,6 +143,15 @@ test("resolved Next.js and exact Vercel CLI satisfy custom-ID prerequisites", ()
   assert.equal(isVersionGreaterThan("56.2.0", "50.3.3"), true);
 });
 
+test("prerelease comparison follows numeric SemVer identifier ordering", () => {
+  const minimum = "16.2.0-canary.15";
+  assert.equal(isVersionGreaterThan("16.2.0-canary.9", minimum), false);
+  assert.equal(isVersionGreaterThan("16.2.0-canary.15", minimum), false);
+  assert.equal(isVersionGreaterThan("16.2.0-canary.100", minimum), true);
+  assert.equal(isVersionGreaterThan("16.2.0-canary.15.1", minimum), true);
+  assert.equal(isVersionGreaterThan("16.2.0", minimum), true);
+});
+
 test("all Next configs and app Turbo inputs use one custom ID variable", () => {
   for (const target of VERCEL_TARGETS) {
     const appDirectory =

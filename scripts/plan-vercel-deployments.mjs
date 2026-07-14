@@ -22,6 +22,20 @@ const GLOBAL_BUILD_INPUTS = new Set([
   "turbo.json",
 ]);
 
+const PROVEN_NON_RUNTIME_FILES = new Set([
+  "AGENTS.md",
+  "CLAUDE.md",
+  "LICENSE",
+  "README.md",
+]);
+
+const PROVEN_NON_RUNTIME_DIRECTORIES = [
+  "docs/",
+  "apps/app.mento.org/e2e/",
+  "apps/governance.mento.org/e2e/",
+  "apps/ui.mento.org/e2e/",
+];
+
 function failClosed(base, head, reason) {
   return {
     deployments: [...VERCEL_DEPLOYMENTS],
@@ -85,11 +99,10 @@ function isGlobalBuildInput(path) {
 
 function isProvenNonRuntimePath(path) {
   return (
-    path.startsWith("docs/") ||
-    path.endsWith(".md") ||
-    /(?:^|\/)(?:__tests__|e2e|test|tests)\//.test(path) ||
-    /\.(?:test|spec)\.(?:[cm]?[jt]sx?)$/.test(path) ||
-    path.endsWith(".snap")
+    PROVEN_NON_RUNTIME_FILES.has(path) ||
+    PROVEN_NON_RUNTIME_DIRECTORIES.some((directory) =>
+      path.startsWith(directory),
+    )
   );
 }
 

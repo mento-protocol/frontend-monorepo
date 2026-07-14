@@ -143,10 +143,12 @@ The repository's Vercel-system-variable reads are deliberately limited:
 - `NEXT_PUBLIC_VERCEL_ENV` labels browser Sentry events in app, governance, and
   reserve; selects production network behavior in `packages/web3`; and is a
   required governance client variable used by proposal rendering.
-- `VERCEL_TARGET_ENV` is not read directly by application source. It is still
-  required because the Vercel CLI uses it to select the custom `v3` target, and
-  recording it explicitly prevents that target from being mistaken for
-  standard preview or production semantics.
+- `VERCEL_TARGET_ENV` is not read directly by application source. The Vercel
+  CLI's `--target v3` option selects the custom target; setting
+  `VERCEL_TARGET_ENV` does not select it. The workflow restores this variable
+  only to reproduce the system semantics Vercel's builder would inject and to
+  prevent `v3` from being mistaken for standard preview or production
+  semantics.
 - No other Vercel system variable is a required build-time input in the current
   application source. A future read must be added to this contract and its
   fixture tests before the workflows may rely on it.

@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
+  appendFileSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,6 +24,7 @@ import {
 const scriptPath = fileURLToPath(
   new URL("./plan-vercel-deployments.mjs", import.meta.url),
 );
+const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 
 function commit(directory, message) {
   execFileSync("git", ["add", "--all"], { cwd: directory });
@@ -88,6 +91,11 @@ function turboPlan(packages) {
       taskId: `${packageName}#build`,
     })),
   };
+}
+
+function appendFixtureChange(directory, path, message) {
+  appendFileSync(join(directory, path), `\n// ${message}\n`);
+  return commit(directory, message);
 }
 
 for (const [target, packageName] of [
@@ -178,10 +186,9 @@ for (const globalPath of [
 for (const path of [
   "docs/vercel-deployments.md",
   "README.md",
-  "apps/app.mento.org/app/page.test.tsx",
   "apps/governance.mento.org/e2e/lock.spec.ts",
-  "packages/ui/src/__tests__/button.tsx",
-  "packages/ui/src/__snapshots__/button.snap",
+  "apps/app.mento.org/e2e/preview/smoke.spec.ts",
+  "apps/ui.mento.org/e2e/showcase.visual.spec.ts",
 ]) {
   test(`returns no deployments for proven non-runtime change ${path}`, () => {
     withFixture(path, (fixture) => {
@@ -196,6 +203,88 @@ for (const path of [
     });
   });
 }
+
+for (const path of [
+  "apps/app.mento.org/app/runtime-notes.md",
+  "apps/app.mento.org/app/runtime-module.test.tsx",
+  "apps/app.mento.org/app/runtime-data.snap",
+]) {
+  test(`does not suppress an app-local runtime-looking change named ${path}`, () => {
+    withFixture(path, (fixture) => {
+      let turboCalled = false;
+      const plan = planVercelDeployments({
+        repoRoot: fixture.directory,
+        base: fixture.base,
+        head: fixture.head,
+        runTurbo: () => {
+          turboCalled = true;
+          return turboPlan(["app.mento.org"]);
+        },
+      });
+      assert.deepEqual(plan.deployments, ["app"]);
+      assert.equal(plan.reason, "affected-packages");
+      assert.equal(turboCalled, true);
+    });
+  });
+}
+
+test(
+  "installed Turbo resolves the actual app and shared-package graph",
+  { timeout: 30_000 },
+  () => {
+    const parentDirectory = mkdtempSync(join(tmpdir(), "vercel-turbo-graph-"));
+    const directory = join(parentDirectory, "repo");
+    try {
+      execFileSync(
+        "git",
+        ["clone", "--quiet", "--shared", repoRoot, directory],
+        { cwd: parentDirectory },
+      );
+      symlinkSync(
+        join(repoRoot, "node_modules"),
+        join(directory, "node_modules"),
+      );
+
+      let base = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: directory,
+        encoding: "utf8",
+      }).trim();
+      let head = appendFixtureChange(
+        directory,
+        "apps/app.mento.org/app/page.tsx",
+        "app-local fixture",
+      );
+      assert.deepEqual(
+        planVercelDeployments({ repoRoot: directory, base, head }).deployments,
+        ["app"],
+      );
+
+      base = head;
+      head = appendFixtureChange(
+        directory,
+        "packages/ui/src/index.ts",
+        "shared UI fixture",
+      );
+      assert.deepEqual(
+        planVercelDeployments({ repoRoot: directory, base, head }).deployments,
+        VERCEL_DEPLOYMENTS,
+      );
+
+      base = head;
+      head = appendFixtureChange(
+        directory,
+        "packages/web3/src/index.ts",
+        "shared web3 fixture",
+      );
+      assert.deepEqual(
+        planVercelDeployments({ repoRoot: directory, base, head }).deployments,
+        ["app", "governance", "reserve"],
+      );
+    } finally {
+      rmSync(parentDirectory, { force: true, recursive: true });
+    }
+  },
+);
 
 test("invalid or missing commits fail closed", () => {
   const fixture = createFixture("apps/app.mento.org/app/page.tsx");

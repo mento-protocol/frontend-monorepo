@@ -88,6 +88,22 @@ function parseVersion(version) {
   };
 }
 
+function comparePrereleaseIdentifiers(candidate, minimum) {
+  const candidateIsNumeric = /^(?:0|[1-9][0-9]*)$/.test(candidate);
+  const minimumIsNumeric = /^(?:0|[1-9][0-9]*)$/.test(minimum);
+
+  if (candidateIsNumeric && minimumIsNumeric) {
+    const candidateNumber = BigInt(candidate);
+    const minimumNumber = BigInt(minimum);
+    if (candidateNumber === minimumNumber) return 0;
+    return candidateNumber > minimumNumber ? 1 : -1;
+  }
+  if (candidateIsNumeric) return -1;
+  if (minimumIsNumeric) return 1;
+  if (candidate === minimum) return 0;
+  return candidate > minimum ? 1 : -1;
+}
+
 export function isVersionGreaterThan(version, minimumExclusive) {
   const candidate = parseVersion(version);
   const minimum = parseVersion(minimumExclusive);
@@ -99,7 +115,21 @@ export function isVersionGreaterThan(version, minimumExclusive) {
 
   if (candidate.prerelease === null) return minimum.prerelease !== null;
   if (minimum.prerelease === null) return false;
-  return candidate.prerelease.join(".") > minimum.prerelease.join(".");
+
+  const identifiers = Math.max(
+    candidate.prerelease.length,
+    minimum.prerelease.length,
+  );
+  for (let index = 0; index < identifiers; index += 1) {
+    if (candidate.prerelease[index] === undefined) return false;
+    if (minimum.prerelease[index] === undefined) return true;
+    const comparison = comparePrereleaseIdentifiers(
+      candidate.prerelease[index],
+      minimum.prerelease[index],
+    );
+    if (comparison !== 0) return comparison > 0;
+  }
+  return false;
 }
 
 export function readResolvedNextVersion(lockfile) {
