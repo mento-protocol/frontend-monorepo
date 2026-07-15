@@ -16,8 +16,9 @@ pnpm vercel:cost:analyze \
 
 The command exits successfully only when the complete #523 closeout gate
 passes. Its Markdown and JSON output omit absolute `EffectiveCost` and
-`BilledCost` values. Raw exports, aggregate input, account configuration,
-allocations, invoice figures, and dollar values remain private.
+`BilledCost` values, raw-export digests, and raw-export charge-row counts. Raw
+exports, aggregate input, account configuration, allocations, invoice figures,
+and dollar values remain private.
 
 Run the fixture suite without credentials or network access:
 
@@ -42,8 +43,9 @@ request. A maintainer with billing access obtains the source exports through an
 approved Vercel surface and records only their SHA-256 digests and charge counts
 in the aggregate input. Automation must not discover or retrieve credentials.
 
-Only the generated public-safe Markdown report, redacted screenshots, and
-direct links to non-sensitive workflow or deployment evidence belong on #523.
+Only generated public-safe analyzer output (Markdown or JSON), redacted
+screenshots, and direct links to non-sensitive workflow or deployment evidence
+belong on #523.
 
 ## Source-of-truth intervals
 
@@ -128,7 +130,9 @@ provider evidence for its baseline and post-cutover split.
    as either `preview` or `main`; those two source counts must sum exactly to the
    migrated-path aggregates in both windows.
    Each source bucket must also be internally possible: attempts cannot be lower
-   than eligible events, and duplicates cannot exceed attempts.
+   than eligible events, and duplicate counts cannot exceed the attempts beyond
+   the first attempt for each eligible event (`attempts - events`). The same
+   duplicate bound applies to the migrated-path aggregate.
 5. Classify app deployments as migrated PR preview, migrated `main -> v3`,
    preserved native `v2 -> production`, or manual/unknown. Keep v2 visible and
    apply the invoice-grade attribution limitation above.
@@ -198,8 +202,16 @@ ledger rather than entering a blanket success value:
 
 - `eligibleFirstPreviewOpportunities` counts PRs whose first eligible push is in
   the observation window, and `eligibleFirstPreviews` counts those that received
-  the preview. At least one opportunity is required, and opportunities cannot
-  exceed trusted same-repository PR pushes.
+  the preview. At least one opportunity is required, opportunities cannot exceed
+  trusted same-repository PR pushes, and claimed first previews cannot exceed
+  the derived total of post-cutover `preview` eligible target events.
+- `trustedSameRepositoryPrPushes` is a push-level observation denominator, while
+  the preview census is target-level deployment evidence. Do not force a
+  one-to-one relationship between them: one push can fan out to several targets,
+  and first-plus-latest batching or path-aware preview reuse can avoid a distinct
+  deployment for a later push. The derived preview-event bound applies to the
+  first-preview PR counters because every claimed first preview must have at
+  least one corresponding preview target event.
 - `smokeOrE2eCheckOpportunities` counts the smoke/E2E checks required by the
   observed trusted PR pushes; it must cover at least every such push.
   `smokeOrE2eChecksCompleted` counts all finished checks, whether passing or
@@ -232,13 +244,13 @@ It also rejects guessed clean-project splits, provider-attributed splits without
 distinct hashed evidence, provider-attributed minute or cost splits without a
 classified excluded deployment, reused raw or target-attribution evidence,
 legacy-v2 classifications outside the app project, preview/main census totals
-that do not reconcile exactly, and unknown post-cutover deployment activity.
-Either window is invalid when a target has fewer deployment attempts than
-eligible events. Completed-check counts cannot exceed their opportunities,
-regressions cannot exceed completed checks, and completed main observations
-cannot exceed the derived main-event total. Derived totals, counterfactuals,
-ratios, and savings must remain finite; numeric overflow, `NaN`, and infinity
-fail closed.
+that do not reconcile exactly, source buckets with fewer attempts than events,
+duplicate counts above `attempts - events`, first-preview counters unsupported
+by the derived preview census, and unknown post-cutover deployment activity.
+Completed-check counts cannot exceed their opportunities, regressions cannot
+exceed completed checks, and completed main observations cannot exceed the
+derived main-event total. Derived totals, counterfactuals, ratios, and savings
+must remain finite; numeric overflow, `NaN`, and infinity fail closed.
 
 ## Calculations
 
@@ -264,7 +276,8 @@ available before the report can pass.
 
 The public-safe output shows migrated and gross Build CPU minutes for every
 target in both windows. It also shows each target's preview/main event, attempt,
-and duplicate census. Absolute cost values remain private.
+and duplicate census. Absolute cost values, raw FOCUS export digests, and charge
+row counts remain private in both Markdown and JSON output.
 
 The command remains failing when any required closeout condition is missing,
 including incomplete billing, a non-final invoice, fewer than seven complete

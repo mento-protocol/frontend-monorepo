@@ -57,6 +57,32 @@ function setMigratedCensusMetric(
     main;
 }
 
+function movePreviewCensusToMain(evidence, targets = VERCEL_COST_TARGETS) {
+  for (const target of targets) {
+    for (const metric of [
+      "eligibleEvents",
+      "deploymentAttempts",
+      "duplicateDeployments",
+    ]) {
+      const census =
+        evidence.postCutover.targets[target].migratedDeploymentCensus;
+      census.main[metric] += census.preview[metric];
+      census.preview[metric] = 0;
+    }
+  }
+}
+
+function postCutoverSourceTotal(evidence, source, metric) {
+  return VERCEL_COST_TARGETS.reduce(
+    (total, target) =>
+      total +
+      evidence.postCutover.targets[target].migratedDeploymentCensus[source][
+        metric
+      ],
+    0,
+  );
+}
+
 test("computes the issue #523 target-mix formula at the exact pass boundary", () => {
   const analysis = analyzeVercelCostEvidence(fixture());
 
@@ -115,9 +141,10 @@ test("reports duplicate rate and raw minutes per trusted PR push", () => {
   });
 });
 
-test("keeps absolute financial values out of the analysis result and Markdown", () => {
+test("keeps private financial and FOCUS provenance out of public output", () => {
   const analysis = analyzeVercelCostEvidence(fixture());
   const markdown = formatVercelCostMarkdown(analysis);
+  const serializedAnalysis = JSON.stringify(analysis);
 
   assert.deepEqual(Object.keys(analysis.normalized.effectiveCost), [
     "savings",
@@ -127,8 +154,14 @@ test("keeps absolute financial values out of the analysis result and Markdown", 
     "savings",
     "targets",
   ]);
-  assert.equal(JSON.stringify(analysis).includes('"effectiveCost":40'), false);
-  assert.equal(JSON.stringify(analysis).includes('"evidenceSha256"'), false);
+  assert.equal(serializedAnalysis.includes('"effectiveCost":40'), false);
+  assert.equal(serializedAnalysis.includes('"evidenceSha256"'), false);
+  for (const period of Object.values(analysis.periods)) {
+    assert.equal(Object.hasOwn(period, "focusExportSha256"), false);
+    assert.equal(Object.hasOwn(period, "focusChargeCount"), false);
+  }
+  assert.equal(serializedAnalysis.includes('"focusExportSha256"'), false);
+  assert.equal(serializedAnalysis.includes('"focusChargeCount"'), false);
   assert.match(
     markdown,
     /Absolute EffectiveCost and BilledCost values are intentionally omitted/,
@@ -221,11 +254,55 @@ test("requires the migrated preview/main census to reconcile exactly", () => {
   );
 
   const sourceDuplicatesAboveAttempts = fixture();
-  sourceDuplicatesAboveAttempts.postCutover.targets.app.migratedPath.duplicateDeployments = 9;
-  sourceDuplicatesAboveAttempts.postCutover.targets.app.migratedDeploymentCensus.preview.duplicateDeployments = 9;
+  setMigratedCensusMetric(
+    sourceDuplicatesAboveAttempts,
+    "postCutover",
+    "app",
+    "deploymentAttempts",
+    8,
+    11,
+  );
+  setMigratedCensusMetric(
+    sourceDuplicatesAboveAttempts,
+    "postCutover",
+    "app",
+    "duplicateDeployments",
+    9,
+    0,
+  );
   assert.throws(
     () => validateVercelCostEvidence(sourceDuplicatesAboveAttempts),
     /preview\.duplicateDeployments cannot exceed deploymentAttempts/,
+  );
+
+  const aggregateDuplicatesWithoutExtraAttempts = fixture();
+  aggregateDuplicatesWithoutExtraAttempts.baseline.targets.app.migratedPath.duplicateDeployments = 1;
+  aggregateDuplicatesWithoutExtraAttempts.baseline.targets.app.migratedDeploymentCensus.preview.duplicateDeployments = 1;
+  assert.throws(
+    () => validateVercelCostEvidence(aggregateDuplicatesWithoutExtraAttempts),
+    /migratedPath\.duplicateDeployments cannot exceed deploymentAttempts minus eligibleEvents/,
+  );
+
+  const sourceDuplicatesWithoutExtraAttempts = fixture();
+  setMigratedCensusMetric(
+    sourceDuplicatesWithoutExtraAttempts,
+    "baseline",
+    "app",
+    "deploymentAttempts",
+    14,
+    7,
+  );
+  setMigratedCensusMetric(
+    sourceDuplicatesWithoutExtraAttempts,
+    "baseline",
+    "app",
+    "duplicateDeployments",
+    1,
+    0,
+  );
+  assert.throws(
+    () => validateVercelCostEvidence(sourceDuplicatesWithoutExtraAttempts),
+    /preview\.duplicateDeployments cannot exceed deploymentAttempts minus eligibleEvents/,
   );
 });
 
@@ -416,6 +493,14 @@ test("rejects fewer attempts than events in both evidence windows", () => {
 
 test("blocks actual duplicate deployments", () => {
   const duplicate = fixture();
+  setMigratedCensusMetric(
+    duplicate,
+    "postCutover",
+    "app",
+    "deploymentAttempts",
+    9,
+    2,
+  );
   setMigratedCensusMetric(
     duplicate,
     "postCutover",
@@ -705,6 +790,35 @@ test("rejects contradictory correctness observation counts", () => {
     () => validateVercelCostEvidence(impossibleFirstPreviewScope),
     /eligibleFirstPreviewOpportunities cannot exceed trustedSameRepositoryPrPushes/,
   );
+
+  const missingPreviewCensus = fixture();
+  movePreviewCensusToMain(missingPreviewCensus);
+  missingPreviewCensus.postCutover.correctness.mainDeploymentObservationsCompleted =
+    postCutoverSourceTotal(missingPreviewCensus, "main", "eligibleEvents");
+  assert.throws(
+    () => validateVercelCostEvidence(missingPreviewCensus),
+    /eligibleFirstPreviews cannot exceed derived preview eligible events/,
+  );
+});
+
+test("does not equate trusted PR pushes with preview target events", () => {
+  const evidence = fixture();
+  movePreviewCensusToMain(evidence, ["governance", "reserve", "ui"]);
+  const previewEligibleEvents = postCutoverSourceTotal(
+    evidence,
+    "preview",
+    "eligibleEvents",
+  );
+  evidence.postCutover.correctness.eligibleFirstPreviews =
+    previewEligibleEvents;
+  evidence.postCutover.correctness.eligibleFirstPreviewOpportunities =
+    previewEligibleEvents;
+  evidence.postCutover.correctness.mainDeploymentObservationsCompleted =
+    postCutoverSourceTotal(evidence, "main", "eligibleEvents");
+
+  assert.equal(previewEligibleEvents, 8);
+  assert.equal(evidence.postCutover.trustedSameRepositoryPrPushes, 10);
+  assert.equal(analyzeVercelCostEvidence(evidence).pass, true);
 });
 
 test("rejects a post window that begins before the completed cutover", () => {
@@ -879,6 +993,22 @@ test("CLI emits public-safe JSON and returns nonzero for a failed gate", () => {
   assert.equal(Object.hasOwn(output.normalized.effectiveCost, "actual"), false);
   assert.equal(
     Object.hasOwn(output.normalized.billedCost, "counterfactual"),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(output.periods.baseline, "focusExportSha256"),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(output.periods.baseline, "focusChargeCount"),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(output.periods.postCutover, "focusExportSha256"),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(output.periods.postCutover, "focusChargeCount"),
     false,
   );
 

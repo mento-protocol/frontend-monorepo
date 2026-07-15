@@ -301,9 +301,12 @@ function validateTarget(
     migrated.duplicateDeployments,
     `${label}.migratedPath.duplicateDeployments`,
   );
-  if (duplicateDeployments > migrated.deploymentAttempts) {
+  if (
+    duplicateDeployments >
+    migrated.deploymentAttempts - migrated.eligibleEvents
+  ) {
     throw new Error(
-      `${label}.migratedPath.duplicateDeployments cannot exceed deploymentAttempts`,
+      `${label}.migratedPath.duplicateDeployments cannot exceed deploymentAttempts minus eligibleEvents`,
     );
   }
   for (const metric of MIGRATED_DEPLOYMENT_CENSUS_KEYS) {
@@ -331,9 +334,12 @@ function validateTarget(
         `${label}.migratedDeploymentCensus.${source}.deploymentAttempts cannot be lower than eligibleEvents`,
       );
     }
-    if (sourceCensus.duplicateDeployments > sourceCensus.deploymentAttempts) {
+    if (
+      sourceCensus.duplicateDeployments >
+      sourceCensus.deploymentAttempts - sourceCensus.eligibleEvents
+    ) {
       throw new Error(
-        `${label}.migratedDeploymentCensus.${source}.duplicateDeployments cannot exceed deploymentAttempts`,
+        `${label}.migratedDeploymentCensus.${source}.duplicateDeployments cannot exceed deploymentAttempts minus eligibleEvents`,
       );
     }
   }
@@ -511,6 +517,17 @@ function validateWindow(window, label) {
     ) {
       throw new Error(
         `${label}.correctness.eligibleFirstPreviewOpportunities cannot exceed trustedSameRepositoryPrPushes`,
+      );
+    }
+    const previewEligibleEvents = sumMigratedDeploymentCensus(
+      window,
+      "preview",
+      "eligibleEvents",
+      `${label}.migratedDeploymentCensus`,
+    );
+    if (window.correctness.eligibleFirstPreviews > previewEligibleEvents) {
+      throw new Error(
+        `${label}.correctness.eligibleFirstPreviews cannot exceed derived preview eligible events`,
       );
     }
     validateObservationCoverage(
@@ -1040,9 +1057,24 @@ export function analyzeVercelCostEvidence(evidence) {
     pass: reasons.length === 0,
     reasons,
     periods: {
-      baseline: { ...evidence.baseline.period, days: baselinePeriod.days },
+      baseline: {
+        startUtc: evidence.baseline.period.startUtc,
+        endUtcExclusive: evidence.baseline.period.endUtcExclusive,
+        billingIngestionComplete:
+          evidence.baseline.period.billingIngestionComplete,
+        invoiceFinal: evidence.baseline.period.invoiceFinal,
+        consumedUnit: evidence.baseline.period.consumedUnit,
+        billingCurrency: evidence.baseline.period.billingCurrency,
+        days: baselinePeriod.days,
+      },
       postCutover: {
-        ...evidence.postCutover.period,
+        startUtc: evidence.postCutover.period.startUtc,
+        endUtcExclusive: evidence.postCutover.period.endUtcExclusive,
+        billingIngestionComplete:
+          evidence.postCutover.period.billingIngestionComplete,
+        invoiceFinal: evidence.postCutover.period.invoiceFinal,
+        consumedUnit: evidence.postCutover.period.consumedUnit,
+        billingCurrency: evidence.postCutover.period.billingCurrency,
         days: postPeriod.days,
       },
     },
