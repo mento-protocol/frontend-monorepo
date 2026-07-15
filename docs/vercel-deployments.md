@@ -296,10 +296,12 @@ reachable for this pilot.
 
 This is a privileged maintainer action, not an automatic PR trigger. Dispatch
 only after reviewing the selected SHA and accepting its same-repository author
-as trusted: dependency installation and the UI build execute that source while
-the job holds preview-only Vercel and Turbo credentials. Fork sources cannot be
-selected, and the workflow rejects Dependabot branches. If the source is not
-trusted, do not dispatch the pilot.
+as trusted: dependency installation and the UI build execute that source with
+the pulled UI preview variables and signed Turbo cache credentials. The
+candidate process never receives the Vercel token, but it can read its own
+build inputs and execute arbitrary build code. Fork sources cannot be selected,
+and the workflow rejects Dependabot branches. If the source is not trusted, do
+not dispatch the pilot.
 
 The dispatch is accepted only from `refs/heads/main`. The caller invokes the
 reusable worker from the same main commit, and the worker validates the caller
@@ -336,13 +338,38 @@ worker also restores the controller from its trusted workflow SHA after
 dependency installation and again after the candidate build, before upload and
 inspection.
 
+The Vercel CLI is a separate trusted tool install. Pinned pnpm `10.24.0` reads
+the main controller's exact `package.json` and frozen `pnpm-lock.yaml`, disables
+lifecycle scripts, and copies packages into a runner-owned directory outside
+the checkout. Its `--modules-dir` and `--virtual-store-dir` values are validated
+relative paths from the controller to that directory; pnpm treats an absolute
+`--modules-dir` as project-relative and would otherwise materialize the CLI at
+the wrong path. Before any credentialed command, the worker proves the CLI
+resolves inside the protected directory, its package version is exactly
+`56.2.0`, the candidate UID cannot write it, and `node <cli> --version`
+executes successfully. The workflow test suite repeats this with the actual
+pinned pnpm install in a temporary checkout, preferring the already-hydrated
+package store while retaining a frozen-lockfile failure boundary.
+
+The candidate dependency install intentionally does **not** reuse setup-node's
+writable pnpm store. Its isolated `HOME` and XDG directories place that store
+under the disposable candidate home, which is deleted before upload. Sharing a
+runner store here would let selected source code mutate cache state that an
+Actions post-step could save from the trusted `main` run. Treat candidate
+dependency installation as a cold, measured pilot cost; record its duration
+separately from `vercel build`. The signed Turbo remote build cache remains
+enabled and its hit/miss evidence remains part of the comparison.
+
 ### Root Directory and command sequence
 
-The pinned Vercel CLI commands all execute with the monorepo root as their
-working directory. Before `vercel pull`, the worker writes an ignored,
-ephemeral repo-level link from the trusted repository variables. This is what
-lets CLI `56.2.0` resolve the UI project's configured Root Directory while all
-commands remain at the monorepo root. The mapping and project-local state are:
+The pinned Vercel CLI commands execute from monorepo-shaped roots. Before
+`vercel pull`, the worker creates a fresh runner-owned staging tree at a fixed
+path under `RUNNER_TEMP`. That tree contains only real
+`apps/ui.mento.org` directory components and an ephemeral repo-level link built
+from trusted repository variables; it contains no checked-out candidate file.
+This lets CLI `56.2.0` resolve the configured UI Root Directory without giving
+the token-bearing pull command a candidate-controlled write path. The pulled
+mapping and project-local state are:
 
 ```text
 .vercel/repo.json
@@ -353,8 +380,24 @@ apps/ui.mento.org/.vercel/output/
 
 The repo link contains only the organization ID, project ID, `origin` remote
 name, and `apps/ui.mento.org` directory mapping; it contains no token or
-environment value. The worker rejects symlinked repo-level Vercel state and
-asserts both the repo link and pulled app settings before building. The
+environment value. After pull, the worker recursively requires the staging
+tree to contain exactly the expected directories and three regular files
+(`repo.json`, `project.json`, and `.env.preview.local`), all runner-owned,
+single-linked, size-bounded, and inaccessible to other users. It rejects
+symlinks, hardlinks, special nodes, extra entries, unsafe ownership, and unsafe
+permissions. With the candidate UID stopped, a trusted root helper removes any
+candidate-provided `.vercel` paths and copies only those three files into new
+candidate-owned directories. Before that copy, the worker validates the UI
+preview build-variable contract directly against the runner-owned staging
+tree. After the copy, clean-environment trusted root helpers validate the exact
+candidate-owned tree and read only the non-secret repo/project mapping: first
+after staging, again with exact-SHA provenance immediately before build, and
+once more for the project/output contract after the candidate build has been
+stopped. These helpers may traverse and `lstat` the candidate-owned `0700` /
+`0600` state, but they never parse the candidate copy of
+`.env.preview.local`; environment values are parsed only from the runner-owned
+staging tree. The internal `validate-candidate-pull` controller action exists
+for this privileged check and is not an operator-facing command. The
 controller validates the ID variables but deliberately withholds them from the
 Vercel CLI child process: CLI `56.2.0` otherwise gives those variables
 precedence over `repo.json` and loses the monorepo Root Directory mapping.
@@ -362,19 +405,33 @@ precedence over `repo.json` and loses the monorepo Root Directory mapping.
 The credentialed worker runs this sequence in one standard `ubuntu-latest`
 job:
 
-1. materialize the exact repo-level UI link from repository variables;
-2. `vercel pull --yes --environment preview --git-branch <validated-branch>`;
-3. `pnpm vercel:env:check --target ui --environment preview
---project-directory apps/ui.mento.org` with the explicit preview system
-   constants overriding pulled values;
-4. `vercel build --yes --target preview` with the signed Turbo remote cache,
-   immutable Git metadata, and generated `MENTO_NEXT_DEPLOYMENT_ID`;
-5. assertions for the UI project mapping, Build Output API v3 config, custom
-   deployment ID, preview target, and pinned CLI build record;
-6. `vercel deploy --prebuilt --target preview --archive=tgz --format=json`;
-7. `vercel inspect --wait --timeout 5m --format=json --scope <org-id>`. The
-   explicit scope prevents inspection from falling back to the token owner's
-   default Vercel team.
+1. create the fresh runner-owned pull staging and exact repo-level UI link;
+2. run `vercel pull --yes --environment preview --git-branch
+<validated-branch>` only inside that staging tree;
+3. recursively validate the pulled tree;
+4. run the equivalent of `pnpm vercel:env:check --target ui --environment
+preview --project-directory "$RUNNER_TEMP/mento-vercel-pull-staging/apps/ui.mento.org"`
+   against that runner-owned tree, with explicit preview system constants
+   overriding pulled values;
+5. copy only the three required files into freshly created candidate `.vercel`
+   directories, then use the trusted privileged controller to prove their
+   exact ownership, permissions, shape, and project mapping while the candidate
+   UID has no process;
+6. immediately before build, repeat the trusted privileged exact-SHA
+   provenance, candidate-tree, and project-mapping checks;
+7. `vercel build --yes --target preview` as the isolated candidate UID with the
+   signed Turbo remote cache, immutable Git metadata, and generated
+   `MENTO_NEXT_DEPLOYMENT_ID`;
+8. stop all candidate-UID processes, then use the trusted privileged controller
+   to assert the UI project mapping, Build Output API v3 config, custom
+   deployment ID, preview target, pinned CLI build record, output ownership,
+   and runner-owned exact-SHA provenance;
+9. create a runner-owned upload handoff containing only the validated output,
+   trusted project settings, repo link, and exact-SHA provenance;
+10. `vercel deploy --prebuilt --target preview --archive=tgz --format=json`;
+11. `vercel inspect --wait --timeout 5m --format=json --scope <org-id>`. The
+    explicit scope prevents inspection from falling back to the token owner's
+    default Vercel team.
 
 Only after that job emits the verified immutable URL does a second trusted job
 perform direct HTTP smoke of the URL, navigation, custom build identity,
