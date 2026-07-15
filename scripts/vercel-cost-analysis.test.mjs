@@ -972,6 +972,22 @@ test("rejects reused raw and provider-attribution evidence digests", () => {
     /evidenceSha256 must differ from the raw FOCUS export digest/,
   );
 
+  const baselineAttributionUsesPostFocus = fixture();
+  baselineAttributionUsesPostFocus.baseline.targets.app.attribution.evidenceSha256 =
+    baselineAttributionUsesPostFocus.postCutover.period.focusExportSha256;
+  assert.throws(
+    () => validateVercelCostEvidence(baselineAttributionUsesPostFocus),
+    /baseline\.targets\.app\.attribution\.evidenceSha256 must differ from every raw FOCUS export digest/,
+  );
+
+  const postAttributionUsesBaselineFocus = fixture();
+  postAttributionUsesBaselineFocus.postCutover.targets.app.attribution.evidenceSha256 =
+    postAttributionUsesBaselineFocus.baseline.period.focusExportSha256;
+  assert.throws(
+    () => validateVercelCostEvidence(postAttributionUsesBaselineFocus),
+    /postCutover\.targets\.app\.attribution\.evidenceSha256 must differ from every raw FOCUS export digest/,
+  );
+
   const reusedProviderEvidence = fixture();
   reusedProviderEvidence.postCutover.targets.app.attribution.evidenceSha256 =
     reusedProviderEvidence.baseline.targets.app.attribution.evidenceSha256;

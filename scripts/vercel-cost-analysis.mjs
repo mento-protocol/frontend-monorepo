@@ -613,6 +613,26 @@ export function validateVercelCostEvidence(evidence) {
       "baseline and postCutover raw FOCUS export digests must differ",
     );
   }
+  const rawFocusExportDigests = new Set([
+    evidence.baseline.period.focusExportSha256,
+    evidence.postCutover.period.focusExportSha256,
+  ]);
+  for (const [windowName, window] of [
+    ["baseline", evidence.baseline],
+    ["postCutover", evidence.postCutover],
+  ]) {
+    for (const target of VERCEL_COST_TARGETS) {
+      const attribution = window.targets[target].attribution;
+      if (
+        attribution.method === "provider-attributed" &&
+        rawFocusExportDigests.has(attribution.evidenceSha256)
+      ) {
+        throw new Error(
+          `${windowName}.targets.${target}.attribution.evidenceSha256 must differ from every raw FOCUS export digest`,
+        );
+      }
+    }
+  }
   for (const target of VERCEL_COST_TARGETS) {
     const baselineAttribution = evidence.baseline.targets[target].attribution;
     const postAttribution = evidence.postCutover.targets[target].attribution;
