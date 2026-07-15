@@ -42,6 +42,8 @@ pnpm check-types                     # TypeScript type checking; builds workspac
 pnpm ci:action-pins                  # Verify third-party GitHub Actions use documented SHA pins
 pnpm ci:action-pins:test             # Test the action-pin scanner and REST materializer
 pnpm ci:change-plan:test             # Test PR scoping, full main pushes, mandatory Trunk, and fail-closed behavior
+pnpm adr:check                       # Advisory reminder for new architecture-significant workflows/workspaces
+pnpm adr:check:test                  # Test the offline ADR trigger and repository wiring
 pnpm vercel:cost:test                # Test redacted Vercel cost normalization and closeout gates
 pnpm vercel:cost:analyze --input <private-aggregate.json> --format markdown  # Generate public-safe #523 evidence
 trunk check --fix                     # Lint with autofix

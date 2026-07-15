@@ -2,6 +2,12 @@
 
 Read `CLAUDE.md` for repo-local frontend conventions and commands.
 
+## Architecture decisions
+
+Architectural decisions live under `docs/adr/`. Use
+`docs/pr-checklists/architecture-decisions.md` to decide whether a change needs
+one, and run the advisory `pnpm adr:check` reminder before publishing.
+
 ## Pull request state
 
 Always create pull requests as normal, ready-for-review PRs directly. Never

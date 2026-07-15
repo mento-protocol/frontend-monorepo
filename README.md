@@ -34,6 +34,8 @@ frontend-monorepo/
 ├── .github/                  # GitHub workflows
 │   └── workflows/            # CI/CD workflows
 ├── .trunk/                   # Trunk CLI configuration and cache
+├── docs/
+│   └── adr/                  # Architecture decision records and lifecycle
 ├── turbo.json                # Turborepo configuration
 └── pnpm-workspace.yaml       # PNPM workspace configuration
 ```
@@ -128,6 +130,12 @@ pnpm ci:action-pins
 
 # Run the action-pin scanner and REST materializer fixture suites
 pnpm ci:action-pins:test
+
+# Remind on newly added architecture-significant workflows/workspaces
+pnpm adr:check
+
+# Test the offline ADR reminder and repository wiring
+pnpm adr:check:test
 
 # Test the network-free Vercel planning and prebuilt-build primitives
 pnpm vercel:primitives:test
@@ -413,7 +421,8 @@ feat(ui): add new button component
 **Git Hooks**: Trunk automatically manages git hooks that will:
 
 - **Pre-commit**: Format and lint staged files
-- **Pre-push**: Run comprehensive checks before pushing
+- **Pre-push**: Run comprehensive checks and the advisory `pnpm adr:check`
+  reminder before pushing
 - **Commit-msg**: Validate commit message format
 
 ## CI/CD Pipeline
@@ -425,7 +434,13 @@ The repository is set up with GitHub Actions for CI:
   check enforces production-source coverage and gzip route limits. Its general
   CI failure notifier opens or updates one issue for an operational workflow
   failure and closes the issue after recovery.
-- **CD**: Deployments are currently handled by the Vercel Git integration — each app is a Vercel project that builds on push to main (previews on PRs). Dependabot branches skip Vercel previews because GitHub Actions already builds and validates them. GitHub Actions does not deploy yet. The tested planning, deployment-ID, and build-environment foundations for the tracked custom-CI migration are documented in [`docs/vercel-deployments.md`](docs/vercel-deployments.md); those primitives do not change deployment ownership by themselves.
+- **CD**: The accepted direction is for GitHub Actions to own compilation and
+  prebuilt deployment orchestration while Vercel remains the hosting/runtime
+  platform. The migration is still rolling out, so Vercel Git remains
+  authoritative for paths not explicitly cut over. Dependabot branches skip
+  Vercel previews. See [ADR 0001](docs/adr/0001-github-actions-vercel-deployment-orchestration.md)
+  for the boundary and [`docs/vercel-deployments.md`](docs/vercel-deployments.md)
+  for the current implementation/runbook state.
 
 Dependency-installing jobs use `.github/actions/pnpm-install`, which pins the
 Node/pnpm bootstrap, relies on `actions/setup-node` as the single pnpm-store

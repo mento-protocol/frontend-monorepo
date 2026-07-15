@@ -85,6 +85,12 @@ actions:
   disabled:
     - trunk-check-pre-push # Disabled in favor of trunk-check-all-pre-push which checks all files
   definitions:
+    - id: adr-reminder-pre-push
+      display_name: Architecture Decision Reminder Pre-Push
+      description: Remind authors when a high-signal architecture surface lacks an ADR
+      run: pnpm adr:check
+      triggers:
+        - git_hooks: [pre-push]
     - id: check-types-pre-push
       display_name: Check Types Pre-Push
       description: Run `turbo run check-types` before pushing code
@@ -106,6 +112,7 @@ actions:
 
   enabled:
     - trunk-fmt-pre-commit # Auto-format files when committing
+    - adr-reminder-pre-push # Advise when a new workflow or workspace may need an ADR
     - trunk-check-all-pre-push # Run comprehensive checks on all files before pushing
     - check-types-pre-push # Run type checking before pushing
     - check-knip-pre-push # Run knip before pushing
