@@ -407,7 +407,11 @@ test("direct UI smoke binds URL, custom build ID, navigation, assets, and header
   </body></html>`;
   const fetchImplementation = async (url, options) => {
     const parsed = new URL(url);
-    requested.push({ url: parsed.toString(), headers: options.headers });
+    requested.push({
+      url: parsed.toString(),
+      headers: options.headers,
+      signal: options.signal,
+    });
     if (parsed.pathname === "/form-components") {
       return new Response("<h1>Form Components</h1>");
     }
@@ -439,6 +443,7 @@ test("direct UI smoke binds URL, custom build ID, navigation, assets, and header
   );
   assert.equal(requested.length, 5);
   assert.ok(requested.every(({ headers }) => headers === undefined));
+  assert.ok(requested.every(({ signal }) => signal instanceof AbortSignal));
 });
 
 test("direct UI smoke fails closed on missing build identity or security evidence", async () => {
@@ -457,5 +462,32 @@ test("direct UI smoke fails closed on missing build identity or security evidenc
       fetchImplementation: async () => response,
     }),
     /does not carry the expected build deployment ID/,
+  );
+});
+
+test("direct UI smoke bounds every network request", async () => {
+  await assert.rejects(
+    smokeUiPreview({
+      deploymentUrl: DEPLOYMENT_URL,
+      deploymentId: DEPLOYMENT_ID,
+      fetchImplementation: async () => new Promise(() => {}),
+      requestTimeoutMs: 5,
+    }),
+    /UI preview timed out/,
+  );
+});
+
+test("direct UI smoke bounds response body consumption", async () => {
+  const stalledBody = new ReadableStream({
+    start() {},
+  });
+  await assert.rejects(
+    smokeUiPreview({
+      deploymentUrl: DEPLOYMENT_URL,
+      deploymentId: DEPLOYMENT_ID,
+      fetchImplementation: async () => new Response(stalledBody),
+      requestTimeoutMs: 5,
+    }),
+    /UI preview timed out/,
   );
 });

@@ -484,22 +484,71 @@ function requireHeader(response, name, expected) {
   }
 }
 
-async function successfulText(response, label) {
+function successfulText(response, body, label) {
   if (!response.ok)
     throw new Error(`${label} returned HTTP ${response.status}`);
-  return response.text();
+  if (typeof body !== "string") {
+    throw new Error(`${label} returned an invalid body`);
+  }
+  return body;
+}
+
+async function fetchWithTimeout({
+  fetchImplementation,
+  url,
+  options,
+  bodyType,
+  label,
+  timeoutMs,
+}) {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30_000) {
+    throw new Error("Preview smoke request timeout is invalid");
+  }
+  const controller = new AbortController();
+  let timeout;
+  try {
+    const request = (async () => {
+      const response = await fetchImplementation(url, {
+        ...options,
+        signal: controller.signal,
+      });
+      if (!response.ok) return { response, body: undefined };
+      const body =
+        bodyType === "text"
+          ? await response.text()
+          : await response.arrayBuffer();
+      return { response, body };
+    })();
+    return await Promise.race([
+      request,
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          reject(new Error(`${label} timed out`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function smokeUiPreview({
   deploymentUrl,
   deploymentId,
   fetchImplementation = fetch,
+  requestTimeoutMs = 15_000,
 }) {
   const baseUrl = immutableVercelUrl(deploymentUrl);
-  const mainResponse = await fetchImplementation(baseUrl, {
-    redirect: "follow",
+  const { response: mainResponse, body: mainBody } = await fetchWithTimeout({
+    fetchImplementation,
+    url: baseUrl,
+    options: { redirect: "follow" },
+    bodyType: "text",
+    label: "UI preview",
+    timeoutMs: requestTimeoutMs,
   });
-  const html = await successfulText(mainResponse, "UI preview");
+  const html = successfulText(mainResponse, mainBody, "UI preview");
   if (!html.includes("Basic Components")) {
     throw new Error("UI preview did not render the Basic Components page");
   }
@@ -521,12 +570,18 @@ export async function smokeUiPreview({
     /https:\/\/vercel\.live/,
   );
 
-  const navigationResponse = await fetchImplementation(
-    new URL("/form-components", baseUrl),
-    { redirect: "follow" },
-  );
-  const navigationHtml = await successfulText(
+  const { response: navigationResponse, body: navigationBody } =
+    await fetchWithTimeout({
+      fetchImplementation,
+      url: new URL("/form-components", baseUrl),
+      options: { redirect: "follow" },
+      bodyType: "text",
+      label: "UI preview navigation",
+      timeoutMs: requestTimeoutMs,
+    });
+  const navigationHtml = successfulText(
     navigationResponse,
+    navigationBody,
     "UI preview navigation",
   );
   if (!navigationHtml.includes("Form Components")) {
@@ -547,8 +602,13 @@ export async function smokeUiPreview({
     );
   }
   for (const asset of representatives) {
-    const response = await fetchImplementation(new URL(asset, baseUrl), {
-      redirect: "follow",
+    const { response } = await fetchWithTimeout({
+      fetchImplementation,
+      url: new URL(asset, baseUrl),
+      options: { redirect: "follow" },
+      bodyType: "bytes",
+      label: "UI preview static asset",
+      timeoutMs: requestTimeoutMs,
     });
     if (!response.ok) {
       throw new Error(
