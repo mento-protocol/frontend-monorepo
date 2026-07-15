@@ -41,6 +41,9 @@ function pilotContract(overrides = {}) {
     workflowRunUrl:
       "https://github.com/mento-protocol/frontend-monorepo/actions/runs/1",
     githubRepository: "mento-protocol/frontend-monorepo",
+    githubRef: "refs/heads/main",
+    githubWorkflowRef:
+      "mento-protocol/frontend-monorepo/.github/workflows/vercel-prebuilt-pilot.yml@refs/heads/main",
     ...overrides,
   };
 }
@@ -55,6 +58,11 @@ test("pilot contract accepts only the UI preview mapping and exact SHA", () => {
     { gitBranch: "dependabot/npm_and_yarn/example-1.0.0" },
     { deployPermitted: false },
     { githubRepository: "someone/fork" },
+    { githubRef: "refs/heads/feature/ui-pilot" },
+    {
+      githubWorkflowRef:
+        "mento-protocol/frontend-monorepo/.github/workflows/vercel-prebuilt-pilot.yml@refs/heads/feature",
+    },
   ]) {
     assert.throws(() => validatePilotContract(pilotContract(overrides)));
   }

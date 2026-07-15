@@ -108,6 +108,15 @@ export function validatePilotContract(values) {
       "The pilot may run only in mento-protocol/frontend-monorepo",
     );
   }
+  if (values.githubRef !== "refs/heads/main") {
+    throw new Error("The pilot workflow must be dispatched from main");
+  }
+  if (
+    values.githubWorkflowRef !==
+    "mento-protocol/frontend-monorepo/.github/workflows/vercel-prebuilt-pilot.yml@refs/heads/main"
+  ) {
+    throw new Error("The pilot caller must be the trusted main workflow");
+  }
   requiredText(values.vercelOrgId, "Vercel organization ID");
   requiredText(values.vercelProjectId, "Vercel project ID");
   requiredText(values.idempotencyKey, "Deployment idempotency key");
@@ -645,6 +654,8 @@ function contractFromEnvironment() {
     idempotencyKey: process.env.DEPLOYMENT_IDEMPOTENCY_KEY,
     workflowRunUrl: process.env.WORKFLOW_RUN_URL,
     githubRepository: process.env.GITHUB_REPOSITORY,
+    githubRef: process.env.GITHUB_EVENT_REF,
+    githubWorkflowRef: process.env.GITHUB_WORKFLOW_DEFINITION,
   };
 }
 

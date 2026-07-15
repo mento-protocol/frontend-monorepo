@@ -28,6 +28,9 @@ permissions:
 jobs:
   deploy-ui-preview:
     name: Deploy UI prebuilt preview
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.workflow_ref == 'mento-protocol/frontend-monorepo/.github/workflows/vercel-prebuilt-pilot.yml@refs/heads/main'
     permissions:
       contents: read
       deployments: write

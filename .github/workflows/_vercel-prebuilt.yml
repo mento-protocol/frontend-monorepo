@@ -171,6 +171,8 @@ jobs:
           EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
           GIT_BRANCH: ${{ inputs.git_branch }}
           GITHUB_DEPLOYMENT_ENVIRONMENT: ${{ inputs.github_environment }}
+          GITHUB_EVENT_REF: ${{ github.ref }}
+          GITHUB_WORKFLOW_DEFINITION: ${{ github.workflow_ref }}
           LOGICAL_TARGET: ${{ inputs.logical_target }}
           VERCEL_ENVIRONMENT: ${{ inputs.vercel_environment }}
           VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
@@ -190,11 +192,20 @@ jobs:
 
       - name: Install frozen dependencies
         working-directory: source
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Restore trusted controller after source installation
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          clean: true
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
 
       - name: Verify pinned Vercel prerequisites
         working-directory: source
-        run: pnpm vercel:versions:check
+        run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt.mjs" check-versions
 
       - name: Materialize trusted repo-level UI project mapping
         env:
@@ -265,7 +276,7 @@ jobs:
           check --target ui --environment preview
           --project-directory apps/ui.mento.org
 
-      - name: Build and assert the UI prebuilt output
+      - name: Build the UI prebuilt output
         id: build
         env:
           CI: 1
@@ -288,9 +299,23 @@ jobs:
           VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
           VERCEL_TARGET_ENV: preview
           VERCEL_TOKEN: ${{ secrets.vercel_token }}
-        run: |
-          node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" build
-          node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" assert-output
+        run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" build
+
+      - name: Restore trusted controller after source build
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          clean: true
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Assert the UI prebuilt output
+        env:
+          EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
+          MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.prepare.outputs.next_deployment_id }}
+          SOURCE_PATH: ${{ github.workspace }}/source
+        run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" assert-output
 
       - name: Upload the verified prebuilt output
         id: deploy

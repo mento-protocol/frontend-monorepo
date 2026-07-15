@@ -41,6 +41,18 @@ test("manual pilot exposes only the three UI-only deployment selectors", () => {
     pilot.jobs["deploy-ui-preview"].with.vercel_environment,
     "preview",
   );
+  assert.match(
+    pilot.jobs["deploy-ui-preview"].if,
+    /github\.ref == 'refs\/heads\/main'/,
+  );
+  assert.match(
+    pilot.jobs["deploy-ui-preview"].if,
+    /vercel-prebuilt-pilot\.yml@refs\/heads\/main/,
+  );
+  assert.equal(
+    pilot.jobs["deploy-ui-preview"].uses,
+    "./.github/workflows/_vercel-prebuilt.yml",
+  );
 });
 
 test("build, smoke, and finalizer jobs keep separate least-privilege tokens", () => {
@@ -128,19 +140,60 @@ test("exact source, build, and upload remain in one standard-runner job", () => 
   const names = job.steps.map((step) => step.name);
   assert.ok(
     names.indexOf("Check out exact deployment source and full history") <
-      names.indexOf("Build and assert the UI prebuilt output"),
+      names.indexOf("Build the UI prebuilt output"),
   );
   assert.ok(
     names.indexOf("Materialize trusted repo-level UI project mapping") <
       names.indexOf("Pull branch-specific UI preview settings"),
   );
   assert.ok(
-    names.indexOf("Build and assert the UI prebuilt output") <
+    names.indexOf("Build the UI prebuilt output") <
       names.indexOf("Upload the verified prebuilt output"),
   );
   assert.doesNotMatch(
     read(reusablePath),
     /actions\/upload-artifact|\.vercel\/output.*artifact/,
+  );
+});
+
+test("main-only controller is restored after every candidate-code phase", () => {
+  const pilot = workflow(pilotPath);
+  const reusable = workflow(reusablePath);
+  const steps = reusable.jobs.prebuilt.steps;
+  const names = steps.map(({ name }) => name);
+  const trustedCheckouts = steps.filter(
+    ({ uses }) => uses?.startsWith("actions/checkout@") && uses !== undefined,
+  );
+  assert.match(pilot.jobs["deploy-ui-preview"].if, /refs\/heads\/main/);
+  for (const checkout of trustedCheckouts.filter(
+    ({ with: options }) => options?.path === "controller",
+  )) {
+    assert.equal(checkout.with.ref, "${{ github.workflow_sha }}");
+    assert.equal(checkout.with["persist-credentials"], false);
+  }
+  const install = steps.find(
+    ({ name }) => name === "Install frozen dependencies",
+  );
+  assert.match(install.run, /--ignore-scripts/);
+  assert.ok(
+    names.indexOf("Install frozen dependencies") <
+      names.indexOf("Restore trusted controller after source installation"),
+  );
+  assert.ok(
+    names.indexOf("Restore trusted controller after source installation") <
+      names.indexOf("Create or reuse canonical GitHub Deployment"),
+  );
+  assert.ok(
+    names.indexOf("Build the UI prebuilt output") <
+      names.indexOf("Restore trusted controller after source build"),
+  );
+  assert.ok(
+    names.indexOf("Restore trusted controller after source build") <
+      names.indexOf("Assert the UI prebuilt output"),
+  );
+  assert.ok(
+    names.indexOf("Assert the UI prebuilt output") <
+      names.indexOf("Upload the verified prebuilt output"),
   );
 });
 

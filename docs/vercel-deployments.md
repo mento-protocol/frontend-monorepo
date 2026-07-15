@@ -289,6 +289,12 @@ the job holds preview-only Vercel and Turbo credentials. Fork sources cannot be
 selected, and the workflow rejects Dependabot branches. If the source is not
 trusted, do not dispatch the pilot.
 
+The dispatch is accepted only from `refs/heads/main`. The caller invokes the
+reusable worker from the same main commit, and the worker validates the caller
+workflow identity again before any candidate code or credentialed step runs. A
+dispatch that selects another branch or tag is rejected before the reusable
+job receives its preview credentials.
+
 Choose a SHA that already has a native Vercel Git UI preview and a branch that
 contains it. Verify both locally before dispatching:
 
@@ -310,9 +316,13 @@ missing, or unreachable refs. It checks out the exact SHA with full history and
 uses the recorded `HEAD` for the custom Next deployment ID, Vercel metadata,
 GitHub Deployment ref, smoke evidence, and outputs.
 
-Do not dispatch from a pull-request ref. The workflow controller is checked out
-from `github.workflow_sha`; the requested source is checked out separately and
-is never executed automatically with preview credentials.
+Do not dispatch from a pull-request ref. After the main-only guard, the workflow
+controller is checked out from the trusted `github.workflow_sha`; the requested
+source is checked out separately and is never executed automatically with
+preview credentials. Candidate dependency lifecycle scripts are disabled. The
+worker also restores the controller from its trusted workflow SHA after
+dependency installation and again after the candidate build, before upload and
+inspection.
 
 ### Root Directory and command sequence
 
