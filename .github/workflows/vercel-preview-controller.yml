@@ -1,0 +1,505 @@
+name: Vercel Preview Controller
+
+# checkov:skip=CKV_GHA_7: Manual bootstrap/reconciliation accepts a validated PR number only.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, closed]
+  workflow_run:
+    workflows: [Vercel Preview Worker]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Bootstrap a missing event receipt or reconcile existing state
+        required: true
+        type: choice
+        default: reconcile
+        options:
+          - reconcile
+          - bootstrap
+      pr_number:
+        description: Pull request number
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  snapshot-event:
+    name: Snapshot immutable PR event
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      snapshot: ${{ steps.snapshot.outputs.snapshot }}
+      pr_number: ${{ steps.snapshot.outputs.pr_number }}
+      trusted_base_sha: ${{ steps.snapshot.outputs.trusted_base_sha }}
+      change_base_sha: ${{ steps.snapshot.outputs.change_base_sha }}
+      head_sha: ${{ steps.snapshot.outputs.head_sha }}
+      plan_required: ${{ steps.snapshot.outputs.plan_required }}
+    steps:
+      - name: Check out trusted controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Validate and snapshot event payload
+        id: snapshot
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { pathToFileURL } = require("node:url");
+            const moduleUrl = pathToFileURL(
+              `${process.env.GITHUB_WORKSPACE}/controller/scripts/vercel-preview-controller.mjs`,
+            );
+            const { writeEventSnapshotOutputs } = await import(moduleUrl.href);
+            writeEventSnapshotOutputs({
+              payload: context.payload,
+              runId: context.runId,
+              core,
+            });
+
+  plan-event:
+    name: Plan UI runtime impact from trusted base
+    needs: snapshot-event
+    if: needs.snapshot-event.outputs.plan_required == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      plan: ${{ steps.plan.outputs.plan }}
+    steps:
+      - name: Check out exact trusted base with full history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          path: source
+          persist-credentials: false
+          ref: ${{ needs.snapshot-event.outputs.trusted_base_sha }}
+
+      - name: Fetch exact candidate object without checking it out
+        env:
+          HEAD_SHA: ${{ needs.snapshot-event.outputs.head_sha }}
+        run: |
+          git -C source fetch --force --no-tags origin "$HEAD_SHA"
+          git -C source cat-file -e "$HEAD_SHA^{commit}"
+
+      - name: Set up pinned pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v4
+        with:
+          version: 10.24.0
+
+      - name: Set up pinned Node.js and pnpm cache
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: source/pnpm-lock.yaml
+
+      - name: Install trusted-base planner dependencies without lifecycle scripts
+        working-directory: source
+        run: pnpm install --ignore-scripts --frozen-lockfile
+
+      - name: Compute exact before-to-head deployment plan
+        id: plan
+        working-directory: source
+        env:
+          CHANGE_BASE_SHA: ${{ needs.snapshot-event.outputs.change_base_sha }}
+          HEAD_SHA: ${{ needs.snapshot-event.outputs.head_sha }}
+        run: |
+          plan="$(node scripts/plan-vercel-deployments.mjs --base "$CHANGE_BASE_SHA" --head "$HEAD_SHA")"
+          echo "plan=$plan" >> "$GITHUB_OUTPUT"
+
+  receipt-event:
+    name: Persist immutable PR event receipt
+    needs: [snapshot-event, plan-event]
+    if: always() && needs.snapshot-event.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+      statuses: write
+    outputs:
+      pr_number: ${{ steps.receipt.outputs.pr_number }}
+    steps:
+      - name: Check out trusted controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Record immutable event and fail-closed plan
+        id: receipt
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          EVENT_SNAPSHOT: ${{ needs.snapshot-event.outputs.snapshot }}
+          PLANNER_OUTCOME: ${{ needs.plan-event.result }}
+          RAW_PLAN: ${{ needs.plan-event.outputs.plan }}
+        with:
+          script: |
+            const { pathToFileURL } = require("node:url");
+            const moduleUrl = pathToFileURL(
+              `${process.env.GITHUB_WORKSPACE}/controller/scripts/vercel-preview-controller.mjs`,
+            );
+            const { recordEventReceipt } = await import(moduleUrl.href);
+            await recordEventReceipt({
+              github,
+              context,
+              core,
+              snapshotRaw: process.env.EVENT_SNAPSHOT,
+              planRaw: process.env.RAW_PLAN,
+              plannerOutcome: process.env.PLANNER_OUTCOME,
+            });
+
+  reconcile-event:
+    name: Reconcile durable preview state
+    needs: receipt-event
+    if: needs.receipt-event.result == 'success'
+    concurrency:
+      group: vercel-preview-controller-pr-${{ needs.receipt-event.outputs.pr_number }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: read
+      deployments: read
+      issues: write
+      pull-requests: read
+      statuses: write
+    steps:
+      - name: Check out trusted controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Persist intent, recover or dispatch one worker, and publish statuses
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ needs.receipt-event.outputs.pr_number }}
+        with:
+          script: |
+            const { pathToFileURL } = require("node:url");
+            const moduleUrl = pathToFileURL(
+              `${process.env.GITHUB_WORKSPACE}/controller/scripts/vercel-preview-controller.mjs`,
+            );
+            const { reconcilePreview } = await import(moduleUrl.href);
+            await reconcilePreview({
+              github,
+              context,
+              core,
+              prNumber: process.env.PR_NUMBER,
+            });
+
+  snapshot-bootstrap:
+    name: Snapshot manual bootstrap
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'bootstrap'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      snapshot: ${{ steps.snapshot.outputs.snapshot }}
+      pr_number: ${{ steps.snapshot.outputs.pr_number }}
+      trusted_base_sha: ${{ steps.snapshot.outputs.trusted_base_sha }}
+      change_base_sha: ${{ steps.snapshot.outputs.change_base_sha }}
+      head_sha: ${{ steps.snapshot.outputs.head_sha }}
+      plan_required: ${{ steps.snapshot.outputs.plan_required }}
+    steps:
+      - name: Check out trusted controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Validate PR and create bootstrap snapshot
+        id: snapshot
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+        with:
+          script: |
+            const { pathToFileURL } = require("node:url");
+            const moduleUrl = pathToFileURL(
+              `${process.env.GITHUB_WORKSPACE}/controller/scripts/vercel-preview-controller.mjs`,
+            );
+            const { prepareBootstrap } = await import(moduleUrl.href);
+            await prepareBootstrap({
+              github,
+              context,
+              core,
+              prNumber: process.env.PR_NUMBER,
+            });
+
+  plan-bootstrap:
+    name: Plan bootstrap UI runtime impact from trusted base
+    needs: snapshot-bootstrap
+    if: needs.snapshot-bootstrap.outputs.plan_required == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      plan: ${{ steps.plan.outputs.plan }}
+    steps:
+      - name: Check out exact trusted base with full history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          path: source
+          persist-credentials: false
+          ref: ${{ needs.snapshot-bootstrap.outputs.trusted_base_sha }}
+
+      - name: Fetch exact candidate object without checking it out
+        env:
+          HEAD_SHA: ${{ needs.snapshot-bootstrap.outputs.head_sha }}
+        run: |
+          git -C source fetch --force --no-tags origin "$HEAD_SHA"
+          git -C source cat-file -e "$HEAD_SHA^{commit}"
+
+      - name: Set up pinned pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v4
+        with:
+          version: 10.24.0
+
+      - name: Set up pinned Node.js and pnpm cache
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: source/pnpm-lock.yaml
+
+      - name: Install trusted-base planner dependencies without lifecycle scripts
+        working-directory: source
+        run: pnpm install --ignore-scripts --frozen-lockfile
+
+      - name: Compute exact base-to-head bootstrap plan
+        id: plan
+        working-directory: source
+        env:
+          CHANGE_BASE_SHA: ${{ needs.snapshot-bootstrap.outputs.change_base_sha }}
+          HEAD_SHA: ${{ needs.snapshot-bootstrap.outputs.head_sha }}
+        run: |
+          plan="$(node scripts/plan-vercel-deployments.mjs --base "$CHANGE_BASE_SHA" --head "$HEAD_SHA")"
+          echo "plan=$plan" >> "$GITHUB_OUTPUT"
+
+  receipt-bootstrap:
+    name: Persist immutable bootstrap receipt
+    needs: [snapshot-bootstrap, plan-bootstrap]
+    if: always() && needs.snapshot-bootstrap.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+      statuses: write
+    outputs:
+      pr_number: ${{ steps.receipt.outputs.pr_number }}
+    steps:
+      - name: Check out trusted controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Record immutable bootstrap event and fail-closed plan
+        id: receipt
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          EVENT_SNAPSHOT: ${{ needs.snapshot-bootstrap.outputs.snapshot }}
+          PLANNER_OUTCOME: ${{ needs.plan-bootstrap.result }}
+          RAW_PLAN: ${{ needs.plan-bootstrap.outputs.plan }}
+        with:
+          script: |
+            const { pathToFileURL } = require("node:url");
+            const moduleUrl = pathToFileURL(
+              `${process.env.GITHUB_WORKSPACE}/controller/scripts/vercel-preview-controller.mjs`,
+            );
+            const { recordEventReceipt } = await import(moduleUrl.href);
+            await recordEventReceipt({
+              github,
+              context,
+              core,
+              snapshotRaw: process.env.EVENT_SNAPSHOT,
+              planRaw: process.env.RAW_PLAN,
+              plannerOutcome: process.env.PLANNER_OUTCOME,
+            });
+
+  reconcile-bootstrap:
+    name: Reconcile bootstrapped preview state
+    needs: receipt-bootstrap
+    if: needs.receipt-bootstrap.result == 'success'
+    concurrency:
+      group: vercel-preview-controller-pr-${{ needs.receipt-bootstrap.outputs.pr_number }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: read
+      deployments: read
+      issues: write
+      pull-requests: read
+      statuses: write
+    steps:
+      - name: Check out trusted controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Reconcile bootstrapped PR
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ needs.receipt-bootstrap.outputs.pr_number }}
+        with:
+          script: |
+            const { pathToFileURL } = require("node:url");
+            const moduleUrl = pathToFileURL(
+              `${process.env.GITHUB_WORKSPACE}/controller/scripts/vercel-preview-controller.mjs`,
+            );
+            const { reconcilePreview } = await import(moduleUrl.href);
+            await reconcilePreview({ github, context, core, prNumber: process.env.PR_NUMBER });
+
+  reconcile-manual:
+    name: Reconcile existing preview state
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'reconcile'
+    concurrency:
+      group: vercel-preview-controller-pr-${{ inputs.pr_number }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: read
+      deployments: read
+      issues: write
+      pull-requests: read
+      statuses: write
+    steps:
+      - name: Check out trusted controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Reconcile requested PR
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+        with:
+          script: |
+            const { pathToFileURL } = require("node:url");
+            const moduleUrl = pathToFileURL(
+              `${process.env.GITHUB_WORKSPACE}/controller/scripts/vercel-preview-controller.mjs`,
+            );
+            const { reconcilePreview } = await import(moduleUrl.href);
+            await reconcilePreview({ github, context, core, prNumber: process.env.PR_NUMBER });
+
+  identify-worker-result:
+    name: Validate completed worker callback identity
+    if: github.event_name == 'workflow_run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      pr_number: ${{ steps.identity.outputs.pr_number }}
+    steps:
+      - name: Check out trusted controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Strictly parse worker display title
+        id: identity
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { pathToFileURL } = require("node:url");
+            const moduleUrl = pathToFileURL(
+              `${process.env.GITHUB_WORKSPACE}/controller/scripts/vercel-preview-controller.mjs`,
+            );
+            const { parseWorkerRunName } = await import(moduleUrl.href);
+            const parsed = parseWorkerRunName(context.payload.workflow_run.display_title);
+            core.setOutput("pr_number", String(parsed.pr));
+
+  recover-worker-result:
+    name: Recover worker terminal evidence and continue reconciliation
+    needs: identify-worker-result
+    if: needs.identify-worker-result.result == 'success'
+    concurrency:
+      group: vercel-preview-controller-pr-${{ needs.identify-worker-result.outputs.pr_number }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: read
+      deployments: write
+      issues: write
+      pull-requests: read
+      statuses: write
+    steps:
+      - name: Check out trusted controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Terminalize or recover Deployment and persist immutable result
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { pathToFileURL } = require("node:url");
+            const moduleUrl = pathToFileURL(
+              `${process.env.GITHUB_WORKSPACE}/controller/scripts/vercel-preview-controller.mjs`,
+            );
+            const {
+              postWorkerRecoveryError,
+              recoverWorkerResult,
+              reconcilePreview,
+            } = await import(moduleUrl.href);
+            try {
+              const result = await recoverWorkerResult({ github, context, core });
+              if (result?.should_reconcile_current_epoch) {
+                await reconcilePreview({
+                  github,
+                  context,
+                  core,
+                  prNumber: result.pr,
+                });
+              }
+            } catch (error) {
+              await postWorkerRecoveryError({ github, context });
+              throw error;
+            }

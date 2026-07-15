@@ -105,11 +105,13 @@ test("reusable workflow declares exact inputs, explicit secrets, and evidence ou
   ]);
   assert.deepEqual(Object.keys(call.outputs), [
     "deployment_url",
+    "verified_upload_url",
     "vercel_deployment_id",
     "github_deployment_id",
     "final_state",
     "commit_sha",
     "logical_target",
+    "next_deployment_id",
     "build_duration_ms",
     "deploy_duration_ms",
     "total_duration_ms",
@@ -150,6 +152,34 @@ test("exact source, build, and upload remain in one standard-runner job", () => 
     names.indexOf("Build the UI prebuilt output") <
       names.indexOf("Upload the verified prebuilt output"),
   );
+  assert.ok(
+    names.indexOf("Assert the UI prebuilt output") <
+      names.indexOf("Mark the durable upload-attempt boundary") &&
+      names.indexOf("Mark the durable upload-attempt boundary") <
+        names.indexOf("Upload the verified prebuilt output"),
+  );
+  const uploadBoundary = job.steps.find(
+    ({ name }) => name === "Mark the durable upload-attempt boundary",
+  );
+  assert.equal(
+    uploadBoundary.env.GITHUB_DEPLOYMENT_DESCRIPTION,
+    "Prebuilt preview upload starting",
+  );
+  const upload = job.steps.find(
+    ({ name }) => name === "Upload the verified prebuilt output",
+  );
+  assert.equal(
+    upload.env.DEPLOYMENT_IDEMPOTENCY_KEY,
+    "${{ inputs.deployment_idempotency_key }}",
+  );
+  assert.equal(
+    upload.env.STARTED_AT_MS,
+    "${{ steps.prepare.outputs.started_at_ms }}",
+  );
+  assert.match(
+    upload.run,
+    /controller\/scripts\/vercel-prebuilt-workflow\.mjs/,
+  );
   assert.doesNotMatch(
     read(reusablePath),
     /actions\/upload-artifact|\.vercel\/output.*artifact/,
@@ -161,13 +191,13 @@ test("main-only controller is restored after every candidate-code phase", () => 
   const reusable = workflow(reusablePath);
   const steps = reusable.jobs.prebuilt.steps;
   const names = steps.map(({ name }) => name);
-  const trustedCheckouts = steps.filter(
-    ({ uses }) => uses?.startsWith("actions/checkout@") && uses !== undefined,
-  );
   assert.match(pilot.jobs["deploy-ui-preview"].if, /refs\/heads\/main/);
-  for (const checkout of trustedCheckouts.filter(
-    ({ with: options }) => options?.path === "controller",
-  )) {
+  const controllerCheckouts = steps.filter(
+    ({ uses, with: options }) =>
+      uses?.startsWith("actions/checkout@") && options?.path === "controller",
+  );
+  assert.equal(controllerCheckouts.length, 3);
+  for (const checkout of controllerCheckouts) {
     assert.equal(checkout.with.ref, "${{ github.workflow_sha }}");
     assert.equal(checkout.with["persist-credentials"], false);
   }
@@ -181,7 +211,23 @@ test("main-only controller is restored after every candidate-code phase", () => 
   );
   assert.ok(
     names.indexOf("Restore trusted controller after source installation") <
-      names.indexOf("Create or reuse canonical GitHub Deployment"),
+      names.indexOf("Verify pinned Vercel prerequisites"),
+  );
+  const versionCheck = steps.find(
+    ({ name }) => name === "Verify pinned Vercel prerequisites",
+  );
+  assert.match(
+    versionCheck.run,
+    /controller\/scripts\/vercel-prebuilt\.mjs" check-versions/,
+  );
+  const contract = steps.find(
+    ({ name }) =>
+      name === "Validate pilot contract and prepare immutable build identity",
+  );
+  assert.equal(contract.env.GITHUB_EVENT_REF, "${{ github.ref }}");
+  assert.equal(
+    contract.env.GITHUB_WORKFLOW_DEFINITION,
+    "${{ github.workflow_ref }}",
   );
   assert.ok(
     names.indexOf("Build the UI prebuilt output") <
@@ -213,6 +259,7 @@ test("uncredentialed smoke gates the always-run trusted lifecycle finalizer", ()
   const smoke = reusable.jobs.smoke;
   const finalize = reusable.jobs.finalize;
   assert.equal(smoke.needs, "prebuilt");
+  assert.equal(smoke["runs-on"], "ubuntu-latest");
   assert.match(smoke.if, /needs\.prebuilt\.result == 'success'/);
   assert.deepEqual(finalize.needs, ["prebuilt", "smoke"]);
   assert.equal(finalize.if, "always()");
@@ -221,10 +268,51 @@ test("uncredentialed smoke gates the always-run trusted lifecycle finalizer", ()
     [
       "Check out trusted smoke controller only",
       "Smoke immutable UI preview without deployment credentials",
+      "Set up pinned pnpm for trusted browser smoke",
+      "Set up pinned Node.js and trusted pnpm cache",
+      "Install trusted browser smoke dependencies",
+      "Interact with immutable UI preview in system Chrome",
     ],
   );
   const smokeStep = smoke.steps[1];
   assert.match(smokeStep.run, /vercel-prebuilt-workflow\.mjs" smoke/);
+  const install = smoke.steps.find(
+    ({ name }) => name === "Install trusted browser smoke dependencies",
+  );
+  assert.equal(install["working-directory"], "controller");
+  assert.equal(install.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD, "1");
+  assert.match(install.run, /--frozen-lockfile/);
+  assert.match(install.run, /--ignore-scripts/);
+  assert.match(install.run, /--filter ui\.mento\.org\.\.\./);
+  const smokeCheckout = smoke.steps[0];
+  assert.equal(smokeCheckout.with.path, "controller");
+  assert.equal(smokeCheckout.with.ref, "${{ github.workflow_sha }}");
+  assert.equal(smokeCheckout.with["persist-credentials"], false);
+  assert.equal(
+    smoke.steps.some((step) => step.with?.path === "source"),
+    false,
+  );
+  const nodeSetup = smoke.steps.find(
+    ({ name }) => name === "Set up pinned Node.js and trusted pnpm cache",
+  );
+  assert.equal(
+    nodeSetup.with["cache-dependency-path"],
+    "controller/pnpm-lock.yaml",
+  );
+  const browserSmoke = smoke.steps.find(
+    ({ name }) =>
+      name === "Interact with immutable UI preview in system Chrome",
+  );
+  assert.match(
+    browserSmoke.run,
+    /apps\/ui\.mento\.org\/e2e\/vercel-preview-browser-smoke\.mjs/,
+  );
+  assert.doesNotMatch(browserSmoke.run, /playwright install/);
+  assert.equal(
+    browserSmoke.env.DEPLOYMENT_IDEMPOTENCY_KEY,
+    "${{ inputs.deployment_idempotency_key }}",
+  );
+  assert.ok(smoke.steps.indexOf(smokeStep) < smoke.steps.indexOf(browserSmoke));
   assert.doesNotMatch(
     JSON.stringify(smoke),
     /VERCEL_TOKEN|TURBO_TOKEN|TURBO_REMOTE_CACHE_SIGNATURE_KEY|BYPASS|secrets\./i,
