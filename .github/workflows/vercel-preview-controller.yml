@@ -1,31 +1,48 @@
 name: Vercel Preview Controller
 
-# checkov:skip=CKV_GHA_7: Manual bootstrap/reconciliation accepts a validated PR number only.
-
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, closed]
+  repository_dispatch:
+    types: [vercel-preview-bootstrap, vercel-preview-reconcile]
   workflow_run:
     workflows: [Vercel Preview Worker]
     types: [completed]
-  workflow_dispatch:
-    inputs:
-      operation:
-        description: Bootstrap a missing event receipt or reconcile existing state
-        required: true
-        type: choice
-        default: reconcile
-        options:
-          - reconcile
-          - bootstrap
-      pr_number:
-        description: Pull request number
-        required: true
-        type: string
 
 permissions: {}
 
 jobs:
+  validate-request:
+    name: Validate default-branch repository request
+    if: github.event_name == 'repository_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      operation: ${{ steps.request.outputs.operation }}
+      pr_number: ${{ steps.request.outputs.pr_number }}
+    steps:
+      - name: Check out trusted controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Validate repository dispatch type and payload
+        id: request
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { pathToFileURL } = require("node:url");
+            const moduleUrl = pathToFileURL(
+              `${process.env.GITHUB_WORKSPACE}/controller/scripts/vercel-preview-controller.mjs`,
+            );
+            const { writeRepositoryDispatchOutputs } = await import(moduleUrl.href);
+            writeRepositoryDispatchOutputs({ payload: context.payload, core });
+
   snapshot-event:
     name: Snapshot immutable PR event
     if: github.event_name == 'pull_request_target'
@@ -76,18 +93,25 @@ jobs:
     outputs:
       plan: ${{ steps.plan.outputs.plan }}
     steps:
-      - name: Check out exact trusted base with full history
+      - name: Check out immutable trusted workflow source with full history
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           path: source
           persist-credentials: false
-          ref: ${{ needs.snapshot-event.outputs.trusted_base_sha }}
+          ref: ${{ github.workflow_sha }}
 
-      - name: Fetch exact candidate object without checking it out
+      - name: Materialize exact trusted base and fetch candidate object
         env:
           HEAD_SHA: ${{ needs.snapshot-event.outputs.head_sha }}
+          TRUSTED_BASE_SHA: ${{ needs.snapshot-event.outputs.trusted_base_sha }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: |
+          git -C source cat-file -e "$WORKFLOW_SHA^{commit}"
+          git -C source cat-file -e "$TRUSTED_BASE_SHA^{commit}"
+          git -C source merge-base --is-ancestor "$TRUSTED_BASE_SHA" "$WORKFLOW_SHA"
+          git -C source checkout --detach "$TRUSTED_BASE_SHA"
+          test "$(git -C source rev-parse HEAD)" = "$TRUSTED_BASE_SHA"
           git -C source fetch --force --no-tags origin "$HEAD_SHA"
           git -C source cat-file -e "$HEAD_SHA^{commit}"
 
@@ -96,12 +120,10 @@ jobs:
         with:
           version: 10.24.0
 
-      - name: Set up pinned Node.js and pnpm cache
+      - name: Set up pinned Node.js without dependency caching
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: source/pnpm-lock.yaml
 
       - name: Install trusted-base planner dependencies without lifecycle scripts
         working-directory: source
@@ -206,8 +228,9 @@ jobs:
             });
 
   snapshot-bootstrap:
-    name: Snapshot manual bootstrap
-    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'bootstrap'
+    name: Snapshot requested bootstrap
+    needs: validate-request
+    if: needs.validate-request.outputs.operation == 'bootstrap'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -233,7 +256,7 @@ jobs:
         id: snapshot
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_NUMBER: ${{ needs.validate-request.outputs.pr_number }}
         with:
           script: |
             const { pathToFileURL } = require("node:url");
@@ -259,18 +282,25 @@ jobs:
     outputs:
       plan: ${{ steps.plan.outputs.plan }}
     steps:
-      - name: Check out exact trusted base with full history
+      - name: Check out immutable trusted workflow source with full history
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           path: source
           persist-credentials: false
-          ref: ${{ needs.snapshot-bootstrap.outputs.trusted_base_sha }}
+          ref: ${{ github.workflow_sha }}
 
-      - name: Fetch exact candidate object without checking it out
+      - name: Materialize exact trusted base and fetch candidate object
         env:
           HEAD_SHA: ${{ needs.snapshot-bootstrap.outputs.head_sha }}
+          TRUSTED_BASE_SHA: ${{ needs.snapshot-bootstrap.outputs.trusted_base_sha }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: |
+          git -C source cat-file -e "$WORKFLOW_SHA^{commit}"
+          git -C source cat-file -e "$TRUSTED_BASE_SHA^{commit}"
+          git -C source merge-base --is-ancestor "$TRUSTED_BASE_SHA" "$WORKFLOW_SHA"
+          git -C source checkout --detach "$TRUSTED_BASE_SHA"
+          test "$(git -C source rev-parse HEAD)" = "$TRUSTED_BASE_SHA"
           git -C source fetch --force --no-tags origin "$HEAD_SHA"
           git -C source cat-file -e "$HEAD_SHA^{commit}"
 
@@ -279,12 +309,10 @@ jobs:
         with:
           version: 10.24.0
 
-      - name: Set up pinned Node.js and pnpm cache
+      - name: Set up pinned Node.js without dependency caching
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: source/pnpm-lock.yaml
 
       - name: Install trusted-base planner dependencies without lifecycle scripts
         working-directory: source
@@ -383,11 +411,12 @@ jobs:
             const { reconcilePreview } = await import(moduleUrl.href);
             await reconcilePreview({ github, context, core, prNumber: process.env.PR_NUMBER });
 
-  reconcile-manual:
-    name: Reconcile existing preview state
-    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'reconcile'
+  reconcile-request:
+    name: Reconcile requested preview state
+    needs: validate-request
+    if: needs.validate-request.outputs.operation == 'reconcile'
     concurrency:
-      group: vercel-preview-controller-pr-${{ inputs.pr_number }}
+      group: vercel-preview-controller-pr-${{ needs.validate-request.outputs.pr_number }}
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -410,7 +439,7 @@ jobs:
       - name: Reconcile requested PR
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_NUMBER: ${{ needs.validate-request.outputs.pr_number }}
         with:
           script: |
             const { pathToFileURL } = require("node:url");

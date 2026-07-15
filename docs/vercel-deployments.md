@@ -62,11 +62,15 @@ documentation and test-only paths return an empty deployment list.
 
 The planner imports only Node.js built-ins, but its affected-package query uses
 the trusted base's pinned Turbo dependency graph. The automatic controller
-checks out the exact trusted base with full history, fetches the candidate as an
-inert Git object, installs trusted-base dependencies without lifecycle scripts,
-and executes the base's planner:
+first checks out the immutable `github.workflow_sha` with full history. It then
+requires the exact trusted base to be an ancestor of that workflow commit before
+materializing it, fetches the candidate only as an inert Git object, installs
+trusted-base dependencies without lifecycle scripts, and executes the base's
+planner. Dependency caching is disabled in these planner jobs so they never
+restore or save a shared Actions cache across this trust boundary:
 
 ```bash
+git merge-base --is-ancestor "$BASE_SHA" "$WORKFLOW_SHA"
 git checkout --detach "$BASE_SHA"
 git fetch --force --no-tags origin "$HEAD_SHA"
 pnpm install --ignore-scripts --frozen-lockfile
@@ -451,9 +455,20 @@ in issue #518 and the Phase A live canaries below.
 `.github/workflows/vercel-preview-controller.yml` is the only automatic event
 controller. It runs trusted default-branch code for `pull_request_target`
 `opened`, `synchronize`, `reopened`, and `closed`; receives completed
-`Vercel Preview Worker` callbacks; and exposes a manual `bootstrap` or
-`reconcile` operation for one validated PR number. The controller has no
-Vercel/Turbo credential and no write-token job checks out or executes PR code.
+`Vercel Preview Worker` callbacks; and accepts the default-branch-bound
+`vercel-preview-bootstrap` and `vercel-preview-reconcile` repository events for
+one validated PR number. The controller has no Vercel/Turbo credential and no
+write-token job checks out or executes PR code.
+
+GitHub runs `repository_dispatch` from the last commit and workflow definition
+on the default branch; unlike `workflow_dispatch`, its request cannot select a
+branch or tag containing a modified controller. Creating the event requires an
+authenticated caller with repository Contents write permission. That proves
+caller authorization, not payload safety: a read-only validation job therefore
+accepts only the two literal event types above, the expected repository, and a
+`client_payload` containing only a bounded positive `pr_number`. Only its
+validated outputs can enter bootstrap or a serialized write-token reconcile
+job. Do not add a controller `workflow_dispatch` fallback.
 
 The trust decision is explicit: same-repository collaborators who can push a
 branch are trusted to build that branch with preview-only credentials. Forks
@@ -498,7 +513,7 @@ out-of-order event runs therefore remain distinct. An old-epoch worker may
 terminalize its own Deployment and write its own receipt, but it cannot update
 current-epoch state/status or schedule work.
 
-Manual recovery queries the exact persisted worker attempt instead of the
+Operator recovery queries the exact persisted worker attempt instead of the
 latest rerun. If a retired old-epoch attempt is missing or fails identity
 validation, the controller records a bounded recovery quarantine on that
 retired selection and continues current-epoch reconciliation without posting a
@@ -589,19 +604,21 @@ synchronize receipt deliberately waits for an opened/reopened/bootstrap anchor.
 ```bash
 gh pr list --state open --limit 100 --json number,headRepository,headRefName,author
 
-gh workflow run vercel-preview-controller.yml \
-  --ref main \
-  -f operation=bootstrap \
-  -f pr_number="<pr-number>"
+PR_NUMBER="<pr-number>"
+gh api --method POST \
+  repos/mento-protocol/frontend-monorepo/dispatches \
+  -f event_type=vercel-preview-bootstrap \
+  -F "client_payload[pr_number]=$PR_NUMBER"
 ```
 
 For a durable receipt/state that only needs another reconciliation pass:
 
 ```bash
-gh workflow run vercel-preview-controller.yml \
-  --ref main \
-  -f operation=reconcile \
-  -f pr_number="<pr-number>"
+PR_NUMBER="<pr-number>"
+gh api --method POST \
+  repos/mento-protocol/frontend-monorepo/dispatches \
+  -f event_type=vercel-preview-reconcile \
+  -F "client_payload[pr_number]=$PR_NUMBER"
 ```
 
 Do not bootstrap a closed PR, invent an opened event, mutate bot receipts, or

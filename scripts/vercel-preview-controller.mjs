@@ -11,6 +11,12 @@ export const RESULT_RECEIPT_SCHEMA = "vercel-preview-worker-result:v1";
 export const CONTROLLER_SCHEMA = "vercel-preview-controller:v1";
 const WORKER_WORKFLOW = "vercel-preview-worker.yml";
 const WORKER_WORKFLOW_NAME = "Vercel Preview Worker";
+export const BOOTSTRAP_DISPATCH_EVENT = "vercel-preview-bootstrap";
+export const RECONCILE_DISPATCH_EVENT = "vercel-preview-reconcile";
+const REPOSITORY_DISPATCH_OPERATIONS = new Map([
+  [BOOTSTRAP_DISPATCH_EVENT, "bootstrap"],
+  [RECONCILE_DISPATCH_EVENT, "reconcile"],
+]);
 
 const EVENT_MARKER_PREFIX = "<!-- vercel-preview-event-receipt:v1:run:";
 const EVIDENCE_MARKER_PREFIX = "<!-- vercel-preview-worker-evidence:v1:";
@@ -1568,6 +1574,34 @@ async function pullFromApi(github, context, pr) {
     pull_number: pullRequestNumber(pr),
   });
   return data;
+}
+
+export function validateRepositoryDispatch(payload) {
+  plainObject(payload, "Repository dispatch payload");
+  validatedRepository(payload.repository?.full_name);
+  const action = boundedText(payload.action, "Repository dispatch action", 100);
+  const operation = REPOSITORY_DISPATCH_OPERATIONS.get(action);
+  invariant(operation, "Repository dispatch action is not allowed");
+  const clientPayload = plainObject(
+    payload.client_payload,
+    "Repository dispatch client payload",
+  );
+  const keys = Object.keys(clientPayload);
+  invariant(
+    keys.length === 1 && keys[0] === "pr_number",
+    "Repository dispatch client payload must contain only pr_number",
+  );
+  return {
+    operation,
+    pr_number: pullRequestNumber(clientPayload.pr_number),
+  };
+}
+
+export function writeRepositoryDispatchOutputs({ payload, core }) {
+  const request = validateRepositoryDispatch(payload);
+  core.setOutput("operation", request.operation);
+  core.setOutput("pr_number", String(request.pr_number));
+  return request;
 }
 
 export async function prepareBootstrap({

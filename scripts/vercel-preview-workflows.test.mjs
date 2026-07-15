@@ -27,8 +27,8 @@ function permissionWrites(job) {
 test("controller has only the three specified recovery-aware triggers", () => {
   assert.deepEqual(Object.keys(controller.on), [
     "pull_request_target",
+    "repository_dispatch",
     "workflow_run",
-    "workflow_dispatch",
   ]);
   assert.deepEqual(controller.on.pull_request_target.types, [
     "opened",
@@ -40,21 +40,111 @@ test("controller has only the three specified recovery-aware triggers", () => {
     workflows: ["Vercel Preview Worker"],
     types: ["completed"],
   });
-  assert.deepEqual(controller.on.workflow_dispatch.inputs.operation.options, [
-    "reconcile",
-    "bootstrap",
+  assert.deepEqual(controller.on.repository_dispatch.types, [
+    "vercel-preview-bootstrap",
+    "vercel-preview-reconcile",
   ]);
   assert.deepEqual(controller.permissions, {});
+  const raw = read(controllerPath);
+  assert.doesNotMatch(raw, /workflow_dispatch|\binputs\./);
 });
 
-test("planner executes only immutable trusted-base code with a read token", () => {
+test("repository requests are default-branch-bound and validated before writes", () => {
+  const validation = controller.jobs["validate-request"];
+  assert.equal(validation.if, "github.event_name == 'repository_dispatch'");
+  assert.deepEqual(validation.permissions, { contents: "read" });
+  assert.deepEqual(validation.outputs, {
+    operation: "${{ steps.request.outputs.operation }}",
+    pr_number: "${{ steps.request.outputs.pr_number }}",
+  });
+  const checkout = validation.steps.find((step) =>
+    String(step.uses ?? "").startsWith("actions/checkout@"),
+  );
+  assert.ok(checkout);
+  assert.equal(checkout.with.ref, "${{ github.workflow_sha }}");
+  assert.equal(checkout.with["persist-credentials"], false);
+  assert.match(JSON.stringify(validation), /writeRepositoryDispatchOutputs/);
+  assert.doesNotMatch(JSON.stringify(validation), /secrets\.|client_payload/);
+
+  const bootstrap = controller.jobs["snapshot-bootstrap"];
+  assert.equal(bootstrap.needs, "validate-request");
+  assert.equal(
+    bootstrap.if,
+    "needs.validate-request.outputs.operation == 'bootstrap'",
+  );
+  assert.match(
+    JSON.stringify(bootstrap),
+    /needs\.validate-request\.outputs\.pr_number/,
+  );
+
+  const reconcile = controller.jobs["reconcile-request"];
+  assert.equal(reconcile.needs, "validate-request");
+  assert.equal(
+    reconcile.if,
+    "needs.validate-request.outputs.operation == 'reconcile'",
+  );
+  assert.match(
+    reconcile.concurrency.group,
+    /needs\.validate-request\.outputs\.pr_number/,
+  );
+  assert.match(
+    JSON.stringify(reconcile),
+    /needs\.validate-request\.outputs\.pr_number/,
+  );
+});
+
+test("planner materializes only trusted-base code without shared caches", () => {
   for (const jobName of ["plan-event", "plan-bootstrap"]) {
     const job = controller.jobs[jobName];
     assert.deepEqual(job.permissions, { contents: "read" });
     const raw = JSON.stringify(job);
     assert.match(raw, /trusted_base_sha/);
-    assert.match(raw, /fetch-depth.*0/);
-    assert.match(raw, /persist-credentials.*false/);
+    const checkout = job.steps.find((step) =>
+      String(step.uses ?? "").startsWith("actions/checkout@"),
+    );
+    assert.ok(checkout);
+    assert.equal(checkout.with.ref, "${{ github.workflow_sha }}");
+    assert.equal(checkout.with["fetch-depth"], 0);
+    assert.equal(checkout.with["persist-credentials"], false);
+
+    const materialize = job.steps.find(
+      (step) =>
+        step.name ===
+        "Materialize exact trusted base and fetch candidate object",
+    );
+    assert.ok(materialize);
+    assert.equal(materialize.env.WORKFLOW_SHA, "${{ github.workflow_sha }}");
+    assert.match(
+      materialize.env.TRUSTED_BASE_SHA,
+      /^\$\{\{ needs\.(?:snapshot-event|snapshot-bootstrap)\.outputs\.trusted_base_sha \}\}$/,
+    );
+    const ancestryCheck = materialize.run.indexOf(
+      'merge-base --is-ancestor "$TRUSTED_BASE_SHA" "$WORKFLOW_SHA"',
+    );
+    const baseCheckout = materialize.run.indexOf(
+      'checkout --detach "$TRUSTED_BASE_SHA"',
+    );
+    const candidateFetch = materialize.run.indexOf(
+      'fetch --force --no-tags origin "$HEAD_SHA"',
+    );
+    assert.ok(ancestryCheck >= 0, `${jobName} must prove trusted ancestry`);
+    assert.ok(
+      ancestryCheck < baseCheckout,
+      `${jobName} must prove ancestry before materializing planner code`,
+    );
+    assert.ok(
+      baseCheckout < candidateFetch,
+      `${jobName} must materialize trusted code before fetching the candidate`,
+    );
+    assert.doesNotMatch(materialize.run, /checkout[^\n]*HEAD_SHA/);
+
+    const nodeSetup = job.steps.find((step) =>
+      String(step.uses ?? "").startsWith("actions/setup-node@"),
+    );
+    assert.ok(nodeSetup);
+    assert.equal(Object.hasOwn(nodeSetup.with, "cache"), false);
+    assert.equal(Object.hasOwn(nodeSetup.with, "cache-dependency-path"), false);
+    assert.doesNotMatch(raw, /actions\/cache|cache-dependency-path/);
     assert.match(raw, /pnpm install --ignore-scripts --frozen-lockfile/);
     assert.match(raw, /plan-vercel-deployments\.mjs/);
     assert.doesNotMatch(raw, /secrets\.|VERCEL_TOKEN|TURBO_TOKEN/);
@@ -77,7 +167,7 @@ test("immutable receipt writers are durable and outside lossy reconciliation con
   for (const jobName of [
     "reconcile-event",
     "reconcile-bootstrap",
-    "reconcile-manual",
+    "reconcile-request",
     "recover-worker-result",
   ]) {
     assert.match(
@@ -276,8 +366,9 @@ test("automatic workflow creates no implicit or Vercel-owned Deployment", () => 
 test("runbook covers bootstrap, canaries, browser proof, separate cutover, and exact rollback", () => {
   const docs = read("docs/vercel-deployments.md");
   for (const expected of [
-    "operation=bootstrap",
-    "operation=reconcile",
+    "vercel-preview-bootstrap",
+    "vercel-preview-reconcile",
+    "/dispatches",
     "Phase A canary evidence template",
     "repository browser protocol",
     "UI Vercel Git cutover (Phase B)",
@@ -291,4 +382,8 @@ test("runbook covers bootstrap, canaries, browser proof, separate cutover, and e
       new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
     );
   }
+  assert.doesNotMatch(
+    docs,
+    /gh workflow run vercel-preview-controller|operation=(?:bootstrap|reconcile)/,
+  );
 });

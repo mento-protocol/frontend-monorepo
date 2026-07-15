@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  BOOTSTRAP_DISPATCH_EVENT,
   CONTROLLER_SCHEMA,
   EVENT_RECEIPT_SCHEMA,
   PREVIEW_REPOSITORY,
+  RECONCILE_DISPATCH_EVENT,
   RESULT_RECEIPT_SCHEMA,
   controllerKey,
   eventReceiptMarker,
@@ -20,11 +22,13 @@ import {
   resultReceiptMarker,
   snapshotPullRequestEvent,
   validateEventReceipt,
+  validateRepositoryDispatch,
   validateWorkerDispatch,
   validateWorkerRunIdentity,
   validateWorkerResult,
   workerRunName,
   writeEventSnapshotOutputs,
+  writeRepositoryDispatchOutputs,
 } from "./vercel-preview-controller.mjs";
 
 const CONTROLLER_URL =
@@ -250,6 +254,63 @@ test("trusted snapshot entrypoints emit bounded event and bootstrap outputs", as
   assert.equal(outputs.get("trusted_base_sha"), SHA.E);
   assert.equal(outputs.get("change_base_sha"), SHA.E);
   assert.deepEqual(JSON.parse(outputs.get("snapshot")), bootstrapSnapshot);
+});
+
+test("repository dispatch accepts only one validated PR number and two operations", () => {
+  const outputs = new Map();
+  const core = {
+    setOutput(name, value) {
+      outputs.set(name, value);
+    },
+  };
+  const payload = (action, clientPayload = { pr_number: 519 }) => ({
+    action,
+    repository: { full_name: PREVIEW_REPOSITORY },
+    client_payload: clientPayload,
+  });
+
+  for (const [action, operation] of [
+    [BOOTSTRAP_DISPATCH_EVENT, "bootstrap"],
+    [RECONCILE_DISPATCH_EVENT, "reconcile"],
+  ]) {
+    outputs.clear();
+    assert.deepEqual(
+      writeRepositoryDispatchOutputs({ payload: payload(action), core }),
+      { operation, pr_number: 519 },
+    );
+    assert.equal(outputs.get("operation"), operation);
+    assert.equal(outputs.get("pr_number"), "519");
+  }
+
+  assert.throws(
+    () => validateRepositoryDispatch(payload("vercel-preview-unknown")),
+    /action is not allowed/,
+  );
+  assert.throws(
+    () =>
+      validateRepositoryDispatch(
+        payload(BOOTSTRAP_DISPATCH_EVENT, {
+          pr_number: 519,
+          ref: "feature/attacker-selected-workflow",
+        }),
+      ),
+    /must contain only pr_number/,
+  );
+  assert.throws(
+    () =>
+      validateRepositoryDispatch(
+        payload(RECONCILE_DISPATCH_EVENT, { pr_number: "0" }),
+      ),
+    /PR number must be positive/,
+  );
+  assert.throws(
+    () =>
+      validateRepositoryDispatch({
+        ...payload(BOOTSTRAP_DISPATCH_EVENT),
+        repository: { full_name: "fork/frontend-monorepo" },
+      }),
+    /not the expected repository/,
+  );
 });
 
 test("receipt schema distinguishes lifecycle fields and synchronize before -> head", () => {
