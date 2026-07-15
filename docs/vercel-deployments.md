@@ -3,8 +3,11 @@
 This runbook documents the repository-owned planning and build primitives used
 by the GitHub Actions deployment migration tracked in [issue
 #515](https://github.com/mento-protocol/frontend-monorepo/issues/515). It does
-not change deployment ownership by itself. Until the later cutover issues ship,
-the Vercel Git integration remains the deployment owner.
+not change deployment ownership by itself. The ownership boundary and its
+trade-offs are recorded in
+[ADR 0001](adr/0001-github-actions-vercel-deployment-orchestration.md). Until the
+later cutover issues ship, the Vercel Git integration remains the deployment
+owner for paths not explicitly cut over.
 
 ## Pinned prerequisites
 
@@ -248,10 +251,11 @@ The primitive suite has no network or Vercel dependency:
 pnpm vercel:primitives:test
 ```
 
-It is also the first stage of the canonical root `pnpm test` command. The suite
-covers app/package graph fixtures, fail-closed cases, output ordering, every
-deployment-ID constraint, prebuilt-config matching, prerequisite versions, all
-target/environment classifications, and redaction-safe missing-variable errors.
+It also runs near the start of the canonical root `pnpm test` command, after the
+offline ADR-reminder tests. The suite covers app/package graph fixtures,
+fail-closed cases, output ordering, every deployment-ID constraint,
+prebuilt-config matching, prerequisite versions, all target/environment
+classifications, and redaction-safe missing-variable errors.
 
 This foundation issue performs no Vercel API call, build upload, deployment,
 alias mutation, environment mutation, or Git-ownership change.

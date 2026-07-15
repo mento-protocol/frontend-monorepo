@@ -2,6 +2,8 @@
   "name": "frontend-monorepo",
   "private": true,
   "scripts": {
+    "adr:check": "node scripts/check-adr-reminder.mjs",
+    "adr:check:test": "node --test scripts/check-adr-reminder.test.mjs",
     "blockexplorer:start": "docker run -d --name otterscan -p 5100:80 -e ERIGON_URL=http://localhost:8545 otterscan/otterscan:latest",
     "blockexplorer:stop": "docker stop otterscan && docker rm otterscan",
     "build": "turbo run build",
@@ -39,7 +41,7 @@
     "supply-chain:lockfile-lint:test": "node scripts/lockfile-lint.test.mjs",
     "supply-chain:version-skew": "node scripts/version-skew-check.mjs",
     "supply-chain:version-skew:test": "node scripts/version-skew-check.test.mjs",
-    "test": "pnpm vercel:primitives:test && pnpm vercel:workflow:test && pnpm vercel:cost:test && turbo run test",
+    "test": "pnpm adr:check:test && pnpm vercel:primitives:test && pnpm vercel:workflow:test && pnpm vercel:cost:test && turbo run test",
     "test:coverage": "turbo run test:coverage",
     "vercel:cost:analyze": "node scripts/vercel-cost-analysis.mjs",
     "vercel:cost:test": "node --test scripts/vercel-cost-analysis.test.mjs",
