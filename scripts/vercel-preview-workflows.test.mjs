@@ -198,6 +198,26 @@ test("every controller write-token job checks out only trusted workflow code", (
   );
 });
 
+test("every controller reconciliation binds selections to its immutable workflow SHA", () => {
+  for (const jobName of [
+    "reconcile-event",
+    "reconcile-bootstrap",
+    "reconcile-request",
+    "recover-worker-result",
+  ]) {
+    const step = controller.jobs[jobName].steps.find((candidate) =>
+      String(candidate.with?.script ?? "").includes("reconcilePreview"),
+    );
+    assert.ok(step, `${jobName} must invoke reconcilePreview`);
+    assert.equal(step.env.WORKFLOW_SHA, "${{ github.workflow_sha }}");
+    assert.match(
+      step.with.script,
+      /workflowSha:\s*process\.env\.WORKFLOW_SHA/,
+      `${jobName} must pass the immutable workflow SHA to reconciliation`,
+    );
+  }
+});
+
 test("worker is dispatch-only with strict identity inputs and one literal UI caller", () => {
   assert.deepEqual(Object.keys(worker.on), ["workflow_dispatch"]);
   assert.deepEqual(Object.keys(worker.on.workflow_dispatch.inputs), [
@@ -207,6 +227,7 @@ test("worker is dispatch-only with strict identity inputs and one literal UI cal
     "git_branch",
     "controller_key",
     "controller_key_digest",
+    "expected_workflow_sha",
     "epoch_anchor_run_id",
     "reconciliation_basis_digest",
     "selection_receipt_run_id",
@@ -249,6 +270,26 @@ test("worker credentials are unreachable until trusted validation and named pref
     "pull-requests": "read",
   });
   assert.doesNotMatch(JSON.stringify(validation), /secrets\./);
+  const validationStep = validation.steps.find((candidate) =>
+    String(candidate.with?.script ?? "").includes("validateWorkerDispatch"),
+  );
+  assert.ok(validationStep);
+  assert.equal(
+    validationStep.env.ACTUAL_WORKFLOW_SHA,
+    "${{ github.workflow_sha }}",
+  );
+  assert.equal(
+    validationStep.env.EXPECTED_WORKFLOW_SHA,
+    "${{ inputs.expected_workflow_sha }}",
+  );
+  assert.match(
+    validationStep.with.script,
+    /workflowSha:\s*process\.env\.ACTUAL_WORKFLOW_SHA/,
+  );
+  assert.match(
+    validationStep.with.script,
+    /expected_workflow_sha:\s*process\.env\.EXPECTED_WORKFLOW_SHA/,
+  );
 
   const preflight = worker.jobs["validate-preview-prerequisites"];
   assert.deepEqual(preflight.permissions, {});
@@ -311,6 +352,26 @@ test("worker credentials are unreachable until trusted validation and named pref
   const evidence = worker.jobs["record-worker-evidence"];
   assert.match(JSON.stringify(evidence), /recordWorkerEvidence/);
   assert.doesNotMatch(JSON.stringify(evidence), /secrets\./);
+  const evidenceStep = evidence.steps.find((candidate) =>
+    String(candidate.with?.script ?? "").includes("recordWorkerEvidence"),
+  );
+  assert.ok(evidenceStep);
+  assert.equal(
+    evidenceStep.env.ACTUAL_WORKFLOW_SHA,
+    "${{ github.workflow_sha }}",
+  );
+  assert.equal(
+    evidenceStep.env.EXPECTED_WORKFLOW_SHA,
+    "${{ inputs.expected_workflow_sha }}",
+  );
+  assert.match(
+    evidenceStep.with.script,
+    /workflowSha:\s*process\.env\.ACTUAL_WORKFLOW_SHA/,
+  );
+  assert.match(
+    evidenceStep.with.script,
+    /expected_workflow_sha:\s*process\.env\.EXPECTED_WORKFLOW_SHA/,
+  );
 });
 
 test("Statuses API owns the reserved name and no workflow job shadows it", () => {

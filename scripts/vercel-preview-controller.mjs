@@ -536,7 +536,7 @@ export function controllerKey(prNumber, sha) {
 
 function controllerKeyDigest(
   key,
-  { epochAnchorRunId, basisDigest, selectionReceiptRunId },
+  { epochAnchorRunId, basisDigest, selectionReceiptRunId, expectedWorkflowSha },
 ) {
   boundedText(key, "Controller key", 255);
   exactRunId(epochAnchorRunId, "Epoch anchor run ID");
@@ -545,12 +545,14 @@ function controllerKeyDigest(
     "Reconciliation basis digest is invalid",
   );
   exactRunId(selectionReceiptRunId, "Selection receipt run ID");
+  exactSha(expectedWorkflowSha, "Expected worker workflow SHA");
   return digest(
     {
       key,
       epoch_anchor_run_id: epochAnchorRunId,
       reconciliation_basis_digest: basisDigest,
       selection_receipt_run_id: selectionReceiptRunId,
+      expected_workflow_sha: expectedWorkflowSha,
     },
     24,
   );
@@ -597,12 +599,14 @@ export function validateWorkerResult(value) {
     result.selection_receipt_run_id,
     "Result selection receipt run ID",
   );
+  exactSha(result.expected_workflow_sha, "Result expected workflow SHA");
   invariant(
     result.key_digest ===
       controllerKeyDigest(expectedKey, {
         epochAnchorRunId: result.epoch_anchor_run_id,
         basisDigest: result.reconciliation_basis_digest,
         selectionReceiptRunId: result.selection_receipt_run_id,
+        expectedWorkflowSha: result.expected_workflow_sha,
       }),
     "Worker result key digest mismatch",
   );
@@ -663,12 +667,14 @@ function validateWorkerEvidence(value) {
     "Worker evidence basis digest is invalid",
   );
   exactRunId(evidence.selection_receipt_run_id);
+  exactSha(evidence.expected_workflow_sha, "Evidence expected workflow SHA");
   invariant(
     evidence.key_digest ===
       controllerKeyDigest(expectedKey, {
         epochAnchorRunId: evidence.epoch_anchor_run_id,
         basisDigest: evidence.reconciliation_basis_digest,
         selectionReceiptRunId: evidence.selection_receipt_run_id,
+        expectedWorkflowSha: evidence.expected_workflow_sha,
       }),
     "Worker evidence key digest mismatch",
   );
@@ -912,8 +918,11 @@ function resultForSelection(results, anchorRunId, event, selection) {
           result.selection_receipt_run_id === event.event_run_id &&
           result.controller_key === controllerKey(result.pr, event.head_sha) &&
           (!selection ||
-            result.reconciliation_basis_digest ===
-              selection.reconciliation_basis_digest),
+            (result.reconciliation_basis_digest ===
+              selection.reconciliation_basis_digest &&
+              result.key_digest === selection.key_digest &&
+              result.expected_workflow_sha ===
+                selection.expected_workflow_sha)),
       )
       .sort(
         (a, b) =>
@@ -1058,6 +1067,7 @@ function statusDecision({
 function validatePersistedDispatch(value, pr, label) {
   const dispatch = plainObject(value, label);
   exactSha(dispatch.sha);
+  exactSha(dispatch.expected_workflow_sha, `${label} expected workflow SHA`);
   invariant(
     dispatch.key === controllerKey(pr, dispatch.sha),
     `${label} key mismatch`,
@@ -1077,6 +1087,7 @@ function validatePersistedDispatch(value, pr, label) {
         epochAnchorRunId: dispatch.epoch_anchor_run_id,
         basisDigest: dispatch.reconciliation_basis_digest,
         selectionReceiptRunId: dispatch.selection_receipt_run_id,
+        expectedWorkflowSha: dispatch.expected_workflow_sha,
       }),
     `${label} digest mismatch`,
   );
@@ -1097,6 +1108,10 @@ function validateActiveDispatch(value, pr, label) {
   if (active.workflow_run_id !== null) {
     exactRunId(active.workflow_run_id, `${label} workflow run ID`);
     exactSha(active.workflow_sha, `${label} worker workflow SHA`);
+    invariant(
+      active.workflow_sha === active.expected_workflow_sha,
+      `${label} worker workflow SHA does not match its authorized SHA`,
+    );
     exactRunAttempt(active.workflow_run_attempt);
   } else {
     invariant(
@@ -1183,7 +1198,12 @@ export function reconcileState({
   pullRequest: rawPull,
   existingState = null,
   controllerUrl,
+  expectedWorkflowSha: rawExpectedWorkflowSha,
 }) {
+  const expectedWorkflowSha = exactSha(
+    rawExpectedWorkflowSha,
+    "Controller workflow SHA",
+  );
   const pull = normalizePullRequest(rawPull);
   const allResults = dedupeResults(rawResults).filter(
     (result) => result.pr === pull.number,
@@ -1214,7 +1234,8 @@ export function reconcileState({
               result.selection_receipt_run_id &&
             selection.reconciliation_basis_digest ===
               result.reconciliation_basis_digest &&
-            selection.key_digest === result.key_digest,
+            selection.key_digest === result.key_digest &&
+            selection.expected_workflow_sha === result.expected_workflow_sha,
         ),
         "Worker result is not bound to a persisted epoch selection",
       );
@@ -1345,10 +1366,12 @@ export function reconcileState({
           epoch_anchor_run_id: anchor.event_run_id,
           reconciliation_basis_digest: basisDigest,
           selection_receipt_run_id: selected.event_run_id,
+          expected_workflow_sha: expectedWorkflowSha,
           key_digest: controllerKeyDigest(key, {
             epochAnchorRunId: anchor.event_run_id,
             basisDigest,
             selectionReceiptRunId: selected.event_run_id,
+            expectedWorkflowSha,
           }),
         };
       })()
@@ -1389,6 +1412,7 @@ export function reconcileState({
       epoch_anchor_run_id: result.epoch_anchor_run_id,
       reconciliation_basis_digest: result.reconciliation_basis_digest,
       selection_receipt_run_id: result.selection_receipt_run_id,
+      expected_workflow_sha: result.expected_workflow_sha,
       state: result.state,
       worker_run_id: result.worker_run_id,
       github_deployment_id: result.github_deployment_id,
@@ -1780,14 +1804,23 @@ async function listWorkerRuns(github, context) {
 }
 
 function matchingWorkerRuns(runs, selected) {
-  return runs.filter((run) => {
-    try {
+  return runs
+    .filter((run) => {
+      try {
+        const parsed = parseWorkerRunName(run.display_title);
+        return (
+          parsed.pr === selected.pr &&
+          parsed.sha === selected.sha &&
+          parsed.keyDigest === selected.key_digest
+        );
+      } catch {
+        return false;
+      }
+    })
+    .map((run) => {
       validateWorkerRunIdentity(run, selected);
-      return true;
-    } catch {
-      return false;
-    }
-  });
+      return run;
+    });
 }
 
 function wait(milliseconds) {
@@ -1828,6 +1861,10 @@ export function validateWorkerRunIdentity(run, selected) {
   invariant(run.event === "workflow_dispatch", "Worker event mismatch");
   invariant(run.head_branch === "main", "Worker default ref mismatch");
   exactSha(run.head_sha, "Worker workflow SHA");
+  invariant(
+    run.head_sha === selected.expected_workflow_sha,
+    "Worker workflow SHA does not match controller-authorized SHA",
+  );
   exactRunAttempt(run.run_attempt ?? 1);
   const parsed = parseWorkerRunName(run.display_title);
   invariant(
@@ -1892,6 +1929,7 @@ async function dispatchWorker(github, context, selected) {
         epoch_anchor_run_id: String(selected.epoch_anchor_run_id),
         reconciliation_basis_digest: selected.reconciliation_basis_digest,
         selection_receipt_run_id: String(selected.selection_receipt_run_id),
+        expected_workflow_sha: selected.expected_workflow_sha,
       },
       return_run_details: true,
       headers: { "X-GitHub-Api-Version": "2026-03-10" },
@@ -1935,6 +1973,7 @@ async function recordRemovedSelection({ github, context, pr, selection }) {
     epoch_anchor_run_id: selection.epoch_anchor_run_id,
     reconciliation_basis_digest: selection.reconciliation_basis_digest,
     selection_receipt_run_id: selection.selection_receipt_run_id,
+    expected_workflow_sha: selection.expected_workflow_sha,
     worker_run_id: exactRunId(context.runId, "Controller abort run ID"),
     worker_run_attempt: exactRunAttempt(context.runAttempt ?? 1),
     github_deployment_id: null,
@@ -2065,9 +2104,11 @@ export async function reconcilePreview({
   context,
   core,
   prNumber: rawPr,
+  workflowSha: rawWorkflowSha,
   waitForRecovery,
 }) {
   const pr = pullRequestNumber(rawPr);
+  const workflowSha = exactSha(rawWorkflowSha, "Controller workflow SHA");
   const controllerUrl = `https://github.com/${PREVIEW_REPOSITORY}/actions/runs/${context.runId}`;
   reconcileAttempts: for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
@@ -2092,6 +2133,7 @@ export async function reconcilePreview({
         pullRequest: pull,
         existingState: parsed.state,
         controllerUrl,
+        expectedWorkflowSha: workflowSha,
       });
       const observations = await collectCoalescingObservations(
         github,
@@ -2106,6 +2148,7 @@ export async function reconcilePreview({
         pullRequest: pull,
         existingState: parsed.state,
         controllerUrl,
+        expectedWorkflowSha: workflowSha,
       });
       let state = reconciled.state;
       let stateComment = parsed.stateComment;
@@ -2163,6 +2206,7 @@ export async function reconcilePreview({
           pullRequest: freshPull,
           existingState: freshComments.state,
           controllerUrl,
+          expectedWorkflowSha: workflowSha,
         });
         invariant(
           ownershipCheck.state.epoch.anchor_run_id ===
@@ -2179,6 +2223,10 @@ export async function reconcilePreview({
           context,
           selected,
           { waitForRetry: waitForRecovery },
+        );
+        invariant(
+          recoveredRun || selected.expected_workflow_sha === workflowSha,
+          "Intended worker workflow SHA no longer matches this controller workflow SHA",
         );
         const runDetails =
           recoveredRun ?? (await dispatchWorker(github, context, selected));
@@ -2225,6 +2273,7 @@ export async function reconcilePreview({
           pullRequest: finalPull,
           existingState: finalComments.state,
           controllerUrl,
+          expectedWorkflowSha: workflowSha,
         }).lineage,
       );
       const finalReconciled = reconcileState({
@@ -2234,6 +2283,7 @@ export async function reconcilePreview({
         pullRequest: finalPull,
         existingState: finalComments.state,
         controllerUrl,
+        expectedWorkflowSha: workflowSha,
       });
       invariant(
         finalReconciled.state.epoch.anchor_run_id ===
@@ -2418,7 +2468,17 @@ export async function validateWorkerDispatch({
   context,
   core,
   inputs,
+  workflowSha: rawWorkflowSha,
 }) {
+  const expectedWorkflowSha = exactSha(
+    inputs.expected_workflow_sha,
+    "Expected worker workflow SHA",
+  );
+  const workflowSha = exactSha(rawWorkflowSha, "Actual worker workflow SHA");
+  invariant(
+    workflowSha === expectedWorkflowSha,
+    "Actual worker workflow SHA does not match controller-authorized SHA",
+  );
   const pr = pullRequestNumber(inputs.pull_request_number);
   invariant(inputs.target === PREVIEW_TARGET, "Worker target must be UI");
   const sha = exactSha(inputs.commit_sha);
@@ -2453,6 +2513,7 @@ export async function validateWorkerDispatch({
         epochAnchorRunId,
         basisDigest,
         selectionReceiptRunId,
+        expectedWorkflowSha,
       }),
     "Worker controller key digest is invalid",
   );
@@ -2471,7 +2532,8 @@ export async function validateWorkerDispatch({
       active?.key_digest === keyDigest &&
       active?.epoch_anchor_run_id === epochAnchorRunId &&
       active?.reconciliation_basis_digest === basisDigest &&
-      active?.selection_receipt_run_id === selectionReceiptRunId,
+      active?.selection_receipt_run_id === selectionReceiptRunId &&
+      active?.expected_workflow_sha === expectedWorkflowSha,
     "Controller state does not own this worker key",
   );
   const thisRun = exactRunId(context.runId);
@@ -2711,7 +2773,16 @@ async function terminalizeDeployment(
   return data;
 }
 
-function workerOutcomeSelection(inputs) {
+function workerOutcomeSelection(inputs, rawWorkflowSha) {
+  const expectedWorkflowSha = exactSha(
+    inputs.expected_workflow_sha,
+    "Expected worker workflow SHA",
+  );
+  const workflowSha = exactSha(rawWorkflowSha, "Actual worker workflow SHA");
+  invariant(
+    workflowSha === expectedWorkflowSha,
+    "Actual worker workflow SHA does not match controller-authorized SHA",
+  );
   const pr = pullRequestNumber(inputs.pull_request_number);
   invariant(inputs.target === PREVIEW_TARGET, "Worker target must be UI");
   const sha = exactSha(inputs.commit_sha);
@@ -2739,6 +2810,7 @@ function workerOutcomeSelection(inputs) {
         epochAnchorRunId,
         basisDigest,
         selectionReceiptRunId,
+        expectedWorkflowSha,
       }),
     "Worker controller key digest is invalid",
   );
@@ -2750,11 +2822,18 @@ function workerOutcomeSelection(inputs) {
     epochAnchorRunId,
     basisDigest,
     selectionReceiptRunId,
+    expectedWorkflowSha,
   };
 }
 
-export async function recordWorkerEvidence({ github, context, core, inputs }) {
-  const selection = workerOutcomeSelection(inputs);
+export async function recordWorkerEvidence({
+  github,
+  context,
+  core,
+  inputs,
+  workflowSha,
+}) {
+  const selection = workerOutcomeSelection(inputs, workflowSha);
   const evidence = await loadControllerEvidence(github, context, selection.pr);
   const ownedSelection = [
     evidence.state.ui?.active,
@@ -2771,6 +2850,7 @@ export async function recordWorkerEvidence({ github, context, core, inputs }) {
       ownedSelection?.reconciliation_basis_digest === selection.basisDigest &&
       ownedSelection?.selection_receipt_run_id ===
         selection.selectionReceiptRunId &&
+      ownedSelection?.expected_workflow_sha === selection.expectedWorkflowSha &&
       (ownedSelection.workflow_run_id === null ||
         (ownedSelection.workflow_run_id === runId &&
           ownedSelection.workflow_run_attempt === runAttempt)),
@@ -2823,6 +2903,7 @@ export async function recordWorkerEvidence({ github, context, core, inputs }) {
     epoch_anchor_run_id: selection.epochAnchorRunId,
     reconciliation_basis_digest: selection.basisDigest,
     selection_receipt_run_id: selection.selectionReceiptRunId,
+    expected_workflow_sha: selection.expectedWorkflowSha,
     worker_run_id: runId,
     worker_run_attempt: runAttempt,
     github_deployment_id: Number(deployment.id),
@@ -3129,6 +3210,7 @@ export async function recoverWorkerResult({
     epoch_anchor_run_id: selection.epoch_anchor_run_id,
     reconciliation_basis_digest: selection.reconciliation_basis_digest,
     selection_receipt_run_id: selection.selection_receipt_run_id,
+    expected_workflow_sha: selection.expected_workflow_sha,
     worker_run_id: runId,
     worker_run_attempt: runAttempt,
     github_deployment_id: deployment ? Number(deployment.id) : null,

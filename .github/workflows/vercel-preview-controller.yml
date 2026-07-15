@@ -213,6 +213,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PR_NUMBER: ${{ needs.receipt-event.outputs.pr_number }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
         with:
           script: |
             const { pathToFileURL } = require("node:url");
@@ -225,6 +226,7 @@ jobs:
               context,
               core,
               prNumber: process.env.PR_NUMBER,
+              workflowSha: process.env.WORKFLOW_SHA,
             });
 
   snapshot-bootstrap:
@@ -402,6 +404,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PR_NUMBER: ${{ needs.receipt-bootstrap.outputs.pr_number }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
         with:
           script: |
             const { pathToFileURL } = require("node:url");
@@ -409,7 +412,13 @@ jobs:
               `${process.env.GITHUB_WORKSPACE}/controller/scripts/vercel-preview-controller.mjs`,
             );
             const { reconcilePreview } = await import(moduleUrl.href);
-            await reconcilePreview({ github, context, core, prNumber: process.env.PR_NUMBER });
+            await reconcilePreview({
+              github,
+              context,
+              core,
+              prNumber: process.env.PR_NUMBER,
+              workflowSha: process.env.WORKFLOW_SHA,
+            });
 
   reconcile-request:
     name: Reconcile requested preview state
@@ -440,6 +449,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PR_NUMBER: ${{ needs.validate-request.outputs.pr_number }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
         with:
           script: |
             const { pathToFileURL } = require("node:url");
@@ -447,7 +457,13 @@ jobs:
               `${process.env.GITHUB_WORKSPACE}/controller/scripts/vercel-preview-controller.mjs`,
             );
             const { reconcilePreview } = await import(moduleUrl.href);
-            await reconcilePreview({ github, context, core, prNumber: process.env.PR_NUMBER });
+            await reconcilePreview({
+              github,
+              context,
+              core,
+              prNumber: process.env.PR_NUMBER,
+              workflowSha: process.env.WORKFLOW_SHA,
+            });
 
   identify-worker-result:
     name: Validate completed worker callback identity
@@ -507,6 +523,8 @@ jobs:
 
       - name: Terminalize or recover Deployment and persist immutable result
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
         with:
           script: |
             const { pathToFileURL } = require("node:url");
@@ -526,6 +544,7 @@ jobs:
                   context,
                   core,
                   prNumber: result.pr,
+                  workflowSha: process.env.WORKFLOW_SHA,
                 });
               }
             } catch (error) {

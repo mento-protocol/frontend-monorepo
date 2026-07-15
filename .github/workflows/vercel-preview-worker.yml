@@ -30,6 +30,10 @@ on:
         description: Epoch-bound controller selection digest
         required: true
         type: string
+      expected_workflow_sha:
+        description: Immutable controller-authorized worker workflow SHA
+        required: true
+        type: string
       epoch_anchor_run_id:
         description: Lifecycle epoch anchor receipt run ID
         required: true
@@ -80,10 +84,12 @@ jobs:
         id: validate
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
+          ACTUAL_WORKFLOW_SHA: ${{ github.workflow_sha }}
           COMMIT_SHA: ${{ inputs.commit_sha }}
           CONTROLLER_KEY: ${{ inputs.controller_key }}
           CONTROLLER_KEY_DIGEST: ${{ inputs.controller_key_digest }}
           EPOCH_ANCHOR_RUN_ID: ${{ inputs.epoch_anchor_run_id }}
+          EXPECTED_WORKFLOW_SHA: ${{ inputs.expected_workflow_sha }}
           GIT_BRANCH: ${{ inputs.git_branch }}
           PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
           RECONCILIATION_BASIS_DIGEST: ${{ inputs.reconciliation_basis_digest }}
@@ -100,6 +106,7 @@ jobs:
               github,
               context,
               core,
+              workflowSha: process.env.ACTUAL_WORKFLOW_SHA,
               inputs: {
                 pull_request_number: process.env.PULL_REQUEST_NUMBER,
                 target: process.env.TARGET,
@@ -107,6 +114,7 @@ jobs:
                 git_branch: process.env.GIT_BRANCH,
                 controller_key: process.env.CONTROLLER_KEY,
                 controller_key_digest: process.env.CONTROLLER_KEY_DIGEST,
+                expected_workflow_sha: process.env.EXPECTED_WORKFLOW_SHA,
                 epoch_anchor_run_id: process.env.EPOCH_ANCHOR_RUN_ID,
                 reconciliation_basis_digest: process.env.RECONCILIATION_BASIS_DIGEST,
                 selection_receipt_run_id: process.env.SELECTION_RECEIPT_RUN_ID,
@@ -299,6 +307,7 @@ jobs:
       - name: Record epoch-bound upload and retry evidence
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
+          ACTUAL_WORKFLOW_SHA: ${{ github.workflow_sha }}
           BUILD_DURATION_MS: ${{ needs.deploy-ui-preview.outputs.build_duration_ms }}
           BUILD_NEXT_DEPLOYMENT_ID: ${{ needs.deploy-ui-preview.outputs.next_deployment_id }}
           BUILD_VERCEL_DEPLOYMENT_ID: ${{ needs.deploy-ui-preview.outputs.vercel_deployment_id }}
@@ -307,6 +316,7 @@ jobs:
           CONTROLLER_KEY: ${{ inputs.controller_key }}
           CONTROLLER_KEY_DIGEST: ${{ inputs.controller_key_digest }}
           EPOCH_ANCHOR_RUN_ID: ${{ inputs.epoch_anchor_run_id }}
+          EXPECTED_WORKFLOW_SHA: ${{ inputs.expected_workflow_sha }}
           EXECUTION_MODE: ${{ needs.validate-controller-ownership.outputs.execution_mode }}
           PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
           RECONCILIATION_BASIS_DIGEST: ${{ inputs.reconciliation_basis_digest }}
@@ -327,12 +337,14 @@ jobs:
               github,
               context,
               core,
+              workflowSha: process.env.ACTUAL_WORKFLOW_SHA,
               inputs: {
                 pull_request_number: process.env.PULL_REQUEST_NUMBER,
                 target: process.env.TARGET,
                 commit_sha: process.env.COMMIT_SHA,
                 controller_key: process.env.CONTROLLER_KEY,
                 controller_key_digest: process.env.CONTROLLER_KEY_DIGEST,
+                expected_workflow_sha: process.env.EXPECTED_WORKFLOW_SHA,
                 epoch_anchor_run_id: process.env.EPOCH_ANCHOR_RUN_ID,
                 reconciliation_basis_digest: process.env.RECONCILIATION_BASIS_DIGEST,
                 selection_receipt_run_id: process.env.SELECTION_RECEIPT_RUN_ID,

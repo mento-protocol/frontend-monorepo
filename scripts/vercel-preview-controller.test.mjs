@@ -15,15 +15,15 @@ import {
   postWorkerRecoveryError,
   prepareBootstrap,
   recordEventReceipt,
-  recordWorkerEvidence,
-  reconcilePreview,
+  recordWorkerEvidence as recordWorkerEvidenceImplementation,
+  reconcilePreview as reconcilePreviewImplementation,
   reconcileState,
   recoverWorkerResult,
   resultReceiptMarker,
   snapshotPullRequestEvent,
   validateEventReceipt,
   validateRepositoryDispatch,
-  validateWorkerDispatch,
+  validateWorkerDispatch as validateWorkerDispatchImplementation,
   validateWorkerRunIdentity,
   validateWorkerResult,
   workerRunName,
@@ -39,6 +39,24 @@ const SHA = Object.fromEntries(
     (index + 1).toString(16).repeat(40),
   ]),
 );
+
+function reconcilePreview(options) {
+  return reconcilePreviewImplementation({ workflowSha: SHA.E, ...options });
+}
+
+function validateWorkerDispatch(options) {
+  return validateWorkerDispatchImplementation({
+    workflowSha: SHA.E,
+    ...options,
+  });
+}
+
+function recordWorkerEvidence(options) {
+  return recordWorkerEvidenceImplementation({
+    workflowSha: SHA.E,
+    ...options,
+  });
+}
 
 function timestamp(second) {
   return `2026-07-15T10:00:${String(second).padStart(2, "0")}.000Z`;
@@ -126,7 +144,7 @@ function persistDispatch(reconciled, runId = 8_000) {
         ...structuredClone(reconciled.nextDispatch),
         dispatch_state: "dispatched",
         workflow_run_id: runId,
-        workflow_sha: SHA.E,
+        workflow_sha: reconciled.nextDispatch.expected_workflow_sha,
         workflow_run_attempt: 1,
         run_url: `https://api.github.com/repos/mento-protocol/frontend-monorepo/actions/runs/${runId}`,
         html_url: `https://github.com/mento-protocol/frontend-monorepo/actions/runs/${runId}`,
@@ -173,6 +191,7 @@ function result(
     epoch_anchor_run_id: dispatch.epoch_anchor_run_id,
     reconciliation_basis_digest: dispatch.reconciliation_basis_digest,
     selection_receipt_run_id: dispatch.selection_receipt_run_id,
+    expected_workflow_sha: dispatch.expected_workflow_sha,
     worker_run_id: runId,
     worker_run_attempt: 1,
     github_deployment_id: 9_000 + runId,
@@ -192,6 +211,7 @@ function reconcile({
   pullRequest,
   existingState = null,
   observations = {},
+  expectedWorkflowSha = SHA.E,
 }) {
   return reconcileState({
     events,
@@ -200,6 +220,7 @@ function reconcile({
     existingState,
     observations,
     controllerUrl: CONTROLLER_URL,
+    expectedWorkflowSha,
   });
 }
 
@@ -911,11 +932,35 @@ test("controller state schema is explicit and bounded", () => {
   const state = reconcile({
     events: [opened],
     pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
-  }).state;
-  assert.equal(state.schema, CONTROLLER_SCHEMA);
-  assert.match(state.receipts_digest, /^[0-9a-f]{64}$/);
-  assert.match(state.epoch.basis_digest, /^[0-9a-f]{64}$/);
-  assert.ok(JSON.stringify(state).length < 20_000);
+  });
+  assert.equal(state.nextDispatch.expected_workflow_sha, SHA.E);
+  assert.match(state.nextDispatch.key_digest, /^[0-9a-f]{24}$/);
+  const persisted = persistDispatch(state);
+  assert.equal(persisted.ui.active.expected_workflow_sha, SHA.E);
+  assert.equal(persisted.ui.active.workflow_sha, SHA.E);
+  const missingStateWorkflowSha = structuredClone(persisted);
+  delete missingStateWorkflowSha.ui.active.expected_workflow_sha;
+  assert.throws(
+    () =>
+      reconcile({
+        events: [opened],
+        pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+        existingState: missingStateWorkflowSha,
+      }),
+    /expected workflow SHA/,
+  );
+  const validResult = result(state.nextDispatch);
+  const missingWorkflowSha = structuredClone(validResult);
+  delete missingWorkflowSha.expected_workflow_sha;
+  assert.throws(
+    () => validateWorkerResult(missingWorkflowSha),
+    /expected workflow SHA/,
+  );
+  const stateValue = state.state;
+  assert.equal(stateValue.schema, CONTROLLER_SCHEMA);
+  assert.match(stateValue.receipts_digest, /^[0-9a-f]{64}$/);
+  assert.match(stateValue.epoch.basis_digest, /^[0-9a-f]{64}$/);
+  assert.ok(JSON.stringify(stateValue).length < 20_000);
 });
 
 function commentBody(marker, value) {
@@ -948,7 +993,13 @@ function resultComment(value, id = 3) {
 
 function workerRun(
   selection,
-  { id = 8_000, attempt = 1, status = "queued", conclusion = null } = {},
+  {
+    id = 8_000,
+    attempt = 1,
+    status = "queued",
+    conclusion = null,
+    workflowSha = selection.expected_workflow_sha,
+  } = {},
 ) {
   return {
     id,
@@ -956,7 +1007,7 @@ function workerRun(
     path: ".github/workflows/vercel-preview-worker.yml",
     event: "workflow_dispatch",
     head_branch: "main",
-    head_sha: SHA.E,
+    head_sha: workflowSha,
     run_attempt: attempt,
     display_title: workerRunName({
       pr: selection.pr,
@@ -978,6 +1029,7 @@ function workerInputs(selection) {
     git_branch: selection.git_ref,
     controller_key: selection.key,
     controller_key_digest: selection.key_digest,
+    expected_workflow_sha: selection.expected_workflow_sha,
     epoch_anchor_run_id: String(selection.epoch_anchor_run_id),
     reconciliation_basis_digest: selection.reconciliation_basis_digest,
     selection_receipt_run_id: String(selection.selection_receipt_run_id),
@@ -1036,6 +1088,7 @@ function fakeGitHub({
   pullRequest,
   comments: initialComments,
   runs: initialRuns = [],
+  dispatchedWorkflowSha,
   workerRunTotalCount,
   workflowRunAttemptFailures = [],
   updateCommentFailures = [],
@@ -1189,8 +1242,12 @@ function fakeGitHub({
         pr: Number(request.inputs.pull_request_number),
         sha: request.inputs.commit_sha,
         key_digest: request.inputs.controller_key_digest,
+        expected_workflow_sha: request.inputs.expected_workflow_sha,
       };
-      const run = workerRun(selection, { id });
+      const run = workerRun(selection, {
+        id,
+        workflowSha: dispatchedWorkflowSha ?? selection.expected_workflow_sha,
+      });
       runs.push(run);
       dispatches.push(structuredClone(request));
       return { status: 200, data: { workflow_run_id: id } };
@@ -1288,12 +1345,57 @@ test("strict worker identity uses display_title plus workflow path, ref, SHA, an
     { path: ".github/workflows/other.yml" },
     { event: "push" },
     { head_branch: "feature" },
+    { head_sha: SHA.D },
     { run_attempt: 0 },
   ]) {
     assert.throws(() =>
       validateWorkerRunIdentity({ ...run, ...override }, selection),
     );
   }
+});
+
+test("worker preflight rejects expected A versus actual B before any API access", async () => {
+  const opened = event({
+    run: 120,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const authorizedA = reconcile({
+    events: [opened],
+    pullRequest,
+    expectedWorkflowSha: SHA.A,
+  }).nextDispatch;
+  const authorizedB = reconcile({
+    events: [opened],
+    pullRequest,
+    expectedWorkflowSha: SHA.B,
+  }).nextDispatch;
+  assert.notEqual(authorizedA.key_digest, authorizedB.key_digest);
+
+  let apiCalls = 0;
+  const github = {
+    rest: {
+      pulls: {
+        async get() {
+          apiCalls += 1;
+          throw new Error("worker preflight reached GitHub unexpectedly");
+        },
+      },
+    },
+  };
+  await assert.rejects(
+    validateWorkerDispatch({
+      github,
+      context: fakeContext({ runId: 8_000 }),
+      core: fakeCore(),
+      inputs: workerInputs(authorizedA),
+      workflowSha: SHA.B,
+    }),
+    /Actual worker workflow SHA does not match controller-authorized SHA/,
+  );
+  assert.equal(apiCalls, 0);
 });
 
 test("durable dispatch persists intent, requires HTTP 200 run details, and re-queries the exact run", async () => {
@@ -1323,6 +1425,43 @@ test("durable dispatch persists intent, requires HTTP 200 run details, and re-qu
   assert.equal(core.outputs.get("dispatched_run_id"), "8000");
   assert.equal(fixture.commitStatuses.at(-1).context, "Vercel Preview");
   assert.equal(fixture.commitStatuses.at(-1).sha, SHA.A);
+});
+
+test("dispatch response rejects a worker resolved from a different workflow SHA", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [eventComment(opened)],
+    dispatchedWorkflowSha: SHA.B,
+  });
+
+  await assert.rejects(
+    reconcilePreview({
+      github: fixture.github,
+      context: fakeContext(),
+      core: fakeCore(),
+      prNumber: 519,
+      workflowSha: SHA.A,
+      waitForRecovery: async () => {},
+    }),
+    /Worker workflow SHA does not match controller-authorized SHA/,
+  );
+  assert.equal(fixture.dispatches.length, 1);
+  assert.equal(fixture.dispatches[0].inputs.expected_workflow_sha, SHA.A);
+  assert.ok(
+    fixture.comments.some(
+      ({ body }) =>
+        body.includes('"dispatch_state": "intended"') &&
+        body.includes(`"expected_workflow_sha": "${SHA.A}"`),
+    ),
+  );
+  assert.equal(fixture.commitStatuses.at(-1).state, "error");
 });
 
 test("intended dispatch recovery attaches exactly one run and fails closed on ambiguity", async () => {
@@ -1385,6 +1524,58 @@ test("intended dispatch recovery attaches exactly one run and fails closed on am
   );
   assert.equal(ambiguous.dispatches.length, 0);
   assert.equal(ambiguous.commitStatuses.at(-1).state, "error");
+});
+
+test("intended recovery rejects conflicting run SHA and never mixes controller versions", async () => {
+  const opened = event({
+    run: 122,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const authorized = reconcile({
+    events: [opened],
+    pullRequest,
+    expectedWorkflowSha: SHA.A,
+  });
+  const intended = persistIntent(authorized);
+
+  const conflictingRun = fakeGitHub({
+    pullRequest,
+    comments: [eventComment(opened), stateComment(intended)],
+    runs: [workerRun(authorized.nextDispatch, { workflowSha: SHA.B })],
+  });
+  await assert.rejects(
+    reconcilePreview({
+      github: conflictingRun.github,
+      context: fakeContext(),
+      core: fakeCore(),
+      prNumber: 519,
+      workflowSha: SHA.B,
+      waitForRecovery: async () => {},
+    }),
+    /Worker workflow SHA does not match controller-authorized SHA/,
+  );
+  assert.equal(conflictingRun.dispatches.length, 0);
+
+  const mainAdvancedBeforeDispatch = fakeGitHub({
+    pullRequest,
+    comments: [eventComment(opened), stateComment(intended)],
+  });
+  await assert.rejects(
+    reconcilePreview({
+      github: mainAdvancedBeforeDispatch.github,
+      context: fakeContext(),
+      core: fakeCore(),
+      prNumber: 519,
+      workflowSha: SHA.B,
+      waitForRecovery: async () => {},
+    }),
+    /Intended worker workflow SHA no longer matches this controller workflow SHA/,
+  );
+  assert.equal(mainAdvancedBeforeDispatch.dispatches.length, 0);
+  assert.equal(mainAdvancedBeforeDispatch.commitStatuses.at(-1).state, "error");
 });
 
 test("intended dispatch recovery paginates recent worker runs and fails closed beyond its proof bound", async () => {
@@ -2270,6 +2461,7 @@ test("duplicate worker absorbs an existing verified canonical Deployment without
       git_branch: selected.nextDispatch.git_ref,
       controller_key: selected.nextDispatch.key,
       controller_key_digest: selected.nextDispatch.key_digest,
+      expected_workflow_sha: selected.nextDispatch.expected_workflow_sha,
       epoch_anchor_run_id: String(selected.nextDispatch.epoch_anchor_run_id),
       reconciliation_basis_digest:
         selected.nextDispatch.reconciliation_basis_digest,
@@ -2433,6 +2625,7 @@ test("smoke failure records immutable upload evidence and the one retry resumes 
       commit_sha: SHA.A,
       controller_key: selected.nextDispatch.key,
       controller_key_digest: selected.nextDispatch.key_digest,
+      expected_workflow_sha: selected.nextDispatch.expected_workflow_sha,
       epoch_anchor_run_id: String(selected.nextDispatch.epoch_anchor_run_id),
       reconciliation_basis_digest:
         selected.nextDispatch.reconciliation_basis_digest,
@@ -2497,6 +2690,7 @@ test("smoke failure records immutable upload evidence and the one retry resumes 
       git_branch: retry.nextDispatch.git_ref,
       controller_key: retry.nextDispatch.key,
       controller_key_digest: retry.nextDispatch.key_digest,
+      expected_workflow_sha: retry.nextDispatch.expected_workflow_sha,
       epoch_anchor_run_id: String(retry.nextDispatch.epoch_anchor_run_id),
       reconciliation_basis_digest:
         retry.nextDispatch.reconciliation_basis_digest,
@@ -2570,6 +2764,7 @@ test("failure after the durable upload boundary fails closed without a rebuild r
       commit_sha: SHA.A,
       controller_key: selected.nextDispatch.key,
       controller_key_digest: selected.nextDispatch.key_digest,
+      expected_workflow_sha: selected.nextDispatch.expected_workflow_sha,
       epoch_anchor_run_id: String(selected.nextDispatch.epoch_anchor_run_id),
       reconciliation_basis_digest:
         selected.nextDispatch.reconciliation_basis_digest,

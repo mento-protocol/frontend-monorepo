@@ -507,8 +507,11 @@ a later non-runtime SHA succeeds by linking to that runtime-equivalent immutable
 preview without rebuilding.
 
 Each selected transition is bound to its lifecycle epoch, canonical
-reconciliation-basis digest, and immutable receipt run. Repeated A -> B -> A
-transitions, close/reopen cycles at the same SHA, duplicate callbacks, and
+reconciliation-basis digest, immutable receipt run, and the exact controller
+`github.workflow_sha` authorized to supply the worker implementation. The
+authorized worker SHA is persisted as `expected_workflow_sha` and participates
+in the selection key digest. Repeated A -> B -> A transitions, close/reopen
+cycles at the same SHA, duplicate callbacks, controller upgrades, and
 out-of-order event runs therefore remain distinct. An old-epoch worker may
 terminalize its own Deployment and write its own receipt, but it cannot update
 current-epoch state/status or schedule work.
@@ -524,15 +527,24 @@ active selection still fails closed.
 
 ### Durable dispatch and exact Deployment identity
 
-The reconciler writes `dispatch_state=intended` and rereads it before dispatch.
-It then queries up to three times for a matching worker run by strict
-`workflow_run.display_title`. Zero matches dispatches
-`.github/workflows/vercel-preview-worker.yml` on `main` using the HTTP 200
-`return_run_details` API contract; one match is attached; multiple matches fail
-closed. The returned run is re-queried and must match the literal workflow path,
-`workflow_dispatch` event, default ref, immutable workflow SHA, attempt, PR,
-target, candidate SHA, and epoch-bound key digest before state becomes
-`dispatched`.
+The reconciler writes `dispatch_state=intended`, including
+`expected_workflow_sha`, and rereads it before dispatch. It then queries up to
+three times for a matching worker run by strict `workflow_run.display_title`.
+A title match is not enough: its `head_sha` must equal the persisted authorized
+workflow SHA. One valid match is attached and multiple matches or a same-title
+wrong-SHA run fail closed.
+
+Zero matches dispatches `.github/workflows/vercel-preview-worker.yml` on `main`
+using the HTTP 200 `return_run_details` API contract only while the executing
+controller's own workflow SHA still equals the persisted intent. The returned
+run is re-queried and its `head_sha` must equal `expected_workflow_sha`, in
+addition to matching the literal workflow path, `workflow_dispatch` event,
+default ref, attempt, PR, target, candidate SHA, and epoch-bound key digest,
+before state becomes `dispatched`. If `main` advances between intent persistence
+and dispatch, recovery may attach an already-created worker at the old
+authorized SHA, but a newer controller/worker version cannot satisfy or
+redispatch that old intent. With no matching old run, reconciliation reports a
+controller error and leaves the durable intent for explicit operator diagnosis.
 
 The canonical Deployment key and environment are:
 
@@ -546,11 +558,15 @@ required contexts, and transient/non-production flags. No Actions environment
 is declared and Vercel metadata omits `githubDeployment=1`, so neither GitHub
 nor Vercel creates an implicit duplicate Deployment.
 
-The credential-free worker validation re-reads the open PR, trust
-classification, ref, exact SHA ancestry, bot-owned active state, and canonical
-Deployment before any credential is reachable. A separate trusted preflight
-prints only missing repository variable/secret names. The literal UI reusable
-caller receives only `VERCEL_TOKEN_PREVIEW`, `TURBO_TOKEN`, and
+The credential-free worker receives `expected_workflow_sha` as an explicit
+dispatch input and first compares it with the actual
+`${{ github.workflow_sha }}`. Only then does validation re-read the open PR,
+exact SHA ancestry, bot-owned active state, and canonical Deployment. The
+evidence writer repeats the immutable-SHA comparison and persists that SHA in
+non-terminal and terminal receipts. A mismatch fails before any build or
+deployment credential is reachable. A separate trusted preflight prints only
+missing repository variable/secret names. The literal UI reusable caller
+receives only `VERCEL_TOKEN_PREVIEW`, `TURBO_TOKEN`, and
 `TURBO_REMOTE_CACHE_SIGNATURE_KEY`, plus `VERCEL_ORG_ID`,
 `VERCEL_PROJECT_ID_UI`, and `TURBO_TEAM`. The direct smoke/resume jobs receive no
 deployment credential.
