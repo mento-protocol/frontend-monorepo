@@ -358,6 +358,132 @@ test("receipt schema distinguishes lifecycle fields and synchronize before -> he
   assert.equal(synchronized.plan.planner_source_sha, SHA.E);
 });
 
+test("base retarget edits snapshot the new trusted base and reject unrelated edits", () => {
+  const retargetedPull = pull({
+    head: SHA.A,
+    base: SHA.D,
+    updated: timestamp(2),
+  });
+  const snapshot = snapshotPullRequestEvent(
+    {
+      action: "edited",
+      changes: { base: { ref: { from: "main" } } },
+      repository: { full_name: PREVIEW_REPOSITORY },
+      pull_request: retargetedPull,
+    },
+    3,
+  );
+  const receipt = validateEventReceipt({
+    ...snapshot,
+    plan: normalizePlannerResult(
+      {
+        deployments: ["ui"],
+        base: SHA.D,
+        head: SHA.A,
+        reason: "affected-packages",
+      },
+      snapshot,
+    ),
+  });
+  assert.equal(receipt.event_action, "edited");
+  assert.equal(receipt.trusted_base_sha, SHA.D);
+  assert.equal(receipt.change_base_sha, SHA.D);
+  assert.equal(receipt.before_sha, null);
+
+  assert.throws(
+    () =>
+      snapshotPullRequestEvent(
+        {
+          action: "edited",
+          changes: { title: { from: "old title" } },
+          repository: { full_name: PREVIEW_REPOSITORY },
+          pull_request: retargetedPull,
+        },
+        4,
+      ),
+    /Edited PR base change/,
+  );
+});
+
+test("base retarget starts a new same-head epoch and replans its runtime impact", () => {
+  const opened = event({
+    run: 5,
+    action: "opened",
+    head: SHA.A,
+    runtime: false,
+    updated: timestamp(1),
+  });
+  const initial = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  assert.equal(initial.nextDispatch, null);
+  assert.match(initial.state.status_decisions[0].description, /No UI runtime/);
+
+  const editedSnapshot = snapshotPullRequestEvent(
+    {
+      action: "edited",
+      changes: { base: { ref: { from: "main" } } },
+      repository: { full_name: PREVIEW_REPOSITORY },
+      pull_request: pull({
+        head: SHA.A,
+        base: SHA.D,
+        updated: timestamp(2),
+      }),
+    },
+    6,
+  );
+  const edited = validateEventReceipt({
+    ...editedSnapshot,
+    plan: normalizePlannerResult(
+      {
+        deployments: ["ui"],
+        base: SHA.D,
+        head: SHA.A,
+        reason: "affected-packages",
+      },
+      editedSnapshot,
+    ),
+  });
+  const retargeted = reconcile({
+    events: [opened, edited],
+    pullRequest: pull({
+      head: SHA.A,
+      base: SHA.D,
+      updated: timestamp(2),
+    }),
+    existingState: initial.state,
+  });
+  assert.equal(retargeted.state.epoch.anchor_run_id, 6);
+  assert.equal(retargeted.nextDispatch.selection_receipt_run_id, 6);
+  assert.equal(retargeted.nextDispatch.sha, SHA.A);
+  assert.equal(retargeted.state.status_decisions.at(-1).state, "pending");
+});
+
+test("bootstrap aliases an existing identical lifecycle anchor", () => {
+  const opened = event({
+    run: 7,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const bootstrap = validateEventReceipt({
+    ...structuredClone(opened),
+    event_run_id: 8,
+    event_action: "bootstrap",
+  });
+  const reconciled = reconcile({
+    events: [bootstrap, opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  assert.equal(reconciled.state.epoch.anchor_run_id, 7);
+  assert.equal(reconciled.nextDispatch.selection_receipt_run_id, 7);
+  assert.deepEqual(
+    reconciled.lineage.map((receipt) => receipt.event_run_id),
+    [7],
+  );
+});
+
 test("synchronize can reconcile before opened without changing lineage order", () => {
   const opened = event({
     run: 10,
@@ -936,6 +1062,7 @@ test("controller state schema is explicit and bounded", () => {
   assert.equal(state.nextDispatch.expected_workflow_sha, SHA.E);
   assert.match(state.nextDispatch.key_digest, /^[0-9a-f]{24}$/);
   const persisted = persistDispatch(state);
+  assert.deepEqual(persisted.ui.terminal_result_key_digests, []);
   assert.equal(persisted.ui.active.expected_workflow_sha, SHA.E);
   assert.equal(persisted.ui.active.workflow_sha, SHA.E);
   const missingStateWorkflowSha = structuredClone(persisted);
@@ -949,6 +1076,33 @@ test("controller state schema is explicit and bounded", () => {
       }),
     /expected workflow SHA/,
   );
+  const legacyState = structuredClone(persisted);
+  delete legacyState.ui.terminal_result_key_digests;
+  assert.deepEqual(
+    reconcile({
+      events: [opened],
+      pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+      existingState: legacyState,
+    }).state.ui.terminal_result_key_digests,
+    [],
+  );
+  for (const malformedOwnership of [
+    null,
+    ["not-a-key-digest"],
+    [persisted.ui.active.key_digest, persisted.ui.active.key_digest],
+  ]) {
+    const malformedState = structuredClone(persisted);
+    malformedState.ui.terminal_result_key_digests = malformedOwnership;
+    assert.throws(
+      () =>
+        reconcile({
+          events: [opened],
+          pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+          existingState: malformedState,
+        }),
+      /Terminal result ownership/,
+    );
+  }
   const validResult = result(state.nextDispatch);
   const missingWorkflowSha = structuredClone(validResult);
   delete missingWorkflowSha.expected_workflow_sha;
@@ -961,6 +1115,108 @@ test("controller state schema is explicit and bounded", () => {
   assert.match(stateValue.receipts_digest, /^[0-9a-f]{64}$/);
   assert.match(stateValue.epoch.basis_digest, /^[0-9a-f]{64}$/);
   assert.ok(JSON.stringify(stateValue).length < 20_000);
+});
+
+test("legacy v1 state derives terminal ownership from validated history", () => {
+  const opened = event({
+    run: 111,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const first = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const firstResult = result(first.nextDispatch, { runId: 8_000 });
+  const synchronized = event({
+    run: 112,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    updated: timestamp(2),
+  });
+  const second = reconcile({
+    events: [opened, synchronized],
+    results: [firstResult],
+    pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
+    existingState: persistDispatch(first, 8_000),
+  });
+  const legacyState = persistDispatch(second, 8_001);
+  delete legacyState.ui.terminal_result_key_digests;
+  const malformedLegacyState = structuredClone(legacyState);
+  malformedLegacyState.ui.terminal_history[0].key_digest =
+    second.nextDispatch.key_digest;
+  assert.throws(
+    () =>
+      reconcile({
+        events: [opened, synchronized],
+        results: [firstResult],
+        pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
+        existingState: malformedLegacyState,
+      }),
+    /Terminal selection digest mismatch/,
+  );
+
+  const upgraded = reconcile({
+    events: [opened, synchronized],
+    results: [firstResult, result(second.nextDispatch, { runId: 8_001 })],
+    pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
+    existingState: legacyState,
+  }).state;
+  assert.deepEqual(upgraded.ui.terminal_result_key_digests, [
+    first.nextDispatch.key_digest,
+    second.nextDispatch.key_digest,
+  ]);
+});
+
+test("compact terminal ownership survives more results than rendered history", () => {
+  const events = [];
+  const results = [];
+  let existingState = null;
+  let priorSha = null;
+  let currentPull;
+
+  for (let index = 0; index < 41; index += 1) {
+    const head = (index + 10).toString(16).padStart(40, "0");
+    const receipt = event({
+      run: 500 + index,
+      action: index === 0 ? "opened" : "synchronize",
+      head,
+      before: priorSha,
+      updated: timestamp(index + 1),
+    });
+    events.push(receipt);
+    currentPull = pull({ head, updated: timestamp(index + 1) });
+    const selected = reconcile({
+      events,
+      results,
+      pullRequest: currentPull,
+      existingState,
+    });
+    assert.equal(selected.nextDispatch.selection_receipt_run_id, 500 + index);
+    const runId = 20_000 + index;
+    const active = persistDispatch(selected, runId);
+    results.push(result(selected.nextDispatch, { runId }));
+    existingState = reconcile({
+      events,
+      results,
+      pullRequest: currentPull,
+      existingState: active,
+    }).state;
+    priorSha = head;
+  }
+
+  assert.equal(existingState.ui.terminal_history.length, 40);
+  assert.equal(existingState.ui.terminal_result_key_digests.length, 41);
+  assert.doesNotThrow(() =>
+    reconcile({
+      events,
+      results,
+      pullRequest: currentPull,
+      existingState,
+    }),
+  );
 });
 
 function commentBody(marker, value) {
@@ -1004,7 +1260,7 @@ function workerRun(
   return {
     id,
     name: "Vercel Preview Worker",
-    path: ".github/workflows/vercel-preview-worker.yml",
+    path: ".github/workflows/vercel-preview-worker.yml@main",
     event: "workflow_dispatch",
     head_branch: "main",
     head_sha: workflowSha,
@@ -1340,9 +1596,17 @@ test("strict worker identity uses display_title plus workflow path, ref, SHA, an
     validateWorkerRunIdentity(run, selection).workflow_run_id,
     8_000,
   );
+  assert.equal(
+    validateWorkerRunIdentity(
+      { ...run, path: ".github/workflows/vercel-preview-worker.yml" },
+      selection,
+    ).workflow_run_id,
+    8_000,
+  );
   for (const override of [
     { display_title: "Vercel Preview Worker" },
-    { path: ".github/workflows/other.yml" },
+    { path: ".github/workflows/vercel-preview-worker.yml@feature" },
+    { path: ".github/workflows/other.yml@main" },
     { event: "push" },
     { head_branch: "feature" },
     { head_sha: SHA.D },
@@ -1427,7 +1691,7 @@ test("durable dispatch persists intent, requires HTTP 200 run details, and re-qu
   assert.equal(fixture.commitStatuses.at(-1).sha, SHA.A);
 });
 
-test("dispatch response rejects a worker resolved from a different workflow SHA", async () => {
+test("a dispatch racing a main advance is terminalized and automatically reselected", async () => {
   const opened = event({
     run: 121,
     action: "opened",
@@ -1461,7 +1725,51 @@ test("dispatch response rejects a worker resolved from a different workflow SHA"
         body.includes(`"expected_workflow_sha": "${SHA.A}"`),
     ),
   );
+  assert.ok(
+    fixture.comments.some(({ body }) =>
+      body.includes(
+        '"terminal_reason": "controller-workflow-upgraded-before-dispatch"',
+      ),
+    ),
+  );
   assert.equal(fixture.commitStatuses.at(-1).state, "error");
+
+  fixture.runs[0].status = "completed";
+  fixture.runs[0].conclusion = "failure";
+  const callbackCore = fakeCore();
+  const callbackResult = await recoverWorkerResult({
+    github: fixture.github,
+    context: fakeContext({
+      runId: 7_001,
+      workflowRun: fixture.runs[0],
+    }),
+    core: callbackCore,
+    waitForRecovery: async () => {},
+  });
+  assert.equal(
+    callbackResult.terminal_reason,
+    "controller-workflow-upgraded-before-dispatch",
+  );
+  assert.equal(callbackResult.should_reconcile_current_epoch, true);
+  assert.equal(callbackCore.outputs.get("result_state"), "error");
+
+  const recoveredState = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext({ runId: 7_001 }),
+    core: fakeCore(),
+    prNumber: 519,
+    workflowSha: SHA.B,
+    waitForRecovery: async () => {},
+  });
+  assert.equal(fixture.dispatches.length, 2);
+  assert.equal(fixture.dispatches[1].inputs.expected_workflow_sha, SHA.B);
+  assert.notEqual(
+    fixture.dispatches[1].inputs.controller_key_digest,
+    fixture.dispatches[0].inputs.controller_key_digest,
+  );
+  assert.equal(recoveredState.ui.active.expected_workflow_sha, SHA.B);
+  assert.equal(recoveredState.ui.active.dispatch_state, "dispatched");
+  assert.equal(recoveredState.ui.active.workflow_run_id, 8_001);
 });
 
 test("intended dispatch recovery attaches exactly one run and fails closed on ambiguity", async () => {
@@ -1526,7 +1834,7 @@ test("intended dispatch recovery attaches exactly one run and fails closed on am
   assert.equal(ambiguous.commitStatuses.at(-1).state, "error");
 });
 
-test("intended recovery rejects conflicting runs and reselects a missing stale intent", async () => {
+test("intended recovery ignores wrong-SHA artifacts and reselects stale intents", async () => {
   const opened = event({
     run: 122,
     action: "opened",
@@ -1544,20 +1852,38 @@ test("intended recovery rejects conflicting runs and reselects a missing stale i
   const conflictingRun = fakeGitHub({
     pullRequest,
     comments: [eventComment(opened), stateComment(intended)],
-    runs: [workerRun(authorized.nextDispatch, { workflowSha: SHA.B })],
+    runs: [
+      workerRun(authorized.nextDispatch, {
+        id: 8_100,
+        workflowSha: SHA.B,
+      }),
+    ],
   });
-  await assert.rejects(
-    reconcilePreview({
-      github: conflictingRun.github,
-      context: fakeContext(),
-      core: fakeCore(),
-      prNumber: 519,
-      workflowSha: SHA.B,
-      waitForRecovery: async () => {},
-    }),
-    /Worker workflow SHA does not match controller-authorized SHA/,
+  const conflictingRecoveredState = await reconcilePreview({
+    github: conflictingRun.github,
+    context: fakeContext(),
+    core: fakeCore(),
+    prNumber: 519,
+    workflowSha: SHA.B,
+    waitForRecovery: async () => {},
+  });
+  assert.equal(conflictingRun.dispatches.length, 1);
+  assert.equal(
+    conflictingRun.dispatches[0].inputs.expected_workflow_sha,
+    SHA.B,
   );
-  assert.equal(conflictingRun.dispatches.length, 0);
+  assert.equal(
+    conflictingRecoveredState.ui.active.expected_workflow_sha,
+    SHA.B,
+  );
+  assert.equal(conflictingRecoveredState.ui.active.workflow_run_id, 8_000);
+  assert.ok(
+    conflictingRun.comments.some(({ body }) =>
+      body.includes(
+        '"terminal_reason": "controller-workflow-upgraded-before-dispatch"',
+      ),
+    ),
+  );
 
   const mainAdvancedBeforeDispatch = fakeGitHub({
     pullRequest,

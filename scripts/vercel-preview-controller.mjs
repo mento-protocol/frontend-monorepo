@@ -27,6 +27,7 @@ const LOGIN_PATTERN =
   /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?|[A-Za-z0-9])(?:\[bot\])?$/;
 const ALLOWED_EVENT_ACTIONS = new Set([
   "opened",
+  "edited",
   "synchronize",
   "reopened",
   "closed",
@@ -52,6 +53,16 @@ const WORKER_RUN_PAGE_SIZE = 100;
 const MAX_WORKER_RUN_PAGES = 3;
 const UPLOAD_STARTED_DESCRIPTION = "Prebuilt preview upload starting";
 const RETIRED_RECOVERY_QUARANTINE = "persisted-attempt-invalid-or-unavailable";
+
+class WorkerWorkflowShaMismatchError extends Error {
+  constructor({ runId, actualWorkflowSha, expectedWorkflowSha }) {
+    super("Worker workflow SHA does not match controller-authorized SHA");
+    this.name = "WorkerWorkflowShaMismatchError";
+    this.runId = runId;
+    this.actualWorkflowSha = actualWorkflowSha;
+    this.expectedWorkflowSha = expectedWorkflowSha;
+  }
+}
 
 function invariant(condition, message) {
   if (!condition) throw new Error(message);
@@ -277,6 +288,10 @@ export function snapshotPullRequestEvent(payload, runId) {
   );
   const pull = normalizePullRequest(payload.pull_request);
   const repository = validatedRepository(payload.repository?.full_name);
+  if (action === "edited") {
+    plainObject(payload.changes, "Edited PR changes");
+    plainObject(payload.changes.base, "Edited PR base change");
+  }
   const before =
     action === "synchronize" ? exactSha(payload.before, "Before SHA") : null;
   const changeBaseSha = action === "synchronize" ? before : pull.baseSha;
@@ -515,6 +530,24 @@ function semanticEventKey(event) {
   const receipt = validateEventReceipt(event);
   return canonicalJson({
     action: receipt.event_action,
+    pr_state: receipt.pr_state,
+    pr_updated_at: receipt.pr_updated_at,
+    pr_closed_at: receipt.pr_closed_at,
+    trusted_base_sha: receipt.trusted_base_sha,
+    change_base_sha: receipt.change_base_sha,
+    before_sha: receipt.before_sha,
+    head_sha: receipt.head_sha,
+    head_ref: receipt.head_ref,
+    head_repository: receipt.head_repository,
+    pr_author: receipt.pr_author,
+    trust: receipt.trust,
+    plan: receipt.plan,
+  });
+}
+
+function anchorAliasKey(event) {
+  const receipt = validateEventReceipt(event);
+  return canonicalJson({
     pr_state: receipt.pr_state,
     pr_updated_at: receipt.pr_updated_at,
     pr_closed_at: receipt.pr_closed_at,
@@ -849,18 +882,31 @@ function findLineagePaths(anchor, events, pull, epochClosedAt) {
 }
 
 function selectCurrentEpoch(events, pull) {
-  const anchors = events
+  const anchorCandidates = events
     .filter((event) =>
-      ["opened", "reopened", "bootstrap"].includes(event.event_action),
+      ["opened", "edited", "reopened", "bootstrap"].includes(
+        event.event_action,
+      ),
     )
     .filter(
       (event) => event.pr === pull.number && samePullIdentity(event, pull),
     )
-    .filter((event) => event.pr_updated_at <= pull.updatedAt)
+    .filter((event) => event.pr_updated_at <= pull.updatedAt);
+  const nonBootstrapAnchorKeys = new Set(
+    anchorCandidates
+      .filter((event) => event.event_action !== "bootstrap")
+      .map(anchorAliasKey),
+  );
+  const anchors = anchorCandidates
+    .filter(
+      (event) =>
+        event.event_action !== "bootstrap" ||
+        !nonBootstrapAnchorKeys.has(anchorAliasKey(event)),
+    )
     .sort((a, b) => b.pr_updated_at.localeCompare(a.pr_updated_at));
   invariant(
     anchors.length > 0,
-    "No opened, reopened, or bootstrap anchor receipt exists",
+    "No opened, edited, reopened, or bootstrap anchor receipt exists",
   );
 
   const candidates = [];
@@ -1139,6 +1185,7 @@ function normalizeExistingState(value, pr) {
   );
   validatedRepository(state.repository);
   invariant(pullRequestNumber(state.pr) === pr, "Controller state PR mismatch");
+  const ui = plainObject(state.ui, "Controller UI state");
   invariant(
     /^[0-9a-f]{64}$/.test(state.receipts_digest),
     "Controller receipt digest is invalid",
@@ -1148,47 +1195,72 @@ function normalizeExistingState(value, pr) {
     /^[0-9a-f]{64}$/.test(state.epoch?.basis_digest),
     "State epoch basis digest is invalid",
   );
-  if (state.ui?.idle_cursor_receipt_run_id !== null) {
+  if (ui.idle_cursor_receipt_run_id !== null) {
     exactRunId(
-      state.ui.idle_cursor_receipt_run_id,
+      ui.idle_cursor_receipt_run_id,
       "State idle cursor receipt run ID",
     );
   }
-  if (state.ui?.active !== null && state.ui?.active !== undefined) {
-    const active = validateActiveDispatch(
-      state.ui.active,
-      pr,
-      "Active dispatch",
-    );
+  if (ui.active !== null && ui.active !== undefined) {
+    const active = validateActiveDispatch(ui.active, pr, "Active dispatch");
     invariant(
       active.recovery_quarantine === undefined,
       "Current active dispatch cannot be recovery-quarantined",
     );
   }
   invariant(
-    Array.isArray(state.ui?.retired_active ?? []),
+    Array.isArray(ui.retired_active ?? []),
     "Retired active selections must be an array",
   );
   invariant(
-    (state.ui?.retired_active ?? []).length <= MAX_HISTORY,
+    (ui.retired_active ?? []).length <= MAX_HISTORY,
     "Too many retired active selections",
   );
-  for (const selection of state.ui?.retired_active ?? []) {
+  for (const selection of ui.retired_active ?? []) {
     validateActiveDispatch(selection, pr, "Retired active dispatch");
   }
+  const terminalHistory = ui.terminal_history ?? [];
   invariant(
-    Array.isArray(state.ui?.terminal_history ?? []) &&
-      (state.ui?.terminal_history ?? []).length <= MAX_HISTORY,
+    Array.isArray(terminalHistory) && terminalHistory.length <= MAX_HISTORY,
     "Terminal history is invalid",
   );
-  for (const terminal of state.ui?.terminal_history ?? []) {
+  for (const terminal of terminalHistory) {
     validatePersistedDispatch(terminal, pr, "Terminal selection");
     invariant(
       TERMINAL_STATES.has(terminal.state),
       "Terminal selection state is invalid",
     );
   }
-  return state;
+  const terminalResultKeyDigests = Object.hasOwn(
+    ui,
+    "terminal_result_key_digests",
+  )
+    ? ui.terminal_result_key_digests
+    : [...new Set(terminalHistory.map((terminal) => terminal.key_digest))];
+  invariant(
+    Array.isArray(terminalResultKeyDigests) &&
+      terminalResultKeyDigests.length <= MAX_RECEIPTS,
+    "Terminal result ownership is invalid",
+  );
+  const terminalResultKeys = new Set();
+  for (const keyDigest of terminalResultKeyDigests) {
+    invariant(
+      typeof keyDigest === "string" && /^[0-9a-f]{24}$/.test(keyDigest),
+      "Terminal result ownership key is invalid",
+    );
+    invariant(
+      !terminalResultKeys.has(keyDigest),
+      "Terminal result ownership contains duplicates",
+    );
+    terminalResultKeys.add(keyDigest);
+  }
+  return {
+    ...state,
+    ui: {
+      ...ui,
+      terminal_result_key_digests: terminalResultKeyDigests,
+    },
+  };
 }
 
 export function reconcileState({
@@ -1222,21 +1294,13 @@ export function reconcileState({
       previous?.epoch?.anchor_run_id === anchor.event_run_id,
       "Current-epoch result exists without persisted epoch ownership",
     );
-    const ownedSelections = [
-      previous.ui?.active,
-      ...(previous.ui?.terminal_history ?? []),
-    ].filter(Boolean);
+    const ownedKeyDigests = new Set([
+      previous.ui?.active?.key_digest,
+      ...previous.ui.terminal_result_key_digests,
+    ]);
     for (const result of epochResults) {
       invariant(
-        ownedSelections.some(
-          (selection) =>
-            selection.selection_receipt_run_id ===
-              result.selection_receipt_run_id &&
-            selection.reconciliation_basis_digest ===
-              result.reconciliation_basis_digest &&
-            selection.key_digest === result.key_digest &&
-            selection.expected_workflow_sha === result.expected_workflow_sha,
-        ),
+        ownedKeyDigests.has(result.key_digest),
         "Worker result is not bound to a persisted epoch selection",
       );
     }
@@ -1472,6 +1536,9 @@ export function reconcileState({
       retired_active: retiredActive,
       last_successful_runtime_sha: lastSuccess?.sha ?? null,
       last_successful_runtime_url: lastSuccess?.vercel_deployment_url ?? null,
+      terminal_result_key_digests: [
+        ...new Set(epochResults.map((result) => result.key_digest)),
+      ],
       terminal_history: terminalHistory,
     },
     status_decisions: statuses,
@@ -1813,7 +1880,11 @@ async function listWorkerRuns(github, context) {
   );
 }
 
-function matchingWorkerRuns(runs, selected) {
+function matchingWorkerRuns(
+  runs,
+  selected,
+  { ignoreWorkflowShaMismatch = false } = {},
+) {
   return runs
     .filter((run) => {
       try {
@@ -1827,9 +1898,19 @@ function matchingWorkerRuns(runs, selected) {
         return false;
       }
     })
-    .map((run) => {
-      validateWorkerRunIdentity(run, selected);
-      return run;
+    .flatMap((run) => {
+      try {
+        validateWorkerRunIdentity(run, selected);
+        return [run];
+      } catch (error) {
+        if (
+          ignoreWorkflowShaMismatch &&
+          error instanceof WorkerWorkflowShaMismatchError
+        ) {
+          return [];
+        }
+        throw error;
+      }
     });
 }
 
@@ -1841,13 +1922,14 @@ async function recoverMatchingWorkerRun(
   github,
   context,
   selected,
-  { waitForRetry = wait } = {},
+  { waitForRetry = wait, ignoreWorkflowShaMismatch = false } = {},
 ) {
   const pause = waitForRetry ?? wait;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const matches = matchingWorkerRuns(
       await listWorkerRuns(github, context),
       selected,
+      { ignoreWorkflowShaMismatch },
     );
     invariant(
       matches.length <= 1,
@@ -1864,18 +1946,15 @@ async function recoverMatchingWorkerRun(
 export function validateWorkerRunIdentity(run, selected) {
   plainObject(run, "Worker run");
   invariant(run.name === WORKER_WORKFLOW_NAME, "Worker workflow name mismatch");
+  const workflowPath = `.github/workflows/${WORKER_WORKFLOW}`;
   invariant(
-    run.path === `.github/workflows/${WORKER_WORKFLOW}`,
+    run.path === workflowPath || run.path === `${workflowPath}@main`,
     "Worker workflow path mismatch",
   );
   invariant(run.event === "workflow_dispatch", "Worker event mismatch");
   invariant(run.head_branch === "main", "Worker default ref mismatch");
-  exactSha(run.head_sha, "Worker workflow SHA");
-  invariant(
-    run.head_sha === selected.expected_workflow_sha,
-    "Worker workflow SHA does not match controller-authorized SHA",
-  );
-  exactRunAttempt(run.run_attempt ?? 1);
+  const workflowSha = exactSha(run.head_sha, "Worker workflow SHA");
+  const runAttempt = exactRunAttempt(run.run_attempt ?? 1);
   const parsed = parseWorkerRunName(run.display_title);
   invariant(
     parsed.pr === selected.pr &&
@@ -1883,17 +1962,29 @@ export function validateWorkerRunIdentity(run, selected) {
       parsed.keyDigest === selected.key_digest,
     "Worker run identity does not match selection",
   );
+  const workflowRunId = exactRunId(run.id, "Worker run ID");
+  const runUrl = optionalHttpsUrl(run.url, "Worker API run URL");
+  const htmlUrl = optionalHttpsUrl(run.html_url, "Worker HTML run URL");
+  const status = boundedText(run.status, "Worker run status", 32);
+  const conclusion =
+    run.conclusion === null
+      ? null
+      : boundedText(run.conclusion, "Worker run conclusion", 32);
+  if (workflowSha !== selected.expected_workflow_sha) {
+    throw new WorkerWorkflowShaMismatchError({
+      runId: workflowRunId,
+      actualWorkflowSha: workflowSha,
+      expectedWorkflowSha: selected.expected_workflow_sha,
+    });
+  }
   return {
-    workflow_run_id: exactRunId(run.id, "Worker run ID"),
-    workflow_sha: run.head_sha,
-    workflow_run_attempt: exactRunAttempt(run.run_attempt ?? 1),
-    run_url: optionalHttpsUrl(run.url, "Worker API run URL"),
-    html_url: optionalHttpsUrl(run.html_url, "Worker HTML run URL"),
-    status: boundedText(run.status, "Worker run status", 32),
-    conclusion:
-      run.conclusion === null
-        ? null
-        : boundedText(run.conclusion, "Worker run conclusion", 32),
+    workflow_run_id: workflowRunId,
+    workflow_sha: workflowSha,
+    workflow_run_attempt: runAttempt,
+    run_url: runUrl,
+    html_url: htmlUrl,
+    status,
+    conclusion,
   };
 }
 
@@ -2261,12 +2352,29 @@ export async function reconcilePreview({
           "Persisted dispatch ownership changed before credentials",
         );
 
-        const recoveredRun = await recoverMatchingWorkerRun(
-          github,
-          context,
-          selected,
-          { waitForRetry: waitForRecovery },
-        );
+        let recoveredRun;
+        try {
+          recoveredRun = await recoverMatchingWorkerRun(
+            github,
+            context,
+            selected,
+            {
+              waitForRetry: waitForRecovery,
+              ignoreWorkflowShaMismatch:
+                selected.expected_workflow_sha !== workflowSha,
+            },
+          );
+        } catch (error) {
+          if (error instanceof WorkerWorkflowShaMismatchError) {
+            await recordSupersededIntent({
+              github,
+              context,
+              pr,
+              selection: selected,
+            });
+          }
+          throw error;
+        }
         if (!recoveredRun && selected.expected_workflow_sha !== workflowSha) {
           await recordSupersededIntent({
             github,
@@ -2276,8 +2384,22 @@ export async function reconcilePreview({
           });
           continue reconcileAttempts;
         }
-        const runDetails =
-          recoveredRun ?? (await dispatchWorker(github, context, selected));
+        let runDetails = recoveredRun;
+        if (!runDetails) {
+          try {
+            runDetails = await dispatchWorker(github, context, selected);
+          } catch (error) {
+            if (error instanceof WorkerWorkflowShaMismatchError) {
+              await recordSupersededIntent({
+                github,
+                context,
+                pr,
+                selection: selected,
+              });
+            }
+            throw error;
+          }
+        }
         state = {
           ...ownershipCheck.state,
           ui: {
@@ -3021,12 +3143,52 @@ export async function recoverWorkerResult({
       github,
       context,
       selection,
-      { waitForRetry: waitForRecovery },
+      {
+        waitForRetry: waitForRecovery,
+        ignoreWorkflowShaMismatch: true,
+      },
     );
-    invariant(
-      uniqueRecoveredRun?.workflow_run_id === runId,
-      "Completed intended worker is not the unique recoverable owner",
-    );
+    if (uniqueRecoveredRun) {
+      invariant(
+        uniqueRecoveredRun.workflow_run_id === runId,
+        "Completed intended worker is not the unique recoverable owner",
+      );
+    } else {
+      try {
+        validateWorkerRunIdentity(workflowRun, selection);
+      } catch (error) {
+        if (!(error instanceof WorkerWorkflowShaMismatchError)) throw error;
+        const supersededResult =
+          evidence.results.find(
+            (result) =>
+              result.key_digest === selection.key_digest &&
+              result.terminal_reason ===
+                "controller-workflow-upgraded-before-dispatch",
+          ) ??
+          (await recordSupersededIntent({
+            github,
+            context,
+            pr: parsed.pr,
+            selection,
+          }));
+        const shouldReconcileCurrentEpoch =
+          selection === currentSelection &&
+          selection.epoch_anchor_run_id === state.epoch.anchor_run_id;
+        core.setOutput("pr_number", String(parsed.pr));
+        core.setOutput("result_state", supersededResult.state);
+        core.setOutput(
+          "should_reconcile_current_epoch",
+          String(shouldReconcileCurrentEpoch),
+        );
+        return {
+          ...supersededResult,
+          should_reconcile_current_epoch: shouldReconcileCurrentEpoch,
+        };
+      }
+      throw new Error(
+        "Completed intended worker is not the unique recoverable owner",
+      );
+    }
   }
   const queriedRun = await getValidatedWorkerRun(
     github,

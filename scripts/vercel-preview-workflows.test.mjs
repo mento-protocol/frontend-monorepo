@@ -32,6 +32,7 @@ test("controller has only the three specified recovery-aware triggers", () => {
   ]);
   assert.deepEqual(controller.on.pull_request_target.types, [
     "opened",
+    "edited",
     "synchronize",
     "reopened",
     "closed",
@@ -45,6 +46,10 @@ test("controller has only the three specified recovery-aware triggers", () => {
     "vercel-preview-reconcile",
   ]);
   assert.deepEqual(controller.permissions, {});
+  assert.match(
+    controller.jobs["snapshot-event"].if,
+    /action != 'edited'.*changes\.base != null/,
+  );
   const raw = read(controllerPath);
   assert.doesNotMatch(raw, /workflow_dispatch|\binputs\./);
 });

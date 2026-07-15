@@ -2,7 +2,7 @@ name: Vercel Preview Controller
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, closed]
+    types: [opened, edited, synchronize, reopened, closed]
   repository_dispatch:
     types: [vercel-preview-bootstrap, vercel-preview-reconcile]
   workflow_run:
@@ -45,7 +45,9 @@ jobs:
 
   snapshot-event:
     name: Snapshot immutable PR event
-    if: github.event_name == 'pull_request_target'
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      (github.event.action != 'edited' || github.event.changes.base != null)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

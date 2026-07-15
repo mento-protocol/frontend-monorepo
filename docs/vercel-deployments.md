@@ -454,8 +454,9 @@ in issue #518 and the Phase A live canaries below.
 
 `.github/workflows/vercel-preview-controller.yml` is the only automatic event
 controller. It runs trusted default-branch code for `pull_request_target`
-`opened`, `synchronize`, `reopened`, and `closed`; receives completed
-`Vercel Preview Worker` callbacks; and accepts the default-branch-bound
+`opened`, `edited`, `synchronize`, `reopened`, and `closed` (with `edited`
+limited to base-branch changes before any snapshot or write); receives
+completed `Vercel Preview Worker` callbacks; and accepts the default-branch-bound
 `vercel-preview-bootstrap` and `vercel-preview-reconcile` repository events for
 one validated PR number. The controller has no Vercel/Turbo credential and no
 write-token job checks out or executes PR code.
@@ -487,9 +488,14 @@ trigger.
 Every event is first written as an immutable bot comment. Reconciliation is
 lossy/replaceable, but it always reconstructs from those receipts, current PR
 lifecycle evidence, completed-worker receipts, and the one bounded mutable
-state comment. A synchronize receipt plans the event's exact `before -> head`
+state comment. Its rendered terminal history remains bounded, while compact
+key digests retain ownership for every still-accepted current-epoch result
+receipt. A synchronize receipt plans the event's exact `before -> head`
 transition with planner code and dependencies from the immutable trusted base;
-it does not repeatedly compare the PR base to head.
+it does not repeatedly compare the PR base to head. A base-retarget `edited`
+receipt starts a new same-head epoch and replans the new base-to-head transition.
+Title, body, label, and other unrelated edits do not create a receipt or
+reconciliation.
 
 `Vercel Preview` is reserved for a Statuses API commit status, not a workflow
 job/check name. Every exact receipt SHA gets one truthful result: pending,
@@ -498,13 +504,14 @@ trust boundary, durably coalesced, failure, or controller error. Detailed
 PR/SHA/key/run/Deployment evidence remains in the bot comments because status
 descriptions are bounded.
 
-For each open/reopen/bootstrap epoch, the oldest receipt that actually affects
-the UI is `first_eligible_sha`. It always runs first. While that worker is
-queued/running, later runtime pushes replace only `latest_desired_sha`; when the
-first worker terminates, only that latest SHA runs. Documentation/test-only
-pushes never replace the desired runtime SHA. After a verified runtime preview,
-a later non-runtime SHA succeeds by linking to that runtime-equivalent immutable
-preview without rebuilding.
+For each open/reopen/base-retarget/bootstrap epoch, the oldest receipt that
+actually affects the UI is `first_eligible_sha`. It always runs first. An
+identical bootstrap aliases an existing lifecycle anchor instead of creating a
+second epoch. While that worker is queued/running, later runtime pushes replace
+only `latest_desired_sha`; when the first worker terminates, only that latest
+SHA runs. Documentation/test-only pushes never replace the desired runtime SHA.
+After a verified runtime preview, a later non-runtime SHA succeeds by linking
+to that runtime-equivalent immutable preview without rebuilding.
 
 Each selected transition is bound to its lifecycle epoch, canonical
 reconciliation-basis digest, immutable receipt run, and the exact controller
@@ -531,23 +538,28 @@ The reconciler writes `dispatch_state=intended`, including
 `expected_workflow_sha`, and rereads it before dispatch. It then queries up to
 three times for a matching worker run by strict `workflow_run.display_title`.
 A title match is not enough: its `head_sha` must equal the persisted authorized
-workflow SHA. One valid match is attached and multiple matches or a same-title
-wrong-SHA run fail closed.
+workflow SHA. One valid match is attached and multiple exact matches fail
+closed. A full-envelope-valid wrong-SHA artifact is never allowed to own the
+intent; all other name, event, ref, path, title, attempt, and URL mismatches also
+fail closed.
 
 Zero matches dispatches `.github/workflows/vercel-preview-worker.yml` on `main`
 using the HTTP 200 `return_run_details` API contract only while the executing
 controller's own workflow SHA still equals the persisted intent. The returned
 run is re-queried and its `head_sha` must equal `expected_workflow_sha`, in
-addition to matching the literal workflow path, `workflow_dispatch` event,
-default ref, attempt, PR, target, candidate SHA, and epoch-bound key digest,
-before state becomes `dispatched`. If `main` advances between intent persistence
-and dispatch, recovery may attach an already-created worker at the old
-authorized SHA, but a newer controller/worker version cannot satisfy or
-redispatch that old intent. With no matching old run, reconciliation writes an
-immutable `controller-workflow-upgraded-before-dispatch` error result for the
-old selection, then reselects the same desired receipt under the current
-workflow SHA. The new key therefore advances automatically without ever
-pretending that new workflow code fulfilled the retired intent.
+addition to matching the literal workflow path (either the bare path or
+GitHub's documented `@main` suffix), `workflow_dispatch` event, default ref,
+attempt, PR, target, candidate SHA, and epoch-bound key digest, before state
+becomes `dispatched`. If `main` advances between intent persistence and
+dispatch, recovery may attach an already-created worker at the old authorized
+SHA, but a newer controller/worker version cannot satisfy or redispatch that
+old intent. A worker resolved from the newer `main` SHA fails its credentialless
+preflight. The controller records an immutable
+`controller-workflow-upgraded-before-dispatch` error result, and that worker's
+completion callback causes the current controller to reselect the same desired
+receipt under its own workflow SHA. The new key therefore advances
+automatically without ever pretending that new workflow code fulfilled the
+retired intent.
 
 The canonical Deployment key and environment are:
 
@@ -627,6 +639,9 @@ or exactly-once delivery across GitHub and Vercel.
 Before `Vercel Preview` becomes required, inventory every already-open PR and
 bootstrap each trusted same-repository PR that should participate. A lone
 synchronize receipt deliberately waits for an opened/reopened/bootstrap anchor.
+Repeated semantically identical bootstrap requests are idempotent, and a
+bootstrap identical to an existing lifecycle anchor aliases that anchor;
+conflicting lifecycle or planning evidence still fails closed.
 
 ```bash
 gh pr list --state open --limit 100 --json number,headRepository,headRefName,author
