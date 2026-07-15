@@ -655,13 +655,17 @@ Verify all of these before changing the ruleset or starting Phase B:
 2. rapid UI pushes A -> B -> C deploy A then C, with B durably coalesced;
 3. a docs-only PR creates no Deployment and succeeds as no-runtime;
 4. a docs-only push after runtime work reuses the prior immutable URL;
-5. fork and Dependabot PRs succeed unsupported without a Deployment/worker;
-6. a controlled build/smoke failure posts terminal failure and bounded retry;
-7. cancelling a worker before Deployment creation produces one canonical
+5. after the controller is idle, a later UI-runtime SHA E deploys normally;
+6. replaying an event, reconciliation request, and terminal callback is
+   idempotent: it creates no second worker, GitHub Deployment, Vercel preview,
+   receipt, or conflicting status;
+7. fork and Dependabot PRs succeed unsupported without a Deployment/worker;
+8. a controlled build/smoke failure posts terminal failure and bounded retry;
+9. cancelling a worker before Deployment creation produces one canonical
    `error` Deployment/result and advances the latest desired SHA;
-8. close/reopen and a force-reset SHA revisit preserve distinct epochs;
-9. one old-epoch callback terminalizes only its own evidence;
-10. representative strict-ruleset merges still work.
+10. close/reopen and a force-reset SHA revisit preserve distinct epochs;
+11. one old-epoch callback terminalizes only its own evidence;
+12. representative strict-ruleset merges still work.
 
 For the GitHub-built immutable URL, follow the repository browser protocol:
 verify rendering and primary navigation, inspect console errors and failed
@@ -669,9 +673,10 @@ network requests, confirm JS/CSS/font assets, and compare security headers plus
 Vercel toolbar/CSP behavior with the native preview. A canary is not accepted
 from workflow logs alone.
 
-Only after successful deploy, no-runtime, runtime-reuse, coalesced,
-unsupported-trust, failure, cancellation, and old-epoch evidence is recent may
-the ruleset require the Statuses API `Vercel Preview` context.
+Only after successful deploy, no-runtime, runtime-reuse, coalesced, after-idle,
+idempotent replay/reconcile, unsupported-trust, failure, cancellation, and
+old-epoch evidence is recent may the ruleset require the Statuses API
+`Vercel Preview` context.
 
 ## UI Vercel Git cutover (Phase B)
 
