@@ -22,6 +22,18 @@
           "deploymentAttempts": 20,
           "duplicateDeployments": 0
         },
+        "migratedDeploymentCensus": {
+          "preview": {
+            "eligibleEvents": 14,
+            "deploymentAttempts": 14,
+            "duplicateDeployments": 0
+          },
+          "main": {
+            "eligibleEvents": 6,
+            "deploymentAttempts": 6,
+            "duplicateDeployments": 0
+          }
+        },
         "grossProject": {
           "buildCpuMinutes": 240,
           "effectiveCost": 48,
@@ -45,6 +57,18 @@
           "eligibleEvents": 10,
           "deploymentAttempts": 10,
           "duplicateDeployments": 0
+        },
+        "migratedDeploymentCensus": {
+          "preview": {
+            "eligibleEvents": 7,
+            "deploymentAttempts": 7,
+            "duplicateDeployments": 0
+          },
+          "main": {
+            "eligibleEvents": 3,
+            "deploymentAttempts": 3,
+            "duplicateDeployments": 0
+          }
         },
         "grossProject": {
           "buildCpuMinutes": 200,
@@ -70,6 +94,18 @@
           "deploymentAttempts": 8,
           "duplicateDeployments": 0
         },
+        "migratedDeploymentCensus": {
+          "preview": {
+            "eligibleEvents": 6,
+            "deploymentAttempts": 6,
+            "duplicateDeployments": 0
+          },
+          "main": {
+            "eligibleEvents": 2,
+            "deploymentAttempts": 2,
+            "duplicateDeployments": 0
+          }
+        },
         "grossProject": {
           "buildCpuMinutes": 80,
           "effectiveCost": 8,
@@ -93,6 +129,18 @@
           "eligibleEvents": 12,
           "deploymentAttempts": 12,
           "duplicateDeployments": 0
+        },
+        "migratedDeploymentCensus": {
+          "preview": {
+            "eligibleEvents": 9,
+            "deploymentAttempts": 9,
+            "duplicateDeployments": 0
+          },
+          "main": {
+            "eligibleEvents": 3,
+            "deploymentAttempts": 3,
+            "duplicateDeployments": 0
+          }
         },
         "grossProject": {
           "buildCpuMinutes": 60,
@@ -132,6 +180,18 @@
           "deploymentAttempts": 10,
           "duplicateDeployments": 0
         },
+        "migratedDeploymentCensus": {
+          "preview": {
+            "eligibleEvents": 8,
+            "deploymentAttempts": 8,
+            "duplicateDeployments": 0
+          },
+          "main": {
+            "eligibleEvents": 2,
+            "deploymentAttempts": 2,
+            "duplicateDeployments": 0
+          }
+        },
         "grossProject": {
           "buildCpuMinutes": 30,
           "effectiveCost": 5,
@@ -155,6 +215,18 @@
           "eligibleEvents": 5,
           "deploymentAttempts": 5,
           "duplicateDeployments": 0
+        },
+        "migratedDeploymentCensus": {
+          "preview": {
+            "eligibleEvents": 4,
+            "deploymentAttempts": 4,
+            "duplicateDeployments": 0
+          },
+          "main": {
+            "eligibleEvents": 1,
+            "deploymentAttempts": 1,
+            "duplicateDeployments": 0
+          }
         },
         "grossProject": {
           "buildCpuMinutes": 10,
@@ -180,6 +252,18 @@
           "deploymentAttempts": 4,
           "duplicateDeployments": 0
         },
+        "migratedDeploymentCensus": {
+          "preview": {
+            "eligibleEvents": 3,
+            "deploymentAttempts": 3,
+            "duplicateDeployments": 0
+          },
+          "main": {
+            "eligibleEvents": 1,
+            "deploymentAttempts": 1,
+            "duplicateDeployments": 0
+          }
+        },
         "grossProject": {
           "buildCpuMinutes": 4,
           "effectiveCost": 0.4,
@@ -203,6 +287,18 @@
           "eligibleEvents": 6,
           "deploymentAttempts": 6,
           "duplicateDeployments": 0
+        },
+        "migratedDeploymentCensus": {
+          "preview": {
+            "eligibleEvents": 5,
+            "deploymentAttempts": 5,
+            "duplicateDeployments": 0
+          },
+          "main": {
+            "eligibleEvents": 1,
+            "deploymentAttempts": 1,
+            "duplicateDeployments": 0
+          }
         },
         "grossProject": {
           "buildCpuMinutes": 3,
@@ -240,6 +336,8 @@
       "burstFirstPlusLatestChecksCompleted": 2,
       "burstFirstPlusLatestCheckOpportunities": 2,
       "burstFirstPlusLatestFailures": 0,
+      "mainDeploymentObservationsCompleted": 5,
+      "mainDeploymentObservationFailures": 0,
       "legacyV2HealthChecksCompleted": 7,
       "legacyV2HealthCheckOpportunities": 7,
       "legacyV2Regressions": 0,

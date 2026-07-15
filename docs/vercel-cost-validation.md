@@ -63,6 +63,10 @@ For each baseline and post-cutover export, preserve privately:
 5. evidence that billing ingestion is complete;
 6. whether the invoice for the complete interval is final.
 
+The baseline and post-cutover raw-export digests must differ. Reusing one file
+for both non-overlapping intervals is contradictory evidence and fails
+validation.
+
 Filter to usage charges with `ConsumedUnit == "Build CPU Minutes"` and the four
 in-scope Vercel projects only:
 
@@ -97,6 +101,11 @@ deployment count or visible build duration. Record excluded deployment attempts
 even when they contribute zero invoice-grade minutes. Gross project totals must
 remain visible alongside the migrated-path comparison.
 
+Provider-attribution evidence is separate from the raw FOCUS export, whose
+documented dimensions are insufficient for this split. Its digest must differ
+from the corresponding raw-export digest, and one target cannot reuse the same
+provider evidence for its baseline and post-cutover split.
+
 ## Post-cutover collection protocol
 
 1. Record the successful #522 cutover run, exact commit SHA, completion
@@ -115,6 +124,9 @@ remain visible alongside the migrated-path comparison.
    prebuilt, failed, cancelled, and rerun deployment attempt; do not use attempts
    as the event denominator. In both the baseline and post-cutover windows,
    deployment attempts must be at least the number of eligible events.
+   Within each target, classify migrated events, attempts, and actual duplicates
+   as either `preview` or `main`; those two source counts must sum exactly to the
+   migrated-path aggregates in both windows.
 5. Classify app deployments as migrated PR preview, migrated `main -> v3`,
    preserved native `v2 -> production`, or manual/unknown. Keep v2 visible and
    apply the invoice-grade attribution limitation above.
@@ -154,6 +166,9 @@ Each target has four groups:
 - `migratedPath`: raw Build CPU minutes, `EffectiveCost`, nullable `BilledCost`,
   unique eligible target events, deployment attempts, and actual duplicate
   deployment count;
+- `migratedDeploymentCensus`: strict `preview` and `main` source buckets, each
+  containing eligible events, deployment attempts, and actual duplicate counts;
+  each metric must sum exactly to its `migratedPath` aggregate;
 - `grossProject`: the complete project Build CPU minutes and costs, including
   excluded activity;
 - `excluded`: attempt counts for legacy v2, manual, and unknown deployments.
@@ -172,6 +187,8 @@ The post-cutover record also contains:
   count required by #523;
 - completed-check and opportunity counts for smoke/E2E, burst first-plus-latest,
   and legacy-v2 health verification;
+- completed and failed main-deployment observations, bound to the derived total
+  post-cutover `main` eligible events;
 - explicit rollback-procedure verification.
 
 Derive every opportunity and completion count from the private observation
@@ -189,6 +206,15 @@ ledger rather than entering a blanket success value:
   sequences, and `burstFirstPlusLatestChecksCompleted` counts the sequences
   whose first-plus-latest outcome was fully verified. At least one sequence is
   required.
+- `mainDeploymentObservationsCompleted` counts post-cutover main events for
+  which the complete main-deployment ledger record was verified. One completed
+  observation includes the exact-SHA CI gate, planner base and range, selected
+  targets, stale-main decision, activation or recovery result, public-domain
+  SHA, native duplicate result, and legacy-v2 health result.
+  `mainDeploymentObservationFailures` counts completed observations where any
+  one of those checks failed. Completed observations must equal the derived sum
+  of post-cutover main eligible events; the truthful value is `0/0` when no main
+  event occurred.
 - `legacyV2HealthCheckOpportunities` counts the v2 health verifications recorded
   for the observation and final closeout, and `legacyV2HealthChecksCompleted`
   counts the checks that finished. At least one health check is required.
@@ -201,13 +227,16 @@ The analyzer rejects malformed evidence such as migrated usage above gross
 project usage, a post period beginning before cutover, partial UTC days,
 finalized invoices with missing BilledCost, and malformed provenance.
 It also rejects guessed clean-project splits, provider-attributed splits without
-hashed evidence, provider-attributed minute or cost splits without a classified
-excluded deployment, legacy-v2 classifications outside the app project, and
-unknown post-cutover deployment activity. Either window is invalid when a
-target has fewer deployment attempts than eligible events. Completed-check
-counts cannot exceed their opportunities, and regressions cannot exceed
-completed checks. Derived totals, counterfactuals, ratios, and savings must
-remain finite; numeric overflow, `NaN`, and infinity fail closed.
+distinct hashed evidence, provider-attributed minute or cost splits without a
+classified excluded deployment, reused raw or target-attribution evidence,
+legacy-v2 classifications outside the app project, preview/main census totals
+that do not reconcile exactly, and unknown post-cutover deployment activity.
+Either window is invalid when a target has fewer deployment attempts than
+eligible events. Completed-check counts cannot exceed their opportunities,
+regressions cannot exceed completed checks, and completed main observations
+cannot exceed the derived main-event total. Derived totals, counterfactuals,
+ratios, and savings must remain finite; numeric overflow, `NaN`, and infinity
+fail closed.
 
 ## Calculations
 
@@ -229,13 +258,18 @@ produce a finite, positive build-minute counterfactual and a finite savings
 ratio; a null per-target minute savings value can never coexist with a passing
 report.
 
+The public-safe output shows migrated and gross Build CPU minutes for every
+target in both windows. It also shows each target's preview/main event, attempt,
+and duplicate census. Absolute cost values remain private.
+
 The command remains failing when any required closeout condition is missing,
 including incomplete billing, a non-final invoice, fewer than seven complete
 days or ten trusted PR pushes, a target with zero events or a non-positive
 minute counterfactual, an actual duplicate deployment, missing standard-runner measurement,
 no eligible first-preview opportunity, less than 100% first-preview coverage,
 missing or incomplete smoke/E2E, burst, or legacy-v2 observation coverage,
-native duplicates, affected-target skips, larger-runner usage,
+incomplete or failed main-deployment observations, native duplicates,
+affected-target skips, larger-runner usage,
 security/service regressions, v2 regressions, or an unverified rollback
 procedure. Smoke/E2E opportunities must cover at least every trusted
 same-repository PR push in the observation window. Extra failed, cancelled, or

@@ -45,7 +45,19 @@ const ATTRIBUTION_METHODS = [
   "project-total-no-exclusions",
   "provider-attributed",
 ];
-const TARGET_KEYS = ["migratedPath", "grossProject", "excluded", "attribution"];
+const MIGRATED_DEPLOYMENT_SOURCE_KEYS = ["preview", "main"];
+const MIGRATED_DEPLOYMENT_CENSUS_KEYS = [
+  "eligibleEvents",
+  "deploymentAttempts",
+  "duplicateDeployments",
+];
+const TARGET_KEYS = [
+  "migratedPath",
+  "migratedDeploymentCensus",
+  "grossProject",
+  "excluded",
+  "attribution",
+];
 const CORRECTNESS_KEYS = [
   "eligibleFirstPreviews",
   "eligibleFirstPreviewOpportunities",
@@ -58,6 +70,8 @@ const CORRECTNESS_KEYS = [
   "burstFirstPlusLatestChecksCompleted",
   "burstFirstPlusLatestCheckOpportunities",
   "burstFirstPlusLatestFailures",
+  "mainDeploymentObservationsCompleted",
+  "mainDeploymentObservationFailures",
   "legacyV2HealthChecksCompleted",
   "legacyV2HealthCheckOpportunities",
   "legacyV2Regressions",
@@ -206,7 +220,13 @@ function validatePeriod(period, label) {
   return { startMilliseconds, endMilliseconds, days };
 }
 
-function validateTarget(target, targetName, label, invoiceFinal) {
+function validateTarget(
+  target,
+  targetName,
+  label,
+  invoiceFinal,
+  focusExportSha256,
+) {
   assertExactKeys(target, TARGET_KEYS, label);
   assertExactKeys(
     target.migratedPath,
@@ -218,6 +238,18 @@ function validateTarget(target, targetName, label, invoiceFinal) {
     GROSS_PROJECT_KEYS,
     `${label}.grossProject`,
   );
+  assertExactKeys(
+    target.migratedDeploymentCensus,
+    MIGRATED_DEPLOYMENT_SOURCE_KEYS,
+    `${label}.migratedDeploymentCensus`,
+  );
+  for (const source of MIGRATED_DEPLOYMENT_SOURCE_KEYS) {
+    assertExactKeys(
+      target.migratedDeploymentCensus[source],
+      MIGRATED_DEPLOYMENT_CENSUS_KEYS,
+      `${label}.migratedDeploymentCensus.${source}`,
+    );
+  }
   assertExactKeys(target.excluded, EXCLUDED_KEYS, `${label}.excluded`);
   assertExactKeys(target.attribution, ATTRIBUTION_KEYS, `${label}.attribution`);
 
@@ -274,6 +306,24 @@ function validateTarget(target, targetName, label, invoiceFinal) {
       `${label}.migratedPath.duplicateDeployments cannot exceed deploymentAttempts`,
     );
   }
+  for (const metric of MIGRATED_DEPLOYMENT_CENSUS_KEYS) {
+    let censusTotal = 0;
+    for (const source of MIGRATED_DEPLOYMENT_SOURCE_KEYS) {
+      censusTotal = addSafeCount(
+        censusTotal,
+        assertNonnegativeInteger(
+          target.migratedDeploymentCensus[source][metric],
+          `${label}.migratedDeploymentCensus.${source}.${metric}`,
+        ),
+        `${label}.migratedDeploymentCensus.${metric}.total`,
+      );
+    }
+    if (censusTotal !== migrated[metric]) {
+      throw new Error(
+        `${label}.migratedDeploymentCensus ${metric} must sum exactly to migratedPath.${metric}`,
+      );
+    }
+  }
   for (const key of EXCLUDED_KEYS) {
     assertNonnegativeInteger(target.excluded[key], `${label}.excluded.${key}`);
   }
@@ -326,6 +376,11 @@ function validateTarget(target, targetName, label, invoiceFinal) {
         `${label}.attribution.evidenceSha256 must be lowercase SHA-256 for provider attribution`,
       );
     }
+    if (evidenceSha256 === focusExportSha256) {
+      throw new Error(
+        `${label}.attribution.evidenceSha256 must differ from the raw FOCUS export digest`,
+      );
+    }
     if (excludedAttempts === 0) {
       for (const key of GROSS_PROJECT_KEYS) {
         if (migrated[key] !== gross[key]) {
@@ -353,6 +408,18 @@ function validateObservationCoverage(
   }
 }
 
+function sumMigratedDeploymentCensus(window, source, metric, label) {
+  let total = 0;
+  for (const target of VERCEL_COST_TARGETS) {
+    total = addSafeCount(
+      total,
+      window.targets[target].migratedDeploymentCensus[source][metric],
+      `${label}.${source}.${metric}.total`,
+    );
+  }
+  return total;
+}
+
 function validateWindow(window, label) {
   const requiredKeys =
     label === "postCutover"
@@ -373,6 +440,7 @@ function validateWindow(window, label) {
       target,
       `${label}.targets.${target}`,
       window.period.invoiceFinal,
+      window.period.focusExportSha256,
     );
   }
   const grossMinutes = VERCEL_COST_TARGETS.reduce(
@@ -439,6 +507,28 @@ function validateWindow(window, label) {
       "smokeOrE2eRegressions",
       `${label}.correctness`,
     );
+    const mainEligibleEvents = sumMigratedDeploymentCensus(
+      window,
+      "main",
+      "eligibleEvents",
+      `${label}.migratedDeploymentCensus`,
+    );
+    if (
+      window.correctness.mainDeploymentObservationsCompleted >
+      mainEligibleEvents
+    ) {
+      throw new Error(
+        `${label}.correctness.mainDeploymentObservationsCompleted cannot exceed derived main eligible events`,
+      );
+    }
+    if (
+      window.correctness.mainDeploymentObservationFailures >
+      window.correctness.mainDeploymentObservationsCompleted
+    ) {
+      throw new Error(
+        `${label}.correctness.mainDeploymentObservationFailures cannot exceed mainDeploymentObservationsCompleted`,
+      );
+    }
     validateObservationCoverage(
       window.correctness,
       "burstFirstPlusLatestChecksCompleted",
@@ -485,6 +575,27 @@ export function validateVercelCostEvidence(evidence) {
 
   const baselinePeriod = validateWindow(evidence.baseline, "baseline");
   const postPeriod = validateWindow(evidence.postCutover, "postCutover");
+  if (
+    evidence.baseline.period.focusExportSha256 ===
+    evidence.postCutover.period.focusExportSha256
+  ) {
+    throw new Error(
+      "baseline and postCutover raw FOCUS export digests must differ",
+    );
+  }
+  for (const target of VERCEL_COST_TARGETS) {
+    const baselineAttribution = evidence.baseline.targets[target].attribution;
+    const postAttribution = evidence.postCutover.targets[target].attribution;
+    if (
+      baselineAttribution.method === "provider-attributed" &&
+      postAttribution.method === "provider-attributed" &&
+      baselineAttribution.evidenceSha256 === postAttribution.evidenceSha256
+    ) {
+      throw new Error(
+        `baseline and postCutover provider attribution evidence must differ for ${target}`,
+      );
+    }
+  }
   if (baselinePeriod.endMilliseconds > cutoverMilliseconds) {
     throw new Error("baseline period extends beyond the completed cutover");
   }
@@ -625,6 +736,24 @@ export function analyzeVercelCostEvidence(evidence) {
     "buildCpuMinutes",
   );
   const postGrossMinutes = sumGross(evidence, "postCutover", "buildCpuMinutes");
+  const baselineMigratedMinutes = VERCEL_COST_TARGETS.reduce(
+    (total, target) =>
+      addFiniteDerived(
+        total,
+        evidence.baseline.targets[target].migratedPath.buildCpuMinutes,
+        "baseline.migratedPath.buildCpuMinutes.total",
+      ),
+    0,
+  );
+  const postCutoverMigratedMinutes = VERCEL_COST_TARGETS.reduce(
+    (total, target) =>
+      addFiniteDerived(
+        total,
+        evidence.postCutover.targets[target].migratedPath.buildCpuMinutes,
+        "postCutover.migratedPath.buildCpuMinutes.total",
+      ),
+    0,
+  );
   const baselineGrossMinutesPerDay = divideFiniteDerived(
     baselineGrossMinutes,
     baselinePeriod.days,
@@ -680,6 +809,12 @@ export function analyzeVercelCostEvidence(evidence) {
             `postCutover.targets.${target}.attemptsPerEligibleEvent`,
           );
   }
+  const postMainEligibleEvents = sumMigratedDeploymentCensus(
+    evidence.postCutover,
+    "main",
+    "eligibleEvents",
+    "postCutover.migratedDeploymentCensus",
+  );
 
   const correctness = evidence.postCutover.correctness;
   const reasons = [];
@@ -816,6 +951,11 @@ export function analyzeVercelCostEvidence(evidence) {
     reasons,
   );
   reason(
+    correctness.mainDeploymentObservationsCompleted !== postMainEligibleEvents,
+    "main-deployment-observation-coverage-incomplete",
+    reasons,
+  );
+  reason(
     correctness.legacyV2HealthCheckOpportunities === 0,
     "legacy-v2-health-check-opportunities-missing",
     reasons,
@@ -832,6 +972,10 @@ export function analyzeVercelCostEvidence(evidence) {
     ["smokeOrE2eRegressions", "smoke-or-e2e-regressions"],
     ["secretExposureIncidents", "secret-exposure-incidents"],
     ["burstFirstPlusLatestFailures", "burst-first-plus-latest-failures"],
+    [
+      "mainDeploymentObservationFailures",
+      "main-deployment-observation-failures",
+    ],
     ["legacyV2Regressions", "legacy-v2-regressions"],
   ]) {
     reason(correctness[key] !== 0, reasonName, reasons);
@@ -843,15 +987,6 @@ export function analyzeVercelCostEvidence(evidence) {
   );
 
   const prPushes = evidence.postCutover.trustedSameRepositoryPrPushes;
-  const postCutoverMigratedMinutes = VERCEL_COST_TARGETS.reduce(
-    (total, target) =>
-      addFiniteDerived(
-        total,
-        evidence.postCutover.targets[target].migratedPath.buildCpuMinutes,
-        "postCutover.migratedPath.buildCpuMinutes.total",
-      ),
-    0,
-  );
   const totalAttemptsPerEligibleEvent =
     totalPostEvents === 0
       ? null
@@ -896,6 +1031,21 @@ export function analyzeVercelCostEvidence(evidence) {
       effectiveCost: costSavingsOnly(effectiveCost),
       billedCost: costSavingsOnly(billedCost),
     },
+    migrated: {
+      baselineMinutes: baselineMigratedMinutes,
+      postCutoverMinutes: postCutoverMigratedMinutes,
+      targets: Object.fromEntries(
+        VERCEL_COST_TARGETS.map((target) => [
+          target,
+          {
+            baselineMinutes:
+              evidence.baseline.targets[target].migratedPath.buildCpuMinutes,
+            postCutoverMinutes:
+              evidence.postCutover.targets[target].migratedPath.buildCpuMinutes,
+          },
+        ]),
+      ),
+    },
     gross: {
       baselineMinutes: baselineGrossMinutes,
       postCutoverMinutes: postGrossMinutes,
@@ -904,6 +1054,17 @@ export function analyzeVercelCostEvidence(evidence) {
       minuteSavings: grossMinuteSavings,
       effectiveCostSavings: grossEffectiveCostSavings,
       billedCostSavings: grossBilledCostSavings,
+      targets: Object.fromEntries(
+        VERCEL_COST_TARGETS.map((target) => [
+          target,
+          {
+            baselineMinutes:
+              evidence.baseline.targets[target].grossProject.buildCpuMinutes,
+            postCutoverMinutes:
+              evidence.postCutover.targets[target].grossProject.buildCpuMinutes,
+          },
+        ]),
+      ),
     },
     github: { ...evidence.postCutover.github },
     correctness: { ...evidence.postCutover.correctness },
@@ -922,6 +1083,16 @@ export function analyzeVercelCostEvidence(evidence) {
             excluded: { ...evidence.baseline.targets[target].excluded },
             attributionMethod:
               evidence.baseline.targets[target].attribution.method,
+            migratedDeploymentCensus: Object.fromEntries(
+              MIGRATED_DEPLOYMENT_SOURCE_KEYS.map((source) => [
+                source,
+                {
+                  ...evidence.baseline.targets[target].migratedDeploymentCensus[
+                    source
+                  ],
+                },
+              ]),
+            ),
           },
           postCutover: {
             eligibleEvents:
@@ -935,6 +1106,15 @@ export function analyzeVercelCostEvidence(evidence) {
             excluded: { ...evidence.postCutover.targets[target].excluded },
             attributionMethod:
               evidence.postCutover.targets[target].attribution.method,
+            migratedDeploymentCensus: Object.fromEntries(
+              MIGRATED_DEPLOYMENT_SOURCE_KEYS.map((source) => [
+                source,
+                {
+                  ...evidence.postCutover.targets[target]
+                    .migratedDeploymentCensus[source],
+                },
+              ]),
+            ),
           },
         },
       ]),
@@ -946,6 +1126,11 @@ export function analyzeVercelCostEvidence(evidence) {
     postCutoverMinutesPerTrustedPrPush: {
       total: totalMinutesPerTrustedPrPush,
       targets: targetMinutesPerTrustedPrPush,
+    },
+    mainDeploymentObservations: {
+      completed: correctness.mainDeploymentObservationsCompleted,
+      eligibleEvents: postMainEligibleEvents,
+      failures: correctness.mainDeploymentObservationFailures,
     },
   };
 }
@@ -985,16 +1170,19 @@ export function formatVercelCostMarkdown(analysis) {
     `- Eligible first previews: ${analysis.correctness.eligibleFirstPreviews}/${analysis.correctness.eligibleFirstPreviewOpportunities}`,
     `- Smoke/E2E checks completed: ${analysis.correctness.smokeOrE2eChecksCompleted}/${analysis.correctness.smokeOrE2eCheckOpportunities}`,
     `- Burst first-plus-latest checks completed: ${analysis.correctness.burstFirstPlusLatestChecksCompleted}/${analysis.correctness.burstFirstPlusLatestCheckOpportunities}`,
+    `- Main deployment observations completed: ${analysis.mainDeploymentObservations.completed}/${analysis.mainDeploymentObservations.eligibleEvents}`,
     `- Legacy v2 health checks completed: ${analysis.correctness.legacyV2HealthChecksCompleted}/${analysis.correctness.legacyV2HealthCheckOpportunities}`,
     "",
-    "| Target | Baseline minutes | Post-cutover minutes | Baseline-mix counterfactual | Change | Pass |",
-    "|---|---:|---:|---:|---:|---|",
+    "| Target | Baseline migrated minutes | Baseline gross minutes | Post migrated minutes | Post gross minutes | Baseline-mix counterfactual | Migrated change | Pass |",
+    "|---|---:|---:|---:|---:|---:|---:|---|",
   ];
 
   for (const target of VERCEL_COST_TARGETS) {
     const normalized = analysis.normalized.minutes?.targets[target] ?? null;
+    const migrated = analysis.migrated.targets[target];
+    const gross = analysis.gross.targets[target];
     lines.push(
-      `| ${target} | ${formatNumber(normalized?.baseline ?? null)} | ${formatNumber(normalized?.actual ?? null)} | ${formatNumber(normalized?.counterfactual ?? null)} | ${formatPercent(normalized?.savings ?? null)} | ${normalized !== null && normalized.savings !== null && normalized.savings >= MINIMUM_NORMALIZED_SAVINGS ? "yes" : "no"} |`,
+      `| ${target} | ${formatNumber(migrated.baselineMinutes)} | ${formatNumber(gross.baselineMinutes)} | ${formatNumber(migrated.postCutoverMinutes)} | ${formatNumber(gross.postCutoverMinutes)} | ${formatNumber(normalized?.counterfactual ?? null)} | ${formatPercent(normalized?.savings ?? null)} | ${normalized !== null && normalized.savings !== null && normalized.savings >= MINIMUM_NORMALIZED_SAVINGS ? "yes" : "no"} |`,
     );
   }
 
@@ -1007,6 +1195,26 @@ export function formatVercelCostMarkdown(analysis) {
     const census = analysis.eventCensus[target];
     lines.push(
       `| ${target} | ${census.baseline.eligibleEvents}/${census.baseline.deploymentAttempts} | ${census.postCutover.eligibleEvents}/${census.postCutover.deploymentAttempts} | ${census.postCutover.duplicateDeployments} | ${census.postCutover.excluded.legacyV2DeploymentAttempts} | ${census.postCutover.excluded.manualDeploymentAttempts} | ${census.postCutover.excluded.unknownDeploymentAttempts} | ${census.postCutover.attributionMethod} |`,
+    );
+  }
+
+  lines.push(
+    "",
+    "Source census cells are eligible events/deployment attempts/duplicate deployments.",
+    "",
+    "| Target | Baseline preview e/a/d | Baseline main e/a/d | Post preview e/a/d | Post main e/a/d |",
+    "|---|---:|---:|---:|---:|",
+  );
+  for (const target of VERCEL_COST_TARGETS) {
+    const census = analysis.eventCensus[target];
+    const baselinePreview = census.baseline.migratedDeploymentCensus.preview;
+    const baselineMain = census.baseline.migratedDeploymentCensus.main;
+    const postPreview = census.postCutover.migratedDeploymentCensus.preview;
+    const postMain = census.postCutover.migratedDeploymentCensus.main;
+    const formatCensus = (value) =>
+      `${value.eligibleEvents}/${value.deploymentAttempts}/${value.duplicateDeployments}`;
+    lines.push(
+      `| ${target} | ${formatCensus(baselinePreview)} | ${formatCensus(baselineMain)} | ${formatCensus(postPreview)} | ${formatCensus(postMain)} |`,
     );
   }
 

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import process from "node:process";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -39,6 +41,22 @@ function setBuildCpuMinutes(evidence, windowName, target, value) {
   evidence[windowName].targets[target].grossProject.buildCpuMinutes = value;
 }
 
+function setMigratedCensusMetric(
+  evidence,
+  windowName,
+  target,
+  metric,
+  preview,
+  main,
+) {
+  evidence[windowName].targets[target].migratedPath[metric] = preview + main;
+  evidence[windowName].targets[target].migratedDeploymentCensus.preview[
+    metric
+  ] = preview;
+  evidence[windowName].targets[target].migratedDeploymentCensus.main[metric] =
+    main;
+}
+
 test("computes the issue #523 target-mix formula at the exact pass boundary", () => {
   const analysis = analyzeVercelCostEvidence(fixture());
 
@@ -52,6 +70,10 @@ test("computes the issue #523 target-mix formula at the exact pass boundary", ()
   );
   assert.equal(analysis.normalized.minutes.targets.reserve.counterfactual, 40);
   assert.equal(analysis.normalized.minutes.targets.ui.counterfactual, 30);
+  assert.deepEqual(analysis.migrated.targets.app, {
+    baselineMinutes: 200,
+    postCutoverMinutes: 10,
+  });
   assert.equal(analysis.pass, true);
   assert.deepEqual(analysis.reasons, []);
 });
@@ -68,6 +90,10 @@ test("normalizes gross minutes by complete UTC days", () => {
   assert.equal(analysis.gross.minuteSavings, 1 - 47 / 7 / (580 / 14));
   assert.equal(analysis.gross.effectiveCostSavings, 1 - 7.2 / 7 / (82 / 14));
   assert.equal(analysis.gross.billedCostSavings, 1 - 7.2 / 7 / (82 / 14));
+  assert.deepEqual(analysis.gross.targets.app, {
+    baselineMinutes: 240,
+    postCutoverMinutes: 30,
+  });
 });
 
 test("reports duplicate rate and raw minutes per trusted PR push", () => {
@@ -111,6 +137,11 @@ test("keeps absolute financial values out of the analysis result and Markdown", 
   assert.match(markdown, /Smoke\/E2E checks completed: 10\/10/);
   assert.match(markdown, /Burst first-plus-latest checks completed: 2\/2/);
   assert.match(markdown, /Legacy v2 health checks completed: 7\/7/);
+  assert.match(markdown, /Main deployment observations completed: 5\/5/);
+  assert.match(
+    markdown,
+    /\| app \| 200\.00 \| 240\.00 \| 10\.00 \| 30\.00 \| 100\.00 \| 90\.00% \| yes \|/,
+  );
   assert.doesNotMatch(markdown, /\$\d/);
 });
 
@@ -138,11 +169,123 @@ test("reports public-safe GitHub, correctness, event, and attribution evidence",
       unknownDeploymentAttempts: 0,
     },
     attributionMethod: "provider-attributed",
+    migratedDeploymentCensus: {
+      preview: {
+        eligibleEvents: 8,
+        deploymentAttempts: 8,
+        duplicateDeployments: 0,
+      },
+      main: {
+        eligibleEvents: 2,
+        deploymentAttempts: 2,
+        duplicateDeployments: 0,
+      },
+    },
+  });
+  assert.deepEqual(analysis.mainDeploymentObservations, {
+    completed: 5,
+    eligibleEvents: 5,
+    failures: 0,
   });
   assert.equal(
     analysis.eventCensus.governance.postCutover.attributionMethod,
     "project-total-no-exclusions",
   );
+});
+
+test("requires the migrated preview/main census to reconcile exactly", () => {
+  for (const metric of [
+    "eligibleEvents",
+    "deploymentAttempts",
+    "duplicateDeployments",
+  ]) {
+    const evidence = fixture();
+    evidence.postCutover.targets.app.migratedDeploymentCensus.preview[metric] +=
+      1;
+    assert.throws(
+      () => validateVercelCostEvidence(evidence),
+      new RegExp(
+        `migratedDeploymentCensus ${metric} must sum exactly to migratedPath\\.${metric}`,
+      ),
+      metric,
+    );
+  }
+});
+
+test("binds complete main observations to derived main eligible events", () => {
+  const incomplete = fixture();
+  incomplete.postCutover.correctness.mainDeploymentObservationsCompleted = 4;
+  const incompleteAnalysis = analyzeVercelCostEvidence(incomplete);
+  assert.equal(incompleteAnalysis.pass, false);
+  assert.ok(
+    incompleteAnalysis.reasons.includes(
+      "main-deployment-observation-coverage-incomplete",
+    ),
+  );
+
+  const failed = fixture();
+  failed.postCutover.correctness.mainDeploymentObservationFailures = 1;
+  const failedAnalysis = analyzeVercelCostEvidence(failed);
+  assert.equal(failedAnalysis.pass, false);
+  assert.ok(
+    failedAnalysis.reasons.includes("main-deployment-observation-failures"),
+  );
+
+  const tooManyCompleted = fixture();
+  tooManyCompleted.postCutover.correctness.mainDeploymentObservationsCompleted = 6;
+  assert.throws(
+    () => validateVercelCostEvidence(tooManyCompleted),
+    /mainDeploymentObservationsCompleted cannot exceed derived main eligible events/,
+  );
+
+  const tooManyFailures = fixture();
+  tooManyFailures.postCutover.correctness.mainDeploymentObservationFailures = 6;
+  assert.throws(
+    () => validateVercelCostEvidence(tooManyFailures),
+    /mainDeploymentObservationFailures cannot exceed mainDeploymentObservationsCompleted/,
+  );
+});
+
+test("reports a truthful zero-event main observation denominator", () => {
+  const evidence = fixture();
+  for (const target of VERCEL_COST_TARGETS) {
+    const migrated = evidence.postCutover.targets[target].migratedPath;
+    setMigratedCensusMetric(
+      evidence,
+      "postCutover",
+      target,
+      "eligibleEvents",
+      migrated.eligibleEvents,
+      0,
+    );
+    setMigratedCensusMetric(
+      evidence,
+      "postCutover",
+      target,
+      "deploymentAttempts",
+      migrated.deploymentAttempts,
+      0,
+    );
+    setMigratedCensusMetric(
+      evidence,
+      "postCutover",
+      target,
+      "duplicateDeployments",
+      migrated.duplicateDeployments,
+      0,
+    );
+  }
+  evidence.postCutover.correctness.mainDeploymentObservationsCompleted = 0;
+
+  const analysis = analyzeVercelCostEvidence(evidence);
+  const markdown = formatVercelCostMarkdown(analysis);
+  assert.equal(analysis.pass, true);
+  assert.deepEqual(analysis.mainDeploymentObservations, {
+    completed: 0,
+    eligibleEvents: 0,
+    failures: 0,
+  });
+  assert.match(markdown, /Main deployment observations completed: 0\/0/);
 });
 
 test("fails below 90 percent without rounding the gate", () => {
@@ -162,19 +305,52 @@ test("fails below 90 percent without rounding the gate", () => {
 
 test("requires post-cutover events for every logical target", () => {
   const evidence = fixture();
-  evidence.postCutover.targets.ui.migratedPath.eligibleEvents = 0;
-  evidence.postCutover.targets.ui.migratedPath.deploymentAttempts = 0;
+  setMigratedCensusMetric(
+    evidence,
+    "postCutover",
+    "ui",
+    "eligibleEvents",
+    0,
+    0,
+  );
+  setMigratedCensusMetric(
+    evidence,
+    "postCutover",
+    "ui",
+    "deploymentAttempts",
+    0,
+    0,
+  );
+  evidence.postCutover.correctness.mainDeploymentObservationsCompleted = 4;
   const analysis = analyzeVercelCostEvidence(evidence);
 
   assert.equal(analysis.pass, false);
   assert.ok(analysis.reasons.includes("missing-post-events:ui"));
   assert.ok(analysis.reasons.includes("minute-counterfactual-not-positive:ui"));
   assert.equal(analysis.normalized.minutes.targets.ui, null);
+  assert.deepEqual(analysis.migrated.targets.ui, {
+    baselineMinutes: 60,
+    postCutoverMinutes: 3,
+  });
+  assert.match(
+    formatVercelCostMarkdown(analysis),
+    /\| ui \| 60\.00 \| 60\.00 \| 3\.00 \| 3\.00 \| n\/a \| n\/a \| no \|/,
+  );
 });
 
 test("requires a positive minute counterfactual for every target", () => {
   const evidence = fixture();
   evidence.baseline.targets.app.migratedPath.buildCpuMinutes = 0;
+  setMigratedCensusMetric(evidence, "baseline", "app", "eligibleEvents", 1, 0);
+  setMigratedCensusMetric(
+    evidence,
+    "postCutover",
+    "app",
+    "eligibleEvents",
+    1,
+    0,
+  );
+  evidence.postCutover.correctness.mainDeploymentObservationsCompleted = 3;
   for (const target of ["governance", "reserve", "ui"]) {
     setBuildCpuMinutes(evidence, "postCutover", target, 0);
   }
@@ -191,7 +367,14 @@ test("requires a positive minute counterfactual for every target", () => {
 
 test("measures extra attempts without misclassifying them as deployments", () => {
   const evidence = fixture();
-  evidence.postCutover.targets.app.migratedPath.deploymentAttempts += 1;
+  setMigratedCensusMetric(
+    evidence,
+    "postCutover",
+    "app",
+    "deploymentAttempts",
+    9,
+    2,
+  );
   const analysis = analyzeVercelCostEvidence(evidence);
 
   assert.equal(analysis.pass, true);
@@ -216,7 +399,14 @@ test("rejects fewer attempts than events in both evidence windows", () => {
 
 test("blocks actual duplicate deployments", () => {
   const duplicate = fixture();
-  duplicate.postCutover.targets.app.migratedPath.duplicateDeployments = 1;
+  setMigratedCensusMetric(
+    duplicate,
+    "postCutover",
+    "app",
+    "duplicateDeployments",
+    1,
+    0,
+  );
   const duplicateAnalysis = analyzeVercelCostEvidence(duplicate);
   assert.equal(duplicateAnalysis.pass, false);
   assert.ok(duplicateAnalysis.reasons.includes("duplicate-deployments:app"));
@@ -244,8 +434,23 @@ test("rejects non-finite derived totals, counterfactuals, ratios, and savings", 
     "app",
     Number.MAX_VALUE / 2,
   );
-  targetCounterfactualOverflow.baseline.targets.app.migratedPath.eligibleEvents = 1;
-  targetCounterfactualOverflow.postCutover.targets.app.migratedPath.eligibleEvents = 3;
+  setMigratedCensusMetric(
+    targetCounterfactualOverflow,
+    "baseline",
+    "app",
+    "eligibleEvents",
+    1,
+    0,
+  );
+  setMigratedCensusMetric(
+    targetCounterfactualOverflow,
+    "postCutover",
+    "app",
+    "eligibleEvents",
+    3,
+    0,
+  );
+  targetCounterfactualOverflow.postCutover.correctness.mainDeploymentObservationsCompleted = 3;
   assert.throws(
     () => analyzeVercelCostEvidence(targetCounterfactualOverflow),
     /normalized\.buildCpuMinutes\.targets\.app\.counterfactual must be finite/,
@@ -259,13 +464,24 @@ test("rejects non-finite derived totals, counterfactuals, ratios, and savings", 
       target,
       Number.MAX_VALUE / 8,
     );
-    aggregateCounterfactualOverflow.baseline.targets[
-      target
-    ].migratedPath.eligibleEvents = 1;
-    aggregateCounterfactualOverflow.postCutover.targets[
-      target
-    ].migratedPath.eligibleEvents = 3;
+    setMigratedCensusMetric(
+      aggregateCounterfactualOverflow,
+      "baseline",
+      target,
+      "eligibleEvents",
+      1,
+      0,
+    );
+    setMigratedCensusMetric(
+      aggregateCounterfactualOverflow,
+      "postCutover",
+      target,
+      "eligibleEvents",
+      3,
+      0,
+    );
   }
+  aggregateCounterfactualOverflow.postCutover.correctness.mainDeploymentObservationsCompleted = 0;
   assert.throws(
     () => analyzeVercelCostEvidence(aggregateCounterfactualOverflow),
     /normalized\.buildCpuMinutes\.counterfactual must be finite/,
@@ -294,8 +510,23 @@ test("rejects non-finite derived totals, counterfactuals, ratios, and savings", 
   const savingsRatioOverflow = fixture();
   savingsRatioOverflow.baseline.targets.app.migratedPath.buildCpuMinutes =
     Number.MIN_VALUE;
-  savingsRatioOverflow.baseline.targets.app.migratedPath.eligibleEvents = 1;
-  savingsRatioOverflow.postCutover.targets.app.migratedPath.eligibleEvents = 1;
+  setMigratedCensusMetric(
+    savingsRatioOverflow,
+    "baseline",
+    "app",
+    "eligibleEvents",
+    1,
+    0,
+  );
+  setMigratedCensusMetric(
+    savingsRatioOverflow,
+    "postCutover",
+    "app",
+    "eligibleEvents",
+    1,
+    0,
+  );
+  savingsRatioOverflow.postCutover.correctness.mainDeploymentObservationsCompleted = 3;
   assert.throws(
     () => analyzeVercelCostEvidence(savingsRatioOverflow),
     /normalized\.buildCpuMinutes\.targets\.app\.savings\.ratio must be finite/,
@@ -583,6 +814,32 @@ test("requires invoice-grade provenance for migrated-path attribution", () => {
   }
 });
 
+test("rejects reused raw and provider-attribution evidence digests", () => {
+  const reusedFocusExport = fixture();
+  reusedFocusExport.postCutover.period.focusExportSha256 =
+    reusedFocusExport.baseline.period.focusExportSha256;
+  assert.throws(
+    () => validateVercelCostEvidence(reusedFocusExport),
+    /raw FOCUS export digests must differ/,
+  );
+
+  const rawFocusUsedAsAttribution = fixture();
+  rawFocusUsedAsAttribution.baseline.targets.app.attribution.evidenceSha256 =
+    rawFocusUsedAsAttribution.baseline.period.focusExportSha256;
+  assert.throws(
+    () => validateVercelCostEvidence(rawFocusUsedAsAttribution),
+    /evidenceSha256 must differ from the raw FOCUS export digest/,
+  );
+
+  const reusedProviderEvidence = fixture();
+  reusedProviderEvidence.postCutover.targets.app.attribution.evidenceSha256 =
+    reusedProviderEvidence.baseline.targets.app.attribution.evidenceSha256;
+  assert.throws(
+    () => validateVercelCostEvidence(reusedProviderEvidence),
+    /provider attribution evidence must differ for app/,
+  );
+});
+
 test("CLI emits public-safe JSON and returns nonzero for a failed gate", () => {
   const passing = spawnSync(
     process.execPath,
@@ -597,6 +854,35 @@ test("CLI emits public-safe JSON and returns nonzero for a failed gate", () => {
     Object.hasOwn(output.normalized.billedCost, "counterfactual"),
     false,
   );
+
+  const temporaryDirectory = mkdtempSync(
+    join(tmpdir(), "vercel-cost-analysis-"),
+  );
+  try {
+    const validButNonpassing = fixture();
+    validButNonpassing.postCutover.period.billingIngestionComplete = false;
+    const failingEvidencePath = join(temporaryDirectory, "failing.json");
+    writeFileSync(
+      failingEvidencePath,
+      `${JSON.stringify(validButNonpassing, null, 2)}\n`,
+    );
+    const gateFailure = spawnSync(
+      process.execPath,
+      [scriptPath, "--input", failingEvidencePath],
+      { encoding: "utf8" },
+    );
+    assert.equal(gateFailure.status, 1, gateFailure.stderr);
+    assert.equal(gateFailure.stderr, "");
+    const gateFailureOutput = JSON.parse(gateFailure.stdout);
+    assert.equal(gateFailureOutput.pass, false);
+    assert.ok(
+      gateFailureOutput.reasons.includes(
+        "post-cutover-billing-ingestion-incomplete",
+      ),
+    );
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
 
   const failing = spawnSync(
     process.execPath,
