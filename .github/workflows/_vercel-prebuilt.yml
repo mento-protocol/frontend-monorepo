@@ -293,11 +293,9 @@ jobs:
             echo "Candidate source index does not match the exact SHA tree" >&2
             exit 1
           fi
-          /usr/bin/install -d -m 0755 "$CANDIDATE_SOURCE_PATH"
-          /usr/bin/git -C "$SOURCE_PATH" checkout-index \
-            --all \
-            --force \
-            --prefix="${CANDIDATE_SOURCE_PATH}/"
+          "$node_bin" \
+            "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" \
+            materialize-source
           sudo --non-interactive /bin/chown \
             -R --no-dereference "$build_uid:$build_gid" \
             "$CANDIDATE_SOURCE_PATH"

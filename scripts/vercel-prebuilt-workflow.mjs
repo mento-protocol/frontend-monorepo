@@ -2,20 +2,25 @@
 
 /* eslint-disable turbo/no-undeclared-env-vars -- GitHub Actions supplies these controller-only values outside Turbo tasks. */
 
+import { Buffer } from "node:buffer";
 import { spawnSync } from "node:child_process";
 import {
   appendFileSync,
   chmodSync,
   chownSync,
+  closeSync,
   constants as fsConstants,
   copyFileSync,
   existsSync,
+  fchmodSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readdirSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import {
@@ -69,6 +74,11 @@ const VERCEL_CLI_BASE_ENVIRONMENT = [
 const PULL_STAGING_DIRECTORY = "mento-vercel-pull-staging";
 const CANDIDATE_SOURCE_DIRECTORY = "mento-vercel-candidate-source";
 const PULLED_ENVIRONMENT_FILE = ".env.preview.local";
+const MAX_SOURCE_ENTRIES = 20_000;
+const MAX_SOURCE_PATH_BYTES = 4_096;
+const MAX_SOURCE_BLOB_BYTES = 32 * 1_024 * 1_024;
+const MAX_SOURCE_TREE_BYTES = 16 * 1_024 * 1_024;
+const MAX_SOURCE_TOTAL_BYTES = 128 * 1_024 * 1_024;
 function requiredText(value, label, { maximum = 2_048 } = {}) {
   if (
     typeof value !== "string" ||
@@ -392,6 +402,286 @@ function assertRunnerTempChild({
     throw new Error("Isolated path is not the expected RUNNER_TEMP child");
   }
   return join(realRunnerTemp, expectedName);
+}
+
+function rawGitEnvironment() {
+  return {
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_NO_LAZY_FETCH: "1",
+    GIT_NO_REPLACE_OBJECTS: "1",
+    GIT_OPTIONAL_LOCKS: "0",
+    GIT_TERMINAL_PROMPT: "0",
+    HOME: "/nonexistent",
+    LANG: "C",
+    LC_ALL: "C",
+    PATH: "/usr/bin:/bin",
+  };
+}
+
+function rawGit(
+  repoRoot,
+  arguments_,
+  { input, maximumOutput, run = spawnSync },
+) {
+  const result = run(
+    "/usr/bin/git",
+    ["--no-pager", "--no-replace-objects", "-C", repoRoot, ...arguments_],
+    {
+      encoding: null,
+      env: rawGitEnvironment(),
+      input,
+      maxBuffer: maximumOutput,
+      stdio: ["pipe", "pipe", "pipe"],
+    },
+  );
+  if (result.error || result.status !== 0 || !Buffer.isBuffer(result.stdout)) {
+    throw new Error(`Unable to read exact Git ${arguments_[0]} objects`);
+  }
+  return result.stdout;
+}
+
+function decodeGitPath(pathBytes) {
+  if (pathBytes.length === 0 || pathBytes.length > MAX_SOURCE_PATH_BYTES) {
+    throw new Error("Exact Git tree contains an invalid path length");
+  }
+  let path;
+  try {
+    path = new TextDecoder("utf-8", { fatal: true }).decode(pathBytes);
+  } catch {
+    throw new Error("Exact Git tree contains a non-UTF-8 path");
+  }
+  const components = path.split("/");
+  if (
+    isAbsolute(path) ||
+    components.some(
+      (component) =>
+        component.length === 0 ||
+        component === "." ||
+        component === ".." ||
+        component.toLowerCase() === ".git" ||
+        hasControlCharacters(component),
+    )
+  ) {
+    throw new Error("Exact Git tree contains an unsafe path");
+  }
+  return { components, path };
+}
+
+function parseExactGitTree(rawTree) {
+  const entries = [];
+  const paths = new Set();
+  let offset = 0;
+  while (offset < rawTree.length) {
+    const end = rawTree.indexOf(0, offset);
+    if (end === -1) {
+      throw new Error("Exact Git tree is not NUL terminated");
+    }
+    const record = rawTree.subarray(offset, end);
+    const separator = record.indexOf(0x09);
+    if (separator === -1) {
+      throw new Error("Exact Git tree entry has invalid metadata");
+    }
+    const metadata = record.subarray(0, separator).toString("ascii");
+    const match = /^(\d{6}) ([a-z]+) ([0-9a-f]{40})$/.exec(metadata);
+    if (!match) {
+      throw new Error("Exact Git tree entry has invalid metadata");
+    }
+    const [, mode, type, oid] = match;
+    if (
+      type !== "blob" ||
+      (mode !== "100644" && mode !== "100755" && mode !== "120000")
+    ) {
+      throw new Error("Exact Git tree contains an unsupported entry");
+    }
+    const { components, path } = decodeGitPath(record.subarray(separator + 1));
+    if (paths.has(path)) {
+      throw new Error("Exact Git tree contains a duplicate path");
+    }
+    paths.add(path);
+    entries.push({ components, mode, oid, path });
+    if (entries.length > MAX_SOURCE_ENTRIES) {
+      throw new Error("Exact Git tree contains too many entries");
+    }
+    offset = end + 1;
+  }
+  return entries;
+}
+
+function loadRawGitBlobs(repoRoot, entries, run) {
+  const objectIds = [...new Set(entries.map(({ oid }) => oid))];
+  if (objectIds.length === 0) return new Map();
+  const input = Buffer.from(`${objectIds.join("\n")}\n`, "ascii");
+  const rawSizes = rawGit(
+    repoRoot,
+    ["cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"],
+    {
+      input,
+      maximumOutput: MAX_SOURCE_TREE_BYTES,
+      run,
+    },
+  );
+  const sizeLines = rawSizes.toString("ascii").split("\n");
+  if (sizeLines.at(-1) !== "") {
+    throw new Error("Raw Git blob size response is not newline terminated");
+  }
+  sizeLines.pop();
+  if (sizeLines.length !== objectIds.length) {
+    throw new Error("Raw Git blob size response is incomplete");
+  }
+  const sizes = new Map();
+  for (const [index, line] of sizeLines.entries()) {
+    const match = /^([0-9a-f]{40}) blob ([0-9]+)$/.exec(line);
+    const expectedOid = objectIds[index];
+    if (!match || match[1] !== expectedOid) {
+      throw new Error("Exact Git tree references a non-blob object");
+    }
+    const size = Number(match[2]);
+    if (!Number.isSafeInteger(size) || size > MAX_SOURCE_BLOB_BYTES) {
+      throw new Error("Exact Git tree contains an oversized blob");
+    }
+    sizes.set(expectedOid, size);
+  }
+  let totalBytes = 0;
+  for (const { oid } of entries) {
+    totalBytes += sizes.get(oid);
+    if (totalBytes > MAX_SOURCE_TOTAL_BYTES) {
+      throw new Error("Exact Git tree exceeds the source byte limit");
+    }
+  }
+
+  const rawBlobs = rawGit(repoRoot, ["cat-file", "--batch"], {
+    input,
+    maximumOutput: MAX_SOURCE_TOTAL_BYTES + MAX_SOURCE_TREE_BYTES,
+    run,
+  });
+  const blobs = new Map();
+  let offset = 0;
+  for (const expectedOid of objectIds) {
+    const headerEnd = rawBlobs.indexOf(0x0a, offset);
+    if (headerEnd === -1) {
+      throw new Error("Raw Git blob response is missing a header");
+    }
+    const header = rawBlobs.subarray(offset, headerEnd).toString("ascii");
+    const match = /^([0-9a-f]{40}) blob ([0-9]+)$/.exec(header);
+    const expectedSize = sizes.get(expectedOid);
+    if (
+      !match ||
+      match[1] !== expectedOid ||
+      Number(match[2]) !== expectedSize
+    ) {
+      throw new Error("Raw Git blob response does not match the exact tree");
+    }
+    const bodyStart = headerEnd + 1;
+    const bodyEnd = bodyStart + expectedSize;
+    if (bodyEnd >= rawBlobs.length || rawBlobs[bodyEnd] !== 0x0a) {
+      throw new Error("Raw Git blob response is truncated");
+    }
+    blobs.set(expectedOid, Buffer.from(rawBlobs.subarray(bodyStart, bodyEnd)));
+    offset = bodyEnd + 1;
+  }
+  if (offset !== rawBlobs.length) {
+    throw new Error("Raw Git blob response contains trailing data");
+  }
+  return blobs;
+}
+
+function ensureMaterializedParent(root, components) {
+  let current = root;
+  for (const component of components.slice(0, -1)) {
+    current = join(current, component);
+    const entry = optionalEntry(current);
+    if (entry) {
+      if (entry.isSymbolicLink() || !entry.isDirectory()) {
+        throw new Error("Exact Git tree has a non-directory path component");
+      }
+      continue;
+    }
+    mkdirSync(current, { mode: 0o755 });
+    chmodSync(current, 0o755);
+  }
+}
+
+export function materializeExactGitTree({
+  runnerTemp,
+  sourceRoot,
+  candidateRoot,
+  commitSha,
+  expectedUid = process.getuid?.(),
+  expectedGid = process.getgid?.(),
+  run = spawnSync,
+}) {
+  const sha = validateExactSha(commitSha);
+  requiredText(sourceRoot, "Exact Git source path", {
+    maximum: MAX_SOURCE_PATH_BYTES,
+  });
+  const canonicalSourceRoot = realpathSync(sourceRoot);
+  const sourceEntry = lstatSync(canonicalSourceRoot);
+  if (!sourceEntry.isDirectory()) {
+    throw new Error("Exact Git source must be a real directory");
+  }
+  const canonicalCandidateRoot = assertRunnerTempChild({
+    runnerTemp,
+    path: candidateRoot,
+    expectedName: CANDIDATE_SOURCE_DIRECTORY,
+    expectedUid,
+    expectedGid,
+  });
+  if (optionalEntry(canonicalCandidateRoot)) {
+    throw new Error("Candidate source path must be fresh");
+  }
+  const rawTree = rawGit(
+    canonicalSourceRoot,
+    ["ls-tree", "-r", "-z", "--full-tree", sha],
+    { maximumOutput: MAX_SOURCE_TREE_BYTES, run },
+  );
+  const entries = parseExactGitTree(rawTree);
+  const blobs = loadRawGitBlobs(canonicalSourceRoot, entries, run);
+
+  mkdirSync(canonicalCandidateRoot, { mode: 0o755 });
+  chmodSync(canonicalCandidateRoot, 0o755);
+  for (const entry of entries) {
+    ensureMaterializedParent(canonicalCandidateRoot, entry.components);
+    const destination = join(canonicalCandidateRoot, ...entry.components);
+    if (optionalEntry(destination)) {
+      throw new Error("Exact Git tree contains a filesystem collision");
+    }
+    const blob = blobs.get(entry.oid);
+    if (!blob) throw new Error("Exact Git tree blob was not loaded");
+    if (entry.mode === "120000") {
+      if (
+        blob.length === 0 ||
+        blob.length > MAX_SOURCE_PATH_BYTES ||
+        blob.includes(0)
+      ) {
+        throw new Error("Exact Git tree contains an invalid symbolic link");
+      }
+      symlinkSync(blob, destination);
+      continue;
+    }
+    if (typeof fsConstants.O_NOFOLLOW !== "number") {
+      throw new Error("This platform cannot safely materialize Git blobs");
+    }
+    const descriptor = openSync(
+      destination,
+      fsConstants.O_CREAT |
+        fsConstants.O_EXCL |
+        fsConstants.O_NOFOLLOW |
+        fsConstants.O_WRONLY,
+      0o600,
+    );
+    try {
+      writeFileSync(descriptor, blob);
+      fchmodSync(descriptor, entry.mode === "100755" ? 0o755 : 0o644);
+    } finally {
+      closeSync(descriptor);
+    }
+  }
+  return {
+    bytes: entries.reduce((total, { oid }) => total + blobs.get(oid).length, 0),
+    entries: entries.length,
+    sourceRoot: canonicalCandidateRoot,
+  };
 }
 
 function assertExactFilesystemTree(
@@ -1403,6 +1693,15 @@ function validateSourceFromEnvironment() {
   output("checked_out_sha", result.commitSha);
 }
 
+function materializeSourceFromEnvironment() {
+  materializeExactGitTree({
+    runnerTemp: process.env.RUNNER_TEMP,
+    sourceRoot: process.env.SOURCE_PATH,
+    candidateRoot: process.env.CANDIDATE_SOURCE_PATH,
+    commitSha: process.env.DEPLOY_SHA,
+  });
+}
+
 function pullFromEnvironment() {
   runVercel(
     buildVercelPullArguments({
@@ -1615,6 +1914,7 @@ if (isCliEntrypoint()) {
   const command = process.argv[2];
   if (command === "prepare") prepareFromEnvironment();
   else if (command === "validate-source") validateSourceFromEnvironment();
+  else if (command === "materialize-source") materializeSourceFromEnvironment();
   else if (command === "prepare-link") prepareLinkFromEnvironment();
   else if (command === "prepare-pull-staging")
     preparePullStagingFromEnvironment();
@@ -1639,7 +1939,7 @@ if (isCliEntrypoint()) {
   else if (command === "total") totalFromEnvironment();
   else {
     throw new Error(
-      "Usage: vercel-prebuilt-workflow.mjs prepare|validate-source|prepare-link|prepare-pull-staging|pull|validate-pull|validate-pull-staging|stage-pull|validate-candidate-pull|build|assert-output|trusted-install-modules-dir|deploy|verify|smoke|total",
+      "Usage: vercel-prebuilt-workflow.mjs prepare|validate-source|materialize-source|prepare-link|prepare-pull-staging|pull|validate-pull|validate-pull-staging|stage-pull|validate-candidate-pull|build|assert-output|trusted-install-modules-dir|deploy|verify|smoke|total",
     );
   }
 }

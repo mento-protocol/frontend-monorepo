@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
@@ -31,6 +32,7 @@ import {
   buildVercelInspectArguments,
   buildVercelPullArguments,
   environmentForVercelCli,
+  materializeExactGitTree,
   materializeVercelRepoLink,
   parseVercelDeploymentJson,
   PILOT_TARGET,
@@ -895,17 +897,29 @@ test(
   },
 );
 
-test("checkout-index preserves files and bytes ignored or substituted by git archive", () => {
-  const repository = mkdtempSync(join(tmpdir(), "vercel-index-source-"));
-  const candidate = mkdtempSync(join(tmpdir(), "vercel-index-candidate-"));
+test("raw Git-object materialization bypasses archive and checkout filters", () => {
+  const repository = mkdtempSync(join(tmpdir(), "vercel-raw-source-"));
+  const runnerTemp = mkdtempSync(join(tmpdir(), "vercel-raw-runner-"));
+  const candidate = join(runnerTemp, "mento-vercel-candidate-source");
+  const checkoutCandidate = mkdtempSync(
+    join(tmpdir(), "vercel-filtered-candidate-"),
+  );
   try {
+    chmodSync(runnerTemp, 0o700);
     execFileSync("git", ["init", "--quiet"], { cwd: repository });
     writeFileSync(
       join(repository, ".gitattributes"),
-      "ignored.txt export-ignore\nsubstituted.txt export-subst\n",
+      [
+        "*.txt text eol=crlf ident",
+        "ignored.txt export-ignore",
+        "substituted.txt export-subst",
+        "",
+      ].join("\n"),
     );
     writeFileSync(join(repository, "ignored.txt"), "must remain\n");
     writeFileSync(join(repository, "substituted.txt"), "$Format:%H$\n");
+    writeFileSync(join(repository, "identity.txt"), "$Id$\n");
+    writeFileSync(join(repository, "line-endings.txt"), "one\ntwo\n");
     writeFileSync(join(repository, "executable.sh"), "#!/bin/sh\nexit 0\n");
     chmodSync(join(repository, "executable.sh"), 0o755);
     writeFileSync(join(repository, "plain.txt"), "plain\n");
@@ -926,19 +940,47 @@ test("checkout-index preserves files and bytes ignored or substituted by git arc
       ],
       { cwd: repository },
     );
+    const commitSha = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: repository,
+      encoding: "utf8",
+    }).trim();
 
+    const result = materializeExactGitTree({
+      runnerTemp,
+      sourceRoot: repository,
+      candidateRoot: candidate,
+      commitSha,
+    });
+    assert.equal(result.sourceRoot, realpathSync(candidate));
+    assert.ok(result.entries >= 8);
     execFileSync(
       "git",
-      ["checkout-index", "--all", "--force", `--prefix=${candidate}${sep}`],
+      [
+        "checkout-index",
+        "--all",
+        "--force",
+        `--prefix=${checkoutCandidate}${sep}`,
+      ],
       { cwd: repository },
     );
-    assert.equal(
-      readFileSync(join(candidate, "ignored.txt"), "utf8"),
-      "must remain\n",
+    for (const path of [
+      "ignored.txt",
+      "substituted.txt",
+      "identity.txt",
+      "line-endings.txt",
+    ]) {
+      const blob = execFileSync("git", ["cat-file", "blob", `HEAD:${path}`], {
+        cwd: repository,
+      });
+      assert.deepEqual(readFileSync(join(candidate, path)), blob);
+    }
+    assert.match(
+      readFileSync(join(checkoutCandidate, "identity.txt"), "utf8"),
+      /^\$Id: [0-9a-f]{40} \$\r\n$/,
     );
-    assert.equal(
-      readFileSync(join(candidate, "substituted.txt"), "utf8"),
-      "$Format:%H$\n",
+    assert.deepEqual(
+      readFileSync(join(checkoutCandidate, "line-endings.txt")),
+      Buffer.from("one\r\ntwo\r\n"),
     );
     assert.equal(
       lstatSync(join(candidate, "linked.txt")).isSymbolicLink(),
@@ -954,9 +996,93 @@ test("checkout-index preserves files and bytes ignored or substituted by git arc
       () => lstatSync(join(candidate, ".git")),
       (error) => error?.code === "ENOENT",
     );
+    assert.throws(
+      () =>
+        materializeExactGitTree({
+          runnerTemp,
+          sourceRoot: repository,
+          candidateRoot: candidate,
+          commitSha,
+        }),
+      /must be fresh/,
+    );
   } finally {
     rmSync(repository, { force: true, recursive: true });
-    rmSync(candidate, { force: true, recursive: true });
+    rmSync(runnerTemp, { force: true, recursive: true });
+    rmSync(checkoutCandidate, { force: true, recursive: true });
+  }
+});
+
+test("raw Git-object materialization rejects gitlinks before writing", () => {
+  const repository = mkdtempSync(join(tmpdir(), "vercel-gitlink-source-"));
+  const runnerTemp = mkdtempSync(join(tmpdir(), "vercel-gitlink-runner-"));
+  const candidate = join(runnerTemp, "mento-vercel-candidate-source");
+  try {
+    chmodSync(runnerTemp, 0o700);
+    execFileSync("git", ["init", "--quiet"], { cwd: repository });
+    writeFileSync(join(repository, "plain.txt"), "plain\n");
+    execFileSync("git", ["add", "."], { cwd: repository });
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "--quiet",
+        "-m",
+        "base",
+      ],
+      { cwd: repository },
+    );
+    const baseCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: repository,
+      encoding: "utf8",
+    }).trim();
+    execFileSync(
+      "git",
+      ["update-index", "--add", "--cacheinfo", `160000,${baseCommit},vendor`],
+      { cwd: repository },
+    );
+    const tree = execFileSync("git", ["write-tree"], {
+      cwd: repository,
+      encoding: "utf8",
+    }).trim();
+    const gitlinkCommit = execFileSync(
+      "git",
+      [
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit-tree",
+        tree,
+        "-p",
+        baseCommit,
+        "-m",
+        "gitlink",
+      ],
+      { cwd: repository, encoding: "utf8" },
+    ).trim();
+
+    assert.throws(
+      () =>
+        materializeExactGitTree({
+          runnerTemp,
+          sourceRoot: repository,
+          candidateRoot: candidate,
+          commitSha: gitlinkCommit,
+        }),
+      /unsupported entry/,
+    );
+    assert.throws(
+      () => lstatSync(candidate),
+      (error) => error?.code === "ENOENT",
+    );
+  } finally {
+    rmSync(repository, { force: true, recursive: true });
+    rmSync(runnerTemp, { force: true, recursive: true });
   }
 });
 
@@ -1022,7 +1148,7 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
       '/usr/bin/git -C "$SOURCE_PATH" write-tree',
       '/usr/bin/git -C "$SOURCE_PATH" rev-parse "$DEPLOY_SHA^{tree}"',
       'if [ "$source_tree" != "$expected_tree" ]; then',
-      '/usr/bin/git -C "$SOURCE_PATH" checkout-index',
+      "materialize-source",
       '-R --no-dereference "$build_uid:$build_gid"',
     ];
     let previous = -1;
@@ -1035,7 +1161,12 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
       );
       previous = index;
     }
+    assert.match(
+      block,
+      /"\$GITHUB_WORKSPACE\/controller\/scripts\/vercel-prebuilt-workflow\.mjs" \\\n\s+materialize-source/,
+    );
     assert.doesNotMatch(block, /git -C "\$SOURCE_PATH" archive/);
+    assert.doesNotMatch(block, /git -C "\$SOURCE_PATH" checkout-index/);
     assert.doesNotMatch(block, /get-tar-commit-id/);
   };
   assertExactSourceMaterialization(isolationBlock);
@@ -1045,6 +1176,7 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
       'if [ "$source_tree" != "$expected_tree" ]; then',
       'if [ "$source_tree" = "$source_tree" ]; then',
     ),
+    isolationBlock.replace("materialize-source", "prepare-link"),
     isolationBlock.replace("-R --no-dereference", "-R"),
   ]) {
     assert.notEqual(mutation, isolationBlock);

@@ -363,10 +363,14 @@ separately from `vercel build`. The signed Turbo remote build cache remains
 enabled and its hit/miss evidence remains part of the comparison.
 
 Before candidate installation, the worker proves the checked-out index tree is
-the exact selected commit tree, then materializes only that index with
-`git checkout-index` into the isolated candidate root. It deliberately does not
-use `git archive`: candidate-controlled `export-ignore` and `export-subst`
-attributes must not omit files or rewrite bytes in the selected source.
+the exact selected commit tree. A trusted, bounded materializer then lists that
+exact commit with `git ls-tree`, reads every raw blob with `git cat-file`, and
+writes only supported regular files and symbolic links into a fresh fixed path
+under `RUNNER_TEMP`. It rejects unsafe paths, unsupported modes (including
+gitlinks), oversized trees, and filesystem collisions. Reading raw objects
+deliberately bypasses both archive attributes (`export-ignore` and
+`export-subst`) and checkout filters (`eol`, `ident`, and custom filters), so the
+candidate always receives the selected commit's stored bytes.
 
 ### Root Directory and command sequence
 
