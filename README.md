@@ -132,6 +132,9 @@ pnpm ci:action-pins:test
 # Test the network-free Vercel planning and prebuilt-build primitives
 pnpm vercel:primitives:test
 
+# Test the manual UI prebuilt workflow, GitHub Deployment lifecycle, and smoke controller
+pnpm vercel:workflow:test
+
 # Verify exact Next.js and Vercel CLI custom deployment-ID prerequisites
 pnpm vercel:versions:check
 ```

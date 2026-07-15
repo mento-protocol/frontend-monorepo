@@ -1,0 +1,57 @@
+name: Vercel Prebuilt Pilot
+
+# checkov:skip=CKV_GHA_7: This manual exact-SHA deployment pilot requires selectors that are validated before use.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Logical target (UI only for this pilot)
+        required: true
+        type: choice
+        default: ui
+        options:
+          - ui
+      commit_sha:
+        description: Immutable lowercase 40-character commit SHA
+        required: true
+        type: string
+      git_branch:
+        description: Same-repository branch containing commit_sha
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  deploy-ui-preview:
+    name: Deploy UI prebuilt preview
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.workflow_ref == 'mento-protocol/frontend-monorepo/.github/workflows/vercel-prebuilt-pilot.yml@refs/heads/main'
+    permissions:
+      contents: read
+      deployments: write
+    uses: ./.github/workflows/_vercel-prebuilt.yml
+    with:
+      commit_sha: ${{ inputs.commit_sha }}
+      deploy_permitted: true
+      deployment_idempotency_key: vercel-pilot:v1:ui:sha:${{ inputs.commit_sha }}:run:${{ github.run_id }}:attempt:${{ github.run_attempt }}
+      deployment_mode: preview
+      expected_root_directory: apps/ui.mento.org
+      git_branch: ${{ inputs.git_branch }}
+      github_environment: vercel-preview-ui
+      logical_target: ${{ inputs.target }}
+      provenance: manual-pilot
+      turbo_team: ${{ vars.TURBO_TEAM }}
+      vercel_environment: preview
+      vercel_org_id: ${{ vars.VERCEL_ORG_ID }}
+      vercel_project_id: ${{ vars.VERCEL_PROJECT_ID_UI }}
+      vercel_target: preview
+      workspace_package: ui.mento.org
+    secrets:
+      turbo_remote_cache_signature_key: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+      turbo_token: ${{ secrets.TURBO_TOKEN }}
+      vercel_token: ${{ secrets.VERCEL_TOKEN_PREVIEW }}
