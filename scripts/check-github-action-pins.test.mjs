@@ -189,6 +189,26 @@ test("rejects widened Vercel controller repository event types", () => {
   }
 });
 
+test("rejects widened Vercel controller pull request activity types", () => {
+  const root = fixtureRoot("vercel-controller-pull-request-type-fail");
+  try {
+    const mutated = VERCEL_PREVIEW_CONTROLLER_FIXTURE.replace(
+      "types: [opened, edited, synchronize, reopened, closed]",
+      "types: [opened, edited, synchronize, reopened, closed, labeled]",
+    );
+    write(root, VERCEL_PREVIEW_CONTROLLER_PATH, mutated);
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(
+      result.stderr,
+      "must use only the default-branch repository dispatch contract",
+      "pull request activity allowlist",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("rejects mutable workflow tags with quoted keys and values", () => {
   const root = fixtureRoot("workflow-fail");
   try {

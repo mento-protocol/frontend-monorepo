@@ -33,7 +33,7 @@ const VERCEL_PREVIEW_CONTROLLER =
   ".github/workflows/vercel-preview-controller.yml";
 const VERCEL_PREVIEW_CONTROLLER_TRIGGERS = {
   pull_request_target: {
-    types: ["opened", "synchronize", "reopened", "closed"],
+    types: ["opened", "edited", "synchronize", "reopened", "closed"],
   },
   repository_dispatch: {
     types: ["vercel-preview-bootstrap", "vercel-preview-reconcile"],
