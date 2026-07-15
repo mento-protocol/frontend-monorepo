@@ -282,6 +282,13 @@ reachable for this pilot.
 
 ### Dispatch
 
+This is a privileged maintainer action, not an automatic PR trigger. Dispatch
+only after reviewing the selected SHA and accepting its same-repository author
+as trusted: dependency installation and the UI build execute that source while
+the job holds preview-only Vercel and Turbo credentials. Fork sources cannot be
+selected, and the workflow rejects Dependabot branches. If the source is not
+trusted, do not dispatch the pilot.
+
 Choose a SHA that already has a native Vercel Git UI preview and a branch that
 contains it. Verify both locally before dispatching:
 

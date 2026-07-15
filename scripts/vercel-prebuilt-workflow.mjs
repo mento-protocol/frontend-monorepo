@@ -80,6 +80,9 @@ export function validateGitBranch(branch, run = spawnSync) {
 export function validatePilotContract(values) {
   validateExactSha(values.commitSha);
   validateGitBranch(values.gitBranch);
+  if (values.gitBranch.startsWith("dependabot/")) {
+    throw new Error("Dependabot branches cannot receive preview credentials");
+  }
 
   const expected = {
     logicalTarget: values.logicalTarget,

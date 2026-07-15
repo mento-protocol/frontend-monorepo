@@ -52,6 +52,7 @@ test("pilot contract accepts only the UI preview mapping and exact SHA", () => {
     { deploymentMode: "staged-production" },
     { vercelTarget: "production" },
     { commitSha: "main" },
+    { gitBranch: "dependabot/npm_and_yarn/example-1.0.0" },
     { deployPermitted: false },
     { githubRepository: "someone/fork" },
   ]) {
