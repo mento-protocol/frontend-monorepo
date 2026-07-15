@@ -7,6 +7,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -810,7 +811,7 @@ test("trusted Vercel CLI must be exact-versioned and runner-protected", () => {
 });
 
 test(
-  "pinned pnpm materializes and executes Vercel 56.2.0 in the protected relative layout",
+  "pinned pnpm materializes and executes Vercel 56.2.0 offline in the protected relative layout",
   { timeout: 120_000 },
   () => {
     const fixtureRoot = mkdtempSync(
@@ -860,7 +861,7 @@ test(
           "copy",
           "--virtual-store-dir",
           layout.virtualStoreDir,
-          "--prefer-offline",
+          "--offline",
         ],
         {
           encoding: "utf8",
@@ -893,6 +894,71 @@ test(
     }
   },
 );
+
+test("checkout-index preserves files and bytes ignored or substituted by git archive", () => {
+  const repository = mkdtempSync(join(tmpdir(), "vercel-index-source-"));
+  const candidate = mkdtempSync(join(tmpdir(), "vercel-index-candidate-"));
+  try {
+    execFileSync("git", ["init", "--quiet"], { cwd: repository });
+    writeFileSync(
+      join(repository, ".gitattributes"),
+      "ignored.txt export-ignore\nsubstituted.txt export-subst\n",
+    );
+    writeFileSync(join(repository, "ignored.txt"), "must remain\n");
+    writeFileSync(join(repository, "substituted.txt"), "$Format:%H$\n");
+    writeFileSync(join(repository, "executable.sh"), "#!/bin/sh\nexit 0\n");
+    chmodSync(join(repository, "executable.sh"), 0o755);
+    writeFileSync(join(repository, "plain.txt"), "plain\n");
+    chmodSync(join(repository, "plain.txt"), 0o644);
+    symlinkSync("ignored.txt", join(repository, "linked.txt"));
+    execFileSync("git", ["add", "."], { cwd: repository });
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "--quiet",
+        "-m",
+        "fixture",
+      ],
+      { cwd: repository },
+    );
+
+    execFileSync(
+      "git",
+      ["checkout-index", "--all", "--force", `--prefix=${candidate}${sep}`],
+      { cwd: repository },
+    );
+    assert.equal(
+      readFileSync(join(candidate, "ignored.txt"), "utf8"),
+      "must remain\n",
+    );
+    assert.equal(
+      readFileSync(join(candidate, "substituted.txt"), "utf8"),
+      "$Format:%H$\n",
+    );
+    assert.equal(
+      lstatSync(join(candidate, "linked.txt")).isSymbolicLink(),
+      true,
+    );
+    assert.equal(readlinkSync(join(candidate, "linked.txt")), "ignored.txt");
+    assert.notEqual(
+      lstatSync(join(candidate, "executable.sh")).mode & 0o111,
+      0,
+    );
+    assert.equal(lstatSync(join(candidate, "plain.txt")).mode & 0o111, 0);
+    assert.throws(
+      () => lstatSync(join(candidate, ".git")),
+      (error) => error?.code === "ENOENT",
+    );
+  } finally {
+    rmSync(repository, { force: true, recursive: true });
+    rmSync(candidate, { force: true, recursive: true });
+  }
+});
 
 test("candidate execution is UID-isolated and hands upload to runner-owned state", () => {
   const raw = readFileSync(
@@ -951,6 +1017,39 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   );
   assert.doesNotMatch(isolationBlock, /--no-frozen-lockfile/);
   assert.doesNotMatch(isolationBlock, /"dependencies":\{"vercel":"56\.2\.0"\}/);
+  const assertExactSourceMaterialization = (block) => {
+    const markers = [
+      '/usr/bin/git -C "$SOURCE_PATH" write-tree',
+      '/usr/bin/git -C "$SOURCE_PATH" rev-parse "$DEPLOY_SHA^{tree}"',
+      'if [ "$source_tree" != "$expected_tree" ]; then',
+      '/usr/bin/git -C "$SOURCE_PATH" checkout-index',
+      '-R --no-dereference "$build_uid:$build_gid"',
+    ];
+    let previous = -1;
+    for (const marker of markers) {
+      const index = block.indexOf(marker);
+      assert.notEqual(index, -1, `missing exact-source marker: ${marker}`);
+      assert.ok(
+        index > previous,
+        `out-of-order exact-source marker: ${marker}`,
+      );
+      previous = index;
+    }
+    assert.doesNotMatch(block, /git -C "\$SOURCE_PATH" archive/);
+    assert.doesNotMatch(block, /get-tar-commit-id/);
+  };
+  assertExactSourceMaterialization(isolationBlock);
+  for (const mutation of [
+    isolationBlock.replace("$DEPLOY_SHA^{tree}", "HEAD^{tree}"),
+    isolationBlock.replace(
+      'if [ "$source_tree" != "$expected_tree" ]; then',
+      'if [ "$source_tree" = "$source_tree" ]; then',
+    ),
+    isolationBlock.replace("-R --no-dereference", "-R"),
+  ]) {
+    assert.notEqual(mutation, isolationBlock);
+    assert.throws(() => assertExactSourceMaterialization(mutation));
+  }
 
   const installBlock = raw.slice(
     raw.indexOf("- name: Install frozen dependencies"),

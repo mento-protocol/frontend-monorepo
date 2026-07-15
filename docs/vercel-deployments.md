@@ -344,12 +344,14 @@ lifecycle scripts, and copies packages into a runner-owned directory outside
 the checkout. Its `--modules-dir` and `--virtual-store-dir` values are validated
 relative paths from the controller to that directory; pnpm treats an absolute
 `--modules-dir` as project-relative and would otherwise materialize the CLI at
-the wrong path. Before any credentialed command, the worker proves the CLI
+the wrong path. The zero-network fixture requires the already-hydrated package
+store with `--offline`; it cannot contact the registry to repair missing data.
+Before any credentialed command, the worker proves the CLI
 resolves inside the protected directory, its package version is exactly
 `56.2.0`, the candidate UID cannot write it, and `node <cli> --version`
 executes successfully. The workflow test suite repeats this with the actual
-pinned pnpm install in a temporary checkout, preferring the already-hydrated
-package store while retaining a frozen-lockfile failure boundary.
+pinned pnpm install in a temporary checkout while retaining a frozen-lockfile
+failure boundary.
 
 The candidate dependency install intentionally does **not** reuse setup-node's
 writable pnpm store. Its isolated `HOME` and XDG directories place that store
@@ -359,6 +361,12 @@ Actions post-step could save from the trusted `main` run. Treat candidate
 dependency installation as a cold, measured pilot cost; record its duration
 separately from `vercel build`. The signed Turbo remote build cache remains
 enabled and its hit/miss evidence remains part of the comparison.
+
+Before candidate installation, the worker proves the checked-out index tree is
+the exact selected commit tree, then materializes only that index with
+`git checkout-index` into the isolated candidate root. It deliberately does not
+use `git archive`: candidate-controlled `export-ignore` and `export-subst`
+attributes must not omit files or rewrite bytes in the selected source.
 
 ### Root Directory and command sequence
 

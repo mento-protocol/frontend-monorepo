@@ -285,28 +285,22 @@ jobs:
             exit 1
           fi
 
-          archive="${RUNNER_TEMP}/mento-vercel-candidate-source.tar"
-          trap '/bin/rm -f -- "$archive"' EXIT
-          git -C "$SOURCE_PATH" archive \
-            --format=tar \
-            --output="$archive" \
-            "$DEPLOY_SHA"
-          if [ "$(git get-tar-commit-id < "$archive")" != "$DEPLOY_SHA" ]; then
-            echo "Candidate archive provenance does not match the exact SHA" >&2
+          source_tree="$(/usr/bin/git -C "$SOURCE_PATH" write-tree)"
+          expected_tree="$(
+            /usr/bin/git -C "$SOURCE_PATH" rev-parse "$DEPLOY_SHA^{tree}"
+          )"
+          if [ "$source_tree" != "$expected_tree" ]; then
+            echo "Candidate source index does not match the exact SHA tree" >&2
             exit 1
           fi
-          /bin/chmod 0444 "$archive"
-          sudo --non-interactive /usr/bin/install \
-            -d -o "$build_uid" -g "$build_gid" -m 0755 \
+          /usr/bin/install -d -m 0755 "$CANDIDATE_SOURCE_PATH"
+          /usr/bin/git -C "$SOURCE_PATH" checkout-index \
+            --all \
+            --force \
+            --prefix="${CANDIDATE_SOURCE_PATH}/"
+          sudo --non-interactive /bin/chown \
+            -R --no-dereference "$build_uid:$build_gid" \
             "$CANDIDATE_SOURCE_PATH"
-          sudo --non-interactive /usr/bin/env -i PATH=/usr/bin:/bin \
-            /usr/bin/setpriv \
-            --reuid="$build_uid" \
-            --regid="$build_gid" \
-            --clear-groups \
-            --no-new-privs \
-            -- \
-            /bin/tar -xf "$archive" -C "$CANDIDATE_SOURCE_PATH"
           sudo --non-interactive /usr/bin/install \
             -d -o "$build_uid" -g "$build_gid" -m 0700 \
             "$CANDIDATE_HOME_PATH" \
