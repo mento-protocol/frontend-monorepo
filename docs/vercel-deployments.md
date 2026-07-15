@@ -543,8 +543,11 @@ default ref, attempt, PR, target, candidate SHA, and epoch-bound key digest,
 before state becomes `dispatched`. If `main` advances between intent persistence
 and dispatch, recovery may attach an already-created worker at the old
 authorized SHA, but a newer controller/worker version cannot satisfy or
-redispatch that old intent. With no matching old run, reconciliation reports a
-controller error and leaves the durable intent for explicit operator diagnosis.
+redispatch that old intent. With no matching old run, reconciliation writes an
+immutable `controller-workflow-upgraded-before-dispatch` error result for the
+old selection, then reselects the same desired receipt under the current
+workflow SHA. The new key therefore advances automatically without ever
+pretending that new workflow code fulfilled the retired intent.
 
 The canonical Deployment key and environment are:
 
@@ -598,13 +601,21 @@ Retry behavior is bounded and serialized:
 - a verified upload whose smoke failed retries smoke once against the same URL;
 - a build failure before the durable upload-attempt boundary may rebuild once;
 - after an ambiguous upload result, the trusted credentialed job re-queries a
-  bounded Vercel time window using the literal project, preview target, exact
-  SHA, branch, and controller-key metadata; one delayed match resumes, a
-  persistently proven zero-match result permits exactly one serialized upload
-  retry, and the retry then consumes the full bounded convergence window. The
-  union of post-retry observations must contain one monotonic deployment
-  identity matching the retry's parsed stdout; delayed duplicates, reordered
-  identities, persistent zero visibility, or unknown results fail closed;
+  bounded Vercel time window using only the
+  [documented List Deployments filters](https://vercel.com/docs/rest-api/deployments/list-deployments)
+  for project, preview target, exact SHA, and branch. It requests one bounded
+  100-row page,
+  rejects pagination rather than silently missing a candidate, and validates
+  the controller-key plus exact commit metadata client-side. Unrelated native
+  or controller deployments are ignored. A matching incomplete Vercel row with
+  `url: null` is durable evidence that an upload already exists: lookup retries
+  until its immutable URL appears, but persistent incompleteness or disappearance
+  fails closed without a second upload. Only three observations containing no
+  exact complete or incomplete deployment permit one serialized upload retry.
+  The retry then consumes the full bounded convergence window. The union of
+  post-retry observations must contain one monotonic deployment identity
+  matching the retry's parsed stdout; delayed duplicates, reordered identities,
+  persistent zero visibility, or unknown results fail closed;
 - a second build/smoke failure is terminal.
 
 This is a bounded convergence protocol that reduces duplicate risk and fails

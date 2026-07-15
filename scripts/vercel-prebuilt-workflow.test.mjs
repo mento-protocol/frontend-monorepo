@@ -377,23 +377,43 @@ function lookupOptions() {
   };
 }
 
-test("ambiguous upload lookup is bounded to the literal project, SHA, ref, target, key, and time window", () => {
+test("ambiguous upload lookup uses supported filters and validates the exact metadata tuple client-side", () => {
   const url = new URL(buildVercelDeploymentLookupUrl(lookupOptions()));
   assert.equal(url.origin, "https://api.vercel.com");
-  assert.equal(url.pathname, "/v6/deployments");
+  assert.equal(url.pathname, "/v7/deployments");
   assert.equal(url.searchParams.get("projectId"), "prj_example");
   assert.equal(url.searchParams.get("teamId"), "team_example");
   assert.equal(url.searchParams.get("target"), "preview");
-  assert.equal(url.searchParams.get("limit"), "2");
-  assert.equal(url.searchParams.get("meta-githubCommitSha"), SHA);
-  assert.equal(
-    url.searchParams.get("meta-githubCommitRef"),
-    "feature/ui-pilot",
-  );
-  assert.equal(url.searchParams.get("meta-mentoControllerKey"), CONTROLLER_KEY);
+  assert.equal(url.searchParams.get("branch"), "feature/ui-pilot");
+  assert.equal(url.searchParams.get("sha"), SHA);
+  assert.equal(url.searchParams.get("limit"), "100");
+  assert.deepEqual([...url.searchParams.keys()].sort(), [
+    "branch",
+    "limit",
+    "projectId",
+    "sha",
+    "since",
+    "target",
+    "teamId",
+    "until",
+  ]);
   assert.deepEqual(
     parseVercelDeploymentLookup(
-      JSON.stringify({ deployments: [lookupDeployment()] }),
+      JSON.stringify({
+        deployments: [
+          ...Array.from({ length: 5 }, (_, index) =>
+            lookupDeployment({
+              uid: `dpl_Other${index}`,
+              url: `ui-other-${index}.vercel.app`,
+              meta: {
+                ...lookupDeployment().meta,
+                mentoControllerKey: `${CONTROLLER_KEY}-other-${index}`,
+              },
+            }),
+          ),
+          lookupDeployment(),
+        ],
+      }),
       lookupOptions(),
     ),
     [
@@ -405,24 +425,128 @@ test("ambiguous upload lookup is bounded to the literal project, SHA, ref, targe
       },
     ],
   );
-  assert.throws(
-    () =>
-      parseVercelDeploymentLookup(
-        JSON.stringify({
-          deployments: [
-            {
-              ...lookupDeployment(),
-              meta: {
-                ...lookupDeployment().meta,
-                mentoControllerKey: `${CONTROLLER_KEY}-other`,
-              },
+  assert.deepEqual(
+    parseVercelDeploymentLookup(
+      JSON.stringify({
+        deployments: [
+          {
+            ...lookupDeployment(),
+            meta: {
+              ...lookupDeployment().meta,
+              mentoControllerKey: `${CONTROLLER_KEY}-other`,
             },
-          ],
-        }),
-        lookupOptions(),
-      ),
-    /exact upload tuple/,
+          },
+        ],
+      }),
+      lookupOptions(),
+    ),
+    [],
   );
+});
+
+test("deployment lookup retries an exact incomplete row until its immutable URL exists", async () => {
+  const incomplete = parseVercelDeploymentLookup(
+    JSON.stringify({
+      deployments: [lookupDeployment({ url: null })],
+    }),
+    lookupOptions(),
+  )[0];
+  assert.deepEqual(incomplete, {
+    deploymentId: "dpl_Abc123",
+    deploymentUrl: null,
+    readyState: "BUILDING",
+    target: "preview",
+    incomplete: true,
+  });
+
+  const complete = parseVercelDeploymentLookup(
+    JSON.stringify({ deployments: [lookupDeployment()] }),
+    lookupOptions(),
+  )[0];
+  let uploadCalls = 0;
+  let lookupCalls = 0;
+  const result = await deployWithAmbiguityRecovery({
+    runUpload: async () => {
+      uploadCalls += 1;
+      return { status: 1, stdout: "" };
+    },
+    lookup: async () => {
+      lookupCalls += 1;
+      return lookupCalls < 3 ? [incomplete] : [complete];
+    },
+    waitForRetry: async () => {},
+  });
+  assert.deepEqual(result, complete);
+  assert.equal(uploadCalls, 1);
+  assert.equal(lookupCalls, 3);
+});
+
+test("a persistently incomplete exact deployment fails closed without another upload", async () => {
+  const [incomplete] = parseVercelDeploymentLookup(
+    JSON.stringify({ deployments: [lookupDeployment({ url: null })] }),
+    lookupOptions(),
+  );
+  let uploadCalls = 0;
+  let lookupCalls = 0;
+  await assert.rejects(
+    deployWithAmbiguityRecovery({
+      runUpload: async () => {
+        uploadCalls += 1;
+        return { status: 1, stdout: "" };
+      },
+      lookup: async () => {
+        lookupCalls += 1;
+        return [incomplete];
+      },
+      waitForRetry: async () => {},
+    }),
+    /remained incomplete or disappeared/,
+  );
+  assert.equal(uploadCalls, 1);
+  assert.equal(lookupCalls, 3);
+});
+
+test("complete and incomplete rows for one exact tuple fail closed as duplicates", async () => {
+  const matches = parseVercelDeploymentLookup(
+    JSON.stringify({
+      deployments: [lookupDeployment(), lookupDeployment({ url: null })],
+    }),
+    lookupOptions(),
+  );
+  let uploadCalls = 0;
+  await assert.rejects(
+    deployWithAmbiguityRecovery({
+      runUpload: async () => {
+        uploadCalls += 1;
+        return { status: 1, stdout: "" };
+      },
+      lookup: async () => matches,
+      waitForRetry: async () => {},
+    }),
+    /Multiple Vercel deployments match one controller key/,
+  );
+  assert.equal(uploadCalls, 1);
+});
+
+test("deployment lookup fails closed rather than silently ignoring another result page", () => {
+  for (const pagination of [
+    { next: String(LOOKUP_NOW - 1) },
+    null,
+    "malformed",
+    [],
+  ]) {
+    assert.throws(
+      () =>
+        parseVercelDeploymentLookup(
+          JSON.stringify({
+            pagination,
+            deployments: [lookupDeployment()],
+          }),
+          lookupOptions(),
+        ),
+      /response is malformed/,
+    );
+  }
 });
 
 test("deployment lookup accepts Vercel uid and bounded millisecond timestamps only", () => {

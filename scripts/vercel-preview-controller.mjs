@@ -1323,12 +1323,22 @@ export function reconcileState({
       const attemptsForReceipt = epochResults.filter(
         (result) =>
           result.selection_receipt_run_id ===
-          completedActive.selection_receipt_run_id,
+            completedActive.selection_receipt_run_id &&
+          result.terminal_reason !==
+            "controller-workflow-upgraded-before-dispatch",
       ).length;
       if (
         !selected &&
         retriable.has(completedResult?.terminal_reason) &&
         attemptsForReceipt < 2
+      ) {
+        selected = candidateByRun.get(completedActive.selection_receipt_run_id);
+      }
+      if (
+        !selected &&
+        completedResult?.terminal_reason ===
+          "controller-workflow-upgraded-before-dispatch" &&
+        completedResult.expected_workflow_sha !== expectedWorkflowSha
       ) {
         selected = candidateByRun.get(completedActive.selection_receipt_run_id);
       }
@@ -1994,6 +2004,39 @@ async function recordRemovedSelection({ github, context, pr, selection }) {
   return result;
 }
 
+async function recordSupersededIntent({ github, context, pr, selection }) {
+  const result = validateWorkerResult({
+    schema: RESULT_RECEIPT_SCHEMA,
+    repository: PREVIEW_REPOSITORY,
+    pr,
+    target: PREVIEW_TARGET,
+    sha: selection.sha,
+    controller_key: selection.key,
+    key_digest: selection.key_digest,
+    epoch_anchor_run_id: selection.epoch_anchor_run_id,
+    reconciliation_basis_digest: selection.reconciliation_basis_digest,
+    selection_receipt_run_id: selection.selection_receipt_run_id,
+    expected_workflow_sha: selection.expected_workflow_sha,
+    worker_run_id: exactRunId(context.runId, "Controller upgrade run ID"),
+    worker_run_attempt: exactRunAttempt(context.runAttempt ?? 1),
+    github_deployment_id: null,
+    state: "error",
+    vercel_deployment_id: null,
+    next_deployment_id: null,
+    vercel_deployment_url: null,
+    smoke_result: "not-run",
+    terminal_reason: "controller-workflow-upgraded-before-dispatch",
+  });
+  await writeImmutableComment({
+    github,
+    context,
+    pr,
+    marker: resultReceiptMarker(result),
+    value: result,
+  });
+  return result;
+}
+
 function assertDispatchTrust(pull, selected) {
   const normalized = normalizePullRequest(pull);
   invariant(normalized.state === "open", "PR closed before worker dispatch");
@@ -2224,10 +2267,15 @@ export async function reconcilePreview({
           selected,
           { waitForRetry: waitForRecovery },
         );
-        invariant(
-          recoveredRun || selected.expected_workflow_sha === workflowSha,
-          "Intended worker workflow SHA no longer matches this controller workflow SHA",
-        );
+        if (!recoveredRun && selected.expected_workflow_sha !== workflowSha) {
+          await recordSupersededIntent({
+            github,
+            context,
+            pr,
+            selection: selected,
+          });
+          continue reconcileAttempts;
+        }
         const runDetails =
           recoveredRun ?? (await dispatchWorker(github, context, selected));
         state = {

@@ -1526,7 +1526,7 @@ test("intended dispatch recovery attaches exactly one run and fails closed on am
   assert.equal(ambiguous.commitStatuses.at(-1).state, "error");
 });
 
-test("intended recovery rejects conflicting run SHA and never mixes controller versions", async () => {
+test("intended recovery rejects conflicting runs and reselects a missing stale intent", async () => {
   const opened = event({
     run: 122,
     action: "opened",
@@ -1563,19 +1563,82 @@ test("intended recovery rejects conflicting run SHA and never mixes controller v
     pullRequest,
     comments: [eventComment(opened), stateComment(intended)],
   });
-  await assert.rejects(
-    reconcilePreview({
-      github: mainAdvancedBeforeDispatch.github,
-      context: fakeContext(),
-      core: fakeCore(),
-      prNumber: 519,
-      workflowSha: SHA.B,
-      waitForRecovery: async () => {},
-    }),
-    /Intended worker workflow SHA no longer matches this controller workflow SHA/,
+  const recoveredState = await reconcilePreview({
+    github: mainAdvancedBeforeDispatch.github,
+    context: fakeContext(),
+    core: fakeCore(),
+    prNumber: 519,
+    workflowSha: SHA.B,
+    waitForRecovery: async () => {},
+  });
+  assert.equal(mainAdvancedBeforeDispatch.dispatches.length, 1);
+  assert.equal(
+    mainAdvancedBeforeDispatch.dispatches[0].inputs.expected_workflow_sha,
+    SHA.B,
   );
-  assert.equal(mainAdvancedBeforeDispatch.dispatches.length, 0);
-  assert.equal(mainAdvancedBeforeDispatch.commitStatuses.at(-1).state, "error");
+  assert.equal(recoveredState.ui.active.expected_workflow_sha, SHA.B);
+  assert.equal(recoveredState.ui.active.dispatch_state, "dispatched");
+  assert.ok(
+    mainAdvancedBeforeDispatch.comments.some(
+      ({ body }) =>
+        body.includes(
+          '"terminal_reason": "controller-workflow-upgraded-before-dispatch"',
+        ) && body.includes(`"expected_workflow_sha": "${SHA.A}"`),
+    ),
+  );
+  assert.equal(
+    mainAdvancedBeforeDispatch.commitStatuses.at(-1).state,
+    "pending",
+  );
+});
+
+test("controller-upgrade terminalization does not consume a real worker retry", () => {
+  const opened = event({
+    run: 122,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const authorizedA = reconcile({
+    events: [opened],
+    pullRequest,
+    expectedWorkflowSha: SHA.A,
+  });
+  const intendedA = persistIntent(authorizedA);
+  const upgradeResult = result(authorizedA.nextDispatch, {
+    runId: 7_000,
+    state: "error",
+    reason: "controller-workflow-upgraded-before-dispatch",
+  });
+  const selectedB = reconcile({
+    events: [opened],
+    results: [upgradeResult],
+    pullRequest,
+    existingState: intendedA,
+    expectedWorkflowSha: SHA.B,
+  });
+  assert.equal(selectedB.nextDispatch.expected_workflow_sha, SHA.B);
+
+  const dispatchedB = persistDispatch(selectedB, 8_000);
+  const firstRealFailure = result(selectedB.nextDispatch, {
+    runId: 8_000,
+    state: "failure",
+    reason: "build-failed-retriable",
+  });
+  const retry = reconcile({
+    events: [opened],
+    results: [upgradeResult, firstRealFailure],
+    pullRequest,
+    existingState: dispatchedB,
+    expectedWorkflowSha: SHA.B,
+  });
+  assert.equal(retry.nextDispatch.sha, SHA.A);
+  assert.equal(retry.nextDispatch.expected_workflow_sha, SHA.B);
+  assert.notEqual(
+    retry.nextDispatch.key_digest,
+    selectedB.nextDispatch.key_digest,
+  );
 });
 
 test("intended dispatch recovery paginates recent worker runs and fails closed beyond its proof bound", async () => {

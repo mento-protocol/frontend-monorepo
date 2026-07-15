@@ -485,14 +485,13 @@ export function buildVercelDeploymentLookupUrl({
     projectId: requiredText(projectId, "Vercel project ID"),
     teamId: requiredText(vercelOrgId, "Vercel organization ID"),
     target: "preview",
-    limit: "2",
+    branch: metadata.githubCommitRef,
+    sha: metadata.githubCommitSha,
+    limit: "100",
     since: String(window.since),
     until: String(window.until),
   });
-  for (const [name, value] of Object.entries(metadata)) {
-    query.set(`meta-${name}`, value);
-  }
-  return `https://api.vercel.com/v6/deployments?${query}`;
+  return `https://api.vercel.com/v7/deployments?${query}`;
 }
 
 function normalizeVercelLookupCreatedAt(value) {
@@ -522,61 +521,120 @@ export function parseVercelDeploymentLookup(
   } catch {
     throw new Error("Vercel deployment lookup returned invalid JSON");
   }
+  const pagination = parsed?.pagination;
   if (
     !parsed ||
     typeof parsed !== "object" ||
     Array.isArray(parsed) ||
     !Array.isArray(parsed.deployments) ||
-    parsed.deployments.length > 2
+    parsed.deployments.length > 100 ||
+    (pagination !== undefined &&
+      (pagination === null ||
+        typeof pagination !== "object" ||
+        Array.isArray(pagination))) ||
+    (pagination?.next !== undefined && pagination.next !== null)
   ) {
     throw new Error("Vercel deployment lookup response is malformed");
   }
   const metadata = uploadMetadata({ commitSha, gitBranch, idempotencyKey });
   const window = uploadLookupWindow(startedAtMs, nowMs);
-  return parsed.deployments.map((deployment) => {
-    const createdAt = normalizeVercelLookupCreatedAt(deployment?.createdAt);
+  return parsed.deployments.flatMap((deployment) => {
     if (
       !deployment ||
       typeof deployment !== "object" ||
-      Array.isArray(deployment) ||
+      Array.isArray(deployment)
+    ) {
+      throw new Error("Vercel deployment lookup response is malformed");
+    }
+    const hasExactMetadata =
+      deployment.meta &&
+      typeof deployment.meta === "object" &&
+      !Array.isArray(deployment.meta) &&
+      Object.entries(metadata).every(
+        ([name, value]) => deployment.meta[name] === value,
+      );
+    if (!hasExactMetadata) return [];
+
+    const createdAt = normalizeVercelLookupCreatedAt(deployment?.createdAt);
+    if (
       deployment.projectId !== projectId ||
       createdAt === null ||
       createdAt < window.since ||
       createdAt > window.until ||
       (deployment.target !== null &&
         deployment.target !== undefined &&
-        deployment.target !== "preview") ||
-      !deployment.meta ||
-      typeof deployment.meta !== "object" ||
-      Object.entries(metadata).some(
-        ([name, value]) => deployment.meta[name] !== value,
-      )
+        deployment.target !== "preview")
     ) {
       throw new Error(
         "Vercel deployment lookup result does not match the exact upload tuple",
       );
     }
-    return parseVercelDeploymentJson(
-      JSON.stringify({
-        id: deployment.uid,
-        url: deployment.url,
-        readyState: deployment.readyState,
-        target: "preview",
-      }),
-    );
+    if (!VERCEL_DEPLOYMENT_ID_PATTERN.test(String(deployment.uid ?? ""))) {
+      throw new Error("Vercel deploy returned no valid deployment ID");
+    }
+    if (deployment.url === null) {
+      return [
+        {
+          deploymentId: deployment.uid,
+          deploymentUrl: null,
+          readyState: deployment.readyState,
+          target: "preview",
+          incomplete: true,
+        },
+      ];
+    }
+    return [
+      parseVercelDeploymentJson(
+        JSON.stringify({
+          id: deployment.uid,
+          url: deployment.url,
+          readyState: deployment.readyState,
+          target: "preview",
+        }),
+      ),
+    ];
   });
 }
 
 async function boundedUploadLookup({ lookup, waitForRetry }) {
+  const incompleteDeploymentIds = new Set();
   for (let attempt = 0; attempt < UPLOAD_LOOKUP_ATTEMPTS; attempt += 1) {
     const matches = normalizeUploadLookupMatches(await lookup());
     if (!Array.isArray(matches) || matches.length > 2) {
       throw new Error("Vercel deployment lookup is indeterminate");
     }
-    if (matches.length > 0) return matches;
+    if (matches.length > 1) {
+      throw new Error("Multiple Vercel deployments match one controller key");
+    }
+    if (matches.length === 1) {
+      const [match] = matches;
+      if (match.incomplete) {
+        incompleteDeploymentIds.add(match.deploymentId);
+        if (incompleteDeploymentIds.size > 1) {
+          throw new Error(
+            "Multiple Vercel deployments match one controller key",
+          );
+        }
+      } else {
+        if (
+          incompleteDeploymentIds.size === 1 &&
+          !incompleteDeploymentIds.has(match.deploymentId)
+        ) {
+          throw new Error(
+            "Multiple Vercel deployments match one controller key",
+          );
+        }
+        return matches;
+      }
+    }
     if (attempt < UPLOAD_LOOKUP_ATTEMPTS - 1) {
       await waitForRetry(UPLOAD_LOOKUP_DELAY_MS);
     }
+  }
+  if (incompleteDeploymentIds.size > 0) {
+    throw new Error(
+      "Exact Vercel deployment remained incomplete or disappeared during lookup",
+    );
   }
   return [];
 }
@@ -585,16 +643,32 @@ function normalizeUploadLookupMatches(matches) {
   if (!Array.isArray(matches) || matches.length > 2) {
     throw new Error("Vercel deployment lookup is indeterminate");
   }
-  return matches.map((match) =>
-    parseVercelDeploymentJson(
+  return matches.map((match) => {
+    if (match?.incomplete === true) {
+      if (
+        !VERCEL_DEPLOYMENT_ID_PATTERN.test(String(match.deploymentId ?? "")) ||
+        match.deploymentUrl !== null ||
+        match.target !== "preview"
+      ) {
+        throw new Error("Vercel deployment lookup is indeterminate");
+      }
+      return {
+        deploymentId: match.deploymentId,
+        deploymentUrl: null,
+        readyState: match.readyState,
+        target: "preview",
+        incomplete: true,
+      };
+    }
+    return parseVercelDeploymentJson(
       JSON.stringify({
         id: match?.deploymentId,
         url: match?.deploymentUrl,
         readyState: match?.readyState,
         target: match?.target,
       }),
-    ),
-  );
+    );
+  });
 }
 
 async function collectRetriedUploadObservations({ lookup, waitForRetry }) {
@@ -610,26 +684,45 @@ async function collectRetriedUploadObservations({ lookup, waitForRetry }) {
 
 function reconcileRetriedUpload(reported, observations) {
   const identities = new Map();
+  const deploymentIds = new Set();
   let becameVisible = false;
+  let becameComplete = false;
   let disappearedAfterVisibility = false;
+  let regressedAfterCompletion = false;
   for (const matches of observations) {
     if (matches.length === 0) {
       if (becameVisible) disappearedAfterVisibility = true;
       continue;
     }
+    if (matches.length > 1) {
+      throw new Error(
+        "Retried Vercel upload converged on multiple deployment identities",
+      );
+    }
     becameVisible = true;
     for (const match of matches) {
+      deploymentIds.add(match.deploymentId);
+      if (match.incomplete) {
+        if (becameComplete) regressedAfterCompletion = true;
+        continue;
+      }
+      becameComplete = true;
       identities.set(`${match.deploymentId}\n${match.deploymentUrl}`, match);
     }
   }
-  if (identities.size > 1) {
+  if (deploymentIds.size > 1 || identities.size > 1) {
     throw new Error(
       "Retried Vercel upload converged on multiple deployment identities",
     );
   }
-  if (disappearedAfterVisibility) {
+  if (disappearedAfterVisibility || regressedAfterCompletion) {
     throw new Error(
       "Retried Vercel upload lookup did not converge monotonically",
+    );
+  }
+  if (deploymentIds.size === 1 && identities.size === 0) {
+    throw new Error(
+      "Retried Vercel upload remained incomplete without an immutable URL",
     );
   }
   if (identities.size !== 1) {
