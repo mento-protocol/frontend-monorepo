@@ -346,12 +346,12 @@ test("deploy and inspect JSON retain one immutable URL and Vercel ID", () => {
   );
 });
 
-function lookupDeployment({ id = "dpl_Abc123", url = DEPLOYMENT_URL } = {}) {
+function lookupDeployment(overrides = {}) {
   return {
-    id,
-    url,
+    uid: "dpl_Abc123",
+    url: DEPLOYMENT_URL,
     projectId: "prj_example",
-    createdAt: LOOKUP_STARTED_AT + 30_000,
+    createdAt: String(LOOKUP_STARTED_AT + 30_000),
     readyState: "BUILDING",
     target: null,
     meta: {
@@ -361,6 +361,7 @@ function lookupDeployment({ id = "dpl_Abc123", url = DEPLOYMENT_URL } = {}) {
       githubCommitRef: "feature/ui-pilot",
       mentoControllerKey: CONTROLLER_KEY,
     },
+    ...overrides,
   };
 }
 
@@ -422,6 +423,77 @@ test("ambiguous upload lookup is bounded to the literal project, SHA, ref, targe
       ),
     /exact upload tuple/,
   );
+});
+
+test("deployment lookup accepts Vercel uid and bounded millisecond timestamps only", () => {
+  const expected = {
+    deploymentId: "dpl_Abc123",
+    deploymentUrl: DEPLOYMENT_URL,
+    readyState: "BUILDING",
+    target: "preview",
+  };
+  for (const createdAt of [
+    String(LOOKUP_STARTED_AT + 30_000),
+    LOOKUP_STARTED_AT + 30_000,
+  ]) {
+    assert.deepEqual(
+      parseVercelDeploymentLookup(
+        JSON.stringify({ deployments: [lookupDeployment({ createdAt })] }),
+        lookupOptions(),
+      ),
+      [expected],
+    );
+  }
+
+  for (const createdAt of [
+    "",
+    `0${LOOKUP_STARTED_AT + 30_000}`,
+    ` ${LOOKUP_STARTED_AT + 30_000}`,
+    `${LOOKUP_STARTED_AT + 30_000}.0`,
+    "1e12",
+    "9007199254740992",
+    String(LOOKUP_STARTED_AT - 60_001),
+    String(LOOKUP_NOW + 60_001),
+    Number.MAX_SAFE_INTEGER + 1,
+    null,
+    true,
+    undefined,
+  ]) {
+    assert.throws(
+      () =>
+        parseVercelDeploymentLookup(
+          JSON.stringify({ deployments: [lookupDeployment({ createdAt })] }),
+          lookupOptions(),
+        ),
+      /exact upload tuple/,
+    );
+  }
+
+  assert.throws(
+    () =>
+      parseVercelDeploymentLookup(
+        JSON.stringify({
+          deployments: [
+            {
+              ...lookupDeployment({ uid: undefined }),
+              id: "dpl_Abc123",
+            },
+          ],
+        }),
+        lookupOptions(),
+      ),
+    /no valid deployment ID/,
+  );
+  for (const uid of ["", "dpl_bad-id", 123, null]) {
+    assert.throws(
+      () =>
+        parseVercelDeploymentLookup(
+          JSON.stringify({ deployments: [lookupDeployment({ uid })] }),
+          lookupOptions(),
+        ),
+      /no valid deployment ID/,
+    );
+  }
 });
 
 test("credentialed lookup keeps its token out of the bounded request URL", async () => {

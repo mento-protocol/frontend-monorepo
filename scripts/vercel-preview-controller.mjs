@@ -2997,7 +2997,7 @@ export async function recoverWorkerResult({
       "Existing worker result no longer matches its canonical Deployment",
     );
     invariant(
-      (conclusion === "success") === (existingResult.state === "success"),
+      conclusion !== "success" || existingResult.state === "success",
       "Existing worker result conflicts with the completed run conclusion",
     );
     const shouldReconcileCurrentEpoch =
@@ -3048,11 +3048,7 @@ export async function recoverWorkerResult({
   const vercelDeploymentId = workerEvidence?.vercel_deployment_id ?? null;
   const nextDeploymentId = workerEvidence?.next_deployment_id ?? null;
   let smokeResult = "not-run";
-  if (
-    conclusion === "success" &&
-    status?.state === "success" &&
-    status.environment_url
-  ) {
+  if (status?.state === "success" && status.environment_url) {
     terminalState = "success";
     terminalReason = "verified";
     resultUrl = immutableVercelUrl(status.environment_url);
@@ -3072,8 +3068,9 @@ export async function recoverWorkerResult({
       smokeResult = "failed";
     } else if (
       workerEvidence &&
-      !workerEvidence.build_completed &&
-      !uploadStarted
+      !uploadStarted &&
+      workerEvidence.vercel_deployment_id === null &&
+      workerEvidence.verified_upload_url === null
     ) {
       terminalState = "failure";
       terminalReason =

@@ -495,6 +495,16 @@ export function buildVercelDeploymentLookupUrl({
   return `https://api.vercel.com/v6/deployments?${query}`;
 }
 
+function normalizeVercelLookupCreatedAt(value) {
+  const timestamp =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && /^[1-9][0-9]{0,15}$/.test(value)
+        ? Number(value)
+        : Number.NaN;
+  return Number.isSafeInteger(timestamp) && timestamp > 0 ? timestamp : null;
+}
+
 export function parseVercelDeploymentLookup(
   raw,
   {
@@ -524,14 +534,15 @@ export function parseVercelDeploymentLookup(
   const metadata = uploadMetadata({ commitSha, gitBranch, idempotencyKey });
   const window = uploadLookupWindow(startedAtMs, nowMs);
   return parsed.deployments.map((deployment) => {
+    const createdAt = normalizeVercelLookupCreatedAt(deployment?.createdAt);
     if (
       !deployment ||
       typeof deployment !== "object" ||
       Array.isArray(deployment) ||
       deployment.projectId !== projectId ||
-      !Number.isSafeInteger(deployment.createdAt) ||
-      deployment.createdAt < window.since ||
-      deployment.createdAt > window.until ||
+      createdAt === null ||
+      createdAt < window.since ||
+      createdAt > window.until ||
       (deployment.target !== null &&
         deployment.target !== undefined &&
         deployment.target !== "preview") ||
@@ -547,7 +558,7 @@ export function parseVercelDeploymentLookup(
     }
     return parseVercelDeploymentJson(
       JSON.stringify({
-        id: deployment.id,
+        id: deployment.uid,
         url: deployment.url,
         readyState: deployment.readyState,
         target: "preview",

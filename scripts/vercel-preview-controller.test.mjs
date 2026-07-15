@@ -2287,6 +2287,80 @@ test("duplicate worker absorbs an existing verified canonical Deployment without
   assert.equal(core.outputs.get("reused_deployment_id"), "9000");
 });
 
+test("verified deployment success survives a later evidence persistence failure", async () => {
+  const opened = event({
+    run: 124,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const selected = reconcile({ events: [opened], pullRequest });
+  const dispatched = persistDispatch(selected, 8_000);
+  const completed = workerRun(selected.nextDispatch, {
+    status: "completed",
+    conclusion: "failure",
+  });
+  const canonical = {
+    id: 9_000,
+    ref: SHA.A,
+    sha: SHA.A,
+    environment: "preview/ui/pr-519",
+    payload: {
+      idempotency_key: selected.nextDispatch.key,
+      sha: SHA.A,
+      logical_target: "ui",
+    },
+  };
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [eventComment(opened), stateComment(dispatched)],
+    runs: [completed],
+    deployments: [canonical],
+    deploymentStatuses: new Map([
+      [
+        9_000,
+        [
+          {
+            state: "success",
+            environment_url: "https://ui-verified-before-evidence.vercel.app",
+            log_url:
+              "https://github.com/mento-protocol/frontend-monorepo/actions/runs/8000/attempts/1",
+          },
+        ],
+      ],
+    ]),
+  });
+
+  const outcome = await recoverWorkerResult({
+    github: fixture.github,
+    context: fakeContext({ workflowRun: completed }),
+    core: fakeCore(),
+  });
+
+  assert.equal(outcome.state, "success");
+  assert.equal(outcome.terminal_reason, "verified");
+  assert.equal(outcome.smoke_result, "passed");
+  assert.equal(
+    outcome.vercel_deployment_url,
+    "https://ui-verified-before-evidence.vercel.app",
+  );
+  assert.equal(fixture.createdDeploymentStatuses.length, 0);
+  assert.equal(fixture.statuses.get("9000")[0].state, "success");
+
+  const repeated = await recoverWorkerResult({
+    github: fixture.github,
+    context: fakeContext({ workflowRun: completed }),
+    core: fakeCore(),
+  });
+  assert.equal(repeated.state, "success");
+  assert.equal(
+    repeated.vercel_deployment_url,
+    "https://ui-verified-before-evidence.vercel.app",
+  );
+  assert.equal(fixture.createdDeploymentStatuses.length, 0);
+});
+
 test("a rerun attempt cannot reuse persisted first-attempt worker ownership", async () => {
   const opened = event({
     run: 124,
@@ -2524,6 +2598,106 @@ test("failure after the durable upload boundary fails closed without a rebuild r
   });
   assert.equal(reconciled.nextDispatch, null);
   assert.equal(reconciled.state.status_decisions.at(-1).state, "error");
+});
+
+test("completed build failure before the upload boundary gets one rebuild retry", async () => {
+  const opened = event({
+    run: 126,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const selected = reconcile({ events: [opened], pullRequest });
+  const dispatched = persistDispatch(selected, 8_000);
+  const completed = workerRun(selected.nextDispatch, {
+    status: "completed",
+    conclusion: "failure",
+  });
+  const canonical = {
+    id: 9_000,
+    ref: SHA.A,
+    sha: SHA.A,
+    environment: "preview/ui/pr-519",
+    payload: {
+      idempotency_key: selected.nextDispatch.key,
+      sha: SHA.A,
+      logical_target: "ui",
+    },
+  };
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [eventComment(opened), stateComment(dispatched)],
+    runs: [completed],
+    deployments: [canonical],
+    deploymentStatuses: new Map([
+      [9_000, [{ state: "failure", environment_url: null }]],
+    ]),
+  });
+  const workerEvidence = await recordWorkerEvidence({
+    github: fixture.github,
+    context: fakeContext({ runId: 8_000 }),
+    core: fakeCore(),
+    inputs: {
+      ...workerInputs(selected.nextDispatch),
+      execution_mode: "build",
+      build_duration_ms: "1234",
+      verified_upload_url: "",
+      vercel_deployment_id: "",
+      next_deployment_id: "m-ui-pre-upload-failure",
+    },
+  });
+  assert.equal(workerEvidence.build_completed, true);
+  assert.equal(workerEvidence.verified_upload_url, null);
+  assert.equal(workerEvidence.vercel_deployment_id, null);
+
+  const outcome = await recoverWorkerResult({
+    github: fixture.github,
+    context: fakeContext({ workflowRun: completed }),
+    core: fakeCore(),
+  });
+  assert.equal(outcome.state, "failure");
+  assert.equal(outcome.terminal_reason, "build-failed-retriable");
+
+  const retry = reconcile({
+    events: [opened],
+    results: [outcome],
+    pullRequest,
+    existingState: dispatched,
+  });
+  assert.equal(retry.nextDispatch.sha, SHA.A);
+  const retryState = persistDispatch(retry, 8_001);
+  const durableEvidence = fixture.comments.filter(
+    ({ body }) =>
+      body.startsWith("<!-- vercel-preview-worker-evidence:v1:") ||
+      body.startsWith("<!-- vercel-preview-worker-result:v1:"),
+  );
+  const retryFixture = fakeGitHub({
+    pullRequest,
+    comments: [
+      eventComment(opened),
+      ...durableEvidence,
+      stateComment(retryState),
+    ],
+    runs: [workerRun(retry.nextDispatch, { id: 8_001 })],
+    deployments: [canonical],
+    deploymentStatuses: new Map([
+      [9_000, [{ state: "failure", environment_url: null }]],
+    ]),
+  });
+  const core = fakeCore();
+  const decision = await validateWorkerDispatch({
+    github: retryFixture.github,
+    context: fakeContext({ runId: 8_001 }),
+    core,
+    inputs: workerInputs(retry.nextDispatch),
+  });
+  assert.deepEqual(decision, {
+    shouldDeploy: true,
+    duplicate: false,
+    retryBuild: true,
+  });
+  assert.equal(core.outputs.get("execution_mode"), "build-retry");
 });
 
 test("build failure gets at most one serialized rebuild retry", () => {
