@@ -324,6 +324,19 @@ function validateTarget(
       );
     }
   }
+  for (const source of MIGRATED_DEPLOYMENT_SOURCE_KEYS) {
+    const sourceCensus = target.migratedDeploymentCensus[source];
+    if (sourceCensus.deploymentAttempts < sourceCensus.eligibleEvents) {
+      throw new Error(
+        `${label}.migratedDeploymentCensus.${source}.deploymentAttempts cannot be lower than eligibleEvents`,
+      );
+    }
+    if (sourceCensus.duplicateDeployments > sourceCensus.deploymentAttempts) {
+      throw new Error(
+        `${label}.migratedDeploymentCensus.${source}.duplicateDeployments cannot exceed deploymentAttempts`,
+      );
+    }
+  }
   for (const key of EXCLUDED_KEYS) {
     assertNonnegativeInteger(target.excluded[key], `${label}.excluded.${key}`);
   }
@@ -912,6 +925,13 @@ export function analyzeVercelCostEvidence(evidence) {
     reasons,
   );
   reason(
+    billedCost === null ||
+      billedCost.savings === null ||
+      !Number.isFinite(billedCost.savings),
+    "normalized-billed-cost-unavailable",
+    reasons,
+  );
+  reason(
     correctness.eligibleFirstPreviewOpportunities === 0,
     "eligible-first-preview-opportunities-missing",
     reasons,
@@ -1173,8 +1193,8 @@ export function formatVercelCostMarkdown(analysis) {
     `- Main deployment observations completed: ${analysis.mainDeploymentObservations.completed}/${analysis.mainDeploymentObservations.eligibleEvents}`,
     `- Legacy v2 health checks completed: ${analysis.correctness.legacyV2HealthChecksCompleted}/${analysis.correctness.legacyV2HealthCheckOpportunities}`,
     "",
-    "| Target | Baseline migrated minutes | Baseline gross minutes | Post migrated minutes | Post gross minutes | Baseline-mix counterfactual | Migrated change | Pass |",
-    "|---|---:|---:|---:|---:|---:|---:|---|",
+    "| Target | Baseline migrated minutes | Baseline gross minutes | Post migrated minutes | Post gross minutes | Baseline-mix counterfactual | Migrated change |",
+    "|---|---:|---:|---:|---:|---:|---:|",
   ];
 
   for (const target of VERCEL_COST_TARGETS) {
@@ -1182,7 +1202,7 @@ export function formatVercelCostMarkdown(analysis) {
     const migrated = analysis.migrated.targets[target];
     const gross = analysis.gross.targets[target];
     lines.push(
-      `| ${target} | ${formatNumber(migrated.baselineMinutes)} | ${formatNumber(gross.baselineMinutes)} | ${formatNumber(migrated.postCutoverMinutes)} | ${formatNumber(gross.postCutoverMinutes)} | ${formatNumber(normalized?.counterfactual ?? null)} | ${formatPercent(normalized?.savings ?? null)} | ${normalized !== null && normalized.savings !== null && normalized.savings >= MINIMUM_NORMALIZED_SAVINGS ? "yes" : "no"} |`,
+      `| ${target} | ${formatNumber(migrated.baselineMinutes)} | ${formatNumber(gross.baselineMinutes)} | ${formatNumber(migrated.postCutoverMinutes)} | ${formatNumber(gross.postCutoverMinutes)} | ${formatNumber(normalized?.counterfactual ?? null)} | ${formatPercent(normalized?.savings ?? null)} |`,
     );
   }
 

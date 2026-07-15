@@ -140,8 +140,9 @@ test("keeps absolute financial values out of the analysis result and Markdown", 
   assert.match(markdown, /Main deployment observations completed: 5\/5/);
   assert.match(
     markdown,
-    /\| app \| 200\.00 \| 240\.00 \| 10\.00 \| 30\.00 \| 100\.00 \| 90\.00% \| yes \|/,
+    /\| app \| 200\.00 \| 240\.00 \| 10\.00 \| 30\.00 \| 100\.00 \| 90\.00% \|/,
   );
+  assert.doesNotMatch(markdown, /\| Target \|[^\n]*\| Pass \|/);
   assert.doesNotMatch(markdown, /\$\d/);
 });
 
@@ -210,6 +211,22 @@ test("requires the migrated preview/main census to reconcile exactly", () => {
       metric,
     );
   }
+
+  const sourceAttemptsBelowEvents = fixture();
+  sourceAttemptsBelowEvents.postCutover.targets.app.migratedDeploymentCensus.preview.eligibleEvents = 9;
+  sourceAttemptsBelowEvents.postCutover.targets.app.migratedDeploymentCensus.main.eligibleEvents = 1;
+  assert.throws(
+    () => validateVercelCostEvidence(sourceAttemptsBelowEvents),
+    /preview\.deploymentAttempts cannot be lower than eligibleEvents/,
+  );
+
+  const sourceDuplicatesAboveAttempts = fixture();
+  sourceDuplicatesAboveAttempts.postCutover.targets.app.migratedPath.duplicateDeployments = 9;
+  sourceDuplicatesAboveAttempts.postCutover.targets.app.migratedDeploymentCensus.preview.duplicateDeployments = 9;
+  assert.throws(
+    () => validateVercelCostEvidence(sourceDuplicatesAboveAttempts),
+    /preview\.duplicateDeployments cannot exceed deploymentAttempts/,
+  );
 });
 
 test("binds complete main observations to derived main eligible events", () => {
@@ -334,7 +351,7 @@ test("requires post-cutover events for every logical target", () => {
   });
   assert.match(
     formatVercelCostMarkdown(analysis),
-    /\| ui \| 60\.00 \| 60\.00 \| 3\.00 \| 3\.00 \| n\/a \| n\/a \| no \|/,
+    /\| ui \| 60\.00 \| 60\.00 \| 3\.00 \| 3\.00 \| n\/a \| n\/a \|/,
   );
 });
 
@@ -584,6 +601,16 @@ test("keeps incomplete billing and invoices visibly non-passing", () => {
     analysis.reasons.filter((value) => value.includes("invoice-not-final")),
     ["baseline-invoice-not-final", "post-cutover-invoice-not-final"],
   );
+});
+
+test("requires finite normalized final BilledCost savings", () => {
+  const evidence = fixture();
+  setAllBilledCosts(evidence, 0);
+  const analysis = analyzeVercelCostEvidence(evidence);
+
+  assert.equal(analysis.normalized.billedCost.savings, null);
+  assert.equal(analysis.pass, false);
+  assert.ok(analysis.reasons.includes("normalized-billed-cost-unavailable"));
 });
 
 test("evaluates every correctness and service-quality closeout gate", () => {

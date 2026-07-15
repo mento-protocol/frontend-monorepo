@@ -127,6 +127,8 @@ provider evidence for its baseline and post-cutover split.
    Within each target, classify migrated events, attempts, and actual duplicates
    as either `preview` or `main`; those two source counts must sum exactly to the
    migrated-path aggregates in both windows.
+   Each source bucket must also be internally possible: attempts cannot be lower
+   than eligible events, and duplicates cannot exceed attempts.
 5. Classify app deployments as migrated PR preview, migrated `main -> v3`,
    preserved native `v2 -> production`, or manual/unknown. Keep v2 visible and
    apply the invoice-grade attribution limitation above.
@@ -256,7 +258,9 @@ day. Attempts per eligible event and post-cutover Build CPU minutes per trusted
 PR push are reported overall and by target. Every target must independently
 produce a finite, positive build-minute counterfactual and a finite savings
 ratio; a null per-target minute savings value can never coexist with a passing
-report.
+report. Per-target savings rows are diagnostic; the 90% threshold applies to the
+aggregate target-mix result. Final BilledCost savings must be finite and
+available before the report can pass.
 
 The public-safe output shows migrated and gross Build CPU minutes for every
 target in both windows. It also shows each target's preview/main event, attempt,
