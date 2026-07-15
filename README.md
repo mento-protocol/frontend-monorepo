@@ -137,6 +137,10 @@ pnpm vercel:workflow:test
 
 # Verify exact Next.js and Vercel CLI custom deployment-ID prerequisites
 pnpm vercel:versions:check
+
+# Test and run the redaction-safe Vercel build-minute closeout analyzer
+pnpm vercel:cost:test
+pnpm vercel:cost:analyze --input .vercel-cost-evidence/aggregate.json --format markdown
 ```
 
 Two always-run checks protect the policy on every pull request:

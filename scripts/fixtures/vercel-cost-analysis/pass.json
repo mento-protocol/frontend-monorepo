@@ -1,0 +1,347 @@
+{
+  "schemaVersion": 1,
+  "cutoverCompletedAtUtc": "2026-07-15T12:00:00.000Z",
+  "baseline": {
+    "period": {
+      "startUtc": "2026-07-01T00:00:00.000Z",
+      "endUtcExclusive": "2026-07-15T00:00:00.000Z",
+      "billingIngestionComplete": true,
+      "invoiceFinal": true,
+      "focusExportSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "focusChargeCount": 40,
+      "consumedUnit": "Build CPU Minutes",
+      "billingCurrency": "USD"
+    },
+    "targets": {
+      "app": {
+        "migratedPath": {
+          "buildCpuMinutes": 200,
+          "effectiveCost": 40,
+          "billedCost": 40,
+          "eligibleEvents": 20,
+          "deploymentAttempts": 20,
+          "duplicateDeployments": 0
+        },
+        "migratedDeploymentCensus": {
+          "preview": {
+            "eligibleEvents": 14,
+            "deploymentAttempts": 14,
+            "duplicateDeployments": 0
+          },
+          "main": {
+            "eligibleEvents": 6,
+            "deploymentAttempts": 6,
+            "duplicateDeployments": 0
+          }
+        },
+        "grossProject": {
+          "buildCpuMinutes": 240,
+          "effectiveCost": 48,
+          "billedCost": 48
+        },
+        "excluded": {
+          "legacyV2DeploymentAttempts": 2,
+          "manualDeploymentAttempts": 0,
+          "unknownDeploymentAttempts": 0
+        },
+        "attribution": {
+          "method": "provider-attributed",
+          "evidenceSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      },
+      "governance": {
+        "migratedPath": {
+          "buildCpuMinutes": 200,
+          "effectiveCost": 20,
+          "billedCost": 20,
+          "eligibleEvents": 10,
+          "deploymentAttempts": 10,
+          "duplicateDeployments": 0
+        },
+        "migratedDeploymentCensus": {
+          "preview": {
+            "eligibleEvents": 7,
+            "deploymentAttempts": 7,
+            "duplicateDeployments": 0
+          },
+          "main": {
+            "eligibleEvents": 3,
+            "deploymentAttempts": 3,
+            "duplicateDeployments": 0
+          }
+        },
+        "grossProject": {
+          "buildCpuMinutes": 200,
+          "effectiveCost": 20,
+          "billedCost": 20
+        },
+        "excluded": {
+          "legacyV2DeploymentAttempts": 0,
+          "manualDeploymentAttempts": 0,
+          "unknownDeploymentAttempts": 0
+        },
+        "attribution": {
+          "method": "project-total-no-exclusions",
+          "evidenceSha256": null
+        }
+      },
+      "reserve": {
+        "migratedPath": {
+          "buildCpuMinutes": 80,
+          "effectiveCost": 8,
+          "billedCost": 8,
+          "eligibleEvents": 8,
+          "deploymentAttempts": 8,
+          "duplicateDeployments": 0
+        },
+        "migratedDeploymentCensus": {
+          "preview": {
+            "eligibleEvents": 6,
+            "deploymentAttempts": 6,
+            "duplicateDeployments": 0
+          },
+          "main": {
+            "eligibleEvents": 2,
+            "deploymentAttempts": 2,
+            "duplicateDeployments": 0
+          }
+        },
+        "grossProject": {
+          "buildCpuMinutes": 80,
+          "effectiveCost": 8,
+          "billedCost": 8
+        },
+        "excluded": {
+          "legacyV2DeploymentAttempts": 0,
+          "manualDeploymentAttempts": 0,
+          "unknownDeploymentAttempts": 0
+        },
+        "attribution": {
+          "method": "project-total-no-exclusions",
+          "evidenceSha256": null
+        }
+      },
+      "ui": {
+        "migratedPath": {
+          "buildCpuMinutes": 60,
+          "effectiveCost": 6,
+          "billedCost": 6,
+          "eligibleEvents": 12,
+          "deploymentAttempts": 12,
+          "duplicateDeployments": 0
+        },
+        "migratedDeploymentCensus": {
+          "preview": {
+            "eligibleEvents": 9,
+            "deploymentAttempts": 9,
+            "duplicateDeployments": 0
+          },
+          "main": {
+            "eligibleEvents": 3,
+            "deploymentAttempts": 3,
+            "duplicateDeployments": 0
+          }
+        },
+        "grossProject": {
+          "buildCpuMinutes": 60,
+          "effectiveCost": 6,
+          "billedCost": 6
+        },
+        "excluded": {
+          "legacyV2DeploymentAttempts": 0,
+          "manualDeploymentAttempts": 0,
+          "unknownDeploymentAttempts": 0
+        },
+        "attribution": {
+          "method": "project-total-no-exclusions",
+          "evidenceSha256": null
+        }
+      }
+    }
+  },
+  "postCutover": {
+    "period": {
+      "startUtc": "2026-07-16T00:00:00.000Z",
+      "endUtcExclusive": "2026-07-23T00:00:00.000Z",
+      "billingIngestionComplete": true,
+      "invoiceFinal": true,
+      "focusExportSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "focusChargeCount": 28,
+      "consumedUnit": "Build CPU Minutes",
+      "billingCurrency": "USD"
+    },
+    "targets": {
+      "app": {
+        "migratedPath": {
+          "buildCpuMinutes": 10,
+          "effectiveCost": 1,
+          "billedCost": 1,
+          "eligibleEvents": 10,
+          "deploymentAttempts": 10,
+          "duplicateDeployments": 0
+        },
+        "migratedDeploymentCensus": {
+          "preview": {
+            "eligibleEvents": 8,
+            "deploymentAttempts": 8,
+            "duplicateDeployments": 0
+          },
+          "main": {
+            "eligibleEvents": 2,
+            "deploymentAttempts": 2,
+            "duplicateDeployments": 0
+          }
+        },
+        "grossProject": {
+          "buildCpuMinutes": 30,
+          "effectiveCost": 5,
+          "billedCost": 5
+        },
+        "excluded": {
+          "legacyV2DeploymentAttempts": 1,
+          "manualDeploymentAttempts": 0,
+          "unknownDeploymentAttempts": 0
+        },
+        "attribution": {
+          "method": "provider-attributed",
+          "evidenceSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "governance": {
+        "migratedPath": {
+          "buildCpuMinutes": 10,
+          "effectiveCost": 1,
+          "billedCost": 1,
+          "eligibleEvents": 5,
+          "deploymentAttempts": 5,
+          "duplicateDeployments": 0
+        },
+        "migratedDeploymentCensus": {
+          "preview": {
+            "eligibleEvents": 4,
+            "deploymentAttempts": 4,
+            "duplicateDeployments": 0
+          },
+          "main": {
+            "eligibleEvents": 1,
+            "deploymentAttempts": 1,
+            "duplicateDeployments": 0
+          }
+        },
+        "grossProject": {
+          "buildCpuMinutes": 10,
+          "effectiveCost": 1,
+          "billedCost": 1
+        },
+        "excluded": {
+          "legacyV2DeploymentAttempts": 0,
+          "manualDeploymentAttempts": 0,
+          "unknownDeploymentAttempts": 0
+        },
+        "attribution": {
+          "method": "project-total-no-exclusions",
+          "evidenceSha256": null
+        }
+      },
+      "reserve": {
+        "migratedPath": {
+          "buildCpuMinutes": 4,
+          "effectiveCost": 0.4,
+          "billedCost": 0.4,
+          "eligibleEvents": 4,
+          "deploymentAttempts": 4,
+          "duplicateDeployments": 0
+        },
+        "migratedDeploymentCensus": {
+          "preview": {
+            "eligibleEvents": 3,
+            "deploymentAttempts": 3,
+            "duplicateDeployments": 0
+          },
+          "main": {
+            "eligibleEvents": 1,
+            "deploymentAttempts": 1,
+            "duplicateDeployments": 0
+          }
+        },
+        "grossProject": {
+          "buildCpuMinutes": 4,
+          "effectiveCost": 0.4,
+          "billedCost": 0.4
+        },
+        "excluded": {
+          "legacyV2DeploymentAttempts": 0,
+          "manualDeploymentAttempts": 0,
+          "unknownDeploymentAttempts": 0
+        },
+        "attribution": {
+          "method": "project-total-no-exclusions",
+          "evidenceSha256": null
+        }
+      },
+      "ui": {
+        "migratedPath": {
+          "buildCpuMinutes": 3,
+          "effectiveCost": 0.8,
+          "billedCost": 0.8,
+          "eligibleEvents": 6,
+          "deploymentAttempts": 6,
+          "duplicateDeployments": 0
+        },
+        "migratedDeploymentCensus": {
+          "preview": {
+            "eligibleEvents": 5,
+            "deploymentAttempts": 5,
+            "duplicateDeployments": 0
+          },
+          "main": {
+            "eligibleEvents": 1,
+            "deploymentAttempts": 1,
+            "duplicateDeployments": 0
+          }
+        },
+        "grossProject": {
+          "buildCpuMinutes": 3,
+          "effectiveCost": 0.8,
+          "billedCost": 0.8
+        },
+        "excluded": {
+          "legacyV2DeploymentAttempts": 0,
+          "manualDeploymentAttempts": 0,
+          "unknownDeploymentAttempts": 0
+        },
+        "attribution": {
+          "method": "project-total-no-exclusions",
+          "evidenceSha256": null
+        }
+      }
+    },
+    "trustedSameRepositoryPrPushes": 10,
+    "github": {
+      "standardRunnerMinutes": 300,
+      "largerRunnerMinutes": 0,
+      "artifactStorageGbHours": 5,
+      "cacheStorageGbHours": 50,
+      "repositoryPublicEntireWindow": true
+    },
+    "correctness": {
+      "eligibleFirstPreviews": 10,
+      "eligibleFirstPreviewOpportunities": 10,
+      "incorrectAffectedTargetSkips": 0,
+      "unexplainedNativeBuilds": 0,
+      "smokeOrE2eChecksCompleted": 10,
+      "smokeOrE2eCheckOpportunities": 10,
+      "smokeOrE2eRegressions": 0,
+      "secretExposureIncidents": 0,
+      "burstFirstPlusLatestChecksCompleted": 2,
+      "burstFirstPlusLatestCheckOpportunities": 2,
+      "burstFirstPlusLatestFailures": 0,
+      "mainDeploymentObservationsCompleted": 5,
+      "mainDeploymentObservationFailures": 0,
+      "legacyV2HealthChecksCompleted": 7,
+      "legacyV2HealthCheckOpportunities": 7,
+      "legacyV2Regressions": 0,
+      "rollbackProcedureVerified": true
+    }
+  }
+}

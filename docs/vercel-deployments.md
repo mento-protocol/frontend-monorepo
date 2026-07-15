@@ -256,6 +256,14 @@ target/environment classifications, and redaction-safe missing-variable errors.
 This foundation issue performs no Vercel API call, build upload, deployment,
 alias mutation, environment mutation, or Git-ownership change.
 
+## Cost validation preparation
+
+The network-free analyzer and private/public evidence boundary for the final
+build-minute observation are documented in
+[Vercel build-minute validation](vercel-cost-validation.md). Preparing that
+tool does not start the observation window; collection begins only after the
+four-target cutover is complete.
+
 ## Manual UI prebuilt pilot
 
 `.github/workflows/vercel-prebuilt-pilot.yml` is the only entry point for the

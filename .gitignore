@@ -22,6 +22,7 @@ coverage
 
 # Vercel
 .vercel
+.vercel-cost-evidence/
 
 # Build Outputs
 .next/
