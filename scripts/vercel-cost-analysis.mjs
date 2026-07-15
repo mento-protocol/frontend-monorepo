@@ -51,9 +51,15 @@ const CORRECTNESS_KEYS = [
   "eligibleFirstPreviewOpportunities",
   "incorrectAffectedTargetSkips",
   "unexplainedNativeBuilds",
+  "smokeOrE2eChecksCompleted",
+  "smokeOrE2eCheckOpportunities",
   "smokeOrE2eRegressions",
   "secretExposureIncidents",
+  "burstFirstPlusLatestChecksCompleted",
+  "burstFirstPlusLatestCheckOpportunities",
   "burstFirstPlusLatestFailures",
+  "legacyV2HealthChecksCompleted",
+  "legacyV2HealthCheckOpportunities",
   "legacyV2Regressions",
   "rollbackProcedureVerified",
 ];
@@ -311,19 +317,39 @@ function validateTarget(target, targetName, label, invoiceFinal) {
         );
       }
     }
-  } else if (
-    typeof evidenceSha256 !== "string" ||
-    !SHA256_PATTERN.test(evidenceSha256)
-  ) {
-    throw new Error(
-      `${label}.attribution.evidenceSha256 must be lowercase SHA-256 for provider attribution`,
-    );
+  } else {
+    if (
+      typeof evidenceSha256 !== "string" ||
+      !SHA256_PATTERN.test(evidenceSha256)
+    ) {
+      throw new Error(
+        `${label}.attribution.evidenceSha256 must be lowercase SHA-256 for provider attribution`,
+      );
+    }
+    if (excludedAttempts === 0) {
+      for (const key of GROSS_PROJECT_KEYS) {
+        if (migrated[key] !== gross[key]) {
+          throw new Error(
+            `${label}.migratedPath.${key} must equal grossProject.${key} when provider attribution has no excluded deployments`,
+          );
+        }
+      }
+    }
   }
-  if (
-    gross.buildCpuMinutes > migrated.buildCpuMinutes &&
-    excludedAttempts === 0
-  ) {
-    throw new Error(`${label} has unattributed gross Build CPU minutes`);
+}
+
+function validateObservationCoverage(
+  correctness,
+  completedKey,
+  opportunityKey,
+  failureKey,
+  label,
+) {
+  if (correctness[completedKey] > correctness[opportunityKey]) {
+    throw new Error(`${label}.${completedKey} cannot exceed ${opportunityKey}`);
+  }
+  if (correctness[failureKey] > correctness[completedKey]) {
+    throw new Error(`${label}.${failureKey} cannot exceed ${completedKey}`);
   }
 }
 
@@ -398,6 +424,35 @@ function validateWindow(window, label) {
         `${label}.correctness.eligibleFirstPreviews cannot exceed opportunities`,
       );
     }
+    if (
+      window.correctness.eligibleFirstPreviewOpportunities >
+      window.trustedSameRepositoryPrPushes
+    ) {
+      throw new Error(
+        `${label}.correctness.eligibleFirstPreviewOpportunities cannot exceed trustedSameRepositoryPrPushes`,
+      );
+    }
+    validateObservationCoverage(
+      window.correctness,
+      "smokeOrE2eChecksCompleted",
+      "smokeOrE2eCheckOpportunities",
+      "smokeOrE2eRegressions",
+      `${label}.correctness`,
+    );
+    validateObservationCoverage(
+      window.correctness,
+      "burstFirstPlusLatestChecksCompleted",
+      "burstFirstPlusLatestCheckOpportunities",
+      "burstFirstPlusLatestFailures",
+      `${label}.correctness`,
+    );
+    validateObservationCoverage(
+      window.correctness,
+      "legacyV2HealthChecksCompleted",
+      "legacyV2HealthCheckOpportunities",
+      "legacyV2Regressions",
+      `${label}.correctness`,
+    );
   }
   return period;
 }
@@ -722,9 +777,53 @@ export function analyzeVercelCostEvidence(evidence) {
     reasons,
   );
   reason(
+    correctness.eligibleFirstPreviewOpportunities === 0,
+    "eligible-first-preview-opportunities-missing",
+    reasons,
+  );
+  reason(
     correctness.eligibleFirstPreviews !==
       correctness.eligibleFirstPreviewOpportunities,
     "eligible-first-preview-coverage-below-100-percent",
+    reasons,
+  );
+  reason(
+    correctness.smokeOrE2eCheckOpportunities === 0,
+    "smoke-or-e2e-check-opportunities-missing",
+    reasons,
+  );
+  reason(
+    correctness.smokeOrE2eCheckOpportunities <
+      evidence.postCutover.trustedSameRepositoryPrPushes,
+    "smoke-or-e2e-scope-below-trusted-pr-pushes",
+    reasons,
+  );
+  reason(
+    correctness.smokeOrE2eChecksCompleted !==
+      correctness.smokeOrE2eCheckOpportunities,
+    "smoke-or-e2e-check-coverage-incomplete",
+    reasons,
+  );
+  reason(
+    correctness.burstFirstPlusLatestCheckOpportunities === 0,
+    "burst-first-plus-latest-check-opportunities-missing",
+    reasons,
+  );
+  reason(
+    correctness.burstFirstPlusLatestChecksCompleted !==
+      correctness.burstFirstPlusLatestCheckOpportunities,
+    "burst-first-plus-latest-check-coverage-incomplete",
+    reasons,
+  );
+  reason(
+    correctness.legacyV2HealthCheckOpportunities === 0,
+    "legacy-v2-health-check-opportunities-missing",
+    reasons,
+  );
+  reason(
+    correctness.legacyV2HealthChecksCompleted !==
+      correctness.legacyV2HealthCheckOpportunities,
+    "legacy-v2-health-check-coverage-incomplete",
     reasons,
   );
   for (const [key, reasonName] of [
@@ -884,6 +983,9 @@ export function formatVercelCostMarkdown(analysis) {
     `- GitHub artifact storage: ${formatNumber(analysis.github.artifactStorageGbHours)} GB-hours`,
     `- GitHub cache storage: ${formatNumber(analysis.github.cacheStorageGbHours)} GB-hours`,
     `- Eligible first previews: ${analysis.correctness.eligibleFirstPreviews}/${analysis.correctness.eligibleFirstPreviewOpportunities}`,
+    `- Smoke/E2E checks completed: ${analysis.correctness.smokeOrE2eChecksCompleted}/${analysis.correctness.smokeOrE2eCheckOpportunities}`,
+    `- Burst first-plus-latest checks completed: ${analysis.correctness.burstFirstPlusLatestChecksCompleted}/${analysis.correctness.burstFirstPlusLatestCheckOpportunities}`,
+    `- Legacy v2 health checks completed: ${analysis.correctness.legacyV2HealthChecksCompleted}/${analysis.correctness.legacyV2HealthCheckOpportunities}`,
     "",
     "| Target | Baseline minutes | Post-cutover minutes | Baseline-mix counterfactual | Change | Pass |",
     "|---|---:|---:|---:|---:|---|",

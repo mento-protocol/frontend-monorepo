@@ -108,6 +108,9 @@ test("keeps absolute financial values out of the analysis result and Markdown", 
     /Absolute EffectiveCost and BilledCost values are intentionally omitted/,
   );
   assert.match(markdown, /Target-mix normalized build-minute savings: 90\.00%/);
+  assert.match(markdown, /Smoke\/E2E checks completed: 10\/10/);
+  assert.match(markdown, /Burst first-plus-latest checks completed: 2\/2/);
+  assert.match(markdown, /Legacy v2 health checks completed: 7\/7/);
   assert.doesNotMatch(markdown, /\$\d/);
 });
 
@@ -122,6 +125,9 @@ test("reports public-safe GitHub, correctness, event, and attribution evidence",
     repositoryPublicEntireWindow: true,
   });
   assert.equal(analysis.correctness.eligibleFirstPreviews, 10);
+  assert.equal(analysis.correctness.smokeOrE2eChecksCompleted, 10);
+  assert.equal(analysis.correctness.burstFirstPlusLatestChecksCompleted, 2);
+  assert.equal(analysis.correctness.legacyV2HealthChecksCompleted, 7);
   assert.deepEqual(analysis.eventCensus.app.postCutover, {
     eligibleEvents: 10,
     deploymentAttempts: 10,
@@ -309,6 +315,8 @@ test("enforces the observation duration, PR sample, and GitHub billing gates", (
   const evidence = fixture();
   evidence.postCutover.period.endUtcExclusive = "2026-07-22T00:00:00.000Z";
   evidence.postCutover.trustedSameRepositoryPrPushes = 9;
+  evidence.postCutover.correctness.eligibleFirstPreviews = 9;
+  evidence.postCutover.correctness.eligibleFirstPreviewOpportunities = 9;
   evidence.postCutover.github.standardRunnerMinutes = 0;
   evidence.postCutover.github.largerRunnerMinutes = 1;
   evidence.postCutover.github.repositoryPublicEntireWindow = false;
@@ -372,6 +380,73 @@ test("evaluates every correctness and service-quality closeout gate", () => {
   ]) {
     assert.ok(analysis.reasons.includes(expected), expected);
   }
+});
+
+test("fails closed when required correctness observations are absent", () => {
+  const evidence = fixture();
+  evidence.postCutover.correctness.eligibleFirstPreviews = 0;
+  evidence.postCutover.correctness.eligibleFirstPreviewOpportunities = 0;
+  evidence.postCutover.correctness.smokeOrE2eChecksCompleted = 0;
+  evidence.postCutover.correctness.smokeOrE2eCheckOpportunities = 0;
+  evidence.postCutover.correctness.burstFirstPlusLatestChecksCompleted = 0;
+  evidence.postCutover.correctness.burstFirstPlusLatestCheckOpportunities = 0;
+  evidence.postCutover.correctness.legacyV2HealthChecksCompleted = 0;
+  evidence.postCutover.correctness.legacyV2HealthCheckOpportunities = 0;
+
+  const analysis = analyzeVercelCostEvidence(evidence);
+
+  assert.equal(analysis.pass, false);
+  for (const expected of [
+    "eligible-first-preview-opportunities-missing",
+    "smoke-or-e2e-check-opportunities-missing",
+    "smoke-or-e2e-scope-below-trusted-pr-pushes",
+    "burst-first-plus-latest-check-opportunities-missing",
+    "legacy-v2-health-check-opportunities-missing",
+  ]) {
+    assert.ok(analysis.reasons.includes(expected), expected);
+  }
+});
+
+test("fails closed when required correctness observations are incomplete", () => {
+  const evidence = fixture();
+  evidence.postCutover.correctness.smokeOrE2eChecksCompleted = 9;
+  evidence.postCutover.correctness.burstFirstPlusLatestChecksCompleted = 1;
+  evidence.postCutover.correctness.legacyV2HealthChecksCompleted = 6;
+
+  const analysis = analyzeVercelCostEvidence(evidence);
+
+  assert.equal(analysis.pass, false);
+  for (const expected of [
+    "smoke-or-e2e-check-coverage-incomplete",
+    "burst-first-plus-latest-check-coverage-incomplete",
+    "legacy-v2-health-check-coverage-incomplete",
+  ]) {
+    assert.ok(analysis.reasons.includes(expected), expected);
+  }
+});
+
+test("rejects contradictory correctness observation counts", () => {
+  const tooManyCompleted = fixture();
+  tooManyCompleted.postCutover.correctness.smokeOrE2eChecksCompleted = 11;
+  assert.throws(
+    () => validateVercelCostEvidence(tooManyCompleted),
+    /smokeOrE2eChecksCompleted cannot exceed smokeOrE2eCheckOpportunities/,
+  );
+
+  const tooManyFailures = fixture();
+  tooManyFailures.postCutover.correctness.burstFirstPlusLatestFailures = 3;
+  assert.throws(
+    () => validateVercelCostEvidence(tooManyFailures),
+    /burstFirstPlusLatestFailures cannot exceed burstFirstPlusLatestChecksCompleted/,
+  );
+
+  const impossibleFirstPreviewScope = fixture();
+  impossibleFirstPreviewScope.postCutover.correctness.eligibleFirstPreviews = 11;
+  impossibleFirstPreviewScope.postCutover.correctness.eligibleFirstPreviewOpportunities = 11;
+  assert.throws(
+    () => validateVercelCostEvidence(impossibleFirstPreviewScope),
+    /eligibleFirstPreviewOpportunities cannot exceed trustedSameRepositoryPrPushes/,
+  );
 });
 
 test("rejects a post window that begins before the completed cutover", () => {
@@ -487,6 +562,25 @@ test("requires invoice-grade provenance for migrated-path attribution", () => {
     () => validateVercelCostEvidence(legacyV2OnWrongProject),
     /cannot classify legacy app v2 activity/,
   );
+
+  for (const metric of ["buildCpuMinutes", "effectiveCost", "billedCost"]) {
+    const unexplainedProviderSplit = fixture();
+    const target = unexplainedProviderSplit.baseline.targets.governance;
+    target.attribution = {
+      method: "provider-attributed",
+      evidenceSha256:
+        "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    };
+    target.migratedPath[metric] = target.grossProject[metric] - 1;
+
+    assert.throws(
+      () => validateVercelCostEvidence(unexplainedProviderSplit),
+      new RegExp(
+        `migratedPath\\.${metric} must equal grossProject\\.${metric} when provider attribution has no excluded deployments`,
+      ),
+      metric,
+    );
+  }
 });
 
 test("CLI emits public-safe JSON and returns nonzero for a failed gate", () => {

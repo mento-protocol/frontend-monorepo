@@ -170,16 +170,43 @@ The post-cutover record also contains:
 - whether the repository remained public for the complete interval;
 - first-preview totals and every correctness/security/service-quality failure
   count required by #523;
+- completed-check and opportunity counts for smoke/E2E, burst first-plus-latest,
+  and legacy-v2 health verification;
 - explicit rollback-procedure verification.
+
+Derive every opportunity and completion count from the private observation
+ledger rather than entering a blanket success value:
+
+- `eligibleFirstPreviewOpportunities` counts PRs whose first eligible push is in
+  the observation window, and `eligibleFirstPreviews` counts those that received
+  the preview. At least one opportunity is required, and opportunities cannot
+  exceed trusted same-repository PR pushes.
+- `smokeOrE2eCheckOpportunities` counts the smoke/E2E checks required by the
+  observed trusted PR pushes; it must cover at least every such push.
+  `smokeOrE2eChecksCompleted` counts all finished checks, whether passing or
+  failing.
+- `burstFirstPlusLatestCheckOpportunities` counts deliberately exercised burst
+  sequences, and `burstFirstPlusLatestChecksCompleted` counts the sequences
+  whose first-plus-latest outcome was fully verified. At least one sequence is
+  required.
+- `legacyV2HealthCheckOpportunities` counts the v2 health verifications recorded
+  for the observation and final closeout, and `legacyV2HealthChecksCompleted`
+  counts the checks that finished. At least one health check is required.
+
+For each completed/opportunity pair, completion must be 100%. The corresponding
+regression or failure count is a subset of completed checks and must remain
+zero for a passing report.
 
 The analyzer rejects malformed evidence such as migrated usage above gross
 project usage, a post period beginning before cutover, partial UTC days,
 finalized invoices with missing BilledCost, and malformed provenance.
 It also rejects guessed clean-project splits, provider-attributed splits without
-hashed evidence, legacy-v2 classifications outside the app project, gross
-minutes without a classified exclusion, and unknown post-cutover deployment
-activity. Either window is invalid when a target has fewer deployment attempts
-than eligible events. Derived totals, counterfactuals, ratios, and savings must
+hashed evidence, provider-attributed minute or cost splits without a classified
+excluded deployment, legacy-v2 classifications outside the app project, and
+unknown post-cutover deployment activity. Either window is invalid when a
+target has fewer deployment attempts than eligible events. Completed-check
+counts cannot exceed their opportunities, and regressions cannot exceed
+completed checks. Derived totals, counterfactuals, ratios, and savings must
 remain finite; numeric overflow, `NaN`, and infinity fail closed.
 
 ## Calculations
@@ -206,10 +233,14 @@ The command remains failing when any required closeout condition is missing,
 including incomplete billing, a non-final invoice, fewer than seven complete
 days or ten trusted PR pushes, a target with zero events or a non-positive
 minute counterfactual, an actual duplicate deployment, missing standard-runner measurement,
-less than 100% first-preview coverage, native duplicates, affected-target skips,
-larger-runner usage, security/service regressions, v2 regressions, or an
-unverified rollback procedure. Extra failed, cancelled, or rerun attempts remain
-visible in attempts-per-event but are not mislabeled as duplicate deployments.
+no eligible first-preview opportunity, less than 100% first-preview coverage,
+missing or incomplete smoke/E2E, burst, or legacy-v2 observation coverage,
+native duplicates, affected-target skips, larger-runner usage,
+security/service regressions, v2 regressions, or an unverified rollback
+procedure. Smoke/E2E opportunities must cover at least every trusted
+same-repository PR push in the observation window. Extra failed, cancelled, or
+rerun attempts remain visible in attempts-per-event but are not mislabeled as
+duplicate deployments.
 
 ## Cleanup after a passing observation
 

@@ -233,9 +233,15 @@
       "eligibleFirstPreviewOpportunities": 10,
       "incorrectAffectedTargetSkips": 0,
       "unexplainedNativeBuilds": 0,
+      "smokeOrE2eChecksCompleted": 10,
+      "smokeOrE2eCheckOpportunities": 10,
       "smokeOrE2eRegressions": 0,
       "secretExposureIncidents": 0,
+      "burstFirstPlusLatestChecksCompleted": 2,
+      "burstFirstPlusLatestCheckOpportunities": 2,
       "burstFirstPlusLatestFailures": 0,
+      "legacyV2HealthChecksCompleted": 7,
+      "legacyV2HealthCheckOpportunities": 7,
       "legacyV2Regressions": 0,
       "rollbackProcedureVerified": true
     }
