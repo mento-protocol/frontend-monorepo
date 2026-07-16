@@ -201,7 +201,7 @@ jobs:
     permissions:
       actions: write
       contents: read
-      deployments: read
+      deployments: write
       pull-requests: write
       statuses: write
     steps:
@@ -390,7 +390,7 @@ jobs:
     permissions:
       actions: write
       contents: read
-      deployments: read
+      deployments: write
       pull-requests: write
       statuses: write
     steps:
@@ -434,7 +434,7 @@ jobs:
     permissions:
       actions: write
       contents: read
-      deployments: read
+      deployments: write
       pull-requests: write
       statuses: write
     steps:
