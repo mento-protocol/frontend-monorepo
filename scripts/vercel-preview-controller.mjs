@@ -579,7 +579,7 @@ function anchorAliasKey(event) {
   });
 }
 
-export function controllerKey(prNumber, sha) {
+function controllerKey(prNumber, sha) {
   return `vercel-preview:v1:pr:${pullRequestNumber(prNumber)}:target:${PREVIEW_TARGET}:sha:${exactSha(sha)}`;
 }
 
@@ -607,7 +607,7 @@ function controllerKeyDigest(
   );
 }
 
-export function validateSelectionReceipt(value) {
+function validateSelectionReceipt(value) {
   const selection = plainObject(value, "Preview selection receipt");
   invariant(
     selection.schema === SELECTION_RECEIPT_SCHEMA,
@@ -705,7 +705,7 @@ export function dependabotIntakeRunName({ pr, sha, action }) {
   return `Vercel preview intake | pr=${pullRequestNumber(pr)} | sha=${exactSha(sha)} | action=${eventAction}`;
 }
 
-export function parseDependabotIntakeRunName(value) {
+function parseDependabotIntakeRunName(value) {
   boundedText(value, "Dependabot intake run name", 255);
   const match = value.match(
     /^Vercel preview intake \| pr=([1-9][0-9]{0,9}) \| sha=([0-9a-f]{40}) \| action=([a-z]+)$/,
