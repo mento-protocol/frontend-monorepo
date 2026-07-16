@@ -153,8 +153,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      issues: write
-      pull-requests: read
+      pull-requests: write
       statuses: write
     outputs:
       pr_number: ${{ steps.receipt.outputs.pr_number }}
@@ -203,8 +202,7 @@ jobs:
       actions: write
       contents: read
       deployments: read
-      issues: write
-      pull-requests: read
+      pull-requests: write
       statuses: write
     steps:
       - name: Check out trusted controller
@@ -344,8 +342,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      issues: write
-      pull-requests: read
+      pull-requests: write
       statuses: write
     outputs:
       pr_number: ${{ steps.receipt.outputs.pr_number }}
@@ -394,8 +391,7 @@ jobs:
       actions: write
       contents: read
       deployments: read
-      issues: write
-      pull-requests: read
+      pull-requests: write
       statuses: write
     steps:
       - name: Check out trusted controller
@@ -439,8 +435,7 @@ jobs:
       actions: write
       contents: read
       deployments: read
-      issues: write
-      pull-requests: read
+      pull-requests: write
       statuses: write
     steps:
       - name: Check out trusted controller
@@ -584,8 +579,7 @@ jobs:
       actions: write
       contents: read
       deployments: write
-      issues: write
-      pull-requests: read
+      pull-requests: write
       statuses: write
     steps:
       - name: Check out trusted controller

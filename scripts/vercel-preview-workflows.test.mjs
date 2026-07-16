@@ -211,8 +211,7 @@ test("planner materializes only trusted-base code without shared caches", () => 
 test("immutable receipt writers are durable and outside lossy reconciliation concurrency", () => {
   const expected = {
     contents: "read",
-    issues: "write",
-    "pull-requests": "read",
+    "pull-requests": "write",
     statuses: "write",
   };
   for (const jobName of ["receipt-event", "receipt-bootstrap"]) {
@@ -237,6 +236,28 @@ test("immutable receipt writers are durable and outside lossy reconciliation con
       false,
     );
   }
+});
+
+test("every PR comment writer uses the pull-request resource permission", () => {
+  const controllerCommentWriters = [
+    ["receipt-event", "recordEventReceipt"],
+    ["reconcile-event", "reconcilePreview"],
+    ["receipt-bootstrap", "recordEventReceipt"],
+    ["reconcile-bootstrap", "reconcilePreview"],
+    ["reconcile-request", "reconcilePreview"],
+    ["recover-worker-result", "recoverWorkerResult"],
+  ];
+  for (const [jobName, entrypoint] of controllerCommentWriters) {
+    const job = controller.jobs[jobName];
+    assert.match(JSON.stringify(job), new RegExp(entrypoint));
+    assert.equal(job.permissions["pull-requests"], "write");
+    assert.equal(Object.hasOwn(job.permissions, "issues"), false);
+  }
+
+  const workerEvidence = worker.jobs["record-worker-evidence"];
+  assert.match(JSON.stringify(workerEvidence), /recordWorkerEvidence/);
+  assert.equal(workerEvidence.permissions["pull-requests"], "write");
+  assert.equal(Object.hasOwn(workerEvidence.permissions, "issues"), false);
 });
 
 test("every controller write-token job checks out only trusted workflow code", () => {
@@ -453,8 +474,7 @@ test("completed-worker recovery is authoritative for missing and orphaned Deploy
     actions: "write",
     contents: "read",
     deployments: "write",
-    issues: "write",
-    "pull-requests": "read",
+    "pull-requests": "write",
     statuses: "write",
   });
   assert.match(JSON.stringify(recovery), /recoverWorkerResult/);
