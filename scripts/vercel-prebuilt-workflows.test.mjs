@@ -143,7 +143,7 @@ test("exact source, build, and upload remain in one standard-runner job", () => 
       names.indexOf("Build the UI prebuilt output"),
   );
   assert.ok(
-    names.indexOf("Materialize trusted repo-level UI project mapping") <
+    names.indexOf("Prepare fresh runner-owned Vercel pull staging") <
       names.indexOf("Pull branch-specific UI preview settings"),
   );
   assert.ok(
@@ -197,14 +197,48 @@ test("main-only controller is restored after every candidate-code phase", () => 
   );
 });
 
-test("monorepo-root CLI execution and app-root env validation use one mapping", () => {
-  const raw = read(reusablePath);
-  assert.match(raw, /SOURCE_PATH: \$\{\{ github\.workspace \}\}\/source/);
-  assert.match(raw, /--project-directory apps\/ui\.mento\.org/);
-  assert.match(raw, /working-directory: source/);
-  assert.doesNotMatch(
-    raw,
-    /working-directory: (?:source\/)?apps\/ui\.mento\.org/,
+test("monorepo CLI and trusted env validation use their exact roots", () => {
+  const reusable = workflow(reusablePath);
+  const steps = reusable.jobs.prebuilt.steps;
+  const names = steps.map(({ name }) => name);
+  const sourceValidation = steps.find(
+    ({ name }) =>
+      name === "Validate same-repository branch reachability and exact HEAD",
+  );
+  const prerequisites = steps.find(
+    ({ name }) => name === "Verify pinned Vercel prerequisites",
+  );
+  const environmentValidation = steps.find(
+    ({ name }) => name === "Validate runner-owned UI preview build variables",
+  );
+
+  assert.equal(
+    sourceValidation.env.SOURCE_PATH,
+    "${{ github.workspace }}/source",
+  );
+  assert.equal(prerequisites["working-directory"], "source");
+  assert.equal(environmentValidation["working-directory"], undefined);
+  assert.equal(
+    environmentValidation.env.PULL_STAGING_PATH,
+    "${{ runner.temp }}/mento-vercel-pull-staging",
+  );
+  assert.match(
+    environmentValidation.run,
+    /--project-directory "\$PULL_STAGING_PATH\/apps\/ui\.mento\.org"/,
+  );
+  assert.deepEqual(
+    steps.filter(({ run }) =>
+      run?.includes("scripts/vercel-build-environment.mjs"),
+    ),
+    [environmentValidation],
+  );
+  assert.ok(
+    names.indexOf("Assert isolated runner-owned Vercel pull result") <
+      names.indexOf("Validate runner-owned UI preview build variables"),
+  );
+  assert.ok(
+    names.indexOf("Validate runner-owned UI preview build variables") <
+      names.indexOf("Stage trusted UI project settings into candidate source"),
   );
 });
 

@@ -1,33 +1,148 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  linkSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import process from "node:process";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   assertPrebuiltOutput,
+  assertPrebuiltReadyForUpload,
   assertPulledProject,
   assertSafeVercelArguments,
+  assertVercelPullStaging,
   assertVercelInspection,
   buildVercelBuildArguments,
   buildVercelDeployArguments,
   buildVercelInspectArguments,
   buildVercelPullArguments,
   environmentForVercelCli,
+  materializeExactGitTree,
   materializeVercelRepoLink,
   parseVercelDeploymentJson,
   PILOT_TARGET,
+  prepareVercelPullStaging,
   smokeUiPreview,
+  stageVercelPullForCandidate,
+  trustedPnpmInstallLayout,
+  trustedVercelCliPath,
   validateExactSha,
   validateGitBranch,
   validatePilotContract,
   validateSourceCheckout,
+  withValidatedPrebuiltUpload,
 } from "./vercel-prebuilt-workflow.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const DEPLOYMENT_ID = "m-ui-0123456789abcdef012";
 const DEPLOYMENT_URL = "https://ui-pilot-abc.vercel.app";
+const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
+const BUILD_ENVIRONMENT_SCRIPT = fileURLToPath(
+  new URL("./vercel-build-environment.mjs", import.meta.url),
+);
+
+function checkUiPreviewEnvironment(projectDirectory) {
+  return execFileSync(
+    process.execPath,
+    [
+      BUILD_ENVIRONMENT_SCRIPT,
+      "check",
+      "--target",
+      "ui",
+      "--environment",
+      "preview",
+      "--project-directory",
+      projectDirectory,
+    ],
+    {
+      cwd: REPOSITORY_ROOT,
+      encoding: "utf8",
+      env: {
+        CI: "1",
+        NEXT_PUBLIC_VERCEL_ENV: "preview",
+        VERCEL: "1",
+        VERCEL_ENV: "preview",
+        VERCEL_TARGET_ENV: "preview",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+}
+
+function uploadFixture() {
+  const repoRoot = mkdtempSync(join(tmpdir(), "vercel-upload-ui-"));
+  const vercelOrgId = "team_example";
+  const vercelProjectId = "prj_ui";
+  const projectState = join(
+    repoRoot,
+    PILOT_TARGET.expectedRootDirectory,
+    ".vercel",
+  );
+  const outputDirectory = join(projectState, "output");
+  mkdirSync(outputDirectory, { recursive: true });
+  materializeVercelRepoLink({
+    repoRoot,
+    expectedRootDirectory: PILOT_TARGET.expectedRootDirectory,
+    vercelOrgId,
+    vercelProjectId,
+  });
+  writeFileSync(
+    join(projectState, "project.json"),
+    JSON.stringify({
+      orgId: vercelOrgId,
+      projectId: vercelProjectId,
+      settings: { rootDirectory: PILOT_TARGET.expectedRootDirectory },
+    }),
+  );
+  writeFileSync(
+    join(outputDirectory, "config.json"),
+    JSON.stringify({ version: 3, deploymentId: DEPLOYMENT_ID }),
+  );
+  writeFileSync(
+    join(outputDirectory, "builds.json"),
+    JSON.stringify({ target: "preview", cliVersion: "56.2.0" }),
+  );
+  mkdirSync(join(outputDirectory, "static", "nested"), { recursive: true });
+  writeFileSync(join(outputDirectory, "static", "nested", "asset.js"), "ok");
+  writeFileSync(
+    `${repoRoot}.provenance.json`,
+    JSON.stringify({ commitSha: SHA }),
+    { mode: 0o600 },
+  );
+  return {
+    repoRoot,
+    projectState,
+    outputDirectory,
+    options: {
+      repoRoot,
+      logicalTarget: PILOT_TARGET.logicalTarget,
+      expectedRootDirectory: PILOT_TARGET.expectedRootDirectory,
+      vercelOrgId,
+      vercelProjectId,
+      deploymentId: DEPLOYMENT_ID,
+      commitSha: SHA,
+    },
+    cleanup() {
+      rmSync(repoRoot, { force: true, recursive: true });
+      rmSync(`${repoRoot}.provenance.json`, { force: true });
+    },
+  };
+}
 
 function pilotContract(overrides = {}) {
   return {
@@ -45,6 +160,53 @@ function pilotContract(overrides = {}) {
     githubWorkflowRef:
       "mento-protocol/frontend-monorepo/.github/workflows/vercel-prebuilt-pilot.yml@refs/heads/main",
     ...overrides,
+  };
+}
+
+function pulledStagingFixture() {
+  const runnerTemp = mkdtempSync(join(tmpdir(), "vercel-pull-runner-"));
+  const stagingRoot = join(runnerTemp, "mento-vercel-pull-staging");
+  const candidateRoot = join(runnerTemp, "mento-vercel-candidate-source");
+  const vercelOrgId = "team_example";
+  const vercelProjectId = "prj_ui";
+  const expectedRootDirectory = PILOT_TARGET.expectedRootDirectory;
+  prepareVercelPullStaging({
+    runnerTemp,
+    stagingRoot,
+    expectedRootDirectory,
+    vercelOrgId,
+    vercelProjectId,
+  });
+  const appState = join(stagingRoot, expectedRootDirectory, ".vercel");
+  mkdirSync(appState, { mode: 0o700 });
+  writeFileSync(
+    join(appState, "project.json"),
+    JSON.stringify({ settings: { rootDirectory: expectedRootDirectory } }),
+    { mode: 0o600 },
+  );
+  writeFileSync(
+    join(appState, ".env.preview.local"),
+    "NEXT_PUBLIC_STORAGE_URL=https://storage.example\n",
+    { mode: 0o600 },
+  );
+  return {
+    runnerTemp,
+    stagingRoot,
+    candidateRoot,
+    appState,
+    expectedRootDirectory,
+    vercelOrgId,
+    vercelProjectId,
+    options: {
+      runnerTemp,
+      stagingRoot,
+      expectedRootDirectory,
+      vercelOrgId,
+      vercelProjectId,
+    },
+    cleanup() {
+      rmSync(runnerTemp, { force: true, recursive: true });
+    },
   };
 }
 
@@ -312,13 +474,931 @@ test("deploy and inspect JSON retain one immutable URL and Vercel ID", () => {
 
 test("Vercel CLI receives the repo link instead of ID variables that override it", () => {
   assert.deepEqual(
-    environmentForVercelCli({
+    environmentForVercelCli(
+      {
+        BASH_ENV: "/tmp/candidate-bash-env",
+        CI: "1",
+        GITHUB_ENV: "/tmp/github-env",
+        GITHUB_OUTPUT: "/tmp/github-output",
+        GITHUB_PATH: "/tmp/github-path",
+        NODE_OPTIONS: "--require=/tmp/candidate.cjs",
+        PATH: "/trusted/bin:/usr/bin:/bin",
+        RUNNER_TEMP: "/tmp/runner",
+        VERCEL_ORG_ID: "team_example",
+        VERCEL_PROJECT_ID: "prj_example",
+        VERCEL_TOKEN: "fixture-token",
+      },
+      ["VERCEL_ORG_ID", "VERCEL_PROJECT_ID", "VERCEL_TOKEN"],
+    ),
+    {
       CI: "1",
-      VERCEL_ORG_ID: "team_example",
-      VERCEL_PROJECT_ID: "prj_example",
+      PATH: "/trusted/bin:/usr/bin:/bin",
       VERCEL_TOKEN: "fixture-token",
-    }),
-    { CI: "1", VERCEL_TOKEN: "fixture-token" },
+    },
+  );
+});
+
+test("Vercel pull staging is a fresh exact runner-temp tree", () => {
+  const fixture = pulledStagingFixture();
+  try {
+    assert.equal(
+      assertVercelPullStaging(fixture.options).settings.rootDirectory,
+      fixture.expectedRootDirectory,
+    );
+    assert.equal(lstatSync(fixture.stagingRoot).mode & 0o777, 0o700);
+    assert.equal(
+      lstatSync(join(fixture.stagingRoot, ".vercel", "repo.json")).mode & 0o777,
+      0o600,
+    );
+    assert.throws(
+      () => prepareVercelPullStaging(fixture.options),
+      /must be fresh/,
+    );
+    assert.throws(
+      () =>
+        prepareVercelPullStaging({
+          ...fixture.options,
+          stagingRoot: join(fixture.runnerTemp, "candidate-selected"),
+        }),
+      /expected RUNNER_TEMP child/,
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("UI preview environment validation reads only trusted pull staging", () => {
+  const fixture = pulledStagingFixture();
+  try {
+    const canonicalProject = join(
+      fixture.runnerTemp,
+      "source",
+      fixture.expectedRootDirectory,
+    );
+    mkdirSync(canonicalProject, { recursive: true });
+    assert.throws(() => checkUiPreviewEnvironment(canonicalProject));
+
+    const stagingProject = join(
+      fixture.stagingRoot,
+      fixture.expectedRootDirectory,
+    );
+    const stagingEnvironment = join(
+      stagingProject,
+      ".vercel",
+      ".env.preview.local",
+    );
+    assert.equal(lstatSync(stagingEnvironment).mode & 0o777, 0o600);
+    assert.match(
+      checkUiPreviewEnvironment(stagingProject),
+      /verified for ui\/preview/,
+    );
+
+    const candidateProject = join(
+      fixture.candidateRoot,
+      fixture.expectedRootDirectory,
+    );
+    mkdirSync(candidateProject, { recursive: true });
+    stageVercelPullForCandidate({
+      ...fixture.options,
+      candidateRoot: fixture.candidateRoot,
+      buildUid: process.getuid(),
+      buildGid: process.getgid(),
+      runnerUid: process.getuid(),
+      runnerGid: process.getgid(),
+    });
+    const candidateEnvironment = join(
+      candidateProject,
+      ".vercel",
+      ".env.preview.local",
+    );
+    assert.equal(lstatSync(candidateEnvironment).mode & 0o777, 0o600);
+    chmodSync(candidateEnvironment, 0o000);
+    if (process.getuid() !== 0) {
+      assert.throws(() => checkUiPreviewEnvironment(candidateProject));
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("Vercel pull staging rejects links, hardlinks, special files, and unsafe state", () => {
+  const mutations = [
+    {
+      name: "repo link symlink",
+      mutate: (fixture) => {
+        const path = join(fixture.stagingRoot, ".vercel", "repo.json");
+        const outside = join(fixture.runnerTemp, "outside-repo.json");
+        writeFileSync(outside, "untouched");
+        rmSync(path);
+        symlinkSync(outside, path);
+      },
+    },
+    {
+      name: "app Vercel directory symlink",
+      mutate: (fixture) => {
+        const outside = join(fixture.runnerTemp, "outside-state");
+        mkdirSync(outside);
+        rmSync(fixture.appState, { recursive: true });
+        symlinkSync(outside, fixture.appState);
+      },
+    },
+    ...["project.json", ".env.preview.local"].map((name) => ({
+      name: `${name} symlink`,
+      mutate: (fixture) => {
+        const path = join(fixture.appState, name);
+        const outside = join(fixture.runnerTemp, `outside-${name}`);
+        writeFileSync(outside, "untouched");
+        rmSync(path);
+        symlinkSync(outside, path);
+      },
+    })),
+    {
+      name: "hard-linked settings",
+      mutate: (fixture) => {
+        const environmentPath = join(fixture.appState, ".env.preview.local");
+        rmSync(environmentPath);
+        linkSync(join(fixture.appState, "project.json"), environmentPath);
+      },
+    },
+    {
+      name: "FIFO settings",
+      mutate: (fixture) => {
+        const environmentPath = join(fixture.appState, ".env.preview.local");
+        rmSync(environmentPath);
+        execFileSync("mkfifo", [environmentPath]);
+      },
+    },
+    {
+      name: "unexpected file",
+      mutate: (fixture) =>
+        writeFileSync(join(fixture.appState, "candidate.txt"), "unsafe", {
+          mode: 0o600,
+        }),
+    },
+    {
+      name: "group-writable settings",
+      mutate: (fixture) =>
+        chmodSync(join(fixture.appState, "project.json"), 0o620),
+    },
+  ];
+  for (const mutation of mutations) {
+    const fixture = pulledStagingFixture();
+    try {
+      mutation.mutate(fixture);
+      assert.throws(
+        () => assertVercelPullStaging(fixture.options),
+        undefined,
+        mutation.name,
+      );
+    } finally {
+      fixture.cleanup();
+    }
+  }
+
+  const ownership = pulledStagingFixture();
+  try {
+    assert.throws(() =>
+      assertVercelPullStaging({
+        ...ownership.options,
+        expectedUid: process.getuid() + 1,
+        expectedGid: process.getgid(),
+      }),
+    );
+  } finally {
+    ownership.cleanup();
+  }
+});
+
+test("candidate Vercel links cannot redirect trusted pulled-state copies", () => {
+  const mutations = [
+    {
+      name: "repo .vercel",
+      prepare: ({ candidateRoot, outsideDirectory }) =>
+        symlinkSync(outsideDirectory, join(candidateRoot, ".vercel")),
+    },
+    {
+      name: "app .vercel",
+      prepare: ({ appRoot, outsideDirectory }) =>
+        symlinkSync(outsideDirectory, join(appRoot, ".vercel")),
+    },
+    ...["project.json", ".env.preview.local"].map((name) => ({
+      name,
+      prepare: ({ appRoot, sentinelPath }) => {
+        const state = join(appRoot, ".vercel");
+        mkdirSync(state);
+        symlinkSync(sentinelPath, join(state, name));
+      },
+    })),
+  ];
+  for (const mutation of mutations) {
+    const fixture = pulledStagingFixture();
+    try {
+      const appRoot = join(
+        fixture.candidateRoot,
+        fixture.expectedRootDirectory,
+      );
+      mkdirSync(appRoot, { recursive: true });
+      const outsideDirectory = join(fixture.runnerTemp, "trusted-controller");
+      const sentinelPath = join(outsideDirectory, "sentinel.txt");
+      mkdirSync(outsideDirectory);
+      writeFileSync(sentinelPath, "untouched", { mode: 0o600 });
+      mutation.prepare({
+        candidateRoot: fixture.candidateRoot,
+        appRoot,
+        outsideDirectory,
+        sentinelPath,
+      });
+
+      assert.equal(
+        stageVercelPullForCandidate({
+          ...fixture.options,
+          candidateRoot: fixture.candidateRoot,
+          buildUid: process.getuid(),
+          buildGid: process.getgid(),
+          runnerUid: process.getuid(),
+          runnerGid: process.getgid(),
+        }).settings.rootDirectory,
+        fixture.expectedRootDirectory,
+        mutation.name,
+      );
+      assert.equal(readFileSync(sentinelPath, "utf8"), "untouched");
+      for (const path of [
+        join(fixture.candidateRoot, ".vercel", "repo.json"),
+        join(appRoot, ".vercel", "project.json"),
+        join(appRoot, ".vercel", ".env.preview.local"),
+      ]) {
+        assert.equal(lstatSync(path).isFile(), true, mutation.name);
+        assert.equal(lstatSync(path).isSymbolicLink(), false, mutation.name);
+        assert.equal(lstatSync(path).mode & 0o777, 0o600, mutation.name);
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  }
+});
+
+test("candidate staging rejects a source root that escapes RUNNER_TEMP", () => {
+  const fixture = pulledStagingFixture();
+  const outside = mkdtempSync(join(tmpdir(), "vercel-candidate-outside-"));
+  try {
+    mkdirSync(join(outside, fixture.expectedRootDirectory), {
+      recursive: true,
+    });
+    symlinkSync(outside, fixture.candidateRoot);
+    assert.throws(() =>
+      stageVercelPullForCandidate({
+        ...fixture.options,
+        candidateRoot: fixture.candidateRoot,
+        buildUid: process.getuid(),
+        buildGid: process.getgid(),
+        runnerUid: process.getuid(),
+        runnerGid: process.getgid(),
+      }),
+    );
+  } finally {
+    rmSync(outside, { force: true, recursive: true });
+    fixture.cleanup();
+  }
+});
+
+test("candidate staging rejects source components with the wrong owner", () => {
+  const fixture = pulledStagingFixture();
+  try {
+    mkdirSync(join(fixture.candidateRoot, fixture.expectedRootDirectory), {
+      recursive: true,
+    });
+    assert.throws(() =>
+      stageVercelPullForCandidate({
+        ...fixture.options,
+        candidateRoot: fixture.candidateRoot,
+        buildUid: process.getuid() + 1,
+        buildGid: process.getgid(),
+        runnerUid: process.getuid(),
+        runnerGid: process.getgid(),
+      }),
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("trusted Vercel CLI must be exact-versioned and runner-protected", () => {
+  const toolsPath = mkdtempSync(join(tmpdir(), "vercel-tools-"));
+  const packagePath = join(toolsPath, "node_modules", "vercel");
+  const cliPath = join(packagePath, "dist", "index.js");
+  try {
+    mkdirSync(join(packagePath, "dist"), { recursive: true });
+    writeFileSync(cliPath, "export {};\n");
+    writeFileSync(
+      join(packagePath, "package.json"),
+      JSON.stringify({ version: "56.2.0" }),
+    );
+    assert.equal(trustedVercelCliPath(toolsPath), realpathSync(cliPath));
+
+    writeFileSync(
+      join(packagePath, "package.json"),
+      JSON.stringify({ version: "56.2.1" }),
+    );
+    assert.throws(() => trustedVercelCliPath(toolsPath), /pinned release/);
+    writeFileSync(
+      join(packagePath, "package.json"),
+      JSON.stringify({ version: "56.2.0" }),
+    );
+
+    chmodSync(toolsPath, 0o777);
+    assert.throws(() => trustedVercelCliPath(toolsPath), /runner-owned/);
+  } finally {
+    rmSync(toolsPath, { force: true, recursive: true });
+  }
+});
+
+test(
+  "pinned pnpm materializes and executes Vercel 56.2.0 offline in the protected relative layout",
+  { timeout: 120_000 },
+  () => {
+    const fixtureRoot = mkdtempSync(
+      join(dirname(REPOSITORY_ROOT), ".vercel-tools-layout-"),
+    );
+    const controllerRoot = join(fixtureRoot, "controller");
+    const toolsRoot = join(fixtureRoot, "trusted-tools");
+    const archivePath = join(fixtureRoot, "controller.tar");
+    try {
+      mkdirSync(controllerRoot, { mode: 0o755 });
+      mkdirSync(toolsRoot, { mode: 0o755 });
+      execFileSync("git", [
+        "-C",
+        REPOSITORY_ROOT,
+        "archive",
+        "--format=tar",
+        `--output=${archivePath}`,
+        "HEAD",
+      ]);
+      execFileSync("tar", ["-xf", archivePath, "-C", controllerRoot]);
+
+      const layout = trustedPnpmInstallLayout({ controllerRoot, toolsRoot });
+      assert.equal(
+        resolve(controllerRoot, layout.modulesDir),
+        join(toolsRoot, "node_modules"),
+      );
+      assert.equal(isAbsolute(layout.modulesDir), false);
+      assert.equal(layout.virtualStoreDir, join(layout.modulesDir, ".pnpm"));
+      assert.equal(
+        execFileSync("pnpm", ["--version"], { encoding: "utf8" }).trim(),
+        "10.24.0",
+      );
+
+      execFileSync(
+        "pnpm",
+        [
+          "--dir",
+          controllerRoot,
+          "--filter",
+          "frontend-monorepo",
+          "install",
+          "--frozen-lockfile",
+          "--ignore-scripts",
+          "--modules-dir",
+          layout.modulesDir,
+          "--package-import-method",
+          "copy",
+          "--virtual-store-dir",
+          layout.virtualStoreDir,
+          "--offline",
+        ],
+        {
+          encoding: "utf8",
+          env: { ...process.env, CI: "true" },
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+      execFileSync("chmod", ["-R", "a+rX,go-w", toolsRoot]);
+
+      const cliPath = trustedVercelCliPath(toolsRoot);
+      const pathFromTools = relative(realpathSync(toolsRoot), cliPath);
+      assert.notEqual(pathFromTools, "");
+      assert.equal(pathFromTools === "..", false);
+      assert.equal(pathFromTools.startsWith(`..${sep}`), false);
+      assert.equal(
+        execFileSync(process.execPath, [cliPath, "--version"], {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        }).trim(),
+        "56.2.0",
+      );
+      assert.equal(
+        JSON.parse(
+          readFileSync(resolve(cliPath, "..", "..", "package.json"), "utf8"),
+        ).version,
+        "56.2.0",
+      );
+    } finally {
+      rmSync(fixtureRoot, { force: true, recursive: true });
+    }
+  },
+);
+
+test("raw Git-object materialization bypasses archive and checkout filters", () => {
+  const repository = mkdtempSync(join(tmpdir(), "vercel-raw-source-"));
+  const runnerTemp = mkdtempSync(join(tmpdir(), "vercel-raw-runner-"));
+  const candidate = join(runnerTemp, "mento-vercel-candidate-source");
+  const checkoutCandidate = mkdtempSync(
+    join(tmpdir(), "vercel-filtered-candidate-"),
+  );
+  try {
+    chmodSync(runnerTemp, 0o700);
+    execFileSync("git", ["init", "--quiet"], { cwd: repository });
+    writeFileSync(
+      join(repository, ".gitattributes"),
+      [
+        "*.txt text eol=crlf ident",
+        "ignored.txt export-ignore",
+        "substituted.txt export-subst",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(join(repository, "ignored.txt"), "must remain\n");
+    writeFileSync(join(repository, "substituted.txt"), "$Format:%H$\n");
+    writeFileSync(join(repository, "identity.txt"), "$Id$\n");
+    writeFileSync(join(repository, "line-endings.txt"), "one\ntwo\n");
+    writeFileSync(join(repository, "executable.sh"), "#!/bin/sh\nexit 0\n");
+    chmodSync(join(repository, "executable.sh"), 0o755);
+    writeFileSync(join(repository, "plain.txt"), "plain\n");
+    chmodSync(join(repository, "plain.txt"), 0o644);
+    symlinkSync("ignored.txt", join(repository, "linked.txt"));
+    execFileSync("git", ["add", "."], { cwd: repository });
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "--quiet",
+        "-m",
+        "fixture",
+      ],
+      { cwd: repository },
+    );
+    const commitSha = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: repository,
+      encoding: "utf8",
+    }).trim();
+
+    const result = materializeExactGitTree({
+      runnerTemp,
+      sourceRoot: repository,
+      candidateRoot: candidate,
+      commitSha,
+    });
+    assert.equal(result.sourceRoot, realpathSync(candidate));
+    assert.ok(result.entries >= 8);
+    execFileSync(
+      "git",
+      [
+        "checkout-index",
+        "--all",
+        "--force",
+        `--prefix=${checkoutCandidate}${sep}`,
+      ],
+      { cwd: repository },
+    );
+    for (const path of [
+      "ignored.txt",
+      "substituted.txt",
+      "identity.txt",
+      "line-endings.txt",
+    ]) {
+      const blob = execFileSync("git", ["cat-file", "blob", `HEAD:${path}`], {
+        cwd: repository,
+      });
+      assert.deepEqual(readFileSync(join(candidate, path)), blob);
+    }
+    assert.match(
+      readFileSync(join(checkoutCandidate, "identity.txt"), "utf8"),
+      /^\$Id: [0-9a-f]{40} \$\r\n$/,
+    );
+    assert.deepEqual(
+      readFileSync(join(checkoutCandidate, "line-endings.txt")),
+      Buffer.from("one\r\ntwo\r\n"),
+    );
+    assert.equal(
+      lstatSync(join(candidate, "linked.txt")).isSymbolicLink(),
+      true,
+    );
+    assert.equal(readlinkSync(join(candidate, "linked.txt")), "ignored.txt");
+    assert.notEqual(
+      lstatSync(join(candidate, "executable.sh")).mode & 0o111,
+      0,
+    );
+    assert.equal(lstatSync(join(candidate, "plain.txt")).mode & 0o111, 0);
+    assert.throws(
+      () => lstatSync(join(candidate, ".git")),
+      (error) => error?.code === "ENOENT",
+    );
+    assert.throws(
+      () =>
+        materializeExactGitTree({
+          runnerTemp,
+          sourceRoot: repository,
+          candidateRoot: candidate,
+          commitSha,
+        }),
+      /must be fresh/,
+    );
+  } finally {
+    rmSync(repository, { force: true, recursive: true });
+    rmSync(runnerTemp, { force: true, recursive: true });
+    rmSync(checkoutCandidate, { force: true, recursive: true });
+  }
+});
+
+test("raw Git-object materialization rejects gitlinks before writing", () => {
+  const repository = mkdtempSync(join(tmpdir(), "vercel-gitlink-source-"));
+  const runnerTemp = mkdtempSync(join(tmpdir(), "vercel-gitlink-runner-"));
+  const candidate = join(runnerTemp, "mento-vercel-candidate-source");
+  try {
+    chmodSync(runnerTemp, 0o700);
+    execFileSync("git", ["init", "--quiet"], { cwd: repository });
+    writeFileSync(join(repository, "plain.txt"), "plain\n");
+    execFileSync("git", ["add", "."], { cwd: repository });
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "--quiet",
+        "-m",
+        "base",
+      ],
+      { cwd: repository },
+    );
+    const baseCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: repository,
+      encoding: "utf8",
+    }).trim();
+    execFileSync(
+      "git",
+      ["update-index", "--add", "--cacheinfo", `160000,${baseCommit},vendor`],
+      { cwd: repository },
+    );
+    const tree = execFileSync("git", ["write-tree"], {
+      cwd: repository,
+      encoding: "utf8",
+    }).trim();
+    const gitlinkCommit = execFileSync(
+      "git",
+      [
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit-tree",
+        tree,
+        "-p",
+        baseCommit,
+        "-m",
+        "gitlink",
+      ],
+      { cwd: repository, encoding: "utf8" },
+    ).trim();
+
+    assert.throws(
+      () =>
+        materializeExactGitTree({
+          runnerTemp,
+          sourceRoot: repository,
+          candidateRoot: candidate,
+          commitSha: gitlinkCommit,
+        }),
+      /unsupported entry/,
+    );
+    assert.throws(
+      () => lstatSync(candidate),
+      (error) => error?.code === "ENOENT",
+    );
+  } finally {
+    rmSync(repository, { force: true, recursive: true });
+    rmSync(runnerTemp, { force: true, recursive: true });
+  }
+});
+
+test("candidate execution is UID-isolated and hands upload to runner-owned state", () => {
+  const raw = readFileSync(
+    new URL("../.github/workflows/_vercel-prebuilt.yml", import.meta.url),
+    "utf8",
+  );
+  assert.match(raw, /\/usr\/bin\/setpriv/g);
+  assert.match(raw, /--clear-groups/g);
+  assert.match(raw, /--no-new-privs/g);
+  assert.match(raw, /\/usr\/bin\/env -i/g);
+  assert.match(raw, /\/usr\/bin\/pkill -KILL -u "\$BUILD_UID"/g);
+  assert.match(raw, /\/usr\/bin\/pgrep -u "\$BUILD_UID"/g);
+  assert.match(raw, /Create immutable runner-owned upload handoff/);
+  assert.match(raw, /mento-vercel-upload-source/);
+  assert.match(raw, /userdel mento-vercel-build/);
+  assert.match(raw, /node_modules\/vercel\/dist\/index\.js/);
+  assert.match(raw, /candidate_can_write/);
+  for (const protectedPath of [
+    "GITHUB_WORKSPACE/controller",
+    "RUNNER_TEMP",
+    "SOURCE_PATH/.git",
+    "SOURCE_PATH/node_modules",
+    "SOURCE_PATH/package.json",
+    "SOURCE_PATH/pnpm-lock.yaml",
+    "TRUSTED_VERCEL_TOOLS_PATH",
+    "node_bin",
+    "pnpm_bin",
+  ]) {
+    assert.match(raw, new RegExp(protectedPath.replace("/", "\\/")));
+  }
+  assert.doesNotMatch(raw, /sudo\s+(?:-[^\s]+\s+)*-u\s+(?:nobody|65534)/);
+
+  const isolationBlock = raw.slice(
+    raw.indexOf(
+      "- name: Prepare isolated exact-SHA source and protected Vercel CLI",
+    ),
+    raw.indexOf("- name: Install frozen dependencies"),
+  );
+  assert.match(
+    isolationBlock,
+    /pnpm --dir "\$GITHUB_WORKSPACE\/controller" --filter frontend-monorepo install/,
+  );
+  assert.match(isolationBlock, /--frozen-lockfile/);
+  assert.match(isolationBlock, /--ignore-scripts/);
+  assert.match(isolationBlock, /--package-import-method copy/);
+  assert.match(isolationBlock, /trusted-install-modules-dir/);
+  assert.match(isolationBlock, /--modules-dir "\$trusted_modules_dir"/);
+  assert.match(
+    isolationBlock,
+    /--virtual-store-dir "\$trusted_modules_dir\/\.pnpm"/,
+  );
+  assert.match(isolationBlock, /"\$node_bin" "\$vercel_cli" --version/);
+  assert.doesNotMatch(
+    isolationBlock,
+    /--modules-dir "\$TRUSTED_VERCEL_TOOLS_PATH/,
+  );
+  assert.doesNotMatch(isolationBlock, /--no-frozen-lockfile/);
+  assert.doesNotMatch(isolationBlock, /"dependencies":\{"vercel":"56\.2\.0"\}/);
+  const assertExactSourceMaterialization = (block) => {
+    const markers = [
+      '/usr/bin/git -C "$SOURCE_PATH" write-tree',
+      '/usr/bin/git -C "$SOURCE_PATH" rev-parse "$DEPLOY_SHA^{tree}"',
+      'if [ "$source_tree" != "$expected_tree" ]; then',
+      "materialize-source",
+      '-R --no-dereference "$build_uid:$build_gid"',
+    ];
+    let previous = -1;
+    for (const marker of markers) {
+      const index = block.indexOf(marker);
+      assert.notEqual(index, -1, `missing exact-source marker: ${marker}`);
+      assert.ok(
+        index > previous,
+        `out-of-order exact-source marker: ${marker}`,
+      );
+      previous = index;
+    }
+    assert.match(
+      block,
+      /"\$GITHUB_WORKSPACE\/controller\/scripts\/vercel-prebuilt-workflow\.mjs" \\\n\s+materialize-source/,
+    );
+    assert.doesNotMatch(block, /git -C "\$SOURCE_PATH" archive/);
+    assert.doesNotMatch(block, /git -C "\$SOURCE_PATH" checkout-index/);
+    assert.doesNotMatch(block, /get-tar-commit-id/);
+  };
+  assertExactSourceMaterialization(isolationBlock);
+  for (const mutation of [
+    isolationBlock.replace("$DEPLOY_SHA^{tree}", "HEAD^{tree}"),
+    isolationBlock.replace(
+      'if [ "$source_tree" != "$expected_tree" ]; then',
+      'if [ "$source_tree" = "$source_tree" ]; then',
+    ),
+    isolationBlock.replace("materialize-source", "prepare-link"),
+    isolationBlock.replace("-R --no-dereference", "-R"),
+  ]) {
+    assert.notEqual(mutation, isolationBlock);
+    assert.throws(() => assertExactSourceMaterialization(mutation));
+  }
+
+  const installBlock = raw.slice(
+    raw.indexOf("- name: Install frozen dependencies"),
+    raw.indexOf("- name: Restore trusted controller after source installation"),
+  );
+  const buildBlock = raw.slice(
+    raw.indexOf("- name: Build the UI prebuilt output"),
+    raw.indexOf("- name: Restore trusted controller after source build"),
+  );
+  const buildValidationBlock = buildBlock.slice(
+    0,
+    buildBlock.indexOf('started_at_ms="$(date +%s%3N)"'),
+  );
+  const installCandidateBlock = installBlock.slice(
+    installBlock.indexOf("set +e"),
+    installBlock.indexOf("candidate_status=$?"),
+  );
+  const buildCandidateBlock = buildBlock.slice(
+    buildBlock.indexOf("set +e"),
+    buildBlock.indexOf("candidate_status=$?"),
+  );
+  const handoffBlock = raw.slice(
+    raw.indexOf("- name: Create immutable runner-owned upload handoff"),
+    raw.indexOf("- name: Materialize runner-owned upload UI project mapping"),
+  );
+  const candidateOutputValidationBlock = raw.slice(
+    raw.indexOf("- name: Assert the UI prebuilt output"),
+    raw.indexOf(
+      "- name: Revalidate runner-owned pulled UI settings after the build",
+    ),
+  );
+  const uploadOutputValidationBlock = raw.slice(
+    raw.indexOf("- name: Assert immutable runner-owned upload handoff"),
+    raw.indexOf("- name: Upload the verified prebuilt output"),
+  );
+  const pullBlock = raw.slice(
+    raw.indexOf("- name: Pull branch-specific UI preview settings"),
+    raw.indexOf("- name: Assert isolated runner-owned Vercel pull result"),
+  );
+  const stagePullBlock = raw.slice(
+    raw.indexOf(
+      "- name: Stage trusted UI project settings into candidate source",
+    ),
+    raw.indexOf("- name: Assert isolated UI project mapping"),
+  );
+  const validateCandidatePullBlock = raw.slice(
+    raw.indexOf("- name: Assert isolated UI project mapping"),
+    raw.indexOf("- name: Build the UI prebuilt output"),
+  );
+  const environmentValidationIndex = raw.indexOf(
+    "- name: Validate runner-owned UI preview build variables",
+  );
+  const stagePullIndex = raw.indexOf(
+    "- name: Stage trusted UI project settings into candidate source",
+  );
+  const environmentValidationBlock = raw.slice(
+    environmentValidationIndex,
+    stagePullIndex,
+  );
+  const assertSinglePrivilegedControllerInvocation = (block, command) => {
+    const controller =
+      '"$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs"';
+    const lines = block.split("\n");
+    const controllerLines = lines
+      .map((line, index) => ({ line, index }))
+      .filter(({ line }) => line.includes(controller));
+    assert.equal(
+      controllerLines.length,
+      1,
+      `${command} must have exactly one trusted controller invocation`,
+    );
+    const controllerIndex = controllerLines[0].index;
+    assert.equal(lines[controllerIndex + 1]?.trim(), command);
+    const privilegedIndex = lines.findIndex(
+      (line, index) =>
+        index < controllerIndex &&
+        line.includes("sudo --non-interactive /usr/bin/env -i"),
+    );
+    assert.notEqual(
+      privilegedIndex,
+      -1,
+      `${command} must start from a privileged clean environment`,
+    );
+    for (let index = privilegedIndex; index <= controllerIndex; index += 1) {
+      assert.ok(
+        lines[index].trimEnd().endsWith("\\"),
+        `${command} must remain in one privileged continued command`,
+      );
+    }
+  };
+  assert.match(
+    pullBlock,
+    /SOURCE_PATH: \$\{\{ runner\.temp \}\}\/mento-vercel-pull-staging/,
+  );
+  assert.doesNotMatch(pullBlock, /github\.workspace.*source/);
+  assertSinglePrivilegedControllerInvocation(stagePullBlock, "stage-pull");
+  assert.doesNotMatch(stagePullBlock, /\/bin\/cp|canonical_state/);
+  assertSinglePrivilegedControllerInvocation(
+    validateCandidatePullBlock,
+    "validate-candidate-pull",
+  );
+  assert.match(validateCandidatePullBlock, /BUILD_UID="\$BUILD_UID"/);
+  assert.match(validateCandidatePullBlock, /PULL_STAGING_UID="\$\(id -u\)"/);
+  assert.doesNotMatch(validateCandidatePullBlock, /\svalidate-pull\s*$/m);
+  assertSinglePrivilegedControllerInvocation(buildValidationBlock, "build");
+  assert.match(buildValidationBlock, /PULL_STAGING_UID="\$\(id -u\)"/);
+  assert.doesNotMatch(
+    buildValidationBlock,
+    /\n\s+node "\$GITHUB_WORKSPACE\/controller\/scripts\/vercel-prebuilt-workflow\.mjs" build/,
+  );
+  assertSinglePrivilegedControllerInvocation(
+    candidateOutputValidationBlock,
+    "assert-output",
+  );
+  for (const [block, command] of [
+    [stagePullBlock, "stage-pull"],
+    [validateCandidatePullBlock, "validate-candidate-pull"],
+    [buildValidationBlock, "build"],
+    [candidateOutputValidationBlock, "assert-output"],
+  ]) {
+    const withoutPrivilege = block.replace(
+      "sudo --non-interactive /usr/bin/env -i",
+      "/usr/bin/env -i",
+    );
+    assert.notEqual(withoutPrivilege, block);
+    assert.throws(
+      () =>
+        assertSinglePrivilegedControllerInvocation(withoutPrivilege, command),
+      /privileged clean environment/,
+    );
+    assert.throws(
+      () =>
+        assertSinglePrivilegedControllerInvocation(
+          `${block}\nnode "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" ${command}\n`,
+          command,
+        ),
+      /exactly one trusted controller invocation/,
+    );
+  }
+  assert.match(
+    candidateOutputValidationBlock,
+    /EXPECTED_PROVENANCE_UID="\$\(id -u\)"/,
+  );
+  assert.doesNotMatch(
+    candidateOutputValidationBlock,
+    /run: node .*vercel-prebuilt-workflow\.mjs" assert-output/,
+  );
+  assert.equal(
+    uploadOutputValidationBlock.match(/vercel-prebuilt-workflow\.mjs/g)?.length,
+    1,
+  );
+  assert.match(
+    uploadOutputValidationBlock,
+    /run: node .*vercel-prebuilt-workflow\.mjs" assert-output/,
+  );
+  assert.doesNotMatch(
+    uploadOutputValidationBlock,
+    /sudo --non-interactive \/usr\/bin\/env -i/,
+  );
+  assert.ok(
+    raw.indexOf("- name: Assert isolated runner-owned Vercel pull result") <
+      environmentValidationIndex,
+  );
+  assert.ok(environmentValidationIndex < stagePullIndex);
+  assert.equal(raw.match(/vercel-build-environment\.mjs/g)?.length, 1);
+  assert.match(
+    environmentValidationBlock,
+    /PULL_STAGING_PATH: \$\{\{ runner\.temp \}\}\/mento-vercel-pull-staging/,
+  );
+  assert.match(
+    environmentValidationBlock,
+    /--project-directory "\$PULL_STAGING_PATH\/apps\/ui\.mento\.org"/,
+  );
+  assert.doesNotMatch(environmentValidationBlock, /working-directory: source/);
+  assert.doesNotMatch(
+    environmentValidationBlock,
+    /mento-vercel-candidate-source/,
+  );
+  assert.match(
+    handoffBlock,
+    /\/bin\/cp -R \\\n\s+--no-dereference \\\n\s+--preserve=mode,timestamps/,
+  );
+  for (const block of [installBlock, buildBlock]) {
+    assert.match(block, /\/usr\/bin\/env -i/);
+    assert.match(block, /::stop-commands::\$command_token/);
+    assert.match(block, /echo "::\$command_token::"/);
+    assert.match(
+      block,
+      /candidate_status=\$\?\n\s+set -e\n\s+terminate_candidate\n\s+echo "::\$command_token::"/,
+    );
+    assert.match(block, /--reuid="\$BUILD_UID"/);
+    assert.match(block, /--regid="\$BUILD_GID"/);
+  }
+  for (const block of [installCandidateBlock, buildCandidateBlock]) {
+    for (const name of [
+      "BASH_ENV",
+      "GITHUB_ENV",
+      "GITHUB_OUTPUT",
+      "GITHUB_PATH",
+      "GITHUB_STEP_SUMMARY",
+      "NODE_OPTIONS",
+      "RUNNER_TEMP",
+    ]) {
+      assert.doesNotMatch(block, new RegExp(`\\n\\s+${name}=`));
+    }
+  }
+  assert.match(installBlock, /XDG_DATA_HOME="\$CANDIDATE_HOME_PATH\/data"/);
+  assert.doesNotMatch(installBlock, /--store-dir|PNPM_STORE/);
+  assert.doesNotMatch(buildBlock, /\n\s+VERCEL_TOKEN:/);
+  assert.doesNotMatch(buildBlock, /\n\s+VERCEL_TOKEN=/);
+  assert.ok(
+    buildBlock.indexOf("pkill -KILL -u") <
+      buildBlock.indexOf("build_duration_ms="),
+  );
+  assert.ok(
+    raw.indexOf("Assert immutable runner-owned upload handoff") <
+      raw.indexOf("Upload the verified prebuilt output"),
   );
 });
 
@@ -349,6 +1429,8 @@ test("pulled project and prebuilt output bind the configured UI root and build I
     writeFileSync(
       join(projectDirectory, "project.json"),
       JSON.stringify({
+        orgId: "team_example",
+        projectId: "prj_example",
         settings: { rootDirectory: "apps/ui.mento.org" },
       }),
     );
@@ -402,6 +1484,156 @@ test("pulled project and prebuilt output bind the configured UI root and build I
     );
   } finally {
     rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("UI upload revalidates exact provenance and project mapping immediately", async () => {
+  const mutations = [
+    {
+      name: "missing repo link",
+      mutate: ({ repoRoot }) => rmSync(join(repoRoot, ".vercel", "repo.json")),
+    },
+    {
+      name: "wrong remote",
+      mutate: ({ repoRoot, options }) =>
+        writeFileSync(
+          join(repoRoot, ".vercel", "repo.json"),
+          JSON.stringify({
+            remoteName: "candidate",
+            projects: [
+              {
+                id: options.vercelProjectId,
+                directory: options.expectedRootDirectory,
+                orgId: options.vercelOrgId,
+              },
+            ],
+          }),
+        ),
+    },
+    ...[
+      ["linked org", "orgId", "team_other"],
+      ["linked project", "id", "prj_other"],
+      ["linked root", "directory", "apps/wrong"],
+    ].map(([name, property, value]) => ({
+      name: `wrong ${name}`,
+      mutate: ({ repoRoot }) => {
+        const path = join(repoRoot, ".vercel", "repo.json");
+        const link = JSON.parse(readFileSync(path, "utf8"));
+        link.projects[0][property] = value;
+        writeFileSync(path, JSON.stringify(link));
+      },
+    })),
+    {
+      name: "missing project settings",
+      mutate: ({ projectState }) => rmSync(join(projectState, "project.json")),
+    },
+    ...[
+      ["project org", "orgId", "team_other"],
+      ["project ID", "projectId", "prj_other"],
+    ].map(([name, property, value]) => ({
+      name: `wrong ${name}`,
+      mutate: ({ projectState }) => {
+        const path = join(projectState, "project.json");
+        const project = JSON.parse(readFileSync(path, "utf8"));
+        project[property] = value;
+        writeFileSync(path, JSON.stringify(project));
+      },
+    })),
+    {
+      name: "wrong project root",
+      mutate: ({ projectState }) => {
+        const path = join(projectState, "project.json");
+        const project = JSON.parse(readFileSync(path, "utf8"));
+        project.settings.rootDirectory = "apps/wrong";
+        writeFileSync(path, JSON.stringify(project));
+      },
+    },
+    {
+      name: "wrong exact-SHA provenance",
+      mutate: ({ repoRoot }) =>
+        writeFileSync(
+          `${repoRoot}.provenance.json`,
+          JSON.stringify({ commitSha: `1${SHA.slice(1)}` }),
+        ),
+    },
+  ];
+
+  const valid = uploadFixture();
+  let validUploads = 0;
+  try {
+    assert.equal(
+      assertPrebuiltReadyForUpload(valid.options),
+      valid.outputDirectory,
+    );
+    assert.equal(
+      await withValidatedPrebuiltUpload(valid.options, async () => {
+        validUploads += 1;
+        return "uploaded";
+      }),
+      "uploaded",
+    );
+    assert.equal(validUploads, 1);
+  } finally {
+    valid.cleanup();
+  }
+
+  for (const mutation of mutations) {
+    const fixture = uploadFixture();
+    let uploadCalls = 0;
+    try {
+      mutation.mutate(fixture);
+      await assert.rejects(
+        withValidatedPrebuiltUpload(fixture.options, async () => {
+          uploadCalls += 1;
+        }),
+        undefined,
+        mutation.name,
+      );
+      assert.equal(uploadCalls, 0, mutation.name);
+    } finally {
+      fixture.cleanup();
+    }
+  }
+});
+
+test("UI upload guard rejects links, special nodes, and runner-writable state", () => {
+  const mutateCases = [
+    {
+      name: "symbolic link",
+      mutate: ({ outputDirectory }) =>
+        symlinkSync("/etc/passwd", join(outputDirectory, "static", "escape")),
+    },
+    {
+      name: "hard link",
+      mutate: ({ outputDirectory }) =>
+        linkSync(
+          join(outputDirectory, "config.json"),
+          join(outputDirectory, "static", "hardlink"),
+        ),
+    },
+    {
+      name: "FIFO",
+      mutate: ({ outputDirectory }) =>
+        execFileSync("mkfifo", [join(outputDirectory, "static", "pipe")]),
+    },
+    {
+      name: "world-writable directory",
+      mutate: ({ outputDirectory }) =>
+        chmodSync(join(outputDirectory, "static"), 0o777),
+    },
+  ];
+  for (const mutation of mutateCases) {
+    const fixture = uploadFixture();
+    try {
+      mutation.mutate(fixture);
+      assert.throws(
+        () => assertPrebuiltReadyForUpload(fixture.options),
+        undefined,
+        mutation.name,
+      );
+    } finally {
+      fixture.cleanup();
+    }
   }
 });
 
