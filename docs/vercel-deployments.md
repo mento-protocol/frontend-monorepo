@@ -365,9 +365,13 @@ store with `--offline`; it cannot contact the registry to repair missing data.
 The hosted setup-node and pnpm locations are treated only as trusted staging
 inputs because runner-image permissions can make those original paths writable
 by the isolated candidate UID. Before candidate code starts, the worker copies
-Node.js and standalone pnpm into the same runner-owned protected tool
-directory, removes group/other write access from the original pnpm action
-directory, and prepends the protected runtime to subsequent workflow steps.
+Node.js and the exact pinned standalone pnpm executable into the same
+runner-owned protected tool directory, removes group/other write access from
+the original pnpm action directory, and prepends the protected runtime to
+subsequent workflow steps. The pnpm action's PATH entry is a launcher whose
+executable lives below a hashed `global/v*/.../@pnpm/exe/pnpm` directory, so
+the worker requires exactly one protected target reporting `10.24.0` and
+copies that self-contained executable instead of relocating the launcher.
 Before any credentialed command, the worker proves the runtime root, its
 replacement-relevant parents, Node.js, pnpm, and the CLI are not candidate
 writable; it also proves the CLI resolves inside the protected directory, its

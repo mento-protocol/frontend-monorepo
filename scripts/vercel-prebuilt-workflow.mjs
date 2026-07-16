@@ -74,6 +74,8 @@ const VERCEL_CLI_BASE_ENVIRONMENT = [
 const PULL_STAGING_DIRECTORY = "mento-vercel-pull-staging";
 const CANDIDATE_SOURCE_DIRECTORY = "mento-vercel-candidate-source";
 const TRUSTED_TOOLS_DIRECTORY = "mento-vercel-trusted-tools";
+const PNPM_ACTION_DIRECTORY = "mento-pnpm-tools";
+const PINNED_PNPM_VERSION = "10.24.0";
 const PULLED_ENVIRONMENT_FILE = ".env.preview.local";
 const MAX_SOURCE_ENTRIES = 20_000;
 const MAX_SOURCE_PATH_BYTES = 4_096;
@@ -1112,7 +1114,7 @@ export function environmentForVercelCli(environment, allowedNames = []) {
 
 function assertProtectedRuntimeEntry(
   path,
-  { directory, expectedUid, expectedGid },
+  { directory, expectedUid, expectedGid, requireSingleLink = true },
 ) {
   const entry = lstatSync(path);
   if (
@@ -1121,17 +1123,215 @@ function assertProtectedRuntimeEntry(
     entry.uid !== expectedUid ||
     entry.gid !== expectedGid ||
     (entry.mode & 0o7022) !== 0 ||
-    (!directory && entry.nlink !== 1)
+    (!directory && requireSingleLink && entry.nlink !== 1)
   ) {
     throw new Error("Protected runtime entry is not runner-owned");
   }
   return entry;
 }
 
+function assertProtectedRuntimeDescendant({
+  root,
+  path,
+  directory,
+  expectedUid,
+  expectedGid,
+  requireSingleLink = true,
+}) {
+  const canonicalRoot = realpathSync(root);
+  const canonicalPath = realpathSync(path);
+  const pathFromRoot = relative(canonicalRoot, canonicalPath);
+  if (
+    pathFromRoot === "" ||
+    pathFromRoot === ".." ||
+    pathFromRoot.startsWith(`..${sep}`) ||
+    isAbsolute(pathFromRoot)
+  ) {
+    throw new Error("Protected runtime source escaped its action root");
+  }
+  const entry = assertProtectedRuntimeEntry(canonicalPath, {
+    directory,
+    expectedUid,
+    expectedGid,
+    requireSingleLink,
+  });
+  let parent = dirname(canonicalPath);
+  while (parent !== canonicalRoot) {
+    assertProtectedRuntimeEntry(parent, {
+      directory: true,
+      expectedUid,
+      expectedGid,
+    });
+    const nextParent = dirname(parent);
+    if (nextParent === parent) {
+      throw new Error("Protected runtime source escaped its action root");
+    }
+    parent = nextParent;
+  }
+  return { entry, path: canonicalPath };
+}
+
+function readPnpmVersion(path, run) {
+  const result = run(path, ["--version"], {
+    encoding: "utf8",
+    env: {
+      HOME: "/nonexistent",
+      LANG: "C",
+      LC_ALL: "C",
+      PATH: "/usr/bin:/bin",
+    },
+    timeout: 10_000,
+    windowsHide: true,
+  });
+  if (result.error || result.signal || result.status !== 0) {
+    throw new Error("Pinned pnpm standalone executable did not run");
+  }
+  return result.stdout.trim();
+}
+
+function resolvePinnedPnpmExecutable({
+  runnerTemp,
+  pnpmRoot,
+  pnpmSource,
+  expectedUid = process.getuid?.(),
+  expectedGid = process.getgid?.(),
+  run = spawnSync,
+}) {
+  const uid = numericIdentity(expectedUid, "Expected runner UID");
+  const gid = numericIdentity(expectedGid, "Expected runner GID");
+  const canonicalPnpmRoot = assertRunnerTempChild({
+    runnerTemp,
+    path: pnpmRoot,
+    expectedName: PNPM_ACTION_DIRECTORY,
+    expectedUid: uid,
+    expectedGid: gid,
+  });
+  assertProtectedRuntimeEntry(canonicalPnpmRoot, {
+    directory: true,
+    expectedUid: uid,
+    expectedGid: gid,
+  });
+
+  requiredText(pnpmSource, "Protected pnpm source");
+  if (!isAbsolute(pnpmSource)) {
+    throw new Error("Protected pnpm source must be absolute");
+  }
+  const canonicalPnpmSource = realpathSync(pnpmSource);
+  const expectedLauncher = join(
+    canonicalPnpmRoot,
+    "node_modules",
+    ".bin",
+    "bin",
+    "pnpm",
+  );
+  if (canonicalPnpmSource !== expectedLauncher) {
+    throw new Error("Pinned pnpm source is not the action launcher");
+  }
+  const launcherEntry = assertProtectedRuntimeDescendant({
+    root: canonicalPnpmRoot,
+    path: canonicalPnpmSource,
+    directory: false,
+    expectedUid: uid,
+    expectedGid: gid,
+    requireSingleLink: false,
+  });
+  if (
+    (launcherEntry.entry.mode & 0o111) === 0 ||
+    readPnpmVersion(canonicalPnpmSource, run) !== PINNED_PNPM_VERSION
+  ) {
+    throw new Error("Pinned pnpm launcher is not the requested release");
+  }
+
+  const globalRoot = join(
+    canonicalPnpmRoot,
+    "node_modules",
+    ".bin",
+    "global",
+    "v11",
+  );
+  assertProtectedRuntimeDescendant({
+    root: canonicalPnpmRoot,
+    path: globalRoot,
+    directory: true,
+    expectedUid: uid,
+    expectedGid: gid,
+  });
+
+  const matchingCandidates = new Map();
+  for (const installEntry of readdirSync(globalRoot, {
+    withFileTypes: true,
+  }).sort((left, right) => left.name.localeCompare(right.name))) {
+    if (!installEntry.isDirectory() && !installEntry.isSymbolicLink()) continue;
+    const installRoot = join(globalRoot, installEntry.name);
+    const executableLocator = join(
+      installRoot,
+      "node_modules",
+      "@pnpm",
+      "exe",
+      "pnpm",
+    );
+    const packageJsonLocator = join(
+      installRoot,
+      "node_modules",
+      "@pnpm",
+      "exe",
+      "package.json",
+    );
+    if (!existsSync(executableLocator) || !existsSync(packageJsonLocator)) {
+      continue;
+    }
+    assertProtectedRuntimeDescendant({
+      root: canonicalPnpmRoot,
+      path: installRoot,
+      directory: true,
+      expectedUid: uid,
+      expectedGid: gid,
+    });
+    const packageJson = assertProtectedRuntimeDescendant({
+      root: canonicalPnpmRoot,
+      path: packageJsonLocator,
+      directory: false,
+      expectedUid: uid,
+      expectedGid: gid,
+      requireSingleLink: false,
+    });
+    const executable = assertProtectedRuntimeDescendant({
+      root: canonicalPnpmRoot,
+      path: executableLocator,
+      directory: false,
+      expectedUid: uid,
+      expectedGid: gid,
+      requireSingleLink: false,
+    });
+    const packageMetadata = JSON.parse(readFileSync(packageJson.path, "utf8"));
+    if (packageMetadata.name !== "@pnpm/exe") {
+      throw new Error("Pinned pnpm package identity is invalid");
+    }
+    if (packageMetadata.version !== PINNED_PNPM_VERSION) continue;
+    if (
+      (executable.entry.mode & 0o111) === 0 ||
+      readPnpmVersion(executable.path, run) !== PINNED_PNPM_VERSION
+    ) {
+      throw new Error("Pinned pnpm standalone executable is not exact");
+    }
+    matchingCandidates.set(
+      `${executable.entry.dev}:${executable.entry.ino}`,
+      executable.path,
+    );
+  }
+  if (matchingCandidates.size !== 1) {
+    throw new Error(
+      "Pinned pnpm standalone executable is missing or ambiguous",
+    );
+  }
+  return matchingCandidates.values().next().value;
+}
+
 export function stageTrustedRuntime({
   runnerTemp,
   toolsRoot,
   nodeSource,
+  pnpmRoot,
   pnpmSource,
   expectedUid = process.getuid?.(),
   expectedGid = process.getgid?.(),
@@ -1149,9 +1349,16 @@ export function stageTrustedRuntime({
     throw new Error("Protected runtime destination must be fresh");
   }
 
+  const pnpmExecutable = resolvePinnedPnpmExecutable({
+    runnerTemp,
+    pnpmRoot,
+    pnpmSource,
+    expectedUid: uid,
+    expectedGid: gid,
+  });
   const sources = [
     ["node", nodeSource],
-    ["pnpm", pnpmSource],
+    ["pnpm", pnpmExecutable],
   ].map(([name, source]) => {
     requiredText(source, `Protected ${name} source`);
     if (!isAbsolute(source)) {
@@ -2465,6 +2672,7 @@ function stageTrustedRuntimeFromEnvironment() {
     runnerTemp: process.env.RUNNER_TEMP,
     toolsRoot: process.env.TRUSTED_VERCEL_TOOLS_PATH,
     nodeSource: process.env.NODE_SOURCE_PATH,
+    pnpmRoot: process.env.PNPM_ACTION_DEST,
     pnpmSource: process.env.PNPM_SOURCE_PATH,
   });
 }

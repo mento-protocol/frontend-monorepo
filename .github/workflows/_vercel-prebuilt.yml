@@ -156,6 +156,7 @@ jobs:
           ref: ${{ inputs.commit_sha }}
 
       - name: Set up pinned pnpm
+        id: pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v4
         with:
           dest: ${{ runner.temp }}/mento-pnpm-tools
@@ -209,6 +210,7 @@ jobs:
           CANDIDATE_SOURCE_PATH: ${{ runner.temp }}/mento-vercel-candidate-source
           DEPLOY_SHA: ${{ steps.source.outputs.checked_out_sha }}
           PNPM_ACTION_DEST: ${{ runner.temp }}/mento-pnpm-tools
+          PNPM_BIN_DEST: ${{ steps.pnpm.outputs.bin_dest }}
           SOURCE_PATH: ${{ github.workspace }}/source
           TRUSTED_VERCEL_TOOLS_PATH: ${{ runner.temp }}/mento-vercel-trusted-tools
         run: |
@@ -250,7 +252,11 @@ jobs:
           fi
           trusted_bin_dir="$TRUSTED_VERCEL_TOOLS_PATH/bin"
           setup_node_bin="$(realpath "$(command -v node)")"
-          setup_pnpm_bin="$(realpath "$(command -v pnpm)")"
+          if [ "$(realpath "$PNPM_BIN_DEST")" != "$PNPM_ACTION_DEST/node_modules/.bin/bin" ]; then
+            echo "Pinned pnpm action returned an unexpected binary directory" >&2
+            exit 1
+          fi
+          setup_pnpm_bin="$(realpath "$PNPM_BIN_DEST/pnpm")"
           case "$setup_pnpm_bin" in
             "$PNPM_ACTION_DEST"/*) ;;
             *) echo "Pinned pnpm escaped its action-owned directory" >&2; exit 1 ;;

@@ -1266,24 +1266,92 @@ test("candidate staging rejects source components with the wrong owner", () => {
   }
 });
 
-test("trusted runtime copies writable hosted tools into independent protected files", () => {
+test("trusted runtime copies hosted Node and the exact standalone pnpm target into independent protected files", () => {
   const sourceRoot = mkdtempSync(join(tmpdir(), "vercel-runtime-source-"));
   const runnerTemp = mkdtempSync(join(tmpdir(), "vercel-runtime-runner-"));
   const toolsRoot = join(runnerTemp, "mento-vercel-trusted-tools");
+  const pnpmRoot = join(runnerTemp, "mento-pnpm-tools");
   const nodeSource = join(sourceRoot, "node");
-  const pnpmSource = join(sourceRoot, "pnpm");
+  const pnpmSource = join(pnpmRoot, "node_modules", ".bin", "bin", "pnpm");
+  const pnpmGlobalRoot = join(
+    pnpmRoot,
+    "node_modules",
+    ".bin",
+    "global",
+    "v11",
+  );
+  const pnpmInstallRoot = join(pnpmGlobalRoot, "install-12345-1700000000000");
+  const pnpmHashRoot = join(pnpmGlobalRoot, "a2d-19f6b3f78e2");
+  const pnpmPackageRoot = join(
+    pnpmRoot,
+    "node_modules",
+    ".bin",
+    "store",
+    "v11",
+    "links",
+    "a2d-19f6b3f78e2",
+    "node_modules",
+    "@pnpm",
+    "exe",
+  );
+  const pnpmPackageLink = join(pnpmInstallRoot, "node_modules", "@pnpm", "exe");
+  const pnpmExecutable = join(pnpmPackageRoot, "pnpm");
+  const pnpmExecutableLocator = join(
+    pnpmHashRoot,
+    "node_modules",
+    "@pnpm",
+    "exe",
+    "pnpm",
+  );
+  const pnpmStoreCopy = join(pnpmRoot, "pnpm-store-copy");
   const nodeContents = "#!/bin/sh\necho node\n";
-  const pnpmContents = "#!/bin/sh\necho pnpm\n";
+  const pnpmSourceContents = [
+    "#!/bin/sh",
+    'basedir=$(dirname "$0")',
+    'exec "$basedir/../global/v11/a2d-19f6b3f78e2/node_modules/@pnpm/exe/pnpm" "$@"',
+    "",
+  ].join("\n");
+  const pnpmExecutableContents = [
+    "#!/bin/sh",
+    'if [ "$1" = "--version" ]; then',
+    '  echo "10.24.0"',
+    "else",
+    '  echo "pnpm"',
+    "fi",
+    "",
+  ].join("\n");
   try {
     chmodSync(sourceRoot, 0o777);
     chmodSync(runnerTemp, 0o711);
     writeFileSync(nodeSource, nodeContents, { mode: 0o777 });
-    writeFileSync(pnpmSource, pnpmContents, { mode: 0o777 });
+    mkdirSync(dirname(pnpmSource), { recursive: true });
+    mkdirSync(dirname(pnpmPackageLink), { recursive: true });
+    mkdirSync(pnpmPackageRoot, { recursive: true });
+    writeFileSync(pnpmSource, pnpmSourceContents, { mode: 0o555 });
+    writeFileSync(
+      join(pnpmPackageRoot, "package.json"),
+      JSON.stringify({ name: "@pnpm/exe", version: "10.24.0" }),
+      { mode: 0o444 },
+    );
+    writeFileSync(pnpmStoreCopy, pnpmExecutableContents, { mode: 0o555 });
+    linkSync(pnpmStoreCopy, pnpmExecutable);
+    symlinkSync(
+      relative(dirname(pnpmPackageLink), pnpmPackageRoot),
+      pnpmPackageLink,
+    );
+    symlinkSync(relative(dirname(pnpmHashRoot), pnpmInstallRoot), pnpmHashRoot);
+    chmodSync(pnpmRoot, 0o755);
+    assert.equal(lstatSync(pnpmExecutable).nlink, 2);
+    assert.equal(
+      realpathSync(pnpmExecutableLocator),
+      realpathSync(pnpmExecutable),
+    );
 
     const staged = stageTrustedRuntime({
       runnerTemp,
       toolsRoot,
       nodeSource,
+      pnpmRoot,
       pnpmSource,
     });
     const canonicalToolsRoot = join(
@@ -1315,15 +1383,25 @@ test("trusted runtime copies writable hosted tools into independent protected fi
     }
 
     writeFileSync(nodeSource, "replaced node\n");
-    writeFileSync(pnpmSource, "replaced pnpm\n");
+    chmodSync(pnpmSource, 0o755);
+    chmodSync(pnpmExecutable, 0o755);
+    writeFileSync(pnpmSource, "replaced pnpm launcher\n");
+    writeFileSync(pnpmExecutable, "replaced pnpm executable\n");
     assert.equal(readFileSync(staged.nodePath, "utf8"), nodeContents);
-    assert.equal(readFileSync(staged.pnpmPath, "utf8"), pnpmContents);
+    assert.equal(readFileSync(staged.pnpmPath, "utf8"), pnpmExecutableContents);
+    assert.equal(
+      execFileSync(staged.pnpmPath, ["--version"], {
+        encoding: "utf8",
+      }).trim(),
+      "10.24.0",
+    );
     assert.throws(
       () =>
         stageTrustedRuntime({
           runnerTemp,
           toolsRoot,
           nodeSource,
+          pnpmRoot,
           pnpmSource,
         }),
       /destination must be fresh/,
@@ -1337,6 +1415,7 @@ test("trusted runtime copies writable hosted tools into independent protected fi
           runnerTemp,
           toolsRoot,
           nodeSource,
+          pnpmRoot,
           pnpmSource,
         }),
       /destination must be fresh/,
@@ -1349,12 +1428,150 @@ test("trusted runtime copies writable hosted tools into independent protected fi
           runnerTemp,
           toolsRoot,
           nodeSource,
+          pnpmRoot,
           pnpmSource,
         }),
       /Runner temporary directory is not protected/,
     );
   } finally {
     rmSync(sourceRoot, { force: true, recursive: true });
+    rmSync(runnerTemp, { force: true, recursive: true });
+  }
+});
+
+test("trusted runtime rejects missing, wrong-version, and ambiguous standalone pnpm targets", () => {
+  const runnerTemp = mkdtempSync(join(tmpdir(), "vercel-runtime-runner-"));
+  const toolsRoot = join(runnerTemp, "mento-vercel-trusted-tools");
+  const pnpmRoot = join(runnerTemp, "mento-pnpm-tools");
+  const nodeSource = join(runnerTemp, "node");
+  const pnpmSource = join(pnpmRoot, "node_modules", ".bin", "bin", "pnpm");
+  const firstExecutable = join(
+    pnpmRoot,
+    "node_modules",
+    ".bin",
+    "global",
+    "v11",
+    "first",
+    "node_modules",
+    "@pnpm",
+    "exe",
+    "pnpm",
+  );
+  const firstPackageJson = join(dirname(firstExecutable), "package.json");
+  const secondExecutable = join(
+    pnpmRoot,
+    "node_modules",
+    ".bin",
+    "global",
+    "v11",
+    "second",
+    "node_modules",
+    "@pnpm",
+    "exe",
+    "pnpm",
+  );
+  const secondPackageJson = join(dirname(secondExecutable), "package.json");
+  const stage = () =>
+    stageTrustedRuntime({
+      runnerTemp,
+      toolsRoot,
+      nodeSource,
+      pnpmRoot,
+      pnpmSource,
+    });
+  try {
+    chmodSync(runnerTemp, 0o711);
+    writeFileSync(nodeSource, "#!/bin/sh\necho node\n", { mode: 0o555 });
+    mkdirSync(dirname(pnpmSource), { recursive: true });
+    mkdirSync(dirname(firstExecutable), { recursive: true });
+    writeFileSync(pnpmSource, "#!/bin/sh\necho 10.24.0\n", { mode: 0o555 });
+    chmodSync(pnpmRoot, 0o755);
+
+    assert.throws(stage, /missing or ambiguous/);
+
+    writeFileSync(
+      firstPackageJson,
+      JSON.stringify({ name: "@pnpm/exe", version: "10.25.0" }),
+      { mode: 0o444 },
+    );
+    writeFileSync(firstExecutable, "#!/bin/sh\necho 10.25.0\n", {
+      mode: 0o555,
+    });
+    assert.throws(stage, /missing or ambiguous/);
+
+    chmodSync(firstExecutable, 0o755);
+    writeFileSync(firstExecutable, "#!/bin/sh\necho 10.24.0\n", {
+      mode: 0o555,
+    });
+    chmodSync(firstPackageJson, 0o644);
+    writeFileSync(
+      firstPackageJson,
+      JSON.stringify({ name: "@pnpm/exe", version: "10.24.0" }),
+    );
+    chmodSync(firstPackageJson, 0o444);
+    mkdirSync(dirname(secondExecutable), { recursive: true });
+    writeFileSync(
+      secondPackageJson,
+      JSON.stringify({ name: "@pnpm/exe", version: "10.24.0" }),
+      { mode: 0o444 },
+    );
+    writeFileSync(secondExecutable, "#!/bin/sh\necho 10.24.0\n", {
+      mode: 0o555,
+    });
+    assert.throws(stage, /missing or ambiguous/);
+  } finally {
+    rmSync(runnerTemp, { force: true, recursive: true });
+  }
+});
+
+test("trusted runtime rejects a standalone pnpm package link outside the action root", () => {
+  const runnerTemp = mkdtempSync(join(tmpdir(), "vercel-runtime-runner-"));
+  const outsideRoot = mkdtempSync(join(tmpdir(), "vercel-runtime-outside-"));
+  const toolsRoot = join(runnerTemp, "mento-vercel-trusted-tools");
+  const pnpmRoot = join(runnerTemp, "mento-pnpm-tools");
+  const nodeSource = join(runnerTemp, "node");
+  const pnpmSource = join(pnpmRoot, "node_modules", ".bin", "bin", "pnpm");
+  const packageLink = join(
+    pnpmRoot,
+    "node_modules",
+    ".bin",
+    "global",
+    "v11",
+    "install",
+    "node_modules",
+    "@pnpm",
+    "exe",
+  );
+  try {
+    chmodSync(runnerTemp, 0o711);
+    writeFileSync(nodeSource, "#!/bin/sh\necho node\n", { mode: 0o555 });
+    mkdirSync(dirname(pnpmSource), { recursive: true });
+    mkdirSync(dirname(packageLink), { recursive: true });
+    writeFileSync(pnpmSource, "#!/bin/sh\necho 10.24.0\n", { mode: 0o555 });
+    writeFileSync(
+      join(outsideRoot, "package.json"),
+      JSON.stringify({ name: "@pnpm/exe", version: "10.24.0" }),
+      { mode: 0o444 },
+    );
+    writeFileSync(join(outsideRoot, "pnpm"), "#!/bin/sh\necho 10.24.0\n", {
+      mode: 0o555,
+    });
+    symlinkSync(outsideRoot, packageLink);
+    chmodSync(pnpmRoot, 0o755);
+
+    assert.throws(
+      () =>
+        stageTrustedRuntime({
+          runnerTemp,
+          toolsRoot,
+          nodeSource,
+          pnpmRoot,
+          pnpmSource,
+        }),
+      /escaped its action root/,
+    );
+  } finally {
+    rmSync(outsideRoot, { force: true, recursive: true });
     rmSync(runnerTemp, { force: true, recursive: true });
   }
 });
