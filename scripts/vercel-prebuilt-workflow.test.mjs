@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import {
   chmodSync,
   copyFileSync,
+  existsSync,
   linkSync,
   lstatSync,
   mkdirSync,
@@ -1445,7 +1446,7 @@ test("trusted runtime copies hosted Node and the exact standalone pnpm target in
   }
 });
 
-test("trusted pnpm runtime manifest is copied outside the checkout with an exact pinned dependency", () => {
+test("trusted pnpm runtime manifest and lockfile are exact before copying outside the checkout", () => {
   const fixtureRoot = mkdtempSync(join(tmpdir(), "vercel-pnpm-runtime-"));
   const controllerRoot = join(fixtureRoot, "controller");
   const sourceRoot = join(controllerRoot, "scripts", "vercel-pnpm-runtime");
@@ -1494,21 +1495,105 @@ test("trusted pnpm runtime manifest is copied outside the checkout with an exact
     );
 
     rmSync(runtimeRoot, { force: true, recursive: true });
+    const lockfilePath = join(sourceRoot, "pnpm-lock.yaml");
+    const originalLockfile = readFileSync(lockfilePath, "utf8");
+    const lockfileMutations = [
+      [
+        "changed integrity",
+        originalLockfile.replace("sha512-h2i+VSAK", "sha512-i2i+VSAK"),
+      ],
+      [
+        "custom tarball",
+        originalLockfile.replace(
+          "resolution: {integrity:",
+          "resolution: {tarball: https://packages.example/pnpm.tgz, integrity:",
+        ),
+      ],
+      [
+        "extra importer",
+        originalLockfile.replace(
+          "importers:\n\n  .:",
+          "importers:\n\n  injected:\n    dependencies: {}\n\n  .:",
+        ),
+      ],
+      [
+        "extra package",
+        originalLockfile.replace(
+          "packages:\n\n  pnpm@10.34.4:",
+          "packages:\n\n  injected@1.0.0:\n    resolution: {integrity: sha512-injected}\n\n  pnpm@10.34.4:",
+        ),
+      ],
+      [
+        "extra snapshot",
+        originalLockfile.replace(
+          "snapshots:\n\n  pnpm@10.34.4:",
+          "snapshots:\n\n  injected@1.0.0: {}\n\n  pnpm@10.34.4:",
+        ),
+      ],
+    ];
+    for (const [name, mutatedLockfile] of lockfileMutations) {
+      assert.notEqual(mutatedLockfile, originalLockfile, name);
+      chmodSync(lockfilePath, 0o644);
+      writeFileSync(lockfilePath, mutatedLockfile);
+      chmodSync(lockfilePath, 0o444);
+      assert.throws(
+        () => stageTrustedPnpmRuntimeManifest({ controllerRoot, toolsRoot }),
+        /lockfile is not exact/,
+        name,
+      );
+      assert.equal(existsSync(runtimeRoot), false, name);
+    }
+    chmodSync(lockfilePath, 0o644);
+    writeFileSync(lockfilePath, originalLockfile);
+    chmodSync(lockfilePath, 0o444);
+
     const manifestPath = join(sourceRoot, "package.json");
-    chmodSync(manifestPath, 0o644);
-    writeFileSync(
-      manifestPath,
-      JSON.stringify({
+    const manifestMutations = [
+      {
         name: "@mento-protocol/vercel-pnpm-runtime",
+        version: "0.0.0",
         private: true,
+        description:
+          "Isolated pnpm runtime for candidate-controlled Vercel builds",
         dependencies: { pnpm: "10.34.3" },
-      }),
-    );
-    chmodSync(manifestPath, 0o444);
-    assert.throws(
-      () => stageTrustedPnpmRuntimeManifest({ controllerRoot, toolsRoot }),
-      /manifest is not exact/,
-    );
+      },
+      {
+        name: "@mento-protocol/vercel-pnpm-runtime",
+        version: "0.0.0",
+        private: true,
+        description:
+          "Isolated pnpm runtime for candidate-controlled Vercel builds",
+        dependencies: { injected: "1.0.0", pnpm: "10.34.4" },
+      },
+      {
+        name: "@mento-protocol/vercel-pnpm-runtime",
+        version: "0.0.0",
+        private: true,
+        description:
+          "Isolated pnpm runtime for candidate-controlled Vercel builds",
+        dependencies: { pnpm: "10.34.4" },
+        pnpm: { overrides: { pnpm: "10.34.3" } },
+      },
+      {
+        name: "@mento-protocol/vercel-pnpm-runtime",
+        version: "0.0.0",
+        private: true,
+        description:
+          "Isolated pnpm runtime for candidate-controlled Vercel builds",
+        dependencies: { pnpm: "10.34.4" },
+        packageManager: "pnpm@10.34.4",
+      },
+    ];
+    for (const packageMetadata of manifestMutations) {
+      chmodSync(manifestPath, 0o644);
+      writeFileSync(manifestPath, JSON.stringify(packageMetadata));
+      chmodSync(manifestPath, 0o444);
+      assert.throws(
+        () => stageTrustedPnpmRuntimeManifest({ controllerRoot, toolsRoot }),
+        /manifest is not exact/,
+      );
+      assert.equal(existsSync(runtimeRoot), false);
+    }
   } finally {
     rmSync(fixtureRoot, { force: true, recursive: true });
   }

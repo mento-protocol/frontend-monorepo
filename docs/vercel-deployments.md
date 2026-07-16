@@ -378,6 +378,12 @@ Candidate-controlled installs use a separate JavaScript pnpm runtime pinned by
 That manifest is deliberately outside the workspace globs, staged under
 `$TRUSTED_VERCEL_TOOLS_PATH/pnpm-runtime`, and installed with lifecycle scripts
 disabled and package copies rather than links to candidate-writable storage.
+Before staging, the controller requires the manifest to match its exact allowed
+fields and binds the complete one-importer lockfile bytes to
+`PINNED_PNPM_RUNTIME_LOCKFILE_SHA256`; this rejects extra dependency/config
+sections, custom tarballs, changed integrity, or extra importers/packages before
+the bootstrap install. A pnpm bump must update the isolated manifest and
+lockfile, `PINNED_PNPM_VERSION`, and that reviewed digest together.
 The protected launcher always uses protected Node plus that runtime's
 `pnpm.cjs`; it disables pnpm's package-manager self-switch and strict patch
 version check so an older candidate `packageManager` field cannot silently

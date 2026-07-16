@@ -4,6 +4,7 @@
 
 import { Buffer } from "node:buffer";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   appendFileSync,
   chmodSync,
@@ -77,6 +78,11 @@ const TRUSTED_TOOLS_DIRECTORY = "mento-vercel-trusted-tools";
 const PNPM_ACTION_DIRECTORY = "mento-pnpm-tools";
 const PNPM_RUNTIME_DIRECTORY = "pnpm-runtime";
 const PINNED_PNPM_VERSION = "10.34.4";
+// Exact bytes of the one-importer registry lockfile. This pins the package
+// identity, absence of custom tarball resolution, and sha512 integrity before
+// the runner-owned bootstrap installs anything from it.
+const PINNED_PNPM_RUNTIME_LOCKFILE_SHA256 =
+  "c0dbb0f05ade0e4a8db501e5eb25ebe3c2f2794feed1caec2cf4df6c4583715a";
 const PULLED_ENVIRONMENT_FILE = ".env.preview.local";
 const MAX_SOURCE_ENTRIES = 20_000;
 const MAX_SOURCE_PATH_BYTES = 4_096;
@@ -109,6 +115,19 @@ function hasControlCharacters(value) {
     const codePoint = character.codePointAt(0);
     return codePoint <= 31 || codePoint === 127;
   });
+}
+
+function hasExactObjectKeys(value, expectedKeys) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const actualKeys = Object.keys(value).sort();
+  return (
+    actualKeys.length === expectedKeys.length &&
+    expectedKeys
+      .toSorted()
+      .every((expectedKey, index) => actualKeys[index] === expectedKey)
+  );
 }
 
 export function validateExactSha(value) {
@@ -1487,13 +1506,30 @@ export function stageTrustedPnpmRuntimeManifest({ controllerRoot, toolsRoot }) {
     readFileSync(sourcePackageJson.path, "utf8"),
   );
   if (
+    !hasExactObjectKeys(packageMetadata, [
+      "dependencies",
+      "description",
+      "name",
+      "private",
+      "version",
+    ]) ||
     packageMetadata.name !== "@mento-protocol/vercel-pnpm-runtime" ||
+    packageMetadata.version !== "0.0.0" ||
     packageMetadata.private !== true ||
+    packageMetadata.description !==
+      "Isolated pnpm runtime for candidate-controlled Vercel builds" ||
+    !hasExactObjectKeys(packageMetadata.dependencies, ["pnpm"]) ||
     packageMetadata.dependencies?.pnpm !== PINNED_PNPM_VERSION ||
-    Object.keys(packageMetadata.dependencies ?? {}).length !== 1 ||
     packageMetadata.scripts !== undefined
   ) {
     throw new Error("Trusted pnpm runtime manifest is not exact");
+  }
+  const sourceLockfileContents = readFileSync(sourceLockfile.path);
+  const sourceLockfileDigest = createHash("sha256")
+    .update(sourceLockfileContents)
+    .digest("hex");
+  if (sourceLockfileDigest !== PINNED_PNPM_RUNTIME_LOCKFILE_SHA256) {
+    throw new Error("Trusted pnpm runtime lockfile is not exact");
   }
 
   const runtimeRoot = join(canonicalToolsRoot, PNPM_RUNTIME_DIRECTORY);
