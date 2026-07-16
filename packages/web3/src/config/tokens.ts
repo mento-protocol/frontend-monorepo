@@ -149,7 +149,7 @@ export function getNativeTokenSymbol(chainId: number): string {
   if (chainId === ChainId.Monad || chainId === ChainId.MonadTestnet) {
     return "MON";
   }
-  if (chainId === ChainId.PolygonAmoy) {
+  if (chainId === ChainId.Polygon || chainId === ChainId.PolygonAmoy) {
     return "POL";
   }
   if (chainId === ChainId.BaseSepolia) {

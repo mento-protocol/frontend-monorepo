@@ -13,6 +13,7 @@ export const ALL_CHAIN_IDS = [
   ChainId.CeloSepolia,
   ChainId.Monad,
   ChainId.MonadTestnet,
+  ChainId.Polygon,
   ChainId.PolygonAmoy,
   ChainId.BaseSepolia,
 ] as const satisfies readonly ChainId[];
@@ -20,6 +21,7 @@ export const ALL_CHAIN_IDS = [
 export const MAINNET_CHAIN_IDS = [
   ChainId.Celo,
   ChainId.Monad,
+  ChainId.Polygon,
 ] as const satisfies readonly ChainId[];
 
 export const TESTNET_CHAIN_IDS = [
@@ -41,6 +43,7 @@ const FEATURE_CHAIN_IDS: Record<AppFeature, readonly ChainId[]> = {
 const TESTNET_TO_MAINNET: Partial<Record<ChainId, ChainId>> = {
   [ChainId.CeloSepolia]: ChainId.Celo,
   [ChainId.MonadTestnet]: ChainId.Monad,
+  [ChainId.PolygonAmoy]: ChainId.Polygon,
 };
 
 export function isTestnetChain(chainId?: number): boolean {

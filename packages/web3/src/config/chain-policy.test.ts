@@ -6,6 +6,7 @@ vi.mock("./chains", () => ({
     CeloSepolia: 11142220,
     Monad: 143,
     MonadTestnet: 10143,
+    Polygon: 137,
     PolygonAmoy: 80002,
     BaseSepolia: 84532,
   },
@@ -25,6 +26,7 @@ const ChainId = {
   CeloSepolia: 11142220,
   Monad: 143,
   MonadTestnet: 10143,
+  Polygon: 137,
   PolygonAmoy: 80002,
   BaseSepolia: 84532,
 } as const;
@@ -34,6 +36,7 @@ describe("chain-policy", () => {
     expect(getVisibleChains({ testnetMode: false })).toEqual([
       ChainId.Celo,
       ChainId.Monad,
+      ChainId.Polygon,
     ]);
   });
 
@@ -43,6 +46,7 @@ describe("chain-policy", () => {
       ChainId.CeloSepolia,
       ChainId.Monad,
       ChainId.MonadTestnet,
+      ChainId.Polygon,
       ChainId.PolygonAmoy,
       ChainId.BaseSepolia,
     ]);
@@ -86,6 +90,9 @@ describe("chain-policy", () => {
   it("maps testnets back to their mainnet fallback", () => {
     expect(getMainnetFallbackChainId(ChainId.CeloSepolia)).toBe(ChainId.Celo);
     expect(getMainnetFallbackChainId(ChainId.MonadTestnet)).toBe(ChainId.Monad);
+    expect(getMainnetFallbackChainId(ChainId.PolygonAmoy)).toBe(
+      ChainId.Polygon,
+    );
     expect(getMainnetFallbackChainId(ChainId.Celo)).toBe(ChainId.Celo);
   });
 
@@ -105,5 +112,6 @@ describe("chain-policy", () => {
     expect(isTestnetChain(ChainId.PolygonAmoy)).toBe(true);
     expect(isTestnetChain(ChainId.BaseSepolia)).toBe(true);
     expect(isTestnetChain(ChainId.Celo)).toBe(false);
+    expect(isTestnetChain(ChainId.Polygon)).toBe(false);
   });
 });

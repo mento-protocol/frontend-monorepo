@@ -5,6 +5,7 @@ const CHAIN_SLUG_TO_ID: Record<string, ChainId> = {
   "celo-sepolia": ChainId.CeloSepolia,
   monad: ChainId.Monad,
   "monad-testnet": ChainId.MonadTestnet,
+  polygon: ChainId.Polygon,
   "polygon-amoy": ChainId.PolygonAmoy,
   "base-sepolia": ChainId.BaseSepolia,
 };
