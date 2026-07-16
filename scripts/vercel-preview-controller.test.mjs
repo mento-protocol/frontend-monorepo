@@ -1750,6 +1750,26 @@ test("closed event receipt is immutable, idempotent, and publishes no status", a
   assert.equal(fixture.comments.length, 1);
   assert.match(fixture.comments[0].body, /"event_action": "closed"/);
   assert.equal(fixture.commitStatuses.length, 0);
+
+  const opened = event({
+    run: 119,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const reconcileFixture = fakeGitHub({
+    pullRequest,
+    comments: [eventComment(opened), eventComment(first, 2)],
+  });
+  const state = await reconcilePreview({
+    github: reconcileFixture.github,
+    context: fakeContext({ runId: 120 }),
+    core: fakeCore(),
+    prNumber: 519,
+  });
+
+  assert.equal(state.closed, true);
+  assert.equal(reconcileFixture.dispatches.length, 0);
 });
 
 test("trusted workflow_run follow-up publishes Dependabot unsupported status only for the exact current head", async () => {

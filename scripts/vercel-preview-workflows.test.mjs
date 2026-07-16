@@ -238,6 +238,24 @@ test("immutable receipt writers are durable and outside lossy reconciliation con
   }
 });
 
+test("closed events reconcile after their optional planner is skipped", () => {
+  const planner = controller.jobs["plan-event"];
+  const receipt = controller.jobs["receipt-event"];
+  const reconcile = controller.jobs["reconcile-event"];
+
+  assert.equal(
+    planner.if,
+    "needs.snapshot-event.outputs.plan_required == 'true'",
+  );
+  assert.deepEqual(receipt.needs, ["snapshot-event", "plan-event"]);
+  assert.match(receipt.if, /^always\(\) &&/);
+  assert.equal(reconcile.needs, "receipt-event");
+  assert.equal(
+    reconcile.if,
+    "always() && needs.receipt-event.result == 'success'",
+  );
+});
+
 test("every PR comment writer uses the pull-request resource permission", () => {
   const controllerCommentWriters = [
     ["receipt-event", "recordEventReceipt"],

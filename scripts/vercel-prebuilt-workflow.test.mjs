@@ -1615,6 +1615,17 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   assert.match(isolationBlock, /--package-import-method copy/);
   assert.match(isolationBlock, /trusted-install-modules-dir/);
   assert.match(isolationBlock, /--modules-dir "\$trusted_modules_dir"/);
+  const runnerTempHardenIndex = isolationBlock.indexOf(
+    '/bin/chmod 0711 "$RUNNER_TEMP"',
+  );
+  const runnerTempProtectionIndex = isolationBlock.indexOf(
+    '"$RUNNER_TEMP" \\',
+    runnerTempHardenIndex,
+  );
+  const materializeIndex = isolationBlock.indexOf("materialize-source");
+  assert.notEqual(runnerTempHardenIndex, -1);
+  assert.ok(runnerTempProtectionIndex > runnerTempHardenIndex);
+  assert.ok(materializeIndex > runnerTempProtectionIndex);
   assert.match(
     isolationBlock,
     /--virtual-store-dir "\$trusted_modules_dir\/\.pnpm"/,

@@ -231,6 +231,7 @@ jobs:
             exit 1
           fi
 
+          /bin/chmod 0711 "$RUNNER_TEMP"
           /bin/mkdir -m 0755 "$TRUSTED_VERCEL_TOOLS_PATH"
           node_bin="$(realpath "$(command -v node)")"
           pnpm_bin="$(realpath "$(command -v pnpm)")"
@@ -284,7 +285,7 @@ jobs:
             "$node_bin" \
             "$pnpm_bin"; do
             if [ ! -e "$protected_path" ] || candidate_can_write "$protected_path"; then
-              echo "Candidate can modify a protected runner path" >&2
+              echo "Candidate can modify a protected runner path: $protected_path" >&2
               exit 1
             fi
           done
