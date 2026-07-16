@@ -106,6 +106,15 @@ pushes remain automatic. Documentation-, test-, or other proven non-runtime
 changes report an explained skip. Forks and Dependabot receive neither Vercel
 credentials nor a deployment.
 
+Dependabot status handling uses a two-workflow trust split. The
+`pull_request_target` intake has read-only repository permission and executes no
+checkout, artifact, secret, or pull-request code. Its completed
+`workflow_run` invokes trusted default-branch controller code, which validates
+the intake identity and re-queries the exact current PR head before publishing
+the preview-disabled success status. This preserves an explicit terminal status
+without assuming Dependabot-triggered write permissions or moving credentials
+into the untrusted trigger.
+
 Bursty pushes use a deterministic **first-plus-latest** controller rather than
 asking developers to batch correctly:
 

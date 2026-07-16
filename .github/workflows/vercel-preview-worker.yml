@@ -1,0 +1,363 @@
+name: Vercel Preview Worker
+run-name: Vercel preview worker | pr=${{ inputs.pull_request_number }} | target=${{ inputs.target }} | sha=${{ inputs.commit_sha }} | key=${{ inputs.controller_key_digest }}
+
+# checkov:skip=CKV_GHA_7: Every dispatch selector is validated against bot-owned controller state before credentials are reachable.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: Controller-owned pull request number
+        required: true
+        type: string
+      target:
+        description: Literal deployment target
+        required: true
+        type: string
+      commit_sha:
+        description: Exact candidate commit SHA
+        required: true
+        type: string
+      git_branch:
+        description: Validated same-repository branch containing commit_sha
+        required: true
+        type: string
+      controller_key:
+        description: Canonical exact-SHA GitHub Deployment key
+        required: true
+        type: string
+      controller_key_digest:
+        description: Epoch-bound controller selection digest
+        required: true
+        type: string
+      expected_workflow_sha:
+        description: Immutable controller-authorized worker workflow SHA
+        required: true
+        type: string
+      epoch_anchor_run_id:
+        description: Lifecycle epoch anchor receipt run ID
+        required: true
+        type: string
+      reconciliation_basis_digest:
+        description: Digest of the selected reconciliation basis
+        required: true
+        type: string
+      selection_receipt_run_id:
+        description: Event receipt selected for this worker
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: vercel-preview-worker-pr-${{ inputs.pull_request_number }}-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  validate-controller-ownership:
+    name: Validate exact-SHA controller ownership
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      deployments: read
+      issues: read
+      pull-requests: read
+    outputs:
+      execution_mode: ${{ steps.validate.outputs.execution_mode }}
+      github_deployment_id: ${{ steps.validate.outputs.github_deployment_id }}
+      next_deployment_id: ${{ steps.validate.outputs.next_deployment_id }}
+      should_deploy: ${{ steps.validate.outputs.should_deploy }}
+      should_resume_smoke: ${{ steps.validate.outputs.should_resume_smoke }}
+      vercel_deployment_id: ${{ steps.validate.outputs.vercel_deployment_id }}
+      vercel_deployment_url: ${{ steps.validate.outputs.vercel_deployment_url }}
+    steps:
+      - name: Check out trusted worker controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Revalidate PR trust, lineage, state ownership, and Deployment absence
+        id: validate
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          ACTUAL_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          CONTROLLER_KEY: ${{ inputs.controller_key }}
+          CONTROLLER_KEY_DIGEST: ${{ inputs.controller_key_digest }}
+          EPOCH_ANCHOR_RUN_ID: ${{ inputs.epoch_anchor_run_id }}
+          EXPECTED_WORKFLOW_SHA: ${{ inputs.expected_workflow_sha }}
+          GIT_BRANCH: ${{ inputs.git_branch }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
+          RECONCILIATION_BASIS_DIGEST: ${{ inputs.reconciliation_basis_digest }}
+          SELECTION_RECEIPT_RUN_ID: ${{ inputs.selection_receipt_run_id }}
+          TARGET: ${{ inputs.target }}
+        with:
+          script: |
+            const { pathToFileURL } = require("node:url");
+            const moduleUrl = pathToFileURL(
+              `${process.env.GITHUB_WORKSPACE}/controller/scripts/vercel-preview-controller.mjs`,
+            );
+            const { validateWorkerDispatch } = await import(moduleUrl.href);
+            await validateWorkerDispatch({
+              github,
+              context,
+              core,
+              workflowSha: process.env.ACTUAL_WORKFLOW_SHA,
+              inputs: {
+                pull_request_number: process.env.PULL_REQUEST_NUMBER,
+                target: process.env.TARGET,
+                commit_sha: process.env.COMMIT_SHA,
+                git_branch: process.env.GIT_BRANCH,
+                controller_key: process.env.CONTROLLER_KEY,
+                controller_key_digest: process.env.CONTROLLER_KEY_DIGEST,
+                expected_workflow_sha: process.env.EXPECTED_WORKFLOW_SHA,
+                epoch_anchor_run_id: process.env.EPOCH_ANCHOR_RUN_ID,
+                reconciliation_basis_digest: process.env.RECONCILIATION_BASIS_DIGEST,
+                selection_receipt_run_id: process.env.SELECTION_RECEIPT_RUN_ID,
+              },
+            });
+
+  deploy-ui-preview:
+    name: Run UI prebuilt preview pipeline
+    needs: [validate-controller-ownership, validate-preview-prerequisites]
+    if: >-
+      needs.validate-controller-ownership.outputs.should_deploy == 'true' &&
+      needs.validate-preview-prerequisites.result == 'success'
+    permissions:
+      contents: read
+      deployments: write
+    uses: ./.github/workflows/_vercel-prebuilt.yml
+    with:
+      commit_sha: ${{ inputs.commit_sha }}
+      deploy_permitted: true
+      deployment_idempotency_key: ${{ inputs.controller_key }}
+      deployment_mode: preview
+      expected_root_directory: apps/ui.mento.org
+      git_branch: ${{ inputs.git_branch }}
+      github_environment: preview/ui/pr-${{ inputs.pull_request_number }}
+      logical_target: ui
+      provenance: preview-controller:v1
+      pull_request_number: ${{ inputs.pull_request_number }}
+      turbo_team: ${{ vars.TURBO_TEAM }}
+      vercel_environment: preview
+      vercel_org_id: ${{ vars.VERCEL_ORG_ID }}
+      vercel_project_id: ${{ vars.VERCEL_PROJECT_ID_UI }}
+      vercel_target: preview
+      workspace_package: ui.mento.org
+    secrets:
+      turbo_remote_cache_signature_key: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+      turbo_token: ${{ secrets.TURBO_TOKEN }}
+      vercel_token: ${{ secrets.VERCEL_TOKEN_PREVIEW }}
+
+  validate-preview-prerequisites:
+    name: Validate preview prerequisite names
+    needs: validate-controller-ownership
+    if: needs.validate-controller-ownership.outputs.should_deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    env:
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID_UI: ${{ vars.VERCEL_PROJECT_ID_UI }}
+      VERCEL_TOKEN_PREVIEW: ${{ secrets.VERCEL_TOKEN_PREVIEW }}
+    steps:
+      - name: Fail before PR code when a named prerequisite is missing
+        shell: bash
+        run: |
+          missing=()
+          for name in \
+            VERCEL_ORG_ID \
+            VERCEL_PROJECT_ID_UI \
+            TURBO_TEAM \
+            VERCEL_TOKEN_PREVIEW \
+            TURBO_TOKEN \
+            TURBO_REMOTE_CACHE_SIGNATURE_KEY
+          do
+            if [[ -z "${!name}" ]]; then
+              missing+=("$name")
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing required repository names: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+  resume-ui-smoke:
+    name: Resume smoke for an existing immutable upload
+    needs: validate-controller-ownership
+    if: needs.validate-controller-ownership.outputs.should_resume_smoke == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      deployment_url: ${{ steps.smoke.outputs.smoke_deployment_url }}
+    steps:
+      - name: Check out trusted smoke controller only
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Re-run direct smoke without deployment credentials
+        id: smoke
+        env:
+          DEPLOY_SHA: ${{ inputs.commit_sha }}
+          GITHUB_DEPLOYMENT_ID: ${{ needs.validate-controller-ownership.outputs.github_deployment_id }}
+          MENTO_NEXT_DEPLOYMENT_ID: ${{ needs.validate-controller-ownership.outputs.next_deployment_id }}
+          VERCEL_DEPLOYMENT_ID: ${{ needs.validate-controller-ownership.outputs.vercel_deployment_id }}
+          VERCEL_DEPLOYMENT_URL: ${{ needs.validate-controller-ownership.outputs.vercel_deployment_url }}
+        run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" smoke
+
+      - name: Set up pinned pnpm for trusted browser smoke
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v4
+        with:
+          version: 10.24.0
+
+      - name: Set up pinned Node.js and trusted pnpm cache
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: controller/pnpm-lock.yaml
+
+      - name: Install trusted browser smoke dependencies
+        working-directory: controller
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter ui.mento.org...
+
+      - name: Re-run browser interaction in system Chrome
+        env:
+          DEPLOYMENT_IDEMPOTENCY_KEY: ${{ inputs.controller_key }}
+          DEPLOY_SHA: ${{ inputs.commit_sha }}
+          GITHUB_DEPLOYMENT_ID: ${{ needs.validate-controller-ownership.outputs.github_deployment_id }}
+          MENTO_NEXT_DEPLOYMENT_ID: ${{ needs.validate-controller-ownership.outputs.next_deployment_id }}
+          VERCEL_DEPLOYMENT_ID: ${{ needs.validate-controller-ownership.outputs.vercel_deployment_id }}
+          VERCEL_DEPLOYMENT_URL: ${{ needs.validate-controller-ownership.outputs.vercel_deployment_url }}
+        run: node "$GITHUB_WORKSPACE/controller/apps/ui.mento.org/e2e/vercel-preview-browser-smoke.mjs"
+
+  finalize-resumed-smoke:
+    name: Finalize resumed smoke lifecycle
+    needs: [validate-controller-ownership, resume-ui-smoke]
+    if: >-
+      always() &&
+      needs.validate-controller-ownership.outputs.should_resume_smoke == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - name: Check out trusted lifecycle controller only
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Post resumed smoke terminal Deployment state
+        env:
+          GITHUB_DEPLOYMENT_ID: ${{ needs.validate-controller-ownership.outputs.github_deployment_id }}
+          GITHUB_TOKEN: ${{ github.token }}
+          PREBUILT_RESULT: success
+          SMOKE_RESULT: ${{ needs.resume-ui-smoke.result }}
+          VERCEL_DEPLOYMENT_URL: ${{ needs.resume-ui-smoke.outputs.deployment_url }}
+          WORKFLOW_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: node "$GITHUB_WORKSPACE/controller/scripts/github-deployment.mjs" complete
+
+  record-worker-evidence:
+    name: Persist immutable pre-completion worker evidence
+    needs:
+      - validate-controller-ownership
+      - validate-preview-prerequisites
+      - deploy-ui-preview
+      - resume-ui-smoke
+      - finalize-resumed-smoke
+    if: >-
+      always() &&
+      needs.validate-controller-ownership.result == 'success' &&
+      needs.validate-controller-ownership.outputs.execution_mode != 'duplicate-owner'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      deployments: write
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Check out trusted evidence controller only
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Record epoch-bound upload and retry evidence
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          ACTUAL_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          BUILD_DURATION_MS: ${{ needs.deploy-ui-preview.outputs.build_duration_ms }}
+          BUILD_NEXT_DEPLOYMENT_ID: ${{ needs.deploy-ui-preview.outputs.next_deployment_id }}
+          BUILD_VERCEL_DEPLOYMENT_ID: ${{ needs.deploy-ui-preview.outputs.vercel_deployment_id }}
+          BUILD_VERIFIED_UPLOAD_URL: ${{ needs.deploy-ui-preview.outputs.verified_upload_url }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          CONTROLLER_KEY: ${{ inputs.controller_key }}
+          CONTROLLER_KEY_DIGEST: ${{ inputs.controller_key_digest }}
+          EPOCH_ANCHOR_RUN_ID: ${{ inputs.epoch_anchor_run_id }}
+          EXPECTED_WORKFLOW_SHA: ${{ inputs.expected_workflow_sha }}
+          EXECUTION_MODE: ${{ needs.validate-controller-ownership.outputs.execution_mode }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
+          RECONCILIATION_BASIS_DIGEST: ${{ inputs.reconciliation_basis_digest }}
+          RESUME_NEXT_DEPLOYMENT_ID: ${{ needs.validate-controller-ownership.outputs.next_deployment_id }}
+          RESUME_VERCEL_DEPLOYMENT_ID: ${{ needs.validate-controller-ownership.outputs.vercel_deployment_id }}
+          RESUME_VERCEL_DEPLOYMENT_URL: ${{ needs.validate-controller-ownership.outputs.vercel_deployment_url }}
+          SELECTION_RECEIPT_RUN_ID: ${{ inputs.selection_receipt_run_id }}
+          TARGET: ${{ inputs.target }}
+        with:
+          script: |
+            const { pathToFileURL } = require("node:url");
+            const moduleUrl = pathToFileURL(
+              `${process.env.GITHUB_WORKSPACE}/controller/scripts/vercel-preview-controller.mjs`,
+            );
+            const { recordWorkerEvidence } = await import(moduleUrl.href);
+            const resume = process.env.EXECUTION_MODE === "resume-smoke";
+            await recordWorkerEvidence({
+              github,
+              context,
+              core,
+              workflowSha: process.env.ACTUAL_WORKFLOW_SHA,
+              inputs: {
+                pull_request_number: process.env.PULL_REQUEST_NUMBER,
+                target: process.env.TARGET,
+                commit_sha: process.env.COMMIT_SHA,
+                controller_key: process.env.CONTROLLER_KEY,
+                controller_key_digest: process.env.CONTROLLER_KEY_DIGEST,
+                expected_workflow_sha: process.env.EXPECTED_WORKFLOW_SHA,
+                epoch_anchor_run_id: process.env.EPOCH_ANCHOR_RUN_ID,
+                reconciliation_basis_digest: process.env.RECONCILIATION_BASIS_DIGEST,
+                selection_receipt_run_id: process.env.SELECTION_RECEIPT_RUN_ID,
+                execution_mode: process.env.EXECUTION_MODE,
+                build_duration_ms: process.env.BUILD_DURATION_MS,
+                verified_upload_url: resume
+                  ? process.env.RESUME_VERCEL_DEPLOYMENT_URL
+                  : process.env.BUILD_VERIFIED_UPLOAD_URL,
+                vercel_deployment_id: resume
+                  ? process.env.RESUME_VERCEL_DEPLOYMENT_ID
+                  : process.env.BUILD_VERCEL_DEPLOYMENT_ID,
+                next_deployment_id: resume
+                  ? process.env.RESUME_NEXT_DEPLOYMENT_ID
+                  : process.env.BUILD_NEXT_DEPLOYMENT_ID,
+              },
+            });

@@ -1,13 +1,15 @@
-# Vercel deployment primitives
+# Vercel deployments from GitHub Actions
 
-This runbook documents the repository-owned planning and build primitives used
-by the GitHub Actions deployment migration tracked in [issue
-#515](https://github.com/mento-protocol/frontend-monorepo/issues/515). It does
-not change deployment ownership by itself. The ownership boundary and its
-trade-offs are recorded in
-[ADR 0001](adr/0001-github-actions-vercel-deployment-orchestration.md). Until the
-later cutover issues ship, the Vercel Git integration remains the deployment
-owner for paths not explicitly cut over.
+This runbook documents the repository-owned planning, build, and automatic UI
+preview controller used by the GitHub Actions deployment migration tracked in
+[issue #515](https://github.com/mento-protocol/frontend-monorepo/issues/515).
+The ownership boundary and its trade-offs are recorded in
+[ADR 0001](adr/0001-github-actions-vercel-deployment-orchestration.md).
+Phase A enables GitHub-built previews for trusted same-repository UI pull
+requests while native Vercel Git UI previews remain enabled for canary
+comparison. Production/main and every non-UI application remain owned by Vercel
+Git. Phase B changes only UI branch-preview ownership after the live canaries in
+this runbook pass.
 
 ## Pinned prerequisites
 
@@ -60,21 +62,28 @@ documentation and test-only paths return an empty deployment list.
 
 ### Trusted-base execution
 
-The planner imports only Node.js built-ins. A pull-request workflow must read
-the planner from the trusted base commit and execute that copy against the
-checked-out head, for example:
+The planner imports only Node.js built-ins, but its affected-package query uses
+the trusted base's pinned Turbo dependency graph. The automatic controller
+first checks out the immutable `github.workflow_sha` with full history. It then
+requires the exact trusted base to be an ancestor of that workflow commit before
+materializing it, fetches the candidate only as an inert Git object, installs
+trusted-base dependencies without lifecycle scripts, and executes the base's
+planner. Dependency caching is disabled in these planner jobs so they never
+restore or save a shared Actions cache across this trust boundary:
 
 ```bash
-git show "$BASE_SHA:scripts/plan-vercel-deployments.mjs" > "$RUNNER_TEMP/plan-vercel-deployments.mjs"
-node "$RUNNER_TEMP/plan-vercel-deployments.mjs" \
+git merge-base --is-ancestor "$BASE_SHA" "$WORKFLOW_SHA"
+git checkout --detach "$BASE_SHA"
+git fetch --force --no-tags origin "$HEAD_SHA"
+pnpm install --ignore-scripts --frozen-lockfile
+node scripts/plan-vercel-deployments.mjs \
   --base "$BASE_SHA" \
-  --head "$HEAD_SHA" \
-  --repo "$GITHUB_WORKSPACE"
+  --head "$HEAD_SHA"
 ```
 
-Never import classifier code from the pull-request head into this trusted
-planner process. Fetch enough history to resolve both exact commits before
-calling it. A missing base is a full-deploy plan, not an empty plan.
+Never check out or import classifier code from the pull-request head into this
+trusted planner process. Fetch enough history to resolve both exact commits
+before calling it. A missing base is a full-deploy plan, not an empty plan.
 
 ## Custom Next.js deployment IDs
 
@@ -245,20 +254,23 @@ them, and a Vercel Sensitive value must never be assumed to appear in
 
 ## Tests
 
-The primitive suite has no network or Vercel dependency:
+The ADR, primitive, reusable-workflow, and automatic-preview suites have no
+network or Vercel dependency:
 
 ```bash
+pnpm adr:check:test
 pnpm vercel:primitives:test
+pnpm vercel:workflow:test
+pnpm vercel:preview:test
 ```
 
-It also runs near the start of the canonical root `pnpm test` command, after the
-offline ADR-reminder tests. The suite covers app/package graph fixtures,
-fail-closed cases, output ordering, every deployment-ID constraint,
-prebuilt-config matching, prerequisite versions, all target/environment
-classifications, and redaction-safe missing-variable errors.
+They are stages near the start of the canonical root `pnpm test` command. The
+suites cover app/package graph fixtures, fail-closed cases, output ordering, every
+deployment-ID constraint, prebuilt-config matching, prerequisite versions, all
+target/environment classifications, and redaction-safe missing-variable errors.
 
-This foundation issue performs no Vercel API call, build upload, deployment,
-alias mutation, environment mutation, or Git-ownership change.
+The test commands perform no Vercel API call, build upload, deployment, alias
+mutation, environment mutation, or Git-ownership change.
 
 ## Cost validation preparation
 
@@ -291,6 +303,10 @@ production GitHub environment, and never passes a token on a command line. The
 separate smoke job receives no Vercel or Turbo credential and has only
 `contents: read` permission; the immutable preview must therefore be publicly
 reachable for this pilot.
+
+The reusable contract accepts only `refs/heads/main` and the exact main-branch
+pilot caller identity. A dispatch that selects another branch, tag, or caller is
+rejected before candidate dependency or build code executes.
 
 ### Dispatch
 
@@ -335,8 +351,8 @@ controller is checked out from the trusted `github.workflow_sha`; the requested
 source is checked out separately and is never executed automatically with
 preview credentials. Candidate dependency lifecycle scripts are disabled. The
 worker also restores the controller from its trusted workflow SHA after
-dependency installation and again after the candidate build, before upload and
-inspection.
+dependency installation and again after the candidate build, before output
+assertion, upload, and inspection.
 
 The Vercel CLI is a separate trusted tool install. Pinned pnpm `10.24.0` reads
 the main controller's exact `package.json` and frozen `pnpm-lock.yaml`, disables
@@ -505,10 +521,326 @@ navigation, inspect console errors and failed network requests, confirm static
 assets/fonts, and compare security headers plus the Vercel toolbar/CSP behavior
 with the native preview. Attach the URL and concise evidence to the PR or issue.
 
-The final automatic cutover remains blocked on the cost go/no-go evidence in
-issue #518: machine tiers, On-Demand Concurrent Builds state, actual billed
-usage/contracted MIUs, GitHub public-repository runner treatment, and a
-conservative monthly estimate.
+The final UI Git-ownership cutover remains blocked on the cost go/no-go evidence
+in issue #518 and the Phase A live canaries below.
+
+## Automatic trusted UI previews (Phase A)
+
+`.github/workflows/vercel-preview-controller.yml` is the only automatic event
+controller. It runs trusted default-branch code for `pull_request_target`
+`opened`, `edited`, `synchronize`, `reopened`, and `closed` (with `edited`
+limited to base-branch changes before any snapshot or write); receives
+completed `Vercel Preview Worker` callbacks; and accepts the default-branch-bound
+`vercel-preview-bootstrap` and `vercel-preview-reconcile` repository events for
+one validated PR number. The controller has no Vercel/Turbo credential and no
+write-token job checks out or executes PR code.
+
+Dependabot is intentionally split out before any write boundary.
+`.github/workflows/vercel-preview-intake.yml` receives the same PR activities
+with only `contents: read`, performs metadata validation without a checkout,
+artifact, secret, or PR-code execution, and encodes the PR number, exact head
+SHA, and action in its strict run name. A completed-intake `workflow_run` then
+starts trusted default-branch controller code with a write-capable token. That
+follow-up validates the intake workflow identity, re-queries the PR, and posts
+the successful preview-disabled status only when the PR is still open, still
+Dependabot-owned/ref-classified, and still on the encoded exact SHA. Stale or
+malformed callbacks write nothing.
+
+GitHub runs `repository_dispatch` from the last commit and workflow definition
+on the default branch; unlike `workflow_dispatch`, its request cannot select a
+branch or tag containing a modified controller. Creating the event requires an
+authenticated caller with repository Contents write permission. That proves
+caller authorization, not payload safety: a read-only validation job therefore
+accepts only the two literal event types above, the expected repository, and a
+`client_payload` containing only a bounded positive `pr_number`. Only its
+validated outputs can enter bootstrap or a serialized write-token reconcile
+job. Do not add a controller `workflow_dispatch` fallback.
+
+The trust decision is explicit: same-repository collaborators who can push a
+supported branch name are trusted to build that branch with preview-only
+credentials. Forks, Dependabot-authored/ref PRs, and branch names the prebuilt
+worker rejects (including `refs/*`) receive a successful unsupported-boundary
+`Vercel Preview` commit status, no worker, no Deployment, and no preview
+credential. The author decision comes from the PR author/ref/repository, never
+`github.actor`. Dependabot receives that status only through the read-only
+intake plus trusted `workflow_run` follow-up described above.
+
+GitHub can suppress `pull_request_target` for a head branch whose name resembles
+a commit SHA. In that platform edge case the required status remains absent or
+pending and therefore fails closed. Do not add a secret-bearing alternate
+trigger.
+
+### Event, status, and batching contract
+
+Every controller-owned event is first written as an immutable bot comment;
+Dependabot uses the separate credentialless intake contract above.
+Reconciliation is lossy/replaceable, but it always reconstructs from event,
+selection, and completed-worker receipts, current PR lifecycle evidence, and
+the one bounded mutable state comment. Before dispatch, the controller writes
+an immutable selection receipt. That receipt binds the selected SHA to the
+controller epoch and compactly lists intermediate receipt IDs coalesced into
+the durable later selection, so a long push burst does not require scanning all
+historical workflow runs or Deployments. Intended-run crash recovery queries a
+fixed `created` window around the persisted dispatch timestamp; older lifetime
+run history cannot exhaust its proof bound, while multiple matching runs inside
+the window fail closed. Its rendered terminal history remains bounded, while
+compact key digests retain ownership for every still-accepted current-epoch
+result receipt. A synchronize receipt plans the event's exact `before -> head`
+transition with planner code and dependencies from the immutable trusted base;
+it does not repeatedly compare the PR base to head. A base-retarget `edited`
+receipt starts a new same-head epoch and replans the new base-to-head transition.
+Title, body, label, and other unrelated edits do not create a receipt or
+reconciliation.
+
+`Vercel Preview` is reserved for a Statuses API commit status, not a workflow
+job/check name. Every exact receipt SHA gets one truthful result: pending,
+verified, no runtime impact, runtime-equivalent to a prior preview, unsupported
+trust boundary, durably coalesced, failure, or controller error. Detailed
+PR/SHA/key/run/Deployment evidence remains in the bot comments because status
+descriptions are bounded.
+
+For each open/reopen/base-retarget/bootstrap epoch, the oldest receipt that
+actually affects the UI is `first_eligible_sha`. It always runs first. An
+identical bootstrap aliases an existing lifecycle anchor instead of creating a
+second epoch. While that worker is queued/running, later runtime pushes replace
+only `latest_desired_sha`; when the first worker terminates, only that latest
+SHA runs. Documentation/test-only pushes never replace the desired runtime SHA.
+After a verified runtime preview, a later non-runtime SHA succeeds by linking
+to that runtime-equivalent immutable preview without rebuilding.
+
+Each selected transition is bound to its lifecycle epoch, canonical
+reconciliation-basis digest, immutable receipt run, and the exact controller
+`github.workflow_sha` authorized to supply the worker implementation. The
+authorized worker SHA is persisted as `expected_workflow_sha` and participates
+in the selection key digest. Repeated A -> B -> A transitions, close/reopen
+cycles at the same SHA, duplicate callbacks, controller upgrades, and
+out-of-order event runs therefore remain distinct. An old-epoch worker may
+terminalize its own Deployment and write its own receipt, but it cannot update
+current-epoch state/status or schedule work.
+
+Operator recovery queries the exact persisted worker attempt instead of the
+latest rerun. If a retired old-epoch attempt is missing or fails identity
+validation, the controller records a bounded recovery quarantine on that
+retired selection and continues current-epoch reconciliation without posting a
+current-head controller error. Transient retired-attempt API or evidence-write
+failures remain unquarantined and retry on the next reconciliation, also
+without changing the current-head status. A recovery ambiguity for the current
+active selection still fails closed.
+
+### Durable dispatch and exact Deployment identity
+
+The reconciler writes `dispatch_state=intended`, including
+`expected_workflow_sha`, and rereads it before dispatch. It then queries up to
+three times for a matching worker run by strict `workflow_run.display_title`.
+A title match is not enough: its `head_sha` must equal the persisted authorized
+workflow SHA. One valid match is attached and multiple exact matches fail
+closed. A full-envelope-valid wrong-SHA artifact is never allowed to own the
+intent; all other name, event, ref, path, title, attempt, and URL mismatches also
+fail closed.
+
+Zero matches dispatches `.github/workflows/vercel-preview-worker.yml` on `main`
+using the HTTP 200 `return_run_details` API contract only while the executing
+controller's own workflow SHA still equals the persisted intent. The returned
+run is re-queried and its `head_sha` must equal `expected_workflow_sha`, in
+addition to matching the literal workflow path (either the bare path or
+GitHub's documented `@main` suffix), `workflow_dispatch` event, default ref,
+attempt, PR, target, candidate SHA, and epoch-bound key digest, before state
+becomes `dispatched`. If `main` advances between intent persistence and
+dispatch, recovery may attach an already-created worker at the old authorized
+SHA, but a newer controller/worker version cannot satisfy or redispatch that
+old intent. A worker resolved from the newer `main` SHA fails its credentialless
+preflight. The controller records an immutable
+`controller-workflow-upgraded-before-dispatch` error result, and that worker's
+completion callback causes the current controller to reselect the same desired
+receipt under its own workflow SHA. The new key therefore advances
+automatically without ever pretending that new workflow code fulfilled the
+retired intent.
+
+The canonical Deployment key and environment are:
+
+```text
+vercel-preview:v1:pr:<number>:target:ui:sha:<40-hex-sha>
+preview/ui/pr-<number>
+```
+
+The explicit REST Deployment uses the exact SHA, `auto_merge: false`, empty
+required contexts, and transient/non-production flags. No Actions environment
+is declared and Vercel metadata omits `githubDeployment=1`, so neither GitHub
+nor Vercel creates an implicit duplicate Deployment.
+
+The credential-free worker receives `expected_workflow_sha` as an explicit
+dispatch input and first compares it with the actual
+`${{ github.workflow_sha }}`. Only then does validation re-read the open PR,
+exact SHA ancestry, bot-owned active state, and canonical Deployment. The
+evidence writer repeats the immutable-SHA comparison and persists that SHA in
+non-terminal and terminal receipts. A mismatch fails before any build or
+deployment credential is reachable. A separate trusted preflight prints only
+missing repository variable/secret names. The literal UI reusable caller
+receives only `VERCEL_TOKEN_PREVIEW`, `TURBO_TOKEN`, and
+`TURBO_REMOTE_CACHE_SIGNATURE_KEY`, plus `VERCEL_ORG_ID`,
+`VERCEL_PROJECT_ID_UI`, and `TURBO_TEAM`. The direct smoke/resume jobs receive no
+deployment credential.
+
+The worker is dispatched on `main`, and the reusable contract requires both
+`refs/heads/main` and the exact main-branch `vercel-preview-worker.yml` caller
+identity. Candidate dependency lifecycle scripts are disabled. The trusted
+controller is restored from `github.workflow_sha` after dependency installation
+and after the candidate build; pinned-version and build-output assertions,
+upload, inspection, and lifecycle writes therefore run the restored controller.
+
+Lifecycle is `queued -> in_progress -> success|failure|error`. Success and the
+public `environment_url` exist only after exact-SHA/ID verification and direct
+UI smoke. Every initial or resumed credential-free smoke attempt keeps the
+HTTP/header/static-asset checks, then uses the trusted main-branch smoke
+controller with Playwright and the GitHub runner's system Chrome to render the
+showcase, search and navigate to a second route, change a form control, and fail
+on page/console errors or failed same-origin requests and responses. Its
+dependency graph comes from the trusted workflow checkout, candidate lifecycle
+scripts stay disabled, and no Vercel or Turbo credential is present in the
+smoke job. The worker records a durable non-terminal upload evidence receipt;
+the completed-run recovery re-queries the run, Deployment, and statuses before
+writing the terminal result receipt. Cancellation before Deployment creation
+creates/reuses the canonical Deployment and immediately closes it as `error`.
+
+Retry behavior is bounded and serialized:
+
+- an existing verified success is absorbing and never rebuilds;
+- a verified upload whose smoke failed retries smoke once against the same URL;
+- a build failure before the durable upload-attempt boundary may rebuild once;
+- after an ambiguous upload result, the trusted credentialed job re-queries a
+  bounded Vercel time window using only the
+  [documented List Deployments filters](https://vercel.com/docs/rest-api/deployments/list-deployments)
+  for project, preview target, exact SHA, and branch. It requests one bounded
+  100-row page,
+  rejects pagination rather than silently missing a candidate, and validates
+  the controller-key plus exact commit metadata client-side. Unrelated native
+  or controller deployments are ignored. A matching incomplete Vercel row with
+  `url: null` is durable evidence that an upload already exists: lookup retries
+  until its immutable URL appears, but persistent incompleteness or disappearance
+  fails closed without a second upload. Only three observations containing no
+  exact complete or incomplete deployment permit one serialized upload retry.
+  The retry then consumes the full bounded convergence window. The union of
+  post-retry observations must contain one monotonic deployment identity
+  matching the retry's parsed stdout; delayed duplicates, reordered identities,
+  persistent zero visibility, or unknown results fail closed;
+- a second build/smoke failure is terminal.
+
+This is a bounded convergence protocol that reduces duplicate risk and fails
+closed on contradictory evidence. It is not proof of mathematical uniqueness
+or exactly-once delivery across GitHub and Vercel.
+
+### Bootstrap and operator recovery
+
+Before `Vercel Preview` becomes required, inventory every already-open PR and
+bootstrap each trusted same-repository PR that should participate. A lone
+synchronize receipt deliberately waits for an opened/reopened/bootstrap anchor.
+Repeated semantically identical bootstrap requests are idempotent, and a
+bootstrap identical to an existing lifecycle anchor aliases that anchor;
+conflicting lifecycle or planning evidence still fails closed.
+
+```bash
+gh pr list --state open --limit 100 --json number,headRepository,headRefName,author
+
+PR_NUMBER="<pr-number>"
+gh api --method POST \
+  repos/mento-protocol/frontend-monorepo/dispatches \
+  -f event_type=vercel-preview-bootstrap \
+  -F "client_payload[pr_number]=$PR_NUMBER"
+```
+
+For a durable receipt/state that only needs another reconciliation pass:
+
+```bash
+PR_NUMBER="<pr-number>"
+gh api --method POST \
+  repos/mento-protocol/frontend-monorepo/dispatches \
+  -f event_type=vercel-preview-reconcile \
+  -F "client_payload[pr_number]=$PR_NUMBER"
+```
+
+Do not bootstrap a closed PR, invent an opened event, mutate bot receipts, or
+re-dispatch the worker directly. Missing repository names must be provisioned by
+a maintainer; automation may check presence but must never retrieve, export,
+reconstruct, or print credential values.
+
+### Phase A canary evidence template
+
+Keep native Vercel Git UI previews enabled. For every canary, record the PR,
+exact SHA(s), controller/worker run URLs, controller key/digest, canonical
+GitHub Deployment ID, GitHub-built immutable URL, native Vercel immutable URL,
+terminal `Vercel Preview` status, and browser evidence.
+
+Verify all of these before changing the ruleset or starting Phase B:
+
+1. trusted UI-affecting A produces both native and GitHub previews;
+2. rapid UI pushes A -> B -> C deploy A then C, with B durably coalesced;
+3. a docs-only PR creates no Deployment and succeeds as no-runtime;
+4. a docs-only push after runtime work reuses the prior immutable URL;
+5. after the controller is idle, a later UI-runtime SHA E deploys normally;
+6. replaying an event, reconciliation request, and terminal callback is
+   idempotent: it creates no second worker, GitHub Deployment, Vercel preview,
+   receipt, or conflicting status;
+7. fork and Dependabot PRs succeed unsupported without a Deployment/worker,
+   with Dependabot proven through the credentialless intake and trusted exact-head follow-up;
+8. a controlled build/smoke failure posts terminal failure and bounded retry;
+9. cancelling a worker before Deployment creation produces one canonical
+   `error` Deployment/result and advances the latest desired SHA;
+10. close/reopen and a force-reset SHA revisit preserve distinct epochs;
+11. one old-epoch callback terminalizes only its own evidence;
+12. representative strict-ruleset merges still work.
+
+For the GitHub-built immutable URL, follow the repository browser protocol:
+verify rendering and primary navigation, inspect console errors and failed
+network requests, confirm JS/CSS/font assets, and compare security headers plus
+Vercel toolbar/CSP behavior with the native preview. A canary is not accepted
+from workflow logs alone.
+
+Only after successful deploy, no-runtime, runtime-reuse, coalesced, after-idle,
+idempotent replay/reconcile, unsupported-trust, failure, cancellation, and
+old-epoch evidence is recent may the ruleset require the Statuses API
+`Vercel Preview` context.
+
+## UI Vercel Git cutover (Phase B)
+
+Phase B must be a separate merge after Phase A canaries pass. Change only
+`apps/ui.mento.org/vercel.json`, preserving its schema and unrelated keys:
+
+```json
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "**": false,
+      "main": true
+    }
+  }
+}
+```
+
+Vercel treats any matching `true` as enabled, so `main` remains native even
+though it also matches `**`. Use a fresh/main-rebased UI canary containing this
+configuration. Prove one canonical GitHub Deployment, one Vercel preview, no
+native branch preview, a truthful required status, and an unchanged native
+merge/main deployment. Inventory pre-cutover open branches and require them to
+rebase/merge `main` before using them as duplicate-prevention evidence.
+
+Rollback changes that same file exactly to:
+
+```json
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "dependabot/**": false
+    }
+  }
+}
+```
+
+Merge the rollback normally, use a fresh UI canary to prove native previews
+return, and remove/leave non-required the `Vercel Preview` ruleset context until
+the controller is repaired. Do not change production domains, other apps, or
+recreate Governance QA.
 
 ### Cleanup
 
@@ -523,8 +855,9 @@ pnpm exec vercel remove "<immutable-vercel-deployment-url-or-id>" --yes
 Confirm the value is the unique pilot URL or `dpl_` ID from the run summary.
 Never pass a production domain or alias, and do not change Vercel Git settings.
 
-The complete zero-network pilot/controller suite is:
+The complete zero-network pilot and automatic-preview suites are:
 
 ```bash
 pnpm vercel:workflow:test
+pnpm vercel:preview:test
 ```

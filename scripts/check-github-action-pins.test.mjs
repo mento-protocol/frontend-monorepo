@@ -27,6 +27,12 @@ const POLICY_WORKFLOW_FIXTURES = new Map(
     readFileSync(resolve(path), "utf8"),
   ]),
 );
+const VERCEL_PREVIEW_CONTROLLER_PATH =
+  ".github/workflows/vercel-preview-controller.yml";
+const VERCEL_PREVIEW_CONTROLLER_FIXTURE = readFileSync(
+  resolve(VERCEL_PREVIEW_CONTROLLER_PATH),
+  "utf8",
+);
 const tests = [];
 
 /** @param {string} name @param {() => void} run */
@@ -122,6 +128,81 @@ runs:
       result.stdout,
       "All 5 workflow/composite-action YAML files",
       "recursive scan count",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("enforces the default-branch Vercel controller dispatch contract", () => {
+  const root = fixtureRoot("vercel-controller-dispatch-pass");
+  try {
+    write(
+      root,
+      VERCEL_PREVIEW_CONTROLLER_PATH,
+      VERCEL_PREVIEW_CONTROLLER_FIXTURE,
+    );
+    const result = runChecker(root);
+    equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects branch-selectable Vercel controller dispatch", () => {
+  const root = fixtureRoot("vercel-controller-workflow-dispatch-fail");
+  try {
+    const mutated = VERCEL_PREVIEW_CONTROLLER_FIXTURE.replace(
+      / {2}repository_dispatch:\n {4}types: \[vercel-preview-bootstrap, vercel-preview-reconcile\]\n/,
+      "  workflow_dispatch:\n",
+    );
+    write(root, VERCEL_PREVIEW_CONTROLLER_PATH, mutated);
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(
+      result.stderr,
+      "invalid Vercel preview controller dispatch policy",
+      "branch-selectable controller trigger",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects widened Vercel controller repository event types", () => {
+  const root = fixtureRoot("vercel-controller-event-type-fail");
+  try {
+    const mutated = VERCEL_PREVIEW_CONTROLLER_FIXTURE.replace(
+      "types: [vercel-preview-bootstrap, vercel-preview-reconcile]",
+      "types: [vercel-preview-bootstrap, vercel-preview-reconcile, arbitrary]",
+    );
+    write(root, VERCEL_PREVIEW_CONTROLLER_PATH, mutated);
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(
+      result.stderr,
+      "must use only the default-branch repository dispatch contract",
+      "repository event allowlist",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects widened Vercel controller pull request activity types", () => {
+  const root = fixtureRoot("vercel-controller-pull-request-type-fail");
+  try {
+    const mutated = VERCEL_PREVIEW_CONTROLLER_FIXTURE.replace(
+      "types: [opened, edited, synchronize, reopened, closed]",
+      "types: [opened, edited, synchronize, reopened, closed, labeled]",
+    );
+    write(root, VERCEL_PREVIEW_CONTROLLER_PATH, mutated);
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(
+      result.stderr,
+      "must use only the default-branch repository dispatch contract",
+      "pull request activity allowlist",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });

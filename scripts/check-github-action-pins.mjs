@@ -29,6 +29,20 @@ const REQUIRED_POLICY_FILES = [
   ".github/workflows/action-pins.yml",
   ".github/workflows/action-pins-source.yml",
 ];
+const VERCEL_PREVIEW_CONTROLLER =
+  ".github/workflows/vercel-preview-controller.yml";
+const VERCEL_PREVIEW_CONTROLLER_TRIGGERS = {
+  pull_request_target: {
+    types: ["opened", "edited", "synchronize", "reopened", "closed"],
+  },
+  repository_dispatch: {
+    types: ["vercel-preview-bootstrap", "vercel-preview-reconcile"],
+  },
+  workflow_run: {
+    workflows: ["Vercel Preview Worker", "Vercel Preview Intake"],
+    types: ["completed"],
+  },
+};
 const NORMALIZED_POLICY_WORKFLOWS = new Map([
   [
     ".github/workflows/action-pins.yml",
@@ -339,6 +353,28 @@ function assertPolicyWorkflowStructure(path, document) {
   }
 }
 
+/**
+ * This controller receives write permissions after its read-only validation
+ * jobs. Keep its operator surface bound to the default branch by rejecting the
+ * branch-selectable workflow_dispatch trigger in trusted base policy code.
+ * @param {string} path
+ * @param {import("yaml").Document} document
+ */
+function assertVercelPreviewControllerDispatchPolicy(path, document) {
+  if (path !== VERCEL_PREVIEW_CONTROLLER) return;
+
+  assertUniqueSemanticMappings(document.contents, document);
+  const workflow = document.toJS({ maxAliasCount: 100 });
+  if (!isDeepStrictEqual(workflow?.on, VERCEL_PREVIEW_CONTROLLER_TRIGGERS)) {
+    throw new Error(
+      "must use only the default-branch repository dispatch contract",
+    );
+  }
+  if (JSON.stringify(workflow).includes("${{ inputs.")) {
+    throw new Error("must not read branch-selectable workflow inputs");
+  }
+}
+
 /** @param {unknown} node @param {string} source */
 function sourceLine(node, source) {
   const offset = Array.isArray(node?.range) ? node.range[0] : 0;
@@ -562,6 +598,17 @@ for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
       file: relativeFile,
       line: 1,
       problem: `invalid action-pin policy workflow (${error instanceof Error ? error.message : String(error)})`,
+    });
+    continue;
+  }
+
+  try {
+    assertVercelPreviewControllerDispatchPolicy(relativeFile, document);
+  } catch (error) {
+    failures.push({
+      file: relativeFile,
+      line: 1,
+      problem: `invalid Vercel preview controller dispatch policy (${error instanceof Error ? error.message : String(error)})`,
     });
     continue;
   }

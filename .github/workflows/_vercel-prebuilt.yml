@@ -83,6 +83,9 @@ on:
       deployment_url:
         description: Immutable verified Vercel deployment URL
         value: ${{ jobs.finalize.outputs.deployment_url }}
+      verified_upload_url:
+        description: Immutable Vercel URL after upload verification, before smoke
+        value: ${{ jobs.prebuilt.outputs.verified_deployment_url }}
       vercel_deployment_id:
         description: Vercel deployment ID
         value: ${{ jobs.prebuilt.outputs.vercel_deployment_id }}
@@ -98,6 +101,9 @@ on:
       logical_target:
         description: Logical deployment target
         value: ${{ jobs.prebuilt.outputs.logical_target }}
+      next_deployment_id:
+        description: Verified custom Next.js deployment ID
+        value: ${{ jobs.prebuilt.outputs.next_deployment_id }}
       build_duration_ms:
         description: Measured Vercel build duration in milliseconds
         value: ${{ jobs.prebuilt.outputs.build_duration_ms }}
@@ -168,6 +174,7 @@ jobs:
         env:
           DEPLOYMENT_IDEMPOTENCY_KEY: ${{ inputs.deployment_idempotency_key }}
           DEPLOYMENT_MODE: ${{ inputs.deployment_mode }}
+          DEPLOYMENT_PROVENANCE: ${{ inputs.provenance }}
           DEPLOY_PERMITTED: ${{ inputs.deploy_permitted }}
           DEPLOY_SHA: ${{ inputs.commit_sha }}
           EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
@@ -176,6 +183,7 @@ jobs:
           GITHUB_EVENT_REF: ${{ github.ref }}
           GITHUB_WORKFLOW_DEFINITION: ${{ github.workflow_ref }}
           LOGICAL_TARGET: ${{ inputs.logical_target }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
           VERCEL_ENVIRONMENT: ${{ inputs.vercel_environment }}
           VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
           VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
@@ -796,16 +804,26 @@ jobs:
           VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
           VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
         run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" assert-output
+      - name: Mark the durable upload-attempt boundary
+        env:
+          GITHUB_DEPLOYMENT_DESCRIPTION: Prebuilt preview upload starting
+          GITHUB_DEPLOYMENT_ID: ${{ steps.create.outputs.github_deployment_id }}
+          GITHUB_DEPLOYMENT_STATE: in_progress
+          GITHUB_TOKEN: ${{ github.token }}
+          WORKFLOW_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: node "$GITHUB_WORKSPACE/controller/scripts/github-deployment.mjs" status
 
       - name: Upload the verified prebuilt output
         id: deploy
         env:
+          DEPLOYMENT_IDEMPOTENCY_KEY: ${{ inputs.deployment_idempotency_key }}
           DEPLOY_SHA: ${{ steps.source.outputs.checked_out_sha }}
           EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
           GIT_BRANCH: ${{ inputs.git_branch }}
           LOGICAL_TARGET: ${{ inputs.logical_target }}
           MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.prepare.outputs.next_deployment_id }}
           SOURCE_PATH: ${{ runner.temp }}/mento-vercel-upload-source
+          STARTED_AT_MS: ${{ steps.prepare.outputs.started_at_ms }}
           TRUSTED_VERCEL_TOOLS_PATH: ${{ runner.temp }}/mento-vercel-trusted-tools
           VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
           VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
@@ -873,7 +891,7 @@ jobs:
     needs: prebuilt
     if: needs.prebuilt.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -897,6 +915,34 @@ jobs:
           VERCEL_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.vercel_deployment_id }}
           VERCEL_DEPLOYMENT_URL: ${{ needs.prebuilt.outputs.verified_deployment_url }}
         run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" smoke
+
+      - name: Set up pinned pnpm for trusted browser smoke
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v4
+        with:
+          version: 10.24.0
+
+      - name: Set up pinned Node.js and trusted pnpm cache
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: controller/pnpm-lock.yaml
+
+      - name: Install trusted browser smoke dependencies
+        working-directory: controller
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter ui.mento.org...
+
+      - name: Interact with immutable UI preview in system Chrome
+        env:
+          DEPLOYMENT_IDEMPOTENCY_KEY: ${{ inputs.deployment_idempotency_key }}
+          DEPLOY_SHA: ${{ needs.prebuilt.outputs.commit_sha }}
+          GITHUB_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.github_deployment_id }}
+          MENTO_NEXT_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.next_deployment_id }}
+          VERCEL_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.vercel_deployment_id }}
+          VERCEL_DEPLOYMENT_URL: ${{ needs.prebuilt.outputs.verified_deployment_url }}
+        run: node "$GITHUB_WORKSPACE/controller/apps/ui.mento.org/e2e/vercel-preview-browser-smoke.mjs"
 
   finalize:
     name: Finalize ${{ inputs.logical_target }} deployment lifecycle

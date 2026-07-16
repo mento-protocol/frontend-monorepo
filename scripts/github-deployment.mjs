@@ -379,7 +379,8 @@ async function statusFromEnvironment(stateOverride) {
     environmentUrl:
       state === "success" ? environment("VERCEL_DEPLOYMENT_URL") : undefined,
     logUrl: environment("WORKFLOW_RUN_URL"),
-    description: statusDescription(state),
+    description:
+      environment("GITHUB_DEPLOYMENT_DESCRIPTION") ?? statusDescription(state),
   });
   await ensureGitHubDeploymentStatus({
     deploymentId: environment("GITHUB_DEPLOYMENT_ID"),

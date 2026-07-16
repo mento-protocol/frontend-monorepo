@@ -79,6 +79,15 @@ const MAX_SOURCE_PATH_BYTES = 4_096;
 const MAX_SOURCE_BLOB_BYTES = 32 * 1_024 * 1_024;
 const MAX_SOURCE_TREE_BYTES = 16 * 1_024 * 1_024;
 const MAX_SOURCE_TOTAL_BYTES = 128 * 1_024 * 1_024;
+const UPLOAD_LOOKUP_ATTEMPTS = 3;
+const UPLOAD_LOOKUP_DELAY_MS = 1_000;
+const UPLOAD_LOOKUP_WINDOW_MS = 45 * 60 * 1_000;
+const TRUSTED_CALLER_WORKFLOW = {
+  "manual-pilot":
+    "mento-protocol/frontend-monorepo/.github/workflows/vercel-prebuilt-pilot.yml@refs/heads/main",
+  "preview-controller:v1":
+    "mento-protocol/frontend-monorepo/.github/workflows/vercel-preview-worker.yml@refs/heads/main",
+};
 function requiredText(value, label, { maximum = 2_048 } = {}) {
   if (
     typeof value !== "string" ||
@@ -123,7 +132,30 @@ export function validateGitBranch(branch, run = spawnSync) {
   return branch;
 }
 
-export function validatePilotContract(values) {
+function validateAutomaticPreviewIdentity(values) {
+  const pr = String(values.pullRequestNumber ?? "");
+  if (!/^[1-9][0-9]{0,9}$/.test(pr)) {
+    throw new Error(
+      "Automatic previews require a positive pull request number",
+    );
+  }
+  if (values.githubEnvironment !== `preview/ui/pr-${pr}`) {
+    throw new Error(
+      "Automatic preview environment does not match the pull request",
+    );
+  }
+  if (values.provenance !== "preview-controller:v1") {
+    throw new Error("Automatic preview provenance is invalid");
+  }
+  if (
+    values.idempotencyKey !==
+    `vercel-preview:v1:pr:${pr}:target:ui:sha:${values.commitSha}`
+  ) {
+    throw new Error("Automatic preview idempotency key is invalid");
+  }
+}
+
+function validatePrebuiltContract(values) {
   validateExactSha(values.commitSha);
   validateGitBranch(values.gitBranch);
   if (values.gitBranch.startsWith("dependabot/")) {
@@ -134,7 +166,6 @@ export function validatePilotContract(values) {
     logicalTarget: values.logicalTarget,
     workspacePackage: values.workspacePackage,
     expectedRootDirectory: values.expectedRootDirectory,
-    githubEnvironment: values.githubEnvironment,
     vercelEnvironment: values.vercelEnvironment,
     vercelTarget: values.vercelTarget,
     deploymentMode: values.deploymentMode,
@@ -142,7 +173,7 @@ export function validatePilotContract(values) {
   for (const [name, actual] of Object.entries(expected)) {
     if (actual !== PILOT_TARGET[name]) {
       throw new Error(
-        `The manual pilot requires ${name}=${PILOT_TARGET[name]}`,
+        `The UI prebuilt workflow requires ${name}=${PILOT_TARGET[name]}`,
       );
     }
   }
@@ -154,20 +185,29 @@ export function validatePilotContract(values) {
       "The pilot may run only in mento-protocol/frontend-monorepo",
     );
   }
-  if (values.githubRef !== "refs/heads/main") {
-    throw new Error("The pilot workflow must be dispatched from main");
+  if (values.githubEnvironment === PILOT_TARGET.githubEnvironment) {
+    if (values.provenance !== "manual-pilot") {
+      throw new Error("The manual pilot provenance is invalid");
+    }
+  } else {
+    validateAutomaticPreviewIdentity(values);
   }
-  if (
-    values.githubWorkflowRef !==
-    "mento-protocol/frontend-monorepo/.github/workflows/vercel-prebuilt-pilot.yml@refs/heads/main"
-  ) {
-    throw new Error("The pilot caller must be the trusted main workflow");
+  if (values.githubRef !== "refs/heads/main") {
+    throw new Error("The UI prebuilt workflow must be dispatched from main");
+  }
+  if (values.githubWorkflowRef !== TRUSTED_CALLER_WORKFLOW[values.provenance]) {
+    throw new Error("The UI prebuilt caller is not the trusted main workflow");
   }
   requiredText(values.vercelOrgId, "Vercel organization ID");
   requiredText(values.vercelProjectId, "Vercel project ID");
   requiredText(values.idempotencyKey, "Deployment idempotency key");
   requiredText(values.workflowRunUrl, "Workflow run URL");
   return values;
+}
+
+// Keep the original public name while the manual pilot remains a supported caller.
+export function validatePilotContract(values) {
+  return validatePrebuiltContract(values);
 }
 
 function git(repoRoot, arguments_, run = spawnSync) {
@@ -267,9 +307,15 @@ export function buildVercelDeployArguments({
   projectId,
   commitSha,
   gitBranch,
+  idempotencyKey,
 }) {
   const sha = validateExactSha(commitSha);
   const branch = validateGitBranch(gitBranch);
+  const controllerKey = requiredText(
+    idempotencyKey,
+    "Deployment idempotency key",
+    { maximum: 255 },
+  );
   const arguments_ = [
     "deploy",
     "--prebuilt",
@@ -288,6 +334,8 @@ export function buildVercelDeployArguments({
     `githubCommitSha=${sha}`,
     "--meta",
     `githubCommitRef=${branch}`,
+    "--meta",
+    `mentoControllerKey=${controllerKey}`,
   ];
   assertSafeVercelArguments(arguments_);
   return arguments_;
@@ -1209,6 +1257,378 @@ export function parseVercelDeploymentJson(raw) {
   };
 }
 
+function uploadMetadata({ commitSha, gitBranch, idempotencyKey }) {
+  return {
+    githubCommitOrg: "mento-protocol",
+    githubCommitRepo: "frontend-monorepo",
+    githubCommitSha: validateExactSha(commitSha),
+    githubCommitRef: validateGitBranch(gitBranch),
+    mentoControllerKey: requiredText(
+      idempotencyKey,
+      "Deployment idempotency key",
+      { maximum: 255 },
+    ),
+  };
+}
+
+function uploadLookupWindow(startedAtMs, nowMs) {
+  const started = Number(startedAtMs);
+  const now = Number(nowMs);
+  if (
+    !Number.isSafeInteger(started) ||
+    !Number.isSafeInteger(now) ||
+    started <= 0 ||
+    now <= 0 ||
+    started > now + 60_000 ||
+    now - started > UPLOAD_LOOKUP_WINDOW_MS
+  ) {
+    throw new Error("Vercel upload lookup window is invalid or unbounded");
+  }
+  return {
+    since: Math.max(0, started - 60_000),
+    until: now + 60_000,
+  };
+}
+
+export function buildVercelDeploymentLookupUrl({
+  projectId,
+  vercelOrgId,
+  commitSha,
+  gitBranch,
+  idempotencyKey,
+  startedAtMs,
+  nowMs = Date.now(),
+}) {
+  const metadata = uploadMetadata({ commitSha, gitBranch, idempotencyKey });
+  const window = uploadLookupWindow(startedAtMs, nowMs);
+  const query = new URLSearchParams({
+    projectId: requiredText(projectId, "Vercel project ID"),
+    teamId: requiredText(vercelOrgId, "Vercel organization ID"),
+    target: "preview",
+    branch: metadata.githubCommitRef,
+    sha: metadata.githubCommitSha,
+    limit: "100",
+    since: String(window.since),
+    until: String(window.until),
+  });
+  return `https://api.vercel.com/v7/deployments?${query}`;
+}
+
+function normalizeVercelLookupCreatedAt(value) {
+  const timestamp =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && /^[1-9][0-9]{0,15}$/.test(value)
+        ? Number(value)
+        : Number.NaN;
+  return Number.isSafeInteger(timestamp) && timestamp > 0 ? timestamp : null;
+}
+
+export function parseVercelDeploymentLookup(
+  raw,
+  {
+    projectId,
+    commitSha,
+    gitBranch,
+    idempotencyKey,
+    startedAtMs,
+    nowMs = Date.now(),
+  },
+) {
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("Vercel deployment lookup returned invalid JSON");
+  }
+  const pagination = parsed?.pagination;
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed) ||
+    !Array.isArray(parsed.deployments) ||
+    parsed.deployments.length > 100 ||
+    (pagination !== undefined &&
+      (pagination === null ||
+        typeof pagination !== "object" ||
+        Array.isArray(pagination))) ||
+    (pagination?.next !== undefined && pagination.next !== null)
+  ) {
+    throw new Error("Vercel deployment lookup response is malformed");
+  }
+  const metadata = uploadMetadata({ commitSha, gitBranch, idempotencyKey });
+  const window = uploadLookupWindow(startedAtMs, nowMs);
+  return parsed.deployments.flatMap((deployment) => {
+    if (
+      !deployment ||
+      typeof deployment !== "object" ||
+      Array.isArray(deployment)
+    ) {
+      throw new Error("Vercel deployment lookup response is malformed");
+    }
+    const hasExactMetadata =
+      deployment.meta &&
+      typeof deployment.meta === "object" &&
+      !Array.isArray(deployment.meta) &&
+      Object.entries(metadata).every(
+        ([name, value]) => deployment.meta[name] === value,
+      );
+    if (!hasExactMetadata) return [];
+
+    const createdAt = normalizeVercelLookupCreatedAt(deployment?.createdAt);
+    if (
+      deployment.projectId !== projectId ||
+      createdAt === null ||
+      createdAt < window.since ||
+      createdAt > window.until ||
+      (deployment.target !== null &&
+        deployment.target !== undefined &&
+        deployment.target !== "preview")
+    ) {
+      throw new Error(
+        "Vercel deployment lookup result does not match the exact upload tuple",
+      );
+    }
+    if (!VERCEL_DEPLOYMENT_ID_PATTERN.test(String(deployment.uid ?? ""))) {
+      throw new Error("Vercel deploy returned no valid deployment ID");
+    }
+    if (deployment.url === null) {
+      return [
+        {
+          deploymentId: deployment.uid,
+          deploymentUrl: null,
+          readyState: deployment.readyState,
+          target: "preview",
+          incomplete: true,
+        },
+      ];
+    }
+    return [
+      parseVercelDeploymentJson(
+        JSON.stringify({
+          id: deployment.uid,
+          url: deployment.url,
+          readyState: deployment.readyState,
+          target: "preview",
+        }),
+      ),
+    ];
+  });
+}
+
+async function boundedUploadLookup({ lookup, waitForRetry }) {
+  const incompleteDeploymentIds = new Set();
+  for (let attempt = 0; attempt < UPLOAD_LOOKUP_ATTEMPTS; attempt += 1) {
+    const matches = normalizeUploadLookupMatches(await lookup());
+    if (!Array.isArray(matches) || matches.length > 2) {
+      throw new Error("Vercel deployment lookup is indeterminate");
+    }
+    if (matches.length > 1) {
+      throw new Error("Multiple Vercel deployments match one controller key");
+    }
+    if (matches.length === 1) {
+      const [match] = matches;
+      if (match.incomplete) {
+        incompleteDeploymentIds.add(match.deploymentId);
+        if (incompleteDeploymentIds.size > 1) {
+          throw new Error(
+            "Multiple Vercel deployments match one controller key",
+          );
+        }
+      } else {
+        if (
+          incompleteDeploymentIds.size === 1 &&
+          !incompleteDeploymentIds.has(match.deploymentId)
+        ) {
+          throw new Error(
+            "Multiple Vercel deployments match one controller key",
+          );
+        }
+        return matches;
+      }
+    }
+    if (attempt < UPLOAD_LOOKUP_ATTEMPTS - 1) {
+      await waitForRetry(UPLOAD_LOOKUP_DELAY_MS);
+    }
+  }
+  if (incompleteDeploymentIds.size > 0) {
+    throw new Error(
+      "Exact Vercel deployment remained incomplete or disappeared during lookup",
+    );
+  }
+  return [];
+}
+
+function normalizeUploadLookupMatches(matches) {
+  if (!Array.isArray(matches) || matches.length > 2) {
+    throw new Error("Vercel deployment lookup is indeterminate");
+  }
+  return matches.map((match) => {
+    if (match?.incomplete === true) {
+      if (
+        !VERCEL_DEPLOYMENT_ID_PATTERN.test(String(match.deploymentId ?? "")) ||
+        match.deploymentUrl !== null ||
+        match.target !== "preview"
+      ) {
+        throw new Error("Vercel deployment lookup is indeterminate");
+      }
+      return {
+        deploymentId: match.deploymentId,
+        deploymentUrl: null,
+        readyState: match.readyState,
+        target: "preview",
+        incomplete: true,
+      };
+    }
+    return parseVercelDeploymentJson(
+      JSON.stringify({
+        id: match?.deploymentId,
+        url: match?.deploymentUrl,
+        readyState: match?.readyState,
+        target: match?.target,
+      }),
+    );
+  });
+}
+
+async function collectRetriedUploadObservations({ lookup, waitForRetry }) {
+  const observations = [];
+  for (let attempt = 0; attempt < UPLOAD_LOOKUP_ATTEMPTS; attempt += 1) {
+    observations.push(normalizeUploadLookupMatches(await lookup()));
+    if (attempt < UPLOAD_LOOKUP_ATTEMPTS - 1) {
+      await waitForRetry(UPLOAD_LOOKUP_DELAY_MS);
+    }
+  }
+  return observations;
+}
+
+function reconcileRetriedUpload(reported, observations) {
+  const identities = new Map();
+  const deploymentIds = new Set();
+  let becameVisible = false;
+  let becameComplete = false;
+  let disappearedAfterVisibility = false;
+  let regressedAfterCompletion = false;
+  for (const matches of observations) {
+    if (matches.length === 0) {
+      if (becameVisible) disappearedAfterVisibility = true;
+      continue;
+    }
+    if (matches.length > 1) {
+      throw new Error(
+        "Retried Vercel upload converged on multiple deployment identities",
+      );
+    }
+    becameVisible = true;
+    for (const match of matches) {
+      deploymentIds.add(match.deploymentId);
+      if (match.incomplete) {
+        if (becameComplete) regressedAfterCompletion = true;
+        continue;
+      }
+      becameComplete = true;
+      identities.set(`${match.deploymentId}\n${match.deploymentUrl}`, match);
+    }
+  }
+  if (deploymentIds.size > 1 || identities.size > 1) {
+    throw new Error(
+      "Retried Vercel upload converged on multiple deployment identities",
+    );
+  }
+  if (disappearedAfterVisibility || regressedAfterCompletion) {
+    throw new Error(
+      "Retried Vercel upload lookup did not converge monotonically",
+    );
+  }
+  if (deploymentIds.size === 1 && identities.size === 0) {
+    throw new Error(
+      "Retried Vercel upload remained incomplete without an immutable URL",
+    );
+  }
+  if (identities.size !== 1) {
+    throw new Error(
+      "Retried Vercel upload has no uniquely matching deployment",
+    );
+  }
+  if (!reported) {
+    throw new Error("Retried Vercel upload result is indeterminate");
+  }
+  const [matched] = identities.values();
+  if (
+    reported.deploymentId !== matched.deploymentId ||
+    reported.deploymentUrl !== matched.deploymentUrl
+  ) {
+    throw new Error(
+      "Retried upload conflicts with the converged Vercel deployment",
+    );
+  }
+  return matched;
+}
+
+export async function deployWithAmbiguityRecovery({
+  runUpload,
+  lookup,
+  waitForRetry = (milliseconds) =>
+    new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds)),
+}) {
+  for (let uploadAttempt = 0; uploadAttempt < 2; uploadAttempt += 1) {
+    let execution;
+    try {
+      execution = await runUpload();
+    } catch {
+      execution = { status: null, stdout: "" };
+    }
+    let reported = null;
+    if (execution?.status === 0) {
+      try {
+        reported = parseVercelDeploymentJson(execution.stdout);
+      } catch {
+        reported = null;
+      }
+    }
+    if (reported && uploadAttempt === 0) return reported;
+
+    if (uploadAttempt === 1) {
+      const observations = await collectRetriedUploadObservations({
+        lookup,
+        waitForRetry,
+      });
+      return reconcileRetriedUpload(reported, observations);
+    }
+
+    const matches = await boundedUploadLookup({ lookup, waitForRetry });
+    if (matches.length > 1) {
+      throw new Error("Multiple Vercel deployments match one controller key");
+    }
+    if (matches.length === 1) return matches[0];
+  }
+  throw new Error("Vercel upload reconciliation did not converge");
+}
+
+export async function queryVercelDeployments({
+  token,
+  fetchImplementation = fetch,
+  ...lookup
+}) {
+  const response = await fetchImplementation(
+    buildVercelDeploymentLookupUrl(lookup),
+    {
+      headers: {
+        authorization: `Bearer ${requiredText(token, "Vercel token")}`,
+      },
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
+  if (!response?.ok) {
+    throw new Error("Vercel deployment lookup request failed");
+  }
+  const raw = await response.text();
+  if (raw.length > 1_000_000) {
+    throw new Error("Vercel deployment lookup response is too large");
+  }
+  return parseVercelDeploymentLookup(raw, lookup);
+}
+
 export function assertVercelInspection(raw, { deploymentId, deploymentUrl }) {
   let inspection;
   try {
@@ -1636,6 +2056,8 @@ function contractFromEnvironment() {
     vercelOrgId: process.env.VERCEL_ORG_ID,
     vercelProjectId: process.env.VERCEL_PROJECT_ID,
     idempotencyKey: process.env.DEPLOYMENT_IDEMPOTENCY_KEY,
+    pullRequestNumber: process.env.PULL_REQUEST_NUMBER,
+    provenance: process.env.DEPLOYMENT_PROVENANCE,
     workflowRunUrl: process.env.WORKFLOW_RUN_URL,
     githubRepository: process.env.GITHUB_REPOSITORY,
     githubRef: process.env.GITHUB_EVENT_REF,
@@ -1647,7 +2069,7 @@ function requiredEnvironment(names) {
   for (const name of names) requiredText(process.env[name], name);
 }
 
-function runVercel(arguments_, { capture = false } = {}) {
+function executeVercel(arguments_, { capture = false } = {}) {
   assertSafeVercelArguments(arguments_);
   requiredEnvironment([
     "TRUSTED_VERCEL_TOOLS_PATH",
@@ -1656,7 +2078,7 @@ function runVercel(arguments_, { capture = false } = {}) {
     "VERCEL_PROJECT_ID",
   ]);
   const cliPath = trustedVercelCliPath(process.env.TRUSTED_VERCEL_TOOLS_PATH);
-  const result = spawnSync(process.execPath, [cliPath, ...arguments_], {
+  return spawnSync(process.execPath, [cliPath, ...arguments_], {
     cwd: process.env.SOURCE_PATH,
     env: environmentForVercelCli(process.env, ["VERCEL_TOKEN"]),
     encoding: "utf8",
@@ -1664,6 +2086,10 @@ function runVercel(arguments_, { capture = false } = {}) {
       ? ["ignore", "pipe", "inherit"]
       : ["inherit", "inherit", "inherit"],
   });
+}
+
+function runVercel(arguments_, { capture = false } = {}) {
+  const result = executeVercel(arguments_, { capture });
   if (result.status !== 0) {
     throw new Error(`Pinned Vercel CLI command failed: ${arguments_[0]}`);
   }
@@ -1671,7 +2097,7 @@ function runVercel(arguments_, { capture = false } = {}) {
 }
 
 function prepareFromEnvironment() {
-  validatePilotContract(contractFromEnvironment());
+  validatePrebuiltContract(contractFromEnvironment());
   const deploymentId = generateVercelDeploymentId({
     target: process.env.LOGICAL_TARGET,
     commitSha: process.env.DEPLOY_SHA,
@@ -1837,12 +2263,28 @@ function assertOutputFromEnvironment() {
 
 async function deployFromEnvironment() {
   const started = Date.now();
-  const arguments_ = buildVercelDeployArguments({
+  requiredEnvironment([
+    "DEPLOYMENT_IDEMPOTENCY_KEY",
+    "STARTED_AT_MS",
+    "VERCEL_TOKEN",
+    "VERCEL_ORG_ID",
+    "VERCEL_PROJECT_ID",
+  ]);
+  const lookup = {
     projectId: process.env.VERCEL_PROJECT_ID,
+    vercelOrgId: process.env.VERCEL_ORG_ID,
     commitSha: process.env.DEPLOY_SHA,
     gitBranch: process.env.GIT_BRANCH,
+    idempotencyKey: process.env.DEPLOYMENT_IDEMPOTENCY_KEY,
+    startedAtMs: process.env.STARTED_AT_MS,
+  };
+  const arguments_ = buildVercelDeployArguments({
+    projectId: lookup.projectId,
+    commitSha: lookup.commitSha,
+    gitBranch: lookup.gitBranch,
+    idempotencyKey: lookup.idempotencyKey,
   });
-  const raw = await withValidatedPrebuiltUpload(
+  const deployment = await withValidatedPrebuiltUpload(
     {
       repoRoot: process.env.SOURCE_PATH,
       logicalTarget: process.env.LOGICAL_TARGET,
@@ -1852,9 +2294,19 @@ async function deployFromEnvironment() {
       deploymentId: process.env.MENTO_NEXT_DEPLOYMENT_ID,
       commitSha: process.env.DEPLOY_SHA,
     },
-    async () => runVercel(arguments_, { capture: true }),
+    () =>
+      deployWithAmbiguityRecovery({
+        runUpload: async () => {
+          const result = executeVercel(arguments_, { capture: true });
+          return { status: result.status, stdout: result.stdout ?? "" };
+        },
+        lookup: () =>
+          queryVercelDeployments({
+            ...lookup,
+            token: process.env.VERCEL_TOKEN,
+          }),
+      }),
   );
-  const deployment = parseVercelDeploymentJson(raw);
   output("vercel_deployment_id", deployment.deploymentId);
   output("vercel_deployment_url", deployment.deploymentUrl);
   output("deploy_duration_ms", String(Date.now() - started));
