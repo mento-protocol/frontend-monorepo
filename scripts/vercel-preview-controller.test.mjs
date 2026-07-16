@@ -1715,6 +1715,43 @@ test("malformed successful planner output is recorded as fail-closed UI impact",
   assert.equal(fixture.commitStatuses.at(-1).state, "pending");
 });
 
+test("closed event receipt is immutable, idempotent, and publishes no status", async () => {
+  const closed = event({
+    run: 120,
+    action: "closed",
+    head: SHA.A,
+    updated: timestamp(2),
+  });
+  const snapshot = structuredClone(closed);
+  delete snapshot.plan;
+  const pullRequest = pull({
+    head: SHA.A,
+    state: "closed",
+    updated: timestamp(2),
+    closed: timestamp(2),
+  });
+  const fixture = fakeGitHub({ pullRequest, comments: [] });
+  const core = fakeCore();
+  const options = {
+    github: fixture.github,
+    context: fakeContext({ runId: 120 }),
+    core,
+    snapshotRaw: JSON.stringify(snapshot),
+    planRaw: "",
+    plannerOutcome: "skipped",
+  };
+
+  const first = await recordEventReceipt(options);
+  const second = await recordEventReceipt(options);
+
+  assert.equal(first.plan.reason, "closed");
+  assert.deepEqual(second, first);
+  assert.equal(core.outputs.get("pr_number"), "519");
+  assert.equal(fixture.comments.length, 1);
+  assert.match(fixture.comments[0].body, /"event_action": "closed"/);
+  assert.equal(fixture.commitStatuses.length, 0);
+});
+
 test("trusted workflow_run follow-up publishes Dependabot unsupported status only for the exact current head", async () => {
   const workflowRun = dependabotIntakeRun();
   assert.deepEqual(validateDependabotIntakeWorkflowRun(workflowRun), {
