@@ -362,12 +362,19 @@ relative paths from the controller to that directory; pnpm treats an absolute
 `--modules-dir` as project-relative and would otherwise materialize the CLI at
 the wrong path. The zero-network fixture requires the already-hydrated package
 store with `--offline`; it cannot contact the registry to repair missing data.
-Before any credentialed command, the worker proves the CLI
-resolves inside the protected directory, its package version is exactly
-`56.2.0`, the candidate UID cannot write it, and `node <cli> --version`
-executes successfully. The workflow test suite repeats this with the actual
-pinned pnpm install in a temporary checkout while retaining a frozen-lockfile
-failure boundary.
+The hosted setup-node and pnpm locations are treated only as trusted staging
+inputs because runner-image permissions can make those original paths writable
+by the isolated candidate UID. Before candidate code starts, the worker copies
+Node.js and standalone pnpm into the same runner-owned protected tool
+directory, removes group/other write access from the original pnpm action
+directory, and prepends the protected runtime to subsequent workflow steps.
+Before any credentialed command, the worker proves the runtime root, its
+replacement-relevant parents, Node.js, pnpm, and the CLI are not candidate
+writable; it also proves the CLI resolves inside the protected directory, its
+package version is exactly `56.2.0`, and protected `node <cli> --version`
+executes successfully. The workflow test suite repeats the CLI install with
+the actual pinned pnpm version in a temporary checkout while retaining a
+frozen-lockfile failure boundary.
 
 The candidate dependency install intentionally does **not** reuse setup-node's
 writable pnpm store. Its isolated `HOME` and XDG directories place that store
@@ -637,22 +644,41 @@ The reconciler writes `dispatch_state=intended`, including
 three times for a matching worker run by strict `workflow_run.display_title`.
 A title match is not enough: its `head_sha` must equal the persisted authorized
 workflow SHA. One valid match is attached and multiple exact matches fail
-closed. A full-envelope-valid wrong-SHA artifact is never allowed to own the
+closed. If GitHub still exposes the workflow's exact default title, the
+controller treats that run ID as unresolved, continues listing for additional
+candidates, and re-queries the unresolved ID directly. It never attaches an
+exact match or dispatches a replacement while any plausible default-title run
+remains unresolved. After any recovery wait, it refreshes PR openness, exact-SHA
+association, event receipts, and persisted selection ownership immediately
+before attaching or dispatching; a closed or changed lifecycle cannot launch a
+new worker. A full-envelope-valid wrong-SHA artifact is never allowed to own the
 intent; all other name, event, ref, path, title, attempt, and URL mismatches also
-fail closed.
+fail closed. GitHub's `workflow_run` callback reports the static workflow name,
+while the Actions REST API may report the configured dynamic `run-name` in both
+`name` and `display_title`; recovery accepts those two documented shapes only
+when the workflow path, event, default ref, authorized SHA, attempt, and
+epoch-bound title identity also validate. Completion follow-ups route by the
+exact worker or intake workflow path rather than the presentation name, then
+repeat full source validation before any status or Deployment write.
 
 Zero matches dispatches `.github/workflows/vercel-preview-worker.yml` on `main`
 using the HTTP 200 `return_run_details` API contract only while the executing
 controller's own workflow SHA still equals the persisted intent. The returned
-run is re-queried and its `head_sha` must equal `expected_workflow_sha`, in
-addition to matching the literal workflow path (either the bare path or
-GitHub's documented `@main` suffix), `workflow_dispatch` event, default ref,
-attempt, PR, target, candidate SHA, and epoch-bound key digest, before state
-becomes `dispatched`. If `main` advances between intent persistence and
-dispatch, recovery may attach an already-created worker at the old authorized
-SHA, but a newer controller/worker version cannot satisfy or redispatch that
-old intent. A worker resolved from the newer `main` SHA fails its credentialless
-preflight. The controller records an immutable
+run is re-queried once per second with a bounded 30-second retry-delay budget
+because GitHub may temporarily return the workflow's default title before
+materializing the configured `run-name`. API request latency is additive; the
+workflow timeout remains the outer wall-clock bound. Only that exact transient
+default title is retried; every other malformed title or identity mismatch
+fails immediately. The materialized run's `head_sha` must equal
+`expected_workflow_sha`, in addition to matching the literal workflow path
+(either the bare path or GitHub's documented `@main` suffix),
+`workflow_dispatch` event, default ref, attempt, PR, target, candidate SHA, and
+epoch-bound key digest, before state becomes `dispatched`.
+If `main` advances between intent persistence and dispatch, recovery may attach
+an already-created worker at the old authorized SHA, but a newer
+controller/worker version cannot satisfy or redispatch that old intent. A
+worker resolved from the newer `main` SHA fails its credentialless preflight.
+The controller records an immutable
 `controller-workflow-upgraded-before-dispatch` error result, and that worker's
 completion callback causes the current controller to reselect the same desired
 receipt under its own workflow SHA. The new key therefore advances
@@ -689,7 +715,9 @@ The worker is dispatched on `main`, and the reusable contract requires both
 identity. Candidate dependency lifecycle scripts are disabled. The trusted
 controller is restored from `github.workflow_sha` after dependency installation
 and after the candidate build; pinned-version and build-output assertions,
-upload, inspection, and lifecycle writes therefore run the restored controller.
+upload, inspection, and lifecycle writes therefore run the restored controller
+through the protected Node.js runtime copied before candidate execution, not
+the hosted toolcache path the candidate can reach.
 
 Lifecycle is `queued -> in_progress -> success|failure|error`. Success and the
 public `environment_url` exist only after exact-SHA/ID verification and direct

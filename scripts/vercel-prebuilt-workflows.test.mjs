@@ -186,6 +186,51 @@ test("exact source, build, and upload remain in one standard-runner job", () => 
   );
 });
 
+test("prebuilt stages a protected Node and standalone pnpm runtime before candidate code", () => {
+  const reusable = workflow(reusablePath);
+  const steps = reusable.jobs.prebuilt.steps;
+  const names = steps.map(({ name }) => name);
+  const pnpmSetup = steps.find(({ name }) => name === "Set up pinned pnpm");
+  const isolation = steps.find(
+    ({ name }) =>
+      name === "Prepare isolated exact-SHA source and protected Vercel CLI",
+  );
+
+  assert.equal(pnpmSetup.with.dest, "${{ runner.temp }}/mento-pnpm-tools");
+  assert.equal(pnpmSetup.with.standalone, true);
+  assert.equal(pnpmSetup.with.version, "10.24.0");
+  assert.equal(
+    isolation.env.PNPM_ACTION_DEST,
+    "${{ runner.temp }}/mento-pnpm-tools",
+  );
+  assert.match(isolation.run, /NODE_SOURCE_PATH="\$setup_node_bin" \\/);
+  assert.match(isolation.run, /PNPM_SOURCE_PATH="\$setup_pnpm_bin" \\/);
+  assert.match(
+    isolation.run,
+    /controller\/scripts\/vercel-prebuilt-workflow\.mjs" \\\n\s+stage-runtime/,
+  );
+  assert.match(
+    isolation.run,
+    /printf '%s\\n' "\$trusted_bin_dir" >> "\$GITHUB_PATH"/,
+  );
+  assert.match(isolation.run, /"\$PNPM_ACTION_DEST" \\/);
+  assert.match(isolation.run, /"\$TRUSTED_VERCEL_TOOLS_PATH" \\/);
+  assert.match(isolation.run, /"\$trusted_bin_dir" \\/);
+  assert.match(isolation.run, /"\$node_bin" \\/);
+  assert.match(isolation.run, /"\$pnpm_bin"; do/);
+  assert.ok(
+    names.indexOf("Set up pinned Node.js and pnpm cache") <
+      names.indexOf(
+        "Prepare isolated exact-SHA source and protected Vercel CLI",
+      ),
+  );
+  assert.ok(
+    names.indexOf(
+      "Prepare isolated exact-SHA source and protected Vercel CLI",
+    ) < names.indexOf("Install frozen dependencies"),
+  );
+});
+
 test("main-only controller is restored after every candidate-code phase", () => {
   const pilot = workflow(pilotPath);
   const reusable = workflow(reusablePath);

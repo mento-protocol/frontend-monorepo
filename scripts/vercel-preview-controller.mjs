@@ -55,8 +55,12 @@ const MAX_RECEIPTS = 200;
 const MAX_HISTORY = 40;
 const WORKER_RUN_PAGE_SIZE = 100;
 const MAX_WORKER_RUN_PAGES = 3;
-const WORKER_RUN_IDENTITY_ATTEMPTS = 5;
-const WORKER_RUN_IDENTITY_RETRY_MS = 500;
+const WORKER_RUN_VISIBILITY_ATTEMPTS = 3;
+const WORKER_RUN_VISIBILITY_RETRY_MS = 500;
+const WORKER_RUN_TITLE_RETRY_DELAY_BUDGET_MS = 30_000;
+const WORKER_RUN_TITLE_RETRY_MS = 1_000;
+const WORKER_RUN_TITLE_OBSERVATIONS =
+  1 + WORKER_RUN_TITLE_RETRY_DELAY_BUDGET_MS / WORKER_RUN_TITLE_RETRY_MS;
 const WORKER_RUN_NAME_PARSE_ERROR = "Worker run name is not strictly parseable";
 const WORKER_RECOVERY_BEFORE_MS = 2 * 60 * 1_000;
 const WORKER_RECOVERY_AFTER_MS = 15 * 60 * 1_000;
@@ -1941,8 +1945,13 @@ async function pullFromApi(github, context, pr) {
 
 export function validateDependabotIntakeWorkflowRun(rawRun) {
   const run = plainObject(rawRun, "Dependabot intake workflow run");
+  const displayTitle = boundedText(
+    run.display_title,
+    "Dependabot intake display title",
+  );
+  const workflowName = boundedText(run.name, "Dependabot intake workflow name");
   invariant(
-    run.name === INTAKE_WORKFLOW_NAME,
+    workflowName === INTAKE_WORKFLOW_NAME || workflowName === displayTitle,
     "Dependabot intake workflow name mismatch",
   );
   const workflowPath = `.github/workflows/${INTAKE_WORKFLOW}`;
@@ -1965,7 +1974,7 @@ export function validateDependabotIntakeWorkflowRun(rawRun) {
     run.repository?.full_name,
     "Dependabot intake workflow repository",
   );
-  return parseDependabotIntakeRunName(run.display_title);
+  return parseDependabotIntakeRunName(displayTitle);
 }
 
 export async function publishDependabotUnsupported({
@@ -2233,38 +2242,137 @@ async function listWorkerRuns(github, context, selected) {
   );
 }
 
-function matchingWorkerRuns(
+function classifyWorkerRuns(
   runs,
   selected,
   { ignoreWorkflowShaMismatch = false } = {},
 ) {
-  return runs
-    .filter((run) => {
+  const matches = [];
+  const pendingTitleRunIds = [];
+  const settledRunIds = [];
+  for (const run of runs) {
+    let parsed;
+    try {
+      parsed = parseWorkerRunName(run.display_title);
+    } catch (error) {
+      let workflowSha;
       try {
-        const parsed = parseWorkerRunName(run.display_title);
-        return (
-          parsed.pr === selected.pr &&
-          parsed.sha === selected.sha &&
-          parsed.keyDigest === selected.key_digest
-        );
+        workflowSha = exactSha(run.head_sha, "Worker workflow SHA");
       } catch {
-        return false;
-      }
-    })
-    .flatMap((run) => {
-      try {
-        validateWorkerRunIdentity(run, selected);
-        return [run];
-      } catch (error) {
-        if (
-          ignoreWorkflowShaMismatch &&
-          error instanceof WorkerWorkflowShaMismatchError
-        ) {
-          return [];
-        }
         throw error;
       }
-    });
+      if (workflowSha !== selected.expected_workflow_sha) {
+        try {
+          settledRunIds.push(exactRunId(run.id, "Worker run ID"));
+        } catch {
+          // An unrelated malformed list entry cannot settle a known run ID.
+        }
+        continue;
+      }
+      if (run.display_title !== WORKER_WORKFLOW_NAME) throw error;
+      const { details } = validateWorkerRunEnvelope(run, selected);
+      pendingTitleRunIds.push(details.workflow_run_id);
+      continue;
+    }
+    if (
+      parsed.pr !== selected.pr ||
+      parsed.sha !== selected.sha ||
+      parsed.keyDigest !== selected.key_digest
+    ) {
+      try {
+        settledRunIds.push(exactRunId(run.id, "Worker run ID"));
+      } catch {
+        // Strictly named unrelated runs do not own this selection.
+      }
+      continue;
+    }
+    try {
+      const details = validateWorkerRunIdentity(run, selected);
+      matches.push(details);
+      settledRunIds.push(details.workflow_run_id);
+    } catch (error) {
+      if (
+        ignoreWorkflowShaMismatch &&
+        error instanceof WorkerWorkflowShaMismatchError
+      ) {
+        try {
+          settledRunIds.push(exactRunId(run.id, "Worker run ID"));
+        } catch {
+          // The mismatched run cannot own this selection.
+        }
+        continue;
+      }
+      throw error;
+    }
+  }
+  return { matches, pendingTitleRunIds, settledRunIds };
+}
+
+function mergeWorkerRecoveryObservation(recovery, observation) {
+  for (const details of observation.matches) {
+    recovery.matches.set(details.workflow_run_id, details);
+  }
+  invariant(
+    recovery.matches.size <= 1,
+    "Multiple worker runs match one intended controller key",
+  );
+  for (const runId of observation.settledRunIds) {
+    recovery.pendingTitleRunIds.delete(runId);
+  }
+  for (const runId of observation.pendingTitleRunIds) {
+    if (!recovery.matches.has(runId)) {
+      recovery.pendingTitleRunIds.add(runId);
+    }
+  }
+}
+
+function recoveredWorkerRun(recovery) {
+  return recovery.matches.values().next().value ?? null;
+}
+
+async function waitForPendingWorkerTitles({
+  github,
+  context,
+  selected,
+  initialObservation,
+  pause,
+  ignoreWorkflowShaMismatch,
+}) {
+  const recovery = {
+    matches: new Map(),
+    pendingTitleRunIds: new Set(),
+  };
+  mergeWorkerRecoveryObservation(recovery, initialObservation);
+  for (
+    let observation = 0;
+    observation < WORKER_RUN_TITLE_OBSERVATIONS;
+    observation += 1
+  ) {
+    if (recovery.pendingTitleRunIds.size === 0) {
+      return recoveredWorkerRun(recovery);
+    }
+    if (observation === WORKER_RUN_TITLE_OBSERVATIONS - 1) break;
+    await pause(WORKER_RUN_TITLE_RETRY_MS);
+    mergeWorkerRecoveryObservation(
+      recovery,
+      classifyWorkerRuns(
+        await listWorkerRuns(github, context, selected),
+        selected,
+        { ignoreWorkflowShaMismatch },
+      ),
+    );
+    for (const runId of [...recovery.pendingTitleRunIds]) {
+      mergeWorkerRecoveryObservation(
+        recovery,
+        classifyWorkerRuns(
+          [await getWorkerRun(github, context, runId, selected)],
+          selected,
+          { ignoreWorkflowShaMismatch },
+        ),
+      );
+    }
+  }
+  throw new Error(WORKER_RUN_NAME_PARSE_ERROR);
 }
 
 function wait(milliseconds) {
@@ -2278,25 +2386,41 @@ async function recoverMatchingWorkerRun(
   { waitForRetry = wait, ignoreWorkflowShaMismatch = false } = {},
 ) {
   const pause = waitForRetry ?? wait;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const matches = matchingWorkerRuns(
+  for (
+    let attempt = 0;
+    attempt < WORKER_RUN_VISIBILITY_ATTEMPTS;
+    attempt += 1
+  ) {
+    const observation = classifyWorkerRuns(
       await listWorkerRuns(github, context, selected),
       selected,
       { ignoreWorkflowShaMismatch },
     );
     invariant(
-      matches.length <= 1,
+      observation.matches.length <= 1,
       "Multiple worker runs match one intended controller key",
     );
-    if (matches.length === 1) {
-      return validateWorkerRunIdentity(matches[0], selected);
+    if (observation.pendingTitleRunIds.length > 0) {
+      return waitForPendingWorkerTitles({
+        github,
+        context,
+        selected,
+        initialObservation: observation,
+        pause,
+        ignoreWorkflowShaMismatch,
+      });
     }
-    if (attempt < 2) await pause(500);
+    if (observation.matches.length === 1) {
+      return observation.matches[0];
+    }
+    if (attempt < WORKER_RUN_VISIBILITY_ATTEMPTS - 1) {
+      await pause(WORKER_RUN_VISIBILITY_RETRY_MS);
+    }
   }
   return null;
 }
 
-export function validateWorkerRunIdentity(run, selected) {
+function validateWorkerRunSource(run) {
   plainObject(run, "Worker run");
   const displayTitle = boundedText(
     run.display_title,
@@ -2315,15 +2439,15 @@ export function validateWorkerRunIdentity(run, selected) {
   invariant(run.event === "workflow_dispatch", "Worker event mismatch");
   invariant(run.head_branch === "main", "Worker default ref mismatch");
   const workflowSha = exactSha(run.head_sha, "Worker workflow SHA");
-  const runAttempt = exactRunAttempt(run.run_attempt ?? 1);
-  const parsed = parseWorkerRunName(displayTitle);
-  invariant(
-    parsed.pr === selected.pr &&
-      parsed.sha === selected.sha &&
-      parsed.keyDigest === selected.key_digest,
-    "Worker run identity does not match selection",
-  );
   const workflowRunId = exactRunId(run.id, "Worker run ID");
+  validatedRepository(run.repository?.full_name, "Worker workflow repository");
+  return { displayTitle, workflowRunId, workflowSha };
+}
+
+function validateWorkerRunEnvelope(run, selected) {
+  const { displayTitle, workflowRunId, workflowSha } =
+    validateWorkerRunSource(run);
+  const runAttempt = exactRunAttempt(run.run_attempt ?? 1);
   const runUrl = optionalHttpsUrl(run.url, "Worker API run URL");
   const htmlUrl = optionalHttpsUrl(run.html_url, "Worker HTML run URL");
   const status = boundedText(run.status, "Worker run status", 32);
@@ -2339,14 +2463,29 @@ export function validateWorkerRunIdentity(run, selected) {
     });
   }
   return {
-    workflow_run_id: workflowRunId,
-    workflow_sha: workflowSha,
-    workflow_run_attempt: runAttempt,
-    run_url: runUrl,
-    html_url: htmlUrl,
-    status,
-    conclusion,
+    displayTitle,
+    details: {
+      workflow_run_id: workflowRunId,
+      workflow_sha: workflowSha,
+      workflow_run_attempt: runAttempt,
+      run_url: runUrl,
+      html_url: htmlUrl,
+      status,
+      conclusion,
+    },
   };
+}
+
+export function validateWorkerRunIdentity(run, selected) {
+  const { displayTitle, details } = validateWorkerRunEnvelope(run, selected);
+  const parsed = parseWorkerRunName(displayTitle);
+  invariant(
+    parsed.pr === selected.pr &&
+      parsed.sha === selected.sha &&
+      parsed.keyDigest === selected.key_digest,
+    "Worker run identity does not match selection",
+  );
+  return details;
 }
 
 async function getValidatedWorkerRun(
@@ -2358,18 +2497,19 @@ async function getValidatedWorkerRun(
 ) {
   const pause = waitForRetry ?? wait;
   let pendingTitleError;
-  for (let attempt = 0; attempt < WORKER_RUN_IDENTITY_ATTEMPTS; attempt += 1) {
+  for (
+    let observation = 0;
+    observation < WORKER_RUN_TITLE_OBSERVATIONS;
+    observation += 1
+  ) {
     const data = await getWorkerRun(github, context, runId, selected);
-    try {
+    const { displayTitle } = validateWorkerRunEnvelope(data, selected);
+    if (displayTitle !== WORKER_WORKFLOW_NAME) {
       return validateWorkerRunIdentity(data, selected);
-    } catch (error) {
-      if (error?.message !== WORKER_RUN_NAME_PARSE_ERROR) {
-        throw error;
-      }
-      pendingTitleError = error;
-      if (attempt < WORKER_RUN_IDENTITY_ATTEMPTS - 1) {
-        await pause(WORKER_RUN_IDENTITY_RETRY_MS);
-      }
+    }
+    pendingTitleError = new Error(WORKER_RUN_NAME_PARSE_ERROR);
+    if (observation < WORKER_RUN_TITLE_OBSERVATIONS - 1) {
+      await pause(WORKER_RUN_TITLE_RETRY_MS);
     }
   }
   throw pendingTitleError;
@@ -2531,6 +2671,46 @@ function assertDispatchTrust(pull, selected) {
   return normalized;
 }
 
+async function refreshDispatchOwnership({
+  github,
+  context,
+  pr,
+  selected,
+  controllerUrl,
+  workflowSha,
+}) {
+  const pull = await pullFromApi(github, context, pr);
+  if (normalizePullRequest(pull).state !== "open") {
+    return { outcome: "closed" };
+  }
+  assertDispatchTrust(pull, selected);
+  if (!(await shaIsStillAssociated(github, context, pull, selected.sha))) {
+    return { outcome: "removed" };
+  }
+  const comments = parseControllerComments(
+    await listComments(github, context, pr),
+  );
+  const ownershipCheck = reconcileState({
+    events: comments.events,
+    results: comments.results,
+    selections: comments.selections,
+    pullRequest: pull,
+    existingState: comments.state,
+    controllerUrl,
+    expectedWorkflowSha: workflowSha,
+  });
+  invariant(
+    ownershipCheck.state.epoch.anchor_run_id === selected.epoch_anchor_run_id &&
+      ownershipCheck.state.ui.active?.key_digest === selected.key_digest &&
+      ownershipCheck.state.ui.active?.reconciliation_basis_digest ===
+        selected.reconciliation_basis_digest &&
+      ownershipCheck.state.ui.active?.dispatch_state === "intended" &&
+      ownershipCheck.state.ui.active?.workflow_run_id === null,
+    "Persisted dispatch ownership changed before credentials",
+  );
+  return { outcome: "owned", ownershipCheck };
+}
+
 async function recoverCompletedOwnedRuns({
   github,
   context,
@@ -2662,12 +2842,13 @@ export async function reconcilePreview({
       });
       let state = reconciled.state;
       let stateComment = parsed.stateComment;
-      let selected =
-        reconciled.nextDispatch ??
-        (state.ui.active?.dispatch_state === "intended" &&
-        state.ui.active.workflow_run_id === null
-          ? state.ui.active
-          : null);
+      let selected = state.closed
+        ? null
+        : (reconciled.nextDispatch ??
+          (state.ui.active?.dispatch_state === "intended" &&
+          state.ui.active.workflow_run_id === null
+            ? state.ui.active
+            : null));
       if (selected) {
         if (reconciled.nextDispatch) {
           selected = {
@@ -2698,16 +2879,19 @@ export async function reconcilePreview({
           value: selectionReceipt,
         });
 
-        const freshPull = await pullFromApi(github, context, pr);
-        assertDispatchTrust(freshPull, selected);
-        if (
-          !(await shaIsStillAssociated(
-            github,
-            context,
-            freshPull,
-            selected.sha,
-          ))
-        ) {
+        let refreshedOwnership = await refreshDispatchOwnership({
+          github,
+          context,
+          pr,
+          selected,
+          controllerUrl,
+          workflowSha,
+        });
+        if (refreshedOwnership.outcome === "closed") {
+          core.setOutput("dispatch_skipped_closed", "true");
+          return state;
+        }
+        if (refreshedOwnership.outcome === "removed") {
           await recordRemovedSelection({
             github,
             context,
@@ -2716,27 +2900,7 @@ export async function reconcilePreview({
           });
           continue;
         }
-        const freshComments = parseControllerComments(
-          await listComments(github, context, pr),
-        );
-        const ownershipCheck = reconcileState({
-          events: freshComments.events,
-          results: freshComments.results,
-          selections: freshComments.selections,
-          pullRequest: freshPull,
-          existingState: freshComments.state,
-          controllerUrl,
-          expectedWorkflowSha: workflowSha,
-        });
-        invariant(
-          ownershipCheck.state.epoch.anchor_run_id ===
-            selected.epoch_anchor_run_id &&
-            ownershipCheck.state.ui.active?.key_digest ===
-              selected.key_digest &&
-            ownershipCheck.state.ui.active?.reconciliation_basis_digest ===
-              selected.reconciliation_basis_digest,
-          "Persisted dispatch ownership changed before credentials",
-        );
+        let ownershipCheck = refreshedOwnership.ownershipCheck;
 
         let recoveredRun;
         try {
@@ -2761,6 +2925,28 @@ export async function reconcilePreview({
           }
           throw error;
         }
+        refreshedOwnership = await refreshDispatchOwnership({
+          github,
+          context,
+          pr,
+          selected,
+          controllerUrl,
+          workflowSha,
+        });
+        if (refreshedOwnership.outcome === "closed") {
+          core.setOutput("dispatch_skipped_closed", "true");
+          return state;
+        }
+        if (refreshedOwnership.outcome === "removed") {
+          await recordRemovedSelection({
+            github,
+            context,
+            pr,
+            selection: selected,
+          });
+          continue;
+        }
+        ownershipCheck = refreshedOwnership.ownershipCheck;
         if (!recoveredRun && selected.expected_workflow_sha !== workflowSha) {
           await recordSupersededIntent({
             github,
@@ -3460,13 +3646,9 @@ export async function recoverWorkerResult({
   workflowRun = context.payload.workflow_run,
   waitForRecovery,
 }) {
-  plainObject(workflowRun, "Worker workflow run");
-  invariant(
-    workflowRun.name === WORKER_WORKFLOW_NAME,
-    "Unexpected workflow_run source",
-  );
-  const parsed = parseWorkerRunName(workflowRun.display_title);
-  const runId = exactRunId(workflowRun.id, "Worker run ID");
+  const { displayTitle, workflowRunId: runId } =
+    validateWorkerRunSource(workflowRun);
+  const parsed = parseWorkerRunName(displayTitle);
   const key = controllerKey(parsed.pr, parsed.sha);
   const evidence = await loadControllerEvidence(github, context, parsed.pr);
   const state = evidence.state;
@@ -3821,7 +4003,13 @@ export async function postWorkerRecoveryError({
   context,
   workflowRun = context.payload.workflow_run,
 }) {
-  const parsed = parseWorkerRunName(workflowRun.display_title);
+  let parsed;
+  try {
+    const { displayTitle } = validateWorkerRunSource(workflowRun);
+    parsed = parseWorkerRunName(displayTitle);
+  } catch {
+    return false;
+  }
   const evidence = await loadControllerEvidence(github, context, parsed.pr);
   const active = evidence.state.ui?.active;
   if (
@@ -3829,6 +4017,11 @@ export async function postWorkerRecoveryError({
     active?.key_digest !== parsed.keyDigest ||
     active.epoch_anchor_run_id !== evidence.state.epoch.anchor_run_id
   ) {
+    return false;
+  }
+  try {
+    validateWorkerRunIdentity(workflowRun, active);
+  } catch {
     return false;
   }
   await github.rest.repos.createCommitStatus({
