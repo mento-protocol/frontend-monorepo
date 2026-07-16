@@ -686,9 +686,16 @@ jobs:
             echo "Candidate can modify canonical node_modules" >&2
             exit 1
           fi
+          sudo --non-interactive /usr/bin/install \
+            -d -o "$build_uid" -g "$build_gid" -m 0700 \
+            "$CANDIDATE_HOME_PATH" \
+            "$CANDIDATE_HOME_PATH/cache" \
+            "$CANDIDATE_HOME_PATH/config" \
+            "$CANDIDATE_HOME_PATH/data" \
+            "$CANDIDATE_HOME_PATH/tmp"
           if ! candidate_pnpm_version="$(
             sudo --non-interactive /usr/bin/env -i \
-              HOME=/nonexistent \
+              HOME="$CANDIDATE_HOME_PATH" \
               LANG=C \
               LC_ALL=C \
               PATH=/usr/bin:/bin \
@@ -698,6 +705,9 @@ jobs:
               --clear-groups \
               --no-new-privs \
               -- \
+              /bin/sh -c 'cd "$1" && shift && exec "$@"' \
+              candidate-pnpm-probe \
+              "$CANDIDATE_HOME_PATH" \
               "$pnpm_bin" --version
           )" ||
             [ "$candidate_pnpm_version" != "10.34.4" ]; then
@@ -720,13 +730,6 @@ jobs:
           sudo --non-interactive /bin/chown \
             -R --no-dereference "$build_uid:$build_gid" \
             "$CANDIDATE_SOURCE_PATH"
-          sudo --non-interactive /usr/bin/install \
-            -d -o "$build_uid" -g "$build_gid" -m 0700 \
-            "$CANDIDATE_HOME_PATH" \
-            "$CANDIDATE_HOME_PATH/cache" \
-            "$CANDIDATE_HOME_PATH/config" \
-            "$CANDIDATE_HOME_PATH/data" \
-            "$CANDIDATE_HOME_PATH/tmp"
           printf '{"commitSha":"%s"}\n' "$DEPLOY_SHA" \
             > "${CANDIDATE_SOURCE_PATH}.provenance.json"
           /bin/chmod 0600 "${CANDIDATE_SOURCE_PATH}.provenance.json"
@@ -776,6 +779,9 @@ jobs:
             --clear-groups \
             --no-new-privs \
             -- \
+            /bin/sh -c 'cd "$1" && shift && exec "$@"' \
+            candidate-pnpm-probe \
+            "$CANDIDATE_HOME_PATH" \
             "$pnpm_bin" --version |
             /usr/bin/grep -Fxq "10.34.4"; then
             echo "Isolated candidate cannot execute the protected pnpm launcher" >&2
@@ -807,6 +813,9 @@ jobs:
             --clear-groups \
             --no-new-privs \
             -- \
+            /bin/sh -c 'cd "$1" && shift && exec "$@"' \
+            candidate-pnpm-install \
+            "$CANDIDATE_HOME_PATH" \
             "$pnpm_bin" --dir "$CANDIDATE_SOURCE_PATH" install --frozen-lockfile --ignore-scripts \
             2>&1
           candidate_status=$?
