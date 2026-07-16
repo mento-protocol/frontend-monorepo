@@ -304,13 +304,25 @@ test("every controller write-token job checks out only trusted workflow code", (
 });
 
 test("every controller reconciliation binds selections to its immutable workflow SHA", () => {
-  for (const jobName of [
-    "reconcile-event",
-    "reconcile-bootstrap",
-    "reconcile-request",
-    "recover-worker-result",
-  ]) {
-    const step = controller.jobs[jobName].steps.find((candidate) =>
+  const reconciliationJobs = Object.entries(controller.jobs).filter(([, job]) =>
+    JSON.stringify(job).includes("reconcilePreview"),
+  );
+  assert.deepEqual(
+    reconciliationJobs.map(([jobName]) => jobName),
+    [
+      "reconcile-event",
+      "reconcile-bootstrap",
+      "reconcile-request",
+      "recover-worker-result",
+    ],
+  );
+  for (const [jobName, job] of reconciliationJobs) {
+    assert.equal(
+      job.permissions.deployments,
+      "write",
+      `${jobName} may recover a completed worker by creating or terminalizing its Deployment`,
+    );
+    const step = job.steps.find((candidate) =>
       String(candidate.with?.script ?? "").includes("reconcilePreview"),
     );
     assert.ok(step, `${jobName} must invoke reconcilePreview`);
