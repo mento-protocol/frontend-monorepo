@@ -432,10 +432,12 @@ downgrade the trusted runtime or reject the intentional patched v10 version.
 This removes the standalone executable's own image from the cross-identity
 execution path: the pilot failed when that image was not effectively readable
 after switching to the isolated candidate identity, even though the
-runner-owned executable checks had passed. The root and candidate-runtime pnpm
-locks remain covered by OSV and sha512/registry validation. The bootstrap npm
-lock has a separate OSV job, exact byte/shape validation, npm's SRI
-enforcement, and a Linux CI installation that hashes the executable before
+runner-owned executable checks had passed. Candidate pnpm probes execute from
+the candidate-owned home rather than the runner workspace, which is
+intentionally not readable after the identity switch. The root and
+candidate-runtime pnpm locks remain covered by OSV and sha512/registry
+validation. The bootstrap npm lock has a separate OSV job, exact byte/shape
+validation, npm's SRI enforcement, and a Linux CI installation that hashes the executable before
 running it.
 Before any credentialed command, the worker proves the runtime root, its
 replacement-relevant parents, Node.js, pnpm, and the CLI are not candidate
