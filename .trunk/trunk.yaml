@@ -40,6 +40,7 @@ lint:
         # so the `trunk check --all` pre-push hook no longer blocks pushes on
         # pre-existing repo-wide lockfile advisories.
         - pnpm-lock.yaml
+        - scripts/vercel-pnpm-runtime/pnpm-lock.yaml
     - linters: [ALL]
       paths:
         - scripts/ralph/** # Ralph autonomous agent tooling — externally managed

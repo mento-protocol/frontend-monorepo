@@ -4,6 +4,7 @@
 
 import { Buffer } from "node:buffer";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   appendFileSync,
   chmodSync,
@@ -75,7 +76,13 @@ const PULL_STAGING_DIRECTORY = "mento-vercel-pull-staging";
 const CANDIDATE_SOURCE_DIRECTORY = "mento-vercel-candidate-source";
 const TRUSTED_TOOLS_DIRECTORY = "mento-vercel-trusted-tools";
 const PNPM_ACTION_DIRECTORY = "mento-pnpm-tools";
-const PINNED_PNPM_VERSION = "10.24.0";
+const PNPM_RUNTIME_DIRECTORY = "pnpm-runtime";
+const PINNED_PNPM_VERSION = "10.34.4";
+// Exact bytes of the one-importer registry lockfile. This pins the package
+// identity, absence of custom tarball resolution, and sha512 integrity before
+// the runner-owned bootstrap installs anything from it.
+const PINNED_PNPM_RUNTIME_LOCKFILE_SHA256 =
+  "c0dbb0f05ade0e4a8db501e5eb25ebe3c2f2794feed1caec2cf4df6c4583715a";
 const PULLED_ENVIRONMENT_FILE = ".env.preview.local";
 const MAX_SOURCE_ENTRIES = 20_000;
 const MAX_SOURCE_PATH_BYTES = 4_096;
@@ -108,6 +115,19 @@ function hasControlCharacters(value) {
     const codePoint = character.codePointAt(0);
     return codePoint <= 31 || codePoint === 127;
   });
+}
+
+function hasExactObjectKeys(value, expectedKeys) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const actualKeys = Object.keys(value).sort();
+  return (
+    actualKeys.length === expectedKeys.length &&
+    expectedKeys
+      .toSorted()
+      .every((expectedKey, index) => actualKeys[index] === expectedKey)
+  );
 }
 
 export function validateExactSha(value) {
@@ -1358,7 +1378,7 @@ export function stageTrustedRuntime({
   });
   const sources = [
     ["node", nodeSource],
-    ["pnpm", pnpmExecutable],
+    ["pnpm-bootstrap", pnpmExecutable],
   ].map(([name, source]) => {
     requiredText(source, `Protected ${name} source`);
     if (!isAbsolute(source)) {
@@ -1413,12 +1433,244 @@ export function stageTrustedRuntime({
     return {
       binDirectory,
       nodePath: staged.node,
-      pnpmPath: staged.pnpm,
+      pnpmBootstrapPath: staged["pnpm-bootstrap"],
     };
   } catch (error) {
     if (created) rmSync(canonicalToolsRoot, { force: true, recursive: true });
     throw error;
   }
+}
+
+export function stageTrustedPnpmRuntimeManifest({ controllerRoot, toolsRoot }) {
+  requiredText(controllerRoot, "Trusted controller path");
+  requiredText(toolsRoot, "Trusted Vercel tools path");
+  if (!isAbsolute(controllerRoot) || !isAbsolute(toolsRoot)) {
+    throw new Error("Trusted pnpm runtime paths must be absolute");
+  }
+
+  const currentUid = process.getuid?.();
+  const currentGid = process.getgid?.();
+  if (currentUid === undefined || currentGid === undefined) {
+    throw new Error("Trusted pnpm runtime requires a POSIX identity");
+  }
+  const canonicalControllerRoot = realpathSync(controllerRoot);
+  const canonicalToolsRoot = realpathSync(toolsRoot);
+  assertProtectedRuntimeEntry(canonicalControllerRoot, {
+    directory: true,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  assertProtectedRuntimeEntry(canonicalToolsRoot, {
+    directory: true,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  const toolsFromController = relative(
+    canonicalControllerRoot,
+    canonicalToolsRoot,
+  );
+  if (
+    toolsFromController !== ".." &&
+    !toolsFromController.startsWith(`..${sep}`)
+  ) {
+    throw new Error("Trusted pnpm runtime must be outside the checkout");
+  }
+
+  const sourceRoot = join(
+    canonicalControllerRoot,
+    "scripts",
+    "vercel-pnpm-runtime",
+  );
+  assertProtectedRuntimeDescendant({
+    root: canonicalControllerRoot,
+    path: sourceRoot,
+    directory: true,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  const sourcePackageJson = assertProtectedRuntimeDescendant({
+    root: canonicalControllerRoot,
+    path: join(sourceRoot, "package.json"),
+    directory: false,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  const sourceLockfile = assertProtectedRuntimeDescendant({
+    root: canonicalControllerRoot,
+    path: join(sourceRoot, "pnpm-lock.yaml"),
+    directory: false,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  const packageMetadata = JSON.parse(
+    readFileSync(sourcePackageJson.path, "utf8"),
+  );
+  if (
+    !hasExactObjectKeys(packageMetadata, [
+      "dependencies",
+      "description",
+      "name",
+      "private",
+      "version",
+    ]) ||
+    packageMetadata.name !== "@mento-protocol/vercel-pnpm-runtime" ||
+    packageMetadata.version !== "0.0.0" ||
+    packageMetadata.private !== true ||
+    packageMetadata.description !==
+      "Isolated pnpm runtime for candidate-controlled Vercel builds" ||
+    !hasExactObjectKeys(packageMetadata.dependencies, ["pnpm"]) ||
+    packageMetadata.dependencies?.pnpm !== PINNED_PNPM_VERSION ||
+    packageMetadata.scripts !== undefined
+  ) {
+    throw new Error("Trusted pnpm runtime manifest is not exact");
+  }
+  const sourceLockfileContents = readFileSync(sourceLockfile.path);
+  const sourceLockfileDigest = createHash("sha256")
+    .update(sourceLockfileContents)
+    .digest("hex");
+  if (sourceLockfileDigest !== PINNED_PNPM_RUNTIME_LOCKFILE_SHA256) {
+    throw new Error("Trusted pnpm runtime lockfile is not exact");
+  }
+
+  const runtimeRoot = join(canonicalToolsRoot, PNPM_RUNTIME_DIRECTORY);
+  if (optionalEntry(runtimeRoot)) {
+    throw new Error("Trusted pnpm runtime destination must be fresh");
+  }
+  let created = false;
+  try {
+    mkdirSync(runtimeRoot, { mode: 0o755 });
+    created = true;
+    chmodSync(runtimeRoot, 0o755);
+    assertProtectedRuntimeEntry(runtimeRoot, {
+      directory: true,
+      expectedUid: currentUid,
+      expectedGid: currentGid,
+    });
+    for (const [name, source] of [
+      ["package.json", sourcePackageJson],
+      ["pnpm-lock.yaml", sourceLockfile],
+    ]) {
+      const destination = join(runtimeRoot, name);
+      copyFileSync(source.path, destination, fsConstants.COPYFILE_EXCL);
+      chmodSync(destination, 0o444);
+      const destinationEntry = assertProtectedRuntimeEntry(destination, {
+        directory: false,
+        expectedUid: currentUid,
+        expectedGid: currentGid,
+      });
+      if (
+        realpathSync(destination) !== destination ||
+        (destinationEntry.dev === source.entry.dev &&
+          destinationEntry.ino === source.entry.ino)
+      ) {
+        throw new Error("Trusted pnpm runtime copy is not independent");
+      }
+    }
+    return runtimeRoot;
+  } catch (error) {
+    if (created) rmSync(runtimeRoot, { force: true, recursive: true });
+    throw error;
+  }
+}
+
+export function stageTrustedPnpmLauncher({ toolsRoot }) {
+  requiredText(toolsRoot, "Trusted Vercel tools path");
+  if (!isAbsolute(toolsRoot)) {
+    throw new Error("Trusted Vercel tools path must be absolute");
+  }
+  const canonicalToolsRoot = realpathSync(toolsRoot);
+  const currentUid = process.getuid?.();
+  const currentGid = process.getgid?.();
+  if (currentUid === undefined || currentGid === undefined) {
+    throw new Error("Trusted pnpm launcher requires a POSIX identity");
+  }
+  assertProtectedRuntimeEntry(canonicalToolsRoot, {
+    directory: true,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+
+  const binDirectory = join(canonicalToolsRoot, "bin");
+  const nodePath = join(binDirectory, "node");
+  assertProtectedRuntimeDescendant({
+    root: canonicalToolsRoot,
+    path: binDirectory,
+    directory: true,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+  });
+  assertProtectedRuntimeDescendant({
+    root: canonicalToolsRoot,
+    path: nodePath,
+    directory: false,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+    requireSingleLink: true,
+  });
+
+  const pnpmPackageRoot = join(
+    canonicalToolsRoot,
+    PNPM_RUNTIME_DIRECTORY,
+    "node_modules",
+    "pnpm",
+  );
+  const packageJsonPath = join(pnpmPackageRoot, "package.json");
+  const cliPath = join(pnpmPackageRoot, "bin", "pnpm.cjs");
+  const packageJson = assertProtectedRuntimeDescendant({
+    root: canonicalToolsRoot,
+    path: packageJsonPath,
+    directory: false,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+    requireSingleLink: true,
+  });
+  const cli = assertProtectedRuntimeDescendant({
+    root: canonicalToolsRoot,
+    path: cliPath,
+    directory: false,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+    requireSingleLink: true,
+  });
+  const packageMetadata = JSON.parse(readFileSync(packageJson.path, "utf8"));
+  if (
+    packageMetadata.name !== "pnpm" ||
+    packageMetadata.version !== PINNED_PNPM_VERSION ||
+    !cli.entry.isFile()
+  ) {
+    throw new Error("Trusted pnpm package does not match the pinned release");
+  }
+
+  const launcherPath = join(binDirectory, "pnpm");
+  if (optionalEntry(launcherPath)) {
+    throw new Error("Trusted pnpm launcher destination must be fresh");
+  }
+  writeFileSync(
+    launcherPath,
+    [
+      "#!/bin/sh",
+      "basedir=${0%/*}",
+      "unset NPM_CONFIG_MANAGE_PACKAGE_MANAGER_VERSIONS NPM_CONFIG_PACKAGE_MANAGER_STRICT_VERSION",
+      "export npm_config_manage_package_manager_versions=false",
+      "export npm_config_package_manager_strict_version=false",
+      'exec "$basedir/node" "$basedir/../pnpm-runtime/node_modules/pnpm/bin/pnpm.cjs" "$@"',
+      "",
+    ].join("\n"),
+    { flag: "wx", mode: 0o555 },
+  );
+  chmodSync(launcherPath, 0o555);
+  const launcher = assertProtectedRuntimeDescendant({
+    root: canonicalToolsRoot,
+    path: launcherPath,
+    directory: false,
+    expectedUid: currentUid,
+    expectedGid: currentGid,
+    requireSingleLink: true,
+  });
+  if (realpathSync(launcher.path) !== launcher.path) {
+    throw new Error("Trusted pnpm launcher is not independent");
+  }
+  return launcher.path;
 }
 
 export function trustedPnpmInstallLayout({ controllerRoot, toolsRoot }) {
@@ -2677,6 +2929,23 @@ function stageTrustedRuntimeFromEnvironment() {
   });
 }
 
+function stageTrustedPnpmRuntimeManifestFromEnvironment() {
+  process.stdout.write(
+    `${stageTrustedPnpmRuntimeManifest({
+      controllerRoot: process.env.CONTROLLER_PATH,
+      toolsRoot: process.env.TRUSTED_VERCEL_TOOLS_PATH,
+    })}\n`,
+  );
+}
+
+function stageTrustedPnpmLauncherFromEnvironment() {
+  process.stdout.write(
+    `${stageTrustedPnpmLauncher({
+      toolsRoot: process.env.TRUSTED_VERCEL_TOOLS_PATH,
+    })}\n`,
+  );
+}
+
 function isCliEntrypoint() {
   return (
     process.argv[1] !== undefined &&
@@ -2690,6 +2959,10 @@ if (isCliEntrypoint()) {
   else if (command === "validate-source") validateSourceFromEnvironment();
   else if (command === "materialize-source") materializeSourceFromEnvironment();
   else if (command === "stage-runtime") stageTrustedRuntimeFromEnvironment();
+  else if (command === "stage-pnpm-runtime")
+    stageTrustedPnpmRuntimeManifestFromEnvironment();
+  else if (command === "stage-pnpm-launcher")
+    stageTrustedPnpmLauncherFromEnvironment();
   else if (command === "prepare-link") prepareLinkFromEnvironment();
   else if (command === "prepare-pull-staging")
     preparePullStagingFromEnvironment();
@@ -2714,7 +2987,7 @@ if (isCliEntrypoint()) {
   else if (command === "total") totalFromEnvironment();
   else {
     throw new Error(
-      "Usage: vercel-prebuilt-workflow.mjs prepare|validate-source|materialize-source|stage-runtime|prepare-link|prepare-pull-staging|pull|validate-pull|validate-pull-staging|stage-pull|validate-candidate-pull|build|assert-output|trusted-install-modules-dir|deploy|verify|smoke|total",
+      "Usage: vercel-prebuilt-workflow.mjs prepare|validate-source|materialize-source|stage-runtime|stage-pnpm-runtime|stage-pnpm-launcher|prepare-link|prepare-pull-staging|pull|validate-pull|validate-pull-staging|stage-pull|validate-candidate-pull|build|assert-output|trusted-install-modules-dir|deploy|verify|smoke|total",
     );
   }
 }

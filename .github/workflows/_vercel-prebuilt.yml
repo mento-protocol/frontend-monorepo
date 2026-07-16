@@ -161,7 +161,64 @@ jobs:
         with:
           dest: ${{ runner.temp }}/mento-pnpm-tools
           standalone: true
-          version: 10.24.0
+          version: 10.34.4
+
+      - name: Verify pinned pnpm target before first execution
+        shell: bash
+        env:
+          EXPECTED_PNPM_LINUX_X64_SHA256: e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193
+          PNPM_ACTION_DEST: ${{ runner.temp }}/mento-pnpm-tools
+          PNPM_BIN_DEST: ${{ steps.pnpm.outputs.bin_dest }}
+        run: |
+          set -euo pipefail
+          if [ "$(/usr/bin/uname -s)" != "Linux" ] ||
+            [ "$(/usr/bin/uname -m)" != "x86_64" ]; then
+            echo "Pinned pnpm target digest supports only the expected Linux x64 runner" >&2
+            exit 1
+          fi
+          if [ ! -d "$PNPM_ACTION_DEST" ] || [ -L "$PNPM_ACTION_DEST" ]; then
+            echo "Pinned pnpm action directory is not a real directory" >&2
+            exit 1
+          fi
+          action_root="$(/usr/bin/realpath "$PNPM_ACTION_DEST")"
+          if [ "$action_root" != "$RUNNER_TEMP/mento-pnpm-tools" ]; then
+            echo "Pinned pnpm action directory escaped RUNNER_TEMP" >&2
+            exit 1
+          fi
+          bin_dest="$(/usr/bin/realpath "$PNPM_BIN_DEST")"
+          if [ "$bin_dest" != "$action_root/node_modules/.bin/bin" ]; then
+            echo "Pinned pnpm action returned an unexpected binary directory" >&2
+            exit 1
+          fi
+          pnpm_target="$(/usr/bin/realpath "$PNPM_BIN_DEST/pnpm")"
+          case "$pnpm_target" in
+            "$action_root"/*) ;;
+            *) echo "Pinned pnpm target escaped its action-owned directory" >&2; exit 1 ;;
+          esac
+          path_pnpm="$(type -P pnpm)"
+          if [ "$(/usr/bin/realpath "$path_pnpm")" != "$pnpm_target" ]; then
+            echo "PATH does not resolve to the pinned pnpm target" >&2
+            exit 1
+          fi
+          if [ ! -f "$pnpm_target" ] ||
+            [ -L "$pnpm_target" ] ||
+            [ "$(/usr/bin/stat -c %u "$pnpm_target")" != "$(/usr/bin/id -u)" ]; then
+            echo "Pinned pnpm target is not a runner-owned regular file" >&2
+            exit 1
+          fi
+          mode="$(/usr/bin/stat -c %a "$pnpm_target")"
+          if (( (8#$mode & 0022) != 0 )); then
+            echo "Pinned pnpm target is group- or world-writable" >&2
+            exit 1
+          fi
+          actual_sha256="$(
+            /usr/bin/sha256sum "$pnpm_target" | /usr/bin/cut -d ' ' -f1
+          )"
+          if [ "$actual_sha256" != "$EXPECTED_PNPM_LINUX_X64_SHA256" ]; then
+            echo "Pinned pnpm target digest does not match the reviewed artifact" >&2
+            exit 1
+          fi
+          "$pnpm_target" --version | /usr/bin/grep -Fxq "10.34.4"
 
       - name: Set up pinned Node.js and pnpm cache
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -170,7 +227,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: |
             controller/pnpm-lock.yaml
-            source/pnpm-lock.yaml
+            controller/scripts/vercel-pnpm-runtime/pnpm-lock.yaml
 
       - name: Validate pilot contract and prepare immutable build identity
         id: prepare
@@ -269,20 +326,37 @@ jobs:
             "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" \
             stage-runtime
           node_bin="$trusted_bin_dir/node"
-          pnpm_bin="$trusted_bin_dir/pnpm"
-          for protected_binary in "$node_bin" "$pnpm_bin"; do
+          pnpm_bootstrap="$trusted_bin_dir/pnpm-bootstrap"
+          for protected_directory in "$TRUSTED_VERCEL_TOOLS_PATH" "$trusted_bin_dir"; do
+            if [ "$(/usr/bin/stat -c %a "$protected_directory")" != "755" ]; then
+              echo "Protected runtime directory is not cross-identity readable" >&2
+              exit 1
+            fi
+          done
+          for protected_binary in "$node_bin" "$pnpm_bootstrap"; do
             mode="$(/usr/bin/stat -c %a "$protected_binary")"
             if [ ! -f "$protected_binary" ] ||
               [ -L "$protected_binary" ] ||
               [ "$(/usr/bin/stat -c %u "$protected_binary")" != "$(id -u)" ] ||
               [ "$(/usr/bin/stat -c %h "$protected_binary")" != "1" ] ||
-              (( (8#$mode & 0022) != 0 )); then
+              [ "$mode" != "555" ]; then
               echo "Protected runtime binary is not an independent runner-owned file" >&2
               exit 1
             fi
           done
-          if [ "$("$pnpm_bin" --version)" != "10.24.0" ]; then
+          if [ "$("$pnpm_bootstrap" --version)" != "10.34.4" ]; then
             echo "Protected pnpm copy does not match the pinned release" >&2
+            exit 1
+          fi
+          pnpm_runtime_root="$(
+            CONTROLLER_PATH="$GITHUB_WORKSPACE/controller" \
+            TRUSTED_VERCEL_TOOLS_PATH="$TRUSTED_VERCEL_TOOLS_PATH" \
+              "$node_bin" \
+              "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" \
+              stage-pnpm-runtime
+          )"
+          if [ "$pnpm_runtime_root" != "$TRUSTED_VERCEL_TOOLS_PATH/pnpm-runtime" ]; then
+            echo "Trusted pnpm runtime escaped its protected destination" >&2
             exit 1
           fi
           trusted_modules_dir="$(
@@ -296,13 +370,34 @@ jobs:
             echo "Trusted pnpm modules path is not a relative path" >&2
             exit 1
           fi
-          "$pnpm_bin" --dir "$GITHUB_WORKSPACE/controller" --filter frontend-monorepo install \
-            --frozen-lockfile \
-            --ignore-scripts \
-            --modules-dir "$trusted_modules_dir" \
-            --package-import-method copy \
-            --virtual-store-dir "$trusted_modules_dir/.pnpm"
+          NPM_CONFIG_MANAGE_PACKAGE_MANAGER_VERSIONS=false \
+          NPM_CONFIG_PACKAGE_MANAGER_STRICT_VERSION=false \
+            "$pnpm_bootstrap" --dir "$GITHUB_WORKSPACE/controller" --filter frontend-monorepo install \
+              --frozen-lockfile \
+              --ignore-scripts \
+              --modules-dir "$trusted_modules_dir" \
+              --package-import-method copy \
+              --virtual-store-dir "$trusted_modules_dir/.pnpm"
+          NPM_CONFIG_MANAGE_PACKAGE_MANAGER_VERSIONS=false \
+          NPM_CONFIG_PACKAGE_MANAGER_STRICT_VERSION=false \
+            "$pnpm_bootstrap" --dir "$pnpm_runtime_root" install \
+              --frozen-lockfile \
+              --ignore-scripts \
+              --ignore-workspace \
+              --package-import-method copy
           /bin/chmod -R a+rX,go-w "$TRUSTED_VERCEL_TOOLS_PATH"
+          pnpm_bin="$(
+            TRUSTED_VERCEL_TOOLS_PATH="$TRUSTED_VERCEL_TOOLS_PATH" \
+              "$node_bin" \
+              "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" \
+              stage-pnpm-launcher
+          )"
+          if [ "$pnpm_bin" != "$trusted_bin_dir/pnpm" ] ||
+            [ "$(/usr/bin/stat -c %a "$pnpm_bin")" != "555" ] ||
+            [ "$("$pnpm_bin" --version)" != "10.34.4" ]; then
+            echo "Protected pnpm launcher does not match the pinned release" >&2
+            exit 1
+          fi
           vercel_cli="$(realpath "$TRUSTED_VERCEL_TOOLS_PATH/node_modules/vercel/dist/index.js")"
           case "$vercel_cli" in
             "$TRUSTED_VERCEL_TOOLS_PATH"/*) ;;
@@ -335,6 +430,10 @@ jobs:
             "$TRUSTED_VERCEL_TOOLS_PATH" \
             "$trusted_bin_dir" \
             "$node_bin" \
+            "$pnpm_bootstrap" \
+            "$pnpm_runtime_root" \
+            "$pnpm_runtime_root/package.json" \
+            "$pnpm_runtime_root/pnpm-lock.yaml" \
             "$pnpm_bin"; do
             if [ ! -e "$protected_path" ] || candidate_can_write "$protected_path"; then
               echo "Candidate can modify a protected runner path: $protected_path" >&2
@@ -404,6 +503,24 @@ jobs:
           node_bin="$(realpath "$(command -v node)")"
           pnpm_bin="$(realpath "$(command -v pnpm)")"
           safe_path="$(dirname "$node_bin"):$(dirname "$pnpm_bin"):/usr/local/bin:/usr/bin:/bin"
+          if ! sudo --non-interactive /usr/bin/env -i \
+            HOME="$CANDIDATE_HOME_PATH" \
+            LANG="${LANG:-C.UTF-8}" \
+            LC_ALL="${LC_ALL:-C.UTF-8}" \
+            NPM_CONFIG_MANAGE_PACKAGE_MANAGER_VERSIONS=false \
+            NPM_CONFIG_PACKAGE_MANAGER_STRICT_VERSION=false \
+            PATH="$safe_path" \
+            /usr/bin/setpriv \
+            --reuid="$BUILD_UID" \
+            --regid="$BUILD_GID" \
+            --clear-groups \
+            --no-new-privs \
+            -- \
+            "$pnpm_bin" --version |
+            /usr/bin/grep -Fxq "10.34.4"; then
+            echo "Isolated candidate cannot execute the protected pnpm launcher" >&2
+            exit 1
+          fi
           command_token="mento-$(/usr/bin/openssl rand -hex 16)"
           echo "::stop-commands::$command_token"
           set +e
@@ -416,6 +533,8 @@ jobs:
             LC_ALL="${LC_ALL:-C.UTF-8}" \
             NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-}" \
             NO_PROXY="${NO_PROXY:-}" \
+            NPM_CONFIG_MANAGE_PACKAGE_MANAGER_VERSIONS=false \
+            NPM_CONFIG_PACKAGE_MANAGER_STRICT_VERSION=false \
             PATH="$safe_path" \
             SSL_CERT_FILE="${SSL_CERT_FILE:-}" \
             TMPDIR="$CANDIDATE_HOME_PATH/tmp" \
@@ -973,7 +1092,7 @@ jobs:
       - name: Set up pinned pnpm for trusted browser smoke
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v4
         with:
-          version: 10.24.0
+          version: 10.34.4
 
       - name: Set up pinned Node.js and trusted pnpm cache
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0

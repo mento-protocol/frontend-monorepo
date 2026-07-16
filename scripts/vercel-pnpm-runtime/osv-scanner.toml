@@ -1,0 +1,9 @@
+[[IgnoredVulns]]
+id = "GHSA-gj8w-mvpf-x27x"
+# This config is used only with this directory's exact one-package lockfile.
+# GitHub's affected range is <10.34.2 and the maintainer advisory says 10.34.2
+# is patched, but the OSV formal event range incorrectly records the first fix
+# as 11.5.3 and false-flags the pinned pnpm 10.34.4.
+# TODO: Remove once GitHub Advisory Database/OSV corrects the 10.x event range.
+ignoreUntil = 2026-08-16T00:00:00Z
+reason = "Scanner metadata false positive: pnpm 10.34.4 is outside GitHub's <10.34.2 affected range, but OSV's malformed event range reports 11.5.3 as the first fix."
