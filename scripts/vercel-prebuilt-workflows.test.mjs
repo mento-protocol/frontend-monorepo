@@ -213,6 +213,10 @@ test("prebuilt separates trusted standalone bootstrap from candidate JavaScript 
 
   assert.equal(manifest.devDependencies.pnpm, undefined);
   assert.equal(manifest.packageManager, "pnpm@10.34.4");
+  assert.equal(
+    manifest.scripts["supply-chain:lockfile-lint"],
+    "node scripts/lockfile-lint.mjs && LOCKFILE_LINT_ROOT=scripts/vercel-pnpm-runtime node scripts/lockfile-lint.mjs",
+  );
   assert.deepEqual(runtimeManifest.dependencies, { pnpm: "10.34.4" });
   assert.deepEqual(Object.keys(runtimeLock.packages), ["pnpm@10.34.4"]);
   assert.deepEqual(Object.keys(runtimeLock.snapshots), ["pnpm@10.34.4"]);
@@ -232,9 +236,9 @@ test("prebuilt separates trusted standalone bootstrap from candidate JavaScript 
   );
   assert.match(runtimeOsvConfig, /GHSA-gj8w-mvpf-x27x/);
   assert.match(runtimeOsvConfig, /ignoreUntil = 2026-08-16T00:00:00Z/);
-  assert.match(
+  assert.equal(
     supplyChain.jobs["lockfile-lint"].steps.at(-1).run,
-    /LOCKFILE_LINT_ROOT=scripts\/vercel-pnpm-runtime/,
+    "pnpm supply-chain:lockfile-lint",
   );
   const trunkOsvIgnore = trunk.lint.ignore.find(({ linters }) =>
     linters.includes("osv-scanner"),

@@ -91,9 +91,7 @@ jobs:
       - name: lockfile-lint self-tests
         run: node scripts/lockfile-lint.test.mjs
       - name: lockfile integrity + registry check
-        run: |
-          node scripts/lockfile-lint.mjs
-          LOCKFILE_LINT_ROOT=scripts/vercel-pnpm-runtime node scripts/lockfile-lint.mjs
+        run: pnpm supply-chain:lockfile-lint
 
   version-skew:
     name: catalog version-skew

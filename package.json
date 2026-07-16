@@ -37,7 +37,7 @@
     "quality:bundle:check": "node scripts/check-bundle-size.mjs",
     "quality:coverage": "turbo run test:coverage --filter=app.mento.org --filter=governance.mento.org --filter=@mento-protocol/ui --filter=@repo/web3",
     "rebuild": "pnpm run clean && turbo run build",
-    "supply-chain:lockfile-lint": "node scripts/lockfile-lint.mjs",
+    "supply-chain:lockfile-lint": "node scripts/lockfile-lint.mjs && LOCKFILE_LINT_ROOT=scripts/vercel-pnpm-runtime node scripts/lockfile-lint.mjs",
     "supply-chain:lockfile-lint:test": "node scripts/lockfile-lint.test.mjs",
     "supply-chain:version-skew": "node scripts/version-skew-check.mjs",
     "supply-chain:version-skew:test": "node scripts/version-skew-check.test.mjs",
