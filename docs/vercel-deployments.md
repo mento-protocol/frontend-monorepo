@@ -653,7 +653,13 @@ association, event receipts, and persisted selection ownership immediately
 before attaching or dispatching; a closed or changed lifecycle cannot launch a
 new worker. A full-envelope-valid wrong-SHA artifact is never allowed to own the
 intent; all other name, event, ref, path, title, attempt, and URL mismatches also
-fail closed.
+fail closed. GitHub's `workflow_run` callback reports the static workflow name,
+while the Actions REST API may report the configured dynamic `run-name` in both
+`name` and `display_title`; recovery accepts those two documented shapes only
+when the workflow path, event, default ref, authorized SHA, attempt, and
+epoch-bound title identity also validate. Completion follow-ups route by the
+exact worker or intake workflow path rather than the presentation name, then
+repeat full source validation before any status or Deployment write.
 
 Zero matches dispatches `.github/workflows/vercel-preview-worker.yml` on `main`
 using the HTTP 200 `return_run_details` API contract only while the executing

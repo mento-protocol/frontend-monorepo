@@ -470,7 +470,10 @@ jobs:
     name: Validate completed read-only Dependabot intake
     if: >-
       github.event_name == 'workflow_run' &&
-      github.event.workflow_run.name == 'Vercel Preview Intake' &&
+      (
+        github.event.workflow_run.path == '.github/workflows/vercel-preview-intake.yml' ||
+        github.event.workflow_run.path == '.github/workflows/vercel-preview-intake.yml@main'
+      ) &&
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -537,7 +540,10 @@ jobs:
     name: Validate completed worker callback identity
     if: >-
       github.event_name == 'workflow_run' &&
-      github.event.workflow_run.name == 'Vercel Preview Worker'
+      (
+        github.event.workflow_run.path == '.github/workflows/vercel-preview-worker.yml' ||
+        github.event.workflow_run.path == '.github/workflows/vercel-preview-worker.yml@main'
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

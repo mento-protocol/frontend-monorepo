@@ -1380,6 +1380,7 @@ function workerRun(
     status,
     conclusion,
     created_at: createdAt,
+    repository: { full_name: PREVIEW_REPOSITORY },
   };
 }
 
@@ -1875,6 +1876,17 @@ test("trusted workflow_run follow-up publishes Dependabot unsupported status onl
     sha: SHA.A,
     action: "opened",
   });
+  assert.deepEqual(
+    validateDependabotIntakeWorkflowRun({
+      ...workflowRun,
+      name: workflowRun.display_title,
+    }),
+    {
+      pr: 519,
+      sha: SHA.A,
+      action: "opened",
+    },
+  );
   const dependabotPull = pull({
     head: SHA.A,
     updated: timestamp(1),
@@ -1938,6 +1950,9 @@ test("malformed Dependabot intake identity fails before any status write", async
     }),
     dependabotIntakeRun({
       display_title: `Vercel preview intake | pr=519 | sha=${SHA.A} | action=bogus`,
+    }),
+    dependabotIntakeRun({
+      repository: { full_name: "attacker/example" },
     }),
   ]) {
     const fixture = fakeGitHub({
@@ -2004,6 +2019,7 @@ test("strict worker identity uses display_title plus workflow path, ref, SHA, an
     { head_branch: "feature" },
     { head_sha: SHA.D },
     { run_attempt: 0 },
+    { repository: { full_name: "attacker/example" } },
   ]) {
     assert.throws(() =>
       validateWorkerRunIdentity({ ...run, ...override }, selection),
@@ -2762,7 +2778,7 @@ test("intended recovery paginates its time window and ignores more than 300 olde
   );
 });
 
-test("manual reconcile recovers a completed dispatched worker when its callback was missed", async () => {
+test("manual reconcile recovers a completed REST-named worker when its callback was missed", async () => {
   const opened = event({
     run: 122,
     action: "opened",
@@ -2776,6 +2792,7 @@ test("manual reconcile recovers a completed dispatched worker when its callback 
     status: "completed",
     conclusion: "cancelled",
   });
+  completed.name = completed.display_title;
   const fixture = fakeGitHub({
     pullRequest,
     comments: [eventComment(opened), stateComment(dispatched)],
@@ -3015,6 +3032,27 @@ test("worker recovery errors fail the current exact SHA status closed without ov
     target_url:
       "https://github.com/mento-protocol/frontend-monorepo/actions/runs/8000",
   });
+
+  for (const invalidRun of [
+    { ...completed, name: "Another Workflow" },
+    {
+      ...completed,
+      path: ".github/workflows/vercel-preview-worker.yml@feature",
+    },
+    { ...completed, event: "push" },
+    { ...completed, head_branch: "feature" },
+    { ...completed, head_sha: SHA.B },
+    { ...completed, repository: { full_name: "attacker/example" } },
+  ]) {
+    assert.equal(
+      await postWorkerRecoveryError({
+        github: fixture.github,
+        context: fakeContext({ workflowRun: invalidRun }),
+      }),
+      false,
+    );
+  }
+  assert.equal(fixture.commitStatuses.length, 1);
 
   const staleRun = workerRun(
     { ...selected.nextDispatch, sha: SHA.B },

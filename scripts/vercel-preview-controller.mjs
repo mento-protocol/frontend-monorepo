@@ -1945,8 +1945,13 @@ async function pullFromApi(github, context, pr) {
 
 export function validateDependabotIntakeWorkflowRun(rawRun) {
   const run = plainObject(rawRun, "Dependabot intake workflow run");
+  const displayTitle = boundedText(
+    run.display_title,
+    "Dependabot intake display title",
+  );
+  const workflowName = boundedText(run.name, "Dependabot intake workflow name");
   invariant(
-    run.name === INTAKE_WORKFLOW_NAME,
+    workflowName === INTAKE_WORKFLOW_NAME || workflowName === displayTitle,
     "Dependabot intake workflow name mismatch",
   );
   const workflowPath = `.github/workflows/${INTAKE_WORKFLOW}`;
@@ -1969,7 +1974,7 @@ export function validateDependabotIntakeWorkflowRun(rawRun) {
     run.repository?.full_name,
     "Dependabot intake workflow repository",
   );
-  return parseDependabotIntakeRunName(run.display_title);
+  return parseDependabotIntakeRunName(displayTitle);
 }
 
 export async function publishDependabotUnsupported({
@@ -2415,7 +2420,7 @@ async function recoverMatchingWorkerRun(
   return null;
 }
 
-function validateWorkerRunEnvelope(run, selected) {
+function validateWorkerRunSource(run) {
   plainObject(run, "Worker run");
   const displayTitle = boundedText(
     run.display_title,
@@ -2434,8 +2439,15 @@ function validateWorkerRunEnvelope(run, selected) {
   invariant(run.event === "workflow_dispatch", "Worker event mismatch");
   invariant(run.head_branch === "main", "Worker default ref mismatch");
   const workflowSha = exactSha(run.head_sha, "Worker workflow SHA");
-  const runAttempt = exactRunAttempt(run.run_attempt ?? 1);
   const workflowRunId = exactRunId(run.id, "Worker run ID");
+  validatedRepository(run.repository?.full_name, "Worker workflow repository");
+  return { displayTitle, workflowRunId, workflowSha };
+}
+
+function validateWorkerRunEnvelope(run, selected) {
+  const { displayTitle, workflowRunId, workflowSha } =
+    validateWorkerRunSource(run);
+  const runAttempt = exactRunAttempt(run.run_attempt ?? 1);
   const runUrl = optionalHttpsUrl(run.url, "Worker API run URL");
   const htmlUrl = optionalHttpsUrl(run.html_url, "Worker HTML run URL");
   const status = boundedText(run.status, "Worker run status", 32);
@@ -3634,13 +3646,9 @@ export async function recoverWorkerResult({
   workflowRun = context.payload.workflow_run,
   waitForRecovery,
 }) {
-  plainObject(workflowRun, "Worker workflow run");
-  invariant(
-    workflowRun.name === WORKER_WORKFLOW_NAME,
-    "Unexpected workflow_run source",
-  );
-  const parsed = parseWorkerRunName(workflowRun.display_title);
-  const runId = exactRunId(workflowRun.id, "Worker run ID");
+  const { displayTitle, workflowRunId: runId } =
+    validateWorkerRunSource(workflowRun);
+  const parsed = parseWorkerRunName(displayTitle);
   const key = controllerKey(parsed.pr, parsed.sha);
   const evidence = await loadControllerEvidence(github, context, parsed.pr);
   const state = evidence.state;
@@ -3995,7 +4003,13 @@ export async function postWorkerRecoveryError({
   context,
   workflowRun = context.payload.workflow_run,
 }) {
-  const parsed = parseWorkerRunName(workflowRun.display_title);
+  let parsed;
+  try {
+    const { displayTitle } = validateWorkerRunSource(workflowRun);
+    parsed = parseWorkerRunName(displayTitle);
+  } catch {
+    return false;
+  }
   const evidence = await loadControllerEvidence(github, context, parsed.pr);
   const active = evidence.state.ui?.active;
   if (
@@ -4003,6 +4017,11 @@ export async function postWorkerRecoveryError({
     active?.key_digest !== parsed.keyDigest ||
     active.epoch_anchor_run_id !== evidence.state.epoch.anchor_run_id
   ) {
+    return false;
+  }
+  try {
+    validateWorkerRunIdentity(workflowRun, active);
+  } catch {
     return false;
   }
   await github.rest.repos.createCommitStatus({
