@@ -1200,7 +1200,10 @@ jobs:
             "$CANDIDATE_SOURCE_PATH/$EXPECTED_ROOT_DIRECTORY/.vercel/output/." \
             "$UPLOAD_SOURCE_PATH/$EXPECTED_ROOT_DIRECTORY/.vercel/output/"
           assert_candidate_stopped
-          sudo --non-interactive /bin/chown -R "$(id -u):$(id -g)" \
+          sudo --non-interactive /bin/chown \
+            -R \
+            --no-dereference \
+            "$(id -u):$(id -g)" \
             "$UPLOAD_SOURCE_PATH"
           /bin/chmod -R u-s,g-s,o-t "$UPLOAD_SOURCE_PATH"
           /bin/chmod -R u+rwX,go+rX,go-w "$UPLOAD_SOURCE_PATH"
