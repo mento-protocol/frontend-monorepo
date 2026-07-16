@@ -199,10 +199,24 @@ test("prebuilt stages a protected Node and standalone pnpm runtime before candid
   assert.equal(pnpmSetup.with.dest, "${{ runner.temp }}/mento-pnpm-tools");
   assert.equal(pnpmSetup.with.standalone, true);
   assert.equal(pnpmSetup.with.version, "10.24.0");
+  assert.equal(pnpmSetup.id, "pnpm");
   assert.equal(
     isolation.env.PNPM_ACTION_DEST,
     "${{ runner.temp }}/mento-pnpm-tools",
   );
+  assert.equal(
+    isolation.env.PNPM_BIN_DEST,
+    "${{ steps.pnpm.outputs.bin_dest }}",
+  );
+  assert.match(
+    isolation.run,
+    /if \[ "\$\(realpath "\$PNPM_BIN_DEST"\)" != "\$PNPM_ACTION_DEST\/node_modules\/\.bin\/bin" \]; then/,
+  );
+  assert.match(
+    isolation.run,
+    /setup_pnpm_bin="\$\(realpath "\$PNPM_BIN_DEST\/pnpm"\)"/,
+  );
+  assert.doesNotMatch(isolation.run, /command -v pnpm/);
   assert.match(isolation.run, /NODE_SOURCE_PATH="\$setup_node_bin" \\/);
   assert.match(isolation.run, /PNPM_SOURCE_PATH="\$setup_pnpm_bin" \\/);
   assert.match(
