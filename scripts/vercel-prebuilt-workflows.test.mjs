@@ -186,16 +186,21 @@ test("exact source, build, and upload remain in one standard-runner job", () => 
   );
 });
 
-test("prebuilt stages a protected Node and standalone pnpm runtime before candidate code", () => {
+test("prebuilt separates trusted standalone bootstrap from candidate JavaScript pnpm", () => {
   const reusable = workflow(reusablePath);
   const steps = reusable.jobs.prebuilt.steps;
   const names = steps.map(({ name }) => name);
+  const manifest = JSON.parse(read("package.json"));
   const pnpmSetup = steps.find(({ name }) => name === "Set up pinned pnpm");
   const isolation = steps.find(
     ({ name }) =>
       name === "Prepare isolated exact-SHA source and protected Vercel CLI",
   );
+  const install = steps.find(
+    ({ name }) => name === "Install frozen dependencies",
+  );
 
+  assert.equal(manifest.devDependencies.pnpm, "10.24.0");
   assert.equal(pnpmSetup.with.dest, "${{ runner.temp }}/mento-pnpm-tools");
   assert.equal(pnpmSetup.with.standalone, true);
   assert.equal(pnpmSetup.with.version, "10.24.0");
@@ -231,7 +236,24 @@ test("prebuilt stages a protected Node and standalone pnpm runtime before candid
   assert.match(isolation.run, /"\$TRUSTED_VERCEL_TOOLS_PATH" \\/);
   assert.match(isolation.run, /"\$trusted_bin_dir" \\/);
   assert.match(isolation.run, /"\$node_bin" \\/);
+  assert.match(
+    isolation.run,
+    /pnpm_bootstrap="\$trusted_bin_dir\/pnpm-bootstrap"/,
+  );
+  assert.match(
+    isolation.run,
+    /Protected runtime directory is not cross-identity readable/,
+  );
+  assert.match(isolation.run, /\[ "\$mode" != "555" \]/);
+  assert.match(
+    isolation.run,
+    /controller\/scripts\/vercel-prebuilt-workflow\.mjs" \\\n\s+stage-pnpm-launcher/,
+  );
+  assert.match(isolation.run, /"\$pnpm_bootstrap" \\/);
   assert.match(isolation.run, /"\$pnpm_bin"; do/);
+  assert.match(install.run, /\/usr\/bin\/setpriv/);
+  assert.match(install.run, /"\$pnpm_bin" --version \|/);
+  assert.match(install.run, /\/usr\/bin\/grep -Fxq "10\.24\.0"/);
   assert.ok(
     names.indexOf("Set up pinned Node.js and pnpm cache") <
       names.indexOf(

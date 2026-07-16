@@ -61,6 +61,7 @@
     "eslint": "catalog:",
     "eslint-config-prettier": "catalog:",
     "knip": "^6.16.1",
+    "pnpm": "10.24.0",
     "prettier": "^3.9.3",
     "prettier-plugin-tailwindcss": "^0.8.0",
     "turbo": "^2.10.0",

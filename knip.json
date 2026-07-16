@@ -9,7 +9,7 @@
   ],
   "workspaces": {
     ".": {
-      "ignoreDependencies": ["vercel", "zod"]
+      "ignoreDependencies": ["pnpm", "vercel", "zod"]
     },
     "apps/*": {
       "project": "app/**/*.{mjs,tsx,ts}"

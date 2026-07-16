@@ -3,6 +3,7 @@ import { Buffer } from "node:buffer";
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
+  copyFileSync,
   linkSync,
   lstatSync,
   mkdirSync,
@@ -43,6 +44,7 @@ import {
   queryVercelDeployments,
   smokeUiPreview,
   stageVercelPullForCandidate,
+  stageTrustedPnpmLauncher,
   stageTrustedRuntime,
   trustedPnpmInstallLayout,
   trustedVercelCliPath,
@@ -1361,7 +1363,7 @@ test("trusted runtime copies hosted Node and the exact standalone pnpm target in
     assert.deepEqual(staged, {
       binDirectory: join(canonicalToolsRoot, "bin"),
       nodePath: join(canonicalToolsRoot, "bin", "node"),
-      pnpmPath: join(canonicalToolsRoot, "bin", "pnpm"),
+      pnpmBootstrapPath: join(canonicalToolsRoot, "bin", "pnpm-bootstrap"),
     });
     for (const path of [canonicalToolsRoot, staged.binDirectory]) {
       const entry = lstatSync(path);
@@ -1369,15 +1371,15 @@ test("trusted runtime copies hosted Node and the exact standalone pnpm target in
       assert.equal(entry.isSymbolicLink(), false);
       assert.equal(entry.uid, process.getuid());
       assert.equal(entry.gid, process.getgid());
-      assert.equal(entry.mode & 0o7022, 0);
+      assert.equal(entry.mode & 0o777, 0o755);
     }
-    for (const path of [staged.nodePath, staged.pnpmPath]) {
+    for (const path of [staged.nodePath, staged.pnpmBootstrapPath]) {
       const entry = lstatSync(path);
       assert.equal(entry.isFile(), true);
       assert.equal(entry.isSymbolicLink(), false);
       assert.equal(entry.uid, process.getuid());
       assert.equal(entry.gid, process.getgid());
-      assert.equal(entry.mode & 0o7022, 0);
+      assert.equal(entry.mode & 0o777, 0o555);
       assert.equal(entry.nlink, 1);
       assert.equal(realpathSync(path), path);
     }
@@ -1388,9 +1390,12 @@ test("trusted runtime copies hosted Node and the exact standalone pnpm target in
     writeFileSync(pnpmSource, "replaced pnpm launcher\n");
     writeFileSync(pnpmExecutable, "replaced pnpm executable\n");
     assert.equal(readFileSync(staged.nodePath, "utf8"), nodeContents);
-    assert.equal(readFileSync(staged.pnpmPath, "utf8"), pnpmExecutableContents);
     assert.equal(
-      execFileSync(staged.pnpmPath, ["--version"], {
+      readFileSync(staged.pnpmBootstrapPath, "utf8"),
+      pnpmExecutableContents,
+    );
+    assert.equal(
+      execFileSync(staged.pnpmBootstrapPath, ["--version"], {
         encoding: "utf8",
       }).trim(),
       "10.24.0",
@@ -1436,6 +1441,87 @@ test("trusted runtime copies hosted Node and the exact standalone pnpm target in
   } finally {
     rmSync(sourceRoot, { force: true, recursive: true });
     rmSync(runnerTemp, { force: true, recursive: true });
+  }
+});
+
+test("trusted candidate pnpm launcher uses the lockfile-pinned JavaScript package through protected Node", () => {
+  const toolsRoot = mkdtempSync(join(tmpdir(), "vercel-pnpm-launcher-"));
+  const binDirectory = join(toolsRoot, "bin");
+  const packageRoot = join(toolsRoot, "node_modules", "pnpm");
+  const cliPath = join(packageRoot, "bin", "pnpm.cjs");
+  const nodePath = join(binDirectory, "node");
+  try {
+    mkdirSync(binDirectory, { recursive: true });
+    mkdirSync(dirname(cliPath), { recursive: true });
+    writeFileSync(nodePath, ["#!/bin/sh", 'exec /bin/sh "$@"', ""].join("\n"), {
+      mode: 0o555,
+    });
+    writeFileSync(
+      join(packageRoot, "package.json"),
+      JSON.stringify({ name: "pnpm", version: "10.24.0" }),
+      { mode: 0o444 },
+    );
+    writeFileSync(
+      cliPath,
+      [
+        "#!/bin/sh",
+        'if [ "$1" = "--version" ]; then',
+        '  echo "10.24.0"',
+        "else",
+        "  exit 2",
+        "fi",
+        "",
+      ].join("\n"),
+      { mode: 0o444 },
+    );
+    for (const path of [
+      toolsRoot,
+      binDirectory,
+      join(toolsRoot, "node_modules"),
+      packageRoot,
+      dirname(cliPath),
+    ]) {
+      chmodSync(path, 0o755);
+    }
+
+    const launcherPath = stageTrustedPnpmLauncher({ toolsRoot });
+    assert.equal(launcherPath, join(realpathSync(toolsRoot), "bin", "pnpm"));
+    const launcher = lstatSync(launcherPath);
+    assert.equal(launcher.isFile(), true);
+    assert.equal(launcher.isSymbolicLink(), false);
+    assert.equal(launcher.uid, process.getuid());
+    assert.equal(launcher.gid, process.getgid());
+    assert.equal(launcher.mode & 0o777, 0o555);
+    assert.equal(launcher.nlink, 1);
+    assert.match(
+      readFileSync(launcherPath, "utf8"),
+      /node_modules\/pnpm\/bin\/pnpm\.cjs/,
+    );
+    assert.equal(
+      execFileSync(launcherPath, ["--version"], {
+        encoding: "utf8",
+      }).trim(),
+      "10.24.0",
+    );
+    assert.throws(
+      () => stageTrustedPnpmLauncher({ toolsRoot }),
+      /destination must be fresh/,
+    );
+
+    rmSync(launcherPath);
+    chmodSync(join(packageRoot, "package.json"), 0o644);
+    writeFileSync(
+      join(packageRoot, "package.json"),
+      JSON.stringify({ name: "pnpm", version: "10.24.1" }),
+      { mode: 0o444 },
+    );
+    chmodSync(join(packageRoot, "package.json"), 0o444);
+    assert.throws(
+      () => stageTrustedPnpmLauncher({ toolsRoot }),
+      /does not match the pinned release/,
+    );
+  } finally {
+    rmSync(toolsRoot, { force: true, recursive: true });
   }
 });
 
@@ -1628,6 +1714,9 @@ test(
         "HEAD",
       ]);
       execFileSync("tar", ["-xf", archivePath, "-C", controllerRoot]);
+      for (const file of ["package.json", "pnpm-lock.yaml"]) {
+        copyFileSync(join(REPOSITORY_ROOT, file), join(controllerRoot, file));
+      }
 
       const layout = trustedPnpmInstallLayout({ controllerRoot, toolsRoot });
       assert.equal(
@@ -1666,6 +1755,19 @@ test(
         },
       );
       execFileSync("chmod", ["-R", "a+rX,go-w", toolsRoot]);
+      const binDirectory = join(toolsRoot, "bin");
+      mkdirSync(binDirectory, { mode: 0o755 });
+      const nodePath = join(binDirectory, "node");
+      copyFileSync(process.execPath, nodePath);
+      chmodSync(nodePath, 0o555);
+      const pnpmLauncher = stageTrustedPnpmLauncher({ toolsRoot });
+      assert.equal(
+        execFileSync(pnpmLauncher, ["--version"], {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        }).trim(),
+        "10.24.0",
+      );
 
       const cliPath = trustedVercelCliPath(toolsRoot);
       const pathFromTools = relative(realpathSync(toolsRoot), cliPath);
@@ -1909,6 +2011,7 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
     "TRUSTED_VERCEL_TOOLS_PATH",
     "trusted_bin_dir",
     "node_bin",
+    "pnpm_bootstrap",
     "pnpm_bin",
   ]) {
     assert.match(raw, new RegExp(protectedPath.replace("/", "\\/")));
@@ -1923,7 +2026,7 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   );
   assert.match(
     isolationBlock,
-    /"\$pnpm_bin" --dir "\$GITHUB_WORKSPACE\/controller" --filter frontend-monorepo install/,
+    /"\$pnpm_bootstrap" --dir "\$GITHUB_WORKSPACE\/controller" --filter frontend-monorepo install/,
   );
   assert.match(isolationBlock, /--frozen-lockfile/);
   assert.match(isolationBlock, /--ignore-scripts/);
@@ -1940,11 +2043,19 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   );
   assert.match(
     isolationBlock,
+    /vercel-prebuilt-workflow\.mjs" \\\n\s+stage-pnpm-launcher/,
+  );
+  assert.match(
+    isolationBlock,
     /Pinned pnpm escaped its action-owned directory/,
   );
   assert.match(
     isolationBlock,
     /Protected pnpm copy does not match the pinned release/,
+  );
+  assert.match(
+    isolationBlock,
+    /Protected pnpm launcher does not match the pinned release/,
   );
   assert.match(
     isolationBlock,
@@ -1964,6 +2075,7 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
     '/bin/chmod -R a+rX,go-w "$PNPM_ACTION_DEST"',
   );
   const protectedRuntimeCopyIndex = isolationBlock.indexOf("stage-runtime");
+  const protectedLauncherIndex = isolationBlock.indexOf("stage-pnpm-launcher");
   const protectedPathLoopIndex = isolationBlock.indexOf(
     "for protected_path in \\",
   );
@@ -1978,7 +2090,8 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   assert.notEqual(runnerTempHardenIndex, -1);
   assert.ok(pnpmActionHardenIndex > runnerTempHardenIndex);
   assert.ok(protectedRuntimeCopyIndex > pnpmActionHardenIndex);
-  assert.ok(protectedPathLoopIndex > protectedRuntimeCopyIndex);
+  assert.ok(protectedLauncherIndex > protectedRuntimeCopyIndex);
+  assert.ok(protectedPathLoopIndex > protectedLauncherIndex);
   assert.ok(runnerTempProtectionIndex > protectedPathLoopIndex);
   assert.ok(trustedPathIndex > runnerTempProtectionIndex);
   assert.ok(materializeIndex > trustedPathIndex);
@@ -2048,6 +2161,12 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   const installCandidateBlock = installBlock.slice(
     installBlock.indexOf("set +e"),
     installBlock.indexOf("candidate_status=$?"),
+  );
+  assert.match(installBlock, /"\$pnpm_bin" --version \|/);
+  assert.match(installBlock, /\/usr\/bin\/grep -Fxq "10\.24\.0"/);
+  assert.match(
+    installBlock,
+    /Isolated candidate cannot execute the protected pnpm launcher/,
   );
   const buildCandidateBlock = buildBlock.slice(
     buildBlock.indexOf("set +e"),
