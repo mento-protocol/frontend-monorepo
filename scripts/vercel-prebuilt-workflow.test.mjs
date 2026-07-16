@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   copyFileSync,
@@ -45,6 +46,7 @@ import {
   queryVercelDeployments,
   smokeUiPreview,
   stageVercelPullForCandidate,
+  stageTrustedPnpmBootstrapManifest,
   stageTrustedPnpmLauncher,
   stageTrustedPnpmRuntimeManifest,
   stageTrustedRuntime,
@@ -1270,51 +1272,15 @@ test("candidate staging rejects source components with the wrong owner", () => {
   }
 });
 
-test("trusted runtime copies hosted Node and the exact standalone pnpm target into independent protected files", () => {
+test("trusted runtime copies hosted Node and the authenticated Linux pnpm bootstrap into independent protected files", () => {
   const sourceRoot = mkdtempSync(join(tmpdir(), "vercel-runtime-source-"));
   const runnerTemp = mkdtempSync(join(tmpdir(), "vercel-runtime-runner-"));
   const toolsRoot = join(runnerTemp, "mento-vercel-trusted-tools");
-  const pnpmRoot = join(runnerTemp, "mento-pnpm-tools");
+  const pnpmRoot = join(runnerTemp, "mento-vercel-pnpm-bootstrap");
   const nodeSource = join(sourceRoot, "node");
-  const pnpmSource = join(pnpmRoot, "node_modules", ".bin", "bin", "pnpm");
-  const pnpmGlobalRoot = join(
-    pnpmRoot,
-    "node_modules",
-    ".bin",
-    "global",
-    "v11",
-  );
-  const pnpmInstallRoot = join(pnpmGlobalRoot, "install-12345-1700000000000");
-  const pnpmHashRoot = join(pnpmGlobalRoot, "a2d-19f6b3f78e2");
-  const pnpmPackageRoot = join(
-    pnpmRoot,
-    "node_modules",
-    ".bin",
-    "store",
-    "v11",
-    "links",
-    "a2d-19f6b3f78e2",
-    "node_modules",
-    "@pnpm",
-    "exe",
-  );
-  const pnpmPackageLink = join(pnpmInstallRoot, "node_modules", "@pnpm", "exe");
+  const pnpmPackageRoot = join(pnpmRoot, "node_modules", "@pnpm", "linux-x64");
   const pnpmExecutable = join(pnpmPackageRoot, "pnpm");
-  const pnpmExecutableLocator = join(
-    pnpmHashRoot,
-    "node_modules",
-    "@pnpm",
-    "exe",
-    "pnpm",
-  );
-  const pnpmStoreCopy = join(pnpmRoot, "pnpm-store-copy");
   const nodeContents = "#!/bin/sh\necho node\n";
-  const pnpmSourceContents = [
-    "#!/bin/sh",
-    'basedir=$(dirname "$0")',
-    'exec "$basedir/../global/v11/a2d-19f6b3f78e2/node_modules/@pnpm/exe/pnpm" "$@"',
-    "",
-  ].join("\n");
   const pnpmExecutableContents = [
     "#!/bin/sh",
     'if [ "$1" = "--version" ]; then',
@@ -1324,39 +1290,43 @@ test("trusted runtime copies hosted Node and the exact standalone pnpm target in
     "fi",
     "",
   ].join("\n");
+  const expectedPnpmSha256 = createHash("sha256")
+    .update(pnpmExecutableContents)
+    .digest("hex");
   try {
     chmodSync(sourceRoot, 0o777);
     chmodSync(runnerTemp, 0o711);
     writeFileSync(nodeSource, nodeContents, { mode: 0o777 });
-    mkdirSync(dirname(pnpmSource), { recursive: true });
-    mkdirSync(dirname(pnpmPackageLink), { recursive: true });
     mkdirSync(pnpmPackageRoot, { recursive: true });
-    writeFileSync(pnpmSource, pnpmSourceContents, { mode: 0o555 });
+    for (const file of ["package.json", "package-lock.json"]) {
+      copyFileSync(
+        join(REPOSITORY_ROOT, "scripts", "vercel-pnpm-bootstrap", file),
+        join(pnpmRoot, file),
+      );
+      chmodSync(join(pnpmRoot, file), 0o444);
+    }
     writeFileSync(
       join(pnpmPackageRoot, "package.json"),
-      JSON.stringify({ name: "@pnpm/exe", version: "10.34.4" }),
+      JSON.stringify({
+        name: "@pnpm/linux-x64",
+        version: "10.34.4",
+        scripts: {},
+        bin: { pnpm: "pnpm" },
+        os: ["linux"],
+        cpu: ["x64"],
+      }),
       { mode: 0o444 },
     );
-    writeFileSync(pnpmStoreCopy, pnpmExecutableContents, { mode: 0o555 });
-    linkSync(pnpmStoreCopy, pnpmExecutable);
-    symlinkSync(
-      relative(dirname(pnpmPackageLink), pnpmPackageRoot),
-      pnpmPackageLink,
-    );
-    symlinkSync(relative(dirname(pnpmHashRoot), pnpmInstallRoot), pnpmHashRoot);
+    writeFileSync(pnpmExecutable, pnpmExecutableContents, { mode: 0o555 });
     chmodSync(pnpmRoot, 0o755);
-    assert.equal(lstatSync(pnpmExecutable).nlink, 2);
-    assert.equal(
-      realpathSync(pnpmExecutableLocator),
-      realpathSync(pnpmExecutable),
-    );
+    assert.equal(lstatSync(pnpmExecutable).nlink, 1);
 
     const staged = stageTrustedRuntime({
       runnerTemp,
       toolsRoot,
       nodeSource,
       pnpmRoot,
-      pnpmSource,
+      expectedPnpmSha256,
     });
     const canonicalToolsRoot = join(
       realpathSync(runnerTemp),
@@ -1364,10 +1334,15 @@ test("trusted runtime copies hosted Node and the exact standalone pnpm target in
     );
     assert.deepEqual(staged, {
       binDirectory: join(canonicalToolsRoot, "bin"),
+      bootstrapBinDirectory: join(canonicalToolsRoot, "bootstrap-bin"),
       nodePath: join(canonicalToolsRoot, "bin", "node"),
-      pnpmBootstrapPath: join(canonicalToolsRoot, "bin", "pnpm-bootstrap"),
+      pnpmBootstrapPath: join(canonicalToolsRoot, "bootstrap-bin", "pnpm"),
     });
-    for (const path of [canonicalToolsRoot, staged.binDirectory]) {
+    for (const path of [
+      canonicalToolsRoot,
+      staged.binDirectory,
+      staged.bootstrapBinDirectory,
+    ]) {
       const entry = lstatSync(path);
       assert.equal(entry.isDirectory(), true);
       assert.equal(entry.isSymbolicLink(), false);
@@ -1387,9 +1362,7 @@ test("trusted runtime copies hosted Node and the exact standalone pnpm target in
     }
 
     writeFileSync(nodeSource, "replaced node\n");
-    chmodSync(pnpmSource, 0o755);
     chmodSync(pnpmExecutable, 0o755);
-    writeFileSync(pnpmSource, "replaced pnpm launcher\n");
     writeFileSync(pnpmExecutable, "replaced pnpm executable\n");
     assert.equal(readFileSync(staged.nodePath, "utf8"), nodeContents);
     assert.equal(
@@ -1409,7 +1382,7 @@ test("trusted runtime copies hosted Node and the exact standalone pnpm target in
           toolsRoot,
           nodeSource,
           pnpmRoot,
-          pnpmSource,
+          expectedPnpmSha256,
         }),
       /destination must be fresh/,
     );
@@ -1423,7 +1396,7 @@ test("trusted runtime copies hosted Node and the exact standalone pnpm target in
           toolsRoot,
           nodeSource,
           pnpmRoot,
-          pnpmSource,
+          expectedPnpmSha256,
         }),
       /destination must be fresh/,
     );
@@ -1436,13 +1409,113 @@ test("trusted runtime copies hosted Node and the exact standalone pnpm target in
           toolsRoot,
           nodeSource,
           pnpmRoot,
-          pnpmSource,
+          expectedPnpmSha256,
         }),
       /Runner temporary directory is not protected/,
     );
   } finally {
     rmSync(sourceRoot, { force: true, recursive: true });
     rmSync(runnerTemp, { force: true, recursive: true });
+  }
+});
+
+test("trusted pnpm bootstrap manifest and npm lock are exact before network installation", () => {
+  const fixtureRoot = mkdtempSync(join(tmpdir(), "vercel-pnpm-bootstrap-"));
+  const controllerRoot = join(fixtureRoot, "controller");
+  const sourceRoot = join(controllerRoot, "scripts", "vercel-pnpm-bootstrap");
+  const runnerTemp = join(fixtureRoot, "runner-temp");
+  const bootstrapRoot = join(runnerTemp, "mento-vercel-pnpm-bootstrap");
+  try {
+    mkdirSync(sourceRoot, { recursive: true });
+    mkdirSync(runnerTemp, { mode: 0o711 });
+    for (const file of ["package.json", "package-lock.json"]) {
+      copyFileSync(
+        join(REPOSITORY_ROOT, "scripts", "vercel-pnpm-bootstrap", file),
+        join(sourceRoot, file),
+      );
+      chmodSync(join(sourceRoot, file), 0o444);
+    }
+    for (const path of [
+      controllerRoot,
+      join(controllerRoot, "scripts"),
+      sourceRoot,
+    ]) {
+      chmodSync(path, 0o755);
+    }
+
+    assert.equal(
+      stageTrustedPnpmBootstrapManifest({
+        controllerRoot,
+        runnerTemp,
+        bootstrapRoot,
+      }),
+      join(realpathSync(runnerTemp), "mento-vercel-pnpm-bootstrap"),
+    );
+    assert.equal(lstatSync(bootstrapRoot).mode & 0o777, 0o700);
+    for (const file of ["package.json", "package-lock.json"]) {
+      const source = join(sourceRoot, file);
+      const destination = join(bootstrapRoot, file);
+      assert.equal(lstatSync(destination).mode & 0o777, 0o444);
+      assert.notEqual(lstatSync(source).ino, lstatSync(destination).ino);
+      assert.equal(
+        readFileSync(destination, "utf8"),
+        readFileSync(source, "utf8"),
+      );
+    }
+    assert.throws(
+      () =>
+        stageTrustedPnpmBootstrapManifest({
+          controllerRoot,
+          runnerTemp,
+          bootstrapRoot,
+        }),
+      /destination must be fresh/,
+    );
+
+    rmSync(bootstrapRoot, { force: true, recursive: true });
+    const packagePath = join(sourceRoot, "package.json");
+    chmodSync(packagePath, 0o644);
+    const packageMetadata = JSON.parse(readFileSync(packagePath, "utf8"));
+    packageMetadata.scripts = { prepare: "echo unsafe" };
+    writeFileSync(packagePath, `${JSON.stringify(packageMetadata, null, 2)}\n`);
+    chmodSync(packagePath, 0o444);
+    assert.throws(
+      () =>
+        stageTrustedPnpmBootstrapManifest({
+          controllerRoot,
+          runnerTemp,
+          bootstrapRoot,
+        }),
+      /manifest is not exact/,
+    );
+
+    chmodSync(packagePath, 0o644);
+    copyFileSync(
+      join(REPOSITORY_ROOT, "scripts", "vercel-pnpm-bootstrap", "package.json"),
+      packagePath,
+    );
+    chmodSync(packagePath, 0o444);
+    const lockPath = join(sourceRoot, "package-lock.json");
+    chmodSync(lockPath, 0o644);
+    writeFileSync(
+      lockPath,
+      readFileSync(lockPath, "utf8").replace(
+        "registry.npmjs.org",
+        "registry.example.invalid",
+      ),
+    );
+    chmodSync(lockPath, 0o444);
+    assert.throws(
+      () =>
+        stageTrustedPnpmBootstrapManifest({
+          controllerRoot,
+          runnerTemp,
+          bootstrapRoot,
+        }),
+      /lockfile is not exact/,
+    );
+  } finally {
+    rmSync(fixtureRoot, { force: true, recursive: true });
   }
 });
 
@@ -1697,118 +1770,119 @@ test("trusted candidate pnpm launcher uses the lockfile-pinned JavaScript packag
   }
 });
 
-test("trusted runtime rejects missing, wrong-version, and ambiguous standalone pnpm targets", () => {
+test("trusted runtime rejects missing, malformed, digest-drifted, and hardlinked pnpm bootstrap targets", () => {
   const runnerTemp = mkdtempSync(join(tmpdir(), "vercel-runtime-runner-"));
   const toolsRoot = join(runnerTemp, "mento-vercel-trusted-tools");
-  const pnpmRoot = join(runnerTemp, "mento-pnpm-tools");
+  const pnpmRoot = join(runnerTemp, "mento-vercel-pnpm-bootstrap");
   const nodeSource = join(runnerTemp, "node");
-  const pnpmSource = join(pnpmRoot, "node_modules", ".bin", "bin", "pnpm");
-  const firstExecutable = join(
+  const pnpmExecutable = join(
     pnpmRoot,
     "node_modules",
-    ".bin",
-    "global",
-    "v11",
-    "first",
-    "node_modules",
     "@pnpm",
-    "exe",
+    "linux-x64",
     "pnpm",
   );
-  const firstPackageJson = join(dirname(firstExecutable), "package.json");
-  const secondExecutable = join(
-    pnpmRoot,
-    "node_modules",
-    ".bin",
-    "global",
-    "v11",
-    "second",
-    "node_modules",
-    "@pnpm",
-    "exe",
-    "pnpm",
-  );
-  const secondPackageJson = join(dirname(secondExecutable), "package.json");
-  const stage = () =>
+  const pnpmPackageJson = join(dirname(pnpmExecutable), "package.json");
+  const executableContents = "#!/bin/sh\necho 10.34.4\n";
+  const expectedPnpmSha256 = createHash("sha256")
+    .update(executableContents)
+    .digest("hex");
+  const stage = (digest = expectedPnpmSha256) =>
     stageTrustedRuntime({
       runnerTemp,
       toolsRoot,
       nodeSource,
       pnpmRoot,
-      pnpmSource,
+      expectedPnpmSha256: digest,
     });
   try {
     chmodSync(runnerTemp, 0o711);
     writeFileSync(nodeSource, "#!/bin/sh\necho node\n", { mode: 0o555 });
-    mkdirSync(dirname(pnpmSource), { recursive: true });
-    mkdirSync(dirname(firstExecutable), { recursive: true });
-    writeFileSync(pnpmSource, "#!/bin/sh\necho 10.34.4\n", { mode: 0o555 });
+    mkdirSync(pnpmRoot, { recursive: true });
+    for (const file of ["package.json", "package-lock.json"]) {
+      copyFileSync(
+        join(REPOSITORY_ROOT, "scripts", "vercel-pnpm-bootstrap", file),
+        join(pnpmRoot, file),
+      );
+      chmodSync(join(pnpmRoot, file), 0o444);
+    }
     chmodSync(pnpmRoot, 0o755);
 
-    assert.throws(stage, /missing or ambiguous/);
+    assert.throws(stage);
 
+    mkdirSync(dirname(pnpmExecutable), { recursive: true });
     writeFileSync(
-      firstPackageJson,
-      JSON.stringify({ name: "@pnpm/exe", version: "10.25.0" }),
+      pnpmPackageJson,
+      JSON.stringify({
+        name: "@pnpm/linux-x64",
+        version: "10.25.0",
+        scripts: {},
+        bin: { pnpm: "pnpm" },
+        os: ["linux"],
+        cpu: ["x64"],
+      }),
       { mode: 0o444 },
     );
-    writeFileSync(firstExecutable, "#!/bin/sh\necho 10.25.0\n", {
+    writeFileSync(pnpmExecutable, executableContents, {
       mode: 0o555,
     });
-    assert.throws(stage, /missing or ambiguous/);
+    assert.throws(stage, /package is not exact/);
 
-    chmodSync(firstExecutable, 0o755);
-    writeFileSync(firstExecutable, "#!/bin/sh\necho 10.34.4\n", {
-      mode: 0o555,
-    });
-    chmodSync(firstPackageJson, 0o644);
+    chmodSync(pnpmPackageJson, 0o644);
     writeFileSync(
-      firstPackageJson,
-      JSON.stringify({ name: "@pnpm/exe", version: "10.34.4" }),
+      pnpmPackageJson,
+      JSON.stringify({
+        name: "@pnpm/linux-x64",
+        version: "10.34.4",
+        scripts: {},
+        bin: { pnpm: "pnpm" },
+        os: ["linux"],
+        cpu: ["x64"],
+      }),
     );
-    chmodSync(firstPackageJson, 0o444);
-    mkdirSync(dirname(secondExecutable), { recursive: true });
-    writeFileSync(
-      secondPackageJson,
-      JSON.stringify({ name: "@pnpm/exe", version: "10.34.4" }),
-      { mode: 0o444 },
-    );
-    writeFileSync(secondExecutable, "#!/bin/sh\necho 10.34.4\n", {
-      mode: 0o555,
-    });
-    assert.throws(stage, /missing or ambiguous/);
+    chmodSync(pnpmPackageJson, 0o444);
+    assert.throws(() => stage("0".repeat(64)), /executable digest is invalid/);
+
+    const hardlinkSource = join(runnerTemp, "hardlinked-pnpm");
+    chmodSync(pnpmExecutable, 0o755);
+    rmSync(pnpmExecutable);
+    writeFileSync(hardlinkSource, executableContents, { mode: 0o555 });
+    linkSync(hardlinkSource, pnpmExecutable);
+    assert.equal(lstatSync(pnpmExecutable).nlink, 2);
+    assert.throws(stage, /runner-owned/);
   } finally {
     rmSync(runnerTemp, { force: true, recursive: true });
   }
 });
 
-test("trusted runtime rejects a standalone pnpm package link outside the action root", () => {
+test("trusted runtime rejects a pnpm bootstrap package link outside its fixed root", () => {
   const runnerTemp = mkdtempSync(join(tmpdir(), "vercel-runtime-runner-"));
   const outsideRoot = mkdtempSync(join(tmpdir(), "vercel-runtime-outside-"));
   const toolsRoot = join(runnerTemp, "mento-vercel-trusted-tools");
-  const pnpmRoot = join(runnerTemp, "mento-pnpm-tools");
+  const pnpmRoot = join(runnerTemp, "mento-vercel-pnpm-bootstrap");
   const nodeSource = join(runnerTemp, "node");
-  const pnpmSource = join(pnpmRoot, "node_modules", ".bin", "bin", "pnpm");
-  const packageLink = join(
-    pnpmRoot,
-    "node_modules",
-    ".bin",
-    "global",
-    "v11",
-    "install",
-    "node_modules",
-    "@pnpm",
-    "exe",
-  );
+  const packageLink = join(pnpmRoot, "node_modules", "@pnpm", "linux-x64");
   try {
     chmodSync(runnerTemp, 0o711);
     writeFileSync(nodeSource, "#!/bin/sh\necho node\n", { mode: 0o555 });
-    mkdirSync(dirname(pnpmSource), { recursive: true });
     mkdirSync(dirname(packageLink), { recursive: true });
-    writeFileSync(pnpmSource, "#!/bin/sh\necho 10.34.4\n", { mode: 0o555 });
+    for (const file of ["package.json", "package-lock.json"]) {
+      copyFileSync(
+        join(REPOSITORY_ROOT, "scripts", "vercel-pnpm-bootstrap", file),
+        join(pnpmRoot, file),
+      );
+      chmodSync(join(pnpmRoot, file), 0o444);
+    }
     writeFileSync(
       join(outsideRoot, "package.json"),
-      JSON.stringify({ name: "@pnpm/exe", version: "10.34.4" }),
+      JSON.stringify({
+        name: "@pnpm/linux-x64",
+        version: "10.34.4",
+        scripts: {},
+        bin: { pnpm: "pnpm" },
+        os: ["linux"],
+        cpu: ["x64"],
+      }),
       { mode: 0o444 },
     );
     writeFileSync(join(outsideRoot, "pnpm"), "#!/bin/sh\necho 10.34.4\n", {
@@ -1824,9 +1898,8 @@ test("trusted runtime rejects a standalone pnpm package link outside the action 
           toolsRoot,
           nodeSource,
           pnpmRoot,
-          pnpmSource,
         }),
-      /escaped its action root/,
+      /escaped its protected root/,
     );
   } finally {
     rmSync(outsideRoot, { force: true, recursive: true });
@@ -2154,27 +2227,26 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   assert.match(raw, /\/usr\/bin\/pgrep -u "\$BUILD_UID"/g);
   assert.match(raw, /Create immutable runner-owned upload handoff/);
   assert.match(raw, /mento-vercel-upload-source/);
-  assert.match(raw, /dest: \$\{\{ runner\.temp \}\}\/mento-pnpm-tools/);
-  assert.match(raw, /standalone: true/);
+  assert.match(raw, /mento-vercel-pnpm-bootstrap/);
+  assert.doesNotMatch(raw, /standalone: true/);
   assert.match(
     raw,
     /EXPECTED_PNPM_LINUX_X64_SHA256: e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193/,
   );
-  const pnpmVerificationBlock = raw.slice(
-    raw.indexOf("- name: Verify pinned pnpm target before first execution"),
-    raw.indexOf("- name: Set up pinned Node.js and pnpm cache"),
+  const pnpmBootstrapBlock = raw.slice(
+    raw.indexOf("- name: Stage and authenticate pinned pnpm bootstrap"),
+    raw.indexOf("- name: Prove authenticated pnpm path before cache restore"),
   );
-  assert.match(pnpmVerificationBlock, /uname -s/);
-  assert.match(pnpmVerificationBlock, /uname -m/);
-  assert.match(pnpmVerificationBlock, /path_pnpm="\$\(type -P pnpm\)"/);
-  assert.match(
-    pnpmVerificationBlock,
-    /realpath "\$path_pnpm"\)" != "\$pnpm_target"/,
-  );
-  assert.match(pnpmVerificationBlock, /\/usr\/bin\/sha256sum "\$pnpm_target"/);
+  assert.match(pnpmBootstrapBlock, /uname -s/);
+  assert.match(pnpmBootstrapBlock, /uname -m/);
+  assert.match(pnpmBootstrapBlock, /stage-pnpm-bootstrap/);
+  assert.match(pnpmBootstrapBlock, /npm_cli" ci/);
+  assert.match(pnpmBootstrapBlock, /--ignore-scripts/);
+  assert.match(pnpmBootstrapBlock, /stage-runtime/);
+  assert.match(pnpmBootstrapBlock, /\/usr\/bin\/sha256sum "\$pnpm_bootstrap"/);
   assert.ok(
-    pnpmVerificationBlock.indexOf('/usr/bin/sha256sum "$pnpm_target"') <
-      pnpmVerificationBlock.indexOf('"$pnpm_target" --version'),
+    pnpmBootstrapBlock.indexOf('/usr/bin/sha256sum "$pnpm_bootstrap"') <
+      pnpmBootstrapBlock.indexOf('"$pnpm_bootstrap" --version'),
   );
   assert.match(raw, /userdel mento-vercel-build/);
   assert.match(raw, /node_modules\/vercel\/dist\/index\.js/);
@@ -2186,11 +2258,13 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
     "SOURCE_PATH/node_modules",
     "SOURCE_PATH/package.json",
     "SOURCE_PATH/pnpm-lock.yaml",
-    "PNPM_ACTION_DEST",
     "TRUSTED_VERCEL_TOOLS_PATH",
     "trusted_bin_dir",
+    "bootstrap_bin_dir",
     "node_bin",
     "pnpm_bootstrap",
+    "trusted_pnpm_store_parent",
+    "trusted_pnpm_store",
     "pnpm_runtime_root",
     "pnpm_bin",
   ]) {
@@ -2211,16 +2285,11 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   assert.match(isolationBlock, /--frozen-lockfile/);
   assert.match(isolationBlock, /--ignore-scripts/);
   assert.match(isolationBlock, /--package-import-method copy/);
-  assert.match(
-    isolationBlock,
-    /\/bin\/chmod -R a\+rX,go-w "\$PNPM_ACTION_DEST"/,
-  );
-  assert.match(isolationBlock, /NODE_SOURCE_PATH="\$setup_node_bin" \\/);
-  assert.match(isolationBlock, /PNPM_SOURCE_PATH="\$setup_pnpm_bin" \\/);
-  assert.match(
-    isolationBlock,
-    /vercel-prebuilt-workflow\.mjs" \\\n\s+stage-runtime/,
-  );
+  assert.doesNotMatch(isolationBlock, /PNPM_ACTION_DEST|PNPM_BIN_DEST/);
+  assert.doesNotMatch(isolationBlock, /\bstage-runtime\b/);
+  assert.match(isolationBlock, /pnpm_bootstrap="\$bootstrap_bin_dir\/pnpm"/);
+  assert.match(isolationBlock, /trusted_pnpm_store=.*store path --silent/);
+  assert.match(isolationBlock, /\/usr\/bin\/sha256sum "\$pnpm_bootstrap"/);
   assert.match(
     isolationBlock,
     /vercel-prebuilt-workflow\.mjs" \\\n\s+stage-pnpm-runtime/,
@@ -2236,10 +2305,6 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   );
   assert.match(
     isolationBlock,
-    /Pinned pnpm escaped its action-owned directory/,
-  );
-  assert.match(
-    isolationBlock,
     /Protected pnpm copy does not match the pinned release/,
   );
   assert.match(
@@ -2252,18 +2317,16 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   );
   assert.match(
     isolationBlock,
-    /Pinned pnpm action directory escaped RUNNER_TEMP/,
+    /Protected runtime root is not the authenticated fixed directory/,
   );
-  assert.match(isolationBlock, /Protected runtime destination already exists/);
   assert.match(isolationBlock, /trusted-install-modules-dir/);
   assert.match(isolationBlock, /--modules-dir "\$trusted_modules_dir"/);
   const runnerTempHardenIndex = isolationBlock.indexOf(
     '/bin/chmod 0711 "$RUNNER_TEMP"',
   );
-  const pnpmActionHardenIndex = isolationBlock.indexOf(
-    '/bin/chmod -R a+rX,go-w "$PNPM_ACTION_DEST"',
+  const protectedStoreIndex = isolationBlock.indexOf(
+    'trusted_pnpm_store="$("$pnpm_bootstrap" store path --silent)"',
   );
-  const protectedRuntimeCopyIndex = isolationBlock.indexOf("stage-runtime");
   const protectedPnpmRuntimeIndex =
     isolationBlock.indexOf("stage-pnpm-runtime");
   const protectedLauncherIndex = isolationBlock.indexOf("stage-pnpm-launcher");
@@ -2279,9 +2342,8 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   );
   const materializeIndex = isolationBlock.indexOf("materialize-source");
   assert.notEqual(runnerTempHardenIndex, -1);
-  assert.ok(pnpmActionHardenIndex > runnerTempHardenIndex);
-  assert.ok(protectedRuntimeCopyIndex > pnpmActionHardenIndex);
-  assert.ok(protectedPnpmRuntimeIndex > protectedRuntimeCopyIndex);
+  assert.ok(protectedStoreIndex > runnerTempHardenIndex);
+  assert.ok(protectedPnpmRuntimeIndex > protectedStoreIndex);
   assert.ok(protectedLauncherIndex > protectedPnpmRuntimeIndex);
   assert.ok(protectedPathLoopIndex > protectedLauncherIndex);
   assert.ok(runnerTempProtectionIndex > protectedPathLoopIndex);

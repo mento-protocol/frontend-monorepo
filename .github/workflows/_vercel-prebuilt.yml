@@ -155,79 +155,206 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.commit_sha }}
 
-      - name: Set up pinned pnpm
-        id: pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v4
-        with:
-          dest: ${{ runner.temp }}/mento-pnpm-tools
-          standalone: true
-          version: 10.34.4
-
-      - name: Verify pinned pnpm target before first execution
-        shell: bash
-        env:
-          EXPECTED_PNPM_LINUX_X64_SHA256: e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193
-          PNPM_ACTION_DEST: ${{ runner.temp }}/mento-pnpm-tools
-          PNPM_BIN_DEST: ${{ steps.pnpm.outputs.bin_dest }}
-        run: |
-          set -euo pipefail
-          if [ "$(/usr/bin/uname -s)" != "Linux" ] ||
-            [ "$(/usr/bin/uname -m)" != "x86_64" ]; then
-            echo "Pinned pnpm target digest supports only the expected Linux x64 runner" >&2
-            exit 1
-          fi
-          if [ ! -d "$PNPM_ACTION_DEST" ] || [ -L "$PNPM_ACTION_DEST" ]; then
-            echo "Pinned pnpm action directory is not a real directory" >&2
-            exit 1
-          fi
-          action_root="$(/usr/bin/realpath "$PNPM_ACTION_DEST")"
-          if [ "$action_root" != "$RUNNER_TEMP/mento-pnpm-tools" ]; then
-            echo "Pinned pnpm action directory escaped RUNNER_TEMP" >&2
-            exit 1
-          fi
-          bin_dest="$(/usr/bin/realpath "$PNPM_BIN_DEST")"
-          if [ "$bin_dest" != "$action_root/node_modules/.bin/bin" ]; then
-            echo "Pinned pnpm action returned an unexpected binary directory" >&2
-            exit 1
-          fi
-          pnpm_target="$(/usr/bin/realpath "$PNPM_BIN_DEST/pnpm")"
-          case "$pnpm_target" in
-            "$action_root"/*) ;;
-            *) echo "Pinned pnpm target escaped its action-owned directory" >&2; exit 1 ;;
-          esac
-          path_pnpm="$(type -P pnpm)"
-          if [ "$(/usr/bin/realpath "$path_pnpm")" != "$pnpm_target" ]; then
-            echo "PATH does not resolve to the pinned pnpm target" >&2
-            exit 1
-          fi
-          if [ ! -f "$pnpm_target" ] ||
-            [ -L "$pnpm_target" ] ||
-            [ "$(/usr/bin/stat -c %u "$pnpm_target")" != "$(/usr/bin/id -u)" ]; then
-            echo "Pinned pnpm target is not a runner-owned regular file" >&2
-            exit 1
-          fi
-          mode="$(/usr/bin/stat -c %a "$pnpm_target")"
-          if (( (8#$mode & 0022) != 0 )); then
-            echo "Pinned pnpm target is group- or world-writable" >&2
-            exit 1
-          fi
-          actual_sha256="$(
-            /usr/bin/sha256sum "$pnpm_target" | /usr/bin/cut -d ' ' -f1
-          )"
-          if [ "$actual_sha256" != "$EXPECTED_PNPM_LINUX_X64_SHA256" ]; then
-            echo "Pinned pnpm target digest does not match the reviewed artifact" >&2
-            exit 1
-          fi
-          "$pnpm_target" --version | /usr/bin/grep -Fxq "10.34.4"
-
-      - name: Set up pinned Node.js and pnpm cache
+      - name: Set up pinned Node.js without package-manager cache
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 22
+          package-manager-cache: false
+
+      - name: Stage and authenticate pinned pnpm bootstrap
+        shell: bash
+        env:
+          EXPECTED_PNPM_LINUX_X64_SHA256: e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193
+          PNPM_BOOTSTRAP_CACHE_PATH: ${{ runner.temp }}/mento-vercel-npm-cache
+          PNPM_BOOTSTRAP_HOME_PATH: ${{ runner.temp }}/mento-vercel-npm-home
+          PNPM_BOOTSTRAP_PATH: ${{ runner.temp }}/mento-vercel-pnpm-bootstrap
+          PNPM_BOOTSTRAP_TMP_PATH: ${{ runner.temp }}/mento-vercel-npm-tmp
+          TRUSTED_VERCEL_TOOLS_PATH: ${{ runner.temp }}/mento-vercel-trusted-tools
+        run: |
+          set -euo pipefail
+          umask 077
+          /bin/chmod 0711 "$RUNNER_TEMP"
+          if [ "$(/usr/bin/uname -s)" != "Linux" ] ||
+            [ "$(/usr/bin/uname -m)" != "x86_64" ]; then
+            echo "Pinned pnpm bootstrap supports only the expected Linux x64 runner" >&2
+            exit 1
+          fi
+          for fresh_path in \
+            "$PNPM_BOOTSTRAP_CACHE_PATH" \
+            "$PNPM_BOOTSTRAP_HOME_PATH" \
+            "$PNPM_BOOTSTRAP_PATH" \
+            "$PNPM_BOOTSTRAP_TMP_PATH" \
+            "$TRUSTED_VERCEL_TOOLS_PATH"; do
+            if [ -e "$fresh_path" ] || [ -L "$fresh_path" ]; then
+              echo "Trusted pnpm bootstrap path already exists: $fresh_path" >&2
+              exit 1
+            fi
+          done
+          /usr/bin/install -d -m 0700 \
+            "$PNPM_BOOTSTRAP_CACHE_PATH" \
+            "$PNPM_BOOTSTRAP_HOME_PATH" \
+            "$PNPM_BOOTSTRAP_TMP_PATH"
+          /usr/bin/install -m 0600 /dev/null \
+            "$PNPM_BOOTSTRAP_HOME_PATH/global.npmrc"
+          /usr/bin/install -m 0600 /dev/null \
+            "$PNPM_BOOTSTRAP_HOME_PATH/user.npmrc"
+
+          setup_node_bin="$(/usr/bin/realpath "$(type -P node)")"
+          setup_node_bin_dir="$(/usr/bin/dirname "$setup_node_bin")"
+          setup_node_root="$(/usr/bin/realpath "$setup_node_bin_dir/..")"
+          npm_cli="$(/usr/bin/realpath "$(type -P npm)")"
+          case "$npm_cli" in
+            "$setup_node_root"/*) ;;
+            *) echo "Pinned npm CLI escaped the setup-node tool root" >&2; exit 1 ;;
+          esac
+          if [ ! -f "$npm_cli" ] || [ -L "$npm_cli" ]; then
+            echo "Pinned npm CLI is not a regular file" >&2
+            exit 1
+          fi
+          for shadowing_binary in \
+            "$setup_node_bin_dir/pnpm" \
+            "$setup_node_bin_dir/pnpx"; do
+            if [ -e "$shadowing_binary" ] || [ -L "$shadowing_binary" ]; then
+              echo "setup-node tool directory unexpectedly shadows authenticated pnpm" >&2
+              exit 1
+            fi
+          done
+
+          bootstrap_root="$(
+            CONTROLLER_PATH="$GITHUB_WORKSPACE/controller" \
+            PNPM_BOOTSTRAP_PATH="$PNPM_BOOTSTRAP_PATH" \
+            RUNNER_TEMP="$RUNNER_TEMP" \
+              "$setup_node_bin" \
+              "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" \
+              stage-pnpm-bootstrap
+          )"
+          if [ "$bootstrap_root" != "$PNPM_BOOTSTRAP_PATH" ]; then
+            echo "Trusted pnpm bootstrap escaped its fixed staging root" >&2
+            exit 1
+          fi
+          /usr/bin/env -i \
+            HOME="$PNPM_BOOTSTRAP_HOME_PATH" \
+            HTTPS_PROXY="${HTTPS_PROXY:-}" \
+            HTTP_PROXY="${HTTP_PROXY:-}" \
+            LANG="${LANG:-C.UTF-8}" \
+            LC_ALL="${LC_ALL:-C.UTF-8}" \
+            NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-}" \
+            NO_PROXY="${NO_PROXY:-}" \
+            NPM_CONFIG_AUDIT=false \
+            NPM_CONFIG_CACHE="$PNPM_BOOTSTRAP_CACHE_PATH" \
+            NPM_CONFIG_FUND=false \
+            NPM_CONFIG_GLOBALCONFIG="$PNPM_BOOTSTRAP_HOME_PATH/global.npmrc" \
+            NPM_CONFIG_IGNORE_SCRIPTS=true \
+            NPM_CONFIG_REGISTRY=https://registry.npmjs.org/ \
+            NPM_CONFIG_UPDATE_NOTIFIER=false \
+            NPM_CONFIG_USERCONFIG="$PNPM_BOOTSTRAP_HOME_PATH/user.npmrc" \
+            PATH="$setup_node_bin_dir:/usr/bin:/bin" \
+            SSL_CERT_FILE="${SSL_CERT_FILE:-}" \
+            TMPDIR="$PNPM_BOOTSTRAP_TMP_PATH" \
+            "$setup_node_bin" "$npm_cli" ci \
+              --prefix "$PNPM_BOOTSTRAP_PATH" \
+              --ignore-scripts \
+              --no-audit \
+              --no-fund \
+              --omit=dev
+          /bin/chmod -R a+rX,go-w "$PNPM_BOOTSTRAP_PATH"
+          NODE_SOURCE_PATH="$setup_node_bin" \
+          PNPM_BOOTSTRAP_PATH="$PNPM_BOOTSTRAP_PATH" \
+          RUNNER_TEMP="$RUNNER_TEMP" \
+          TRUSTED_VERCEL_TOOLS_PATH="$TRUSTED_VERCEL_TOOLS_PATH" \
+            "$setup_node_bin" \
+            "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" \
+            stage-runtime
+
+          trusted_bin_dir="$TRUSTED_VERCEL_TOOLS_PATH/bin"
+          bootstrap_bin_dir="$TRUSTED_VERCEL_TOOLS_PATH/bootstrap-bin"
+          node_bin="$trusted_bin_dir/node"
+          pnpm_bootstrap="$bootstrap_bin_dir/pnpm"
+          for protected_directory in \
+            "$TRUSTED_VERCEL_TOOLS_PATH" \
+            "$trusted_bin_dir" \
+            "$bootstrap_bin_dir"; do
+            if [ "$(/usr/bin/stat -c %a "$protected_directory")" != "755" ]; then
+              echo "Protected runtime directory is not cross-identity readable" >&2
+              exit 1
+            fi
+          done
+          for protected_binary in "$node_bin" "$pnpm_bootstrap"; do
+            mode="$(/usr/bin/stat -c %a "$protected_binary")"
+            if [ ! -f "$protected_binary" ] ||
+              [ -L "$protected_binary" ] ||
+              [ "$(/usr/bin/stat -c %u "$protected_binary")" != "$(/usr/bin/id -u)" ] ||
+              [ "$(/usr/bin/stat -c %h "$protected_binary")" != "1" ] ||
+              [ "$mode" != "555" ]; then
+              echo "Protected runtime binary is not an independent runner-owned file" >&2
+              exit 1
+            fi
+          done
+          protected_sha256="$(
+            /usr/bin/sha256sum "$pnpm_bootstrap" | /usr/bin/cut -d ' ' -f1
+          )"
+          if [ "$protected_sha256" != "$EXPECTED_PNPM_LINUX_X64_SHA256" ]; then
+            echo "Protected pnpm bootstrap digest does not match the reviewed artifact" >&2
+            exit 1
+          fi
+          "$pnpm_bootstrap" --version | /usr/bin/grep -Fxq "10.34.4"
+
+          /bin/rm -rf -- \
+            "$PNPM_BOOTSTRAP_CACHE_PATH" \
+            "$PNPM_BOOTSTRAP_HOME_PATH" \
+            "$PNPM_BOOTSTRAP_PATH" \
+            "$PNPM_BOOTSTRAP_TMP_PATH"
+          printf '%s\n' "$bootstrap_bin_dir" >> "$GITHUB_PATH"
+
+      - name: Prove authenticated pnpm path before cache restore
+        env:
+          EXPECTED_PNPM_LINUX_X64_SHA256: e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193
+          TRUSTED_VERCEL_TOOLS_PATH: ${{ runner.temp }}/mento-vercel-trusted-tools
+        run: |
+          set -euo pipefail
+          expected_pnpm="$TRUSTED_VERCEL_TOOLS_PATH/bootstrap-bin/pnpm"
+          path_pnpm="$(type -P pnpm)"
+          if [ "$(/usr/bin/realpath "$path_pnpm")" != "$expected_pnpm" ]; then
+            echo "PATH does not resolve to the authenticated pnpm bootstrap" >&2
+            exit 1
+          fi
+          actual_sha256="$(
+            /usr/bin/sha256sum "$path_pnpm" | /usr/bin/cut -d ' ' -f1
+          )"
+          if [ "$actual_sha256" != "$EXPECTED_PNPM_LINUX_X64_SHA256" ]; then
+            echo "Authenticated pnpm bootstrap digest changed before cache restore" >&2
+            exit 1
+          fi
+          "$path_pnpm" --version | /usr/bin/grep -Fxq "10.34.4"
+
+      - name: Restore trusted pnpm cache
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
           cache: pnpm
           cache-dependency-path: |
             controller/pnpm-lock.yaml
             controller/scripts/vercel-pnpm-runtime/pnpm-lock.yaml
+
+      - name: Reverify authenticated pnpm after cache restore
+        env:
+          EXPECTED_PNPM_LINUX_X64_SHA256: e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193
+          TRUSTED_VERCEL_TOOLS_PATH: ${{ runner.temp }}/mento-vercel-trusted-tools
+        run: |
+          set -euo pipefail
+          expected_pnpm="$TRUSTED_VERCEL_TOOLS_PATH/bootstrap-bin/pnpm"
+          path_pnpm="$(type -P pnpm)"
+          if [ "$(/usr/bin/realpath "$path_pnpm")" != "$expected_pnpm" ]; then
+            echo "Cache restore changed the authenticated pnpm path" >&2
+            exit 1
+          fi
+          actual_sha256="$(
+            /usr/bin/sha256sum "$path_pnpm" | /usr/bin/cut -d ' ' -f1
+          )"
+          if [ "$actual_sha256" != "$EXPECTED_PNPM_LINUX_X64_SHA256" ]; then
+            echo "Authenticated pnpm bootstrap digest changed after cache restore" >&2
+            exit 1
+          fi
+          "$path_pnpm" --version | /usr/bin/grep -Fxq "10.34.4"
 
       - name: Validate pilot contract and prepare immutable build identity
         id: prepare
@@ -266,8 +393,7 @@ jobs:
           CANDIDATE_HOME_PATH: ${{ runner.temp }}/mento-vercel-candidate-home
           CANDIDATE_SOURCE_PATH: ${{ runner.temp }}/mento-vercel-candidate-source
           DEPLOY_SHA: ${{ steps.source.outputs.checked_out_sha }}
-          PNPM_ACTION_DEST: ${{ runner.temp }}/mento-pnpm-tools
-          PNPM_BIN_DEST: ${{ steps.pnpm.outputs.bin_dest }}
+          EXPECTED_PNPM_LINUX_X64_SHA256: e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193
           SOURCE_PATH: ${{ github.workspace }}/source
           TRUSTED_VERCEL_TOOLS_PATH: ${{ runner.temp }}/mento-vercel-trusted-tools
         run: |
@@ -294,40 +420,20 @@ jobs:
           fi
 
           /bin/chmod 0711 "$RUNNER_TEMP"
-          if [ ! -d "$PNPM_ACTION_DEST" ] || [ -L "$PNPM_ACTION_DEST" ]; then
-            echo "Pinned pnpm action directory is not a real directory" >&2
-            exit 1
-          fi
-          if [ "$(realpath "$PNPM_ACTION_DEST")" != "$RUNNER_TEMP/mento-pnpm-tools" ]; then
-            echo "Pinned pnpm action directory escaped RUNNER_TEMP" >&2
-            exit 1
-          fi
-          /bin/chmod -R a+rX,go-w "$PNPM_ACTION_DEST"
-          if [ -e "$TRUSTED_VERCEL_TOOLS_PATH" ] || [ -L "$TRUSTED_VERCEL_TOOLS_PATH" ]; then
-            echo "Protected runtime destination already exists" >&2
+          if [ ! -d "$TRUSTED_VERCEL_TOOLS_PATH" ] ||
+            [ -L "$TRUSTED_VERCEL_TOOLS_PATH" ] ||
+            [ "$(realpath "$TRUSTED_VERCEL_TOOLS_PATH")" != "$RUNNER_TEMP/mento-vercel-trusted-tools" ]; then
+            echo "Protected runtime root is not the authenticated fixed directory" >&2
             exit 1
           fi
           trusted_bin_dir="$TRUSTED_VERCEL_TOOLS_PATH/bin"
-          setup_node_bin="$(realpath "$(command -v node)")"
-          if [ "$(realpath "$PNPM_BIN_DEST")" != "$PNPM_ACTION_DEST/node_modules/.bin/bin" ]; then
-            echo "Pinned pnpm action returned an unexpected binary directory" >&2
-            exit 1
-          fi
-          setup_pnpm_bin="$(realpath "$PNPM_BIN_DEST/pnpm")"
-          case "$setup_pnpm_bin" in
-            "$PNPM_ACTION_DEST"/*) ;;
-            *) echo "Pinned pnpm escaped its action-owned directory" >&2; exit 1 ;;
-          esac
-          NODE_SOURCE_PATH="$setup_node_bin" \
-          PNPM_SOURCE_PATH="$setup_pnpm_bin" \
-          RUNNER_TEMP="$RUNNER_TEMP" \
-          TRUSTED_VERCEL_TOOLS_PATH="$TRUSTED_VERCEL_TOOLS_PATH" \
-            "$setup_node_bin" \
-            "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" \
-            stage-runtime
+          bootstrap_bin_dir="$TRUSTED_VERCEL_TOOLS_PATH/bootstrap-bin"
           node_bin="$trusted_bin_dir/node"
-          pnpm_bootstrap="$trusted_bin_dir/pnpm-bootstrap"
-          for protected_directory in "$TRUSTED_VERCEL_TOOLS_PATH" "$trusted_bin_dir"; do
+          pnpm_bootstrap="$bootstrap_bin_dir/pnpm"
+          for protected_directory in \
+            "$TRUSTED_VERCEL_TOOLS_PATH" \
+            "$trusted_bin_dir" \
+            "$bootstrap_bin_dir"; do
             if [ "$(/usr/bin/stat -c %a "$protected_directory")" != "755" ]; then
               echo "Protected runtime directory is not cross-identity readable" >&2
               exit 1
@@ -344,10 +450,38 @@ jobs:
               exit 1
             fi
           done
-          if [ "$("$pnpm_bootstrap" --version)" != "10.34.4" ]; then
+          protected_sha256="$(
+            /usr/bin/sha256sum "$pnpm_bootstrap" | /usr/bin/cut -d ' ' -f1
+          )"
+          if [ "$protected_sha256" != "$EXPECTED_PNPM_LINUX_X64_SHA256" ] ||
+            [ "$("$pnpm_bootstrap" --version)" != "10.34.4" ]; then
             echo "Protected pnpm copy does not match the pinned release" >&2
             exit 1
           fi
+          trusted_pnpm_store="$("$pnpm_bootstrap" store path --silent)"
+          if [ -z "$trusted_pnpm_store" ] || [[ "$trusted_pnpm_store" != /* ]]; then
+            echo "Trusted pnpm cache path is not absolute" >&2
+            exit 1
+          fi
+          if [ -e "$trusted_pnpm_store" ] || [ -L "$trusted_pnpm_store" ]; then
+            if [ ! -d "$trusted_pnpm_store" ] || [ -L "$trusted_pnpm_store" ]; then
+              echo "Trusted pnpm cache path is not a real directory" >&2
+              exit 1
+            fi
+          else
+            /usr/bin/install -d -m 0700 "$trusted_pnpm_store"
+          fi
+          trusted_pnpm_store="$(realpath "$trusted_pnpm_store")"
+          case "$trusted_pnpm_store" in
+            "$HOME"/*) ;;
+            *) echo "Trusted pnpm cache escaped the runner home" >&2; exit 1 ;;
+          esac
+          if [ "$(/usr/bin/stat -c %u "$trusted_pnpm_store")" != "$(id -u)" ]; then
+            echo "Trusted pnpm cache is not runner-owned" >&2
+            exit 1
+          fi
+          trusted_pnpm_store_parent="$(dirname "$trusted_pnpm_store")"
+          /bin/chmod -R go-w "$trusted_pnpm_store"
           pnpm_runtime_root="$(
             CONTROLLER_PATH="$GITHUB_WORKSPACE/controller" \
             TRUSTED_VERCEL_TOOLS_PATH="$TRUSTED_VERCEL_TOOLS_PATH" \
@@ -426,11 +560,13 @@ jobs:
             "$SOURCE_PATH/.git" \
             "$SOURCE_PATH/package.json" \
             "$SOURCE_PATH/pnpm-lock.yaml" \
-            "$PNPM_ACTION_DEST" \
             "$TRUSTED_VERCEL_TOOLS_PATH" \
             "$trusted_bin_dir" \
+            "$bootstrap_bin_dir" \
             "$node_bin" \
             "$pnpm_bootstrap" \
+            "$trusted_pnpm_store_parent" \
+            "$trusted_pnpm_store" \
             "$pnpm_runtime_root" \
             "$pnpm_runtime_root/package.json" \
             "$pnpm_runtime_root/pnpm-lock.yaml" \
@@ -1020,6 +1156,10 @@ jobs:
         env:
           CANDIDATE_HOME_PATH: ${{ runner.temp }}/mento-vercel-candidate-home
           CANDIDATE_SOURCE_PATH: ${{ runner.temp }}/mento-vercel-candidate-source
+          PNPM_BOOTSTRAP_CACHE_PATH: ${{ runner.temp }}/mento-vercel-npm-cache
+          PNPM_BOOTSTRAP_HOME_PATH: ${{ runner.temp }}/mento-vercel-npm-home
+          PNPM_BOOTSTRAP_PATH: ${{ runner.temp }}/mento-vercel-pnpm-bootstrap
+          PNPM_BOOTSTRAP_TMP_PATH: ${{ runner.temp }}/mento-vercel-npm-tmp
           PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-pull-staging
           TRUSTED_VERCEL_TOOLS_PATH: ${{ runner.temp }}/mento-vercel-trusted-tools
           UPLOAD_SOURCE_PATH: ${{ runner.temp }}/mento-vercel-upload-source
@@ -1043,7 +1183,16 @@ jobs:
           if getent group mento-vercel-build >/dev/null; then
             sudo --non-interactive /usr/sbin/groupdel mento-vercel-build
           fi
-          for path in "$CANDIDATE_HOME_PATH" "$CANDIDATE_SOURCE_PATH" "$PULL_STAGING_PATH" "$TRUSTED_VERCEL_TOOLS_PATH" "$UPLOAD_SOURCE_PATH"; do
+          for path in \
+            "$CANDIDATE_HOME_PATH" \
+            "$CANDIDATE_SOURCE_PATH" \
+            "$PNPM_BOOTSTRAP_CACHE_PATH" \
+            "$PNPM_BOOTSTRAP_HOME_PATH" \
+            "$PNPM_BOOTSTRAP_PATH" \
+            "$PNPM_BOOTSTRAP_TMP_PATH" \
+            "$PULL_STAGING_PATH" \
+            "$TRUSTED_VERCEL_TOOLS_PATH" \
+            "$UPLOAD_SOURCE_PATH"; do
             case "$path" in
               "$RUNNER_TEMP"/mento-vercel-*) ;;
               *) echo "Refusing to clean an unexpected path" >&2; exit 1 ;;
@@ -1052,6 +1201,10 @@ jobs:
           sudo --non-interactive /bin/rm -rf -- \
             "$CANDIDATE_HOME_PATH" \
             "$CANDIDATE_SOURCE_PATH" \
+            "$PNPM_BOOTSTRAP_CACHE_PATH" \
+            "$PNPM_BOOTSTRAP_HOME_PATH" \
+            "$PNPM_BOOTSTRAP_PATH" \
+            "$PNPM_BOOTSTRAP_TMP_PATH" \
             "$PULL_STAGING_PATH" \
             "$UPLOAD_SOURCE_PATH"
           /bin/rm -rf -- "$TRUSTED_VERCEL_TOOLS_PATH"
