@@ -1907,8 +1907,14 @@ test("strict worker identity uses display_title plus workflow path, ref, SHA, an
     ).workflow_run_id,
     8_000,
   );
+  assert.equal(
+    validateWorkerRunIdentity({ ...run, name: run.display_title }, selection)
+      .workflow_run_id,
+    8_000,
+  );
   for (const override of [
     { display_title: "Vercel Preview Worker" },
+    { name: "Another Workflow" },
     { path: ".github/workflows/vercel-preview-worker.yml@feature" },
     { path: ".github/workflows/other.yml@main" },
     { event: "push" },
@@ -2118,7 +2124,8 @@ test("intended dispatch recovery attaches exactly one run and fails closed on am
     pullRequest,
   });
   const intended = persistIntent(selected);
-  const existingRun = workerRun(selected.nextDispatch);
+  const listedRun = workerRun(selected.nextDispatch);
+  const existingRun = { ...listedRun, name: listedRun.display_title };
   const recovered = fakeGitHub({
     pullRequest,
     comments: [eventComment(opened), stateComment(intended)],

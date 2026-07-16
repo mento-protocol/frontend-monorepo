@@ -2298,7 +2298,15 @@ async function recoverMatchingWorkerRun(
 
 export function validateWorkerRunIdentity(run, selected) {
   plainObject(run, "Worker run");
-  invariant(run.name === WORKER_WORKFLOW_NAME, "Worker workflow name mismatch");
+  const displayTitle = boundedText(
+    run.display_title,
+    "Worker run display title",
+  );
+  const workflowName = boundedText(run.name, "Worker workflow name");
+  invariant(
+    workflowName === WORKER_WORKFLOW_NAME || workflowName === displayTitle,
+    "Worker workflow name mismatch",
+  );
   const workflowPath = `.github/workflows/${WORKER_WORKFLOW}`;
   invariant(
     run.path === workflowPath || run.path === `${workflowPath}@main`,
@@ -2308,7 +2316,7 @@ export function validateWorkerRunIdentity(run, selected) {
   invariant(run.head_branch === "main", "Worker default ref mismatch");
   const workflowSha = exactSha(run.head_sha, "Worker workflow SHA");
   const runAttempt = exactRunAttempt(run.run_attempt ?? 1);
-  const parsed = parseWorkerRunName(run.display_title);
+  const parsed = parseWorkerRunName(displayTitle);
   invariant(
     parsed.pr === selected.pr &&
       parsed.sha === selected.sha &&
