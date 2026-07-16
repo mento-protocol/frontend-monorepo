@@ -644,21 +644,30 @@ The reconciler writes `dispatch_state=intended`, including
 three times for a matching worker run by strict `workflow_run.display_title`.
 A title match is not enough: its `head_sha` must equal the persisted authorized
 workflow SHA. One valid match is attached and multiple exact matches fail
-closed. A full-envelope-valid wrong-SHA artifact is never allowed to own the
+closed. If GitHub still exposes the workflow's exact default title, the
+controller treats that run ID as unresolved, continues listing for additional
+candidates, and re-queries the unresolved ID directly. It never attaches an
+exact match or dispatches a replacement while any plausible default-title run
+remains unresolved. After any recovery wait, it refreshes PR openness, exact-SHA
+association, event receipts, and persisted selection ownership immediately
+before attaching or dispatching; a closed or changed lifecycle cannot launch a
+new worker. A full-envelope-valid wrong-SHA artifact is never allowed to own the
 intent; all other name, event, ref, path, title, attempt, and URL mismatches also
 fail closed.
 
 Zero matches dispatches `.github/workflows/vercel-preview-worker.yml` on `main`
 using the HTTP 200 `return_run_details` API contract only while the executing
 controller's own workflow SHA still equals the persisted intent. The returned
-run is re-queried once per second for up to 30 seconds because GitHub may
-temporarily return the workflow's default title before materializing the
-configured `run-name`. Only that exact transient title-parse failure is
-retried; every other identity mismatch still fails immediately. The
-materialized run's `head_sha` must equal `expected_workflow_sha`, in addition to
-matching the literal workflow path (either the bare path or GitHub's documented
-`@main` suffix), `workflow_dispatch` event, default ref, attempt, PR, target,
-candidate SHA, and epoch-bound key digest, before state becomes `dispatched`.
+run is re-queried once per second with a bounded 30-second retry-delay budget
+because GitHub may temporarily return the workflow's default title before
+materializing the configured `run-name`. API request latency is additive; the
+workflow timeout remains the outer wall-clock bound. Only that exact transient
+default title is retried; every other malformed title or identity mismatch
+fails immediately. The materialized run's `head_sha` must equal
+`expected_workflow_sha`, in addition to matching the literal workflow path
+(either the bare path or GitHub's documented `@main` suffix),
+`workflow_dispatch` event, default ref, attempt, PR, target, candidate SHA, and
+epoch-bound key digest, before state becomes `dispatched`.
 If `main` advances between intent persistence and dispatch, recovery may attach
 an already-created worker at the old authorized SHA, but a newer
 controller/worker version cannot satisfy or redispatch that old intent. A
