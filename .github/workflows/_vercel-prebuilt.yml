@@ -163,6 +163,63 @@ jobs:
           standalone: true
           version: 10.34.4
 
+      - name: Verify pinned pnpm target before first execution
+        shell: bash
+        env:
+          EXPECTED_PNPM_LINUX_X64_SHA256: e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193
+          PNPM_ACTION_DEST: ${{ runner.temp }}/mento-pnpm-tools
+          PNPM_BIN_DEST: ${{ steps.pnpm.outputs.bin_dest }}
+        run: |
+          set -euo pipefail
+          if [ "$(/usr/bin/uname -s)" != "Linux" ] ||
+            [ "$(/usr/bin/uname -m)" != "x86_64" ]; then
+            echo "Pinned pnpm target digest supports only the expected Linux x64 runner" >&2
+            exit 1
+          fi
+          if [ ! -d "$PNPM_ACTION_DEST" ] || [ -L "$PNPM_ACTION_DEST" ]; then
+            echo "Pinned pnpm action directory is not a real directory" >&2
+            exit 1
+          fi
+          action_root="$(/usr/bin/realpath "$PNPM_ACTION_DEST")"
+          if [ "$action_root" != "$RUNNER_TEMP/mento-pnpm-tools" ]; then
+            echo "Pinned pnpm action directory escaped RUNNER_TEMP" >&2
+            exit 1
+          fi
+          bin_dest="$(/usr/bin/realpath "$PNPM_BIN_DEST")"
+          if [ "$bin_dest" != "$action_root/node_modules/.bin/bin" ]; then
+            echo "Pinned pnpm action returned an unexpected binary directory" >&2
+            exit 1
+          fi
+          pnpm_target="$(/usr/bin/realpath "$PNPM_BIN_DEST/pnpm")"
+          case "$pnpm_target" in
+            "$action_root"/*) ;;
+            *) echo "Pinned pnpm target escaped its action-owned directory" >&2; exit 1 ;;
+          esac
+          path_pnpm="$(type -P pnpm)"
+          if [ "$(/usr/bin/realpath "$path_pnpm")" != "$pnpm_target" ]; then
+            echo "PATH does not resolve to the pinned pnpm target" >&2
+            exit 1
+          fi
+          if [ ! -f "$pnpm_target" ] ||
+            [ -L "$pnpm_target" ] ||
+            [ "$(/usr/bin/stat -c %u "$pnpm_target")" != "$(/usr/bin/id -u)" ]; then
+            echo "Pinned pnpm target is not a runner-owned regular file" >&2
+            exit 1
+          fi
+          mode="$(/usr/bin/stat -c %a "$pnpm_target")"
+          if (( (8#$mode & 0022) != 0 )); then
+            echo "Pinned pnpm target is group- or world-writable" >&2
+            exit 1
+          fi
+          actual_sha256="$(
+            /usr/bin/sha256sum "$pnpm_target" | /usr/bin/cut -d ' ' -f1
+          )"
+          if [ "$actual_sha256" != "$EXPECTED_PNPM_LINUX_X64_SHA256" ]; then
+            echo "Pinned pnpm target digest does not match the reviewed artifact" >&2
+            exit 1
+          fi
+          "$pnpm_target" --version | /usr/bin/grep -Fxq "10.34.4"
+
       - name: Set up pinned Node.js and pnpm cache
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:

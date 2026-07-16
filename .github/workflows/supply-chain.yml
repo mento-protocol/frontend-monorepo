@@ -91,7 +91,7 @@ jobs:
       - name: lockfile-lint self-tests
         run: node scripts/lockfile-lint.test.mjs
       - name: lockfile integrity + registry check
-        run: pnpm supply-chain:lockfile-lint
+        run: npm run supply-chain:lockfile-lint
 
   version-skew:
     name: catalog version-skew

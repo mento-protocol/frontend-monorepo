@@ -200,6 +200,9 @@ test("prebuilt separates trusted standalone bootstrap from candidate JavaScript 
   const rootOsvConfig = read("osv-scanner.toml");
   const runtimeOsvConfig = read("scripts/vercel-pnpm-runtime/osv-scanner.toml");
   const pnpmSetup = steps.find(({ name }) => name === "Set up pinned pnpm");
+  const pnpmTargetVerification = steps.find(
+    ({ name }) => name === "Verify pinned pnpm target before first execution",
+  );
   const nodeSetup = steps.find(
     ({ name }) => name === "Set up pinned Node.js and pnpm cache",
   );
@@ -238,7 +241,7 @@ test("prebuilt separates trusted standalone bootstrap from candidate JavaScript 
   assert.match(runtimeOsvConfig, /ignoreUntil = 2026-08-16T00:00:00Z/);
   assert.equal(
     supplyChain.jobs["lockfile-lint"].steps.at(-1).run,
-    "pnpm supply-chain:lockfile-lint",
+    "npm run supply-chain:lockfile-lint",
   );
   const trunkOsvIgnore = trunk.lint.ignore.find(({ linters }) =>
     linters.includes("osv-scanner"),
@@ -251,6 +254,45 @@ test("prebuilt separates trusted standalone bootstrap from candidate JavaScript 
   assert.equal(pnpmSetup.with.standalone, true);
   assert.equal(pnpmSetup.with.version, "10.34.4");
   assert.equal(pnpmSetup.id, "pnpm");
+  assert.equal(
+    pnpmTargetVerification.env.EXPECTED_PNPM_LINUX_X64_SHA256,
+    "e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193",
+  );
+  assert.equal(
+    pnpmTargetVerification.env.PNPM_ACTION_DEST,
+    "${{ runner.temp }}/mento-pnpm-tools",
+  );
+  assert.equal(
+    pnpmTargetVerification.env.PNPM_BIN_DEST,
+    "${{ steps.pnpm.outputs.bin_dest }}",
+  );
+  assert.match(pnpmTargetVerification.run, /uname -s/);
+  assert.match(pnpmTargetVerification.run, /uname -m/);
+  assert.match(
+    pnpmTargetVerification.run,
+    /bin_dest="\$\(\/usr\/bin\/realpath "\$PNPM_BIN_DEST"\)"/,
+  );
+  assert.match(
+    pnpmTargetVerification.run,
+    /pnpm_target="\$\(\/usr\/bin\/realpath "\$PNPM_BIN_DEST\/pnpm"\)"/,
+  );
+  assert.match(pnpmTargetVerification.run, /path_pnpm="\$\(type -P pnpm\)"/);
+  assert.match(
+    pnpmTargetVerification.run,
+    /realpath "\$path_pnpm"\)" != "\$pnpm_target"/,
+  );
+  assert.match(
+    pnpmTargetVerification.run,
+    /\/usr\/bin\/sha256sum "\$pnpm_target"/,
+  );
+  assert.match(
+    pnpmTargetVerification.run,
+    /"\$pnpm_target" --version \| \/usr\/bin\/grep -Fxq "10\.34\.4"/,
+  );
+  assert.ok(
+    pnpmTargetVerification.run.indexOf('/usr/bin/sha256sum "$pnpm_target"') <
+      pnpmTargetVerification.run.indexOf('"$pnpm_target" --version'),
+  );
   assert.deepEqual(
     nodeSetup.with["cache-dependency-path"].trim().split(/\s+/),
     [
@@ -318,6 +360,14 @@ test("prebuilt separates trusted standalone bootstrap from candidate JavaScript 
   assert.match(install.run, /NPM_CONFIG_PACKAGE_MANAGER_STRICT_VERSION=false/);
   assert.match(install.run, /"\$pnpm_bin" --version \|/);
   assert.match(install.run, /\/usr\/bin\/grep -Fxq "10\.34\.4"/);
+  assert.ok(
+    names.indexOf("Set up pinned pnpm") <
+      names.indexOf("Verify pinned pnpm target before first execution"),
+  );
+  assert.ok(
+    names.indexOf("Verify pinned pnpm target before first execution") <
+      names.indexOf("Set up pinned Node.js and pnpm cache"),
+  );
   assert.ok(
     names.indexOf("Set up pinned Node.js and pnpm cache") <
       names.indexOf(

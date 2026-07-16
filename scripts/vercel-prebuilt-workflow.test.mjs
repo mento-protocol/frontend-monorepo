@@ -2156,6 +2156,26 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   assert.match(raw, /mento-vercel-upload-source/);
   assert.match(raw, /dest: \$\{\{ runner\.temp \}\}\/mento-pnpm-tools/);
   assert.match(raw, /standalone: true/);
+  assert.match(
+    raw,
+    /EXPECTED_PNPM_LINUX_X64_SHA256: e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193/,
+  );
+  const pnpmVerificationBlock = raw.slice(
+    raw.indexOf("- name: Verify pinned pnpm target before first execution"),
+    raw.indexOf("- name: Set up pinned Node.js and pnpm cache"),
+  );
+  assert.match(pnpmVerificationBlock, /uname -s/);
+  assert.match(pnpmVerificationBlock, /uname -m/);
+  assert.match(pnpmVerificationBlock, /path_pnpm="\$\(type -P pnpm\)"/);
+  assert.match(
+    pnpmVerificationBlock,
+    /realpath "\$path_pnpm"\)" != "\$pnpm_target"/,
+  );
+  assert.match(pnpmVerificationBlock, /\/usr\/bin\/sha256sum "\$pnpm_target"/);
+  assert.ok(
+    pnpmVerificationBlock.indexOf('/usr/bin/sha256sum "$pnpm_target"') <
+      pnpmVerificationBlock.indexOf('"$pnpm_target" --version'),
+  );
   assert.match(raw, /userdel mento-vercel-build/);
   assert.match(raw, /node_modules\/vercel\/dist\/index\.js/);
   assert.match(raw, /candidate_can_write/);

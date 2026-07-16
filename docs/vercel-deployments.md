@@ -364,14 +364,22 @@ the wrong path. The zero-network fixture requires the already-hydrated package
 store with `--offline`; it cannot contact the registry to repair missing data.
 The hosted setup-node and pnpm locations are treated only as trusted staging
 inputs because runner-image permissions can make those original paths writable
-by the isolated candidate UID. Before candidate code starts, the worker copies
-Node.js and the exact pinned standalone pnpm executable into the same
-runner-owned protected tool directory, removes group/other write access from
-the original pnpm action directory, and uses that executable only to install
-trusted controller tools. The pnpm action's PATH entry is a launcher whose
-executable lives below a hashed `global/v*/.../@pnpm/exe/pnpm` directory, so the
-worker requires exactly one protected target reporting `10.34.4` and copies
-that self-contained executable instead of relocating the launcher.
+by the isolated candidate UID. The pinned pnpm action installs its own bootstrap
+from a commit-locked npm lockfile, then downloads the requested
+`@pnpm/linux-x64@10.34.4` target; that target declares no lifecycle scripts.
+Before setup-node's cache probe or any other consumer can execute the downloaded
+target, the worker requires the expected Linux x64 runner, canonical
+action-owned path, runner ownership, non-writable mode, and reviewed executable
+SHA-256
+`e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193`.
+Before candidate code starts, the worker then copies Node.js and that verified
+standalone pnpm executable into the same runner-owned protected tool directory,
+removes group/other write access from the original pnpm action directory, and
+uses the copied executable only to install trusted controller tools. The pnpm
+action's PATH entry is a launcher whose executable lives below a hashed
+`global/v*/.../@pnpm/exe/pnpm` directory, so the worker also requires exactly
+one protected target reporting `10.34.4` and copies that self-contained
+executable instead of relocating the launcher.
 
 Candidate-controlled installs use a separate JavaScript pnpm runtime pinned by
 `scripts/vercel-pnpm-runtime/package.json` and its standalone frozen lockfile.
@@ -382,8 +390,9 @@ Before staging, the controller requires the manifest to match its exact allowed
 fields and binds the complete one-importer lockfile bytes to
 `PINNED_PNPM_RUNTIME_LOCKFILE_SHA256`; this rejects extra dependency/config
 sections, custom tarballs, changed integrity, or extra importers/packages before
-the bootstrap install. A pnpm bump must update the isolated manifest and
-lockfile, `PINNED_PNPM_VERSION`, and that reviewed digest together.
+the bootstrap install. A pnpm bump must update the action input, reviewed Linux
+x64 executable digest, isolated manifest and lockfile, `PINNED_PNPM_VERSION`,
+and lockfile digest together.
 The protected launcher always uses protected Node plus that runtime's
 `pnpm.cjs`; it disables pnpm's package-manager self-switch and strict patch
 version check so an older candidate `packageManager` field cannot silently
