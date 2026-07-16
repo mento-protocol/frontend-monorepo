@@ -8,9 +8,12 @@ const PREVIEW_STATUS_CONTEXT = "Vercel Preview";
 export const EVENT_RECEIPT_SCHEMA = "vercel-preview-event-receipt:v1";
 const WORKER_EVIDENCE_SCHEMA = "vercel-preview-worker-evidence:v1";
 export const RESULT_RECEIPT_SCHEMA = "vercel-preview-worker-result:v1";
+export const SELECTION_RECEIPT_SCHEMA = "vercel-preview-selection:v1";
 export const CONTROLLER_SCHEMA = "vercel-preview-controller:v1";
 const WORKER_WORKFLOW = "vercel-preview-worker.yml";
 const WORKER_WORKFLOW_NAME = "Vercel Preview Worker";
+const INTAKE_WORKFLOW = "vercel-preview-intake.yml";
+const INTAKE_WORKFLOW_NAME = "Vercel Preview Intake";
 export const BOOTSTRAP_DISPATCH_EVENT = "vercel-preview-bootstrap";
 export const RECONCILE_DISPATCH_EVENT = "vercel-preview-reconcile";
 const REPOSITORY_DISPATCH_OPERATIONS = new Map([
@@ -21,6 +24,7 @@ const REPOSITORY_DISPATCH_OPERATIONS = new Map([
 const EVENT_MARKER_PREFIX = "<!-- vercel-preview-event-receipt:v1:run:";
 const EVIDENCE_MARKER_PREFIX = "<!-- vercel-preview-worker-evidence:v1:";
 const RESULT_MARKER_PREFIX = "<!-- vercel-preview-worker-result:v1:";
+const SELECTION_MARKER_PREFIX = "<!-- vercel-preview-selection:v1:key:";
 const CONTROLLER_MARKER = "<!-- vercel-preview-controller:v1 -->";
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const LOGIN_PATTERN =
@@ -51,6 +55,8 @@ const MAX_RECEIPTS = 200;
 const MAX_HISTORY = 40;
 const WORKER_RUN_PAGE_SIZE = 100;
 const MAX_WORKER_RUN_PAGES = 3;
+const WORKER_RECOVERY_BEFORE_MS = 2 * 60 * 1_000;
+const WORKER_RECOVERY_AFTER_MS = 15 * 60 * 1_000;
 const UPLOAD_STARTED_DESCRIPTION = "Prebuilt preview upload starting";
 const RETIRED_RECOVERY_QUARANTINE = "persisted-attempt-invalid-or-unavailable";
 
@@ -131,6 +137,15 @@ function validatedHeadRef(value) {
     "PR head ref is invalid",
   );
   return value;
+}
+
+function validatedWorkerHeadRef(value) {
+  const headRef = validatedHeadRef(value);
+  invariant(
+    !headRef.startsWith("refs/"),
+    "PR head ref is not supported by the prebuilt worker",
+  );
+  return headRef;
 }
 
 function validatedRepository(value, label = "Repository") {
@@ -251,6 +266,7 @@ function classifyTrust({ headRepository, headRef, author }) {
   ) {
     return "dependabot";
   }
+  if (headRef.startsWith("refs/")) return "unsupported-ref";
   return headRepository === PREVIEW_REPOSITORY ? "trusted" : "fork";
 }
 
@@ -484,7 +500,7 @@ export function validateEventReceipt(value, { requirePlan = true } = {}) {
   boundedText(event.head_repository, "Head repository", 255);
   validatedLogin(event.pr_author);
   invariant(
-    ["trusted", "fork", "dependabot"].includes(event.trust),
+    ["trusted", "fork", "dependabot", "unsupported-ref"].includes(event.trust),
     "Event trust is invalid",
   );
   invariant(
@@ -591,8 +607,120 @@ function controllerKeyDigest(
   );
 }
 
+export function validateSelectionReceipt(value) {
+  const selection = plainObject(value, "Preview selection receipt");
+  invariant(
+    selection.schema === SELECTION_RECEIPT_SCHEMA,
+    "Preview selection receipt schema mismatch",
+  );
+  validatedRepository(selection.repository);
+  const pr = pullRequestNumber(selection.pr);
+  invariant(
+    selection.target === PREVIEW_TARGET,
+    "Preview selection target mismatch",
+  );
+  const sha = exactSha(selection.sha);
+  const key = controllerKey(pr, sha);
+  invariant(selection.key === key, "Preview selection key mismatch");
+  const epochAnchorRunId = exactRunId(
+    selection.epoch_anchor_run_id,
+    "Preview selection epoch anchor run ID",
+  );
+  invariant(
+    /^[0-9a-f]{64}$/.test(selection.reconciliation_basis_digest),
+    "Preview selection reconciliation basis digest is invalid",
+  );
+  const selectionReceiptRunId = exactRunId(
+    selection.selection_receipt_run_id,
+    "Preview selection event receipt run ID",
+  );
+  const expectedWorkflowSha = exactSha(
+    selection.expected_workflow_sha,
+    "Preview selection expected workflow SHA",
+  );
+  invariant(
+    selection.key_digest ===
+      controllerKeyDigest(key, {
+        epochAnchorRunId,
+        basisDigest: selection.reconciliation_basis_digest,
+        selectionReceiptRunId,
+        expectedWorkflowSha,
+      }),
+    "Preview selection digest mismatch",
+  );
+  invariant(
+    Array.isArray(selection.coalesced_receipt_run_ids) &&
+      selection.coalesced_receipt_run_ids.length <= MAX_RECEIPTS,
+    "Preview selection coalescing evidence is invalid",
+  );
+  const coalesced = new Set();
+  for (const runId of selection.coalesced_receipt_run_ids) {
+    const exact = exactRunId(runId, "Coalesced event receipt run ID");
+    invariant(
+      exact !== selectionReceiptRunId && !coalesced.has(exact),
+      "Preview selection coalescing evidence is duplicated or self-referential",
+    );
+    coalesced.add(exact);
+  }
+  return selection;
+}
+
+export function selectionReceiptMarker(value) {
+  const selection = validateSelectionReceipt(value);
+  return `${SELECTION_MARKER_PREFIX}${selection.key_digest} -->`;
+}
+
+export function selectionReceiptFromDispatch(selection) {
+  const dispatch = validateActiveDispatch(
+    selection,
+    selection.pr,
+    "Persisted selection dispatch",
+  );
+  return validateSelectionReceipt({
+    schema: SELECTION_RECEIPT_SCHEMA,
+    repository: PREVIEW_REPOSITORY,
+    pr: dispatch.pr,
+    target: PREVIEW_TARGET,
+    sha: dispatch.sha,
+    key: dispatch.key,
+    key_digest: dispatch.key_digest,
+    epoch_anchor_run_id: dispatch.epoch_anchor_run_id,
+    reconciliation_basis_digest: dispatch.reconciliation_basis_digest,
+    selection_receipt_run_id: dispatch.selection_receipt_run_id,
+    expected_workflow_sha: dispatch.expected_workflow_sha,
+    coalesced_receipt_run_ids: dispatch.coalesced_receipt_run_ids,
+  });
+}
+
 export function workerRunName({ pr, sha, keyDigest }) {
   return `Vercel preview worker | pr=${pullRequestNumber(pr)} | target=${PREVIEW_TARGET} | sha=${exactSha(sha)} | key=${boundedText(keyDigest, "Key digest", 24)}`;
+}
+
+export function dependabotIntakeRunName({ pr, sha, action }) {
+  const eventAction = boundedText(action, "Dependabot intake action", 32);
+  invariant(
+    ALLOWED_EVENT_ACTIONS.has(eventAction) && eventAction !== "bootstrap",
+    "Dependabot intake action is invalid",
+  );
+  return `Vercel preview intake | pr=${pullRequestNumber(pr)} | sha=${exactSha(sha)} | action=${eventAction}`;
+}
+
+export function parseDependabotIntakeRunName(value) {
+  boundedText(value, "Dependabot intake run name", 255);
+  const match = value.match(
+    /^Vercel preview intake \| pr=([1-9][0-9]{0,9}) \| sha=([0-9a-f]{40}) \| action=([a-z]+)$/,
+  );
+  invariant(match, "Dependabot intake run name is malformed");
+  const action = boundedText(match[3], "Dependabot intake action", 32);
+  invariant(
+    ALLOWED_EVENT_ACTIONS.has(action) && action !== "bootstrap",
+    "Dependabot intake action is invalid",
+  );
+  return {
+    pr: pullRequestNumber(match[1]),
+    sha: exactSha(match[2]),
+    action,
+  };
 }
 
 export function parseWorkerRunName(value) {
@@ -774,7 +902,7 @@ function dedupeEvents(events, preferredRunIds = new Set()) {
   return [...semantic.values()];
 }
 
-function persistedEventRunIds(state, results) {
+function persistedEventRunIds(state, results, selections) {
   const runIds = new Set();
   const add = (value) => {
     if (value !== null && value !== undefined) runIds.add(exactRunId(value));
@@ -796,6 +924,11 @@ function persistedEventRunIds(state, results) {
     add(result.epoch_anchor_run_id);
     add(result.selection_receipt_run_id);
   }
+  for (const selection of selections) {
+    add(selection.epoch_anchor_run_id);
+    add(selection.selection_receipt_run_id);
+    for (const runId of selection.coalesced_receipt_run_ids) add(runId);
+  }
   return runIds;
 }
 
@@ -816,7 +949,26 @@ function dedupeResults(results) {
   return [...byRun.values()];
 }
 
-function controllerReceiptsDigest(events, results, pr) {
+function dedupeSelectionReceipts(selections) {
+  invariant(
+    selections.length <= MAX_RECEIPTS,
+    "Too many preview selection receipts",
+  );
+  const byKey = new Map();
+  for (const raw of selections) {
+    const selection = validateSelectionReceipt(raw);
+    const previous = byKey.get(selection.key_digest);
+    if (previous)
+      invariant(
+        canonicalJson(previous) === canonicalJson(selection),
+        "Conflicting preview selection receipts",
+      );
+    byKey.set(selection.key_digest, selection);
+  }
+  return [...byKey.values()];
+}
+
+function controllerReceiptsDigest(events, results, selections, pr) {
   return digest({
     events: dedupeEvents(events)
       .filter((event) => event.pr === pr)
@@ -824,6 +976,10 @@ function controllerReceiptsDigest(events, results, pr) {
       .sort(),
     results: dedupeResults(results)
       .filter((result) => result.pr === pr)
+      .map(canonicalJson)
+      .sort(),
+    selections: dedupeSelectionReceipts(selections)
+      .filter((selection) => selection.pr === pr)
       .map(canonicalJson)
       .sort(),
   });
@@ -978,34 +1134,20 @@ function resultForSelection(results, anchorRunId, event, selection) {
   );
 }
 
-function normalizedObservation(observations, key) {
-  const value = observations?.[key];
-  if (value === undefined) return { worker_runs: null, deployments: null };
-  plainObject(value, "Controller observation");
-  for (const field of ["worker_runs", "deployments"]) {
-    invariant(
-      Number.isInteger(value[field]) && value[field] >= 0,
-      `Observation ${field} is invalid`,
-    );
-  }
-  return value;
-}
-
 function statusDecision({
   event,
   index,
   lineage,
   resultByRun,
   active,
-  durableSelectedRuns,
-  observations,
+  coalescedToByRun,
   controllerUrl,
 }) {
   if (event.trust !== "trusted") {
     return {
       sha: event.head_sha,
       state: "success",
-      description: "Preview unsupported for fork or Dependabot PR",
+      description: "Preview unsupported for this PR source",
       target_url: controllerUrl,
     };
   }
@@ -1085,22 +1227,14 @@ function statusDecision({
       target_url: active?.html_url ?? controllerUrl,
     };
   }
-  const laterSelection = lineage
-    .slice(index + 1)
-    .find((candidate) => durableSelectedRuns.has(candidate.event_run_id));
-  if (laterSelection) {
-    const observation = normalizedObservation(
-      observations,
-      controllerKey(event.pr, event.head_sha),
-    );
-    if (observation.worker_runs === 0 && observation.deployments === 0) {
-      return {
-        sha: event.head_sha,
-        state: "success",
-        description: `Coalesced to ${laterSelection.head_sha.slice(0, 7)}`,
-        target_url: controllerUrl,
-      };
-    }
+  const coalescedTo = coalescedToByRun.get(event.event_run_id);
+  if (coalescedTo) {
+    return {
+      sha: event.head_sha,
+      state: "success",
+      description: `Coalesced to ${coalescedTo.head_sha.slice(0, 7)}`,
+      target_url: controllerUrl,
+    };
   }
   return {
     sha: event.head_sha,
@@ -1142,6 +1276,21 @@ function validatePersistedDispatch(value, pr, label) {
 
 function validateActiveDispatch(value, pr, label) {
   const active = validatePersistedDispatch(value, pr, label);
+  exactTimestamp(active.dispatch_started_at);
+  invariant(
+    Array.isArray(active.coalesced_receipt_run_ids) &&
+      active.coalesced_receipt_run_ids.length <= MAX_RECEIPTS,
+    `${label} coalescing evidence is invalid`,
+  );
+  const coalesced = new Set();
+  for (const runId of active.coalesced_receipt_run_ids) {
+    const exact = exactRunId(runId, `${label} coalesced event receipt run ID`);
+    invariant(
+      exact !== active.selection_receipt_run_id && !coalesced.has(exact),
+      `${label} coalescing evidence is duplicated or self-referential`,
+    );
+    coalesced.add(exact);
+  }
   invariant(
     ["intended", "dispatched"].includes(active.dispatch_state),
     `${label} state is invalid`,
@@ -1266,7 +1415,7 @@ function normalizeExistingState(value, pr) {
 export function reconcileState({
   events: rawEvents,
   results: rawResults = [],
-  observations = {},
+  selections: rawSelections = [],
   pullRequest: rawPull,
   existingState = null,
   controllerUrl,
@@ -1280,14 +1429,20 @@ export function reconcileState({
   const allResults = dedupeResults(rawResults).filter(
     (result) => result.pr === pull.number,
   );
+  const allSelections = dedupeSelectionReceipts(rawSelections).filter(
+    (selection) => selection.pr === pull.number,
+  );
   const previous = normalizeExistingState(existingState, pull.number);
   const events = dedupeEvents(
     rawEvents,
-    persistedEventRunIds(previous, allResults),
+    persistedEventRunIds(previous, allResults, allSelections),
   ).filter((event) => event.pr === pull.number);
   const { anchor, closure, lineage } = selectCurrentEpoch(events, pull);
   const epochResults = allResults.filter(
     (result) => result.epoch_anchor_run_id === anchor.event_run_id,
+  );
+  const epochSelections = allSelections.filter(
+    (selection) => selection.epoch_anchor_run_id === anchor.event_run_id,
   );
   if (epochResults.length > 0) {
     invariant(
@@ -1318,6 +1473,52 @@ export function reconcileState({
   const candidateByRun = new Map(
     candidates.map((event) => [event.event_run_id, event]),
   );
+  const persistedOwners = [
+    previous?.ui?.active,
+    ...(previous?.ui?.retired_active ?? []),
+    ...(previous?.ui?.terminal_history ?? []),
+  ].filter(Boolean);
+  const ownerByKeyDigest = new Map(
+    persistedOwners.map((owner) => [owner.key_digest, owner]),
+  );
+  for (const terminal of epochResults) {
+    if (!ownerByKeyDigest.has(terminal.key_digest)) {
+      ownerByKeyDigest.set(terminal.key_digest, {
+        pr: terminal.pr,
+        target: terminal.target,
+        sha: terminal.sha,
+        key: terminal.controller_key,
+        key_digest: terminal.key_digest,
+        epoch_anchor_run_id: terminal.epoch_anchor_run_id,
+        reconciliation_basis_digest: terminal.reconciliation_basis_digest,
+        selection_receipt_run_id: terminal.selection_receipt_run_id,
+        expected_workflow_sha: terminal.expected_workflow_sha,
+      });
+    }
+  }
+  for (const selection of epochSelections) {
+    const selectedEvent = candidateByRun.get(
+      selection.selection_receipt_run_id,
+    );
+    invariant(
+      selectedEvent &&
+        selectedEvent.head_sha === selection.sha &&
+        controllerKey(pull.number, selectedEvent.head_sha) === selection.key,
+      "Preview selection receipt is outside current eligible lineage",
+    );
+    const owner = ownerByKeyDigest.get(selection.key_digest);
+    invariant(
+      owner &&
+        owner.sha === selection.sha &&
+        owner.key === selection.key &&
+        owner.epoch_anchor_run_id === selection.epoch_anchor_run_id &&
+        owner.reconciliation_basis_digest ===
+          selection.reconciliation_basis_digest &&
+        owner.selection_receipt_run_id === selection.selection_receipt_run_id &&
+        owner.expected_workflow_sha === selection.expected_workflow_sha,
+      "Preview selection receipt is not bound to persisted ownership",
+    );
+  }
   const resultByRun = new Map();
   for (const event of candidates) {
     const result = resultForSelection(
@@ -1330,6 +1531,36 @@ export function reconcileState({
         : null,
     );
     if (result) resultByRun.set(event.event_run_id, result);
+  }
+  const selectedReceiptRunIds = new Set(
+    epochSelections.map((selection) => selection.selection_receipt_run_id),
+  );
+  const coalescedToByRun = new Map();
+  for (const selection of epochSelections) {
+    const selectedEvent = candidateByRun.get(
+      selection.selection_receipt_run_id,
+    );
+    const selectedIndex = candidates.findIndex(
+      (event) => event.event_run_id === selectedEvent.event_run_id,
+    );
+    for (const coalescedRunId of selection.coalesced_receipt_run_ids) {
+      const coalescedIndex = candidates.findIndex(
+        (event) => event.event_run_id === coalescedRunId,
+      );
+      invariant(
+        coalescedIndex >= 0 &&
+          coalescedIndex < selectedIndex &&
+          !resultByRun.has(coalescedRunId) &&
+          !selectedReceiptRunIds.has(coalescedRunId),
+        "Preview coalescing evidence contradicts durable selection ownership",
+      );
+      const prior = coalescedToByRun.get(coalescedRunId);
+      invariant(
+        !prior || prior.event_run_id === selectedEvent.event_run_id,
+        "Preview event has conflicting coalescing evidence",
+      );
+      coalescedToByRun.set(coalescedRunId, selectedEvent);
+    }
   }
 
   let active = null;
@@ -1431,6 +1662,26 @@ export function reconcileState({
   const nextDispatch = selected
     ? (() => {
         const key = controllerKey(pull.number, selected.head_sha);
+        const selectedIndex = candidates.findIndex(
+          (event) => event.event_run_id === selected.event_run_id,
+        );
+        const completedIndex = completedActive
+          ? candidates.findIndex(
+              (event) =>
+                event.event_run_id === completedActive.selection_receipt_run_id,
+            )
+          : -1;
+        const coalescedReceiptRunIds =
+          completedIndex >= 0 && selectedIndex > completedIndex
+            ? candidates
+                .slice(completedIndex + 1, selectedIndex)
+                .filter(
+                  (event) =>
+                    !resultByRun.has(event.event_run_id) &&
+                    !selectedReceiptRunIds.has(event.event_run_id),
+                )
+                .map((event) => event.event_run_id)
+            : [];
         return {
           pr: pull.number,
           target: PREVIEW_TARGET,
@@ -1441,6 +1692,7 @@ export function reconcileState({
           reconciliation_basis_digest: basisDigest,
           selection_receipt_run_id: selected.event_run_id,
           expected_workflow_sha: expectedWorkflowSha,
+          coalesced_receipt_run_ids: coalescedReceiptRunIds,
           key_digest: controllerKeyDigest(key, {
             epochAnchorRunId: anchor.event_run_id,
             basisDigest,
@@ -1451,10 +1703,6 @@ export function reconcileState({
       })()
     : null;
 
-  const durableSelectedRuns = new Set(
-    epochResults.map((result) => result.selection_receipt_run_id),
-  );
-  if (active) durableSelectedRuns.add(active.selection_receipt_run_id);
   const controllerTargetUrl = optionalHttpsUrl(controllerUrl, "Controller URL");
   const statuses = lineage.map((event, index) =>
     statusDecision({
@@ -1463,8 +1711,7 @@ export function reconcileState({
       lineage,
       resultByRun,
       active,
-      durableSelectedRuns,
-      observations,
+      coalescedToByRun,
       controllerUrl: controllerTargetUrl,
     }),
   );
@@ -1526,7 +1773,12 @@ export function reconcileState({
       basis_digest: basisDigest,
     },
     closed: pull.state === "closed",
-    receipts_digest: controllerReceiptsDigest(events, allResults, pull.number),
+    receipts_digest: controllerReceiptsDigest(
+      events,
+      allResults,
+      allSelections,
+      pull.number,
+    ),
     ui: {
       first_eligible_sha: candidates[0]?.head_sha ?? null,
       latest_desired_sha: latestDesiredEvent?.head_sha ?? null,
@@ -1603,6 +1855,7 @@ function parseControllerComments(comments) {
   const events = [];
   const workerEvidence = [];
   const results = [];
+  const selections = [];
   for (const comment of comments) {
     if (!isTrustedBotComment(comment) || typeof comment.body !== "string")
       continue;
@@ -1617,6 +1870,11 @@ function parseControllerComments(comments) {
     } else if (comment.body.startsWith(RESULT_MARKER_PREFIX)) {
       const marker = comment.body.split("\n", 1)[0];
       results.push(validateWorkerResult(parseMarkerBody(comment.body, marker)));
+    } else if (comment.body.startsWith(SELECTION_MARKER_PREFIX)) {
+      const marker = comment.body.split("\n", 1)[0];
+      selections.push(
+        validateSelectionReceipt(parseMarkerBody(comment.body, marker)),
+      );
     }
   }
   const states = matchingBotComments(comments, CONTROLLER_MARKER);
@@ -1632,6 +1890,7 @@ function parseControllerComments(comments) {
     events,
     workerEvidence,
     results,
+    selections,
     state,
     stateComment: states[0] ?? null,
   };
@@ -1675,6 +1934,72 @@ async function pullFromApi(github, context, pr) {
     pull_number: pullRequestNumber(pr),
   });
   return data;
+}
+
+export function validateDependabotIntakeWorkflowRun(rawRun) {
+  const run = plainObject(rawRun, "Dependabot intake workflow run");
+  invariant(
+    run.name === INTAKE_WORKFLOW_NAME,
+    "Dependabot intake workflow name mismatch",
+  );
+  const workflowPath = `.github/workflows/${INTAKE_WORKFLOW}`;
+  invariant(
+    run.path === workflowPath || run.path === `${workflowPath}@main`,
+    "Dependabot intake workflow path mismatch",
+  );
+  invariant(
+    run.event === "pull_request_target",
+    "Dependabot intake event mismatch",
+  );
+  invariant(run.head_branch === "main", "Dependabot intake ref mismatch");
+  exactSha(run.head_sha, "Dependabot intake workflow SHA");
+  exactRunId(run.id, "Dependabot intake workflow run ID");
+  invariant(
+    run.status === "completed" && run.conclusion === "success",
+    "Dependabot intake workflow did not complete successfully",
+  );
+  validatedRepository(
+    run.repository?.full_name,
+    "Dependabot intake workflow repository",
+  );
+  return parseDependabotIntakeRunName(run.display_title);
+}
+
+export async function publishDependabotUnsupported({
+  github,
+  context,
+  core,
+  workflowRun = context.payload?.workflow_run,
+}) {
+  const parsed = validateDependabotIntakeWorkflowRun(workflowRun);
+  const pull = normalizePullRequest(
+    await pullFromApi(github, context, parsed.pr),
+  );
+  const current =
+    parsed.action !== "closed" &&
+    pull.state === "open" &&
+    pull.headSha === parsed.sha &&
+    pull.trust === "dependabot";
+  core.setOutput("pr_number", String(parsed.pr));
+  core.setOutput("head_sha", parsed.sha);
+  if (!current) {
+    core.setOutput("status_published", "false");
+    return null;
+  }
+  const targetUrl = optionalHttpsUrl(
+    workflowRun.html_url,
+    "Dependabot intake workflow URL",
+  );
+  await github.rest.repos.createCommitStatus({
+    ...ownerRepo(context),
+    sha: parsed.sha,
+    state: "success",
+    context: PREVIEW_STATUS_CONTEXT,
+    description: "Preview disabled for Dependabot PR",
+    ...(targetUrl ? { target_url: targetUrl } : {}),
+  });
+  core.setOutput("status_published", "true");
+  return parsed;
 }
 
 export function validateRepositoryDispatch(payload) {
@@ -1814,7 +2139,7 @@ export async function recordEventReceipt({
       description:
         receipt.trust === "trusted"
           ? "Preview event durably recorded"
-          : "Preview unsupported for fork or Dependabot PR",
+          : "Preview unsupported for this PR source",
       target_url: `https://github.com/${PREVIEW_REPOSITORY}/actions/runs/${context.runId}`,
     });
   }
@@ -1850,7 +2175,21 @@ async function postStatusDecisions(
   }
 }
 
-async function listWorkerRuns(github, context) {
+function workerRecoveryWindow(selected) {
+  const dispatchStartedAt = new Date(
+    exactTimestamp(selected.dispatch_started_at),
+  );
+  const start = new Date(
+    dispatchStartedAt.valueOf() - WORKER_RECOVERY_BEFORE_MS,
+  ).toISOString();
+  const end = new Date(
+    dispatchStartedAt.valueOf() + WORKER_RECOVERY_AFTER_MS,
+  ).toISOString();
+  return { start, end, created: `${start}..${end}` };
+}
+
+async function listWorkerRuns(github, context, selected) {
+  const window = workerRecoveryWindow(selected);
   const runs = [];
   for (let page = 1; page <= MAX_WORKER_RUN_PAGES; page += 1) {
     const { data } = await github.rest.actions.listWorkflowRuns({
@@ -1858,6 +2197,7 @@ async function listWorkerRuns(github, context) {
       workflow_id: WORKER_WORKFLOW,
       event: "workflow_dispatch",
       branch: "main",
+      created: window.created,
       page,
       per_page: WORKER_RUN_PAGE_SIZE,
     });
@@ -1866,17 +2206,27 @@ async function listWorkerRuns(github, context) {
         data.workflow_runs.length <= WORKER_RUN_PAGE_SIZE,
       "Worker run lookup was malformed",
     );
-    runs.push(...data.workflow_runs);
-    const totalCount = data.total_count;
-    if (
-      data.workflow_runs.length < WORKER_RUN_PAGE_SIZE ||
-      (Number.isSafeInteger(totalCount) && totalCount === runs.length)
-    ) {
-      return runs;
+    for (const run of data.workflow_runs) {
+      const createdAt = exactTimestamp(run.created_at);
+      invariant(
+        createdAt >= window.start && createdAt <= window.end,
+        "Worker run lookup escaped its dispatch-time proof window",
+      );
+      runs.push(run);
     }
+    const totalCount = data.total_count;
+    invariant(
+      Number.isSafeInteger(totalCount) && totalCount >= runs.length,
+      "Worker run lookup total count was malformed",
+    );
+    if (totalCount === runs.length) return runs;
+    invariant(
+      data.workflow_runs.length === WORKER_RUN_PAGE_SIZE,
+      "Worker run lookup pagination was incomplete inside its proof window",
+    );
   }
   throw new Error(
-    `Worker run lookup exceeded the bounded ${MAX_WORKER_RUN_PAGES * WORKER_RUN_PAGE_SIZE}-run history`,
+    `Worker run lookup exceeded the bounded ${MAX_WORKER_RUN_PAGES * WORKER_RUN_PAGE_SIZE}-run dispatch-time proof window`,
   );
 }
 
@@ -1927,7 +2277,7 @@ async function recoverMatchingWorkerRun(
   const pause = waitForRetry ?? wait;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const matches = matchingWorkerRuns(
-      await listWorkerRuns(github, context),
+      await listWorkerRuns(github, context, selected),
       selected,
       { ignoreWorkflowShaMismatch },
     );
@@ -2240,6 +2590,7 @@ export async function reconcilePreview({
   prNumber: rawPr,
   workflowSha: rawWorkflowSha,
   waitForRecovery,
+  now = () => new Date().toISOString(),
 }) {
   const pr = pullRequestNumber(rawPr);
   const workflowSha = exactSha(rawWorkflowSha, "Controller workflow SHA");
@@ -2261,24 +2612,10 @@ export async function reconcilePreview({
       ) {
         continue reconcileAttempts;
       }
-      const preliminary = reconcileState({
-        events: parsed.events,
-        results: parsed.results,
-        pullRequest: pull,
-        existingState: parsed.state,
-        controllerUrl,
-        expectedWorkflowSha: workflowSha,
-      });
-      const observations = await collectCoalescingObservations(
-        github,
-        context,
-        pr,
-        preliminary.lineage,
-      );
       const reconciled = reconcileState({
         events: parsed.events,
         results: parsed.results,
-        observations,
+        selections: parsed.selections,
         pullRequest: pull,
         existingState: parsed.state,
         controllerUrl,
@@ -2286,7 +2623,7 @@ export async function reconcilePreview({
       });
       let state = reconciled.state;
       let stateComment = parsed.stateComment;
-      const selected =
+      let selected =
         reconciled.nextDispatch ??
         (state.ui.active?.dispatch_state === "intended" &&
         state.ui.active.workflow_run_id === null
@@ -2294,8 +2631,9 @@ export async function reconcilePreview({
           : null);
       if (selected) {
         if (reconciled.nextDispatch) {
-          state.ui.active = {
+          selected = {
             ...selected,
+            dispatch_started_at: exactTimestamp(now()),
             dispatch_state: "intended",
             workflow_run_id: null,
             workflow_sha: null,
@@ -2303,6 +2641,7 @@ export async function reconcilePreview({
             run_url: null,
             html_url: null,
           };
+          state.ui.active = selected;
         }
         stateComment = await writeControllerState({
           github,
@@ -2310,6 +2649,14 @@ export async function reconcilePreview({
           pr,
           state,
           stateComment,
+        });
+        const selectionReceipt = selectionReceiptFromDispatch(selected);
+        await writeImmutableComment({
+          github,
+          context,
+          pr,
+          marker: selectionReceiptMarker(selectionReceipt),
+          value: selectionReceipt,
         });
 
         const freshPull = await pullFromApi(github, context, pr);
@@ -2336,7 +2683,7 @@ export async function reconcilePreview({
         const ownershipCheck = reconcileState({
           events: freshComments.events,
           results: freshComments.results,
-          observations,
+          selections: freshComments.selections,
           pullRequest: freshPull,
           existingState: freshComments.state,
           controllerUrl,
@@ -2433,23 +2780,10 @@ export async function reconcilePreview({
       const finalComments = parseControllerComments(
         await listComments(github, context, pr),
       );
-      const finalObservations = await collectCoalescingObservations(
-        github,
-        context,
-        pr,
-        reconcileState({
-          events: finalComments.events,
-          results: finalComments.results,
-          pullRequest: finalPull,
-          existingState: finalComments.state,
-          controllerUrl,
-          expectedWorkflowSha: workflowSha,
-        }).lineage,
-      );
       const finalReconciled = reconcileState({
         events: finalComments.events,
         results: finalComments.results,
-        observations: finalObservations,
+        selections: finalComments.selections,
         pullRequest: finalPull,
         existingState: finalComments.state,
         controllerUrl,
@@ -2480,7 +2814,12 @@ export async function reconcilePreview({
         );
         invariant(
           confirmed.state.receipts_digest ===
-            controllerReceiptsDigest(confirmed.events, confirmed.results, pr),
+            controllerReceiptsDigest(
+              confirmed.events,
+              confirmed.results,
+              confirmed.selections,
+              pr,
+            ),
           "Controller receipt set changed before status publication",
         );
       };
@@ -2652,7 +2991,7 @@ export async function validateWorkerDispatch({
   const pr = pullRequestNumber(inputs.pull_request_number);
   invariant(inputs.target === PREVIEW_TARGET, "Worker target must be UI");
   const sha = exactSha(inputs.commit_sha);
-  const gitRef = validatedHeadRef(inputs.git_branch);
+  const gitRef = validatedWorkerHeadRef(inputs.git_branch);
   const key = boundedText(inputs.controller_key, "Controller key", 255);
   invariant(key === controllerKey(pr, sha), "Worker controller key is invalid");
   const epochAnchorRunId = exactRunId(
@@ -2696,6 +3035,9 @@ export async function validateWorkerDispatch({
   const evidence = await loadControllerEvidence(github, context, pr);
   const state = evidence.state;
   const active = state.ui?.active;
+  const selectionReceipt = evidence.selections.find(
+    (selection) => selection.key_digest === keyDigest,
+  );
   invariant(
     active?.key === key &&
       active?.sha === sha &&
@@ -2705,6 +3047,15 @@ export async function validateWorkerDispatch({
       active?.selection_receipt_run_id === selectionReceiptRunId &&
       active?.expected_workflow_sha === expectedWorkflowSha,
     "Controller state does not own this worker key",
+  );
+  invariant(
+    selectionReceipt &&
+      selectionReceipt.sha === sha &&
+      selectionReceipt.epoch_anchor_run_id === epochAnchorRunId &&
+      selectionReceipt.reconciliation_basis_digest === basisDigest &&
+      selectionReceipt.selection_receipt_run_id === selectionReceiptRunId &&
+      selectionReceipt.expected_workflow_sha === expectedWorkflowSha,
+    "Immutable selection receipt does not own this worker key",
   );
   const thisRun = exactRunId(context.runId);
   const thisRunAttempt = exactRunAttempt(context.runAttempt ?? 1);
@@ -2846,39 +3197,6 @@ async function findCanonicalDeployment(github, context, { pr, sha, key }) {
   return matches[0] ?? null;
 }
 
-async function collectCoalescingObservations(github, context, pr, lineage) {
-  const eligible = lineage.filter((event) =>
-    event.plan.targets.includes(PREVIEW_TARGET),
-  );
-  invariant(
-    eligible.length <= 25,
-    "Too many runtime candidates for bounded coalescing proof",
-  );
-  const runs = await listWorkerRuns(github, context);
-  const observations = {};
-  for (const event of eligible) {
-    const key = controllerKey(pr, event.head_sha);
-    const workerRuns = runs.filter((run) => {
-      try {
-        const parsed = parseWorkerRunName(run.display_title);
-        return parsed.pr === pr && parsed.sha === event.head_sha;
-      } catch {
-        return false;
-      }
-    }).length;
-    const deployment = await findCanonicalDeployment(github, context, {
-      pr,
-      sha: event.head_sha,
-      key,
-    });
-    observations[key] = {
-      worker_runs: workerRuns,
-      deployments: deployment ? 1 : 0,
-    };
-  }
-  return observations;
-}
-
 async function createRecoveryDeployment(
   github,
   context,
@@ -2900,7 +3218,7 @@ async function createRecoveryDeployment(
       idempotency_key: selection.key,
       logical_target: PREVIEW_TARGET,
       sha: parsed.sha,
-      git_ref: validatedHeadRef(selection.git_ref),
+      git_ref: validatedWorkerHeadRef(selection.git_ref),
       workflow_run_url: optionalHttpsUrl(run.html_url, "Worker run URL"),
       pull_request_number: parsed.pr,
       provenance: "preview-controller-recovery",

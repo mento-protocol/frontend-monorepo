@@ -13,9 +13,11 @@ function workflow(relativePath) {
 }
 
 const controllerPath = ".github/workflows/vercel-preview-controller.yml";
+const intakePath = ".github/workflows/vercel-preview-intake.yml";
 const workerPath = ".github/workflows/vercel-preview-worker.yml";
 
 const controller = workflow(controllerPath);
+const intake = workflow(intakePath);
 const worker = workflow(workerPath);
 
 function permissionWrites(job) {
@@ -38,7 +40,7 @@ test("controller has only the three specified recovery-aware triggers", () => {
     "closed",
   ]);
   assert.deepEqual(controller.on.workflow_run, {
-    workflows: ["Vercel Preview Worker"],
+    workflows: ["Vercel Preview Worker", "Vercel Preview Intake"],
     types: ["completed"],
   });
   assert.deepEqual(controller.on.repository_dispatch.types, [
@@ -52,6 +54,56 @@ test("controller has only the three specified recovery-aware triggers", () => {
   );
   const raw = read(controllerPath);
   assert.doesNotMatch(raw, /workflow_dispatch|\binputs\./);
+});
+
+test("Dependabot intake is credentialless and trusted follow-up alone can write status", () => {
+  assert.equal(intake.name, "Vercel Preview Intake");
+  assert.deepEqual(intake.on, {
+    pull_request_target: {
+      types: ["opened", "edited", "synchronize", "reopened", "closed"],
+    },
+  });
+  assert.deepEqual(intake.permissions, { contents: "read" });
+  assert.match(intake["run-name"], /pr=.*sha=.*action=/);
+  const intakeJob = intake.jobs["validate-dependabot-metadata"];
+  assert.match(intakeJob.if, /dependabot\[bot\].*dependabot\//s);
+  assert.equal(Object.hasOwn(intakeJob, "permissions"), false);
+  assert.equal(intakeJob.steps.length, 1);
+  assert.equal(Object.hasOwn(intakeJob.steps[0], "uses"), false);
+  const intakeRaw = read(intakePath);
+  assert.doesNotMatch(
+    intakeRaw,
+    /secrets\.|github\.token|GITHUB_TOKEN|actions\/checkout|actions\/upload-artifact|actions\/download-artifact|pnpm|npm|node /,
+  );
+
+  const receipt = controller.jobs["receipt-event"];
+  assert.equal(
+    controller.jobs["snapshot-event"].outputs.trust,
+    "${{ steps.snapshot.outputs.trust }}",
+  );
+  assert.match(receipt.if, /outputs\.trust != 'dependabot'/);
+
+  const identify = controller.jobs["identify-dependabot-intake"];
+  assert.deepEqual(identify.permissions, { contents: "read" });
+  assert.match(identify.if, /workflow_run\.name == 'Vercel Preview Intake'/);
+  assert.match(identify.if, /workflow_run\.conclusion == 'success'/);
+  assert.match(JSON.stringify(identify), /validateDependabotIntakeWorkflowRun/);
+  const publish = controller.jobs["publish-dependabot-unsupported"];
+  assert.equal(publish.needs, "identify-dependabot-intake");
+  assert.deepEqual(publish.permissions, {
+    contents: "read",
+    "pull-requests": "read",
+    statuses: "write",
+  });
+  assert.match(
+    publish.concurrency.group,
+    /identify-dependabot-intake\.outputs\.pr_number/,
+  );
+  assert.match(JSON.stringify(publish), /publishDependabotUnsupported/);
+  assert.doesNotMatch(
+    JSON.stringify(publish),
+    /actions\/download-artifact|pull_request\.head\.sha|secrets\./,
+  );
 });
 
 test("repository requests are default-branch-bound and validated before writes", () => {
@@ -174,6 +226,7 @@ test("immutable receipt writers are durable and outside lossy reconciliation con
     "reconcile-bootstrap",
     "reconcile-request",
     "recover-worker-result",
+    "publish-dependabot-unsupported",
   ]) {
     assert.match(
       controller.jobs[jobName].concurrency.group,
@@ -380,7 +433,7 @@ test("worker credentials are unreachable until trusted validation and named pref
 });
 
 test("Statuses API owns the reserved name and no workflow job shadows it", () => {
-  for (const parsed of [controller, worker]) {
+  for (const parsed of [controller, intake, worker]) {
     for (const job of Object.values(parsed.jobs)) {
       assert.notEqual(job.name, "Vercel Preview");
     }
@@ -391,6 +444,10 @@ test("Statuses API owns the reserved name and no workflow job shadows it", () =>
 });
 
 test("completed-worker recovery is authoritative for missing and orphaned Deployments", () => {
+  assert.match(
+    controller.jobs["identify-worker-result"].if,
+    /workflow_run\.name == 'Vercel Preview Worker'/,
+  );
   const recovery = controller.jobs["recover-worker-result"];
   assert.deepEqual(recovery.permissions, {
     actions: "write",
@@ -410,11 +467,15 @@ test("completed-worker recovery is authoritative for missing and orphaned Deploy
   assert.match(implementation, /terminalizeDeployment/);
 });
 
-test("controller and worker remain intentionally outside operational failure issues", () => {
+test("preview controller, intake, and worker remain outside operational failure issues", () => {
   const notifier = read(".github/workflows/ci-failure-notifier.yml");
   assert.doesNotMatch(notifier, /Vercel Preview Controller/);
+  assert.doesNotMatch(notifier, /Vercel Preview Intake/);
   assert.doesNotMatch(notifier, /Vercel Preview Worker/);
-  assert.doesNotMatch(notifier, /vercel-preview-(?:controller|worker)\.yml/);
+  assert.doesNotMatch(
+    notifier,
+    /vercel-preview-(?:controller|intake|worker)\.yml/,
+  );
 });
 
 test("automatic workflow creates no implicit or Vercel-owned Deployment", () => {

@@ -6,7 +6,7 @@ on:
   repository_dispatch:
     types: [vercel-preview-bootstrap, vercel-preview-reconcile]
   workflow_run:
-    workflows: [Vercel Preview Worker]
+    workflows: [Vercel Preview Worker, Vercel Preview Intake]
     types: [completed]
 
 permissions: {}
@@ -58,6 +58,7 @@ jobs:
       trusted_base_sha: ${{ steps.snapshot.outputs.trusted_base_sha }}
       change_base_sha: ${{ steps.snapshot.outputs.change_base_sha }}
       head_sha: ${{ steps.snapshot.outputs.head_sha }}
+      trust: ${{ steps.snapshot.outputs.trust }}
       plan_required: ${{ steps.snapshot.outputs.plan_required }}
     steps:
       - name: Check out trusted controller
@@ -144,7 +145,10 @@ jobs:
   receipt-event:
     name: Persist immutable PR event receipt
     needs: [snapshot-event, plan-event]
-    if: always() && needs.snapshot-event.result == 'success'
+    if: >-
+      always() &&
+      needs.snapshot-event.result == 'success' &&
+      needs.snapshot-event.outputs.trust != 'dependabot'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -467,9 +471,78 @@ jobs:
               workflowSha: process.env.WORKFLOW_SHA,
             });
 
+  identify-dependabot-intake:
+    name: Validate completed read-only Dependabot intake
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.name == 'Vercel Preview Intake' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      pr_number: ${{ steps.identity.outputs.pr_number }}
+    steps:
+      - name: Check out trusted controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Strictly validate read-only intake identity
+        id: identity
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { pathToFileURL } = require("node:url");
+            const moduleUrl = pathToFileURL(
+              `${process.env.GITHUB_WORKSPACE}/controller/scripts/vercel-preview-controller.mjs`,
+            );
+            const { validateDependabotIntakeWorkflowRun } = await import(moduleUrl.href);
+            const parsed = validateDependabotIntakeWorkflowRun(context.payload.workflow_run);
+            core.setOutput("pr_number", String(parsed.pr));
+
+  publish-dependabot-unsupported:
+    name: Publish unsupported status from trusted default-branch code
+    needs: identify-dependabot-intake
+    if: needs.identify-dependabot-intake.result == 'success'
+    concurrency:
+      group: vercel-preview-controller-pr-${{ needs.identify-dependabot-intake.outputs.pr_number }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - name: Check out trusted controller
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          path: controller
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Re-query exact PR head and publish explicit unsupported status
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { pathToFileURL } = require("node:url");
+            const moduleUrl = pathToFileURL(
+              `${process.env.GITHUB_WORKSPACE}/controller/scripts/vercel-preview-controller.mjs`,
+            );
+            const { publishDependabotUnsupported } = await import(moduleUrl.href);
+            await publishDependabotUnsupported({ github, context, core });
+
   identify-worker-result:
     name: Validate completed worker callback identity
-    if: github.event_name == 'workflow_run'
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.name == 'Vercel Preview Worker'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

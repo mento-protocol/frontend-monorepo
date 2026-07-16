@@ -39,7 +39,7 @@ const VERCEL_PREVIEW_CONTROLLER_TRIGGERS = {
     types: ["vercel-preview-bootstrap", "vercel-preview-reconcile"],
   },
   workflow_run: {
-    workflows: ["Vercel Preview Worker"],
+    workflows: ["Vercel Preview Worker", "Vercel Preview Intake"],
     types: ["completed"],
   },
 };

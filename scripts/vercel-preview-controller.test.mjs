@@ -8,10 +8,12 @@ import {
   PREVIEW_REPOSITORY,
   RECONCILE_DISPATCH_EVENT,
   RESULT_RECEIPT_SCHEMA,
-  controllerKey,
+  SELECTION_RECEIPT_SCHEMA,
+  dependabotIntakeRunName,
   eventReceiptMarker,
   normalizePlannerResult,
   parseWorkerRunName,
+  publishDependabotUnsupported,
   postWorkerRecoveryError,
   prepareBootstrap,
   recordEventReceipt,
@@ -20,8 +22,11 @@ import {
   reconcileState,
   recoverWorkerResult,
   resultReceiptMarker,
+  selectionReceiptFromDispatch,
+  selectionReceiptMarker,
   snapshotPullRequestEvent,
   validateEventReceipt,
+  validateDependabotIntakeWorkflowRun,
   validateRepositoryDispatch,
   validateWorkerDispatch as validateWorkerDispatchImplementation,
   validateWorkerRunIdentity,
@@ -30,6 +35,7 @@ import {
   writeEventSnapshotOutputs,
   writeRepositoryDispatchOutputs,
 } from "./vercel-preview-controller.mjs";
+import { validateGitBranch } from "./vercel-prebuilt-workflow.mjs";
 
 const CONTROLLER_URL =
   "https://github.com/mento-protocol/frontend-monorepo/actions/runs/999";
@@ -41,7 +47,11 @@ const SHA = Object.fromEntries(
 );
 
 function reconcilePreview(options) {
-  return reconcilePreviewImplementation({ workflowSha: SHA.E, ...options });
+  return reconcilePreviewImplementation({
+    workflowSha: SHA.E,
+    now: () => timestamp(0),
+    ...options,
+  });
 }
 
 function validateWorkerDispatch(options) {
@@ -142,6 +152,7 @@ function persistDispatch(reconciled, runId = 8_000) {
       ...structuredClone(reconciled.state.ui),
       active: {
         ...structuredClone(reconciled.nextDispatch),
+        dispatch_started_at: timestamp(0),
         dispatch_state: "dispatched",
         workflow_run_id: runId,
         workflow_sha: reconciled.nextDispatch.expected_workflow_sha,
@@ -161,6 +172,7 @@ function persistIntent(reconciled) {
       ...structuredClone(reconciled.state.ui),
       active: {
         ...structuredClone(reconciled.nextDispatch),
+        dispatch_started_at: timestamp(0),
         dispatch_state: "intended",
         workflow_run_id: null,
         workflow_sha: null,
@@ -210,7 +222,7 @@ function reconcile({
   results = [],
   pullRequest,
   existingState = null,
-  observations = {},
+  selections = [],
   expectedWorkflowSha = SHA.E,
 }) {
   return reconcileState({
@@ -218,7 +230,7 @@ function reconcile({
     results,
     pullRequest,
     existingState,
-    observations,
+    selections,
     controllerUrl: CONTROLLER_URL,
     expectedWorkflowSha,
   });
@@ -695,7 +707,7 @@ test("docs-only states never dispatch and reuse the last verified runtime", () =
   assert.match(cancelledDocsStatus.description, /was cancelled/);
 });
 
-test("coalescing needs durable later selection and zero worker/deployment proof", () => {
+test("coalescing needs an immutable later selection receipt", () => {
   const events = [
     event({ run: 50, action: "opened", head: SHA.A, updated: timestamp(1) }),
     event({
@@ -724,7 +736,7 @@ test("coalescing needs durable later selection and zero worker/deployment proof"
     pullRequest: pull({ head: SHA.C, updated: timestamp(3) }),
     existingState: activeA,
   });
-  const intendedC = persistDispatch(afterA, 8_052);
+  const intendedC = persistIntent(afterA);
   const withoutProof = reconcile({
     events,
     results: [result(first.nextDispatch, { runId: 8_050 })],
@@ -732,17 +744,74 @@ test("coalescing needs durable later selection and zero worker/deployment proof"
     existingState: intendedC,
   });
   assert.equal(withoutProof.state.status_decisions[1].state, "pending");
+  const coalescingProof = selectionReceiptFromDispatch(intendedC.ui.active);
+  assert.deepEqual(coalescingProof.coalesced_receipt_run_ids, [51]);
   const withProof = reconcile({
     events,
     results: [result(first.nextDispatch, { runId: 8_050 })],
     pullRequest: pull({ head: SHA.C, updated: timestamp(3) }),
     existingState: intendedC,
-    observations: {
-      [controllerKey(519, SHA.B)]: { worker_runs: 0, deployments: 0 },
-    },
+    selections: [coalescingProof],
   });
   assert.equal(withProof.state.status_decisions[1].state, "success");
   assert.match(withProof.state.status_decisions[1].description, /Coalesced/);
+});
+
+test("more than 25 pushes converge from first preview to latest with compact proof", () => {
+  const shas = Array.from({ length: 31 }, (_, index) =>
+    (index + 16).toString(16).padStart(40, "0"),
+  );
+  const events = [
+    event({
+      run: 500,
+      action: "opened",
+      head: shas[0],
+      updated: timestamp(1),
+    }),
+  ];
+  for (let index = 1; index < shas.length; index += 1) {
+    events.push(
+      event({
+        run: 500 + index,
+        action: "synchronize",
+        before: shas[index - 1],
+        head: shas[index],
+        updated: timestamp(index + 1),
+      }),
+    );
+  }
+  const pullRequest = pull({
+    head: shas.at(-1),
+    updated: timestamp(shas.length),
+  });
+  const first = reconcile({ events, pullRequest });
+  assert.equal(first.nextDispatch.sha, shas[0]);
+  const active = persistDispatch(first, 8_500);
+  const latest = reconcile({
+    events,
+    results: [result(first.nextDispatch, { runId: 8_500 })],
+    pullRequest,
+    existingState: active,
+  });
+  assert.equal(latest.nextDispatch.sha, shas.at(-1));
+  assert.equal(latest.nextDispatch.coalesced_receipt_run_ids.length, 29);
+  const intendedLatest = persistIntent(latest);
+  const proof = selectionReceiptFromDispatch(intendedLatest.ui.active);
+  assert.equal(proof.schema, SELECTION_RECEIPT_SCHEMA);
+  const converged = reconcile({
+    events,
+    results: [result(first.nextDispatch, { runId: 8_500 })],
+    selections: [proof],
+    pullRequest,
+    existingState: intendedLatest,
+  });
+  assert.equal(
+    converged.state.status_decisions.filter(({ description }) =>
+      description.startsWith("Coalesced to "),
+    ).length,
+    29,
+  );
+  assert.equal(converged.state.status_decisions.at(-1).state, "pending");
 });
 
 test("close and same-SHA reopen form distinct epochs; old result cannot advance", () => {
@@ -1026,6 +1095,33 @@ test("fork and Dependabot events succeed unsupported without dispatch", () => {
   }
 });
 
+test("controller and prebuilt worker agree that refs/* head names are unsupported", () => {
+  assert.throws(() => validateGitBranch("refs/foo"), /option-like/);
+  const unsupported = event({
+    run: 92,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+    ref: "refs/foo",
+  });
+  assert.equal(unsupported.trust, "unsupported-ref");
+  assert.deepEqual(unsupported.plan.targets, []);
+  const reconciled = reconcile({
+    events: [unsupported],
+    pullRequest: pull({
+      head: SHA.A,
+      updated: timestamp(1),
+      ref: "refs/foo",
+    }),
+  });
+  assert.equal(reconciled.nextDispatch, null);
+  assert.equal(reconciled.state.status_decisions[0].state, "success");
+  assert.match(
+    reconciled.state.status_decisions[0].description,
+    /unsupported/i,
+  );
+});
+
 test("current-epoch results must be bound to persisted active selection", () => {
   const opened = event({
     run: 100,
@@ -1247,6 +1343,14 @@ function resultComment(value, id = 3) {
   };
 }
 
+function selectionComment(value, id = 4) {
+  return {
+    id,
+    user: { type: "Bot", login: "github-actions[bot]" },
+    body: commentBody(selectionReceiptMarker(value), value),
+  };
+}
+
 function workerRun(
   selection,
   {
@@ -1255,6 +1359,7 @@ function workerRun(
     status = "queued",
     conclusion = null,
     workflowSha = selection.expected_workflow_sha,
+    createdAt = timestamp(1),
   } = {},
 ) {
   return {
@@ -1274,6 +1379,30 @@ function workerRun(
     html_url: `https://github.com/mento-protocol/frontend-monorepo/actions/runs/${id}`,
     status,
     conclusion,
+    created_at: createdAt,
+  };
+}
+
+function dependabotIntakeRun({
+  pr = 519,
+  sha = SHA.A,
+  action = "opened",
+  ...overrides
+} = {}) {
+  return {
+    id: 7_500,
+    name: "Vercel Preview Intake",
+    path: ".github/workflows/vercel-preview-intake.yml@main",
+    event: "pull_request_target",
+    head_branch: "main",
+    head_sha: SHA.E,
+    status: "completed",
+    conclusion: "success",
+    repository: { full_name: PREVIEW_REPOSITORY },
+    display_title: dependabotIntakeRunName({ pr, sha, action }),
+    html_url:
+      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/7500",
+    ...overrides,
   };
 }
 
@@ -1365,6 +1494,7 @@ function fakeGitHub({
   const dispatches = [];
   const createdDeploymentStatuses = [];
   const workflowRunAttemptRequests = [];
+  const workflowRunListRequests = [];
   const attemptFailures = [...workflowRunAttemptFailures];
   const commentUpdateFailures = [...updateCommentFailures];
   let nextCommentId = 100;
@@ -1403,14 +1533,24 @@ function fakeGitHub({
         listCommits,
       },
       actions: {
-        listWorkflowRuns: async ({ page = 1, per_page = 100 }) => ({
-          data: {
-            total_count: workerRunTotalCount ?? runs.length,
-            workflow_runs: structuredClone(
-              runs.slice((page - 1) * per_page, page * per_page),
-            ),
-          },
-        }),
+        listWorkflowRuns: async (request) => {
+          const { created, page = 1, per_page = 100 } = request;
+          workflowRunListRequests.push(structuredClone(request));
+          const [start, end] = String(created ?? "..").split("..");
+          const filtered = runs.filter(
+            (run) =>
+              (!start || run.created_at >= start) &&
+              (!end || run.created_at <= end),
+          );
+          return {
+            data: {
+              total_count: workerRunTotalCount ?? filtered.length,
+              workflow_runs: structuredClone(
+                filtered.slice((page - 1) * per_page, page * per_page),
+              ),
+            },
+          };
+        },
         getWorkflowRun: async ({ run_id }) => {
           const data = runs.find(({ id }) => id === run_id);
           assert.ok(data, `fixture run ${run_id} must exist`);
@@ -1519,6 +1659,7 @@ function fakeGitHub({
     dispatches,
     createdDeploymentStatuses,
     workflowRunAttemptRequests,
+    workflowRunListRequests,
   };
 }
 
@@ -1572,6 +1713,99 @@ test("malformed successful planner output is recorded as fail-closed UI impact",
   assert.equal(core.outputs.get("planner_output_invalid"), "true");
   assert.match(fixture.comments[0].body, /"reason": "planner-job-failed"/);
   assert.equal(fixture.commitStatuses.at(-1).state, "pending");
+});
+
+test("trusted workflow_run follow-up publishes Dependabot unsupported status only for the exact current head", async () => {
+  const workflowRun = dependabotIntakeRun();
+  assert.deepEqual(validateDependabotIntakeWorkflowRun(workflowRun), {
+    pr: 519,
+    sha: SHA.A,
+    action: "opened",
+  });
+  const dependabotPull = pull({
+    head: SHA.A,
+    updated: timestamp(1),
+    author: "dependabot[bot]",
+    ref: "dependabot/npm/pnpm",
+  });
+  const exact = fakeGitHub({ pullRequest: dependabotPull, comments: [] });
+  const exactCore = fakeCore();
+  const published = await publishDependabotUnsupported({
+    github: exact.github,
+    context: fakeContext({ workflowRun }),
+    core: exactCore,
+  });
+  assert.deepEqual(published, { pr: 519, sha: SHA.A, action: "opened" });
+  assert.equal(exact.commitStatuses.length, 1);
+  assert.deepEqual(
+    {
+      sha: exact.commitStatuses[0].sha,
+      state: exact.commitStatuses[0].state,
+      context: exact.commitStatuses[0].context,
+      description: exact.commitStatuses[0].description,
+    },
+    {
+      sha: SHA.A,
+      state: "success",
+      context: "Vercel Preview",
+      description: "Preview disabled for Dependabot PR",
+    },
+  );
+  assert.equal(exactCore.outputs.get("status_published"), "true");
+
+  for (const currentPull of [
+    pull({
+      head: SHA.B,
+      updated: timestamp(2),
+      author: "dependabot[bot]",
+      ref: "dependabot/npm/pnpm",
+    }),
+    pull({ head: SHA.A, updated: timestamp(1) }),
+  ]) {
+    const stale = fakeGitHub({ pullRequest: currentPull, comments: [] });
+    const staleCore = fakeCore();
+    assert.equal(
+      await publishDependabotUnsupported({
+        github: stale.github,
+        context: fakeContext({ workflowRun }),
+        core: staleCore,
+      }),
+      null,
+    );
+    assert.equal(stale.commitStatuses.length, 0);
+    assert.equal(staleCore.outputs.get("status_published"), "false");
+  }
+});
+
+test("malformed Dependabot intake identity fails before any status write", async () => {
+  for (const workflowRun of [
+    dependabotIntakeRun({ name: "Vercel Preview Worker" }),
+    dependabotIntakeRun({
+      path: ".github/workflows/vercel-preview-intake.yml@feature",
+    }),
+    dependabotIntakeRun({
+      display_title: `Vercel preview intake | pr=519 | sha=${SHA.A} | action=bogus`,
+    }),
+  ]) {
+    const fixture = fakeGitHub({
+      pullRequest: pull({
+        head: SHA.A,
+        updated: timestamp(1),
+        author: "dependabot[bot]",
+        ref: "dependabot/npm/pnpm",
+      }),
+      comments: [],
+    });
+    await assert.rejects(
+      publishDependabotUnsupported({
+        github: fixture.github,
+        context: fakeContext({ workflowRun }),
+        core: fakeCore(),
+      }),
+      /Dependabot intake/,
+    );
+    assert.equal(fixture.commitStatuses.length, 0);
+  }
 });
 
 test("strict worker identity uses display_title plus workflow path, ref, SHA, and attempt", () => {
@@ -1784,21 +2018,7 @@ test("intended dispatch recovery attaches exactly one run and fails closed on am
     events: [opened],
     pullRequest,
   });
-  const intended = {
-    ...structuredClone(selected.state),
-    ui: {
-      ...structuredClone(selected.state.ui),
-      active: {
-        ...structuredClone(selected.nextDispatch),
-        dispatch_state: "intended",
-        workflow_run_id: null,
-        workflow_sha: null,
-        workflow_run_attempt: null,
-        run_url: null,
-        html_url: null,
-      },
-    },
-  };
+  const intended = persistIntent(selected);
   const existingRun = workerRun(selected.nextDispatch);
   const recovered = fakeGitHub({
     pullRequest,
@@ -1967,7 +2187,7 @@ test("controller-upgrade terminalization does not consume a real worker retry", 
   );
 });
 
-test("intended dispatch recovery paginates recent worker runs and fails closed beyond its proof bound", async () => {
+test("intended recovery paginates its time window and ignores more than 300 older runs", async () => {
   const opened = event({
     run: 122,
     action: "opened",
@@ -1996,29 +2216,30 @@ test("intended dispatch recovery paginates recent worker runs and fails closed b
   assert.equal(paginated.dispatches.length, 0);
   assert.equal(state.ui.active.workflow_run_id, 8_000);
 
+  const olderHistory = Array.from({ length: 350 }, (_, index) =>
+    workerRun(
+      { ...selected.nextDispatch, sha: SHA.B },
+      { id: 10_000 + index, createdAt: "2026-07-14T10:00:01.000Z" },
+    ),
+  );
   const bounded = fakeGitHub({
     pullRequest,
     comments: [eventComment(opened), stateComment(intended)],
-    runs: Array.from({ length: 300 }, (_, index) =>
-      workerRun(
-        { ...selected.nextDispatch, sha: SHA.B },
-        { id: 10_000 + index },
-      ),
-    ),
-    workerRunTotalCount: 301,
+    runs: [...olderHistory, matchOnSecondPage],
   });
-  await assert.rejects(
-    reconcilePreview({
-      github: bounded.github,
-      context: fakeContext(),
-      core: fakeCore(),
-      prNumber: 519,
-      waitForRecovery: async () => {},
-    }),
-    /bounded 300-run history/,
-  );
+  const boundedState = await reconcilePreview({
+    github: bounded.github,
+    context: fakeContext(),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
   assert.equal(bounded.dispatches.length, 0);
-  assert.equal(bounded.commitStatuses.at(-1).state, "error");
+  assert.equal(boundedState.ui.active.workflow_run_id, 8_000);
+  assert.equal(
+    bounded.workflowRunListRequests[0].created,
+    `${timestamp(0).replace("10:00:00", "09:58:00")}..${timestamp(0).replace("10:00:00", "10:15:00")}`,
+  );
 });
 
 test("manual reconcile recovers a completed dispatched worker when its callback was missed", async () => {
@@ -2310,6 +2531,14 @@ test("same-SHA reopened epoch resumes verified old upload evidence before its ca
     comments: [
       ...setup.events.map((item, index) => eventComment(item, index + 1)),
       stateComment(setup.currentState, 10),
+      selectionComment(
+        selectionReceiptFromDispatch(setup.currentState.ui.retired_active[0]),
+        11,
+      ),
+      selectionComment(
+        selectionReceiptFromDispatch(setup.currentState.ui.active),
+        12,
+      ),
     ],
     runs: [oldCompleted, newQueued],
     deployments: [canonical],
@@ -2823,7 +3052,11 @@ test("duplicate worker absorbs an existing verified canonical Deployment without
   };
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(dispatched)],
+    comments: [
+      eventComment(opened),
+      stateComment(dispatched),
+      selectionComment(selectionReceiptFromDispatch(dispatched.ui.active)),
+    ],
     runs: [workerRun(selected.nextDispatch)],
     deployments: [canonical],
     deploymentStatuses: new Map([
@@ -2895,7 +3128,11 @@ test("verified deployment success survives a later evidence persistence failure"
   };
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(dispatched)],
+    comments: [
+      eventComment(opened),
+      stateComment(dispatched),
+      selectionComment(selectionReceiptFromDispatch(dispatched.ui.active)),
+    ],
     runs: [completed],
     deployments: [canonical],
     deploymentStatuses: new Map([
@@ -2954,7 +3191,11 @@ test("a rerun attempt cannot reuse persisted first-attempt worker ownership", as
   const dispatched = persistDispatch(selected, 8_000);
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(dispatched)],
+    comments: [
+      eventComment(opened),
+      stateComment(dispatched),
+      selectionComment(selectionReceiptFromDispatch(dispatched.ui.active)),
+    ],
     runs: [workerRun(selected.nextDispatch)],
   });
   await assert.rejects(
@@ -3060,7 +3301,12 @@ test("smoke failure records immutable upload evidence and the one retry resumes 
   );
   const resumeFixture = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(retryState), resultReceipt],
+    comments: [
+      eventComment(opened),
+      stateComment(retryState),
+      selectionComment(selectionReceiptFromDispatch(retryState.ui.active)),
+      resultReceipt,
+    ],
     runs: [workerRun(retry.nextDispatch, { id: 8_001 })],
     deployments: [canonical],
     deploymentStatuses: new Map([
@@ -3262,6 +3508,7 @@ test("completed build failure before the upload boundary gets one rebuild retry"
       eventComment(opened),
       ...durableEvidence,
       stateComment(retryState),
+      selectionComment(selectionReceiptFromDispatch(retryState.ui.active)),
     ],
     runs: [workerRun(retry.nextDispatch, { id: 8_001 })],
     deployments: [canonical],

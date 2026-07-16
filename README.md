@@ -34,6 +34,8 @@ frontend-monorepo/
 ├── .github/                  # GitHub workflows
 │   └── workflows/            # CI/CD workflows
 ├── .trunk/                   # Trunk CLI configuration and cache
+├── docs/
+│   └── adr/                  # Architecture decision records and lifecycle
 ├── turbo.json                # Turborepo configuration
 └── pnpm-workspace.yaml       # PNPM workspace configuration
 ```
@@ -128,6 +130,12 @@ pnpm ci:action-pins
 
 # Run the action-pin scanner and REST materializer fixture suites
 pnpm ci:action-pins:test
+
+# Remind on newly added architecture-significant workflows/workspaces
+pnpm adr:check
+
+# Test the offline ADR reminder and repository wiring
+pnpm adr:check:test
 
 # Test the network-free Vercel planning and prebuilt-build primitives
 pnpm vercel:primitives:test
@@ -416,7 +424,8 @@ feat(ui): add new button component
 **Git Hooks**: Trunk automatically manages git hooks that will:
 
 - **Pre-commit**: Format and lint staged files
-- **Pre-push**: Run comprehensive checks before pushing
+- **Pre-push**: Run comprehensive checks and the advisory `pnpm adr:check`
+  reminder before pushing
 - **Commit-msg**: Validate commit message format
 
 ## CI/CD Pipeline
@@ -428,7 +437,18 @@ The repository is set up with GitHub Actions for CI:
   check enforces production-source coverage and gzip route limits. Its general
   CI failure notifier opens or updates one issue for an operational workflow
   failure and closes the issue after recovery.
-- **CD**: GitHub Actions automatically builds `ui.mento.org` previews for trusted same-repository PRs with exact-SHA `Vercel Preview` statuses, first-eligible-plus-latest batching, credential-free HTTP and browser smoke, and one canonical GitHub Deployment. Fork/Dependabot PRs remain credential-free. During Phase A, native Vercel Git UI previews remain enabled for canary comparison; Vercel Git still owns every main/production deployment and all non-UI apps. The separate Phase B UI-only cutover, bootstrap, canary, and rollback procedures are documented in [`docs/vercel-deployments.md`](docs/vercel-deployments.md).
+- **CD**: GitHub Actions automatically builds `ui.mento.org` previews for
+  trusted same-repository PRs with exact-SHA `Vercel Preview` statuses,
+  first-eligible-plus-latest batching, credential-free HTTP and browser smoke,
+  and one canonical GitHub Deployment. Dependabot events pass through a
+  read-only metadata intake; trusted default-branch code re-queries the exact
+  PR head before publishing the explicit preview-disabled status. Fork and
+  Dependabot PRs remain credential-free. During Phase A, native Vercel Git UI previews remain enabled
+  for canary comparison; Vercel Git still owns every main/production deployment
+  and all non-UI apps. See [ADR 0001](docs/adr/0001-github-actions-vercel-deployment-orchestration.md)
+  for the accepted ownership boundary and
+  [`docs/vercel-deployments.md`](docs/vercel-deployments.md) for the Phase B
+  UI-only cutover, bootstrap, canary, and rollback procedures.
 
 Dependency-installing jobs use `.github/actions/pnpm-install`, which pins the
 Node/pnpm bootstrap, relies on `actions/setup-node` as the single pnpm-store

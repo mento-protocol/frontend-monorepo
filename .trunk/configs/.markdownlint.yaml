@@ -1,2 +1,6 @@
 # Prettier friendly markdownlint config (all formatting rules disabled)
 extends: markdownlint/style/prettier
+# MD025: ADR frontmatter `title:` is metadata, not a rendered H1. ADRs still
+# use exactly one visible top-level heading in the document body.
+MD025:
+  front_matter_title: ""
