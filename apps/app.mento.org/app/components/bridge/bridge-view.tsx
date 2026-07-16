@@ -73,7 +73,7 @@ function BridgeTestnetState() {
       </h2>
       <p className="mb-8 max-w-sm text-sm leading-relaxed mx-auto text-muted-foreground">
         Switch to a supported mainnet network to bridge Mento stablecoins
-        between Celo and Monad.
+        between Celo, Monad and Polygon.
       </p>
 
       <Button onClick={handleSwitch} size="lg" className="gap-2.5">
