@@ -29,12 +29,6 @@ const REQUIRED_POLICY_FILES = [
   ".github/workflows/action-pins.yml",
   ".github/workflows/action-pins-source.yml",
 ];
-const POLICY_PNPM_JOB_IDS = new Map([
-  [".github/workflows/action-pins.yml", "action-pins"],
-  [".github/workflows/action-pins-source.yml", "policy-source"],
-]);
-const ALLOWED_POLICY_PNPM_VERSIONS = ["10.24.0", "10.34.4"];
-const CANONICAL_POLICY_PNPM_VERSION = ALLOWED_POLICY_PNPM_VERSIONS[0];
 const VERCEL_PREVIEW_CONTROLLER =
   ".github/workflows/vercel-preview-controller.yml";
 const VERCEL_PREVIEW_CONTROLLER_TRIGGERS = {
@@ -78,7 +72,7 @@ const NORMALIZED_POLICY_WORKFLOWS = new Map([
             {
               name: "Setup PNPM",
               uses: "pnpm/action-setup@<sha>",
-              with: { version: "10.24.0" },
+              with: { version: "10.34.4" },
             },
             {
               name: "Set up Node.js",
@@ -145,7 +139,7 @@ const NORMALIZED_POLICY_WORKFLOWS = new Map([
             {
               name: "Setup PNPM",
               uses: "pnpm/action-setup@<sha>",
-              with: { version: "10.24.0" },
+              with: { version: "10.34.4" },
             },
             {
               name: "Set up Node.js",
@@ -339,57 +333,12 @@ function normalizePolicyWorkflow(value) {
 }
 
 /**
- * The protected workflows need one merge on the old pnpm version before they
- * can move to the new one. Normalize only the exact Setup PNPM field after
- * validating its temporary allowlist; every other workflow value remains part
- * of the strict structural comparison.
- * @param {string} path
- * @param {unknown} workflow
- */
-function normalizePolicyPnpmVersion(path, workflow) {
-  const jobId = POLICY_PNPM_JOB_IDS.get(path);
-  if (
-    !jobId ||
-    workflow == null ||
-    typeof workflow !== "object" ||
-    Array.isArray(workflow)
-  ) {
-    return workflow;
-  }
-
-  const steps = workflow.jobs?.[jobId]?.steps;
-  if (!Array.isArray(steps)) return workflow;
-
-  const setupSteps = steps.filter(
-    (step) =>
-      step != null &&
-      typeof step === "object" &&
-      !Array.isArray(step) &&
-      step.name === "Setup PNPM" &&
-      step.uses === "pnpm/action-setup@<sha>",
-  );
-  if (setupSteps.length !== 1) return workflow;
-
-  const setupStep = setupSteps[0];
-  const version = setupStep.with?.version;
-  if (!ALLOWED_POLICY_PNPM_VERSIONS.includes(version)) {
-    throw new Error(
-      `Setup PNPM version must be one of: ${ALLOWED_POLICY_PNPM_VERSIONS.join(", ")}`,
-    );
-  }
-
-  setupStep.with.version = CANONICAL_POLICY_PNPM_VERSION;
-  return workflow;
-}
-
-/**
  * These workflows form the policy's trust boundary. The target workflow runs
  * only base-branch code; the source workflow exercises proposed checker code
  * without credentials. Validate their complete executable structure from the
  * trusted checker so a PR cannot replace either required check with a no-op.
- * Action SHAs and the explicitly allowed pnpm transition are normalized; other
- * canonical changes intentionally use the protected two-PR transition
- * documented in README.md.
+ * Action SHAs are normalized; other canonical changes intentionally use the
+ * protected two-PR transition documented in README.md.
  * @param {string} path
  * @param {import("yaml").Document} document
  */
@@ -398,10 +347,7 @@ function assertPolicyWorkflowStructure(path, document) {
   if (!expected) return;
 
   assertUniqueSemanticMappings(document.contents, document);
-  const actual = normalizePolicyPnpmVersion(
-    path,
-    normalizePolicyWorkflow(document.toJS({ maxAliasCount: 100 })),
-  );
+  const actual = normalizePolicyWorkflow(document.toJS({ maxAliasCount: 100 }));
   if (!isDeepStrictEqual(actual, expected)) {
     throw new Error("does not match the trusted action-pin workflow structure");
   }

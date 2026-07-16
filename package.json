@@ -61,7 +61,6 @@
     "eslint": "catalog:",
     "eslint-config-prettier": "catalog:",
     "knip": "^6.16.1",
-    "pnpm": "10.24.0",
     "prettier": "^3.9.3",
     "prettier-plugin-tailwindcss": "^0.8.0",
     "turbo": "^2.10.0",
@@ -70,7 +69,7 @@
     "vercel": "56.2.0",
     "yaml": "2.9.0"
   },
-  "packageManager": "pnpm@10.24.0",
+  "packageManager": "pnpm@10.34.4",
   "engines": {
     "node": ">=22"
   },

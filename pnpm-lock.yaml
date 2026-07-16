@@ -187,9 +187,6 @@ importers:
       knip:
         specifier: ^6.16.1
         version: 6.25.0
-      pnpm:
-        specifier: 10.24.0
-        version: 10.24.0
       prettier:
         specifier: ^3.9.3
         version: 3.9.3
@@ -2984,7 +2981,7 @@ packages:
     engines: {node: '>=14.0.0'}
 
   '@metamask/jazzicon@https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28':
-    resolution: {tarball: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28}
+    resolution: {gitHosted: true, tarball: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28}
     version: 2.1.0
 
   '@metamask/json-rpc-engine@10.2.3':
@@ -11834,11 +11831,6 @@ packages:
   pngjs@5.0.0:
     resolution: {integrity: sha512-40QW5YalBNfQo5yRYmiw7Yz6TKKVr3h6970B2YE+3fQpsWcrbj1PzJgxeJ19DRQjhMbKPIuMY8rFaXc8moolVw==}
     engines: {node: '>=10.13.0'}
-
-  pnpm@10.24.0:
-    resolution: {integrity: sha512-Af+K5xtEGZA7ZcYPstydNM+LtuBtA73hEu8496NNaQTEJLpmvqXNzxKJAjC/OflYBHMUDtnJRv7zKLblI4o0Wg==}
-    engines: {node: '>=18.12'}
-    hasBin: true
 
   pony-cause@2.1.11:
     resolution: {integrity: sha512-M7LhCsdNbNgiLYiP4WjsfLUuFmCfnjdF6jKe2R9NKl4WFN+HZPGHJZ9lnLP7f9ZnKe3U9nuWD0szirmj+migUg==}
@@ -29507,8 +29499,6 @@ snapshots:
       fsevents: 2.3.2
 
   pngjs@5.0.0: {}
-
-  pnpm@10.24.0: {}
 
   pony-cause@2.1.11: {}
 

@@ -354,7 +354,7 @@ worker also restores the controller from its trusted workflow SHA after
 dependency installation and again after the candidate build, before output
 assertion, upload, and inspection.
 
-The Vercel CLI is a separate trusted tool install. Pinned pnpm `10.24.0` reads
+The Vercel CLI is a separate trusted tool install. Pinned pnpm `10.34.4` reads
 the main controller's exact `package.json` and frozen `pnpm-lock.yaml`, disables
 lifecycle scripts, and copies packages into a runner-owned directory outside
 the checkout. Its `--modules-dir` and `--virtual-store-dir` values are validated
@@ -368,16 +368,25 @@ by the isolated candidate UID. Before candidate code starts, the worker copies
 Node.js and the exact pinned standalone pnpm executable into the same
 runner-owned protected tool directory, removes group/other write access from
 the original pnpm action directory, and uses that executable only to install
-the trusted controller's lockfile-pinned tools. The pnpm action's PATH entry is
-a launcher whose executable lives below a hashed
-`global/v*/.../@pnpm/exe/pnpm` directory, so the worker requires exactly one
-protected target reporting `10.24.0` and copies that self-contained executable
-instead of relocating the launcher. Candidate-controlled installs then use the
-separately lockfile-pinned `pnpm` JavaScript package through the protected Node
-runtime. This removes the standalone executable's own image from the
-cross-identity execution path: the pilot failed when that image was not
-effectively readable after switching to the isolated candidate identity, even
-though the runner-owned executable checks had passed.
+trusted controller tools. The pnpm action's PATH entry is a launcher whose
+executable lives below a hashed `global/v*/.../@pnpm/exe/pnpm` directory, so the
+worker requires exactly one protected target reporting `10.34.4` and copies
+that self-contained executable instead of relocating the launcher.
+
+Candidate-controlled installs use a separate JavaScript pnpm runtime pinned by
+`scripts/vercel-pnpm-runtime/package.json` and its standalone frozen lockfile.
+That manifest is deliberately outside the workspace globs, staged under
+`$TRUSTED_VERCEL_TOOLS_PATH/pnpm-runtime`, and installed with lifecycle scripts
+disabled and package copies rather than links to candidate-writable storage.
+The protected launcher always uses protected Node plus that runtime's
+`pnpm.cjs`; it disables pnpm's package-manager self-switch and strict patch
+version check so an older candidate `packageManager` field cannot silently
+downgrade the trusted runtime or reject the intentional patched v10 version.
+This removes the standalone executable's own image from the cross-identity
+execution path: the pilot failed when that image was not effectively readable
+after switching to the isolated candidate identity, even though the
+runner-owned executable checks had passed. Both lockfiles are covered by OSV
+and sha512/registry validation.
 Before any credentialed command, the worker proves the runtime root, its
 replacement-relevant parents, Node.js, pnpm, and the CLI are not candidate
 writable; it also proves the CLI resolves inside the protected directory, its

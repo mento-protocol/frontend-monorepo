@@ -188,10 +188,21 @@ test("exact source, build, and upload remain in one standard-runner job", () => 
 
 test("prebuilt separates trusted standalone bootstrap from candidate JavaScript pnpm", () => {
   const reusable = workflow(reusablePath);
+  const supplyChain = workflow(".github/workflows/supply-chain.yml");
+  const trunk = workflow(".trunk/trunk.yaml");
   const steps = reusable.jobs.prebuilt.steps;
   const names = steps.map(({ name }) => name);
   const manifest = JSON.parse(read("package.json"));
+  const runtimeManifest = JSON.parse(
+    read("scripts/vercel-pnpm-runtime/package.json"),
+  );
+  const runtimeLock = parse(read("scripts/vercel-pnpm-runtime/pnpm-lock.yaml"));
+  const rootOsvConfig = read("osv-scanner.toml");
+  const runtimeOsvConfig = read("scripts/vercel-pnpm-runtime/osv-scanner.toml");
   const pnpmSetup = steps.find(({ name }) => name === "Set up pinned pnpm");
+  const nodeSetup = steps.find(
+    ({ name }) => name === "Set up pinned Node.js and pnpm cache",
+  );
   const isolation = steps.find(
     ({ name }) =>
       name === "Prepare isolated exact-SHA source and protected Vercel CLI",
@@ -200,11 +211,46 @@ test("prebuilt separates trusted standalone bootstrap from candidate JavaScript 
     ({ name }) => name === "Install frozen dependencies",
   );
 
-  assert.equal(manifest.devDependencies.pnpm, "10.24.0");
+  assert.equal(manifest.devDependencies.pnpm, undefined);
+  assert.equal(manifest.packageManager, "pnpm@10.34.4");
+  assert.deepEqual(runtimeManifest.dependencies, { pnpm: "10.34.4" });
+  assert.deepEqual(Object.keys(runtimeLock.packages), ["pnpm@10.34.4"]);
+  assert.deepEqual(Object.keys(runtimeLock.snapshots), ["pnpm@10.34.4"]);
+  assert.equal(runtimeLock.importers["."].dependencies.pnpm.version, "10.34.4");
+  assert.doesNotMatch(rootOsvConfig, /GHSA-gj8w-mvpf-x27x/);
+  assert.match(
+    supplyChain.jobs.osv.with["scan-args"],
+    /--config=osv-scanner\.toml[\s\S]*--lockfile=pnpm-lock\.yaml/,
+  );
+  assert.doesNotMatch(
+    supplyChain.jobs.osv.with["scan-args"],
+    /vercel-pnpm-runtime/,
+  );
+  assert.match(
+    supplyChain.jobs["osv-pnpm-runtime"].with["scan-args"],
+    /--config=scripts\/vercel-pnpm-runtime\/osv-scanner\.toml[\s\S]*--lockfile=scripts\/vercel-pnpm-runtime\/pnpm-lock\.yaml/,
+  );
+  assert.match(runtimeOsvConfig, /GHSA-gj8w-mvpf-x27x/);
+  assert.match(runtimeOsvConfig, /ignoreUntil = 2026-08-16T00:00:00Z/);
+  assert.match(
+    supplyChain.jobs["lockfile-lint"].steps.at(-1).run,
+    /LOCKFILE_LINT_ROOT=scripts\/vercel-pnpm-runtime/,
+  );
+  const trunkOsvIgnore = trunk.lint.ignore.find(({ linters }) =>
+    linters.includes("osv-scanner"),
+  );
+  assert.deepEqual(trunkOsvIgnore.paths, [
+    "pnpm-lock.yaml",
+    "scripts/vercel-pnpm-runtime/pnpm-lock.yaml",
+  ]);
   assert.equal(pnpmSetup.with.dest, "${{ runner.temp }}/mento-pnpm-tools");
   assert.equal(pnpmSetup.with.standalone, true);
-  assert.equal(pnpmSetup.with.version, "10.24.0");
+  assert.equal(pnpmSetup.with.version, "10.34.4");
   assert.equal(pnpmSetup.id, "pnpm");
+  assert.match(
+    nodeSetup.with["cache-dependency-path"],
+    /controller\/scripts\/vercel-pnpm-runtime\/pnpm-lock\.yaml/,
+  );
   assert.equal(
     isolation.env.PNPM_ACTION_DEST,
     "${{ runner.temp }}/mento-pnpm-tools",
@@ -230,6 +276,15 @@ test("prebuilt separates trusted standalone bootstrap from candidate JavaScript 
   );
   assert.match(
     isolation.run,
+    /controller\/scripts\/vercel-prebuilt-workflow\.mjs" \\\n\s+stage-pnpm-runtime/,
+  );
+  assert.match(
+    isolation.run,
+    /"\$pnpm_bootstrap" --dir "\$pnpm_runtime_root" install \\/,
+  );
+  assert.match(isolation.run, /--ignore-workspace/);
+  assert.match(
+    isolation.run,
     /printf '%s\\n' "\$trusted_bin_dir" >> "\$GITHUB_PATH"/,
   );
   assert.match(isolation.run, /"\$PNPM_ACTION_DEST" \\/);
@@ -252,8 +307,10 @@ test("prebuilt separates trusted standalone bootstrap from candidate JavaScript 
   assert.match(isolation.run, /"\$pnpm_bootstrap" \\/);
   assert.match(isolation.run, /"\$pnpm_bin"; do/);
   assert.match(install.run, /\/usr\/bin\/setpriv/);
+  assert.match(install.run, /NPM_CONFIG_MANAGE_PACKAGE_MANAGER_VERSIONS=false/);
+  assert.match(install.run, /NPM_CONFIG_PACKAGE_MANAGER_STRICT_VERSION=false/);
   assert.match(install.run, /"\$pnpm_bin" --version \|/);
-  assert.match(install.run, /\/usr\/bin\/grep -Fxq "10\.24\.0"/);
+  assert.match(install.run, /\/usr\/bin\/grep -Fxq "10\.34\.4"/);
   assert.ok(
     names.indexOf("Set up pinned Node.js and pnpm cache") <
       names.indexOf(

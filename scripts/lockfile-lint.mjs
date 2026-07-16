@@ -15,6 +15,10 @@
  *      registry is configured (i.e. all packages resolve from the default
  *      https://registry.npmjs.org).
  *
+ *   3. pnpm advisory guard: while OSV misclassifies patched pnpm 10.x releases,
+ *      reject every actually affected pnpm package version explicitly. This
+ *      keeps the narrowly scoped scanner correction from masking a downgrade.
+ *
  * Ported from monitoring-monorepo. Frontend adaptations:
  *   - The override-floor gate (monitoring's gate 3) is intentionally omitted:
  *     30 of frontend's pnpm.overrides deliberately use `>=patched` floor
@@ -76,6 +80,35 @@ if (!existsSync(lockfilePath)) {
 }
 
 const lockfileText = readFileSync(lockfilePath, "utf8");
+
+/**
+ * GHSA-gj8w-mvpf-x27x affects pnpm <10.34.2 and >=11.0.0 <11.5.3.
+ * Fail closed on non-stable versions while the OSV metadata correction exists.
+ * @param {string} version
+ */
+function isAffectedPnpmVersion(version) {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+  if (!match) return true;
+  const value = match.slice(1).map(Number);
+  const compare = (target) => {
+    for (let index = 0; index < value.length; index++) {
+      if (value[index] !== target[index]) return value[index] - target[index];
+    }
+    return 0;
+  };
+  if (value[0] < 10) return true;
+  if (value[0] === 10) return compare([10, 34, 2]) < 0;
+  if (value[0] === 11) return compare([11, 5, 3]) < 0;
+  return false;
+}
+
+for (const match of lockfileText.matchAll(/^ {2}'?pnpm@([^':\s]+)'?:\s*$/gm)) {
+  if (isAffectedPnpmVersion(match[1])) {
+    fail(
+      `pnpm ${match[1]} is affected by GHSA-gj8w-mvpf-x27x; require >=10.34.2 below v11 or >=11.5.3 on v11.`,
+    );
+  }
+}
 
 // Confirm lockfile version — only v9 is understood by this script.
 const versionMatch = lockfileText.match(
@@ -183,9 +216,9 @@ const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const REMOTE_TARBALL_ENTRY = new RegExp(
   REMOTE_TARBALL_ALLOWLIST.map(
     ({ key, tarball }) =>
-      `^ {2}'?${escapeRegExp(key)}'?:\\n\\s+resolution:\\s*\\{tarball:\\s*${escapeRegExp(
+      `^ {2}'?${escapeRegExp(key)}'?:\\n\\s+resolution:\\s*\\{(?:gitHosted:\\s*true,\\s*)?tarball:\\s*${escapeRegExp(
         tarball,
-      )}\\}`,
+      )}\\s*\\}`,
   ).join("|"),
   "gm",
 );

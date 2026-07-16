@@ -1,0 +1,9 @@
+{
+  "name": "@mento-protocol/vercel-pnpm-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Isolated pnpm runtime for candidate-controlled Vercel builds",
+  "dependencies": {
+    "pnpm": "10.34.4"
+  }
+}

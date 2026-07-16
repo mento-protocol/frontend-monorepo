@@ -27,7 +27,7 @@ const POLICY_WORKFLOW_FIXTURES = new Map(
     readFileSync(resolve(path), "utf8"),
   ]),
 );
-const CURRENT_POLICY_PNPM_VERSION = "10.24.0";
+const CURRENT_POLICY_PNPM_VERSION = "10.34.4";
 const VERCEL_PREVIEW_CONTROLLER_PATH =
   ".github/workflows/vercel-preview-controller.yml";
 const VERCEL_PREVIEW_CONTROLLER_FIXTURE = readFileSync(
@@ -1278,62 +1278,24 @@ test("allows immutable action SHA bumps in canonical policy workflows", () => {
   }
 });
 
-test("allows both exact pnpm versions during the protected transition", () => {
-  for (const version of ["10.24.0", "10.34.4"]) {
+test("rejects policy pnpm version drift after the protected transition", () => {
+  for (const version of ["10.24.0", "10.34.5"]) {
     for (const path of POLICY_WORKFLOW_PATHS) {
-      const root = fixtureRoot(`policy-pnpm-${version}-pass`);
+      const root = fixtureRoot(`policy-pnpm-${version}-fail`);
       try {
         write(root, path, policyWorkflowWithPnpmVersion(path, version));
 
         const result = runChecker(root);
-        equal(result.status, 0, result.stderr);
+        equal(result.status, 1, result.stdout);
+        contains(result.stderr, path, "policy path");
+        contains(
+          result.stderr,
+          "does not match the trusted action-pin workflow structure",
+          "strict pnpm field",
+        );
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
-    }
-  }
-});
-
-test("rejects pnpm versions outside the protected transition", () => {
-  for (const path of POLICY_WORKFLOW_PATHS) {
-    const root = fixtureRoot("policy-pnpm-arbitrary-fail");
-    try {
-      write(root, path, policyWorkflowWithPnpmVersion(path, "10.34.5"));
-
-      const result = runChecker(root);
-      equal(result.status, 1, result.stdout);
-      contains(result.stderr, path, "policy path");
-      contains(
-        result.stderr,
-        "Setup PNPM version must be one of: 10.24.0, 10.34.4",
-        "allowed pnpm versions",
-      );
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  }
-});
-
-test("keeps non-pnpm policy fields strict during the transition", () => {
-  for (const path of POLICY_WORKFLOW_PATHS) {
-    const root = fixtureRoot("policy-pnpm-other-field-fail");
-    try {
-      const updated = policyWorkflowWithPnpmVersion(path, "10.34.4").replace(
-        "node-version: 22",
-        "node-version: 23",
-      );
-      write(root, path, updated);
-
-      const result = runChecker(root);
-      equal(result.status, 1, result.stdout);
-      contains(result.stderr, path, "policy path");
-      contains(
-        result.stderr,
-        "does not match the trusted action-pin workflow structure",
-        "strict non-pnpm field",
-      );
-    } finally {
-      rmSync(root, { recursive: true, force: true });
     }
   }
 });

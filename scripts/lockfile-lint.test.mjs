@@ -373,7 +373,7 @@ test("passes when packages: contains a remote https tarball dependency without i
     `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n` +
     `  typescript@5.0.0:\n    resolution: {integrity: ${VALID_SHA512}}\n\n` +
     `  '@metamask/jazzicon@https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28':\n` +
-    `    resolution: {tarball: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28}\n\n` +
+    `    resolution: {gitHosted: true, tarball: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28}\n\n` +
     `snapshots:\n`;
   const { exitCode, stdout, stderr } = run(lockfile);
   assert(
@@ -383,6 +383,47 @@ test("passes when packages: contains a remote https tarball dependency without i
   assert(
     stdout.includes("remote-tarball deps exempted"),
     `expected remote-tarball exemption message: ${stdout}`,
+  );
+});
+
+test("fails when an allowlisted tarball resolution has an unknown field", () => {
+  const lockfile =
+    `lockfileVersion: '9.0'\n\nimporters:\n\npackages:\n\n` +
+    `  '@metamask/jazzicon@https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28':\n` +
+    `    resolution: {gitHosted: true, tarball: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28, registry: https://evil.example}\n\n` +
+    `snapshots:\n`;
+  const { exitCode, stdout, stderr } = run(lockfile);
+  assert(
+    exitCode !== 0,
+    `Expected non-zero (unknown resolution field must fail), got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+  assert(
+    stderr.includes("resolution block without a sha512"),
+    `expected integrity failure: ${stderr}`,
+  );
+});
+
+test("rejects pnpm 10.24.0 while the scanner metadata correction exists", () => {
+  const { exitCode, stdout, stderr } = run(
+    makeLockfile([{ name: "pnpm@10.24.0", integrity: VALID_SHA512 }]),
+  );
+  assert(
+    exitCode !== 0,
+    `Expected vulnerable pnpm to fail, got ${exitCode}\n${stdout}\n${stderr}`,
+  );
+  assert(
+    stderr.includes("pnpm 10.24.0 is affected by GHSA-gj8w-mvpf-x27x"),
+    `expected pnpm advisory failure: ${stderr}`,
+  );
+});
+
+test("accepts patched pnpm 10.34.4 under the scanner metadata correction", () => {
+  const { exitCode, stdout, stderr } = run(
+    makeLockfile([{ name: "pnpm@10.34.4", integrity: VALID_SHA512 }]),
+  );
+  assert(
+    exitCode === 0,
+    `Expected patched pnpm to pass, got ${exitCode}\n${stdout}\n${stderr}`,
   );
 });
 
