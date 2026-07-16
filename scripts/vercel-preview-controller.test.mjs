@@ -1480,6 +1480,7 @@ function fakeGitHub({
   pullCommits = [pullRequest.head.sha],
   deployments: initialDeployments = [],
   deploymentStatuses = new Map(),
+  workflowRunDisplayTitles = [],
 } = {}) {
   const comments = structuredClone(initialComments);
   const runs = structuredClone(initialRuns);
@@ -1495,6 +1496,8 @@ function fakeGitHub({
   const createdDeploymentStatuses = [];
   const workflowRunAttemptRequests = [];
   const workflowRunListRequests = [];
+  const workflowRunRequests = [];
+  const transientDisplayTitles = [...workflowRunDisplayTitles];
   const attemptFailures = [...workflowRunAttemptFailures];
   const commentUpdateFailures = [...updateCommentFailures];
   let nextCommentId = 100;
@@ -1554,7 +1557,16 @@ function fakeGitHub({
         getWorkflowRun: async ({ run_id }) => {
           const data = runs.find(({ id }) => id === run_id);
           assert.ok(data, `fixture run ${run_id} must exist`);
-          return { data: structuredClone(data) };
+          workflowRunRequests.push(run_id);
+          const displayTitle = transientDisplayTitles.shift();
+          return {
+            data: structuredClone({
+              ...data,
+              ...(displayTitle === undefined
+                ? {}
+                : { display_title: displayTitle }),
+            }),
+          };
         },
       },
       repos: {
@@ -1660,6 +1672,7 @@ function fakeGitHub({
     createdDeploymentStatuses,
     workflowRunAttemptRequests,
     workflowRunListRequests,
+    workflowRunRequests,
   };
 }
 
@@ -1750,6 +1763,26 @@ test("closed event receipt is immutable, idempotent, and publishes no status", a
   assert.equal(fixture.comments.length, 1);
   assert.match(fixture.comments[0].body, /"event_action": "closed"/);
   assert.equal(fixture.commitStatuses.length, 0);
+
+  const opened = event({
+    run: 119,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const reconcileFixture = fakeGitHub({
+    pullRequest,
+    comments: [eventComment(opened), eventComment(first, 2)],
+  });
+  const state = await reconcilePreview({
+    github: reconcileFixture.github,
+    context: fakeContext({ runId: 120 }),
+    core: fakeCore(),
+    prNumber: 519,
+  });
+
+  assert.equal(state.closed, true);
+  assert.equal(reconcileFixture.dispatches.length, 0);
 });
 
 test("trusted workflow_run follow-up publishes Dependabot unsupported status only for the exact current head", async () => {
@@ -1874,8 +1907,14 @@ test("strict worker identity uses display_title plus workflow path, ref, SHA, an
     ).workflow_run_id,
     8_000,
   );
+  assert.equal(
+    validateWorkerRunIdentity({ ...run, name: run.display_title }, selection)
+      .workflow_run_id,
+    8_000,
+  );
   for (const override of [
     { display_title: "Vercel Preview Worker" },
+    { name: "Another Workflow" },
     { path: ".github/workflows/vercel-preview-worker.yml@feature" },
     { path: ".github/workflows/other.yml@main" },
     { event: "push" },
@@ -1933,7 +1972,7 @@ test("worker preflight rejects expected A versus actual B before any API access"
   assert.equal(apiCalls, 0);
 });
 
-test("durable dispatch persists intent, requires HTTP 200 run details, and re-queries the exact run", async () => {
+test("durable dispatch persists intent and waits for the exact run title to materialize", async () => {
   const opened = event({
     run: 121,
     action: "opened",
@@ -1944,6 +1983,7 @@ test("durable dispatch persists intent, requires HTTP 200 run details, and re-qu
   const fixture = fakeGitHub({
     pullRequest,
     comments: [eventComment(opened)],
+    workflowRunDisplayTitles: ["Vercel Preview Worker"],
   });
   const core = fakeCore();
   const state = await reconcilePreview({
@@ -1957,9 +1997,37 @@ test("durable dispatch persists intent, requires HTTP 200 run details, and re-qu
   assert.equal(state.ui.active.dispatch_state, "dispatched");
   assert.equal(state.ui.active.workflow_run_id, 8_000);
   assert.equal(state.ui.active.workflow_sha, SHA.E);
+  assert.deepEqual(fixture.workflowRunRequests, [8_000, 8_000]);
   assert.equal(core.outputs.get("dispatched_run_id"), "8000");
   assert.equal(fixture.commitStatuses.at(-1).context, "Vercel Preview");
   assert.equal(fixture.commitStatuses.at(-1).sha, SHA.A);
+});
+
+test("durable dispatch fails closed when the exact run title never materializes", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+    comments: [eventComment(opened)],
+    workflowRunDisplayTitles: Array(5).fill("Vercel Preview Worker"),
+  });
+
+  await assert.rejects(
+    reconcilePreview({
+      github: fixture.github,
+      context: fakeContext(),
+      core: fakeCore(),
+      prNumber: 519,
+      waitForRecovery: async () => {},
+    }),
+    /Worker run name is not strictly parseable/,
+  );
+  assert.deepEqual(fixture.workflowRunRequests, Array(5).fill(8_000));
+  assert.equal(fixture.commitStatuses.at(-1).state, "error");
 });
 
 test("a dispatch racing a main advance is terminalized and automatically reselected", async () => {
@@ -2056,7 +2124,8 @@ test("intended dispatch recovery attaches exactly one run and fails closed on am
     pullRequest,
   });
   const intended = persistIntent(selected);
-  const existingRun = workerRun(selected.nextDispatch);
+  const listedRun = workerRun(selected.nextDispatch);
+  const existingRun = { ...listedRun, name: listedRun.display_title };
   const recovered = fakeGitHub({
     pullRequest,
     comments: [eventComment(opened), stateComment(intended)],
@@ -2431,15 +2500,20 @@ test("completed callback durably binds an intended dispatch after a controller c
     pullRequest,
     comments: [eventComment(opened), stateComment(intended)],
     runs: [completed],
+    workflowRunDisplayTitles: ["Vercel Preview Worker"],
   });
   const core = fakeCore();
+  const waits = [];
   const outcome = await recoverWorkerResult({
     github: fixture.github,
     context: fakeContext({ workflowRun: completed }),
     core,
+    waitForRecovery: async (milliseconds) => waits.push(milliseconds),
   });
   assert.equal(outcome.terminal_reason, "worker-cancelled");
   assert.equal(core.outputs.get("recovered_intended_run_id"), "8000");
+  assert.deepEqual(waits, [500]);
+  assert.deepEqual(fixture.workflowRunRequests, [8_000, 8_000]);
   const controllerState = fixture.comments.find(({ body }) =>
     body.startsWith("<!-- vercel-preview-controller:v1 -->"),
   );

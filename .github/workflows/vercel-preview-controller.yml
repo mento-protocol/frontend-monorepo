@@ -192,7 +192,7 @@ jobs:
   reconcile-event:
     name: Reconcile durable preview state
     needs: receipt-event
-    if: needs.receipt-event.result == 'success'
+    if: always() && needs.receipt-event.result == 'success'
     concurrency:
       group: vercel-preview-controller-pr-${{ needs.receipt-event.outputs.pr_number }}
       cancel-in-progress: false

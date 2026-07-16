@@ -379,14 +379,17 @@ separately from `vercel build`. The signed Turbo remote build cache remains
 enabled and its hit/miss evidence remains part of the comparison.
 
 Before candidate installation, the worker proves the checked-out index tree is
-the exact selected commit tree. A trusted, bounded materializer then lists that
-exact commit with `git ls-tree`, reads every raw blob with `git cat-file`, and
-writes only supported regular files and symbolic links into a fresh fixed path
-under `RUNNER_TEMP`. It rejects unsafe paths, unsupported modes (including
-gitlinks), oversized trees, and filesystem collisions. Reading raw objects
-deliberately bypasses both archive attributes (`export-ignore` and
-`export-subst`) and checkout filters (`eol`, `ident`, and custom filters), so the
-candidate always receives the selected commit's stored bytes.
+the exact selected commit tree. Before any candidate process starts, it
+normalizes `RUNNER_TEMP` to runner-owned `0711` permissions and proves the
+candidate UID cannot write that parent. A trusted, bounded materializer then
+lists the exact commit with `git ls-tree`, reads every raw blob with
+`git cat-file`, and writes only supported regular files and symbolic links into
+a fresh fixed child path that is subsequently handed to the candidate UID. It
+rejects unsafe paths, unsupported modes (including gitlinks), oversized trees,
+and filesystem collisions. Reading raw objects deliberately bypasses both
+archive attributes (`export-ignore` and `export-subst`) and checkout filters
+(`eol`, `ident`, and custom filters), so the candidate always receives the
+selected commit's stored bytes.
 
 ### Root Directory and command sequence
 
