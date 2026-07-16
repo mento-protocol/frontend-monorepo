@@ -180,14 +180,17 @@ function pilotContract(overrides = {}) {
 }
 
 function pulledStagingFixture() {
-  const runnerTemp = mkdtempSync(join(tmpdir(), "vercel-pull-runner-"));
-  const stagingRoot = join(runnerTemp, "mento-vercel-pull-staging");
-  const candidateRoot = join(runnerTemp, "mento-vercel-candidate-source");
+  const isolationRoot = realpathSync(
+    mkdtempSync(join(tmpdir(), "vercel-pull-runner-")),
+  );
+  const stagingRoot = join(isolationRoot, "mento-vercel-pull-staging");
+  const candidateRoot = join(isolationRoot, "mento-vercel-candidate-source");
   const vercelOrgId = "team_example";
   const vercelProjectId = "prj_ui";
   const expectedRootDirectory = PILOT_TARGET.expectedRootDirectory;
+  chmodSync(isolationRoot, 0o711);
   prepareVercelPullStaging({
-    runnerTemp,
+    isolationRoot,
     stagingRoot,
     expectedRootDirectory,
     vercelOrgId,
@@ -206,7 +209,7 @@ function pulledStagingFixture() {
     { mode: 0o600 },
   );
   return {
-    runnerTemp,
+    isolationRoot,
     stagingRoot,
     candidateRoot,
     appState,
@@ -214,14 +217,14 @@ function pulledStagingFixture() {
     vercelOrgId,
     vercelProjectId,
     options: {
-      runnerTemp,
+      isolationRoot,
       stagingRoot,
       expectedRootDirectory,
       vercelOrgId,
       vercelProjectId,
     },
     cleanup() {
-      rmSync(runnerTemp, { force: true, recursive: true });
+      rmSync(isolationRoot, { force: true, recursive: true });
     },
   };
 }
@@ -988,7 +991,7 @@ test("Vercel CLI receives the repo link instead of ID variables that override it
   );
 });
 
-test("Vercel pull staging is a fresh exact runner-temp tree", () => {
+test("Vercel pull staging is a fresh exact isolation-root tree", () => {
   const fixture = pulledStagingFixture();
   try {
     assert.equal(
@@ -1008,9 +1011,9 @@ test("Vercel pull staging is a fresh exact runner-temp tree", () => {
       () =>
         prepareVercelPullStaging({
           ...fixture.options,
-          stagingRoot: join(fixture.runnerTemp, "candidate-selected"),
+          stagingRoot: join(fixture.isolationRoot, "candidate-selected"),
         }),
-      /expected RUNNER_TEMP child/,
+      /expected isolation-root child/,
     );
   } finally {
     fixture.cleanup();
@@ -1021,7 +1024,7 @@ test("UI preview environment validation reads only trusted pull staging", () => 
   const fixture = pulledStagingFixture();
   try {
     const canonicalProject = join(
-      fixture.runnerTemp,
+      fixture.isolationRoot,
       "source",
       fixture.expectedRootDirectory,
     );
@@ -1077,7 +1080,7 @@ test("Vercel pull staging rejects links, hardlinks, special files, and unsafe st
       name: "repo link symlink",
       mutate: (fixture) => {
         const path = join(fixture.stagingRoot, ".vercel", "repo.json");
-        const outside = join(fixture.runnerTemp, "outside-repo.json");
+        const outside = join(fixture.isolationRoot, "outside-repo.json");
         writeFileSync(outside, "untouched");
         rmSync(path);
         symlinkSync(outside, path);
@@ -1086,7 +1089,7 @@ test("Vercel pull staging rejects links, hardlinks, special files, and unsafe st
     {
       name: "app Vercel directory symlink",
       mutate: (fixture) => {
-        const outside = join(fixture.runnerTemp, "outside-state");
+        const outside = join(fixture.isolationRoot, "outside-state");
         mkdirSync(outside);
         rmSync(fixture.appState, { recursive: true });
         symlinkSync(outside, fixture.appState);
@@ -1096,7 +1099,7 @@ test("Vercel pull staging rejects links, hardlinks, special files, and unsafe st
       name: `${name} symlink`,
       mutate: (fixture) => {
         const path = join(fixture.appState, name);
-        const outside = join(fixture.runnerTemp, `outside-${name}`);
+        const outside = join(fixture.isolationRoot, `outside-${name}`);
         writeFileSync(outside, "untouched");
         rmSync(path);
         symlinkSync(outside, path);
@@ -1188,7 +1191,10 @@ test("candidate Vercel links cannot redirect trusted pulled-state copies", () =>
         fixture.expectedRootDirectory,
       );
       mkdirSync(appRoot, { recursive: true });
-      const outsideDirectory = join(fixture.runnerTemp, "trusted-controller");
+      const outsideDirectory = join(
+        fixture.isolationRoot,
+        "trusted-controller",
+      );
       const sentinelPath = join(outsideDirectory, "sentinel.txt");
       mkdirSync(outsideDirectory);
       writeFileSync(sentinelPath, "untouched", { mode: 0o600 });
@@ -1227,7 +1233,7 @@ test("candidate Vercel links cannot redirect trusted pulled-state copies", () =>
   }
 });
 
-test("candidate staging rejects a source root that escapes RUNNER_TEMP", () => {
+test("candidate staging rejects a source root that escapes the isolation root", () => {
   const fixture = pulledStagingFixture();
   const outside = mkdtempSync(join(tmpdir(), "vercel-candidate-outside-"));
   try {
@@ -1274,9 +1280,11 @@ test("candidate staging rejects source components with the wrong owner", () => {
 
 test("trusted runtime copies hosted Node and the authenticated Linux pnpm bootstrap into independent protected files", () => {
   const sourceRoot = mkdtempSync(join(tmpdir(), "vercel-runtime-source-"));
-  const runnerTemp = mkdtempSync(join(tmpdir(), "vercel-runtime-runner-"));
-  const toolsRoot = join(runnerTemp, "mento-vercel-trusted-tools");
-  const pnpmRoot = join(runnerTemp, "mento-vercel-pnpm-bootstrap");
+  const isolationRoot = realpathSync(
+    mkdtempSync(join(tmpdir(), "vercel-runtime-runner-")),
+  );
+  const toolsRoot = join(isolationRoot, "mento-vercel-trusted-tools");
+  const pnpmRoot = join(isolationRoot, "mento-vercel-pnpm-bootstrap");
   const nodeSource = join(sourceRoot, "node");
   const pnpmPackageRoot = join(pnpmRoot, "node_modules", "@pnpm", "linux-x64");
   const pnpmExecutable = join(pnpmPackageRoot, "pnpm");
@@ -1295,7 +1303,7 @@ test("trusted runtime copies hosted Node and the authenticated Linux pnpm bootst
     .digest("hex");
   try {
     chmodSync(sourceRoot, 0o777);
-    chmodSync(runnerTemp, 0o711);
+    chmodSync(isolationRoot, 0o711);
     writeFileSync(nodeSource, nodeContents, { mode: 0o777 });
     mkdirSync(pnpmPackageRoot, { recursive: true });
     for (const file of ["package.json", "package-lock.json"]) {
@@ -1322,14 +1330,14 @@ test("trusted runtime copies hosted Node and the authenticated Linux pnpm bootst
     assert.equal(lstatSync(pnpmExecutable).nlink, 1);
 
     const staged = stageTrustedRuntime({
-      runnerTemp,
+      isolationRoot,
       toolsRoot,
       nodeSource,
       pnpmRoot,
       expectedPnpmSha256,
     });
     const canonicalToolsRoot = join(
-      realpathSync(runnerTemp),
+      realpathSync(isolationRoot),
       "mento-vercel-trusted-tools",
     );
     assert.deepEqual(staged, {
@@ -1378,7 +1386,7 @@ test("trusted runtime copies hosted Node and the authenticated Linux pnpm bootst
     assert.throws(
       () =>
         stageTrustedRuntime({
-          runnerTemp,
+          isolationRoot,
           toolsRoot,
           nodeSource,
           pnpmRoot,
@@ -1392,7 +1400,7 @@ test("trusted runtime copies hosted Node and the authenticated Linux pnpm bootst
     assert.throws(
       () =>
         stageTrustedRuntime({
-          runnerTemp,
+          isolationRoot,
           toolsRoot,
           nodeSource,
           pnpmRoot,
@@ -1401,33 +1409,35 @@ test("trusted runtime copies hosted Node and the authenticated Linux pnpm bootst
       /destination must be fresh/,
     );
     rmSync(toolsRoot, { force: true });
-    chmodSync(runnerTemp, 0o777);
+    chmodSync(isolationRoot, 0o777);
     assert.throws(
       () =>
         stageTrustedRuntime({
-          runnerTemp,
+          isolationRoot,
           toolsRoot,
           nodeSource,
           pnpmRoot,
           expectedPnpmSha256,
         }),
-      /Runner temporary directory is not protected/,
+      /Vercel isolation root is not protected/,
     );
   } finally {
     rmSync(sourceRoot, { force: true, recursive: true });
-    rmSync(runnerTemp, { force: true, recursive: true });
+    rmSync(isolationRoot, { force: true, recursive: true });
   }
 });
 
 test("trusted pnpm bootstrap manifest and npm lock are exact before network installation", () => {
-  const fixtureRoot = mkdtempSync(join(tmpdir(), "vercel-pnpm-bootstrap-"));
+  const fixtureRoot = realpathSync(
+    mkdtempSync(join(tmpdir(), "vercel-pnpm-bootstrap-")),
+  );
   const controllerRoot = join(fixtureRoot, "controller");
   const sourceRoot = join(controllerRoot, "scripts", "vercel-pnpm-bootstrap");
-  const runnerTemp = join(fixtureRoot, "runner-temp");
-  const bootstrapRoot = join(runnerTemp, "mento-vercel-pnpm-bootstrap");
+  const isolationRoot = join(fixtureRoot, "isolation-root");
+  const bootstrapRoot = join(isolationRoot, "mento-vercel-pnpm-bootstrap");
   try {
     mkdirSync(sourceRoot, { recursive: true });
-    mkdirSync(runnerTemp, { mode: 0o711 });
+    mkdirSync(isolationRoot, { mode: 0o711 });
     for (const file of ["package.json", "package-lock.json"]) {
       copyFileSync(
         join(REPOSITORY_ROOT, "scripts", "vercel-pnpm-bootstrap", file),
@@ -1446,10 +1456,10 @@ test("trusted pnpm bootstrap manifest and npm lock are exact before network inst
     assert.equal(
       stageTrustedPnpmBootstrapManifest({
         controllerRoot,
-        runnerTemp,
+        isolationRoot,
         bootstrapRoot,
       }),
-      join(realpathSync(runnerTemp), "mento-vercel-pnpm-bootstrap"),
+      join(realpathSync(isolationRoot), "mento-vercel-pnpm-bootstrap"),
     );
     assert.equal(lstatSync(bootstrapRoot).mode & 0o777, 0o700);
     for (const file of ["package.json", "package-lock.json"]) {
@@ -1466,7 +1476,7 @@ test("trusted pnpm bootstrap manifest and npm lock are exact before network inst
       () =>
         stageTrustedPnpmBootstrapManifest({
           controllerRoot,
-          runnerTemp,
+          isolationRoot,
           bootstrapRoot,
         }),
       /destination must be fresh/,
@@ -1483,7 +1493,7 @@ test("trusted pnpm bootstrap manifest and npm lock are exact before network inst
       () =>
         stageTrustedPnpmBootstrapManifest({
           controllerRoot,
-          runnerTemp,
+          isolationRoot,
           bootstrapRoot,
         }),
       /manifest is not exact/,
@@ -1509,7 +1519,7 @@ test("trusted pnpm bootstrap manifest and npm lock are exact before network inst
       () =>
         stageTrustedPnpmBootstrapManifest({
           controllerRoot,
-          runnerTemp,
+          isolationRoot,
           bootstrapRoot,
         }),
       /lockfile is not exact/,
@@ -1771,10 +1781,12 @@ test("trusted candidate pnpm launcher uses the lockfile-pinned JavaScript packag
 });
 
 test("trusted runtime rejects missing, malformed, digest-drifted, and hardlinked pnpm bootstrap targets", () => {
-  const runnerTemp = mkdtempSync(join(tmpdir(), "vercel-runtime-runner-"));
-  const toolsRoot = join(runnerTemp, "mento-vercel-trusted-tools");
-  const pnpmRoot = join(runnerTemp, "mento-vercel-pnpm-bootstrap");
-  const nodeSource = join(runnerTemp, "node");
+  const isolationRoot = realpathSync(
+    mkdtempSync(join(tmpdir(), "vercel-runtime-runner-")),
+  );
+  const toolsRoot = join(isolationRoot, "mento-vercel-trusted-tools");
+  const pnpmRoot = join(isolationRoot, "mento-vercel-pnpm-bootstrap");
+  const nodeSource = join(isolationRoot, "node");
   const pnpmExecutable = join(
     pnpmRoot,
     "node_modules",
@@ -1789,14 +1801,14 @@ test("trusted runtime rejects missing, malformed, digest-drifted, and hardlinked
     .digest("hex");
   const stage = (digest = expectedPnpmSha256) =>
     stageTrustedRuntime({
-      runnerTemp,
+      isolationRoot,
       toolsRoot,
       nodeSource,
       pnpmRoot,
       expectedPnpmSha256: digest,
     });
   try {
-    chmodSync(runnerTemp, 0o711);
+    chmodSync(isolationRoot, 0o711);
     writeFileSync(nodeSource, "#!/bin/sh\necho node\n", { mode: 0o555 });
     mkdirSync(pnpmRoot, { recursive: true });
     for (const file of ["package.json", "package-lock.json"]) {
@@ -1843,7 +1855,7 @@ test("trusted runtime rejects missing, malformed, digest-drifted, and hardlinked
     chmodSync(pnpmPackageJson, 0o444);
     assert.throws(() => stage("0".repeat(64)), /executable digest is invalid/);
 
-    const hardlinkSource = join(runnerTemp, "hardlinked-pnpm");
+    const hardlinkSource = join(isolationRoot, "hardlinked-pnpm");
     chmodSync(pnpmExecutable, 0o755);
     rmSync(pnpmExecutable);
     writeFileSync(hardlinkSource, executableContents, { mode: 0o555 });
@@ -1851,19 +1863,21 @@ test("trusted runtime rejects missing, malformed, digest-drifted, and hardlinked
     assert.equal(lstatSync(pnpmExecutable).nlink, 2);
     assert.throws(stage, /runner-owned/);
   } finally {
-    rmSync(runnerTemp, { force: true, recursive: true });
+    rmSync(isolationRoot, { force: true, recursive: true });
   }
 });
 
 test("trusted runtime rejects a pnpm bootstrap package link outside its fixed root", () => {
-  const runnerTemp = mkdtempSync(join(tmpdir(), "vercel-runtime-runner-"));
+  const isolationRoot = realpathSync(
+    mkdtempSync(join(tmpdir(), "vercel-runtime-runner-")),
+  );
   const outsideRoot = mkdtempSync(join(tmpdir(), "vercel-runtime-outside-"));
-  const toolsRoot = join(runnerTemp, "mento-vercel-trusted-tools");
-  const pnpmRoot = join(runnerTemp, "mento-vercel-pnpm-bootstrap");
-  const nodeSource = join(runnerTemp, "node");
+  const toolsRoot = join(isolationRoot, "mento-vercel-trusted-tools");
+  const pnpmRoot = join(isolationRoot, "mento-vercel-pnpm-bootstrap");
+  const nodeSource = join(isolationRoot, "node");
   const packageLink = join(pnpmRoot, "node_modules", "@pnpm", "linux-x64");
   try {
-    chmodSync(runnerTemp, 0o711);
+    chmodSync(isolationRoot, 0o711);
     writeFileSync(nodeSource, "#!/bin/sh\necho node\n", { mode: 0o555 });
     mkdirSync(dirname(packageLink), { recursive: true });
     for (const file of ["package.json", "package-lock.json"]) {
@@ -1894,7 +1908,7 @@ test("trusted runtime rejects a pnpm bootstrap package link outside its fixed ro
     assert.throws(
       () =>
         stageTrustedRuntime({
-          runnerTemp,
+          isolationRoot,
           toolsRoot,
           nodeSource,
           pnpmRoot,
@@ -1903,7 +1917,7 @@ test("trusted runtime rejects a pnpm bootstrap package link outside its fixed ro
     );
   } finally {
     rmSync(outsideRoot, { force: true, recursive: true });
-    rmSync(runnerTemp, { force: true, recursive: true });
+    rmSync(isolationRoot, { force: true, recursive: true });
   }
 });
 
@@ -2027,13 +2041,15 @@ test(
 
 test("raw Git-object materialization bypasses archive and checkout filters", () => {
   const repository = mkdtempSync(join(tmpdir(), "vercel-raw-source-"));
-  const runnerTemp = mkdtempSync(join(tmpdir(), "vercel-raw-runner-"));
-  const candidate = join(runnerTemp, "mento-vercel-candidate-source");
+  const isolationRoot = realpathSync(
+    mkdtempSync(join(tmpdir(), "vercel-raw-runner-")),
+  );
+  const candidate = join(isolationRoot, "mento-vercel-candidate-source");
   const checkoutCandidate = mkdtempSync(
     join(tmpdir(), "vercel-filtered-candidate-"),
   );
   try {
-    chmodSync(runnerTemp, 0o700);
+    chmodSync(isolationRoot, 0o711);
     execFileSync("git", ["init", "--quiet"], { cwd: repository });
     writeFileSync(
       join(repository, ".gitattributes"),
@@ -2074,7 +2090,7 @@ test("raw Git-object materialization bypasses archive and checkout filters", () 
     }).trim();
 
     const result = materializeExactGitTree({
-      runnerTemp,
+      isolationRoot,
       sourceRoot: repository,
       candidateRoot: candidate,
       commitSha,
@@ -2127,7 +2143,7 @@ test("raw Git-object materialization bypasses archive and checkout filters", () 
     assert.throws(
       () =>
         materializeExactGitTree({
-          runnerTemp,
+          isolationRoot,
           sourceRoot: repository,
           candidateRoot: candidate,
           commitSha,
@@ -2136,17 +2152,19 @@ test("raw Git-object materialization bypasses archive and checkout filters", () 
     );
   } finally {
     rmSync(repository, { force: true, recursive: true });
-    rmSync(runnerTemp, { force: true, recursive: true });
+    rmSync(isolationRoot, { force: true, recursive: true });
     rmSync(checkoutCandidate, { force: true, recursive: true });
   }
 });
 
 test("raw Git-object materialization rejects gitlinks before writing", () => {
   const repository = mkdtempSync(join(tmpdir(), "vercel-gitlink-source-"));
-  const runnerTemp = mkdtempSync(join(tmpdir(), "vercel-gitlink-runner-"));
-  const candidate = join(runnerTemp, "mento-vercel-candidate-source");
+  const isolationRoot = realpathSync(
+    mkdtempSync(join(tmpdir(), "vercel-gitlink-runner-")),
+  );
+  const candidate = join(isolationRoot, "mento-vercel-candidate-source");
   try {
-    chmodSync(runnerTemp, 0o700);
+    chmodSync(isolationRoot, 0o711);
     execFileSync("git", ["init", "--quiet"], { cwd: repository });
     writeFileSync(join(repository, "plain.txt"), "plain\n");
     execFileSync("git", ["add", "."], { cwd: repository });
@@ -2197,7 +2215,7 @@ test("raw Git-object materialization rejects gitlinks before writing", () => {
     assert.throws(
       () =>
         materializeExactGitTree({
-          runnerTemp,
+          isolationRoot,
           sourceRoot: repository,
           candidateRoot: candidate,
           commitSha: gitlinkCommit,
@@ -2210,7 +2228,7 @@ test("raw Git-object materialization rejects gitlinks before writing", () => {
     );
   } finally {
     rmSync(repository, { force: true, recursive: true });
-    rmSync(runnerTemp, { force: true, recursive: true });
+    rmSync(isolationRoot, { force: true, recursive: true });
   }
 });
 
@@ -2228,6 +2246,10 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   assert.match(raw, /Create immutable runner-owned upload handoff/);
   assert.match(raw, /mento-vercel-upload-source/);
   assert.match(raw, /mento-vercel-pnpm-bootstrap/);
+  assert.doesNotMatch(raw, /\$\{\{ runner\.temp \}\}\/mento-vercel-/);
+  assert.doesNotMatch(raw, /\$RUNNER_TEMP/);
+  assert.doesNotMatch(raw, /\bsetfacl\b/);
+  assert.doesNotMatch(raw, /chmod[^\n]*(?:\$HOME|\/home\/runner)/);
   assert.doesNotMatch(raw, /standalone: true/);
   assert.match(
     raw,
@@ -2251,9 +2273,38 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   assert.match(raw, /userdel mento-vercel-build/);
   assert.match(raw, /node_modules\/vercel\/dist\/index\.js/);
   assert.match(raw, /candidate_can_write/);
+  const runtimeRootBlock = raw.slice(
+    raw.indexOf("- name: Create protected cross-identity runtime root"),
+    raw.indexOf("- name: Stage and authenticate pinned pnpm bootstrap"),
+  );
+  assert.match(
+    raw,
+    /VERCEL_RUNTIME_ROOT: \/var\/lib\/mento-vercel-runtime-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}/,
+  );
+  assert.match(
+    raw,
+    /VERCEL_ISOLATION_ROOT: \/var\/lib\/mento-vercel-runtime-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}\/work/,
+  );
+  assert.match(
+    runtimeRootBlock,
+    /for protected_ancestor in \/ \/var \/var\/lib/,
+  );
+  assert.match(runtimeRootBlock, /-o root \\\n\s+-g root \\\n\s+-m 0711/);
+  assert.match(
+    runtimeRootBlock,
+    /-o "\$\(\/usr\/bin\/id -u\)" \\\n\s+-g "\$\(\/usr\/bin\/id -g\)" \\\n\s+-m 0711/,
+  );
+  assert.match(runtimeRootBlock, /\/bin\/chmod 0400 "\$VERCEL_RUNTIME_MARKER"/);
+  assert.ok(
+    runtimeRootBlock.indexOf('/bin/chmod 0400 "$VERCEL_RUNTIME_MARKER"') <
+      runtimeRootBlock.indexOf("VERCEL_RUNTIME_ROOT_READY=1"),
+  );
   for (const protectedPath of [
+    "/var/lib",
+    "VERCEL_RUNTIME_ROOT",
+    "VERCEL_RUNTIME_MARKER",
+    "VERCEL_ISOLATION_ROOT",
     "GITHUB_WORKSPACE/controller",
-    "RUNNER_TEMP",
     "SOURCE_PATH/.git",
     "SOURCE_PATH/node_modules",
     "SOURCE_PATH/package.json",
@@ -2321,8 +2372,8 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   );
   assert.match(isolationBlock, /trusted-install-modules-dir/);
   assert.match(isolationBlock, /--modules-dir "\$trusted_modules_dir"/);
-  const runnerTempHardenIndex = isolationBlock.indexOf(
-    '/bin/chmod 0711 "$RUNNER_TEMP"',
+  const isolationRootValidationIndex = isolationBlock.indexOf(
+    'stat -c %a "$VERCEL_ISOLATION_ROOT"',
   );
   const protectedStoreIndex = isolationBlock.indexOf(
     'trusted_pnpm_store="$("$pnpm_bootstrap" store path --silent)"',
@@ -2333,21 +2384,25 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   const protectedPathLoopIndex = isolationBlock.indexOf(
     "for protected_path in \\",
   );
-  const runnerTempProtectionIndex = isolationBlock.indexOf(
-    '"$RUNNER_TEMP" \\',
+  const isolationRootProtectionIndex = isolationBlock.indexOf(
+    '"$VERCEL_ISOLATION_ROOT" \\',
     protectedPathLoopIndex,
+  );
+  const candidateRuntimeProbeIndex = isolationBlock.indexOf(
+    "candidate_pnpm_version",
   );
   const trustedPathIndex = isolationBlock.indexOf(
     `printf '%s\\n' "$trusted_bin_dir" >> "$GITHUB_PATH"`,
   );
   const materializeIndex = isolationBlock.indexOf("materialize-source");
-  assert.notEqual(runnerTempHardenIndex, -1);
-  assert.ok(protectedStoreIndex > runnerTempHardenIndex);
+  assert.notEqual(isolationRootValidationIndex, -1);
+  assert.ok(protectedStoreIndex > isolationRootValidationIndex);
   assert.ok(protectedPnpmRuntimeIndex > protectedStoreIndex);
   assert.ok(protectedLauncherIndex > protectedPnpmRuntimeIndex);
   assert.ok(protectedPathLoopIndex > protectedLauncherIndex);
-  assert.ok(runnerTempProtectionIndex > protectedPathLoopIndex);
-  assert.ok(trustedPathIndex > runnerTempProtectionIndex);
+  assert.ok(isolationRootProtectionIndex > protectedPathLoopIndex);
+  assert.ok(candidateRuntimeProbeIndex > isolationRootProtectionIndex);
+  assert.ok(trustedPathIndex > candidateRuntimeProbeIndex);
   assert.ok(materializeIndex > trustedPathIndex);
   assert.match(
     isolationBlock,
@@ -2497,7 +2552,7 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   };
   assert.match(
     pullBlock,
-    /SOURCE_PATH: \$\{\{ runner\.temp \}\}\/mento-vercel-pull-staging/,
+    /SOURCE_PATH: \$\{\{ env\.VERCEL_ISOLATION_ROOT \}\}\/mento-vercel-pull-staging/,
   );
   assert.doesNotMatch(pullBlock, /github\.workspace.*source/);
   assertSinglePrivilegedControllerInvocation(stagePullBlock, "stage-pull");
@@ -2572,7 +2627,7 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   assert.equal(raw.match(/vercel-build-environment\.mjs/g)?.length, 1);
   assert.match(
     environmentValidationBlock,
-    /PULL_STAGING_PATH: \$\{\{ runner\.temp \}\}\/mento-vercel-pull-staging/,
+    /PULL_STAGING_PATH: \$\{\{ env\.VERCEL_ISOLATION_ROOT \}\}\/mento-vercel-pull-staging/,
   );
   assert.match(
     environmentValidationBlock,
@@ -2607,6 +2662,10 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
       "GITHUB_STEP_SUMMARY",
       "NODE_OPTIONS",
       "RUNNER_TEMP",
+      "VERCEL_ISOLATION_ROOT",
+      "VERCEL_RUNTIME_MARKER",
+      "VERCEL_RUNTIME_ROOT",
+      "VERCEL_RUNTIME_ROOT_READY",
     ]) {
       assert.doesNotMatch(block, new RegExp(`\\n\\s+${name}=`));
     }
@@ -2615,6 +2674,34 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   assert.doesNotMatch(installBlock, /--store-dir|PNPM_STORE/);
   assert.doesNotMatch(buildBlock, /\n\s+VERCEL_TOKEN:/);
   assert.doesNotMatch(buildBlock, /\n\s+VERCEL_TOKEN=/);
+  assert.doesNotMatch(handoffBlock, /userdel|groupdel/);
+  assert.match(handoffBlock, /--one-file-system/);
+  const cleanupBlock = raw.slice(
+    raw.indexOf("- name: Remove isolated build and upload state"),
+    raw.indexOf("\n  smoke:"),
+  );
+  assert.match(cleanupBlock, /VERCEL_RUNTIME_ROOT_READY:-/);
+  assert.match(cleanupBlock, /Unproven protected runtime root exists/);
+  assert.match(cleanupBlock, /CANDIDATE_IDENTITY_READY:-/);
+  assert.match(cleanupBlock, /CANDIDATE_IDENTITY_UID/);
+  assert.match(cleanupBlock, /CANDIDATE_IDENTITY_GID/);
+  assert.match(cleanupBlock, /assert_expected_path/g);
+  assert.doesNotMatch(cleanupBlock, /mento-vercel-\*\)/);
+  assert.match(cleanupBlock, /-rf \\\n\s+--one-file-system \\\n\s+--/);
+  assert.match(
+    cleanupBlock,
+    /sudo --non-interactive \/bin\/rmdir "\$VERCEL_ISOLATION_ROOT"/,
+  );
+  assert.match(
+    cleanupBlock,
+    /sudo --non-interactive \/bin\/rmdir "\$VERCEL_RUNTIME_ROOT"/,
+  );
+  assert.match(cleanupBlock, /Protected runtime root survived cleanup/);
+  assert.match(cleanupBlock, /Candidate identity survived cleanup/);
+  assert.ok(
+    cleanupBlock.indexOf('/bin/rmdir "$VERCEL_RUNTIME_ROOT"') <
+      cleanupBlock.indexOf("userdel mento-vercel-build"),
+  );
   assert.ok(
     buildBlock.indexOf("pkill -KILL -u") <
       buildBlock.indexOf("build_duration_ms="),

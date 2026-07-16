@@ -371,7 +371,19 @@ Instead, pinned setup-node first provides Node.js and its bundled npm with
 package-manager caching explicitly disabled. Trusted controller code validates
 the exact manifest and complete npm lockfile under
 `scripts/vercel-pnpm-bootstrap`, then copies them into a fresh fixed directory
-under `RUNNER_TEMP`.
+under the job-scoped Vercel isolation work root.
+
+Each build job derives that boundary from the immutable Actions run identity:
+`/var/lib/mento-vercel-runtime-<run-id>-<run-attempt>` is a fresh root-owned
+`0711` directory, its `.mento-vercel-runtime` marker is a root-owned `0400`
+file containing the exact run ID and attempt, and `work/` is a runner-owned
+`0711` directory. Before creating it, the worker proves `/`, `/var`, and
+`/var/lib` are real root-owned directories with no group or other write bit.
+The root-owned outer directory prevents the isolated candidate from replacing
+the runner-owned work entry through a writable parent; the work directory
+allows traversal to reviewed fixed children without allowing the candidate to
+list, create, rename, or remove those children. The workflow does not grant
+ACLs or loosen permissions on runner home or workspace ancestors.
 
 That lock has one dependency only: `@pnpm/linux-x64@10.34.4` from the official
 npm registry with its reviewed sha512 SRI. The worker runs `npm ci` outside the
@@ -429,9 +441,12 @@ Before any credentialed command, the worker proves the runtime root, its
 replacement-relevant parents, Node.js, pnpm, and the CLI are not candidate
 writable; it also proves the CLI resolves inside the protected directory, its
 package version is exactly `56.2.0`, and protected `node <cli> --version`
-executes successfully. The workflow test suite repeats the CLI install with
-the actual pinned pnpm version in a temporary checkout while retaining a
-frozen-lockfile failure boundary.
+executes successfully. It then switches to the dedicated candidate UID and
+executes the protected pnpm launcher once before materializing or running the
+selected source, proving that every isolation ancestor is searchable by that
+identity. The workflow test suite repeats the CLI install with the actual
+pinned pnpm version in a temporary checkout while retaining a frozen-lockfile
+failure boundary.
 
 The candidate dependency install intentionally does **not** reuse setup-node's
 runner-owned pnpm store, even though the candidate is proven unable to write it.
@@ -444,23 +459,34 @@ its duration separately from `vercel build`. The signed Turbo remote build
 cache remains enabled and its hit/miss evidence remains part of the comparison.
 
 Before candidate installation, the worker proves the checked-out index tree is
-the exact selected commit tree. Before any candidate process starts, it
-normalizes `RUNNER_TEMP` to runner-owned `0711` permissions and proves the
-candidate UID cannot write that parent. A trusted, bounded materializer then
-lists the exact commit with `git ls-tree`, reads every raw blob with
-`git cat-file`, and writes only supported regular files and symbolic links into
-a fresh fixed child path that is subsequently handed to the candidate UID. It
-rejects unsafe paths, unsupported modes (including gitlinks), oversized trees,
-and filesystem collisions. Reading raw objects deliberately bypasses both
-archive attributes (`export-ignore` and `export-subst`) and checkout filters
-(`eol`, `ident`, and custom filters), so the candidate always receives the
-selected commit's stored bytes.
+the exact selected commit tree. The candidate UID cannot write `/var/lib`, the
+run-scoped root, its marker, or the runner-owned work directory. A trusted,
+bounded materializer then lists the exact commit with `git ls-tree`, reads every
+raw blob with `git cat-file`, and writes only supported regular files and
+symbolic links into the fixed candidate-source child that is subsequently
+handed to the candidate UID. It rejects unsafe paths, unsupported modes
+(including gitlinks), oversized trees, and filesystem collisions. Reading raw
+objects deliberately bypasses both archive attributes (`export-ignore` and
+`export-subst`) and checkout filters (`eol`, `ident`, and custom filters), so
+the candidate always receives the selected commit's stored bytes.
+
+The always-run cleanup is authorized separately from normal job success. A
+readiness flag is written only after the root, work directory, and run marker
+pass their exact ownership, mode, path, and content checks. The candidate
+identity similarly records its UID and GID before its readiness flag. Cleanup
+does nothing when no proven root exists, but fails closed if an unproven root
+does exist. For a proven root it revalidates the protected ancestors and marker,
+matches every removable child to its fixed path, kills and verifies all
+candidate-UID processes, removes the known state without crossing filesystems,
+removes the empty work and outer directories, and proves the outer root is
+absent before deleting the recorded candidate user and group. Unexpected
+top-level state or a pre-existing/unmatched candidate identity is never deleted.
 
 ### Root Directory and command sequence
 
 The pinned Vercel CLI commands execute from monorepo-shaped roots. Before
 `vercel pull`, the worker creates a fresh runner-owned staging tree at a fixed
-path under `RUNNER_TEMP`. That tree contains only real
+path under `$VERCEL_ISOLATION_ROOT`. That tree contains only real
 `apps/ui.mento.org` directory components and an ephemeral repo-level link built
 from trusted repository variables; it contains no checked-out candidate file.
 This lets CLI `56.2.0` resolve the configured UI Root Directory without giving
@@ -506,7 +532,7 @@ job:
 <validated-branch>` only inside that staging tree;
 3. recursively validate the pulled tree;
 4. run the equivalent of `pnpm vercel:env:check --target ui --environment
-preview --project-directory "$RUNNER_TEMP/mento-vercel-pull-staging/apps/ui.mento.org"`
+preview --project-directory "$VERCEL_ISOLATION_ROOT/mento-vercel-pull-staging/apps/ui.mento.org"`
    against that runner-owned tree, with explicit preview system constants
    overriding pulled values;
 5. copy only the three required files into freshly created candidate `.vercel`
