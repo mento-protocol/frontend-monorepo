@@ -171,7 +171,6 @@ jobs:
           cache-dependency-path: |
             controller/pnpm-lock.yaml
             controller/scripts/vercel-pnpm-runtime/pnpm-lock.yaml
-            source/pnpm-lock.yaml
 
       - name: Validate pilot contract and prepare immutable build identity
         id: prepare

@@ -247,9 +247,12 @@ test("prebuilt separates trusted standalone bootstrap from candidate JavaScript 
   assert.equal(pnpmSetup.with.standalone, true);
   assert.equal(pnpmSetup.with.version, "10.34.4");
   assert.equal(pnpmSetup.id, "pnpm");
-  assert.match(
-    nodeSetup.with["cache-dependency-path"],
-    /controller\/scripts\/vercel-pnpm-runtime\/pnpm-lock\.yaml/,
+  assert.deepEqual(
+    nodeSetup.with["cache-dependency-path"].trim().split(/\s+/),
+    [
+      "controller/pnpm-lock.yaml",
+      "controller/scripts/vercel-pnpm-runtime/pnpm-lock.yaml",
+    ],
   );
   assert.equal(
     isolation.env.PNPM_ACTION_DEST,
