@@ -449,38 +449,39 @@ function pilotRootDirectory(value) {
   return value;
 }
 
-function assertRunnerTempChild({
-  runnerTemp,
+function assertIsolationRootChild({
+  isolationRoot,
   path,
   expectedName,
   expectedUid = process.getuid?.(),
   expectedGid = process.getgid?.(),
 }) {
-  requiredText(runnerTemp, "Runner temporary directory");
+  requiredText(isolationRoot, "Vercel isolation root");
   requiredText(path, "Isolated path");
-  if (!isAbsolute(runnerTemp) || !isAbsolute(path)) {
-    throw new Error("Runner isolation paths must be absolute");
+  if (!isAbsolute(isolationRoot) || !isAbsolute(path)) {
+    throw new Error("Vercel isolation paths must be absolute");
   }
   const uid = numericIdentity(expectedUid, "Expected runner UID");
   const gid = numericIdentity(expectedGid, "Expected runner GID");
-  const realRunnerTemp = realpathSync(runnerTemp);
-  const runnerEntry = lstatSync(realRunnerTemp);
+  const realIsolationRoot = realpathSync(isolationRoot);
+  const isolationEntry = lstatSync(isolationRoot);
   if (
-    runnerEntry.isSymbolicLink() ||
-    !runnerEntry.isDirectory() ||
-    runnerEntry.uid !== uid ||
-    runnerEntry.gid !== gid ||
-    (runnerEntry.mode & 0o7022) !== 0
+    realIsolationRoot !== isolationRoot ||
+    isolationEntry.isSymbolicLink() ||
+    !isolationEntry.isDirectory() ||
+    isolationEntry.uid !== uid ||
+    isolationEntry.gid !== gid ||
+    (isolationEntry.mode & 0o7777) !== 0o711
   ) {
-    throw new Error("Runner temporary directory is not protected");
+    throw new Error("Vercel isolation root is not protected");
   }
   if (
     basename(path) !== expectedName ||
-    realpathSync(dirname(path)) !== realRunnerTemp
+    realpathSync(dirname(path)) !== realIsolationRoot
   ) {
-    throw new Error("Isolated path is not the expected RUNNER_TEMP child");
+    throw new Error("Isolated path is not the expected isolation-root child");
   }
-  return join(realRunnerTemp, expectedName);
+  return join(realIsolationRoot, expectedName);
 }
 
 function rawGitEnvironment() {
@@ -682,7 +683,7 @@ function ensureMaterializedParent(root, components) {
 }
 
 export function materializeExactGitTree({
-  runnerTemp,
+  isolationRoot,
   sourceRoot,
   candidateRoot,
   commitSha,
@@ -699,8 +700,8 @@ export function materializeExactGitTree({
   if (!sourceEntry.isDirectory()) {
     throw new Error("Exact Git source must be a real directory");
   }
-  const canonicalCandidateRoot = assertRunnerTempChild({
-    runnerTemp,
+  const canonicalCandidateRoot = assertIsolationRootChild({
+    isolationRoot,
     path: candidateRoot,
     expectedName: CANDIDATE_SOURCE_DIRECTORY,
     expectedUid,
@@ -894,15 +895,15 @@ function assertExactPulledConfiguration({
 }
 
 export function prepareVercelPullStaging({
-  runnerTemp,
+  isolationRoot,
   stagingRoot,
   expectedRootDirectory,
   vercelOrgId,
   vercelProjectId,
 }) {
   pilotRootDirectory(expectedRootDirectory);
-  const canonicalStagingRoot = assertRunnerTempChild({
-    runnerTemp,
+  const canonicalStagingRoot = assertIsolationRootChild({
+    isolationRoot,
     path: stagingRoot,
     expectedName: PULL_STAGING_DIRECTORY,
   });
@@ -927,7 +928,7 @@ export function prepareVercelPullStaging({
 }
 
 export function assertVercelPullStaging({
-  runnerTemp,
+  isolationRoot,
   stagingRoot,
   expectedRootDirectory,
   vercelOrgId,
@@ -936,15 +937,15 @@ export function assertVercelPullStaging({
   expectedGid = process.getgid?.(),
 }) {
   pilotRootDirectory(expectedRootDirectory);
-  const canonicalStagingRoot = assertRunnerTempChild({
-    runnerTemp,
+  const canonicalStagingRoot = assertIsolationRootChild({
+    isolationRoot,
     path: stagingRoot,
     expectedName: PULL_STAGING_DIRECTORY,
     expectedUid,
     expectedGid,
   });
   if (realpathSync(stagingRoot) !== canonicalStagingRoot) {
-    throw new Error("Vercel pull staging resolves outside RUNNER_TEMP");
+    throw new Error("Vercel pull staging resolves outside the isolation root");
   }
   assertExactFilesystemTree(
     canonicalStagingRoot,
@@ -964,7 +965,7 @@ export function assertVercelPullStaging({
 }
 
 function assertCandidateRootComponents({
-  runnerTemp,
+  isolationRoot,
   candidateRoot,
   expectedRootDirectory,
   buildUid,
@@ -972,15 +973,15 @@ function assertCandidateRootComponents({
   runnerUid,
   runnerGid,
 }) {
-  const canonicalCandidateRoot = assertRunnerTempChild({
-    runnerTemp,
+  const canonicalCandidateRoot = assertIsolationRootChild({
+    isolationRoot,
     path: candidateRoot,
     expectedName: CANDIDATE_SOURCE_DIRECTORY,
     expectedUid: runnerUid,
     expectedGid: runnerGid,
   });
   if (realpathSync(candidateRoot) !== canonicalCandidateRoot) {
-    throw new Error("Candidate source resolves outside RUNNER_TEMP");
+    throw new Error("Candidate source resolves outside the isolation root");
   }
   let current = canonicalCandidateRoot;
   for (const [path, label] of [
@@ -1004,7 +1005,7 @@ function assertCandidateRootComponents({
 }
 
 function assertCandidateVercelPull({
-  runnerTemp,
+  isolationRoot,
   candidateRoot,
   expectedRootDirectory,
   vercelOrgId,
@@ -1019,7 +1020,7 @@ function assertCandidateVercelPull({
   const trustedUid = numericIdentity(runnerUid, "Runner UID");
   const trustedGid = numericIdentity(runnerGid, "Runner GID");
   const canonicalCandidateRoot = assertCandidateRootComponents({
-    runnerTemp,
+    isolationRoot,
     candidateRoot,
     expectedRootDirectory,
     buildUid: candidateUid,
@@ -1043,7 +1044,7 @@ function assertCandidateVercelPull({
 }
 
 export function stageVercelPullForCandidate({
-  runnerTemp,
+  isolationRoot,
   stagingRoot,
   candidateRoot,
   expectedRootDirectory,
@@ -1059,7 +1060,7 @@ export function stageVercelPullForCandidate({
   const trustedUid = numericIdentity(runnerUid, "Runner UID");
   const trustedGid = numericIdentity(runnerGid, "Runner GID");
   assertVercelPullStaging({
-    runnerTemp,
+    isolationRoot,
     stagingRoot,
     expectedRootDirectory,
     vercelOrgId,
@@ -1068,7 +1069,7 @@ export function stageVercelPullForCandidate({
     expectedGid: trustedGid,
   });
   const canonicalCandidateRoot = assertCandidateRootComponents({
-    runnerTemp,
+    isolationRoot,
     candidateRoot,
     expectedRootDirectory,
     buildUid: candidateUid,
@@ -1110,7 +1111,7 @@ export function stageVercelPullForCandidate({
     chmodSync(destination, 0o600);
   }
   return assertCandidateVercelPull({
-    runnerTemp,
+    isolationRoot,
     candidateRoot: canonicalCandidateRoot,
     expectedRootDirectory,
     vercelOrgId,
@@ -1281,7 +1282,7 @@ function validatePinnedPnpmBootstrapFiles({ packageJsonPath, lockfilePath }) {
 
 export function stageTrustedPnpmBootstrapManifest({
   controllerRoot,
-  runnerTemp,
+  isolationRoot,
   bootstrapRoot,
   expectedUid = process.getuid?.(),
   expectedGid = process.getgid?.(),
@@ -1329,8 +1330,8 @@ export function stageTrustedPnpmBootstrapManifest({
     lockfilePath: sourceLockfile.path,
   });
 
-  const canonicalBootstrapRoot = assertRunnerTempChild({
-    runnerTemp,
+  const canonicalBootstrapRoot = assertIsolationRootChild({
+    isolationRoot,
     path: bootstrapRoot,
     expectedName: PNPM_BOOTSTRAP_DIRECTORY,
     expectedUid: uid,
@@ -1384,7 +1385,7 @@ export function stageTrustedPnpmBootstrapManifest({
 }
 
 function resolvePinnedPnpmBootstrapExecutable({
-  runnerTemp,
+  isolationRoot,
   pnpmRoot,
   expectedUid = process.getuid?.(),
   expectedGid = process.getgid?.(),
@@ -1392,8 +1393,8 @@ function resolvePinnedPnpmBootstrapExecutable({
 }) {
   const uid = numericIdentity(expectedUid, "Expected runner UID");
   const gid = numericIdentity(expectedGid, "Expected runner GID");
-  const canonicalPnpmRoot = assertRunnerTempChild({
-    runnerTemp,
+  const canonicalPnpmRoot = assertIsolationRootChild({
+    isolationRoot,
     path: pnpmRoot,
     expectedName: PNPM_BOOTSTRAP_DIRECTORY,
     expectedUid: uid,
@@ -1480,7 +1481,7 @@ function resolvePinnedPnpmBootstrapExecutable({
 }
 
 export function stageTrustedRuntime({
-  runnerTemp,
+  isolationRoot,
   toolsRoot,
   nodeSource,
   pnpmRoot,
@@ -1490,8 +1491,8 @@ export function stageTrustedRuntime({
 }) {
   const uid = numericIdentity(expectedUid, "Expected runner UID");
   const gid = numericIdentity(expectedGid, "Expected runner GID");
-  const canonicalToolsRoot = assertRunnerTempChild({
-    runnerTemp,
+  const canonicalToolsRoot = assertIsolationRootChild({
+    isolationRoot,
     path: toolsRoot,
     expectedName: TRUSTED_TOOLS_DIRECTORY,
     expectedUid: uid,
@@ -1502,7 +1503,7 @@ export function stageTrustedRuntime({
   }
 
   const pnpmExecutable = resolvePinnedPnpmBootstrapExecutable({
-    runnerTemp,
+    isolationRoot,
     pnpmRoot,
     expectedUid: uid,
     expectedGid: gid,
@@ -2853,7 +2854,7 @@ function validateSourceFromEnvironment() {
 
 function materializeSourceFromEnvironment() {
   materializeExactGitTree({
-    runnerTemp: process.env.RUNNER_TEMP,
+    isolationRoot: process.env.VERCEL_ISOLATION_ROOT,
     sourceRoot: process.env.SOURCE_PATH,
     candidateRoot: process.env.CANDIDATE_SOURCE_PATH,
     commitSha: process.env.DEPLOY_SHA,
@@ -2880,7 +2881,7 @@ function prepareLinkFromEnvironment() {
 
 function preparePullStagingFromEnvironment() {
   prepareVercelPullStaging({
-    runnerTemp: process.env.RUNNER_TEMP,
+    isolationRoot: process.env.VERCEL_ISOLATION_ROOT,
     stagingRoot: process.env.PULL_STAGING_PATH,
     expectedRootDirectory: process.env.EXPECTED_ROOT_DIRECTORY,
     vercelOrgId: process.env.VERCEL_ORG_ID,
@@ -2890,7 +2891,7 @@ function preparePullStagingFromEnvironment() {
 
 function validatePullStagingFromEnvironment() {
   assertVercelPullStaging({
-    runnerTemp: process.env.RUNNER_TEMP,
+    isolationRoot: process.env.VERCEL_ISOLATION_ROOT,
     stagingRoot: process.env.PULL_STAGING_PATH,
     expectedRootDirectory: process.env.EXPECTED_ROOT_DIRECTORY,
     vercelOrgId: process.env.VERCEL_ORG_ID,
@@ -2902,7 +2903,7 @@ function validatePullStagingFromEnvironment() {
 
 function stagePullFromEnvironment() {
   stageVercelPullForCandidate({
-    runnerTemp: process.env.RUNNER_TEMP,
+    isolationRoot: process.env.VERCEL_ISOLATION_ROOT,
     stagingRoot: process.env.PULL_STAGING_PATH,
     candidateRoot: process.env.CANDIDATE_SOURCE_PATH,
     expectedRootDirectory: process.env.EXPECTED_ROOT_DIRECTORY,
@@ -2917,7 +2918,7 @@ function stagePullFromEnvironment() {
 
 function validateCandidatePullFromEnvironment() {
   assertCandidateVercelPull({
-    runnerTemp: process.env.RUNNER_TEMP,
+    isolationRoot: process.env.VERCEL_ISOLATION_ROOT,
     candidateRoot: process.env.CANDIDATE_SOURCE_PATH,
     expectedRootDirectory: process.env.EXPECTED_ROOT_DIRECTORY,
     vercelOrgId: process.env.VERCEL_ORG_ID,
@@ -2946,7 +2947,7 @@ function buildFromEnvironment() {
     "EXPECTED_ROOT_DIRECTORY",
     "PULL_STAGING_GID",
     "PULL_STAGING_UID",
-    "RUNNER_TEMP",
+    "VERCEL_ISOLATION_ROOT",
     "SOURCE_PATH",
     "TURBO_TEAM",
     "TURBO_TOKEN",
@@ -2965,7 +2966,7 @@ function buildFromEnvironment() {
     process.env.PULL_STAGING_UID,
   );
   assertCandidateVercelPull({
-    runnerTemp: process.env.RUNNER_TEMP,
+    isolationRoot: process.env.VERCEL_ISOLATION_ROOT,
     candidateRoot: process.env.SOURCE_PATH,
     expectedRootDirectory: process.env.EXPECTED_ROOT_DIRECTORY,
     vercelOrgId: process.env.VERCEL_ORG_ID,
@@ -3089,7 +3090,7 @@ function totalFromEnvironment() {
 
 function stageTrustedRuntimeFromEnvironment() {
   stageTrustedRuntime({
-    runnerTemp: process.env.RUNNER_TEMP,
+    isolationRoot: process.env.VERCEL_ISOLATION_ROOT,
     toolsRoot: process.env.TRUSTED_VERCEL_TOOLS_PATH,
     nodeSource: process.env.NODE_SOURCE_PATH,
     pnpmRoot: process.env.PNPM_BOOTSTRAP_PATH,
@@ -3100,7 +3101,7 @@ function stageTrustedPnpmBootstrapManifestFromEnvironment() {
   process.stdout.write(
     `${stageTrustedPnpmBootstrapManifest({
       controllerRoot: process.env.CONTROLLER_PATH,
-      runnerTemp: process.env.RUNNER_TEMP,
+      isolationRoot: process.env.VERCEL_ISOLATION_ROOT,
       bootstrapRoot: process.env.PNPM_BOOTSTRAP_PATH,
     })}\n`,
   );

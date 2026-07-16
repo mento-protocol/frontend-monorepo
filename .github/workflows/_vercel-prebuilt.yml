@@ -138,6 +138,10 @@ jobs:
       started_at_ms: ${{ steps.prepare.outputs.started_at_ms }}
       build_duration_ms: ${{ steps.build.outputs.build_duration_ms }}
       deploy_duration_ms: ${{ steps.deploy.outputs.deploy_duration_ms }}
+    env:
+      VERCEL_ISOLATION_ROOT: /var/lib/mento-vercel-runtime-${{ github.run_id }}-${{ github.run_attempt }}/work
+      VERCEL_RUNTIME_MARKER: /var/lib/mento-vercel-runtime-${{ github.run_id }}-${{ github.run_attempt }}/.mento-vercel-runtime
+      VERCEL_RUNTIME_ROOT: /var/lib/mento-vercel-runtime-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Check out trusted workflow controller
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -161,19 +165,108 @@ jobs:
           node-version: 22
           package-manager-cache: false
 
+      - name: Create protected cross-identity runtime root
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          if [[ ! "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ ]] ||
+            [[ ! "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]; then
+            echo "GitHub runtime identity is invalid" >&2
+            exit 1
+          fi
+          expected_runtime_root="/var/lib/mento-vercel-runtime-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          if [ "$VERCEL_RUNTIME_ROOT" != "$expected_runtime_root" ] ||
+            [ "$VERCEL_ISOLATION_ROOT" != "$expected_runtime_root/work" ] ||
+            [ "$VERCEL_RUNTIME_MARKER" != "$expected_runtime_root/.mento-vercel-runtime" ]; then
+            echo "Vercel runtime paths do not match the trusted run identity" >&2
+            exit 1
+          fi
+          if [ -e "$VERCEL_RUNTIME_ROOT" ] || [ -L "$VERCEL_RUNTIME_ROOT" ]; then
+            echo "Vercel runtime root must be fresh" >&2
+            exit 1
+          fi
+          for protected_ancestor in / /var /var/lib; do
+            if [ ! -d "$protected_ancestor" ] ||
+              [ -L "$protected_ancestor" ] ||
+              [ "$(/usr/bin/realpath "$protected_ancestor")" != "$protected_ancestor" ] ||
+              [ "$(/usr/bin/stat -c %u "$protected_ancestor")" != "0" ] ||
+              [ "$(/usr/bin/stat -c %g "$protected_ancestor")" != "0" ]; then
+              echo "Vercel isolation ancestor is not a real root-owned directory" >&2
+              exit 1
+            fi
+            ancestor_mode="$(
+              /usr/bin/stat -c %a "$protected_ancestor"
+            )"
+            ancestor_mode_value=$((8#$ancestor_mode))
+            if (( (ancestor_mode_value & 07022) != 0 ||
+              (ancestor_mode_value & 0001) == 0 )); then
+              echo "Vercel isolation ancestor has unsafe permissions" >&2
+              exit 1
+            fi
+          done
+          sudo --non-interactive /usr/bin/install \
+            -d \
+            -o root \
+            -g root \
+            -m 0711 \
+            -- \
+            "$VERCEL_RUNTIME_ROOT"
+          sudo --non-interactive /usr/bin/install \
+            -d \
+            -o "$(/usr/bin/id -u)" \
+            -g "$(/usr/bin/id -g)" \
+            -m 0711 \
+            -- \
+            "$VERCEL_ISOLATION_ROOT"
+          /usr/bin/printf '%s\n' "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT" |
+            sudo --non-interactive /usr/bin/tee "$VERCEL_RUNTIME_MARKER" >/dev/null
+          sudo --non-interactive /bin/chown root:root "$VERCEL_RUNTIME_MARKER"
+          sudo --non-interactive /bin/chmod 0400 "$VERCEL_RUNTIME_MARKER"
+          if [ ! -d "$VERCEL_RUNTIME_ROOT" ] ||
+            [ -L "$VERCEL_RUNTIME_ROOT" ] ||
+            [ "$(sudo --non-interactive /usr/bin/realpath "$VERCEL_RUNTIME_ROOT")" != "$VERCEL_RUNTIME_ROOT" ] ||
+            [ "$(sudo --non-interactive /usr/bin/stat -c %u "$VERCEL_RUNTIME_ROOT")" != "0" ] ||
+            [ "$(sudo --non-interactive /usr/bin/stat -c %g "$VERCEL_RUNTIME_ROOT")" != "0" ] ||
+            [ "$(sudo --non-interactive /usr/bin/stat -c %a "$VERCEL_RUNTIME_ROOT")" != "711" ] ||
+            [ ! -d "$VERCEL_ISOLATION_ROOT" ] ||
+            [ -L "$VERCEL_ISOLATION_ROOT" ] ||
+            [ "$(sudo --non-interactive /usr/bin/realpath "$VERCEL_ISOLATION_ROOT")" != "$VERCEL_ISOLATION_ROOT" ] ||
+            [ "$(/usr/bin/stat -c %u "$VERCEL_ISOLATION_ROOT")" != "$(/usr/bin/id -u)" ] ||
+            [ "$(/usr/bin/stat -c %g "$VERCEL_ISOLATION_ROOT")" != "$(/usr/bin/id -g)" ] ||
+            [ "$(/usr/bin/stat -c %a "$VERCEL_ISOLATION_ROOT")" != "711" ] ||
+            [ ! -f "$VERCEL_RUNTIME_MARKER" ] ||
+            [ -L "$VERCEL_RUNTIME_MARKER" ] ||
+            [ "$(sudo --non-interactive /usr/bin/stat -c %u "$VERCEL_RUNTIME_MARKER")" != "0" ] ||
+            [ "$(sudo --non-interactive /usr/bin/stat -c %g "$VERCEL_RUNTIME_MARKER")" != "0" ] ||
+            [ "$(sudo --non-interactive /usr/bin/stat -c %a "$VERCEL_RUNTIME_MARKER")" != "400" ] ||
+            [ "$(sudo --non-interactive /bin/cat "$VERCEL_RUNTIME_MARKER")" != "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT" ]; then
+            echo "Vercel runtime root was not created with the protected contract" >&2
+            exit 1
+          fi
+          printf '%s\n' "VERCEL_RUNTIME_ROOT_READY=1" >> "$GITHUB_ENV"
+
       - name: Stage and authenticate pinned pnpm bootstrap
         shell: bash
         env:
           EXPECTED_PNPM_LINUX_X64_SHA256: e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193
-          PNPM_BOOTSTRAP_CACHE_PATH: ${{ runner.temp }}/mento-vercel-npm-cache
-          PNPM_BOOTSTRAP_HOME_PATH: ${{ runner.temp }}/mento-vercel-npm-home
-          PNPM_BOOTSTRAP_PATH: ${{ runner.temp }}/mento-vercel-pnpm-bootstrap
-          PNPM_BOOTSTRAP_TMP_PATH: ${{ runner.temp }}/mento-vercel-npm-tmp
-          TRUSTED_VERCEL_TOOLS_PATH: ${{ runner.temp }}/mento-vercel-trusted-tools
+          PNPM_BOOTSTRAP_CACHE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-npm-cache
+          PNPM_BOOTSTRAP_HOME_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-npm-home
+          PNPM_BOOTSTRAP_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pnpm-bootstrap
+          PNPM_BOOTSTRAP_TMP_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-npm-tmp
+          TRUSTED_VERCEL_TOOLS_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-trusted-tools
         run: |
           set -euo pipefail
           umask 077
-          /bin/chmod 0711 "$RUNNER_TEMP"
+          if [ ! -d "$VERCEL_ISOLATION_ROOT" ] ||
+            [ -L "$VERCEL_ISOLATION_ROOT" ] ||
+            [ "$(/usr/bin/realpath "$VERCEL_ISOLATION_ROOT")" != "$VERCEL_ISOLATION_ROOT" ] ||
+            [ "$(/usr/bin/stat -c %u "$VERCEL_ISOLATION_ROOT")" != "$(/usr/bin/id -u)" ] ||
+            [ "$(/usr/bin/stat -c %g "$VERCEL_ISOLATION_ROOT")" != "$(/usr/bin/id -g)" ] ||
+            [ "$(/usr/bin/stat -c %a "$VERCEL_ISOLATION_ROOT")" != "711" ]; then
+            echo "Vercel isolation root changed before pnpm bootstrap" >&2
+            exit 1
+          fi
           if [ "$(/usr/bin/uname -s)" != "Linux" ] ||
             [ "$(/usr/bin/uname -m)" != "x86_64" ]; then
             echo "Pinned pnpm bootstrap supports only the expected Linux x64 runner" >&2
@@ -223,7 +316,7 @@ jobs:
           bootstrap_root="$(
             CONTROLLER_PATH="$GITHUB_WORKSPACE/controller" \
             PNPM_BOOTSTRAP_PATH="$PNPM_BOOTSTRAP_PATH" \
-            RUNNER_TEMP="$RUNNER_TEMP" \
+            VERCEL_ISOLATION_ROOT="$VERCEL_ISOLATION_ROOT" \
               "$setup_node_bin" \
               "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" \
               stage-pnpm-bootstrap
@@ -260,7 +353,7 @@ jobs:
           /bin/chmod -R a+rX,go-w "$PNPM_BOOTSTRAP_PATH"
           NODE_SOURCE_PATH="$setup_node_bin" \
           PNPM_BOOTSTRAP_PATH="$PNPM_BOOTSTRAP_PATH" \
-          RUNNER_TEMP="$RUNNER_TEMP" \
+          VERCEL_ISOLATION_ROOT="$VERCEL_ISOLATION_ROOT" \
           TRUSTED_VERCEL_TOOLS_PATH="$TRUSTED_VERCEL_TOOLS_PATH" \
             "$setup_node_bin" \
             "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" \
@@ -309,7 +402,7 @@ jobs:
       - name: Prove authenticated pnpm path before cache restore
         env:
           EXPECTED_PNPM_LINUX_X64_SHA256: e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193
-          TRUSTED_VERCEL_TOOLS_PATH: ${{ runner.temp }}/mento-vercel-trusted-tools
+          TRUSTED_VERCEL_TOOLS_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-trusted-tools
         run: |
           set -euo pipefail
           expected_pnpm="$TRUSTED_VERCEL_TOOLS_PATH/bootstrap-bin/pnpm"
@@ -338,7 +431,7 @@ jobs:
       - name: Reverify authenticated pnpm after cache restore
         env:
           EXPECTED_PNPM_LINUX_X64_SHA256: e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193
-          TRUSTED_VERCEL_TOOLS_PATH: ${{ runner.temp }}/mento-vercel-trusted-tools
+          TRUSTED_VERCEL_TOOLS_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-trusted-tools
         run: |
           set -euo pipefail
           expected_pnpm="$TRUSTED_VERCEL_TOOLS_PATH/bootstrap-bin/pnpm"
@@ -390,12 +483,12 @@ jobs:
       - name: Prepare isolated exact-SHA source and protected Vercel CLI
         id: isolation
         env:
-          CANDIDATE_HOME_PATH: ${{ runner.temp }}/mento-vercel-candidate-home
-          CANDIDATE_SOURCE_PATH: ${{ runner.temp }}/mento-vercel-candidate-source
+          CANDIDATE_HOME_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-home
+          CANDIDATE_SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-source
           DEPLOY_SHA: ${{ steps.source.outputs.checked_out_sha }}
           EXPECTED_PNPM_LINUX_X64_SHA256: e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193
           SOURCE_PATH: ${{ github.workspace }}/source
-          TRUSTED_VERCEL_TOOLS_PATH: ${{ runner.temp }}/mento-vercel-trusted-tools
+          TRUSTED_VERCEL_TOOLS_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-trusted-tools
         run: |
           set -euo pipefail
           umask 077
@@ -418,11 +511,21 @@ jobs:
             echo "Dedicated candidate identity unexpectedly owns a process" >&2
             exit 1
           fi
+          {
+            printf '%s\n' "CANDIDATE_IDENTITY_GID=$build_gid"
+            printf '%s\n' "CANDIDATE_IDENTITY_UID=$build_uid"
+            printf '%s\n' "CANDIDATE_IDENTITY_READY=1"
+          } >> "$GITHUB_ENV"
 
-          /bin/chmod 0711 "$RUNNER_TEMP"
-          if [ ! -d "$TRUSTED_VERCEL_TOOLS_PATH" ] ||
+          if [ ! -d "$VERCEL_ISOLATION_ROOT" ] ||
+            [ -L "$VERCEL_ISOLATION_ROOT" ] ||
+            [ "$(/usr/bin/realpath "$VERCEL_ISOLATION_ROOT")" != "$VERCEL_ISOLATION_ROOT" ] ||
+            [ "$(/usr/bin/stat -c %u "$VERCEL_ISOLATION_ROOT")" != "$(id -u)" ] ||
+            [ "$(/usr/bin/stat -c %g "$VERCEL_ISOLATION_ROOT")" != "$(id -g)" ] ||
+            [ "$(/usr/bin/stat -c %a "$VERCEL_ISOLATION_ROOT")" != "711" ] ||
+            [ ! -d "$TRUSTED_VERCEL_TOOLS_PATH" ] ||
             [ -L "$TRUSTED_VERCEL_TOOLS_PATH" ] ||
-            [ "$(realpath "$TRUSTED_VERCEL_TOOLS_PATH")" != "$RUNNER_TEMP/mento-vercel-trusted-tools" ]; then
+            [ "$(realpath "$TRUSTED_VERCEL_TOOLS_PATH")" != "$VERCEL_ISOLATION_ROOT/mento-vercel-trusted-tools" ]; then
             echo "Protected runtime root is not the authenticated fixed directory" >&2
             exit 1
           fi
@@ -553,9 +656,12 @@ jobs:
               /usr/bin/test -w "$1"
           }
           for protected_path in \
+            "/var/lib" \
+            "$VERCEL_RUNTIME_ROOT" \
+            "$VERCEL_RUNTIME_MARKER" \
+            "$VERCEL_ISOLATION_ROOT" \
             "$GITHUB_WORKSPACE" \
             "$GITHUB_WORKSPACE/controller" \
-            "$RUNNER_TEMP" \
             "$SOURCE_PATH" \
             "$SOURCE_PATH/.git" \
             "$SOURCE_PATH/package.json" \
@@ -578,6 +684,24 @@ jobs:
           done
           if [ -e "$SOURCE_PATH/node_modules" ] && candidate_can_write "$SOURCE_PATH/node_modules"; then
             echo "Candidate can modify canonical node_modules" >&2
+            exit 1
+          fi
+          if ! candidate_pnpm_version="$(
+            sudo --non-interactive /usr/bin/env -i \
+              HOME=/nonexistent \
+              LANG=C \
+              LC_ALL=C \
+              PATH=/usr/bin:/bin \
+              /usr/bin/setpriv \
+              --reuid="$build_uid" \
+              --regid="$build_gid" \
+              --clear-groups \
+              --no-new-privs \
+              -- \
+              "$pnpm_bin" --version
+          )" ||
+            [ "$candidate_pnpm_version" != "10.34.4" ]; then
+            echo "Candidate cannot execute the protected runtime through its isolation ancestors" >&2
             exit 1
           fi
 
@@ -614,8 +738,8 @@ jobs:
         env:
           BUILD_GID: ${{ steps.isolation.outputs.build_gid }}
           BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
-          CANDIDATE_HOME_PATH: ${{ runner.temp }}/mento-vercel-candidate-home
-          CANDIDATE_SOURCE_PATH: ${{ runner.temp }}/mento-vercel-candidate-source
+          CANDIDATE_HOME_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-home
+          CANDIDATE_SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-source
         run: |
           set -euo pipefail
           terminate_candidate() {
@@ -710,7 +834,7 @@ jobs:
       - name: Prepare fresh runner-owned Vercel pull staging
         env:
           EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
-          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-pull-staging
+          PULL_STAGING_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pull-staging
           VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
           VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
         run: |
@@ -751,8 +875,8 @@ jobs:
         id: pull
         env:
           GIT_BRANCH: ${{ inputs.git_branch }}
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-pull-staging
-          TRUSTED_VERCEL_TOOLS_PATH: ${{ runner.temp }}/mento-vercel-trusted-tools
+          SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pull-staging
+          TRUSTED_VERCEL_TOOLS_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-trusted-tools
           VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
           VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
           VERCEL_TOKEN: ${{ secrets.vercel_token }}
@@ -763,7 +887,7 @@ jobs:
       - name: Assert isolated runner-owned Vercel pull result
         env:
           EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
-          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-pull-staging
+          PULL_STAGING_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pull-staging
           VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
           VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
         run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" validate-pull-staging
@@ -772,7 +896,7 @@ jobs:
         env:
           CI: 1
           NEXT_PUBLIC_VERCEL_ENV: preview
-          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-pull-staging
+          PULL_STAGING_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pull-staging
           VERCEL: 1
           VERCEL_ENV: preview
           VERCEL_TARGET_ENV: preview
@@ -785,9 +909,9 @@ jobs:
         env:
           BUILD_GID: ${{ steps.isolation.outputs.build_gid }}
           BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
-          CANDIDATE_SOURCE_PATH: ${{ runner.temp }}/mento-vercel-candidate-source
+          CANDIDATE_SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-source
           EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
-          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-pull-staging
+          PULL_STAGING_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pull-staging
           VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
           VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
         run: |
@@ -806,7 +930,7 @@ jobs:
             PULL_STAGING_GID="$(id -g)" \
             PULL_STAGING_PATH="$PULL_STAGING_PATH" \
             PULL_STAGING_UID="$(id -u)" \
-            RUNNER_TEMP="$RUNNER_TEMP" \
+            VERCEL_ISOLATION_ROOT="$VERCEL_ISOLATION_ROOT" \
             VERCEL_ORG_ID="$VERCEL_ORG_ID" \
             VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
             "$node_bin" \
@@ -821,7 +945,7 @@ jobs:
         env:
           BUILD_GID: ${{ steps.isolation.outputs.build_gid }}
           BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
-          CANDIDATE_SOURCE_PATH: ${{ runner.temp }}/mento-vercel-candidate-source
+          CANDIDATE_SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-source
           EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
           VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
           VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
@@ -840,7 +964,7 @@ jobs:
             PATH="$(dirname "$node_bin"):/usr/bin:/bin" \
             PULL_STAGING_GID="$(id -g)" \
             PULL_STAGING_UID="$(id -u)" \
-            RUNNER_TEMP="$RUNNER_TEMP" \
+            VERCEL_ISOLATION_ROOT="$VERCEL_ISOLATION_ROOT" \
             VERCEL_ORG_ID="$VERCEL_ORG_ID" \
             VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
             "$node_bin" \
@@ -856,15 +980,15 @@ jobs:
         env:
           BUILD_GID: ${{ steps.isolation.outputs.build_gid }}
           BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
-          CANDIDATE_HOME_PATH: ${{ runner.temp }}/mento-vercel-candidate-home
+          CANDIDATE_HOME_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-home
           CI: 1
           DEPLOY_SHA: ${{ steps.source.outputs.checked_out_sha }}
           EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
           GIT_BRANCH: ${{ inputs.git_branch }}
           MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.prepare.outputs.next_deployment_id }}
           NEXT_PUBLIC_VERCEL_ENV: preview
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-candidate-source
-          TRUSTED_VERCEL_TOOLS_PATH: ${{ runner.temp }}/mento-vercel-trusted-tools
+          SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-source
+          TRUSTED_VERCEL_TOOLS_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-trusted-tools
           TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.turbo_remote_cache_signature_key }}
           TURBO_TEAM: ${{ inputs.turbo_team }}
           TURBO_TOKEN: ${{ secrets.turbo_token }}
@@ -917,7 +1041,7 @@ jobs:
             PATH="$(dirname "$node_bin"):/usr/bin:/bin" \
             PULL_STAGING_GID="$(id -g)" \
             PULL_STAGING_UID="$(id -u)" \
-            RUNNER_TEMP="$RUNNER_TEMP" \
+            VERCEL_ISOLATION_ROOT="$VERCEL_ISOLATION_ROOT" \
             SOURCE_PATH="$SOURCE_PATH" \
             TURBO_REMOTE_CACHE_SIGNATURE_KEY="$TURBO_REMOTE_CACHE_SIGNATURE_KEY" \
             TURBO_TEAM="$TURBO_TEAM" \
@@ -998,7 +1122,7 @@ jobs:
           EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
           LOGICAL_TARGET: ${{ inputs.logical_target }}
           MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.prepare.outputs.next_deployment_id }}
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-candidate-source
+          SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-source
           VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
           VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
         run: |
@@ -1031,7 +1155,7 @@ jobs:
       - name: Revalidate runner-owned pulled UI settings after the build
         env:
           EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
-          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-pull-staging
+          PULL_STAGING_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pull-staging
           VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
           VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
         run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" validate-pull-staging
@@ -1040,12 +1164,12 @@ jobs:
         id: handoff
         env:
           BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
-          CANDIDATE_HOME_PATH: ${{ runner.temp }}/mento-vercel-candidate-home
-          CANDIDATE_SOURCE_PATH: ${{ runner.temp }}/mento-vercel-candidate-source
+          CANDIDATE_HOME_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-home
+          CANDIDATE_SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-source
           DEPLOY_SHA: ${{ steps.source.outputs.checked_out_sha }}
           EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
-          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-pull-staging
-          UPLOAD_SOURCE_PATH: ${{ runner.temp }}/mento-vercel-upload-source
+          PULL_STAGING_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pull-staging
+          UPLOAD_SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-upload-source
         run: |
           set -euo pipefail
           umask 077
@@ -1077,17 +1201,20 @@ jobs:
           /bin/chmod 0600 "${UPLOAD_SOURCE_PATH}.provenance.json"
 
           assert_candidate_stopped
-          sudo --non-interactive /usr/sbin/userdel mento-vercel-build
-          if getent group mento-vercel-build >/dev/null; then
-            sudo --non-interactive /usr/sbin/groupdel mento-vercel-build
+          if [ "$CANDIDATE_SOURCE_PATH" != "$VERCEL_ISOLATION_ROOT/mento-vercel-candidate-source" ] ||
+            [ "$CANDIDATE_HOME_PATH" != "$VERCEL_ISOLATION_ROOT/mento-vercel-candidate-home" ] ||
+            [ "$PULL_STAGING_PATH" != "$VERCEL_ISOLATION_ROOT/mento-vercel-pull-staging" ] ||
+            [ "$UPLOAD_SOURCE_PATH" != "$VERCEL_ISOLATION_ROOT/mento-vercel-upload-source" ]; then
+            echo "Refusing to remove an unexpected handoff path" >&2
+            exit 1
           fi
-          sudo --non-interactive /bin/rm -rf -- "$CANDIDATE_SOURCE_PATH"
-          sudo --non-interactive /bin/rm -rf -- "$CANDIDATE_HOME_PATH"
+          sudo --non-interactive /bin/rm \
+            -rf \
+            --one-file-system \
+            -- \
+            "$CANDIDATE_SOURCE_PATH" \
+            "$CANDIDATE_HOME_PATH"
           /bin/rm -f -- "${CANDIDATE_SOURCE_PATH}.provenance.json"
-          case "$PULL_STAGING_PATH" in
-            "$RUNNER_TEMP"/mento-vercel-pull-staging) ;;
-            *) echo "Refusing to remove unexpected pull staging" >&2; exit 1 ;;
-          esac
           /bin/rm -rf -- "$PULL_STAGING_PATH"
 
           echo "upload_uid=$(id -u)" >> "$GITHUB_OUTPUT"
@@ -1096,7 +1223,7 @@ jobs:
       - name: Materialize runner-owned upload UI project mapping
         env:
           EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-upload-source
+          SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-upload-source
           VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
           VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
         run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" prepare-link
@@ -1109,7 +1236,7 @@ jobs:
           EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
           LOGICAL_TARGET: ${{ inputs.logical_target }}
           MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.prepare.outputs.next_deployment_id }}
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-upload-source
+          SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-upload-source
           VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
           VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
         run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" assert-output
@@ -1131,9 +1258,9 @@ jobs:
           GIT_BRANCH: ${{ inputs.git_branch }}
           LOGICAL_TARGET: ${{ inputs.logical_target }}
           MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.prepare.outputs.next_deployment_id }}
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-upload-source
+          SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-upload-source
           STARTED_AT_MS: ${{ steps.prepare.outputs.started_at_ms }}
-          TRUSTED_VERCEL_TOOLS_PATH: ${{ runner.temp }}/mento-vercel-trusted-tools
+          TRUSTED_VERCEL_TOOLS_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-trusted-tools
           VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
           VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
           VERCEL_TOKEN: ${{ secrets.vercel_token }}
@@ -1142,8 +1269,8 @@ jobs:
       - name: Verify immutable Vercel deployment metadata
         id: verify
         env:
-          SOURCE_PATH: ${{ runner.temp }}/mento-vercel-upload-source
-          TRUSTED_VERCEL_TOOLS_PATH: ${{ runner.temp }}/mento-vercel-trusted-tools
+          SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-upload-source
+          TRUSTED_VERCEL_TOOLS_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-trusted-tools
           VERCEL_DEPLOYMENT_ID: ${{ steps.deploy.outputs.vercel_deployment_id }}
           VERCEL_DEPLOYMENT_URL: ${{ steps.deploy.outputs.vercel_deployment_url }}
           VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
@@ -1154,36 +1281,163 @@ jobs:
       - name: Remove isolated build and upload state
         if: always()
         env:
-          CANDIDATE_HOME_PATH: ${{ runner.temp }}/mento-vercel-candidate-home
-          CANDIDATE_SOURCE_PATH: ${{ runner.temp }}/mento-vercel-candidate-source
-          PNPM_BOOTSTRAP_CACHE_PATH: ${{ runner.temp }}/mento-vercel-npm-cache
-          PNPM_BOOTSTRAP_HOME_PATH: ${{ runner.temp }}/mento-vercel-npm-home
-          PNPM_BOOTSTRAP_PATH: ${{ runner.temp }}/mento-vercel-pnpm-bootstrap
-          PNPM_BOOTSTRAP_TMP_PATH: ${{ runner.temp }}/mento-vercel-npm-tmp
-          PULL_STAGING_PATH: ${{ runner.temp }}/mento-vercel-pull-staging
-          TRUSTED_VERCEL_TOOLS_PATH: ${{ runner.temp }}/mento-vercel-trusted-tools
-          UPLOAD_SOURCE_PATH: ${{ runner.temp }}/mento-vercel-upload-source
+          CANDIDATE_HOME_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-home
+          CANDIDATE_SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-source
+          PNPM_BOOTSTRAP_CACHE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-npm-cache
+          PNPM_BOOTSTRAP_HOME_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-npm-home
+          PNPM_BOOTSTRAP_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pnpm-bootstrap
+          PNPM_BOOTSTRAP_TMP_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-npm-tmp
+          PULL_STAGING_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pull-staging
+          TRUSTED_VERCEL_TOOLS_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-trusted-tools
+          UPLOAD_SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-upload-source
         run: |
           set -euo pipefail
-          if getent passwd mento-vercel-build >/dev/null; then
-            build_uid="$(id -u mento-vercel-build)"
-            sudo --non-interactive /usr/bin/pkill -KILL -u "$build_uid" >/dev/null 2>&1 || true
+          if [ "${VERCEL_RUNTIME_ROOT_READY:-}" != "1" ]; then
+            if [ -e "$VERCEL_RUNTIME_ROOT" ] || [ -L "$VERCEL_RUNTIME_ROOT" ]; then
+              echo "Unproven protected runtime root exists; refusing cleanup" >&2
+              exit 1
+            fi
+            echo "Protected runtime root was not created by this run; skipping cleanup"
+            exit 0
+          fi
+          if [[ ! "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ ]] ||
+            [[ ! "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]; then
+            echo "GitHub runtime identity is invalid during cleanup" >&2
+            exit 1
+          fi
+          expected_runtime_root="/var/lib/mento-vercel-runtime-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          if [ "$VERCEL_RUNTIME_ROOT" != "$expected_runtime_root" ] ||
+            [ "$VERCEL_ISOLATION_ROOT" != "$expected_runtime_root/work" ] ||
+            [ "$VERCEL_RUNTIME_MARKER" != "$expected_runtime_root/.mento-vercel-runtime" ]; then
+            echo "Refusing to clean unexpected runtime paths" >&2
+            exit 1
+          fi
+          for protected_ancestor in / /var /var/lib; do
+            if [ ! -d "$protected_ancestor" ] ||
+              [ -L "$protected_ancestor" ] ||
+              [ "$(/usr/bin/realpath "$protected_ancestor")" != "$protected_ancestor" ] ||
+              [ "$(/usr/bin/stat -c %u "$protected_ancestor")" != "0" ] ||
+              [ "$(/usr/bin/stat -c %g "$protected_ancestor")" != "0" ]; then
+              echo "Vercel runtime ancestor changed before cleanup" >&2
+              exit 1
+            fi
+            ancestor_mode="$(
+              /usr/bin/stat -c %a "$protected_ancestor"
+            )"
+            ancestor_mode_value=$((8#$ancestor_mode))
+            if (( (ancestor_mode_value & 07022) != 0 ||
+              (ancestor_mode_value & 0001) == 0 )); then
+              echo "Vercel runtime ancestor permissions changed before cleanup" >&2
+              exit 1
+            fi
+          done
+          if [ ! -d "$VERCEL_RUNTIME_ROOT" ] ||
+            [ -L "$VERCEL_RUNTIME_ROOT" ] ||
+            [ "$(sudo --non-interactive /usr/bin/realpath "$VERCEL_RUNTIME_ROOT")" != "$VERCEL_RUNTIME_ROOT" ] ||
+            [ "$(sudo --non-interactive /usr/bin/stat -c %u "$VERCEL_RUNTIME_ROOT")" != "0" ] ||
+            [ "$(sudo --non-interactive /usr/bin/stat -c %g "$VERCEL_RUNTIME_ROOT")" != "0" ] ||
+            [ "$(sudo --non-interactive /usr/bin/stat -c %a "$VERCEL_RUNTIME_ROOT")" != "711" ] ||
+            [ ! -d "$VERCEL_ISOLATION_ROOT" ] ||
+            [ -L "$VERCEL_ISOLATION_ROOT" ] ||
+            [ "$(sudo --non-interactive /usr/bin/realpath "$VERCEL_ISOLATION_ROOT")" != "$VERCEL_ISOLATION_ROOT" ] ||
+            [ "$(/usr/bin/stat -c %u "$VERCEL_ISOLATION_ROOT")" != "$(/usr/bin/id -u)" ] ||
+            [ "$(/usr/bin/stat -c %g "$VERCEL_ISOLATION_ROOT")" != "$(/usr/bin/id -g)" ] ||
+            [ "$(/usr/bin/stat -c %a "$VERCEL_ISOLATION_ROOT")" != "711" ] ||
+            [ ! -f "$VERCEL_RUNTIME_MARKER" ] ||
+            [ -L "$VERCEL_RUNTIME_MARKER" ] ||
+            [ "$(sudo --non-interactive /usr/bin/stat -c %u "$VERCEL_RUNTIME_MARKER")" != "0" ] ||
+            [ "$(sudo --non-interactive /usr/bin/stat -c %g "$VERCEL_RUNTIME_MARKER")" != "0" ] ||
+            [ "$(sudo --non-interactive /usr/bin/stat -c %a "$VERCEL_RUNTIME_MARKER")" != "400" ] ||
+            [ "$(sudo --non-interactive /bin/cat "$VERCEL_RUNTIME_MARKER")" != "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT" ]; then
+            echo "Protected runtime root failed cleanup validation" >&2
+            exit 1
+          fi
+          runtime_entries="$(
+            sudo --non-interactive /usr/bin/find "$VERCEL_RUNTIME_ROOT" \
+              -mindepth 1 \
+              -maxdepth 1 \
+              -printf '%f\n' |
+              LC_ALL=C /usr/bin/sort
+          )"
+          if [ "$runtime_entries" != $'.mento-vercel-runtime\nwork' ]; then
+            echo "Protected runtime root contains unexpected top-level state" >&2
+            exit 1
+          fi
+          assert_expected_path() {
+            if [ "$1" != "$2" ]; then
+              echo "Refusing to clean an unexpected path: $1" >&2
+              exit 1
+            fi
+          }
+          assert_expected_path \
+            "$CANDIDATE_HOME_PATH" \
+            "$VERCEL_ISOLATION_ROOT/mento-vercel-candidate-home"
+          assert_expected_path \
+            "$CANDIDATE_SOURCE_PATH" \
+            "$VERCEL_ISOLATION_ROOT/mento-vercel-candidate-source"
+          assert_expected_path \
+            "$PNPM_BOOTSTRAP_CACHE_PATH" \
+            "$VERCEL_ISOLATION_ROOT/mento-vercel-npm-cache"
+          assert_expected_path \
+            "$PNPM_BOOTSTRAP_HOME_PATH" \
+            "$VERCEL_ISOLATION_ROOT/mento-vercel-npm-home"
+          assert_expected_path \
+            "$PNPM_BOOTSTRAP_PATH" \
+            "$VERCEL_ISOLATION_ROOT/mento-vercel-pnpm-bootstrap"
+          assert_expected_path \
+            "$PNPM_BOOTSTRAP_TMP_PATH" \
+            "$VERCEL_ISOLATION_ROOT/mento-vercel-npm-tmp"
+          assert_expected_path \
+            "$PULL_STAGING_PATH" \
+            "$VERCEL_ISOLATION_ROOT/mento-vercel-pull-staging"
+          assert_expected_path \
+            "$TRUSTED_VERCEL_TOOLS_PATH" \
+            "$VERCEL_ISOLATION_ROOT/mento-vercel-trusted-tools"
+          assert_expected_path \
+            "$UPLOAD_SOURCE_PATH" \
+            "$VERCEL_ISOLATION_ROOT/mento-vercel-upload-source"
+
+          unmanaged_candidate_identity=0
+          if [ "${CANDIDATE_IDENTITY_READY:-}" = "1" ]; then
+            if [[ ! "${CANDIDATE_IDENTITY_UID:-}" =~ ^[1-9][0-9]*$ ]] ||
+              [[ ! "${CANDIDATE_IDENTITY_GID:-}" =~ ^[1-9][0-9]*$ ]]; then
+              echo "Candidate identity record is invalid" >&2
+              exit 1
+            fi
+            if ! getent passwd mento-vercel-build >/dev/null ||
+              ! getent group mento-vercel-build >/dev/null ||
+              [ "$(id -u mento-vercel-build)" != "$CANDIDATE_IDENTITY_UID" ] ||
+              [ "$(id -g mento-vercel-build)" != "$CANDIDATE_IDENTITY_GID" ] ||
+              [ "$(
+                getent group mento-vercel-build | /usr/bin/cut -d: -f3
+              )" != "$CANDIDATE_IDENTITY_GID" ]; then
+              echo "Candidate identity changed before cleanup" >&2
+              exit 1
+            fi
+            sudo --non-interactive /usr/bin/pkill \
+              -KILL \
+              -u "$CANDIDATE_IDENTITY_UID" >/dev/null 2>&1 || true
             for _ in $(seq 1 50); do
-              if ! sudo --non-interactive /usr/bin/pgrep -u "$build_uid" >/dev/null 2>&1; then
+              if ! sudo --non-interactive /usr/bin/pgrep \
+                -u "$CANDIDATE_IDENTITY_UID" >/dev/null 2>&1; then
                 break
               fi
               /bin/sleep 0.1
             done
-            if sudo --non-interactive /usr/bin/pgrep -u "$build_uid" >/dev/null 2>&1; then
+            if sudo --non-interactive /usr/bin/pgrep \
+              -u "$CANDIDATE_IDENTITY_UID" >/dev/null 2>&1; then
               echo "Candidate processes survived final cleanup" >&2
               exit 1
             fi
-            sudo --non-interactive /usr/sbin/userdel mento-vercel-build
+          elif getent passwd mento-vercel-build >/dev/null ||
+            getent group mento-vercel-build >/dev/null; then
+            unmanaged_candidate_identity=1
           fi
-          if getent group mento-vercel-build >/dev/null; then
-            sudo --non-interactive /usr/sbin/groupdel mento-vercel-build
-          fi
-          for path in \
+
+          sudo --non-interactive /bin/rm \
+            -rf \
+            --one-file-system \
+            -- \
             "$CANDIDATE_HOME_PATH" \
             "$CANDIDATE_SOURCE_PATH" \
             "$PNPM_BOOTSTRAP_CACHE_PATH" \
@@ -1192,25 +1446,43 @@ jobs:
             "$PNPM_BOOTSTRAP_TMP_PATH" \
             "$PULL_STAGING_PATH" \
             "$TRUSTED_VERCEL_TOOLS_PATH" \
-            "$UPLOAD_SOURCE_PATH"; do
-            case "$path" in
-              "$RUNNER_TEMP"/mento-vercel-*) ;;
-              *) echo "Refusing to clean an unexpected path" >&2; exit 1 ;;
-            esac
-          done
-          sudo --non-interactive /bin/rm -rf -- \
-            "$CANDIDATE_HOME_PATH" \
-            "$CANDIDATE_SOURCE_PATH" \
-            "$PNPM_BOOTSTRAP_CACHE_PATH" \
-            "$PNPM_BOOTSTRAP_HOME_PATH" \
-            "$PNPM_BOOTSTRAP_PATH" \
-            "$PNPM_BOOTSTRAP_TMP_PATH" \
-            "$PULL_STAGING_PATH" \
             "$UPLOAD_SOURCE_PATH"
-          /bin/rm -rf -- "$TRUSTED_VERCEL_TOOLS_PATH"
-          /bin/rm -f -- \
+          sudo --non-interactive /bin/rm -f -- \
             "${CANDIDATE_SOURCE_PATH}.provenance.json" \
             "${UPLOAD_SOURCE_PATH}.provenance.json"
+          sudo --non-interactive /bin/rmdir "$VERCEL_ISOLATION_ROOT"
+          sudo --non-interactive /bin/rm -f -- "$VERCEL_RUNTIME_MARKER"
+          sudo --non-interactive /bin/rmdir "$VERCEL_RUNTIME_ROOT"
+          if sudo --non-interactive /usr/bin/test -e "$VERCEL_RUNTIME_ROOT" ||
+            sudo --non-interactive /usr/bin/test -L "$VERCEL_RUNTIME_ROOT"; then
+            echo "Protected runtime root survived cleanup" >&2
+            exit 1
+          fi
+
+          if [ "${CANDIDATE_IDENTITY_READY:-}" = "1" ]; then
+            if getent passwd mento-vercel-build >/dev/null; then
+              sudo --non-interactive /usr/sbin/userdel mento-vercel-build
+            fi
+            if getent group mento-vercel-build >/dev/null; then
+              candidate_group_gid="$(
+                getent group mento-vercel-build | /usr/bin/cut -d: -f3
+              )"
+              if [ "$candidate_group_gid" != "$CANDIDATE_IDENTITY_GID" ]; then
+                echo "Candidate group changed before cleanup" >&2
+                exit 1
+              fi
+              sudo --non-interactive /usr/sbin/groupdel mento-vercel-build
+            fi
+            if getent passwd mento-vercel-build >/dev/null ||
+              getent group mento-vercel-build >/dev/null; then
+              echo "Candidate identity survived cleanup" >&2
+              exit 1
+            fi
+          fi
+          if [ "$unmanaged_candidate_identity" = "1" ]; then
+            echo "Unmanaged candidate identity exists; left untouched" >&2
+            exit 1
+          fi
 
   smoke:
     name: Smoke verified ${{ inputs.logical_target }} preview

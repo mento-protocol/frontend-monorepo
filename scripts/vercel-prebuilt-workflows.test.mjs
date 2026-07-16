@@ -188,9 +188,10 @@ test("exact source, build, and upload remain in one standard-runner job", () => 
 
 test("prebuilt authenticates a locked Linux pnpm binary before cache or candidate execution", () => {
   const reusable = workflow(reusablePath);
+  const prebuilt = reusable.jobs.prebuilt;
   const supplyChain = workflow(".github/workflows/supply-chain.yml");
   const trunk = workflow(".trunk/trunk.yaml");
-  const steps = reusable.jobs.prebuilt.steps;
+  const steps = prebuilt.steps;
   const names = steps.map(({ name }) => name);
   const manifest = JSON.parse(read("package.json"));
   const bootstrapManifest = JSON.parse(
@@ -208,6 +209,9 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
   const nodeSetup = steps.find(
     ({ name }) =>
       name === "Set up pinned Node.js without package-manager cache",
+  );
+  const runtimeRootSetup = steps.find(
+    ({ name }) => name === "Create protected cross-identity runtime root",
   );
   const bootstrap = steps.find(
     ({ name }) => name === "Stage and authenticate pinned pnpm bootstrap",
@@ -318,8 +322,25 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
   assert.equal(nodeSetup.with["package-manager-cache"], false);
   assert.equal(nodeSetup.with.cache, undefined);
   assert.equal(
+    prebuilt.env.VERCEL_RUNTIME_ROOT,
+    "/var/lib/mento-vercel-runtime-${{ github.run_id }}-${{ github.run_attempt }}",
+  );
+  assert.equal(
+    prebuilt.env.VERCEL_ISOLATION_ROOT,
+    "/var/lib/mento-vercel-runtime-${{ github.run_id }}-${{ github.run_attempt }}/work",
+  );
+  assert.equal(
+    prebuilt.env.VERCEL_RUNTIME_MARKER,
+    "/var/lib/mento-vercel-runtime-${{ github.run_id }}-${{ github.run_attempt }}/.mento-vercel-runtime",
+  );
+  assert.match(
+    runtimeRootSetup.run,
+    /for protected_ancestor in \/ \/var \/var\/lib/,
+  );
+  assert.match(runtimeRootSetup.run, /VERCEL_RUNTIME_ROOT_READY=1/);
+  assert.equal(
     bootstrap.env.PNPM_BOOTSTRAP_PATH,
-    "${{ runner.temp }}/mento-vercel-pnpm-bootstrap",
+    "${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pnpm-bootstrap",
   );
   assert.match(bootstrap.run, /stage-pnpm-bootstrap/);
   assert.match(bootstrap.run, /"\$setup_node_bin" "\$npm_cli" ci/);
@@ -409,6 +430,11 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
   );
   assert.match(isolation.run, /"\$pnpm_bootstrap" \\/);
   assert.match(isolation.run, /"\$pnpm_bin"; do/);
+  assert.match(isolation.run, /candidate_pnpm_version/);
+  assert.match(
+    isolation.run,
+    /Candidate cannot execute the protected runtime through its isolation ancestors/,
+  );
   assert.match(install.run, /\/usr\/bin\/setpriv/);
   assert.match(install.run, /NPM_CONFIG_MANAGE_PACKAGE_MANAGER_VERSIONS=false/);
   assert.match(install.run, /NPM_CONFIG_PACKAGE_MANAGER_STRICT_VERSION=false/);
@@ -416,11 +442,15 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
   assert.match(install.run, /\/usr\/bin\/grep -Fxq "10\.34\.4"/);
   assert.equal(
     cleanup.env.PNPM_BOOTSTRAP_PATH,
-    "${{ runner.temp }}/mento-vercel-pnpm-bootstrap",
+    "${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pnpm-bootstrap",
   );
   assert.match(cleanup.run, /"\$PNPM_BOOTSTRAP_PATH" \\/);
   assert.ok(
     names.indexOf("Set up pinned Node.js without package-manager cache") <
+      names.indexOf("Create protected cross-identity runtime root"),
+  );
+  assert.ok(
+    names.indexOf("Create protected cross-identity runtime root") <
       names.indexOf("Stage and authenticate pinned pnpm bootstrap"),
   );
   assert.ok(
@@ -528,7 +558,7 @@ test("monorepo CLI and trusted env validation use their exact roots", () => {
   assert.equal(environmentValidation["working-directory"], undefined);
   assert.equal(
     environmentValidation.env.PULL_STAGING_PATH,
-    "${{ runner.temp }}/mento-vercel-pull-staging",
+    "${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pull-staging",
   );
   assert.match(
     environmentValidation.run,
