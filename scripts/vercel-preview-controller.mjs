@@ -55,6 +55,9 @@ const MAX_RECEIPTS = 200;
 const MAX_HISTORY = 40;
 const WORKER_RUN_PAGE_SIZE = 100;
 const MAX_WORKER_RUN_PAGES = 3;
+const WORKER_RUN_IDENTITY_ATTEMPTS = 5;
+const WORKER_RUN_IDENTITY_RETRY_MS = 500;
+const WORKER_RUN_NAME_PARSE_ERROR = "Worker run name is not strictly parseable";
 const WORKER_RECOVERY_BEFORE_MS = 2 * 60 * 1_000;
 const WORKER_RECOVERY_AFTER_MS = 15 * 60 * 1_000;
 const UPLOAD_STARTED_DESCRIPTION = "Prebuilt preview upload starting";
@@ -727,7 +730,7 @@ export function parseWorkerRunName(value) {
   const match = String(value ?? "").match(
     /^Vercel preview worker \| pr=([1-9][0-9]{0,9}) \| target=ui \| sha=([0-9a-f]{40}) \| key=([0-9a-f]{24})$/,
   );
-  invariant(match, "Worker run name is not strictly parseable");
+  invariant(match, WORKER_RUN_NAME_PARSE_ERROR);
   return {
     pr: pullRequestNumber(match[1]),
     target: PREVIEW_TARGET,
@@ -2338,9 +2341,30 @@ export function validateWorkerRunIdentity(run, selected) {
   };
 }
 
-async function getValidatedWorkerRun(github, context, runId, selected) {
-  const data = await getWorkerRun(github, context, runId, selected);
-  return validateWorkerRunIdentity(data, selected);
+async function getValidatedWorkerRun(
+  github,
+  context,
+  runId,
+  selected,
+  { waitForRetry = wait } = {},
+) {
+  const pause = waitForRetry ?? wait;
+  let pendingTitleError;
+  for (let attempt = 0; attempt < WORKER_RUN_IDENTITY_ATTEMPTS; attempt += 1) {
+    const data = await getWorkerRun(github, context, runId, selected);
+    try {
+      return validateWorkerRunIdentity(data, selected);
+    } catch (error) {
+      if (error?.message !== WORKER_RUN_NAME_PARSE_ERROR) {
+        throw error;
+      }
+      pendingTitleError = error;
+      if (attempt < WORKER_RUN_IDENTITY_ATTEMPTS - 1) {
+        await pause(WORKER_RUN_IDENTITY_RETRY_MS);
+      }
+    }
+  }
+  throw pendingTitleError;
 }
 
 async function getWorkerRun(github, context, runId, selected) {
@@ -2363,7 +2387,12 @@ async function getWorkerRun(github, context, runId, selected) {
   return response.data;
 }
 
-async function dispatchWorker(github, context, selected) {
+async function dispatchWorker(
+  github,
+  context,
+  selected,
+  { waitForRunDetails = wait } = {},
+) {
   const response = await github.request(
     "POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
     {
@@ -2395,7 +2424,9 @@ async function dispatchWorker(github, context, selected) {
     data.workflow_run_id ?? data.id,
     "Dispatched workflow run ID",
   );
-  return getValidatedWorkerRun(github, context, workflowRunId, selected);
+  return getValidatedWorkerRun(github, context, workflowRunId, selected, {
+    waitForRetry: waitForRunDetails,
+  });
 }
 
 async function shaIsStillAssociated(github, context, pull, sha) {
@@ -2734,7 +2765,9 @@ export async function reconcilePreview({
         let runDetails = recoveredRun;
         if (!runDetails) {
           try {
-            runDetails = await dispatchWorker(github, context, selected);
+            runDetails = await dispatchWorker(github, context, selected, {
+              waitForRunDetails: waitForRecovery,
+            });
           } catch (error) {
             if (error instanceof WorkerWorkflowShaMismatchError) {
               await recordSupersededIntent({
@@ -3513,6 +3546,7 @@ export async function recoverWorkerResult({
     context,
     runId,
     selection,
+    { waitForRetry: waitForRecovery },
   );
   if (selection.workflow_run_id === null) {
     invariant(
