@@ -186,25 +186,40 @@ test("exact source, build, and upload remain in one standard-runner job", () => 
   );
 });
 
-test("prebuilt separates trusted standalone bootstrap from candidate JavaScript pnpm", () => {
+test("prebuilt authenticates a locked Linux pnpm binary before cache or candidate execution", () => {
   const reusable = workflow(reusablePath);
   const supplyChain = workflow(".github/workflows/supply-chain.yml");
   const trunk = workflow(".trunk/trunk.yaml");
   const steps = reusable.jobs.prebuilt.steps;
   const names = steps.map(({ name }) => name);
   const manifest = JSON.parse(read("package.json"));
+  const bootstrapManifest = JSON.parse(
+    read("scripts/vercel-pnpm-bootstrap/package.json"),
+  );
+  const bootstrapLock = JSON.parse(
+    read("scripts/vercel-pnpm-bootstrap/package-lock.json"),
+  );
   const runtimeManifest = JSON.parse(
     read("scripts/vercel-pnpm-runtime/package.json"),
   );
   const runtimeLock = parse(read("scripts/vercel-pnpm-runtime/pnpm-lock.yaml"));
   const rootOsvConfig = read("osv-scanner.toml");
   const runtimeOsvConfig = read("scripts/vercel-pnpm-runtime/osv-scanner.toml");
-  const pnpmSetup = steps.find(({ name }) => name === "Set up pinned pnpm");
-  const pnpmTargetVerification = steps.find(
-    ({ name }) => name === "Verify pinned pnpm target before first execution",
-  );
   const nodeSetup = steps.find(
-    ({ name }) => name === "Set up pinned Node.js and pnpm cache",
+    ({ name }) =>
+      name === "Set up pinned Node.js without package-manager cache",
+  );
+  const bootstrap = steps.find(
+    ({ name }) => name === "Stage and authenticate pinned pnpm bootstrap",
+  );
+  const pathProof = steps.find(
+    ({ name }) => name === "Prove authenticated pnpm path before cache restore",
+  );
+  const cacheRestore = steps.find(
+    ({ name }) => name === "Restore trusted pnpm cache",
+  );
+  const cacheReverification = steps.find(
+    ({ name }) => name === "Reverify authenticated pnpm after cache restore",
   );
   const isolation = steps.find(
     ({ name }) =>
@@ -213,12 +228,31 @@ test("prebuilt separates trusted standalone bootstrap from candidate JavaScript 
   const install = steps.find(
     ({ name }) => name === "Install frozen dependencies",
   );
+  const cleanup = steps.find(
+    ({ name }) => name === "Remove isolated build and upload state",
+  );
 
   assert.equal(manifest.devDependencies.pnpm, undefined);
   assert.equal(manifest.packageManager, "pnpm@10.34.4");
   assert.equal(
     manifest.scripts["supply-chain:lockfile-lint"],
     "node scripts/lockfile-lint.mjs && LOCKFILE_LINT_ROOT=scripts/vercel-pnpm-runtime node scripts/lockfile-lint.mjs",
+  );
+  assert.deepEqual(bootstrapManifest.dependencies, {
+    "@pnpm/linux-x64": "10.34.4",
+  });
+  assert.equal(bootstrapManifest.scripts, undefined);
+  assert.deepEqual(Object.keys(bootstrapLock.packages), [
+    "",
+    "node_modules/@pnpm/linux-x64",
+  ]);
+  assert.equal(
+    bootstrapLock.packages["node_modules/@pnpm/linux-x64"].resolved,
+    "https://registry.npmjs.org/@pnpm/linux-x64/-/linux-x64-10.34.4.tgz",
+  );
+  assert.equal(
+    bootstrapLock.packages["node_modules/@pnpm/linux-x64"].integrity,
+    "sha512-6gsJT9HUs1kBsJANC5SEJNRGAMzjGMKgxEtCvPLYd7NIktbh1GH5Ktcu7nLYcbxX8SirCHHzhZiMolW0mvzoqA==",
   );
   assert.deepEqual(runtimeManifest.dependencies, { pnpm: "10.34.4" });
   assert.deepEqual(Object.keys(runtimeLock.packages), ["pnpm@10.34.4"]);
@@ -237,92 +271,115 @@ test("prebuilt separates trusted standalone bootstrap from candidate JavaScript 
     supplyChain.jobs["osv-pnpm-runtime"].with["scan-args"],
     /--config=scripts\/vercel-pnpm-runtime\/osv-scanner\.toml[\s\S]*--lockfile=scripts\/vercel-pnpm-runtime\/pnpm-lock\.yaml/,
   );
+  assert.equal(
+    supplyChain.jobs["osv-pnpm-bootstrap"].with["scan-args"].trim(),
+    "--lockfile=scripts/vercel-pnpm-bootstrap/package-lock.json",
+  );
+  assert.doesNotMatch(
+    supplyChain.jobs["osv-pnpm-bootstrap"].with["scan-args"],
+    /--config/,
+  );
   assert.match(runtimeOsvConfig, /GHSA-gj8w-mvpf-x27x/);
   assert.match(runtimeOsvConfig, /ignoreUntil = 2026-08-16T00:00:00Z/);
   assert.equal(
-    supplyChain.jobs["lockfile-lint"].steps.at(-1).run,
+    supplyChain.jobs["lockfile-lint"].steps.find(
+      ({ name }) => name === "lockfile integrity + registry check",
+    ).run,
     "npm run supply-chain:lockfile-lint",
+  );
+  const bootstrapInstall = supplyChain.jobs["lockfile-lint"].steps.find(
+    ({ name }) => name === "Install and authenticate the Linux pnpm bootstrap",
+  );
+  assert.equal(
+    bootstrapInstall["working-directory"],
+    "scripts/vercel-pnpm-bootstrap",
+  );
+  assert.match(
+    bootstrapInstall.run,
+    /npm ci --ignore-scripts --no-audit --no-fund/,
+  );
+  assert.ok(
+    bootstrapInstall.run.indexOf("sha256sum --check --strict") <
+      bootstrapInstall.run.indexOf('"$pnpm_binary" --version'),
   );
   const trunkOsvIgnore = trunk.lint.ignore.find(({ linters }) =>
     linters.includes("osv-scanner"),
   );
   assert.deepEqual(trunkOsvIgnore.paths, [
     "pnpm-lock.yaml",
+    "scripts/vercel-pnpm-bootstrap/package-lock.json",
     "scripts/vercel-pnpm-runtime/pnpm-lock.yaml",
   ]);
-  assert.equal(pnpmSetup.with.dest, "${{ runner.temp }}/mento-pnpm-tools");
-  assert.equal(pnpmSetup.with.standalone, true);
-  assert.equal(pnpmSetup.with.version, "10.34.4");
-  assert.equal(pnpmSetup.id, "pnpm");
   assert.equal(
-    pnpmTargetVerification.env.EXPECTED_PNPM_LINUX_X64_SHA256,
-    "e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193",
+    steps.some(({ uses }) => uses?.startsWith("pnpm/action-setup@")),
+    false,
   );
+  assert.equal(nodeSetup.with["node-version"], 22);
+  assert.equal(nodeSetup.with["package-manager-cache"], false);
+  assert.equal(nodeSetup.with.cache, undefined);
   assert.equal(
-    pnpmTargetVerification.env.PNPM_ACTION_DEST,
-    "${{ runner.temp }}/mento-pnpm-tools",
+    bootstrap.env.PNPM_BOOTSTRAP_PATH,
+    "${{ runner.temp }}/mento-vercel-pnpm-bootstrap",
   );
-  assert.equal(
-    pnpmTargetVerification.env.PNPM_BIN_DEST,
-    "${{ steps.pnpm.outputs.bin_dest }}",
-  );
-  assert.match(pnpmTargetVerification.run, /uname -s/);
-  assert.match(pnpmTargetVerification.run, /uname -m/);
+  assert.match(bootstrap.run, /stage-pnpm-bootstrap/);
+  assert.match(bootstrap.run, /"\$setup_node_bin" "\$npm_cli" ci/);
+  assert.match(bootstrap.run, /--ignore-scripts/);
+  assert.match(bootstrap.run, /NPM_CONFIG_IGNORE_SCRIPTS=true/);
   assert.match(
-    pnpmTargetVerification.run,
-    /bin_dest="\$\(\/usr\/bin\/realpath "\$PNPM_BIN_DEST"\)"/,
+    bootstrap.run,
+    /NPM_CONFIG_REGISTRY=https:\/\/registry\.npmjs\.org\//,
   );
+  assert.match(bootstrap.run, /stage-runtime/);
+  assert.match(bootstrap.run, /pnpm_bootstrap="\$bootstrap_bin_dir\/pnpm"/);
+  assert.match(bootstrap.run, /\/usr\/bin\/sha256sum "\$pnpm_bootstrap"/);
   assert.match(
-    pnpmTargetVerification.run,
-    /pnpm_target="\$\(\/usr\/bin\/realpath "\$PNPM_BIN_DEST\/pnpm"\)"/,
-  );
-  assert.match(pnpmTargetVerification.run, /path_pnpm="\$\(type -P pnpm\)"/);
-  assert.match(
-    pnpmTargetVerification.run,
-    /realpath "\$path_pnpm"\)" != "\$pnpm_target"/,
-  );
-  assert.match(
-    pnpmTargetVerification.run,
-    /\/usr\/bin\/sha256sum "\$pnpm_target"/,
-  );
-  assert.match(
-    pnpmTargetVerification.run,
-    /"\$pnpm_target" --version \| \/usr\/bin\/grep -Fxq "10\.34\.4"/,
+    bootstrap.run,
+    /"\$pnpm_bootstrap" --version \| \/usr\/bin\/grep -Fxq "10\.34\.4"/,
   );
   assert.ok(
-    pnpmTargetVerification.run.indexOf('/usr/bin/sha256sum "$pnpm_target"') <
-      pnpmTargetVerification.run.indexOf('"$pnpm_target" --version'),
+    bootstrap.run.indexOf("stage-pnpm-bootstrap") <
+      bootstrap.run.indexOf('"$setup_node_bin" "$npm_cli" ci'),
   );
+  assert.ok(
+    bootstrap.run.indexOf('"$setup_node_bin" "$npm_cli" ci') <
+      bootstrap.run.indexOf("stage-runtime"),
+  );
+  assert.ok(
+    bootstrap.run.indexOf('/usr/bin/sha256sum "$pnpm_bootstrap"') <
+      bootstrap.run.indexOf('"$pnpm_bootstrap" --version'),
+  );
+  assert.ok(
+    bootstrap.run.indexOf('"$pnpm_bootstrap" --version') <
+      bootstrap.run.indexOf(
+        `printf '%s\\n' "$bootstrap_bin_dir" >> "$GITHUB_PATH"`,
+      ),
+  );
+  assert.match(pathProof.run, /path_pnpm="\$\(type -P pnpm\)"/);
+  assert.match(pathProof.run, /realpath "\$path_pnpm"\)" != "\$expected_pnpm"/);
+  assert.ok(
+    pathProof.run.indexOf('/usr/bin/sha256sum "$path_pnpm"') <
+      pathProof.run.indexOf('"$path_pnpm" --version'),
+  );
+  assert.equal(cacheRestore.with["node-version"], undefined);
+  assert.equal(cacheRestore.with["node-version-file"], undefined);
+  assert.equal(cacheRestore.with.architecture, undefined);
+  assert.equal(cacheRestore.with.cache, "pnpm");
   assert.deepEqual(
-    nodeSetup.with["cache-dependency-path"].trim().split(/\s+/),
+    cacheRestore.with["cache-dependency-path"].trim().split(/\s+/),
     [
       "controller/pnpm-lock.yaml",
       "controller/scripts/vercel-pnpm-runtime/pnpm-lock.yaml",
     ],
   );
-  assert.equal(
-    isolation.env.PNPM_ACTION_DEST,
-    "${{ runner.temp }}/mento-pnpm-tools",
-  );
-  assert.equal(
-    isolation.env.PNPM_BIN_DEST,
-    "${{ steps.pnpm.outputs.bin_dest }}",
-  );
   assert.match(
-    isolation.run,
-    /if \[ "\$\(realpath "\$PNPM_BIN_DEST"\)" != "\$PNPM_ACTION_DEST\/node_modules\/\.bin\/bin" \]; then/,
+    cacheReverification.run,
+    /Cache restore changed the authenticated pnpm path/,
   );
-  assert.match(
-    isolation.run,
-    /setup_pnpm_bin="\$\(realpath "\$PNPM_BIN_DEST\/pnpm"\)"/,
-  );
-  assert.doesNotMatch(isolation.run, /command -v pnpm/);
-  assert.match(isolation.run, /NODE_SOURCE_PATH="\$setup_node_bin" \\/);
-  assert.match(isolation.run, /PNPM_SOURCE_PATH="\$setup_pnpm_bin" \\/);
-  assert.match(
-    isolation.run,
-    /controller\/scripts\/vercel-prebuilt-workflow\.mjs" \\\n\s+stage-runtime/,
-  );
+  assert.equal(isolation.env.PNPM_ACTION_DEST, undefined);
+  assert.equal(isolation.env.PNPM_BIN_DEST, undefined);
+  assert.doesNotMatch(isolation.run, /PNPM_ACTION_DEST|PNPM_BIN_DEST/);
+  assert.match(isolation.run, /pnpm_bootstrap="\$bootstrap_bin_dir\/pnpm"/);
+  assert.match(isolation.run, /trusted_pnpm_store=.*store path --silent/);
   assert.match(
     isolation.run,
     /controller\/scripts\/vercel-prebuilt-workflow\.mjs" \\\n\s+stage-pnpm-runtime/,
@@ -336,14 +393,11 @@ test("prebuilt separates trusted standalone bootstrap from candidate JavaScript 
     isolation.run,
     /printf '%s\\n' "\$trusted_bin_dir" >> "\$GITHUB_PATH"/,
   );
-  assert.match(isolation.run, /"\$PNPM_ACTION_DEST" \\/);
   assert.match(isolation.run, /"\$TRUSTED_VERCEL_TOOLS_PATH" \\/);
   assert.match(isolation.run, /"\$trusted_bin_dir" \\/);
+  assert.match(isolation.run, /"\$bootstrap_bin_dir" \\/);
   assert.match(isolation.run, /"\$node_bin" \\/);
-  assert.match(
-    isolation.run,
-    /pnpm_bootstrap="\$trusted_bin_dir\/pnpm-bootstrap"/,
-  );
+  assert.match(isolation.run, /"\$trusted_pnpm_store" \\/);
   assert.match(
     isolation.run,
     /Protected runtime directory is not cross-identity readable/,
@@ -360,16 +414,29 @@ test("prebuilt separates trusted standalone bootstrap from candidate JavaScript 
   assert.match(install.run, /NPM_CONFIG_PACKAGE_MANAGER_STRICT_VERSION=false/);
   assert.match(install.run, /"\$pnpm_bin" --version \|/);
   assert.match(install.run, /\/usr\/bin\/grep -Fxq "10\.34\.4"/);
+  assert.equal(
+    cleanup.env.PNPM_BOOTSTRAP_PATH,
+    "${{ runner.temp }}/mento-vercel-pnpm-bootstrap",
+  );
+  assert.match(cleanup.run, /"\$PNPM_BOOTSTRAP_PATH" \\/);
   assert.ok(
-    names.indexOf("Set up pinned pnpm") <
-      names.indexOf("Verify pinned pnpm target before first execution"),
+    names.indexOf("Set up pinned Node.js without package-manager cache") <
+      names.indexOf("Stage and authenticate pinned pnpm bootstrap"),
   );
   assert.ok(
-    names.indexOf("Verify pinned pnpm target before first execution") <
-      names.indexOf("Set up pinned Node.js and pnpm cache"),
+    names.indexOf("Stage and authenticate pinned pnpm bootstrap") <
+      names.indexOf("Prove authenticated pnpm path before cache restore"),
   );
   assert.ok(
-    names.indexOf("Set up pinned Node.js and pnpm cache") <
+    names.indexOf("Prove authenticated pnpm path before cache restore") <
+      names.indexOf("Restore trusted pnpm cache"),
+  );
+  assert.ok(
+    names.indexOf("Restore trusted pnpm cache") <
+      names.indexOf("Reverify authenticated pnpm after cache restore"),
+  );
+  assert.ok(
+    names.indexOf("Reverify authenticated pnpm after cache restore") <
       names.indexOf(
         "Prepare isolated exact-SHA source and protected Vercel CLI",
       ),

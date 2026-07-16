@@ -75,12 +75,20 @@ const VERCEL_CLI_BASE_ENVIRONMENT = [
 const PULL_STAGING_DIRECTORY = "mento-vercel-pull-staging";
 const CANDIDATE_SOURCE_DIRECTORY = "mento-vercel-candidate-source";
 const TRUSTED_TOOLS_DIRECTORY = "mento-vercel-trusted-tools";
-const PNPM_ACTION_DIRECTORY = "mento-pnpm-tools";
+const PNPM_BOOTSTRAP_DIRECTORY = "mento-vercel-pnpm-bootstrap";
 const PNPM_RUNTIME_DIRECTORY = "pnpm-runtime";
 const PINNED_PNPM_VERSION = "10.34.4";
-// Exact bytes of the one-importer registry lockfile. This pins the package
-// identity, absence of custom tarball resolution, and sha512 integrity before
-// the runner-owned bootstrap installs anything from it.
+const PINNED_PNPM_BOOTSTRAP_LOCKFILE_SHA256 =
+  "1f8083495d03d348edb41b529f266807173860558b346128ae63f29f2f331c4d";
+const PINNED_PNPM_LINUX_X64_RESOLVED =
+  "https://registry.npmjs.org/@pnpm/linux-x64/-/linux-x64-10.34.4.tgz";
+const PINNED_PNPM_LINUX_X64_INTEGRITY =
+  "sha512-6gsJT9HUs1kBsJANC5SEJNRGAMzjGMKgxEtCvPLYd7NIktbh1GH5Ktcu7nLYcbxX8SirCHHzhZiMolW0mvzoqA==";
+const PINNED_PNPM_LINUX_X64_SHA256 =
+  "e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193";
+// Exact bytes of the one-importer JavaScript runtime lockfile. This pins the
+// package identity, absence of custom tarball resolution, and sha512 integrity
+// before the authenticated bootstrap installs anything from it.
 const PINNED_PNPM_RUNTIME_LOCKFILE_SHA256 =
   "c0dbb0f05ade0e4a8db501e5eb25ebe3c2f2794feed1caec2cf4df6c4583715a";
 const PULLED_ENVIRONMENT_FILE = ".env.preview.local";
@@ -1167,7 +1175,7 @@ function assertProtectedRuntimeDescendant({
     pathFromRoot.startsWith(`..${sep}`) ||
     isAbsolute(pathFromRoot)
   ) {
-    throw new Error("Protected runtime source escaped its action root");
+    throw new Error("Protected runtime source escaped its protected root");
   }
   const entry = assertProtectedRuntimeEntry(canonicalPath, {
     directory,
@@ -1184,45 +1192,210 @@ function assertProtectedRuntimeDescendant({
     });
     const nextParent = dirname(parent);
     if (nextParent === parent) {
-      throw new Error("Protected runtime source escaped its action root");
+      throw new Error("Protected runtime source escaped its protected root");
     }
     parent = nextParent;
   }
   return { entry, path: canonicalPath };
 }
 
-function readPnpmVersion(path, run) {
-  const result = run(path, ["--version"], {
-    encoding: "utf8",
-    env: {
-      HOME: "/nonexistent",
-      LANG: "C",
-      LC_ALL: "C",
-      PATH: "/usr/bin:/bin",
-    },
-    timeout: 10_000,
-    windowsHide: true,
-  });
-  if (result.error || result.signal || result.status !== 0) {
-    throw new Error("Pinned pnpm standalone executable did not run");
+function validatePinnedPnpmBootstrapFiles({ packageJsonPath, lockfilePath }) {
+  const packageMetadata = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+  if (
+    !hasExactObjectKeys(packageMetadata, [
+      "dependencies",
+      "description",
+      "name",
+      "private",
+      "version",
+    ]) ||
+    packageMetadata.name !== "@mento-protocol/vercel-pnpm-bootstrap" ||
+    packageMetadata.version !== "0.0.0" ||
+    packageMetadata.private !== true ||
+    packageMetadata.description !==
+      "Integrity-pinned Linux pnpm bootstrap for trusted Vercel builds" ||
+    !hasExactObjectKeys(packageMetadata.dependencies, ["@pnpm/linux-x64"]) ||
+    packageMetadata.dependencies["@pnpm/linux-x64"] !== PINNED_PNPM_VERSION ||
+    packageMetadata.scripts !== undefined ||
+    packageMetadata.workspaces !== undefined ||
+    packageMetadata.overrides !== undefined
+  ) {
+    throw new Error("Trusted pnpm bootstrap manifest is not exact");
   }
-  return result.stdout.trim();
+
+  const lockfileContents = readFileSync(lockfilePath);
+  const lockfileDigest = createHash("sha256")
+    .update(lockfileContents)
+    .digest("hex");
+  if (lockfileDigest !== PINNED_PNPM_BOOTSTRAP_LOCKFILE_SHA256) {
+    throw new Error("Trusted pnpm bootstrap lockfile is not exact");
+  }
+  const lockfile = JSON.parse(lockfileContents.toString("utf8"));
+  const rootPackage = lockfile.packages?.[""];
+  const pnpmPackage = lockfile.packages?.["node_modules/@pnpm/linux-x64"];
+  if (
+    !hasExactObjectKeys(lockfile, [
+      "lockfileVersion",
+      "name",
+      "packages",
+      "requires",
+      "version",
+    ]) ||
+    lockfile.name !== "@mento-protocol/vercel-pnpm-bootstrap" ||
+    lockfile.version !== "0.0.0" ||
+    lockfile.lockfileVersion !== 3 ||
+    lockfile.requires !== true ||
+    !hasExactObjectKeys(lockfile.packages, [
+      "",
+      "node_modules/@pnpm/linux-x64",
+    ]) ||
+    !hasExactObjectKeys(rootPackage, ["dependencies", "name", "version"]) ||
+    rootPackage.name !== "@mento-protocol/vercel-pnpm-bootstrap" ||
+    rootPackage.version !== "0.0.0" ||
+    !hasExactObjectKeys(rootPackage.dependencies, ["@pnpm/linux-x64"]) ||
+    rootPackage.dependencies["@pnpm/linux-x64"] !== PINNED_PNPM_VERSION ||
+    !hasExactObjectKeys(pnpmPackage, [
+      "bin",
+      "cpu",
+      "funding",
+      "integrity",
+      "license",
+      "os",
+      "resolved",
+      "version",
+    ]) ||
+    pnpmPackage.version !== PINNED_PNPM_VERSION ||
+    pnpmPackage.resolved !== PINNED_PNPM_LINUX_X64_RESOLVED ||
+    pnpmPackage.integrity !== PINNED_PNPM_LINUX_X64_INTEGRITY ||
+    pnpmPackage.license !== "MIT" ||
+    !hasExactObjectKeys(pnpmPackage.bin, ["pnpm"]) ||
+    pnpmPackage.bin.pnpm !== "pnpm" ||
+    JSON.stringify(pnpmPackage.os) !== '["linux"]' ||
+    JSON.stringify(pnpmPackage.cpu) !== '["x64"]' ||
+    !hasExactObjectKeys(pnpmPackage.funding, ["url"]) ||
+    pnpmPackage.funding.url !== "https://opencollective.com/pnpm"
+  ) {
+    throw new Error("Trusted pnpm bootstrap lockfile structure is invalid");
+  }
 }
 
-function resolvePinnedPnpmExecutable({
+export function stageTrustedPnpmBootstrapManifest({
+  controllerRoot,
   runnerTemp,
-  pnpmRoot,
-  pnpmSource,
+  bootstrapRoot,
   expectedUid = process.getuid?.(),
   expectedGid = process.getgid?.(),
-  run = spawnSync,
+}) {
+  requiredText(controllerRoot, "Trusted controller path");
+  if (!isAbsolute(controllerRoot)) {
+    throw new Error("Trusted controller path must be absolute");
+  }
+  const uid = numericIdentity(expectedUid, "Expected runner UID");
+  const gid = numericIdentity(expectedGid, "Expected runner GID");
+  const canonicalControllerRoot = realpathSync(controllerRoot);
+  assertProtectedRuntimeEntry(canonicalControllerRoot, {
+    directory: true,
+    expectedUid: uid,
+    expectedGid: gid,
+  });
+  const sourceRoot = join(
+    canonicalControllerRoot,
+    "scripts",
+    "vercel-pnpm-bootstrap",
+  );
+  assertProtectedRuntimeDescendant({
+    root: canonicalControllerRoot,
+    path: sourceRoot,
+    directory: true,
+    expectedUid: uid,
+    expectedGid: gid,
+  });
+  const sourcePackageJson = assertProtectedRuntimeDescendant({
+    root: canonicalControllerRoot,
+    path: join(sourceRoot, "package.json"),
+    directory: false,
+    expectedUid: uid,
+    expectedGid: gid,
+  });
+  const sourceLockfile = assertProtectedRuntimeDescendant({
+    root: canonicalControllerRoot,
+    path: join(sourceRoot, "package-lock.json"),
+    directory: false,
+    expectedUid: uid,
+    expectedGid: gid,
+  });
+  validatePinnedPnpmBootstrapFiles({
+    packageJsonPath: sourcePackageJson.path,
+    lockfilePath: sourceLockfile.path,
+  });
+
+  const canonicalBootstrapRoot = assertRunnerTempChild({
+    runnerTemp,
+    path: bootstrapRoot,
+    expectedName: PNPM_BOOTSTRAP_DIRECTORY,
+    expectedUid: uid,
+    expectedGid: gid,
+  });
+  if (optionalEntry(canonicalBootstrapRoot)) {
+    throw new Error("Trusted pnpm bootstrap destination must be fresh");
+  }
+
+  let created = false;
+  try {
+    mkdirSync(canonicalBootstrapRoot, { mode: 0o700 });
+    created = true;
+    chmodSync(canonicalBootstrapRoot, 0o700);
+    assertProtectedRuntimeEntry(canonicalBootstrapRoot, {
+      directory: true,
+      expectedUid: uid,
+      expectedGid: gid,
+    });
+    for (const [name, source] of [
+      ["package.json", sourcePackageJson],
+      ["package-lock.json", sourceLockfile],
+    ]) {
+      const destination = join(canonicalBootstrapRoot, name);
+      copyFileSync(source.path, destination, fsConstants.COPYFILE_EXCL);
+      chmodSync(destination, 0o444);
+      const destinationEntry = assertProtectedRuntimeEntry(destination, {
+        directory: false,
+        expectedUid: uid,
+        expectedGid: gid,
+      });
+      if (
+        realpathSync(destination) !== destination ||
+        (destinationEntry.dev === source.entry.dev &&
+          destinationEntry.ino === source.entry.ino)
+      ) {
+        throw new Error("Trusted pnpm bootstrap copy is not independent");
+      }
+    }
+    validatePinnedPnpmBootstrapFiles({
+      packageJsonPath: join(canonicalBootstrapRoot, "package.json"),
+      lockfilePath: join(canonicalBootstrapRoot, "package-lock.json"),
+    });
+    return canonicalBootstrapRoot;
+  } catch (error) {
+    if (created) {
+      rmSync(canonicalBootstrapRoot, { force: true, recursive: true });
+    }
+    throw error;
+  }
+}
+
+function resolvePinnedPnpmBootstrapExecutable({
+  runnerTemp,
+  pnpmRoot,
+  expectedUid = process.getuid?.(),
+  expectedGid = process.getgid?.(),
+  expectedPnpmSha256 = PINNED_PNPM_LINUX_X64_SHA256,
 }) {
   const uid = numericIdentity(expectedUid, "Expected runner UID");
   const gid = numericIdentity(expectedGid, "Expected runner GID");
   const canonicalPnpmRoot = assertRunnerTempChild({
     runnerTemp,
     path: pnpmRoot,
-    expectedName: PNPM_ACTION_DIRECTORY,
+    expectedName: PNPM_BOOTSTRAP_DIRECTORY,
     expectedUid: uid,
     expectedGid: gid,
   });
@@ -1231,120 +1404,79 @@ function resolvePinnedPnpmExecutable({
     expectedUid: uid,
     expectedGid: gid,
   });
-
-  requiredText(pnpmSource, "Protected pnpm source");
-  if (!isAbsolute(pnpmSource)) {
-    throw new Error("Protected pnpm source must be absolute");
-  }
-  const canonicalPnpmSource = realpathSync(pnpmSource);
-  const expectedLauncher = join(
-    canonicalPnpmRoot,
-    "node_modules",
-    ".bin",
-    "bin",
-    "pnpm",
-  );
-  if (canonicalPnpmSource !== expectedLauncher) {
-    throw new Error("Pinned pnpm source is not the action launcher");
-  }
-  const launcherEntry = assertProtectedRuntimeDescendant({
+  const stagedPackageJson = assertProtectedRuntimeDescendant({
     root: canonicalPnpmRoot,
-    path: canonicalPnpmSource,
+    path: join(canonicalPnpmRoot, "package.json"),
     directory: false,
     expectedUid: uid,
     expectedGid: gid,
-    requireSingleLink: false,
   });
-  if (
-    (launcherEntry.entry.mode & 0o111) === 0 ||
-    readPnpmVersion(canonicalPnpmSource, run) !== PINNED_PNPM_VERSION
-  ) {
-    throw new Error("Pinned pnpm launcher is not the requested release");
-  }
+  const stagedLockfile = assertProtectedRuntimeDescendant({
+    root: canonicalPnpmRoot,
+    path: join(canonicalPnpmRoot, "package-lock.json"),
+    directory: false,
+    expectedUid: uid,
+    expectedGid: gid,
+  });
+  validatePinnedPnpmBootstrapFiles({
+    packageJsonPath: stagedPackageJson.path,
+    lockfilePath: stagedLockfile.path,
+  });
 
-  const globalRoot = join(
+  const packageRoot = join(
     canonicalPnpmRoot,
     "node_modules",
-    ".bin",
-    "global",
-    "v11",
+    "@pnpm",
+    "linux-x64",
   );
   assertProtectedRuntimeDescendant({
     root: canonicalPnpmRoot,
-    path: globalRoot,
+    path: packageRoot,
     directory: true,
     expectedUid: uid,
     expectedGid: gid,
   });
-
-  const matchingCandidates = new Map();
-  for (const installEntry of readdirSync(globalRoot, {
-    withFileTypes: true,
-  }).sort((left, right) => left.name.localeCompare(right.name))) {
-    if (!installEntry.isDirectory() && !installEntry.isSymbolicLink()) continue;
-    const installRoot = join(globalRoot, installEntry.name);
-    const executableLocator = join(
-      installRoot,
-      "node_modules",
-      "@pnpm",
-      "exe",
-      "pnpm",
-    );
-    const packageJsonLocator = join(
-      installRoot,
-      "node_modules",
-      "@pnpm",
-      "exe",
-      "package.json",
-    );
-    if (!existsSync(executableLocator) || !existsSync(packageJsonLocator)) {
-      continue;
-    }
-    assertProtectedRuntimeDescendant({
-      root: canonicalPnpmRoot,
-      path: installRoot,
-      directory: true,
-      expectedUid: uid,
-      expectedGid: gid,
-    });
-    const packageJson = assertProtectedRuntimeDescendant({
-      root: canonicalPnpmRoot,
-      path: packageJsonLocator,
-      directory: false,
-      expectedUid: uid,
-      expectedGid: gid,
-      requireSingleLink: false,
-    });
-    const executable = assertProtectedRuntimeDescendant({
-      root: canonicalPnpmRoot,
-      path: executableLocator,
-      directory: false,
-      expectedUid: uid,
-      expectedGid: gid,
-      requireSingleLink: false,
-    });
-    const packageMetadata = JSON.parse(readFileSync(packageJson.path, "utf8"));
-    if (packageMetadata.name !== "@pnpm/exe") {
-      throw new Error("Pinned pnpm package identity is invalid");
-    }
-    if (packageMetadata.version !== PINNED_PNPM_VERSION) continue;
-    if (
-      (executable.entry.mode & 0o111) === 0 ||
-      readPnpmVersion(executable.path, run) !== PINNED_PNPM_VERSION
-    ) {
-      throw new Error("Pinned pnpm standalone executable is not exact");
-    }
-    matchingCandidates.set(
-      `${executable.entry.dev}:${executable.entry.ino}`,
-      executable.path,
-    );
+  const packageJson = assertProtectedRuntimeDescendant({
+    root: canonicalPnpmRoot,
+    path: join(packageRoot, "package.json"),
+    directory: false,
+    expectedUid: uid,
+    expectedGid: gid,
+  });
+  const executablePath = join(packageRoot, "pnpm");
+  if (
+    lstatSync(executablePath).isSymbolicLink() ||
+    realpathSync(executablePath) !== executablePath
+  ) {
+    throw new Error("Pinned pnpm bootstrap executable is not a real file");
   }
-  if (matchingCandidates.size !== 1) {
-    throw new Error(
-      "Pinned pnpm standalone executable is missing or ambiguous",
-    );
+  const executable = assertProtectedRuntimeDescendant({
+    root: canonicalPnpmRoot,
+    path: executablePath,
+    directory: false,
+    expectedUid: uid,
+    expectedGid: gid,
+  });
+  const installedMetadata = JSON.parse(readFileSync(packageJson.path, "utf8"));
+  if (
+    installedMetadata.name !== "@pnpm/linux-x64" ||
+    installedMetadata.version !== PINNED_PNPM_VERSION ||
+    !hasExactObjectKeys(installedMetadata.scripts, []) ||
+    !hasExactObjectKeys(installedMetadata.bin, ["pnpm"]) ||
+    installedMetadata.bin.pnpm !== "pnpm" ||
+    JSON.stringify(installedMetadata.os) !== '["linux"]' ||
+    JSON.stringify(installedMetadata.cpu) !== '["x64"]' ||
+    (executable.entry.mode & 0o111) === 0
+  ) {
+    throw new Error("Pinned pnpm bootstrap package is not exact");
   }
-  return matchingCandidates.values().next().value;
+  const executableDigest = createHash("sha256")
+    .update(readFileSync(executable.path))
+    .digest("hex");
+  if (executableDigest !== expectedPnpmSha256) {
+    throw new Error("Pinned pnpm bootstrap executable digest is invalid");
+  }
+  return executable.path;
 }
 
 export function stageTrustedRuntime({
@@ -1352,9 +1484,9 @@ export function stageTrustedRuntime({
   toolsRoot,
   nodeSource,
   pnpmRoot,
-  pnpmSource,
   expectedUid = process.getuid?.(),
   expectedGid = process.getgid?.(),
+  expectedPnpmSha256 = PINNED_PNPM_LINUX_X64_SHA256,
 }) {
   const uid = numericIdentity(expectedUid, "Expected runner UID");
   const gid = numericIdentity(expectedGid, "Expected runner GID");
@@ -1369,17 +1501,27 @@ export function stageTrustedRuntime({
     throw new Error("Protected runtime destination must be fresh");
   }
 
-  const pnpmExecutable = resolvePinnedPnpmExecutable({
+  const pnpmExecutable = resolvePinnedPnpmBootstrapExecutable({
     runnerTemp,
     pnpmRoot,
-    pnpmSource,
     expectedUid: uid,
     expectedGid: gid,
+    expectedPnpmSha256,
   });
   const sources = [
-    ["node", nodeSource],
-    ["pnpm-bootstrap", pnpmExecutable],
-  ].map(([name, source]) => {
+    {
+      destinationDirectory: "bin",
+      destinationName: "node",
+      source: nodeSource,
+    },
+    {
+      destinationDirectory: "bootstrap-bin",
+      destinationName: "pnpm",
+      source: pnpmExecutable,
+    },
+  ].map(({ destinationDirectory, destinationName, source }) => {
+    const name =
+      destinationName === "pnpm" ? "pnpm bootstrap" : destinationName;
     requiredText(source, `Protected ${name} source`);
     if (!isAbsolute(source)) {
       throw new Error(`Protected ${name} source must be absolute`);
@@ -1389,7 +1531,12 @@ export function stageTrustedRuntime({
     if (!sourceEntry.isFile()) {
       throw new Error(`Protected ${name} source must be a regular file`);
     }
-    return { name, source: canonicalSource, sourceEntry };
+    return {
+      destinationDirectory,
+      destinationName,
+      source: canonicalSource,
+      sourceEntry,
+    };
   });
 
   let created = false;
@@ -1398,22 +1545,36 @@ export function stageTrustedRuntime({
     created = true;
     chmodSync(canonicalToolsRoot, 0o755);
     const binDirectory = join(canonicalToolsRoot, "bin");
-    mkdirSync(binDirectory, { mode: 0o755 });
-    chmodSync(binDirectory, 0o755);
+    const bootstrapBinDirectory = join(canonicalToolsRoot, "bootstrap-bin");
+    for (const directory of [binDirectory, bootstrapBinDirectory]) {
+      mkdirSync(directory, { mode: 0o755 });
+      chmodSync(directory, 0o755);
+    }
     assertProtectedRuntimeEntry(canonicalToolsRoot, {
       directory: true,
       expectedUid: uid,
       expectedGid: gid,
     });
-    assertProtectedRuntimeEntry(binDirectory, {
-      directory: true,
-      expectedUid: uid,
-      expectedGid: gid,
-    });
+    for (const directory of [binDirectory, bootstrapBinDirectory]) {
+      assertProtectedRuntimeEntry(directory, {
+        directory: true,
+        expectedUid: uid,
+        expectedGid: gid,
+      });
+    }
 
     const staged = {};
-    for (const { name, source, sourceEntry } of sources) {
-      const destination = join(binDirectory, name);
+    for (const {
+      destinationDirectory,
+      destinationName,
+      source,
+      sourceEntry,
+    } of sources) {
+      const destination = join(
+        canonicalToolsRoot,
+        destinationDirectory,
+        destinationName,
+      );
       copyFileSync(source, destination, fsConstants.COPYFILE_EXCL);
       chmodSync(destination, 0o555);
       const destinationEntry = assertProtectedRuntimeEntry(destination, {
@@ -1428,12 +1589,19 @@ export function stageTrustedRuntime({
       ) {
         throw new Error("Protected runtime copy is not independent");
       }
-      staged[name] = destination;
+      staged[destinationName] = destination;
+    }
+    const stagedPnpmDigest = createHash("sha256")
+      .update(readFileSync(staged.pnpm))
+      .digest("hex");
+    if (stagedPnpmDigest !== expectedPnpmSha256) {
+      throw new Error("Protected pnpm bootstrap copy digest is invalid");
     }
     return {
       binDirectory,
+      bootstrapBinDirectory,
       nodePath: staged.node,
-      pnpmBootstrapPath: staged["pnpm-bootstrap"],
+      pnpmBootstrapPath: staged.pnpm,
     };
   } catch (error) {
     if (created) rmSync(canonicalToolsRoot, { force: true, recursive: true });
@@ -2924,9 +3092,18 @@ function stageTrustedRuntimeFromEnvironment() {
     runnerTemp: process.env.RUNNER_TEMP,
     toolsRoot: process.env.TRUSTED_VERCEL_TOOLS_PATH,
     nodeSource: process.env.NODE_SOURCE_PATH,
-    pnpmRoot: process.env.PNPM_ACTION_DEST,
-    pnpmSource: process.env.PNPM_SOURCE_PATH,
+    pnpmRoot: process.env.PNPM_BOOTSTRAP_PATH,
   });
+}
+
+function stageTrustedPnpmBootstrapManifestFromEnvironment() {
+  process.stdout.write(
+    `${stageTrustedPnpmBootstrapManifest({
+      controllerRoot: process.env.CONTROLLER_PATH,
+      runnerTemp: process.env.RUNNER_TEMP,
+      bootstrapRoot: process.env.PNPM_BOOTSTRAP_PATH,
+    })}\n`,
+  );
 }
 
 function stageTrustedPnpmRuntimeManifestFromEnvironment() {
@@ -2958,6 +3135,8 @@ if (isCliEntrypoint()) {
   if (command === "prepare") prepareFromEnvironment();
   else if (command === "validate-source") validateSourceFromEnvironment();
   else if (command === "materialize-source") materializeSourceFromEnvironment();
+  else if (command === "stage-pnpm-bootstrap")
+    stageTrustedPnpmBootstrapManifestFromEnvironment();
   else if (command === "stage-runtime") stageTrustedRuntimeFromEnvironment();
   else if (command === "stage-pnpm-runtime")
     stageTrustedPnpmRuntimeManifestFromEnvironment();
@@ -2987,7 +3166,7 @@ if (isCliEntrypoint()) {
   else if (command === "total") totalFromEnvironment();
   else {
     throw new Error(
-      "Usage: vercel-prebuilt-workflow.mjs prepare|validate-source|materialize-source|stage-runtime|stage-pnpm-runtime|stage-pnpm-launcher|prepare-link|prepare-pull-staging|pull|validate-pull|validate-pull-staging|stage-pull|validate-candidate-pull|build|assert-output|trusted-install-modules-dir|deploy|verify|smoke|total",
+      "Usage: vercel-prebuilt-workflow.mjs prepare|validate-source|materialize-source|stage-runtime|stage-pnpm-bootstrap|stage-pnpm-runtime|stage-pnpm-launcher|prepare-link|prepare-pull-staging|pull|validate-pull|validate-pull-staging|stage-pull|validate-candidate-pull|build|assert-output|trusted-install-modules-dir|deploy|verify|smoke|total",
     );
   }
 }

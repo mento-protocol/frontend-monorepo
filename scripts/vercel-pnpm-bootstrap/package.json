@@ -1,0 +1,9 @@
+{
+  "name": "@mento-protocol/vercel-pnpm-bootstrap",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Integrity-pinned Linux pnpm bootstrap for trusted Vercel builds",
+  "dependencies": {
+    "@pnpm/linux-x64": "10.34.4"
+  }
+}

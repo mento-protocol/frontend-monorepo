@@ -362,24 +362,41 @@ relative paths from the controller to that directory; pnpm treats an absolute
 `--modules-dir` as project-relative and would otherwise materialize the CLI at
 the wrong path. The zero-network fixture requires the already-hydrated package
 store with `--offline`; it cannot contact the registry to repair missing data.
-The hosted setup-node and pnpm locations are treated only as trusted staging
-inputs because runner-image permissions can make those original paths writable
-by the isolated candidate UID. The pinned pnpm action installs its own bootstrap
-from a commit-locked npm lockfile, then downloads the requested
-`@pnpm/linux-x64@10.34.4` target; that target declares no lifecycle scripts.
-Before setup-node's cache probe or any other consumer can execute the downloaded
-target, the worker requires the expected Linux x64 runner, canonical
-action-owned path, runner ownership, non-writable mode, and reviewed executable
+The hosted setup-node location is treated only as a trusted staging input
+because runner-image permissions can make that original path writable by the
+isolated candidate UID. The credentialed build job does not use
+`pnpm/action-setup`: its standalone update path installs `@pnpm/exe`, whose
+`preinstall` lifecycle runs before a downloaded target can be authenticated.
+Instead, pinned setup-node first provides Node.js and its bundled npm with
+package-manager caching explicitly disabled. Trusted controller code validates
+the exact manifest and complete npm lockfile under
+`scripts/vercel-pnpm-bootstrap`, then copies them into a fresh fixed directory
+under `RUNNER_TEMP`.
+
+That lock has one dependency only: `@pnpm/linux-x64@10.34.4` from the official
+npm registry with its reviewed sha512 SRI. The worker runs `npm ci` outside the
+checkout with lifecycle scripts, audit, and funding calls disabled; ambient npm
+configuration, cache, home, and temporary state are replaced with fresh
+runner-owned paths. It never executes npm's `.bin` shim. Trusted code requires
+the literal installed `node_modules/@pnpm/linux-x64/pnpm` to remain inside the
+fixed staging root, be a single-link runner-owned regular file, declare the
+expected Linux x64 package metadata and no lifecycle scripts, and match
 SHA-256
 `e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193`.
-Before candidate code starts, the worker then copies Node.js and that verified
-standalone pnpm executable into the same runner-owned protected tool directory,
-removes group/other write access from the original pnpm action directory, and
-uses the copied executable only to install trusted controller tools. The pnpm
-action's PATH entry is a launcher whose executable lives below a hashed
-`global/v*/.../@pnpm/exe/pnpm` directory, so the worker also requires exactly
-one protected target reporting `10.34.4` and copies that self-contained
-executable instead of relocating the launcher.
+Only after that source digest passes does the worker make an independent
+read-only copy under the protected tool directory, re-hash the copy, execute
+its absolute path to require version `10.34.4`, and remove the extraction plus
+npm cache.
+
+The protected copy is then placed on `PATH` and revalidated before a second,
+cache-only setup-node invocation. That invocation deliberately has no
+`node-version`, `node-version-file`, or architecture input, so pinned
+setup-node skips Node installation and cannot prepend another Node tool
+directory before it asks the already-authenticated pnpm for its store path.
+The resolved store is runner-owned and proven non-writable by the candidate.
+Before candidate code starts, Node.js is likewise copied into the protected
+tool directory, and only the protected copies install trusted controller
+tools.
 
 Candidate-controlled installs use a separate JavaScript pnpm runtime pinned by
 `scripts/vercel-pnpm-runtime/package.json` and its standalone frozen lockfile.
@@ -390,9 +407,12 @@ Before staging, the controller requires the manifest to match its exact allowed
 fields and binds the complete one-importer lockfile bytes to
 `PINNED_PNPM_RUNTIME_LOCKFILE_SHA256`; this rejects extra dependency/config
 sections, custom tarballs, changed integrity, or extra importers/packages before
-the bootstrap install. A pnpm bump must update the action input, reviewed Linux
-x64 executable digest, isolated manifest and lockfile, `PINNED_PNPM_VERSION`,
-and lockfile digest together.
+the bootstrap install. A pnpm bump must update the bootstrap npm manifest and
+lockfile, reviewed registry SRI and Linux x64 executable digest, isolated
+JavaScript-runtime manifest and pnpm lockfile, `PINNED_PNPM_VERSION`, and both
+complete-lockfile digests together. On a non-Linux development host,
+`npm install --package-lock-only --force` may be used only to regenerate this
+Linux-specific lock; the CI installation must never use `--force`.
 The protected launcher always uses protected Node plus that runtime's
 `pnpm.cjs`; it disables pnpm's package-manager self-switch and strict patch
 version check so an older candidate `packageManager` field cannot silently
@@ -400,8 +420,11 @@ downgrade the trusted runtime or reject the intentional patched v10 version.
 This removes the standalone executable's own image from the cross-identity
 execution path: the pilot failed when that image was not effectively readable
 after switching to the isolated candidate identity, even though the
-runner-owned executable checks had passed. Both lockfiles are covered by OSV
-and sha512/registry validation.
+runner-owned executable checks had passed. The root and candidate-runtime pnpm
+locks remain covered by OSV and sha512/registry validation. The bootstrap npm
+lock has a separate OSV job, exact byte/shape validation, npm's SRI
+enforcement, and a Linux CI installation that hashes the executable before
+running it.
 Before any credentialed command, the worker proves the runtime root, its
 replacement-relevant parents, Node.js, pnpm, and the CLI are not candidate
 writable; it also proves the CLI resolves inside the protected directory, its
@@ -411,13 +434,14 @@ the actual pinned pnpm version in a temporary checkout while retaining a
 frozen-lockfile failure boundary.
 
 The candidate dependency install intentionally does **not** reuse setup-node's
-writable pnpm store. Its isolated `HOME` and XDG directories place that store
-under the disposable candidate home, which is deleted before upload. Sharing a
-runner store here would let selected source code mutate cache state that an
-Actions post-step could save from the trusted `main` run. Treat candidate
-dependency installation as a cold, measured pilot cost; record its duration
-separately from `vercel build`. The signed Turbo remote build cache remains
-enabled and its hit/miss evidence remains part of the comparison.
+runner-owned pnpm store, even though the candidate is proven unable to write it.
+Its isolated `HOME` and XDG directories place that store under the disposable
+candidate home, which is deleted before upload. Sharing a runner store here
+would let selected source code mutate cache state that an Actions post-step
+could save from the trusted `main` run if an isolation boundary regressed.
+Treat candidate dependency installation as a cold, measured pilot cost; record
+its duration separately from `vercel build`. The signed Turbo remote build
+cache remains enabled and its hit/miss evidence remains part of the comparison.
 
 Before candidate installation, the worker proves the checked-out index tree is
 the exact selected commit tree. Before any candidate process starts, it
