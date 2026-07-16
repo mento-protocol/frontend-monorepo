@@ -43,6 +43,7 @@ import {
   queryVercelDeployments,
   smokeUiPreview,
   stageVercelPullForCandidate,
+  stageTrustedRuntime,
   trustedPnpmInstallLayout,
   trustedVercelCliPath,
   validateExactSha,
@@ -1265,6 +1266,99 @@ test("candidate staging rejects source components with the wrong owner", () => {
   }
 });
 
+test("trusted runtime copies writable hosted tools into independent protected files", () => {
+  const sourceRoot = mkdtempSync(join(tmpdir(), "vercel-runtime-source-"));
+  const runnerTemp = mkdtempSync(join(tmpdir(), "vercel-runtime-runner-"));
+  const toolsRoot = join(runnerTemp, "mento-vercel-trusted-tools");
+  const nodeSource = join(sourceRoot, "node");
+  const pnpmSource = join(sourceRoot, "pnpm");
+  const nodeContents = "#!/bin/sh\necho node\n";
+  const pnpmContents = "#!/bin/sh\necho pnpm\n";
+  try {
+    chmodSync(sourceRoot, 0o777);
+    chmodSync(runnerTemp, 0o711);
+    writeFileSync(nodeSource, nodeContents, { mode: 0o777 });
+    writeFileSync(pnpmSource, pnpmContents, { mode: 0o777 });
+
+    const staged = stageTrustedRuntime({
+      runnerTemp,
+      toolsRoot,
+      nodeSource,
+      pnpmSource,
+    });
+    const canonicalToolsRoot = join(
+      realpathSync(runnerTemp),
+      "mento-vercel-trusted-tools",
+    );
+    assert.deepEqual(staged, {
+      binDirectory: join(canonicalToolsRoot, "bin"),
+      nodePath: join(canonicalToolsRoot, "bin", "node"),
+      pnpmPath: join(canonicalToolsRoot, "bin", "pnpm"),
+    });
+    for (const path of [canonicalToolsRoot, staged.binDirectory]) {
+      const entry = lstatSync(path);
+      assert.equal(entry.isDirectory(), true);
+      assert.equal(entry.isSymbolicLink(), false);
+      assert.equal(entry.uid, process.getuid());
+      assert.equal(entry.gid, process.getgid());
+      assert.equal(entry.mode & 0o7022, 0);
+    }
+    for (const path of [staged.nodePath, staged.pnpmPath]) {
+      const entry = lstatSync(path);
+      assert.equal(entry.isFile(), true);
+      assert.equal(entry.isSymbolicLink(), false);
+      assert.equal(entry.uid, process.getuid());
+      assert.equal(entry.gid, process.getgid());
+      assert.equal(entry.mode & 0o7022, 0);
+      assert.equal(entry.nlink, 1);
+      assert.equal(realpathSync(path), path);
+    }
+
+    writeFileSync(nodeSource, "replaced node\n");
+    writeFileSync(pnpmSource, "replaced pnpm\n");
+    assert.equal(readFileSync(staged.nodePath, "utf8"), nodeContents);
+    assert.equal(readFileSync(staged.pnpmPath, "utf8"), pnpmContents);
+    assert.throws(
+      () =>
+        stageTrustedRuntime({
+          runnerTemp,
+          toolsRoot,
+          nodeSource,
+          pnpmSource,
+        }),
+      /destination must be fresh/,
+    );
+
+    rmSync(toolsRoot, { force: true, recursive: true });
+    symlinkSync(sourceRoot, toolsRoot);
+    assert.throws(
+      () =>
+        stageTrustedRuntime({
+          runnerTemp,
+          toolsRoot,
+          nodeSource,
+          pnpmSource,
+        }),
+      /destination must be fresh/,
+    );
+    rmSync(toolsRoot, { force: true });
+    chmodSync(runnerTemp, 0o777);
+    assert.throws(
+      () =>
+        stageTrustedRuntime({
+          runnerTemp,
+          toolsRoot,
+          nodeSource,
+          pnpmSource,
+        }),
+      /Runner temporary directory is not protected/,
+    );
+  } finally {
+    rmSync(sourceRoot, { force: true, recursive: true });
+    rmSync(runnerTemp, { force: true, recursive: true });
+  }
+});
+
 test("trusted Vercel CLI must be exact-versioned and runner-protected", () => {
   const toolsPath = mkdtempSync(join(tmpdir(), "vercel-tools-"));
   const packagePath = join(toolsPath, "node_modules", "vercel");
@@ -1582,6 +1676,8 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   assert.match(raw, /\/usr\/bin\/pgrep -u "\$BUILD_UID"/g);
   assert.match(raw, /Create immutable runner-owned upload handoff/);
   assert.match(raw, /mento-vercel-upload-source/);
+  assert.match(raw, /dest: \$\{\{ runner\.temp \}\}\/mento-pnpm-tools/);
+  assert.match(raw, /standalone: true/);
   assert.match(raw, /userdel mento-vercel-build/);
   assert.match(raw, /node_modules\/vercel\/dist\/index\.js/);
   assert.match(raw, /candidate_can_write/);
@@ -1592,7 +1688,9 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
     "SOURCE_PATH/node_modules",
     "SOURCE_PATH/package.json",
     "SOURCE_PATH/pnpm-lock.yaml",
+    "PNPM_ACTION_DEST",
     "TRUSTED_VERCEL_TOOLS_PATH",
+    "trusted_bin_dir",
     "node_bin",
     "pnpm_bin",
   ]) {
@@ -1608,24 +1706,65 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   );
   assert.match(
     isolationBlock,
-    /pnpm --dir "\$GITHUB_WORKSPACE\/controller" --filter frontend-monorepo install/,
+    /"\$pnpm_bin" --dir "\$GITHUB_WORKSPACE\/controller" --filter frontend-monorepo install/,
   );
   assert.match(isolationBlock, /--frozen-lockfile/);
   assert.match(isolationBlock, /--ignore-scripts/);
   assert.match(isolationBlock, /--package-import-method copy/);
+  assert.match(
+    isolationBlock,
+    /\/bin\/chmod -R a\+rX,go-w "\$PNPM_ACTION_DEST"/,
+  );
+  assert.match(isolationBlock, /NODE_SOURCE_PATH="\$setup_node_bin" \\/);
+  assert.match(isolationBlock, /PNPM_SOURCE_PATH="\$setup_pnpm_bin" \\/);
+  assert.match(
+    isolationBlock,
+    /vercel-prebuilt-workflow\.mjs" \\\n\s+stage-runtime/,
+  );
+  assert.match(
+    isolationBlock,
+    /Pinned pnpm escaped its action-owned directory/,
+  );
+  assert.match(
+    isolationBlock,
+    /Protected pnpm copy does not match the pinned release/,
+  );
+  assert.match(
+    isolationBlock,
+    /Protected runtime binary is not an independent runner-owned file/,
+  );
+  assert.match(
+    isolationBlock,
+    /Pinned pnpm action directory escaped RUNNER_TEMP/,
+  );
+  assert.match(isolationBlock, /Protected runtime destination already exists/);
   assert.match(isolationBlock, /trusted-install-modules-dir/);
   assert.match(isolationBlock, /--modules-dir "\$trusted_modules_dir"/);
   const runnerTempHardenIndex = isolationBlock.indexOf(
     '/bin/chmod 0711 "$RUNNER_TEMP"',
   );
+  const pnpmActionHardenIndex = isolationBlock.indexOf(
+    '/bin/chmod -R a+rX,go-w "$PNPM_ACTION_DEST"',
+  );
+  const protectedRuntimeCopyIndex = isolationBlock.indexOf("stage-runtime");
+  const protectedPathLoopIndex = isolationBlock.indexOf(
+    "for protected_path in \\",
+  );
   const runnerTempProtectionIndex = isolationBlock.indexOf(
     '"$RUNNER_TEMP" \\',
-    runnerTempHardenIndex,
+    protectedPathLoopIndex,
+  );
+  const trustedPathIndex = isolationBlock.indexOf(
+    `printf '%s\\n' "$trusted_bin_dir" >> "$GITHUB_PATH"`,
   );
   const materializeIndex = isolationBlock.indexOf("materialize-source");
   assert.notEqual(runnerTempHardenIndex, -1);
-  assert.ok(runnerTempProtectionIndex > runnerTempHardenIndex);
-  assert.ok(materializeIndex > runnerTempProtectionIndex);
+  assert.ok(pnpmActionHardenIndex > runnerTempHardenIndex);
+  assert.ok(protectedRuntimeCopyIndex > pnpmActionHardenIndex);
+  assert.ok(protectedPathLoopIndex > protectedRuntimeCopyIndex);
+  assert.ok(runnerTempProtectionIndex > protectedPathLoopIndex);
+  assert.ok(trustedPathIndex > runnerTempProtectionIndex);
+  assert.ok(materializeIndex > trustedPathIndex);
   assert.match(
     isolationBlock,
     /--virtual-store-dir "\$trusted_modules_dir\/\.pnpm"/,

@@ -158,6 +158,8 @@ jobs:
       - name: Set up pinned pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v4
         with:
+          dest: ${{ runner.temp }}/mento-pnpm-tools
+          standalone: true
           version: 10.24.0
 
       - name: Set up pinned Node.js and pnpm cache
@@ -206,6 +208,7 @@ jobs:
           CANDIDATE_HOME_PATH: ${{ runner.temp }}/mento-vercel-candidate-home
           CANDIDATE_SOURCE_PATH: ${{ runner.temp }}/mento-vercel-candidate-source
           DEPLOY_SHA: ${{ steps.source.outputs.checked_out_sha }}
+          PNPM_ACTION_DEST: ${{ runner.temp }}/mento-pnpm-tools
           SOURCE_PATH: ${{ github.workspace }}/source
           TRUSTED_VERCEL_TOOLS_PATH: ${{ runner.temp }}/mento-vercel-trusted-tools
         run: |
@@ -232,9 +235,50 @@ jobs:
           fi
 
           /bin/chmod 0711 "$RUNNER_TEMP"
-          /bin/mkdir -m 0755 "$TRUSTED_VERCEL_TOOLS_PATH"
-          node_bin="$(realpath "$(command -v node)")"
-          pnpm_bin="$(realpath "$(command -v pnpm)")"
+          if [ ! -d "$PNPM_ACTION_DEST" ] || [ -L "$PNPM_ACTION_DEST" ]; then
+            echo "Pinned pnpm action directory is not a real directory" >&2
+            exit 1
+          fi
+          if [ "$(realpath "$PNPM_ACTION_DEST")" != "$RUNNER_TEMP/mento-pnpm-tools" ]; then
+            echo "Pinned pnpm action directory escaped RUNNER_TEMP" >&2
+            exit 1
+          fi
+          /bin/chmod -R a+rX,go-w "$PNPM_ACTION_DEST"
+          if [ -e "$TRUSTED_VERCEL_TOOLS_PATH" ] || [ -L "$TRUSTED_VERCEL_TOOLS_PATH" ]; then
+            echo "Protected runtime destination already exists" >&2
+            exit 1
+          fi
+          trusted_bin_dir="$TRUSTED_VERCEL_TOOLS_PATH/bin"
+          setup_node_bin="$(realpath "$(command -v node)")"
+          setup_pnpm_bin="$(realpath "$(command -v pnpm)")"
+          case "$setup_pnpm_bin" in
+            "$PNPM_ACTION_DEST"/*) ;;
+            *) echo "Pinned pnpm escaped its action-owned directory" >&2; exit 1 ;;
+          esac
+          NODE_SOURCE_PATH="$setup_node_bin" \
+          PNPM_SOURCE_PATH="$setup_pnpm_bin" \
+          RUNNER_TEMP="$RUNNER_TEMP" \
+          TRUSTED_VERCEL_TOOLS_PATH="$TRUSTED_VERCEL_TOOLS_PATH" \
+            "$setup_node_bin" \
+            "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" \
+            stage-runtime
+          node_bin="$trusted_bin_dir/node"
+          pnpm_bin="$trusted_bin_dir/pnpm"
+          for protected_binary in "$node_bin" "$pnpm_bin"; do
+            mode="$(/usr/bin/stat -c %a "$protected_binary")"
+            if [ ! -f "$protected_binary" ] ||
+              [ -L "$protected_binary" ] ||
+              [ "$(/usr/bin/stat -c %u "$protected_binary")" != "$(id -u)" ] ||
+              [ "$(/usr/bin/stat -c %h "$protected_binary")" != "1" ] ||
+              (( (8#$mode & 0022) != 0 )); then
+              echo "Protected runtime binary is not an independent runner-owned file" >&2
+              exit 1
+            fi
+          done
+          if [ "$("$pnpm_bin" --version)" != "10.24.0" ]; then
+            echo "Protected pnpm copy does not match the pinned release" >&2
+            exit 1
+          fi
           trusted_modules_dir="$(
             CONTROLLER_PATH="$GITHUB_WORKSPACE/controller" \
             TRUSTED_VERCEL_TOOLS_PATH="$TRUSTED_VERCEL_TOOLS_PATH" \
@@ -246,7 +290,7 @@ jobs:
             echo "Trusted pnpm modules path is not a relative path" >&2
             exit 1
           fi
-          pnpm --dir "$GITHUB_WORKSPACE/controller" --filter frontend-monorepo install \
+          "$pnpm_bin" --dir "$GITHUB_WORKSPACE/controller" --filter frontend-monorepo install \
             --frozen-lockfile \
             --ignore-scripts \
             --modules-dir "$trusted_modules_dir" \
@@ -281,7 +325,9 @@ jobs:
             "$SOURCE_PATH/.git" \
             "$SOURCE_PATH/package.json" \
             "$SOURCE_PATH/pnpm-lock.yaml" \
+            "$PNPM_ACTION_DEST" \
             "$TRUSTED_VERCEL_TOOLS_PATH" \
+            "$trusted_bin_dir" \
             "$node_bin" \
             "$pnpm_bin"; do
             if [ ! -e "$protected_path" ] || candidate_can_write "$protected_path"; then
@@ -294,6 +340,7 @@ jobs:
             exit 1
           fi
 
+          printf '%s\n' "$trusted_bin_dir" >> "$GITHUB_PATH"
           source_tree="$(/usr/bin/git -C "$SOURCE_PATH" write-tree)"
           expected_tree="$(
             /usr/bin/git -C "$SOURCE_PATH" rev-parse "$DEPLOY_SHA^{tree}"

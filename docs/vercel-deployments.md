@@ -362,12 +362,19 @@ relative paths from the controller to that directory; pnpm treats an absolute
 `--modules-dir` as project-relative and would otherwise materialize the CLI at
 the wrong path. The zero-network fixture requires the already-hydrated package
 store with `--offline`; it cannot contact the registry to repair missing data.
-Before any credentialed command, the worker proves the CLI
-resolves inside the protected directory, its package version is exactly
-`56.2.0`, the candidate UID cannot write it, and `node <cli> --version`
-executes successfully. The workflow test suite repeats this with the actual
-pinned pnpm install in a temporary checkout while retaining a frozen-lockfile
-failure boundary.
+The hosted setup-node and pnpm locations are treated only as trusted staging
+inputs because runner-image permissions can make those original paths writable
+by the isolated candidate UID. Before candidate code starts, the worker copies
+Node.js and standalone pnpm into the same runner-owned protected tool
+directory, removes group/other write access from the original pnpm action
+directory, and prepends the protected runtime to subsequent workflow steps.
+Before any credentialed command, the worker proves the runtime root, its
+replacement-relevant parents, Node.js, pnpm, and the CLI are not candidate
+writable; it also proves the CLI resolves inside the protected directory, its
+package version is exactly `56.2.0`, and protected `node <cli> --version`
+executes successfully. The workflow test suite repeats the CLI install with
+the actual pinned pnpm version in a temporary checkout while retaining a
+frozen-lockfile failure boundary.
 
 The candidate dependency install intentionally does **not** reuse setup-node's
 writable pnpm store. Its isolated `HOME` and XDG directories place that store
@@ -689,7 +696,9 @@ The worker is dispatched on `main`, and the reusable contract requires both
 identity. Candidate dependency lifecycle scripts are disabled. The trusted
 controller is restored from `github.workflow_sha` after dependency installation
 and after the candidate build; pinned-version and build-output assertions,
-upload, inspection, and lifecycle writes therefore run the restored controller.
+upload, inspection, and lifecycle writes therefore run the restored controller
+through the protected Node.js runtime copied before candidate execution, not
+the hosted toolcache path the candidate can reach.
 
 Lifecycle is `queued -> in_progress -> success|failure|error`. Success and the
 public `environment_url` exist only after exact-SHA/ID verification and direct

@@ -73,6 +73,7 @@ const VERCEL_CLI_BASE_ENVIRONMENT = [
 ];
 const PULL_STAGING_DIRECTORY = "mento-vercel-pull-staging";
 const CANDIDATE_SOURCE_DIRECTORY = "mento-vercel-candidate-source";
+const TRUSTED_TOOLS_DIRECTORY = "mento-vercel-trusted-tools";
 const PULLED_ENVIRONMENT_FILE = ".env.preview.local";
 const MAX_SOURCE_ENTRIES = 20_000;
 const MAX_SOURCE_PATH_BYTES = 4_096;
@@ -1107,6 +1108,110 @@ export function environmentForVercelCli(environment, allowedNames = []) {
   delete cliEnvironment.VERCEL_ORG_ID;
   delete cliEnvironment.VERCEL_PROJECT_ID;
   return cliEnvironment;
+}
+
+function assertProtectedRuntimeEntry(
+  path,
+  { directory, expectedUid, expectedGid },
+) {
+  const entry = lstatSync(path);
+  if (
+    entry.isSymbolicLink() ||
+    (directory ? !entry.isDirectory() : !entry.isFile()) ||
+    entry.uid !== expectedUid ||
+    entry.gid !== expectedGid ||
+    (entry.mode & 0o7022) !== 0 ||
+    (!directory && entry.nlink !== 1)
+  ) {
+    throw new Error("Protected runtime entry is not runner-owned");
+  }
+  return entry;
+}
+
+export function stageTrustedRuntime({
+  runnerTemp,
+  toolsRoot,
+  nodeSource,
+  pnpmSource,
+  expectedUid = process.getuid?.(),
+  expectedGid = process.getgid?.(),
+}) {
+  const uid = numericIdentity(expectedUid, "Expected runner UID");
+  const gid = numericIdentity(expectedGid, "Expected runner GID");
+  const canonicalToolsRoot = assertRunnerTempChild({
+    runnerTemp,
+    path: toolsRoot,
+    expectedName: TRUSTED_TOOLS_DIRECTORY,
+    expectedUid: uid,
+    expectedGid: gid,
+  });
+  if (optionalEntry(canonicalToolsRoot)) {
+    throw new Error("Protected runtime destination must be fresh");
+  }
+
+  const sources = [
+    ["node", nodeSource],
+    ["pnpm", pnpmSource],
+  ].map(([name, source]) => {
+    requiredText(source, `Protected ${name} source`);
+    if (!isAbsolute(source)) {
+      throw new Error(`Protected ${name} source must be absolute`);
+    }
+    const canonicalSource = realpathSync(source);
+    const sourceEntry = lstatSync(canonicalSource);
+    if (!sourceEntry.isFile()) {
+      throw new Error(`Protected ${name} source must be a regular file`);
+    }
+    return { name, source: canonicalSource, sourceEntry };
+  });
+
+  let created = false;
+  try {
+    mkdirSync(canonicalToolsRoot, { mode: 0o755 });
+    created = true;
+    chmodSync(canonicalToolsRoot, 0o755);
+    const binDirectory = join(canonicalToolsRoot, "bin");
+    mkdirSync(binDirectory, { mode: 0o755 });
+    chmodSync(binDirectory, 0o755);
+    assertProtectedRuntimeEntry(canonicalToolsRoot, {
+      directory: true,
+      expectedUid: uid,
+      expectedGid: gid,
+    });
+    assertProtectedRuntimeEntry(binDirectory, {
+      directory: true,
+      expectedUid: uid,
+      expectedGid: gid,
+    });
+
+    const staged = {};
+    for (const { name, source, sourceEntry } of sources) {
+      const destination = join(binDirectory, name);
+      copyFileSync(source, destination, fsConstants.COPYFILE_EXCL);
+      chmodSync(destination, 0o555);
+      const destinationEntry = assertProtectedRuntimeEntry(destination, {
+        directory: false,
+        expectedUid: uid,
+        expectedGid: gid,
+      });
+      if (
+        realpathSync(destination) !== destination ||
+        (destinationEntry.dev === sourceEntry.dev &&
+          destinationEntry.ino === sourceEntry.ino)
+      ) {
+        throw new Error("Protected runtime copy is not independent");
+      }
+      staged[name] = destination;
+    }
+    return {
+      binDirectory,
+      nodePath: staged.node,
+      pnpmPath: staged.pnpm,
+    };
+  } catch (error) {
+    if (created) rmSync(canonicalToolsRoot, { force: true, recursive: true });
+    throw error;
+  }
 }
 
 export function trustedPnpmInstallLayout({ controllerRoot, toolsRoot }) {
@@ -2355,6 +2460,15 @@ function totalFromEnvironment() {
   );
 }
 
+function stageTrustedRuntimeFromEnvironment() {
+  stageTrustedRuntime({
+    runnerTemp: process.env.RUNNER_TEMP,
+    toolsRoot: process.env.TRUSTED_VERCEL_TOOLS_PATH,
+    nodeSource: process.env.NODE_SOURCE_PATH,
+    pnpmSource: process.env.PNPM_SOURCE_PATH,
+  });
+}
+
 function isCliEntrypoint() {
   return (
     process.argv[1] !== undefined &&
@@ -2367,6 +2481,7 @@ if (isCliEntrypoint()) {
   if (command === "prepare") prepareFromEnvironment();
   else if (command === "validate-source") validateSourceFromEnvironment();
   else if (command === "materialize-source") materializeSourceFromEnvironment();
+  else if (command === "stage-runtime") stageTrustedRuntimeFromEnvironment();
   else if (command === "prepare-link") prepareLinkFromEnvironment();
   else if (command === "prepare-pull-staging")
     preparePullStagingFromEnvironment();
@@ -2391,7 +2506,7 @@ if (isCliEntrypoint()) {
   else if (command === "total") totalFromEnvironment();
   else {
     throw new Error(
-      "Usage: vercel-prebuilt-workflow.mjs prepare|validate-source|materialize-source|prepare-link|prepare-pull-staging|pull|validate-pull|validate-pull-staging|stage-pull|validate-candidate-pull|build|assert-output|trusted-install-modules-dir|deploy|verify|smoke|total",
+      "Usage: vercel-prebuilt-workflow.mjs prepare|validate-source|materialize-source|stage-runtime|prepare-link|prepare-pull-staging|pull|validate-pull|validate-pull-staging|stage-pull|validate-candidate-pull|build|assert-output|trusted-install-modules-dir|deploy|verify|smoke|total",
     );
   }
 }
