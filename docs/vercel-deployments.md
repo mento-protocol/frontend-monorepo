@@ -543,9 +543,9 @@ preview --project-directory "$VERCEL_ISOLATION_ROOT/mento-vercel-pull-staging/ap
    UID has no process;
 6. immediately before build, repeat the trusted privileged exact-SHA
    provenance, candidate-tree, and project-mapping checks;
-7. `vercel build --yes --target preview` as the isolated candidate UID with the
-   signed Turbo remote cache, immutable Git metadata, and generated
-   `MENTO_NEXT_DEPLOYMENT_ID`;
+7. `vercel build --yes --target preview` as the isolated candidate UID with
+   `VERCEL_BUILD_MONOREPO_SUPPORT=1`, the signed Turbo remote cache, immutable
+   Git metadata, and generated `MENTO_NEXT_DEPLOYMENT_ID`;
 8. stop all candidate-UID processes, then use the trusted privileged controller
    to assert the UI project mapping, Build Output API v3 config, custom
    deployment ID, preview target, pinned CLI build record, output ownership,
@@ -569,6 +569,16 @@ The upload command supplies `githubCommitOrg`, `githubCommitRepo`,
 `githubCommitSha`, and `githubCommitRef`. It intentionally omits
 `githubDeployment=1`, so Vercel cannot create a duplicate GitHub Deployment.
 The build output never becomes a GitHub artifact and never crosses jobs.
+
+CLI `56.2.0` gates its local Root Directory monorepo defaults behind
+`VERCEL_BUILD_MONOREPO_SUPPORT=1`. The worker supplies that trusted constant to
+the clean candidate environment so the CLI activates its Turborepo default,
+`turbo run build`, for the Root Directory project. Turbo then includes upstream
+workspace packages such as `@mento-protocol/ui` before the selected Next.js
+app. Re-audit this internal, version-coupled flag whenever the pinned CLI
+changes. Do not replace it with a separate app dependency prebuild: that would
+duplicate work before the CLI's own build and could diverge from Vercel's
+project settings.
 
 ### Canonical GitHub Deployment
 

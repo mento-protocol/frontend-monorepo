@@ -729,10 +729,19 @@ test("workflow restores signed Turbo cache and immutable Vercel build metadata",
     "VERCEL_GIT_REPO_OWNER",
     "VERCEL_GIT_REPO_SLUG",
     "NEXT_PUBLIC_VERCEL_ENV",
+    "VERCEL_BUILD_MONOREPO_SUPPORT",
     "VERCEL_TARGET_ENV",
   ]) {
     assert.match(raw, new RegExp(`${value}:`), `${value} must be explicit`);
   }
+  const build = workflow(reusablePath).jobs.prebuilt.steps.find(
+    ({ name }) => name === "Build the UI prebuilt output",
+  );
+  assert.equal(build.env.VERCEL_BUILD_MONOREPO_SUPPORT, "1");
+  assert.match(
+    build.run,
+    /VERCEL_BUILD_MONOREPO_SUPPORT="\$VERCEL_BUILD_MONOREPO_SUPPORT"/,
+  );
   assert.doesNotMatch(raw, /githubDeployment=1/);
   assert.doesNotMatch(raw, /--token/);
 });
