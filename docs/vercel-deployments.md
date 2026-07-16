@@ -651,15 +651,19 @@ fail closed.
 Zero matches dispatches `.github/workflows/vercel-preview-worker.yml` on `main`
 using the HTTP 200 `return_run_details` API contract only while the executing
 controller's own workflow SHA still equals the persisted intent. The returned
-run is re-queried and its `head_sha` must equal `expected_workflow_sha`, in
-addition to matching the literal workflow path (either the bare path or
-GitHub's documented `@main` suffix), `workflow_dispatch` event, default ref,
-attempt, PR, target, candidate SHA, and epoch-bound key digest, before state
-becomes `dispatched`. If `main` advances between intent persistence and
-dispatch, recovery may attach an already-created worker at the old authorized
-SHA, but a newer controller/worker version cannot satisfy or redispatch that
-old intent. A worker resolved from the newer `main` SHA fails its credentialless
-preflight. The controller records an immutable
+run is re-queried once per second for up to 30 seconds because GitHub may
+temporarily return the workflow's default title before materializing the
+configured `run-name`. Only that exact transient title-parse failure is
+retried; every other identity mismatch still fails immediately. The
+materialized run's `head_sha` must equal `expected_workflow_sha`, in addition to
+matching the literal workflow path (either the bare path or GitHub's documented
+`@main` suffix), `workflow_dispatch` event, default ref, attempt, PR, target,
+candidate SHA, and epoch-bound key digest, before state becomes `dispatched`.
+If `main` advances between intent persistence and dispatch, recovery may attach
+an already-created worker at the old authorized SHA, but a newer
+controller/worker version cannot satisfy or redispatch that old intent. A
+worker resolved from the newer `main` SHA fails its credentialless preflight.
+The controller records an immutable
 `controller-workflow-upgraded-before-dispatch` error result, and that worker's
 completion callback causes the current controller to reselect the same desired
 receipt under its own workflow SHA. The new key therefore advances

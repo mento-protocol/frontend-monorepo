@@ -1983,21 +1983,23 @@ test("durable dispatch persists intent and waits for the exact run title to mate
   const fixture = fakeGitHub({
     pullRequest,
     comments: [eventComment(opened)],
-    workflowRunDisplayTitles: ["Vercel Preview Worker"],
+    workflowRunDisplayTitles: Array(10).fill("Vercel Preview Worker"),
   });
   const core = fakeCore();
+  const waits = [];
   const state = await reconcilePreview({
     github: fixture.github,
     context: fakeContext(),
     core,
     prNumber: 519,
-    waitForRecovery: async () => {},
+    waitForRecovery: async (milliseconds) => waits.push(milliseconds),
   });
   assert.equal(fixture.dispatches.length, 1);
   assert.equal(state.ui.active.dispatch_state, "dispatched");
   assert.equal(state.ui.active.workflow_run_id, 8_000);
   assert.equal(state.ui.active.workflow_sha, SHA.E);
-  assert.deepEqual(fixture.workflowRunRequests, [8_000, 8_000]);
+  assert.deepEqual(waits, [500, 500, ...Array(10).fill(1_000)]);
+  assert.deepEqual(fixture.workflowRunRequests, Array(11).fill(8_000));
   assert.equal(core.outputs.get("dispatched_run_id"), "8000");
   assert.equal(fixture.commitStatuses.at(-1).context, "Vercel Preview");
   assert.equal(fixture.commitStatuses.at(-1).sha, SHA.A);
@@ -2013,8 +2015,9 @@ test("durable dispatch fails closed when the exact run title never materializes"
   const fixture = fakeGitHub({
     pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
     comments: [eventComment(opened)],
-    workflowRunDisplayTitles: Array(5).fill("Vercel Preview Worker"),
+    workflowRunDisplayTitles: Array(31).fill("Vercel Preview Worker"),
   });
+  const waits = [];
 
   await assert.rejects(
     reconcilePreview({
@@ -2022,11 +2025,12 @@ test("durable dispatch fails closed when the exact run title never materializes"
       context: fakeContext(),
       core: fakeCore(),
       prNumber: 519,
-      waitForRecovery: async () => {},
+      waitForRecovery: async (milliseconds) => waits.push(milliseconds),
     }),
     /Worker run name is not strictly parseable/,
   );
-  assert.deepEqual(fixture.workflowRunRequests, Array(5).fill(8_000));
+  assert.deepEqual(waits, [500, 500, ...Array(30).fill(1_000)]);
+  assert.deepEqual(fixture.workflowRunRequests, Array(31).fill(8_000));
   assert.equal(fixture.commitStatuses.at(-1).state, "error");
 });
 
@@ -2512,7 +2516,7 @@ test("completed callback durably binds an intended dispatch after a controller c
   });
   assert.equal(outcome.terminal_reason, "worker-cancelled");
   assert.equal(core.outputs.get("recovered_intended_run_id"), "8000");
-  assert.deepEqual(waits, [500]);
+  assert.deepEqual(waits, [1_000]);
   assert.deepEqual(fixture.workflowRunRequests, [8_000, 8_000]);
   const controllerState = fixture.comments.find(({ body }) =>
     body.startsWith("<!-- vercel-preview-controller:v1 -->"),
