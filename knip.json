@@ -4,6 +4,7 @@
   "ignoreWorkspaces": ["packages/typescript-config"],
   "ignore": [
     ".trunk/**",
+    ".design-sync/**",
     "commitlint.config.mjs",
     "scripts/security-headers.d.mts"
   ],
