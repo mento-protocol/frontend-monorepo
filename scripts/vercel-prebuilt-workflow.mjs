@@ -54,6 +54,9 @@ export const PILOT_TARGET = {
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const VERCEL_DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
+const MAX_PREBUILT_CONFIG_BYTES = 1024 * 1024;
+const MAX_PREBUILT_FILE_BYTES = 250 * 1024 * 1024;
+const MAX_PREBUILT_TOTAL_BYTES = 1024 * 1024 * 1024;
 const VERCEL_CLI_BASE_ENVIRONMENT = [
   "CI",
   "FORCE_COLOR",
@@ -328,6 +331,7 @@ export function buildVercelBuildArguments({ projectId }) {
   return [
     "build",
     "--yes",
+    "--standalone",
     "--target",
     "preview",
     "--project",
@@ -2507,14 +2511,104 @@ function isStrictDescendant(root, path) {
   );
 }
 
+function findPhysicalFunctionDirectory(outputDirectory, sourceParts) {
+  for (let index = sourceParts.length - 2; index > 0; index -= 1) {
+    if (!sourceParts[index].endsWith(".func")) continue;
+    const functionDirectory = join(
+      outputDirectory,
+      ...sourceParts.slice(0, index + 1),
+    );
+    try {
+      const functionEntry = lstatSync(functionDirectory);
+      const configEntry = lstatSync(join(functionDirectory, ".vc-config.json"));
+      if (
+        !functionEntry.isSymbolicLink() &&
+        functionEntry.isDirectory() &&
+        !configEntry.isSymbolicLink() &&
+        configEntry.isFile()
+      ) {
+        return functionDirectory;
+      }
+    } catch {
+      // A route directory may itself end in .func without being a function.
+    }
+  }
+  return undefined;
+}
+
+function assertContainedFunctionDependencyLink(
+  physicalFunctionDirectory,
+  path,
+  lexicalTarget,
+) {
+  let canonicalFunctionDirectory;
+  try {
+    canonicalFunctionDirectory = realpathSync(physicalFunctionDirectory);
+  } catch {
+    throw new Error("Prebuilt function symbolic link target is invalid");
+  }
+  const lexicalTargetFromFunction = relative(
+    physicalFunctionDirectory,
+    lexicalTarget,
+  );
+  if (
+    !isStrictDescendant(physicalFunctionDirectory, lexicalTarget) ||
+    isStrictDescendant(lexicalTarget, path) ||
+    isStrictDescendant(path, lexicalTarget)
+  ) {
+    throw new Error("Prebuilt function symbolic link escaped its scope");
+  }
+  const targetParts = lexicalTargetFromFunction.split(sep);
+  let current = physicalFunctionDirectory;
+  let targetEntry;
+  for (const [index, part] of targetParts.entries()) {
+    current = join(current, part);
+    try {
+      targetEntry = lstatSync(current);
+    } catch (error) {
+      if (error?.code === "ENOENT") return;
+      throw new Error("Prebuilt function symbolic link target is invalid");
+    }
+    const final = index === targetParts.length - 1;
+    if (
+      targetEntry.isSymbolicLink() ||
+      (final
+        ? !targetEntry.isDirectory() && !targetEntry.isFile()
+        : !targetEntry.isDirectory())
+    ) {
+      throw new Error("Prebuilt function symbolic link escaped its scope");
+    }
+  }
+  let canonicalTarget;
+  try {
+    canonicalTarget = realpathSync(lexicalTarget);
+  } catch {
+    throw new Error("Prebuilt function symbolic link target is invalid");
+  }
+  if (
+    relative(canonicalFunctionDirectory, canonicalTarget) !==
+    lexicalTargetFromFunction
+  ) {
+    throw new Error("Prebuilt function symbolic link escaped its scope");
+  }
+}
+
 function assertSafeOutputSymlink(
   outputDirectory,
   canonicalOutputDirectory,
   path,
 ) {
+  if (basename(path) === ".vc-config.json") {
+    throw new Error("Prebuilt output contains a linked Vercel function config");
+  }
   const target = readlinkSync(path);
   const functionsDirectory = join(outputDirectory, "functions");
   const sourceFromRoot = relative(outputDirectory, path);
+  const sourceParts = sourceFromRoot.split(sep);
+  const physicalFunctionDirectory = findPhysicalFunctionDirectory(
+    outputDirectory,
+    sourceParts,
+  );
   if (
     target.length === 0 ||
     Buffer.byteLength(target, "utf8") > 4_096 ||
@@ -2522,11 +2616,19 @@ function assertSafeOutputSymlink(
     isAbsolute(target) ||
     !isStrictDescendant(outputDirectory, path) ||
     !sourceFromRoot.startsWith(`functions${sep}`) ||
-    !sourceFromRoot.endsWith(".func")
+    (!physicalFunctionDirectory && !sourceFromRoot.endsWith(".func"))
   ) {
     throw new Error("Prebuilt output contains an unsupported symbolic link");
   }
   const lexicalTarget = resolve(dirname(path), target);
+  if (physicalFunctionDirectory) {
+    assertContainedFunctionDependencyLink(
+      physicalFunctionDirectory,
+      path,
+      lexicalTarget,
+    );
+    return;
+  }
   const lexicalTargetFromRoot = relative(outputDirectory, lexicalTarget);
   if (
     !isStrictDescendant(functionsDirectory, lexicalTarget) ||
@@ -2536,14 +2638,20 @@ function assertSafeOutputSymlink(
     throw new Error("Prebuilt output symbolic link target escaped its scope");
   }
   let canonicalTarget;
+  let targetConfigEntry;
   let targetEntry;
   try {
     canonicalTarget = realpathSync(lexicalTarget);
     targetEntry = lstatSync(lexicalTarget);
+    targetConfigEntry = lstatSync(join(lexicalTarget, ".vc-config.json"));
   } catch {
     throw new Error("Prebuilt output symbolic link target is invalid");
   }
-  if (!targetEntry.isDirectory()) {
+  if (
+    !targetEntry.isDirectory() ||
+    targetConfigEntry.isSymbolicLink() ||
+    !targetConfigEntry.isFile()
+  ) {
     throw new Error(
       "Prebuilt output symbolic link target is not a function directory",
     );
@@ -2556,6 +2664,34 @@ function assertSafeOutputSymlink(
   }
 }
 
+function assertStandaloneVercelConfig(path, entry) {
+  if (basename(path) !== ".vc-config.json") return;
+  if (entry.size > MAX_PREBUILT_CONFIG_BYTES) {
+    throw new Error("Prebuilt output contains an oversized function config");
+  }
+  let config;
+  try {
+    config = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    throw new Error("Prebuilt output contains an invalid function config");
+  }
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    throw new Error("Prebuilt output contains an invalid function config");
+  }
+  if (!Object.hasOwn(config, "filePathMap")) return;
+  const { filePathMap } = config;
+  if (
+    !filePathMap ||
+    typeof filePathMap !== "object" ||
+    Array.isArray(filePathMap) ||
+    Object.keys(filePathMap).length > 0
+  ) {
+    throw new Error(
+      "Prebuilt output contains external function file references",
+    );
+  }
+}
+
 function assertSafeOutputTree(
   outputDirectory,
   { expectedUid = process.getuid?.(), expectedGid = process.getgid?.() } = {},
@@ -2565,6 +2701,7 @@ function assertSafeOutputTree(
   const canonicalOutputDirectory = realpathSync(outputDirectory);
   const pending = [outputDirectory];
   let entries = 0;
+  let totalBytes = 0;
   while (pending.length > 0) {
     const path = pending.pop();
     const entry = lstatSync(path);
@@ -2578,6 +2715,24 @@ function assertSafeOutputTree(
       );
     }
     const symbolicLink = entry.isSymbolicLink();
+    if (
+      basename(path) === ".vc-config.json" &&
+      (symbolicLink || !entry.isFile())
+    ) {
+      throw new Error("Prebuilt output contains an invalid function config");
+    }
+    if (!entry.isDirectory()) {
+      if (!Number.isSafeInteger(entry.size) || entry.size < 0) {
+        throw new Error("Prebuilt output contains an invalid entry size");
+      }
+      totalBytes += entry.size;
+      if (
+        !Number.isSafeInteger(totalBytes) ||
+        totalBytes > MAX_PREBUILT_TOTAL_BYTES
+      ) {
+        throw new Error("Prebuilt output exceeds its total size limit");
+      }
+    }
     if (
       uid === process.getuid?.() &&
       !symbolicLink &&
@@ -2596,9 +2751,13 @@ function assertSafeOutputTree(
     if (!entry.isFile()) {
       throw new Error("Prebuilt output contains a special filesystem node");
     }
+    if (entry.size > MAX_PREBUILT_FILE_BYTES) {
+      throw new Error("Prebuilt output contains an oversized file");
+    }
     if (uid === process.getuid?.() && entry.nlink !== 1) {
       throw new Error("Prebuilt output contains a hard-linked file");
     }
+    assertStandaloneVercelConfig(path, entry);
   }
   return outputDirectory;
 }

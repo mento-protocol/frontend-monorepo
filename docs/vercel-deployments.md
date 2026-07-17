@@ -543,7 +543,7 @@ preview --project-directory "$VERCEL_ISOLATION_ROOT/mento-vercel-pull-staging/ap
    UID has no process;
 6. immediately before build, repeat the trusted privileged exact-SHA
    provenance, candidate-tree, and project-mapping checks;
-7. `vercel build --yes --target preview` as the isolated candidate UID with
+7. `vercel build --yes --standalone --target preview` as the isolated candidate UID with
    `VERCEL_BUILD_MONOREPO_SUPPORT=1`, the signed Turbo remote cache, immutable
    Git metadata, and generated `MENTO_NEXT_DEPLOYMENT_ID`;
 8. stop all candidate-UID processes, then use the trusted privileged controller
@@ -556,6 +556,21 @@ preview --project-directory "$VERCEL_ISOLATION_ROOT/mento-vercel-pull-staging/ap
 11. `vercel inspect --wait --timeout 5m --format=json --scope <org-id>`. The
     explicit scope prevents inspection from falling back to the token owner's
     default Vercel team.
+
+The standalone build flag is mandatory for the narrow upload handoff. Without
+it, Vercel function configs can retain repo-root `filePathMap` references into
+the build tree (including `node_modules`) that no longer exists after the
+candidate source is removed. Standalone mode inlines those dependencies into
+the function output; the trusted output validator rejects every non-empty
+`filePathMap` before the handoff or upload can proceed. Standalone function
+bundles may retain package-manager symlinks, but validation permits only direct,
+relative file or directory links whose lexical and canonical targets remain
+inside the same physical `.func` directory. A bounded relative link to a
+missing in-function target is allowed because dependency tracing can preserve
+unused package-manager links; absolute links, escaping links, and link chains
+remain rejected. Before reading or copying the handoff, the validator also caps
+each `.vc-config.json` at 1 MiB, each regular file at 250 MiB, and the complete
+output at 1 GiB.
 
 Only after that job emits the verified immutable URL does a second trusted job
 perform direct HTTP smoke of the URL, navigation, custom build identity,
