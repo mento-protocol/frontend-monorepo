@@ -34,10 +34,17 @@ Style with these Tailwind classes (all backed by brand tokens; use them, don't i
 | Borders                    | `border border-border`                                    |
 | Danger                     | `bg-destructive`                                          |
 
-Layout uses ordinary Tailwind (`flex`, `grid`, `gap-4`, `p-6`, `space-y-4`, `rounded-lg`). Tokens
-are also readable directly as `var(--primary)`, `var(--foreground)`, `var(--card)`,
-`var(--muted-foreground)`, `var(--border)`, `var(--success)`, etc. Note `--radius` is `0` — Mento
-buttons use an angular **clipped** corner instead (see `clipped` below), not rounded corners.
+**Important — no Tailwind JIT at render time.** Designs receive the DS's **precompiled**
+stylesheet (`_ds_bundle.css`), not a live Tailwind pass, so a utility class only works if it was
+already compiled into that file. Common layout utilities used by the components (`flex`, `grid`,
+`gap-4`, `p-6`, `space-y-4`, `rounded-lg`, and the token classes in the table above) are present;
+but an **arbitrary/bespoke class you invent** (e.g. `gap-[13px]`, a one-off `w-[327px]`, or a
+utility no component uses) will **not** exist in the compiled CSS and renders as a no-op. For any
+bespoke spacing/sizing/layout, use **inline `style={{…}}`** rather than a new utility class; reach
+for utilities only when reusing ones the components already use. Tokens are also readable directly
+as `var(--primary)`, `var(--foreground)`, `var(--card)`, `var(--muted-foreground)`, `var(--border)`,
+`var(--success)`, etc. Note `--radius` is `0` — Mento buttons use an angular **clipped** corner
+instead (see `clipped` below), not rounded corners.
 
 **Variants are props, not classes.** e.g. `Button` takes `variant` ("default" | "secondary" |
 "outline" | "ghost" | "link" | "destructive" | "approve" | "abstain" | "reject"), `size`
