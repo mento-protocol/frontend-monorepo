@@ -686,9 +686,16 @@ jobs:
             echo "Candidate can modify canonical node_modules" >&2
             exit 1
           fi
+          sudo --non-interactive /usr/bin/install \
+            -d -o "$build_uid" -g "$build_gid" -m 0700 \
+            "$CANDIDATE_HOME_PATH" \
+            "$CANDIDATE_HOME_PATH/cache" \
+            "$CANDIDATE_HOME_PATH/config" \
+            "$CANDIDATE_HOME_PATH/data" \
+            "$CANDIDATE_HOME_PATH/tmp"
           if ! candidate_pnpm_version="$(
             sudo --non-interactive /usr/bin/env -i \
-              HOME=/nonexistent \
+              HOME="$CANDIDATE_HOME_PATH" \
               LANG=C \
               LC_ALL=C \
               PATH=/usr/bin:/bin \
@@ -698,6 +705,9 @@ jobs:
               --clear-groups \
               --no-new-privs \
               -- \
+              /bin/sh -c 'cd "$1" && shift && exec "$@"' \
+              candidate-pnpm-probe \
+              "$CANDIDATE_HOME_PATH" \
               "$pnpm_bin" --version
           )" ||
             [ "$candidate_pnpm_version" != "10.34.4" ]; then
@@ -720,13 +730,6 @@ jobs:
           sudo --non-interactive /bin/chown \
             -R --no-dereference "$build_uid:$build_gid" \
             "$CANDIDATE_SOURCE_PATH"
-          sudo --non-interactive /usr/bin/install \
-            -d -o "$build_uid" -g "$build_gid" -m 0700 \
-            "$CANDIDATE_HOME_PATH" \
-            "$CANDIDATE_HOME_PATH/cache" \
-            "$CANDIDATE_HOME_PATH/config" \
-            "$CANDIDATE_HOME_PATH/data" \
-            "$CANDIDATE_HOME_PATH/tmp"
           printf '{"commitSha":"%s"}\n' "$DEPLOY_SHA" \
             > "${CANDIDATE_SOURCE_PATH}.provenance.json"
           /bin/chmod 0600 "${CANDIDATE_SOURCE_PATH}.provenance.json"
@@ -776,6 +779,9 @@ jobs:
             --clear-groups \
             --no-new-privs \
             -- \
+            /bin/sh -c 'cd "$1" && shift && exec "$@"' \
+            candidate-pnpm-probe \
+            "$CANDIDATE_HOME_PATH" \
             "$pnpm_bin" --version |
             /usr/bin/grep -Fxq "10.34.4"; then
             echo "Isolated candidate cannot execute the protected pnpm launcher" >&2
@@ -807,6 +813,9 @@ jobs:
             --clear-groups \
             --no-new-privs \
             -- \
+            /bin/sh -c 'cd "$1" && shift && exec "$@"' \
+            candidate-pnpm-install \
+            "$CANDIDATE_HOME_PATH" \
             "$pnpm_bin" --dir "$CANDIDATE_SOURCE_PATH" install --frozen-lockfile --ignore-scripts \
             2>&1
           candidate_status=$?
@@ -993,6 +1002,7 @@ jobs:
           TURBO_TEAM: ${{ inputs.turbo_team }}
           TURBO_TOKEN: ${{ secrets.turbo_token }}
           VERCEL: 1
+          VERCEL_BUILD_MONOREPO_SUPPORT: "1"
           VERCEL_ENV: preview
           VERCEL_GIT_COMMIT_REF: ${{ inputs.git_branch }}
           VERCEL_GIT_COMMIT_SHA: ${{ steps.source.outputs.checked_out_sha }}
@@ -1075,6 +1085,7 @@ jobs:
             TURBO_TEAM="$TURBO_TEAM" \
             TURBO_TOKEN="$TURBO_TOKEN" \
             VERCEL="$VERCEL" \
+            VERCEL_BUILD_MONOREPO_SUPPORT="$VERCEL_BUILD_MONOREPO_SUPPORT" \
             VERCEL_ENV="$VERCEL_ENV" \
             VERCEL_GIT_COMMIT_REF="$VERCEL_GIT_COMMIT_REF" \
             VERCEL_GIT_COMMIT_SHA="$VERCEL_GIT_COMMIT_SHA" \
@@ -1091,7 +1102,7 @@ jobs:
             --clear-groups \
             --no-new-privs \
             -- \
-            "$node_bin" "$vercel_cli" build --yes --target preview --project "$VERCEL_PROJECT_ID" \
+            "$node_bin" "$vercel_cli" build --yes --standalone --target preview --project "$VERCEL_PROJECT_ID" \
             2>&1
           candidate_status=$?
           set -e
@@ -1189,7 +1200,10 @@ jobs:
             "$CANDIDATE_SOURCE_PATH/$EXPECTED_ROOT_DIRECTORY/.vercel/output/." \
             "$UPLOAD_SOURCE_PATH/$EXPECTED_ROOT_DIRECTORY/.vercel/output/"
           assert_candidate_stopped
-          sudo --non-interactive /bin/chown -R "$(id -u):$(id -g)" \
+          sudo --non-interactive /bin/chown \
+            -R \
+            --no-dereference \
+            "$(id -u):$(id -g)" \
             "$UPLOAD_SOURCE_PATH"
           /bin/chmod -R u-s,g-s,o-t "$UPLOAD_SOURCE_PATH"
           /bin/chmod -R u+rwX,go+rX,go-w "$UPLOAD_SOURCE_PATH"

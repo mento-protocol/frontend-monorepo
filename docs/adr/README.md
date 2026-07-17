@@ -42,3 +42,4 @@ adds a high-signal surface without a numbered ADR.
 | ADR                                                            | Decision                                                                                  |
 | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | [0001](0001-github-actions-vercel-deployment-orchestration.md) | GitHub Actions owns Vercel build/deployment orchestration; Vercel remains hosting/runtime |
+| [0002](0002-single-comment-preview-controller-journal.md)      | One canonical pull-request comment stores the preview controller journal                  |

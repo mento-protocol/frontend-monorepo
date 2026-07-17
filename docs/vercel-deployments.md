@@ -432,10 +432,12 @@ downgrade the trusted runtime or reject the intentional patched v10 version.
 This removes the standalone executable's own image from the cross-identity
 execution path: the pilot failed when that image was not effectively readable
 after switching to the isolated candidate identity, even though the
-runner-owned executable checks had passed. The root and candidate-runtime pnpm
-locks remain covered by OSV and sha512/registry validation. The bootstrap npm
-lock has a separate OSV job, exact byte/shape validation, npm's SRI
-enforcement, and a Linux CI installation that hashes the executable before
+runner-owned executable checks had passed. Candidate pnpm probes execute from
+the candidate-owned home rather than the runner workspace, which is
+intentionally not readable after the identity switch. The root and
+candidate-runtime pnpm locks remain covered by OSV and sha512/registry
+validation. The bootstrap npm lock has a separate OSV job, exact byte/shape
+validation, npm's SRI enforcement, and a Linux CI installation that hashes the executable before
 running it.
 Before any credentialed command, the worker proves the runtime root, its
 replacement-relevant parents, Node.js, pnpm, and the CLI are not candidate
@@ -541,19 +543,34 @@ preview --project-directory "$VERCEL_ISOLATION_ROOT/mento-vercel-pull-staging/ap
    UID has no process;
 6. immediately before build, repeat the trusted privileged exact-SHA
    provenance, candidate-tree, and project-mapping checks;
-7. `vercel build --yes --target preview` as the isolated candidate UID with the
-   signed Turbo remote cache, immutable Git metadata, and generated
-   `MENTO_NEXT_DEPLOYMENT_ID`;
+7. `vercel build --yes --standalone --target preview` as the isolated candidate UID with
+   `VERCEL_BUILD_MONOREPO_SUPPORT=1`, the signed Turbo remote cache, immutable
+   Git metadata, and generated `MENTO_NEXT_DEPLOYMENT_ID`;
 8. stop all candidate-UID processes, then use the trusted privileged controller
    to assert the UI project mapping, Build Output API v3 config, custom
    deployment ID, preview target, pinned CLI build record, output ownership,
-   and runner-owned exact-SHA provenance;
+   safe filesystem shape, and runner-owned exact-SHA provenance;
 9. create a runner-owned upload handoff containing only the validated output,
    trusted project settings, repo link, and exact-SHA provenance;
 10. `vercel deploy --prebuilt --target preview --archive=tgz --format=json`;
 11. `vercel inspect --wait --timeout 5m --format=json --scope <org-id>`. The
     explicit scope prevents inspection from falling back to the token owner's
     default Vercel team.
+
+The standalone build flag is mandatory for the narrow upload handoff. Without
+it, Vercel function configs can retain repo-root `filePathMap` references into
+the build tree (including `node_modules`) that no longer exists after the
+candidate source is removed. Standalone mode inlines those dependencies into
+the function output; the trusted output validator rejects every non-empty
+`filePathMap` before the handoff or upload can proceed. Standalone function
+bundles may retain package-manager symlinks, but validation permits only direct,
+relative file or directory links whose lexical and canonical targets remain
+inside the same physical `.func` directory. A bounded relative link to a
+missing in-function target is allowed because dependency tracing can preserve
+unused package-manager links; absolute links, escaping links, and link chains
+remain rejected. Before reading or copying the handoff, the validator also caps
+each `.vc-config.json` at 1 MiB, each regular file at 250 MiB, and the complete
+output at 1 GiB.
 
 Only after that job emits the verified immutable URL does a second trusted job
 perform direct HTTP smoke of the URL, navigation, custom build identity,
@@ -567,6 +584,25 @@ The upload command supplies `githubCommitOrg`, `githubCommitRepo`,
 `githubCommitSha`, and `githubCommitRef`. It intentionally omits
 `githubDeployment=1`, so Vercel cannot create a duplicate GitHub Deployment.
 The build output never becomes a GitHub artifact and never crosses jobs.
+
+The Next.js builder can legitimately represent multiple prerender routes with
+relative symbolic links to one generated function directory. Output validation
+permits only bounded, control-character-free `functions/**/*.func` aliases to a
+directly materialized `.func` directory in that same output tree. Absolute,
+broken, chained, cyclic, non-function, file-targeting, ancestor/self, and
+escaping links remain rejected. The trusted handoff preserves accepted links
+without dereferencing them and changes the link ownership explicitly before
+applying the same validation again immediately before upload.
+
+CLI `56.2.0` gates its local Root Directory monorepo defaults behind
+`VERCEL_BUILD_MONOREPO_SUPPORT=1`. The worker supplies that trusted constant to
+the clean candidate environment so the CLI activates its Turborepo default,
+`turbo run build`, for the Root Directory project. Turbo then includes upstream
+workspace packages such as `@mento-protocol/ui` before the selected Next.js
+app. Re-audit this internal, version-coupled flag whenever the pinned CLI
+changes. Do not replace it with a separate app dependency prebuild: that would
+duplicate work before the CLI's own build and could diverge from Vercel's
+project settings.
 
 ### Canonical GitHub Deployment
 
@@ -666,57 +702,148 @@ trigger.
 
 ### Event, status, and batching contract
 
-Every controller-owned event is first written as an immutable bot comment;
-Dependabot uses the separate credentialless intake contract above.
-Reconciliation is lossy/replaceable, but it always reconstructs from event,
-selection, and completed-worker receipts, current PR lifecycle evidence, and
-the one bounded mutable state comment. Before dispatch, the controller writes
-an immutable selection receipt. That receipt binds the selected SHA to the
-controller epoch and compactly lists intermediate receipt IDs coalesced into
-the durable later selection, so a long push burst does not require scanning all
-historical workflow runs or Deployments. Intended-run crash recovery queries a
-fixed `created` window around the persisted dispatch timestamp; older lifetime
-run history cannot exhaust its proof bound, while multiple matching runs inside
-the window fail closed. Its rendered terminal history remains bounded, while
-compact key digests retain ownership for every still-accepted current-epoch
-result receipt. A synchronize receipt plans the event's exact `before -> head`
-transition with planner code and dependencies from the immutable trusted base;
-it does not repeatedly compare the PR base to head. A base-retarget `edited`
-receipt starts a new same-head epoch and replans the new base-to-head transition.
-Title, body, label, and other unrelated edits do not create a receipt or
-reconciliation.
+Every controller-owned event is first appended as a logically immutable entry
+to the pull request's one canonical bot-owned journal; Dependabot uses the
+separate credentialless intake contract above. The journal's hidden marker and
+payload schema are exactly:
+
+```text
+<!-- vercel-preview-journal:v1 -->
+vercel-preview-journal:v1
+```
+
+The journal is an internal coordination record, not review feedback. Its
+reviewer explanation remains visible while one collapsed GitHub `<details>`
+block contains canonical JSON. That document holds the repository and PR
+identity, a monotonic revision, an optional deterministic checkpoint, a
+top-level journal digest over that checkpoint, the canonical live receipt set,
+and mutable state, logically immutable live
+event/selection/worker-evidence/result entries, and bounded mutable controller
+state. The state's separate receipts digest binds reconciliation to the
+checkpoint plus live receipt set. The canonical Markdown envelope includes the explicit closing
+`</details>` tag; missing or additional presentation text is invalid. The
+journal keeps one stable comment ID: every update edits it, and no
+receipt-specific comment is created.
+
+All jobs that can create or update the journal share one repository-wide,
+per-PR concurrency group configured with `queue: max` and
+`cancel-in-progress: false`. That serialization is a correctness boundary, not
+an optimization. After acquiring the queue, each writer validates the exact
+journal count and complete canonical body, applies one idempotent transition,
+updates the comment, or initially creates it for an explicit bootstrap, a
+first-attempt `opened`, or another first-attempt non-closed PR event whose
+`before` and head commits have no prior PR-scoped
+`Vercel Preview Journal / PR #<number>` initialization status,
+then rereads and proves the expected
+revision, canonical JSON, journal digest, and, when state exists,
+`state.receipts_digest` before publishing a status or dispatching a worker.
+Duplicate journals, a writer outside that queue, a conflicting receipt, or an
+ambiguous reread fail closed.
+
+A first-attempt non-closed event can therefore preserve an out-of-order receipt
+when it wins the queue before `opened`. Every durably recorded event ensures a
+`Vercel Preview Journal / PR #<number>` success-status witness on its head before
+normal reconciliation. That lets a retry repair a witness write that failed
+after the journal mutation and carries deletion evidence across every push. The
+PR suffix prevents a status left on a reused or stacked commit by another PR
+from blocking this PR's first receipt. That dedicated context is never used for
+preview results, so delayed old same-SHA events cannot overwrite newer
+`Vercel Preview` outcomes. A later missing journal with matching PR-scoped
+external initialization evidence, any event rerun, or missing recovery state
+fails closed instead of silently resetting controller history. A close with no
+journal and no matching witness is inert and explicitly skips reconciliation;
+it does not create an anchorless closure-only journal. A delayed non-closed
+event is likewise inert when the live PR is already closed and neither journal
+nor witness exists. Explicit bootstrap is the sole operator-authorized clean
+restart.
+
+Before a later event is appended, a terminal journal with no active or retired
+worker and no unfinished evidence folds its completed prefix into one
+deterministic in-place checkpoint. The checkpoint holds cumulative receipt
+counts and digest, the verified lifecycle tail event, and its terminal status.
+For an open PR the tail is the last reconciled lineage event; for a closed PR
+it is the closure whose timestamp matches current GitHub state. State is
+rebased onto that tail and completed live receipts are cleared in the same
+revision. The checkpoint remains a verified reconciliation anchor even when
+its tail is a synchronize or closure event. A semantic replay of that tail
+with another workflow run ID is already represented and is therefore a no-op;
+the same run ID with conflicting content still fails closed. When a docs-only
+tail is checkpointed, its inherited terminal runtime state, immutable URL, and
+failure or cancellation meaning continue across later docs-only pushes rather
+than reverting to a fresh no-runtime success. A 50-preview sequential-cycle
+test peaks at 7,772 rendered UTF-8 bytes. This is still one comment, schema,
+and controller path: there is no archive, rollover, second comment, or
+compatibility reader.
+
+An overlapping push burst uses the same checkpoint field before the rendered
+body reaches capacity. At the 40,000-byte soft threshold, the controller proves
+one path through the complete receipt graph to its latest uniquely represented
+PR tail and folds that graph into the cumulative digest. A pending checkpoint
+records the exact unfinished owner, its consumed attempt count, and the latest
+runtime event still owed, and retains the matching selection, worker evidence,
+and terminal result needed for recovery. Reconciliation waits for that owner.
+Its terminal result either
+settles a runtime-equivalent docs-only tail or releases the latest required
+runtime event for dispatch, so a queued receipt cannot disappear and a
+docs-only tail cannot remain pending after its dependency completes. Completed
+retired owners are then removed. More than 40 genuinely unfinished retired
+owners fails closed instead of silently discarding ownership. No unfinished
+worker evidence is truncated.
+
+The complete rendered journal body has a 60,000-byte hard limit measured as
+UTF-8. A transition that cannot safely use either terminal or capacity
+checkpointing and would cross it fails closed before changing the journal,
+reporting success, or dispatching work; active, retired, or unmatched evidence
+is never truncated.
+
+Reconciliation is lossy/replaceable, but it reconstructs from the journal's
+entries and mutable state, current PR lifecycle evidence, and GitHub/provider
+APIs. Before dispatch, the controller appends a selection entry that binds the
+selected SHA to the controller epoch and compactly lists intermediate entry
+identities coalesced into the durable later selection. Intended-run crash
+recovery queries a fixed `created` window around the persisted dispatch
+timestamp; older lifetime run history cannot exhaust its proof bound, while
+multiple matching runs inside the window fail closed. The bounded terminal
+history and compact key digests retain ownership for every accepted
+current-epoch result entry. A synchronize entry plans the event's exact
+`before -> head` transition with planner code and dependencies from the
+immutable trusted base; it does not repeatedly compare the PR base to head. A
+base-retarget `edited` entry starts a new same-head epoch and replans the new
+base-to-head transition. Title, body, label, and other unrelated edits create
+neither an entry nor a reconciliation.
 
 `Vercel Preview` is reserved for a Statuses API commit status, not a workflow
-job/check name. Every exact receipt SHA gets one truthful result: pending,
+job/check name. Every exact journal event SHA gets one truthful result: pending,
 verified, no runtime impact, runtime-equivalent to a prior preview, unsupported
 trust boundary, durably coalesced, failure, or controller error. Detailed
-PR/SHA/key/run/Deployment evidence remains in the bot comments because status
-descriptions are bounded.
+PR/SHA/key/run/Deployment evidence remains in the canonical journal because
+status descriptions are bounded.
 
-For each open/reopen/base-retarget/bootstrap epoch, the oldest receipt that
-actually affects the UI is `first_eligible_sha`. It always runs first. An
-identical bootstrap aliases an existing lifecycle anchor instead of creating a
-second epoch. While that worker is queued/running, later runtime pushes replace
-only `latest_desired_sha`; when the first worker terminates, only that latest
-SHA runs. Documentation/test-only pushes never replace the desired runtime SHA.
-After a verified runtime preview, a later non-runtime SHA succeeds by linking
-to that runtime-equivalent immutable preview without rebuilding.
+For each open/reopen/base-retarget/bootstrap epoch, the oldest journal event
+entry that actually affects the UI is `first_eligible_sha`. It always runs
+first. An identical bootstrap aliases an existing lifecycle anchor instead of
+creating a second epoch. While that worker is queued/running, later runtime
+pushes replace only `latest_desired_sha`; when the first worker terminates, only
+that latest SHA runs. Documentation/test-only pushes never replace the desired
+runtime SHA. After a verified runtime preview, a later non-runtime SHA succeeds
+by linking to that runtime-equivalent immutable preview without rebuilding.
 
 Each selected transition is bound to its lifecycle epoch, canonical
-reconciliation-basis digest, immutable receipt run, and the exact controller
-`github.workflow_sha` authorized to supply the worker implementation. The
-authorized worker SHA is persisted as `expected_workflow_sha` and participates
-in the selection key digest. Repeated A -> B -> A transitions, close/reopen
-cycles at the same SHA, duplicate callbacks, controller upgrades, and
-out-of-order event runs therefore remain distinct. An old-epoch worker may
-terminalize its own Deployment and write its own receipt, but it cannot update
-current-epoch state/status or schedule work.
+reconciliation-basis digest, immutable journal event entry, and the exact
+controller `github.workflow_sha` authorized to supply the worker
+implementation. The authorized worker SHA is persisted as
+`expected_workflow_sha` and participates in the selection key digest. Repeated
+A -> B -> A transitions, close/reopen cycles at the same SHA, duplicate
+callbacks, controller upgrades, and out-of-order event runs therefore remain
+distinct. An old-epoch worker may terminalize its own Deployment and append its
+own terminal result entry to the journal, but it cannot update current-epoch
+state/status or schedule work.
 
 Operator recovery queries the exact persisted worker attempt instead of the
 latest rerun. If a retired old-epoch attempt is missing or fails identity
 validation, the controller records a bounded recovery quarantine on that
 retired selection and continues current-epoch reconciliation without posting a
-current-head controller error. Transient retired-attempt API or evidence-write
+current-head controller error. Transient retired-attempt API or journal-write
 failures remain unquarantined and retry on the next reconciliation, also
 without changing the current-head status. A recovery ambiguity for the current
 active selection still fails closed.
@@ -733,11 +860,12 @@ controller treats that run ID as unresolved, continues listing for additional
 candidates, and re-queries the unresolved ID directly. It never attaches an
 exact match or dispatches a replacement while any plausible default-title run
 remains unresolved. After any recovery wait, it refreshes PR openness, exact-SHA
-association, event receipts, and persisted selection ownership immediately
-before attaching or dispatching; a closed or changed lifecycle cannot launch a
-new worker. A full-envelope-valid wrong-SHA artifact is never allowed to own the
-intent; all other name, event, ref, path, title, attempt, and URL mismatches also
-fail closed. GitHub's `workflow_run` callback reports the static workflow name,
+association, journal event entries, and persisted selection ownership
+immediately before attaching or dispatching; a closed or changed lifecycle
+cannot launch a new worker. A full-envelope-valid wrong-SHA artifact is never
+allowed to own the intent; all other name, event, ref, path, title, attempt, and
+URL mismatches also fail closed. GitHub's `workflow_run` callback reports the
+static workflow name,
 while the Actions REST API may report the configured dynamic `run-name` in both
 `name` and `display_title`; recovery accepts those two documented shapes only
 when the workflow path, event, default ref, authorized SHA, attempt, and
@@ -762,10 +890,10 @@ If `main` advances between intent persistence and dispatch, recovery may attach
 an already-created worker at the old authorized SHA, but a newer
 controller/worker version cannot satisfy or redispatch that old intent. A
 worker resolved from the newer `main` SHA fails its credentialless preflight.
-The controller records an immutable
-`controller-workflow-upgraded-before-dispatch` error result, and that worker's
-completion callback causes the current controller to reselect the same desired
-receipt under its own workflow SHA. The new key therefore advances
+The controller appends a logically immutable
+`controller-workflow-upgraded-before-dispatch` error result entry, and that
+worker's completion callback causes the current controller to reselect the same
+desired event entry under its own workflow SHA. The new key therefore advances
 automatically without ever pretending that new workflow code fulfilled the
 retired intent.
 
@@ -784,11 +912,11 @@ nor Vercel creates an implicit duplicate Deployment.
 The credential-free worker receives `expected_workflow_sha` as an explicit
 dispatch input and first compares it with the actual
 `${{ github.workflow_sha }}`. Only then does validation re-read the open PR,
-exact SHA ancestry, bot-owned active state, and canonical Deployment. The
-evidence writer repeats the immutable-SHA comparison and persists that SHA in
-non-terminal and terminal receipts. A mismatch fails before any build or
-deployment credential is reachable. A separate trusted preflight prints only
-missing repository variable/secret names. The literal UI reusable caller
+exact SHA ancestry, bot-owned active journal state, and canonical Deployment.
+The evidence writer repeats the immutable-SHA comparison and persists that SHA
+in non-terminal and terminal journal entries. A mismatch fails before any build
+or deployment credential is reachable. A separate trusted preflight prints
+only missing repository variable/secret names. The literal UI reusable caller
 receives only `VERCEL_TOKEN_PREVIEW`, `TURBO_TOKEN`, and
 `TURBO_REMOTE_CACHE_SIGNATURE_KEY`, plus `VERCEL_ORG_ID`,
 `VERCEL_PROJECT_ID_UI`, and `TURBO_TEAM`. The direct smoke/resume jobs receive no
@@ -809,12 +937,23 @@ UI smoke. Every initial or resumed credential-free smoke attempt keeps the
 HTTP/header/static-asset checks, then uses the trusted main-branch smoke
 controller with Playwright and the GitHub runner's system Chrome to render the
 showcase, search and navigate to a second route, change a form control, and fail
-on page/console errors or failed same-origin requests and responses. Its
+on page/console errors or failed same-origin requests and responses. The direct
+HTTP phase verifies the server-rendered `data-dpl-id`; after hydration, the
+browser phase requires every loaded same-origin `/_next/static/` asset to carry
+exactly the expected `?dpl=` value and rejects any conflicting retained HTML
+deployment marker. Controller-side request monitoring remains active through
+the second-route interaction, so dynamically loaded chunks cannot escape the
+same identity check. The controller waits for all observed static requests to
+finish and for a quiet window before its final assertion. This preserves
+fail-closed deployment-identity proof when
+React reconciles the server-injected HTML attribute out of the live DOM. Chrome
+also waits for the initial page load before changing controlled inputs, then
+rechecks the changed form control after the hydration/interaction settle. Its
 dependency graph comes from the trusted workflow checkout, candidate lifecycle
 scripts stay disabled, and no Vercel or Turbo credential is present in the
-smoke job. The worker records a durable non-terminal upload evidence receipt;
+smoke job. The worker appends a durable non-terminal upload evidence entry;
 the completed-run recovery re-queries the run, Deployment, and statuses before
-writing the terminal result receipt. Cancellation before Deployment creation
+appending the terminal result entry. Cancellation before Deployment creation
 creates/reuses the canonical Deployment and immediately closes it as `error`.
 
 Retry behavior is bounded and serialized:
@@ -848,10 +987,11 @@ or exactly-once delivery across GitHub and Vercel.
 
 Before `Vercel Preview` becomes required, inventory every already-open PR and
 bootstrap each trusted same-repository PR that should participate. A lone
-synchronize receipt deliberately waits for an opened/reopened/bootstrap anchor.
-Repeated semantically identical bootstrap requests are idempotent, and a
-bootstrap identical to an existing lifecycle anchor aliases that anchor;
-conflicting lifecycle or planning evidence still fails closed.
+synchronize journal entry deliberately waits for an
+opened/reopened/bootstrap anchor. Repeated semantically identical bootstrap
+requests are idempotent, and a bootstrap identical to an existing lifecycle
+anchor aliases that anchor; conflicting lifecycle or planning evidence still
+fails closed.
 
 ```bash
 gh pr list --state open --limit 100 --json number,headRepository,headRefName,author
@@ -863,7 +1003,8 @@ gh api --method POST \
   -F "client_payload[pr_number]=$PR_NUMBER"
 ```
 
-For a durable receipt/state that only needs another reconciliation pass:
+For a durable journal whose live PR state only needs another reconciliation
+pass:
 
 ```bash
 PR_NUMBER="<pr-number>"
@@ -873,16 +1014,76 @@ gh api --method POST \
   -F "client_payload[pr_number]=$PR_NUMBER"
 ```
 
-Do not bootstrap a closed PR, invent an opened event, mutate bot receipts, or
-re-dispatch the worker directly. Missing repository names must be provisioned by
-a maintainer; automation may check presence but must never retrieve, export,
-reconstruct, or print credential values.
+Do not bootstrap a closed PR, invent an opened event, manually edit or delete a
+journal, invent journal entries, or re-dispatch the worker directly. Missing
+repository names must be provisioned by a maintainer; automation may check
+presence but must never retrieve, export, reconstruct, or print credential
+values.
+
+### Clean journal cutover and legacy cleanup
+
+The journal rollout is a clean cutover. It has no dual-read window, legacy
+worker compatibility, payload import, or in-controller migration path.
+
+1. Before merging, inventory all runs of the preview controller, preview
+   worker, and preview intake workflows. Let every listed run terminate, or
+   cancel it, and verify that no legacy run can still write a comment or
+   dispatch work.
+2. Merge the journal implementation.
+3. Inventory every open participating PR from current GitHub state and dispatch
+   `vercel-preview-bootstrap` for each one using the command above. Bootstrap
+   plans from live PR metadata; it must not read, translate, trust, or reconcile
+   any retired comment payload.
+4. For each PR, prove that exactly one trusted-bot comment has the
+   `<!-- vercel-preview-journal:v1 -->` marker, record its comment ID, reread its
+   canonical JSON, and verify that the exact-head `Vercel Preview` status and
+   worker/Deployment decision agree with the fresh plan. Subsequent transitions
+   must edit that same comment ID.
+5. Only after step 4 succeeds, run the reviewed cleanup against the inventory.
+   Delete a comment only when its author is exactly `github-actions[bot]`, its
+   complete hidden marker validates, and its complete JSON body validates under
+   the matching retired schema: `vercel-preview-event-receipt:v1`,
+   `vercel-preview-selection:v1`, `vercel-preview-worker-evidence:v1`,
+   `vercel-preview-worker-result:v1`, or `vercel-preview-controller:v1`.
+
+The retired marker shapes eligible for that full-body validator are:
+
+| Retired schema                      | Exact marker shape                                                     |
+| ----------------------------------- | ---------------------------------------------------------------------- |
+| `vercel-preview-event-receipt:v1`   | `<!-- vercel-preview-event-receipt:v1:run:<run-id> -->`                |
+| `vercel-preview-selection:v1`       | `<!-- vercel-preview-selection:v1:key:<key-digest> -->`                |
+| `vercel-preview-worker-evidence:v1` | `<!-- vercel-preview-worker-evidence:v1:<key-digest>:run:<run-id> -->` |
+| `vercel-preview-worker-result:v1`   | `<!-- vercel-preview-worker-result:v1:<key-digest>:run:<run-id> -->`   |
+| `vercel-preview-controller:v1`      | `<!-- vercel-preview-controller:v1 -->`                                |
+
+The validator must also accept only the two retired canonical Markdown
+envelopes: the original marker-plus-JSON-fence body and the later
+reviewer-explanation-plus-`<details>` body. A marker prefix or schema field by
+itself is never deletion evidence.
+
+The cleanup must leave unknown or malformed comments, human and third-party-bot
+comments, review discussion, and every `vercel-preview-journal:v1` comment
+untouched. Do not delete by body substring, comment age, or author alone. Closed
+historical PRs do not receive a journal; after the run inventory proves
+quiescence, the same exact author-plus-marker-plus-schema validator may remove
+their retired comments. Cleanup failures are cosmetic and retryable because the
+journal controller ignores legacy comments after cutover. Journal creation,
+update, or reread failures remain blocking.
+
+Rollback is another clean restart. Drain or cancel journal-era controller and
+worker runs, merge the reviewed rollback, then bootstrap the restored
+controller afresh from live PR state. Do not rematerialize legacy comments from
+journal entries or claim lifecycle continuity across the rollback. Retain
+journal comments as inert audit evidence until the restored controller has been
+proven; if they are later removed, apply the same exact trusted-author and
+full-body schema validation.
 
 ### Phase A canary evidence template
 
 Keep native Vercel Git UI previews enabled. For every canary, record the PR,
 exact SHA(s), controller/worker run URLs, controller key/digest, canonical
 GitHub Deployment ID, GitHub-built immutable URL, native Vercel immutable URL,
+canonical journal comment ID/revision/`journal_digest`/`state.receipts_digest`,
 terminal `Vercel Preview` status, and browser evidence.
 
 Verify all of these before changing the ruleset or starting Phase B:
@@ -894,15 +1095,19 @@ Verify all of these before changing the ruleset or starting Phase B:
 5. after the controller is idle, a later UI-runtime SHA E deploys normally;
 6. replaying an event, reconciliation request, and terminal callback is
    idempotent: it creates no second worker, GitHub Deployment, Vercel preview,
-   receipt, or conflicting status;
+   journal, journal entry, or conflicting status, and it preserves the original
+   journal comment ID;
 7. fork and Dependabot PRs succeed unsupported without a Deployment/worker,
-   with Dependabot proven through the credentialless intake and trusted exact-head follow-up;
+   with Dependabot proven through the credentialless intake and trusted
+   exact-head follow-up;
 8. a controlled build/smoke failure posts terminal failure and bounded retry;
 9. cancelling a worker before Deployment creation produces one canonical
    `error` Deployment/result and advances the latest desired SHA;
 10. close/reopen and a force-reset SHA revisit preserve distinct epochs;
-11. one old-epoch callback terminalizes only its own evidence;
-12. representative strict-ruleset merges still work.
+11. one old-epoch callback terminalizes only its own journal evidence;
+12. after the clean-cutover cleanup, exact validated legacy comments are absent
+    while human, malformed, unknown-bot, and journal comments remain untouched;
+13. representative strict-ruleset merges still work.
 
 For the GitHub-built immutable URL, follow the repository browser protocol:
 verify rendering and primary navigation, inspect console errors and failed

@@ -15,6 +15,7 @@ import {
   realpathSync,
   rmSync,
   symlinkSync,
+  truncateSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -153,6 +154,18 @@ function uploadFixture() {
       rmSync(`${repoRoot}.provenance.json`, { force: true });
     },
   };
+}
+
+function writeFunctionConfig(functionDirectory, extra = {}) {
+  mkdirSync(functionDirectory, { recursive: true });
+  writeFileSync(
+    join(functionDirectory, ".vc-config.json"),
+    JSON.stringify({
+      runtime: "nodejs22.x",
+      handler: "index.js",
+      ...extra,
+    }),
+  );
 }
 const CONTROLLER_KEY = `vercel-preview:v1:pr:519:target:ui:sha:${SHA}`;
 const LOOKUP_STARTED_AT = 1_720_000_000_000;
@@ -396,6 +409,7 @@ test("pinned CLI arguments preserve preview branch and exact commit metadata", (
   assert.deepEqual(buildVercelBuildArguments({ projectId: "prj_example" }), [
     "build",
     "--yes",
+    "--standalone",
     "--target",
     "preview",
     "--project",
@@ -2481,6 +2495,10 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
     buildBlock.indexOf("set +e"),
     buildBlock.indexOf("candidate_status=$?"),
   );
+  assert.match(
+    buildCandidateBlock,
+    /"\$node_bin" "\$vercel_cli" build --yes --standalone --target preview --project "\$VERCEL_PROJECT_ID"/,
+  );
   const handoffBlock = raw.slice(
     raw.indexOf("- name: Create immutable runner-owned upload handoff"),
     raw.indexOf("- name: Materialize runner-owned upload UI project mapping"),
@@ -2642,6 +2660,7 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
     handoffBlock,
     /\/bin\/cp -R \\\n\s+--no-dereference \\\n\s+--preserve=mode,timestamps/,
   );
+  assert.match(handoffBlock, /\/bin\/chown \\\n\s+-R \\\n\s+--no-dereference/);
   for (const block of [installBlock, buildBlock]) {
     assert.match(block, /\/usr\/bin\/env -i/);
     assert.match(block, /::stop-commands::\$command_token/);
@@ -2906,12 +2925,169 @@ test("UI upload revalidates exact provenance and project mapping immediately", a
   }
 });
 
-test("UI upload guard rejects links, special nodes, and runner-writable state", () => {
+test("UI upload guard accepts contained relative Vercel function symlinks", () => {
+  const fixture = uploadFixture();
+  try {
+    const functionsDirectory = join(fixture.outputDirectory, "functions");
+    const parentFunction = join(functionsDirectory, "parent.func");
+    const nestedFunctionsDirectory = join(functionsDirectory, "nested");
+    writeFunctionConfig(parentFunction);
+    mkdirSync(nestedFunctionsDirectory, { recursive: true });
+    writeFileSync(join(parentFunction, "index.js"), "export {};\n");
+    symlinkSync(
+      "../parent.func",
+      join(nestedFunctionsDirectory, "prerender.func"),
+    );
+    assert.equal(
+      assertPrebuiltReadyForUpload(fixture.options),
+      fixture.outputDirectory,
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("UI upload guard accepts contained standalone dependency symlinks", () => {
+  const fixture = uploadFixture();
+  try {
+    const functionDirectory = join(
+      fixture.outputDirectory,
+      "functions",
+      "api.func",
+    );
+    const packageDirectory = join(
+      functionDirectory,
+      "node_modules",
+      ".pnpm",
+      "package@1.0.0",
+      "node_modules",
+      "package",
+    );
+    const packageLink = join(functionDirectory, "node_modules", "package");
+    writeFunctionConfig(functionDirectory);
+    mkdirSync(packageDirectory, { recursive: true });
+    writeFileSync(join(packageDirectory, "index.js"), "export {};\n");
+    symlinkSync(relative(dirname(packageLink), packageDirectory), packageLink);
+    const unusedPackageLinkDirectory = join(
+      functionDirectory,
+      "node_modules",
+      ".pnpm",
+      "node_modules",
+    );
+    mkdirSync(unusedPackageLinkDirectory, { recursive: true });
+    symlinkSync(
+      "../semver@6.3.1/node_modules/semver",
+      join(unusedPackageLinkDirectory, "semver"),
+    );
+    assert.equal(
+      assertPrebuiltReadyForUpload(fixture.options),
+      fixture.outputDirectory,
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("UI upload guard rejects unsafe links, special nodes, and runner-writable state", () => {
   const mutateCases = [
     {
-      name: "symbolic link",
+      name: "absolute symbolic link",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(functionsDirectory);
+        symlinkSync(
+          join(outputDirectory, "static", "nested", "asset.js"),
+          join(functionsDirectory, "absolute.func"),
+        );
+      },
+    },
+    {
+      name: "contained non-function symbolic link",
       mutate: ({ outputDirectory }) =>
-        symlinkSync("/etc/passwd", join(outputDirectory, "static", "escape")),
+        symlinkSync(
+          "nested/asset.js",
+          join(outputDirectory, "static", "contained"),
+        ),
+    },
+    {
+      name: "function symbolic link outside functions",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(functionsDirectory);
+        mkdirSync(join(outputDirectory, "static", "outside.func"));
+        symlinkSync(
+          "../static/outside.func",
+          join(functionsDirectory, "outside.func"),
+        );
+      },
+    },
+    {
+      name: "escaping relative symbolic link",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(functionsDirectory);
+        const path = join(functionsDirectory, "escape.func");
+        symlinkSync(relative(dirname(path), "/etc/passwd"), path);
+      },
+    },
+    {
+      name: "broken symbolic link",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(functionsDirectory);
+        symlinkSync("missing.func", join(functionsDirectory, "broken.func"));
+      },
+    },
+    {
+      name: "cyclic symbolic link",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(functionsDirectory);
+        symlinkSync("cycle-b.func", join(functionsDirectory, "cycle-a.func"));
+        symlinkSync("cycle-a.func", join(functionsDirectory, "cycle-b.func"));
+      },
+    },
+    {
+      name: "function symbolic link to a file",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(functionsDirectory);
+        writeFileSync(
+          join(functionsDirectory, "target.func"),
+          "not a directory",
+        );
+        symlinkSync("target.func", join(functionsDirectory, "file-alias.func"));
+      },
+    },
+    {
+      name: "function symbolic link chain",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(join(functionsDirectory, "target.func"), { recursive: true });
+        symlinkSync("target.func", join(functionsDirectory, "first.func"));
+        symlinkSync("first.func", join(functionsDirectory, "second.func"));
+      },
+    },
+    {
+      name: "function symbolic link to an ancestor",
+      mutate: ({ outputDirectory }) => {
+        const nestedDirectory = join(
+          outputDirectory,
+          "functions",
+          "parent.func",
+          "nested",
+        );
+        mkdirSync(nestedDirectory, { recursive: true });
+        symlinkSync("..", join(nestedDirectory, "ancestor.func"));
+      },
+    },
+    {
+      name: "output-root symbolic link",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(functionsDirectory);
+        symlinkSync("..", join(functionsDirectory, "root.func"));
+      },
     },
     {
       name: "hard link",
@@ -2920,6 +3096,183 @@ test("UI upload guard rejects links, special nodes, and runner-writable state", 
           join(outputDirectory, "config.json"),
           join(outputDirectory, "static", "hardlink"),
         ),
+    },
+    {
+      name: "external function file map",
+      mutate: ({ outputDirectory }) => {
+        const functionDirectory = join(
+          outputDirectory,
+          "functions",
+          "api.func",
+        );
+        writeFunctionConfig(functionDirectory, {
+          filePathMap: {
+            "node_modules/@opentelemetry/api/context.js":
+              "node_modules/.pnpm/@opentelemetry+api@1.9.0/context.js",
+          },
+        });
+      },
+    },
+    {
+      name: "external file map outside functions",
+      mutate: ({ outputDirectory }) => {
+        writeFileSync(
+          join(outputDirectory, "static", ".vc-config.json"),
+          JSON.stringify({
+            filePathMap: {
+              "private.txt": "../../private.txt",
+            },
+          }),
+        );
+      },
+    },
+    {
+      name: "linked Vercel config",
+      mutate: ({ outputDirectory }) => {
+        const staticDirectory = join(outputDirectory, "static");
+        writeFileSync(
+          join(staticDirectory, "config-target.json"),
+          JSON.stringify({ runtime: "nodejs22.x", handler: "index.js" }),
+        );
+        symlinkSync(
+          "config-target.json",
+          join(staticDirectory, ".vc-config.json"),
+        );
+      },
+    },
+    {
+      name: "directory-shaped Vercel config",
+      mutate: ({ outputDirectory }) =>
+        mkdirSync(join(outputDirectory, "static", ".vc-config.json")),
+    },
+    {
+      name: "oversized Vercel config",
+      mutate: ({ outputDirectory }) => {
+        const functionDirectory = join(
+          outputDirectory,
+          "functions",
+          "api.func",
+        );
+        writeFunctionConfig(functionDirectory);
+        truncateSync(
+          join(functionDirectory, ".vc-config.json"),
+          1024 * 1024 + 1,
+        );
+      },
+    },
+    {
+      name: "oversized output file",
+      mutate: ({ outputDirectory }) => {
+        const path = join(outputDirectory, "static", "oversized.bin");
+        writeFileSync(path, "");
+        truncateSync(path, 250 * 1024 * 1024 + 1);
+      },
+    },
+    {
+      name: "oversized aggregate output",
+      mutate: ({ outputDirectory }) => {
+        for (let index = 0; index < 5; index += 1) {
+          const path = join(
+            outputDirectory,
+            "static",
+            `aggregate-${index}.bin`,
+          );
+          writeFileSync(path, "");
+          truncateSync(path, 220 * 1024 * 1024);
+        }
+      },
+    },
+    {
+      name: "absolute standalone dependency symbolic link",
+      mutate: ({ outputDirectory }) => {
+        const functionDirectory = join(
+          outputDirectory,
+          "functions",
+          "api.func",
+        );
+        writeFunctionConfig(functionDirectory);
+        mkdirSync(join(functionDirectory, "node_modules"), { recursive: true });
+        symlinkSync(
+          "/etc/passwd",
+          join(functionDirectory, "node_modules", "package"),
+        );
+      },
+    },
+    {
+      name: "escaping standalone dependency symbolic link",
+      mutate: ({ outputDirectory }) => {
+        const functionDirectory = join(
+          outputDirectory,
+          "functions",
+          "api.func",
+        );
+        writeFunctionConfig(functionDirectory);
+        const packageLink = join(functionDirectory, "node_modules", "package");
+        mkdirSync(dirname(packageLink), { recursive: true });
+        symlinkSync(
+          relative(dirname(packageLink), outputDirectory),
+          packageLink,
+        );
+      },
+    },
+    {
+      name: "chained standalone dependency symbolic link",
+      mutate: ({ outputDirectory }) => {
+        const packageDirectory = join(
+          outputDirectory,
+          "functions",
+          "api.func",
+          "node_modules",
+        );
+        writeFunctionConfig(dirname(packageDirectory));
+        mkdirSync(join(packageDirectory, "target"), { recursive: true });
+        symlinkSync("target", join(packageDirectory, "first"));
+        symlinkSync("first", join(packageDirectory, "second"));
+      },
+    },
+    {
+      name: "broken standalone dependency symbolic link chain",
+      mutate: ({ outputDirectory }) => {
+        const functionDirectory = join(
+          outputDirectory,
+          "functions",
+          "api.func",
+        );
+        const packageDirectory = join(functionDirectory, "node_modules");
+        writeFunctionConfig(functionDirectory);
+        mkdirSync(packageDirectory, { recursive: true });
+        symlinkSync("missing", join(packageDirectory, "first"));
+        symlinkSync("first/child", join(packageDirectory, "second"));
+      },
+    },
+    {
+      name: "existing standalone dependency symbolic link chain",
+      mutate: ({ outputDirectory }) => {
+        const functionDirectory = join(
+          outputDirectory,
+          "functions",
+          "api.func",
+        );
+        const packageDirectory = join(functionDirectory, "node_modules");
+        writeFunctionConfig(functionDirectory);
+        mkdirSync(join(packageDirectory, "target"), { recursive: true });
+        symlinkSync("target", join(packageDirectory, "first"));
+        symlinkSync("first/missing", join(packageDirectory, "second"));
+      },
+    },
+    {
+      name: "standalone dependency symbolic link escapes nearest function",
+      mutate: ({ outputDirectory }) => {
+        const outerFunction = join(outputDirectory, "functions", "outer.func");
+        const innerFunction = join(outerFunction, "inner.func");
+        const outerTarget = join(outerFunction, "node_modules", "target");
+        const innerLink = join(innerFunction, "node_modules", "package");
+        writeFunctionConfig(outerFunction);
+        writeFunctionConfig(innerFunction);
+        mkdirSync(outerTarget, { recursive: true });
+        mkdirSync(dirname(innerLink), { recursive: true });
+        symlinkSync(relative(dirname(innerLink), outerTarget), innerLink);
+      },
     },
     {
       name: "FIFO",

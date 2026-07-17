@@ -433,9 +433,29 @@ test("prebuilt authenticates a locked Linux pnpm binary before cache or candidat
   assert.match(isolation.run, /candidate_pnpm_version/);
   assert.match(
     isolation.run,
+    /candidate_pnpm_version="\$\(\n\s+sudo --non-interactive/,
+  );
+  assert.match(isolation.run, /HOME="\$CANDIDATE_HOME_PATH" \\/);
+  assert.match(
+    isolation.run,
+    /\/bin\/sh -c 'cd "\$1" && shift && exec "\$@"' \\\n\s+candidate-pnpm-probe \\\n\s+"\$CANDIDATE_HOME_PATH" \\\n\s+"\$pnpm_bin" --version/,
+  );
+  assert.ok(
+    isolation.run.indexOf('"$CANDIDATE_HOME_PATH/tmp"') <
+      isolation.run.indexOf('candidate_pnpm_version="$('),
+  );
+  assert.match(
+    isolation.run,
     /Candidate cannot execute the protected runtime through its isolation ancestors/,
   );
   assert.match(install.run, /\/usr\/bin\/setpriv/);
+  assert.equal(
+    (install.run.match(/\/bin\/sh -c 'cd "\$1" && shift && exec "\$@"'/g) ?? [])
+      .length,
+    2,
+  );
+  assert.match(install.run, /candidate-pnpm-probe \\/);
+  assert.match(install.run, /candidate-pnpm-install \\/);
   assert.match(install.run, /NPM_CONFIG_MANAGE_PACKAGE_MANAGER_VERSIONS=false/);
   assert.match(install.run, /NPM_CONFIG_PACKAGE_MANAGER_STRICT_VERSION=false/);
   assert.match(install.run, /"\$pnpm_bin" --version \|/);
@@ -709,10 +729,19 @@ test("workflow restores signed Turbo cache and immutable Vercel build metadata",
     "VERCEL_GIT_REPO_OWNER",
     "VERCEL_GIT_REPO_SLUG",
     "NEXT_PUBLIC_VERCEL_ENV",
+    "VERCEL_BUILD_MONOREPO_SUPPORT",
     "VERCEL_TARGET_ENV",
   ]) {
     assert.match(raw, new RegExp(`${value}:`), `${value} must be explicit`);
   }
+  const build = workflow(reusablePath).jobs.prebuilt.steps.find(
+    ({ name }) => name === "Build the UI prebuilt output",
+  );
+  assert.equal(build.env.VERCEL_BUILD_MONOREPO_SUPPORT, "1");
+  assert.match(
+    build.run,
+    /VERCEL_BUILD_MONOREPO_SUPPORT="\$VERCEL_BUILD_MONOREPO_SUPPORT"/,
+  );
   assert.doesNotMatch(raw, /githubDeployment=1/);
   assert.doesNotMatch(raw, /--token/);
 });
