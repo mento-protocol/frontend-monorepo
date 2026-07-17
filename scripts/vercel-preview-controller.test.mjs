@@ -47,11 +47,16 @@ const SHA = Object.fromEntries(
     (index + 1).toString(16).repeat(40),
   ]),
 );
+const workerDispatchClients = new WeakMap();
 
 function reconcilePreview(options) {
+  const workerDispatchGithub = Object.hasOwn(options, "workerDispatchGithub")
+    ? options.workerDispatchGithub
+    : workerDispatchClients.get(options.github);
   return reconcilePreviewImplementation({
     workflowSha: SHA.E,
     now: () => timestamp(0),
+    workerDispatchGithub,
     ...options,
   });
 }
@@ -2496,6 +2501,8 @@ function fakeGitHub({
   const workflowRunAttemptRequests = [];
   const workflowRunListRequests = [];
   const workflowRunRequests = [];
+  const primaryRequests = [];
+  const workerDispatchRequests = [];
   const transientDisplayTitles = [...workflowRunDisplayTitles];
   const transientListDisplayTitles = [...workflowRunListDisplayTitles];
   const transientListRunIds = [...workflowRunListRunIds];
@@ -2659,6 +2666,7 @@ function fakeGitHub({
       throw new Error("Unexpected fixture pagination method");
     },
     request: async (route, request) => {
+      primaryRequests.push({ route, request: structuredClone(request) });
       if (
         route ===
         "GET /repos/{owner}/{repo}/actions/runs/{run_id}/attempts/{attempt_number}"
@@ -2687,6 +2695,15 @@ function fakeGitHub({
         }
         return { status: 200, data: structuredClone(data) };
       }
+      throw new Error(`Unexpected primary-client request: ${route}`);
+    },
+  };
+  const workerDispatchGithub = {
+    request: async (route, request) => {
+      workerDispatchRequests.push({
+        route,
+        request: structuredClone(request),
+      });
       assert.equal(
         route,
         "POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
@@ -2710,8 +2727,10 @@ function fakeGitHub({
       return { status: 200, data: { workflow_run_id: id } };
     },
   };
+  workerDispatchClients.set(github, workerDispatchGithub);
   return {
     github,
+    workerDispatchGithub,
     comments,
     runs,
     deployments,
@@ -2723,6 +2742,8 @@ function fakeGitHub({
     workflowRunAttemptRequests,
     workflowRunListRequests,
     workflowRunRequests,
+    primaryRequests,
+    workerDispatchRequests,
   };
 }
 
@@ -4011,6 +4032,15 @@ test("durable dispatch persists intent and waits for the exact run title to mate
     waitForRecovery: async (milliseconds) => waits.push(milliseconds),
   });
   assert.equal(fixture.dispatches.length, 1);
+  assert.equal(fixture.workerDispatchRequests.length, 1);
+  assert.equal(
+    fixture.workerDispatchRequests[0].route,
+    "POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
+  );
+  assert.equal(
+    fixture.primaryRequests.some(({ route }) => route.includes("/dispatches")),
+    false,
+  );
   assert.equal(state.ui.active.dispatch_state, "dispatched");
   assert.equal(state.ui.active.workflow_run_id, 8_000);
   assert.equal(state.ui.active.workflow_sha, SHA.E);
@@ -4029,6 +4059,43 @@ test("durable dispatch persists intent and waits for the exact run title to mate
   assert.deepEqual(journal.receipts.events, [opened]);
   assert.equal(journal.receipts.selections.length, 1);
   assert.equal(journal.state.ui.active.dispatch_state, "dispatched");
+});
+
+test("a missing worker dispatch credential fails closed only when a new dispatch is required", async () => {
+  const opened = event({
+    run: 120,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+    comments: [journalComment({ events: [opened] })],
+  });
+
+  await assert.rejects(
+    reconcilePreview({
+      github: fixture.github,
+      workerDispatchGithub: null,
+      context: fakeContext(),
+      core: fakeCore(),
+      prNumber: 519,
+      waitForRecovery: async () => {},
+    }),
+    /Worker dispatch credential is unavailable/,
+  );
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(
+    fixture.primaryRequests.some(({ route }) => route.includes("/dispatches")),
+    false,
+  );
+  assert.equal(fixture.commitStatuses.at(-1).state, "error");
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.selections.length, 1);
+  assert.equal(journal.state.ui.active.dispatch_state, "intended");
+  assert.equal(journal.state.ui.active.workflow_run_id, null);
 });
 
 test("durable dispatch fails closed when the exact run title never materializes", async () => {
@@ -4256,12 +4323,14 @@ test("intended dispatch recovery attaches exactly one run and fails closed on am
   });
   const state = await reconcilePreview({
     github: recovered.github,
+    workerDispatchGithub: null,
     context: fakeContext(),
     core: fakeCore(),
     prNumber: 519,
     waitForRecovery: async () => {},
   });
   assert.equal(recovered.dispatches.length, 0);
+  assert.equal(recovered.workerDispatchRequests.length, 0);
   assert.equal(state.ui.active.workflow_run_id, existingRun.id);
 
   const ambiguous = fakeGitHub({

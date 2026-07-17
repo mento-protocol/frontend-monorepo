@@ -444,13 +444,18 @@ The repository is set up with GitHub Actions for CI:
   comment per participating PR. Dependabot events pass through a read-only
   metadata intake; trusted default-branch code re-queries the exact PR head
   before publishing the explicit preview-disabled status. Fork and Dependabot
-  PRs remain credential-free. During Phase A, native Vercel Git UI previews
+  PRs remain credential-free. A dedicated repository-scoped GitHub credential
+  performs only the worker-dispatch POST so terminal `workflow_run` callbacks
+  are created; the normal job token still owns all state and recovery calls.
+  During Phase A, native Vercel Git UI previews
   remain enabled for canary comparison; Vercel Git still owns every
   main/production deployment and all non-UI apps. See
   [ADR 0001](docs/adr/0001-github-actions-vercel-deployment-orchestration.md)
   for the accepted ownership boundary,
   [ADR 0002](docs/adr/0002-single-comment-preview-controller-journal.md) for
-  the journal persistence and clean-cutover decision, and
+  the journal persistence and clean-cutover decision,
+  [ADR 0003](docs/adr/0003-preview-worker-dispatch-authentication.md) for the
+  worker-dispatch authentication boundary, and
   [`docs/vercel-deployments.md`](docs/vercel-deployments.md) for the Phase B
   UI-only cutover, bootstrap, canary, and rollback procedures.
 

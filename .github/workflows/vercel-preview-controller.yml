@@ -227,6 +227,7 @@ jobs:
         env:
           PR_NUMBER: ${{ needs.receipt-event.outputs.pr_number }}
           WORKFLOW_SHA: ${{ github.workflow_sha }}
+          WORKER_DISPATCH_TOKEN: ${{ secrets.GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN }}
         with:
           script: |
             const { pathToFileURL } = require("node:url");
@@ -234,8 +235,12 @@ jobs:
               `${process.env.GITHUB_WORKSPACE}/controller/scripts/vercel-preview-controller.mjs`,
             );
             const { reconcilePreview } = await import(moduleUrl.href);
+            const workerDispatchGithub = process.env.WORKER_DISPATCH_TOKEN
+              ? getOctokit(process.env.WORKER_DISPATCH_TOKEN)
+              : null;
             await reconcilePreview({
               github,
+              workerDispatchGithub,
               context,
               core,
               prNumber: process.env.PR_NUMBER,
@@ -421,6 +426,7 @@ jobs:
         env:
           PR_NUMBER: ${{ needs.receipt-bootstrap.outputs.pr_number }}
           WORKFLOW_SHA: ${{ github.workflow_sha }}
+          WORKER_DISPATCH_TOKEN: ${{ secrets.GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN }}
         with:
           script: |
             const { pathToFileURL } = require("node:url");
@@ -428,8 +434,12 @@ jobs:
               `${process.env.GITHUB_WORKSPACE}/controller/scripts/vercel-preview-controller.mjs`,
             );
             const { reconcilePreview } = await import(moduleUrl.href);
+            const workerDispatchGithub = process.env.WORKER_DISPATCH_TOKEN
+              ? getOctokit(process.env.WORKER_DISPATCH_TOKEN)
+              : null;
             await reconcilePreview({
               github,
+              workerDispatchGithub,
               context,
               core,
               prNumber: process.env.PR_NUMBER,
@@ -466,6 +476,7 @@ jobs:
         env:
           PR_NUMBER: ${{ needs.validate-request.outputs.pr_number }}
           WORKFLOW_SHA: ${{ github.workflow_sha }}
+          WORKER_DISPATCH_TOKEN: ${{ secrets.GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN }}
         with:
           script: |
             const { pathToFileURL } = require("node:url");
@@ -473,8 +484,12 @@ jobs:
               `${process.env.GITHUB_WORKSPACE}/controller/scripts/vercel-preview-controller.mjs`,
             );
             const { reconcilePreview } = await import(moduleUrl.href);
+            const workerDispatchGithub = process.env.WORKER_DISPATCH_TOKEN
+              ? getOctokit(process.env.WORKER_DISPATCH_TOKEN)
+              : null;
             await reconcilePreview({
               github,
+              workerDispatchGithub,
               context,
               core,
               prNumber: process.env.PR_NUMBER,
@@ -617,6 +632,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           WORKFLOW_SHA: ${{ github.workflow_sha }}
+          WORKER_DISPATCH_TOKEN: ${{ secrets.GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN }}
         with:
           script: |
             const { pathToFileURL } = require("node:url");
@@ -628,11 +644,15 @@ jobs:
               recoverWorkerResult,
               reconcilePreview,
             } = await import(moduleUrl.href);
+            const workerDispatchGithub = process.env.WORKER_DISPATCH_TOKEN
+              ? getOctokit(process.env.WORKER_DISPATCH_TOKEN)
+              : null;
             try {
               const result = await recoverWorkerResult({ github, context, core });
               if (result?.should_reconcile_current_epoch) {
                 await reconcilePreview({
                   github,
+                  workerDispatchGithub,
                   context,
                   core,
                   prNumber: result.pr,
