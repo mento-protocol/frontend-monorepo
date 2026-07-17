@@ -215,7 +215,7 @@ export function assertBrowserDeploymentIdentity(
   }
 }
 
-export function createBrowserDeploymentIdentityMonitor(page, expectedOrigin) {
+function createBrowserDeploymentIdentityMonitor(page, expectedOrigin) {
   const assetReferences = [];
   let overflow = false;
   page.on("request", (request) => {
