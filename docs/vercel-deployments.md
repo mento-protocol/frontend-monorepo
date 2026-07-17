@@ -301,53 +301,59 @@ build-minute observation are documented in
 tool does not start the observation window; collection begins only after the
 four-target cutover is complete.
 
-## Manual UI prebuilt pilot
+## Historical Phase A manual UI prebuilt pilot (audit record)
 
-`.github/workflows/vercel-prebuilt-pilot.yml` is the only entry point for the
-first prebuilt preview. It has only a manual `workflow_dispatch` trigger and
-accepts exactly three selectors: the fixed `ui` target, an immutable lowercase
-40-character commit SHA, and the same-repository branch that contains that SHA.
-It does not replace or disable the Vercel Git integration. Native Vercel Git
-previews remain the source of truth while this pilot gathers functional and
-timing evidence.
+> **Historical evidence only.** This section preserves the Phase A pilot's
+> controls and native-preview comparison procedure for audit. It is not a
+> current operator entry point: under Phase B, do not dispatch the manual pilot
+> or expect a same-SHA native UI branch preview. Current operators must use the
+> [Phase B canary and rollback procedures](#ui-vercel-git-cutover-phase-b).
+> The commands and implementation details below are retained only as audited
+> Phase A evidence and must not be treated as a supported Phase B procedure.
 
-The caller maps only the UI preview configuration:
+During Phase A, `.github/workflows/vercel-prebuilt-pilot.yml` was the only entry
+point for the first prebuilt preview. It had only a manual `workflow_dispatch`
+trigger and accepted exactly three selectors: the fixed `ui` target, an
+immutable lowercase 40-character commit SHA, and the same-repository branch
+that contained that SHA. It did not replace or disable the Vercel Git
+integration. Native Vercel Git previews remained the source of truth while the
+pilot gathered functional and timing evidence.
+
+The Phase A caller mapped only the UI preview configuration:
 
 - repository variables `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID_UI`, and
   `TURBO_TEAM`;
 - repository secrets `VERCEL_TOKEN_PREVIEW`, `TURBO_TOKEN`, and
   `TURBO_REMOTE_CACHE_SIGNATURE_KEY`.
 
-The reusable worker declares each secret separately. It never inherits all
-caller secrets, never receives a production Vercel token, never selects a
-production GitHub environment, and never passes a token on a command line. The
-separate smoke job receives no Vercel or Turbo credential and has only
-`contents: read` permission; the immutable preview must therefore be publicly
-reachable for this pilot.
+The reusable worker declared each secret separately. It never inherited all
+caller secrets, received a production Vercel token, selected a production
+GitHub environment, or passed a token on a command line. The separate smoke job
+received no Vercel or Turbo credential and had only `contents: read` permission;
+the immutable preview therefore had to be publicly reachable for the pilot.
 
-The reusable contract accepts only `refs/heads/main` and the exact main-branch
-pilot caller identity. A dispatch that selects another branch, tag, or caller is
-rejected before candidate dependency or build code executes.
+The reusable contract accepted only `refs/heads/main` and the exact main-branch
+pilot caller identity. A dispatch selecting another branch, tag, or caller was
+rejected before candidate dependency or build code executed.
 
-### Dispatch
+### Historical Phase A dispatch procedure
 
-This is a privileged maintainer action, not an automatic PR trigger. Dispatch
-only after reviewing the selected SHA and accepting its same-repository author
-as trusted: dependency installation and the UI build execute that source with
-the pulled UI preview variables and signed Turbo cache credentials. The
-candidate process never receives the Vercel token, but it can read its own
-build inputs and execute arbitrary build code. Fork sources cannot be selected,
-and the workflow rejects Dependabot branches. If the source is not trusted, do
-not dispatch the pilot.
+This was a privileged maintainer action, not an automatic PR trigger. Phase A
+maintainers dispatched only after reviewing the selected SHA and accepting its
+same-repository author as trusted: dependency installation and the UI build
+executed that source with the pulled UI preview variables and signed Turbo cache
+credentials. The candidate process never received the Vercel token, but it
+could read its own build inputs and execute arbitrary build code. Fork sources
+could not be selected, and the workflow rejected Dependabot branches.
 
-The dispatch is accepted only from `refs/heads/main`. The caller invokes the
-reusable worker from the same main commit, and the worker validates the caller
-workflow identity again before any candidate code or credentialed step runs. A
-dispatch that selects another branch or tag is rejected before the reusable
-job receives its preview credentials.
+The dispatch was accepted only from `refs/heads/main`. The caller invoked the
+reusable worker from the same main commit, and the worker validated the caller
+workflow identity again before any candidate code or credentialed step ran. A
+dispatch selecting another branch or tag was rejected before the reusable job
+received its preview credentials.
 
-Choose a SHA that already has a native Vercel Git UI preview and a branch that
-contains it. Verify both locally before dispatching:
+Phase A maintainers chose a SHA that already had a native Vercel Git UI preview
+and a branch that contained it. They verified both locally before dispatching:
 
 ```bash
 SHA="<lowercase-40-character-sha>"
@@ -362,22 +368,22 @@ gh workflow run vercel-prebuilt-pilot.yml \
   -f git_branch="$BRANCH"
 ```
 
-The workflow independently rejects malformed, option-like, newline-bearing,
-missing, or unreachable refs. It checks out the exact SHA with full history and
-uses the recorded `HEAD` for the custom Next deployment ID, Vercel metadata,
+The workflow independently rejected malformed, option-like, newline-bearing,
+missing, or unreachable refs. It checked out the exact SHA with full history
+and used the recorded `HEAD` for the custom Next deployment ID, Vercel metadata,
 GitHub Deployment ref, smoke evidence, and outputs.
 
-Do not dispatch from a pull-request ref. After the main-only guard, the workflow
-controller is checked out from the trusted `github.workflow_sha`; the requested
-source is checked out separately and is never executed automatically with
-preview credentials. Candidate dependency lifecycle scripts are disabled. The
-worker also restores the controller from its trusted workflow SHA after
-dependency installation and again after the candidate build, before output
-assertion, upload, and inspection.
+The Phase A pilot did not dispatch from a pull-request ref. After the main-only
+guard, the workflow controller was checked out from the trusted
+`github.workflow_sha`; the requested source was checked out separately and was
+never executed automatically with preview credentials. Candidate dependency
+lifecycle scripts were disabled. The worker also restored the controller from
+its trusted workflow SHA after dependency installation and again after the
+candidate build, before output assertion, upload, and inspection.
 
-The Vercel CLI is a separate trusted tool install. Pinned pnpm `10.34.4` reads
-the main controller's exact `package.json` and frozen `pnpm-lock.yaml`, disables
-lifecycle scripts, and copies packages into a runner-owned directory outside
+The Vercel CLI was a separate trusted tool install. Pinned pnpm `10.34.4` read
+the main controller's exact `package.json` and frozen `pnpm-lock.yaml`, disabled
+lifecycle scripts, and copied packages into a runner-owned directory outside
 the checkout. Its `--modules-dir` and `--virtual-store-dir` values are validated
 relative paths from the controller to that directory; pnpm treats an absolute
 `--modules-dir` as project-relative and would otherwise materialize the CLI at
@@ -440,12 +446,12 @@ Before staging, the controller requires the manifest to match its exact allowed
 fields and binds the complete one-importer lockfile bytes to
 `PINNED_PNPM_RUNTIME_LOCKFILE_SHA256`; this rejects extra dependency/config
 sections, custom tarballs, changed integrity, or extra importers/packages before
-the bootstrap install. A pnpm bump must update the bootstrap npm manifest and
-lockfile, reviewed registry SRI and Linux x64 executable digest, isolated
-JavaScript-runtime manifest and pnpm lockfile, `PINNED_PNPM_VERSION`, and both
-complete-lockfile digests together. On a non-Linux development host,
-`npm install --package-lock-only --force` may be used only to regenerate this
-Linux-specific lock; the CI installation must never use `--force`.
+the bootstrap install. Any Phase A pnpm bump had to update the bootstrap npm
+manifest and lockfile, reviewed registry SRI and Linux x64 executable digest,
+isolated JavaScript-runtime manifest and pnpm lockfile, `PINNED_PNPM_VERSION`,
+and both complete-lockfile digests together. On a non-Linux development host,
+`npm install --package-lock-only --force` could be used only to regenerate this
+Linux-specific lock; the CI installation was never allowed to use `--force`.
 The protected launcher always uses protected Node plus that runtime's
 `pnpm.cjs`; it disables pnpm's package-manager self-switch and strict patch
 version check so an older candidate `packageManager` field cannot silently
@@ -477,9 +483,10 @@ Its isolated `HOME` and XDG directories place that store under the disposable
 candidate home, which is deleted before upload. Sharing a runner store here
 would let selected source code mutate cache state that an Actions post-step
 could save from the trusted `main` run if an isolation boundary regressed.
-Treat candidate dependency installation as a cold, measured pilot cost; record
-its duration separately from `vercel build`. The signed Turbo remote build
-cache remains enabled and its hit/miss evidence remains part of the comparison.
+Phase A treated candidate dependency installation as a cold, measured pilot
+cost and recorded its duration separately from `vercel build`. The signed Turbo
+remote build cache remained enabled, and its hit/miss evidence remained part of
+the historical comparison.
 
 Before candidate installation, the worker proves the checked-out index tree is
 the exact selected commit tree. The candidate UID cannot write `/var/lib`, the
@@ -505,10 +512,10 @@ removes the empty work and outer directories, and proves the outer root is
 absent before deleting the recorded candidate user and group. Unexpected
 top-level state or a pre-existing/unmatched candidate identity is never deleted.
 
-### Root Directory and command sequence
+### Historical Phase A Root Directory and command sequence
 
-The pinned Vercel CLI commands execute from monorepo-shaped roots. Before
-`vercel pull`, the worker creates a fresh runner-owned staging tree at a fixed
+The pinned Vercel CLI commands executed from monorepo-shaped roots. Before
+`vercel pull`, the worker created a fresh runner-owned staging tree at a fixed
 path under `$VERCEL_ISOLATION_ROOT`. That tree contains only real
 `apps/ui.mento.org` directory components and an ephemeral repo-level link built
 from trusted repository variables; it contains no checked-out candidate file.
@@ -547,8 +554,7 @@ controller validates the ID variables but deliberately withholds them from the
 Vercel CLI child process: CLI `56.2.0` otherwise gives those variables
 precedence over `repo.json` and loses the monorepo Root Directory mapping.
 
-The credentialed worker runs this sequence in one standard `ubuntu-latest`
-job:
+The credentialed worker ran this sequence in one standard `ubuntu-latest` job:
 
 1. create the fresh runner-owned pull staging and exact repo-level UI link;
 2. run `vercel pull --yes --environment preview --git-branch
@@ -593,7 +599,7 @@ remain rejected. Before reading or copying the handoff, the validator also caps
 each `.vc-config.json` at 1 MiB, each regular file at 250 MiB, and the complete
 output at 1 GiB.
 
-Only after that job emits the verified immutable URL does a second trusted job
+Only after that job emitted the verified immutable URL did a second trusted job
 perform direct HTTP smoke of the URL, navigation, custom build identity,
 representative JS/CSS/font assets, and preview security headers. That smoke job
 checks out only `github.workflow_sha`; it never checks out or executes the
@@ -618,19 +624,19 @@ applying the same validation again immediately before upload.
 CLI `56.2.0` gates its local Root Directory monorepo defaults behind
 `VERCEL_BUILD_MONOREPO_SUPPORT=1`. The worker supplies that trusted constant to
 the clean candidate environment so the CLI activates its Turborepo default,
-`turbo run build`, for the Root Directory project. Turbo then includes upstream
+`turbo run build`, for the Root Directory project. Turbo then included upstream
 workspace packages such as `@mento-protocol/ui` before the selected Next.js
-app. Re-audit this internal, version-coupled flag whenever the pinned CLI
-changes. Do not replace it with a separate app dependency prebuild: that would
-duplicate work before the CLI's own build and could diverge from Vercel's
-project settings.
+app. The Phase A design required this internal, version-coupled flag to be
+re-audited whenever the pinned CLI changed and forbade replacing it with a
+separate app dependency prebuild, which would have duplicated work before the
+CLI's own build and could have diverged from Vercel's project settings.
 
-### Canonical GitHub Deployment
+### Historical Phase A canonical GitHub Deployment
 
-The worker owns one explicit REST Deployment for the exact SHA. It uses only
-`contents: read` and `deployments: write`; no job-level Actions environment is
-declared, so GitHub does not create an implicit event-SHA Deployment. The create
-request uses `auto_merge: false`, empty required contexts, the deterministic
+The worker owned one explicit REST Deployment for the exact SHA. It used only
+`contents: read` and `deployments: write`; no job-level Actions environment was
+declared, so GitHub did not create an implicit event-SHA Deployment. The create
+request used `auto_merge: false`, empty required contexts, the deterministic
 `vercel-preview-ui` environment, and transient/non-production flags.
 
 The run-scoped pilot key is:
@@ -639,40 +645,44 @@ The run-scoped pilot key is:
 vercel-pilot:v1:ui:sha:<sha>:run:<run_id>:attempt:<run_attempt>
 ```
 
-Retries with that exact key reuse the existing record. A deliberate workflow
-rerun has a different attempt key and creates a new pilot attempt. Only
-non-secret provenance is stored in the payload.
+Retries with that exact key reused the existing record. A deliberate workflow
+rerun had a different attempt key and created a new pilot attempt. Only
+non-secret provenance was stored in the payload.
 
-Statuses progress through `queued` and `in_progress`. `success` is posted with
-the immutable Vercel `environment_url` and Actions `log_url` only after direct
-smoke passes. Build, deploy, or smoke failures post `failure`; cancellation or
-controller/infrastructure failures post `error`. The `if: always()` lifecycle
-job closes any record that did not reach success. It is independent of
-best-effort timing and run-summary steps, so a metrics failure cannot overwrite
-a verified deployment's lifecycle truth. The reusable workflow publishes
-`deployment_url` only from the smoke-backed success step; it never falls back
-to the unverified upload output.
+Statuses progressed through `queued` and `in_progress`. `success` was posted
+with the immutable Vercel `environment_url` and Actions `log_url` only after
+direct smoke passed. Build, deploy, or smoke failures posted `failure`;
+cancellation or controller/infrastructure failures posted `error`. The
+`if: always()` lifecycle job closed any record that did not reach success. It
+was independent of best-effort timing and run-summary steps, so a metrics
+failure could not overwrite a verified deployment's lifecycle truth. The
+reusable workflow published `deployment_url` only from the smoke-backed success
+step; it never fell back to the unverified upload output.
 
-A Deployment or status created with the repository `GITHUB_TOKEN` does not
+A Deployment or status created with the repository `GITHUB_TOKEN` did not
 trigger another workflow run. Therefore `.github/workflows/preview-smoke.yml`
-will not recurse for this pilot. Direct smoke in the reusable worker is the
-required success gate. Do not add a PAT to force `deployment_status` recursion.
-The dedicated worker-dispatch PAT is not an exception; its sole purpose is the
-automatic controller's worker `workflow_dispatch` POST described below.
+did not recurse for the pilot. Direct smoke in the reusable worker was the
+required success gate. The pilot did not add a PAT to force
+`deployment_status` recursion. The dedicated worker-dispatch PAT was not an
+exception; its sole purpose was the automatic controller's worker
+`workflow_dispatch` POST described below.
 
-### Evidence and browser verification
+### Historical Phase A evidence and browser verification
 
-The run summary records the exact SHA, immutable URL, Vercel Deployment ID,
-GitHub Deployment ID, build duration, upload duration, and total controller
-duration. Turbo prints remote-cache hit/miss evidence in the build log. Compare
-those values with the same-SHA native Vercel Git preview, but do not infer
-billing savings from elapsed time alone.
+The Phase A run summary recorded the exact SHA, immutable URL, Vercel Deployment
+ID, GitHub Deployment ID, build duration, upload duration, and total controller
+duration. Turbo printed remote-cache hit/miss evidence in the build log. Phase A
+reviewers compared those values with the same-SHA native Vercel Git preview but
+did not infer billing savings from elapsed time alone.
 
-Before treating the pilot as accepted, follow the repository browser protocol
-on the immutable GitHub-built URL: verify page rendering and primary
-navigation, inspect console errors and failed network requests, confirm static
-assets/fonts, and compare security headers plus the Vercel toolbar/CSP behavior
-with the native preview. Attach the URL and concise evidence to the PR or issue.
+Phase A acceptance also required the repository browser protocol on the
+immutable GitHub-built URL: reviewers verified page rendering and primary
+navigation, inspected console errors and failed network requests, confirmed
+static assets/fonts, and compared security headers plus Vercel toolbar/CSP
+behavior with the native preview. They attached the URL and concise evidence to
+the PR or issue. This same-SHA native comparison is intentionally unavailable
+after Phase B disables native UI branch previews; current validation uses the
+[Phase B canary and rollback procedures](#ui-vercel-git-cutover-phase-b).
 
 The cost go/no-go record in issue #518 and the Phase A live-canary evidence
 below were prerequisites for the final UI Git-ownership cutover. The current
