@@ -279,11 +279,12 @@ function parseJournalBody(body) {
   return JSON.parse(body.slice(prefix.length, -suffix.length));
 }
 
+function isTrustedGitHubActionsBot(actor) {
+  return actor?.type === "Bot" && actor?.login === "github-actions[bot]";
+}
+
 function isTrustedBotComment(comment) {
-  return (
-    comment?.user?.type === "Bot" &&
-    comment?.user?.login === "github-actions[bot]"
-  );
+  return isTrustedGitHubActionsBot(comment?.user);
 }
 
 function classifyTrust({ headRepository, headRef, author }) {
@@ -1232,7 +1233,7 @@ function statusFromCheckpointRuntime({
       description: cancelled
         ? `Runtime preview ${runtimeEvent.head_sha.slice(0, 7)} was cancelled`
         : `Runtime preview ${runtimeEvent.head_sha.slice(0, 7)} failed`,
-      target_url: controllerUrl,
+      target_url: checkpointStatus.target_url ?? controllerUrl,
     };
   }
   if (checkpointStatus.state === "pending") {
@@ -1247,7 +1248,7 @@ function statusFromCheckpointRuntime({
     sha: event.head_sha,
     state: "error",
     description: `Runtime preview ${runtimeEvent.head_sha.slice(0, 7)} errored`,
-    target_url: controllerUrl,
+    target_url: checkpointStatus.target_url ?? controllerUrl,
   };
 }
 
@@ -1287,7 +1288,7 @@ function statusDecision({
       sha: event.head_sha,
       state: "failure",
       description: "UI preview build, deploy, or smoke failed",
-      target_url: controllerUrl,
+      target_url: terminalResultUrl(result, controllerUrl),
     };
   }
   if (eligible && result?.state === "error") {
@@ -1298,7 +1299,7 @@ function statusDecision({
       description: cancelled
         ? "UI preview worker was cancelled"
         : "UI preview controller or infrastructure error",
-      target_url: controllerUrl,
+      target_url: terminalResultUrl(result, controllerUrl),
     };
   }
   if (!eligible) {
@@ -1344,7 +1345,7 @@ function statusDecision({
         sha: event.head_sha,
         state: "failure",
         description: `Runtime preview ${priorRuntime.head_sha.slice(0, 7)} failed`,
-        target_url: controllerUrl,
+        target_url: terminalResultUrl(priorResult, controllerUrl),
       };
     }
     if (priorResult?.state === "error") {
@@ -1355,7 +1356,7 @@ function statusDecision({
         description: cancelled
           ? `Runtime preview ${priorRuntime.head_sha.slice(0, 7)} was cancelled`
           : `Runtime preview ${priorRuntime.head_sha.slice(0, 7)} errored`,
-        target_url: controllerUrl,
+        target_url: terminalResultUrl(priorResult, controllerUrl),
       };
     }
     return {
@@ -1380,6 +1381,39 @@ function statusDecision({
     description: "UI preview queued or running",
     target_url: active?.html_url ?? controllerUrl,
   };
+}
+
+function terminalResultUrl(result, controllerUrl) {
+  if (result?.vercel_deployment_url) {
+    return immutableVercelUrl(result.vercel_deployment_url);
+  }
+  if (result?.worker_run_id) {
+    return `https://github.com/${PREVIEW_REPOSITORY}/actions/runs/${exactRunId(
+      result.worker_run_id,
+      "Terminal worker run ID",
+    )}`;
+  }
+  return controllerUrl;
+}
+
+function preserveSettledControllerTarget(
+  decision,
+  previousBySha,
+  controllerUrl,
+) {
+  const previous = previousBySha.get(decision.sha);
+  if (
+    TERMINAL_STATES.has(decision.state) &&
+    decision.target_url === controllerUrl &&
+    previous?.state === decision.state &&
+    previous.description === decision.description
+  ) {
+    return {
+      ...decision,
+      target_url: previous.target_url,
+    };
+  }
+  return decision;
 }
 
 function statusFromPendingRuntimeResult({
@@ -1992,22 +2026,32 @@ export function reconcileState({
       target_url: active.html_url ?? controllerTargetUrl,
     };
   }
+  const previousStatusBySha = new Map(
+    (previous?.status_decisions ?? []).map((decision) => [
+      decision.sha,
+      decision,
+    ]),
+  );
   const statuses = lineage.map((event, index) =>
-    statusDecision({
-      event,
-      index,
-      lineage,
-      resultByRun,
-      active,
-      coalescedToByRun,
-      controllerUrl: controllerTargetUrl,
-      checkpointStatus:
-        selectedCheckpoint?.event.event_run_id === event.event_run_id
-          ? effectiveCheckpointStatus
-          : null,
-      checkpointBaselineStatus: effectiveCheckpointStatus,
-      checkpointBaselineEvent: selectedCheckpoint?.event ?? null,
-    }),
+    preserveSettledControllerTarget(
+      statusDecision({
+        event,
+        index,
+        lineage,
+        resultByRun,
+        active,
+        coalescedToByRun,
+        controllerUrl: controllerTargetUrl,
+        checkpointStatus:
+          selectedCheckpoint?.event.event_run_id === event.event_run_id
+            ? effectiveCheckpointStatus
+            : null,
+        checkpointBaselineStatus: effectiveCheckpointStatus,
+        checkpointBaselineEvent: selectedCheckpoint?.event ?? null,
+      }),
+      previousStatusBySha,
+      controllerTargetUrl,
+    ),
   );
   const successes = [...resultByRun.entries()]
     .filter(([, result]) => result.state === "success")
@@ -3472,7 +3516,7 @@ async function postStatusDecisions(
   github,
   context,
   decisions,
-  { assertBasis } = {},
+  { assertBasis, suppressExactReplay = false } = {},
 ) {
   const latestBySha = new Map(
     decisions.map((decision) => [decision.sha, decision]),
@@ -3491,6 +3535,38 @@ async function postStatusDecisions(
         decision.target_url,
         "Status target URL",
       );
+    if (suppressExactReplay) {
+      let latest = null;
+      try {
+        const { data: statuses } =
+          await github.rest.repos.listCommitStatusesForRef({
+            ...ownerRepo(context),
+            ref: request.sha,
+            per_page: 100,
+          });
+        // GitHub returns commit statuses newest first. Only an exact latest
+        // witness may suppress a replay; a missing first-page match writes
+        // conservatively instead of relying on an unbounded history scan.
+        if (Array.isArray(statuses)) {
+          latest = statuses.find(
+            (status) => status.context === PREVIEW_STATUS_CONTEXT,
+          );
+        }
+      } catch {
+        // This lookup is only a duplicate-write optimization. A transient read
+        // failure must not replace settled preview truth with a controller error.
+      }
+      if (
+        isTrustedGitHubActionsBot(latest?.creator) &&
+        latest?.state === request.state &&
+        latest.description === request.description &&
+        (latest.target_url ?? null) === (request.target_url ?? null)
+      ) {
+        if (assertBasis) await assertBasis();
+        continue;
+      }
+    }
+    if (assertBasis) await assertBasis();
     await github.rest.repos.createCommitStatus(request);
     if (assertBasis) await assertBasis();
   }
@@ -4132,6 +4208,8 @@ export async function reconcilePreview({
     try {
       const pull = await pullFromApi(github, context, pr);
       const parsed = await loadPreviewJournal(github, context, pr);
+      const stateBeforeReconciliation =
+        parsed.state === null ? null : canonicalJson(parsed.state);
       if (
         await recoverCompletedOwnedRuns({
           github,
@@ -4366,6 +4444,9 @@ export async function reconcilePreview({
       await assertStatusBasis();
       await postStatusDecisions(github, context, state.status_decisions, {
         assertBasis: assertStatusBasis,
+        suppressExactReplay:
+          stateBeforeReconciliation !== null &&
+          stateBeforeReconciliation === canonicalJson(state),
       });
       core.setOutput("pr_number", String(pr));
       return state;
