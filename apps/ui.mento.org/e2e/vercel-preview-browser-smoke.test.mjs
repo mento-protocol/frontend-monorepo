@@ -55,13 +55,28 @@ class FakePage extends EventEmitter {
     this.calls.push(["goto", url, options]);
     this.currentUrl = new URL("/basic-components", url).toString();
     for (const reference of this.assetReferences) {
-      this.emit("request", { url: () => reference });
+      this.emitAssetRequest(reference);
     }
     return { ok: () => true, status: () => 200 };
   }
 
   url() {
     return this.currentUrl;
+  }
+
+  emitAssetRequest(reference) {
+    const request = this.startAssetRequest(reference);
+    this.emit("requestfinished", request);
+  }
+
+  startAssetRequest(reference) {
+    const request = {
+      failure: () => ({ errorText: "net::ERR_FAILED" }),
+      method: () => "GET",
+      url: () => reference,
+    };
+    this.emit("request", request);
+    return request;
   }
 
   locator(selector) {
@@ -98,7 +113,7 @@ class FakePage extends EventEmitter {
         click: async () => {
           this.calls.push(["click", "Textarea"]);
           for (const reference of this.navigationAssetReferences) {
-            this.emit("request", { url: () => reference });
+            this.emitAssetRequest(reference);
           }
           this.currentUrl = new URL(
             "/form-components",
@@ -302,6 +317,43 @@ test("browser smoke rejects conflicting route-specific asset identity", async ()
   await assert.rejects(
     runBrowserSmoke({ chromium: fake.chromium, input: INPUT }),
     /do not carry only the expected deployment ID/,
+  );
+  assert.equal(fake.state.closed, true);
+});
+
+test("browser smoke rejects a late route-specific asset after interaction", async () => {
+  const page = new FakePage({
+    afterInteraction(currentPage) {
+      setTimeout(() => {
+        currentPage.emitAssetRequest(
+          `${INPUT.deploymentUrl}/_next/static/late-form.js?dpl=m-ui-fffffffffffffffffff`,
+        );
+      }, 10);
+    },
+  });
+  const fake = fakeChromium(page);
+  await assert.rejects(
+    runBrowserSmoke({ chromium: fake.chromium, input: INPUT }),
+    /do not carry only the expected deployment ID/,
+  );
+  assert.equal(fake.state.closed, true);
+});
+
+test("browser smoke waits for a late static request to reach a terminal event", async () => {
+  const page = new FakePage({
+    afterInteraction(currentPage) {
+      setTimeout(() => {
+        const request = currentPage.startAssetRequest(
+          `${INPUT.deploymentUrl}/_next/static/late-form.js?dpl=${NEXT_DEPLOYMENT_ID}`,
+        );
+        setTimeout(() => currentPage.emit("requestfailed", request), 300);
+      }, 10);
+    },
+  });
+  const fake = fakeChromium(page);
+  await assert.rejects(
+    runBrowserSmoke({ chromium: fake.chromium, input: INPUT }),
+    /same-origin request failed: GET/,
   );
   assert.equal(fake.state.closed, true);
 });

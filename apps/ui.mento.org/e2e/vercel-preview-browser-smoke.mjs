@@ -10,6 +10,7 @@ const GITHUB_DEPLOYMENT_ID_PATTERN = /^[1-9][0-9]*$/;
 const VERCEL_DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
 const NEXT_DEPLOYMENT_ID_PATTERN = /^m-ui-[0-9a-f]{19}$/;
 const MAX_NEXT_STATIC_ASSET_REQUESTS = 5_000;
+const NEXT_STATIC_ASSET_IDLE_MS = 250;
 const AUTOMATIC_KEY_PATTERN =
   /^vercel-preview:v1:pr:[1-9][0-9]*:target:ui:sha:([0-9a-f]{40})$/;
 const PILOT_KEY_PATTERN =
@@ -217,7 +218,34 @@ export function assertBrowserDeploymentIdentity(
 
 function createBrowserDeploymentIdentityMonitor(page, expectedOrigin) {
   const assetReferences = [];
+  const activeRequests = new Set();
+  const activityWaiters = new Set();
   let overflow = false;
+
+  function signalActivity() {
+    for (const resolve of activityWaiters) {
+      resolve(true);
+    }
+    activityWaiters.clear();
+  }
+
+  function waitForActivity(timeoutMs) {
+    return new Promise((resolve) => {
+      let settled = false;
+      let timer;
+      const finish = (activityObserved) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        activityWaiters.delete(onActivity);
+        resolve(activityObserved);
+      };
+      const onActivity = () => finish(true);
+      activityWaiters.add(onActivity);
+      timer = setTimeout(() => finish(false), timeoutMs);
+    });
+  }
+
   page.on("request", (request) => {
     let url;
     try {
@@ -233,11 +261,59 @@ function createBrowserDeploymentIdentityMonitor(page, expectedOrigin) {
     }
     if (assetReferences.length >= MAX_NEXT_STATIC_ASSET_REQUESTS) {
       overflow = true;
+      signalActivity();
       return;
     }
     assetReferences.push(url.toString());
+    activeRequests.add(request);
+    signalActivity();
   });
+
+  const finishRequest = (request) => {
+    if (activeRequests.delete(request)) {
+      signalActivity();
+    }
+  };
+  page.on("requestfinished", finishRequest);
+  page.on("requestfailed", finishRequest);
+
   return {
+    async waitForIdle(timeoutMs) {
+      const deadline = Date.now() + timeoutMs;
+      while (true) {
+        if (overflow) {
+          throw new Error(
+            "Browser-loaded Next.js asset identity evidence exceeded its limit",
+          );
+        }
+        const remainingMs = deadline - Date.now();
+        if (remainingMs <= 0) {
+          throw new Error(
+            "Browser-loaded Next.js assets did not become idle before timeout",
+          );
+        }
+        if (activeRequests.size > 0) {
+          const activityObserved = await waitForActivity(remainingMs);
+          if (!activityObserved) {
+            throw new Error(
+              "Browser-loaded Next.js assets did not become idle before timeout",
+            );
+          }
+          continue;
+        }
+
+        const quietWindowMs = Math.min(NEXT_STATIC_ASSET_IDLE_MS, remainingMs);
+        const activityObserved = await waitForActivity(quietWindowMs);
+        if (!activityObserved) {
+          if (quietWindowMs < NEXT_STATIC_ASSET_IDLE_MS) {
+            throw new Error(
+              "Browser-loaded Next.js assets did not become idle before timeout",
+            );
+          }
+          return;
+        }
+      }
+    },
     assertExpected(expectedDeploymentId, htmlDeploymentId) {
       if (overflow) {
         throw new Error(
@@ -287,6 +363,7 @@ export async function runBrowserSmoke({ chromium, input, timeoutMs = 30_000 }) {
       .getByRole("heading", { name: "Basic Components", exact: true })
       .waitFor({ state: "visible" });
     await page.waitForLoadState("load");
+    await deploymentIdentityMonitor.waitForIdle(timeoutMs);
     const renderedDeploymentId = await page
       .locator("html")
       .getAttribute("data-dpl-id");
@@ -321,6 +398,7 @@ export async function runBrowserSmoke({ chromium, input, timeoutMs = 30_000 }) {
         "Browser smoke interaction did not remain updated after hydration",
       );
     }
+    await deploymentIdentityMonitor.waitForIdle(timeoutMs);
     deploymentIdentityMonitor.assertExpected(
       validated.nextDeploymentId,
       await page.locator("html").getAttribute("data-dpl-id"),

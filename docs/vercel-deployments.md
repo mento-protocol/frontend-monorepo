@@ -851,7 +851,9 @@ browser phase requires every loaded same-origin `/_next/static/` asset to carry
 exactly the expected `?dpl=` value and rejects any conflicting retained HTML
 deployment marker. Controller-side request monitoring remains active through
 the second-route interaction, so dynamically loaded chunks cannot escape the
-same identity check. This preserves fail-closed deployment-identity proof when
+same identity check. The controller waits for all observed static requests to
+finish and for a quiet window before its final assertion. This preserves
+fail-closed deployment-identity proof when
 React reconciles the server-injected HTML attribute out of the live DOM. Chrome
 also waits for the initial page load before changing controlled inputs, then
 rechecks the changed form control after the hydration/interaction settle. Its
