@@ -715,11 +715,12 @@ vercel-preview-journal:v1
 The journal is an internal coordination record, not review feedback. Its
 reviewer explanation remains visible while one collapsed GitHub `<details>`
 block contains canonical JSON. That document holds the repository and PR
-identity, a monotonic revision, a top-level journal digest over the canonical
-receipt set and mutable state, logically immutable
+identity, a monotonic revision, an optional deterministic checkpoint, a
+top-level journal digest over that checkpoint, the canonical live receipt set,
+and mutable state, logically immutable live
 event/selection/worker-evidence/result entries, and bounded mutable controller
-state. The state's separate receipts digest binds reconciliation to the receipt
-set. The canonical Markdown envelope includes the explicit closing
+state. The state's separate receipts digest binds reconciliation to the
+checkpoint plus live receipt set. The canonical Markdown envelope includes the explicit closing
 `</details>` tag; missing or additional presentation text is invalid. The
 journal keeps one stable comment ID: every update edits it, and no
 receipt-specific comment is created.
@@ -729,21 +730,37 @@ per-PR concurrency group configured with `queue: max` and
 `cancel-in-progress: false`. That serialization is a correctness boundary, not
 an optimization. After acquiring the queue, each writer validates the exact
 journal count and complete canonical body, applies one idempotent transition,
-updates the comment, or initially creates it only on a first-attempt `opened`
-event or explicit bootstrap transition, then rereads and proves the expected
+updates the comment, or initially creates it for an explicit bootstrap, a
+first-attempt `opened`, or another first-attempt PR event whose `before` and
+head commits have no prior `Vercel Preview Journal` initialization status,
+then rereads and proves the expected
 revision, canonical JSON, journal digest, and, when state exists,
 `state.receipts_digest` before publishing a status or dispatching a worker.
 Duplicate journals, a writer outside that queue, a conflicting receipt, or an
 ambiguous reread fail closed.
 
-A missing journal on synchronize, edit, reopen, close, recovery, or an initial
-event rerun fails closed instead of silently resetting controller history. An
-explicit bootstrap is the sole operator-authorized clean restart.
+A first-attempt event can therefore preserve an out-of-order receipt when it
+wins the queue before `opened`. Every successful journal creation writes a
+durable `Vercel Preview Journal` status witness before normal reconciliation.
+That dedicated context is never used for preview results, so delayed old
+same-SHA events cannot overwrite newer `Vercel Preview` outcomes. A later
+missing journal with that external initialization evidence, any event rerun, or
+missing recovery state fails closed instead of silently resetting controller
+history. Explicit bootstrap is the sole operator-authorized clean restart.
+
+Before a later event is appended, a terminal journal with no active or retired
+worker and no unfinished evidence folds its completed prefix into one
+deterministic in-place checkpoint. The checkpoint holds cumulative receipt
+counts and digest, the verified tail event, and its terminal status. State is
+rebased onto that tail and completed live receipts are cleared in the same
+revision. A 50-preview sequential-cycle test peaks at 7,772 rendered UTF-8
+bytes. This is still one comment, schema, and controller path: there is no
+archive, rollover, second comment, or compatibility reader.
 
 The complete rendered journal body has a 60,000-byte hard limit measured as
-UTF-8. A transition that would cross it fails closed before changing the
-journal, reporting success, or dispatching work. There is no compaction,
-truncation, rollover, or second-comment escape hatch in this design.
+UTF-8. An unfinished or otherwise unsafe transition that cannot checkpoint and
+would cross it fails closed before changing the journal, reporting success, or
+dispatching work; active, retired, or unmatched evidence is never truncated.
 
 Reconciliation is lossy/replaceable, but it reconstructs from the journal's
 entries and mutable state, current PR lifecycle evidence, and GitHub/provider

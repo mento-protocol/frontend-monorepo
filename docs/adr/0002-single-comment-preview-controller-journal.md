@@ -55,11 +55,13 @@ vercel-preview-journal:v1
 
 The comment keeps the reviewer explanation outside one collapsed `<details>`
 block and stores one canonical JSON document inside it. That document contains
-the repository and pull-request identity, a monotonic revision, logically
-immutable event/selection/worker-evidence/result entries, and the bounded
-mutable controller state. The top-level `journal_digest` covers the canonical
-receipt set and mutable state; `state.receipts_digest` separately binds
-reconciliation to the receipt set. The canonical Markdown envelope includes an
+the repository and pull-request identity, a monotonic revision, an optional
+deterministic checkpoint, logically immutable live
+event/selection/worker-evidence/result entries, and the bounded mutable
+controller state. The top-level `journal_digest` covers the checkpoint,
+canonical live receipt set, and mutable state; `state.receipts_digest`
+separately binds reconciliation to the checkpoint plus live receipt set. The
+canonical Markdown envelope includes an
 explicit closing `</details>` tag and permits no extra presentation text. The
 comment ID is stable for the life of the journal. Updates edit that comment;
 they never create another journal or a receipt-specific comment.
@@ -72,13 +74,20 @@ state, then must increment the revision and recompute `journal_digest`. Receipt
 reconciliation also validates `state.receipts_digest` against the canonical
 receipt set.
 
+Before appending a later event, a terminal journal with no active or retired
+worker and no unfinished evidence deterministically checkpoints its completed
+prefix in place. The checkpoint retains the cumulative receipt digest and
+counts, the verified tail event, and its terminal status; the mutable state is
+rebased onto that tail and the completed live receipts are cleared. This is one
+atomic revision of the same comment and schema, not rollover, archival, or a
+second persistence path. A 50-preview sequential-cycle fixture peaks at 7,772
+rendered UTF-8 bytes.
+
 The complete rendered comment body remains subject to the controller's
-60,000-byte UTF-8 hard limit. A mutation that would exceed that bound fails
-closed before it changes the journal, publishes a success status, or dispatches
-a worker. This decision does not introduce journal compaction or rollover. If
-the bounded receipt and history model cannot remain below the limit, the
-storage decision must be reconsidered rather than silently truncating evidence
-or creating a second comment.
+60,000-byte UTF-8 hard limit. A mutation that cannot be safely checkpointed and
+would exceed that bound fails closed before it changes the journal, publishes a
+success status, or dispatches a worker. Unfinished evidence and active or
+retired ownership are never truncated to recover capacity.
 
 ### The shared queue is a correctness boundary
 
@@ -94,8 +103,10 @@ After acquiring that queue, a writer:
    pull request, revision, journal digest, receipts, state, and, when state
    exists, `state.receipts_digest`;
 2. applies one idempotent transition in memory;
-3. updates the existing comment, or creates it only on a first-attempt `opened`
-   event or an explicit bootstrap transition;
+3. updates the existing comment, or creates it for an explicit bootstrap, a
+   first-attempt `opened`, or another first-attempt PR event only after proving
+   that its `before` and head commits carry no prior `Vercel Preview Journal`
+   initialization status;
 4. rereads the comment and proves its exact revision, canonical JSON, and
    journal digest before publishing statuses or dispatching work.
 
@@ -105,10 +116,14 @@ ambiguous state and fails closed. The queue is not the first-plus-latest
 selection algorithm; it only prevents concurrent journal replacement. Receipt
 contents and current pull-request state continue to determine selection.
 
-A missing journal on synchronize, edit, reopen, close, recovery, or a rerun of
-the initial event is also ambiguous and fails closed. An explicit bootstrap is
-the only operator-authorized clean restart; ordinary event handling never
-silently replaces a deleted journal or resets its revision.
+A first-attempt event may win the queue before `opened`; it may create the
+journal only when no durable controller status exists on its `before` or head
+commit. Every successful journal creation writes a durable, separate
+`Vercel Preview Journal` status witness before normal reconciliation. It never
+reuses the reserved `Vercel Preview` context, so a delayed old same-SHA event
+cannot overwrite a newer epoch's preview result. Consequently a later missing
+journal is external-evidence-backed ambiguity and fails closed, as do event reruns.
+Explicit bootstrap remains the only operator-authorized clean restart.
 
 GitHub currently bounds `queue: max` at 100 pending jobs. The controller must
 keep journal mutations short, expose queue pressure during canaries, and treat
@@ -237,8 +252,10 @@ cost, retention policy, and operator dependency for preview deployment.
   its reread verification. Structural tests for that wiring are mandatory.
 - Journal writers may wait longer during a burst, and queue depth becomes an
   operational signal alongside preview latency.
-- The 60,000-byte UTF-8 bound is a hard capacity constraint. This ADR neither
-  hides nor solves growth through compaction.
+- Deterministic terminal checkpoints keep sequential completed previews
+  bounded without adding an archive, rollover comment, or compatibility path.
+  The 60,000-byte UTF-8 bound remains a fail-closed constraint for unsafe
+  unfinished bursts.
 - Cutover and rollback require explicit run draining and fresh bootstrap. They
   intentionally abandon persistence continuity across journal versions rather
   than carrying compatibility code indefinitely.
