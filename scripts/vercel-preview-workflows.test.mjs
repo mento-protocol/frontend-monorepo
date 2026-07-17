@@ -361,8 +361,61 @@ test("every controller write-token job checks out only trusted workflow code", (
   }
   assert.doesNotMatch(
     read(controllerPath),
-    /secrets\.|VERCEL_TOKEN|TURBO_TOKEN|TURBO_REMOTE_CACHE_SIGNATURE_KEY/,
+    /VERCEL_TOKEN|TURBO_TOKEN|TURBO_REMOTE_CACHE_SIGNATURE_KEY/,
   );
+});
+
+test("only reconciliation steps receive the dedicated worker dispatch credential", () => {
+  const reconciliationJobs = [
+    "reconcile-event",
+    "reconcile-bootstrap",
+    "reconcile-request",
+    "recover-worker-result",
+  ];
+  const secretExpression = "${{ secrets.GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN }}";
+  const raw = read(controllerPath);
+  const secretNames = [...raw.matchAll(/secrets\.([A-Z0-9_]+)/g)].map(
+    ([, name]) => name,
+  );
+  assert.deepEqual(
+    secretNames,
+    Array(4).fill("GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN"),
+  );
+
+  for (const [jobName, job] of Object.entries(controller.jobs)) {
+    for (const step of job.steps ?? []) {
+      const hasDispatchSecret = Object.values(step.env ?? {}).includes(
+        secretExpression,
+      );
+      if (!hasDispatchSecret) continue;
+      assert.ok(
+        reconciliationJobs.includes(jobName),
+        `${jobName} must not receive the worker dispatch credential`,
+      );
+      assert.equal(step.env.WORKER_DISPATCH_TOKEN, secretExpression);
+      assert.equal(Object.hasOwn(step.with ?? {}, "github-token"), false);
+      assert.match(
+        step.with.script,
+        /getOctokit\(process\.env\.WORKER_DISPATCH_TOKEN\)/,
+      );
+      assert.match(step.with.script, /workerDispatchGithub,/);
+    }
+  }
+
+  for (const jobName of reconciliationJobs) {
+    const step = controller.jobs[jobName].steps.find((candidate) =>
+      String(candidate.with?.script ?? "").includes("reconcilePreview"),
+    );
+    assert.ok(step, `${jobName} must invoke reconciliation`);
+    assert.equal(step.env.WORKER_DISPATCH_TOKEN, secretExpression);
+  }
+
+  for (const path of [workerPath, ".github/workflows/_vercel-prebuilt.yml"]) {
+    assert.doesNotMatch(
+      read(path),
+      /GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN|WORKER_DISPATCH_TOKEN/,
+    );
+  }
 });
 
 test("every controller reconciliation binds selections to its immutable workflow SHA", () => {
