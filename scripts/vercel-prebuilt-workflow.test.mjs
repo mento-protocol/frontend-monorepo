@@ -2642,6 +2642,7 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
     handoffBlock,
     /\/bin\/cp -R \\\n\s+--no-dereference \\\n\s+--preserve=mode,timestamps/,
   );
+  assert.match(handoffBlock, /\/bin\/chown \\\n\s+-R \\\n\s+--no-dereference/);
   for (const block of [installBlock, buildBlock]) {
     assert.match(block, /\/usr\/bin\/env -i/);
     assert.match(block, /::stop-commands::\$command_token/);
@@ -2906,12 +2907,128 @@ test("UI upload revalidates exact provenance and project mapping immediately", a
   }
 });
 
-test("UI upload guard rejects links, special nodes, and runner-writable state", () => {
+test("UI upload guard accepts contained relative Vercel function symlinks", () => {
+  const fixture = uploadFixture();
+  try {
+    const functionsDirectory = join(fixture.outputDirectory, "functions");
+    const parentFunction = join(functionsDirectory, "parent.func");
+    const nestedFunctionsDirectory = join(functionsDirectory, "nested");
+    mkdirSync(parentFunction, { recursive: true });
+    mkdirSync(nestedFunctionsDirectory, { recursive: true });
+    writeFileSync(join(parentFunction, "index.js"), "export {};\n");
+    symlinkSync(
+      "../parent.func",
+      join(nestedFunctionsDirectory, "prerender.func"),
+    );
+    assert.equal(
+      assertPrebuiltReadyForUpload(fixture.options),
+      fixture.outputDirectory,
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("UI upload guard rejects unsafe links, special nodes, and runner-writable state", () => {
   const mutateCases = [
     {
-      name: "symbolic link",
+      name: "absolute symbolic link",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(functionsDirectory);
+        symlinkSync(
+          join(outputDirectory, "static", "nested", "asset.js"),
+          join(functionsDirectory, "absolute.func"),
+        );
+      },
+    },
+    {
+      name: "contained non-function symbolic link",
       mutate: ({ outputDirectory }) =>
-        symlinkSync("/etc/passwd", join(outputDirectory, "static", "escape")),
+        symlinkSync(
+          "nested/asset.js",
+          join(outputDirectory, "static", "contained"),
+        ),
+    },
+    {
+      name: "function symbolic link outside functions",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(functionsDirectory);
+        mkdirSync(join(outputDirectory, "static", "outside.func"));
+        symlinkSync(
+          "../static/outside.func",
+          join(functionsDirectory, "outside.func"),
+        );
+      },
+    },
+    {
+      name: "escaping relative symbolic link",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(functionsDirectory);
+        const path = join(functionsDirectory, "escape.func");
+        symlinkSync(relative(dirname(path), "/etc/passwd"), path);
+      },
+    },
+    {
+      name: "broken symbolic link",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(functionsDirectory);
+        symlinkSync("missing.func", join(functionsDirectory, "broken.func"));
+      },
+    },
+    {
+      name: "cyclic symbolic link",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(functionsDirectory);
+        symlinkSync("cycle-b.func", join(functionsDirectory, "cycle-a.func"));
+        symlinkSync("cycle-a.func", join(functionsDirectory, "cycle-b.func"));
+      },
+    },
+    {
+      name: "function symbolic link to a file",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(functionsDirectory);
+        writeFileSync(
+          join(functionsDirectory, "target.func"),
+          "not a directory",
+        );
+        symlinkSync("target.func", join(functionsDirectory, "file-alias.func"));
+      },
+    },
+    {
+      name: "function symbolic link chain",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(join(functionsDirectory, "target.func"), { recursive: true });
+        symlinkSync("target.func", join(functionsDirectory, "first.func"));
+        symlinkSync("first.func", join(functionsDirectory, "second.func"));
+      },
+    },
+    {
+      name: "function symbolic link to an ancestor",
+      mutate: ({ outputDirectory }) => {
+        const nestedDirectory = join(
+          outputDirectory,
+          "functions",
+          "parent.func",
+          "nested",
+        );
+        mkdirSync(nestedDirectory, { recursive: true });
+        symlinkSync("..", join(nestedDirectory, "ancestor.func"));
+      },
+    },
+    {
+      name: "output-root symbolic link",
+      mutate: ({ outputDirectory }) => {
+        const functionsDirectory = join(outputDirectory, "functions");
+        mkdirSync(functionsDirectory);
+        symlinkSync("..", join(functionsDirectory, "root.func"));
+      },
     },
     {
       name: "hard link",

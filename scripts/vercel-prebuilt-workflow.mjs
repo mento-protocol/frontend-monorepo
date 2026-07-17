@@ -18,6 +18,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readlinkSync,
   readdirSync,
   realpathSync,
   rmSync,
@@ -2496,12 +2497,72 @@ function numericIdentity(value, label) {
   return numeric;
 }
 
+function isStrictDescendant(root, path) {
+  const pathFromRoot = relative(root, path);
+  return (
+    pathFromRoot !== "" &&
+    pathFromRoot !== ".." &&
+    !pathFromRoot.startsWith(`..${sep}`) &&
+    !isAbsolute(pathFromRoot)
+  );
+}
+
+function assertSafeOutputSymlink(
+  outputDirectory,
+  canonicalOutputDirectory,
+  path,
+) {
+  const target = readlinkSync(path);
+  const functionsDirectory = join(outputDirectory, "functions");
+  const sourceFromRoot = relative(outputDirectory, path);
+  if (
+    target.length === 0 ||
+    Buffer.byteLength(target, "utf8") > 4_096 ||
+    hasControlCharacters(target) ||
+    isAbsolute(target) ||
+    !isStrictDescendant(outputDirectory, path) ||
+    !sourceFromRoot.startsWith(`functions${sep}`) ||
+    !sourceFromRoot.endsWith(".func")
+  ) {
+    throw new Error("Prebuilt output contains an unsupported symbolic link");
+  }
+  const lexicalTarget = resolve(dirname(path), target);
+  const lexicalTargetFromRoot = relative(outputDirectory, lexicalTarget);
+  if (
+    !isStrictDescendant(functionsDirectory, lexicalTarget) ||
+    !lexicalTargetFromRoot.endsWith(".func") ||
+    isStrictDescendant(lexicalTarget, path)
+  ) {
+    throw new Error("Prebuilt output symbolic link target escaped its scope");
+  }
+  let canonicalTarget;
+  let targetEntry;
+  try {
+    canonicalTarget = realpathSync(lexicalTarget);
+    targetEntry = lstatSync(lexicalTarget);
+  } catch {
+    throw new Error("Prebuilt output symbolic link target is invalid");
+  }
+  if (!targetEntry.isDirectory()) {
+    throw new Error(
+      "Prebuilt output symbolic link target is not a function directory",
+    );
+  }
+  if (
+    relative(canonicalOutputDirectory, canonicalTarget) !==
+    lexicalTargetFromRoot
+  ) {
+    throw new Error("Prebuilt output symbolic link target escaped its root");
+  }
+}
+
 function assertSafeOutputTree(
   outputDirectory,
   { expectedUid = process.getuid?.(), expectedGid = process.getgid?.() } = {},
 ) {
   const uid = numericIdentity(expectedUid, "Expected output UID");
   const gid = numericIdentity(expectedGid, "Expected output GID");
+  const canonicalOutputDirectory = realpathSync(outputDirectory);
   const pending = [outputDirectory];
   let entries = 0;
   while (pending.length > 0) {
@@ -2516,14 +2577,17 @@ function assertSafeOutputTree(
         "Prebuilt output contains an entry with unsafe ownership",
       );
     }
+    const symbolicLink = entry.isSymbolicLink();
     if (
       uid === process.getuid?.() &&
+      !symbolicLink &&
       ((entry.mode & 0o022) !== 0 || (entry.mode & 0o7000) !== 0)
     ) {
       throw new Error("Runner-owned prebuilt output has unsafe permissions");
     }
-    if (entry.isSymbolicLink()) {
-      throw new Error("Prebuilt output contains a symbolic link");
+    if (symbolicLink) {
+      assertSafeOutputSymlink(outputDirectory, canonicalOutputDirectory, path);
+      continue;
     }
     if (entry.isDirectory()) {
       for (const child of readdirSync(path)) pending.push(join(path, child));

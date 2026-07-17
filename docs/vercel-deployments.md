@@ -549,7 +549,7 @@ preview --project-directory "$VERCEL_ISOLATION_ROOT/mento-vercel-pull-staging/ap
 8. stop all candidate-UID processes, then use the trusted privileged controller
    to assert the UI project mapping, Build Output API v3 config, custom
    deployment ID, preview target, pinned CLI build record, output ownership,
-   and runner-owned exact-SHA provenance;
+   safe filesystem shape, and runner-owned exact-SHA provenance;
 9. create a runner-owned upload handoff containing only the validated output,
    trusted project settings, repo link, and exact-SHA provenance;
 10. `vercel deploy --prebuilt --target preview --archive=tgz --format=json`;
@@ -569,6 +569,15 @@ The upload command supplies `githubCommitOrg`, `githubCommitRepo`,
 `githubCommitSha`, and `githubCommitRef`. It intentionally omits
 `githubDeployment=1`, so Vercel cannot create a duplicate GitHub Deployment.
 The build output never becomes a GitHub artifact and never crosses jobs.
+
+The Next.js builder can legitimately represent multiple prerender routes with
+relative symbolic links to one generated function directory. Output validation
+permits only bounded, control-character-free `functions/**/*.func` aliases to a
+directly materialized `.func` directory in that same output tree. Absolute,
+broken, chained, cyclic, non-function, file-targeting, ancestor/self, and
+escaping links remain rejected. The trusted handoff preserves accepted links
+without dereferencing them and changes the link ownership explicitly before
+applying the same validation again immediately before upload.
 
 CLI `56.2.0` gates its local Root Directory monorepo defaults behind
 `VERCEL_BUILD_MONOREPO_SUPPORT=1`. The worker supplies that trusted constant to
