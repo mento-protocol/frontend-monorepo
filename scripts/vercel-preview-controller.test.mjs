@@ -3208,6 +3208,89 @@ test("the first receipt after a terminal checkpoint remains live for reconciliat
   assert.equal(reconciled.status_decisions.at(-1).state, "success");
 });
 
+test("queued receipts after a terminal checkpoint preserve every transition", async () => {
+  const opened = event({
+    run: 260,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const firstPull = pull({ head: SHA.A, updated: timestamp(1) });
+  const selected = reconcile({ events: [opened], pullRequest: firstPull });
+  const active = persistDispatch(selected, 61_000);
+  const selection = selectionReceiptFromDispatch(active.ui.active);
+  const terminalResult = result(selected.nextDispatch, { runId: 61_000 });
+  const terminalState = reconcile({
+    events: [opened],
+    results: [terminalResult],
+    selections: [selection],
+    pullRequest: firstPull,
+    existingState: active,
+  }).state;
+  const checkpointed = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      events: [opened],
+      selections: [selection],
+      results: [terminalResult],
+      state: terminalState,
+    }),
+  );
+  const docsB = event({
+    run: 261,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    runtime: false,
+    updated: timestamp(2),
+  });
+  const docsC = event({
+    run: 262,
+    action: "synchronize",
+    before: SHA.B,
+    head: SHA.C,
+    runtime: false,
+    updated: timestamp(3),
+  });
+  const pullB = pull({ head: SHA.B, updated: timestamp(2) });
+  const pullC = pull({ head: SHA.C, updated: timestamp(3) });
+  const fixture = fakeGitHub({
+    pullRequest: pullC,
+    pullRequests: [pullB, pullB, pullC, pullC],
+    comments: [
+      journalComment({
+        checkpoint: checkpointed.checkpoint,
+        state: checkpointed.state,
+      }),
+    ],
+  });
+
+  await recordEventReceipt({
+    github: fixture.github,
+    context: fakeContext({ runId: docsB.event_run_id }),
+    core: fakeCore(),
+    ...eventRecordInputs(docsB),
+  });
+  await recordEventReceipt({
+    github: fixture.github,
+    context: fakeContext({ runId: docsC.event_run_id }),
+    core: fakeCore(),
+    ...eventRecordInputs(docsC),
+  });
+  const persisted = journalFromComment(fixture.comments[0]);
+  assert.equal(persisted.checkpoint.through_event_run_id, opened.event_run_id);
+  assert.deepEqual(persisted.receipts.events, [docsB, docsC]);
+
+  const reconciled = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext({ runId: 263 }),
+    core: fakeCore(),
+    prNumber: 519,
+  });
+  assert.equal(reconciled.epoch.tail_receipt_run_id, docsC.event_run_id);
+  assert.equal(reconciled.status_decisions.at(-1).state, "success");
+});
+
 test("semantic aliases of checkpointed lifecycle tails are idempotent", async () => {
   const checkpointCases = [];
   for (const [index, action] of ["opened", "reopened", "bootstrap"].entries()) {

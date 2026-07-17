@@ -3013,6 +3013,15 @@ async function appendJournalReceipt({
       let compactAfterAppend = false;
       if (kind === "event" && journal.state !== null) {
         const state = normalizeExistingState(journal.state, journal.pr);
+        const liveReceiptsAreRepresented =
+          state.receipts_digest ===
+          controllerReceiptsDigest(
+            journal.receipts.events,
+            journal.receipts.results,
+            journal.receipts.selections,
+            journal.pr,
+            journal.checkpoint,
+          );
         const terminalKeys = new Set(
           journal.receipts.results.map((result) => result.key_digest),
         );
@@ -3026,7 +3035,7 @@ async function appendJournalReceipt({
           );
         if (hasUnfinishedOwnership) {
           compactAfterAppend = true;
-        } else {
+        } else if (liveReceiptsAreRepresented) {
           compactPreviewJournal(journal);
         }
       }
