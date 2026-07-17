@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { test } from "node:test";
 
 import {
+  assertBrowserDeploymentIdentity,
   createBrowserFailureMonitor,
   loadTrustedChromium,
   runBrowserSmoke,
@@ -23,9 +24,20 @@ const INPUT = {
 };
 
 class FakePage extends EventEmitter {
-  constructor({ afterInteraction } = {}) {
+  constructor({
+    afterInteraction,
+    htmlDeploymentId = NEXT_DEPLOYMENT_ID,
+    assetReferences = [
+      `${INPUT.deploymentUrl}/_next/static/app.js?dpl=${NEXT_DEPLOYMENT_ID}`,
+      `${INPUT.deploymentUrl}/_next/static/app.css?dpl=${NEXT_DEPLOYMENT_ID}`,
+    ],
+    navigationAssetReferences = [],
+  } = {}) {
     super();
     this.afterInteraction = afterInteraction;
+    this.htmlDeploymentId = htmlDeploymentId;
+    this.assetReferences = assetReferences;
+    this.navigationAssetReferences = navigationAssetReferences;
     this.currentUrl = INPUT.deploymentUrl;
     this.checkboxChecked = false;
     this.calls = [];
@@ -42,6 +54,9 @@ class FakePage extends EventEmitter {
   async goto(url, options) {
     this.calls.push(["goto", url, options]);
     this.currentUrl = new URL("/basic-components", url).toString();
+    for (const reference of this.assetReferences) {
+      this.emit("request", { url: () => reference });
+    }
     return { ok: () => true, status: () => 200 };
   }
 
@@ -54,7 +69,7 @@ class FakePage extends EventEmitter {
     return {
       getAttribute: async (attribute) => {
         assert.equal(attribute, "data-dpl-id");
-        return NEXT_DEPLOYMENT_ID;
+        return this.htmlDeploymentId;
       },
     };
   }
@@ -82,6 +97,9 @@ class FakePage extends EventEmitter {
       return {
         click: async () => {
           this.calls.push(["click", "Textarea"]);
+          for (const reference of this.navigationAssetReferences) {
+            this.emit("request", { url: () => reference });
+          }
           this.currentUrl = new URL(
             "/form-components",
             INPUT.deploymentUrl,
@@ -109,6 +127,11 @@ class FakePage extends EventEmitter {
     );
     this.calls.push(["wait-for-url", url, options]);
     assert.equal(this.currentUrl, url);
+  }
+
+  async waitForLoadState(state) {
+    assert.equal(state, "load");
+    this.calls.push(["load-state", state]);
   }
 
   async waitForTimeout(timeout) {
@@ -168,6 +191,75 @@ test("browser smoke validates the immutable deployment identity tuple", () => {
   );
 });
 
+test("browser identity accepts exact assets after hydration removes the html marker", () => {
+  const origin = new URL(INPUT.deploymentUrl).origin;
+  assert.doesNotThrow(() =>
+    assertBrowserDeploymentIdentity(
+      {
+        htmlDeploymentId: null,
+        assetReferences: [
+          `${INPUT.deploymentUrl}/_next/static/app.js?dpl=${NEXT_DEPLOYMENT_ID}&cache=1`,
+          `${INPUT.deploymentUrl}/_next/static/app.css?cache=1&dpl=${NEXT_DEPLOYMENT_ID}`,
+        ],
+      },
+      NEXT_DEPLOYMENT_ID,
+      origin,
+    ),
+  );
+});
+
+test("browser identity rejects missing, mixed, duplicate, or cross-origin evidence", () => {
+  const otherDeploymentId = "m-ui-fffffffffffffffffff";
+  const origin = new URL(INPUT.deploymentUrl).origin;
+  assert.throws(
+    () =>
+      assertBrowserDeploymentIdentity(
+        {
+          htmlDeploymentId: otherDeploymentId,
+          assetReferences: [
+            `${INPUT.deploymentUrl}/_next/static/app.js?dpl=${NEXT_DEPLOYMENT_ID}`,
+            `${INPUT.deploymentUrl}/_next/static/app.css?dpl=${NEXT_DEPLOYMENT_ID}`,
+          ],
+        },
+        NEXT_DEPLOYMENT_ID,
+        origin,
+      ),
+    /conflicting deployment ID/,
+  );
+  const invalidReferences = [
+    [],
+    [
+      `${INPUT.deploymentUrl}/_next/static/app.js?dpl=${NEXT_DEPLOYMENT_ID}`,
+      `${INPUT.deploymentUrl}/_next/static/app.css`,
+    ],
+    [
+      `${INPUT.deploymentUrl}/_next/static/app.js?dpl=${NEXT_DEPLOYMENT_ID}`,
+      `${INPUT.deploymentUrl}/_next/static/app.css?dpl=${otherDeploymentId}`,
+    ],
+    [
+      `${INPUT.deploymentUrl}/_next/static/app.js?dpl=${NEXT_DEPLOYMENT_ID}`,
+      `${INPUT.deploymentUrl}/_next/static/app.css?dpl=${NEXT_DEPLOYMENT_ID}&dpl=${otherDeploymentId}`,
+    ],
+    [
+      `https://other.vercel.app/_next/static/app.js?dpl=${NEXT_DEPLOYMENT_ID}`,
+      `https://other.vercel.app/_next/static/app.css?dpl=${NEXT_DEPLOYMENT_ID}`,
+    ],
+    [`${INPUT.deploymentUrl}/_next/static/app.js?dpl=${NEXT_DEPLOYMENT_ID}`],
+  ];
+  for (const assetReferences of invalidReferences) {
+    assert.throws(() =>
+      assertBrowserDeploymentIdentity(
+        {
+          htmlDeploymentId: null,
+          assetReferences,
+        },
+        NEXT_DEPLOYMENT_ID,
+        origin,
+      ),
+    );
+  }
+});
+
 test("trusted checkout resolves its own pinned Playwright package", async () => {
   const chromium = await loadTrustedChromium(repoRoot);
   assert.equal(typeof chromium.launch, "function");
@@ -191,12 +283,41 @@ test("browser smoke renders, navigates through search, and changes a control", a
     "/form-components",
   ]);
   assert.equal(result.interaction, "sidebar-search-and-checkbox");
+  assert.equal(page.calls.filter((call) => call[0] === "load-state").length, 1);
   assert.ok(page.calls.some((call) => call[0] === "fill"));
   assert.ok(
     page.calls.some(
       (call) => call[0] === "click" && call[1] === "Checkbox option",
     ),
   );
+});
+
+test("browser smoke rejects conflicting route-specific asset identity", async () => {
+  const page = new FakePage({
+    navigationAssetReferences: [
+      `${INPUT.deploymentUrl}/_next/static/form.js?dpl=m-ui-fffffffffffffffffff`,
+    ],
+  });
+  const fake = fakeChromium(page);
+  await assert.rejects(
+    runBrowserSmoke({ chromium: fake.chromium, input: INPUT }),
+    /do not carry only the expected deployment ID/,
+  );
+  assert.equal(fake.state.closed, true);
+});
+
+test("browser smoke rejects a control reset during hydration settle", async () => {
+  const page = new FakePage({
+    afterInteraction(currentPage) {
+      currentPage.checkboxChecked = false;
+    },
+  });
+  const fake = fakeChromium(page);
+  await assert.rejects(
+    runBrowserSmoke({ chromium: fake.chromium, input: INPUT }),
+    /did not remain updated after hydration/,
+  );
+  assert.equal(fake.state.closed, true);
 });
 
 test("browser smoke closes Chrome when a captured failure rejects the run", async () => {
