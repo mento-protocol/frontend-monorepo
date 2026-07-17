@@ -5,11 +5,12 @@ preview controller used by the GitHub Actions deployment migration tracked in
 [issue #515](https://github.com/mento-protocol/frontend-monorepo/issues/515).
 The ownership boundary and its trade-offs are recorded in
 [ADR 0001](adr/0001-github-actions-vercel-deployment-orchestration.md).
-Phase A enables GitHub-built previews for trusted same-repository UI pull
-requests while native Vercel Git UI previews remain enabled for canary
-comparison. Production/main and every non-UI application remain owned by Vercel
-Git. Phase B changes only UI branch-preview ownership after the live canaries in
-this runbook pass.
+Phase A enabled GitHub-built previews for trusted same-repository UI pull
+requests while native Vercel Git UI previews remained enabled for canary
+comparison. After that evidence gate, Phase B transferred only UI branch-preview
+ownership to GitHub Actions. Native Vercel Git previews are now disabled for UI
+branches other than `main`; production/main and every non-UI application remain
+owned by Vercel Git.
 
 ## Pinned prerequisites
 
@@ -1191,8 +1192,11 @@ old-epoch evidence is recent may the ruleset require the Statuses API
 
 ## UI Vercel Git cutover (Phase B)
 
-Phase B must be a separate merge after Phase A canaries pass. Change only
-`apps/ui.mento.org/vercel.json`, preserving its schema and unrelated keys:
+Phase B becomes the current ownership model when this change merges. Merge it
+only after every Phase A dual-path canary above has passed and its
+GitHub-built/native-preview evidence has been recorded. This separate merge
+changes only `apps/ui.mento.org/vercel.json`, preserving its schema and unrelated
+keys:
 
 ```json
 {
@@ -1206,14 +1210,18 @@ Phase B must be a separate merge after Phase A canaries pass. Change only
 }
 ```
 
-Vercel treats any matching `true` as enabled, so `main` remains native even
-though it also matches `**`. Use a fresh/main-rebased UI canary containing this
-configuration. Prove one canonical GitHub Deployment, one Vercel preview, no
-native branch preview, a truthful required status, and an unchanged native
-merge/main deployment. Inventory pre-cutover open branches and require them to
-rebase/merge `main` before using them as duplicate-prevention evidence.
+Vercel treats any matching `true` as enabled, so `main` remains natively
+deployed even though it also matches `**`. If this Phase B branch waited while
+Phase A changed, rebase it onto the final Phase A `main` before merge. After the
+merge, use a fresh UI canary or rebase an existing UI canary onto the resulting
+`main` so it contains this configuration. Prove one canonical GitHub
+Deployment, one Vercel preview, no native branch preview, a truthful required
+status, and an unchanged native merge/main deployment. Stale pre-cutover
+branches still carry their old static `vercel.json` and are not valid
+duplicate-prevention evidence.
 
-Rollback changes that same file exactly to:
+Rollback is mutually exclusive with the Phase B configuration and changes that
+same file exactly to:
 
 ```json
 {

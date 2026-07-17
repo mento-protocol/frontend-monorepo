@@ -38,8 +38,8 @@ function assertExactOwnership(value, expected) {
   assert.deepEqual(Object.keys(value.git), ["deploymentEnabled"]);
 }
 
-test("Phase A preserves the exact rollback-safe native UI ownership", () => {
-  assertExactOwnership(configuration("ui.mento.org"), ROLLBACK_CONFIGURATION);
+test("Phase B gives GitHub Actions exact UI branch-preview ownership", () => {
+  assertExactOwnership(configuration("ui.mento.org"), CUTOVER_CONFIGURATION);
 });
 
 test("cutover and rollback ownership fixtures are exact and mutually exclusive", () => {
@@ -60,7 +60,7 @@ test("cutover and rollback ownership fixtures are exact and mutually exclusive",
   );
 });
 
-test("Phase A and Phase B never change another application's Vercel Git ownership", () => {
+test("Phase B does not change another application's Vercel Git ownership", () => {
   for (const app of [
     "app.mento.org",
     "governance.mento.org",

@@ -447,9 +447,9 @@ The repository is set up with GitHub Actions for CI:
   PRs remain credential-free. A dedicated repository-scoped GitHub credential
   performs only the worker-dispatch POST so terminal `workflow_run` callbacks
   are created; the normal job token still owns all state and recovery calls.
-  During Phase A, native Vercel Git UI previews
-  remain enabled for canary comparison; Vercel Git still owns every
-  main/production deployment and all non-UI apps. See
+  After the Phase A-canary-gated Phase B cutover, GitHub Actions owns UI branch
+  previews and native Vercel Git branch previews are disabled only for UI.
+  Vercel Git still owns every main/production deployment and all non-UI apps. See
   [ADR 0001](docs/adr/0001-github-actions-vercel-deployment-orchestration.md)
   for the accepted ownership boundary,
   [ADR 0002](docs/adr/0002-single-comment-preview-controller-journal.md) for
