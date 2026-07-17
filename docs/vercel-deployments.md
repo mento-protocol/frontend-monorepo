@@ -674,8 +674,9 @@ navigation, inspect console errors and failed network requests, confirm static
 assets/fonts, and compare security headers plus the Vercel toolbar/CSP behavior
 with the native preview. Attach the URL and concise evidence to the PR or issue.
 
-The final UI Git-ownership cutover remains blocked on the cost go/no-go evidence
-in issue #518 and the Phase A live canaries below.
+The cost go/no-go record in issue #518 and the Phase A live-canary evidence
+below were prerequisites for the final UI Git-ownership cutover. The current
+Phase B ownership model reflects that gate having completed.
 
 ## Automatic trusted UI previews (Phase A)
 
@@ -965,7 +966,9 @@ terminal recovery succeeds, the same journal gains the result, active ownership
 clears, and `Vercel Preview` becomes terminal at the immutable URL. Repeat with
 a controlled failure and a cancelled worker before Deployment creation, then
 rerun a callback to prove journal, worker, Deployment, and result idempotency.
-Until that evidence exists after provisioning, Phase A remains blocked.
+That automatic-callback, failure, cancellation, and replay evidence was a Phase
+A acceptance gate after credential provisioning and had to pass before the UI
+Git-ownership cutover.
 
 The canonical Deployment key and environment are:
 
@@ -1055,8 +1058,9 @@ or exactly-once delivery across GitHub and Vercel.
 
 ### Bootstrap and operator recovery
 
-Before `Vercel Preview` becomes required, inventory every already-open PR and
-bootstrap each trusted same-repository PR that should participate. A lone
+Before `Vercel Preview` became required during Phase A, maintainers had to
+inventory every already-open PR and bootstrap each trusted same-repository PR
+that should participate. A lone
 synchronize journal entry deliberately waits for an
 opened/reopened/bootstrap anchor. Repeated semantically identical bootstrap
 requests are idempotent, and a bootstrap identical to an existing lifecycle
@@ -1150,13 +1154,14 @@ full-body schema validation.
 
 ### Phase A canary evidence template
 
-Keep native Vercel Git UI previews enabled. For every canary, record the PR,
-exact SHA(s), controller/worker run URLs, controller key/digest, canonical
+Phase A kept native Vercel Git UI previews enabled. For every canary, record the
+PR, exact SHA(s), controller/worker run URLs, controller key/digest, canonical
 GitHub Deployment ID, GitHub-built immutable URL, native Vercel immutable URL,
 canonical journal comment ID/revision/`journal_digest`/`state.receipts_digest`,
 terminal `Vercel Preview` status, and browser evidence.
 
-Verify all of these before changing the ruleset or starting Phase B:
+The Phase A gate required all of these before changing the ruleset or starting
+Phase B:
 
 1. trusted UI-affecting A produces both native and GitHub previews;
 2. rapid UI pushes A -> B -> C deploy A then C, with B durably coalesced;
@@ -1185,18 +1190,16 @@ network requests, confirm JS/CSS/font assets, and compare security headers plus
 Vercel toolbar/CSP behavior with the native preview. A canary is not accepted
 from workflow logs alone.
 
-Only after successful deploy, no-runtime, runtime-reuse, coalesced, after-idle,
-idempotent replay/reconcile, unsupported-trust, failure, cancellation, and
-old-epoch evidence is recent may the ruleset require the Statuses API
-`Vercel Preview` context.
+The Phase A ruleset change was gated on recent successful-deploy, no-runtime,
+runtime-reuse, coalesced, after-idle, idempotent replay/reconcile,
+unsupported-trust, failure, cancellation, and old-epoch evidence.
 
 ## UI Vercel Git cutover (Phase B)
 
-Phase B becomes the current ownership model when this change merges. Merge it
-only after every Phase A dual-path canary above has passed and its
-GitHub-built/native-preview evidence has been recorded. This separate merge
-changes only `apps/ui.mento.org/vercel.json`, preserving its schema and unrelated
-keys:
+Phase B is the current ownership model after this change merges. Its completed
+precondition was that every Phase A dual-path canary above passed and its
+GitHub-built/native-preview evidence was recorded. This separate merge changes
+only `apps/ui.mento.org/vercel.json`, preserving its schema and unrelated keys:
 
 ```json
 {
@@ -1212,13 +1215,18 @@ keys:
 
 Vercel treats any matching `true` as enabled, so `main` remains natively
 deployed even though it also matches `**`. If this Phase B branch waited while
-Phase A changed, rebase it onto the final Phase A `main` before merge. After the
-merge, use a fresh UI canary or rebase an existing UI canary onto the resulting
-`main` so it contains this configuration. Prove one canonical GitHub
-Deployment, one Vercel preview, no native branch preview, a truthful required
-status, and an unchanged native merge/main deployment. Stale pre-cutover
-branches still carry their old static `vercel.json` and are not valid
-duplicate-prevention evidence.
+Phase A changed, rebase it onto the final Phase A `main` before merge. Before
+the Phase B merge, inventory every active UI-runtime PR and branch. After the
+cutover reaches `main`, each active branch must rebase or merge that `main`, or
+receive an explicitly reviewed equivalent branch update containing this Phase B
+configuration, before repository-wide duplicate prevention can be claimed.
+
+Use a fresh UI canary or rebase an existing UI canary onto the resulting `main`
+so it contains this configuration. Prove one canonical GitHub Deployment, one
+Vercel preview, no native branch preview, a truthful required status, and an
+unchanged native merge/main deployment. A fresh canary proves only its own
+branch; stale pre-cutover branches still carry their old static `vercel.json`
+and are not valid repository-wide duplicate-prevention evidence.
 
 Rollback is mutually exclusive with the Phase B configuration and changes that
 same file exactly to:
@@ -1234,10 +1242,17 @@ same file exactly to:
 }
 ```
 
-Merge the rollback normally, use a fresh UI canary to prove native previews
-return, and remove/leave non-required the `Vercel Preview` ruleset context until
-the controller is repaired. Do not change production domains, other apps, or
-recreate Governance QA.
+Before merging the rollback, inventory every active UI-runtime PR and branch
+that carries the Phase B `"**": false` rule. After the restored configuration
+reaches `main`, each inventoried branch must rebase or merge that `main`, or
+receive an explicitly reviewed equivalent branch update containing the exact
+rollback configuration, before native preview restoration can be claimed.
+
+Use a fresh or restored-main-rebased UI canary to prove native previews return.
+A fresh canary proves only its own branch and is not evidence that every active
+Phase B branch was restored. Remove or leave non-required the `Vercel Preview`
+ruleset context until the controller is repaired. Do not change production
+domains, other apps, or recreate Governance QA.
 
 ### Cleanup
 
