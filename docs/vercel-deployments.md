@@ -848,6 +848,24 @@ trust boundary, durably coalesced, failure, or controller error. Detailed
 PR/SHA/key/run/Deployment evidence remains in the canonical journal because
 status descriptions are bounded.
 
+Terminal status targets are durable evidence rather than the URL of whichever
+controller invocation happened to reconcile them. Verified uploads, including
+uploads that later fail smoke, point at the immutable `vercel.app` deployment;
+terminal failures without an upload point at their exact worker run. Outcomes
+that have no more specific artifact, such as no-runtime, coalesced, or
+unsupported events, retain the target already recorded in their terminal
+journal decision.
+
+An exact canonical replay leaves the journal revision, digest, and status
+decision unchanged. Only in that unchanged-state case, the controller reads one
+newest-first, 100-row page of commit statuses and suppresses a write when the
+latest `Vercel Preview` entry was created by `github-actions[bot]` and exactly
+matches state, description, and normalized target URL. A missing, mismatched,
+foreign-authored, malformed, or temporarily unreadable witness never blocks
+reconciliation: the controller conservatively writes the canonical status
+again, so an externally deleted or altered status is repaired while a genuine
+pending-to-terminal or target transition remains visible.
+
 For each open/reopen/base-retarget/bootstrap epoch, the oldest journal event
 entry that actually affects the UI is `first_eligible_sha`. It always runs
 first. An identical bootstrap aliases an existing lifecycle anchor instead of

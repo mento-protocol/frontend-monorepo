@@ -212,6 +212,9 @@ function result(
     runId = 8_000,
     state = "success",
     reason = state === "success" ? "verified" : "worker-failure",
+    vercelDeploymentUrl = state === "success"
+      ? `https://ui-${runId}.vercel.app`
+      : null,
   } = {},
 ) {
   return validateWorkerResult({
@@ -232,8 +235,7 @@ function result(
     state,
     vercel_deployment_id: state === "success" ? `dpl_${runId}` : null,
     next_deployment_id: state === "success" ? `m-ui-${runId}` : null,
-    vercel_deployment_url:
-      state === "success" ? `https://ui-${runId}.vercel.app` : null,
+    vercel_deployment_url: vercelDeploymentUrl,
     smoke_result: state === "success" ? "passed" : "failed",
     terminal_reason: reason,
   });
@@ -2138,7 +2140,7 @@ test("docs-only checkpoint tails preserve prior runtime terminal semantics", () 
       decision.target_url,
       terminalCase.state === "success"
         ? `https://ui-${workerRunId}.vercel.app`
-        : CONTROLLER_URL,
+        : `https://github.com/${PREVIEW_REPOSITORY}/actions/runs/${workerRunId}`,
     );
   }
 
@@ -2504,12 +2506,14 @@ function fakeGitHub({
   deployments: initialDeployments = [],
   deploymentStatuses = new Map(),
   existingCommitStatuses = new Map(),
+  commitStatusListFailures = [],
   commitStatusFailures = [],
   workflowRunDisplayTitles = [],
   workflowRunListDisplayTitles = [],
   workflowRunListRunIds = [],
   pullRequests = [],
   beforeListComments,
+  beforeListCommitStatuses,
 } = {}) {
   const comments = structuredClone(initialComments);
   const runs = structuredClone(initialRuns);
@@ -2541,15 +2545,34 @@ function fakeGitHub({
   const transientPullRequests = [...pullRequests];
   const attemptFailures = [...workflowRunAttemptFailures];
   const commentUpdateFailures = [...updateCommentFailures];
+  const commitStatusListFailureQueue = [...commitStatusListFailures];
   const commitStatusFailureQueue = [...commitStatusFailures];
   const commentUpdateFailureIds = new Set(updateCommentFailureIds);
   let nextCommentId = 100;
   let nextDeploymentId = 9_000;
   let listCommentRequests = 0;
+  let listCommitStatusRequests = 0;
   const listComments = async () => {};
   const listCommits = async () => {};
   const listDeployments = async () => {};
-  const listCommitStatusesForRef = async () => {};
+  const listCommitStatusesForRef = async ({ ref, per_page = 100 }) => {
+    listCommitStatusRequests += 1;
+    beforeListCommitStatuses?.({
+      requestCount: listCommitStatusRequests,
+      comments,
+    });
+    const failureStatus = commitStatusListFailureQueue.shift();
+    if (failureStatus) {
+      const error = new Error("fixture commit status read failed");
+      error.status = failureStatus;
+      throw error;
+    }
+    return {
+      data: structuredClone(
+        (commitStatusHistory.get(String(ref)) ?? []).slice(0, per_page),
+      ),
+    };
+  };
   const github = {
     rest: {
       issues: {
@@ -2801,6 +2824,484 @@ function fakeCore() {
     },
   };
 }
+
+function previewCommitStatuses(decisions) {
+  const statuses = new Map();
+  for (const decision of decisions) {
+    statuses.set(decision.sha, [
+      {
+        context: "Vercel Preview",
+        state: decision.state,
+        description: decision.description,
+        target_url: new URL(decision.target_url).toString(),
+        creator: { type: "Bot", login: "github-actions[bot]" },
+      },
+    ]);
+  }
+  return statuses;
+}
+
+async function assertSettledReplayIsIdempotent({
+  events,
+  pullRequest,
+  state,
+  selections = [],
+  results = [],
+  runId,
+}) {
+  const comment = journalComment({
+    revision: 7,
+    events,
+    selections,
+    results,
+    state,
+  });
+  const before = journalFromComment(comment);
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [comment],
+    existingCommitStatuses: previewCommitStatuses(state.status_decisions),
+  });
+
+  await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext({ runId }),
+    core: fakeCore(),
+    prNumber: pullRequest.number,
+  });
+
+  assert.deepEqual(journalFromComment(fixture.comments[0]), before);
+  assert.equal(fixture.commentUpdates.length, 0);
+  assert.equal(
+    fixture.commitStatuses.length,
+    0,
+    JSON.stringify(fixture.commitStatuses),
+  );
+  assert.equal(fixture.dispatches.length, 0);
+}
+
+test("settled reconcile replays preserve journal and status intent across terminal outcomes", async () => {
+  const runtimeCases = [
+    {
+      state: "success",
+      reason: "verified",
+      expectedTarget: (workerRunId) => `https://ui-${workerRunId}.vercel.app`,
+    },
+    {
+      state: "failure",
+      reason: "build-failed-final",
+      expectedTarget: (workerRunId) =>
+        `https://github.com/${PREVIEW_REPOSITORY}/actions/runs/${workerRunId}`,
+    },
+    {
+      state: "failure",
+      reason: "smoke-failed-final",
+      vercelDeploymentUrl: "https://smoke-failure.vercel.app",
+      expectedTarget: () => "https://smoke-failure.vercel.app",
+    },
+    {
+      state: "error",
+      reason: "worker_timed_out",
+      expectedTarget: (workerRunId) =>
+        `https://github.com/${PREVIEW_REPOSITORY}/actions/runs/${workerRunId}`,
+    },
+  ];
+  let runId = 7_100;
+  for (const terminal of runtimeCases) {
+    const opened = event({
+      run: runId,
+      action: "opened",
+      head: SHA.A,
+      updated: timestamp(1),
+    });
+    const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+    const selected = reconcile({ events: [opened], pullRequest });
+    const active = persistDispatch(selected, runId + 1);
+    const selection = selectionReceiptFromDispatch(active.ui.active);
+    const terminalResult = result(selected.nextDispatch, {
+      runId: runId + 1,
+      ...terminal,
+    });
+    const state = reconcile({
+      events: [opened],
+      results: [terminalResult],
+      selections: [selection],
+      pullRequest,
+      existingState: active,
+    }).state;
+    assert.equal(
+      state.status_decisions[0].target_url,
+      terminal.expectedTarget(runId + 1),
+    );
+
+    await assertSettledReplayIsIdempotent({
+      events: [opened],
+      pullRequest,
+      state,
+      selections: [selection],
+      results: [terminalResult],
+      runId: runId + 2,
+    });
+    runId += 10;
+  }
+
+  const docs = event({
+    run: 7_200,
+    action: "opened",
+    head: SHA.B,
+    runtime: false,
+    updated: timestamp(1),
+  });
+  const docsPull = pull({ head: SHA.B, updated: timestamp(1) });
+  await assertSettledReplayIsIdempotent({
+    events: [docs],
+    pullRequest: docsPull,
+    state: reconcile({ events: [docs], pullRequest: docsPull }).state,
+    runId: 7_201,
+  });
+
+  const unsupported = event({
+    run: 7_210,
+    action: "opened",
+    head: SHA.C,
+    repository: "fork/frontend-monorepo",
+    author: "fork-author",
+    updated: timestamp(1),
+  });
+  const unsupportedPull = pull({
+    head: SHA.C,
+    repository: "fork/frontend-monorepo",
+    author: "fork-author",
+    updated: timestamp(1),
+  });
+  await assertSettledReplayIsIdempotent({
+    events: [unsupported],
+    pullRequest: unsupportedPull,
+    state: reconcile({
+      events: [unsupported],
+      pullRequest: unsupportedPull,
+    }).state,
+    runId: 7_211,
+  });
+
+  const burst = [
+    event({ run: 7_220, action: "opened", head: SHA.A, updated: timestamp(1) }),
+    event({
+      run: 7_221,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      updated: timestamp(2),
+    }),
+    event({
+      run: 7_222,
+      action: "synchronize",
+      before: SHA.B,
+      head: SHA.C,
+      updated: timestamp(3),
+    }),
+  ];
+  const burstPull = pull({ head: SHA.C, updated: timestamp(3) });
+  const selectedA = reconcile({ events: burst, pullRequest: burstPull });
+  const activeA = persistDispatch(selectedA, 7_223);
+  const selectionA = selectionReceiptFromDispatch(activeA.ui.active);
+  const resultA = result(selectedA.nextDispatch, { runId: 7_223 });
+  const selectedC = reconcile({
+    events: burst,
+    results: [resultA],
+    selections: [selectionA],
+    pullRequest: burstPull,
+    existingState: activeA,
+  });
+  const activeC = persistDispatch(selectedC, 7_224);
+  const selectionC = selectionReceiptFromDispatch(activeC.ui.active);
+  const resultC = result(selectedC.nextDispatch, { runId: 7_224 });
+  const burstState = reconcile({
+    events: burst,
+    results: [resultA, resultC],
+    selections: [selectionA, selectionC],
+    pullRequest: burstPull,
+    existingState: activeC,
+  }).state;
+  assert.match(burstState.status_decisions[1].description, /Coalesced/);
+  await assertSettledReplayIsIdempotent({
+    events: burst,
+    pullRequest: burstPull,
+    state: burstState,
+    selections: [selectionA, selectionC],
+    results: [resultA, resultC],
+    runId: 7_225,
+  });
+});
+
+test("settled replay suppression uses only the latest bounded status witness", async () => {
+  const docs = event({
+    run: 7_260,
+    action: "opened",
+    head: SHA.D,
+    runtime: false,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.D, updated: timestamp(1) });
+  const state = reconcile({ events: [docs], pullRequest }).state;
+  const comment = journalComment({ events: [docs], state });
+  const exactStatus = previewCommitStatuses(state.status_decisions).get(
+    SHA.D,
+  )[0];
+  const noise = Array.from({ length: 100 }, (_, index) => ({
+    context: `Unrelated check ${index}`,
+    state: "success",
+    description: "Unrelated status",
+    target_url: null,
+  }));
+
+  const lastRealisticStatusFixture = fakeGitHub({
+    pullRequest,
+    comments: [comment],
+    existingCommitStatuses: new Map([
+      [SHA.D, [...noise.slice(0, 99), exactStatus]],
+    ]),
+  });
+  await reconcilePreview({
+    github: lastRealisticStatusFixture.github,
+    context: fakeContext({ runId: 7_261 }),
+    core: fakeCore(),
+    prNumber: 519,
+  });
+  assert.equal(lastRealisticStatusFixture.commentUpdates.length, 0);
+  assert.equal(lastRealisticStatusFixture.commitStatuses.length, 0);
+
+  const newerMismatchFixture = fakeGitHub({
+    pullRequest,
+    comments: [comment],
+    existingCommitStatuses: new Map([
+      [
+        SHA.D,
+        [
+          { ...exactStatus, description: "Stale external description" },
+          exactStatus,
+        ],
+      ],
+    ]),
+  });
+  await reconcilePreview({
+    github: newerMismatchFixture.github,
+    context: fakeContext({ runId: 7_262 }),
+    core: fakeCore(),
+    prNumber: 519,
+  });
+  assert.equal(newerMismatchFixture.commentUpdates.length, 0);
+  assert.equal(newerMismatchFixture.commitStatuses.length, 1);
+
+  const foreignCreatorFixture = fakeGitHub({
+    pullRequest,
+    comments: [comment],
+    existingCommitStatuses: new Map([
+      [
+        SHA.D,
+        [
+          {
+            ...exactStatus,
+            creator: { type: "User", login: "foreign-maintainer" },
+          },
+        ],
+      ],
+    ]),
+  });
+  await reconcilePreview({
+    github: foreignCreatorFixture.github,
+    context: fakeContext({ runId: 7_263 }),
+    core: fakeCore(),
+    prNumber: 519,
+  });
+  assert.equal(foreignCreatorFixture.commentUpdates.length, 0);
+  assert.equal(foreignCreatorFixture.commitStatuses.length, 1);
+
+  const beyondBoundFixture = fakeGitHub({
+    pullRequest,
+    comments: [comment],
+    existingCommitStatuses: new Map([[SHA.D, [...noise, exactStatus]]]),
+  });
+  await reconcilePreview({
+    github: beyondBoundFixture.github,
+    context: fakeContext({ runId: 7_264 }),
+    core: fakeCore(),
+    prNumber: 519,
+  });
+  assert.equal(beyondBoundFixture.commentUpdates.length, 0);
+  assert.equal(beyondBoundFixture.commitStatuses.length, 1);
+
+  const racedState = structuredClone(state);
+  racedState.status_decisions[0].target_url =
+    "https://github.com/mento-protocol/frontend-monorepo/actions/runs/7265";
+  const racedComment = journalComment({
+    revision: 8,
+    events: [docs],
+    state: racedState,
+  });
+  const basisRaceFixture = fakeGitHub({
+    pullRequest,
+    comments: [comment],
+    existingCommitStatuses: new Map([
+      [SHA.D, [{ ...exactStatus, description: "Stale external description" }]],
+    ]),
+    beforeListCommitStatuses: ({ requestCount, comments }) => {
+      if (requestCount === 1) comments[0].body = racedComment.body;
+    },
+  });
+  const stateAfterRace = await reconcilePreview({
+    github: basisRaceFixture.github,
+    context: fakeContext({ runId: 7_265 }),
+    core: fakeCore(),
+    prNumber: 519,
+  });
+  assert.equal(basisRaceFixture.commitStatuses.length, 1);
+  assert.equal(
+    basisRaceFixture.commitStatuses[0].target_url,
+    racedState.status_decisions[0].target_url,
+  );
+  assert.deepEqual(stateAfterRace, racedState);
+});
+
+test("reconcile still publishes genuine terminal changes and repairs a missing status witness", async () => {
+  const opened = event({
+    run: 7_300,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const selected = reconcile({ events: [opened], pullRequest });
+  const active = persistDispatch(selected, 7_301);
+  const selection = selectionReceiptFromDispatch(active.ui.active);
+  const terminalResult = result(selected.nextDispatch, {
+    runId: 7_301,
+    state: "failure",
+    reason: "build-failed-final",
+  });
+  const pendingComment = journalWithState([opened], active, {
+    selections: [selection],
+    results: [terminalResult],
+  });
+  const pendingFixture = fakeGitHub({
+    pullRequest,
+    comments: [pendingComment],
+    existingCommitStatuses: previewCommitStatuses(active.status_decisions),
+  });
+
+  const terminalState = await reconcilePreview({
+    github: pendingFixture.github,
+    context: fakeContext({ runId: 7_302 }),
+    core: fakeCore(),
+    prNumber: 519,
+  });
+  assert.equal(terminalState.status_decisions[0].state, "failure");
+  assert.equal(pendingFixture.commentUpdates.length, 1);
+  assert.equal(pendingFixture.commitStatuses.length, 1);
+  assert.equal(pendingFixture.commitStatuses[0].state, "failure");
+
+  const controllerTargetState = structuredClone(terminalState);
+  controllerTargetState.status_decisions[0].target_url = CONTROLLER_URL;
+  const controllerTargetComment = journalComment({
+    events: [opened],
+    selections: [selection],
+    results: [terminalResult],
+    state: controllerTargetState,
+  });
+  const changedCanonicalTargetFixture = fakeGitHub({
+    pullRequest,
+    comments: [controllerTargetComment],
+    existingCommitStatuses: previewCommitStatuses(
+      controllerTargetState.status_decisions,
+    ),
+  });
+  const migratedTargetState = await reconcilePreview({
+    github: changedCanonicalTargetFixture.github,
+    context: fakeContext({ runId: 7_303 }),
+    core: fakeCore(),
+    prNumber: 519,
+  });
+  assert.equal(changedCanonicalTargetFixture.commentUpdates.length, 1);
+  assert.equal(changedCanonicalTargetFixture.commitStatuses.length, 1);
+  assert.equal(
+    migratedTargetState.status_decisions[0].target_url,
+    `https://github.com/${PREVIEW_REPOSITORY}/actions/runs/7301`,
+  );
+  assert.equal(
+    changedCanonicalTargetFixture.commitStatuses[0].target_url,
+    migratedTargetState.status_decisions[0].target_url,
+  );
+
+  const settledComment = journalComment({
+    events: [opened],
+    selections: [selection],
+    results: [terminalResult],
+    state: terminalState,
+  });
+  const readFailureFixture = fakeGitHub({
+    pullRequest,
+    comments: [settledComment],
+    existingCommitStatuses: previewCommitStatuses(
+      terminalState.status_decisions,
+    ),
+    commitStatusListFailures: [503],
+  });
+  const stateAfterReadFailure = await reconcilePreview({
+    github: readFailureFixture.github,
+    context: fakeContext({ runId: 7_304 }),
+    core: fakeCore(),
+    prNumber: 519,
+  });
+  assert.deepEqual(stateAfterReadFailure, terminalState);
+  assert.equal(readFailureFixture.commentUpdates.length, 0);
+  assert.equal(readFailureFixture.commitStatuses.length, 1);
+  assert.equal(readFailureFixture.commitStatuses[0].state, "failure");
+  assert.equal(
+    readFailureFixture.commitStatuses[0].description,
+    terminalState.status_decisions[0].description,
+  );
+  assert.equal(
+    readFailureFixture.commitStatuses[0].target_url,
+    terminalState.status_decisions[0].target_url,
+  );
+
+  const missingWitnessFixture = fakeGitHub({
+    pullRequest,
+    comments: [settledComment],
+  });
+  await reconcilePreview({
+    github: missingWitnessFixture.github,
+    context: fakeContext({ runId: 7_305 }),
+    core: fakeCore(),
+    prNumber: 519,
+  });
+  assert.equal(missingWitnessFixture.commentUpdates.length, 0);
+  assert.equal(missingWitnessFixture.commitStatuses.length, 1);
+  assert.equal(missingWitnessFixture.commitStatuses[0].state, "failure");
+
+  const changedTargetStatuses = previewCommitStatuses(
+    terminalState.status_decisions,
+  );
+  changedTargetStatuses.get(SHA.A)[0].target_url =
+    "https://github.com/mento-protocol/frontend-monorepo/actions/runs/999";
+  const changedTargetFixture = fakeGitHub({
+    pullRequest,
+    comments: [settledComment],
+    existingCommitStatuses: changedTargetStatuses,
+  });
+  await reconcilePreview({
+    github: changedTargetFixture.github,
+    context: fakeContext({ runId: 7_306 }),
+    core: fakeCore(),
+    prNumber: 519,
+  });
+  assert.equal(changedTargetFixture.commentUpdates.length, 0);
+  assert.equal(changedTargetFixture.commitStatuses.length, 1);
+  assert.equal(
+    changedTargetFixture.commitStatuses[0].target_url,
+    terminalState.status_decisions[0].target_url,
+  );
+});
 
 test("malformed successful planner output is recorded as fail-closed UI impact", async () => {
   const opened = event({
