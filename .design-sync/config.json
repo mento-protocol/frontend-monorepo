@@ -1,0 +1,31 @@
+{
+  "pkg": "@mento-protocol/ui",
+  "globalName": "MentoUI",
+  "projectId": "d3ec146f-ceae-4bae-8d96-3b2f5c6dc350",
+  "shape": "package",
+  "buildCmd": "pnpm -F \"@mento-protocol/ui...\" build",
+  "extraEntries": ["../../.design-sync/shims/ds-env-shim.mjs"],
+  "readmeHeader": ".design-sync/conventions.md",
+  "cssEntry": "dist/globals.css",
+  "tokensGlob": ["dist/theme.css"],
+  "runtimeFontPrefixes": ["Geist", "Cambria"],
+  "overrides": {
+    "Dialog": { "cardMode": "single", "viewport": "680x460" },
+    "Sheet": { "cardMode": "single", "viewport": "680x480" },
+    "Popover": { "cardMode": "single", "viewport": "380x300" },
+    "DropdownMenu": { "cardMode": "single", "viewport": "360x340" },
+    "Select": { "cardMode": "single", "viewport": "360x360" },
+    "CoinSelect": { "cardMode": "single", "viewport": "360x360" },
+    "Tooltip": { "cardMode": "single", "viewport": "360x220" },
+    "Footer": { "cardMode": "single", "viewport": "940x200" },
+    "Navigation": { "cardMode": "single", "viewport": "940x160" },
+    "NavigationMenu": { "cardMode": "single", "viewport": "560x300" },
+    "RichTextEditor": { "cardMode": "single", "viewport": "600x380" },
+    "Sidebar": { "cardMode": "single", "viewport": "860x520" },
+    "SidebarMenuSkeleton": { "cardMode": "single", "viewport": "320x320" },
+    "CommunityCard": { "cardMode": "column" },
+    "Collapsible": { "cardMode": "column" },
+    "Pagination": { "cardMode": "column" },
+    "Tabs": { "cardMode": "column" }
+  }
+}
