@@ -85,6 +85,12 @@ describe("chain-policy", () => {
         feature: "bridge",
       }),
     ).toBe(false);
+    expect(
+      isFeatureConfiguredOnChain({
+        chainId: ChainId.Polygon,
+        feature: "bridge",
+      }),
+    ).toBe(true);
   });
 
   it("maps testnets back to their mainnet fallback", () => {

@@ -36,7 +36,7 @@ const FEATURE_CHAIN_IDS: Record<AppFeature, readonly ChainId[]> = {
   pools: ALL_CHAIN_IDS,
   stabilityPool: [ChainId.Celo, ChainId.CeloSepolia],
   borrow: [ChainId.Celo, ChainId.CeloSepolia],
-  bridge: [ChainId.Celo, ChainId.Monad],
+  bridge: [ChainId.Celo, ChainId.Monad, ChainId.Polygon],
   rewards: [ChainId.Celo, ChainId.Monad],
 };
 
