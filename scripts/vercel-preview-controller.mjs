@@ -25,6 +25,12 @@ const EVENT_MARKER_PREFIX = "<!-- vercel-preview-event-receipt:v1:run:";
 const EVIDENCE_MARKER_PREFIX = "<!-- vercel-preview-worker-evidence:v1:";
 const RESULT_MARKER_PREFIX = "<!-- vercel-preview-worker-result:v1:";
 const SELECTION_MARKER_PREFIX = "<!-- vercel-preview-selection:v1:key:";
+const IMMUTABLE_RECEIPT_MARKER_PREFIXES = [
+  EVENT_MARKER_PREFIX,
+  EVIDENCE_MARKER_PREFIX,
+  RESULT_MARKER_PREFIX,
+  SELECTION_MARKER_PREFIX,
+];
 const CONTROLLER_MARKER = "<!-- vercel-preview-controller:v1 -->";
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const LOGIN_PATTERN =
@@ -53,6 +59,7 @@ const TERMINAL_STATES = new Set(["success", "failure", "error"]);
 const MAX_COMMENTS = 500;
 const MAX_RECEIPTS = 200;
 const MAX_HISTORY = 40;
+const MAX_PRESENTATION_MIGRATIONS_PER_RECONCILE = 5;
 const WORKER_RUN_PAGE_SIZE = 100;
 const MAX_WORKER_RUN_PAGES = 3;
 const WORKER_RUN_VISIBILITY_ATTEMPTS = 3;
@@ -1936,6 +1943,112 @@ function parseControllerComments(comments) {
   };
 }
 
+function canonicalLegacyReceiptUpgrade(comment) {
+  if (!isTrustedBotComment(comment) || typeof comment.body !== "string")
+    return null;
+  const marker = comment.body.split("\n", 1)[0];
+  if (
+    !IMMUTABLE_RECEIPT_MARKER_PREFIXES.some((prefix) =>
+      marker.startsWith(prefix),
+    )
+  ) {
+    return null;
+  }
+  const value = parseMarkerBody(comment.body, marker);
+  const legacyBody = legacyMarkerBody(marker, value);
+  if (comment.body !== legacyBody && comment.body !== legacyBody.slice(0, -1)) {
+    return null;
+  }
+  return {
+    commentId: comment.id,
+    body: markerBody(marker, value),
+  };
+}
+
+function selectionHasTerminalResult(selection, results) {
+  return results.some(
+    (result) =>
+      result.key_digest === selection.key_digest &&
+      result.epoch_anchor_run_id === selection.epoch_anchor_run_id &&
+      result.selection_receipt_run_id === selection.selection_receipt_run_id,
+  );
+}
+
+function hasUnfinishedLegacyWorker(parsed, pr, workflowSha) {
+  const state = normalizeExistingState(parsed.state, pr);
+  if (state === null) return true;
+  return [state.ui?.active, ...(state.ui?.retired_active ?? [])]
+    .filter(
+      (selection) => selection && selection.recovery_quarantine === undefined,
+    )
+    .some(
+      (selection) =>
+        selection.expected_workflow_sha !== workflowSha &&
+        !selectionHasTerminalResult(selection, parsed.results),
+    );
+}
+
+async function migrateLegacyReceiptPresentation({
+  github,
+  context,
+  core,
+  pr,
+  workflowSha,
+  comments,
+  parsed,
+  migrationBudget,
+}) {
+  const upgrades = comments.map(canonicalLegacyReceiptUpgrade).filter(Boolean);
+  if (upgrades.length === 0) {
+    if (migrationBudget.migrated > 0) {
+      core.setOutput("legacy_receipt_presentations_remaining", "0");
+    }
+    return;
+  }
+  if (hasUnfinishedLegacyWorker(parsed, pr, workflowSha)) {
+    core.setOutput("legacy_receipt_presentation_migration_deferred", "true");
+    return;
+  }
+  const migrated = [];
+  for (const upgrade of upgrades.slice(0, migrationBudget.remaining)) {
+    const request = {
+      ...ownerRepo(context),
+      comment_id: upgrade.commentId,
+      body: upgrade.body,
+    };
+    migrationBudget.remaining -= 1;
+    try {
+      await github.rest.issues.updateComment(request);
+      migrated.push(upgrade);
+    } catch {
+      core.setOutput("legacy_receipt_presentation_migration_retryable", "true");
+      break;
+    }
+  }
+  migrationBudget.migrated += migrated.length;
+  if (migrated.length > 0) {
+    const refreshedComments = await listComments(github, context, pr);
+    for (const upgrade of migrated) {
+      invariant(
+        refreshedComments.some(
+          (comment) =>
+            comment.id === upgrade.commentId && comment.body === upgrade.body,
+        ),
+        "Legacy receipt presentation lost a concurrent update",
+      );
+    }
+    parseControllerComments(refreshedComments);
+  }
+  if (migrationBudget.migrated > 0) {
+    core.setOutput(
+      "legacy_receipt_presentations_migrated",
+      String(migrationBudget.migrated),
+    );
+  }
+  const remaining = upgrades.length - migrated.length;
+  core.setOutput("legacy_receipt_presentations_remaining", String(remaining));
+}
+
 async function writeControllerState({
   github,
   context,
@@ -2847,6 +2960,10 @@ export async function reconcilePreview({
   const pr = pullRequestNumber(rawPr);
   const workflowSha = exactSha(rawWorkflowSha, "Controller workflow SHA");
   const controllerUrl = `https://github.com/${PREVIEW_REPOSITORY}/actions/runs/${context.runId}`;
+  const presentationMigrationBudget = {
+    remaining: MAX_PRESENTATION_MIGRATIONS_PER_RECONCILE,
+    migrated: 0,
+  };
   reconcileAttempts: for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const pull = await pullFromApi(github, context, pr);
@@ -3063,10 +3180,9 @@ export async function reconcilePreview({
         state,
         stateComment,
       });
-      const assertStatusBasis = async () => {
-        const confirmed = parseControllerComments(
-          await listComments(github, context, pr),
-        );
+      const readStatusBasis = async () => {
+        const comments = await listComments(github, context, pr);
+        const confirmed = parseControllerComments(comments);
         invariant(
           confirmed.stateComment?.id === stateComment.id &&
             canonicalJson(confirmed.state) === canonicalJson(state),
@@ -3082,7 +3198,22 @@ export async function reconcilePreview({
             ),
           "Controller receipt set changed before status publication",
         );
+        return { comments, confirmed };
       };
+      const assertStatusBasis = async () => {
+        await readStatusBasis();
+      };
+      const presentationBasis = await readStatusBasis();
+      await migrateLegacyReceiptPresentation({
+        github,
+        context,
+        core,
+        pr,
+        workflowSha,
+        comments: presentationBasis.comments,
+        parsed: presentationBasis.confirmed,
+        migrationBudget: presentationMigrationBudget,
+      });
       await assertStatusBasis();
       await postStatusDecisions(github, context, state.status_decisions, {
         assertBasis: assertStatusBasis,

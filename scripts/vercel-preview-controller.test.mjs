@@ -1370,6 +1370,14 @@ function resultComment(value, id = 3) {
   };
 }
 
+function legacyResultComment(value, id = 3) {
+  return {
+    id,
+    user: { type: "Bot", login: "github-actions[bot]" },
+    body: legacyCommentBody(resultReceiptMarker(value), value),
+  };
+}
+
 function selectionComment(value, id = 4) {
   return {
     id,
@@ -1383,6 +1391,42 @@ function legacySelectionComment(value, id = 4) {
     id,
     user: { type: "Bot", login: "github-actions[bot]" },
     body: legacyCommentBody(selectionReceiptMarker(value), value),
+  };
+}
+
+function workerEvidence(dispatch, runId = 8_000) {
+  return {
+    schema: "vercel-preview-worker-evidence:v1",
+    repository: PREVIEW_REPOSITORY,
+    pr: dispatch.pr,
+    target: "ui",
+    sha: dispatch.sha,
+    controller_key: dispatch.key,
+    key_digest: dispatch.key_digest,
+    epoch_anchor_run_id: dispatch.epoch_anchor_run_id,
+    reconciliation_basis_digest: dispatch.reconciliation_basis_digest,
+    selection_receipt_run_id: dispatch.selection_receipt_run_id,
+    expected_workflow_sha: dispatch.expected_workflow_sha,
+    worker_run_id: runId,
+    worker_run_attempt: 1,
+    github_deployment_id: 9_000 + runId,
+    execution_mode: "build",
+    build_completed: true,
+    vercel_deployment_id: `dpl_${runId}`,
+    next_deployment_id: `m-ui-${runId}`,
+    verified_upload_url: `https://ui-${runId}.vercel.app`,
+  };
+}
+
+function workerEvidenceMarker(value) {
+  return `<!-- vercel-preview-worker-evidence:v1:${value.key_digest}:run:${value.worker_run_id} -->`;
+}
+
+function legacyWorkerEvidenceComment(value, id = 5) {
+  return {
+    id,
+    user: { type: "Bot", login: "github-actions[bot]" },
+    body: legacyCommentBody(workerEvidenceMarker(value), value),
   };
 }
 
@@ -1513,6 +1557,7 @@ function fakeGitHub({
   workerRunTotalCount,
   workflowRunAttemptFailures = [],
   updateCommentFailures = [],
+  updateCommentFailureIds = [],
   pullCommits = [pullRequest.head.sha],
   deployments: initialDeployments = [],
   deploymentStatuses = new Map(),
@@ -1520,6 +1565,7 @@ function fakeGitHub({
   workflowRunListDisplayTitles = [],
   workflowRunListRunIds = [],
   pullRequests = [],
+  beforeListComments,
 } = {}) {
   const comments = structuredClone(initialComments);
   const runs = structuredClone(initialRuns);
@@ -1531,6 +1577,7 @@ function fakeGitHub({
     ]),
   );
   const commitStatuses = [];
+  const commentUpdates = [];
   const dispatches = [];
   const createdDeploymentStatuses = [];
   const workflowRunAttemptRequests = [];
@@ -1542,8 +1589,10 @@ function fakeGitHub({
   const transientPullRequests = [...pullRequests];
   const attemptFailures = [...workflowRunAttemptFailures];
   const commentUpdateFailures = [...updateCommentFailures];
+  const commentUpdateFailureIds = new Set(updateCommentFailureIds);
   let nextCommentId = 100;
   let nextDeploymentId = 9_000;
+  let listCommentRequests = 0;
   const listComments = async () => {};
   const listCommits = async () => {};
   const listDeployments = async () => {};
@@ -1561,6 +1610,11 @@ function fakeGitHub({
           return { data };
         },
         updateComment: async ({ comment_id, body }) => {
+          if (commentUpdateFailureIds.delete(comment_id)) {
+            const error = new Error("fixture targeted comment update failed");
+            error.status = 503;
+            throw error;
+          }
           const failureStatus = commentUpdateFailures.shift();
           if (failureStatus) {
             const error = new Error("fixture comment update failed");
@@ -1569,6 +1623,7 @@ function fakeGitHub({
           }
           const comment = comments.find(({ id }) => id === comment_id);
           assert.ok(comment, "fixture update must target an existing comment");
+          commentUpdates.push({ comment_id, body });
           comment.body = body;
           return { data: comment };
         },
@@ -1661,7 +1716,11 @@ function fakeGitHub({
       },
     },
     paginate: async (method) => {
-      if (method === listComments) return structuredClone(comments);
+      if (method === listComments) {
+        listCommentRequests += 1;
+        beforeListComments?.({ requestCount: listCommentRequests, comments });
+        return structuredClone(comments);
+      }
       if (method === listCommits) {
         return pullCommits.map((sha) => ({ sha }));
       }
@@ -1727,6 +1786,7 @@ function fakeGitHub({
     deployments,
     statuses,
     commitStatuses,
+    commentUpdates,
     dispatches,
     createdDeploymentStatuses,
     workflowRunAttemptRequests,
@@ -1899,6 +1959,286 @@ test("closed event receipt is immutable, idempotent, and publishes no status", a
 
   assert.equal(state.closed, true);
   assert.equal(reconcileFixture.dispatches.length, 0);
+});
+
+test("quiescent reconciliation bounds legacy migration across concurrency retries", async () => {
+  const opened = event({
+    run: 119,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const openedPull = pull({ head: SHA.A, updated: timestamp(1) });
+  const selected = reconcile({
+    events: [opened],
+    pullRequest: openedPull,
+    expectedWorkflowSha: SHA.D,
+  });
+  const dispatched = persistDispatch(selected, 8_000);
+  const selection = selectionReceiptFromDispatch(dispatched.ui.active);
+  const evidence = workerEvidence(selected.nextDispatch);
+  const additionalEvidence = workerEvidence(selected.nextDispatch, 8_001);
+  const completed = result(selected.nextDispatch, { runId: 8_000 });
+  const terminal = reconcile({
+    events: [opened],
+    results: [completed],
+    selections: [selection],
+    pullRequest: openedPull,
+    existingState: dispatched,
+  }).state;
+  const closed = event({
+    run: 120,
+    action: "closed",
+    head: SHA.A,
+    updated: timestamp(2),
+  });
+  const closedPull = pull({
+    head: SHA.A,
+    state: "closed",
+    updated: timestamp(2),
+    closed: timestamp(2),
+  });
+  const closedState = reconcile({
+    events: [opened, closed],
+    results: [completed],
+    selections: [selection],
+    pullRequest: closedPull,
+    existingState: terminal,
+  }).state;
+  const legacySelection = legacySelectionComment(selection, 3);
+  legacySelection.body = legacySelection.body.trimEnd();
+  const legacyResult = legacyResultComment(completed, 5);
+  legacyResult.body = legacyResult.body.trimEnd();
+  const fixture = fakeGitHub({
+    pullRequest: closedPull,
+    comments: [
+      legacyEventComment(opened, 1),
+      stateComment(closedState, 2),
+      legacySelection,
+      legacyWorkerEvidenceComment(evidence, 4),
+      legacyResult,
+      legacyEventComment(closed, 6),
+      legacyWorkerEvidenceComment(additionalEvidence, 7),
+    ],
+    beforeListComments: ({ requestCount, comments }) => {
+      if (requestCount !== 7) return;
+      comments.find(({ id }) => id === 2).body = stateComment(terminal, 2).body;
+    },
+  });
+  const core = fakeCore();
+
+  const reconciled = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext({ runId: 7_001 }),
+    core,
+    prNumber: 519,
+  });
+
+  assert.equal(core.outputs.get("legacy_receipt_presentations_migrated"), "5");
+  assert.equal(core.outputs.get("legacy_receipt_presentations_remaining"), "1");
+  assert.equal(reconciled.receipts_digest, closedState.receipts_digest);
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.comments.length, 7);
+  assert.ok(
+    fixture.commentUpdates.filter(
+      ({ comment_id: commentId }) => commentId === 2,
+    ).length >= 4,
+    "the fixture must force a top-level reconciliation retry",
+  );
+  const firstBatchBodies = new Map([
+    [1, commentBody(eventReceiptMarker(opened.event_run_id), opened)],
+    [3, commentBody(selectionReceiptMarker(selection), selection)],
+    [4, commentBody(workerEvidenceMarker(evidence), evidence)],
+    [5, commentBody(resultReceiptMarker(completed), completed)],
+    [6, commentBody(eventReceiptMarker(closed.event_run_id), closed)],
+  ]);
+  for (const [commentId, expectedBody] of firstBatchBodies) {
+    const actual = fixture.comments.find(({ id }) => id === commentId)?.body;
+    assert.equal(actual, expectedBody);
+    const legacyReaderMatch = actual.match(/\n```json\n([\s\S]+)\n```\n?$/);
+    assert.ok(
+      legacyReaderMatch,
+      "the previous v1 reader can parse migrated bodies",
+    );
+  }
+  assert.deepEqual(
+    fixture.commentUpdates
+      .filter(({ comment_id: commentId }) => firstBatchBodies.has(commentId))
+      .map(({ comment_id: commentId }) => commentId),
+    [1, 3, 4, 5, 6],
+  );
+  assert.doesNotMatch(
+    fixture.comments.find(({ id }) => id === 7).body,
+    /<details>/,
+  );
+
+  const secondCore = fakeCore();
+  await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext({ runId: 7_002 }),
+    core: secondCore,
+    prNumber: 519,
+  });
+  assert.equal(
+    secondCore.outputs.get("legacy_receipt_presentations_migrated"),
+    "1",
+  );
+  const additionalBody = commentBody(
+    workerEvidenceMarker(additionalEvidence),
+    additionalEvidence,
+  );
+  assert.equal(
+    fixture.comments.find(({ id }) => id === 7).body,
+    additionalBody,
+  );
+  assert.ok(
+    additionalBody.match(/\n```json\n([\s\S]+)\n```\n?$/),
+    "the previous v1 reader can parse the resumed migration",
+  );
+
+  await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext({ runId: 7_003 }),
+    core: fakeCore(),
+    prNumber: 519,
+  });
+  assert.equal(
+    fixture.commentUpdates.filter(({ comment_id: commentId }) =>
+      [...firstBatchBodies.keys(), 7].includes(commentId),
+    ).length,
+    6,
+  );
+});
+
+test("reconciliation defers legacy presentation migration while an old worker can still write", async () => {
+  const opened = event({
+    run: 119,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const selected = reconcile({
+    events: [opened],
+    pullRequest,
+    expectedWorkflowSha: SHA.D,
+  });
+  const dispatched = persistDispatch(selected, 8_000);
+  const selection = selectionReceiptFromDispatch(dispatched.ui.active);
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [
+      legacyEventComment(opened, 1),
+      stateComment(dispatched, 2),
+      legacySelectionComment(selection, 3),
+    ],
+    runs: [
+      workerRun(selected.nextDispatch, {
+        id: 8_000,
+        status: "in_progress",
+      }),
+    ],
+  });
+  const core = fakeCore();
+
+  await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext({ runId: 7_001 }),
+    core,
+    prNumber: 519,
+  });
+
+  assert.equal(
+    core.outputs.get("legacy_receipt_presentation_migration_deferred"),
+    "true",
+  );
+  assert.doesNotMatch(fixture.comments[0].body, /<details>/);
+  assert.doesNotMatch(fixture.comments[2].body, /<details>/);
+  assert.equal(
+    fixture.commentUpdates.some(({ comment_id: commentId }) =>
+      [1, 3].includes(commentId),
+    ),
+    false,
+  );
+  assert.equal(
+    fixture.commitStatuses.some(({ state }) => state === "error"),
+    false,
+  );
+});
+
+test("legacy presentation API failures stay retryable without blocking preview state", async () => {
+  const opened = event({
+    run: 119,
+    action: "opened",
+    head: SHA.A,
+    runtime: false,
+    updated: timestamp(1),
+  });
+  const openedPull = pull({ head: SHA.A, updated: timestamp(1) });
+  const openedState = reconcile({
+    events: [opened],
+    pullRequest: openedPull,
+  }).state;
+  const closed = event({
+    run: 120,
+    action: "closed",
+    head: SHA.A,
+    runtime: false,
+    updated: timestamp(2),
+  });
+  const closedPull = pull({
+    head: SHA.A,
+    state: "closed",
+    updated: timestamp(2),
+    closed: timestamp(2),
+  });
+  const closedState = reconcile({
+    events: [opened, closed],
+    pullRequest: closedPull,
+    existingState: openedState,
+  }).state;
+  const fixture = fakeGitHub({
+    pullRequest: closedPull,
+    comments: [
+      legacyEventComment(opened, 1),
+      stateComment(closedState, 2),
+      legacyEventComment(closed, 3),
+    ],
+    updateCommentFailureIds: [1],
+  });
+  const firstCore = fakeCore();
+
+  const first = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext({ runId: 7_001 }),
+    core: firstCore,
+    prNumber: 519,
+  });
+
+  assert.equal(first.closed, true);
+  assert.equal(
+    firstCore.outputs.get("legacy_receipt_presentation_migration_retryable"),
+    "true",
+  );
+  assert.doesNotMatch(fixture.comments[0].body, /<details>/);
+  assert.equal(
+    fixture.commitStatuses.some(({ state }) => state === "error"),
+    false,
+  );
+
+  const secondCore = fakeCore();
+  await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext({ runId: 7_002 }),
+    core: secondCore,
+    prNumber: 519,
+  });
+  assert.equal(
+    secondCore.outputs.get("legacy_receipt_presentations_migrated"),
+    "2",
+  );
+  assert.match(fixture.comments[0].body, /<details>/);
+  assert.match(fixture.comments[2].body, /<details>/);
 });
 
 test("closed reconciliation preserves an unbound intent without dispatching it", async () => {

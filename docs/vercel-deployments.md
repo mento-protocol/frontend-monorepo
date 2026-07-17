@@ -729,10 +729,16 @@ marker remains the first line, and the JSON remains canonical so receipt
 identity, validation, and recovery semantics do not change. The stored Markdown
 leaves the final `</details>` implicit so its JSON fence remains the literal end
 of the body; GitHub closes the toggle when rendering it, while already-running
-legacy workers can still parse comments created during rollout. Existing
-immutable receipts in the legacy uncollapsed format remain valid and are never
-rewritten; the mutable state comment adopts the current presentation on its
-next update.
+legacy workers can still parse comments created during rollout. Receipt
+immutability applies to the hidden marker and canonical JSON payload, not to its
+Markdown presentation. Reconciliation upgrades an exact canonical legacy body
+in place, preserving its comment ID, marker, and JSON. It defers that migration
+while an active or recoverable retired worker from an older workflow revision
+lacks a terminal result, because that older writer may still require the legacy
+envelope for idempotent retries. Each reconciliation upgrades at most five
+comments; any remaining or temporarily failed presentation updates resume on a
+later reconciliation without blocking preview status publication. The mutable
+state comment continues to adopt the current presentation on its next update.
 
 `Vercel Preview` is reserved for a Statuses API commit status, not a workflow
 job/check name. Every exact receipt SHA gets one truthful result: pending,
