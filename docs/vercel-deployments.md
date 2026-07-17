@@ -693,10 +693,17 @@ with only `contents: read`, performs metadata validation without a checkout,
 artifact, secret, or PR-code execution, and encodes the PR number, exact head
 SHA, and action in its strict run name. A completed-intake `workflow_run` then
 starts trusted default-branch controller code with a write-capable token. That
-follow-up validates the intake workflow identity, re-queries the PR, and posts
-the successful preview-disabled status only when the PR is still open, still
-Dependabot-owned/ref-classified, and still on the encoded exact SHA. Stale or
-malformed callbacks write nothing.
+follow-up validates the intake workflow identity and its one immutable PR link:
+the run's candidate head ref/SHA must match the linked PR and encoded receipt,
+while the linked base must remain this repository's `main` branch. GitHub
+reports the candidate branch, not the workflow-definition branch, in a
+`pull_request_target` run's `head_branch` field. The controller then re-queries
+the PR and posts the successful preview-disabled status only when the PR is
+still open, still Dependabot-owned/ref-classified, and still on the encoded
+exact SHA. Stale or malformed callbacks write nothing.
+For a closed event GitHub may omit the run's PR association; that one case
+still binds the strict receipt SHA to the run head and is write-inert by
+definition.
 
 GitHub runs `repository_dispatch` from the last commit and workflow definition
 on the default branch; unlike `workflow_dispatch`, its request cannot select a

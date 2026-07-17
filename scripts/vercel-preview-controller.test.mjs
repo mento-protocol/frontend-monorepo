@@ -2377,18 +2377,50 @@ function dependabotIntakeRun({
   pr = 519,
   sha = SHA.A,
   action = "opened",
+  headRef = "dependabot/npm/pnpm",
+  headRepository = PREVIEW_REPOSITORY,
+  baseRef = "main",
+  baseRepository = PREVIEW_REPOSITORY,
   ...overrides
 } = {}) {
+  const [, headRepositoryName] = headRepository.split("/");
+  const [, baseRepositoryName] = baseRepository.split("/");
   return {
     id: 7_500,
     name: "Vercel Preview Intake",
     path: ".github/workflows/vercel-preview-intake.yml@main",
     event: "pull_request_target",
-    head_branch: "main",
-    head_sha: SHA.E,
+    head_branch: headRef,
+    head_sha: sha,
+    head_repository: {
+      full_name: headRepository,
+      url: `https://api.github.com/repos/${headRepository}`,
+    },
     status: "completed",
     conclusion: "success",
     repository: { full_name: PREVIEW_REPOSITORY },
+    pull_requests: [
+      {
+        number: pr,
+        url: `https://api.github.com/repos/${PREVIEW_REPOSITORY}/pulls/${pr}`,
+        head: {
+          ref: headRef,
+          sha,
+          repo: {
+            name: headRepositoryName,
+            url: `https://api.github.com/repos/${headRepository}`,
+          },
+        },
+        base: {
+          ref: baseRef,
+          sha: SHA.E,
+          repo: {
+            name: baseRepositoryName,
+            url: `https://api.github.com/repos/${baseRepository}`,
+          },
+        },
+      },
+    ],
     display_title: dependabotIntakeRunName({ pr, sha, action }),
     html_url:
       "https://github.com/mento-protocol/frontend-monorepo/actions/runs/7500",
@@ -3807,8 +3839,11 @@ test("closed reconciliation preserves an unbound intent without dispatching it",
   assert.equal(journal.state.closed, true);
 });
 
-test("trusted workflow_run follow-up publishes Dependabot unsupported status only for the exact current head", async () => {
+test("trusted workflow_run follow-up binds the candidate PR ref and publishes Dependabot unsupported status only for the exact current head", async () => {
   const workflowRun = dependabotIntakeRun();
+  assert.equal(workflowRun.head_branch, "dependabot/npm/pnpm");
+  assert.equal(workflowRun.head_sha, SHA.A);
+  assert.equal(workflowRun.pull_requests[0].base.ref, "main");
   assert.deepEqual(validateDependabotIntakeWorkflowRun(workflowRun), {
     pr: 519,
     sha: SHA.A,
@@ -3880,7 +3915,58 @@ test("trusted workflow_run follow-up publishes Dependabot unsupported status onl
   }
 });
 
+test("closed Dependabot intake without a GitHub PR association stays write-inert", async () => {
+  const workflowRun = dependabotIntakeRun({
+    action: "closed",
+    pull_requests: [],
+  });
+  assert.deepEqual(validateDependabotIntakeWorkflowRun(workflowRun), {
+    pr: 519,
+    sha: SHA.A,
+    action: "closed",
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({
+      head: SHA.A,
+      state: "closed",
+      author: "dependabot[bot]",
+      ref: "dependabot/npm/pnpm",
+      updated: timestamp(2),
+    }),
+    comments: [],
+  });
+  const core = fakeCore();
+  assert.equal(
+    await publishDependabotUnsupported({
+      github: fixture.github,
+      context: fakeContext({ workflowRun }),
+      core,
+    }),
+    null,
+  );
+  assert.equal(fixture.commitStatuses.length, 0);
+  assert.equal(core.outputs.get("status_published"), "false");
+});
+
 test("malformed Dependabot intake identity fails before any status write", async () => {
+  const mismatchedHeadRef = dependabotIntakeRun();
+  mismatchedHeadRef.pull_requests[0].head.ref = "dependabot/npm/other";
+  const mismatchedLinkedHeadSha = dependabotIntakeRun();
+  mismatchedLinkedHeadSha.pull_requests[0].head.sha = SHA.B;
+  const mismatchedLinkedPull = dependabotIntakeRun();
+  mismatchedLinkedPull.pull_requests[0].number = 520;
+  const mismatchedLinkedPullUrl = dependabotIntakeRun();
+  mismatchedLinkedPullUrl.pull_requests[0].url =
+    "https://api.github.com/repos/attacker/example/pulls/519";
+  const mismatchedLinkedHeadRepository = dependabotIntakeRun();
+  mismatchedLinkedHeadRepository.pull_requests[0].head.repo.url =
+    "https://api.github.com/repos/attacker/example";
+  const multipleLinkedPulls = dependabotIntakeRun();
+  multipleLinkedPulls.pull_requests.push(
+    structuredClone(multipleLinkedPulls.pull_requests[0]),
+  );
+  const closedWithConflictingLink = dependabotIntakeRun({ action: "closed" });
+  closedWithConflictingLink.pull_requests[0].head.sha = SHA.B;
   for (const workflowRun of [
     dependabotIntakeRun({ name: "Vercel Preview Worker" }),
     dependabotIntakeRun({
@@ -3892,6 +3978,17 @@ test("malformed Dependabot intake identity fails before any status write", async
     dependabotIntakeRun({
       repository: { full_name: "attacker/example" },
     }),
+    dependabotIntakeRun({ head_sha: SHA.B }),
+    dependabotIntakeRun({ pull_requests: [] }),
+    mismatchedHeadRef,
+    mismatchedLinkedHeadSha,
+    mismatchedLinkedPull,
+    mismatchedLinkedPullUrl,
+    mismatchedLinkedHeadRepository,
+    multipleLinkedPulls,
+    dependabotIntakeRun({ baseRef: "feature/untrusted-base" }),
+    dependabotIntakeRun({ baseRepository: "attacker/example" }),
+    closedWithConflictingLink,
   ]) {
     const fixture = fakeGitHub({
       pullRequest: pull({
