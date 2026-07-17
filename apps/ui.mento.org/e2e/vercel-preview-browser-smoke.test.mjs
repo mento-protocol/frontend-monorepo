@@ -27,6 +27,7 @@ class FakePage extends EventEmitter {
   constructor({
     afterInteraction,
     htmlDeploymentId = NEXT_DEPLOYMENT_ID,
+    onFinalHtmlDeploymentIdRead,
     assetReferences = [
       `${INPUT.deploymentUrl}/_next/static/app.js?dpl=${NEXT_DEPLOYMENT_ID}`,
       `${INPUT.deploymentUrl}/_next/static/app.css?dpl=${NEXT_DEPLOYMENT_ID}`,
@@ -36,6 +37,8 @@ class FakePage extends EventEmitter {
     super();
     this.afterInteraction = afterInteraction;
     this.htmlDeploymentId = htmlDeploymentId;
+    this.onFinalHtmlDeploymentIdRead = onFinalHtmlDeploymentIdRead;
+    this.htmlDeploymentIdReads = 0;
     this.assetReferences = assetReferences;
     this.navigationAssetReferences = navigationAssetReferences;
     this.currentUrl = INPUT.deploymentUrl;
@@ -84,6 +87,10 @@ class FakePage extends EventEmitter {
     return {
       getAttribute: async (attribute) => {
         assert.equal(attribute, "data-dpl-id");
+        this.htmlDeploymentIdReads += 1;
+        if (this.htmlDeploymentIdReads === 2) {
+          this.onFinalHtmlDeploymentIdRead?.(this);
+        }
         return this.htmlDeploymentId;
       },
     };
@@ -348,6 +355,23 @@ test("browser smoke waits for a late static request to reach a terminal event", 
         );
         setTimeout(() => currentPage.emit("requestfailed", request), 300);
       }, 10);
+    },
+  });
+  const fake = fakeChromium(page);
+  await assert.rejects(
+    runBrowserSmoke({ chromium: fake.chromium, input: INPUT }),
+    /same-origin request failed: GET/,
+  );
+  assert.equal(fake.state.closed, true);
+});
+
+test("browser smoke settles requests started by its final DOM read", async () => {
+  const page = new FakePage({
+    onFinalHtmlDeploymentIdRead(currentPage) {
+      const request = currentPage.startAssetRequest(
+        `${INPUT.deploymentUrl}/_next/static/final-read.js?dpl=${NEXT_DEPLOYMENT_ID}`,
+      );
+      setTimeout(() => currentPage.emit("requestfailed", request), 300);
     },
   });
   const fake = fakeChromium(page);

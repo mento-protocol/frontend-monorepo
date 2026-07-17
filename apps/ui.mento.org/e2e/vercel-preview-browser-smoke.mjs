@@ -398,10 +398,13 @@ export async function runBrowserSmoke({ chromium, input, timeoutMs = 30_000 }) {
         "Browser smoke interaction did not remain updated after hydration",
       );
     }
+    const finalRenderedDeploymentId = await page
+      .locator("html")
+      .getAttribute("data-dpl-id");
     await deploymentIdentityMonitor.waitForIdle(timeoutMs);
     deploymentIdentityMonitor.assertExpected(
       validated.nextDeploymentId,
-      await page.locator("html").getAttribute("data-dpl-id"),
+      finalRenderedDeploymentId,
     );
     monitor.assertClean();
     return {
