@@ -3135,6 +3135,7 @@ export function validateDependabotIntakeWorkflowRun(rawRun) {
     run.display_title,
     "Dependabot intake display title",
   );
+  const parsed = parseDependabotIntakeRunName(displayTitle);
   const workflowName = boundedText(run.name, "Dependabot intake workflow name");
   invariant(
     workflowName === INTAKE_WORKFLOW_NAME || workflowName === displayTitle,
@@ -3149,8 +3150,89 @@ export function validateDependabotIntakeWorkflowRun(rawRun) {
     run.event === "pull_request_target",
     "Dependabot intake event mismatch",
   );
-  invariant(run.head_branch === "main", "Dependabot intake ref mismatch");
-  exactSha(run.head_sha, "Dependabot intake workflow SHA");
+  const runHeadRef = validatedHeadRef(run.head_branch);
+  const runHeadSha = exactSha(run.head_sha, "Dependabot intake head SHA");
+  invariant(runHeadSha === parsed.sha, "Dependabot intake head SHA mismatch");
+  const runHeadRepository = plainObject(
+    run.head_repository,
+    "Dependabot intake head repository",
+  );
+  const runHeadRepositoryName = boundedText(
+    runHeadRepository.full_name,
+    "Dependabot intake head repository name",
+  );
+  const runHeadRepositoryUrl = optionalHttpsUrl(
+    runHeadRepository.url,
+    "Dependabot intake head repository URL",
+  );
+  invariant(
+    runHeadRepositoryUrl ===
+      `https://api.github.com/repos/${runHeadRepositoryName}`,
+    "Dependabot intake head repository mismatch",
+  );
+  invariant(
+    Array.isArray(run.pull_requests) &&
+      run.pull_requests.length <= 1 &&
+      (run.pull_requests.length === 1 || parsed.action === "closed"),
+    "Dependabot intake PR linkage mismatch",
+  );
+  if (run.pull_requests.length === 1) {
+    const linkedPull = plainObject(
+      run.pull_requests[0],
+      "Dependabot intake linked PR",
+    );
+    const linkedHead = plainObject(
+      linkedPull.head,
+      "Dependabot intake linked PR head",
+    );
+    const linkedHeadRepository = plainObject(
+      linkedHead.repo,
+      "Dependabot intake linked PR head repository",
+    );
+    const linkedBase = plainObject(
+      linkedPull.base,
+      "Dependabot intake linked PR base",
+    );
+    const linkedBaseRepository = plainObject(
+      linkedBase.repo,
+      "Dependabot intake linked PR base repository",
+    );
+    const linkedHeadRef = validatedHeadRef(linkedHead.ref);
+    const linkedHeadSha = exactSha(
+      linkedHead.sha,
+      "Dependabot intake linked PR head SHA",
+    );
+    invariant(
+      pullRequestNumber(linkedPull.number) === parsed.pr &&
+        optionalHttpsUrl(linkedPull.url, "Dependabot intake linked PR URL") ===
+          `https://api.github.com/repos/${PREVIEW_REPOSITORY}/pulls/${parsed.pr}`,
+      "Dependabot intake linked PR identity mismatch",
+    );
+    invariant(
+      runHeadRef === linkedHeadRef,
+      "Dependabot intake head ref mismatch",
+    );
+    invariant(
+      runHeadSha === linkedHeadSha,
+      "Dependabot intake head SHA mismatch",
+    );
+    invariant(
+      optionalHttpsUrl(
+        linkedHeadRepository.url,
+        "Dependabot intake linked PR head repository URL",
+      ) === runHeadRepositoryUrl,
+      "Dependabot intake linked PR head repository mismatch",
+    );
+    invariant(
+      linkedBase.ref === "main" &&
+        optionalHttpsUrl(
+          linkedBaseRepository.url,
+          "Dependabot intake linked PR base repository URL",
+        ) === `https://api.github.com/repos/${PREVIEW_REPOSITORY}`,
+      "Dependabot intake default-branch trust mismatch",
+    );
+    exactSha(linkedBase.sha, "Dependabot intake trusted base SHA");
+  }
   exactRunId(run.id, "Dependabot intake workflow run ID");
   invariant(
     run.status === "completed" && run.conclusion === "success",
@@ -3160,7 +3242,7 @@ export function validateDependabotIntakeWorkflowRun(rawRun) {
     run.repository?.full_name,
     "Dependabot intake workflow repository",
   );
-  return parseDependabotIntakeRunName(displayTitle);
+  return parsed;
 }
 
 export async function publishDependabotUnsupported({
