@@ -26,6 +26,30 @@ function permissionWrites(job) {
   );
 }
 
+function queuedStateConcurrency(prExpression) {
+  return {
+    group: `vercel-preview-state-pr-${prExpression}`,
+    "cancel-in-progress": false,
+    queue: "max",
+  };
+}
+
+const serializedControllerMutations = [
+  ["receipt-event", "${{ needs.snapshot-event.outputs.pr_number }}"],
+  ["reconcile-event", "${{ needs.receipt-event.outputs.pr_number }}"],
+  ["receipt-bootstrap", "${{ needs.snapshot-bootstrap.outputs.pr_number }}"],
+  ["reconcile-bootstrap", "${{ needs.receipt-bootstrap.outputs.pr_number }}"],
+  ["reconcile-request", "${{ needs.validate-request.outputs.pr_number }}"],
+  [
+    "publish-dependabot-unsupported",
+    "${{ needs.identify-dependabot-intake.outputs.pr_number }}",
+  ],
+  [
+    "recover-worker-result",
+    "${{ needs.identify-worker-result.outputs.pr_number }}",
+  ],
+];
+
 test("controller has only the three specified recovery-aware triggers", () => {
   assert.deepEqual(Object.keys(controller.on), [
     "pull_request_target",
@@ -216,7 +240,7 @@ test("planner materializes only trusted-base code without shared caches", () => 
   }
 });
 
-test("immutable receipt writers are durable and outside lossy reconciliation concurrency", () => {
+test("all preview journal and status mutations share queued cross-workflow serialization", () => {
   const expected = {
     contents: "read",
     "pull-requests": "write",
@@ -225,28 +249,62 @@ test("immutable receipt writers are durable and outside lossy reconciliation con
   for (const jobName of ["receipt-event", "receipt-bootstrap"]) {
     const job = controller.jobs[jobName];
     assert.deepEqual(job.permissions, expected);
-    assert.equal(Object.hasOwn(job, "concurrency"), false);
     assert.match(JSON.stringify(job), /recordEventReceipt/);
   }
-  for (const jobName of [
-    "reconcile-event",
-    "reconcile-bootstrap",
-    "reconcile-request",
-    "recover-worker-result",
-    "publish-dependabot-unsupported",
-  ]) {
-    assert.match(
-      controller.jobs[jobName].concurrency.group,
-      /^vercel-preview-controller-pr-/,
+  for (const [jobName, prExpression] of serializedControllerMutations) {
+    assert.deepEqual(
+      controller.jobs[jobName].concurrency,
+      queuedStateConcurrency(prExpression),
+      `${jobName} must serialize every PR journal or status mutation`,
     );
+  }
+  assert.deepEqual(
+    worker.jobs["record-worker-evidence"].concurrency,
+    queuedStateConcurrency("${{ inputs.pull_request_number }}"),
+  );
+  assert.doesNotMatch(
+    read(controllerPath),
+    /vercel-preview-controller-pr-/,
+    "legacy workflow-local state groups would not serialize worker evidence",
+  );
+});
+
+test("read-only preview jobs stay outside the PR state lock", () => {
+  for (const jobName of [
+    "validate-request",
+    "snapshot-event",
+    "plan-event",
+    "snapshot-bootstrap",
+    "plan-bootstrap",
+    "identify-dependabot-intake",
+    "identify-worker-result",
+  ]) {
     assert.equal(
-      controller.jobs[jobName].concurrency["cancel-in-progress"],
+      Object.hasOwn(controller.jobs[jobName], "concurrency"),
       false,
+      `${jobName} must not hold the state lock while doing read-only work`,
     );
   }
 });
 
-test("closed events reconcile after their optional planner is skipped", () => {
+test("worker build concurrency stays independent and only evidence takes the state lock", () => {
+  assert.deepEqual(worker.concurrency, {
+    group:
+      "vercel-preview-worker-pr-${{ inputs.pull_request_number }}-${{ inputs.target }}",
+    "cancel-in-progress": false,
+  });
+  assert.equal(Object.hasOwn(worker.concurrency, "queue"), false);
+  for (const [jobName, job] of Object.entries(worker.jobs)) {
+    if (jobName === "record-worker-evidence") continue;
+    assert.equal(
+      Object.hasOwn(job, "concurrency"),
+      false,
+      `${jobName} must not hold the PR state lock during build or smoke work`,
+    );
+  }
+});
+
+test("event receipts explicitly gate whether reconciliation is required", () => {
   const planner = controller.jobs["plan-event"];
   const receipt = controller.jobs["receipt-event"];
   const reconcile = controller.jobs["reconcile-event"];
@@ -257,10 +315,14 @@ test("closed events reconcile after their optional planner is skipped", () => {
   );
   assert.deepEqual(receipt.needs, ["snapshot-event", "plan-event"]);
   assert.match(receipt.if, /^always\(\) &&/);
+  assert.equal(
+    receipt.outputs.reconcile_required,
+    "${{ steps.receipt.outputs.reconcile_required }}",
+  );
   assert.equal(reconcile.needs, "receipt-event");
   assert.equal(
     reconcile.if,
-    "always() && needs.receipt-event.result == 'success'",
+    "always() && needs.receipt-event.result == 'success' && needs.receipt-event.outputs.reconcile_required == 'true'",
   );
 });
 

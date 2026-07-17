@@ -288,6 +288,10 @@ jobs:
       always() &&
       needs.validate-controller-ownership.result == 'success' &&
       needs.validate-controller-ownership.outputs.execution_mode != 'duplicate-owner'
+    concurrency:
+      group: vercel-preview-state-pr-${{ inputs.pull_request_number }}
+      cancel-in-progress: false
+      queue: max # trunk-ignore(actionlint/syntax-check)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
