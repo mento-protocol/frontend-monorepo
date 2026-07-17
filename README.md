@@ -440,13 +440,17 @@ The repository is set up with GitHub Actions for CI:
 - **CD**: GitHub Actions automatically builds `ui.mento.org` previews for
   trusted same-repository PRs with exact-SHA `Vercel Preview` statuses,
   first-eligible-plus-latest batching, credential-free HTTP and browser smoke,
-  and one canonical GitHub Deployment. Dependabot events pass through a
-  read-only metadata intake; trusted default-branch code re-queries the exact
-  PR head before publishing the explicit preview-disabled status. Fork and
-  Dependabot PRs remain credential-free. During Phase A, native Vercel Git UI previews remain enabled
-  for canary comparison; Vercel Git still owns every main/production deployment
-  and all non-UI apps. See [ADR 0001](docs/adr/0001-github-actions-vercel-deployment-orchestration.md)
-  for the accepted ownership boundary and
+  one canonical GitHub Deployment, and one canonical preview-controller journal
+  comment per participating PR. Dependabot events pass through a read-only
+  metadata intake; trusted default-branch code re-queries the exact PR head
+  before publishing the explicit preview-disabled status. Fork and Dependabot
+  PRs remain credential-free. During Phase A, native Vercel Git UI previews
+  remain enabled for canary comparison; Vercel Git still owns every
+  main/production deployment and all non-UI apps. See
+  [ADR 0001](docs/adr/0001-github-actions-vercel-deployment-orchestration.md)
+  for the accepted ownership boundary,
+  [ADR 0002](docs/adr/0002-single-comment-preview-controller-journal.md) for
+  the journal persistence and clean-cutover decision, and
   [`docs/vercel-deployments.md`](docs/vercel-deployments.md) for the Phase B
   UI-only cutover, bootstrap, canary, and rollback procedures.
 

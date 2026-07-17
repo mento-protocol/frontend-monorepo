@@ -149,6 +149,10 @@ jobs:
       always() &&
       needs.snapshot-event.result == 'success' &&
       needs.snapshot-event.outputs.trust != 'dependabot'
+    concurrency:
+      group: vercel-preview-state-pr-${{ needs.snapshot-event.outputs.pr_number }}
+      cancel-in-progress: false
+      queue: max # trunk-ignore(actionlint/syntax-check)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -194,8 +198,9 @@ jobs:
     needs: receipt-event
     if: always() && needs.receipt-event.result == 'success'
     concurrency:
-      group: vercel-preview-controller-pr-${{ needs.receipt-event.outputs.pr_number }}
+      group: vercel-preview-state-pr-${{ needs.receipt-event.outputs.pr_number }}
       cancel-in-progress: false
+      queue: max # trunk-ignore(actionlint/syntax-check)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -338,6 +343,10 @@ jobs:
     name: Persist immutable bootstrap receipt
     needs: [snapshot-bootstrap, plan-bootstrap]
     if: always() && needs.snapshot-bootstrap.result == 'success'
+    concurrency:
+      group: vercel-preview-state-pr-${{ needs.snapshot-bootstrap.outputs.pr_number }}
+      cancel-in-progress: false
+      queue: max # trunk-ignore(actionlint/syntax-check)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -383,8 +392,9 @@ jobs:
     needs: receipt-bootstrap
     if: needs.receipt-bootstrap.result == 'success'
     concurrency:
-      group: vercel-preview-controller-pr-${{ needs.receipt-bootstrap.outputs.pr_number }}
+      group: vercel-preview-state-pr-${{ needs.receipt-bootstrap.outputs.pr_number }}
       cancel-in-progress: false
+      queue: max # trunk-ignore(actionlint/syntax-check)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -427,8 +437,9 @@ jobs:
     needs: validate-request
     if: needs.validate-request.outputs.operation == 'reconcile'
     concurrency:
-      group: vercel-preview-controller-pr-${{ needs.validate-request.outputs.pr_number }}
+      group: vercel-preview-state-pr-${{ needs.validate-request.outputs.pr_number }}
       cancel-in-progress: false
+      queue: max # trunk-ignore(actionlint/syntax-check)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -508,8 +519,9 @@ jobs:
     needs: identify-dependabot-intake
     if: needs.identify-dependabot-intake.result == 'success'
     concurrency:
-      group: vercel-preview-controller-pr-${{ needs.identify-dependabot-intake.outputs.pr_number }}
+      group: vercel-preview-state-pr-${{ needs.identify-dependabot-intake.outputs.pr_number }}
       cancel-in-progress: false
+      queue: max # trunk-ignore(actionlint/syntax-check)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -577,8 +589,9 @@ jobs:
     needs: identify-worker-result
     if: needs.identify-worker-result.result == 'success'
     concurrency:
-      group: vercel-preview-controller-pr-${{ needs.identify-worker-result.outputs.pr_number }}
+      group: vercel-preview-state-pr-${{ needs.identify-worker-result.outputs.pr_number }}
       cancel-in-progress: false
+      queue: max # trunk-ignore(actionlint/syntax-check)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

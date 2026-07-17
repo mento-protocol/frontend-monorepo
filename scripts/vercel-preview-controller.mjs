@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 
 export const PREVIEW_REPOSITORY = "mento-protocol/frontend-monorepo";
@@ -10,6 +11,8 @@ const WORKER_EVIDENCE_SCHEMA = "vercel-preview-worker-evidence:v1";
 export const RESULT_RECEIPT_SCHEMA = "vercel-preview-worker-result:v1";
 export const SELECTION_RECEIPT_SCHEMA = "vercel-preview-selection:v1";
 export const CONTROLLER_SCHEMA = "vercel-preview-controller:v1";
+export const PREVIEW_JOURNAL_SCHEMA = "vercel-preview-journal:v1";
+export const PREVIEW_JOURNAL_MARKER = "<!-- vercel-preview-journal:v1 -->";
 const WORKER_WORKFLOW = "vercel-preview-worker.yml";
 const WORKER_WORKFLOW_NAME = "Vercel Preview Worker";
 const INTAKE_WORKFLOW = "vercel-preview-intake.yml";
@@ -21,17 +24,6 @@ const REPOSITORY_DISPATCH_OPERATIONS = new Map([
   [RECONCILE_DISPATCH_EVENT, "reconcile"],
 ]);
 
-const EVENT_MARKER_PREFIX = "<!-- vercel-preview-event-receipt:v1:run:";
-const EVIDENCE_MARKER_PREFIX = "<!-- vercel-preview-worker-evidence:v1:";
-const RESULT_MARKER_PREFIX = "<!-- vercel-preview-worker-result:v1:";
-const SELECTION_MARKER_PREFIX = "<!-- vercel-preview-selection:v1:key:";
-const IMMUTABLE_RECEIPT_MARKER_PREFIXES = [
-  EVENT_MARKER_PREFIX,
-  EVIDENCE_MARKER_PREFIX,
-  RESULT_MARKER_PREFIX,
-  SELECTION_MARKER_PREFIX,
-];
-const CONTROLLER_MARKER = "<!-- vercel-preview-controller:v1 -->";
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const LOGIN_PATTERN =
   /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?|[A-Za-z0-9])(?:\[bot\])?$/;
@@ -59,7 +51,7 @@ const TERMINAL_STATES = new Set(["success", "failure", "error"]);
 const MAX_COMMENTS = 500;
 const MAX_RECEIPTS = 200;
 const MAX_HISTORY = 40;
-const MAX_PRESENTATION_MIGRATIONS_PER_RECONCILE = 5;
+const MAX_JOURNAL_BYTES = 60_000;
 const WORKER_RUN_PAGE_SIZE = 100;
 const MAX_WORKER_RUN_PAGES = 3;
 const WORKER_RUN_VISIBILITY_ATTEMPTS = 3;
@@ -256,37 +248,28 @@ function digest(value, length = 64) {
     .slice(0, length);
 }
 
-function legacyMarkerBody(marker, value) {
-  return `${marker}\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\`\n`;
-}
-
-function markerBody(marker, value) {
-  // Keep the JSON fence at the literal end so already-running v1 workers can
-  // parse comments written during the rollout. GitHub's GFM renderer closes
-  // the final <details> element implicitly.
-  return `${marker}\n\n${COMMENT_EXPLANATION}\n\n<details>\n<summary>${COMMENT_DETAILS_SUMMARY}</summary>\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\`\n`;
-}
-
-function parseMarkerBody(body, marker) {
+function journalBody(value) {
+  const body = `${PREVIEW_JOURNAL_MARKER}\n\n${COMMENT_EXPLANATION}\n\n<details>\n<summary>${COMMENT_DETAILS_SUMMARY}</summary>\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\`\n\n</details>\n`;
   invariant(
-    typeof body === "string" && body.startsWith(`${marker}\n`),
-    "Comment marker mismatch",
+    Buffer.byteLength(body, "utf8") <= MAX_JOURNAL_BYTES,
+    "Preview journal comment is too large",
   );
-  const currentPrefix = `${marker}\n\n${COMMENT_EXPLANATION}\n\n<details>\n<summary>${COMMENT_DETAILS_SUMMARY}</summary>\n\n\`\`\`json\n`;
-  const legacyPrefix = `${marker}\n\n\`\`\`json\n`;
-  let json;
-  for (const prefix of [currentPrefix, legacyPrefix]) {
-    if (!body.startsWith(prefix)) continue;
-    for (const suffix of ["\n```\n", "\n```"]) {
-      if (!body.endsWith(suffix)) continue;
-      json = body.slice(prefix.length, -suffix.length);
-      break;
-    }
-    if (json !== undefined) break;
-  }
-  invariant(json !== undefined, "Controller comment JSON block is missing");
-  invariant(json.length <= 60_000, "Controller comment JSON is too large");
-  return JSON.parse(json);
+  return body;
+}
+
+function parseJournalBody(body) {
+  invariant(typeof body === "string", "Preview journal body is missing");
+  invariant(
+    Buffer.byteLength(body, "utf8") <= MAX_JOURNAL_BYTES,
+    "Preview journal comment is too large",
+  );
+  const prefix = `${PREVIEW_JOURNAL_MARKER}\n\n${COMMENT_EXPLANATION}\n\n<details>\n<summary>${COMMENT_DETAILS_SUMMARY}</summary>\n\n\`\`\`json\n`;
+  const suffix = "\n```\n\n</details>\n";
+  invariant(
+    body.startsWith(prefix) && body.endsWith(suffix),
+    "Preview journal JSON block is missing",
+  );
+  return JSON.parse(body.slice(prefix.length, -suffix.length));
 }
 
 function isTrustedBotComment(comment) {
@@ -578,10 +561,6 @@ export function validateEventReceipt(value, { requirePlan = true } = {}) {
   return event;
 }
 
-export function eventReceiptMarker(runId) {
-  return `${EVENT_MARKER_PREFIX}${exactRunId(runId)} -->`;
-}
-
 function semanticEventKey(event) {
   const receipt = validateEventReceipt(event);
   return canonicalJson({
@@ -703,11 +682,6 @@ function validateSelectionReceipt(value) {
     coalesced.add(exact);
   }
   return selection;
-}
-
-export function selectionReceiptMarker(value) {
-  const selection = validateSelectionReceipt(value);
-  return `${SELECTION_MARKER_PREFIX}${selection.key_digest} -->`;
 }
 
 export function selectionReceiptFromDispatch(selection) {
@@ -839,11 +813,6 @@ export function validateWorkerResult(value) {
   return result;
 }
 
-export function resultReceiptMarker(result) {
-  const validated = validateWorkerResult(result);
-  return `${RESULT_MARKER_PREFIX}${validated.key_digest}:run:${validated.worker_run_id} -->`;
-}
-
 function validateWorkerEvidence(value) {
   const evidence = plainObject(value, "Worker evidence");
   invariant(
@@ -898,11 +867,6 @@ function validateWorkerEvidence(value) {
   optionalNextDeploymentId(evidence.next_deployment_id);
   immutableVercelUrl(evidence.verified_upload_url);
   return evidence;
-}
-
-function workerEvidenceMarker(value) {
-  const evidence = validateWorkerEvidence(value);
-  return `${EVIDENCE_MARKER_PREFIX}${evidence.key_digest}:run:${evidence.worker_run_id} -->`;
 }
 
 function dedupeEvents(events, preferredRunIds = new Set()) {
@@ -1420,12 +1384,7 @@ function normalizeExistingState(value, pr) {
       "Terminal selection state is invalid",
     );
   }
-  const terminalResultKeyDigests = Object.hasOwn(
-    ui,
-    "terminal_result_key_digests",
-  )
-    ? ui.terminal_result_key_digests
-    : [...new Set(terminalHistory.map((terminal) => terminal.key_digest))];
+  const terminalResultKeyDigests = ui.terminal_result_key_digests;
   invariant(
     Array.isArray(terminalResultKeyDigests) &&
       terminalResultKeyDigests.length <= MAX_RECEIPTS,
@@ -1860,193 +1819,362 @@ async function listComments(github, context, pr) {
   return comments;
 }
 
-function matchingBotComments(comments, marker) {
-  return comments.filter(
+function receiptSetDigest({ events, selections, worker_evidence, results }) {
+  return digest({
+    events: events.map(canonicalJson).sort(),
+    selections: selections.map(canonicalJson).sort(),
+    worker_evidence: worker_evidence.map(canonicalJson).sort(),
+    results: results.map(canonicalJson).sort(),
+  });
+}
+
+function previewJournalDigest(receipts, state) {
+  return digest({ receipts_digest: receiptSetDigest(receipts), state });
+}
+
+function validateWorkerEvidenceSet(values, pr) {
+  invariant(
+    Array.isArray(values) && values.length <= MAX_RECEIPTS,
+    "Worker evidence set is invalid",
+  );
+  const identities = new Map();
+  for (const raw of values) {
+    const value = validateWorkerEvidence(raw);
+    invariant(value.pr === pr, "Worker evidence PR mismatch");
+    const identity = `${value.key_digest}:${value.worker_run_id}`;
+    invariant(!identities.has(identity), "Duplicate worker evidence entries");
+    identities.set(identity, value);
+  }
+  return values;
+}
+
+function validateJournalReceiptSet(
+  values,
+  { maximumMessage, validate, identity },
+) {
+  invariant(Array.isArray(values), maximumMessage);
+  invariant(values.length <= MAX_RECEIPTS, maximumMessage);
+  const identities = new Set();
+  for (const raw of values) {
+    const value = validate(raw);
+    const key = identity(value);
+    invariant(
+      !identities.has(key),
+      `Duplicate ${maximumMessage.toLowerCase()}`,
+    );
+    identities.add(key);
+  }
+  return values;
+}
+
+function sameAttemptBinding(receipt, selection) {
+  return (
+    receipt.pr === selection.pr &&
+    receipt.target === selection.target &&
+    receipt.sha === selection.sha &&
+    receipt.controller_key === selection.key &&
+    receipt.key_digest === selection.key_digest &&
+    receipt.epoch_anchor_run_id === selection.epoch_anchor_run_id &&
+    receipt.reconciliation_basis_digest ===
+      selection.reconciliation_basis_digest &&
+    receipt.selection_receipt_run_id === selection.selection_receipt_run_id &&
+    receipt.expected_workflow_sha === selection.expected_workflow_sha
+  );
+}
+
+function validatePreviewJournal(value, expectedPr) {
+  const journal = plainObject(value, "Preview journal");
+  invariant(
+    journal.schema === PREVIEW_JOURNAL_SCHEMA,
+    "Preview journal schema mismatch",
+  );
+  invariant(
+    Object.keys(journal).sort().join(",") ===
+      "journal_digest,pr,receipts,repository,revision,schema,state",
+    "Preview journal fields are invalid",
+  );
+  validatedRepository(journal.repository);
+  const pr = pullRequestNumber(journal.pr);
+  invariant(
+    pr === pullRequestNumber(expectedPr),
+    "Preview journal PR mismatch",
+  );
+  invariant(
+    Number.isSafeInteger(journal.revision) && journal.revision >= 1,
+    "Preview journal revision is invalid",
+  );
+  const receipts = plainObject(journal.receipts, "Preview journal receipts");
+  invariant(
+    Object.keys(receipts).sort().join(",") ===
+      "events,results,selections,worker_evidence",
+    "Preview journal receipt fields are invalid",
+  );
+  const events = validateJournalReceiptSet(receipts.events, {
+    maximumMessage: "Journal events are invalid",
+    validate: validateEventReceipt,
+    identity: (event) => String(event.event_run_id),
+  });
+  const selections = validateJournalReceiptSet(receipts.selections, {
+    maximumMessage: "Journal selections are invalid",
+    validate: validateSelectionReceipt,
+    identity: (selection) => selection.key_digest,
+  });
+  const results = validateJournalReceiptSet(receipts.results, {
+    maximumMessage: "Journal results are invalid",
+    validate: validateWorkerResult,
+    identity: (result) => `${result.key_digest}:${result.worker_run_id}`,
+  });
+  validateWorkerEvidenceSet(receipts.worker_evidence, pr);
+  invariant(
+    events.every((event) => event.pr === pr),
+    "Journal event PR mismatch",
+  );
+  invariant(
+    selections.every((selection) => selection.pr === pr),
+    "Journal selection PR mismatch",
+  );
+  invariant(
+    results.every((result) => result.pr === pr),
+    "Journal result PR mismatch",
+  );
+  for (const receipt of [...receipts.worker_evidence, ...receipts.results]) {
+    const selection = receipts.selections.find(
+      (candidate) => candidate.key_digest === receipt.key_digest,
+    );
+    invariant(
+      selection && sameAttemptBinding(receipt, selection),
+      "Journal worker receipt has no matching selection",
+    );
+  }
+  for (const evidence of receipts.worker_evidence) {
+    const result = receipts.results.find(
+      (candidate) =>
+        candidate.key_digest === evidence.key_digest &&
+        candidate.worker_run_id === evidence.worker_run_id,
+    );
+    invariant(
+      !result || result.worker_run_attempt === evidence.worker_run_attempt,
+      "Journal worker evidence and result attempts conflict",
+    );
+  }
+  if (journal.state !== null) {
+    const state = normalizeExistingState(journal.state, pr);
+    for (const dispatch of [
+      state.ui?.active,
+      ...(state.ui?.retired_active ?? []),
+    ].filter(Boolean)) {
+      invariant(
+        receipts.selections.some(
+          (selection) =>
+            selection.key_digest === dispatch.key_digest &&
+            selection.selection_receipt_run_id ===
+              dispatch.selection_receipt_run_id,
+        ),
+        "Journal state dispatch has no matching selection",
+      );
+    }
+  }
+  invariant(
+    typeof journal.journal_digest === "string" &&
+      /^[0-9a-f]{64}$/.test(journal.journal_digest) &&
+      journal.journal_digest === previewJournalDigest(receipts, journal.state),
+    "Preview journal digest mismatch",
+  );
+  journalBody(journal);
+  return journal;
+}
+
+export function createPreviewJournal({
+  pr: rawPr,
+  revision = 1,
+  events = [],
+  selections = [],
+  workerEvidence = [],
+  results = [],
+  state = null,
+} = {}) {
+  const pr = pullRequestNumber(rawPr);
+  const receipts = {
+    events: structuredClone(events),
+    selections: structuredClone(selections),
+    worker_evidence: structuredClone(workerEvidence),
+    results: structuredClone(results),
+  };
+  return validatePreviewJournal(
+    {
+      schema: PREVIEW_JOURNAL_SCHEMA,
+      repository: PREVIEW_REPOSITORY,
+      pr,
+      revision,
+      journal_digest: previewJournalDigest(receipts, state),
+      receipts,
+      state: state === null ? null : structuredClone(state),
+    },
+    pr,
+  );
+}
+
+function journalRecords(journal, journalComment) {
+  return {
+    events: journal.receipts.events,
+    workerEvidence: journal.receipts.worker_evidence,
+    results: journal.receipts.results,
+    selections: journal.receipts.selections,
+    state: journal.state,
+    stateComment: journalComment,
+    journal,
+    journalComment,
+  };
+}
+
+function parsePreviewJournalComments(
+  comments,
+  pr,
+  { allowMissing = false } = {},
+) {
+  const matches = comments.filter(
     (comment) =>
       isTrustedBotComment(comment) &&
       typeof comment.body === "string" &&
-      comment.body.startsWith(marker),
+      comment.body.startsWith(PREVIEW_JOURNAL_MARKER),
   );
-}
-
-async function writeImmutableComment({ github, context, pr, marker, value }) {
-  const body = markerBody(marker, value);
-  const legacyBody = legacyMarkerBody(marker, value);
-  const acceptedBodies = new Set([
-    body,
-    body.slice(0, -1),
-    legacyBody,
-    legacyBody.slice(0, -1),
-  ]);
-  const existing = matchingBotComments(
-    await listComments(github, context, pr),
-    marker,
-  );
-  invariant(existing.length <= 1, `Duplicate immutable marker ${marker}`);
-  if (existing.length === 1) {
-    invariant(
-      acceptedBodies.has(existing[0].body),
-      `Immutable receipt ${marker} conflicts with existing evidence`,
-    );
-    return { comment: existing[0], reused: true };
+  invariant(matches.length <= 1, "Multiple bot-owned preview journals exist");
+  if (matches.length === 0) {
+    invariant(allowMissing, "Preview journal comment does not exist");
+    return null;
   }
-  const { data } = await github.rest.issues.createComment({
-    ...ownerRepo(context),
-    issue_number: pr,
-    body,
-  });
-  return { comment: data, reused: false };
-}
-
-function parseControllerComments(comments) {
-  const events = [];
-  const workerEvidence = [];
-  const results = [];
-  const selections = [];
-  for (const comment of comments) {
-    if (!isTrustedBotComment(comment) || typeof comment.body !== "string")
-      continue;
-    if (comment.body.startsWith(EVENT_MARKER_PREFIX)) {
-      const marker = comment.body.split("\n", 1)[0];
-      events.push(validateEventReceipt(parseMarkerBody(comment.body, marker)));
-    } else if (comment.body.startsWith(EVIDENCE_MARKER_PREFIX)) {
-      const marker = comment.body.split("\n", 1)[0];
-      workerEvidence.push(
-        validateWorkerEvidence(parseMarkerBody(comment.body, marker)),
-      );
-    } else if (comment.body.startsWith(RESULT_MARKER_PREFIX)) {
-      const marker = comment.body.split("\n", 1)[0];
-      results.push(validateWorkerResult(parseMarkerBody(comment.body, marker)));
-    } else if (comment.body.startsWith(SELECTION_MARKER_PREFIX)) {
-      const marker = comment.body.split("\n", 1)[0];
-      selections.push(
-        validateSelectionReceipt(parseMarkerBody(comment.body, marker)),
-      );
-    }
-  }
-  const states = matchingBotComments(comments, CONTROLLER_MARKER);
+  const journal = validatePreviewJournal(parseJournalBody(matches[0].body), pr);
   invariant(
-    states.length <= 1,
-    "Multiple bot-owned controller state comments exist",
+    matches[0].body === journalBody(journal),
+    "Preview journal body is not canonical",
   );
-  const state =
-    states.length === 1
-      ? parseMarkerBody(states[0].body, CONTROLLER_MARKER)
-      : null;
-  return {
-    events,
-    workerEvidence,
-    results,
-    selections,
-    state,
-    stateComment: states[0] ?? null,
-  };
+  return journalRecords(journal, matches[0]);
 }
 
-function canonicalLegacyReceiptUpgrade(comment) {
-  if (!isTrustedBotComment(comment) || typeof comment.body !== "string")
-    return null;
-  const marker = comment.body.split("\n", 1)[0];
-  if (
-    !IMMUTABLE_RECEIPT_MARKER_PREFIXES.some((prefix) =>
-      marker.startsWith(prefix),
-    )
-  ) {
-    return null;
-  }
-  const value = parseMarkerBody(comment.body, marker);
-  const legacyBody = legacyMarkerBody(marker, value);
-  if (comment.body !== legacyBody && comment.body !== legacyBody.slice(0, -1)) {
-    return null;
-  }
-  return {
-    commentId: comment.id,
-    body: markerBody(marker, value),
-  };
-}
-
-function selectionHasTerminalResult(selection, results) {
-  return results.some(
-    (result) =>
-      result.key_digest === selection.key_digest &&
-      result.epoch_anchor_run_id === selection.epoch_anchor_run_id &&
-      result.selection_receipt_run_id === selection.selection_receipt_run_id,
-  );
-}
-
-function hasUnfinishedLegacyWorker(parsed, pr, workflowSha) {
-  const state = normalizeExistingState(parsed.state, pr);
-  if (state === null) return true;
-  return [state.ui?.active, ...(state.ui?.retired_active ?? [])]
-    .filter(
-      (selection) => selection && selection.recovery_quarantine === undefined,
-    )
-    .some(
-      (selection) =>
-        selection.expected_workflow_sha !== workflowSha &&
-        !selectionHasTerminalResult(selection, parsed.results),
-    );
-}
-
-async function migrateLegacyReceiptPresentation({
+async function loadPreviewJournal(
   github,
   context,
-  core,
   pr,
-  workflowSha,
-  comments,
-  parsed,
-  migrationBudget,
+  { allowMissing = false } = {},
+) {
+  return parsePreviewJournalComments(
+    await listComments(github, context, pr),
+    pr,
+    { allowMissing },
+  );
+}
+
+async function mutatePreviewJournal({
+  github,
+  context,
+  pr: rawPr,
+  allowCreate = false,
+  expectedComment = null,
+  mutate,
 }) {
-  const upgrades = comments.map(canonicalLegacyReceiptUpgrade).filter(Boolean);
-  if (upgrades.length === 0) {
-    if (migrationBudget.migrated > 0) {
-      core.setOutput("legacy_receipt_presentations_remaining", "0");
-    }
-    return;
-  }
-  if (hasUnfinishedLegacyWorker(parsed, pr, workflowSha)) {
-    core.setOutput("legacy_receipt_presentation_migration_deferred", "true");
-    return;
-  }
-  const migrated = [];
-  for (const upgrade of upgrades.slice(0, migrationBudget.remaining)) {
-    const request = {
-      ...ownerRepo(context),
-      comment_id: upgrade.commentId,
-      body: upgrade.body,
-    };
-    migrationBudget.remaining -= 1;
-    try {
-      await github.rest.issues.updateComment(request);
-      migrated.push(upgrade);
-    } catch {
-      core.setOutput("legacy_receipt_presentation_migration_retryable", "true");
-      break;
-    }
-  }
-  migrationBudget.migrated += migrated.length;
-  if (migrated.length > 0) {
-    const refreshedComments = await listComments(github, context, pr);
-    for (const upgrade of migrated) {
-      invariant(
-        refreshedComments.some(
-          (comment) =>
-            comment.id === upgrade.commentId && comment.body === upgrade.body,
-        ),
-        "Legacy receipt presentation lost a concurrent update",
-      );
-    }
-    parseControllerComments(refreshedComments);
-  }
-  if (migrationBudget.migrated > 0) {
-    core.setOutput(
-      "legacy_receipt_presentations_migrated",
-      String(migrationBudget.migrated),
+  const pr = pullRequestNumber(rawPr);
+  const loaded = await loadPreviewJournal(github, context, pr, {
+    allowMissing: allowCreate,
+  });
+  if (expectedComment && loaded) {
+    invariant(
+      loaded.journalComment.id === expectedComment.id,
+      "Preview journal identity changed",
     );
   }
-  const remaining = upgrades.length - migrated.length;
-  core.setOutput("legacy_receipt_presentations_remaining", String(remaining));
+  const current = loaded?.journal ?? createPreviewJournal({ pr, revision: 1 });
+  const candidate = structuredClone(current);
+  mutate(candidate);
+  candidate.journal_digest = previewJournalDigest(
+    candidate.receipts,
+    candidate.state,
+  );
+  const changed =
+    canonicalJson({ ...candidate, revision: 0 }) !==
+    canonicalJson({ ...current, revision: 0 });
+  if (!changed && loaded) return loaded;
+  candidate.revision = loaded ? current.revision + 1 : 1;
+  const journal = validatePreviewJournal(candidate, pr);
+  const body = journalBody(journal);
+  let data;
+  if (loaded) {
+    ({ data } = await github.rest.issues.updateComment({
+      ...ownerRepo(context),
+      comment_id: loaded.journalComment.id,
+      body,
+    }));
+  } else {
+    invariant(allowCreate, "Preview journal creation is not allowed");
+    ({ data } = await github.rest.issues.createComment({
+      ...ownerRepo(context),
+      issue_number: pr,
+      body,
+    }));
+  }
+  const reread = await loadPreviewJournal(github, context, pr);
+  invariant(
+    reread.journalComment.id === data.id &&
+      reread.journalComment.body === body &&
+      reread.journal.revision === journal.revision &&
+      reread.journal.journal_digest === journal.journal_digest,
+    "Preview journal lost a serialized update",
+  );
+  return reread;
+}
+
+const RECEIPT_COLLECTION = {
+  event: {
+    name: "events",
+    validate: validateEventReceipt,
+    identity: (value) => String(value.event_run_id),
+  },
+  selection: {
+    name: "selections",
+    validate: validateSelectionReceipt,
+    identity: (value) => value.key_digest,
+  },
+  workerEvidence: {
+    name: "worker_evidence",
+    validate: validateWorkerEvidence,
+    identity: (value) => `${value.key_digest}:${value.worker_run_id}`,
+  },
+  result: {
+    name: "results",
+    validate: validateWorkerResult,
+    identity: (value) => `${value.key_digest}:${value.worker_run_id}`,
+  },
+};
+
+async function appendJournalReceipt({
+  github,
+  context,
+  pr,
+  kind,
+  value: rawValue,
+  allowCreate = false,
+}) {
+  const definition = RECEIPT_COLLECTION[kind];
+  invariant(definition, "Preview journal receipt kind is invalid");
+  const value = definition.validate(rawValue);
+  invariant(value.pr === pullRequestNumber(pr), "Preview receipt PR mismatch");
+  return mutatePreviewJournal({
+    github,
+    context,
+    pr,
+    allowCreate,
+    mutate(journal) {
+      const entries = journal.receipts[definition.name];
+      const identity = definition.identity(value);
+      const existing = entries.find(
+        (entry) => definition.identity(definition.validate(entry)) === identity,
+      );
+      invariant(
+        !existing || canonicalJson(existing) === canonicalJson(value),
+        `Conflicting ${kind} receipt in preview journal`,
+      );
+      if (!existing) entries.push(structuredClone(value));
+    },
+  });
 }
 
 async function writeControllerState({
@@ -2056,29 +2184,45 @@ async function writeControllerState({
   state,
   stateComment,
 }) {
-  const body = markerBody(CONTROLLER_MARKER, state);
-  let data;
-  if (stateComment) {
-    ({ data } = await github.rest.issues.updateComment({
-      ...ownerRepo(context),
-      comment_id: stateComment.id,
-      body,
-    }));
-  } else {
-    ({ data } = await github.rest.issues.createComment({
-      ...ownerRepo(context),
-      issue_number: pr,
-      body,
-    }));
-  }
-  const reread = parseControllerComments(
-    await listComments(github, context, pr),
-  );
-  invariant(
-    reread.stateComment?.id === data.id && reread.stateComment.body === body,
-    "Controller state lost a concurrent update",
-  );
-  return reread.stateComment;
+  const updated = await mutatePreviewJournal({
+    github,
+    context,
+    pr,
+    expectedComment: stateComment,
+    mutate(journal) {
+      journal.state = structuredClone(state);
+    },
+  });
+  return updated.journalComment;
+}
+
+async function writeControllerIntent({
+  github,
+  context,
+  pr,
+  state,
+  selection,
+  stateComment,
+}) {
+  const receipt = validateSelectionReceipt(selection);
+  const updated = await mutatePreviewJournal({
+    github,
+    context,
+    pr,
+    expectedComment: stateComment,
+    mutate(journal) {
+      journal.state = structuredClone(state);
+      const existing = journal.receipts.selections.find(
+        (candidate) => candidate.key_digest === receipt.key_digest,
+      );
+      invariant(
+        !existing || canonicalJson(existing) === canonicalJson(receipt),
+        "Conflicting selection receipt in preview journal",
+      );
+      if (!existing) journal.receipts.selections.push(structuredClone(receipt));
+    },
+  });
+  return updated.journalComment;
 }
 
 async function pullFromApi(github, context, pr) {
@@ -2270,12 +2414,17 @@ export async function recordEventReceipt({
     core.setOutput("planner_output_invalid", "true");
   }
   const receipt = validateEventReceipt({ ...validatedSnapshot, plan });
-  await writeImmutableComment({
+  const isInitialJournalTransition =
+    (receipt.event_action === "opened" ||
+      receipt.event_action === "bootstrap") &&
+    exactRunAttempt(context.runAttempt ?? 1) === 1;
+  await appendJournalReceipt({
     github,
     context,
     pr: receipt.pr,
-    marker: eventReceiptMarker(receipt.event_run_id),
+    kind: "event",
     value: receipt,
+    allowCreate: isInitialJournalTransition,
   });
   const current = normalizePullRequest(
     await pullFromApi(github, context, receipt.pr),
@@ -2760,11 +2909,11 @@ async function recordRemovedSelection({ github, context, pr, selection }) {
     smoke_result: "not-run",
     terminal_reason: "selection-removed-from-pr",
   });
-  await writeImmutableComment({
+  await appendJournalReceipt({
     github,
     context,
     pr,
-    marker: resultReceiptMarker(result),
+    kind: "result",
     value: result,
   });
   return result;
@@ -2793,11 +2942,11 @@ async function recordSupersededIntent({ github, context, pr, selection }) {
     smoke_result: "not-run",
     terminal_reason: "controller-workflow-upgraded-before-dispatch",
   });
-  await writeImmutableComment({
+  await appendJournalReceipt({
     github,
     context,
     pr,
-    marker: resultReceiptMarker(result),
+    kind: "result",
     value: result,
   });
   return result;
@@ -2833,9 +2982,7 @@ async function refreshDispatchOwnership({
   if (!(await shaIsStillAssociated(github, context, pull, selected.sha))) {
     return { outcome: "removed" };
   }
-  const comments = parseControllerComments(
-    await listComments(github, context, pr),
-  );
+  const comments = await loadPreviewJournal(github, context, pr);
   const ownershipCheck = reconcileState({
     events: comments.events,
     results: comments.results,
@@ -2960,16 +3107,10 @@ export async function reconcilePreview({
   const pr = pullRequestNumber(rawPr);
   const workflowSha = exactSha(rawWorkflowSha, "Controller workflow SHA");
   const controllerUrl = `https://github.com/${PREVIEW_REPOSITORY}/actions/runs/${context.runId}`;
-  const presentationMigrationBudget = {
-    remaining: MAX_PRESENTATION_MIGRATIONS_PER_RECONCILE,
-    migrated: 0,
-  };
   reconcileAttempts: for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const pull = await pullFromApi(github, context, pr);
-      const parsed = parseControllerComments(
-        await listComments(github, context, pr),
-      );
+      const parsed = await loadPreviewJournal(github, context, pr);
       if (
         await recoverCompletedOwnedRuns({
           github,
@@ -3013,20 +3154,14 @@ export async function reconcilePreview({
           };
           state.ui.active = selected;
         }
-        stateComment = await writeControllerState({
+        const selectionReceipt = selectionReceiptFromDispatch(selected);
+        stateComment = await writeControllerIntent({
           github,
           context,
           pr,
           state,
+          selection: selectionReceipt,
           stateComment,
-        });
-        const selectionReceipt = selectionReceiptFromDispatch(selected);
-        await writeImmutableComment({
-          github,
-          context,
-          pr,
-          marker: selectionReceiptMarker(selectionReceipt),
-          value: selectionReceipt,
         });
 
         let refreshedOwnership = await refreshDispatchOwnership({
@@ -3154,9 +3289,7 @@ export async function reconcilePreview({
       }
 
       const finalPull = await pullFromApi(github, context, pr);
-      const finalComments = parseControllerComments(
-        await listComments(github, context, pr),
-      );
+      const finalComments = await loadPreviewJournal(github, context, pr);
       const finalReconciled = reconcileState({
         events: finalComments.events,
         results: finalComments.results,
@@ -3181,8 +3314,7 @@ export async function reconcilePreview({
         stateComment,
       });
       const readStatusBasis = async () => {
-        const comments = await listComments(github, context, pr);
-        const confirmed = parseControllerComments(comments);
+        const confirmed = await loadPreviewJournal(github, context, pr);
         invariant(
           confirmed.stateComment?.id === stateComment.id &&
             canonicalJson(confirmed.state) === canonicalJson(state),
@@ -3198,22 +3330,11 @@ export async function reconcilePreview({
             ),
           "Controller receipt set changed before status publication",
         );
-        return { comments, confirmed };
+        return confirmed;
       };
       const assertStatusBasis = async () => {
         await readStatusBasis();
       };
-      const presentationBasis = await readStatusBasis();
-      await migrateLegacyReceiptPresentation({
-        github,
-        context,
-        core,
-        pr,
-        workflowSha,
-        comments: presentationBasis.comments,
-        parsed: presentationBasis.confirmed,
-        migrationBudget: presentationMigrationBudget,
-      });
       await assertStatusBasis();
       await postStatusDecisions(github, context, state.status_decisions, {
         assertBasis: assertStatusBasis,
@@ -3223,7 +3344,7 @@ export async function reconcilePreview({
     } catch (error) {
       if (
         attempt < 2 &&
-        /concurrent update|basis changed|changed before status|receipt set changed|ownership changed/.test(
+        /serialized update|identity changed|basis changed|changed before status|receipt set changed|ownership changed/.test(
           error.message,
         )
       ) {
@@ -3246,10 +3367,8 @@ export async function reconcilePreview({
 }
 
 async function loadControllerEvidence(github, context, pr) {
-  const parsed = parseControllerComments(
-    await listComments(github, context, pr),
-  );
-  invariant(parsed.state !== null, "Controller state comment does not exist");
+  const parsed = await loadPreviewJournal(github, context, pr);
+  invariant(parsed.state !== null, "Preview journal state does not exist");
   normalizeExistingState(parsed.state, pr);
   return parsed;
 }
@@ -3792,11 +3911,11 @@ export async function recordWorkerEvidence({
     next_deployment_id: nextDeploymentId,
     verified_upload_url: verifiedUploadUrl,
   });
-  await writeImmutableComment({
+  await appendJournalReceipt({
     github,
     context,
     pr: selection.pr,
-    marker: workerEvidenceMarker(workerEvidence),
+    kind: "workerEvidence",
     value: workerEvidence,
   });
   core.setOutput("worker_evidence_recorded", "true");
@@ -4140,11 +4259,11 @@ export async function recoverWorkerResult({
     smoke_result: smokeResult,
     terminal_reason: terminalReason,
   });
-  await writeImmutableComment({
+  await appendJournalReceipt({
     github,
     context,
     pr: parsed.pr,
-    marker: resultReceiptMarker(result),
+    kind: "result",
     value: result,
   });
   core.setOutput("pr_number", String(parsed.pr));

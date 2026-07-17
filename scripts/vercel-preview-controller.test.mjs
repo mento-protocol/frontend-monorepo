@@ -5,12 +5,14 @@ import {
   BOOTSTRAP_DISPATCH_EVENT,
   CONTROLLER_SCHEMA,
   EVENT_RECEIPT_SCHEMA,
+  PREVIEW_JOURNAL_MARKER,
+  PREVIEW_JOURNAL_SCHEMA,
   PREVIEW_REPOSITORY,
   RECONCILE_DISPATCH_EVENT,
   RESULT_RECEIPT_SCHEMA,
   SELECTION_RECEIPT_SCHEMA,
+  createPreviewJournal,
   dependabotIntakeRunName,
-  eventReceiptMarker,
   normalizePlannerResult,
   parseWorkerRunName,
   publishDependabotUnsupported,
@@ -21,9 +23,7 @@ import {
   reconcilePreview as reconcilePreviewImplementation,
   reconcileState,
   recoverWorkerResult,
-  resultReceiptMarker,
   selectionReceiptFromDispatch,
-  selectionReceiptMarker,
   snapshotPullRequestEvent,
   validateEventReceipt,
   validateDependabotIntakeWorkflowRun,
@@ -142,6 +142,21 @@ function event({
     ...snapshot,
     plan: normalizePlannerResult(rawPlan, snapshot),
   });
+}
+
+function eventRecordInputs(receipt) {
+  const snapshot = structuredClone(receipt);
+  delete snapshot.plan;
+  return {
+    snapshotRaw: JSON.stringify(snapshot),
+    planRaw: JSON.stringify({
+      deployments: receipt.plan.targets,
+      base: receipt.plan.base,
+      head: receipt.plan.head,
+      reason: receipt.plan.reason,
+    }),
+    plannerOutcome: "success",
+  };
 }
 
 function persistDispatch(reconciled, runId = 8_000) {
@@ -1172,15 +1187,16 @@ test("controller state schema is explicit and bounded", () => {
       }),
     /expected workflow SHA/,
   );
-  const legacyState = structuredClone(persisted);
-  delete legacyState.ui.terminal_result_key_digests;
-  assert.deepEqual(
-    reconcile({
-      events: [opened],
-      pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
-      existingState: legacyState,
-    }).state.ui.terminal_result_key_digests,
-    [],
+  const missingTerminalOwnership = structuredClone(persisted);
+  delete missingTerminalOwnership.ui.terminal_result_key_digests;
+  assert.throws(
+    () =>
+      reconcile({
+        events: [opened],
+        pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+        existingState: missingTerminalOwnership,
+      }),
+    /Terminal result ownership/,
   );
   for (const malformedOwnership of [
     null,
@@ -1211,59 +1227,6 @@ test("controller state schema is explicit and bounded", () => {
   assert.match(stateValue.receipts_digest, /^[0-9a-f]{64}$/);
   assert.match(stateValue.epoch.basis_digest, /^[0-9a-f]{64}$/);
   assert.ok(JSON.stringify(stateValue).length < 20_000);
-});
-
-test("legacy v1 state derives terminal ownership from validated history", () => {
-  const opened = event({
-    run: 111,
-    action: "opened",
-    head: SHA.A,
-    updated: timestamp(1),
-  });
-  const first = reconcile({
-    events: [opened],
-    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
-  });
-  const firstResult = result(first.nextDispatch, { runId: 8_000 });
-  const synchronized = event({
-    run: 112,
-    action: "synchronize",
-    before: SHA.A,
-    head: SHA.B,
-    updated: timestamp(2),
-  });
-  const second = reconcile({
-    events: [opened, synchronized],
-    results: [firstResult],
-    pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
-    existingState: persistDispatch(first, 8_000),
-  });
-  const legacyState = persistDispatch(second, 8_001);
-  delete legacyState.ui.terminal_result_key_digests;
-  const malformedLegacyState = structuredClone(legacyState);
-  malformedLegacyState.ui.terminal_history[0].key_digest =
-    second.nextDispatch.key_digest;
-  assert.throws(
-    () =>
-      reconcile({
-        events: [opened, synchronized],
-        results: [firstResult],
-        pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
-        existingState: malformedLegacyState,
-      }),
-    /Terminal selection digest mismatch/,
-  );
-
-  const upgraded = reconcile({
-    events: [opened, synchronized],
-    results: [firstResult, result(second.nextDispatch, { runId: 8_001 })],
-    pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
-    existingState: legacyState,
-  }).state;
-  assert.deepEqual(upgraded.ui.terminal_result_key_digests, [
-    first.nextDispatch.key_digest,
-    second.nextDispatch.key_digest,
-  ]);
 });
 
 test("compact terminal ownership survives more results than rendered history", () => {
@@ -1322,111 +1285,70 @@ const expectedCommentExplanation = [
   "[How previews work](https://github.com/mento-protocol/frontend-monorepo/blob/main/docs/vercel-deployments.md#event-status-and-batching-contract).",
 ].join(" ");
 
-function legacyCommentBody(marker, value) {
-  return `${marker}\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\`\n`;
+function previewJournalBody(value) {
+  return `${PREVIEW_JOURNAL_MARKER}\n\n${expectedCommentExplanation}\n\n<details>\n<summary>Show machine-readable preview automation record</summary>\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\`\n\n</details>\n`;
 }
 
-function commentBody(marker, value) {
-  return `${marker}\n\n${expectedCommentExplanation}\n\n<details>\n<summary>Show machine-readable preview automation record</summary>\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\`\n`;
+function journalFromComment(comment) {
+  const match = comment.body.match(
+    /\n```json\n([\s\S]+)\n```\n\n<\/details>\n$/,
+  );
+  assert.ok(match, "fixture must contain one canonical preview journal");
+  return JSON.parse(match[1]);
 }
 
-function eventComment(value, id = 1) {
+function journalComment(
+  {
+    pr = 519,
+    revision = 1,
+    events = [],
+    selections = [],
+    workerEvidence = [],
+    results = [],
+    state = null,
+  } = {},
+  id = 1,
+) {
+  const journal = createPreviewJournal({
+    pr,
+    revision,
+    events,
+    selections,
+    workerEvidence,
+    results,
+    state,
+  });
   return {
     id,
     user: { type: "Bot", login: "github-actions[bot]" },
-    body: commentBody(eventReceiptMarker(value.event_run_id), value),
+    body: previewJournalBody(journal),
   };
 }
 
-function legacyEventComment(value, id = 1) {
+function journalWithState(
+  events,
+  state,
+  {
+    revision = 1,
+    selections = state?.ui?.active
+      ? [selectionReceiptFromDispatch(state.ui.active)]
+      : [],
+    workerEvidence = [],
+    results = [],
+  } = {},
+  id = 1,
+) {
+  return journalComment(
+    { revision, events, selections, workerEvidence, results, state },
+    id,
+  );
+}
+
+function oldReceiptComment(marker, value, id = 99) {
   return {
     id,
     user: { type: "Bot", login: "github-actions[bot]" },
-    body: legacyCommentBody(eventReceiptMarker(value.event_run_id), value),
-  };
-}
-
-function stateComment(value, id = 2) {
-  return {
-    id,
-    user: { type: "Bot", login: "github-actions[bot]" },
-    body: commentBody("<!-- vercel-preview-controller:v1 -->", value),
-  };
-}
-
-function legacyStateComment(value, id = 2) {
-  return {
-    id,
-    user: { type: "Bot", login: "github-actions[bot]" },
-    body: legacyCommentBody("<!-- vercel-preview-controller:v1 -->", value),
-  };
-}
-
-function resultComment(value, id = 3) {
-  return {
-    id,
-    user: { type: "Bot", login: "github-actions[bot]" },
-    body: commentBody(resultReceiptMarker(value), value),
-  };
-}
-
-function legacyResultComment(value, id = 3) {
-  return {
-    id,
-    user: { type: "Bot", login: "github-actions[bot]" },
-    body: legacyCommentBody(resultReceiptMarker(value), value),
-  };
-}
-
-function selectionComment(value, id = 4) {
-  return {
-    id,
-    user: { type: "Bot", login: "github-actions[bot]" },
-    body: commentBody(selectionReceiptMarker(value), value),
-  };
-}
-
-function legacySelectionComment(value, id = 4) {
-  return {
-    id,
-    user: { type: "Bot", login: "github-actions[bot]" },
-    body: legacyCommentBody(selectionReceiptMarker(value), value),
-  };
-}
-
-function workerEvidence(dispatch, runId = 8_000) {
-  return {
-    schema: "vercel-preview-worker-evidence:v1",
-    repository: PREVIEW_REPOSITORY,
-    pr: dispatch.pr,
-    target: "ui",
-    sha: dispatch.sha,
-    controller_key: dispatch.key,
-    key_digest: dispatch.key_digest,
-    epoch_anchor_run_id: dispatch.epoch_anchor_run_id,
-    reconciliation_basis_digest: dispatch.reconciliation_basis_digest,
-    selection_receipt_run_id: dispatch.selection_receipt_run_id,
-    expected_workflow_sha: dispatch.expected_workflow_sha,
-    worker_run_id: runId,
-    worker_run_attempt: 1,
-    github_deployment_id: 9_000 + runId,
-    execution_mode: "build",
-    build_completed: true,
-    vercel_deployment_id: `dpl_${runId}`,
-    next_deployment_id: `m-ui-${runId}`,
-    verified_upload_url: `https://ui-${runId}.vercel.app`,
-  };
-}
-
-function workerEvidenceMarker(value) {
-  return `<!-- vercel-preview-worker-evidence:v1:${value.key_digest}:run:${value.worker_run_id} -->`;
-}
-
-function legacyWorkerEvidenceComment(value, id = 5) {
-  return {
-    id,
-    user: { type: "Bot", login: "github-actions[bot]" },
-    body: legacyCommentBody(workerEvidenceMarker(value), value),
+    body: `${marker}\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\`\n`,
   };
 }
 
@@ -1852,18 +1774,24 @@ test("malformed successful planner output is recorded as fail-closed UI impact",
     fixture.comments[0].body,
     /<summary>Show machine-readable preview automation record<\/summary>/,
   );
-  assert.doesNotMatch(fixture.comments[0].body, /<\/details>/);
-  assert.match(fixture.comments[0].body, /\n```\n$/);
+  assert.match(fixture.comments[0].body, /<\/details>\n$/);
   assert.match(fixture.comments[0].body, /"reason": "planner-job-failed"/);
-  const legacyReaderMatch = fixture.comments[0].body.match(
-    /\n```json\n([\s\S]+)\n```\n?$/,
-  );
-  assert.ok(legacyReaderMatch, "the previous v1 reader can parse the new body");
-  assert.deepEqual(JSON.parse(legacyReaderMatch[1]), receipt);
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.schema, PREVIEW_JOURNAL_SCHEMA);
+  assert.deepEqual(journal.receipts.events, [receipt]);
+  assert.deepEqual(journal.receipts.selections, []);
+  assert.deepEqual(journal.receipts.worker_evidence, []);
+  assert.deepEqual(journal.receipts.results, []);
   assert.equal(fixture.commitStatuses.at(-1).state, "pending");
 });
 
-test("closed event receipt is immutable, idempotent, and publishes no status", async () => {
+test("closed event receipt keeps one stable idempotent journal and publishes no status", async () => {
+  const opened = event({
+    run: 119,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
   const closed = event({
     run: 120,
     action: "closed",
@@ -1878,7 +1806,10 @@ test("closed event receipt is immutable, idempotent, and publishes no status", a
     updated: timestamp(2),
     closed: timestamp(2),
   });
-  const fixture = fakeGitHub({ pullRequest, comments: [] });
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [journalComment({ events: [opened] })],
+  });
   const core = fakeCore();
   const options = {
     github: fixture.github,
@@ -1896,32 +1827,13 @@ test("closed event receipt is immutable, idempotent, and publishes no status", a
   assert.deepEqual(second, first);
   assert.equal(core.outputs.get("pr_number"), "519");
   assert.equal(fixture.comments.length, 1);
+  assert.equal(fixture.comments[0].id, 1);
+  assert.equal(fixture.commentUpdates.length, 1);
   assert.match(fixture.comments[0].body, /"event_action": "closed"/);
+  assert.equal(journalFromComment(fixture.comments[0]).revision, 2);
   assert.equal(fixture.commitStatuses.length, 0);
 
-  const legacyBody = legacyCommentBody(
-    eventReceiptMarker(120),
-    first,
-  ).trimEnd();
-  const legacyFixture = fakeGitHub({
-    pullRequest,
-    comments: [
-      {
-        id: 1,
-        user: { type: "Bot", login: "github-actions[bot]" },
-        body: legacyBody,
-      },
-    ],
-  });
-  const reusedLegacy = await recordEventReceipt({
-    ...options,
-    github: legacyFixture.github,
-  });
-  assert.deepEqual(reusedLegacy, first);
-  assert.equal(legacyFixture.comments.length, 1);
-  assert.equal(legacyFixture.comments[0].body, legacyBody);
-
-  const malformedComment = eventComment(first);
+  const malformedComment = journalComment({ events: [opened, first] });
   malformedComment.body = malformedComment.body.replace(
     "Show machine-readable preview automation record",
     "Unexpected summary",
@@ -1937,308 +1849,191 @@ test("closed event receipt is immutable, idempotent, and publishes no status", a
       core: fakeCore(),
       prNumber: 519,
     }),
-    /Controller comment JSON block is missing/,
-  );
-
-  const opened = event({
-    run: 119,
-    action: "opened",
-    head: SHA.A,
-    updated: timestamp(1),
-  });
-  const reconcileFixture = fakeGitHub({
-    pullRequest,
-    comments: [legacyEventComment(opened), legacyEventComment(first, 2)],
-  });
-  const state = await reconcilePreview({
-    github: reconcileFixture.github,
-    context: fakeContext({ runId: 120 }),
-    core: fakeCore(),
-    prNumber: 519,
-  });
-
-  assert.equal(state.closed, true);
-  assert.equal(reconcileFixture.dispatches.length, 0);
-});
-
-test("quiescent reconciliation bounds legacy migration across concurrency retries", async () => {
-  const opened = event({
-    run: 119,
-    action: "opened",
-    head: SHA.A,
-    updated: timestamp(1),
-  });
-  const openedPull = pull({ head: SHA.A, updated: timestamp(1) });
-  const selected = reconcile({
-    events: [opened],
-    pullRequest: openedPull,
-    expectedWorkflowSha: SHA.D,
-  });
-  const dispatched = persistDispatch(selected, 8_000);
-  const selection = selectionReceiptFromDispatch(dispatched.ui.active);
-  const evidence = workerEvidence(selected.nextDispatch);
-  const additionalEvidence = workerEvidence(selected.nextDispatch, 8_001);
-  const completed = result(selected.nextDispatch, { runId: 8_000 });
-  const terminal = reconcile({
-    events: [opened],
-    results: [completed],
-    selections: [selection],
-    pullRequest: openedPull,
-    existingState: dispatched,
-  }).state;
-  const closed = event({
-    run: 120,
-    action: "closed",
-    head: SHA.A,
-    updated: timestamp(2),
-  });
-  const closedPull = pull({
-    head: SHA.A,
-    state: "closed",
-    updated: timestamp(2),
-    closed: timestamp(2),
-  });
-  const closedState = reconcile({
-    events: [opened, closed],
-    results: [completed],
-    selections: [selection],
-    pullRequest: closedPull,
-    existingState: terminal,
-  }).state;
-  const legacySelection = legacySelectionComment(selection, 3);
-  legacySelection.body = legacySelection.body.trimEnd();
-  const legacyResult = legacyResultComment(completed, 5);
-  legacyResult.body = legacyResult.body.trimEnd();
-  const fixture = fakeGitHub({
-    pullRequest: closedPull,
-    comments: [
-      legacyEventComment(opened, 1),
-      stateComment(closedState, 2),
-      legacySelection,
-      legacyWorkerEvidenceComment(evidence, 4),
-      legacyResult,
-      legacyEventComment(closed, 6),
-      legacyWorkerEvidenceComment(additionalEvidence, 7),
-    ],
-    beforeListComments: ({ requestCount, comments }) => {
-      if (requestCount !== 7) return;
-      comments.find(({ id }) => id === 2).body = stateComment(terminal, 2).body;
-    },
-  });
-  const core = fakeCore();
-
-  const reconciled = await reconcilePreview({
-    github: fixture.github,
-    context: fakeContext({ runId: 7_001 }),
-    core,
-    prNumber: 519,
-  });
-
-  assert.equal(core.outputs.get("legacy_receipt_presentations_migrated"), "5");
-  assert.equal(core.outputs.get("legacy_receipt_presentations_remaining"), "1");
-  assert.equal(reconciled.receipts_digest, closedState.receipts_digest);
-  assert.equal(fixture.dispatches.length, 0);
-  assert.equal(fixture.comments.length, 7);
-  assert.ok(
-    fixture.commentUpdates.filter(
-      ({ comment_id: commentId }) => commentId === 2,
-    ).length >= 4,
-    "the fixture must force a top-level reconciliation retry",
-  );
-  const firstBatchBodies = new Map([
-    [1, commentBody(eventReceiptMarker(opened.event_run_id), opened)],
-    [3, commentBody(selectionReceiptMarker(selection), selection)],
-    [4, commentBody(workerEvidenceMarker(evidence), evidence)],
-    [5, commentBody(resultReceiptMarker(completed), completed)],
-    [6, commentBody(eventReceiptMarker(closed.event_run_id), closed)],
-  ]);
-  for (const [commentId, expectedBody] of firstBatchBodies) {
-    const actual = fixture.comments.find(({ id }) => id === commentId)?.body;
-    assert.equal(actual, expectedBody);
-    const legacyReaderMatch = actual.match(/\n```json\n([\s\S]+)\n```\n?$/);
-    assert.ok(
-      legacyReaderMatch,
-      "the previous v1 reader can parse migrated bodies",
-    );
-  }
-  assert.deepEqual(
-    fixture.commentUpdates
-      .filter(({ comment_id: commentId }) => firstBatchBodies.has(commentId))
-      .map(({ comment_id: commentId }) => commentId),
-    [1, 3, 4, 5, 6],
-  );
-  assert.doesNotMatch(
-    fixture.comments.find(({ id }) => id === 7).body,
-    /<details>/,
-  );
-
-  const secondCore = fakeCore();
-  await reconcilePreview({
-    github: fixture.github,
-    context: fakeContext({ runId: 7_002 }),
-    core: secondCore,
-    prNumber: 519,
-  });
-  assert.equal(
-    secondCore.outputs.get("legacy_receipt_presentations_migrated"),
-    "1",
-  );
-  const additionalBody = commentBody(
-    workerEvidenceMarker(additionalEvidence),
-    additionalEvidence,
-  );
-  assert.equal(
-    fixture.comments.find(({ id }) => id === 7).body,
-    additionalBody,
-  );
-  assert.ok(
-    additionalBody.match(/\n```json\n([\s\S]+)\n```\n?$/),
-    "the previous v1 reader can parse the resumed migration",
-  );
-
-  await reconcilePreview({
-    github: fixture.github,
-    context: fakeContext({ runId: 7_003 }),
-    core: fakeCore(),
-    prNumber: 519,
-  });
-  assert.equal(
-    fixture.commentUpdates.filter(({ comment_id: commentId }) =>
-      [...firstBatchBodies.keys(), 7].includes(commentId),
-    ).length,
-    6,
+    /Preview journal JSON block is missing/,
   );
 });
 
-test("reconciliation defers legacy presentation migration while an old worker can still write", async () => {
+test("only an initial opened or explicit bootstrap transition may create a journal", async () => {
+  const synchronize = event({
+    run: 121,
+    action: "synchronize",
+    before: SHA.B,
+    head: SHA.A,
+    updated: timestamp(2),
+  });
   const opened = event({
-    run: 119,
+    run: 122,
     action: "opened",
     head: SHA.A,
     updated: timestamp(1),
   });
-  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
-  const selected = reconcile({
-    events: [opened],
-    pullRequest,
-    expectedWorkflowSha: SHA.D,
-  });
-  const dispatched = persistDispatch(selected, 8_000);
-  const selection = selectionReceiptFromDispatch(dispatched.ui.active);
-  const fixture = fakeGitHub({
-    pullRequest,
-    comments: [
-      legacyEventComment(opened, 1),
-      stateComment(dispatched, 2),
-      legacySelectionComment(selection, 3),
-    ],
-    runs: [
-      workerRun(selected.nextDispatch, {
-        id: 8_000,
-        status: "in_progress",
+
+  for (const [receipt, context] of [
+    [synchronize, fakeContext({ runId: 121 })],
+    [opened, fakeContext({ runId: 122, runAttempt: 2 })],
+  ]) {
+    const fixture = fakeGitHub({
+      pullRequest: pull({
+        head: receipt.head_sha,
+        updated: receipt.pr_updated_at,
       }),
-    ],
-  });
-  const core = fakeCore();
-
-  await reconcilePreview({
-    github: fixture.github,
-    context: fakeContext({ runId: 7_001 }),
-    core,
-    prNumber: 519,
-  });
-
-  assert.equal(
-    core.outputs.get("legacy_receipt_presentation_migration_deferred"),
-    "true",
-  );
-  assert.doesNotMatch(fixture.comments[0].body, /<details>/);
-  assert.doesNotMatch(fixture.comments[2].body, /<details>/);
-  assert.equal(
-    fixture.commentUpdates.some(({ comment_id: commentId }) =>
-      [1, 3].includes(commentId),
-    ),
-    false,
-  );
-  assert.equal(
-    fixture.commitStatuses.some(({ state }) => state === "error"),
-    false,
-  );
+      comments: [],
+    });
+    await assert.rejects(
+      recordEventReceipt({
+        github: fixture.github,
+        context,
+        core: fakeCore(),
+        ...eventRecordInputs(receipt),
+      }),
+      /Preview journal comment does not exist/,
+    );
+    assert.equal(fixture.comments.length, 0);
+    assert.equal(fixture.commitStatuses.length, 0);
+  }
 });
 
-test("legacy presentation API failures stay retryable without blocking preview state", async () => {
+test("conflicting event transitions cannot replace an immutable journal receipt", async () => {
   const opened = event({
-    run: 119,
+    run: 130,
     action: "opened",
     head: SHA.A,
-    runtime: false,
     updated: timestamp(1),
   });
-  const openedPull = pull({ head: SHA.A, updated: timestamp(1) });
-  const openedState = reconcile({
-    events: [opened],
-    pullRequest: openedPull,
-  }).state;
-  const closed = event({
-    run: 120,
-    action: "closed",
+  const conflicting = event({
+    run: 130,
+    action: "synchronize",
+    before: SHA.B,
     head: SHA.A,
-    runtime: false,
-    updated: timestamp(2),
+    updated: timestamp(1),
   });
-  const closedPull = pull({
-    head: SHA.A,
-    state: "closed",
-    updated: timestamp(2),
-    closed: timestamp(2),
-  });
-  const closedState = reconcile({
-    events: [opened, closed],
-    pullRequest: closedPull,
-    existingState: openedState,
-  }).state;
   const fixture = fakeGitHub({
-    pullRequest: closedPull,
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+    comments: [journalComment({ events: [conflicting] })],
+  });
+
+  await assert.rejects(
+    recordEventReceipt({
+      github: fixture.github,
+      context: fakeContext({ runId: 130 }),
+      core: fakeCore(),
+      ...eventRecordInputs(opened),
+    }),
+    /Conflicting event receipt in preview journal/,
+  );
+
+  assert.equal(fixture.comments.length, 1);
+  assert.deepEqual(journalFromComment(fixture.comments[0]).receipts.events, [
+    conflicting,
+  ]);
+  assert.equal(fixture.commentUpdates.length, 0);
+});
+
+test("duplicate bot-owned preview journals fail closed", async () => {
+  const opened = event({
+    run: 131,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
     comments: [
-      legacyEventComment(opened, 1),
-      stateComment(closedState, 2),
-      legacyEventComment(closed, 3),
+      journalComment({ events: [opened] }, 1),
+      journalComment({ events: [opened] }, 2),
     ],
-    updateCommentFailureIds: [1],
   });
-  const firstCore = fakeCore();
 
-  const first = await reconcilePreview({
+  await assert.rejects(
+    reconcilePreview({
+      github: fixture.github,
+      context: fakeContext(),
+      core: fakeCore(),
+      prNumber: 519,
+    }),
+    /Multiple bot-owned preview journals exist/,
+  );
+  assert.equal(fixture.commentUpdates.length, 0);
+});
+
+test("malformed and oversized preview journals fail closed without mutation", async () => {
+  const opened = event({
+    run: 132,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const malformed = journalComment({ events: [opened] });
+  const malformedValue = journalFromComment(malformed);
+  malformedValue.journal_digest = "0".repeat(64);
+  malformed.body = previewJournalBody(malformedValue);
+  const oversized = {
+    id: 2,
+    user: { type: "Bot", login: "github-actions[bot]" },
+    body: `${PREVIEW_JOURNAL_MARKER}\n${"x".repeat(70_000)}`,
+  };
+  const noncanonical = journalComment({ events: [opened] });
+  noncanonical.body = noncanonical.body.replace(
+    '  "schema": "vercel-preview-journal:v1",',
+    '    "schema": "vercel-preview-journal:v1",',
+  );
+
+  for (const [comment, message] of [
+    [malformed, /Preview journal digest mismatch/],
+    [oversized, /Preview journal comment is too large/],
+    [noncanonical, /Preview journal body is not canonical/],
+  ]) {
+    const fixture = fakeGitHub({
+      pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+      comments: [comment],
+    });
+    await assert.rejects(
+      reconcilePreview({
+        github: fixture.github,
+        context: fakeContext(),
+        core: fakeCore(),
+        prNumber: 519,
+      }),
+      message,
+    );
+    assert.equal(fixture.commentUpdates.length, 0);
+  }
+});
+
+test("pre-cutover receipt comments are ignored when the canonical journal is created", async () => {
+  const opened = event({
+    run: 133,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const oldComment = oldReceiptComment(
+    "<!-- vercel-preview-event-receipt:v1:run:133 -->",
+    opened,
+  );
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+    comments: [oldComment],
+  });
+
+  await recordEventReceipt({
     github: fixture.github,
-    context: fakeContext({ runId: 7_001 }),
-    core: firstCore,
-    prNumber: 519,
+    context: fakeContext({ runId: 133 }),
+    core: fakeCore(),
+    ...eventRecordInputs(opened),
   });
 
-  assert.equal(first.closed, true);
+  assert.equal(fixture.comments.length, 2);
+  assert.deepEqual(fixture.comments[0], oldComment);
   assert.equal(
-    firstCore.outputs.get("legacy_receipt_presentation_migration_retryable"),
-    "true",
+    fixture.comments.filter(({ body }) =>
+      body.startsWith(PREVIEW_JOURNAL_MARKER),
+    ).length,
+    1,
   );
-  assert.doesNotMatch(fixture.comments[0].body, /<details>/);
-  assert.equal(
-    fixture.commitStatuses.some(({ state }) => state === "error"),
-    false,
-  );
-
-  const secondCore = fakeCore();
-  await reconcilePreview({
-    github: fixture.github,
-    context: fakeContext({ runId: 7_002 }),
-    core: secondCore,
-    prNumber: 519,
-  });
-  assert.equal(
-    secondCore.outputs.get("legacy_receipt_presentations_migrated"),
-    "2",
-  );
-  assert.match(fixture.comments[0].body, /<details>/);
-  assert.match(fixture.comments[2].body, /<details>/);
+  assert.deepEqual(journalFromComment(fixture.comments[1]).receipts.events, [
+    opened,
+  ]);
 });
 
 test("closed reconciliation preserves an unbound intent without dispatching it", async () => {
@@ -2269,10 +2064,11 @@ test("closed reconciliation preserves an unbound intent without dispatching it",
   const fixture = fakeGitHub({
     pullRequest,
     comments: [
-      legacyEventComment(opened),
-      legacyStateComment(intended),
-      legacySelectionComment(selectionReceiptFromDispatch(intended.ui.active)),
-      legacyEventComment(closed, 5),
+      journalComment({
+        events: [opened, closed],
+        selections: [selectionReceiptFromDispatch(intended.ui.active)],
+        state: intended,
+      }),
     ],
   });
 
@@ -2292,15 +2088,10 @@ test("closed reconciliation preserves an unbound intent without dispatching it",
     fixture.commitStatuses.some(({ state: status }) => status === "error"),
     false,
   );
-  assert.ok(
-    fixture.comments.some(
-      ({ body }) =>
-        body.startsWith("<!-- vercel-preview-controller:v1 -->") &&
-        body.includes("**No reviewer action is required.**") &&
-        body.includes("<details>") &&
-        body.includes('"closed": true'),
-    ),
-  );
+  assert.equal(fixture.comments.length, 1);
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.schema, PREVIEW_JOURNAL_SCHEMA);
+  assert.equal(journal.state.closed, true);
 });
 
 test("trusted workflow_run follow-up publishes Dependabot unsupported status only for the exact current head", async () => {
@@ -2515,7 +2306,7 @@ test("durable dispatch persists intent and waits for the exact run title to mate
   const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened)],
+    comments: [journalComment({ events: [opened] })],
     workflowRunDisplayTitles: Array(10).fill("Vercel Preview Worker"),
   });
   const core = fakeCore();
@@ -2536,6 +2327,16 @@ test("durable dispatch persists intent and waits for the exact run title to mate
   assert.equal(core.outputs.get("dispatched_run_id"), "8000");
   assert.equal(fixture.commitStatuses.at(-1).context, "Vercel Preview");
   assert.equal(fixture.commitStatuses.at(-1).sha, SHA.A);
+  assert.equal(fixture.comments.length, 1);
+  assert.ok(
+    fixture.commentUpdates.every(
+      ({ comment_id: commentId }) => commentId === fixture.comments[0].id,
+    ),
+  );
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.deepEqual(journal.receipts.events, [opened]);
+  assert.equal(journal.receipts.selections.length, 1);
+  assert.equal(journal.state.ui.active.dispatch_state, "dispatched");
 });
 
 test("durable dispatch fails closed when the exact run title never materializes", async () => {
@@ -2547,7 +2348,7 @@ test("durable dispatch fails closed when the exact run title never materializes"
   });
   const fixture = fakeGitHub({
     pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
-    comments: [eventComment(opened)],
+    comments: [journalComment({ events: [opened] })],
     workflowRunDisplayTitles: Array(31).fill("Vercel Preview Worker"),
   });
   const waits = [];
@@ -2584,7 +2385,7 @@ test("recovery rechecks PR openness immediately before dispatch", async () => {
   const fixture = fakeGitHub({
     pullRequest: closedPull,
     pullRequests: [openPull, openPull, closedPull],
-    comments: [eventComment(opened)],
+    comments: [journalComment({ events: [opened] })],
   });
   const core = fakeCore();
   const waits = [];
@@ -2619,7 +2420,13 @@ test("recovery reuses an intent rebound while it waits for run visibility", asyn
   const intended = persistIntent(selected);
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(intended)],
+    comments: [
+      journalComment({
+        events: [opened],
+        selections: [selectionReceiptFromDispatch(intended.ui.active)],
+        state: intended,
+      }),
+    ],
     runs: [workerRun(selected.nextDispatch)],
     workflowRunListRunIds: [[], [], []],
   });
@@ -2634,9 +2441,17 @@ test("recovery reuses an intent rebound while it waits for run visibility", asyn
       if (rebound) return;
       rebound = true;
       const comment = fixture.comments.find(({ body }) =>
-        body.startsWith("<!-- vercel-preview-controller:v1 -->"),
+        body.startsWith(PREVIEW_JOURNAL_MARKER),
       );
-      comment.body = stateComment(persistDispatch(selected, 8_000)).body;
+      comment.body = journalComment(
+        {
+          revision: 2,
+          events: [opened],
+          selections: [selectionReceiptFromDispatch(intended.ui.active)],
+          state: persistDispatch(selected, 8_000),
+        },
+        comment.id,
+      ).body;
     },
   });
 
@@ -2656,7 +2471,7 @@ test("a dispatch racing a main advance is terminalized and automatically reselec
   const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened)],
+    comments: [journalComment({ events: [opened] })],
     dispatchedWorkflowSha: SHA.B,
   });
 
@@ -2744,7 +2559,7 @@ test("intended dispatch recovery attaches exactly one run and fails closed on am
   const existingRun = { ...listedRun, name: listedRun.display_title };
   const recovered = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(intended)],
+    comments: [journalWithState([opened], intended)],
     runs: [existingRun],
   });
   const state = await reconcilePreview({
@@ -2759,7 +2574,7 @@ test("intended dispatch recovery attaches exactly one run and fails closed on am
 
   const ambiguous = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(intended)],
+    comments: [journalWithState([opened], intended)],
     runs: [existingRun, workerRun(selected.nextDispatch, { id: 8_001 })],
   });
   await assert.rejects(
@@ -2792,7 +2607,7 @@ test("intended recovery waits for a default-title run without redispatching", as
   const existingRun = workerRun(selected.nextDispatch);
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(intended)],
+    comments: [journalWithState([opened], intended)],
     runs: [existingRun],
     workflowRunListDisplayTitles: Array.from({ length: 10 }, () => [
       "Vercel Preview Worker",
@@ -2831,7 +2646,7 @@ test("intended recovery fails closed while a default-title run remains unresolve
   const intended = persistIntent(selected);
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(intended)],
+    comments: [journalWithState([opened], intended)],
     runs: [workerRun(selected.nextDispatch)],
     workflowRunListDisplayTitles: Array.from({ length: 31 }, () => [
       "Vercel Preview Worker",
@@ -2873,7 +2688,7 @@ test("intended recovery keeps re-querying a default-title run missing from later
   const intended = persistIntent(selected);
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(intended)],
+    comments: [journalWithState([opened], intended)],
     runs: [workerRun(selected.nextDispatch)],
     workflowRunListDisplayTitles: [["Vercel Preview Worker"]],
     workflowRunListRunIds: [[8_000], ...Array.from({ length: 30 }, () => [])],
@@ -2916,7 +2731,7 @@ test("intended recovery rejects a second owner materializing from a default titl
   const secondRun = workerRun(selected.nextDispatch, { id: 8_001 });
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(intended)],
+    comments: [journalWithState([opened], intended)],
     runs: [firstRun, secondRun],
     workflowRunListDisplayTitles: [
       [firstRun.display_title, "Vercel Preview Worker"],
@@ -2961,7 +2776,7 @@ test("intended recovery attaches one exact owner after a default title settles u
   );
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(intended)],
+    comments: [journalWithState([opened], intended)],
     runs: [exactRun, unrelatedRun],
     workflowRunListDisplayTitles: [
       [exactRun.display_title, "Vercel Preview Worker"],
@@ -3002,7 +2817,7 @@ test("intended recovery rejects a malformed candidate title without retrying", a
   };
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(intended)],
+    comments: [journalWithState([opened], intended)],
     runs: [malformedRun],
   });
   const waits = [];
@@ -3041,7 +2856,7 @@ test("intended recovery ignores wrong-SHA artifacts and reselects stale intents"
 
   const conflictingRun = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(intended)],
+    comments: [journalWithState([opened], intended)],
     runs: [
       workerRun(authorized.nextDispatch, {
         id: 8_100,
@@ -3077,7 +2892,7 @@ test("intended recovery ignores wrong-SHA artifacts and reselects stale intents"
 
   const mainAdvancedBeforeDispatch = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(intended)],
+    comments: [journalWithState([opened], intended)],
   });
   const recoveredState = await reconcilePreview({
     github: mainAdvancedBeforeDispatch.github,
@@ -3173,7 +2988,7 @@ test("intended recovery paginates its time window and ignores more than 300 olde
   const matchOnSecondPage = workerRun(selected.nextDispatch, { id: 8_000 });
   const paginated = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(intended)],
+    comments: [journalWithState([opened], intended)],
     runs: [...decoys, matchOnSecondPage],
   });
   const state = await reconcilePreview({
@@ -3194,7 +3009,7 @@ test("intended recovery paginates its time window and ignores more than 300 olde
   );
   const bounded = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(intended)],
+    comments: [journalWithState([opened], intended)],
     runs: [...olderHistory, matchOnSecondPage],
   });
   const boundedState = await reconcilePreview({
@@ -3229,7 +3044,7 @@ test("manual reconcile recovers a completed REST-named worker when its callback 
   completed.name = completed.display_title;
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(dispatched)],
+    comments: [journalWithState([opened], dispatched)],
     runs: [completed],
   });
   const state = await reconcilePreview({
@@ -3279,10 +3094,7 @@ test("a force-pushed-away active selection is aborted before credentials and new
   const fixture = fakeGitHub({
     pullRequest,
     comments: [
-      eventComment(opened, 1),
-      eventComment(runtimeB, 2),
-      eventComment(runtimeC, 3),
-      stateComment(persistIntent(initial), 4),
+      journalWithState([opened, runtimeB, runtimeC], persistIntent(initial)),
     ],
     pullCommits: [SHA.C],
   });
@@ -3325,7 +3137,7 @@ test("cancelled worker before Deployment creation gets one canonical error Deplo
   });
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(dispatched)],
+    comments: [journalWithState([opened], dispatched)],
     runs: [completed],
   });
   const result = await recoverWorkerResult({
@@ -3340,10 +3152,10 @@ test("cancelled worker before Deployment creation gets one canonical error Deplo
   assert.equal(fixture.deployments[0].environment, "preview/ui/pr-519");
   assert.equal(fixture.createdDeploymentStatuses.length, 1);
   assert.equal(fixture.createdDeploymentStatuses[0].state, "error");
-  assert.ok(
-    fixture.comments.some(({ body }) =>
-      body.startsWith("<!-- vercel-preview-worker-result:v1:"),
-    ),
+  assert.equal(fixture.comments.length, 1);
+  assert.equal(
+    journalFromComment(fixture.comments[0]).receipts.results.length,
+    1,
   );
 });
 
@@ -3363,7 +3175,7 @@ test("completed callback durably binds an intended dispatch after a controller c
   });
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(intended)],
+    comments: [journalWithState([opened], intended)],
     runs: [completed],
     workflowRunDisplayTitles: ["Vercel Preview Worker"],
   });
@@ -3380,7 +3192,7 @@ test("completed callback durably binds an intended dispatch after a controller c
   assert.deepEqual(waits, [1_000]);
   assert.deepEqual(fixture.workflowRunRequests, [8_000, 8_000]);
   const controllerState = fixture.comments.find(({ body }) =>
-    body.startsWith("<!-- vercel-preview-controller:v1 -->"),
+    body.startsWith(PREVIEW_JOURNAL_MARKER),
   );
   assert.match(controllerState.body, /"dispatch_state": "dispatched"/);
   assert.match(controllerState.body, /"workflow_run_id": 8000/);
@@ -3408,7 +3220,7 @@ test("completed intended callback fails closed unless its run is the unique reco
   ]) {
     const fixture = fakeGitHub({
       pullRequest,
-      comments: [eventComment(opened), stateComment(intended)],
+      comments: [journalWithState([opened], intended)],
       runs,
     });
     await assert.rejects(
@@ -3422,9 +3234,7 @@ test("completed intended callback fails closed unless its run is the unique reco
     );
     assert.equal(fixture.deployments.length, 0);
     assert.equal(
-      fixture.comments.filter(({ body }) =>
-        body.startsWith("<!-- vercel-preview-worker-result:v1:"),
-      ).length,
+      journalFromComment(fixture.comments[0]).receipts.results.length,
       0,
     );
   }
@@ -3446,7 +3256,7 @@ test("worker recovery errors fail the current exact SHA status closed without ov
   });
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(dispatched)],
+    comments: [journalWithState([opened], dispatched)],
     runs: [completed],
   });
   assert.equal(
@@ -3526,16 +3336,12 @@ test("same-SHA reopened epoch resumes verified old upload evidence before its ca
   const fixture = fakeGitHub({
     pullRequest: setup.pullRequest,
     comments: [
-      ...setup.events.map((item, index) => eventComment(item, index + 1)),
-      stateComment(setup.currentState, 10),
-      selectionComment(
-        selectionReceiptFromDispatch(setup.currentState.ui.retired_active[0]),
-        11,
-      ),
-      selectionComment(
-        selectionReceiptFromDispatch(setup.currentState.ui.active),
-        12,
-      ),
+      journalWithState(setup.events, setup.currentState, {
+        selections: [
+          selectionReceiptFromDispatch(setup.currentState.ui.retired_active[0]),
+          selectionReceiptFromDispatch(setup.currentState.ui.active),
+        ],
+      }),
     ],
     runs: [oldCompleted, newQueued],
     deployments: [canonical],
@@ -3593,9 +3399,9 @@ test("same-SHA reopened epoch resumes verified old upload evidence before its ca
         "https://github.com/mento-protocol/frontend-monorepo/actions/runs/8001/attempts/1",
     },
   ]);
-  const controllerBodyBefore = fixture.comments.find(({ body }) =>
-    body.startsWith("<!-- vercel-preview-controller:v1 -->"),
-  ).body;
+  const controllerStateBefore = structuredClone(
+    journalFromComment(fixture.comments[0]).state,
+  );
   const recoveryCore = fakeCore();
   const oldResult = await recoverWorkerResult({
     github: fixture.github,
@@ -3610,12 +3416,10 @@ test("same-SHA reopened epoch resumes verified old upload evidence before its ca
   );
   assert.equal(fixture.createdDeploymentStatuses.length, 0);
   assert.equal(fixture.statuses.get("9000")[0].state, "success");
-  assert.equal(
-    fixture.comments.find(({ body }) =>
-      body.startsWith("<!-- vercel-preview-controller:v1 -->"),
-    ).body,
-    controllerBodyBefore,
-  );
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.deepEqual(journal.state, controllerStateBefore);
+  assert.equal(journal.receipts.worker_evidence.length, 1);
+  assert.equal(journal.receipts.results.length, 1);
 });
 
 test("delayed old-epoch cancellation cannot claim or terminalize a same-SHA Deployment created by the reopened epoch", async () => {
@@ -3628,8 +3432,12 @@ test("delayed old-epoch cancellation cannot claim or terminalize a same-SHA Depl
   const fixture = fakeGitHub({
     pullRequest: setup.pullRequest,
     comments: [
-      ...setup.events.map((item, index) => eventComment(item, index + 1)),
-      stateComment(setup.currentState, 10),
+      journalWithState(setup.events, setup.currentState, {
+        selections: [
+          selectionReceiptFromDispatch(setup.currentState.ui.retired_active[0]),
+          selectionReceiptFromDispatch(setup.currentState.ui.active),
+        ],
+      }),
     ],
     runs: [oldCompleted, workerRun(setup.current.nextDispatch, { id: 8_001 })],
     deployments: [
@@ -3697,8 +3505,12 @@ test("terminal reopened same-SHA ownership survives a delayed old-epoch callback
   const fixture = fakeGitHub({
     pullRequest: setup.pullRequest,
     comments: [
-      ...setup.events.map((item, index) => eventComment(item, index + 1)),
-      stateComment(setup.currentState, 10),
+      journalWithState(setup.events, setup.currentState, {
+        selections: [
+          selectionReceiptFromDispatch(setup.currentState.ui.retired_active[0]),
+          selectionReceiptFromDispatch(setup.currentState.ui.active),
+        ],
+      }),
     ],
     runs: [oldQueued, currentCompleted],
     deployments: [canonical],
@@ -3743,9 +3555,9 @@ test("terminal reopened same-SHA ownership survives a delayed old-epoch callback
       conclusion: "cancelled",
     },
   );
-  const controllerBodyBefore = fixture.comments.find(({ body }) =>
-    body.startsWith("<!-- vercel-preview-controller:v1 -->"),
-  ).body;
+  const controllerStateBefore = structuredClone(
+    journalFromComment(fixture.comments[0]).state,
+  );
   const oldResult = await recoverWorkerResult({
     github: fixture.github,
     context: fakeContext({ workflowRun: fixture.runs[0] }),
@@ -3756,12 +3568,9 @@ test("terminal reopened same-SHA ownership survives a delayed old-epoch callback
   assert.equal(oldResult.should_reconcile_current_epoch, false);
   assert.equal(fixture.createdDeploymentStatuses.length, 0);
   assert.equal(fixture.statuses.get("9000")[0].state, "success");
-  assert.equal(
-    fixture.comments.find(({ body }) =>
-      body.startsWith("<!-- vercel-preview-controller:v1 -->"),
-    ).body,
-    controllerBodyBefore,
-  );
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.deepEqual(journal.state, controllerStateBefore);
+  assert.equal(journal.receipts.results.length, 2);
 });
 
 test("retired attempt recovery errors are quarantined without poisoning the current epoch", async () => {
@@ -3787,9 +3596,13 @@ test("retired attempt recovery errors are quarantined without poisoning the curr
   const fixture = fakeGitHub({
     pullRequest: setup.pullRequest,
     comments: [
-      ...setup.events.map((item, index) => eventComment(item, index + 1)),
-      resultComment(currentResult, 9),
-      stateComment(terminalState, 10),
+      journalWithState(setup.events, terminalState, {
+        results: [currentResult],
+        selections: [
+          selectionReceiptFromDispatch(setup.currentState.ui.retired_active[0]),
+          selectionReceiptFromDispatch(setup.currentState.ui.active),
+        ],
+      }),
     ],
     runs: [oldLatestAttempt],
   });
@@ -3850,9 +3663,13 @@ test("transient retired recovery failures remain retryable and never poison the 
   const fixture = fakeGitHub({
     pullRequest: setup.pullRequest,
     comments: [
-      ...setup.events.map((item, index) => eventComment(item, index + 1)),
-      resultComment(currentResult, 9),
-      stateComment(terminalState, 10),
+      journalWithState(setup.events, terminalState, {
+        results: [currentResult],
+        selections: [
+          selectionReceiptFromDispatch(setup.currentState.ui.retired_active[0]),
+          selectionReceiptFromDispatch(setup.currentState.ui.active),
+        ],
+      }),
     ],
     runs: [oldCompleted],
     workflowRunAttemptFailures: [503],
@@ -3892,10 +3709,8 @@ test("transient retired recovery failures remain retryable and never poison the 
   );
   assert.equal(fixture.workflowRunAttemptRequests.length, 3);
   assert.ok(
-    fixture.comments.some(
-      ({ body }) =>
-        body.startsWith("<!-- vercel-preview-worker-result:v1:") &&
-        body.includes('"worker_run_id": 8000'),
+    journalFromComment(fixture.comments[0]).receipts.results.some(
+      ({ worker_run_id: workerRunId }) => workerRunId === 8_000,
     ),
   );
 });
@@ -3918,9 +3733,13 @@ test("transient quarantine persistence failure remains retryable without a curre
   const fixture = fakeGitHub({
     pullRequest: setup.pullRequest,
     comments: [
-      ...setup.events.map((item, index) => eventComment(item, index + 1)),
-      resultComment(currentResult, 9),
-      stateComment(terminalState, 10),
+      journalWithState(setup.events, terminalState, {
+        results: [currentResult],
+        selections: [
+          selectionReceiptFromDispatch(setup.currentState.ui.retired_active[0]),
+          selectionReceiptFromDispatch(setup.currentState.ui.active),
+        ],
+      }),
     ],
     runs: [oldLatestAttempt],
     updateCommentFailures: [503],
@@ -3972,8 +3791,12 @@ test("delayed old-epoch success reads only its own same-SHA Deployment status hi
   const fixture = fakeGitHub({
     pullRequest: setup.pullRequest,
     comments: [
-      ...setup.events.map((item, index) => eventComment(item, index + 1)),
-      stateComment(setup.currentState, 10),
+      journalWithState(setup.events, setup.currentState, {
+        selections: [
+          selectionReceiptFromDispatch(setup.currentState.ui.retired_active[0]),
+          selectionReceiptFromDispatch(setup.currentState.ui.active),
+        ],
+      }),
     ],
     runs: [oldCompleted, workerRun(setup.current.nextDispatch, { id: 8_001 })],
     deployments: [
@@ -4049,11 +3872,7 @@ test("duplicate worker absorbs an existing verified canonical Deployment without
   };
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [
-      eventComment(opened),
-      stateComment(dispatched),
-      selectionComment(selectionReceiptFromDispatch(dispatched.ui.active)),
-    ],
+    comments: [journalWithState([opened], dispatched)],
     runs: [workerRun(selected.nextDispatch)],
     deployments: [canonical],
     deploymentStatuses: new Map([
@@ -4125,11 +3944,7 @@ test("verified deployment success survives a later evidence persistence failure"
   };
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [
-      eventComment(opened),
-      stateComment(dispatched),
-      selectionComment(selectionReceiptFromDispatch(dispatched.ui.active)),
-    ],
+    comments: [journalWithState([opened], dispatched)],
     runs: [completed],
     deployments: [canonical],
     deploymentStatuses: new Map([
@@ -4162,6 +3977,15 @@ test("verified deployment success survives a later evidence persistence failure"
   );
   assert.equal(fixture.createdDeploymentStatuses.length, 0);
   assert.equal(fixture.statuses.get("9000")[0].state, "success");
+  const journalAfterResult = journalFromComment(fixture.comments[0]);
+  assert.equal(journalAfterResult.revision, 2);
+  const {
+    should_reconcile_current_epoch: shouldReconcileCurrentEpoch,
+    ...persistedOutcome
+  } = outcome;
+  assert.equal(shouldReconcileCurrentEpoch, true);
+  assert.deepEqual(journalAfterResult.receipts.results, [persistedOutcome]);
+  const updatesAfterResult = fixture.commentUpdates.length;
 
   const repeated = await recoverWorkerResult({
     github: fixture.github,
@@ -4174,6 +3998,8 @@ test("verified deployment success survives a later evidence persistence failure"
     "https://ui-verified-before-evidence.vercel.app",
   );
   assert.equal(fixture.createdDeploymentStatuses.length, 0);
+  assert.equal(fixture.commentUpdates.length, updatesAfterResult);
+  assert.deepEqual(journalFromComment(fixture.comments[0]), journalAfterResult);
 });
 
 test("a rerun attempt cannot reuse persisted first-attempt worker ownership", async () => {
@@ -4188,11 +4014,7 @@ test("a rerun attempt cannot reuse persisted first-attempt worker ownership", as
   const dispatched = persistDispatch(selected, 8_000);
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [
-      eventComment(opened),
-      stateComment(dispatched),
-      selectionComment(selectionReceiptFromDispatch(dispatched.ui.active)),
-    ],
+    comments: [journalWithState([opened], dispatched)],
     runs: [workerRun(selected.nextDispatch)],
   });
   await assert.rejects(
@@ -4230,7 +4052,7 @@ test("smoke failure records immutable upload evidence and the one retry resumes 
   };
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(dispatched)],
+    comments: [journalWithState([opened], dispatched)],
     runs: [
       workerRun(selected.nextDispatch, {
         status: "completed",
@@ -4242,32 +4064,57 @@ test("smoke failure records immutable upload evidence and the one retry resumes 
       [9_000, [{ state: "failure", environment_url: null }]],
     ]),
   });
+  const stableCommentId = fixture.comments[0].id;
+  const evidenceInputs = {
+    pull_request_number: "519",
+    target: "ui",
+    commit_sha: SHA.A,
+    controller_key: selected.nextDispatch.key,
+    controller_key_digest: selected.nextDispatch.key_digest,
+    expected_workflow_sha: selected.nextDispatch.expected_workflow_sha,
+    epoch_anchor_run_id: String(selected.nextDispatch.epoch_anchor_run_id),
+    reconciliation_basis_digest:
+      selected.nextDispatch.reconciliation_basis_digest,
+    selection_receipt_run_id: String(
+      selected.nextDispatch.selection_receipt_run_id,
+    ),
+    execution_mode: "build",
+    build_duration_ms: "1234",
+    verified_upload_url: "https://ui-smoke-retry.vercel.app",
+    vercel_deployment_id: "dpl_SmokeRetry",
+    next_deployment_id: "m-ui-smoke-retry",
+  };
   const workerEvidence = await recordWorkerEvidence({
     github: fixture.github,
     context: fakeContext({ runId: 8_000 }),
     core: fakeCore(),
-    inputs: {
-      pull_request_number: "519",
-      target: "ui",
-      commit_sha: SHA.A,
-      controller_key: selected.nextDispatch.key,
-      controller_key_digest: selected.nextDispatch.key_digest,
-      expected_workflow_sha: selected.nextDispatch.expected_workflow_sha,
-      epoch_anchor_run_id: String(selected.nextDispatch.epoch_anchor_run_id),
-      reconciliation_basis_digest:
-        selected.nextDispatch.reconciliation_basis_digest,
-      selection_receipt_run_id: String(
-        selected.nextDispatch.selection_receipt_run_id,
-      ),
-      execution_mode: "build",
-      build_duration_ms: "1234",
-      verified_upload_url: "https://ui-smoke-retry.vercel.app",
-      vercel_deployment_id: "dpl_SmokeRetry",
-      next_deployment_id: "m-ui-smoke-retry",
-    },
+    inputs: evidenceInputs,
   });
   assert.equal(workerEvidence.execution_mode, "build");
   assert.equal(workerEvidence.build_completed, true);
+  const journalAfterEvidence = journalFromComment(fixture.comments[0]);
+  assert.equal(fixture.comments.length, 1);
+  assert.equal(fixture.comments[0].id, stableCommentId);
+  assert.equal(journalAfterEvidence.revision, 2);
+  assert.deepEqual(journalAfterEvidence.receipts.worker_evidence, [
+    workerEvidence,
+  ]);
+  assert.deepEqual(journalAfterEvidence.receipts.results, []);
+  const updatesAfterEvidence = fixture.commentUpdates.length;
+  assert.deepEqual(
+    await recordWorkerEvidence({
+      github: fixture.github,
+      context: fakeContext({ runId: 8_000 }),
+      core: fakeCore(),
+      inputs: evidenceInputs,
+    }),
+    workerEvidence,
+  );
+  assert.equal(fixture.commentUpdates.length, updatesAfterEvidence);
+  assert.deepEqual(
+    journalFromComment(fixture.comments[0]),
+    journalAfterEvidence,
+  );
   const completed = fixture.runs[0];
   const outcome = await recoverWorkerResult({
     github: fixture.github,
@@ -4280,6 +4127,19 @@ test("smoke failure records immutable upload evidence and the one retry resumes 
     outcome.vercel_deployment_url,
     "https://ui-smoke-retry.vercel.app",
   );
+  const journalAfterOutcome = journalFromComment(fixture.comments[0]);
+  assert.equal(fixture.comments.length, 1);
+  assert.equal(fixture.comments[0].id, stableCommentId);
+  assert.equal(journalAfterOutcome.revision, 3);
+  assert.deepEqual(journalAfterOutcome.receipts.worker_evidence, [
+    workerEvidence,
+  ]);
+  const {
+    should_reconcile_current_epoch: shouldReconcileCurrentEpoch,
+    ...persistedOutcome
+  } = outcome;
+  assert.equal(shouldReconcileCurrentEpoch, true);
+  assert.deepEqual(journalAfterOutcome.receipts.results, [persistedOutcome]);
 
   const retry = reconcile({
     events: [opened],
@@ -4293,16 +4153,18 @@ test("smoke failure records immutable upload evidence and the one retry resumes 
     selected.nextDispatch.key_digest,
   );
   const retryState = persistDispatch(retry, 8_001);
-  const resultReceipt = fixture.comments.find(({ body }) =>
-    body.startsWith("<!-- vercel-preview-worker-result:v1:"),
-  );
+  const firstJournal = journalFromComment(fixture.comments[0]);
   const resumeFixture = fakeGitHub({
     pullRequest,
     comments: [
-      eventComment(opened),
-      stateComment(retryState),
-      selectionComment(selectionReceiptFromDispatch(retryState.ui.active)),
-      resultReceipt,
+      journalWithState([opened], retryState, {
+        selections: [
+          selectionReceiptFromDispatch(dispatched.ui.active),
+          selectionReceiptFromDispatch(retryState.ui.active),
+        ],
+        workerEvidence: firstJournal.receipts.worker_evidence,
+        results: firstJournal.receipts.results,
+      }),
     ],
     runs: [workerRun(retry.nextDispatch, { id: 8_001 })],
     deployments: [canonical],
@@ -4370,7 +4232,7 @@ test("failure after the durable upload boundary fails closed without a rebuild r
   });
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(dispatched)],
+    comments: [journalWithState([opened], dispatched)],
     runs: [completed],
     deployments: [canonical],
     deploymentStatuses: new Map([
@@ -4454,7 +4316,7 @@ test("completed build failure before the upload boundary gets one rebuild retry"
   };
   const fixture = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), stateComment(dispatched)],
+    comments: [journalWithState([opened], dispatched)],
     runs: [completed],
     deployments: [canonical],
     deploymentStatuses: new Map([
@@ -4494,18 +4356,18 @@ test("completed build failure before the upload boundary gets one rebuild retry"
   });
   assert.equal(retry.nextDispatch.sha, SHA.A);
   const retryState = persistDispatch(retry, 8_001);
-  const durableEvidence = fixture.comments.filter(
-    ({ body }) =>
-      body.startsWith("<!-- vercel-preview-worker-evidence:v1:") ||
-      body.startsWith("<!-- vercel-preview-worker-result:v1:"),
-  );
+  const firstJournal = journalFromComment(fixture.comments[0]);
   const retryFixture = fakeGitHub({
     pullRequest,
     comments: [
-      eventComment(opened),
-      ...durableEvidence,
-      stateComment(retryState),
-      selectionComment(selectionReceiptFromDispatch(retryState.ui.active)),
+      journalWithState([opened], retryState, {
+        selections: [
+          selectionReceiptFromDispatch(dispatched.ui.active),
+          selectionReceiptFromDispatch(retryState.ui.active),
+        ],
+        workerEvidence: firstJournal.receipts.worker_evidence,
+        results: firstJournal.receipts.results,
+      }),
     ],
     runs: [workerRun(retry.nextDispatch, { id: 8_001 })],
     deployments: [canonical],
