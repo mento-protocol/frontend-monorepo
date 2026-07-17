@@ -722,6 +722,18 @@ receipt starts a new same-head epoch and replans the new base-to-head transition
 Title, body, label, and other unrelated edits do not create a receipt or
 reconciliation.
 
+These bot comments are internal coordination records, not review feedback. Each
+comment explains that no reviewer action is required and keeps its
+machine-readable JSON inside a collapsed GitHub `<details>` block. The hidden
+marker remains the first line, and the JSON remains canonical so receipt
+identity, validation, and recovery semantics do not change. The stored Markdown
+leaves the final `</details>` implicit so its JSON fence remains the literal end
+of the body; GitHub closes the toggle when rendering it, while already-running
+legacy workers can still parse comments created during rollout. Existing
+immutable receipts in the legacy uncollapsed format remain valid and are never
+rewritten; the mutable state comment adopts the current presentation on its
+next update.
+
 `Vercel Preview` is reserved for a Statuses API commit status, not a workflow
 job/check name. Every exact receipt SHA gets one truthful result: pending,
 verified, no runtime impact, runtime-equivalent to a prior preview, unsupported

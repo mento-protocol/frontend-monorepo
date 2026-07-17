@@ -66,6 +66,14 @@ const WORKER_RECOVERY_BEFORE_MS = 2 * 60 * 1_000;
 const WORKER_RECOVERY_AFTER_MS = 15 * 60 * 1_000;
 const UPLOAD_STARTED_DESCRIPTION = "Prebuilt preview upload starting";
 const RETIRED_RECOVERY_QUARANTINE = "persisted-attempt-invalid-or-unavailable";
+const COMMENT_EXPLANATION = [
+  "**No reviewer action is required.**",
+  "This repository builds pull request previews in GitHub Actions and deploys them to Vercel.",
+  "This record lets the preview automation handle overlapping pushes and recover safely from retries.",
+  "[How previews work](https://github.com/mento-protocol/frontend-monorepo/blob/main/docs/vercel-deployments.md#event-status-and-batching-contract).",
+].join(" ");
+const COMMENT_DETAILS_SUMMARY =
+  "Show machine-readable preview automation record";
 
 class WorkerWorkflowShaMismatchError extends Error {
   constructor({ runId, actualWorkflowSha, expectedWorkflowSha }) {
@@ -241,8 +249,15 @@ function digest(value, length = 64) {
     .slice(0, length);
 }
 
-function markerBody(marker, value) {
+function legacyMarkerBody(marker, value) {
   return `${marker}\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\`\n`;
+}
+
+function markerBody(marker, value) {
+  // Keep the JSON fence at the literal end so already-running v1 workers can
+  // parse comments written during the rollout. GitHub's GFM renderer closes
+  // the final <details> element implicitly.
+  return `${marker}\n\n${COMMENT_EXPLANATION}\n\n<details>\n<summary>${COMMENT_DETAILS_SUMMARY}</summary>\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\`\n`;
 }
 
 function parseMarkerBody(body, marker) {
@@ -250,10 +265,21 @@ function parseMarkerBody(body, marker) {
     typeof body === "string" && body.startsWith(`${marker}\n`),
     "Comment marker mismatch",
   );
-  const match = body.match(/\n```json\n([\s\S]+)\n```\n?$/);
-  invariant(match, "Controller comment JSON block is missing");
-  invariant(match[1].length <= 60_000, "Controller comment JSON is too large");
-  return JSON.parse(match[1]);
+  const currentPrefix = `${marker}\n\n${COMMENT_EXPLANATION}\n\n<details>\n<summary>${COMMENT_DETAILS_SUMMARY}</summary>\n\n\`\`\`json\n`;
+  const legacyPrefix = `${marker}\n\n\`\`\`json\n`;
+  let json;
+  for (const prefix of [currentPrefix, legacyPrefix]) {
+    if (!body.startsWith(prefix)) continue;
+    for (const suffix of ["\n```\n", "\n```"]) {
+      if (!body.endsWith(suffix)) continue;
+      json = body.slice(prefix.length, -suffix.length);
+      break;
+    }
+    if (json !== undefined) break;
+  }
+  invariant(json !== undefined, "Controller comment JSON block is missing");
+  invariant(json.length <= 60_000, "Controller comment JSON is too large");
+  return JSON.parse(json);
 }
 
 function isTrustedBotComment(comment) {
@@ -1838,6 +1864,13 @@ function matchingBotComments(comments, marker) {
 
 async function writeImmutableComment({ github, context, pr, marker, value }) {
   const body = markerBody(marker, value);
+  const legacyBody = legacyMarkerBody(marker, value);
+  const acceptedBodies = new Set([
+    body,
+    body.slice(0, -1),
+    legacyBody,
+    legacyBody.slice(0, -1),
+  ]);
   const existing = matchingBotComments(
     await listComments(github, context, pr),
     marker,
@@ -1845,7 +1878,7 @@ async function writeImmutableComment({ github, context, pr, marker, value }) {
   invariant(existing.length <= 1, `Duplicate immutable marker ${marker}`);
   if (existing.length === 1) {
     invariant(
-      existing[0].body === body,
+      acceptedBodies.has(existing[0].body),
       `Immutable receipt ${marker} conflicts with existing evidence`,
     );
     return { comment: existing[0], reused: true };
