@@ -27,6 +27,13 @@ const POLICY_WORKFLOW_FIXTURES = new Map(
     readFileSync(resolve(path), "utf8"),
   ]),
 );
+const CURRENT_POLICY_PNPM_VERSION = "10.34.4";
+const VERCEL_PREVIEW_CONTROLLER_PATH =
+  ".github/workflows/vercel-preview-controller.yml";
+const VERCEL_PREVIEW_CONTROLLER_FIXTURE = readFileSync(
+  resolve(VERCEL_PREVIEW_CONTROLLER_PATH),
+  "utf8",
+);
 const tests = [];
 
 /** @param {string} name @param {() => void} run */
@@ -57,6 +64,16 @@ function runChecker(root) {
     env: { ...process.env, GITHUB_ACTION_PINS_ROOT: root },
     encoding: "utf8",
   });
+}
+
+/** @param {string} path @param {string} version */
+function policyWorkflowWithPnpmVersion(path, version) {
+  const source = POLICY_WORKFLOW_FIXTURES.get(path);
+  const current = `version: ${CURRENT_POLICY_PNPM_VERSION}`;
+  if (typeof source !== "string" || source.split(current).length !== 2) {
+    throw new Error(`${path} must contain exactly one ${current}`);
+  }
+  return source.replace(current, `version: ${version}`);
 }
 
 /** @param {unknown} actual @param {unknown} expected @param {string} message */
@@ -122,6 +139,81 @@ runs:
       result.stdout,
       "All 5 workflow/composite-action YAML files",
       "recursive scan count",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("enforces the default-branch Vercel controller dispatch contract", () => {
+  const root = fixtureRoot("vercel-controller-dispatch-pass");
+  try {
+    write(
+      root,
+      VERCEL_PREVIEW_CONTROLLER_PATH,
+      VERCEL_PREVIEW_CONTROLLER_FIXTURE,
+    );
+    const result = runChecker(root);
+    equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects branch-selectable Vercel controller dispatch", () => {
+  const root = fixtureRoot("vercel-controller-workflow-dispatch-fail");
+  try {
+    const mutated = VERCEL_PREVIEW_CONTROLLER_FIXTURE.replace(
+      / {2}repository_dispatch:\n {4}types: \[vercel-preview-bootstrap, vercel-preview-reconcile\]\n/,
+      "  workflow_dispatch:\n",
+    );
+    write(root, VERCEL_PREVIEW_CONTROLLER_PATH, mutated);
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(
+      result.stderr,
+      "invalid Vercel preview controller dispatch policy",
+      "branch-selectable controller trigger",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects widened Vercel controller repository event types", () => {
+  const root = fixtureRoot("vercel-controller-event-type-fail");
+  try {
+    const mutated = VERCEL_PREVIEW_CONTROLLER_FIXTURE.replace(
+      "types: [vercel-preview-bootstrap, vercel-preview-reconcile]",
+      "types: [vercel-preview-bootstrap, vercel-preview-reconcile, arbitrary]",
+    );
+    write(root, VERCEL_PREVIEW_CONTROLLER_PATH, mutated);
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(
+      result.stderr,
+      "must use only the default-branch repository dispatch contract",
+      "repository event allowlist",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects widened Vercel controller pull request activity types", () => {
+  const root = fixtureRoot("vercel-controller-pull-request-type-fail");
+  try {
+    const mutated = VERCEL_PREVIEW_CONTROLLER_FIXTURE.replace(
+      "types: [opened, edited, synchronize, reopened, closed]",
+      "types: [opened, edited, synchronize, reopened, closed, labeled]",
+    );
+    write(root, VERCEL_PREVIEW_CONTROLLER_PATH, mutated);
+    const result = runChecker(root);
+    equal(result.status, 1, result.stdout);
+    contains(
+      result.stderr,
+      "must use only the default-branch repository dispatch contract",
+      "pull request activity allowlist",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -1182,6 +1274,28 @@ test("allows immutable action SHA bumps in canonical policy workflows", () => {
       equal(result.status, 0, result.stderr);
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("rejects policy pnpm version drift after the protected transition", () => {
+  for (const version of ["10.24.0", "10.34.5"]) {
+    for (const path of POLICY_WORKFLOW_PATHS) {
+      const root = fixtureRoot(`policy-pnpm-${version}-fail`);
+      try {
+        write(root, path, policyWorkflowWithPnpmVersion(path, version));
+
+        const result = runChecker(root);
+        equal(result.status, 1, result.stdout);
+        contains(result.stderr, path, "policy path");
+        contains(
+          result.stderr,
+          "does not match the trusted action-pin workflow structure",
+          "strict pnpm field",
+        );
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
     }
   }
 });

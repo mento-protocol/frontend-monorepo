@@ -143,6 +143,9 @@ pnpm vercel:primitives:test
 # Test the manual UI prebuilt workflow, GitHub Deployment lifecycle, and smoke controller
 pnpm vercel:workflow:test
 
+# Test automatic UI preview state, workflow trust boundaries, and Git ownership
+pnpm vercel:preview:test
+
 # Verify exact Next.js and Vercel CLI custom deployment-ID prerequisites
 pnpm vercel:versions:check
 
@@ -434,13 +437,27 @@ The repository is set up with GitHub Actions for CI:
   check enforces production-source coverage and gzip route limits. Its general
   CI failure notifier opens or updates one issue for an operational workflow
   failure and closes the issue after recovery.
-- **CD**: The accepted direction is for GitHub Actions to own compilation and
-  prebuilt deployment orchestration while Vercel remains the hosting/runtime
-  platform. The migration is still rolling out, so Vercel Git remains
-  authoritative for paths not explicitly cut over. Dependabot branches skip
-  Vercel previews. See [ADR 0001](docs/adr/0001-github-actions-vercel-deployment-orchestration.md)
-  for the boundary and [`docs/vercel-deployments.md`](docs/vercel-deployments.md)
-  for the current implementation/runbook state.
+- **CD**: GitHub Actions automatically builds `ui.mento.org` previews for
+  trusted same-repository PRs with exact-SHA `Vercel Preview` statuses,
+  first-eligible-plus-latest batching, credential-free HTTP and browser smoke,
+  one canonical GitHub Deployment, and one canonical preview-controller journal
+  comment per participating PR. Dependabot events pass through a read-only
+  metadata intake; trusted default-branch code re-queries the exact PR head
+  before publishing the explicit preview-disabled status. Fork and Dependabot
+  PRs remain credential-free. A dedicated repository-scoped GitHub credential
+  performs only the worker-dispatch POST so terminal `workflow_run` callbacks
+  are created; the normal job token still owns all state and recovery calls.
+  During Phase A, native Vercel Git UI previews
+  remain enabled for canary comparison; Vercel Git still owns every
+  main/production deployment and all non-UI apps. See
+  [ADR 0001](docs/adr/0001-github-actions-vercel-deployment-orchestration.md)
+  for the accepted ownership boundary,
+  [ADR 0002](docs/adr/0002-single-comment-preview-controller-journal.md) for
+  the journal persistence and clean-cutover decision,
+  [ADR 0003](docs/adr/0003-preview-worker-dispatch-authentication.md) for the
+  worker-dispatch authentication boundary, and
+  [`docs/vercel-deployments.md`](docs/vercel-deployments.md) for the Phase B
+  UI-only cutover, bootstrap, canary, and rollback procedures.
 
 Dependency-installing jobs use `.github/actions/pnpm-install`, which pins the
 Node/pnpm bootstrap, relies on `actions/setup-node` as the single pnpm-store

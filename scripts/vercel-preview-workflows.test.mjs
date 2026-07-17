@@ -1,0 +1,695 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { test } from "node:test";
+
+import { parse } from "yaml";
+
+function read(relativePath) {
+  return readFileSync(new URL(`../${relativePath}`, import.meta.url), "utf8");
+}
+
+function workflow(relativePath) {
+  return parse(read(relativePath));
+}
+
+const controllerPath = ".github/workflows/vercel-preview-controller.yml";
+const intakePath = ".github/workflows/vercel-preview-intake.yml";
+const workerPath = ".github/workflows/vercel-preview-worker.yml";
+
+const controller = workflow(controllerPath);
+const intake = workflow(intakePath);
+const worker = workflow(workerPath);
+
+function permissionWrites(job) {
+  return Object.entries(job.permissions ?? {}).some(
+    ([, access]) => access === "write",
+  );
+}
+
+function queuedStateConcurrency(prExpression) {
+  return {
+    group: `vercel-preview-state-pr-${prExpression}`,
+    "cancel-in-progress": false,
+    queue: "max",
+  };
+}
+
+const serializedControllerMutations = [
+  ["receipt-event", "${{ needs.snapshot-event.outputs.pr_number }}"],
+  ["reconcile-event", "${{ needs.receipt-event.outputs.pr_number }}"],
+  ["receipt-bootstrap", "${{ needs.snapshot-bootstrap.outputs.pr_number }}"],
+  ["reconcile-bootstrap", "${{ needs.receipt-bootstrap.outputs.pr_number }}"],
+  ["reconcile-request", "${{ needs.validate-request.outputs.pr_number }}"],
+  [
+    "publish-dependabot-unsupported",
+    "${{ needs.identify-dependabot-intake.outputs.pr_number }}",
+  ],
+  [
+    "recover-worker-result",
+    "${{ needs.identify-worker-result.outputs.pr_number }}",
+  ],
+];
+
+test("controller has only the three specified recovery-aware triggers", () => {
+  assert.deepEqual(Object.keys(controller.on), [
+    "pull_request_target",
+    "repository_dispatch",
+    "workflow_run",
+  ]);
+  assert.deepEqual(controller.on.pull_request_target.types, [
+    "opened",
+    "edited",
+    "synchronize",
+    "reopened",
+    "closed",
+  ]);
+  assert.deepEqual(controller.on.workflow_run, {
+    workflows: ["Vercel Preview Worker", "Vercel Preview Intake"],
+    types: ["completed"],
+  });
+  assert.deepEqual(controller.on.repository_dispatch.types, [
+    "vercel-preview-bootstrap",
+    "vercel-preview-reconcile",
+  ]);
+  assert.deepEqual(controller.permissions, {});
+  assert.match(
+    controller.jobs["snapshot-event"].if,
+    /action != 'edited'.*changes\.base != null/,
+  );
+  const raw = read(controllerPath);
+  assert.doesNotMatch(raw, /workflow_dispatch|\binputs\./);
+});
+
+test("Dependabot intake is credentialless and trusted follow-up alone can write status", () => {
+  assert.equal(intake.name, "Vercel Preview Intake");
+  assert.deepEqual(intake.on, {
+    pull_request_target: {
+      types: ["opened", "edited", "synchronize", "reopened", "closed"],
+    },
+  });
+  assert.deepEqual(intake.permissions, { contents: "read" });
+  assert.match(intake["run-name"], /pr=.*sha=.*action=/);
+  const intakeJob = intake.jobs["validate-dependabot-metadata"];
+  assert.match(intakeJob.if, /dependabot\[bot\].*dependabot\//s);
+  assert.equal(Object.hasOwn(intakeJob, "permissions"), false);
+  assert.equal(intakeJob.steps.length, 1);
+  assert.equal(Object.hasOwn(intakeJob.steps[0], "uses"), false);
+  const intakeRaw = read(intakePath);
+  assert.doesNotMatch(
+    intakeRaw,
+    /secrets\.|github\.token|GITHUB_TOKEN|actions\/checkout|actions\/upload-artifact|actions\/download-artifact|pnpm|npm|node /,
+  );
+
+  const receipt = controller.jobs["receipt-event"];
+  assert.equal(
+    controller.jobs["snapshot-event"].outputs.trust,
+    "${{ steps.snapshot.outputs.trust }}",
+  );
+  assert.match(receipt.if, /outputs\.trust != 'dependabot'/);
+
+  const identify = controller.jobs["identify-dependabot-intake"];
+  assert.deepEqual(identify.permissions, { contents: "read" });
+  assert.match(
+    identify.if,
+    /workflow_run\.path == '\.github\/workflows\/vercel-preview-intake\.yml'/,
+  );
+  assert.match(
+    identify.if,
+    /workflow_run\.path == '\.github\/workflows\/vercel-preview-intake\.yml@main'/,
+  );
+  assert.doesNotMatch(identify.if, /workflow_run\.name/);
+  assert.match(identify.if, /workflow_run\.conclusion == 'success'/);
+  assert.match(JSON.stringify(identify), /validateDependabotIntakeWorkflowRun/);
+  const publish = controller.jobs["publish-dependabot-unsupported"];
+  assert.equal(publish.needs, "identify-dependabot-intake");
+  assert.deepEqual(publish.permissions, {
+    contents: "read",
+    "pull-requests": "read",
+    statuses: "write",
+  });
+  assert.match(
+    publish.concurrency.group,
+    /identify-dependabot-intake\.outputs\.pr_number/,
+  );
+  assert.match(JSON.stringify(publish), /publishDependabotUnsupported/);
+  assert.doesNotMatch(
+    JSON.stringify(publish),
+    /actions\/download-artifact|pull_request\.head\.sha|secrets\./,
+  );
+});
+
+test("repository requests are default-branch-bound and validated before writes", () => {
+  const validation = controller.jobs["validate-request"];
+  assert.equal(validation.if, "github.event_name == 'repository_dispatch'");
+  assert.deepEqual(validation.permissions, { contents: "read" });
+  assert.deepEqual(validation.outputs, {
+    operation: "${{ steps.request.outputs.operation }}",
+    pr_number: "${{ steps.request.outputs.pr_number }}",
+  });
+  const checkout = validation.steps.find((step) =>
+    String(step.uses ?? "").startsWith("actions/checkout@"),
+  );
+  assert.ok(checkout);
+  assert.equal(checkout.with.ref, "${{ github.workflow_sha }}");
+  assert.equal(checkout.with["persist-credentials"], false);
+  assert.match(JSON.stringify(validation), /writeRepositoryDispatchOutputs/);
+  assert.doesNotMatch(JSON.stringify(validation), /secrets\.|client_payload/);
+
+  const bootstrap = controller.jobs["snapshot-bootstrap"];
+  assert.equal(bootstrap.needs, "validate-request");
+  assert.equal(
+    bootstrap.if,
+    "needs.validate-request.outputs.operation == 'bootstrap'",
+  );
+  assert.match(
+    JSON.stringify(bootstrap),
+    /needs\.validate-request\.outputs\.pr_number/,
+  );
+
+  const reconcile = controller.jobs["reconcile-request"];
+  assert.equal(reconcile.needs, "validate-request");
+  assert.equal(
+    reconcile.if,
+    "needs.validate-request.outputs.operation == 'reconcile'",
+  );
+  assert.match(
+    reconcile.concurrency.group,
+    /needs\.validate-request\.outputs\.pr_number/,
+  );
+  assert.match(
+    JSON.stringify(reconcile),
+    /needs\.validate-request\.outputs\.pr_number/,
+  );
+});
+
+test("planner materializes only trusted-base code without shared caches", () => {
+  for (const jobName of ["plan-event", "plan-bootstrap"]) {
+    const job = controller.jobs[jobName];
+    assert.deepEqual(job.permissions, { contents: "read" });
+    const raw = JSON.stringify(job);
+    assert.match(raw, /trusted_base_sha/);
+    const checkout = job.steps.find((step) =>
+      String(step.uses ?? "").startsWith("actions/checkout@"),
+    );
+    assert.ok(checkout);
+    assert.equal(checkout.with.ref, "${{ github.workflow_sha }}");
+    assert.equal(checkout.with["fetch-depth"], 0);
+    assert.equal(checkout.with["persist-credentials"], false);
+
+    const materialize = job.steps.find(
+      (step) =>
+        step.name ===
+        "Materialize exact trusted base and fetch candidate object",
+    );
+    assert.ok(materialize);
+    assert.equal(materialize.env.WORKFLOW_SHA, "${{ github.workflow_sha }}");
+    assert.match(
+      materialize.env.TRUSTED_BASE_SHA,
+      /^\$\{\{ needs\.(?:snapshot-event|snapshot-bootstrap)\.outputs\.trusted_base_sha \}\}$/,
+    );
+    const ancestryCheck = materialize.run.indexOf(
+      'merge-base --is-ancestor "$TRUSTED_BASE_SHA" "$WORKFLOW_SHA"',
+    );
+    const baseCheckout = materialize.run.indexOf(
+      'checkout --detach "$TRUSTED_BASE_SHA"',
+    );
+    const candidateFetch = materialize.run.indexOf(
+      'fetch --force --no-tags origin "$HEAD_SHA"',
+    );
+    assert.ok(ancestryCheck >= 0, `${jobName} must prove trusted ancestry`);
+    assert.ok(
+      ancestryCheck < baseCheckout,
+      `${jobName} must prove ancestry before materializing planner code`,
+    );
+    assert.ok(
+      baseCheckout < candidateFetch,
+      `${jobName} must materialize trusted code before fetching the candidate`,
+    );
+    assert.doesNotMatch(materialize.run, /checkout[^\n]*HEAD_SHA/);
+
+    const nodeSetup = job.steps.find((step) =>
+      String(step.uses ?? "").startsWith("actions/setup-node@"),
+    );
+    assert.ok(nodeSetup);
+    assert.equal(Object.hasOwn(nodeSetup.with, "cache"), false);
+    assert.equal(Object.hasOwn(nodeSetup.with, "cache-dependency-path"), false);
+    assert.doesNotMatch(raw, /actions\/cache|cache-dependency-path/);
+    assert.match(raw, /pnpm install --ignore-scripts --frozen-lockfile/);
+    assert.match(raw, /plan-vercel-deployments\.mjs/);
+    assert.doesNotMatch(raw, /secrets\.|VERCEL_TOKEN|TURBO_TOKEN/);
+  }
+});
+
+test("all preview journal and status mutations share queued cross-workflow serialization", () => {
+  const expected = {
+    contents: "read",
+    "pull-requests": "write",
+    statuses: "write",
+  };
+  for (const jobName of ["receipt-event", "receipt-bootstrap"]) {
+    const job = controller.jobs[jobName];
+    assert.deepEqual(job.permissions, expected);
+    assert.match(JSON.stringify(job), /recordEventReceipt/);
+  }
+  for (const [jobName, prExpression] of serializedControllerMutations) {
+    assert.deepEqual(
+      controller.jobs[jobName].concurrency,
+      queuedStateConcurrency(prExpression),
+      `${jobName} must serialize every PR journal or status mutation`,
+    );
+  }
+  assert.deepEqual(
+    worker.jobs["record-worker-evidence"].concurrency,
+    queuedStateConcurrency("${{ inputs.pull_request_number }}"),
+  );
+  assert.doesNotMatch(
+    read(controllerPath),
+    /vercel-preview-controller-pr-/,
+    "legacy workflow-local state groups would not serialize worker evidence",
+  );
+});
+
+test("read-only preview jobs stay outside the PR state lock", () => {
+  for (const jobName of [
+    "validate-request",
+    "snapshot-event",
+    "plan-event",
+    "snapshot-bootstrap",
+    "plan-bootstrap",
+    "identify-dependabot-intake",
+    "identify-worker-result",
+  ]) {
+    assert.equal(
+      Object.hasOwn(controller.jobs[jobName], "concurrency"),
+      false,
+      `${jobName} must not hold the state lock while doing read-only work`,
+    );
+  }
+});
+
+test("worker build concurrency stays independent and only evidence takes the state lock", () => {
+  assert.deepEqual(worker.concurrency, {
+    group:
+      "vercel-preview-worker-pr-${{ inputs.pull_request_number }}-${{ inputs.target }}",
+    "cancel-in-progress": false,
+  });
+  assert.equal(Object.hasOwn(worker.concurrency, "queue"), false);
+  for (const [jobName, job] of Object.entries(worker.jobs)) {
+    if (jobName === "record-worker-evidence") continue;
+    assert.equal(
+      Object.hasOwn(job, "concurrency"),
+      false,
+      `${jobName} must not hold the PR state lock during build or smoke work`,
+    );
+  }
+});
+
+test("event receipts explicitly gate whether reconciliation is required", () => {
+  const planner = controller.jobs["plan-event"];
+  const receipt = controller.jobs["receipt-event"];
+  const reconcile = controller.jobs["reconcile-event"];
+
+  assert.equal(
+    planner.if,
+    "needs.snapshot-event.outputs.plan_required == 'true'",
+  );
+  assert.deepEqual(receipt.needs, ["snapshot-event", "plan-event"]);
+  assert.match(receipt.if, /^always\(\) &&/);
+  assert.equal(
+    receipt.outputs.reconcile_required,
+    "${{ steps.receipt.outputs.reconcile_required }}",
+  );
+  assert.equal(reconcile.needs, "receipt-event");
+  assert.equal(
+    reconcile.if,
+    "always() && needs.receipt-event.result == 'success' && needs.receipt-event.outputs.reconcile_required == 'true'",
+  );
+});
+
+test("every PR comment writer uses the pull-request resource permission", () => {
+  const controllerCommentWriters = [
+    ["receipt-event", "recordEventReceipt"],
+    ["reconcile-event", "reconcilePreview"],
+    ["receipt-bootstrap", "recordEventReceipt"],
+    ["reconcile-bootstrap", "reconcilePreview"],
+    ["reconcile-request", "reconcilePreview"],
+    ["recover-worker-result", "recoverWorkerResult"],
+  ];
+  for (const [jobName, entrypoint] of controllerCommentWriters) {
+    const job = controller.jobs[jobName];
+    assert.match(JSON.stringify(job), new RegExp(entrypoint));
+    assert.equal(job.permissions["pull-requests"], "write");
+    assert.equal(Object.hasOwn(job.permissions, "issues"), false);
+  }
+
+  const workerEvidence = worker.jobs["record-worker-evidence"];
+  assert.match(JSON.stringify(workerEvidence), /recordWorkerEvidence/);
+  assert.equal(workerEvidence.permissions["pull-requests"], "write");
+  assert.equal(Object.hasOwn(workerEvidence.permissions, "issues"), false);
+});
+
+test("every controller write-token job checks out only trusted workflow code", () => {
+  for (const [jobName, job] of Object.entries(controller.jobs)) {
+    if (!permissionWrites(job)) continue;
+    const checkout = job.steps?.find((step) =>
+      String(step.uses ?? "").startsWith("actions/checkout@"),
+    );
+    assert.ok(checkout, `${jobName} must check out trusted controller code`);
+    assert.equal(checkout.with.ref, "${{ github.workflow_sha }}");
+    assert.equal(checkout.with["persist-credentials"], false);
+    assert.doesNotMatch(JSON.stringify(job), /pull_request\.head\.sha/);
+  }
+  assert.doesNotMatch(
+    read(controllerPath),
+    /VERCEL_TOKEN|TURBO_TOKEN|TURBO_REMOTE_CACHE_SIGNATURE_KEY/,
+  );
+});
+
+test("only reconciliation steps receive the dedicated worker dispatch credential", () => {
+  const reconciliationJobs = [
+    "reconcile-event",
+    "reconcile-bootstrap",
+    "reconcile-request",
+    "recover-worker-result",
+  ];
+  const secretExpression = "${{ secrets.GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN }}";
+  const raw = read(controllerPath);
+  const secretNames = [...raw.matchAll(/secrets\.([A-Z0-9_]+)/g)].map(
+    ([, name]) => name,
+  );
+  assert.deepEqual(
+    secretNames,
+    Array(4).fill("GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN"),
+  );
+
+  for (const [jobName, job] of Object.entries(controller.jobs)) {
+    for (const step of job.steps ?? []) {
+      const hasDispatchSecret = Object.values(step.env ?? {}).includes(
+        secretExpression,
+      );
+      if (!hasDispatchSecret) continue;
+      assert.ok(
+        reconciliationJobs.includes(jobName),
+        `${jobName} must not receive the worker dispatch credential`,
+      );
+      assert.equal(step.env.WORKER_DISPATCH_TOKEN, secretExpression);
+      assert.equal(Object.hasOwn(step.with ?? {}, "github-token"), false);
+      assert.match(
+        step.with.script,
+        /getOctokit\(process\.env\.WORKER_DISPATCH_TOKEN\)/,
+      );
+      assert.match(step.with.script, /workerDispatchGithub,/);
+    }
+  }
+
+  for (const jobName of reconciliationJobs) {
+    const step = controller.jobs[jobName].steps.find((candidate) =>
+      String(candidate.with?.script ?? "").includes("reconcilePreview"),
+    );
+    assert.ok(step, `${jobName} must invoke reconciliation`);
+    assert.equal(step.env.WORKER_DISPATCH_TOKEN, secretExpression);
+  }
+
+  for (const path of [workerPath, ".github/workflows/_vercel-prebuilt.yml"]) {
+    assert.doesNotMatch(
+      read(path),
+      /GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN|WORKER_DISPATCH_TOKEN/,
+    );
+  }
+});
+
+test("every controller reconciliation binds selections to its immutable workflow SHA", () => {
+  const reconciliationJobs = Object.entries(controller.jobs).filter(([, job]) =>
+    JSON.stringify(job).includes("reconcilePreview"),
+  );
+  assert.deepEqual(
+    reconciliationJobs.map(([jobName]) => jobName),
+    [
+      "reconcile-event",
+      "reconcile-bootstrap",
+      "reconcile-request",
+      "recover-worker-result",
+    ],
+  );
+  for (const [jobName, job] of reconciliationJobs) {
+    assert.equal(
+      job.permissions.deployments,
+      "write",
+      `${jobName} may recover a completed worker by creating or terminalizing its Deployment`,
+    );
+    const step = job.steps.find((candidate) =>
+      String(candidate.with?.script ?? "").includes("reconcilePreview"),
+    );
+    assert.ok(step, `${jobName} must invoke reconcilePreview`);
+    assert.equal(step.env.WORKFLOW_SHA, "${{ github.workflow_sha }}");
+    assert.match(
+      step.with.script,
+      /workflowSha:\s*process\.env\.WORKFLOW_SHA/,
+      `${jobName} must pass the immutable workflow SHA to reconciliation`,
+    );
+  }
+});
+
+test("worker is dispatch-only with strict identity inputs and one literal UI caller", () => {
+  assert.deepEqual(Object.keys(worker.on), ["workflow_dispatch"]);
+  assert.deepEqual(Object.keys(worker.on.workflow_dispatch.inputs), [
+    "pull_request_number",
+    "target",
+    "commit_sha",
+    "git_branch",
+    "controller_key",
+    "controller_key_digest",
+    "expected_workflow_sha",
+    "epoch_anchor_run_id",
+    "reconciliation_basis_digest",
+    "selection_receipt_run_id",
+  ]);
+  assert.match(worker["run-name"], /pr=.*target=.*sha=.*key=/);
+  assert.deepEqual(worker.permissions, {});
+  assert.equal(worker.concurrency["cancel-in-progress"], false);
+
+  const callers = Object.values(worker.jobs).filter((job) => job.uses);
+  assert.equal(callers.length, 1);
+  const caller = callers[0];
+  assert.equal(caller.uses, "./.github/workflows/_vercel-prebuilt.yml");
+  assert.equal(caller.with.logical_target, "ui");
+  assert.equal(caller.with.workspace_package, "ui.mento.org");
+  assert.equal(
+    caller.with.vercel_project_id,
+    "${{ vars.VERCEL_PROJECT_ID_UI }}",
+  );
+  assert.equal(
+    caller.with.github_environment,
+    "preview/ui/pr-${{ inputs.pull_request_number }}",
+  );
+  assert.deepEqual(Object.keys(caller.secrets), [
+    "turbo_remote_cache_signature_key",
+    "turbo_token",
+    "vercel_token",
+  ]);
+  assert.doesNotMatch(
+    JSON.stringify(caller),
+    /secrets:\s*inherit|VERCEL_PROJECT_ID_(?!UI)/,
+  );
+});
+
+test("worker credentials are unreachable until trusted validation and named preflight pass", () => {
+  const validation = worker.jobs["validate-controller-ownership"];
+  assert.deepEqual(validation.permissions, {
+    contents: "read",
+    deployments: "read",
+    issues: "read",
+    "pull-requests": "read",
+  });
+  assert.doesNotMatch(JSON.stringify(validation), /secrets\./);
+  const validationStep = validation.steps.find((candidate) =>
+    String(candidate.with?.script ?? "").includes("validateWorkerDispatch"),
+  );
+  assert.ok(validationStep);
+  assert.equal(
+    validationStep.env.ACTUAL_WORKFLOW_SHA,
+    "${{ github.workflow_sha }}",
+  );
+  assert.equal(
+    validationStep.env.EXPECTED_WORKFLOW_SHA,
+    "${{ inputs.expected_workflow_sha }}",
+  );
+  assert.match(
+    validationStep.with.script,
+    /workflowSha:\s*process\.env\.ACTUAL_WORKFLOW_SHA/,
+  );
+  assert.match(
+    validationStep.with.script,
+    /expected_workflow_sha:\s*process\.env\.EXPECTED_WORKFLOW_SHA/,
+  );
+
+  const preflight = worker.jobs["validate-preview-prerequisites"];
+  assert.deepEqual(preflight.permissions, {});
+  assert.equal(preflight.needs, "validate-controller-ownership");
+  assert.match(JSON.stringify(preflight), /Missing required repository names/);
+  assert.equal(Object.hasOwn(preflight, "uses"), false);
+
+  const caller = worker.jobs["deploy-ui-preview"];
+  assert.deepEqual(caller.needs, [
+    "validate-controller-ownership",
+    "validate-preview-prerequisites",
+  ]);
+  assert.deepEqual(caller.permissions, {
+    contents: "read",
+    deployments: "write",
+  });
+  assert.doesNotMatch(
+    JSON.stringify(caller.permissions),
+    /issues|actions|statuses|pull-requests/,
+  );
+
+  const resumedSmoke = worker.jobs["resume-ui-smoke"];
+  assert.deepEqual(resumedSmoke.permissions, { contents: "read" });
+  assert.doesNotMatch(
+    JSON.stringify(resumedSmoke),
+    /secrets\.|VERCEL_TOKEN|TURBO_TOKEN|TURBO_REMOTE_CACHE_SIGNATURE_KEY/,
+  );
+  assert.match(
+    JSON.stringify(resumedSmoke),
+    /vercel-prebuilt-workflow\.mjs.*smoke/,
+  );
+  assert.equal(resumedSmoke["runs-on"], "ubuntu-latest");
+  const resumeSteps = resumedSmoke.steps;
+  const resumeCheckout = resumeSteps[0];
+  assert.equal(resumeCheckout.with.path, "controller");
+  assert.equal(resumeCheckout.with.ref, "${{ github.workflow_sha }}");
+  assert.equal(resumeCheckout.with["persist-credentials"], false);
+  const resumeInstall = resumeSteps.find(
+    ({ name }) => name === "Install trusted browser smoke dependencies",
+  );
+  assert.equal(resumeInstall["working-directory"], "controller");
+  assert.equal(resumeInstall.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD, "1");
+  assert.match(resumeInstall.run, /--frozen-lockfile/);
+  assert.match(resumeInstall.run, /--ignore-scripts/);
+  const resumeBrowser = resumeSteps.find(
+    ({ name }) => name === "Re-run browser interaction in system Chrome",
+  );
+  assert.match(
+    resumeBrowser.run,
+    /apps\/ui\.mento\.org\/e2e\/vercel-preview-browser-smoke\.mjs/,
+  );
+  assert.equal(
+    resumeBrowser.env.DEPLOYMENT_IDEMPOTENCY_KEY,
+    "${{ inputs.controller_key }}",
+  );
+  assert.ok(
+    resumeSteps.indexOf(resumeInstall) < resumeSteps.indexOf(resumeBrowser),
+  );
+
+  const evidence = worker.jobs["record-worker-evidence"];
+  assert.match(JSON.stringify(evidence), /recordWorkerEvidence/);
+  assert.doesNotMatch(JSON.stringify(evidence), /secrets\./);
+  const evidenceStep = evidence.steps.find((candidate) =>
+    String(candidate.with?.script ?? "").includes("recordWorkerEvidence"),
+  );
+  assert.ok(evidenceStep);
+  assert.equal(
+    evidenceStep.env.ACTUAL_WORKFLOW_SHA,
+    "${{ github.workflow_sha }}",
+  );
+  assert.equal(
+    evidenceStep.env.EXPECTED_WORKFLOW_SHA,
+    "${{ inputs.expected_workflow_sha }}",
+  );
+  assert.match(
+    evidenceStep.with.script,
+    /workflowSha:\s*process\.env\.ACTUAL_WORKFLOW_SHA/,
+  );
+  assert.match(
+    evidenceStep.with.script,
+    /expected_workflow_sha:\s*process\.env\.EXPECTED_WORKFLOW_SHA/,
+  );
+});
+
+test("Statuses API owns the reserved name and no workflow job shadows it", () => {
+  for (const parsed of [controller, intake, worker]) {
+    for (const job of Object.values(parsed.jobs)) {
+      assert.notEqual(job.name, "Vercel Preview");
+    }
+  }
+  const implementation = read("scripts/vercel-preview-controller.mjs");
+  assert.match(implementation, /PREVIEW_STATUS_CONTEXT = "Vercel Preview"/);
+  assert.match(implementation, /createCommitStatus/);
+});
+
+test("completed-worker recovery is authoritative for missing and orphaned Deployments", () => {
+  const identify = controller.jobs["identify-worker-result"];
+  assert.match(
+    identify.if,
+    /workflow_run\.path == '\.github\/workflows\/vercel-preview-worker\.yml'/,
+  );
+  assert.match(
+    identify.if,
+    /workflow_run\.path == '\.github\/workflows\/vercel-preview-worker\.yml@main'/,
+  );
+  assert.doesNotMatch(identify.if, /workflow_run\.name/);
+  const recovery = controller.jobs["recover-worker-result"];
+  assert.deepEqual(recovery.permissions, {
+    actions: "write",
+    contents: "read",
+    deployments: "write",
+    "pull-requests": "write",
+    statuses: "write",
+  });
+  assert.match(JSON.stringify(recovery), /recoverWorkerResult/);
+  assert.match(JSON.stringify(recovery), /reconcilePreview/);
+  const implementation = read("scripts/vercel-preview-controller.mjs");
+  for (const conclusion of ["success", "failure", "cancelled"]) {
+    assert.match(implementation, new RegExp(conclusion));
+  }
+  assert.match(implementation, /createRecoveryDeployment/);
+  assert.match(implementation, /terminalizeDeployment/);
+});
+
+test("preview controller, intake, and worker remain outside operational failure issues", () => {
+  const notifier = read(".github/workflows/ci-failure-notifier.yml");
+  assert.doesNotMatch(notifier, /Vercel Preview Controller/);
+  assert.doesNotMatch(notifier, /Vercel Preview Intake/);
+  assert.doesNotMatch(notifier, /Vercel Preview Worker/);
+  assert.doesNotMatch(
+    notifier,
+    /vercel-preview-(?:controller|intake|worker)\.yml/,
+  );
+});
+
+test("automatic workflow creates no implicit or Vercel-owned Deployment", () => {
+  const raw = `${read(controllerPath)}\n${read(workerPath)}`;
+  assert.doesNotMatch(raw, /githubDeployment=1|secrets:\s*inherit/);
+  for (const job of Object.values(worker.jobs)) {
+    assert.equal(Object.hasOwn(job, "environment"), false);
+  }
+  assert.match(
+    worker.jobs["deploy-ui-preview"].with.deployment_idempotency_key,
+    /inputs\.controller_key/,
+  );
+});
+
+test("runbook covers bootstrap, canaries, browser proof, separate cutover, and exact rollback", () => {
+  const docs = read("docs/vercel-deployments.md");
+  for (const expected of [
+    "vercel-preview-bootstrap",
+    "vercel-preview-reconcile",
+    "/dispatches",
+    "Phase A canary evidence template",
+    "repository browser protocol",
+    "UI Vercel Git cutover (Phase B)",
+    '"**": false',
+    '"main": true',
+    '"dependabot/**": false',
+    "SHA",
+  ]) {
+    assert.match(
+      docs,
+      new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
+  }
+  assert.doesNotMatch(
+    docs,
+    /gh workflow run vercel-preview-controller|operation=(?:bootstrap|reconcile)/,
+  );
+});

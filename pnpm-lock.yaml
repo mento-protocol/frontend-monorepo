@@ -2981,7 +2981,7 @@ packages:
     engines: {node: '>=14.0.0'}
 
   '@metamask/jazzicon@https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28':
-    resolution: {tarball: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28}
+    resolution: {gitHosted: true, tarball: https://codeload.github.com/jmrossy/jazzicon/tar.gz/7a8df28}
     version: 2.1.0
 
   '@metamask/json-rpc-engine@10.2.3':

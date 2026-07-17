@@ -1,0 +1,40 @@
+name: Vercel Preview Intake
+
+run-name: Vercel preview intake | pr=${{ github.event.pull_request.number }} | sha=${{ github.event.pull_request.head.sha }} | action=${{ github.event.action }}
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened, closed]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-dependabot-metadata:
+    name: Validate Dependabot metadata without repository code
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' ||
+      github.event.pull_request.head.ref == 'dependabot' ||
+      startsWith(github.event.pull_request.head.ref, 'dependabot/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate immutable event metadata only
+        env:
+          ACTION: ${{ github.event.action }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          test "$REPOSITORY" = "mento-protocol/frontend-monorepo"
+          test -n "$PR_NUMBER"
+          test ${#HEAD_SHA} -eq 40
+          case "$ACTION" in
+            opened|edited|synchronize|reopened|closed) ;;
+            *) exit 1 ;;
+          esac
+          if test "$AUTHOR" != "dependabot[bot]"; then
+            test "$HEAD_REF" = "dependabot" || case "$HEAD_REF" in dependabot/*) ;; *) exit 1 ;; esac
+          fi

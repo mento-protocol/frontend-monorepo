@@ -2,20 +2,27 @@ name: Supply Chain
 
 # Dependency supply-chain gates, decoupled from trunk so the pre-push hook
 # never blocks on lockfile CVEs (see .trunk/trunk.yaml — osv-scanner ignores
-# pnpm-lock.yaml). Three jobs:
+# the dependency lockfiles). Five jobs:
 #
-#   1. osv         — osv-scanner against pnpm-lock.yaml, reading osv-scanner.toml
-#                    (the source of truth for suppressed/expired advisories).
-#                    Runs on every PR + a daily cron (24h disclosure backstop:
-#                    re-surfaces a newly-disclosed CVE or an expired ignoreUntil
-#                    even when no PR touches the lockfile).
-#   2. lockfile-lint — sha512 integrity + registry-poisoning gate.
-#   3. version-skew  — every cataloged dep is "catalog:" or the exact catalog
-#                      version (no silent drift off the shared catalog).
+#   1. osv              — osv-scanner against the application lockfile, reading
+#                         the repository-wide osv-scanner.toml.
+#   2. osv-pnpm-runtime — a separately configured scan of the exact isolated
+#                         trusted-tool lockfile. Its config contains only the
+#                         short-lived pnpm metadata correction, so that advisory
+#                         cannot mask a vulnerable pnpm elsewhere in the repo.
+#   3. osv-pnpm-bootstrap — scans the exact npm-locked Linux bootstrap artifact
+#                           without sharing the pnpm-runtime suppression.
+#                           All scans run on every PR + a daily cron (24h
+#                           disclosure backstop for new CVEs and expired ignores).
+#   4. lockfile-lint    — sha512 integrity + registry-poisoning gate, plus a
+#                         real Linux npm-ci proof for the bootstrap lock.
+#   5. version-skew     — every cataloged dep is "catalog:" or the exact catalog
+#                         version (no silent drift off the shared catalog).
 #
-# Suppressions live in osv-scanner.toml. Note they must stay in sync with the
-# `allow-ghsas` list in dependency-review.yml (and its expiry date) — both gate
-# the same advisories from different angles.
+# Suppressions live in osv-scanner.toml. Advisories suppressed across configured
+# scanners must stay in sync with the `allow-ghsas` list in
+# dependency-review.yml and its expiry. Scanner-specific metadata false
+# positives remain OSV-only, with source evidence and a short `ignoreUntil`.
 #
 # No path filter on `pull_request`: the osv job is meant to be a required check,
 # and a path-filtered required check that gets skipped sits "pending" forever
@@ -58,6 +65,33 @@ jobs:
       # runs; PRs still block via fail-on-vuln (default true).
       upload-sarif: ${{ github.event_name != 'pull_request' }}
 
+  osv-pnpm-runtime:
+    name: osv-scanner (trusted pnpm runtime)
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    # Keep the malformed-advisory correction scoped to this exact one-package
+    # lockfile instead of suppressing the GHSA repository-wide.
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+    with:
+      scan-args: |-
+        --config=scripts/vercel-pnpm-runtime/osv-scanner.toml
+        --lockfile=scripts/vercel-pnpm-runtime/pnpm-lock.yaml
+      upload-sarif: ${{ github.event_name != 'pull_request' }}
+
+  osv-pnpm-bootstrap:
+    name: osv-scanner (trusted pnpm bootstrap)
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+    with:
+      scan-args: |-
+        --lockfile=scripts/vercel-pnpm-bootstrap/package-lock.json
+      upload-sarif: ${{ github.event_name != 'pull_request' }}
+
   lockfile-lint:
     name: lockfile integrity + registry
     runs-on: ubuntu-latest
@@ -72,7 +106,18 @@ jobs:
       - name: lockfile-lint self-tests
         run: node scripts/lockfile-lint.test.mjs
       - name: lockfile integrity + registry check
-        run: node scripts/lockfile-lint.mjs
+        run: npm run supply-chain:lockfile-lint
+      - name: Install and authenticate the Linux pnpm bootstrap
+        working-directory: scripts/vercel-pnpm-bootstrap
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
+          pnpm_binary=node_modules/@pnpm/linux-x64/pnpm
+          test -f "$pnpm_binary"
+          test ! -L "$pnpm_binary"
+          echo "e02c01738ce850754cf00111fd97bec24de550e1e963690486f02d9dae1a2193  $pnpm_binary" |
+            sha256sum --check --strict
+          "$pnpm_binary" --version | grep -Fxq "10.34.4"
 
   version-skew:
     name: catalog version-skew

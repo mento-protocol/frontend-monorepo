@@ -35,7 +35,8 @@ jobs:
         with:
           fail-on-severity: high
           fail-on-scopes: runtime
-          # Mirrors osv-scanner.toml ignores. Keep both in sync.
+          # Mirrors the protobufjs 6.x ignores that affect both scanners.
+          # OSV-only metadata corrections are not allowlisted here.
           # protobufjs 6.x advisories: no safe fix path; only remaining consumer is
           # deprecated/unmaintained @confio/ics23@0.6.8 in the wormhole-connect/Cosmos
           # stack, which declares protobufjs ^6.8.8. Forcing 7.x is a semver-major
