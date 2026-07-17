@@ -180,6 +180,9 @@ const nttConfig: NttRoute.Config = {
 
 export const bridgeConfig: config.WormholeConnectConfig = {
   network: "Mainnet",
+  // Only USDm and EURm are deployed on Polygon, so the other tokens have no
+  // Polygon NTT leg or token config. The widget cannot express a per-token
+  // chain matrix; it resolves those combinations to "No route available."
   chains: ["Celo", "Monad", "Polygon"],
   tokens: ["USDm", "GBPm", "EURm", "JPYm", "CHFm"],
   tokensConfig: {
