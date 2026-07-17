@@ -1315,8 +1315,19 @@ test("compact terminal ownership survives more results than rendered history", (
   );
 });
 
-function commentBody(marker, value) {
+const expectedCommentExplanation = [
+  "**No reviewer action is required.**",
+  "This repository builds pull request previews in GitHub Actions and deploys them to Vercel.",
+  "This record lets the preview automation handle overlapping pushes and recover safely from retries.",
+  "[How previews work](https://github.com/mento-protocol/frontend-monorepo/blob/main/docs/vercel-deployments.md#event-status-and-batching-contract).",
+].join(" ");
+
+function legacyCommentBody(marker, value) {
   return `${marker}\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\`\n`;
+}
+
+function commentBody(marker, value) {
+  return `${marker}\n\n${expectedCommentExplanation}\n\n<details>\n<summary>Show machine-readable preview automation record</summary>\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\`\n`;
 }
 
 function eventComment(value, id = 1) {
@@ -1327,11 +1338,27 @@ function eventComment(value, id = 1) {
   };
 }
 
+function legacyEventComment(value, id = 1) {
+  return {
+    id,
+    user: { type: "Bot", login: "github-actions[bot]" },
+    body: legacyCommentBody(eventReceiptMarker(value.event_run_id), value),
+  };
+}
+
 function stateComment(value, id = 2) {
   return {
     id,
     user: { type: "Bot", login: "github-actions[bot]" },
     body: commentBody("<!-- vercel-preview-controller:v1 -->", value),
+  };
+}
+
+function legacyStateComment(value, id = 2) {
+  return {
+    id,
+    user: { type: "Bot", login: "github-actions[bot]" },
+    body: legacyCommentBody("<!-- vercel-preview-controller:v1 -->", value),
   };
 }
 
@@ -1348,6 +1375,14 @@ function selectionComment(value, id = 4) {
     id,
     user: { type: "Bot", login: "github-actions[bot]" },
     body: commentBody(selectionReceiptMarker(value), value),
+  };
+}
+
+function legacySelectionComment(value, id = 4) {
+  return {
+    id,
+    user: { type: "Bot", login: "github-actions[bot]" },
+    body: legacyCommentBody(selectionReceiptMarker(value), value),
   };
 }
 
@@ -1748,7 +1783,23 @@ test("malformed successful planner output is recorded as fail-closed UI impact",
   assert.equal(receipt.plan.base, SHA.E);
   assert.equal(receipt.plan.head, SHA.A);
   assert.equal(core.outputs.get("planner_output_invalid"), "true");
+  assert.match(
+    fixture.comments[0].body,
+    /\*\*No reviewer action is required\.\*\*/,
+  );
+  assert.match(fixture.comments[0].body, /<details>/);
+  assert.match(
+    fixture.comments[0].body,
+    /<summary>Show machine-readable preview automation record<\/summary>/,
+  );
+  assert.doesNotMatch(fixture.comments[0].body, /<\/details>/);
+  assert.match(fixture.comments[0].body, /\n```\n$/);
   assert.match(fixture.comments[0].body, /"reason": "planner-job-failed"/);
+  const legacyReaderMatch = fixture.comments[0].body.match(
+    /\n```json\n([\s\S]+)\n```\n?$/,
+  );
+  assert.ok(legacyReaderMatch, "the previous v1 reader can parse the new body");
+  assert.deepEqual(JSON.parse(legacyReaderMatch[1]), receipt);
   assert.equal(fixture.commitStatuses.at(-1).state, "pending");
 });
 
@@ -1788,6 +1839,47 @@ test("closed event receipt is immutable, idempotent, and publishes no status", a
   assert.match(fixture.comments[0].body, /"event_action": "closed"/);
   assert.equal(fixture.commitStatuses.length, 0);
 
+  const legacyBody = legacyCommentBody(
+    eventReceiptMarker(120),
+    first,
+  ).trimEnd();
+  const legacyFixture = fakeGitHub({
+    pullRequest,
+    comments: [
+      {
+        id: 1,
+        user: { type: "Bot", login: "github-actions[bot]" },
+        body: legacyBody,
+      },
+    ],
+  });
+  const reusedLegacy = await recordEventReceipt({
+    ...options,
+    github: legacyFixture.github,
+  });
+  assert.deepEqual(reusedLegacy, first);
+  assert.equal(legacyFixture.comments.length, 1);
+  assert.equal(legacyFixture.comments[0].body, legacyBody);
+
+  const malformedComment = eventComment(first);
+  malformedComment.body = malformedComment.body.replace(
+    "Show machine-readable preview automation record",
+    "Unexpected summary",
+  );
+  const malformedFixture = fakeGitHub({
+    pullRequest,
+    comments: [malformedComment],
+  });
+  await assert.rejects(
+    reconcilePreview({
+      github: malformedFixture.github,
+      context: fakeContext({ runId: 120 }),
+      core: fakeCore(),
+      prNumber: 519,
+    }),
+    /Controller comment JSON block is missing/,
+  );
+
   const opened = event({
     run: 119,
     action: "opened",
@@ -1796,7 +1888,7 @@ test("closed event receipt is immutable, idempotent, and publishes no status", a
   });
   const reconcileFixture = fakeGitHub({
     pullRequest,
-    comments: [eventComment(opened), eventComment(first, 2)],
+    comments: [legacyEventComment(opened), legacyEventComment(first, 2)],
   });
   const state = await reconcilePreview({
     github: reconcileFixture.github,
@@ -1837,10 +1929,10 @@ test("closed reconciliation preserves an unbound intent without dispatching it",
   const fixture = fakeGitHub({
     pullRequest,
     comments: [
-      eventComment(opened),
-      stateComment(intended),
-      selectionComment(selectionReceiptFromDispatch(intended.ui.active)),
-      eventComment(closed, 5),
+      legacyEventComment(opened),
+      legacyStateComment(intended),
+      legacySelectionComment(selectionReceiptFromDispatch(intended.ui.active)),
+      legacyEventComment(closed, 5),
     ],
   });
 
@@ -1864,6 +1956,8 @@ test("closed reconciliation preserves an unbound intent without dispatching it",
     fixture.comments.some(
       ({ body }) =>
         body.startsWith("<!-- vercel-preview-controller:v1 -->") &&
+        body.includes("**No reviewer action is required.**") &&
+        body.includes("<details>") &&
         body.includes('"closed": true'),
     ),
   );
