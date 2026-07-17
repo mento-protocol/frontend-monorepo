@@ -1102,7 +1102,7 @@ jobs:
             --clear-groups \
             --no-new-privs \
             -- \
-            "$node_bin" "$vercel_cli" build --yes --target preview --project "$VERCEL_PROJECT_ID" \
+            "$node_bin" "$vercel_cli" build --yes --standalone --target preview --project "$VERCEL_PROJECT_ID" \
             2>&1
           candidate_status=$?
           set -e
