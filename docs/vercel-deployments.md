@@ -845,7 +845,18 @@ UI smoke. Every initial or resumed credential-free smoke attempt keeps the
 HTTP/header/static-asset checks, then uses the trusted main-branch smoke
 controller with Playwright and the GitHub runner's system Chrome to render the
 showcase, search and navigate to a second route, change a form control, and fail
-on page/console errors or failed same-origin requests and responses. Its
+on page/console errors or failed same-origin requests and responses. The direct
+HTTP phase verifies the server-rendered `data-dpl-id`; after hydration, the
+browser phase requires every loaded same-origin `/_next/static/` asset to carry
+exactly the expected `?dpl=` value and rejects any conflicting retained HTML
+deployment marker. Controller-side request monitoring remains active through
+the second-route interaction, so dynamically loaded chunks cannot escape the
+same identity check. The controller waits for all observed static requests to
+finish and for a quiet window before its final assertion. This preserves
+fail-closed deployment-identity proof when
+React reconciles the server-injected HTML attribute out of the live DOM. Chrome
+also waits for the initial page load before changing controlled inputs, then
+rechecks the changed form control after the hydration/interaction settle. Its
 dependency graph comes from the trusted workflow checkout, candidate lifecycle
 scripts stay disabled, and no Vercel or Turbo credential is present in the
 smoke job. The worker records a durable non-terminal upload evidence receipt;

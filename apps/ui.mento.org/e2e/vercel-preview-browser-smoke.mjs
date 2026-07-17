@@ -9,6 +9,8 @@ const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const GITHUB_DEPLOYMENT_ID_PATTERN = /^[1-9][0-9]*$/;
 const VERCEL_DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
 const NEXT_DEPLOYMENT_ID_PATTERN = /^m-ui-[0-9a-f]{19}$/;
+const MAX_NEXT_STATIC_ASSET_REQUESTS = 5_000;
+const NEXT_STATIC_ASSET_IDLE_MS = 250;
 const AUTOMATIC_KEY_PATTERN =
   /^vercel-preview:v1:pr:[1-9][0-9]*:target:ui:sha:([0-9a-f]{40})$/;
 const PILOT_KEY_PATTERN =
@@ -147,6 +149,186 @@ export function createBrowserFailureMonitor(page, expectedOrigin) {
   };
 }
 
+export function assertBrowserDeploymentIdentity(
+  identity,
+  expectedDeploymentId,
+  expectedOrigin,
+) {
+  if (
+    !identity ||
+    typeof identity !== "object" ||
+    (identity.htmlDeploymentId !== null &&
+      identity.htmlDeploymentId !== expectedDeploymentId)
+  ) {
+    throw new Error(
+      "Browser-rendered page carries a conflicting deployment ID",
+    );
+  }
+  if (
+    !Array.isArray(identity.assetReferences) ||
+    identity.assetReferences.length === 0 ||
+    identity.assetReferences.length > MAX_NEXT_STATIC_ASSET_REQUESTS
+  ) {
+    throw new Error(
+      "Browser-loaded Next.js asset identity evidence is missing or invalid",
+    );
+  }
+  let javaScriptAsset = false;
+  let styleAsset = false;
+  let nextStaticAssets = 0;
+  for (const reference of identity.assetReferences) {
+    if (
+      typeof reference !== "string" ||
+      reference.length === 0 ||
+      reference.length > 2_048
+    ) {
+      throw new Error("Browser-loaded Next.js asset reference is invalid");
+    }
+    let url;
+    try {
+      url = new URL(reference);
+    } catch {
+      throw new Error("Browser-loaded Next.js asset reference is invalid");
+    }
+    if (
+      url.origin !== expectedOrigin ||
+      !url.pathname.startsWith("/_next/static/")
+    ) {
+      continue;
+    }
+    nextStaticAssets += 1;
+    const deploymentIds = url.searchParams.getAll("dpl");
+    if (
+      deploymentIds.length !== 1 ||
+      deploymentIds[0] !== expectedDeploymentId
+    ) {
+      throw new Error(
+        "Browser-loaded Next.js assets do not carry only the expected deployment ID",
+      );
+    }
+    javaScriptAsset ||= url.pathname.endsWith(".js");
+    styleAsset ||= url.pathname.endsWith(".css");
+  }
+  if (nextStaticAssets === 0 || !javaScriptAsset || !styleAsset) {
+    throw new Error(
+      "Browser-loaded Next.js asset identity evidence is missing or invalid",
+    );
+  }
+}
+
+function createBrowserDeploymentIdentityMonitor(page, expectedOrigin) {
+  const assetReferences = [];
+  const activeRequests = new Set();
+  const activityWaiters = new Set();
+  let overflow = false;
+
+  function signalActivity() {
+    for (const resolve of activityWaiters) {
+      resolve(true);
+    }
+    activityWaiters.clear();
+  }
+
+  function waitForActivity(timeoutMs) {
+    return new Promise((resolve) => {
+      let settled = false;
+      let timer;
+      const finish = (activityObserved) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        activityWaiters.delete(onActivity);
+        resolve(activityObserved);
+      };
+      const onActivity = () => finish(true);
+      activityWaiters.add(onActivity);
+      timer = setTimeout(() => finish(false), timeoutMs);
+    });
+  }
+
+  page.on("request", (request) => {
+    let url;
+    try {
+      url = new URL(request.url());
+    } catch {
+      return;
+    }
+    if (
+      url.origin !== expectedOrigin ||
+      !url.pathname.startsWith("/_next/static/")
+    ) {
+      return;
+    }
+    if (assetReferences.length >= MAX_NEXT_STATIC_ASSET_REQUESTS) {
+      overflow = true;
+      signalActivity();
+      return;
+    }
+    assetReferences.push(url.toString());
+    activeRequests.add(request);
+    signalActivity();
+  });
+
+  const finishRequest = (request) => {
+    if (activeRequests.delete(request)) {
+      signalActivity();
+    }
+  };
+  page.on("requestfinished", finishRequest);
+  page.on("requestfailed", finishRequest);
+
+  return {
+    async waitForIdle(timeoutMs) {
+      const deadline = Date.now() + timeoutMs;
+      while (true) {
+        if (overflow) {
+          throw new Error(
+            "Browser-loaded Next.js asset identity evidence exceeded its limit",
+          );
+        }
+        const remainingMs = deadline - Date.now();
+        if (remainingMs <= 0) {
+          throw new Error(
+            "Browser-loaded Next.js assets did not become idle before timeout",
+          );
+        }
+        if (activeRequests.size > 0) {
+          const activityObserved = await waitForActivity(remainingMs);
+          if (!activityObserved) {
+            throw new Error(
+              "Browser-loaded Next.js assets did not become idle before timeout",
+            );
+          }
+          continue;
+        }
+
+        const quietWindowMs = Math.min(NEXT_STATIC_ASSET_IDLE_MS, remainingMs);
+        const activityObserved = await waitForActivity(quietWindowMs);
+        if (!activityObserved) {
+          if (quietWindowMs < NEXT_STATIC_ASSET_IDLE_MS) {
+            throw new Error(
+              "Browser-loaded Next.js assets did not become idle before timeout",
+            );
+          }
+          return;
+        }
+      }
+    },
+    assertExpected(expectedDeploymentId, htmlDeploymentId) {
+      if (overflow) {
+        throw new Error(
+          "Browser-loaded Next.js asset identity evidence exceeded its limit",
+        );
+      }
+      assertBrowserDeploymentIdentity(
+        { htmlDeploymentId, assetReferences },
+        expectedDeploymentId,
+        expectedOrigin,
+      );
+    },
+  };
+}
+
 export async function runBrowserSmoke({ chromium, input, timeoutMs = 30_000 }) {
   const validated = validateBrowserSmokeInput(input);
   const baseUrl = new URL(validated.deploymentUrl);
@@ -157,6 +339,10 @@ export async function runBrowserSmoke({ chromium, input, timeoutMs = 30_000 }) {
     page.setDefaultTimeout(timeoutMs);
     page.setDefaultNavigationTimeout(timeoutMs);
     const monitor = createBrowserFailureMonitor(page, baseUrl.origin);
+    const deploymentIdentityMonitor = createBrowserDeploymentIdentityMonitor(
+      page,
+      baseUrl.origin,
+    );
 
     const response = await page.goto(baseUrl.toString(), {
       waitUntil: "domcontentloaded",
@@ -176,14 +362,15 @@ export async function runBrowserSmoke({ chromium, input, timeoutMs = 30_000 }) {
     await page
       .getByRole("heading", { name: "Basic Components", exact: true })
       .waitFor({ state: "visible" });
+    await page.waitForLoadState("load");
+    await deploymentIdentityMonitor.waitForIdle(timeoutMs);
     const renderedDeploymentId = await page
       .locator("html")
       .getAttribute("data-dpl-id");
-    if (renderedDeploymentId !== validated.nextDeploymentId) {
-      throw new Error(
-        "Browser-rendered page does not carry the expected deployment ID",
-      );
-    }
+    deploymentIdentityMonitor.assertExpected(
+      validated.nextDeploymentId,
+      renderedDeploymentId,
+    );
 
     await page
       .getByPlaceholder("Search components...", { exact: true })
@@ -206,6 +393,19 @@ export async function runBrowserSmoke({ chromium, input, timeoutMs = 30_000 }) {
 
     // Let errors from hydration and interaction microtasks reach the listeners.
     await page.waitForTimeout(250);
+    if (!(await checkbox.isChecked())) {
+      throw new Error(
+        "Browser smoke interaction did not remain updated after hydration",
+      );
+    }
+    const finalRenderedDeploymentId = await page
+      .locator("html")
+      .getAttribute("data-dpl-id");
+    await deploymentIdentityMonitor.waitForIdle(timeoutMs);
+    deploymentIdentityMonitor.assertExpected(
+      validated.nextDeploymentId,
+      finalRenderedDeploymentId,
+    );
     monitor.assertClean();
     return {
       deploymentUrl: validated.deploymentUrl,
