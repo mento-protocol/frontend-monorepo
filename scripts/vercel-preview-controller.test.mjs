@@ -1395,6 +1395,246 @@ test("terminal checkpoints bound one journal across fifty sequential previews", 
   assert.deepEqual(foldedDelayedReceipt.receipts.events, []);
 });
 
+test("docs-only checkpoint tails preserve prior runtime terminal semantics", () => {
+  const terminalCases = [
+    {
+      state: "success",
+      reason: "verified",
+      expectedState: "success",
+      expectedDescription: /^Runtime-equivalent to /,
+    },
+    {
+      state: "failure",
+      reason: "worker-failure",
+      expectedState: "failure",
+      expectedDescription: /^Runtime preview .* failed$/,
+    },
+    {
+      state: "error",
+      reason: "worker-failure",
+      expectedState: "error",
+      expectedDescription: /^Runtime preview .* errored$/,
+    },
+    {
+      state: "error",
+      reason: "worker-cancelled",
+      expectedState: "failure",
+      expectedDescription: /^Runtime preview .* was cancelled$/,
+    },
+  ];
+
+  for (const [index, terminalCase] of terminalCases.entries()) {
+    const runtime = event({
+      run: 1_100 + index,
+      action: "opened",
+      head: SHA.A,
+      updated: timestamp(1),
+    });
+    const selected = reconcile({
+      events: [runtime],
+      pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+    });
+    const workerRunId = 31_000 + index;
+    const active = persistDispatch(selected, workerRunId);
+    const selection = selectionReceiptFromDispatch(active.ui.active);
+    const terminal = result(selected.nextDispatch, {
+      runId: workerRunId,
+      state: terminalCase.state,
+      reason: terminalCase.reason,
+    });
+    const completed = reconcile({
+      events: [runtime],
+      results: [terminal],
+      selections: [selection],
+      pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+      existingState: active,
+    });
+    let journal = compactPreviewJournal(
+      createPreviewJournal({
+        pr: 519,
+        events: [runtime],
+        selections: [selection],
+        results: [terminal],
+        state: completed.state,
+      }),
+    );
+
+    const firstDocs = event({
+      run: 1_200 + index,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      runtime: false,
+      updated: timestamp(2),
+    });
+    const firstDocsState = reconcile({
+      events: [firstDocs],
+      pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
+      existingState: journal.state,
+      checkpoint: journal.checkpoint,
+    });
+    journal = compactPreviewJournal(
+      createPreviewJournal({
+        pr: 519,
+        checkpoint: journal.checkpoint,
+        events: [firstDocs],
+        state: firstDocsState.state,
+      }),
+    );
+    assert.equal(
+      journal.checkpoint.through_event_run_id,
+      firstDocs.event_run_id,
+    );
+
+    const secondDocs = event({
+      run: 1_300 + index,
+      action: "synchronize",
+      before: SHA.B,
+      head: SHA.C,
+      runtime: false,
+      updated: timestamp(3),
+    });
+    const secondDocsState = reconcile({
+      events: [secondDocs],
+      pullRequest: pull({ head: SHA.C, updated: timestamp(3) }),
+      existingState: journal.state,
+      checkpoint: journal.checkpoint,
+    });
+    const decision = secondDocsState.state.status_decisions.at(-1);
+    assert.equal(secondDocsState.nextDispatch, null);
+    assert.equal(decision.sha, SHA.C);
+    assert.equal(decision.state, terminalCase.expectedState);
+    assert.match(decision.description, terminalCase.expectedDescription);
+    assert.equal(
+      decision.target_url,
+      terminalCase.state === "success"
+        ? `https://ui-${workerRunId}.vercel.app`
+        : CONTROLLER_URL,
+    );
+  }
+
+  const initialDocs = event({
+    run: 1_400,
+    action: "opened",
+    head: SHA.A,
+    runtime: false,
+    updated: timestamp(1),
+  });
+  const initialDocsState = reconcile({
+    events: [initialDocs],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const initialDocsJournal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      events: [initialDocs],
+      state: initialDocsState.state,
+    }),
+  );
+  const laterDocs = event({
+    run: 1_401,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    runtime: false,
+    updated: timestamp(2),
+  });
+  const laterDocsState = reconcile({
+    events: [laterDocs],
+    pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
+    existingState: initialDocsJournal.state,
+    checkpoint: initialDocsJournal.checkpoint,
+  });
+  assert.equal(
+    laterDocsState.state.status_decisions.at(-1).description,
+    "No UI runtime impact",
+  );
+});
+
+test("closed checkpoints retain matching closure across late events and reopen", () => {
+  const opened = event({
+    run: 1_500,
+    action: "opened",
+    head: SHA.A,
+    runtime: false,
+    updated: timestamp(1),
+  });
+  const openState = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const closed = event({
+    run: 1_501,
+    action: "closed",
+    head: SHA.A,
+    updated: timestamp(2),
+  });
+  const closedPull = pull({
+    head: SHA.A,
+    state: "closed",
+    updated: timestamp(2),
+    closed: timestamp(2),
+  });
+  const closedState = reconcile({
+    events: [opened, closed],
+    pullRequest: closedPull,
+    existingState: openState.state,
+  });
+  let journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      events: [opened, closed],
+      state: closedState.state,
+    }),
+  );
+  assert.equal(journal.checkpoint.event.event_action, "closed");
+  assert.equal(journal.checkpoint.through_event_run_id, closed.event_run_id);
+  assert.equal(journal.state.epoch.closed_at, timestamp(2));
+
+  const delayed = event({
+    run: 1_502,
+    action: "synchronize",
+    before: SHA.B,
+    head: SHA.A,
+    runtime: false,
+    updated: timestamp(1),
+  });
+  const delayedState = reconcile({
+    events: [delayed],
+    pullRequest: closedPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  assert.equal(delayedState.state.closed, true);
+  journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      checkpoint: journal.checkpoint,
+      events: [delayed],
+      state: delayedState.state,
+    }),
+  );
+  assert.equal(journal.checkpoint.event.event_action, "closed");
+  assert.equal(journal.state.epoch.closed_at, timestamp(2));
+
+  const reopened = event({
+    run: 1_503,
+    action: "reopened",
+    head: SHA.A,
+    runtime: false,
+    updated: timestamp(3),
+  });
+  const reopenedState = reconcile({
+    events: [reopened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(3) }),
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  assert.equal(reopenedState.state.closed, false);
+  assert.equal(reopenedState.state.epoch.anchor_run_id, reopened.event_run_id);
+  assert.equal(reopenedState.nextDispatch, null);
+});
+
 const expectedCommentExplanation = [
   "**No reviewer action is required.**",
   "This repository builds pull request previews in GitHub Actions and deploys them to Vercel.",
@@ -1988,6 +2228,162 @@ test("closed event receipt keeps one stable idempotent journal and publishes no 
     }),
     /Preview journal JSON block is missing/,
   );
+});
+
+test("semantic aliases of checkpointed lifecycle tails are idempotent", async () => {
+  const checkpointCases = [];
+  for (const [index, action] of ["opened", "reopened", "bootstrap"].entries()) {
+    const opened = event({
+      run: 1_600 + index,
+      action: "opened",
+      head: SHA.A,
+      runtime: false,
+      updated: timestamp(1),
+    });
+    const tail =
+      action === "opened"
+        ? opened
+        : validateEventReceipt({
+            ...structuredClone(opened),
+            event_action: action,
+          });
+    const currentPull = pull({ head: SHA.A, updated: timestamp(1) });
+    const state = reconcile({
+      events: [tail],
+      pullRequest: currentPull,
+    }).state;
+    checkpointCases.push({ action, events: [tail], currentPull, state });
+  }
+
+  const openedForClose = event({
+    run: 1_610,
+    action: "opened",
+    head: SHA.A,
+    runtime: false,
+    updated: timestamp(1),
+  });
+  const closed = event({
+    run: 1_611,
+    action: "closed",
+    head: SHA.A,
+    updated: timestamp(2),
+  });
+  const closedPull = pull({
+    head: SHA.A,
+    state: "closed",
+    updated: timestamp(2),
+    closed: timestamp(2),
+  });
+  checkpointCases.push({
+    action: "closed",
+    events: [openedForClose, closed],
+    currentPull: closedPull,
+    state: reconcile({
+      events: [openedForClose, closed],
+      pullRequest: closedPull,
+    }).state,
+  });
+
+  let openedCheckpoint;
+  for (const checkpointCase of checkpointCases) {
+    const checkpointed = compactPreviewJournal(
+      createPreviewJournal({
+        pr: 519,
+        events: checkpointCase.events,
+        state: checkpointCase.state,
+      }),
+    );
+    const duplicate = {
+      ...structuredClone(checkpointed.checkpoint.event),
+      event_run_id: checkpointed.checkpoint.event.event_run_id + 100,
+    };
+    const fixture = fakeGitHub({
+      pullRequest: checkpointCase.currentPull,
+      comments: [
+        journalComment({
+          checkpoint: checkpointed.checkpoint,
+          state: checkpointed.state,
+        }),
+      ],
+    });
+    await recordEventReceipt({
+      github: fixture.github,
+      context: fakeContext({ runId: duplicate.event_run_id }),
+      core: fakeCore(),
+      ...eventRecordInputs(duplicate),
+    });
+    const persisted = journalFromComment(fixture.comments[0]);
+    assert.equal(
+      persisted.checkpoint.through_event_run_id,
+      checkpointed.checkpoint.through_event_run_id,
+      checkpointCase.action,
+    );
+    assert.deepEqual(persisted.receipts.events, [], checkpointCase.action);
+    assert.equal(fixture.commentUpdates.length, 0, checkpointCase.action);
+    assert.throws(
+      () =>
+        createPreviewJournal({
+          pr: 519,
+          checkpoint: checkpointed.checkpoint,
+          events: [duplicate],
+          state: checkpointed.state,
+        }),
+      /semantic duplicate in live receipts/,
+      checkpointCase.action,
+    );
+    if (checkpointCase.action === "opened") {
+      openedCheckpoint = { checkpointed, fixture };
+    }
+  }
+
+  const conflicting = structuredClone(
+    openedCheckpoint.checkpointed.checkpoint.event,
+  );
+  conflicting.head_sha = SHA.B;
+  conflicting.plan.head = SHA.B;
+  await assert.rejects(
+    recordEventReceipt({
+      github: openedCheckpoint.fixture.github,
+      context: fakeContext({ runId: conflicting.event_run_id }),
+      core: fakeCore(),
+      ...eventRecordInputs(conflicting),
+    }),
+    /Conflicting event receipt at preview checkpoint/,
+  );
+  assert.equal(openedCheckpoint.fixture.commentUpdates.length, 0);
+
+  const semanticReplay = {
+    ...structuredClone(openedCheckpoint.checkpointed.checkpoint.event),
+    event_run_id:
+      openedCheckpoint.checkpointed.checkpoint.event.event_run_id + 200,
+  };
+  const liveConflict = event({
+    run: semanticReplay.event_run_id,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    updated: timestamp(2),
+  });
+  const liveConflictFixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
+    comments: [
+      journalComment({
+        checkpoint: openedCheckpoint.checkpointed.checkpoint,
+        events: [liveConflict],
+        state: openedCheckpoint.checkpointed.state,
+      }),
+    ],
+  });
+  await assert.rejects(
+    recordEventReceipt({
+      github: liveConflictFixture.github,
+      context: fakeContext({ runId: semanticReplay.event_run_id }),
+      core: fakeCore(),
+      ...eventRecordInputs(semanticReplay),
+    }),
+    /Conflicting event receipt in preview journal/,
+  );
+  assert.equal(liveConflictFixture.commentUpdates.length, 0);
 });
 
 test("a first-attempt synchronize can initialize only without durable status evidence", async () => {

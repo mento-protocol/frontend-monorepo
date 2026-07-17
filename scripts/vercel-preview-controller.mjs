@@ -1166,6 +1166,39 @@ function resultForSelection(results, anchorRunId, event, selection) {
   );
 }
 
+function statusFromCheckpointRuntime({
+  event,
+  runtimeEvent,
+  checkpointStatus,
+  controllerUrl,
+}) {
+  if (checkpointStatus.state === "success") {
+    return {
+      sha: event.head_sha,
+      state: "success",
+      description: `Runtime-equivalent to ${runtimeEvent.head_sha.slice(0, 7)}`,
+      target_url: checkpointStatus.target_url,
+    };
+  }
+  if (checkpointStatus.state === "failure") {
+    const cancelled = checkpointStatus.description.includes("cancelled");
+    return {
+      sha: event.head_sha,
+      state: "failure",
+      description: cancelled
+        ? `Runtime preview ${runtimeEvent.head_sha.slice(0, 7)} was cancelled`
+        : `Runtime preview ${runtimeEvent.head_sha.slice(0, 7)} failed`,
+      target_url: controllerUrl,
+    };
+  }
+  return {
+    sha: event.head_sha,
+    state: "error",
+    description: `Runtime preview ${runtimeEvent.head_sha.slice(0, 7)} errored`,
+    target_url: controllerUrl,
+  };
+}
+
 function statusDecision({
   event,
   index,
@@ -1175,6 +1208,8 @@ function statusDecision({
   coalescedToByRun,
   controllerUrl,
   checkpointStatus,
+  checkpointBaselineStatus,
+  checkpointBaselineEvent,
 }) {
   if (checkpointStatus) return structuredClone(checkpointStatus);
   if (event.trust !== "trusted") {
@@ -1219,12 +1254,29 @@ function statusDecision({
       .slice(0, index)
       .findLast((candidate) => candidate.plan.targets.includes(PREVIEW_TARGET));
     if (!priorRuntime) {
+      if (checkpointBaselineStatus) {
+        return {
+          ...structuredClone(checkpointBaselineStatus),
+          sha: event.head_sha,
+        };
+      }
       return {
         sha: event.head_sha,
         state: "success",
         description: "No UI runtime impact",
         target_url: controllerUrl,
       };
+    }
+    if (
+      checkpointBaselineStatus &&
+      checkpointBaselineEvent?.event_run_id === priorRuntime.event_run_id
+    ) {
+      return statusFromCheckpointRuntime({
+        event,
+        runtimeEvent: priorRuntime,
+        checkpointStatus: checkpointBaselineStatus,
+        controllerUrl,
+      });
     }
     const priorResult = resultByRun.get(priorRuntime.event_run_id);
     if (priorResult?.state === "success") {
@@ -1769,6 +1821,8 @@ export function reconcileState({
         selectedCheckpoint?.event.event_run_id === event.event_run_id
           ? selectedCheckpoint.status
           : null,
+      checkpointBaselineStatus: selectedCheckpoint?.status ?? null,
+      checkpointBaselineEvent: selectedCheckpoint?.event ?? null,
     }),
   );
   const successes = [...resultByRun.entries()]
@@ -1825,7 +1879,7 @@ export function reconcileState({
       anchor_head_sha: anchor.head_sha,
       anchor_head_ref: anchor.head_ref,
       closed_at: closure?.pr_closed_at ?? null,
-      tail_receipt_run_id: lineage.at(-1).event_run_id,
+      tail_receipt_run_id: (closure ?? lineage.at(-1)).event_run_id,
       lineage_digest: digest(lineage.map(semanticEventKey)),
       basis_digest: basisDigest,
     },
@@ -2098,6 +2152,14 @@ function validatePreviewJournal(value, expectedPr) {
     "Preview checkpoint event is duplicated in live receipts",
   );
   invariant(
+    !checkpoint ||
+      !events.some(
+        (event) =>
+          semanticEventKey(event) === semanticEventKey(checkpoint.event),
+      ),
+    "Preview checkpoint event has a semantic duplicate in live receipts",
+  );
+  invariant(
     selections.every((selection) => selection.pr === pr),
     "Journal selection PR mismatch",
   );
@@ -2274,6 +2336,12 @@ export function compactPreviewJournal(value) {
       ? journal.checkpoint.event
       : null);
   invariant(tailEvent, "Preview checkpoint tail event is missing");
+  invariant(
+    !state.closed ||
+      (tailEvent.event_action === "closed" &&
+        tailEvent.pr_closed_at === state.epoch.closed_at),
+    "Preview checkpoint closure does not match persisted lifecycle state",
+  );
   const status = [...state.status_decisions]
     .reverse()
     .find((decision) => decision.sha === tailEvent.head_sha);
@@ -2479,9 +2547,17 @@ async function appendJournalReceipt({
     allowCreate,
     assertCanCreate,
     mutate(journal) {
+      const identity = definition.identity(value);
+      const existing = journal.receipts[definition.name].find(
+        (entry) => definition.identity(definition.validate(entry)) === identity,
+      );
+      invariant(
+        !existing || canonicalJson(existing) === canonicalJson(value),
+        `Conflicting ${kind} receipt in preview journal`,
+      );
+      if (existing) return;
       if (kind === "event") compactPreviewJournal(journal);
       const entries = journal.receipts[definition.name];
-      const identity = definition.identity(value);
       const checkpointEntry =
         kind === "event" && journal.checkpoint
           ? journal.checkpoint.event
@@ -2496,14 +2572,13 @@ async function appendJournalReceipt({
         );
         return;
       }
-      const existing = entries.find(
-        (entry) => definition.identity(definition.validate(entry)) === identity,
-      );
-      invariant(
-        !existing || canonicalJson(existing) === canonicalJson(value),
-        `Conflicting ${kind} receipt in preview journal`,
-      );
-      if (!existing) entries.push(structuredClone(value));
+      if (
+        checkpointEntry &&
+        semanticEventKey(checkpointEntry) === semanticEventKey(value)
+      ) {
+        return;
+      }
+      entries.push(structuredClone(value));
     },
   });
 }

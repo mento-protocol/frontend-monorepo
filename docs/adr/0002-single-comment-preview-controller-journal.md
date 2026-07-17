@@ -77,8 +77,13 @@ receipt set.
 Before appending a later event, a terminal journal with no active or retired
 worker and no unfinished evidence deterministically checkpoints its completed
 prefix in place. The checkpoint retains the cumulative receipt digest and
-counts, the verified tail event, and its terminal status; the mutable state is
-rebased onto that tail and the completed live receipts are cleared. This is one
+counts, the verified lifecycle tail event, and its terminal status. Open state
+uses the reconciled lineage tail; closed state uses the matching closure. The
+mutable state is rebased onto that verified tail and the completed live
+receipts are cleared. Semantic replays of the checkpoint tail are idempotent,
+while a conflicting receipt under the same run identity fails closed. A
+docs-only checkpoint tail carries forward the inherited runtime success URL or
+terminal failure/error meaning for subsequent docs-only pushes. This is one
 atomic revision of the same comment and schema, not rollover, archival, or a
 second persistence path. A 50-preview sequential-cycle fixture peaks at 7,772
 rendered UTF-8 bytes.

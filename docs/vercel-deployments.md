@@ -751,11 +751,20 @@ history. Explicit bootstrap is the sole operator-authorized clean restart.
 Before a later event is appended, a terminal journal with no active or retired
 worker and no unfinished evidence folds its completed prefix into one
 deterministic in-place checkpoint. The checkpoint holds cumulative receipt
-counts and digest, the verified tail event, and its terminal status. State is
+counts and digest, the verified lifecycle tail event, and its terminal status.
+For an open PR the tail is the last reconciled lineage event; for a closed PR
+it is the closure whose timestamp matches current GitHub state. State is
 rebased onto that tail and completed live receipts are cleared in the same
-revision. A 50-preview sequential-cycle test peaks at 7,772 rendered UTF-8
-bytes. This is still one comment, schema, and controller path: there is no
-archive, rollover, second comment, or compatibility reader.
+revision. The checkpoint remains a verified reconciliation anchor even when
+its tail is a synchronize or closure event. A semantic replay of that tail
+with another workflow run ID is already represented and is therefore a no-op;
+the same run ID with conflicting content still fails closed. When a docs-only
+tail is checkpointed, its inherited terminal runtime state, immutable URL, and
+failure or cancellation meaning continue across later docs-only pushes rather
+than reverting to a fresh no-runtime success. A 50-preview sequential-cycle
+test peaks at 7,772 rendered UTF-8 bytes. This is still one comment, schema,
+and controller path: there is no archive, rollover, second comment, or
+compatibility reader.
 
 The complete rendered journal body has a 60,000-byte hard limit measured as
 UTF-8. An unfinished or otherwise unsafe transition that cannot checkpoint and
