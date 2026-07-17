@@ -27,7 +27,7 @@ export default function RootLayout({
 }): React.ReactElement {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={inter.className} data-vercel-preview-phase-a="B">
+      <body className={inter.className} data-vercel-preview-phase-a="C">
         <AppShell>{children}</AppShell>
       </body>
     </html>
