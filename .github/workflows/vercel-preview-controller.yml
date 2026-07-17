@@ -161,6 +161,7 @@ jobs:
       statuses: write
     outputs:
       pr_number: ${{ steps.receipt.outputs.pr_number }}
+      reconcile_required: ${{ steps.receipt.outputs.reconcile_required }}
     steps:
       - name: Check out trusted controller
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -196,7 +197,10 @@ jobs:
   reconcile-event:
     name: Reconcile durable preview state
     needs: receipt-event
-    if: always() && needs.receipt-event.result == 'success'
+    if: >-
+      always() &&
+      needs.receipt-event.result == 'success' &&
+      needs.receipt-event.outputs.reconcile_required == 'true'
     concurrency:
       group: vercel-preview-state-pr-${{ needs.receipt-event.outputs.pr_number }}
       cancel-in-progress: false

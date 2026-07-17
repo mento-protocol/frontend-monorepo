@@ -88,11 +88,24 @@ atomic revision of the same comment and schema, not rollover, archival, or a
 second persistence path. A 50-preview sequential-cycle fixture peaks at 7,772
 rendered UTF-8 bytes.
 
+The same checkpoint field protects an overlapping push burst before the hard
+body limit is reached. At a 40,000-byte soft threshold, the controller proves a
+unique path to the latest pull-request tail represented by the complete receipt
+graph, then folds that graph and terminal receipts not needed for recovery into
+the cumulative digest. A pending checkpoint records the exact unfinished owner,
+its consumed attempt count, and the latest runtime event still owed, while
+retaining that owner's selection, worker evidence, and result. Reconciliation
+waits for that owner;
+its terminal result either satisfies a runtime-equivalent tail or releases the
+latest runtime event for dispatch. Thus queued receipt jobs cannot disappear,
+and a docs-only tail cannot remain pending after its runtime dependency ends.
+
 The complete rendered comment body remains subject to the controller's
-60,000-byte UTF-8 hard limit. A mutation that cannot be safely checkpointed and
-would exceed that bound fails closed before it changes the journal, publishes a
-success status, or dispatches a worker. Unfinished evidence and active or
-retired ownership are never truncated to recover capacity.
+60,000-byte UTF-8 hard limit. A mutation that cannot use either terminal or
+capacity checkpointing safely and would exceed that bound fails closed before
+it changes the journal, publishes a success status, or dispatches a worker.
+Unfinished evidence and active or retired ownership are never truncated to
+recover capacity.
 
 ### The shared queue is a correctness boundary
 
@@ -109,9 +122,9 @@ After acquiring that queue, a writer:
    exists, `state.receipts_digest`;
 2. applies one idempotent transition in memory;
 3. updates the existing comment, or creates it for an explicit bootstrap, a
-   first-attempt `opened`, or another first-attempt PR event only after proving
-   that its `before` and head commits carry no prior `Vercel Preview Journal`
-   initialization status;
+   first-attempt `opened`, or another first-attempt non-closed PR event only
+   after proving that its `before` and head commits carry no matching
+   `Vercel Preview Journal / PR #<number>` initialization status;
 4. rereads the comment and proves its exact revision, canonical JSON, and
    journal digest before publishing statuses or dispatching work.
 
@@ -121,14 +134,23 @@ ambiguous state and fails closed. The queue is not the first-plus-latest
 selection algorithm; it only prevents concurrent journal replacement. Receipt
 contents and current pull-request state continue to determine selection.
 
-A first-attempt event may win the queue before `opened`; it may create the
-journal only when no durable controller status exists on its `before` or head
-commit. Every successful journal creation writes a durable, separate
-`Vercel Preview Journal` status witness before normal reconciliation. It never
-reuses the reserved `Vercel Preview` context, so a delayed old same-SHA event
-cannot overwrite a newer epoch's preview result. Consequently a later missing
-journal is external-evidence-backed ambiguity and fails closed, as do event reruns.
-Explicit bootstrap remains the only operator-authorized clean restart.
+A first-attempt non-closed event may win the queue before `opened`; it may
+create the journal only when no durable controller status for the same PR
+exists on its `before` or head commit. Every durably recorded event ensures a
+separate `Vercel Preview Journal / PR #<number>` success-status witness on its
+head before normal reconciliation. This advances deletion evidence across
+pushes and lets a retry repair a status write that failed after the journal
+mutation committed. A witness from another PR on a reused or stacked commit is
+not initialization evidence for this PR. The witness never reuses the
+reserved `Vercel Preview` context, so a delayed old same-SHA event cannot
+overwrite a newer epoch's preview result. Consequently a later missing journal
+with matching PR-scoped evidence is ambiguous and fails closed, as do event
+reruns. A close for a PR with neither a journal nor matching evidence is
+intentionally inert: the receipt job emits `reconcile_required=false`, so the
+workflow creates neither an anchorless closure-only journal nor a reconciliation
+run. A delayed non-closed event also remains inert when the live PR is already
+closed and no journal or witness exists. Explicit bootstrap remains the only
+operator-authorized clean restart.
 
 GitHub currently bounds `queue: max` at 100 pending jobs. The controller must
 keep journal mutations short, expose queue pressure during canaries, and treat
@@ -257,10 +279,13 @@ cost, retention policy, and operator dependency for preview deployment.
   its reread verification. Structural tests for that wiring are mandatory.
 - Journal writers may wait longer during a burst, and queue depth becomes an
   operational signal alongside preview latency.
-- Deterministic terminal checkpoints keep sequential completed previews
-  bounded without adding an archive, rollover comment, or compatibility path.
-  The 60,000-byte UTF-8 bound remains a fail-closed constraint for unsafe
-  unfinished bursts.
+- Deterministic terminal and capacity checkpoints keep sequential previews and
+  overlapping bursts bounded without adding an archive, rollover comment, or
+  compatibility path. The 60,000-byte UTF-8 bound remains a fail-closed
+  constraint when unfinished ownership cannot be summarized safely.
+- Terminal results remove their retired owners once the result is durable.
+  More than 40 genuinely unfinished retired owners fails closed; ownership is
+  never silently sliced to fit history bounds.
 - Cutover and rollback require explicit run draining and fresh bootstrap. They
   intentionally abandon persistence continuity across journal versions rather
   than carrying compatibility code indefinitely.

@@ -304,7 +304,7 @@ test("worker build concurrency stays independent and only evidence takes the sta
   }
 });
 
-test("closed events reconcile after their optional planner is skipped", () => {
+test("event receipts explicitly gate whether reconciliation is required", () => {
   const planner = controller.jobs["plan-event"];
   const receipt = controller.jobs["receipt-event"];
   const reconcile = controller.jobs["reconcile-event"];
@@ -315,10 +315,14 @@ test("closed events reconcile after their optional planner is skipped", () => {
   );
   assert.deepEqual(receipt.needs, ["snapshot-event", "plan-event"]);
   assert.match(receipt.if, /^always\(\) &&/);
+  assert.equal(
+    receipt.outputs.reconcile_required,
+    "${{ steps.receipt.outputs.reconcile_required }}",
+  );
   assert.equal(reconcile.needs, "receipt-event");
   assert.equal(
     reconcile.if,
-    "always() && needs.receipt-event.result == 'success'",
+    "always() && needs.receipt-event.result == 'success' && needs.receipt-event.outputs.reconcile_required == 'true'",
   );
 });
 

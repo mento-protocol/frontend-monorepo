@@ -50,10 +50,15 @@ const ALLOWED_PLAN_REASONS = new Set([
   "closed",
 ]);
 const TERMINAL_STATES = new Set(["success", "failure", "error"]);
+const RETRIABLE_TERMINAL_REASONS = new Set([
+  "build-failed-retriable",
+  "smoke-failed-retriable",
+]);
 const MAX_COMMENTS = 500;
 const MAX_RECEIPTS = 200;
 const MAX_HISTORY = 40;
 const MAX_JOURNAL_BYTES = 60_000;
+const ACTIVE_CHECKPOINT_BYTES = 40_000;
 const WORKER_RUN_PAGE_SIZE = 100;
 const MAX_WORKER_RUN_PAGES = 3;
 const WORKER_RUN_VISIBILITY_ATTEMPTS = 3;
@@ -318,6 +323,45 @@ function normalizePullRequest(raw) {
     updatedAt: exactTimestamp(raw.updated_at),
     closedAt: optionalTimestamp(raw.closed_at, "PR closed timestamp"),
   };
+}
+
+function representedPullRequest(events, checkpoint = null) {
+  const represented = [
+    ...events,
+    ...(checkpoint?.event ? [checkpoint.event] : []),
+  ].map((event) => validateEventReceipt(event));
+  invariant(
+    represented.length > 0,
+    "Preview receipt graph has no represented pull",
+  );
+  const latestUpdatedAt = represented
+    .map((event) => event.pr_updated_at)
+    .sort()
+    .at(-1);
+  const latest = represented.filter(
+    (event) => event.pr_updated_at === latestUpdatedAt,
+  );
+  const snapshots = new Map();
+  for (const event of latest) {
+    const snapshot = {
+      number: event.pr,
+      state: event.pr_state,
+      baseSha: event.trusted_base_sha,
+      headSha: event.head_sha,
+      headRef: event.head_ref,
+      headRepository: event.head_repository,
+      author: event.pr_author,
+      trust: event.trust,
+      updatedAt: event.pr_updated_at,
+      closedAt: event.pr_closed_at,
+    };
+    snapshots.set(canonicalJson(snapshot), snapshot);
+  }
+  invariant(
+    snapshots.size === 1,
+    "Latest represented pull request state is ambiguous",
+  );
+  return [...snapshots.values()][0];
 }
 
 export function snapshotPullRequestEvent(payload, runId) {
@@ -1191,6 +1235,14 @@ function statusFromCheckpointRuntime({
       target_url: controllerUrl,
     };
   }
+  if (checkpointStatus.state === "pending") {
+    return {
+      sha: event.head_sha,
+      state: "pending",
+      description: `Waiting for runtime preview ${runtimeEvent.head_sha.slice(0, 7)}`,
+      target_url: checkpointStatus.target_url ?? controllerUrl,
+    };
+  }
   return {
     sha: event.head_sha,
     state: "error",
@@ -1328,6 +1380,35 @@ function statusDecision({
     description: "UI preview queued or running",
     target_url: active?.html_url ?? controllerUrl,
   };
+}
+
+function statusFromPendingRuntimeResult({
+  checkpointEvent,
+  runtimeEvent,
+  result,
+  controllerUrl,
+}) {
+  const runtimeStatus = statusDecision({
+    event: runtimeEvent,
+    index: 0,
+    lineage: [runtimeEvent],
+    resultByRun: new Map([[runtimeEvent.event_run_id, result]]),
+    active: null,
+    coalescedToByRun: new Map(),
+    controllerUrl,
+    checkpointStatus: null,
+    checkpointBaselineStatus: null,
+    checkpointBaselineEvent: null,
+  });
+  if (checkpointEvent.event_run_id === runtimeEvent.event_run_id) {
+    return { ...runtimeStatus, sha: checkpointEvent.head_sha };
+  }
+  return statusFromCheckpointRuntime({
+    event: checkpointEvent,
+    runtimeEvent,
+    checkpointStatus: runtimeStatus,
+    controllerUrl,
+  });
 }
 
 function validatePersistedDispatch(value, pr, label) {
@@ -1536,6 +1617,45 @@ export function reconcileState({
   const epochSelections = allSelections.filter(
     (selection) => selection.epoch_anchor_run_id === anchor.event_run_id,
   );
+  const pendingCheckpointOwnerKey =
+    selectedCheckpoint?.pending_owner_key_digest ?? null;
+  const priorOwners = [
+    previous?.ui?.active,
+    ...(previous?.ui?.retired_active ?? []),
+    ...(previous?.ui?.terminal_history ?? []),
+  ].filter(Boolean);
+  const pendingCheckpointSelection = pendingCheckpointOwnerKey
+    ? (allSelections.find(
+        (selection) => selection.key_digest === pendingCheckpointOwnerKey,
+      ) ?? null)
+    : null;
+  const pendingCheckpointOwner = pendingCheckpointOwnerKey
+    ? (priorOwners.find(
+        (owner) => owner.key_digest === pendingCheckpointOwnerKey,
+      ) ??
+      pendingCheckpointSelection ??
+      null)
+    : null;
+  invariant(
+    pendingCheckpointOwnerKey === null || pendingCheckpointOwner !== null,
+    "Preview checkpoint pending owner is not persisted",
+  );
+  const pendingCheckpointResult = pendingCheckpointOwner
+    ? ([...allResults]
+        .filter(
+          (result) =>
+            result.key_digest === pendingCheckpointOwner.key_digest &&
+            result.epoch_anchor_run_id ===
+              pendingCheckpointOwner.epoch_anchor_run_id &&
+            result.selection_receipt_run_id ===
+              pendingCheckpointOwner.selection_receipt_run_id,
+        )
+        .sort(
+          (a, b) =>
+            b.worker_run_id - a.worker_run_id ||
+            b.worker_run_attempt - a.worker_run_attempt,
+        )[0] ?? null)
+    : null;
   if (epochResults.length > 0) {
     invariant(
       previous?.epoch?.anchor_run_id === anchor.event_run_id,
@@ -1558,19 +1678,26 @@ export function reconcileState({
     closure: closure ? semanticEventKey(closure) : null,
     lineage: lineage.map(semanticEventKey),
     results: epochResults.map(canonicalJson).sort(),
+    pending_checkpoint_result: pendingCheckpointResult
+      ? canonicalJson(pendingCheckpointResult)
+      : null,
   });
   const sameEpoch = previous?.epoch?.anchor_run_id === anchor.event_run_id;
-  const candidates = lineage.filter((event) =>
+  const lineageCandidates = lineage.filter((event) =>
     event.plan.targets.includes(PREVIEW_TARGET),
   );
+  const pendingRuntimeEvent = selectedCheckpoint?.pending_runtime_event ?? null;
+  const candidates =
+    pendingRuntimeEvent &&
+    !lineageCandidates.some(
+      (event) => event.event_run_id === pendingRuntimeEvent.event_run_id,
+    )
+      ? [pendingRuntimeEvent, ...lineageCandidates]
+      : lineageCandidates;
   const candidateByRun = new Map(
     candidates.map((event) => [event.event_run_id, event]),
   );
-  const persistedOwners = [
-    previous?.ui?.active,
-    ...(previous?.ui?.retired_active ?? []),
-    ...(previous?.ui?.terminal_history ?? []),
-  ].filter(Boolean);
+  const persistedOwners = priorOwners;
   const ownerByKeyDigest = new Map(
     persistedOwners.map((owner) => [owner.key_digest, owner]),
   );
@@ -1627,6 +1754,7 @@ export function reconcileState({
   }
   if (
     selectedCheckpoint &&
+    TERMINAL_STATES.has(selectedCheckpoint.status.state) &&
     selectedCheckpoint.event.plan.targets.includes(PREVIEW_TARGET)
   ) {
     resultByRun.set(selectedCheckpoint.event.event_run_id, {
@@ -1635,6 +1763,17 @@ export function reconcileState({
       vercel_deployment_url: selectedCheckpoint.status.target_url,
       terminal_reason: "checkpointed-terminal-status",
     });
+  }
+  if (
+    pendingRuntimeEvent &&
+    pendingCheckpointOwner &&
+    pendingCheckpointResult &&
+    pendingRuntimeEvent.head_sha === pendingCheckpointOwner.sha &&
+    (!RETRIABLE_TERMINAL_REASONS.has(pendingCheckpointResult.terminal_reason) ||
+      selectedCheckpoint.pending_owner_attempt_count >= 2) &&
+    !resultByRun.has(pendingRuntimeEvent.event_run_id)
+  ) {
+    resultByRun.set(pendingRuntimeEvent.event_run_id, pendingCheckpointResult);
   }
   const selectedReceiptRunIds = new Set(
     epochSelections.map((selection) => selection.selection_receipt_run_id),
@@ -1715,20 +1854,26 @@ export function reconcileState({
       ) {
         selected = desired;
       }
-      const retriable = new Set([
-        "build-failed-retriable",
-        "smoke-failed-retriable",
-      ]);
-      const attemptsForReceipt = epochResults.filter(
-        (result) =>
-          result.selection_receipt_run_id ===
-            completedActive.selection_receipt_run_id &&
-          result.terminal_reason !==
-            "controller-workflow-upgraded-before-dispatch",
-      ).length;
+      const inheritedAttempts =
+        pendingCheckpointOwner?.selection_receipt_run_id ===
+        completedActive.selection_receipt_run_id
+          ? selectedCheckpoint.pending_owner_attempt_count -
+            Number(
+              pendingCheckpointOwner.key_digest === completedActive.key_digest,
+            )
+          : 0;
+      const attemptsForReceipt =
+        inheritedAttempts +
+        epochResults.filter(
+          (result) =>
+            result.selection_receipt_run_id ===
+              completedActive.selection_receipt_run_id &&
+            result.terminal_reason !==
+              "controller-workflow-upgraded-before-dispatch",
+        ).length;
       if (
         !selected &&
-        retriable.has(completedResult?.terminal_reason) &&
+        RETRIABLE_TERMINAL_REASONS.has(completedResult?.terminal_reason) &&
         attemptsForReceipt < 2
       ) {
         selected = candidateByRun.get(completedActive.selection_receipt_run_id);
@@ -1762,6 +1907,14 @@ export function reconcileState({
       latestDesired = candidates.slice(selectedIndex).at(-1) ?? selected;
     }
   }
+  if (pendingCheckpointResult && !active) {
+    const desired = candidates.at(-1) ?? null;
+    if (desired && !resultByRun.has(desired.event_run_id)) {
+      selected = desired;
+      latestDesired = desired;
+    }
+  }
+  if (pendingCheckpointOwner && !pendingCheckpointResult) selected = null;
 
   const nextDispatch = selected
     ? (() => {
@@ -1775,10 +1928,13 @@ export function reconcileState({
                 event.event_run_id === completedActive.selection_receipt_run_id,
             )
           : -1;
+        const coalescingStartIndex = pendingCheckpointResult
+          ? 0
+          : completedIndex + 1;
         const coalescedReceiptRunIds =
-          completedIndex >= 0 && selectedIndex > completedIndex
+          coalescingStartIndex >= 0 && selectedIndex > coalescingStartIndex
             ? candidates
-                .slice(completedIndex + 1, selectedIndex)
+                .slice(coalescingStartIndex, selectedIndex)
                 .filter(
                   (event) =>
                     !resultByRun.has(event.event_run_id) &&
@@ -1808,6 +1964,34 @@ export function reconcileState({
     : null;
 
   const controllerTargetUrl = optionalHttpsUrl(controllerUrl, "Controller URL");
+  let effectiveCheckpointStatus = selectedCheckpoint?.status ?? null;
+  const pendingRuntimeResult = pendingRuntimeEvent
+    ? resultByRun.get(pendingRuntimeEvent.event_run_id)
+    : null;
+  if (selectedCheckpoint && pendingRuntimeEvent && pendingRuntimeResult) {
+    effectiveCheckpointStatus = statusFromPendingRuntimeResult({
+      checkpointEvent: selectedCheckpoint.event,
+      runtimeEvent: pendingRuntimeEvent,
+      result: pendingRuntimeResult,
+      controllerUrl: controllerTargetUrl,
+    });
+  } else if (
+    selectedCheckpoint &&
+    pendingCheckpointResult &&
+    pull.state === "closed"
+  ) {
+    effectiveCheckpointStatus = {
+      sha: selectedCheckpoint.event.head_sha,
+      state: "success",
+      description: "Preview no longer required for closed PR",
+      target_url: controllerTargetUrl,
+    };
+  } else if (effectiveCheckpointStatus?.state === "pending" && active) {
+    effectiveCheckpointStatus = {
+      ...effectiveCheckpointStatus,
+      target_url: active.html_url ?? controllerTargetUrl,
+    };
+  }
   const statuses = lineage.map((event, index) =>
     statusDecision({
       event,
@@ -1819,9 +2003,9 @@ export function reconcileState({
       controllerUrl: controllerTargetUrl,
       checkpointStatus:
         selectedCheckpoint?.event.event_run_id === event.event_run_id
-          ? selectedCheckpoint.status
+          ? effectiveCheckpointStatus
           : null,
-      checkpointBaselineStatus: selectedCheckpoint?.status ?? null,
+      checkpointBaselineStatus: effectiveCheckpointStatus,
       checkpointBaselineEvent: selectedCheckpoint?.event ?? null,
     }),
   );
@@ -1850,6 +2034,9 @@ export function reconcileState({
       vercel_deployment_url: result.vercel_deployment_url,
       terminal_reason: result.terminal_reason,
     }));
+  const terminalResultKeyDigests = new Set(
+    allResults.map((result) => result.key_digest),
+  );
   const retiredActive = [
     ...(previous?.ui?.retired_active ?? []),
     ...(!sameEpoch && previous?.ui?.active ? [previous.ui.active] : []),
@@ -1860,7 +2047,11 @@ export function reconcileState({
           (candidate) => candidate.key_digest === selection.key_digest,
         ) === index,
     )
-    .slice(-MAX_HISTORY);
+    .filter((selection) => !terminalResultKeyDigests.has(selection.key_digest));
+  invariant(
+    retiredActive.length <= MAX_HISTORY,
+    `Preview controller cannot retain more than ${MAX_HISTORY} unfinished retired workers`,
+  );
   const latestDesiredEvent =
     latestDesired ??
     (sameEpoch
@@ -1936,7 +2127,12 @@ async function listComments(github, context, pr) {
   return comments;
 }
 
+function previewInitializationStatusContext(pr) {
+  return `${PREVIEW_INITIALIZATION_STATUS_CONTEXT} / PR #${pullRequestNumber(pr)}`;
+}
+
 async function assertPreviewJournalIsUninitialized(github, context, receipt) {
+  const initializationContext = previewInitializationStatusContext(receipt.pr);
   const refs = [receipt.change_base_sha, receipt.head_sha].filter(
     (value, index, values) => value && values.indexOf(value) === index,
   );
@@ -1955,11 +2151,51 @@ async function assertPreviewJournalIsUninitialized(github, context, receipt) {
     );
     invariant(
       !statuses.some(
-        (status) => status.context === PREVIEW_INITIALIZATION_STATUS_CONTEXT,
+        (status) =>
+          status.context === initializationContext &&
+          status.state === "success",
       ),
       "Preview journal is missing after external initialization evidence",
     );
   }
+}
+
+async function ensurePreviewInitializationWitness({
+  github,
+  context,
+  receipt,
+  targetUrl,
+}) {
+  const ref = exactSha(receipt.head_sha);
+  const initializationContext = previewInitializationStatusContext(receipt.pr);
+  const statuses = await github.paginate(
+    github.rest.repos.listCommitStatusesForRef,
+    {
+      ...ownerRepo(context),
+      ref,
+      per_page: 100,
+    },
+  );
+  invariant(
+    statuses.length <= MAX_RECEIPTS,
+    "Too many commit statuses to ensure journal initialization",
+  );
+  if (
+    statuses.some(
+      (status) =>
+        status.context === initializationContext && status.state === "success",
+    )
+  ) {
+    return;
+  }
+  await github.rest.repos.createCommitStatus({
+    ...ownerRepo(context),
+    sha: ref,
+    state: "success",
+    context: initializationContext,
+    description: "Preview journal initialized",
+    target_url: targetUrl,
+  });
 }
 
 function receiptSetDigest({ events, selections, worker_evidence, results }) {
@@ -1990,7 +2226,7 @@ function validateCheckpointStatus(value, event) {
     "Preview checkpoint status SHA mismatch",
   );
   invariant(
-    ["success", "failure", "error"].includes(status.state),
+    ["pending", "success", "failure", "error"].includes(status.state),
     "Preview checkpoint status state is invalid",
   );
   boundedText(status.description, "Preview checkpoint status description", 140);
@@ -2003,7 +2239,7 @@ function validatePreviewCheckpoint(value, expectedPr) {
   const checkpoint = plainObject(value, "Preview checkpoint");
   invariant(
     Object.keys(checkpoint).sort().join(",") ===
-      "cumulative_receipts_digest,event,pruned_receipt_counts,schema,sequence,status,through_event_run_id",
+      "cumulative_receipts_digest,event,pending_owner_attempt_count,pending_owner_key_digest,pending_runtime_event,pruned_receipt_counts,schema,sequence,status,through_event_run_id",
     "Preview checkpoint fields are invalid",
   );
   invariant(
@@ -2042,7 +2278,44 @@ function validatePreviewCheckpoint(value, expectedPr) {
     checkpoint.through_event_run_id === event.event_run_id,
     "Preview checkpoint event identity mismatch",
   );
-  validateCheckpointStatus(checkpoint.status, event);
+  const status = validateCheckpointStatus(checkpoint.status, event);
+  if (checkpoint.pending_owner_key_digest === null) {
+    invariant(
+      checkpoint.pending_owner_attempt_count === 0,
+      "Preview checkpoint has an attempt count without an owner",
+    );
+    invariant(
+      checkpoint.pending_runtime_event === null,
+      "Preview checkpoint has a runtime dependency without an owner",
+    );
+    invariant(
+      status.state !== "pending",
+      "Preview checkpoint pending status has no owner",
+    );
+  } else {
+    invariant(
+      /^[0-9a-f]{24}$/.test(checkpoint.pending_owner_key_digest),
+      "Preview checkpoint pending owner is invalid",
+    );
+    invariant(
+      Number.isSafeInteger(checkpoint.pending_owner_attempt_count) &&
+        checkpoint.pending_owner_attempt_count >= 1 &&
+        checkpoint.pending_owner_attempt_count <= 2,
+      "Preview checkpoint pending owner attempt count is invalid",
+    );
+    const pendingRuntime = validateEventReceipt(
+      checkpoint.pending_runtime_event,
+    );
+    invariant(
+      pendingRuntime.pr === event.pr &&
+        pendingRuntime.plan.targets.includes(PREVIEW_TARGET),
+      "Preview checkpoint pending runtime event is invalid",
+    );
+    invariant(
+      status.state === "pending",
+      "Preview checkpoint pending owner has a terminal status",
+    );
+  }
   return checkpoint;
 }
 
@@ -2293,20 +2566,197 @@ function checkpointBaselineState(state, checkpoint) {
   };
 }
 
-export function compactPreviewJournal(value) {
+export function compactPreviewJournal(value, { pullRequest = null } = {}) {
   const journal = validatePreviewJournal(value, value.pr);
   if (journal.state === null) return journal;
   const state = normalizeExistingState(journal.state, journal.pr);
+  const terminalResultKeyDigests = new Set(
+    journal.receipts.results.map((result) => result.key_digest),
+  );
+  const unresolvedRetired = state.ui.retired_active.filter(
+    (selection) =>
+      selection.key_digest === journal.checkpoint?.pending_owner_key_digest ||
+      !terminalResultKeyDigests.has(selection.key_digest),
+  );
+  if (unresolvedRetired.length !== state.ui.retired_active.length) {
+    state.ui.retired_active = unresolvedRetired;
+    journal.state = structuredClone(state);
+    journal.journal_digest = previewJournalDigest(
+      journal.receipts,
+      journal.state,
+      journal.checkpoint,
+    );
+  }
   const receiptCount = Object.values(journal.receipts).reduce(
     (total, receipts) => total + receipts.length,
     0,
   );
-  if (
-    receiptCount === 0 ||
-    state.ui.active !== null ||
-    state.ui.retired_active.length > 0
-  ) {
-    return journal;
+  if (receiptCount === 0) return journal;
+  const hasInFlightOwnership =
+    state.ui.active !== null || state.ui.retired_active.length > 0;
+  if (hasInFlightOwnership) {
+    if (
+      Buffer.byteLength(journalBody(journal), "utf8") < ACTIVE_CHECKPOINT_BYTES
+    ) {
+      return journal;
+    }
+    if (pullRequest !== null) {
+      invariant(
+        normalizePullRequest(pullRequest).number === journal.pr,
+        "Capacity checkpoint PR mismatch",
+      );
+    }
+    const pull = representedPullRequest(
+      journal.receipts.events,
+      journal.checkpoint,
+    );
+    const { closure, lineage } = selectCurrentEpoch(
+      journal.receipts.events,
+      pull,
+      journal.checkpoint,
+    );
+    const tailEvent = closure ?? lineage.at(-1) ?? null;
+    invariant(tailEvent, "Preview checkpoint tail event is missing");
+    const pendingOwner =
+      state.ui.active ??
+      state.ui.retired_active.find(
+        (selection) =>
+          selection.key_digest === journal.checkpoint?.pending_owner_key_digest,
+      ) ??
+      null;
+    invariant(pendingOwner, "Capacity checkpoint pending owner is missing");
+    const samePendingReceipt =
+      journal.checkpoint?.pending_runtime_event?.event_run_id ===
+      pendingOwner.selection_receipt_run_id;
+    const pendingOwnerAttemptCount = samePendingReceipt
+      ? (journal.checkpoint.pending_owner_attempt_count ?? 0) +
+        Number(
+          journal.checkpoint.pending_owner_key_digest !==
+            pendingOwner.key_digest,
+        )
+      : 1 +
+        state.ui.terminal_history.filter(
+          (terminal) =>
+            terminal.selection_receipt_run_id ===
+              pendingOwner.selection_receipt_run_id &&
+            terminal.terminal_reason !==
+              "controller-workflow-upgraded-before-dispatch",
+        ).length;
+    invariant(
+      pendingOwnerAttemptCount <= 2,
+      "Preview runtime retry budget is already exhausted",
+    );
+    const pendingRuntimeEvent =
+      [...lineage]
+        .reverse()
+        .find((event) => event.plan.targets.includes(PREVIEW_TARGET)) ??
+      journal.checkpoint?.pending_runtime_event ??
+      null;
+    invariant(
+      pendingRuntimeEvent,
+      "Capacity checkpoint pending runtime event is missing",
+    );
+    const persistedStatus = [...state.status_decisions]
+      .reverse()
+      .find((decision) => decision.sha === tailEvent.head_sha);
+    const status = persistedStatus ?? {
+      sha: tailEvent.head_sha,
+      state: "pending",
+      description: "Preview reconciliation pending",
+      target_url: state.ui.active?.html_url ?? null,
+    };
+    const protectedKeyDigests = new Set(
+      [state.ui.active, ...state.ui.retired_active]
+        .filter(Boolean)
+        .map((selection) => selection.key_digest),
+    );
+    const retainedReceipts = {
+      events: [],
+      selections: journal.receipts.selections.filter((selection) =>
+        protectedKeyDigests.has(selection.key_digest),
+      ),
+      worker_evidence: journal.receipts.worker_evidence.filter((evidence) =>
+        protectedKeyDigests.has(evidence.key_digest),
+      ),
+      results: journal.receipts.results.filter((result) =>
+        protectedKeyDigests.has(result.key_digest),
+      ),
+    };
+    const prunedReceipts = {
+      events: journal.receipts.events,
+      selections: journal.receipts.selections.filter(
+        (selection) => !protectedKeyDigests.has(selection.key_digest),
+      ),
+      worker_evidence: journal.receipts.worker_evidence.filter(
+        (evidence) => !protectedKeyDigests.has(evidence.key_digest),
+      ),
+      results: journal.receipts.results.filter(
+        (result) => !protectedKeyDigests.has(result.key_digest),
+      ),
+    };
+    const resultIdentities = new Set(
+      journal.receipts.results.map(
+        (result) => `${result.key_digest}:${result.worker_run_id}`,
+      ),
+    );
+    invariant(
+      prunedReceipts.worker_evidence.every((evidence) =>
+        resultIdentities.has(
+          `${evidence.key_digest}:${evidence.worker_run_id}`,
+        ),
+      ),
+      "Preview journal cannot checkpoint unfinished worker evidence",
+    );
+    invariant(
+      prunedReceipts.selections.every((selection) =>
+        journal.receipts.results.some(
+          (result) => result.key_digest === selection.key_digest,
+        ),
+      ),
+      "Preview journal cannot checkpoint unfinished selections",
+    );
+    const prunedCount = Object.values(prunedReceipts).reduce(
+      (total, receipts) => total + receipts.length,
+      0,
+    );
+    if (prunedCount === 0) return journal;
+    const previousCounts =
+      journal.checkpoint?.pruned_receipt_counts ?? emptyReceiptCounts();
+    const prunedReceiptCounts = Object.fromEntries(
+      Object.entries(previousCounts).map(([name, count]) => [
+        name,
+        count + prunedReceipts[name].length,
+      ]),
+    );
+    const checkpoint = {
+      schema: PREVIEW_CHECKPOINT_SCHEMA,
+      sequence: (journal.checkpoint?.sequence ?? 0) + 1,
+      through_event_run_id: tailEvent.event_run_id,
+      cumulative_receipts_digest: digest({
+        previous: journal.checkpoint?.cumulative_receipts_digest ?? null,
+        receipts: receiptSetDigest(prunedReceipts),
+        state: digest(state),
+      }),
+      pruned_receipt_counts: prunedReceiptCounts,
+      event: structuredClone(tailEvent),
+      status: {
+        sha: status.sha,
+        state: status.state,
+        description: status.description,
+        target_url: status.target_url ?? null,
+      },
+      pending_owner_key_digest: pendingOwner.key_digest,
+      pending_owner_attempt_count: pendingOwnerAttemptCount,
+      pending_runtime_event: structuredClone(pendingRuntimeEvent),
+    };
+    journal.checkpoint = checkpoint;
+    journal.receipts = retainedReceipts;
+    journal.journal_digest = previewJournalDigest(
+      journal.receipts,
+      journal.state,
+      checkpoint,
+    );
+    return validatePreviewJournal(journal, journal.pr);
   }
   const resultIdentities = new Set(
     journal.receipts.results.map(
@@ -2375,6 +2825,9 @@ export function compactPreviewJournal(value) {
       description: status.description,
       target_url: status.target_url ?? null,
     },
+    pending_owner_key_digest: null,
+    pending_owner_attempt_count: 0,
+    pending_runtime_event: null,
   };
   journal.checkpoint = checkpoint;
   journal.receipts = {
@@ -2531,6 +2984,7 @@ async function appendJournalReceipt({
   github,
   context,
   pr,
+  pullRequest = null,
   kind,
   value: rawValue,
   allowCreate = false,
@@ -2556,8 +3010,26 @@ async function appendJournalReceipt({
         `Conflicting ${kind} receipt in preview journal`,
       );
       if (existing) return;
-      if (kind === "event") compactPreviewJournal(journal);
-      const entries = journal.receipts[definition.name];
+      let compactAfterAppend = false;
+      if (kind === "event" && journal.state !== null) {
+        const state = normalizeExistingState(journal.state, journal.pr);
+        const terminalKeys = new Set(
+          journal.receipts.results.map((result) => result.key_digest),
+        );
+        const hasUnfinishedOwnership =
+          state.ui.active !== null ||
+          state.ui.retired_active.some(
+            (selection) =>
+              selection.key_digest ===
+                journal.checkpoint?.pending_owner_key_digest ||
+              !terminalKeys.has(selection.key_digest),
+          );
+        if (hasUnfinishedOwnership) {
+          compactAfterAppend = true;
+        } else {
+          compactPreviewJournal(journal);
+        }
+      }
       const checkpointEntry =
         kind === "event" && journal.checkpoint
           ? journal.checkpoint.event
@@ -2578,7 +3050,16 @@ async function appendJournalReceipt({
       ) {
         return;
       }
+      const entries = journal.receipts[definition.name];
       entries.push(structuredClone(value));
+      if (compactAfterAppend) {
+        journal.journal_digest = previewJournalDigest(
+          journal.receipts,
+          journal.state,
+          journal.checkpoint,
+        );
+        compactPreviewJournal(journal, { pullRequest });
+      }
     },
   });
 }
@@ -2821,32 +3302,52 @@ export async function recordEventReceipt({
   }
   const receipt = validateEventReceipt({ ...validatedSnapshot, plan });
   const firstAttempt = exactRunAttempt(context.runAttempt ?? 1) === 1;
-  const explicitInitialization = ["opened", "bootstrap"].includes(
-    receipt.event_action,
+  const operatorBootstrap = receipt.event_action === "bootstrap";
+  const currentBefore = normalizePullRequest(
+    await pullFromApi(github, context, receipt.pr),
   );
-  const journalUpdate = await appendJournalReceipt({
+  if (
+    receipt.event_action === "closed" ||
+    currentBefore.state === "closed" ||
+    firstAttempt
+  ) {
+    const existing = await loadPreviewJournal(github, context, receipt.pr, {
+      allowMissing: true,
+    });
+    if (!existing) {
+      if (!operatorBootstrap) {
+        await assertPreviewJournalIsUninitialized(github, context, receipt);
+      }
+      if (
+        receipt.event_action === "closed" ||
+        currentBefore.state === "closed"
+      ) {
+        core.setOutput("pr_number", String(receipt.pr));
+        core.setOutput("reconcile_required", "false");
+        return receipt;
+      }
+    }
+  }
+  await appendJournalReceipt({
     github,
     context,
     pr: receipt.pr,
+    pullRequest: currentBefore,
     kind: "event",
     value: receipt,
     allowCreate: firstAttempt,
     assertCanCreate:
-      firstAttempt && !explicitInitialization
+      firstAttempt && !operatorBootstrap
         ? () => assertPreviewJournalIsUninitialized(github, context, receipt)
         : undefined,
   });
   const controllerRunUrl = `https://github.com/${PREVIEW_REPOSITORY}/actions/runs/${context.runId}`;
-  if (journalUpdate.created) {
-    await github.rest.repos.createCommitStatus({
-      ...ownerRepo(context),
-      sha: receipt.head_sha,
-      state: "success",
-      context: PREVIEW_INITIALIZATION_STATUS_CONTEXT,
-      description: "Preview journal initialized",
-      target_url: controllerRunUrl,
-    });
-  }
+  await ensurePreviewInitializationWitness({
+    github,
+    context,
+    receipt,
+    targetUrl: controllerRunUrl,
+  });
   const current = normalizePullRequest(
     await pullFromApi(github, context, receipt.pr),
   );
@@ -2872,6 +3373,7 @@ export async function recordEventReceipt({
     });
   }
   core.setOutput("pr_number", String(receipt.pr));
+  core.setOutput("reconcile_required", "true");
   return receipt;
 }
 
@@ -3798,6 +4300,46 @@ async function loadControllerEvidence(github, context, pr) {
   return parsed;
 }
 
+function workerResultAffectsCurrentReconciliation({
+  evidence,
+  state,
+  selection,
+  currentSelection,
+}) {
+  return (
+    (selection === currentSelection &&
+      selection.epoch_anchor_run_id === state.epoch.anchor_run_id) ||
+    evidence.checkpoint?.pending_owner_key_digest === selection.key_digest
+  );
+}
+
+async function foldCompletedRetiredOwner({
+  github,
+  context,
+  evidence,
+  state,
+  selection,
+}) {
+  if (
+    evidence.checkpoint?.pending_owner_key_digest === selection.key_digest ||
+    state.ui.active?.key_digest === selection.key_digest
+  ) {
+    return;
+  }
+  const retained = state.ui.retired_active.filter(
+    (candidate) => candidate.key_digest !== selection.key_digest,
+  );
+  if (retained.length === state.ui.retired_active.length) return;
+  state.ui.retired_active = retained;
+  await writeControllerState({
+    github,
+    context,
+    pr: selection.pr,
+    state,
+    stateComment: evidence.stateComment,
+  });
+}
+
 function workflowRunIdFromUrl(value) {
   if (typeof value !== "string") return null;
   const match = value.match(/\/actions\/runs\/([1-9][0-9]{0,19})(?:\/|$)/);
@@ -4421,8 +4963,21 @@ export async function recoverWorkerResult({
             selection,
           }));
         const shouldReconcileCurrentEpoch =
-          selection === currentSelection &&
-          selection.epoch_anchor_run_id === state.epoch.anchor_run_id;
+          workerResultAffectsCurrentReconciliation({
+            evidence,
+            state,
+            selection,
+            currentSelection,
+          });
+        if (!shouldReconcileCurrentEpoch) {
+          await foldCompletedRetiredOwner({
+            github,
+            context,
+            evidence,
+            state,
+            selection,
+          });
+        }
         core.setOutput("pr_number", String(parsed.pr));
         core.setOutput("result_state", supersededResult.state);
         core.setOutput(
@@ -4542,8 +5097,21 @@ export async function recoverWorkerResult({
       "Existing worker result conflicts with the completed run conclusion",
     );
     const shouldReconcileCurrentEpoch =
-      selection === currentSelection &&
-      selection.epoch_anchor_run_id === state.epoch.anchor_run_id;
+      workerResultAffectsCurrentReconciliation({
+        evidence,
+        state,
+        selection,
+        currentSelection,
+      });
+    if (!shouldReconcileCurrentEpoch) {
+      await foldCompletedRetiredOwner({
+        github,
+        context,
+        evidence,
+        state,
+        selection,
+      });
+    }
     core.setOutput("pr_number", String(parsed.pr));
     core.setOutput("result_state", existingResult.state);
     core.setOutput(
@@ -4693,9 +5261,21 @@ export async function recoverWorkerResult({
   });
   core.setOutput("pr_number", String(parsed.pr));
   core.setOutput("result_state", terminalState);
-  const shouldReconcileCurrentEpoch =
-    selection === currentSelection &&
-    selection.epoch_anchor_run_id === state.epoch.anchor_run_id;
+  const shouldReconcileCurrentEpoch = workerResultAffectsCurrentReconciliation({
+    evidence,
+    state,
+    selection,
+    currentSelection,
+  });
+  if (!shouldReconcileCurrentEpoch) {
+    await foldCompletedRetiredOwner({
+      github,
+      context,
+      evidence,
+      state,
+      selection,
+    });
+  }
   core.setOutput(
     "should_reconcile_current_epoch",
     String(shouldReconcileCurrentEpoch),

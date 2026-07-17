@@ -731,22 +731,31 @@ per-PR concurrency group configured with `queue: max` and
 an optimization. After acquiring the queue, each writer validates the exact
 journal count and complete canonical body, applies one idempotent transition,
 updates the comment, or initially creates it for an explicit bootstrap, a
-first-attempt `opened`, or another first-attempt PR event whose `before` and
-head commits have no prior `Vercel Preview Journal` initialization status,
+first-attempt `opened`, or another first-attempt non-closed PR event whose
+`before` and head commits have no prior PR-scoped
+`Vercel Preview Journal / PR #<number>` initialization status,
 then rereads and proves the expected
 revision, canonical JSON, journal digest, and, when state exists,
 `state.receipts_digest` before publishing a status or dispatching a worker.
 Duplicate journals, a writer outside that queue, a conflicting receipt, or an
 ambiguous reread fail closed.
 
-A first-attempt event can therefore preserve an out-of-order receipt when it
-wins the queue before `opened`. Every successful journal creation writes a
-durable `Vercel Preview Journal` status witness before normal reconciliation.
-That dedicated context is never used for preview results, so delayed old
-same-SHA events cannot overwrite newer `Vercel Preview` outcomes. A later
-missing journal with that external initialization evidence, any event rerun, or
-missing recovery state fails closed instead of silently resetting controller
-history. Explicit bootstrap is the sole operator-authorized clean restart.
+A first-attempt non-closed event can therefore preserve an out-of-order receipt
+when it wins the queue before `opened`. Every durably recorded event ensures a
+`Vercel Preview Journal / PR #<number>` success-status witness on its head before
+normal reconciliation. That lets a retry repair a witness write that failed
+after the journal mutation and carries deletion evidence across every push. The
+PR suffix prevents a status left on a reused or stacked commit by another PR
+from blocking this PR's first receipt. That dedicated context is never used for
+preview results, so delayed old same-SHA events cannot overwrite newer
+`Vercel Preview` outcomes. A later missing journal with matching PR-scoped
+external initialization evidence, any event rerun, or missing recovery state
+fails closed instead of silently resetting controller history. A close with no
+journal and no matching witness is inert and explicitly skips reconciliation;
+it does not create an anchorless closure-only journal. A delayed non-closed
+event is likewise inert when the live PR is already closed and neither journal
+nor witness exists. Explicit bootstrap is the sole operator-authorized clean
+restart.
 
 Before a later event is appended, a terminal journal with no active or retired
 worker and no unfinished evidence folds its completed prefix into one
@@ -766,10 +775,26 @@ test peaks at 7,772 rendered UTF-8 bytes. This is still one comment, schema,
 and controller path: there is no archive, rollover, second comment, or
 compatibility reader.
 
+An overlapping push burst uses the same checkpoint field before the rendered
+body reaches capacity. At the 40,000-byte soft threshold, the controller proves
+one path through the complete receipt graph to its latest uniquely represented
+PR tail and folds that graph into the cumulative digest. A pending checkpoint
+records the exact unfinished owner, its consumed attempt count, and the latest
+runtime event still owed, and retains the matching selection, worker evidence,
+and terminal result needed for recovery. Reconciliation waits for that owner.
+Its terminal result either
+settles a runtime-equivalent docs-only tail or releases the latest required
+runtime event for dispatch, so a queued receipt cannot disappear and a
+docs-only tail cannot remain pending after its dependency completes. Completed
+retired owners are then removed. More than 40 genuinely unfinished retired
+owners fails closed instead of silently discarding ownership. No unfinished
+worker evidence is truncated.
+
 The complete rendered journal body has a 60,000-byte hard limit measured as
-UTF-8. An unfinished or otherwise unsafe transition that cannot checkpoint and
-would cross it fails closed before changing the journal, reporting success, or
-dispatching work; active, retired, or unmatched evidence is never truncated.
+UTF-8. A transition that cannot safely use either terminal or capacity
+checkpointing and would cross it fails closed before changing the journal,
+reporting success, or dispatching work; active, retired, or unmatched evidence
+is never truncated.
 
 Reconciliation is lossy/replaceable, but it reconstructs from the journal's
 entries and mutable state, current PR lifecycle evidence, and GitHub/provider
