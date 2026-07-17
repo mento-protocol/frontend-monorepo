@@ -232,7 +232,9 @@ These are pulled when they exist but are not missing-build failures.
 `CHAINALYSIS_API_KEY` is optional in the app schema and is not a prebuilt-build
 prerequisite.
 
-### Required GitHub secret mirrors from issue #517
+### Required GitHub secrets
+
+The following Vercel build-value mirrors come from issue #517:
 
 - Repository secret `ETHERSCAN_API_KEY`: governance trusted previews only.
 - `vercel-cli-production` environment secret `ETHERSCAN_API_KEY`: governance
@@ -241,6 +243,24 @@ prerequisite.
   to the governance or reserve production build step that consumes it. If app
   production is ever migrated separately, scope it to that app step as well.
 - Standard previews and app `v3`: no `SENTRY_AUTH_TOKEN`.
+
+The automatic preview controller additionally requires repository Actions
+secret `GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN`. Create a fine-grained GitHub
+personal access token with resource owner `mento-protocol`, access to only the
+`frontend-monorepo` repository, and repository permission `Actions: read and
+write` (implicit metadata read only otherwise). Store it interactively without
+printing or passing its value as an argument:
+
+```bash
+gh secret set GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN \
+  --repo mento-protocol/frontend-monorepo
+```
+
+The token authorizes only the controller's worker `workflow_dispatch` POST. It
+never replaces the controller step's primary `GITHUB_TOKEN` client and never
+enters the worker, reusable Vercel workflow, candidate checkout, journal, log,
+output, or summary. Record an owner, expiration, and rotation date for the
+credential outside the repository.
 
 `vercel-cli-production` is the dedicated GitHub deployment environment for this
 migration. Do not modify or reuse the generic pre-existing `Production`
@@ -636,6 +656,8 @@ A Deployment or status created with the repository `GITHUB_TOKEN` does not
 trigger another workflow run. Therefore `.github/workflows/preview-smoke.yml`
 will not recurse for this pilot. Direct smoke in the reusable worker is the
 required success gate. Do not add a PAT to force `deployment_status` recursion.
+The dedicated worker-dispatch PAT is not an exception; its sole purpose is the
+automatic controller's worker `workflow_dispatch` POST described below.
 
 ### Evidence and browser verification
 
@@ -874,9 +896,22 @@ exact worker or intake workflow path rather than the presentation name, then
 repeat full source validation before any status or Deployment write.
 
 Zero matches dispatches `.github/workflows/vercel-preview-worker.yml` on `main`
-using the HTTP 200 `return_run_details` API contract only while the executing
-controller's own workflow SHA still equals the persisted intent. The returned
-run is re-queried once per second with a bounded 30-second retry-delay budget
+using a secondary Octokit client authenticated only by repository secret
+`GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN`. The fine-grained token is scoped to this
+repository with `Actions: read and write`; it performs only the HTTP 200
+`return_run_details` dispatch POST. The primary `GITHUB_TOKEN` client continues
+all journal, status, Deployment, PR, run-listing, run-validation, and recovery
+operations. The controller never falls back to `GITHUB_TOKEN` for dispatch,
+because a worker created by that token does not produce the terminal
+`workflow_run` callback required by this protocol.
+
+The dispatch occurs only while the executing controller's own workflow SHA
+still equals the persisted intent. If the dedicated secret is missing, the
+controller fails closed immediately before a new dispatch, retains the durable
+`intended` state, and posts an error status through its primary client. The
+secret is not needed to find, attach, validate, or recover an existing worker.
+The returned run is re-queried through the primary client once per second with
+a bounded 30-second retry-delay budget
 because GitHub may temporarily return the workflow's default title before
 materializing the configured `run-name`. API request latency is additive; the
 workflow timeout remains the outer wall-clock bound. Only that exact transient
@@ -896,6 +931,15 @@ worker's completion callback causes the current controller to reselect the same
 desired event entry under its own workflow SHA. The new key therefore advances
 automatically without ever pretending that new workflow code fulfilled the
 retired intent.
+
+For live acceptance, do not issue a manual reconcile. Verify that the worker's
+actor is the fine-grained token owner rather than `github-actions[bot]`, its
+completion automatically creates a controller run with event `workflow_run`,
+terminal recovery succeeds, the same journal gains the result, active ownership
+clears, and `Vercel Preview` becomes terminal at the immutable URL. Repeat with
+a controlled failure and a cancelled worker before Deployment creation, then
+rerun a callback to prove journal, worker, Deployment, and result idempotency.
+Until that evidence exists after provisioning, Phase A remains blocked.
 
 The canonical Deployment key and environment are:
 

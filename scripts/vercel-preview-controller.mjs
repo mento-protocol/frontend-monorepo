@@ -3764,11 +3764,16 @@ async function getWorkerRun(github, context, runId, selected) {
 
 async function dispatchWorker(
   github,
+  workerDispatchGithub,
   context,
   selected,
   { waitForRunDetails = wait } = {},
 ) {
-  const response = await github.request(
+  invariant(
+    workerDispatchGithub !== null && workerDispatchGithub !== undefined,
+    "Worker dispatch credential is unavailable",
+  );
+  const response = await workerDispatchGithub.request(
     "POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
     {
       ...ownerRepo(context),
@@ -4030,6 +4035,7 @@ async function recoverCompletedOwnedRuns({
 
 export async function reconcilePreview({
   github,
+  workerDispatchGithub = null,
   context,
   core,
   prNumber: rawPr,
@@ -4178,9 +4184,13 @@ export async function reconcilePreview({
         let runDetails = recoveredRun;
         if (!runDetails) {
           try {
-            runDetails = await dispatchWorker(github, context, selected, {
-              waitForRunDetails: waitForRecovery,
-            });
+            runDetails = await dispatchWorker(
+              github,
+              workerDispatchGithub,
+              context,
+              selected,
+              { waitForRunDetails: waitForRecovery },
+            );
           } catch (error) {
             if (error instanceof WorkerWorkflowShaMismatchError) {
               await recordSupersededIntent({
