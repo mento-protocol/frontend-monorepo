@@ -1,0 +1,8 @@
+{"target":"app","path":"preview","buildCpuMinutes":7.5,"effectiveCost":0.75,"billedCost":0.75}
+{"target":"app","path":"main","buildCpuMinutes":2.5,"effectiveCost":0.25,"billedCost":0.25}
+{"target":"governance","path":"preview","buildCpuMinutes":7.5,"effectiveCost":0.75,"billedCost":0.75}
+{"target":"governance","path":"main","buildCpuMinutes":2.5,"effectiveCost":0.25,"billedCost":0.25}
+{"target":"reserve","path":"preview","buildCpuMinutes":2.65,"effectiveCost":0.265,"billedCost":0.265}
+{"target":"reserve","path":"main","buildCpuMinutes":1.35,"effectiveCost":0.135,"billedCost":0.135}
+{"target":"ui","path":"preview","buildCpuMinutes":2,"effectiveCost":0.5,"billedCost":0.5}
+{"target":"ui","path":"main","buildCpuMinutes":1,"effectiveCost":0.3,"billedCost":0.3}

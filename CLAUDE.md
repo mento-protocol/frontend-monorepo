@@ -45,7 +45,7 @@ pnpm ci:change-plan:test             # Test PR scoping, full main pushes, mandat
 pnpm adr:check                       # Advisory reminder for new architecture-significant workflows/workspaces
 pnpm adr:check:test                  # Test the offline ADR trigger and repository wiring
 pnpm vercel:cost:test                # Test redacted Vercel cost normalization and closeout gates
-pnpm vercel:cost:analyze --input <private-aggregate.json> --format markdown  # Generate public-safe #523 evidence
+pnpm vercel:cost:analyze --input <private-evidence-manifest.json> --format markdown  # Reconcile raw private #523 evidence into a public-safe report
 trunk check --fix                     # Lint with autofix
 trunk fmt                             # Format
 pnpm test                            # Run tests

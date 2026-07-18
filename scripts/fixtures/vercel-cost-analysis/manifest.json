@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "aggregate": "pass.json",
+  "windows": {
+    "baseline": {
+      "focusJsonl": "baseline.focus.jsonl",
+      "providerAttributionEvidence": "baseline.provider-evidence.json",
+      "providerAttributionSha256": "d0bb7c027e38d5d22eeb751de5dd97926b5de2ecd78bb65d45d73f4f31ddd79d",
+      "attributionJsonl": "baseline.attribution.jsonl",
+      "attributionJsonlSha256": "9f3f5427db8810571e15fb0e42aa2a702040c6f6d82c1897d77dc36015aa12a8",
+      "deploymentCensusJsonl": "baseline.deployments.jsonl",
+      "deploymentCensusSha256": "abe654ee8763fac6084a4e9c5425ed3d073271707775ed8954e0b383e8a6cd71",
+      "deploymentCensusComplete": true,
+      "focusProjectTags": {
+        "app": { "key": "ProjectName", "value": "app.mento.org" },
+        "governance": {
+          "key": "ProjectName",
+          "value": "governance.mento.org"
+        },
+        "reserve": { "key": "ProjectName", "value": "reserve.mento.org" },
+        "ui": { "key": "ProjectName", "value": "ui.mento.org" }
+      }
+    },
+    "postCutover": {
+      "focusJsonl": "post.focus.jsonl",
+      "providerAttributionEvidence": "post.provider-evidence.json",
+      "providerAttributionSha256": "40f6e92c647c1152acf5fe02a8cc402b2abb57bcc9258594ffeb7477a9a0d6d3",
+      "attributionJsonl": "post.attribution.jsonl",
+      "attributionJsonlSha256": "66e01d013c99010c6eb92ba97117085e9ebccafdcb5aa6d652c82e53d2ec0a96",
+      "deploymentCensusJsonl": "post.deployments.jsonl",
+      "deploymentCensusSha256": "442600cbdd14d38ba067ea933815f00b43c10b0f8aa0e6e17a31d4eeab6e2c7e",
+      "deploymentCensusComplete": true,
+      "focusProjectTags": {
+        "app": { "key": "ProjectName", "value": "app.mento.org" },
+        "governance": {
+          "key": "ProjectName",
+          "value": "governance.mento.org"
+        },
+        "reserve": { "key": "ProjectName", "value": "reserve.mento.org" },
+        "ui": { "key": "ProjectName", "value": "ui.mento.org" }
+      }
+    }
+  }
+}
