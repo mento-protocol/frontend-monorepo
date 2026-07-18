@@ -4,6 +4,7 @@ import {
   celoSepolia,
   monad as viemMonad,
   monadTestnet as viemMonadTestnet,
+  polygon as viemPolygon,
   polygonAmoy as viemPolygonAmoy,
   baseSepolia as viemBaseSepolia,
 } from "viem/chains";
@@ -22,6 +23,7 @@ export enum ChainId {
   Celo = 42220,
   MonadTestnet = 10143,
   Monad = 143,
+  Polygon = 137,
   PolygonAmoy = 80002,
   BaseSepolia = 84532,
 }
@@ -49,6 +51,11 @@ const RPC_OVERRIDE_CONFIG: Record<
     envVar: "NEXT_PUBLIC_MONAD_RPC_URL",
     envUrl: process.env.NEXT_PUBLIC_MONAD_RPC_URL,
     localStorageKey: "mento_custom_rpc_url_143",
+  },
+  [ChainId.Polygon]: {
+    envVar: "NEXT_PUBLIC_POLYGON_RPC_URL",
+    envUrl: process.env.NEXT_PUBLIC_POLYGON_RPC_URL,
+    localStorageKey: "mento_custom_rpc_url_137",
   },
   [ChainId.PolygonAmoy]: {
     envVar: "NEXT_PUBLIC_POLYGON_AMOY_RPC_URL",
@@ -82,6 +89,10 @@ export const MONAD_EXPLORER = {
 export const MONAD_TESTNET_EXPLORER = {
   name: "Monad Testnet Explorer",
   url: "https://testnet.monadscan.com",
+};
+export const POLYGON_EXPLORER = {
+  name: "PolygonScan",
+  url: "https://polygonscan.com",
 };
 export const POLYGON_AMOY_EXPLORER = {
   name: "PolygonScan (Amoy)",
@@ -192,11 +203,42 @@ export const Monad: MentoChain = {
   },
 } as const satisfies MentoChain;
 
-// Polygon Amoy enforces a minimum priority fee of 25 gwei; viem's RPC-based
-// estimator routinely returns ~1.5 gwei. Keep a chain-level default here for
-// viem estimation paths; wallet-submitted transactions also add explicit fee
-// caps via getTransactionFeeOverrides().
-const POLYGON_AMOY_DEFAULT_PRIORITY_FEE = 30_000_000_000n;
+// Polygon chains (mainnet and Amoy) enforce a minimum priority fee of
+// 25 gwei; viem's RPC-based estimator routinely returns ~1.5 gwei. Keep a
+// chain-level default here for viem estimation paths; wallet-submitted
+// transactions also add explicit fee caps via getTransactionFeeOverrides().
+const POLYGON_DEFAULT_PRIORITY_FEE = 30_000_000_000n;
+
+export const Polygon: MentoChain = {
+  ...viemPolygon,
+  id: ChainId.Polygon,
+  iconUrl: polygonIcon,
+  iconBackground: "transparent",
+  nativeCurrency: {
+    decimals: 18,
+    name: "POL",
+    symbol: "POL",
+  },
+  blockExplorers: {
+    default: POLYGON_EXPLORER,
+  },
+  rpcUrls: {
+    ...viemPolygon.rpcUrls,
+    default: {
+      http: [getPolygonRpcUrl()],
+    },
+  },
+  fees: {
+    ...viemPolygon.fees,
+    defaultPriorityFee: POLYGON_DEFAULT_PRIORITY_FEE,
+  },
+  contracts: {
+    ...viemPolygon.contracts,
+    ...transformToChainContracts(
+      addresses[ChainId.Polygon as unknown as keyof typeof addresses],
+    ),
+  },
+} as const satisfies MentoChain;
 
 export const PolygonAmoy: MentoChain = {
   ...viemPolygonAmoy,
@@ -219,7 +261,7 @@ export const PolygonAmoy: MentoChain = {
   },
   fees: {
     ...viemPolygonAmoy.fees,
-    defaultPriorityFee: POLYGON_AMOY_DEFAULT_PRIORITY_FEE,
+    defaultPriorityFee: POLYGON_DEFAULT_PRIORITY_FEE,
   },
   contracts: {
     ...viemPolygonAmoy.contracts,
@@ -374,6 +416,11 @@ function getMonadRpcUrl(): string {
   return url;
 }
 
+function getPolygonRpcUrl(): string {
+  const override = getChainSpecificRpcUrl(ChainId.Polygon);
+  return override ? override.url : "https://polygon.drpc.org";
+}
+
 function getPolygonAmoyRpcUrl(): string {
   const override = getChainSpecificRpcUrl(ChainId.PolygonAmoy);
   return override ? override.url : "https://polygon-amoy.drpc.org";
@@ -389,6 +436,7 @@ export const chainIdToChain: Record<number, MentoChain> = {
   [ChainId.Celo]: Celo,
   [ChainId.MonadTestnet]: MonadTestnet,
   [ChainId.Monad]: Monad,
+  [ChainId.Polygon]: Polygon,
   [ChainId.PolygonAmoy]: PolygonAmoy,
   [ChainId.BaseSepolia]: BaseSepolia,
 };
@@ -398,6 +446,7 @@ export const allChains = [
   CeloSepolia,
   Monad,
   MonadTestnet,
+  Polygon,
   PolygonAmoy,
   BaseSepolia,
 ] as const satisfies readonly [MentoChain, ...MentoChain[]];

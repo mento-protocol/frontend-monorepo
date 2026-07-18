@@ -6,6 +6,7 @@ vi.mock("./chains", () => ({
     CeloSepolia: 11142220,
     Monad: 143,
     MonadTestnet: 10143,
+    Polygon: 137,
     PolygonAmoy: 80002,
     BaseSepolia: 84532,
   },

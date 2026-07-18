@@ -51,15 +51,31 @@ function BridgeTestnetState() {
           </div>
 
           <div className="gap-1 flex flex-col items-center">
-            <div className="w-16 h-[2px] bg-gradient-to-r from-primary/60 via-primary to-primary/60" />
+            <div className="w-10 h-[2px] bg-gradient-to-r from-primary/60 via-primary to-primary/60" />
             <ArrowRightLeft className="h-5 w-5 text-primary" />
-            <div className="w-16 h-[2px] bg-gradient-to-r from-primary/60 via-primary to-primary/60" />
+            <div className="w-10 h-[2px] bg-gradient-to-r from-primary/60 via-primary to-primary/60" />
           </div>
 
           <div className="h-14 w-14 shadow-lg flex items-center justify-center rounded-full shadow-[#836EF9]/20">
             <Image
               src="/networks/monad.svg"
               alt="Monad"
+              width={56}
+              height={56}
+              className="h-14 w-14"
+            />
+          </div>
+
+          <div className="gap-1 flex flex-col items-center">
+            <div className="w-10 h-[2px] bg-gradient-to-r from-primary/60 via-primary to-primary/60" />
+            <ArrowRightLeft className="h-5 w-5 text-primary" />
+            <div className="w-10 h-[2px] bg-gradient-to-r from-primary/60 via-primary to-primary/60" />
+          </div>
+
+          <div className="h-14 w-14 shadow-lg flex items-center justify-center rounded-full shadow-[#6c00f6]/20">
+            <Image
+              src="/networks/polygon.svg"
+              alt="Polygon"
               width={56}
               height={56}
               className="h-14 w-14"
@@ -73,7 +89,7 @@ function BridgeTestnetState() {
       </h2>
       <p className="mb-8 max-w-sm text-sm leading-relaxed mx-auto text-muted-foreground">
         Switch to a supported mainnet network to bridge Mento stablecoins
-        between Celo and Monad.
+        between Celo, Monad and Polygon.
       </p>
 
       <Button onClick={handleSwitch} size="lg" className="gap-2.5">

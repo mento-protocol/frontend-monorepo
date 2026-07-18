@@ -30,6 +30,7 @@ const rpcOverrideOrigins = [
   env.NEXT_PUBLIC_CELO_SEPOLIA_RPC_URL,
   env.NEXT_PUBLIC_MONAD_RPC_URL,
   env.NEXT_PUBLIC_MONAD_TESTNET_RPC_URL,
+  process.env.NEXT_PUBLIC_POLYGON_RPC_URL,
   process.env.NEXT_PUBLIC_POLYGON_AMOY_RPC_URL,
   process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL,
 ]
@@ -43,6 +44,7 @@ const connectSrc = [
   "https://rpc.monad.xyz",
   "https://testnet-rpc.monad.xyz",
   "https://rpc3.monad.xyz",
+  "https://polygon.drpc.org",
   "https://polygon-amoy.drpc.org",
   "https://sepolia.base.org",
   "https://api.studio.thegraph.com",

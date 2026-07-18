@@ -7,19 +7,25 @@ type TransactionFeeOverrides = {
   maxPriorityFeePerGas?: bigint;
 };
 
-const POLYGON_AMOY_PRIORITY_FEE = 30_000_000_000n;
-const POLYGON_AMOY_MIN_MAX_FEE = 60_000_000_000n;
+const POLYGON_PRIORITY_FEE = 30_000_000_000n;
+const POLYGON_MIN_MAX_FEE = 60_000_000_000n;
+
+const POLYGON_CHAIN_IDS: readonly ChainId[] = [
+  ChainId.Polygon,
+  ChainId.PolygonAmoy,
+];
 
 /**
- * Polygon Amoy rejects transactions below its validator-enforced fee floor.
- * Some wallets/RPCs currently estimate ~1.5 gwei, so pin explicit EIP-1559
- * caps for wallet-submitted transactions on Amoy.
+ * Polygon chains (mainnet and Amoy) reject transactions below their
+ * validator-enforced fee floor. Some wallets/RPCs currently estimate
+ * ~1.5 gwei, so pin explicit EIP-1559 caps for wallet-submitted
+ * transactions on these chains.
  */
 export async function getTransactionFeeOverrides(
   wagmiConfig: Config,
   chainId?: number,
 ): Promise<TransactionFeeOverrides> {
-  if (chainId !== ChainId.PolygonAmoy) {
+  if (!POLYGON_CHAIN_IDS.includes(chainId as ChainId)) {
     return {};
   }
 
@@ -29,13 +35,13 @@ export async function getTransactionFeeOverrides(
     : null;
   const baseFeePerGas = block?.baseFeePerGas ?? 0n;
   const maxFeePerGas = maxBigInt(
-    baseFeePerGas * 2n + POLYGON_AMOY_PRIORITY_FEE,
-    POLYGON_AMOY_MIN_MAX_FEE,
+    baseFeePerGas * 2n + POLYGON_PRIORITY_FEE,
+    POLYGON_MIN_MAX_FEE,
   );
 
   return {
     maxFeePerGas,
-    maxPriorityFeePerGas: POLYGON_AMOY_PRIORITY_FEE,
+    maxPriorityFeePerGas: POLYGON_PRIORITY_FEE,
   };
 }
 

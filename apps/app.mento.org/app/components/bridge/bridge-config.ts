@@ -50,6 +50,18 @@ const nttConfig: NttRoute.Config = {
           },
         ],
       },
+      // Deployed deterministically, so Polygon reuses the Monad addresses.
+      {
+        chain: "Polygon",
+        manager: "0xa4096343485a44c0F8d05AE6dA311c18D63e38bC",
+        token: "0xBC69212B8E4d445b2307C9D32dD68E2A4Df00115",
+        transceiver: [
+          {
+            address: "0x40f8650ACd6cA771a822b6d8Da71B46b0bDe4C1B",
+            type: "wormhole",
+          },
+        ],
+      },
     ],
     GBPm: [
       {
@@ -91,6 +103,18 @@ const nttConfig: NttRoute.Config = {
       },
       {
         chain: "Monad",
+        manager: "0x5F8a1e50F83f53951B89Fc73Ead80b27045C67fd",
+        token: "0x4D502d735B4C574B487Ed641ae87cEaE884731C7",
+        transceiver: [
+          {
+            address: "0x6467cfCA82184657F32F1195F9a26b5578399479",
+            type: "wormhole",
+          },
+        ],
+      },
+      // Deployed deterministically, so Polygon reuses the Monad addresses.
+      {
+        chain: "Polygon",
         manager: "0x5F8a1e50F83f53951B89Fc73Ead80b27045C67fd",
         token: "0x4D502d735B4C574B487Ed641ae87cEaE884731C7",
         transceiver: [
@@ -156,7 +180,10 @@ const nttConfig: NttRoute.Config = {
 
 export const bridgeConfig: config.WormholeConnectConfig = {
   network: "Mainnet",
-  chains: ["Celo", "Monad"],
+  // Only USDm and EURm are deployed on Polygon, so the other tokens have no
+  // Polygon NTT leg or token config. The widget cannot express a per-token
+  // chain matrix; it resolves those combinations to "No route available."
+  chains: ["Celo", "Monad", "Polygon"],
   tokens: ["USDm", "GBPm", "EURm", "JPYm", "CHFm"],
   tokensConfig: {
     USDm_celo: {
@@ -174,6 +201,15 @@ export const bridgeConfig: config.WormholeConnectConfig = {
       icon: "/tokens/USDm.svg",
       tokenId: {
         chain: "Monad",
+        address: "0xBC69212B8E4d445b2307C9D32dD68E2A4Df00115",
+      },
+    },
+    USDm_polygon: {
+      symbol: "USDm",
+      decimals: 18,
+      icon: "/tokens/USDm.svg",
+      tokenId: {
+        chain: "Polygon",
         address: "0xBC69212B8E4d445b2307C9D32dD68E2A4Df00115",
       },
     },
@@ -210,6 +246,15 @@ export const bridgeConfig: config.WormholeConnectConfig = {
       icon: "/tokens/EURm.svg",
       tokenId: {
         chain: "Monad",
+        address: "0x4D502d735B4C574B487Ed641ae87cEaE884731C7",
+      },
+    },
+    EURm_polygon: {
+      symbol: "EURm",
+      decimals: 18,
+      icon: "/tokens/EURm.svg",
+      tokenId: {
+        chain: "Polygon",
         address: "0x4D502d735B4C574B487Ed641ae87cEaE884731C7",
       },
     },
@@ -254,6 +299,7 @@ export const bridgeConfig: config.WormholeConnectConfig = {
   rpcs: {
     Celo: "https://forno.celo.org",
     Monad: "https://rpc3.monad.xyz",
+    Polygon: "https://polygon.drpc.org",
   },
   ui: {
     title: " ",
