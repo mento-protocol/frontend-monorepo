@@ -151,7 +151,7 @@ pnpm vercel:versions:check
 
 # Test and run the redaction-safe Vercel build-minute closeout analyzer
 pnpm vercel:cost:test
-pnpm vercel:cost:analyze --input .vercel-cost-evidence/aggregate.json --format markdown
+pnpm vercel:cost:analyze --input .vercel-cost-evidence/manifest.json --format markdown
 ```
 
 Two always-run checks protect the policy on every pull request:

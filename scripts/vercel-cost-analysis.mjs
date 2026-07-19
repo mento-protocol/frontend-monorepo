@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-export const VERCEL_COST_SCHEMA_VERSION = 1;
+export const VERCEL_COST_SCHEMA_VERSION = 2;
 export const VERCEL_COST_TARGETS = ["app", "governance", "reserve", "ui"];
 export const MINIMUM_OBSERVATION_DAYS = 7;
 export const MINIMUM_TRUSTED_PR_PUSHES = 10;
@@ -15,6 +16,8 @@ const DAY_MILLISECONDS = 24 * 60 * 60 * 1_000;
 const FOCUS_UNIT = "Build CPU Minutes";
 const BILLING_CURRENCY = "USD";
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+const GIT_SHA_PATTERN = /^[a-f0-9]{40}$/;
+const VERCEL_DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
 
 const PERIOD_KEYS = [
   "startUtc",
@@ -45,7 +48,8 @@ const ATTRIBUTION_METHODS = [
   "project-total-no-exclusions",
   "provider-attributed",
 ];
-const MIGRATED_DEPLOYMENT_SOURCE_KEYS = ["preview", "main"];
+const MIGRATED_DEPLOYMENT_PATH_KEYS = ["preview", "main"];
+const MIGRATED_USAGE_KEYS = ["buildCpuMinutes", "effectiveCost", "billedCost"];
 const MIGRATED_DEPLOYMENT_CENSUS_KEYS = [
   "eligibleEvents",
   "deploymentAttempts",
@@ -53,10 +57,50 @@ const MIGRATED_DEPLOYMENT_CENSUS_KEYS = [
 ];
 const TARGET_KEYS = [
   "migratedPath",
+  "migratedUsageByPath",
   "migratedDeploymentCensus",
   "grossProject",
   "excluded",
   "attribution",
+];
+const CLOSEOUT_KEYS = [
+  "manualPilotDispositionComplete",
+  "shadowAndCanaryScaffoldingDispositionComplete",
+  "legacyDeploymentStatusDispositionComplete",
+  "migrationLoggingCleanupComplete",
+  "docsDriftAuditPassed",
+  "finalVerificationPassed",
+];
+const MANIFEST_KEYS = ["schemaVersion", "aggregate", "windows"];
+const MANIFEST_WINDOW_KEYS = [
+  "focusJsonl",
+  "providerAttributionEvidence",
+  "providerAttributionSha256",
+  "attributionJsonl",
+  "attributionJsonlSha256",
+  "deploymentCensusJsonl",
+  "deploymentCensusSha256",
+  "deploymentCensusComplete",
+  "focusProjectTags",
+];
+const FOCUS_PROJECT_TAG_KEYS = ["key", "value"];
+const DEPLOYMENT_PATHS = ["preview", "main", "legacy-v2", "unknown"];
+const DEPLOYMENT_SOURCES = [
+  "github-actions-prebuilt",
+  "vercel-native",
+  "manual",
+  "unknown",
+];
+const DEPLOYMENT_OUTCOMES = ["ready", "error", "canceled"];
+const DEPLOYMENT_ROW_KEYS = [
+  "deploymentId",
+  "target",
+  "path",
+  "source",
+  "outcome",
+  "sourceSha",
+  "createdAtUtc",
+  "evidenceUrl",
 ];
 const CORRECTNESS_KEYS = [
   "eligibleFirstPreviews",
@@ -112,6 +156,46 @@ function assertBoolean(value, label) {
   return value;
 }
 
+function assertNonemptyString(value, label) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`${label} must be a nonempty string`);
+  }
+  return value;
+}
+
+function assertPublicEvidenceUrl(value, label) {
+  assertNonemptyString(value, label);
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${label} must be a public evidence URL`);
+  }
+  const githubEvidence =
+    parsed.hostname === "github.com" &&
+    /^\/mento-protocol\/frontend-monorepo\/(?:actions\/runs\/\d+(?:\/job\/\d+)?|runs\/\d+|deployments\/\d+)\/?$/.test(
+      parsed.pathname,
+    );
+  const vercelDeployment =
+    parsed.hostname.endsWith(".vercel.app") &&
+    parsed.hostname.length > ".vercel.app".length &&
+    parsed.pathname === "/";
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.username !== "" ||
+    parsed.password !== "" ||
+    parsed.port !== "" ||
+    parsed.search !== "" ||
+    parsed.hash !== "" ||
+    (!githubEvidence && !vercelDeployment)
+  ) {
+    throw new Error(
+      `${label} must be a public GitHub run/deployment or root *.vercel.app URL without credentials, query, or fragment`,
+    );
+  }
+  return value;
+}
+
 function assertNonnegativeNumber(value, label) {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
     throw new Error(`${label} must be a finite nonnegative number`);
@@ -128,6 +212,44 @@ function assertNonnegativeInteger(value, label) {
 
 function assertNullableCost(value, label) {
   return value === null ? null : assertNonnegativeNumber(value, label);
+}
+
+function numbersEqual(left, right) {
+  const scale = Math.max(1, Math.abs(left), Math.abs(right));
+  return Math.abs(left - right) <= Number.EPSILON * scale * 16;
+}
+
+function isNegativeRegression(value) {
+  return value < -Number.EPSILON * Math.max(1, Math.abs(value)) * 16;
+}
+
+function assertNonnegativeDecimal(value, label) {
+  if (typeof value === "string" && /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) {
+    return assertNonnegativeNumber(Number(value), label);
+  }
+  return assertNonnegativeNumber(value, label);
+}
+
+function parseCanonicalUtc(value, label) {
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)
+  ) {
+    throw new Error(`${label} must be a canonical UTC timestamp`);
+  }
+  const milliseconds = Date.parse(value);
+  const normalized = value.endsWith(".000Z")
+    ? value
+    : value.endsWith("Z") && !value.includes(".")
+      ? value.replace(/Z$/, ".000Z")
+      : value;
+  if (
+    !Number.isFinite(milliseconds) ||
+    new Date(milliseconds).toISOString() !== normalized
+  ) {
+    throw new Error(`${label} must be a canonical UTC timestamp`);
+  }
+  return milliseconds;
 }
 
 function assertFiniteDerived(value, label) {
@@ -240,14 +362,24 @@ function validateTarget(
   );
   assertExactKeys(
     target.migratedDeploymentCensus,
-    MIGRATED_DEPLOYMENT_SOURCE_KEYS,
+    MIGRATED_DEPLOYMENT_PATH_KEYS,
     `${label}.migratedDeploymentCensus`,
   );
-  for (const source of MIGRATED_DEPLOYMENT_SOURCE_KEYS) {
+  assertExactKeys(
+    target.migratedUsageByPath,
+    MIGRATED_DEPLOYMENT_PATH_KEYS,
+    `${label}.migratedUsageByPath`,
+  );
+  for (const source of MIGRATED_DEPLOYMENT_PATH_KEYS) {
     assertExactKeys(
       target.migratedDeploymentCensus[source],
       MIGRATED_DEPLOYMENT_CENSUS_KEYS,
       `${label}.migratedDeploymentCensus.${source}`,
+    );
+    assertExactKeys(
+      target.migratedUsageByPath[source],
+      MIGRATED_USAGE_KEYS,
+      `${label}.migratedUsageByPath.${source}`,
     );
   }
   assertExactKeys(target.excluded, EXCLUDED_KEYS, `${label}.excluded`);
@@ -311,7 +443,7 @@ function validateTarget(
   }
   for (const metric of MIGRATED_DEPLOYMENT_CENSUS_KEYS) {
     let censusTotal = 0;
-    for (const source of MIGRATED_DEPLOYMENT_SOURCE_KEYS) {
+    for (const source of MIGRATED_DEPLOYMENT_PATH_KEYS) {
       censusTotal = addSafeCount(
         censusTotal,
         assertNonnegativeInteger(
@@ -327,7 +459,7 @@ function validateTarget(
       );
     }
   }
-  for (const source of MIGRATED_DEPLOYMENT_SOURCE_KEYS) {
+  for (const source of MIGRATED_DEPLOYMENT_PATH_KEYS) {
     const sourceCensus = target.migratedDeploymentCensus[source];
     if (sourceCensus.deploymentAttempts < sourceCensus.eligibleEvents) {
       throw new Error(
@@ -340,6 +472,56 @@ function validateTarget(
     ) {
       throw new Error(
         `${label}.migratedDeploymentCensus.${source}.duplicateDeployments cannot exceed deploymentAttempts minus eligibleEvents`,
+      );
+    }
+  }
+  for (const metric of MIGRATED_USAGE_KEYS) {
+    let pathTotal = 0;
+    for (const source of MIGRATED_DEPLOYMENT_PATH_KEYS) {
+      const value =
+        metric === "billedCost"
+          ? assertNullableCost(
+              target.migratedUsageByPath[source][metric],
+              `${label}.migratedUsageByPath.${source}.${metric}`,
+            )
+          : assertNonnegativeNumber(
+              target.migratedUsageByPath[source][metric],
+              `${label}.migratedUsageByPath.${source}.${metric}`,
+            );
+      if (invoiceFinal && value === null) {
+        throw new Error(
+          `${label}.migratedUsageByPath.${source} requires BilledCost after invoice finalization`,
+        );
+      }
+      if (value === null) {
+        pathTotal = null;
+        break;
+      }
+      pathTotal = addFiniteDerived(
+        pathTotal,
+        value,
+        `${label}.migratedUsageByPath.${metric}.total`,
+      );
+    }
+    if (
+      (pathTotal === null) !== (migrated[metric] === null) ||
+      (pathTotal !== null && !numbersEqual(pathTotal, migrated[metric]))
+    ) {
+      throw new Error(
+        `${label}.migratedUsageByPath ${metric} must sum exactly to migratedPath.${metric}`,
+      );
+    }
+  }
+  for (const source of MIGRATED_DEPLOYMENT_PATH_KEYS) {
+    if (
+      target.migratedDeploymentCensus[source].eligibleEvents === 0 &&
+      MIGRATED_USAGE_KEYS.some((metric) => {
+        const value = target.migratedUsageByPath[source][metric];
+        return value !== 0 && !(metric === "billedCost" && value === null);
+      })
+    ) {
+      throw new Error(
+        `${label}.migratedUsageByPath.${source} must be zero when the path has no eligible events`,
       );
     }
   }
@@ -385,6 +567,14 @@ function validateTarget(
           `${label}.migratedPath.${key} must equal grossProject.${key} for a clean project total`,
         );
       }
+    }
+    const activePaths = MIGRATED_DEPLOYMENT_PATH_KEYS.filter(
+      (source) => target.migratedDeploymentCensus[source].eligibleEvents > 0,
+    );
+    if (activePaths.length > 1) {
+      throw new Error(
+        `${label}.attribution requires provider-attributed target-by-path evidence when preview and main both have events`,
+      );
     }
   } else {
     if (
@@ -445,7 +635,7 @@ function validateWindow(window, label) {
       ? [
           "period",
           "targets",
-          "trustedSameRepositoryPrPushes",
+          "trustedDeployedCodePrPushes",
           "github",
           "correctness",
         ]
@@ -477,8 +667,8 @@ function validateWindow(window, label) {
 
   if (label === "postCutover") {
     assertNonnegativeInteger(
-      window.trustedSameRepositoryPrPushes,
-      `${label}.trustedSameRepositoryPrPushes`,
+      window.trustedDeployedCodePrPushes,
+      `${label}.trustedDeployedCodePrPushes`,
     );
     assertExactKeys(window.github, GITHUB_KEYS, `${label}.github`);
     for (const key of GITHUB_KEYS.slice(0, 4)) {
@@ -513,10 +703,10 @@ function validateWindow(window, label) {
     }
     if (
       window.correctness.eligibleFirstPreviewOpportunities >
-      window.trustedSameRepositoryPrPushes
+      window.trustedDeployedCodePrPushes
     ) {
       throw new Error(
-        `${label}.correctness.eligibleFirstPreviewOpportunities cannot exceed trustedSameRepositoryPrPushes`,
+        `${label}.correctness.eligibleFirstPreviewOpportunities cannot exceed trustedDeployedCodePrPushes`,
       );
     }
     const previewEligibleEvents = sumMigratedDeploymentCensus(
@@ -580,7 +770,13 @@ function validateWindow(window, label) {
 export function validateVercelCostEvidence(evidence) {
   assertExactKeys(
     evidence,
-    ["schemaVersion", "cutoverCompletedAtUtc", "baseline", "postCutover"],
+    [
+      "schemaVersion",
+      "cutoverCompletedAtUtc",
+      "baseline",
+      "postCutover",
+      "closeout",
+    ],
     "evidence",
   );
   if (evidence.schemaVersion !== VERCEL_COST_SCHEMA_VERSION) {
@@ -601,6 +797,10 @@ export function validateVercelCostEvidence(evidence) {
     throw new Error(
       "evidence.cutoverCompletedAtUtc must be an exact UTC timestamp",
     );
+  }
+  assertExactKeys(evidence.closeout, CLOSEOUT_KEYS, "evidence.closeout");
+  for (const key of CLOSEOUT_KEYS) {
+    assertBoolean(evidence.closeout[key], `evidence.closeout.${key}`);
   }
 
   const baselinePeriod = validateWindow(evidence.baseline, "baseline");
@@ -661,46 +861,105 @@ function normalizedMetric(evidence, metric) {
   const targets = {};
 
   for (const target of VERCEL_COST_TARGETS) {
-    const baseline = evidence.baseline.targets[target].migratedPath;
-    const post = evidence.postCutover.targets[target].migratedPath;
-    const baselineValue = baseline[metric];
-    const postValue = post[metric];
+    const targetLabel = `normalized.${metric}.targets.${target}`;
+    let targetBaseline = 0;
+    let targetCounterfactual = 0;
+    let targetActual = 0;
+    const paths = {};
 
-    if (baselineValue === null || postValue === null) return null;
-    if (baseline.eligibleEvents === 0 || post.eligibleEvents === 0) {
-      targets[target] = null;
-      continue;
+    for (const path of MIGRATED_DEPLOYMENT_PATH_KEYS) {
+      const baselineValue =
+        evidence.baseline.targets[target].migratedUsageByPath[path][metric];
+      const postValue =
+        evidence.postCutover.targets[target].migratedUsageByPath[path][metric];
+      const baselineEvents =
+        evidence.baseline.targets[target].migratedDeploymentCensus[path]
+          .eligibleEvents;
+      const postEvents =
+        evidence.postCutover.targets[target].migratedDeploymentCensus[path]
+          .eligibleEvents;
+
+      if (baselineValue === null || postValue === null) return null;
+      targetBaseline = addFiniteDerived(
+        targetBaseline,
+        baselineValue,
+        `${targetLabel}.baseline`,
+      );
+      targetActual = addFiniteDerived(
+        targetActual,
+        postValue,
+        `${targetLabel}.actual`,
+      );
+      if (postEvents === 0) {
+        paths[path] = {
+          baseline: baselineValue,
+          counterfactual: 0,
+          actual: postValue,
+          savings: null,
+          observed: false,
+        };
+        continue;
+      }
+      if (baselineEvents === 0) {
+        paths[path] = null;
+        continue;
+      }
+
+      const pathLabel = `${targetLabel}.paths.${path}`;
+      const baselinePerEvent = divideFiniteDerived(
+        baselineValue,
+        baselineEvents,
+        `${pathLabel}.baselinePerEvent`,
+      );
+      const pathCounterfactual = multiplyFiniteDerived(
+        postEvents,
+        baselinePerEvent,
+        `${pathLabel}.counterfactual`,
+      );
+      targetCounterfactual = addFiniteDerived(
+        targetCounterfactual,
+        pathCounterfactual,
+        `${targetLabel}.counterfactual`,
+      );
+      paths[path] = {
+        baseline: baselineValue,
+        counterfactual: pathCounterfactual,
+        actual: postValue,
+        savings:
+          pathCounterfactual === 0
+            ? null
+            : savingsFiniteDerived(
+                postValue,
+                pathCounterfactual,
+                `${pathLabel}.savings`,
+              ),
+        observed: true,
+      };
     }
 
-    const targetLabel = `normalized.${metric}.targets.${target}`;
-    const baselinePerEvent = divideFiniteDerived(
-      baselineValue,
-      baseline.eligibleEvents,
-      `${targetLabel}.baselinePerEvent`,
-    );
-    const targetCounterfactual = multiplyFiniteDerived(
-      post.eligibleEvents,
-      baselinePerEvent,
-      `${targetLabel}.counterfactual`,
-    );
     counterfactual = addFiniteDerived(
       counterfactual,
       targetCounterfactual,
       `normalized.${metric}.counterfactual`,
     );
-    actual = addFiniteDerived(actual, postValue, `normalized.${metric}.actual`);
+    actual = addFiniteDerived(
+      actual,
+      targetActual,
+      `normalized.${metric}.actual`,
+    );
     targets[target] = {
-      baseline: baselineValue,
+      baseline: targetBaseline,
       counterfactual: targetCounterfactual,
-      actual: postValue,
+      actual: targetActual,
       savings:
         targetCounterfactual === 0
           ? null
           : savingsFiniteDerived(
-              postValue,
+              targetActual,
               targetCounterfactual,
               `${targetLabel}.savings`,
             ),
+      paths,
     };
   }
 
@@ -728,7 +987,17 @@ function costSavingsOnly(metric) {
         target,
         metric.targets[target] === null
           ? null
-          : { savings: metric.targets[target].savings },
+          : {
+              savings: metric.targets[target].savings,
+              paths: Object.fromEntries(
+                MIGRATED_DEPLOYMENT_PATH_KEYS.map((path) => [
+                  path,
+                  metric.targets[target].paths[path] === null
+                    ? null
+                    : { savings: metric.targets[target].paths[path].savings },
+                ]),
+              ),
+            },
       ]),
     ),
   };
@@ -874,7 +1143,7 @@ export function analyzeVercelCostEvidence(evidence) {
     reasons,
   );
   reason(
-    evidence.postCutover.trustedSameRepositoryPrPushes <
+    evidence.postCutover.trustedDeployedCodePrPushes <
       MINIMUM_TRUSTED_PR_PUSHES,
     `fewer-than-${MINIMUM_TRUSTED_PR_PUSHES}-trusted-pr-pushes`,
     reasons,
@@ -945,6 +1214,30 @@ export function analyzeVercelCostEvidence(evidence) {
       `minute-counterfactual-not-positive:${target}`,
       reasons,
     );
+    for (const path of MIGRATED_DEPLOYMENT_PATH_KEYS) {
+      const baselineEvents =
+        evidence.baseline.targets[target].migratedDeploymentCensus[path]
+          .eligibleEvents;
+      const postEvents =
+        evidence.postCutover.targets[target].migratedDeploymentCensus[path]
+          .eligibleEvents;
+      reason(
+        postEvents > 0 && baselineEvents === 0,
+        `missing-baseline-events:${target}:${path}`,
+        reasons,
+      );
+      const pathMinutes = targetMinutes?.paths[path] ?? null;
+      reason(
+        postEvents > 0 &&
+          (pathMinutes === null ||
+            !Number.isFinite(pathMinutes.counterfactual) ||
+            pathMinutes.counterfactual <= 0 ||
+            pathMinutes.savings === null ||
+            !Number.isFinite(pathMinutes.savings)),
+        `minute-counterfactual-not-positive:${target}:${path}`,
+        reasons,
+      );
+    }
   }
 
   reason(
@@ -962,12 +1255,48 @@ export function analyzeVercelCostEvidence(evidence) {
     reasons,
   );
   reason(
+    effectiveCost !== null &&
+      Number.isFinite(effectiveCost.savings) &&
+      isNegativeRegression(effectiveCost.savings),
+    "normalized-effective-cost-regression",
+    reasons,
+  );
+  reason(
     billedCost === null ||
       billedCost.savings === null ||
       !Number.isFinite(billedCost.savings),
     "normalized-billed-cost-unavailable",
     reasons,
   );
+  reason(
+    billedCost !== null &&
+      Number.isFinite(billedCost.savings) &&
+      isNegativeRegression(billedCost.savings),
+    "normalized-billed-cost-regression",
+    reasons,
+  );
+  for (const target of VERCEL_COST_TARGETS) {
+    for (const path of MIGRATED_DEPLOYMENT_PATH_KEYS) {
+      const effectivePath = effectiveCost?.targets[target]?.paths[path];
+      const billedPath = billedCost?.targets[target]?.paths[path];
+      reason(
+        effectivePath !== null &&
+          effectivePath !== undefined &&
+          Number.isFinite(effectivePath.savings) &&
+          isNegativeRegression(effectivePath.savings),
+        `normalized-effective-cost-regression:${target}:${path}`,
+        reasons,
+      );
+      reason(
+        billedPath !== null &&
+          billedPath !== undefined &&
+          Number.isFinite(billedPath.savings) &&
+          isNegativeRegression(billedPath.savings),
+        `normalized-billed-cost-regression:${target}:${path}`,
+        reasons,
+      );
+    }
+  }
   reason(
     correctness.eligibleFirstPreviewOpportunities === 0,
     "eligible-first-preview-opportunities-missing",
@@ -986,7 +1315,7 @@ export function analyzeVercelCostEvidence(evidence) {
   );
   reason(
     correctness.smokeOrE2eCheckOpportunities <
-      evidence.postCutover.trustedSameRepositoryPrPushes,
+      evidence.postCutover.trustedDeployedCodePrPushes,
     "smoke-or-e2e-scope-below-trusted-pr-pushes",
     reasons,
   );
@@ -1042,8 +1371,17 @@ export function analyzeVercelCostEvidence(evidence) {
     "rollback-procedure-not-verified",
     reasons,
   );
+  const observationPass = reasons.length === 0;
+  const closeoutComplete = CLOSEOUT_KEYS.every(
+    (key) => evidence.closeout[key] === true,
+  );
+  reason(
+    !closeoutComplete,
+    "migration-cleanup-or-closeout-incomplete",
+    reasons,
+  );
 
-  const prPushes = evidence.postCutover.trustedSameRepositoryPrPushes;
+  const prPushes = evidence.postCutover.trustedDeployedCodePrPushes;
   const totalAttemptsPerEligibleEvent =
     totalPostEvents === 0
       ? null
@@ -1074,7 +1412,10 @@ export function analyzeVercelCostEvidence(evidence) {
   );
   return {
     schemaVersion: VERCEL_COST_SCHEMA_VERSION,
-    pass: reasons.length === 0,
+    reportStage: closeoutComplete ? "final-closeout" : "observation-only",
+    observationPass,
+    closeoutPass: closeoutComplete,
+    pass: observationPass && closeoutComplete,
     reasons,
     periods: {
       baseline: {
@@ -1139,6 +1480,8 @@ export function analyzeVercelCostEvidence(evidence) {
       ),
     },
     github: { ...evidence.postCutover.github },
+    trustedDeployedCodePrPushes:
+      evidence.postCutover.trustedDeployedCodePrPushes,
     correctness: { ...evidence.postCutover.correctness },
     eventCensus: Object.fromEntries(
       VERCEL_COST_TARGETS.map((target) => [
@@ -1156,7 +1499,7 @@ export function analyzeVercelCostEvidence(evidence) {
             attributionMethod:
               evidence.baseline.targets[target].attribution.method,
             migratedDeploymentCensus: Object.fromEntries(
-              MIGRATED_DEPLOYMENT_SOURCE_KEYS.map((source) => [
+              MIGRATED_DEPLOYMENT_PATH_KEYS.map((source) => [
                 source,
                 {
                   ...evidence.baseline.targets[target].migratedDeploymentCensus[
@@ -1179,7 +1522,7 @@ export function analyzeVercelCostEvidence(evidence) {
             attributionMethod:
               evidence.postCutover.targets[target].attribution.method,
             migratedDeploymentCensus: Object.fromEntries(
-              MIGRATED_DEPLOYMENT_SOURCE_KEYS.map((source) => [
+              MIGRATED_DEPLOYMENT_PATH_KEYS.map((source) => [
                 source,
                 {
                   ...evidence.postCutover.targets[target]
@@ -1224,17 +1567,21 @@ export function formatVercelCostMarkdown(analysis) {
     "# Vercel build-minute validation",
     "",
     `Result: **${analysis.pass ? "PASS" : "FAIL"}**`,
+    `Observation gate: **${analysis.observationPass ? "PASS" : "FAIL"}**`,
+    `Cleanup/closeout gate: **${analysis.closeoutPass ? "PASS" : "FAIL"}**`,
+    `Report stage: **${analysis.reportStage === "final-closeout" ? "FINAL CLOSEOUT" : "OBSERVATION ONLY"}**`,
     "",
     `- Baseline UTC window: ${analysis.periods.baseline.startUtc} to ${analysis.periods.baseline.endUtcExclusive} (${analysis.periods.baseline.days} complete days)`,
     `- Post-cutover UTC window: ${analysis.periods.postCutover.startUtc} to ${analysis.periods.postCutover.endUtcExclusive} (${analysis.periods.postCutover.days} complete days)`,
-    `- Target-mix normalized build-minute savings: ${formatPercent(analysis.normalized.minutes?.savings ?? null)}`,
-    `- Target-mix normalized EffectiveCost savings: ${formatPercent(analysis.normalized.effectiveCost?.savings ?? null)}`,
-    `- Target-mix normalized final BilledCost savings: ${formatPercent(analysis.normalized.billedCost?.savings ?? null)}`,
+    `- Target-by-path normalized build-minute savings: ${formatPercent(analysis.normalized.minutes?.savings ?? null)}`,
+    `- Target-by-path normalized EffectiveCost savings: ${formatPercent(analysis.normalized.effectiveCost?.savings ?? null)}`,
+    `- Target-by-path normalized final BilledCost savings: ${formatPercent(analysis.normalized.billedCost?.savings ?? null)}`,
     `- Gross equal-window build-minute savings: ${formatPercent(analysis.gross.minuteSavings)}`,
     `- Gross equal-window EffectiveCost savings: ${formatPercent(analysis.gross.effectiveCostSavings)}`,
     `- Gross equal-window final BilledCost savings: ${formatPercent(analysis.gross.billedCostSavings)}`,
     `- Deployment attempts per eligible event: ${formatNumber(analysis.attemptsPerEligibleEvent.total)}`,
-    `- Vercel build minutes per trusted same-repository PR push: ${formatNumber(analysis.postCutoverMinutesPerTrustedPrPush.total)}`,
+    `- Trusted deployed-code same-repository PR pushes: ${analysis.trustedDeployedCodePrPushes}`,
+    `- Vercel build minutes per trusted deployed-code PR push: ${formatNumber(analysis.postCutoverMinutesPerTrustedPrPush.total)}`,
     `- GitHub standard-runner minutes: ${formatNumber(analysis.github.standardRunnerMinutes)}`,
     `- GitHub larger-runner minutes: ${formatNumber(analysis.github.largerRunnerMinutes)}`,
     `- GitHub artifact storage: ${formatNumber(analysis.github.artifactStorageGbHours)} GB-hours`,
@@ -1245,8 +1592,8 @@ export function formatVercelCostMarkdown(analysis) {
     `- Main deployment observations completed: ${analysis.mainDeploymentObservations.completed}/${analysis.mainDeploymentObservations.eligibleEvents}`,
     `- Legacy v2 health checks completed: ${analysis.correctness.legacyV2HealthChecksCompleted}/${analysis.correctness.legacyV2HealthCheckOpportunities}`,
     "",
-    "| Target | Baseline migrated minutes | Baseline gross minutes | Post migrated minutes | Post gross minutes | Baseline-mix counterfactual | Migrated change |",
-    "|---|---:|---:|---:|---:|---:|---:|",
+    "| Target | Baseline migrated minutes | Baseline gross minutes | Post migrated minutes | Post gross minutes | Baseline-mix counterfactual | Migrated change | Post minutes / trusted push |",
+    "|---|---:|---:|---:|---:|---:|---:|---:|",
   ];
 
   for (const target of VERCEL_COST_TARGETS) {
@@ -1254,8 +1601,25 @@ export function formatVercelCostMarkdown(analysis) {
     const migrated = analysis.migrated.targets[target];
     const gross = analysis.gross.targets[target];
     lines.push(
-      `| ${target} | ${formatNumber(migrated.baselineMinutes)} | ${formatNumber(gross.baselineMinutes)} | ${formatNumber(migrated.postCutoverMinutes)} | ${formatNumber(gross.postCutoverMinutes)} | ${formatNumber(normalized?.counterfactual ?? null)} | ${formatPercent(normalized?.savings ?? null)} |`,
+      `| ${target} | ${formatNumber(migrated.baselineMinutes)} | ${formatNumber(gross.baselineMinutes)} | ${formatNumber(migrated.postCutoverMinutes)} | ${formatNumber(gross.postCutoverMinutes)} | ${formatNumber(normalized?.counterfactual ?? null)} | ${formatPercent(normalized?.savings ?? null)} | ${formatNumber(analysis.postCutoverMinutesPerTrustedPrPush.targets[target])} |`,
     );
+  }
+
+  lines.push(
+    "",
+    "Normalization cells are logical target x deployment path; an observed post cell without baseline evidence blocks closeout.",
+    "",
+    "| Target | Path | Baseline minutes | Post minutes | Baseline-mix counterfactual | Change |",
+    "|---|---|---:|---:|---:|---:|",
+  );
+  for (const target of VERCEL_COST_TARGETS) {
+    for (const path of MIGRATED_DEPLOYMENT_PATH_KEYS) {
+      const normalized =
+        analysis.normalized.minutes?.targets[target]?.paths[path] ?? null;
+      lines.push(
+        `| ${target} | ${path} | ${formatNumber(normalized?.baseline ?? null)} | ${formatNumber(normalized?.actual ?? null)} | ${formatNumber(normalized?.counterfactual ?? null)} | ${formatPercent(normalized?.savings ?? null)} |`,
+      );
+    }
   }
 
   lines.push(
@@ -1290,11 +1654,33 @@ export function formatVercelCostMarkdown(analysis) {
     );
   }
 
+  if (analysis.sourceEvidence?.deployments !== undefined) {
+    lines.push("", "## Deployment census anomalies", "");
+    let anomalyCount = 0;
+    for (const windowName of ["baseline", "postCutover"]) {
+      for (const anomaly of analysis.sourceEvidence.deployments[windowName]
+        .anomalies) {
+        anomalyCount += 1;
+        lines.push(
+          `- ${windowName}: [${anomaly.deploymentId}](${anomaly.evidenceUrl}) — ${anomaly.target}/${anomaly.path}, ${anomaly.source}, ${anomaly.outcome}; ${anomaly.reasons.join(", ")}`,
+        );
+      }
+    }
+    if (anomalyCount === 0) lines.push("- None.");
+  }
+
   if (analysis.reasons.length > 0) {
     lines.push("", "## Blocking evidence", "");
     for (const blockingReason of analysis.reasons) {
       lines.push(`- ${blockingReason}`);
     }
+  }
+
+  if (analysis.reportStage === "observation-only") {
+    lines.push(
+      "",
+      "> Observation-only result: migration cleanup and final closeout verification are incomplete. Do not use this report to close #523 or #515.",
+    );
   }
 
   lines.push(
@@ -1304,19 +1690,627 @@ export function formatVercelCostMarkdown(analysis) {
   return `${lines.join("\n")}\n`;
 }
 
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function parseJson(value, label) {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    throw new Error(
+      `${label} must be valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function parseJsonLines(value, label) {
+  const rows = [];
+  for (const [index, line] of value.split(/\r?\n/).entries()) {
+    if (line.trim().length === 0) continue;
+    rows.push(parseJson(line, `${label} line ${index + 1}`));
+  }
+  return rows;
+}
+
+function assertDigest(value, label) {
+  if (typeof value !== "string" || !SHA256_PATTERN.test(value)) {
+    throw new Error(`${label} must be lowercase SHA-256`);
+  }
+  return value;
+}
+
+function assertExactNumber(actual, expected, label) {
+  if (!numbersEqual(actual, expected)) {
+    throw new Error(`${label} does not reconcile to the aggregate evidence`);
+  }
+}
+
+function validateManifest(manifest) {
+  assertExactKeys(manifest, MANIFEST_KEYS, "manifest");
+  if (manifest.schemaVersion !== 1) {
+    throw new Error("manifest.schemaVersion must be 1");
+  }
+  assertNonemptyString(manifest.aggregate, "manifest.aggregate");
+  assertExactKeys(
+    manifest.windows,
+    ["baseline", "postCutover"],
+    "manifest.windows",
+  );
+  for (const windowName of ["baseline", "postCutover"]) {
+    const source = manifest.windows[windowName];
+    const label = `manifest.windows.${windowName}`;
+    assertExactKeys(source, MANIFEST_WINDOW_KEYS, label);
+    for (const key of [
+      "focusJsonl",
+      "providerAttributionEvidence",
+      "attributionJsonl",
+      "deploymentCensusJsonl",
+    ]) {
+      assertNonemptyString(source[key], `${label}.${key}`);
+    }
+    assertDigest(
+      source.providerAttributionSha256,
+      `${label}.providerAttributionSha256`,
+    );
+    assertDigest(
+      source.attributionJsonlSha256,
+      `${label}.attributionJsonlSha256`,
+    );
+    assertDigest(
+      source.deploymentCensusSha256,
+      `${label}.deploymentCensusSha256`,
+    );
+    if (
+      source.providerAttributionSha256 === source.attributionJsonlSha256 ||
+      source.providerAttributionEvidence === source.attributionJsonl
+    ) {
+      throw new Error(
+        `${label} must keep the provider artifact distinct from the derived attribution JSONL`,
+      );
+    }
+    if (source.deploymentCensusComplete !== true) {
+      throw new Error(
+        `${label}.deploymentCensusComplete must be true after pagination/completeness verification`,
+      );
+    }
+    assertExactKeys(
+      source.focusProjectTags,
+      VERCEL_COST_TARGETS,
+      `${label}.focusProjectTags`,
+    );
+    const selectors = new Set();
+    for (const target of VERCEL_COST_TARGETS) {
+      const selector = source.focusProjectTags[target];
+      assertExactKeys(
+        selector,
+        FOCUS_PROJECT_TAG_KEYS,
+        `${label}.focusProjectTags.${target}`,
+      );
+      assertNonemptyString(
+        selector.key,
+        `${label}.focusProjectTags.${target}.key`,
+      );
+      assertNonemptyString(
+        selector.value,
+        `${label}.focusProjectTags.${target}.value`,
+      );
+      const serialized = `${selector.key}\0${selector.value}`;
+      if (selectors.has(serialized)) {
+        throw new Error(`${label}.focusProjectTags selectors must be unique`);
+      }
+      selectors.add(serialized);
+    }
+  }
+  for (const target of VERCEL_COST_TARGETS) {
+    const baseline = manifest.windows.baseline.focusProjectTags[target];
+    const post = manifest.windows.postCutover.focusProjectTags[target];
+    if (baseline.key !== post.key || baseline.value !== post.value) {
+      throw new Error(
+        `manifest focusProjectTags.${target} must identify the same Vercel project in both windows`,
+      );
+    }
+  }
+  return manifest;
+}
+
+function reconcileFocusJsonl(raw, source, aggregateWindow, label) {
+  const actualDigest = sha256(raw);
+  if (actualDigest !== aggregateWindow.period.focusExportSha256) {
+    throw new Error(`${label} SHA-256 does not match the aggregate evidence`);
+  }
+  const rows = parseJsonLines(raw, label);
+  const totals = Object.fromEntries(
+    VERCEL_COST_TARGETS.map((target) => [
+      target,
+      { buildCpuMinutes: 0, effectiveCost: 0, billedCost: 0 },
+    ]),
+  );
+  let inScopeChargeCount = 0;
+  const periodStart = Date.parse(aggregateWindow.period.startUtc);
+  const periodEnd = Date.parse(aggregateWindow.period.endUtcExclusive);
+
+  for (const [index, row] of rows.entries()) {
+    assertObject(row, `${label} row ${index + 1}`);
+    if (row.ConsumedUnit !== FOCUS_UNIT) continue;
+    if (row.ChargeCategory !== "Usage") continue;
+    const tags = assertObject(row.Tags, `${label} row ${index + 1}.Tags`);
+    const matches = VERCEL_COST_TARGETS.filter((target) => {
+      const selector = source.focusProjectTags[target];
+      return tags[selector.key] === selector.value;
+    });
+    if (matches.length === 0) continue;
+    if (matches.length !== 1) {
+      throw new Error(`${label} row ${index + 1} matches multiple targets`);
+    }
+    if (row.BillingCurrency !== BILLING_CURRENCY) {
+      throw new Error(
+        `${label} row ${index + 1}.BillingCurrency must be ${BILLING_CURRENCY}`,
+      );
+    }
+    const chargeStart = parseCanonicalUtc(
+      row.ChargePeriodStart,
+      `${label} row ${index + 1}.ChargePeriodStart`,
+    );
+    const chargeEnd = parseCanonicalUtc(
+      row.ChargePeriodEnd,
+      `${label} row ${index + 1}.ChargePeriodEnd`,
+    );
+    if (
+      !Number.isFinite(chargeStart) ||
+      !Number.isFinite(chargeEnd) ||
+      chargeStart < periodStart ||
+      chargeEnd > periodEnd ||
+      chargeEnd <= chargeStart
+    ) {
+      throw new Error(
+        `${label} row ${index + 1} must fall inside the aggregate UTC interval`,
+      );
+    }
+    const target = matches[0];
+    const consumed = assertNonnegativeDecimal(
+      row.ConsumedQuantity,
+      `${label} row ${index + 1}.ConsumedQuantity`,
+    );
+    const effective = assertNonnegativeDecimal(
+      row.EffectiveCost,
+      `${label} row ${index + 1}.EffectiveCost`,
+    );
+    const billed =
+      row.BilledCost === null
+        ? null
+        : assertNonnegativeDecimal(
+            row.BilledCost,
+            `${label} row ${index + 1}.BilledCost`,
+          );
+    if (aggregateWindow.period.invoiceFinal && billed === null) {
+      throw new Error(
+        `${label} row ${index + 1}.BilledCost is required after invoice finalization`,
+      );
+    }
+    totals[target].buildCpuMinutes = addFiniteDerived(
+      totals[target].buildCpuMinutes,
+      consumed,
+      `${label}.${target}.buildCpuMinutes`,
+    );
+    totals[target].effectiveCost = addFiniteDerived(
+      totals[target].effectiveCost,
+      effective,
+      `${label}.${target}.effectiveCost`,
+    );
+    totals[target].billedCost =
+      totals[target].billedCost === null || billed === null
+        ? null
+        : addFiniteDerived(
+            totals[target].billedCost,
+            billed,
+            `${label}.${target}.billedCost`,
+          );
+    inScopeChargeCount += 1;
+  }
+
+  if (inScopeChargeCount !== aggregateWindow.period.focusChargeCount) {
+    throw new Error(
+      `${label} charge count does not reconcile to the aggregate evidence`,
+    );
+  }
+  for (const target of VERCEL_COST_TARGETS) {
+    for (const metric of GROSS_PROJECT_KEYS) {
+      const actual = totals[target][metric];
+      const expected = aggregateWindow.targets[target].grossProject[metric];
+      if (actual === null || expected === null) {
+        if (actual !== expected) {
+          throw new Error(
+            `${label}.${target}.${metric} does not reconcile to the aggregate evidence`,
+          );
+        }
+      } else {
+        assertExactNumber(actual, expected, `${label}.${target}.${metric}`);
+      }
+    }
+  }
+}
+
+const ATTRIBUTION_ROW_KEYS = [
+  "target",
+  "path",
+  "buildCpuMinutes",
+  "effectiveCost",
+  "billedCost",
+];
+
+function reconcileAttributionJsonl(
+  raw,
+  providerEvidence,
+  source,
+  aggregateWindow,
+  label,
+) {
+  if (sha256(raw) !== source.attributionJsonlSha256) {
+    throw new Error(`${label} SHA-256 does not match the manifest`);
+  }
+  if (sha256(providerEvidence) !== source.providerAttributionSha256) {
+    throw new Error(
+      `${label} provider artifact SHA-256 does not match the manifest`,
+    );
+  }
+  const rows = parseJsonLines(raw, label);
+  const cells = new Map();
+  for (const [index, row] of rows.entries()) {
+    assertExactKeys(row, ATTRIBUTION_ROW_KEYS, `${label} row ${index + 1}`);
+    if (!VERCEL_COST_TARGETS.includes(row.target)) {
+      throw new Error(`${label} row ${index + 1}.target is unsupported`);
+    }
+    if (!MIGRATED_DEPLOYMENT_PATH_KEYS.includes(row.path)) {
+      throw new Error(`${label} row ${index + 1}.path must be preview or main`);
+    }
+    for (const metric of ["buildCpuMinutes", "effectiveCost"]) {
+      assertNonnegativeNumber(
+        row[metric],
+        `${label} row ${index + 1}.${metric}`,
+      );
+    }
+    assertNullableCost(row.billedCost, `${label} row ${index + 1}.billedCost`);
+    if (aggregateWindow.period.invoiceFinal && row.billedCost === null) {
+      throw new Error(
+        `${label} row ${index + 1}.billedCost is required after invoice finalization`,
+      );
+    }
+    const key = `${row.target}:${row.path}`;
+    if (cells.has(key))
+      throw new Error(`${label} contains duplicate cell ${key}`);
+    cells.set(key, row);
+  }
+
+  for (const target of VERCEL_COST_TARGETS) {
+    const aggregateTarget = aggregateWindow.targets[target];
+    if (aggregateTarget.attribution.method === "provider-attributed") {
+      if (
+        aggregateTarget.attribution.evidenceSha256 !==
+        source.providerAttributionSha256
+      ) {
+        throw new Error(
+          `${label} provider artifact SHA-256 does not match provider attribution for ${target}`,
+        );
+      }
+      for (const path of MIGRATED_DEPLOYMENT_PATH_KEYS) {
+        const row = cells.get(`${target}:${path}`);
+        if (row === undefined) {
+          throw new Error(
+            `${label} is missing provider cell ${target}:${path}`,
+          );
+        }
+        for (const metric of MIGRATED_USAGE_KEYS) {
+          const actual = row[metric];
+          const expected = aggregateTarget.migratedUsageByPath[path][metric];
+          if (actual === null || expected === null) {
+            if (actual !== expected) {
+              throw new Error(
+                `${label}.${target}.${path}.${metric} does not reconcile to the aggregate evidence`,
+              );
+            }
+          } else {
+            assertExactNumber(
+              actual,
+              expected,
+              `${label}.${target}.${path}.${metric}`,
+            );
+          }
+        }
+        cells.delete(`${target}:${path}`);
+      }
+    }
+  }
+  if (cells.size > 0) {
+    throw new Error(
+      `${label} contains cells without provider-attributed aggregate ownership: ${[...cells.keys()].join(", ")}`,
+    );
+  }
+}
+
+function emptyDeploymentSummary() {
+  return {
+    paths: Object.fromEntries(DEPLOYMENT_PATHS.map((value) => [value, 0])),
+    sources: Object.fromEntries(DEPLOYMENT_SOURCES.map((value) => [value, 0])),
+    outcomes: Object.fromEntries(
+      DEPLOYMENT_OUTCOMES.map((value) => [value, 0]),
+    ),
+  };
+}
+
+function reconcileDeploymentCensusJsonl(
+  raw,
+  source,
+  aggregateWindow,
+  windowName,
+  label,
+) {
+  if (sha256(raw) !== source.deploymentCensusSha256) {
+    throw new Error(`${label} SHA-256 does not match the manifest`);
+  }
+  const rows = parseJsonLines(raw, label);
+  const deploymentIds = new Set();
+  const summaries = Object.fromEntries(
+    VERCEL_COST_TARGETS.map((target) => [target, emptyDeploymentSummary()]),
+  );
+  const pathAttempts = Object.fromEntries(
+    VERCEL_COST_TARGETS.map((target) => [target, { preview: 0, main: 0 }]),
+  );
+  const eventKeys = Object.fromEntries(
+    VERCEL_COST_TARGETS.map((target) => [
+      target,
+      { preview: new Set(), main: new Set() },
+    ]),
+  );
+  const readyByEvent = new Map();
+  const excluded = Object.fromEntries(
+    VERCEL_COST_TARGETS.map((target) => [
+      target,
+      {
+        legacyV2DeploymentAttempts: 0,
+        manualDeploymentAttempts: 0,
+        unknownDeploymentAttempts: 0,
+      },
+    ]),
+  );
+  const anomalyReasons = new Map();
+  let unexplainedNativeBuilds = 0;
+  const periodStart = Date.parse(aggregateWindow.period.startUtc);
+  const periodEnd = Date.parse(aggregateWindow.period.endUtcExclusive);
+
+  for (const [index, row] of rows.entries()) {
+    const rowLabel = `${label} row ${index + 1}`;
+    assertExactKeys(row, DEPLOYMENT_ROW_KEYS, rowLabel);
+    assertNonemptyString(row.deploymentId, `${rowLabel}.deploymentId`);
+    if (!VERCEL_DEPLOYMENT_ID_PATTERN.test(row.deploymentId)) {
+      throw new Error(
+        `${rowLabel}.deploymentId must be a Vercel deployment ID`,
+      );
+    }
+    if (deploymentIds.has(row.deploymentId)) {
+      throw new Error(
+        `${label} contains duplicate deploymentId ${row.deploymentId}`,
+      );
+    }
+    deploymentIds.add(row.deploymentId);
+    if (!VERCEL_COST_TARGETS.includes(row.target)) {
+      throw new Error(`${rowLabel}.target is unsupported`);
+    }
+    if (!DEPLOYMENT_PATHS.includes(row.path)) {
+      throw new Error(`${rowLabel}.path is unsupported`);
+    }
+    if (!DEPLOYMENT_SOURCES.includes(row.source)) {
+      throw new Error(`${rowLabel}.source is unsupported`);
+    }
+    if (!DEPLOYMENT_OUTCOMES.includes(row.outcome)) {
+      throw new Error(`${rowLabel}.outcome is unsupported`);
+    }
+    assertPublicEvidenceUrl(row.evidenceUrl, `${rowLabel}.evidenceUrl`);
+    const createdAt = Date.parse(row.createdAtUtc);
+    if (
+      typeof row.createdAtUtc !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(row.createdAtUtc) ||
+      !Number.isFinite(createdAt) ||
+      new Date(createdAt).toISOString() !== row.createdAtUtc ||
+      createdAt < periodStart ||
+      createdAt >= periodEnd
+    ) {
+      throw new Error(
+        `${rowLabel}.createdAtUtc must fall inside the census UTC interval`,
+      );
+    }
+
+    const migratedPath = MIGRATED_DEPLOYMENT_PATH_KEYS.includes(row.path);
+    const migrated =
+      migratedPath &&
+      ["github-actions-prebuilt", "vercel-native"].includes(row.source);
+    if (migrated || row.path === "legacy-v2") {
+      if (
+        typeof row.sourceSha !== "string" ||
+        !GIT_SHA_PATTERN.test(row.sourceSha)
+      ) {
+        throw new Error(
+          `${rowLabel}.sourceSha must be a lowercase 40-character Git SHA`,
+        );
+      }
+    } else if (row.sourceSha !== null) {
+      throw new Error(
+        `${rowLabel}.sourceSha must be null for manual or unknown activity`,
+      );
+    }
+    if (
+      row.path === "legacy-v2" &&
+      (row.target !== "app" || row.source !== "vercel-native")
+    ) {
+      throw new Error(
+        `${rowLabel} legacy-v2 must be an app vercel-native deployment`,
+      );
+    }
+
+    const summary = summaries[row.target];
+    summary.paths[row.path] += 1;
+    summary.sources[row.source] += 1;
+    summary.outcomes[row.outcome] += 1;
+    const reasons = [];
+    if (row.outcome !== "ready") reasons.push(`outcome:${row.outcome}`);
+
+    if (migrated) {
+      pathAttempts[row.target][row.path] += 1;
+      const eventKey = `${row.target}:${row.path}:${row.sourceSha}`;
+      eventKeys[row.target][row.path].add(eventKey);
+      if (row.outcome === "ready") {
+        const readyRows = readyByEvent.get(eventKey) ?? [];
+        readyRows.push(row);
+        readyByEvent.set(eventKey, readyRows);
+      }
+      if (windowName === "postCutover" && row.source === "vercel-native") {
+        unexplainedNativeBuilds += 1;
+        reasons.push("unexplained-native-build");
+      }
+    } else if (row.path === "legacy-v2") {
+      excluded[row.target].legacyV2DeploymentAttempts += 1;
+    } else if (row.source === "manual") {
+      excluded[row.target].manualDeploymentAttempts += 1;
+      reasons.push("manual-deployment");
+    } else {
+      excluded[row.target].unknownDeploymentAttempts += 1;
+      reasons.push("unknown-deployment");
+    }
+    if (reasons.length > 0) anomalyReasons.set(row.deploymentId, reasons);
+  }
+
+  const duplicates = Object.fromEntries(
+    VERCEL_COST_TARGETS.map((target) => [target, { preview: 0, main: 0 }]),
+  );
+  for (const readyRows of readyByEvent.values()) {
+    for (const row of readyRows.slice(1)) {
+      duplicates[row.target][row.path] += 1;
+      const reasons = anomalyReasons.get(row.deploymentId) ?? [];
+      reasons.push("duplicate-ready-deployment");
+      anomalyReasons.set(row.deploymentId, reasons);
+    }
+  }
+
+  for (const target of VERCEL_COST_TARGETS) {
+    const expectedTarget = aggregateWindow.targets[target];
+    for (const path of MIGRATED_DEPLOYMENT_PATH_KEYS) {
+      const expected = expectedTarget.migratedDeploymentCensus[path];
+      const actual = {
+        eligibleEvents: eventKeys[target][path].size,
+        deploymentAttempts: pathAttempts[target][path],
+        duplicateDeployments: duplicates[target][path],
+      };
+      for (const metric of MIGRATED_DEPLOYMENT_CENSUS_KEYS) {
+        if (actual[metric] !== expected[metric]) {
+          throw new Error(
+            `${label}.${target}.${path}.${metric} does not reconcile to the aggregate evidence`,
+          );
+        }
+      }
+    }
+    for (const key of EXCLUDED_KEYS) {
+      if (excluded[target][key] !== expectedTarget.excluded[key]) {
+        throw new Error(
+          `${label}.${target}.${key} does not reconcile to the aggregate evidence`,
+        );
+      }
+    }
+  }
+  if (
+    windowName === "postCutover" &&
+    unexplainedNativeBuilds !==
+      aggregateWindow.correctness.unexplainedNativeBuilds
+  ) {
+    throw new Error(
+      `${label}.unexplainedNativeBuilds does not reconcile to the correctness ledger`,
+    );
+  }
+
+  const rowsById = new Map(rows.map((row) => [row.deploymentId, row]));
+  return {
+    targets: summaries,
+    anomalies: [...anomalyReasons.entries()].map(([deploymentId, reasons]) => {
+      const row = rowsById.get(deploymentId);
+      return {
+        deploymentId,
+        target: row.target,
+        path: row.path,
+        source: row.source,
+        outcome: row.outcome,
+        evidenceUrl: row.evidenceUrl,
+        reasons,
+      };
+    }),
+  };
+}
+
+export function analyzeVercelCostManifest(inputPath) {
+  const manifestPath = resolve(inputPath);
+  const manifestDirectory = dirname(manifestPath);
+  const manifest = validateManifest(
+    parseJson(readFileSync(manifestPath, "utf8"), "manifest"),
+  );
+  const evidence = parseJson(
+    readFileSync(resolve(manifestDirectory, manifest.aggregate), "utf8"),
+    "aggregate evidence",
+  );
+  validateVercelCostEvidence(evidence);
+  const deploymentEvidence = {};
+  for (const windowName of ["baseline", "postCutover"]) {
+    const source = manifest.windows[windowName];
+    const aggregateWindow = evidence[windowName];
+    reconcileFocusJsonl(
+      readFileSync(resolve(manifestDirectory, source.focusJsonl), "utf8"),
+      source,
+      aggregateWindow,
+      `${windowName} FOCUS JSONL`,
+    );
+    reconcileAttributionJsonl(
+      readFileSync(resolve(manifestDirectory, source.attributionJsonl), "utf8"),
+      readFileSync(
+        resolve(manifestDirectory, source.providerAttributionEvidence),
+        "utf8",
+      ),
+      source,
+      aggregateWindow,
+      `${windowName} provider attribution JSONL`,
+    );
+    deploymentEvidence[windowName] = reconcileDeploymentCensusJsonl(
+      readFileSync(
+        resolve(manifestDirectory, source.deploymentCensusJsonl),
+        "utf8",
+      ),
+      source,
+      aggregateWindow,
+      windowName,
+      `${windowName} deployment census JSONL`,
+    );
+  }
+  return {
+    ...analyzeVercelCostEvidence(evidence),
+    sourceEvidence: {
+      rawFocusReconciled: true,
+      providerArtifactBound: true,
+      derivedAttributionReconciled: true,
+      deploymentCensusComplete: true,
+      deployments: deploymentEvidence,
+    },
+  };
+}
+
 function parseArguments(argv) {
   const options = {};
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (!argument.startsWith("--") || index + 1 >= argv.length) {
       throw new Error(
-        "Usage: vercel-cost-analysis.mjs --input <aggregate.json> [--format json|markdown]",
+        "Usage: vercel-cost-analysis.mjs --input <evidence-manifest.json> [--format json|markdown]",
       );
     }
     const key = argument.slice(2);
     if (!["input", "format"].includes(key)) {
       throw new Error(
-        "Usage: vercel-cost-analysis.mjs --input <aggregate.json> [--format json|markdown]",
+        "Usage: vercel-cost-analysis.mjs --input <evidence-manifest.json> [--format json|markdown]",
       );
     }
     if (Object.hasOwn(options, key))
@@ -1329,7 +2323,7 @@ function parseArguments(argv) {
     ![undefined, "json", "markdown"].includes(options.format)
   ) {
     throw new Error(
-      "Usage: vercel-cost-analysis.mjs --input <aggregate.json> [--format json|markdown]",
+      "Usage: vercel-cost-analysis.mjs --input <evidence-manifest.json> [--format json|markdown]",
     );
   }
   return { input: options.input, format: options.format ?? "json" };
@@ -1345,8 +2339,7 @@ function isCliEntrypoint() {
 if (isCliEntrypoint()) {
   try {
     const options = parseArguments(process.argv.slice(2));
-    const evidence = JSON.parse(readFileSync(resolve(options.input), "utf8"));
-    const analysis = analyzeVercelCostEvidence(evidence);
+    const analysis = analyzeVercelCostManifest(options.input);
     process.stdout.write(
       options.format === "markdown"
         ? formatVercelCostMarkdown(analysis)

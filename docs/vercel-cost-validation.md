@@ -10,15 +10,19 @@ The repository provides a deterministic, network-free analyzer:
 
 ```bash
 pnpm vercel:cost:analyze \
-  --input .vercel-cost-evidence/aggregate.json \
+  --input .vercel-cost-evidence/manifest.json \
   --format markdown
 ```
 
-The command exits successfully only when the complete #523 closeout gate
-passes. Its Markdown and JSON output omit absolute `EffectiveCost` and
-`BilledCost` values, raw-export digests, and raw-export charge-row counts. Raw
-exports, aggregate input, account configuration, allocations, invoice figures,
-and dollar values remain private.
+The command reads the raw FOCUS JSONL, an unchanged provider-attribution
+artifact plus its derived target/path mapping, and a complete normalized Vercel
+deployment census. It exits successfully only after both the observation gate
+and the cleanup/final-closeout gate pass. Before cleanup, a successful
+measurement is explicitly `OBSERVATION ONLY` and the command remains nonzero.
+Its Markdown and JSON output omit absolute `EffectiveCost` and `BilledCost`
+values, raw-export digests, and raw-export charge-row counts. Raw exports,
+manifest, aggregate input, provider artifacts, account configuration,
+allocations, invoice figures, and dollar values remain private.
 
 Run the fixture suite without credentials or network access:
 
@@ -32,16 +36,19 @@ Store working evidence under `.vercel-cost-evidence/`, which is ignored by Git,
 or outside the repository. Never commit or paste any of these into a public
 issue, pull request, workflow artifact, job summary, or log:
 
-- raw Vercel FOCUS JSONL or usage exports;
+- raw Vercel FOCUS JSONL, unchanged provider-attribution artifacts, derived
+  attribution JSONL, normalized deployment-census JSONL, and the manifest;
 - project or team IDs not already public;
 - absolute `EffectiveCost`, `BilledCost`, allocation, plan, price, or invoice
   values;
 - authentication material or provider responses that may contain it.
 
-The analyzer accepts already aggregated evidence and makes no authenticated
-request. A maintainer with billing access obtains the source exports through an
-approved Vercel surface and records only their SHA-256 digests and charge counts
-in the aggregate input. Automation must not discover or retrieve credentials.
+The analyzer makes no authenticated request. A maintainer with billing access
+obtains the source exports through an approved Vercel surface and stores them in
+the private evidence workspace. The manifest names those local files and their
+digests; the analyzer reads and reconciles them rather than trusting hand-entered
+project totals or deployment counts. Automation must not discover or retrieve
+credentials.
 
 Only generated public-safe analyzer output (Markdown or JSON), redacted
 screenshots, and direct links to non-sensitive workflow or deployment evidence
@@ -69,8 +76,11 @@ The baseline and post-cutover raw-export digests must differ. Reusing one file
 for both non-overlapping intervals is contradictory evidence and fails
 validation.
 
-Filter to usage charges with `ConsumedUnit == "Build CPU Minutes"` and the four
-in-scope Vercel projects only:
+Filter to rows with `ChargeCategory == "Usage"` and
+`ConsumedUnit == "Build CPU Minutes"` for the four in-scope Vercel projects
+only. The parser accepts the endpoint's quoted decimal values as well as JSON
+numbers and validates every in-scope charge timestamp against its half-open UTC
+window:
 
 - `app.mento.org`;
 - `governance.mento.org`;
@@ -103,10 +113,21 @@ deployment count or visible build duration. Record excluded deployment attempts
 even when they contribute zero invoice-grade minutes. Gross project totals must
 remain visible alongside the migrated-path comparison.
 
-Provider-attribution evidence is separate from the raw FOCUS export, whose
-documented dimensions are insufficient for this split. Its digest must differ
-from the corresponding raw-export digest, and one target cannot reuse the same
-provider evidence for its baseline and post-cutover split.
+Target-by-path (`preview` versus `main`) normalization always requires path
+usage. FOCUS cannot provide it. Preserve the unchanged provider-generated
+artifact and its digest, then derive a separate strict target/path JSONL mapping
+from that artifact. The manifest binds both files; their paths and digests must
+differ, the derived cells must reconcile exactly to `migratedPath`, and the
+provider digest must match `attribution.evidenceSha256`. The analyzer can prove
+that the two frozen inputs and aggregate agree, but it cannot independently
+interpret an opaque provider artifact. Reviewer/operator confirmation that the
+derived cells faithfully represent that provider artifact remains mandatory.
+Never create those cells from census counts or build durations.
+
+Provider evidence and the derived mapping are also separate from the raw FOCUS
+export, whose documented dimensions are insufficient for this split. Their
+digests must differ from the corresponding raw-export digest, and one target
+cannot reuse the same provider evidence for its baseline and post-cutover split.
 
 ## Post-cutover collection protocol
 
@@ -114,25 +135,42 @@ provider evidence for its baseline and post-cutover split.
    timestamp, and final ownership configuration. Start the measurement interval
    at the next complete UTC-day boundary; never backdate it into the cutover.
 2. Keep collecting until the interval contains at least seven complete UTC days
-   and ten trusted same-repository PR pushes that affect deployed code. Extend
+   and ten trusted same-repository PR pushes that affect deployed code. Record
+   that push-level denominator as `trustedDeployedCodePrPushes`. Extend
    the window until every logical target has nonzero baseline and post-cutover
    eligible events.
 3. Freeze the exact post interval. Export the matching baseline and post Vercel
    FOCUS data, retain the raw files privately, and record their digests and row
    counts. Re-export or compare the billing surface until ingestion for both
    intervals is confirmed complete.
-4. Build a deployment census for every source SHA and logical target. One
-   eligible event is one source SHA plus one logical target. Count every native,
+4. Export every Vercel deployment page for the interval and assert
+   `deploymentCensusComplete: true` only after pagination and UTC-boundary
+   completeness are verified. Normalize one JSONL row per deployment attempt
+   with `deploymentId`, `createdAtUtc`, `target`, `path`, `source`, `outcome`,
+   `sourceSha`, and a public-safe direct `evidenceUrl`. The analyzer accepts only
+   this public repository's GitHub run/deployment URLs or a root `*.vercel.app`
+   deployment URL, with no credentials, query string, fragment, or custom port.
+   Vercel dashboard URLs are private evidence and fail closed. Duplicate deployment
+   IDs, rows outside the interval, digest mismatches, or incomplete-census
+   assertions fail closed. One eligible event key is `target:path:sourceSha`. Count every native,
    prebuilt, failed, cancelled, and rerun deployment attempt; do not use attempts
    as the event denominator. In both the baseline and post-cutover windows,
    deployment attempts must be at least the number of eligible events.
-   Within each target, classify migrated events, attempts, and actual duplicates
-   as either `preview` or `main`; those two source counts must sum exactly to the
+   Keep the axes orthogonal: `path` is `preview`, `main`, `legacy-v2`, or
+   `unknown`; `source` is `github-actions-prebuilt`, `vercel-native`, `manual`,
+   or `unknown`; `outcome` is `ready`, `error`, or `canceled`. Within each
+   target, classify migrated events, attempts, and actual duplicates as either
+   `preview` or `main`; those two path counts must sum exactly to the
    migrated-path aggregates in both windows.
-   Each source bucket must also be internally possible: attempts cannot be lower
+   Each path bucket must also be internally possible: attempts cannot be lower
    than eligible events, and duplicate counts cannot exceed the attempts beyond
    the first attempt for each eligible event (`attempts - events`). The same
-   duplicate bound applies to the migrated-path aggregate.
+   duplicate bound applies to the migrated-path aggregate. Only the second and
+   later `ready` rows for the same event key are duplicates. Failed/canceled
+   attempts increase measured waste and appear with direct links, but are not
+   mislabeled as duplicates. A post-cutover native preview/main attempt is an
+   unexplained native build; manual and unknown sources remain excluded and
+   visible.
 5. Classify app deployments as migrated PR preview, migrated `main -> v3`,
    preserved native `v2 -> production`, or manual/unknown. Keep v2 visible and
    apply the invoice-grade attribution limitation above.
@@ -152,40 +190,56 @@ provider evidence for its baseline and post-cutover split.
    sentinel result. For main pushes, record exact-SHA CI gate, planner bases and
    range, selected targets, stale-main decision, activation/recovery result,
    domain SHA, native duplicates, and v2 health.
-8. Populate `.vercel-cost-evidence/aggregate.json` using the synthetic
-   [`pass.json`](../scripts/fixtures/vercel-cost-analysis/pass.json) fixture as
-   the schema example. Do not copy its invented values.
+8. Populate `.vercel-cost-evidence/manifest.json` and its referenced aggregate,
+   FOCUS, provider, derived-attribution, and deployment-census files using the
+   synthetic [`manifest.json`](../scripts/fixtures/vercel-cost-analysis/manifest.json)
+   fixture set as the schema example. Do not copy its invented values.
 9. Run the analyzer. A failing command lists deterministic evidence gaps; extend
    the window or investigate the named anomaly instead of editing the threshold.
 10. After the invoice closes, replace nullable `billedCost` fields with final
     reconciled values, set both `invoiceFinal` flags, rerun the analyzer, and
     retain the private reconciliation.
 
-## Aggregate evidence schema
+## Manifest and aggregate evidence schema
 
-The input is strict: unknown or missing keys fail instead of being ignored.
-Both periods require the exact FOCUS unit `Build CPU Minutes`, billing currency
-`USD`, a raw-export digest, row count, ingestion state, and invoice-final state.
+The CLI input is a strict manifest. It references the aggregate plus each
+window's raw FOCUS JSONL, unchanged provider artifact, derived attribution
+JSONL, and normalized deployment census. The manifest records separate digests,
+the complete-census assertion, and a distinct FOCUS project-tag selector for
+each logical target. A target's selector must be identical in both windows so a
+comparison cannot silently switch Vercel projects. Unknown or missing keys fail
+instead of being ignored.
 
-Each target has four groups:
+Both aggregate periods require the exact FOCUS unit `Build CPU Minutes`, billing
+currency `USD`, a raw-export digest, row count, ingestion state, and
+invoice-final state. Raw FOCUS rows are authoritative for `grossProject`; the
+analyzer derives and reconciles those totals instead of accepting the aggregate
+alone.
+
+Each target has six groups:
 
 - `migratedPath`: raw Build CPU minutes, `EffectiveCost`, nullable `BilledCost`,
   unique eligible target events, deployment attempts, and actual duplicate
   deployment count;
-- `migratedDeploymentCensus`: strict `preview` and `main` source buckets, each
+- `migratedDeploymentCensus`: strict `preview` and `main` path buckets, each
   containing eligible events, deployment attempts, and actual duplicate counts;
   each metric must sum exactly to its `migratedPath` aggregate;
+- `migratedUsageByPath`: strict `preview` and `main` Build CPU minute,
+  `EffectiveCost`, and nullable `BilledCost` cells derived from the separately
+  preserved provider artifact; each metric must sum exactly to `migratedPath`;
 - `grossProject`: the complete project Build CPU minutes and costs, including
   excluded activity;
-- `excluded`: attempt counts for legacy v2, manual, and unknown deployments.
+- `excluded`: attempt counts for legacy v2, manual, and unknown deployments;
 - `attribution`: either `project-total-no-exclusions`, which requires migrated
-  and gross values to be identical and every excluded count to be zero, or
+  and gross values to be identical, every excluded count to be zero, and only
+  one active path, or
   `provider-attributed`, which requires the SHA-256 digest of the private
   provider evidence supporting the split.
 
 The post-cutover record also contains:
 
-- trusted same-repository PR push count;
+- `trustedDeployedCodePrPushes`, the trusted same-repository deployed-code PR
+  push denominator;
 - standard and larger-runner minutes;
 - artifact and cache GB-hours;
 - whether the repository remained public for the complete interval;
@@ -197,6 +251,12 @@ The post-cutover record also contains:
   post-cutover `main` eligible events;
 - explicit rollback-procedure verification.
 
+The top-level `closeout` checklist records disposition of the manual pilot,
+shadow/canary scaffolding, legacy `deployment_status` handling, migration-only
+logging, docs drift, and final verification. Until every item is true, the
+measurement can pass only as `observationPass`; `closeoutPass` and the final
+`pass` remain false and `reportStage` remains `observation-only`.
+
 Derive every opportunity and completion count from the private observation
 ledger rather than entering a blanket success value:
 
@@ -205,7 +265,7 @@ ledger rather than entering a blanket success value:
   the preview. At least one opportunity is required, opportunities cannot exceed
   trusted same-repository PR pushes, and claimed first previews cannot exceed
   the derived total of post-cutover `preview` eligible target events.
-- `trustedSameRepositoryPrPushes` is a push-level observation denominator, while
+- `trustedDeployedCodePrPushes` is a push-level observation denominator, while
   the preview census is target-level deployment evidence. Do not force a
   one-to-one relationship between them: one push can fan out to several targets,
   and first-plus-latest batching or path-aware preview reuse can avoid a distinct
@@ -244,7 +304,7 @@ It also rejects guessed clean-project splits, provider-attributed splits without
 distinct hashed evidence, provider-attributed minute or cost splits without a
 classified excluded deployment, reused raw or target-attribution evidence,
 legacy-v2 classifications outside the app project, preview/main census totals
-that do not reconcile exactly, source buckets with fewer attempts than events,
+that do not reconcile exactly, path buckets with fewer attempts than events,
 duplicate counts above `attempts - events`, first-preview counters unsupported
 by the derived preview census, and unknown post-cutover deployment activity.
 Completed-check counts cannot exceed their opportunities, regressions cannot
@@ -254,35 +314,44 @@ must remain finite; numeric overflow, `NaN`, and infinity fail closed.
 
 ## Calculations
 
-For target `p`, the input supplies baseline minutes `M_B,p`, baseline eligible
-events `N_B,p`, post-cutover minutes `M_P,p`, and post-cutover eligible events
-`N_P,p`. The analyzer computes:
+For target-and-path cell `c = (p, path)`, the input supplies baseline minutes
+`M_B,c`, baseline eligible events `N_B,c`, post-cutover minutes `M_P,c`, and
+post-cutover eligible events `N_P,c`. The analyzer computes:
 
 ```text
-C = sum over p of N_P,p * (M_B,p / N_B,p)
-S = 1 - (sum over p of M_P,p / C)
+C = sum over c of N_P,c * (M_B,c / N_B,c)
+S = 1 - (sum over c of M_P,c / C)
 ```
 
-The exact, unrounded `S` must be at least `0.90`. The same target-mix calculation
-is applied to `EffectiveCost` and final `BilledCost`, but only savings ratios are
-emitted. Gross savings compare total project Build CPU minutes per complete UTC
-day. Attempts per eligible event and post-cutover Build CPU minutes per trusted
-PR push are reported overall and by target. Every target must independently
-produce a finite, positive build-minute counterfactual and a finite savings
-ratio; a null per-target minute savings value can never coexist with a passing
-report. Per-target savings rows are diagnostic; the 90% threshold applies to the
-aggregate target-mix result. Final BilledCost savings must be finite and
-available before the report can pass.
+The exact, unrounded `S` must be at least `0.90`. A post-cutover path with zero
+events contributes zero to the counterfactual. Any path with observed
+post-cutover events must have nonzero baseline events, so newly observed work
+cannot silently inherit another path's baseline. The same target-by-path
+calculation is applied to `EffectiveCost` and final `BilledCost`, but only
+savings ratios are emitted. A negative savings result for either cost metric,
+at the aggregate or individual path level, fails the observation. Gross savings
+compare total project Build CPU minutes per complete UTC day. Attempts per
+eligible event and post-cutover Build CPU minutes per trusted deployed-code PR
+push are reported overall and by target. Each target's minute contribution is
+divided by the global `trustedDeployedCodePrPushes` denominator; it is not a
+target-specific push count. Every target must independently produce a finite,
+positive build-minute counterfactual and a finite savings ratio; a null
+per-target minute savings value can never coexist with a passing report.
+Per-target savings rows are diagnostic; the 90% threshold applies to the
+aggregate target-by-path result. Final BilledCost savings must be finite and
+available before the observation can pass.
 
 The public-safe output shows migrated and gross Build CPU minutes for every
 target in both windows. It also shows each target's preview/main event, attempt,
-and duplicate census. Absolute cost values, raw FOCUS export digests, and charge
-row counts remain private in both Markdown and JSON output.
+and duplicate census, plus direct links for any failed or unexplained deployment
+attempts. Absolute cost values, raw FOCUS export digests, and charge row counts
+remain private in both Markdown and JSON output.
 
 The command remains failing when any required closeout condition is missing,
 including incomplete billing, a non-final invoice, fewer than seven complete
 days or ten trusted PR pushes, a target with zero events or a non-positive
-minute counterfactual, an actual duplicate deployment, missing standard-runner measurement,
+minute counterfactual, an observed path without a baseline, a negative cost
+savings result, an actual duplicate deployment, missing standard-runner measurement,
 no eligible first-preview opportunity, less than 100% first-preview coverage,
 missing or incomplete smoke/E2E, burst, or legacy-v2 observation coverage,
 incomplete or failed main-deployment observations, native duplicates,
@@ -304,6 +373,10 @@ proven migration-only:
 - legacy `deployment_status` preview-smoke handling only when no surviving
   native path consumes it;
 - duplicate migration-only logs while retaining stable deployment summaries.
+
+Set the corresponding `closeout` flags only after each disposition is complete;
+the analyzer deliberately keeps `pass: false` and exits nonzero while the report
+is `observation-only`, even when `observationPass` is true.
 
 Preserve the planner and tests, reusable prebuilt workflow, active preview/main
 workflows, stable sentinels, rollback runbook, topology/environment semantics,
