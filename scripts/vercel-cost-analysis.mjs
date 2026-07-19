@@ -163,16 +163,35 @@ function assertNonemptyString(value, label) {
   return value;
 }
 
-function assertHttpsUrl(value, label) {
+function assertPublicEvidenceUrl(value, label) {
   assertNonemptyString(value, label);
   let parsed;
   try {
     parsed = new URL(value);
   } catch {
-    throw new Error(`${label} must be an HTTPS URL`);
+    throw new Error(`${label} must be a public evidence URL`);
   }
-  if (parsed.protocol !== "https:") {
-    throw new Error(`${label} must be an HTTPS URL`);
+  const githubEvidence =
+    parsed.hostname === "github.com" &&
+    /^\/mento-protocol\/frontend-monorepo\/(?:actions\/runs\/\d+(?:\/job\/\d+)?|runs\/\d+|deployments\/\d+)\/?$/.test(
+      parsed.pathname,
+    );
+  const vercelDeployment =
+    parsed.hostname.endsWith(".vercel.app") &&
+    parsed.hostname.length > ".vercel.app".length &&
+    parsed.pathname === "/";
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.username !== "" ||
+    parsed.password !== "" ||
+    parsed.port !== "" ||
+    parsed.search !== "" ||
+    parsed.hash !== "" ||
+    (!githubEvidence && !vercelDeployment)
+  ) {
+    throw new Error(
+      `${label} must be a public GitHub run/deployment or root *.vercel.app URL without credentials, query, or fragment`,
+    );
   }
   return value;
 }
@@ -1814,6 +1833,7 @@ function reconcileFocusJsonl(raw, source, aggregateWindow, label) {
   for (const [index, row] of rows.entries()) {
     assertObject(row, `${label} row ${index + 1}`);
     if (row.ConsumedUnit !== FOCUS_UNIT) continue;
+    if (row.ChargeCategory !== "Usage") continue;
     const tags = assertObject(row.Tags, `${label} row ${index + 1}.Tags`);
     const matches = VERCEL_COST_TARGETS.filter((target) => {
       const selector = source.focusProjectTags[target];
@@ -1822,9 +1842,6 @@ function reconcileFocusJsonl(raw, source, aggregateWindow, label) {
     if (matches.length === 0) continue;
     if (matches.length !== 1) {
       throw new Error(`${label} row ${index + 1} matches multiple targets`);
-    }
-    if (row.ChargeCategory !== "Usage") {
-      throw new Error(`${label} row ${index + 1}.ChargeCategory must be Usage`);
     }
     if (row.BillingCurrency !== BILLING_CURRENCY) {
       throw new Error(
@@ -2088,7 +2105,7 @@ function reconcileDeploymentCensusJsonl(
     if (!DEPLOYMENT_OUTCOMES.includes(row.outcome)) {
       throw new Error(`${rowLabel}.outcome is unsupported`);
     }
-    assertHttpsUrl(row.evidenceUrl, `${rowLabel}.evidenceUrl`);
+    assertPublicEvidenceUrl(row.evidenceUrl, `${rowLabel}.evidenceUrl`);
     const createdAt = Date.parse(row.createdAtUtc);
     if (
       typeof row.createdAtUtc !== "string" ||

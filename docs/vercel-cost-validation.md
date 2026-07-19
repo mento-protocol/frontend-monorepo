@@ -147,9 +147,12 @@ cannot reuse the same provider evidence for its baseline and post-cutover split.
    `deploymentCensusComplete: true` only after pagination and UTC-boundary
    completeness are verified. Normalize one JSONL row per deployment attempt
    with `deploymentId`, `createdAtUtc`, `target`, `path`, `source`, `outcome`,
-   `sourceSha`, and a public-safe direct `evidenceUrl`. Duplicate deployment IDs,
-   rows outside the interval, digest mismatches, or incomplete-census assertions
-   fail closed. One eligible event key is `target:path:sourceSha`. Count every native,
+   `sourceSha`, and a public-safe direct `evidenceUrl`. The analyzer accepts only
+   this public repository's GitHub run/deployment URLs or a root `*.vercel.app`
+   deployment URL, with no credentials, query string, fragment, or custom port.
+   Vercel dashboard URLs are private evidence and fail closed. Duplicate deployment
+   IDs, rows outside the interval, digest mismatches, or incomplete-census
+   assertions fail closed. One eligible event key is `target:path:sourceSha`. Count every native,
    prebuilt, failed, cancelled, and rerun deployment attempt; do not use attempts
    as the event denominator. In both the baseline and post-cutover windows,
    deployment attempts must be at least the number of eligible events.

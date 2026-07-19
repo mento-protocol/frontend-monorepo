@@ -9,7 +9,7 @@
       "attributionJsonl": "baseline.attribution.jsonl",
       "attributionJsonlSha256": "9f3f5427db8810571e15fb0e42aa2a702040c6f6d82c1897d77dc36015aa12a8",
       "deploymentCensusJsonl": "baseline.deployments.jsonl",
-      "deploymentCensusSha256": "abe654ee8763fac6084a4e9c5425ed3d073271707775ed8954e0b383e8a6cd71",
+      "deploymentCensusSha256": "5e3d97a9de3d8d9c03df2c79f60b34bfcb02db61e71ad3b7d2293f2b94d54c01",
       "deploymentCensusComplete": true,
       "focusProjectTags": {
         "app": { "key": "ProjectName", "value": "app.mento.org" },
@@ -28,7 +28,7 @@
       "attributionJsonl": "post.attribution.jsonl",
       "attributionJsonlSha256": "66e01d013c99010c6eb92ba97117085e9ebccafdcb5aa6d652c82e53d2ec0a96",
       "deploymentCensusJsonl": "post.deployments.jsonl",
-      "deploymentCensusSha256": "442600cbdd14d38ba067ea933815f00b43c10b0f8aa0e6e17a31d4eeab6e2c7e",
+      "deploymentCensusSha256": "a801dbfc423b6d8d74a0a9b5a8d2a6eb8cb1f9888a2fb33d8330218b7ee77474",
       "deploymentCensusComplete": true,
       "focusProjectTags": {
         "app": { "key": "ProjectName", "value": "app.mento.org" },

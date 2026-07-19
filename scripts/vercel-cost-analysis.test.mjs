@@ -1185,6 +1185,46 @@ test("loads and reconciles raw FOCUS, provider attribution, and deployment censu
   );
 });
 
+test("filters non-Usage FOCUS rows before reconciling usage totals", () => {
+  const temporaryDirectory = mkdtempSync(
+    join(tmpdir(), "vercel-focus-filter-"),
+  );
+  try {
+    const original = readFileSync(
+      resolve(fixtureDirectory, "baseline.focus.jsonl"),
+      "utf8",
+    );
+    const creditRow = {
+      ChargeCategory: "Credit",
+      ChargePeriodStart: "2026-07-01T00:00:00Z",
+      ChargePeriodEnd: "2026-07-15T00:00:00Z",
+      ConsumedQuantity: "-240",
+      ConsumedUnit: "Build CPU Minutes",
+      EffectiveCost: "-48",
+      BilledCost: "-48",
+      BillingCurrency: "USD",
+      Tags: { ProjectName: "app.mento.org" },
+    };
+    const raw = `${original}${JSON.stringify(creditRow)}\n`;
+    const focusPath = join(temporaryDirectory, "baseline.focus.jsonl");
+    writeFileSync(focusPath, raw);
+    const evidence = fixture();
+    evidence.baseline.period.focusExportSha256 = sha256(raw);
+    const aggregatePath = join(temporaryDirectory, "aggregate.json");
+    writeFileSync(aggregatePath, `${JSON.stringify(evidence, null, 2)}\n`);
+    const manifest = manifestForAggregate(aggregatePath);
+    manifest.windows.baseline.focusJsonl = focusPath;
+    const manifestPath = join(temporaryDirectory, "manifest.json");
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const analysis = analyzeVercelCostManifest(manifestPath);
+    assert.equal(analysis.pass, true);
+    assert.equal(analysis.sourceEvidence.rawFocusReconciled, true);
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
 test("fails closed when raw FOCUS rows do not reconcile to project totals", () => {
   const temporaryDirectory = mkdtempSync(join(tmpdir(), "vercel-focus-"));
   try {
@@ -1252,6 +1292,45 @@ test("requires complete, untampered deployment census evidence with unique IDs",
   }
 });
 
+test("rejects private or credential-bearing deployment evidence URLs", () => {
+  const temporaryDirectory = mkdtempSync(join(tmpdir(), "vercel-census-url-"));
+  try {
+    const originalRows = readFileSync(
+      resolve(fixtureDirectory, "post.deployments.jsonl"),
+      "utf8",
+    )
+      .trimEnd()
+      .split("\n")
+      .map((row) => JSON.parse(row));
+    const unsafeUrls = [
+      "https://vercel.com/mentolabs/app.mento.org/dpl_Private",
+      "https://user:secret@example-preview.vercel.app/",
+      "https://example-preview.vercel.app/?token=secret",
+      "https://example-preview.vercel.app/#private",
+    ];
+
+    for (const [index, evidenceUrl] of unsafeUrls.entries()) {
+      const rows = structuredClone(originalRows);
+      rows[0].evidenceUrl = evidenceUrl;
+      const census = `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`;
+      const censusPath = join(temporaryDirectory, `post-${index}.jsonl`);
+      writeFileSync(censusPath, census);
+      const manifest = manifestForAggregate(fileURLToPath(fixtureUrl));
+      manifest.windows.postCutover.deploymentCensusJsonl = censusPath;
+      manifest.windows.postCutover.deploymentCensusSha256 = sha256(census);
+      const manifestPath = join(temporaryDirectory, `manifest-${index}.json`);
+      writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+      assert.throws(
+        () => analyzeVercelCostManifest(manifestPath),
+        /evidenceUrl must be a public GitHub run\/deployment or root \*\.vercel\.app URL without credentials, query, or fragment/,
+      );
+    }
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
 test("renders direct links for failed deployment attempts without calling them duplicates", () => {
   const temporaryDirectory = mkdtempSync(join(tmpdir(), "vercel-anomaly-"));
   try {
@@ -1267,7 +1346,7 @@ test("renders direct links for failed deployment attempts without calling them d
       outcome: "error",
       sourceSha: "1000000000000000000000000000000000000001",
       createdAtUtc: "2026-07-17T01:30:00.000Z",
-      evidenceUrl: "https://vercel.com/evidence/dpl_PAppP4",
+      evidenceUrl: "https://example-preview.vercel.app/",
     };
     const census = `${original}${JSON.stringify(failedRow)}\n`;
     const censusPath = join(temporaryDirectory, "post.deployments.jsonl");
@@ -1290,7 +1369,7 @@ test("renders direct links for failed deployment attempts without calling them d
     assert.equal(analysis.eventCensus.app.postCutover.duplicateDeployments, 0);
     assert.match(
       formatVercelCostMarkdown(analysis),
-      /\[dpl_PAppP4\]\(https:\/\/vercel\.com\/evidence\/dpl_PAppP4\)/,
+      /\[dpl_PAppP4\]\(https:\/\/example-preview\.vercel\.app\/\)/,
     );
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });
