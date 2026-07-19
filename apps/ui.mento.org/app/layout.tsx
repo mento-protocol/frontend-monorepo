@@ -29,7 +29,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body
         className={inter.className}
-        data-vercel-preview-cancel-canary="latest-y"
+        data-vercel-preview-cancel-canary="candidate-x2"
       >
         <AppShell>{children}</AppShell>
       </body>
