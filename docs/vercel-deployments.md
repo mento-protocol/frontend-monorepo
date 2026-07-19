@@ -1258,16 +1258,23 @@ reaches `main`, each inventoried branch must rebase or merge that `main`, or
 receive an explicitly reviewed equivalent branch update containing the exact
 rollback configuration, before native preview restoration can be claimed.
 
+The rollback PR must also update the executable ownership assertion in
+`scripts/vercel-git-ownership.test.mjs` and the current-state ownership text in
+`README.md` and this runbook. Do not merge a configuration-only rollback that
+leaves repository tests or operator documentation claiming that GitHub Actions
+still owns UI branch previews.
+
 Use a fresh or restored-main-rebased UI canary to prove native previews return.
 A fresh canary proves only its own branch and is not evidence that every active
 Phase B branch was restored. Remove or leave non-required the `Vercel Preview`
 ruleset context until the controller is repaired. Do not change production
 domains, other apps, or recreate Governance QA.
 
-### Cleanup
+### Historical Phase A pilot cleanup
 
-After evidence is saved, a maintainer may remove only the pilot's immutable
-preview using the preview-scoped CLI credential:
+This is historical Phase A evidence, not a current Phase B operation. After the
+Phase A pilot evidence was saved, a maintainer could remove only that pilot's
+immutable preview using the preview-scoped CLI credential:
 
 ```bash
 export VERCEL_TOKEN="<preview-scoped-token>"
@@ -1276,6 +1283,8 @@ pnpm exec vercel remove "<immutable-vercel-deployment-url-or-id>" --yes
 
 Confirm the value is the unique pilot URL or `dpl_` ID from the run summary.
 Never pass a production domain or alias, and do not change Vercel Git settings.
+Do not use this retired pilot command to remove current controller-managed
+previews.
 
 The complete zero-network pilot and automatic-preview suites are:
 
