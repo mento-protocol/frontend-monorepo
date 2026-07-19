@@ -27,7 +27,10 @@ export default function RootLayout({
 }): React.ReactElement {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
+      <body
+        className={inter.className}
+        data-vercel-preview-cancel-canary="candidate-x"
+      >
         <AppShell>{children}</AppShell>
       </body>
     </html>

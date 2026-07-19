@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function Home() {
-  redirect("/interactive-components");
+  redirect("/basic-components");
 }
