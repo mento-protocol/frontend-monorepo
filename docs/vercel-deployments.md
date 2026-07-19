@@ -659,12 +659,12 @@ failure could not overwrite a verified deployment's lifecycle truth. The
 reusable workflow published `deployment_url` only from the smoke-backed success
 step; it never fell back to the unverified upload output.
 
-A Deployment or status created with the repository `GITHUB_TOKEN` did not
+A Deployment or status created with the repository `GITHUB_TOKEN` does not
 trigger another workflow run. Therefore `.github/workflows/preview-smoke.yml`
 did not recurse for the pilot. Direct smoke in the reusable worker was the
-required success gate. The pilot did not add a PAT to force
-`deployment_status` recursion. The dedicated worker-dispatch PAT was not an
-exception; its sole purpose was the automatic controller's worker
+required success gate. Do not add a PAT to force `deployment_status` recursion;
+the Phase A pilot did not need one. The dedicated worker-dispatch PAT was not
+an exception; its sole purpose was the automatic controller's worker
 `workflow_dispatch` POST described below.
 
 ### Historical Phase A evidence and browser verification
