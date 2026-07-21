@@ -2233,6 +2233,23 @@ test("docs-only checkpoint tails preserve prior runtime terminal semantics", () 
       runtime: false,
       updated: timestamp(2),
     });
+    if (terminalCase.state === "success") {
+      const baselineWithoutBuildEvidence = structuredClone(journal.state);
+      baselineWithoutBuildEvidence.ui.last_successful_runtime_sha = null;
+      baselineWithoutBuildEvidence.ui.last_successful_runtime_url = null;
+      const syntheticReplay = reconcile({
+        events: [firstDocs],
+        pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
+        existingState: baselineWithoutBuildEvidence,
+        checkpoint: journal.checkpoint,
+      });
+      assert.match(
+        syntheticReplay.state.status_decisions.at(-1).description,
+        /^Runtime-equivalent to /,
+      );
+      assert.equal(syntheticReplay.state.ui.last_successful_runtime_sha, null);
+      assert.equal(syntheticReplay.state.ui.last_successful_runtime_url, null);
+    }
     const firstDocsState = reconcile({
       events: [firstDocs],
       pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
@@ -5129,6 +5146,283 @@ test("native A through docs-only C stays native until only GitHub-owned B dispat
   );
 });
 
+test("sequential native ownership checkpoints through docs-only C before only GitHub-owned B dispatches", async () => {
+  const opened = event({
+    run: 124,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const docsOnly = event({
+    run: 125,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.C,
+    runtime: false,
+    updated: timestamp(2),
+  });
+  const synchronized = event({
+    run: 126,
+    action: "synchronize",
+    before: SHA.C,
+    head: SHA.B,
+    updated: timestamp(3),
+  });
+  const pullA = pull({ head: SHA.A, updated: timestamp(1) });
+  const pullC = pull({ head: SHA.C, updated: timestamp(2) });
+  const fixture = fakeGitHub({
+    pullRequest: pullC,
+    pullRequests: [pullA],
+    pullCommits: [SHA.A, SHA.C],
+    comments: [journalComment({ events: [opened] })],
+    uiVercelConfigurationsByRef: new Map([
+      [SHA.A, NATIVE_OWNED_UI_VERCEL_CONFIGURATION],
+      [SHA.C, NATIVE_OWNED_UI_VERCEL_CONFIGURATION],
+    ]),
+  });
+
+  const nativeA = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext({ runId: 7_001 }),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.deployments.length, 0);
+  assert.equal(nativeA.ui.last_successful_runtime_sha, null);
+  assert.equal(nativeA.ui.last_successful_runtime_url, null);
+  assert.deepEqual(nativeA.status_decisions, [
+    {
+      sha: SHA.A,
+      state: "success",
+      description: "Native Vercel owns this UI preview",
+      target_url:
+        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/7001",
+    },
+  ]);
+  const externalNativeA = fixture.commitStatuses.at(-1);
+  assert.deepEqual(
+    {
+      sha: externalNativeA.sha,
+      state: externalNativeA.state,
+      description: externalNativeA.description,
+      target_url: externalNativeA.target_url,
+    },
+    nativeA.status_decisions[0],
+  );
+
+  await recordEventReceipt({
+    github: fixture.github,
+    context: fakeContext({ runId: docsOnly.event_run_id }),
+    core: fakeCore(),
+    ...eventRecordInputs(docsOnly),
+  });
+  let journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.checkpoint.event.head_sha, SHA.A);
+  assert.equal(journal.checkpoint.status.state, "success");
+  assert.equal(
+    journal.checkpoint.status.description,
+    "Native Vercel owns this UI preview",
+  );
+  assert.deepEqual(journal.receipts.events, [docsOnly]);
+  for (const status of [
+    { ...journal.checkpoint.status, state: "failure" },
+    {
+      ...journal.checkpoint.status,
+      target_url: "https://example.com/actions/runs/7001",
+    },
+  ]) {
+    assert.throws(
+      () =>
+        createPreviewJournal({
+          pr: 519,
+          revision: journal.revision,
+          checkpoint: { ...journal.checkpoint, status },
+          events: journal.receipts.events,
+          selections: journal.receipts.selections,
+          workerEvidence: journal.receipts.worker_evidence,
+          results: journal.receipts.results,
+          state: journal.state,
+        }),
+      /native ownership status is invalid/,
+    );
+  }
+  assert.throws(
+    () =>
+      createPreviewJournal({
+        pr: 519,
+        revision: journal.revision,
+        checkpoint: {
+          ...journal.checkpoint,
+          status: {
+            ...journal.checkpoint.status,
+            description: "Draining GitHub preview before native ownership",
+          },
+        },
+        events: journal.receipts.events,
+        selections: journal.receipts.selections,
+        workerEvidence: journal.receipts.worker_evidence,
+        results: journal.receipts.results,
+        state: journal.state,
+      }),
+    /native ownership drain status is invalid/,
+  );
+
+  const nativeC = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext({ runId: 7_002 }),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.deployments.length, 0);
+  assert.equal(nativeC.ui.last_successful_runtime_sha, null);
+  assert.equal(nativeC.ui.last_successful_runtime_url, null);
+  assert.deepEqual(nativeC.status_decisions.at(-1), {
+    sha: SHA.C,
+    state: "success",
+    description: "Native Vercel owns this UI preview",
+    target_url:
+      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/7002",
+  });
+
+  journal = journalFromComment(fixture.comments[0]);
+  const pullB = pull({ head: SHA.B, updated: timestamp(3) });
+  const githubFixture = fakeGitHub({
+    pullRequest: pullB,
+    pullCommits: [SHA.A, SHA.C, SHA.B],
+    comments: [
+      journalComment({
+        revision: journal.revision,
+        checkpoint: journal.checkpoint,
+        events: journal.receipts.events,
+        selections: journal.receipts.selections,
+        workerEvidence: journal.receipts.worker_evidence,
+        results: journal.receipts.results,
+        state: journal.state,
+      }),
+    ],
+    uiVercelConfigurationsByRef: new Map([
+      [SHA.B, GITHUB_OWNED_UI_VERCEL_CONFIGURATION],
+    ]),
+  });
+  await recordEventReceipt({
+    github: githubFixture.github,
+    context: fakeContext({ runId: synchronized.event_run_id }),
+    core: fakeCore(),
+    ...eventRecordInputs(synchronized),
+  });
+  const beforeGitHubReconcile = journalFromComment(githubFixture.comments[0]);
+  assert.equal(beforeGitHubReconcile.checkpoint.event.head_sha, SHA.C);
+  assert.equal(beforeGitHubReconcile.checkpoint.status.state, "success");
+  assert.equal(
+    beforeGitHubReconcile.checkpoint.status.description,
+    "Native Vercel owns this UI preview",
+  );
+  assert.deepEqual(beforeGitHubReconcile.receipts.events, [synchronized]);
+  assert.equal(
+    beforeGitHubReconcile.state.ui.last_successful_runtime_sha,
+    null,
+  );
+  assert.equal(
+    beforeGitHubReconcile.state.ui.last_successful_runtime_url,
+    null,
+  );
+  const githubB = await reconcilePreview({
+    github: githubFixture.github,
+    context: fakeContext({ runId: 7_003 }),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+  assert.equal(githubFixture.dispatches.length, 1);
+  assert.equal(githubFixture.workerDispatchRequests.length, 1);
+  assert.equal(githubFixture.dispatches[0].inputs.commit_sha, SHA.B);
+  assert.equal(githubFixture.deployments.length, 0);
+  assert.equal(githubB.ui.active.sha, SHA.B);
+  assert.equal(githubB.ui.last_successful_runtime_sha, null);
+  assert.equal(githubB.ui.last_successful_runtime_url, null);
+  assert.deepEqual(githubB.status_decisions, [
+    {
+      sha: SHA.C,
+      state: "success",
+      description: "Native Vercel owns this UI preview",
+      target_url:
+        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/7002",
+    },
+    {
+      sha: SHA.B,
+      state: "pending",
+      description: "UI preview queued or running",
+      target_url: githubB.ui.active.html_url,
+    },
+  ]);
+  const finalJournal = journalFromComment(githubFixture.comments[0]);
+  assert.equal(finalJournal.receipts.results.length, 0);
+});
+
+test("native no-dispatch status selects the latest current-head decision after a force-reset SHA revisit", async () => {
+  const opened = event({
+    run: 127,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const synchronizedB = event({
+    run: 128,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    updated: timestamp(2),
+  });
+  const synchronizedA = event({
+    run: 129,
+    action: "synchronize",
+    before: SHA.B,
+    head: SHA.A,
+    updated: timestamp(3),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.A, updated: timestamp(3) }),
+    pullCommits: [SHA.A, SHA.B],
+    comments: [
+      journalComment({ events: [opened, synchronizedB, synchronizedA] }),
+    ],
+    uiVercelConfigurationsByRef: new Map([
+      [SHA.A, NATIVE_OWNED_UI_VERCEL_CONFIGURATION],
+    ]),
+  });
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext({ runId: 7_004 }),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.deployments.length, 0);
+  const repeatedHeadDecisions = state.status_decisions.filter(
+    ({ sha }) => sha === SHA.A,
+  );
+  assert.equal(repeatedHeadDecisions.length, 2);
+  assert.equal(repeatedHeadDecisions[0].state, "pending");
+  assert.deepEqual(repeatedHeadDecisions[1], {
+    sha: SHA.A,
+    state: "success",
+    description: "Native Vercel owns this UI preview",
+    target_url:
+      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/7004",
+  });
+  assert.deepEqual(
+    fixture.commitStatuses.at(-1).description,
+    repeatedHeadDecisions[1].description,
+  );
+});
+
 test("generic no-dispatch retirement does not claim native ownership of a GitHub-owned SHA", () => {
   const opened = event({
     run: 121,
@@ -5986,6 +6280,13 @@ test("observe-only mode durably attaches an in-progress crash-window worker and 
   const journal = journalFromComment(fixture.comments[0]);
   assert.equal(journal.state.ui.active.workflow_run_id, 8_000);
   assert.equal(journal.receipts.results.length, 0);
+  assert.deepEqual(journal.state.status_decisions.at(-1), {
+    sha: SHA.A,
+    state: "pending",
+    description: "Draining GitHub preview before native ownership",
+    target_url:
+      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/7001",
+  });
   assert.equal(fixture.commitStatuses.at(-1).state, "pending");
   assert.equal(
     fixture.commitStatuses.at(-1).description,

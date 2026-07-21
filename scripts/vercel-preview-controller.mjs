@@ -92,6 +92,14 @@ const RETIRED_RECOVERY_QUARANTINE = "persisted-attempt-invalid-or-unavailable";
 const NO_DISPATCH_ORPHAN_REASON = "dispatch-disabled-intent-without-worker";
 const NATIVE_OWNED_SELECTION_REASON =
   "native-owned-selection-without-github-worker";
+const CHECKPOINTED_TERMINAL_REASON = "checkpointed-terminal-status";
+const NATIVE_OWNED_STATUS_DESCRIPTION = "Native Vercel owns this UI preview";
+const NATIVE_OWNERSHIP_DRAINING_STATUS_DESCRIPTION =
+  "Draining GitHub preview before native ownership";
+const OBSERVE_ONLY_STATUS_DESCRIPTION =
+  "GitHub preview dispatch is observe-only";
+const CONTROLLER_RUN_URL_PATTERN =
+  /^https:\/\/github\.com\/mento-protocol\/frontend-monorepo\/actions\/runs\/[1-9][0-9]*$/;
 const SELECTION_SCOPED_CONTROLLER_RESULT_REASONS = new Set([
   NO_DISPATCH_ORPHAN_REASON,
   NATIVE_OWNED_SELECTION_REASON,
@@ -1257,6 +1265,14 @@ function statusFromCheckpointRuntime({
   checkpointStatus,
   controllerUrl,
 }) {
+  if (isNativeOwnedCheckpointStatus(checkpointStatus, runtimeEvent)) {
+    return {
+      sha: event.head_sha,
+      state: "success",
+      description: NATIVE_OWNED_STATUS_DESCRIPTION,
+      target_url: controllerUrl,
+    };
+  }
   if (checkpointStatus.state === "success") {
     return {
       sha: event.head_sha,
@@ -1292,6 +1308,42 @@ function statusFromCheckpointRuntime({
   };
 }
 
+function isControllerRunStatusDecision(status, state, description) {
+  return (
+    status?.state === state &&
+    status.description === description &&
+    CONTROLLER_RUN_URL_PATTERN.test(status.target_url ?? "")
+  );
+}
+
+function isNativeOwnedStatusDecision(status) {
+  return isControllerRunStatusDecision(
+    status,
+    "success",
+    NATIVE_OWNED_STATUS_DESCRIPTION,
+  );
+}
+
+function isNativeOwnedCheckpointStatus(status, event) {
+  return (
+    isNativeOwnedStatusDecision(status) &&
+    event.trust === "trusted" &&
+    event.pr_state === "open"
+  );
+}
+
+function isNativeOwnershipDrainingCheckpointStatus(status, event) {
+  return (
+    isControllerRunStatusDecision(
+      status,
+      "pending",
+      NATIVE_OWNERSHIP_DRAINING_STATUS_DESCRIPTION,
+    ) &&
+    event.trust === "trusted" &&
+    event.pr_state === "open"
+  );
+}
+
 function statusDecision({
   event,
   index,
@@ -1319,7 +1371,7 @@ function statusDecision({
     return {
       sha: event.head_sha,
       state: "success",
-      description: "Native Vercel owns this UI preview",
+      description: NATIVE_OWNED_STATUS_DESCRIPTION,
       target_url: controllerUrl,
     };
   }
@@ -1384,7 +1436,7 @@ function statusDecision({
       return {
         sha: event.head_sha,
         state: "success",
-        description: "Native Vercel owns this UI preview",
+        description: NATIVE_OWNED_STATUS_DESCRIPTION,
         target_url: controllerUrl,
       };
     }
@@ -1851,7 +1903,12 @@ export function reconcileState({
       state: selectedCheckpoint.status.state,
       sha: selectedCheckpoint.event.head_sha,
       vercel_deployment_url: selectedCheckpoint.status.target_url,
-      terminal_reason: "checkpointed-terminal-status",
+      terminal_reason: isNativeOwnedCheckpointStatus(
+        selectedCheckpoint.status,
+        selectedCheckpoint.event,
+      )
+        ? NATIVE_OWNED_SELECTION_REASON
+        : CHECKPOINTED_TERMINAL_REASON,
     });
   }
   if (
@@ -2110,7 +2167,10 @@ export function reconcileState({
     ),
   );
   const successes = [...resultByRun.entries()]
-    .filter(([, result]) => result.state === "success")
+    .filter(
+      ([, result]) =>
+        result.state === "success" && result.schema === RESULT_RECEIPT_SCHEMA,
+    )
     .sort(([runA], [runB]) => {
       const indexA = lineage.findIndex((event) => event.event_run_id === runA);
       const indexB = lineage.findIndex((event) => event.event_run_id === runB);
@@ -2442,6 +2502,18 @@ function validatePreviewCheckpoint(value, expectedPr) {
     "Preview checkpoint event identity mismatch",
   );
   const status = validateCheckpointStatus(checkpoint.status, event);
+  if (status.description === NATIVE_OWNED_STATUS_DESCRIPTION) {
+    invariant(
+      isNativeOwnedCheckpointStatus(status, event),
+      "Preview checkpoint native ownership status is invalid",
+    );
+  }
+  if (status.description === NATIVE_OWNERSHIP_DRAINING_STATUS_DESCRIPTION) {
+    invariant(
+      isNativeOwnershipDrainingCheckpointStatus(status, event),
+      "Preview checkpoint native ownership drain status is invalid",
+    );
+  }
   if (checkpoint.pending_owner_key_digest === null) {
     invariant(
       checkpoint.pending_owner_attempt_count === 0,
@@ -4493,6 +4565,54 @@ function hasLiveGitHubPreviewOwnership(state) {
   );
 }
 
+function persistNoDispatchHeadDecision({
+  state,
+  previousState,
+  pull,
+  previewOwner,
+  controllerMode,
+  controllerUrl,
+}) {
+  const index = state.status_decisions.findLastIndex(
+    (decision) => decision.sha === pull.headSha,
+  );
+  invariant(index >= 0, "Current-head no-dispatch status decision is missing");
+  let desired;
+  if (previewOwner === UI_PREVIEW_OWNER_NATIVE) {
+    const liveGitHubOwnership = hasLiveGitHubPreviewOwnership(state);
+    desired = {
+      sha: pull.headSha,
+      state: liveGitHubOwnership ? "pending" : "success",
+      description: liveGitHubOwnership
+        ? NATIVE_OWNERSHIP_DRAINING_STATUS_DESCRIPTION
+        : NATIVE_OWNED_STATUS_DESCRIPTION,
+      target_url: controllerUrl,
+    };
+  } else {
+    invariant(
+      controllerMode === "observe-only",
+      "Active no-dispatch reconciliation has no native preview owner",
+    );
+    desired = {
+      sha: pull.headSha,
+      state: "success",
+      description: OBSERVE_ONLY_STATUS_DESCRIPTION,
+      target_url: controllerUrl,
+    };
+  }
+  const previous = (previousState?.status_decisions ?? []).findLast(
+    (decision) => decision.sha === pull.headSha,
+  );
+  state.status_decisions[index] = isControllerRunStatusDecision(
+    previous,
+    desired.state,
+    desired.description,
+  )
+    ? { ...desired, target_url: previous.target_url }
+    : desired;
+  return structuredClone(state.status_decisions[index]);
+}
+
 export async function reconcilePreview({
   github,
   workerDispatchGithub = null,
@@ -4597,6 +4717,17 @@ export async function reconcilePreview({
         continue reconcileAttempts;
       }
       if (noDispatch) {
+        let headDecision = null;
+        if (currentPull.state === "open") {
+          headDecision = persistNoDispatchHeadDecision({
+            state,
+            previousState: parsed.state,
+            pull: currentPull,
+            previewOwner,
+            controllerMode,
+            controllerUrl,
+          });
+        }
         stateComment = await writeControllerState({
           github,
           context,
@@ -4604,22 +4735,19 @@ export async function reconcilePreview({
           state,
           stateComment,
         });
-        if (currentPull.state === "open") {
-          const liveGitHubOwnership = hasLiveGitHubPreviewOwnership(state);
-          const nativeOwner = previewOwner === UI_PREVIEW_OWNER_NATIVE;
+        if (headDecision) {
           await github.rest.repos.createCommitStatus({
             ...ownerRepo(context),
-            sha: currentPull.headSha,
-            state: nativeOwner && liveGitHubOwnership ? "pending" : "success",
+            sha: headDecision.sha,
+            state: headDecision.state,
             context: PREVIEW_STATUS_CONTEXT,
-            description: nativeOwner
-              ? liveGitHubOwnership
-                ? "Draining GitHub preview before native ownership"
-                : "Native Vercel owns this UI preview"
-              : "GitHub preview dispatch is observe-only",
-            target_url: controllerUrl,
+            description: headDecision.description,
+            target_url: headDecision.target_url,
           });
-          if (nativeOwner && liveGitHubOwnership) {
+          if (
+            previewOwner === UI_PREVIEW_OWNER_NATIVE &&
+            headDecision.state === "pending"
+          ) {
             core.setOutput("preview_ownership_draining", "true");
           }
         }

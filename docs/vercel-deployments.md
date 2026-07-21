@@ -1356,7 +1356,12 @@ unknown candidate configuration, multiple matching workers, and an
 
 That green context proves only the controller's owner selection and drained
 journal state. Its target is the controller run as audit evidence; it does not
-prove that native Vercel built, deployed, or smoke-tested the candidate. Before
+prove that native Vercel built, deployed, or smoke-tested the candidate. The
+same current-head ownership decision is persisted in the
+journal and posted as the external status. A native-ownership checkpoint keeps
+that meaning across later docs-only pushes but never updates
+`last_successful_runtime_*`; only validated live worker evidence can replace
+that build-and-smoke provenance. Before
 merging the rollback, separately require the native Vercel deployment/status
 for the rollback PR's exact head SHA, open its immutable preview URL, and run the
 repository browser protocol: verify rendering and primary navigation, inspect
