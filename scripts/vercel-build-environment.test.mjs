@@ -11,6 +11,7 @@ import {
   BUILD_VARIABLE_CLASSIFICATIONS,
   getVercelBuildRequirements,
   loadVercelPulledEnvironment,
+  validateVercelBuildCredentialBoundary,
   validateVercelBuildEnvironment,
 } from "./vercel-build-environment.mjs";
 
@@ -184,6 +185,7 @@ test("Vercel-pulled files are loaded before explicit workflow values", () => {
     );
     assert.deepEqual(
       loadVercelPulledEnvironment({
+        target: "app",
         projectDirectory: directory,
         environment: "preview",
         values: { VERCEL_ENV: "preview" },
@@ -205,6 +207,7 @@ test("missing Vercel-pulled files fail closed without exposing values", () => {
     assert.throws(
       () =>
         loadVercelPulledEnvironment({
+          target: "app",
           projectDirectory: directory,
           environment: "v3",
           values: { SECRET_VALUE: "do-not-print-this-secret-value" },
@@ -275,6 +278,94 @@ test("missing-variable failures reveal names but never values", () => {
       assert.doesNotMatch(error.message, new RegExp(secretValue));
       return true;
     },
+  );
+});
+
+test("sensitive build variables come only from the exact explicit target scope", () => {
+  assert.deepEqual(
+    validateVercelBuildCredentialBoundary({
+      target: "governance",
+      environment: "preview",
+      pulledValues: {},
+      explicitValues: { ETHERSCAN_API_KEY: "governance-secret" },
+    }),
+    { target: "governance", environment: "preview", checked: 2 },
+  );
+  assert.deepEqual(
+    validateVercelBuildCredentialBoundary({
+      target: "reserve",
+      environment: "preview",
+      pulledValues: {},
+      explicitValues: {},
+    }),
+    { target: "reserve", environment: "preview", checked: 2 },
+  );
+  assert.deepEqual(
+    validateVercelBuildCredentialBoundary({
+      target: "app",
+      environment: "production",
+      pulledValues: {},
+      explicitValues: { SENTRY_AUTH_TOKEN: "app-production-secret" },
+    }),
+    { target: "app", environment: "production", checked: 2 },
+  );
+});
+
+test("preview credential boundaries reject pulled sensitive values and cross-target secrets by name", () => {
+  const secretValue = "do-not-print-this-sensitive-value";
+  for (const fixture of [
+    {
+      target: "governance",
+      pulledValues: { ETHERSCAN_API_KEY: secretValue },
+      explicitValues: { ETHERSCAN_API_KEY: secretValue },
+      expectedName: "ETHERSCAN_API_KEY",
+    },
+    {
+      target: "app",
+      pulledValues: { SENTRY_AUTH_TOKEN: secretValue },
+      explicitValues: {},
+      expectedName: "SENTRY_AUTH_TOKEN",
+    },
+    {
+      target: "reserve",
+      pulledValues: {},
+      explicitValues: { ETHERSCAN_API_KEY: secretValue },
+      expectedName: "ETHERSCAN_API_KEY",
+    },
+    {
+      target: "ui",
+      pulledValues: {},
+      explicitValues: { SENTRY_AUTH_TOKEN: secretValue },
+      expectedName: "SENTRY_AUTH_TOKEN",
+    },
+  ]) {
+    assert.throws(
+      () =>
+        validateVercelBuildCredentialBoundary({
+          target: fixture.target,
+          environment: "preview",
+          pulledValues: fixture.pulledValues,
+          explicitValues: fixture.explicitValues,
+        }),
+      (error) => {
+        assert.match(error.message, new RegExp(fixture.expectedName));
+        assert.doesNotMatch(error.message, new RegExp(secretValue));
+        return true;
+      },
+    );
+  }
+});
+
+test("governance preview requires its explicit explorer key without exposing values", () => {
+  assert.throws(
+    () =>
+      validateVercelBuildCredentialBoundary({
+        target: "governance",
+        environment: "preview",
+        pulledValues: {},
+        explicitValues: {},
+      }),
+    /Missing explicit sensitive Vercel build variables: ETHERSCAN_API_KEY/,
   );
 });
 

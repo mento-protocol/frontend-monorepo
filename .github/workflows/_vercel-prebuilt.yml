@@ -70,6 +70,9 @@ on:
         default: ""
         type: string
     secrets:
+      etherscan_api_key:
+        description: Governance-only preview explorer verification secret
+        required: false
       vercel_token:
         description: Preview-scoped Vercel CLI token
         required: true
@@ -449,7 +452,7 @@ jobs:
           fi
           "$path_pnpm" --version | /usr/bin/grep -Fxq "10.34.4"
 
-      - name: Validate pilot contract and prepare immutable build identity
+      - name: Validate prebuilt contract and prepare immutable build identity
         id: prepare
         env:
           DEPLOYMENT_IDEMPOTENCY_KEY: ${{ inputs.deployment_idempotency_key }}
@@ -880,7 +883,7 @@ jobs:
           WORKFLOW_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
         run: node "$GITHUB_WORKSPACE/controller/scripts/github-deployment.mjs" status
 
-      - name: Pull branch-specific UI preview settings
+      - name: Pull branch-specific preview settings
         id: pull
         env:
           GIT_BRANCH: ${{ inputs.git_branch }}
@@ -901,9 +904,12 @@ jobs:
           VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
         run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" validate-pull-staging
 
-      - name: Validate runner-owned UI preview build variables
+      - name: Validate runner-owned non-Governance preview build variables
+        if: inputs.logical_target != 'governance'
         env:
           CI: 1
+          EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
+          LOGICAL_TARGET: ${{ inputs.logical_target }}
           NEXT_PUBLIC_VERCEL_ENV: preview
           PULL_STAGING_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pull-staging
           VERCEL: 1
@@ -911,10 +917,10 @@ jobs:
           VERCEL_TARGET_ENV: preview
         run: >-
           node "$GITHUB_WORKSPACE/controller/scripts/vercel-build-environment.mjs"
-          check --target ui --environment preview
-          --project-directory "$PULL_STAGING_PATH/apps/ui.mento.org"
+          check --target "$LOGICAL_TARGET" --environment preview
+          --project-directory "$PULL_STAGING_PATH/$EXPECTED_ROOT_DIRECTORY"
 
-      - name: Stage trusted UI project settings into candidate source
+      - name: Stage trusted project settings into candidate source
         env:
           BUILD_GID: ${{ steps.isolation.outputs.build_gid }}
           BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
@@ -950,7 +956,7 @@ jobs:
             exit 1
           fi
 
-      - name: Assert isolated UI project mapping
+      - name: Assert isolated project mapping
         env:
           BUILD_GID: ${{ steps.isolation.outputs.build_gid }}
           BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
@@ -984,7 +990,7 @@ jobs:
             exit 1
           fi
 
-      - name: Build the UI prebuilt output
+      - name: Build the literal target prebuilt output
         id: build
         env:
           BUILD_GID: ${{ steps.isolation.outputs.build_gid }}
@@ -992,10 +998,13 @@ jobs:
           CANDIDATE_HOME_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-home
           CI: 1
           DEPLOY_SHA: ${{ steps.source.outputs.checked_out_sha }}
+          ETHERSCAN_API_KEY: ${{ inputs.logical_target == 'governance' && secrets.etherscan_api_key || '' }}
           EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
           GIT_BRANCH: ${{ inputs.git_branch }}
+          LOGICAL_TARGET: ${{ inputs.logical_target }}
           MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.prepare.outputs.next_deployment_id }}
           NEXT_PUBLIC_VERCEL_ENV: preview
+          PULL_STAGING_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pull-staging
           SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-source
           TRUSTED_VERCEL_TOOLS_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-trusted-tools
           TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.turbo_remote_cache_signature_key }}
@@ -1015,6 +1024,11 @@ jobs:
           # No VERCEL_TOKEN: build is local-only from the validated pulled state.
         run: |
           set -euo pipefail
+          if [ "$LOGICAL_TARGET" = "governance" ]; then
+            node "$GITHUB_WORKSPACE/controller/scripts/vercel-build-environment.mjs" \
+              check --target "$LOGICAL_TARGET" --environment preview \
+              --project-directory "$PULL_STAGING_PATH/$EXPECTED_ROOT_DIRECTORY"
+          fi
           terminate_candidate() {
             sudo --non-interactive /usr/bin/pkill -KILL -u "$BUILD_UID" >/dev/null 2>&1 || true
             for _ in $(seq 1 50); do
@@ -1042,11 +1056,26 @@ jobs:
             *) echo "Pinned Vercel CLI escaped its protected directory" >&2; exit 1 ;;
           esac
           safe_path="$(dirname "$node_bin"):$(dirname "$pnpm_bin"):/usr/local/bin:/usr/bin:/bin"
+          controller_secret_environment=()
+          candidate_secret_environment=()
+          if [ "$LOGICAL_TARGET" = "governance" ]; then
+            if [ -z "$ETHERSCAN_API_KEY" ]; then
+              echo "Missing required Vercel build variable: ETHERSCAN_API_KEY" >&2
+              exit 1
+            fi
+            controller_secret_environment+=("ETHERSCAN_API_KEY=$ETHERSCAN_API_KEY")
+            candidate_secret_environment+=("ETHERSCAN_API_KEY=$ETHERSCAN_API_KEY")
+          elif [ -n "$ETHERSCAN_API_KEY" ]; then
+            echo "Only the governance preview build can receive ETHERSCAN_API_KEY" >&2
+            exit 1
+          fi
           sudo --non-interactive /usr/bin/env -i \
+            "${controller_secret_environment[@]}" \
             BUILD_GID="$BUILD_GID" \
             BUILD_UID="$BUILD_UID" \
             DEPLOY_SHA="$DEPLOY_SHA" \
             EXPECTED_ROOT_DIRECTORY="$EXPECTED_ROOT_DIRECTORY" \
+            LOGICAL_TARGET="$LOGICAL_TARGET" \
             MENTO_NEXT_DEPLOYMENT_ID="$MENTO_NEXT_DEPLOYMENT_ID" \
             PATH="$(dirname "$node_bin"):/usr/bin:/bin" \
             PULL_STAGING_GID="$(id -g)" \
@@ -1068,6 +1097,7 @@ jobs:
           echo "::stop-commands::$command_token"
           set +e
           sudo --non-interactive /usr/bin/env -i \
+            "${candidate_secret_environment[@]}" \
             CI=1 \
             HOME="$CANDIDATE_HOME_PATH" \
             HTTP_PROXY="${HTTP_PROXY:-}" \
@@ -1124,7 +1154,7 @@ jobs:
           persist-credentials: false
           ref: ${{ github.workflow_sha }}
 
-      - name: Assert the UI prebuilt output
+      - name: Assert the literal target prebuilt output
         env:
           BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
           DEPLOY_SHA: ${{ steps.source.outputs.checked_out_sha }}
@@ -1163,7 +1193,7 @@ jobs:
             exit 1
           fi
 
-      - name: Revalidate runner-owned pulled UI settings after the build
+      - name: Revalidate runner-owned pulled settings after the build
         env:
           EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
           PULL_STAGING_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pull-staging
@@ -1234,7 +1264,7 @@ jobs:
           echo "upload_uid=$(id -u)" >> "$GITHUB_OUTPUT"
           echo "upload_gid=$(id -g)" >> "$GITHUB_OUTPUT"
 
-      - name: Materialize runner-owned upload UI project mapping
+      - name: Materialize runner-owned upload project mapping
         env:
           EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
           SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-upload-source
@@ -1523,6 +1553,7 @@ jobs:
         env:
           DEPLOY_SHA: ${{ needs.prebuilt.outputs.commit_sha }}
           GITHUB_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.github_deployment_id }}
+          LOGICAL_TARGET: ${{ inputs.logical_target }}
           MENTO_NEXT_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.next_deployment_id }}
           VERCEL_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.vercel_deployment_id }}
           VERCEL_DEPLOYMENT_URL: ${{ needs.prebuilt.outputs.verified_deployment_url }}
@@ -1605,13 +1636,15 @@ jobs:
           COMMIT_SHA: ${{ needs.smoke.outputs.smoke_commit_sha }}
           DEPLOY_DURATION_MS: ${{ needs.prebuilt.outputs.deploy_duration_ms }}
           GITHUB_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.github_deployment_id }}
+          LOGICAL_TARGET: ${{ inputs.logical_target }}
           TOTAL_DURATION_MS: ${{ steps.total.outputs.total_duration_ms }}
           VERCEL_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.vercel_deployment_id }}
           VERCEL_DEPLOYMENT_URL: ${{ steps.complete.outputs.verified_deployment_url }}
         run: |
           {
-            echo "### GitHub prebuilt pilot"
+            echo "### GitHub $LOGICAL_TARGET prebuilt preview"
             echo
+            echo "- Target: \`$LOGICAL_TARGET\`"
             echo "- Commit: \`$COMMIT_SHA\`"
             echo "- GitHub Deployment: \`$GITHUB_DEPLOYMENT_ID\`"
             echo "- Vercel Deployment: \`$VERCEL_DEPLOYMENT_ID\`"

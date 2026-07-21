@@ -42,15 +42,38 @@ import {
   generateVercelDeploymentId,
 } from "./vercel-prebuilt.mjs";
 
-export const PILOT_TARGET = {
-  logicalTarget: "ui",
-  workspacePackage: "ui.mento.org",
-  expectedRootDirectory: "apps/ui.mento.org",
+export const PREBUILT_TARGETS = Object.freeze({
+  app: Object.freeze({
+    logicalTarget: "app",
+    workspacePackage: "app.mento.org",
+    expectedRootDirectory: "apps/app.mento.org",
+  }),
+  governance: Object.freeze({
+    logicalTarget: "governance",
+    workspacePackage: "governance.mento.org",
+    expectedRootDirectory: "apps/governance.mento.org",
+  }),
+  reserve: Object.freeze({
+    logicalTarget: "reserve",
+    workspacePackage: "reserve.mento.org",
+    expectedRootDirectory: "apps/reserve.mento.org",
+  }),
+  ui: Object.freeze({
+    logicalTarget: "ui",
+    workspacePackage: "ui.mento.org",
+    expectedRootDirectory: "apps/ui.mento.org",
+  }),
+});
+
+// Preserve the Phase A manual pilot contract while the reusable internals are
+// prepared for the four literal automatic-preview callers.
+export const PILOT_TARGET = Object.freeze({
+  ...PREBUILT_TARGETS.ui,
   githubEnvironment: "vercel-preview-ui",
   vercelEnvironment: "preview",
   vercelTarget: "preview",
   deploymentMode: "preview",
-};
+});
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const VERCEL_DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
@@ -142,6 +165,35 @@ function hasExactObjectKeys(value, expectedKeys) {
   );
 }
 
+function prebuiltTarget(logicalTarget) {
+  if (
+    typeof logicalTarget !== "string" ||
+    !Object.hasOwn(PREBUILT_TARGETS, logicalTarget)
+  ) {
+    throw new Error("The prebuilt workflow target is invalid");
+  }
+  return PREBUILT_TARGETS[logicalTarget];
+}
+
+function validatePrebuiltTargetMapping({
+  logicalTarget,
+  workspacePackage,
+  expectedRootDirectory,
+}) {
+  const target = prebuiltTarget(logicalTarget);
+  for (const [name, actual] of Object.entries({
+    workspacePackage,
+    expectedRootDirectory,
+  })) {
+    if (actual !== target[name]) {
+      throw new Error(
+        `The ${target.logicalTarget} prebuilt workflow requires ${name}=${target[name]}`,
+      );
+    }
+  }
+  return target;
+}
+
 export function validateExactSha(value) {
   if (typeof value !== "string" || !SHA_PATTERN.test(value)) {
     throw new Error("Commit SHA must be an immutable lowercase 40-digit SHA");
@@ -168,13 +220,14 @@ export function validateGitBranch(branch, run = spawnSync) {
 }
 
 function validateAutomaticPreviewIdentity(values) {
+  prebuiltTarget(values.logicalTarget);
   const pr = String(values.pullRequestNumber ?? "");
   if (!/^[1-9][0-9]{0,9}$/.test(pr)) {
     throw new Error(
       "Automatic previews require a positive pull request number",
     );
   }
-  if (values.githubEnvironment !== `preview/ui/pr-${pr}`) {
+  if (values.githubEnvironment !== `preview/${values.logicalTarget}/pr-${pr}`) {
     throw new Error(
       "Automatic preview environment does not match the pull request",
     );
@@ -184,7 +237,7 @@ function validateAutomaticPreviewIdentity(values) {
   }
   if (
     values.idempotencyKey !==
-    `vercel-preview:v1:pr:${pr}:target:ui:sha:${values.commitSha}`
+    `vercel-preview:v1:pr:${pr}:target:${values.logicalTarget}:sha:${values.commitSha}`
   ) {
     throw new Error("Automatic preview idempotency key is invalid");
   }
@@ -197,19 +250,14 @@ function validatePrebuiltContract(values) {
     throw new Error("Dependabot branches cannot receive preview credentials");
   }
 
-  const expected = {
-    logicalTarget: values.logicalTarget,
-    workspacePackage: values.workspacePackage,
-    expectedRootDirectory: values.expectedRootDirectory,
+  const target = validatePrebuiltTargetMapping(values);
+  for (const [name, actual] of Object.entries({
     vercelEnvironment: values.vercelEnvironment,
     vercelTarget: values.vercelTarget,
     deploymentMode: values.deploymentMode,
-  };
-  for (const [name, actual] of Object.entries(expected)) {
-    if (actual !== PILOT_TARGET[name]) {
-      throw new Error(
-        `The UI prebuilt workflow requires ${name}=${PILOT_TARGET[name]}`,
-      );
+  })) {
+    if (actual !== "preview") {
+      throw new Error(`The preview prebuilt workflow requires ${name}=preview`);
     }
   }
   if (values.deployPermitted !== "true" && values.deployPermitted !== true) {
@@ -217,21 +265,24 @@ function validatePrebuiltContract(values) {
   }
   if (values.githubRepository !== "mento-protocol/frontend-monorepo") {
     throw new Error(
-      "The pilot may run only in mento-protocol/frontend-monorepo",
+      "The prebuilt workflow may run only in mento-protocol/frontend-monorepo",
     );
   }
-  if (values.githubEnvironment === PILOT_TARGET.githubEnvironment) {
-    if (values.provenance !== "manual-pilot") {
-      throw new Error("The manual pilot provenance is invalid");
+  if (values.provenance === "manual-pilot") {
+    if (
+      target.logicalTarget !== "ui" ||
+      values.githubEnvironment !== PILOT_TARGET.githubEnvironment
+    ) {
+      throw new Error("The manual pilot is restricted to the UI target");
     }
   } else {
     validateAutomaticPreviewIdentity(values);
   }
   if (values.githubRef !== "refs/heads/main") {
-    throw new Error("The UI prebuilt workflow must be dispatched from main");
+    throw new Error("The prebuilt workflow must be dispatched from main");
   }
   if (values.githubWorkflowRef !== TRUSTED_CALLER_WORKFLOW[values.provenance]) {
-    throw new Error("The UI prebuilt caller is not the trusted main workflow");
+    throw new Error("The prebuilt caller is not the trusted main workflow");
   }
   requiredText(values.vercelOrgId, "Vercel organization ID");
   requiredText(values.vercelProjectId, "Vercel project ID");
@@ -441,15 +492,19 @@ function optionalEntry(path) {
   }
 }
 
-function pilotRootDirectory(value) {
+function targetRootDirectory(value) {
   requiredText(value, "Expected Root Directory");
   if (
-    value !== PILOT_TARGET.expectedRootDirectory ||
+    !Object.values(PREBUILT_TARGETS).some(
+      (target) => target.expectedRootDirectory === value,
+    ) ||
     isAbsolute(value) ||
     value === ".." ||
     value.startsWith(`..${sep}`)
   ) {
-    throw new Error("Expected Root Directory is not the UI pilot root");
+    throw new Error(
+      "Expected Root Directory is not a fixed Vercel target root",
+    );
   }
   return value;
 }
@@ -824,7 +879,7 @@ export function materializeVercelRepoLink({
   vercelProjectId,
 }) {
   requiredText(repoRoot, "Source path");
-  pilotRootDirectory(expectedRootDirectory);
+  targetRootDirectory(expectedRootDirectory);
   const link = {
     remoteName: "origin",
     projects: [
@@ -906,7 +961,7 @@ export function prepareVercelPullStaging({
   vercelOrgId,
   vercelProjectId,
 }) {
-  pilotRootDirectory(expectedRootDirectory);
+  targetRootDirectory(expectedRootDirectory);
   const canonicalStagingRoot = assertIsolationRootChild({
     isolationRoot,
     path: stagingRoot,
@@ -941,7 +996,7 @@ export function assertVercelPullStaging({
   expectedUid = process.getuid?.(),
   expectedGid = process.getgid?.(),
 }) {
-  pilotRootDirectory(expectedRootDirectory);
+  targetRootDirectory(expectedRootDirectory);
   const canonicalStagingRoot = assertIsolationRootChild({
     isolationRoot,
     path: stagingRoot,
@@ -993,7 +1048,7 @@ function assertCandidateRootComponents({
     [canonicalCandidateRoot, "Candidate source"],
     ...expectedRootDirectory.split("/").map((component) => {
       current = join(current, component);
-      return [current, "Candidate UI Root Directory"];
+      return [current, "Candidate target Root Directory"];
     }),
   ]) {
     const entry = lstatSync(path);
@@ -2394,7 +2449,7 @@ export function assertPulledProject({
   vercelProjectId,
 }) {
   requiredText(repoRoot, "Source path");
-  pilotRootDirectory(expectedRootDirectory);
+  targetRootDirectory(expectedRootDirectory);
   const realRepoRoot = realpathSync(repoRoot);
   const targetRoot = join(repoRoot, expectedRootDirectory);
   const pathFromRepo = relative(realRepoRoot, realpathSync(targetRoot));
@@ -2415,8 +2470,8 @@ export function assertPulledProject({
       [repoRoot, "Source path", true],
       [join(repoRoot, ".vercel"), "Repo-level Vercel state", true],
       [repoLinkPath, "Repo-level Vercel link", false],
-      [targetRoot, "UI Root Directory", true],
-      [join(targetRoot, ".vercel"), "UI Vercel state", true],
+      [targetRoot, "Target Root Directory", true],
+      [join(targetRoot, ".vercel"), "Target Vercel state", true],
       [settingsPath, "Pulled Vercel project settings", false],
     ]) {
       const entry = lstatSync(path);
@@ -2447,7 +2502,7 @@ export function assertPulledProject({
     project.settings?.rootDirectory !== expectedRootDirectory
   ) {
     throw new Error(
-      "Pulled Vercel project mapping does not match the UI target",
+      "Pulled Vercel project mapping does not match the selected target",
     );
   }
   return project;
@@ -2812,11 +2867,9 @@ export function assertPrebuiltReadyForUpload({
   expectedGid = process.getgid?.(),
   expectedProvenanceUid = process.getuid?.(),
 }) {
-  if (
-    logicalTarget !== PILOT_TARGET.logicalTarget ||
-    expectedRootDirectory !== PILOT_TARGET.expectedRootDirectory
-  ) {
-    throw new Error("Prebuilt upload is not the UI pilot target");
+  const target = prebuiltTarget(logicalTarget);
+  if (expectedRootDirectory !== target.expectedRootDirectory) {
+    throw new Error("Prebuilt upload target mapping is invalid");
   }
   assertCandidateProvenance(repoRoot, commitSha, expectedProvenanceUid);
   assertPulledProject({
@@ -3168,6 +3221,7 @@ function buildFromEnvironment() {
     "BUILD_UID",
     "DEPLOY_SHA",
     "EXPECTED_ROOT_DIRECTORY",
+    "LOGICAL_TARGET",
     "PULL_STAGING_GID",
     "PULL_STAGING_UID",
     "VERCEL_ISOLATION_ROOT",
@@ -3182,6 +3236,22 @@ function buildFromEnvironment() {
   ]);
   if (process.env.VERCEL_GIT_COMMIT_SHA !== process.env.DEPLOY_SHA) {
     throw new Error("Build commit metadata does not match the exact SHA");
+  }
+  validatePrebuiltTargetMapping({
+    logicalTarget: process.env.LOGICAL_TARGET,
+    workspacePackage:
+      PREBUILT_TARGETS[process.env.LOGICAL_TARGET]?.workspacePackage,
+    expectedRootDirectory: process.env.EXPECTED_ROOT_DIRECTORY,
+  });
+  if (process.env.SENTRY_AUTH_TOKEN !== undefined) {
+    throw new Error("Preview build cannot receive SENTRY_AUTH_TOKEN");
+  }
+  if (process.env.LOGICAL_TARGET === "governance") {
+    requiredText(process.env.ETHERSCAN_API_KEY, "ETHERSCAN_API_KEY");
+  } else if ((process.env.ETHERSCAN_API_KEY ?? "") !== "") {
+    throw new Error(
+      "Only the governance preview build can receive ETHERSCAN_API_KEY",
+    );
   }
   assertCandidateProvenance(
     process.env.SOURCE_PATH,
@@ -3290,6 +3360,11 @@ function verifyFromEnvironment() {
 async function smokeFromEnvironment() {
   if (!/^[1-9][0-9]*$/.test(process.env.GITHUB_DEPLOYMENT_ID ?? "")) {
     throw new Error("Smoke requires the canonical GitHub Deployment ID");
+  }
+  if (process.env.LOGICAL_TARGET !== "ui") {
+    throw new Error(
+      "Direct prebuilt smoke is not implemented for this validated target",
+    );
   }
   const result = await smokeUiPreview({
     deploymentUrl: process.env.VERCEL_DEPLOYMENT_URL,

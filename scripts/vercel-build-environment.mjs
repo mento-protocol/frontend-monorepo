@@ -80,6 +80,17 @@ const TARGET_VARIABLES = {
   ui: [pullable("NEXT_PUBLIC_STORAGE_URL")],
 };
 
+const SENSITIVE_VARIABLE_NAMES = [
+  ...new Set(
+    Object.values(TARGET_VARIABLES)
+      .flat()
+      .filter(
+        (variable) => variable.ciClassification === "sensitive-non-exportable",
+      )
+      .map((variable) => variable.name),
+  ),
+].sort();
+
 function pullable(name, { allowEmpty = false } = {}) {
   return {
     name,
@@ -173,7 +184,58 @@ export function validateVercelBuildEnvironment({
   return { target, environment, checked: requirements.length };
 }
 
+export function validateVercelBuildCredentialBoundary({
+  target,
+  environment,
+  pulledValues,
+  explicitValues,
+}) {
+  const requirements = getVercelBuildRequirements(target, environment);
+  const allowedExplicitSensitive = new Set(
+    requirements
+      .filter(
+        (requirement) =>
+          requirement.ciClassification === "sensitive-non-exportable",
+      )
+      .map((requirement) => requirement.name),
+  );
+  const forbidden = [];
+  const missing = [];
+
+  for (const name of SENSITIVE_VARIABLE_NAMES) {
+    if (Object.hasOwn(pulledValues, name)) forbidden.push(name);
+    if (
+      Object.hasOwn(explicitValues, name) &&
+      !allowedExplicitSensitive.has(name)
+    ) {
+      forbidden.push(name);
+    }
+  }
+  for (const name of allowedExplicitSensitive) {
+    if (
+      !Object.hasOwn(explicitValues, name) ||
+      typeof explicitValues[name] !== "string" ||
+      explicitValues[name].length === 0
+    ) {
+      missing.push(name);
+    }
+  }
+
+  if (forbidden.length > 0) {
+    throw new Error(
+      `Forbidden Vercel build variable sources: ${[...new Set(forbidden)].sort().join(", ")}`,
+    );
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing explicit sensitive Vercel build variables: ${missing.sort().join(", ")}`,
+    );
+  }
+  return { target, environment, checked: SENSITIVE_VARIABLE_NAMES.length };
+}
+
 export function loadVercelPulledEnvironment({
+  target,
   projectDirectory,
   environment,
   values = process.env,
@@ -194,6 +256,13 @@ export function loadVercelPulledEnvironment({
       `Missing or invalid Vercel-pulled environment file: ${environmentPath}`,
     );
   }
+
+  validateVercelBuildCredentialBoundary({
+    target,
+    environment,
+    pulledValues,
+    explicitValues: values,
+  });
 
   // Explicit workflow constants and narrowly scoped GitHub secrets take
   // precedence over ordinary values written by `vercel pull`.
@@ -234,6 +303,7 @@ if (isCliEntrypoint()) {
       throw new Error("--project-directory is required for environment checks");
     }
     const values = loadVercelPulledEnvironment({
+      target: options.target,
       environment: options.environment,
       projectDirectory: resolve(options["project-directory"]),
     });

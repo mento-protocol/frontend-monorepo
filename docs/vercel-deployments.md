@@ -194,10 +194,14 @@ pnpm vercel:env:check \
 
 `PROJECT_DIRECTORY` must be the same app directory used by `vercel pull` and
 `vercel build` (for example, `apps/ui.mento.org`). The checker loads
-`$PROJECT_DIRECTORY/.vercel/.env.<environment>.local`, then overlays explicit
-workflow constants and scoped GitHub secrets so they take precedence. A missing
-or invalid pulled file fails closed. The checker prints variable names on
-failure but never values. Its machine-readable inventory is available directly:
+`$PROJECT_DIRECTORY/.vercel/.env.<environment>.local`, rejects every
+`sensitive-non-exportable` name found in that pulled file, then overlays
+explicit workflow constants and the secrets allowed for that exact
+target/environment. This makes the GitHub-scoped mirror the only accepted
+source for a Sensitive value. A missing or invalid pulled file, missing scoped
+secret, or cross-target Sensitive name fails closed. The checker prints
+variable names on failure but never values. Its machine-readable inventory is
+available directly:
 
 ```bash
 node scripts/vercel-build-environment.mjs inventory \
@@ -311,6 +315,42 @@ build-minute observation are documented in
 [Vercel build-minute validation](vercel-cost-validation.md). Preparing that
 tool does not start the observation window; collection begins only after the
 four-target cutover is complete.
+
+## Current reusable prebuilt core interface
+
+`.github/workflows/_vercel-prebuilt.yml` validates one of four frozen preview
+build identities before source execution:
+
+| Target       | Workspace package      | Root Directory              |
+| ------------ | ---------------------- | --------------------------- |
+| `app`        | `app.mento.org`        | `apps/app.mento.org`        |
+| `governance` | `governance.mento.org` | `apps/governance.mento.org` |
+| `reserve`    | `reserve.mento.org`    | `apps/reserve.mento.org`    |
+| `ui`         | `ui.mento.org`         | `apps/ui.mento.org`         |
+
+The workspace and Root Directory are not independent free-form selectors: each
+must match the selected target. All four identities are standard `preview`
+builds. Automatic identity is also target-bound to
+`preview/<target>/pr-<number>` and
+`vercel-preview:v1:pr:<number>:target:<target>:sha:<sha>`. Each future literal
+caller must still pass its own opaque `VERCEL_PROJECT_ID_*` value explicitly;
+the reusable workflow contains no matrix or dynamic project/secret lookup.
+
+This generic core does not itself activate the remaining applications. The
+current automatic worker continues to call only the UI target with
+`preview-controller:v1`, and the current direct browser smoke remains UI-only.
+App, Governance, and Reserve callers plus their target-specific smoke must land
+before those targets can dispatch. No ownership configuration changes as part
+of this interface preparation.
+
+The reusable declaration has the three common secrets
+(`VERCEL_TOKEN_PREVIEW`, `TURBO_TOKEN`, and
+`TURBO_REMOTE_CACHE_SIGNATURE_KEY`) plus one optional Governance-only
+`ETHERSCAN_API_KEY` input. Current UI callers pass only the three common
+secrets. A future literal Governance caller must pass `ETHERSCAN_API_KEY`;
+App, Reserve, and UI must not. No preview caller declares or passes
+`SENTRY_AUTH_TOKEN`, and the preflight rejects either Sensitive name if it
+appears in the Vercel-pulled file before candidate code can execute.
 
 ## Historical Phase A manual UI prebuilt pilot (audit record)
 
