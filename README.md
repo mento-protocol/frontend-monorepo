@@ -143,7 +143,7 @@ pnpm vercel:primitives:test
 # Test the manual UI prebuilt workflow, GitHub Deployment lifecycle, and smoke controller
 pnpm vercel:workflow:test
 
-# Test automatic UI preview state, workflow trust boundaries, and Git ownership
+# Test preview state, reusable smoke trust, native-adapter, and Git ownership
 pnpm vercel:preview:test
 
 # Verify exact Next.js and Vercel CLI custom deployment-ID prerequisites

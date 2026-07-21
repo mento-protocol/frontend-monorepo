@@ -49,13 +49,14 @@
     "vercel:env:check": "node scripts/vercel-build-environment.mjs check",
     "vercel:plan": "node scripts/plan-vercel-deployments.mjs",
     "vercel:prebuilt:assert": "node scripts/vercel-prebuilt.mjs assert-output",
-    "vercel:preview:test": "node --test scripts/vercel-preview-controller.test.mjs scripts/vercel-preview-workflows.test.mjs scripts/vercel-git-ownership.test.mjs",
+    "vercel:preview:test": "node --test scripts/vercel-preview-controller.test.mjs scripts/vercel-preview-workflows.test.mjs scripts/vercel-preview-smoke.test.mjs scripts/vercel-preview-browser-smoke.test.mjs scripts/vercel-preview-smoke-workflows.test.mjs scripts/vercel-git-ownership.test.mjs",
     "vercel:primitives:test": "node --test scripts/plan-vercel-deployments.test.mjs scripts/vercel-build-environment.test.mjs scripts/vercel-prebuilt.test.mjs",
     "vercel:versions:check": "node scripts/vercel-prebuilt.mjs check-versions",
     "vercel:workflow:test": "node --test scripts/github-deployment.test.mjs scripts/vercel-prebuilt-workflow.test.mjs scripts/vercel-prebuilt-workflows.test.mjs apps/ui.mento.org/e2e/vercel-preview-browser-smoke.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "catalog:",
+    "@playwright/test": "catalog:",
     "@repo/eslint-config": "workspace:*",
     "@types/node": "catalog:",
     "eslint": "catalog:",

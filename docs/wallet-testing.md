@@ -220,16 +220,30 @@ Maintenance couplings specific to this spec:
 
 ## Preview smoke
 
-A separate, walletless smoke runs against REAL deployed Vercel previews
-(real forno reads, no fork, no transactions) — no local anvil, no build
-step. `.github/workflows/preview-smoke.yml` triggers on `deployment_status`
-for team `*-mentolabs.vercel.app` previews of app.mento.org and
-governance.mento.org, and runs
+A separate, walletless smoke runs against REAL deployed Vercel previews (real
+forno reads, no fork, no transactions) — no local anvil and no build step.
+`.github/workflows/_vercel-preview-smoke.yml` is the secretless reusable
+implementation for App, Governance, Reserve, and UI. It validates a trusted,
+target-bound deployment tuple, then runs common immutable-host, security-header,
+representative-asset, console, and same-origin network checks. App and
+Governance additionally run
 `PREVIEW_URL=<deployment url> pnpm --filter app.mento.org test:preview`
 (config: `apps/app.mento.org/playwright.preview.config.ts`, spec:
-`apps/app.mento.org/e2e/preview/smoke.spec.ts`). It checks that the deployed
-bundle boots and lists the real wallet options, then that the mock wallet
-can connect on a preview host. Run it locally against any live preview URL:
+`apps/app.mento.org/e2e/preview/smoke.spec.ts`). That flow checks that the
+deployed bundle lists the real wallet options and that the mock wallet can
+connect only on an allowlisted team preview host.
+
+GitHub-built workers call the reusable workflow directly before posting a
+successful canonical Deployment status. While native Vercel Git still owns App
+and Governance branch previews, `.github/workflows/preview-smoke.yml` is a
+temporary `deployment_status` adapter. It accepts only the exact Vercel bot,
+exact `Preview – <project>` environment, successful status, empty native
+Deployment payload, and exact project-slug team hostname. Every qualifying
+event runs the full smoke; the adapter does not query or reuse earlier statuses
+or use a lossy shared concurrency group, and has no PAT or Vercel credential.
+
+Run the wallet-specific portion locally against any live App or Governance
+preview URL:
 
 ```bash
 PREVIEW_URL=https://appmento-<hash>-mentolabs.vercel.app pnpm --filter app.mento.org test:preview

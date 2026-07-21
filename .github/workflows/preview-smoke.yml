@@ -1,68 +1,139 @@
-name: Preview Smoke
+name: Native Vercel Preview Smoke Adapter
 
-# Replacement for the deleted deployment_status smoke-test-*.yml workflows
-# (real-wallet Synpress suite in mento-protocol/mento-automation-tests, see
-# #480/#481). Walletless: boots the deployed preview and connects the
-# repo's mock wallet (hostname-allowlisted to `-mentolabs.vercel.app`
-# previews in packages/web3/src/config/e2e-mode.ts) — no extension, no
-# secrets, no real wallet.
+# Temporary bridge while Vercel Git still owns App and Governance branch
+# previews. Every exact qualifying Vercel success runs the full secretless
+# reusable smoke; no prior status is queried or trusted as dedupe evidence.
 on:
   deployment_status:
 
-permissions: read-all
-
-# Keyed on the deployment URL (not github.ref) — a branch can redeploy
-# several times and only the newest preview for that URL matters.
-concurrency:
-  group: preview-smoke-${{ github.event.deployment_status.environment_url }}
-  cancel-in-progress: true
+permissions: {}
 
 jobs:
-  preview-smoke:
-    name: Preview smoke (mock wallet)
-    # App Mento and Governance previews only (Vercel project host prefixes,
-    # same as the deleted smoke-test-app-mento.yml / smoke-test-governance.yml
-    # target_url_pattern filters: "appmento" / "governancemento"). Reserve
-    # ("reservemento...") and UI ("uimento...") previews don't match either
-    # prefix and are skipped — no pixel/functional preview suite for them yet.
-    # `-mentolabs.vercel.app` restricts to the team's own previews, matching
-    # the e2e-mode.ts gate this spec depends on.
-    if: >-
-      github.event.deployment_status.state == 'success' &&
-      github.event.deployment.ref != 'main' &&
-      (
-        startsWith(github.event.deployment_status.environment_url, 'https://appmento') ||
-        startsWith(github.event.deployment_status.environment_url, 'https://governancemento')
-      ) &&
-      endsWith(github.event.deployment_status.environment_url, '-mentolabs.vercel.app')
-    timeout-minutes: 10
+  classify:
+    name: Classify exact native Vercel preview event
     runs-on: ubuntu-latest
-    # Same pinned Playwright image as e2e.yml/visual.yml (browsers
-    # preinstalled — no `playwright install` step needed).
-    container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
-
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      eligible: ${{ steps.native.outputs.eligible }}
+      reason: ${{ steps.native.outputs.reason }}
+      logical_target: ${{ steps.native.outputs.logical_target }}
+      deployment_url: ${{ steps.native.outputs.deployment_url }}
+      expected_sha: ${{ steps.native.outputs.expected_sha }}
+      github_deployment_id: ${{ steps.native.outputs.github_deployment_id }}
+      verification_mode: ${{ steps.native.outputs.verification_mode }}
+      verification_key: ${{ steps.native.outputs.verification_key }}
+      metadata_logical_target: ${{ steps.native.outputs.metadata_logical_target }}
+      metadata_target: ${{ steps.native.outputs.metadata_target }}
+      metadata_repository: ${{ steps.native.outputs.metadata_repository }}
+      metadata_ref: ${{ steps.native.outputs.metadata_ref }}
+      metadata_sha: ${{ steps.native.outputs.metadata_sha }}
+      metadata_url: ${{ steps.native.outputs.metadata_url }}
+      metadata_environment: ${{ steps.native.outputs.metadata_environment }}
+      metadata_actor_login: ${{ steps.native.outputs.metadata_actor_login }}
+      metadata_actor_id: ${{ steps.native.outputs.metadata_actor_id }}
+      metadata_actor_type: ${{ steps.native.outputs.metadata_actor_type }}
     steps:
-      - name: Check out code
+      - name: Check out trusted native adapter only
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Install pnpm dependencies
-        uses: ./.github/actions/pnpm-install
-
-      # No build step: the spec targets the ALREADY-DEPLOYED preview bundle,
-      # not a local build. app-agnostic — runs from app.mento.org's package
-      # regardless of which app's preview URL it's pointed at (shared
-      # ConnectButton in packages/web3).
-      - name: Run preview smoke
-        env:
-          PREVIEW_URL: ${{ github.event.deployment_status.environment_url }}
-        run: pnpm --filter app.mento.org test:preview
-
-      - name: Upload Playwright artifacts on failure
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: preview-smoke-artifacts
-          path: apps/app.mento.org/test-results/
-          if-no-files-found: ignore
-          retention-days: 7
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Validate native event, actor, environment, and immutable URL
+        id: native
+        run: node scripts/vercel-preview-smoke.mjs classify-native
+
+  smoke-app:
+    name: Smoke native App preview
+    needs: classify
+    if: needs.classify.outputs.eligible == 'true' && needs.classify.outputs.logical_target == 'app'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_vercel-preview-smoke.yml
+    with:
+      logical_target: app
+      deployment_url: ${{ needs.classify.outputs.deployment_url }}
+      expected_sha: ${{ needs.classify.outputs.expected_sha }}
+      github_deployment_id: ${{ needs.classify.outputs.github_deployment_id }}
+      verification_mode: ${{ needs.classify.outputs.verification_mode }}
+      verification_key: ${{ needs.classify.outputs.verification_key }}
+      metadata_logical_target: app
+      metadata_target: ${{ needs.classify.outputs.metadata_target }}
+      metadata_repository: ${{ needs.classify.outputs.metadata_repository }}
+      metadata_ref: ${{ needs.classify.outputs.metadata_ref }}
+      metadata_sha: ${{ needs.classify.outputs.metadata_sha }}
+      metadata_url: ${{ needs.classify.outputs.metadata_url }}
+      metadata_environment: ${{ needs.classify.outputs.metadata_environment }}
+      metadata_actor_login: ${{ needs.classify.outputs.metadata_actor_login }}
+      metadata_actor_id: ${{ needs.classify.outputs.metadata_actor_id }}
+      metadata_actor_type: ${{ needs.classify.outputs.metadata_actor_type }}
+
+  smoke-governance:
+    name: Smoke native Governance preview
+    needs: classify
+    if: needs.classify.outputs.eligible == 'true' && needs.classify.outputs.logical_target == 'governance'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_vercel-preview-smoke.yml
+    with:
+      logical_target: governance
+      deployment_url: ${{ needs.classify.outputs.deployment_url }}
+      expected_sha: ${{ needs.classify.outputs.expected_sha }}
+      github_deployment_id: ${{ needs.classify.outputs.github_deployment_id }}
+      verification_mode: ${{ needs.classify.outputs.verification_mode }}
+      verification_key: ${{ needs.classify.outputs.verification_key }}
+      metadata_logical_target: governance
+      metadata_target: ${{ needs.classify.outputs.metadata_target }}
+      metadata_repository: ${{ needs.classify.outputs.metadata_repository }}
+      metadata_ref: ${{ needs.classify.outputs.metadata_ref }}
+      metadata_sha: ${{ needs.classify.outputs.metadata_sha }}
+      metadata_url: ${{ needs.classify.outputs.metadata_url }}
+      metadata_environment: ${{ needs.classify.outputs.metadata_environment }}
+      metadata_actor_login: ${{ needs.classify.outputs.metadata_actor_login }}
+      metadata_actor_id: ${{ needs.classify.outputs.metadata_actor_id }}
+      metadata_actor_type: ${{ needs.classify.outputs.metadata_actor_type }}
+
+  record-native-result:
+    name: Record run-bound native smoke evidence
+    needs: [classify, smoke-app, smoke-governance]
+    if: always() && needs.classify.outputs.eligible == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      deployments: write
+    steps:
+      - name: Append the bounded terminal status without lookup or reuse
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          APP_RESULT: ${{ needs.smoke-app.result }}
+          DEPLOYMENT_ENVIRONMENT: ${{ needs.classify.outputs.metadata_environment }}
+          DEPLOYMENT_URL: ${{ needs.classify.outputs.deployment_url }}
+          GITHUB_DEPLOYMENT_ID: ${{ needs.classify.outputs.github_deployment_id }}
+          GOVERNANCE_RESULT: ${{ needs.smoke-governance.result }}
+          LOGICAL_TARGET: ${{ needs.classify.outputs.logical_target }}
+        with:
+          script: |
+            const target = process.env.LOGICAL_TARGET;
+            const result = target === "app"
+              ? process.env.APP_RESULT
+              : process.env.GOVERNANCE_RESULT;
+            const state = result === "success"
+              ? "success"
+              : result === "failure"
+                ? "failure"
+                : "error";
+            const description = `Native ${target} preview smoke ${state}; run ${context.runId}/${process.env.GITHUB_RUN_ATTEMPT}`;
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: Number(process.env.GITHUB_DEPLOYMENT_ID),
+              state,
+              description,
+              environment: process.env.DEPLOYMENT_ENVIRONMENT,
+              environment_url: process.env.DEPLOYMENT_URL,
+              log_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}/attempts/${process.env.GITHUB_RUN_ATTEMPT}`,
+              auto_inactive: false,
+            });

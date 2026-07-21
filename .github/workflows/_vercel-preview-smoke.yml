@@ -1,0 +1,193 @@
+name: Reusable Vercel Preview Smoke
+
+on:
+  workflow_call:
+    inputs:
+      logical_target:
+        description: Literal app, governance, reserve, or ui target
+        required: true
+        type: string
+      deployment_url:
+        description: Immutable allowlisted Vercel team URL
+        required: true
+        type: string
+      expected_sha:
+        description: Exact source SHA already verified by the trusted caller
+        required: true
+        type: string
+      github_deployment_id:
+        description: Canonical GitHub Deployment ID
+        required: true
+        type: string
+      verification_mode:
+        description: controller, manual-pilot, or native-adapter
+        required: true
+        type: string
+      verification_key:
+        description: Exact mode-bound verification key
+        required: true
+        type: string
+      metadata_logical_target:
+        description: Logical target from trusted deployment metadata
+        required: true
+        type: string
+      metadata_target:
+        description: Vercel target from trusted deployment metadata
+        required: true
+        type: string
+      metadata_repository:
+        description: Repository from trusted deployment metadata
+        required: true
+        type: string
+      metadata_ref:
+        description: Source ref from trusted deployment metadata
+        required: true
+        type: string
+      metadata_sha:
+        description: Source SHA from trusted deployment metadata
+        required: true
+        type: string
+      metadata_url:
+        description: Immutable URL from trusted deployment metadata
+        required: true
+        type: string
+      pull_request_number:
+        description: Controller PR number; empty outside controller mode
+        required: false
+        default: ""
+        type: string
+      vercel_deployment_id:
+        description: Verified Vercel Deployment ID; empty only for native-adapter mode
+        required: false
+        default: ""
+        type: string
+      next_deployment_id:
+        description: Target-bound Next.js deployment ID; empty only for native-adapter mode
+        required: false
+        default: ""
+        type: string
+      expected_project_id:
+        description: Literal caller project ID; empty only for native-adapter mode
+        required: false
+        default: ""
+        type: string
+      metadata_project_id:
+        description: Project ID from verified Vercel metadata
+        required: false
+        default: ""
+        type: string
+      metadata_environment:
+        description: Exact native GitHub Deployment environment
+        required: false
+        default: ""
+        type: string
+      metadata_actor_login:
+        description: Exact native Deployment actor login
+        required: false
+        default: ""
+        type: string
+      metadata_actor_id:
+        description: Exact native Deployment actor ID
+        required: false
+        default: ""
+        type: string
+      metadata_actor_type:
+        description: Exact native Deployment actor type
+        required: false
+        default: ""
+        type: string
+    outputs:
+      deployment_url:
+        description: Validated immutable preview URL
+        value: ${{ jobs.smoke.outputs.deployment_url }}
+      expected_sha:
+        description: Validated exact source SHA
+        value: ${{ jobs.smoke.outputs.expected_sha }}
+      artifact_identity:
+        description: Target, SHA, and GitHub Deployment evidence key
+        value: ${{ jobs.smoke.outputs.artifact_identity }}
+
+permissions: {}
+
+jobs:
+  smoke:
+    name: Smoke ${{ inputs.logical_target }} ${{ inputs.expected_sha }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    env:
+      DEPLOY_SHA: ${{ inputs.expected_sha }}
+      EXPECTED_PROJECT_ID: ${{ inputs.expected_project_id }}
+      GITHUB_DEPLOYMENT_ID: ${{ inputs.github_deployment_id }}
+      LOGICAL_TARGET: ${{ inputs.logical_target }}
+      MENTO_NEXT_DEPLOYMENT_ID: ${{ inputs.next_deployment_id }}
+      METADATA_ACTOR_ID: ${{ inputs.metadata_actor_id }}
+      METADATA_ACTOR_LOGIN: ${{ inputs.metadata_actor_login }}
+      METADATA_ACTOR_TYPE: ${{ inputs.metadata_actor_type }}
+      METADATA_ENVIRONMENT: ${{ inputs.metadata_environment }}
+      METADATA_LOGICAL_TARGET: ${{ inputs.metadata_logical_target }}
+      METADATA_PROJECT_ID: ${{ inputs.metadata_project_id }}
+      METADATA_REF: ${{ inputs.metadata_ref }}
+      METADATA_REPOSITORY: ${{ inputs.metadata_repository }}
+      METADATA_SHA: ${{ inputs.metadata_sha }}
+      METADATA_TARGET: ${{ inputs.metadata_target }}
+      METADATA_URL: ${{ inputs.metadata_url }}
+      PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
+      VERCEL_DEPLOYMENT_ID: ${{ inputs.vercel_deployment_id }}
+      VERCEL_DEPLOYMENT_URL: ${{ inputs.deployment_url }}
+      VERIFICATION_KEY: ${{ inputs.verification_key }}
+      VERIFICATION_MODE: ${{ inputs.verification_mode }}
+      WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
+      WORKFLOW_RUN_ID: ${{ github.run_id }}
+    outputs:
+      deployment_url: ${{ steps.tuple.outputs.deployment_url }}
+      expected_sha: ${{ steps.tuple.outputs.expected_sha }}
+      artifact_identity: ${{ steps.tuple.outputs.artifact_identity }}
+    steps:
+      - name: Check out trusted smoke implementation only
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Install trusted smoke dependencies
+        uses: ./.github/actions/pnpm-install
+
+      - name: Validate the complete credential-free deployment tuple
+        id: tuple
+        run: node scripts/vercel-preview-smoke.mjs validate
+
+      - name: Run common HTTP, header, build-ID, and representative-asset smoke
+        run: node scripts/vercel-preview-smoke.mjs http
+
+      - name: Exercise App and Governance wallet list and team-preview mock wallet
+        if: inputs.logical_target == 'app' || inputs.logical_target == 'governance'
+        env:
+          PREVIEW_URL: ${{ inputs.deployment_url }}
+        run: pnpm --filter app.mento.org test:preview
+
+      - name: Run App, Governance, or Reserve browser smoke
+        if: inputs.logical_target != 'ui'
+        env:
+          PLAYWRIGHT_BROWSER_CHANNEL: bundled
+        run: node scripts/vercel-preview-browser-smoke.mjs
+
+      - name: Run UI deployment identity and interaction smoke
+        if: inputs.logical_target == 'ui'
+        env:
+          DEPLOYMENT_IDEMPOTENCY_KEY: ${{ inputs.verification_key }}
+          PLAYWRIGHT_BROWSER_CHANNEL: bundled
+        run: node apps/ui.mento.org/e2e/vercel-preview-browser-smoke.mjs
+
+      - name: Upload target-bound Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: preview-smoke-${{ inputs.logical_target }}-${{ inputs.expected_sha }}-${{ inputs.github_deployment_id }}
+          path: apps/app.mento.org/test-results/
+          if-no-files-found: ignore
+          retention-days: 7

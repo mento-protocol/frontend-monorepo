@@ -142,6 +142,19 @@ success. App and governance additionally retain the temporary native
 a status created with the repository `GITHUB_TOKEN` is evidence, not a trigger
 contract.
 
+The direct smoke is one credential-free reusable workflow shared by all four
+targets and the temporary native adapter. Its input is an already verified,
+mode-discriminated metadata tuple; it never looks up deployment metadata with a
+token. Native App/Governance events are accepted only for the exact Vercel bot,
+exact preview environment, empty native payload, successful status, and exact
+project-slug team host. They always run the full smoke: historical status reuse
+was rejected because deployment-status writers could forge description-only
+dedupe and the extra reconstruction complexity would save public Actions
+minutes rather than Vercel build minutes. The adapter also has no shared
+concurrency group: GitHub may replace an older pending member of a concurrency
+group even with `cancel-in-progress: false`, so grouping would violate the
+one-full-smoke-per-qualifying-event invariant.
+
 ### Path-aware planning
 
 Deployment planning is repository-owned, deterministic, and offline-testable.

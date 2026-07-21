@@ -46,7 +46,6 @@ import {
   PREBUILT_TARGETS,
   prepareVercelPullStaging,
   queryVercelDeployments,
-  smokeUiPreview,
   stageVercelPullForCandidate,
   stageTrustedPnpmBootstrapManifest,
   stageTrustedPnpmLauncher,
@@ -3400,99 +3399,4 @@ test("upload guard rejects unsafe links, special nodes, and runner-writable stat
       fixture.cleanup();
     }
   }
-});
-
-test("direct UI smoke binds URL, custom build ID, navigation, assets, and headers", async () => {
-  const requested = [];
-  const html = `<!doctype html><html data-dpl-id="${DEPLOYMENT_ID}"><body>
-    <h1>Basic Components</h1>
-    <script src="/_next/static/chunks/app.js?dpl=${DEPLOYMENT_ID}"></script>
-    <link href="/_next/static/css/app.css?dpl=${DEPLOYMENT_ID}" rel="stylesheet">
-    <link href="/_next/static/media/inter.woff2" rel="preload">
-  </body></html>`;
-  const fetchImplementation = async (url, options) => {
-    const parsed = new URL(url);
-    requested.push({
-      url: parsed.toString(),
-      headers: options.headers,
-      signal: options.signal,
-    });
-    if (parsed.pathname === "/form-components") {
-      return new Response("<h1>Form Components</h1>");
-    }
-    if (parsed.pathname.startsWith("/_next/static/")) {
-      return new Response("asset");
-    }
-    return new Response(html, {
-      headers: {
-        "content-security-policy": "frame-ancestors 'none'",
-        "content-security-policy-report-only":
-          "default-src 'self'; frame-src https://vercel.live",
-        "x-content-type-options": "nosniff",
-        "x-frame-options": "DENY",
-      },
-    });
-  };
-
-  assert.deepEqual(
-    await smokeUiPreview({
-      deploymentUrl: DEPLOYMENT_URL,
-      deploymentId: DEPLOYMENT_ID,
-      fetchImplementation,
-    }),
-    {
-      deploymentUrl: DEPLOYMENT_URL,
-      deploymentId: DEPLOYMENT_ID,
-      checkedAssets: 3,
-    },
-  );
-  assert.equal(requested.length, 5);
-  assert.ok(requested.every(({ headers }) => headers === undefined));
-  assert.ok(requested.every(({ signal }) => signal instanceof AbortSignal));
-});
-
-test("direct UI smoke fails closed on missing build identity or security evidence", async () => {
-  const response = new Response("<h1>Basic Components</h1>", {
-    headers: {
-      "content-security-policy": "frame-ancestors 'none'",
-      "content-security-policy-report-only": "frame-src https://vercel.live",
-      "x-content-type-options": "nosniff",
-      "x-frame-options": "DENY",
-    },
-  });
-  await assert.rejects(
-    smokeUiPreview({
-      deploymentUrl: DEPLOYMENT_URL,
-      deploymentId: DEPLOYMENT_ID,
-      fetchImplementation: async () => response,
-    }),
-    /does not carry the expected build deployment ID/,
-  );
-});
-
-test("direct UI smoke bounds every network request", async () => {
-  await assert.rejects(
-    smokeUiPreview({
-      deploymentUrl: DEPLOYMENT_URL,
-      deploymentId: DEPLOYMENT_ID,
-      fetchImplementation: async () => new Promise(() => {}),
-      requestTimeoutMs: 5,
-    }),
-    /UI preview timed out/,
-  );
-});
-
-test("direct UI smoke bounds response body consumption", async () => {
-  const stalledBody = new ReadableStream({
-    start() {},
-  });
-  await assert.rejects(
-    smokeUiPreview({
-      deploymentUrl: DEPLOYMENT_URL,
-      deploymentId: DEPLOYMENT_ID,
-      fetchImplementation: async () => new Response(stalledBody),
-      requestTimeoutMs: 5,
-    }),
-    /UI preview timed out/,
-  );
 });

@@ -338,10 +338,13 @@ the reusable workflow contains no matrix or dynamic project/secret lookup.
 
 This generic core does not itself activate the remaining applications. The
 current automatic worker continues to call only the UI target with
-`preview-controller:v1`, and the current direct browser smoke remains UI-only.
-App, Governance, and Reserve callers plus their target-specific smoke must land
-before those targets can dispatch. No ownership configuration changes as part
-of this interface preparation.
+`preview-controller:v1`. Both its initial upload path and its same-upload retry
+call the secretless four-target `_vercel-preview-smoke.yml` workflow with the
+complete verified tuple before canonical Deployment success. App, Governance,
+and Reserve already have target-specific smoke implementations, but their
+literal controller callers remain absent until the separate atomic activation
+change. No ownership configuration changes as part of this interface
+preparation.
 
 The reusable declaration has the three common secrets
 (`VERCEL_TOKEN_PREVIEW`, `TURBO_TOKEN`, and
@@ -711,12 +714,12 @@ reusable workflow published `deployment_url` only from the smoke-backed success
 step; it never fell back to the unverified upload output.
 
 A Deployment or status created with the repository `GITHUB_TOKEN` does not
-trigger another workflow run. Therefore `.github/workflows/preview-smoke.yml`
-did not recurse for the pilot. Direct smoke in the reusable worker was the
-required success gate. Do not add a PAT to force `deployment_status` recursion;
-the Phase A pilot did not need one. The dedicated worker-dispatch PAT was not
-an exception; its sole purpose was the automatic controller's worker
-`workflow_dispatch` POST described below.
+trigger another workflow run. Therefore workers call the secretless
+`.github/workflows/_vercel-preview-smoke.yml` directly before terminal success;
+they never depend on `deployment_status` recursion. Do not add a PAT to force
+that recursion. The dedicated worker-dispatch credential is not an exception;
+its sole purpose is the automatic controller's worker `workflow_dispatch` POST
+described below.
 
 ### Historical Phase A evidence and browser verification
 
@@ -738,6 +741,40 @@ after Phase B disables native UI branch previews; current validation uses the
 The cost go/no-go record in issue #518 and the Phase A live-canary evidence
 below were prerequisites for the final UI Git-ownership cutover. The current
 Phase B ownership model reflects that gate having completed.
+
+## Reusable secretless preview verification
+
+`.github/workflows/_vercel-preview-smoke.yml` is the one smoke implementation
+for App, Governance, Reserve, and UI. Its caller supplies an already verified,
+target-bound tuple: logical target, immutable team URL, exact SHA, canonical
+GitHub Deployment ID, mode-specific verification key, and trusted deployment
+metadata. Controller/manual-pilot mode additionally binds the literal Vercel
+project, Vercel Deployment ID, and target-specific Next.js deployment ID.
+Native-adapter mode is restricted to App/Governance and binds the exact native
+environment plus Vercel bot identity; it cannot fabricate a controller key.
+
+The reusable workflow declares no secrets and performs no authenticated Vercel
+or GitHub lookup. It validates the tuple before any request, checks the root
+response, security headers, representative JavaScript/CSS/font assets, browser
+console/page errors, and same-origin failures, then runs the target interaction:
+
+- App/Governance: real wallet list and team-host-only mock wallet connection;
+- Reserve: Overview data plus Supply tab and URL/state transition;
+- UI: exact build/asset identity, navigation, and hydrated control interaction.
+
+The temporary `.github/workflows/preview-smoke.yml` native adapter classifies
+only exact successful `Preview – app.mento.org` and
+`Preview – governance.mento.org` events created by Vercel's fixed bot identity
+on the exact project-slug team host. Production/v3, inactive/skipped, main,
+controller-payload, actor-lookalike, Reserve, and UI events do not call smoke.
+Every qualifying event runs the full reusable workflow. No historical status
+is listed or trusted for dedupe, and the adapter deliberately declares no
+workflow or job concurrency group: GitHub replaces an older pending run in a
+shared group even when `cancel-in-progress` is false, which would violate the
+one-full-smoke-per-event contract. The appended terminal status is bounded,
+run-specific evidence only. The adapter receives no PAT, Vercel token, Turbo
+token, or application secret and is deleted after all native consumers leave
+the observation window.
 
 ## Automatic trusted UI previews (current; introduced in Phase A)
 
@@ -1128,20 +1165,23 @@ through the protected Node.js runtime copied before candidate execution, not
 the hosted toolcache path the candidate can reach.
 
 Lifecycle is `queued -> in_progress -> success|failure|error`. Success and the
-public `environment_url` exist only after exact-SHA/ID verification and direct
-UI smoke. Every initial or resumed credential-free smoke attempt keeps the
-HTTP/header/static-asset checks, then uses the trusted main-branch smoke
-controller with Playwright and the GitHub runner's system Chrome to render the
-showcase, search and navigate to a second route, change a form control, and fail
-on page/console errors or failed same-origin requests and responses. The direct
-HTTP phase verifies the server-rendered `data-dpl-id`; after hydration, the
-browser phase requires every loaded same-origin `/_next/static/` asset to carry
-exactly the expected `?dpl=` value and rejects any conflicting retained HTML
-deployment marker. Controller-side request monitoring remains active through
-the second-route interaction, so dynamically loaded chunks cannot escape the
-same identity check. The controller waits for all observed static requests to
-finish and for a quiet window before its final assertion. This preserves
-fail-closed deployment-identity proof when
+public `environment_url` exist only after exact-SHA/ID verification and the
+single secretless reusable smoke. Both the initial upload and same-upload retry
+pass the complete controller-bound tuple to
+`.github/workflows/_vercel-preview-smoke.yml`; the old embedded UI-only HTTP and
+parallel browser paths no longer exist. The reusable workflow runs in the
+pinned Playwright container and keeps the common bounded
+HTTP/header/static-asset checks before the trusted UI deployment-identity
+browser flow renders the showcase, searches and navigates to a second route,
+changes a form control, and fails on page/console errors or failed same-origin
+requests and responses. The HTTP phase verifies the server-rendered
+`data-dpl-id`; after hydration, the browser phase requires every loaded
+same-origin `/_next/static/` asset to carry exactly the expected `?dpl=` value
+and rejects any conflicting retained HTML deployment marker. Request monitoring
+remains active through the second-route interaction, so dynamically loaded
+chunks cannot escape the same identity check. The controller waits for all
+observed static requests to finish and for a quiet window before its final
+assertion. This preserves fail-closed deployment-identity proof when
 React reconciles the server-injected HTML attribute out of the live DOM. Chrome
 also waits for the initial page load before changing controlled inputs, then
 rechecks the changed form control after the hydration/interaction settle. Its

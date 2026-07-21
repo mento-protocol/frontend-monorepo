@@ -15,6 +15,9 @@ catalogs:
     '@metamask/jazzicon':
       specifier: github:jmrossy/jazzicon#7a8df28
       version: 2.1.0
+    '@playwright/test':
+      specifier: 1.61.1
+      version: 1.61.1
     '@rainbow-me/rainbowkit':
       specifier: ^2.2.11
       version: 2.2.11
@@ -173,6 +176,9 @@ importers:
       '@eslint/js':
         specifier: 'catalog:'
         version: 9.39.2
+      '@playwright/test':
+        specifier: 'catalog:'
+        version: 1.61.1
       '@repo/eslint-config':
         specifier: workspace:*
         version: link:packages/eslint-config

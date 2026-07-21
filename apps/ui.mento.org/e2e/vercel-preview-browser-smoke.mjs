@@ -329,10 +329,21 @@ function createBrowserDeploymentIdentityMonitor(page, expectedOrigin) {
   };
 }
 
-export async function runBrowserSmoke({ chromium, input, timeoutMs = 30_000 }) {
+export async function runBrowserSmoke({
+  chromium,
+  input,
+  timeoutMs = 30_000,
+  browserChannel = "chrome",
+}) {
   const validated = validateBrowserSmokeInput(input);
   const baseUrl = new URL(validated.deploymentUrl);
-  const browser = await chromium.launch({ channel: "chrome", headless: true });
+  if (browserChannel !== "chrome" && browserChannel !== "bundled") {
+    throw new Error("Browser smoke channel is invalid");
+  }
+  const browser = await chromium.launch({
+    ...(browserChannel === "chrome" ? { channel: "chrome" } : {}),
+    headless: true,
+  });
   try {
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -440,6 +451,7 @@ async function runBrowserSmokeFromEnvironment({
 } = {}) {
   const result = await runBrowserSmoke({
     chromium: await loadChromium(controllerRoot),
+    browserChannel: environment.PLAYWRIGHT_BROWSER_CHANNEL ?? "chrome",
     input: {
       deploymentUrl: environment.VERCEL_DEPLOYMENT_URL,
       commitSha: environment.DEPLOY_SHA,

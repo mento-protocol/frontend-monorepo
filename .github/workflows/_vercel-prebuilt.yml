@@ -1532,60 +1532,27 @@ jobs:
     name: Smoke verified ${{ inputs.logical_target }} preview
     needs: prebuilt
     if: needs.prebuilt.result == 'success'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
     permissions:
       contents: read
-    outputs:
-      deployment_url: ${{ steps.smoke.outputs.smoke_deployment_url }}
-      smoke_commit_sha: ${{ steps.smoke.outputs.smoke_commit_sha }}
-    steps:
-      - name: Check out trusted smoke controller only
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          fetch-depth: 1
-          path: controller
-          persist-credentials: false
-          ref: ${{ github.workflow_sha }}
-
-      - name: Smoke immutable UI preview without deployment credentials
-        id: smoke
-        env:
-          DEPLOY_SHA: ${{ needs.prebuilt.outputs.commit_sha }}
-          GITHUB_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.github_deployment_id }}
-          LOGICAL_TARGET: ${{ inputs.logical_target }}
-          MENTO_NEXT_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.next_deployment_id }}
-          VERCEL_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.vercel_deployment_id }}
-          VERCEL_DEPLOYMENT_URL: ${{ needs.prebuilt.outputs.verified_deployment_url }}
-        run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" smoke
-
-      - name: Set up pinned pnpm for trusted browser smoke
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v4
-        with:
-          version: 10.34.4
-
-      - name: Set up pinned Node.js and trusted pnpm cache
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: controller/pnpm-lock.yaml
-
-      - name: Install trusted browser smoke dependencies
-        working-directory: controller
-        env:
-          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
-        run: pnpm install --frozen-lockfile --ignore-scripts --filter ui.mento.org...
-
-      - name: Interact with immutable UI preview in system Chrome
-        env:
-          DEPLOYMENT_IDEMPOTENCY_KEY: ${{ inputs.deployment_idempotency_key }}
-          DEPLOY_SHA: ${{ needs.prebuilt.outputs.commit_sha }}
-          GITHUB_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.github_deployment_id }}
-          MENTO_NEXT_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.next_deployment_id }}
-          VERCEL_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.vercel_deployment_id }}
-          VERCEL_DEPLOYMENT_URL: ${{ needs.prebuilt.outputs.verified_deployment_url }}
-        run: node "$GITHUB_WORKSPACE/controller/apps/ui.mento.org/e2e/vercel-preview-browser-smoke.mjs"
+    uses: ./.github/workflows/_vercel-preview-smoke.yml
+    with:
+      logical_target: ${{ inputs.logical_target }}
+      deployment_url: ${{ needs.prebuilt.outputs.verified_deployment_url }}
+      expected_sha: ${{ needs.prebuilt.outputs.commit_sha }}
+      github_deployment_id: ${{ needs.prebuilt.outputs.github_deployment_id }}
+      verification_mode: ${{ inputs.provenance == 'manual-pilot' && 'manual-pilot' || 'controller' }}
+      verification_key: ${{ inputs.deployment_idempotency_key }}
+      metadata_logical_target: ${{ inputs.logical_target }}
+      metadata_target: ${{ inputs.vercel_target }}
+      metadata_repository: ${{ github.repository }}
+      metadata_ref: ${{ inputs.git_branch }}
+      metadata_sha: ${{ needs.prebuilt.outputs.commit_sha }}
+      metadata_url: ${{ needs.prebuilt.outputs.verified_deployment_url }}
+      pull_request_number: ${{ inputs.pull_request_number }}
+      vercel_deployment_id: ${{ needs.prebuilt.outputs.vercel_deployment_id }}
+      next_deployment_id: ${{ needs.prebuilt.outputs.next_deployment_id }}
+      expected_project_id: ${{ inputs.vercel_project_id }}
+      metadata_project_id: ${{ inputs.vercel_project_id }}
 
   finalize:
     name: Finalize ${{ inputs.logical_target }} deployment lifecycle
@@ -1633,7 +1600,7 @@ jobs:
         continue-on-error: true
         env:
           BUILD_DURATION_MS: ${{ needs.prebuilt.outputs.build_duration_ms }}
-          COMMIT_SHA: ${{ needs.smoke.outputs.smoke_commit_sha }}
+          COMMIT_SHA: ${{ needs.smoke.outputs.expected_sha }}
           DEPLOY_DURATION_MS: ${{ needs.prebuilt.outputs.deploy_duration_ms }}
           GITHUB_DEPLOYMENT_ID: ${{ needs.prebuilt.outputs.github_deployment_id }}
           LOGICAL_TARGET: ${{ inputs.logical_target }}

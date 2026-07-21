@@ -1,0 +1,316 @@
+import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { test } from "node:test";
+
+import {
+  createBrowserFailureMonitor,
+  loadTrustedChromium,
+  runBrowserSmoke,
+} from "./vercel-preview-browser-smoke.mjs";
+
+const repoRoot = new URL("../", import.meta.url).pathname;
+const SHA = "0123456789abcdef0123456789abcdef01234567";
+
+function controllerTuple(target) {
+  const deploymentUrl = `https://${target === "reserve" ? "reservemento" : "appmento"}-abc123-mentolabs.vercel.app/`;
+  return {
+    logicalTarget: target,
+    deploymentUrl,
+    commitSha: SHA,
+    pullRequestNumber: "520",
+    githubDeploymentId: "1234",
+    verificationMode: "controller",
+    verificationKey: `vercel-preview:v1:pr:520:target:${target}:sha:${SHA}`,
+    vercelDeploymentId: "dpl_Abc123",
+    nextDeploymentId: `m-${target}-0123456789abcdef012`,
+    expectedProjectId: `prj_${target}`,
+    metadataLogicalTarget: target,
+    metadataProjectId: `prj_${target}`,
+    metadataTarget: "preview",
+    metadataRepository: "mento-protocol/frontend-monorepo",
+    metadataRef: "feature/multi-app-preview",
+    metadataSha: SHA,
+    metadataUrl: deploymentUrl,
+    metadataEnvironment: "",
+    metadataActorLogin: "",
+    metadataActorId: "",
+    metadataActorType: "",
+  };
+}
+
+class FakePage extends EventEmitter {
+  constructor(values, { afterInteraction } = {}) {
+    super();
+    this.values = values;
+    this.afterInteraction = afterInteraction;
+    this.currentUrl = values.deploymentUrl;
+    this.supplySelected = false;
+    this.calls = [];
+  }
+
+  setDefaultTimeout(timeout) {
+    this.calls.push(["timeout", timeout]);
+  }
+
+  setDefaultNavigationTimeout(timeout) {
+    this.calls.push(["navigation-timeout", timeout]);
+  }
+
+  async goto(url, options) {
+    this.calls.push(["goto", url, options]);
+    for (const path of [
+      "/_next/static/app.js",
+      "/_next/static/app.css",
+      "/_next/static/font.woff2",
+    ]) {
+      this.emit("response", {
+        url: () => new URL(path, url).toString(),
+        status: () => 200,
+      });
+    }
+    return {
+      ok: () => true,
+      status: () => 200,
+      headers: () => ({
+        "content-security-policy": "frame-ancestors 'none'",
+        "x-frame-options": "DENY",
+        "x-content-type-options": "nosniff",
+      }),
+    };
+  }
+
+  url() {
+    return this.currentUrl;
+  }
+
+  locator(selector) {
+    assert.equal(selector, "body");
+    return {
+      waitFor: async (options) => {
+        this.calls.push(["body", options]);
+      },
+    };
+  }
+
+  getByText(text, options) {
+    assert.equal(text, "Supply Breakdown");
+    assert.deepEqual(options, { exact: true });
+    return {
+      waitFor: async (waitOptions) => {
+        this.calls.push(["supply-data", waitOptions]);
+      },
+    };
+  }
+
+  getByRole(role, options) {
+    assert.equal(role, "tab");
+    if (options.name === "Overview") {
+      return {
+        waitFor: async (waitOptions) => {
+          this.calls.push(["overview", waitOptions]);
+        },
+        getAttribute: async (attribute) => {
+          assert.equal(attribute, "aria-selected");
+          return "true";
+        },
+      };
+    }
+    if (options.name === "Supply") {
+      return {
+        click: async () => {
+          this.supplySelected = true;
+          this.currentUrl = new URL(
+            "/?tab=stablecoins",
+            this.values.deploymentUrl,
+          ).toString();
+          this.calls.push(["supply-click"]);
+        },
+        getAttribute: async (attribute) => {
+          assert.equal(attribute, "aria-selected");
+          return this.supplySelected ? "true" : "false";
+        },
+      };
+    }
+    throw new Error(`Unexpected role ${options.name}`);
+  }
+
+  async waitForURL(matcher, options) {
+    assert.equal(matcher(new URL(this.currentUrl)), true);
+    assert.deepEqual(options, { waitUntil: "commit" });
+    this.calls.push(["wait-for-url", this.currentUrl]);
+  }
+
+  async waitForLoadState(state) {
+    assert.equal(state, "load");
+    this.calls.push(["load"]);
+  }
+
+  async waitForTimeout(timeout) {
+    this.calls.push(["settle", timeout]);
+    this.afterInteraction?.(this);
+  }
+}
+
+function fakeChromium(page) {
+  const state = { launchOptions: null, contextOptions: null, closed: false };
+  return {
+    state,
+    chromium: {
+      async launch(options) {
+        state.launchOptions = options;
+        return {
+          async newContext(contextOptions) {
+            state.contextOptions = contextOptions;
+            return { newPage: async () => page };
+          },
+          async close() {
+            state.closed = true;
+          },
+        };
+      },
+    },
+  };
+}
+
+test("Reserve browser smoke renders runtime data and changes the Supply tab state", async () => {
+  const values = controllerTuple("reserve");
+  const page = new FakePage(values);
+  const fake = fakeChromium(page);
+  const result = await runBrowserSmoke({ chromium: fake.chromium, values });
+
+  assert.deepEqual(fake.state.launchOptions, { headless: true });
+  assert.deepEqual(fake.state.contextOptions, { colorScheme: "dark" });
+  assert.equal(fake.state.closed, true);
+  assert.equal(result.interaction, "overview-data-and-supply-tab");
+  assert.equal(page.supplySelected, true);
+  assert.ok(page.calls.some(([name]) => name === "supply-data"));
+});
+
+test("App browser smoke uses system Chrome when explicitly requested", async () => {
+  const values = controllerTuple("app");
+  const page = new FakePage(values);
+  const fake = fakeChromium(page);
+  const result = await runBrowserSmoke({
+    chromium: fake.chromium,
+    values,
+    browserChannel: "chrome",
+  });
+
+  assert.deepEqual(fake.state.launchOptions, {
+    channel: "chrome",
+    headless: true,
+  });
+  assert.equal(
+    result.interaction,
+    "wallet-flow-runs-in-the-target-specific-suite",
+  );
+  assert.ok(page.calls.some(([name]) => name === "body"));
+});
+
+test("browser failure monitor fails on console, page, and same-origin asset errors", () => {
+  const origin = "https://appmento-abc123-mentolabs.vercel.app";
+  const page = new EventEmitter();
+  const monitor = createBrowserFailureMonitor(page, origin);
+  page.emit("console", {
+    type: () => "error",
+    text: () => "hydration failed",
+    location: () => ({ url: `${origin}/_next/static/app.js` }),
+  });
+  page.emit("pageerror", new Error("render exploded"));
+  page.emit("requestfailed", {
+    url: () => `${origin}/_next/static/app.js`,
+    method: () => "GET",
+    failure: () => ({ errorText: "net::ERR_FAILED" }),
+  });
+  assert.throws(() => monitor.assertClean(), /hydration failed/);
+});
+
+test("browser failure monitor ignores only Next's expected superseded RSC abort", () => {
+  const origin = "https://reservemento-abc123-mentolabs.vercel.app";
+  const page = new EventEmitter();
+  const monitor = createBrowserFailureMonitor(page, origin);
+  for (const path of [
+    "/_next/static/app.js",
+    "/_next/static/app.css",
+    "/_next/static/font.woff2",
+  ]) {
+    page.emit("response", {
+      url: () => new URL(path, origin).toString(),
+      status: () => 200,
+    });
+  }
+  page.emit("requestfailed", {
+    url: () => `${origin}/?tab=stablecoins&_rsc=route`,
+    method: () => "GET",
+    resourceType: () => "fetch",
+    failure: () => ({ errorText: "net::ERR_ABORTED" }),
+  });
+  assert.doesNotThrow(() => monitor.assertClean());
+
+  page.emit("requestfailed", {
+    url: () => `${origin}/_next/static/app.js`,
+    method: () => "GET",
+    resourceType: () => "script",
+    failure: () => ({ errorText: "net::ERR_ABORTED" }),
+  });
+  assert.throws(() => monitor.assertClean(), /same-origin request failed/);
+});
+
+test("browser failure monitor does not count redirects as successful assets", () => {
+  const origin = "https://appmento-abc123-mentolabs.vercel.app";
+  const page = new EventEmitter();
+  const monitor = createBrowserFailureMonitor(page, origin);
+  for (const path of [
+    "/_next/static/app.js",
+    "/_next/static/app.css",
+    "/_next/static/font.woff2",
+  ]) {
+    page.emit("response", {
+      url: () => new URL(path, origin).toString(),
+      status: () => 302,
+    });
+  }
+  assert.throws(() => monitor.assertClean(), /observed no successful scripts/);
+});
+
+test("browser smoke closes Chromium after an interaction-time failure", async () => {
+  const values = controllerTuple("app");
+  const page = new FakePage(values, {
+    afterInteraction(currentPage) {
+      currentPage.emit("pageerror", new Error("late hydration failure"));
+    },
+  });
+  const fake = fakeChromium(page);
+  await assert.rejects(
+    runBrowserSmoke({ chromium: fake.chromium, values }),
+    /late hydration failure/,
+  );
+  assert.equal(fake.state.closed, true);
+});
+
+test("generic target smoke rejects UI so the stronger deployment-identity path cannot be bypassed", async () => {
+  const values = controllerTuple("app");
+  const uiValues = {
+    ...values,
+    logicalTarget: "ui",
+    deploymentUrl: "https://uimento-abc123-mentolabs.vercel.app/",
+    verificationKey: `vercel-preview:v1:pr:520:target:ui:sha:${SHA}`,
+    nextDeploymentId: "m-ui-0123456789abcdef012",
+    expectedProjectId: "prj_ui",
+    metadataLogicalTarget: "ui",
+    metadataProjectId: "prj_ui",
+    metadataUrl: "https://uimento-abc123-mentolabs.vercel.app/",
+  };
+  await assert.rejects(
+    runBrowserSmoke({
+      chromium: fakeChromium(new FakePage(uiValues)).chromium,
+      values: uiValues,
+    }),
+    /UI must use its deployment-identity browser smoke/,
+  );
+});
+
+test("trusted checkout resolves the pinned Playwright package", async () => {
+  const chromium = await loadTrustedChromium(repoRoot);
+  assert.equal(typeof chromium.launch, "function");
+});
