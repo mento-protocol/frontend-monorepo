@@ -9,7 +9,7 @@
  * Also checks override settings: pnpm overrides rewrite EVERY specifier for a
  * package name, including `catalog:` references, so any override that can match
  * a cataloged package must match the catalog string exactly or use pnpm's
- * `catalog:` override value. Range-scoped CVE-floor overrides (`axios@<1.15.0`)
+ * `catalog:` override value. Range-scoped CVE-floor overrides (`axios@<1.18.0`)
  * are skipped only when the selector is proven not to match the catalog range.
  * See docs/dependency-overrides.md.
  *
