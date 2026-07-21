@@ -5011,6 +5011,102 @@ test("generic no-dispatch retirement does not claim native ownership of a GitHub
   assert.doesNotMatch(statusA.description, /Native Vercel/);
 });
 
+test("selected-native retirement keeps unrelated retired GitHub ownership generic", async () => {
+  const oldOpened = event({
+    run: 110,
+    action: "opened",
+    head: SHA.C,
+    updated: timestamp(1),
+  });
+  const old = reconcile({
+    events: [oldOpened],
+    pullRequest: pull({ head: SHA.C, updated: timestamp(1) }),
+  });
+  const oldIntended = persistIntent(old);
+  const closed = event({
+    run: 111,
+    action: "closed",
+    head: SHA.C,
+    updated: timestamp(2),
+  });
+  const closedState = reconcile({
+    events: [oldOpened, closed],
+    pullRequest: pull({
+      head: SHA.C,
+      state: "closed",
+      updated: timestamp(2),
+      closed: timestamp(2),
+    }),
+    existingState: oldIntended,
+  });
+  const reopened = event({
+    run: 112,
+    action: "reopened",
+    head: SHA.A,
+    updated: timestamp(3),
+  });
+  const synchronized = event({
+    run: 113,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    updated: timestamp(4),
+  });
+  const events = [oldOpened, closed, reopened, synchronized];
+  const pullRequest = pull({ head: SHA.B, updated: timestamp(4) });
+  const selected = reconcile({
+    events,
+    pullRequest,
+    existingState: closedState.state,
+  });
+  assert.equal(selected.nextDispatch.sha, SHA.A);
+  assert.equal(selected.state.ui.retired_active[0].sha, SHA.C);
+  const intended = persistIntent(selected);
+  const fixture = fakeGitHub({
+    pullRequest,
+    pullCommits: [SHA.C, SHA.A, SHA.B],
+    comments: [
+      journalWithState(events, intended, {
+        selections: [
+          selectionReceiptFromDispatch(intended.ui.retired_active[0]),
+          selectionReceiptFromDispatch(intended.ui.active),
+        ],
+      }),
+    ],
+    uiVercelConfigurationsByRef: new Map([
+      [SHA.C, GITHUB_OWNED_UI_VERCEL_CONFIGURATION],
+      [SHA.A, NATIVE_OWNED_UI_VERCEL_CONFIGURATION],
+      [SHA.B, GITHUB_OWNED_UI_VERCEL_CONFIGURATION],
+    ]),
+  });
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext(),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(fixture.dispatches.length, 1);
+  assert.equal(fixture.dispatches[0].inputs.commit_sha, SHA.B);
+  assert.equal(state.ui.active.sha, SHA.B);
+  const resultsBySha = new Map(
+    journalFromComment(fixture.comments[0]).receipts.results.map((entry) => [
+      entry.sha,
+      entry.terminal_reason,
+    ]),
+  );
+  assert.equal(
+    resultsBySha.get(SHA.A),
+    "native-owned-selection-without-github-worker",
+  );
+  assert.equal(
+    resultsBySha.get(SHA.C),
+    "dispatch-disabled-intent-without-worker",
+  );
+});
+
 test("a native-owned historical receipt attaches its crash-window worker instead of dispatching a duplicate", async () => {
   const opened = event({
     run: 121,

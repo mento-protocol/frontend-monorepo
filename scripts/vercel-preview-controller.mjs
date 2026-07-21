@@ -4201,7 +4201,7 @@ async function reconcileNoDispatchIntents({
   state,
   stateComment,
   waitForRecovery,
-  orphanTerminalReason = NO_DISPATCH_ORPHAN_REASON,
+  nativeOwnedSelectionKeyDigest = null,
 }) {
   const candidates = [];
   if (
@@ -4243,7 +4243,10 @@ async function reconcileNoDispatchIntents({
         context,
         pr,
         selection,
-        terminalReason: orphanTerminalReason,
+        terminalReason:
+          selection.key_digest === nativeOwnedSelectionKeyDigest
+            ? NATIVE_OWNED_SELECTION_REASON
+            : NO_DISPATCH_ORPHAN_REASON,
       });
       retiredWithoutWorker = true;
       continue;
@@ -4684,10 +4687,10 @@ export async function reconcilePreview({
               state,
               stateComment,
               waitForRecovery,
-              orphanTerminalReason:
+              nativeOwnedSelectionKeyDigest:
                 refreshedOwnership.outcome === "selected-native"
-                  ? NATIVE_OWNED_SELECTION_REASON
-                  : NO_DISPATCH_ORPHAN_REASON,
+                  ? selected.key_digest
+                  : null,
             }),
             "Native-owned selection did not retain its durable intent",
           );
@@ -4754,10 +4757,10 @@ export async function reconcilePreview({
               state,
               stateComment,
               waitForRecovery,
-              orphanTerminalReason:
+              nativeOwnedSelectionKeyDigest:
                 refreshedOwnership.outcome === "selected-native"
-                  ? NATIVE_OWNED_SELECTION_REASON
-                  : NO_DISPATCH_ORPHAN_REASON,
+                  ? selected.key_digest
+                  : null,
             }),
             "Native-owned selection did not retain its durable intent",
           );
