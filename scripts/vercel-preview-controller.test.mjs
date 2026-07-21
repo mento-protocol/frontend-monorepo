@@ -4959,7 +4959,7 @@ test("a native-owned receipt followed by a GitHub-owned head retires A and dispa
   assert.equal(journal.receipts.results[0].sha, SHA.A);
   assert.equal(
     journal.receipts.results[0].terminal_reason,
-    "dispatch-disabled-intent-without-worker",
+    "native-owned-selection-without-github-worker",
   );
   assert.equal(
     state.status_decisions.find(({ sha }) => sha === SHA.A).state,
@@ -4967,6 +4967,48 @@ test("a native-owned receipt followed by a GitHub-owned head retires A and dispa
   );
   assert.ok(fixture.contentRequests.some(({ ref }) => ref === SHA.A));
   assert.ok(fixture.contentRequests.some(({ ref }) => ref === SHA.B));
+});
+
+test("generic no-dispatch retirement does not claim native ownership of a GitHub-owned SHA", () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const synchronized = event({
+    run: 122,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    updated: timestamp(2),
+  });
+  const pullRequest = pull({ head: SHA.B, updated: timestamp(2) });
+  const selected = reconcile({ events: [opened, synchronized], pullRequest });
+  const intended = persistIntent(selected);
+  const retired = result(selected.nextDispatch, {
+    runId: 7_000,
+    state: "error",
+    reason: "dispatch-disabled-intent-without-worker",
+  });
+
+  const advanced = reconcile({
+    events: [opened, synchronized],
+    results: [retired],
+    selections: [selectionReceiptFromDispatch(intended.ui.active)],
+    pullRequest,
+    existingState: intended,
+  });
+
+  const statusA = advanced.state.status_decisions.find(
+    ({ sha }) => sha === SHA.A,
+  );
+  assert.equal(statusA.state, "error");
+  assert.equal(
+    statusA.description,
+    "UI preview controller or infrastructure error",
+  );
+  assert.doesNotMatch(statusA.description, /Native Vercel/);
 });
 
 test("a native-owned historical receipt attaches its crash-window worker instead of dispatching a duplicate", async () => {

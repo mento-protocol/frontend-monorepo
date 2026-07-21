@@ -90,6 +90,12 @@ const WORKER_RECOVERY_AFTER_MS = 15 * 60 * 1_000;
 const UPLOAD_STARTED_DESCRIPTION = "Prebuilt preview upload starting";
 const RETIRED_RECOVERY_QUARANTINE = "persisted-attempt-invalid-or-unavailable";
 const NO_DISPATCH_ORPHAN_REASON = "dispatch-disabled-intent-without-worker";
+const NATIVE_OWNED_SELECTION_REASON =
+  "native-owned-selection-without-github-worker";
+const SELECTION_SCOPED_CONTROLLER_RESULT_REASONS = new Set([
+  NO_DISPATCH_ORPHAN_REASON,
+  NATIVE_OWNED_SELECTION_REASON,
+]);
 const COMMENT_EXPLANATION = [
   "**No reviewer action is required.**",
   "This repository builds pull request previews in GitHub Actions and deploys them to Vercel.",
@@ -1017,10 +1023,11 @@ function dedupeResults(results) {
     // One no-dispatch controller run may retire same-SHA selections from
     // multiple epochs. Those synthetic receipts are selection-scoped; every
     // other controller or real-worker result keeps the stricter run owner.
-    const runOwner =
-      result.terminal_reason === NO_DISPATCH_ORPHAN_REASON
-        ? result.key_digest
-        : result.controller_key;
+    const runOwner = SELECTION_SCOPED_CONTROLLER_RESULT_REASONS.has(
+      result.terminal_reason,
+    )
+      ? result.key_digest
+      : result.controller_key;
     const key = `${runOwner}:${result.worker_run_id}`;
     const previous = byRun.get(key);
     if (previous)
@@ -1308,7 +1315,7 @@ function statusDecision({
   }
   const eligible = event.plan.targets.includes(PREVIEW_TARGET);
   const result = resultByRun.get(event.event_run_id);
-  if (eligible && result?.terminal_reason === NO_DISPATCH_ORPHAN_REASON) {
+  if (eligible && result?.terminal_reason === NATIVE_OWNED_SELECTION_REASON) {
     return {
       sha: event.head_sha,
       state: "success",
@@ -4173,6 +4180,7 @@ function recordNoDispatchIntentWithoutWorker({
   context,
   pr,
   selection,
+  terminalReason = NO_DISPATCH_ORPHAN_REASON,
 }) {
   return recordControllerTerminalResult({
     github,
@@ -4180,7 +4188,7 @@ function recordNoDispatchIntentWithoutWorker({
     pr,
     selection,
     state: "error",
-    terminalReason: NO_DISPATCH_ORPHAN_REASON,
+    terminalReason,
     runIdLabel: "Controller retirement run ID",
   });
 }
@@ -4193,6 +4201,7 @@ async function reconcileNoDispatchIntents({
   state,
   stateComment,
   waitForRecovery,
+  orphanTerminalReason = NO_DISPATCH_ORPHAN_REASON,
 }) {
   const candidates = [];
   if (
@@ -4234,6 +4243,7 @@ async function reconcileNoDispatchIntents({
         context,
         pr,
         selection,
+        terminalReason: orphanTerminalReason,
       });
       retiredWithoutWorker = true;
       continue;
@@ -4674,6 +4684,10 @@ export async function reconcilePreview({
               state,
               stateComment,
               waitForRecovery,
+              orphanTerminalReason:
+                refreshedOwnership.outcome === "selected-native"
+                  ? NATIVE_OWNED_SELECTION_REASON
+                  : NO_DISPATCH_ORPHAN_REASON,
             }),
             "Native-owned selection did not retain its durable intent",
           );
@@ -4740,6 +4754,10 @@ export async function reconcilePreview({
               state,
               stateComment,
               waitForRecovery,
+              orphanTerminalReason:
+                refreshedOwnership.outcome === "selected-native"
+                  ? NATIVE_OWNED_SELECTION_REASON
+                  : NO_DISPATCH_ORPHAN_REASON,
             }),
             "Native-owned selection did not retain its durable intent",
           );

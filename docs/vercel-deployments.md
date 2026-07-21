@@ -727,12 +727,15 @@ ownership inputs immediately before the dispatch credential can make its only
 POST. A selected native-owned receipt is persisted as an intent and routed
 through the same bounded no-dispatch recovery path: one already-created worker
 is attached and drained, while no matching worker produces the durable
-`dispatch-disabled-intent-without-worker` result and advances reconciliation to
-the next receipt. That terminal reason is ownership-success, not GitHub build
-evidence; it creates no GitHub Deployment. The exact native configuration also
-suppresses dispatch when the default-branch workflow is still `active`, which
-protects a rollback PR before it merges. `observe-only` never creates a new
-dispatch intent or worker.
+`native-owned-selection-without-github-worker` result and advances
+reconciliation to the next receipt. That dedicated terminal reason is
+ownership-success, not GitHub build evidence; it creates no GitHub Deployment.
+The generic `dispatch-disabled-intent-without-worker` result remains an error
+for the SHA whose GitHub-owned intent was retired, so a later ownership flip
+cannot falsely relabel that historical SHA as native-owned. The exact native
+configuration also suppresses dispatch when the default-branch workflow is
+still `active`, which protects a rollback PR before it merges. `observe-only`
+never creates a new dispatch intent or worker.
 It does, however, reconcile every previously persisted `intended` entry in both
 the current and epoch-retired ownership slots: one unique existing worker is
 attached without the secondary credential, a completed worker is terminalized
@@ -1342,11 +1345,13 @@ or reopen epoch; completion is recovered in that same reconciliation attempt,
 and an intent with no worker is durably retired after bounded observation. A
 native-owned historical receipt encountered after a later switch back to
 GitHub ownership follows that same durable retirement path instead of being
-dispatched by the later head's configuration. The synthetic no-dispatch result
-is reported as ownership-success and never claims a native build or smoke.
-Only after no active or retired GitHub ownership remains does the context
-become `success` with `Native Vercel owns this UI preview`. Missing, malformed,
-or unknown candidate configuration, multiple matching workers, and an
+dispatched by the later head's configuration. Its dedicated
+`native-owned-selection-without-github-worker` result is reported as
+ownership-success and never claims a native build or smoke. Generic retirement
+of a GitHub-owned intent keeps its error semantics. Only after no active or
+retired GitHub ownership remains does the current native-owned context become
+`success` with `Native Vercel owns this UI preview`. Missing, malformed, or
+unknown candidate configuration, multiple matching workers, and an
 `observe-only`/GitHub-owned combination remain `error`.
 
 That green context proves only the controller's owner selection and drained

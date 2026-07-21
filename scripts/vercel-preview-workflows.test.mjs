@@ -750,6 +750,7 @@ test("runbook covers bootstrap, canaries, browser proof, separate cutover, and e
     "immutable 40-character SHAs",
     "event's own SHA",
     "dispatch-disabled-intent-without-worker",
+    "native-owned-selection-without-github-worker",
     "Draining GitHub preview before native ownership",
     "proves only the controller's owner selection",
     "native Vercel deployment/status",
