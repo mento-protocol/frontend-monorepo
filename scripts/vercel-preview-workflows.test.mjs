@@ -723,6 +723,7 @@ test("runbook covers bootstrap, canaries, browser proof, separate cutover, and e
     "vercel-preview-intake.yml",
     "queued requested waiting pending in_progress",
     "gh api --paginate",
+    "set -euo pipefail",
     "SHA",
   ]) {
     assert.match(

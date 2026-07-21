@@ -1288,6 +1288,8 @@ Immediately before merging the rollback, establish a coordinated no-push window
 and drain or cancel every non-completed run of all three workflows:
 
 ```bash
+set -euo pipefail
+
 list_nonterminal_preview_runs() {
   local workflow status
   local -a workflows=(
@@ -1317,14 +1319,15 @@ list_nonterminal_preview_runs |
 
 `gh api --paginate` follows every response page separately for every workflow
 and every GitHub nonterminal status; do not replace it with a bounded
-`gh run list --limit ...` query. Repeat the inventory and cancellation pipeline
-until the inventory prints no rows. After that first empty result, wait for
-cancellations to settle because worker and intake completion can start a final
-controller callback, then require a second empty exhaustive sweep immediately
-before merge. Do not merge while any queued, requested, waiting, pending, or
-in-progress controller, worker, or intake run remains. This quiescence proof
-prevents a run loaded from the old `active` workflow SHA from dispatching after
-native ownership is restored.
+`gh run list --limit ...` query. Any query or cancellation error aborts the
+shell; correct the cause and rerun the full inventory from the start. Repeat the
+inventory and cancellation pipeline until the inventory prints no rows. After
+that first empty result, wait for cancellations to settle because worker and
+intake completion can start a final controller callback, then require a second
+empty exhaustive sweep immediately before merge. Do not merge while any queued,
+requested, waiting, pending, or in-progress controller, worker, or intake run
+remains. This quiescence proof prevents a run loaded from the old `active`
+workflow SHA from dispatching after native ownership is restored.
 
 Before merging the rollback, inventory every active UI-runtime PR and branch
 that carries the Phase B `"**": false` rule. After the restored configuration
