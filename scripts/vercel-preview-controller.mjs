@@ -1010,7 +1010,14 @@ function dedupeResults(results) {
   const byRun = new Map();
   for (const raw of results) {
     const result = validateWorkerResult(raw);
-    const key = `${result.controller_key}:${result.worker_run_id}`;
+    // One no-dispatch controller run may retire same-SHA selections from
+    // multiple epochs. Those synthetic receipts are selection-scoped; every
+    // other controller or real-worker result keeps the stricter run owner.
+    const runOwner =
+      result.terminal_reason === NO_DISPATCH_ORPHAN_REASON
+        ? result.key_digest
+        : result.controller_key;
+    const key = `${runOwner}:${result.worker_run_id}`;
     const previous = byRun.get(key);
     if (previous)
       invariant(
@@ -4147,7 +4154,7 @@ function recordNoDispatchIntentWithoutWorker({
   });
 }
 
-async function reconcileNoDispatchIntent({
+async function reconcileNoDispatchIntents({
   github,
   context,
   core,
@@ -4156,52 +4163,103 @@ async function reconcileNoDispatchIntent({
   stateComment,
   waitForRecovery,
 }) {
-  const selection = state.ui?.active;
+  const candidates = [];
   if (
-    !selection ||
-    selection.dispatch_state !== "intended" ||
-    selection.workflow_run_id !== null
+    state.ui?.active?.dispatch_state === "intended" &&
+    state.ui.active.workflow_run_id === null
   ) {
-    return false;
+    candidates.push({ slot: "active", selection: state.ui.active });
   }
-  const recoveredRun = await recoverMatchingWorkerRun(
-    github,
-    context,
-    selection,
-    { waitForRetry: waitForRecovery },
-  );
-  if (!recoveredRun) {
-    await recordNoDispatchIntentWithoutWorker({
+  for (const selection of state.ui?.retired_active ?? []) {
+    if (
+      selection.dispatch_state === "intended" &&
+      selection.workflow_run_id === null
+    ) {
+      candidates.push({ slot: "retired", selection });
+    }
+  }
+  if (candidates.length === 0) return false;
+
+  const observations = [];
+  for (const candidate of candidates) {
+    observations.push({
+      ...candidate,
+      recoveredRun: await recoverMatchingWorkerRun(
+        github,
+        context,
+        candidate.selection,
+        { waitForRetry: waitForRecovery },
+      ),
+    });
+  }
+
+  const recoveredState = structuredClone(state);
+  const attached = [];
+  let retiredWithoutWorker = false;
+  for (const { slot, selection, recoveredRun } of observations) {
+    if (!recoveredRun) {
+      await recordNoDispatchIntentWithoutWorker({
+        github,
+        context,
+        pr,
+        selection,
+      });
+      retiredWithoutWorker = true;
+      continue;
+    }
+    const recoveredSelection = {
+      ...selection,
+      dispatch_state: "dispatched",
+      ...recoveredRun,
+    };
+    if (slot === "active") {
+      invariant(
+        recoveredState.ui.active?.key_digest === selection.key_digest,
+        "Active no-dispatch intent changed before recovery",
+      );
+      recoveredState.ui.active = recoveredSelection;
+    } else {
+      const retiredIndex = recoveredState.ui.retired_active.findIndex(
+        (candidate) => candidate.key_digest === selection.key_digest,
+      );
+      invariant(retiredIndex >= 0, "Retired no-dispatch intent disappeared");
+      recoveredState.ui.retired_active[retiredIndex] = recoveredSelection;
+    }
+    attached.push({ recoveredRun, recoveredSelection });
+  }
+
+  if (retiredWithoutWorker) {
+    core.setOutput("retired_undispatched_intent", "true");
+  }
+  if (attached.length > 0) {
+    await writeControllerState({
       github,
       context,
       pr,
-      selection,
+      state: recoveredState,
+      stateComment,
     });
-    core.setOutput("retired_undispatched_intent", "true");
-    return true;
+    core.setOutput(
+      "recovered_intended_run_id",
+      String(attached.at(-1).recoveredRun.workflow_run_id),
+    );
   }
-  const recoveredState = {
-    ...state,
-    ui: {
-      ...state.ui,
-      active: {
-        ...selection,
-        dispatch_state: "dispatched",
-        ...recoveredRun,
-      },
-    },
-  };
-  await writeControllerState({
-    github,
-    context,
-    pr,
-    state: recoveredState,
-    stateComment,
-  });
-  core.setOutput(
-    "recovered_intended_run_id",
-    String(recoveredRun.workflow_run_id),
-  );
+  for (const { recoveredRun, recoveredSelection } of attached) {
+    if (recoveredRun.status !== "completed") continue;
+    const workflowRun = await getWorkerRun(
+      github,
+      context,
+      recoveredRun.workflow_run_id,
+      recoveredSelection,
+    );
+    await recoverWorkerResult({
+      github,
+      context,
+      core,
+      workflowRun,
+      waitForRecovery,
+    });
+  }
   return true;
 }
 
@@ -4417,7 +4475,7 @@ export async function reconcilePreview({
       let stateComment = parsed.stateComment;
       if (
         noDispatch &&
-        (await reconcileNoDispatchIntent({
+        (await reconcileNoDispatchIntents({
           github,
           context,
           core,

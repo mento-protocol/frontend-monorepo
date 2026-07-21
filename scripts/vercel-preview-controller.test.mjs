@@ -2503,6 +2503,56 @@ function sameShaReopenState() {
   };
 }
 
+function sameShaReopenIntentState() {
+  const opened = event({
+    run: 160,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const old = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const oldIntended = persistIntent(old);
+  const closed = event({
+    run: 161,
+    action: "closed",
+    head: SHA.A,
+    updated: timestamp(2),
+  });
+  const closedState = reconcile({
+    events: [opened, closed],
+    pullRequest: pull({
+      head: SHA.A,
+      state: "closed",
+      updated: timestamp(2),
+      closed: timestamp(2),
+    }),
+    existingState: oldIntended,
+  });
+  const reopened = event({
+    run: 162,
+    action: "reopened",
+    head: SHA.A,
+    updated: timestamp(3),
+  });
+  const current = reconcile({
+    events: [opened, closed, reopened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(3) }),
+    existingState: closedState.state,
+  });
+  assert.equal(current.state.ui.active, null);
+  assert.equal(current.state.ui.retired_active.length, 1);
+  assert.equal(current.state.ui.retired_active[0].dispatch_state, "intended");
+  return {
+    events: [opened, closed, reopened],
+    old,
+    current,
+    pullRequest: pull({ head: SHA.A, updated: timestamp(3) }),
+  };
+}
+
 function fakeGitHub({
   pullRequest,
   comments: initialComments,
@@ -4800,6 +4850,59 @@ test("active controller rechecks exact-head ownership after recovery and blocks 
   );
 });
 
+test("active controller settles a completed crash-window worker after a racing native cutover", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const selected = reconcile({ events: [opened], pullRequest });
+  const completed = workerRun(selected.nextDispatch, {
+    status: "completed",
+    conclusion: "cancelled",
+  });
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [journalComment({ events: [opened] })],
+    runs: [completed],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+    uiVercelConfigurations: [
+      GITHUB_OWNED_UI_VERCEL_CONFIGURATION,
+      GITHUB_OWNED_UI_VERCEL_CONFIGURATION,
+      NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+    ],
+  });
+  const core = fakeCore();
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext({ runId: 7_001 }),
+    core,
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(core.outputs.get("recovered_intended_run_id"), "8000");
+  assert.equal(state.ui.active, null);
+  assert.equal(
+    state.ui.terminal_history.at(-1).terminal_reason,
+    "worker-cancelled",
+  );
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.results.length, 1);
+  assert.equal(journal.receipts.results[0].worker_run_id, 8_000);
+  assert.equal(journal.state.ui.active, null);
+  assert.equal(fixture.commitStatuses.at(-1).state, "success");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Native Vercel owns this UI preview",
+  );
+});
+
 test("observe-only controller fails closed for a stale GitHub-owned Phase B head", async () => {
   const opened = event({
     run: 121,
@@ -5182,6 +5285,258 @@ test("observe-only mode durably retires a crash-window intent with no worker and
   assert.equal(fixture.workflowRunListRequests.length, lookupCount);
   assert.equal(journal.receipts.results.length, 1);
   assert.equal(journal.state.ui.active, null);
+});
+
+test("observe-only mode retires a reopened epoch's intended worker slot when no worker exists", async () => {
+  const setup = sameShaReopenIntentState();
+  const fixture = fakeGitHub({
+    pullRequest: setup.pullRequest,
+    comments: [
+      journalWithState(setup.events, setup.current.state, {
+        selections: [
+          selectionReceiptFromDispatch(
+            setup.current.state.ui.retired_active[0],
+          ),
+        ],
+      }),
+    ],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+  const core = fakeCore();
+  const waits = [];
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    workerDispatchGithub: null,
+    controllerMode: "observe-only",
+    context: fakeContext({ runId: 7_001 }),
+    core,
+    prNumber: 519,
+    waitForRecovery: async (milliseconds) => waits.push(milliseconds),
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.deepEqual(waits, [500, 500]);
+  assert.equal(fixture.workflowRunListRequests.length, 3);
+  assert.equal(core.outputs.get("retired_undispatched_intent"), "true");
+  assert.equal(state.ui.active, null);
+  assert.equal(state.ui.retired_active.length, 0);
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.results.length, 1);
+  assert.equal(
+    journal.receipts.results[0].key_digest,
+    setup.old.nextDispatch.key_digest,
+  );
+  assert.equal(journal.state.ui.retired_active.length, 0);
+  assert.equal(fixture.commitStatuses.at(-1).state, "success");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Native Vercel owns this UI preview",
+  );
+});
+
+test("observe-only mode retires same-SHA active and reopened-epoch intents without result collisions", async () => {
+  const setup = sameShaReopenIntentState();
+  const currentIntended = persistIntent(setup.current);
+  const retiredSelection = currentIntended.ui.retired_active[0];
+  const activeSelection = currentIntended.ui.active;
+  assert.equal(retiredSelection.key, activeSelection.key);
+  assert.notEqual(retiredSelection.key_digest, activeSelection.key_digest);
+  const fixture = fakeGitHub({
+    pullRequest: setup.pullRequest,
+    comments: [
+      journalWithState(setup.events, currentIntended, {
+        selections: [
+          selectionReceiptFromDispatch(retiredSelection),
+          selectionReceiptFromDispatch(activeSelection),
+        ],
+      }),
+    ],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+  const core = fakeCore();
+  const waits = [];
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    workerDispatchGithub: null,
+    controllerMode: "observe-only",
+    context: fakeContext({ runId: 7_001 }),
+    core,
+    prNumber: 519,
+    waitForRecovery: async (milliseconds) => waits.push(milliseconds),
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.deepEqual(waits, [500, 500, 500, 500]);
+  assert.equal(fixture.workflowRunListRequests.length, 6);
+  assert.equal(state.ui.active, null);
+  assert.equal(state.ui.retired_active.length, 0);
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.results.length, 2);
+  assert.ok(
+    journal.receipts.results.every(
+      ({ worker_run_id: workerRunId }) => workerRunId === 7_001,
+    ),
+  );
+  assert.equal(
+    new Set(journal.receipts.results.map(({ key_digest }) => key_digest)).size,
+    2,
+  );
+  assert.equal(journal.state.ui.active, null);
+  assert.equal(journal.state.ui.retired_active.length, 0);
+  assert.equal(fixture.commitStatuses.at(-1).state, "success");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Native Vercel owns this UI preview",
+  );
+});
+
+test("no-dispatch retirement stays authoritative over an earlier real worker result on replay", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const first = reconcile({ events: [opened], pullRequest });
+  const firstDispatched = persistDispatch(first, 8_000);
+  const firstFailure = result(first.nextDispatch, {
+    runId: 8_000,
+    state: "failure",
+    reason: "build-failed-retriable",
+  });
+  const firstSelection = selectionReceiptFromDispatch(
+    firstDispatched.ui.active,
+  );
+  const retry = reconcile({
+    events: [opened],
+    results: [firstFailure],
+    pullRequest,
+    existingState: firstDispatched,
+    selections: [firstSelection],
+  });
+  const retryIntended = persistIntent(retry);
+  const retrySelection = selectionReceiptFromDispatch(retryIntended.ui.active);
+  assert.equal(
+    retrySelection.selection_receipt_run_id,
+    firstSelection.selection_receipt_run_id,
+  );
+  assert.notEqual(retrySelection.key_digest, firstSelection.key_digest);
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [
+      journalWithState([opened], retryIntended, {
+        selections: [firstSelection, retrySelection],
+        results: [firstFailure],
+      }),
+    ],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+
+  const retired = await reconcilePreview({
+    github: fixture.github,
+    workerDispatchGithub: null,
+    controllerMode: "observe-only",
+    context: fakeContext({ runId: 9_000 }),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(retired.ui.active, null);
+  assert.equal(
+    retired.ui.terminal_history.at(-1).terminal_reason,
+    "dispatch-disabled-intent-without-worker",
+  );
+  let journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.results.length, 2);
+  assert.equal(
+    journal.receipts.results.find(
+      ({ terminal_reason: terminalReason }) =>
+        terminalReason === "dispatch-disabled-intent-without-worker",
+    ).worker_run_id,
+    9_000,
+  );
+
+  const replayed = await reconcilePreview({
+    github: fixture.github,
+    workerDispatchGithub: null,
+    controllerMode: "observe-only",
+    context: fakeContext({ runId: 9_001 }),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(replayed.ui.active, null);
+  assert.equal(
+    replayed.ui.terminal_history.at(-1).terminal_reason,
+    "dispatch-disabled-intent-without-worker",
+  );
+  journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.results.length, 2);
+  assert.equal(
+    journal.state.ui.terminal_history.at(-1).terminal_reason,
+    "dispatch-disabled-intent-without-worker",
+  );
+  assert.equal(fixture.commitStatuses.at(-1).state, "success");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Native Vercel owns this UI preview",
+  );
+});
+
+test("observe-only mode attaches a reopened epoch's matching worker in its retired slot", async () => {
+  const setup = sameShaReopenIntentState();
+  const queued = workerRun(setup.current.state.ui.retired_active[0], {
+    status: "in_progress",
+  });
+  const fixture = fakeGitHub({
+    pullRequest: setup.pullRequest,
+    comments: [
+      journalWithState(setup.events, setup.current.state, {
+        selections: [
+          selectionReceiptFromDispatch(
+            setup.current.state.ui.retired_active[0],
+          ),
+        ],
+      }),
+    ],
+    runs: [queued],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+  const core = fakeCore();
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    workerDispatchGithub: null,
+    controllerMode: "observe-only",
+    context: fakeContext({ runId: 7_001 }),
+    core,
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(core.outputs.get("recovered_intended_run_id"), "8000");
+  assert.equal(state.ui.active, null);
+  assert.equal(state.ui.retired_active.length, 1);
+  assert.equal(state.ui.retired_active[0].dispatch_state, "dispatched");
+  assert.equal(state.ui.retired_active[0].workflow_run_id, 8_000);
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.results.length, 0);
+  assert.equal(journal.state.ui.active, null);
+  assert.equal(journal.state.ui.retired_active[0].workflow_run_id, 8_000);
+  assert.equal(fixture.commitStatuses.at(-1).state, "pending");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Draining GitHub preview before native ownership",
+  );
 });
 
 test("observe-only mode fails closed when multiple workers match one crash-window intent", async () => {

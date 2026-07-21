@@ -725,13 +725,15 @@ rechecks that exact-head ownership immediately before the dispatch credential
 can make its only POST. The exact native configuration suppresses dispatch even
 when the default-branch workflow is still `active`, which protects a rollback
 PR before it merges. `observe-only` never creates a dispatch intent or worker.
-It does, however, reconcile a previously persisted `intended` entry: one unique
-existing worker is attached without the secondary credential, a completed
-worker is terminalized normally, an in-progress worker remains durably attached
-for its callback, and no match after bounded observation is retired as
-`dispatch-disabled-intent-without-worker`. Multiple matches fail closed. An
-`observe-only` controller paired with the GitHub-owned candidate configuration
-also fails closed because neither automatic preview path would own that head.
+It does, however, reconcile every previously persisted `intended` entry in both
+the current and epoch-retired ownership slots: one unique existing worker is
+attached without the secondary credential, a completed worker is terminalized
+in the same reconciliation attempt, an in-progress worker remains durably
+attached in its original slot for its callback, and no match after bounded
+observation is retired as `dispatch-disabled-intent-without-worker`. Multiple
+matches fail closed. An `observe-only` controller paired with the GitHub-owned
+candidate configuration also fails closed because neither automatic preview
+path would own that head.
 
 Dependabot is intentionally split out before any write boundary.
 `.github/workflows/vercel-preview-intake.yml` receives the same PR activities
@@ -1311,8 +1313,9 @@ not make a split rollback acceptable.
 On the rollback PR, `Vercel Preview` reports `pending` with
 `Draining GitHub preview before native ownership` while any journal-owned
 GitHub intent or worker remains. The controller attaches a uniquely matching
-crash-window worker without dispatching; completion is recovered normally, and
-an intent with no worker is durably retired after bounded observation. Only
+crash-window worker without dispatching, including ownership retired by a close
+or reopen epoch; completion is recovered in that same reconciliation attempt,
+and an intent with no worker is durably retired after bounded observation. Only
 after no active or retired GitHub ownership remains does the context become
 `success` with `Native Vercel owns this UI preview`. Missing, malformed, or
 unknown candidate configuration, multiple matching workers, and an
