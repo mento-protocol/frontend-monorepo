@@ -941,6 +941,9 @@ retired selection and continues current-epoch reconciliation without posting a
 current-head controller error. The quarantined selection remains in the journal
 as audit evidence, but it no longer counts as live GitHub deployment ownership
 and therefore cannot hold a native-Vercel ownership handoff pending forever.
+When no live GitHub owner remains, terminal journal compaction folds the
+quarantine marker and its unfinished receipts into the checkpoint's cumulative
+digest and bounded receipt counts before dropping them from the baseline state.
 Transient retired-attempt API or journal-write failures remain unquarantined
 and retry on the next reconciliation, also without changing the current-head
 status. A recovery ambiguity for the current active selection still fails

@@ -2726,9 +2726,12 @@ export function compactPreviewJournal(value, { pullRequest = null } = {}) {
     (total, receipts) => total + receipts.length,
     0,
   );
+  const liveRetiredOwnership = state.ui.retired_active.filter(
+    isLiveRetiredPreviewOwnership,
+  );
   if (receiptCount === 0) return journal;
   const hasInFlightOwnership =
-    state.ui.active !== null || state.ui.retired_active.length > 0;
+    state.ui.active !== null || liveRetiredOwnership.length > 0;
   if (hasInFlightOwnership) {
     if (
       Buffer.byteLength(journalBody(journal), "utf8") < ACTIVE_CHECKPOINT_BYTES
@@ -2754,7 +2757,7 @@ export function compactPreviewJournal(value, { pullRequest = null } = {}) {
     invariant(tailEvent, "Preview checkpoint tail event is missing");
     const pendingOwner =
       state.ui.active ??
-      state.ui.retired_active.find(
+      liveRetiredOwnership.find(
         (selection) =>
           selection.key_digest === journal.checkpoint?.pending_owner_key_digest,
       ) ??
@@ -2893,22 +2896,33 @@ export function compactPreviewJournal(value, { pullRequest = null } = {}) {
     );
     return validatePreviewJournal(journal, journal.pr);
   }
+  const quarantinedKeyDigests = new Set(
+    state.ui.retired_active
+      .filter((selection) => !isLiveRetiredPreviewOwnership(selection))
+      .map((selection) => selection.key_digest),
+  );
   const resultIdentities = new Set(
     journal.receipts.results.map(
       (result) => `${result.key_digest}:${result.worker_run_id}`,
     ),
   );
   invariant(
-    journal.receipts.worker_evidence.every((evidence) =>
-      resultIdentities.has(`${evidence.key_digest}:${evidence.worker_run_id}`),
+    journal.receipts.worker_evidence.every(
+      (evidence) =>
+        quarantinedKeyDigests.has(evidence.key_digest) ||
+        resultIdentities.has(
+          `${evidence.key_digest}:${evidence.worker_run_id}`,
+        ),
     ),
     "Preview journal cannot checkpoint unfinished worker evidence",
   );
   invariant(
-    journal.receipts.selections.every((selection) =>
-      journal.receipts.results.some(
-        (result) => result.key_digest === selection.key_digest,
-      ),
+    journal.receipts.selections.every(
+      (selection) =>
+        quarantinedKeyDigests.has(selection.key_digest) ||
+        journal.receipts.results.some(
+          (result) => result.key_digest === selection.key_digest,
+        ),
     ),
     "Preview journal cannot checkpoint unfinished selections",
   );
@@ -4419,12 +4433,14 @@ async function recoverCompletedOwnedRuns({
   return recovered;
 }
 
+function isLiveRetiredPreviewOwnership(selection) {
+  return selection.recovery_quarantine === undefined;
+}
+
 function hasLiveGitHubPreviewOwnership(state) {
   return (
     state.ui.active !== null ||
-    state.ui.retired_active.some(
-      (selection) => selection.recovery_quarantine === undefined,
-    )
+    state.ui.retired_active.some(isLiveRetiredPreviewOwnership)
   );
 }
 
@@ -4438,12 +4454,20 @@ export async function reconcilePreview({
   workflowSha: rawWorkflowSha,
   waitForRecovery,
   now = () => new Date().toISOString(),
+  progressPassLimit: rawProgressPassLimit = MAX_RECONCILIATION_PROGRESS_PASSES,
 }) {
   const pr = pullRequestNumber(rawPr);
   const controllerMode = previewControllerMode(rawControllerMode);
   const workflowSha = exactSha(rawWorkflowSha, "Controller workflow SHA");
+  invariant(
+    Number.isSafeInteger(rawProgressPassLimit) &&
+      rawProgressPassLimit >= 0 &&
+      rawProgressPassLimit <= MAX_RECONCILIATION_PROGRESS_PASSES,
+    "Controller progress pass limit is invalid",
+  );
   const controllerUrl = `https://github.com/${PREVIEW_REPOSITORY}/actions/runs/${context.runId}`;
   let serializedUpdateAttempts = 1;
+  let deterministicProgressPasses = 0;
   const failClosed = async (error) => {
     const pull = await pullFromApi(github, context, pr);
     const headSha = exactSha(pull.head.sha);
@@ -4457,11 +4481,14 @@ export async function reconcilePreview({
     });
     throw error;
   };
-  reconcileAttempts: for (
-    let progressPass = 0;
-    progressPass < MAX_RECONCILIATION_PROGRESS_PASSES;
-    progressPass += 1
-  ) {
+  const recordDeterministicProgress = () => {
+    deterministicProgressPasses += 1;
+    invariant(
+      deterministicProgressPasses <= rawProgressPassLimit,
+      "Controller state update did not converge",
+    );
+  };
+  reconcileAttempts: while (true) {
     try {
       const pull = await pullFromApi(github, context, pr);
       const currentPull = normalizePullRequest(pull);
@@ -4490,6 +4517,7 @@ export async function reconcilePreview({
           parsed,
         })
       ) {
+        recordDeterministicProgress();
         continue reconcileAttempts;
       }
       const reconciled = reconcileState({
@@ -4516,6 +4544,7 @@ export async function reconcilePreview({
           waitForRecovery,
         }))
       ) {
+        recordDeterministicProgress();
         continue reconcileAttempts;
       }
       if (noDispatch) {
@@ -4601,9 +4630,11 @@ export async function reconcilePreview({
             pr,
             selection: selected,
           });
-          continue;
+          recordDeterministicProgress();
+          continue reconcileAttempts;
         }
         if (refreshedOwnership.outcome === UI_PREVIEW_OWNER_NATIVE) {
+          recordDeterministicProgress();
           continue reconcileAttempts;
         }
         let ownershipCheck = refreshedOwnership.ownershipCheck;
@@ -4650,9 +4681,11 @@ export async function reconcilePreview({
             pr,
             selection: selected,
           });
-          continue;
+          recordDeterministicProgress();
+          continue reconcileAttempts;
         }
         if (refreshedOwnership.outcome === UI_PREVIEW_OWNER_NATIVE) {
+          recordDeterministicProgress();
           continue reconcileAttempts;
         }
         ownershipCheck = refreshedOwnership.ownershipCheck;
@@ -4663,6 +4696,7 @@ export async function reconcilePreview({
             pr,
             selection: selected,
           });
+          recordDeterministicProgress();
           continue reconcileAttempts;
         }
         let runDetails = recoveredRun;
@@ -4790,7 +4824,6 @@ export async function reconcilePreview({
       return failClosed(error);
     }
   }
-  return failClosed(new Error("Controller state update did not converge"));
 }
 
 async function loadControllerEvidence(github, context, pr) {

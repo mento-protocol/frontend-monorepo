@@ -1679,6 +1679,100 @@ test("capacity checkpointing uses the latest represented receipt when the live P
   );
 });
 
+test("terminal checkpoint folds quarantined retired ownership into bounded audit evidence", () => {
+  const setup = sameShaReopenState();
+  const currentResult = result(setup.current.nextDispatch, { runId: 8_001 });
+  const selections = [
+    selectionReceiptFromDispatch(setup.currentState.ui.retired_active[0]),
+    selectionReceiptFromDispatch(setup.currentState.ui.active),
+  ];
+  const events = [...setup.events];
+  let priorHead = SHA.A;
+  let currentPull = setup.pullRequest;
+  let journal = null;
+
+  for (let index = 1; index <= 45; index += 1) {
+    const head = (900 + index).toString(16).padStart(40, "0");
+    events.push(
+      event({
+        run: 2_100 + index,
+        action: "synchronize",
+        before: priorHead,
+        head,
+        runtime: false,
+        updated: timestamp(index + 3),
+      }),
+    );
+    currentPull = pull({ head, updated: timestamp(index + 3) });
+    const terminal = reconcile({
+      events,
+      results: [currentResult],
+      selections,
+      pullRequest: currentPull,
+      existingState: setup.currentState,
+    });
+    assert.equal(terminal.state.ui.active, null);
+    assert.equal(terminal.state.ui.retired_active.length, 1);
+    const quarantinedState = structuredClone(terminal.state);
+    quarantinedState.ui.retired_active[0] = {
+      ...quarantinedState.ui.retired_active[0],
+      recovery_quarantine: "persisted-attempt-invalid-or-unavailable",
+    };
+    journal = createPreviewJournal({
+      pr: 519,
+      events,
+      selections,
+      results: [currentResult],
+      state: quarantinedState,
+    });
+    priorHead = head;
+    if (Buffer.byteLength(previewJournalBody(journal), "utf8") >= 41_000) {
+      break;
+    }
+  }
+
+  const originalBytes = Buffer.byteLength(previewJournalBody(journal), "utf8");
+  assert.ok(originalBytes >= 41_000, `journal was only ${originalBytes} bytes`);
+  assert.ok(originalBytes < 60_000, `journal was ${originalBytes} bytes`);
+
+  const compacted = compactPreviewJournal(journal, {
+    pullRequest: currentPull,
+  });
+  assert.equal(compacted.checkpoint.pending_owner_key_digest, null);
+  assert.equal(compacted.checkpoint.pending_runtime_event, null);
+  assert.equal(compacted.checkpoint.status.state, "success");
+  assert.match(
+    compacted.checkpoint.cumulative_receipts_digest,
+    /^[0-9a-f]{64}$/,
+  );
+  assert.deepEqual(compacted.checkpoint.pruned_receipt_counts, {
+    events: events.length,
+    selections: 2,
+    worker_evidence: 0,
+    results: 1,
+  });
+  assert.deepEqual(compacted.receipts, {
+    events: [],
+    selections: [],
+    worker_evidence: [],
+    results: [],
+  });
+  assert.equal(compacted.state.ui.retired_active.length, 0);
+  assert.ok(
+    Buffer.byteLength(previewJournalBody(compacted), "utf8") < originalBytes,
+  );
+  assert.doesNotThrow(() =>
+    reconcile({
+      events: compacted.receipts.events,
+      results: compacted.receipts.results,
+      selections: compacted.receipts.selections,
+      pullRequest: currentPull,
+      existingState: compacted.state,
+      checkpoint: compacted.checkpoint,
+    }),
+  );
+});
+
 test("a terminal pending owner resolves a docs-only capacity checkpoint", async () => {
   const openedHead = (300).toString(16).padStart(40, "0");
   const opened = event({
@@ -2561,6 +2655,7 @@ function fakeGitHub({
   workerRunTotalCount,
   workflowRunAttemptFailures = [],
   updateCommentFailures = [],
+  lostSerializedUpdateFailures = 0,
   updateCommentFailureIds = [],
   pullCommits = [pullRequest.head.sha],
   deployments: initialDeployments = [],
@@ -2596,6 +2691,7 @@ function fakeGitHub({
     ]),
   );
   const commentUpdates = [];
+  const lostSerializedUpdates = [];
   const dispatches = [];
   const createdDeploymentStatuses = [];
   const workflowRunAttemptRequests = [];
@@ -2611,6 +2707,7 @@ function fakeGitHub({
   const transientUiVercelConfigurations = [...uiVercelConfigurations];
   const attemptFailures = [...workflowRunAttemptFailures];
   const commentUpdateFailures = [...updateCommentFailures];
+  let lostSerializedUpdateFailureCount = lostSerializedUpdateFailures;
   const commitStatusListFailureQueue = [...commitStatusListFailures];
   const commitStatusFailureQueue = [...commitStatusFailures];
   const commentUpdateFailureIds = new Set(updateCommentFailureIds);
@@ -2666,8 +2763,14 @@ function fakeGitHub({
           }
           const comment = comments.find(({ id }) => id === comment_id);
           assert.ok(comment, "fixture update must target an existing comment");
+          const previousBody = comment.body;
           commentUpdates.push({ comment_id, body });
           comment.body = body;
+          if (lostSerializedUpdateFailureCount > 0) {
+            lostSerializedUpdateFailureCount -= 1;
+            lostSerializedUpdates.push(comment_id);
+            comment.body = previousBody;
+          }
           return { data: comment };
         },
       },
@@ -2885,6 +2988,7 @@ function fakeGitHub({
     statuses,
     commitStatuses,
     commentUpdates,
+    lostSerializedUpdates,
     dispatches,
     createdDeploymentStatuses,
     workflowRunAttemptRequests,
@@ -4903,7 +5007,7 @@ test("active controller settles a completed crash-window worker after a racing n
   );
 });
 
-test("native cutover converges after recovery and an exact-head ownership flip", async () => {
+test("native cutover progress converges independently from a serialized update retry", async () => {
   const opened = event({
     run: 121,
     action: "opened",
@@ -4941,6 +5045,7 @@ test("native cutover converges after recovery and an exact-head ownership flip",
       }),
     ],
     runs: [completedA],
+    lostSerializedUpdateFailures: 1,
     uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
     uiVercelConfigurations: [
       GITHUB_OWNED_UI_VERCEL_CONFIGURATION,
@@ -4956,10 +5061,12 @@ test("native cutover converges after recovery and an exact-head ownership flip",
     core: fakeCore(),
     prNumber: 519,
     waitForRecovery: async () => {},
+    progressPassLimit: 3,
   });
 
   assert.equal(fixture.dispatches.length, 0);
   assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.deepEqual(fixture.lostSerializedUpdates, [1]);
   assert.equal(state.ui.active, null);
   assert.equal(state.ui.latest_desired_sha, SHA.B);
   assert.ok(
@@ -4980,6 +5087,48 @@ test("native cutover converges after recovery and an exact-head ownership flip",
   assert.equal(
     fixture.commitStatuses.at(-1).description,
     "Native Vercel owns this UI preview",
+  );
+});
+
+test("exhausted deterministic progress posts a fail-closed preview status", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const selected = reconcile({ events: [opened], pullRequest });
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [journalWithState([opened], persistIntent(selected))],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+
+  await assert.rejects(
+    reconcilePreview({
+      github: fixture.github,
+      workerDispatchGithub: null,
+      context: fakeContext({ runId: 7_001 }),
+      core: fakeCore(),
+      prNumber: 519,
+      waitForRecovery: async () => {},
+      progressPassLimit: 0,
+    }),
+    /Controller state update did not converge/,
+  );
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(fixture.commitStatuses.at(-1).state, "error");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Preview controller state is invalid or ambiguous",
+  );
+  assert.equal(
+    journalFromComment(fixture.comments[0]).receipts.results.at(-1)
+      .terminal_reason,
+    "dispatch-disabled-intent-without-worker",
   );
 });
 
