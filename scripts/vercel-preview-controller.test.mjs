@@ -251,6 +251,37 @@ function result(
   });
 }
 
+function controllerResult(
+  dispatch,
+  {
+    runId = 7_000,
+    reason = "native-owned-selection-without-github-worker",
+  } = {},
+) {
+  return validateWorkerResult({
+    schema: RESULT_RECEIPT_SCHEMA,
+    repository: PREVIEW_REPOSITORY,
+    pr: dispatch.pr,
+    target: "ui",
+    sha: dispatch.sha,
+    controller_key: dispatch.key,
+    key_digest: dispatch.key_digest,
+    epoch_anchor_run_id: dispatch.epoch_anchor_run_id,
+    reconciliation_basis_digest: dispatch.reconciliation_basis_digest,
+    selection_receipt_run_id: dispatch.selection_receipt_run_id,
+    expected_workflow_sha: dispatch.expected_workflow_sha,
+    worker_run_id: runId,
+    worker_run_attempt: 1,
+    github_deployment_id: null,
+    state: "error",
+    vercel_deployment_id: null,
+    next_deployment_id: null,
+    vercel_deployment_url: null,
+    smoke_result: "not-run",
+    terminal_reason: reason,
+  });
+}
+
 function reconcile({
   events,
   results = [],
@@ -2717,6 +2748,7 @@ function fakeGitHub({
   let nextDeploymentId = 9_000;
   let listCommentRequests = 0;
   let listCommitStatusRequests = 0;
+  let deploymentLookupCallCount = 0;
   const listComments = async () => {};
   const listCommits = async () => {};
   const listDeployments = async () => {};
@@ -2912,7 +2944,10 @@ function fakeGitHub({
       if (method === listCommits) {
         return pullCommits.map((sha) => ({ sha }));
       }
-      if (method === listDeployments) return structuredClone(deployments);
+      if (method === listDeployments) {
+        deploymentLookupCallCount += 1;
+        return structuredClone(deployments);
+      }
       if (method === listCommitStatusesForRef) {
         return structuredClone(
           commitStatusHistory.get(String(request.ref)) ?? [],
@@ -3001,6 +3036,9 @@ function fakeGitHub({
     primaryRequests,
     workerDispatchRequests,
     contentRequests,
+    get deploymentLookupCallCount() {
+      return deploymentLookupCallCount;
+    },
   };
 }
 
@@ -4857,6 +4895,58 @@ test("worker preflight rechecks the immutable selected SHA ownership before depl
   );
   assert.equal(fixture.deployments.length, 0);
   assert.equal(core.outputs.has("should_deploy"), false);
+  assert.equal(fixture.deploymentLookupCallCount, 0);
+});
+
+test("worker preflight rejects native-owned current head before deployment lookup", async () => {
+  const opened = event({
+    run: 120,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const synchronized = event({
+    run: 121,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    updated: timestamp(2),
+  });
+  const pullRequest = pull({ head: SHA.B, updated: timestamp(2) });
+  const selected = reconcile({
+    events: [opened, synchronized],
+    pullRequest,
+  });
+  assert.equal(selected.nextDispatch.sha, SHA.A);
+  const intended = persistIntent(selected);
+  const fixture = fakeGitHub({
+    pullRequest,
+    pullCommits: [SHA.A, SHA.B],
+    comments: [journalWithState([opened, synchronized], intended)],
+    uiVercelConfigurationsByRef: new Map([
+      [SHA.A, GITHUB_OWNED_UI_VERCEL_CONFIGURATION],
+      [SHA.B, NATIVE_OWNED_UI_VERCEL_CONFIGURATION],
+    ]),
+  });
+  const core = fakeCore();
+
+  await assert.rejects(
+    validateWorkerDispatch({
+      github: fixture.github,
+      context: fakeContext({ runId: 8_000 }),
+      core,
+      inputs: workerInputs(selected.nextDispatch),
+    }),
+    /does not own the current UI configuration/,
+  );
+
+  assert.deepEqual(
+    fixture.contentRequests.map(({ ref }) => ref),
+    [SHA.B],
+  );
+  assert.equal(fixture.deploymentLookupCallCount, 0);
+  assert.equal(fixture.deployments.length, 0);
+  assert.equal(core.outputs.has("should_deploy"), false);
 });
 
 test("durable dispatch persists intent and waits for the exact run title to materialize", async () => {
@@ -4967,6 +5057,76 @@ test("a native-owned receipt followed by a GitHub-owned head retires A and dispa
   );
   assert.ok(fixture.contentRequests.some(({ ref }) => ref === SHA.A));
   assert.ok(fixture.contentRequests.some(({ ref }) => ref === SHA.B));
+});
+
+test("native A through docs-only C stays native until only GitHub-owned B dispatches", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const docsOnly = event({
+    run: 122,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.C,
+    runtime: false,
+    updated: timestamp(2),
+  });
+  const synchronized = event({
+    run: 123,
+    action: "synchronize",
+    before: SHA.C,
+    head: SHA.B,
+    updated: timestamp(3),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.B, updated: timestamp(3) }),
+    pullCommits: [SHA.A, SHA.C, SHA.B],
+    comments: [journalComment({ events: [opened, docsOnly, synchronized] })],
+    uiVercelConfigurationsByRef: new Map([
+      [SHA.A, NATIVE_OWNED_UI_VERCEL_CONFIGURATION],
+      [SHA.B, GITHUB_OWNED_UI_VERCEL_CONFIGURATION],
+    ]),
+  });
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext(),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(fixture.dispatches.length, 1);
+  assert.equal(fixture.workerDispatchRequests.length, 1);
+  assert.equal(fixture.dispatches[0].inputs.commit_sha, SHA.B);
+  assert.equal(state.ui.active.sha, SHA.B);
+  assert.equal(state.ui.active.dispatch_state, "dispatched");
+  assert.equal(state.ui.last_successful_runtime_sha, null);
+  assert.equal(state.ui.last_successful_runtime_url, null);
+  const statusBySha = new Map(
+    state.status_decisions.map((status) => [status.sha, status]),
+  );
+  for (const sha of [SHA.A, SHA.C]) {
+    assert.deepEqual(statusBySha.get(sha), {
+      sha,
+      state: "success",
+      description: "Native Vercel owns this UI preview",
+      target_url:
+        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/7000",
+    });
+  }
+  assert.equal(statusBySha.get(SHA.B).state, "pending");
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.results.length, 1);
+  assert.equal(journal.receipts.results[0].sha, SHA.A);
+  assert.equal(journal.receipts.results[0].state, "error");
+  assert.equal(
+    journal.receipts.results[0].terminal_reason,
+    "native-owned-selection-without-github-worker",
+  );
 });
 
 test("generic no-dispatch retirement does not claim native ownership of a GitHub-owned SHA", () => {
@@ -6014,6 +6174,69 @@ test("observe-only mode retires same-SHA active and reopened-epoch intents witho
   assert.equal(
     fixture.commitStatuses.at(-1).description,
     "Native Vercel owns this UI preview",
+  );
+});
+
+test("same-SHA native-owned receipts stay distinct across epoch selection digests", () => {
+  const setup = sameShaReopenIntentState();
+  const intended = persistIntent(setup.current);
+  const retiredSelection = intended.ui.retired_active[0];
+  const activeSelection = intended.ui.active;
+  assert.equal(retiredSelection.sha, activeSelection.sha);
+  assert.equal(retiredSelection.key, activeSelection.key);
+  assert.notEqual(
+    retiredSelection.epoch_anchor_run_id,
+    activeSelection.epoch_anchor_run_id,
+  );
+  assert.notEqual(
+    retiredSelection.reconciliation_basis_digest,
+    activeSelection.reconciliation_basis_digest,
+  );
+  assert.notEqual(retiredSelection.key_digest, activeSelection.key_digest);
+
+  const nativeResults = [retiredSelection, activeSelection].map((selection) =>
+    controllerResult(selection, { runId: 7_001 }),
+  );
+  const selections = [retiredSelection, activeSelection].map((selection) =>
+    selectionReceiptFromDispatch(selection),
+  );
+  const reconciled = reconcile({
+    events: setup.events,
+    results: nativeResults,
+    selections,
+    pullRequest: setup.pullRequest,
+    existingState: intended,
+  });
+
+  assert.equal(reconciled.nextDispatch, null);
+  assert.equal(reconciled.state.ui.active, null);
+  assert.deepEqual(reconciled.state.ui.retired_active, []);
+  assert.equal(reconciled.state.ui.last_successful_runtime_sha, null);
+  assert.equal(reconciled.state.ui.last_successful_runtime_url, null);
+  assert.deepEqual(reconciled.state.ui.terminal_result_key_digests, [
+    activeSelection.key_digest,
+  ]);
+  assert.equal(reconciled.state.status_decisions[0].state, "success");
+  assert.equal(
+    reconciled.state.status_decisions[0].description,
+    "Native Vercel owns this UI preview",
+  );
+
+  const journal = createPreviewJournal({
+    pr: 519,
+    events: setup.events,
+    selections,
+    results: nativeResults,
+    state: reconciled.state,
+  });
+  assert.equal(journal.receipts.results.length, 2);
+  assert.equal(
+    new Set(journal.receipts.results.map(({ key_digest }) => key_digest)).size,
+    2,
+  );
+  assert.deepEqual(
+    new Set(journal.receipts.results.map(({ worker_run_id }) => worker_run_id)),
+    new Set([7_001]),
   );
 });
 

@@ -1380,6 +1380,14 @@ function statusDecision({
       });
     }
     const priorResult = resultByRun.get(priorRuntime.event_run_id);
+    if (priorResult?.terminal_reason === NATIVE_OWNED_SELECTION_REASON) {
+      return {
+        sha: event.head_sha,
+        state: "success",
+        description: "Native Vercel owns this UI preview",
+        target_url: controllerUrl,
+      };
+    }
     if (priorResult?.state === "success") {
       return {
         sha: event.head_sha,
