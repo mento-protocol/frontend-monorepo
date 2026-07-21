@@ -334,12 +334,13 @@ function exactVercelActor(value) {
 }
 
 function runtimeHasExactVercelActor(runtime) {
+  // `actor` remains the original event actor on a workflow re-run, while
+  // `triggering_actor` becomes the maintainer who requested that re-run.
   return (
     runtime.eventName === "deployment_status" &&
     runtime.repository === REPOSITORY &&
     runtime.actor === VERCEL_ACTOR.login &&
-    String(runtime.actorId) === String(VERCEL_ACTOR.id) &&
-    runtime.triggeringActor === VERCEL_ACTOR.login
+    String(runtime.actorId) === String(VERCEL_ACTOR.id)
   );
 }
 
@@ -560,18 +561,54 @@ function representativeAssets(html, baseUrl) {
   const references = [
     ...html.matchAll(/(?:src|href)=["']([^"']*\/_next\/static\/[^"']+)["']/g),
   ].map((match) => match[1].replaceAll("&amp;", "&"));
-  const extensions = [".js", ".css", ".woff2"];
-  return extensions.map((extension) => {
-    const reference = references.find((candidate) => {
-      const url = new URL(candidate, baseUrl);
-      return url.origin === baseUrl.origin && url.pathname.endsWith(extension);
-    });
+  invariant(
+    references.length <= 512,
+    "Preview HTML contains too many static asset references",
+  );
+
+  const assets = [];
+  const seen = new Set();
+  for (const reference of references) {
+    let asset;
+    try {
+      asset = new URL(reference, baseUrl);
+    } catch {
+      throw new Error("Preview HTML contains an invalid static asset URL");
+    }
     invariant(
-      reference,
-      `Preview HTML is missing a representative ${extension} asset`,
+      asset.origin === baseUrl.origin,
+      "Preview HTML contains a cross-origin static asset",
     );
-    return new URL(reference, baseUrl);
-  });
+    if (seen.has(asset.toString())) continue;
+    seen.add(asset.toString());
+    assets.push(asset);
+  }
+
+  const script = assets.find((asset) => asset.pathname.endsWith(".js"));
+  const style = assets.find((asset) => asset.pathname.endsWith(".css"));
+  invariant(script, "Preview HTML is missing a representative .js asset");
+  invariant(style, "Preview HTML is missing a representative .css asset");
+
+  const optionalAssets = assets.filter((asset) =>
+    /\.(?:avif|gif|ico|jpe?g|otf|png|svg|ttf|webp|woff2?)$/i.test(
+      asset.pathname,
+    ),
+  );
+  invariant(
+    optionalAssets.length <= 32,
+    "Preview HTML contains too many font or image assets",
+  );
+  return [script, style, ...optionalAssets];
+}
+
+function requireUiHtmlDeploymentIdentity(html, expectedDeploymentId) {
+  const deploymentIds = [
+    ...html.matchAll(/\bdata-dpl-id=(["'])([^"']+)\1/g),
+  ].map((match) => match[2]);
+  invariant(
+    deploymentIds.length === 1 && deploymentIds[0] === expectedDeploymentId,
+    "UI preview HTML does not carry only the expected build deployment ID",
+  );
 }
 
 export async function smokePreviewHttp({
@@ -600,6 +637,9 @@ export async function smokePreviewHttp({
     ),
     "Preview did not render a target-specific document marker",
   );
+  if (tuple.logicalTarget === "ui") {
+    requireUiHtmlDeploymentIdentity(html, tuple.nextDeploymentId);
+  }
   const assets = representativeAssets(html, baseUrl);
   for (const asset of assets) {
     if (tuple.nextDeploymentId) {

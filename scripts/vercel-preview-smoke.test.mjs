@@ -86,6 +86,37 @@ function nativeEvent(target = "app", overrides = {}) {
   };
 }
 
+function nativeSmokeValues(target, runtimeOverrides = {}) {
+  const classification = classifyNativePreviewEvent(
+    nativeEvent(target),
+    runtime(runtimeOverrides),
+  );
+  assert.equal(classification.eligible, true);
+  return {
+    logicalTarget: classification.logicalTarget,
+    deploymentUrl: classification.deploymentUrl,
+    commitSha: classification.expectedSha,
+    githubDeploymentId: classification.githubDeploymentId,
+    verificationMode: classification.verificationMode,
+    verificationKey: classification.verificationKey,
+    metadataLogicalTarget: classification.metadataLogicalTarget,
+    metadataTarget: classification.metadataTarget,
+    metadataRepository: classification.metadataRepository,
+    metadataRef: classification.metadataRef,
+    metadataSha: classification.metadataSha,
+    metadataUrl: classification.metadataUrl,
+    metadataEnvironment: classification.metadataEnvironment,
+    metadataActorLogin: classification.metadataActorLogin,
+    metadataActorId: classification.metadataActorId,
+    metadataActorType: classification.metadataActorType,
+    pullRequestNumber: "",
+    expectedProjectId: "",
+    metadataProjectId: "",
+    vercelDeploymentId: "",
+    nextDeploymentId: "",
+  };
+}
+
 test("controller smoke tuple is target, project, SHA, and build-ID bound for all four targets", () => {
   for (const target of ["app", "governance", "reserve", "ui"]) {
     const tuple = validatePreviewSmokeTuple(controllerTuple(target));
@@ -172,6 +203,18 @@ test("native classifier accepts only the exact Vercel actor and App or Governanc
   }
 });
 
+test("native classifier preserves the original Vercel actor trust on maintainer reruns", () => {
+  const classification = classifyNativePreviewEvent(
+    nativeEvent("governance"),
+    runtime({
+      triggeringActor: "maintainer",
+      triggeringActorId: "987654",
+    }),
+  );
+  assert.equal(classification.eligible, true);
+  assert.equal(classification.logicalTarget, "governance");
+});
+
 test("native classifier rejects production, inactive, main, controller, and actor-lookalike events", () => {
   const production = nativeEvent("app");
   // Vercel's live GitHub metadata reports this boolean as false even for its
@@ -251,7 +294,8 @@ test("common HTTP smoke checks target marker, headers, assets, and controller bu
   const html = `<title>Mento Reserve</title>
     <script src="/_next/static/app.js?dpl=${values.nextDeploymentId}"></script>
     <link rel="stylesheet" href="/_next/static/app.css?dpl=${values.nextDeploymentId}">
-    <link rel="preload" href="/_next/static/font.woff2?dpl=${values.nextDeploymentId}">`;
+    <link rel="preload" href="/_next/static/font.woff2?dpl=${values.nextDeploymentId}">
+    <img src="/_next/static/media/graph.webp?dpl=${values.nextDeploymentId}">`;
   const fetchImplementation = async (url) => {
     const parsed = new URL(url);
     requested.push(parsed.toString());
@@ -271,14 +315,73 @@ test("common HTTP smoke checks target marker, headers, assets, and controller bu
     deploymentUrl: values.deploymentUrl,
     commitSha: SHA,
     githubDeploymentId: 1234,
-    checkedAssets: 3,
+    checkedAssets: 4,
   });
-  assert.equal(requested.length, 4);
+  assert.equal(requested.length, 5);
+});
+
+test("common HTTP smoke accepts native App and Governance profiles without font assets", async () => {
+  for (const target of ["app", "governance"]) {
+    const values = nativeSmokeValues(target);
+    const marker = target === "app" ? "Mento App" : "Mento Governance";
+    const html = `<title>${marker}</title>
+      <script src="/_next/static/app.js"></script>
+      <link rel="stylesheet" href="/_next/static/app.css">`;
+    const fetchImplementation = async (url) => {
+      const parsed = new URL(url);
+      if (parsed.pathname.startsWith("/_next/static/"))
+        return fakeResponse(parsed, "asset");
+      return fakeResponse(parsed, html, {
+        headers: {
+          "content-security-policy": "frame-ancestors 'none'",
+          "x-frame-options": "DENY",
+          "x-content-type-options": "nosniff",
+        },
+      });
+    };
+
+    const result = await smokePreviewHttp({ values, fetchImplementation });
+    assert.equal(result.logicalTarget, target);
+    assert.equal(result.checkedAssets, 2);
+  }
+});
+
+test("common HTTP smoke still requires representative JavaScript and CSS assets", async () => {
+  const values = controllerTuple("reserve");
+  const response = (html) => async (url) =>
+    new URL(url).pathname.startsWith("/_next/static/")
+      ? fakeResponse(url, "asset")
+      : fakeResponse(url, html, {
+          headers: {
+            "content-security-policy": "frame-ancestors 'none'",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+          },
+        });
+
+  await assert.rejects(
+    smokePreviewHttp({
+      values,
+      fetchImplementation: response(
+        `<title>Mento Reserve</title><link rel="stylesheet" href="/_next/static/app.css?dpl=${values.nextDeploymentId}">`,
+      ),
+    }),
+    /representative \.js asset/,
+  );
+  await assert.rejects(
+    smokePreviewHttp({
+      values,
+      fetchImplementation: response(
+        `<title>Mento Reserve</title><script src="/_next/static/app.js?dpl=${values.nextDeploymentId}"></script>`,
+      ),
+    }),
+    /representative \.css asset/,
+  );
 });
 
 test("common HTTP smoke fails closed on missing headers and mixed deployment assets", async () => {
   const values = controllerTuple("ui");
-  const html = `<h1>Basic Components</h1>
+  const html = `<main data-dpl-id="${values.nextDeploymentId}"><h1>Basic Components</h1></main>
     <script src="/_next/static/app.js?dpl=${values.nextDeploymentId}"></script>
     <link rel="stylesheet" href="/_next/static/app.css?dpl=wrong">
     <link rel="preload" href="/_next/static/font.woff2?dpl=${values.nextDeploymentId}">`;
@@ -301,6 +404,40 @@ test("common HTTP smoke fails closed on missing headers and mixed deployment ass
       }),
     }),
     /target-bound build ID/,
+  );
+});
+
+test("UI common HTTP smoke requires the exact server-rendered deployment identity", async () => {
+  const values = controllerTuple("ui");
+  const response = (deploymentMarker) => async (url) => {
+    const parsed = new URL(url);
+    if (parsed.pathname.startsWith("/_next/static/"))
+      return fakeResponse(parsed, "asset");
+    return fakeResponse(
+      parsed,
+      `<main ${deploymentMarker}><h1>Basic Components</h1></main>
+        <script src="/_next/static/app.js?dpl=${values.nextDeploymentId}"></script>
+        <link rel="stylesheet" href="/_next/static/app.css?dpl=${values.nextDeploymentId}">`,
+      {
+        headers: {
+          "content-security-policy": "frame-ancestors 'none'",
+          "x-frame-options": "DENY",
+          "x-content-type-options": "nosniff",
+        },
+      },
+    );
+  };
+
+  await assert.rejects(
+    smokePreviewHttp({ values, fetchImplementation: response("") }),
+    /HTML does not carry only the expected build deployment ID/,
+  );
+  await assert.rejects(
+    smokePreviewHttp({
+      values,
+      fetchImplementation: response('data-dpl-id="m-ui-wrongwrongwrong12"'),
+    }),
+    /HTML does not carry only the expected build deployment ID/,
   );
 });
 

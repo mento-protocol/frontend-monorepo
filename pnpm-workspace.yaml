@@ -6,6 +6,7 @@ catalog:
   "@eslint/js": ^9.39.2
   "@mento-protocol/mento-sdk": 3.3.0-beta.5
   "@metamask/jazzicon": github:jmrossy/jazzicon#7a8df28
+  "@playwright/test": 1.61.1
   "@rainbow-me/rainbowkit": ^2.2.11
   "@sentry/nextjs": ^10.35.0
   "@t3-oss/env-nextjs": ^0.13.11
