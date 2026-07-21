@@ -534,7 +534,9 @@ test("worker is dispatch-only with strict identity inputs and one literal UI cal
   assert.deepEqual(worker.permissions, {});
   assert.equal(worker.concurrency["cancel-in-progress"], false);
 
-  const callers = Object.values(worker.jobs).filter((job) => job.uses);
+  const callers = Object.values(worker.jobs).filter(
+    (job) => job.uses === "./.github/workflows/_vercel-prebuilt.yml",
+  );
   assert.equal(callers.length, 1);
   const caller = callers[0];
   assert.equal(caller.uses, "./.github/workflows/_vercel-prebuilt.yml");
@@ -611,41 +613,49 @@ test("worker credentials are unreachable until trusted validation and named pref
 
   const resumedSmoke = worker.jobs["resume-ui-smoke"];
   assert.deepEqual(resumedSmoke.permissions, { contents: "read" });
+  assert.equal(
+    resumedSmoke.uses,
+    "./.github/workflows/_vercel-preview-smoke.yml",
+  );
+  assert.equal(Object.hasOwn(resumedSmoke, "steps"), false);
+  assert.equal(Object.hasOwn(resumedSmoke, "secrets"), false);
   assert.doesNotMatch(
     JSON.stringify(resumedSmoke),
     /secrets\.|VERCEL_TOKEN|TURBO_TOKEN|TURBO_REMOTE_CACHE_SIGNATURE_KEY/,
   );
-  assert.match(
-    JSON.stringify(resumedSmoke),
-    /vercel-prebuilt-workflow\.mjs.*smoke/,
-  );
-  assert.equal(resumedSmoke["runs-on"], "ubuntu-latest");
-  const resumeSteps = resumedSmoke.steps;
-  const resumeCheckout = resumeSteps[0];
-  assert.equal(resumeCheckout.with.path, "controller");
-  assert.equal(resumeCheckout.with.ref, "${{ github.workflow_sha }}");
-  assert.equal(resumeCheckout.with["persist-credentials"], false);
-  const resumeInstall = resumeSteps.find(
-    ({ name }) => name === "Install trusted browser smoke dependencies",
-  );
-  assert.equal(resumeInstall["working-directory"], "controller");
-  assert.equal(resumeInstall.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD, "1");
-  assert.match(resumeInstall.run, /--frozen-lockfile/);
-  assert.match(resumeInstall.run, /--ignore-scripts/);
-  const resumeBrowser = resumeSteps.find(
-    ({ name }) => name === "Re-run browser interaction in system Chrome",
-  );
-  assert.match(
-    resumeBrowser.run,
-    /apps\/ui\.mento\.org\/e2e\/vercel-preview-browser-smoke\.mjs/,
-  );
+  assert.equal(resumedSmoke.with.logical_target, "ui");
+  assert.equal(resumedSmoke.with.verification_mode, "controller");
   assert.equal(
-    resumeBrowser.env.DEPLOYMENT_IDEMPOTENCY_KEY,
+    resumedSmoke.with.verification_key,
     "${{ inputs.controller_key }}",
   );
-  assert.ok(
-    resumeSteps.indexOf(resumeInstall) < resumeSteps.indexOf(resumeBrowser),
+  assert.equal(
+    resumedSmoke.with.deployment_url,
+    "${{ needs.validate-controller-ownership.outputs.vercel_deployment_url }}",
   );
+  assert.equal(
+    resumedSmoke.with.github_deployment_id,
+    "${{ needs.validate-controller-ownership.outputs.github_deployment_id }}",
+  );
+  assert.equal(
+    resumedSmoke.with.vercel_deployment_id,
+    "${{ needs.validate-controller-ownership.outputs.vercel_deployment_id }}",
+  );
+  assert.equal(
+    resumedSmoke.with.next_deployment_id,
+    "${{ needs.validate-controller-ownership.outputs.next_deployment_id }}",
+  );
+  assert.equal(
+    resumedSmoke.with.expected_project_id,
+    "${{ vars.VERCEL_PROJECT_ID_UI }}",
+  );
+  assert.equal(
+    resumedSmoke.with.metadata_project_id,
+    "${{ vars.VERCEL_PROJECT_ID_UI }}",
+  );
+  assert.equal(caller.with.logical_target, "ui");
+  assert.equal(caller.with.workspace_package, "ui.mento.org");
+  assert.equal(caller.with.expected_root_directory, "apps/ui.mento.org");
 
   const evidence = worker.jobs["record-worker-evidence"];
   assert.match(JSON.stringify(evidence), /recordWorkerEvidence/);

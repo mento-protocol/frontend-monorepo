@@ -2895,156 +2895,6 @@ export async function withValidatedPrebuiltUpload(options, upload) {
   return upload();
 }
 
-function requireHeader(response, name, expected) {
-  const value = response.headers.get(name);
-  if (
-    expected instanceof RegExp
-      ? !expected.test(value ?? "")
-      : value !== expected
-  ) {
-    throw new Error(`Preview response has an invalid ${name} header`);
-  }
-}
-
-function successfulText(response, body, label) {
-  if (!response.ok)
-    throw new Error(`${label} returned HTTP ${response.status}`);
-  if (typeof body !== "string") {
-    throw new Error(`${label} returned an invalid body`);
-  }
-  return body;
-}
-
-async function fetchWithTimeout({
-  fetchImplementation,
-  url,
-  options,
-  bodyType,
-  label,
-  timeoutMs,
-}) {
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30_000) {
-    throw new Error("Preview smoke request timeout is invalid");
-  }
-  const controller = new AbortController();
-  let timeout;
-  try {
-    const request = (async () => {
-      const response = await fetchImplementation(url, {
-        ...options,
-        signal: controller.signal,
-      });
-      if (!response.ok) return { response, body: undefined };
-      const body =
-        bodyType === "text"
-          ? await response.text()
-          : await response.arrayBuffer();
-      return { response, body };
-    })();
-    return await Promise.race([
-      request,
-      new Promise((_, reject) => {
-        timeout = setTimeout(() => {
-          controller.abort();
-          reject(new Error(`${label} timed out`));
-        }, timeoutMs);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-export async function smokeUiPreview({
-  deploymentUrl,
-  deploymentId,
-  fetchImplementation = fetch,
-  requestTimeoutMs = 15_000,
-}) {
-  const baseUrl = immutableVercelUrl(deploymentUrl);
-  const { response: mainResponse, body: mainBody } = await fetchWithTimeout({
-    fetchImplementation,
-    url: baseUrl,
-    options: { redirect: "follow" },
-    bodyType: "text",
-    label: "UI preview",
-    timeoutMs: requestTimeoutMs,
-  });
-  const html = successfulText(mainResponse, mainBody, "UI preview");
-  if (!html.includes("Basic Components")) {
-    throw new Error("UI preview did not render the Basic Components page");
-  }
-  if (!html.includes(`data-dpl-id="${deploymentId}"`)) {
-    throw new Error(
-      "UI preview HTML does not carry the expected build deployment ID",
-    );
-  }
-  requireHeader(
-    mainResponse,
-    "content-security-policy",
-    "frame-ancestors 'none'",
-  );
-  requireHeader(mainResponse, "x-frame-options", "DENY");
-  requireHeader(mainResponse, "x-content-type-options", "nosniff");
-  requireHeader(
-    mainResponse,
-    "content-security-policy-report-only",
-    /https:\/\/vercel\.live/,
-  );
-
-  const { response: navigationResponse, body: navigationBody } =
-    await fetchWithTimeout({
-      fetchImplementation,
-      url: new URL("/form-components", baseUrl),
-      options: { redirect: "follow" },
-      bodyType: "text",
-      label: "UI preview navigation",
-      timeoutMs: requestTimeoutMs,
-    });
-  const navigationHtml = successfulText(
-    navigationResponse,
-    navigationBody,
-    "UI preview navigation",
-  );
-  if (!navigationHtml.includes("Form Components")) {
-    throw new Error("UI preview primary navigation destination did not render");
-  }
-
-  const assets = [
-    ...html.matchAll(/(?:src|href)="([^" ]*\/_next\/static\/[^" ]+)"/g),
-  ].map((match) => match[1].replaceAll("&amp;", "&"));
-  const representatives = [".js", ".css", ".woff2"].map((extension) =>
-    assets.find((asset) =>
-      new URL(asset, baseUrl).pathname.endsWith(extension),
-    ),
-  );
-  if (representatives.some((asset) => asset === undefined)) {
-    throw new Error(
-      "UI preview HTML is missing script, stylesheet, or font assets",
-    );
-  }
-  for (const asset of representatives) {
-    const { response } = await fetchWithTimeout({
-      fetchImplementation,
-      url: new URL(asset, baseUrl),
-      options: { redirect: "follow" },
-      bodyType: "bytes",
-      label: "UI preview static asset",
-      timeoutMs: requestTimeoutMs,
-    });
-    if (!response.ok) {
-      throw new Error(
-        `UI preview static asset returned HTTP ${response.status}`,
-      );
-    }
-  }
-  return {
-    deploymentUrl: baseUrl,
-    deploymentId,
-    checkedAssets: representatives.length,
-  };
-}
-
 function output(name, value) {
   if (!process.env.GITHUB_OUTPUT) throw new Error("GITHUB_OUTPUT is required");
   appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
@@ -3357,25 +3207,6 @@ function verifyFromEnvironment() {
   );
 }
 
-async function smokeFromEnvironment() {
-  if (!/^[1-9][0-9]*$/.test(process.env.GITHUB_DEPLOYMENT_ID ?? "")) {
-    throw new Error("Smoke requires the canonical GitHub Deployment ID");
-  }
-  if (process.env.LOGICAL_TARGET !== "ui") {
-    throw new Error(
-      "Direct prebuilt smoke is not implemented for this validated target",
-    );
-  }
-  const result = await smokeUiPreview({
-    deploymentUrl: process.env.VERCEL_DEPLOYMENT_URL,
-    deploymentId: process.env.MENTO_NEXT_DEPLOYMENT_ID,
-  });
-  output("smoke_deployment_url", result.deploymentUrl);
-  output("smoke_deployment_id", process.env.VERCEL_DEPLOYMENT_ID);
-  output("smoke_github_deployment_id", process.env.GITHUB_DEPLOYMENT_ID);
-  output("smoke_commit_sha", process.env.DEPLOY_SHA);
-}
-
 function totalFromEnvironment() {
   if (!/^[0-9]+$/.test(process.env.STARTED_AT_MS ?? "")) {
     throw new Error("Workflow start time is invalid");
@@ -3461,11 +3292,10 @@ if (isCliEntrypoint()) {
     process.stdout.write(`${layout.modulesDir}\n`);
   } else if (command === "deploy") await deployFromEnvironment();
   else if (command === "verify") verifyFromEnvironment();
-  else if (command === "smoke") await smokeFromEnvironment();
   else if (command === "total") totalFromEnvironment();
   else {
     throw new Error(
-      "Usage: vercel-prebuilt-workflow.mjs prepare|validate-source|materialize-source|stage-runtime|stage-pnpm-bootstrap|stage-pnpm-runtime|stage-pnpm-launcher|prepare-link|prepare-pull-staging|pull|validate-pull|validate-pull-staging|stage-pull|validate-candidate-pull|build|assert-output|trusted-install-modules-dir|deploy|verify|smoke|total",
+      "Usage: vercel-prebuilt-workflow.mjs prepare|validate-source|materialize-source|stage-runtime|stage-pnpm-bootstrap|stage-pnpm-runtime|stage-pnpm-launcher|prepare-link|prepare-pull-staging|pull|validate-pull|validate-pull-staging|stage-pull|validate-candidate-pull|build|assert-output|trusted-install-modules-dir|deploy|verify|total",
     );
   }
 }

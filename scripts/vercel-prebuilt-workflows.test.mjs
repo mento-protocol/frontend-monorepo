@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { parse } from "yaml";
@@ -671,61 +671,34 @@ test("uncredentialed smoke gates the always-run trusted lifecycle finalizer", ()
   const smoke = reusable.jobs.smoke;
   const finalize = reusable.jobs.finalize;
   assert.equal(smoke.needs, "prebuilt");
-  assert.equal(smoke["runs-on"], "ubuntu-latest");
   assert.match(smoke.if, /needs\.prebuilt\.result == 'success'/);
+  assert.equal(smoke.uses, "./.github/workflows/_vercel-preview-smoke.yml");
+  assert.equal(Object.hasOwn(smoke, "steps"), false);
+  assert.equal(Object.hasOwn(smoke, "secrets"), false);
+  assert.deepEqual(smoke.permissions, { contents: "read" });
   assert.deepEqual(finalize.needs, ["prebuilt", "smoke"]);
   assert.equal(finalize.if, "always()");
-  assert.deepEqual(
-    smoke.steps.map(({ name }) => name),
-    [
-      "Check out trusted smoke controller only",
-      "Smoke immutable UI preview without deployment credentials",
-      "Set up pinned pnpm for trusted browser smoke",
-      "Set up pinned Node.js and trusted pnpm cache",
-      "Install trusted browser smoke dependencies",
-      "Interact with immutable UI preview in system Chrome",
-    ],
-  );
-  const smokeStep = smoke.steps[1];
-  assert.match(smokeStep.run, /vercel-prebuilt-workflow\.mjs" smoke/);
-  assert.equal(smokeStep.env.LOGICAL_TARGET, "${{ inputs.logical_target }}");
-  const install = smoke.steps.find(
-    ({ name }) => name === "Install trusted browser smoke dependencies",
-  );
-  assert.equal(install["working-directory"], "controller");
-  assert.equal(install.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD, "1");
-  assert.match(install.run, /--frozen-lockfile/);
-  assert.match(install.run, /--ignore-scripts/);
-  assert.match(install.run, /--filter ui\.mento\.org\.\.\./);
-  const smokeCheckout = smoke.steps[0];
-  assert.equal(smokeCheckout.with.path, "controller");
-  assert.equal(smokeCheckout.with.ref, "${{ github.workflow_sha }}");
-  assert.equal(smokeCheckout.with["persist-credentials"], false);
-  assert.equal(
-    smoke.steps.some((step) => step.with?.path === "source"),
-    false,
-  );
-  const nodeSetup = smoke.steps.find(
-    ({ name }) => name === "Set up pinned Node.js and trusted pnpm cache",
-  );
-  assert.equal(
-    nodeSetup.with["cache-dependency-path"],
-    "controller/pnpm-lock.yaml",
-  );
-  const browserSmoke = smoke.steps.find(
-    ({ name }) =>
-      name === "Interact with immutable UI preview in system Chrome",
-  );
-  assert.match(
-    browserSmoke.run,
-    /apps\/ui\.mento\.org\/e2e\/vercel-preview-browser-smoke\.mjs/,
-  );
-  assert.doesNotMatch(browserSmoke.run, /playwright install/);
-  assert.equal(
-    browserSmoke.env.DEPLOYMENT_IDEMPOTENCY_KEY,
-    "${{ inputs.deployment_idempotency_key }}",
-  );
-  assert.ok(smoke.steps.indexOf(smokeStep) < smoke.steps.indexOf(browserSmoke));
+  const expectedTuple = {
+    logical_target: "${{ inputs.logical_target }}",
+    deployment_url: "${{ needs.prebuilt.outputs.verified_deployment_url }}",
+    expected_sha: "${{ needs.prebuilt.outputs.commit_sha }}",
+    github_deployment_id: "${{ needs.prebuilt.outputs.github_deployment_id }}",
+    verification_mode:
+      "${{ inputs.provenance == 'manual-pilot' && 'manual-pilot' || 'controller' }}",
+    verification_key: "${{ inputs.deployment_idempotency_key }}",
+    metadata_logical_target: "${{ inputs.logical_target }}",
+    metadata_target: "${{ inputs.vercel_target }}",
+    metadata_repository: "${{ github.repository }}",
+    metadata_ref: "${{ inputs.git_branch }}",
+    metadata_sha: "${{ needs.prebuilt.outputs.commit_sha }}",
+    metadata_url: "${{ needs.prebuilt.outputs.verified_deployment_url }}",
+    pull_request_number: "${{ inputs.pull_request_number }}",
+    vercel_deployment_id: "${{ needs.prebuilt.outputs.vercel_deployment_id }}",
+    next_deployment_id: "${{ needs.prebuilt.outputs.next_deployment_id }}",
+    expected_project_id: "${{ inputs.vercel_project_id }}",
+    metadata_project_id: "${{ inputs.vercel_project_id }}",
+  };
+  assert.deepEqual(smoke.with, expectedTuple);
   assert.doesNotMatch(
     JSON.stringify(smoke),
     /VERCEL_TOKEN|TURBO_TOKEN|TURBO_REMOTE_CACHE_SIGNATURE_KEY|BYPASS|secrets\./i,
@@ -737,47 +710,39 @@ test("uncredentialed smoke gates the always-run trusted lifecycle finalizer", ()
   assert.match(complete.env.VERCEL_DEPLOYMENT_URL, /needs\.smoke\.outputs/);
   assert.match(complete.env.PREBUILT_RESULT, /needs\.prebuilt\.result/);
   assert.match(complete.env.SMOKE_RESULT, /needs\.smoke\.result/);
+  const evidence = finalize.steps.find(
+    ({ name }) => name === "Record comparison evidence (best effort)",
+  );
+  assert.equal(
+    evidence.env.COMMIT_SHA,
+    "${{ needs.smoke.outputs.expected_sha }}",
+  );
   assert.match(
     reusable.jobs.prebuilt.outputs.github_deployment_id,
     /steps\.create\.outputs\.github_deployment_id/,
   );
 });
 
-test("every direct prebuilt smoke invocation sets its validated logical target", () => {
-  const workflowDirectory = new URL("../.github/workflows/", import.meta.url);
-  const invocations = readdirSync(workflowDirectory)
-    .filter((fileName) => /\.ya?ml$/.test(fileName))
-    .sort()
-    .flatMap((fileName) => {
-      const document = workflow(`.github/workflows/${fileName}`);
-      return Object.entries(document.jobs ?? {}).flatMap(([jobName, job]) =>
-        (job.steps ?? [])
-          .filter(({ run }) =>
-            /vercel-prebuilt-workflow\.mjs["']?\s+smoke\b/.test(run ?? ""),
-          )
-          .map((step) => ({
-            path: `.github/workflows/${fileName}`,
-            job: jobName,
-            step: step.name,
-            logicalTarget: step.env?.LOGICAL_TARGET,
-          })),
-      );
-    });
-
-  assert.deepEqual(invocations, [
-    {
-      path: reusablePath,
-      job: "smoke",
-      step: "Smoke immutable UI preview without deployment credentials",
-      logicalTarget: "${{ inputs.logical_target }}",
-    },
-    {
-      path: ".github/workflows/vercel-preview-worker.yml",
-      job: "resume-ui-smoke",
-      step: "Re-run direct smoke without deployment credentials",
-      logicalTarget: "ui",
-    },
-  ]);
+test("prebuilt and resume paths use only the reusable smoke implementation", () => {
+  const worker = workflow(".github/workflows/vercel-preview-worker.yml");
+  assert.equal(
+    workflow(reusablePath).jobs.smoke.uses,
+    "./.github/workflows/_vercel-preview-smoke.yml",
+  );
+  assert.equal(
+    worker.jobs["resume-ui-smoke"].uses,
+    "./.github/workflows/_vercel-preview-smoke.yml",
+  );
+  for (const path of [
+    reusablePath,
+    ".github/workflows/vercel-preview-worker.yml",
+    "scripts/vercel-prebuilt-workflow.mjs",
+  ]) {
+    assert.doesNotMatch(
+      read(path),
+      /vercel-prebuilt-workflow\.mjs["']?\s+smoke\b|smokeUiPreview|smokeFromEnvironment/,
+    );
+  }
 });
 
 test("public deployment URL exists only after smoke-backed success", () => {

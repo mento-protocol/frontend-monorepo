@@ -112,6 +112,59 @@ test("reusable smoke validates metadata before common and target-specific browse
   assert.match(walletSpec, /test\.afterEach/);
 });
 
+test("automatic UI build and resume use the single reusable smoke without activating other targets", () => {
+  const prebuilt = workflow(".github/workflows/_vercel-prebuilt.yml");
+  const worker = workflow(".github/workflows/vercel-preview-worker.yml");
+  const buildSmoke = prebuilt.jobs.smoke;
+  const resumeSmoke = worker.jobs["resume-ui-smoke"];
+  for (const smoke of [buildSmoke, resumeSmoke]) {
+    assert.equal(smoke.uses, "./.github/workflows/_vercel-preview-smoke.yml");
+    assert.equal(Object.hasOwn(smoke, "steps"), false);
+    assert.equal(Object.hasOwn(smoke, "secrets"), false);
+    for (const tupleField of [
+      "logical_target",
+      "deployment_url",
+      "expected_sha",
+      "github_deployment_id",
+      "verification_mode",
+      "verification_key",
+      "metadata_logical_target",
+      "metadata_target",
+      "metadata_repository",
+      "metadata_ref",
+      "metadata_sha",
+      "metadata_url",
+      "pull_request_number",
+      "vercel_deployment_id",
+      "next_deployment_id",
+      "expected_project_id",
+      "metadata_project_id",
+    ]) {
+      assert.ok(
+        Object.hasOwn(smoke.with, tupleField),
+        `${tupleField} must cross the trusted smoke seam`,
+      );
+    }
+  }
+  assert.equal(buildSmoke.with.logical_target, "${{ inputs.logical_target }}");
+  assert.equal(resumeSmoke.with.logical_target, "ui");
+  assert.equal(resumeSmoke.with.verification_mode, "controller");
+
+  const prebuiltCallers = Object.entries(worker.jobs).filter(
+    ([, job]) => job.uses === "./.github/workflows/_vercel-prebuilt.yml",
+  );
+  assert.deepEqual(
+    prebuiltCallers.map(([name, job]) => [name, job.with.logical_target]),
+    [["deploy-ui-preview", "ui"]],
+  );
+  assert.doesNotMatch(
+    `${read(".github/workflows/_vercel-prebuilt.yml")}\n${read(
+      ".github/workflows/vercel-preview-worker.yml",
+    )}\n${read("scripts/vercel-prebuilt-workflow.mjs")}`,
+    /vercel-prebuilt-workflow\.mjs["']?\s+smoke\b|smokeUiPreview|smokeFromEnvironment/,
+  );
+});
+
 test("native adapter always classifies and runs full App or Governance smoke without lookup or dedupe", () => {
   const adapter = workflow(adapterPath);
   assert.deepEqual(adapter.on, { deployment_status: null });

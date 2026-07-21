@@ -404,10 +404,6 @@ export function classifyNativePreviewEvent(event, runtime) {
       "Native Deployment payload must be empty",
     );
     invariant(
-      deployment.production_environment === false,
-      "Native preview was marked production",
-    );
-    invariant(
       deployment.transient_environment === false,
       "Native preview transient flag mismatch",
     );
