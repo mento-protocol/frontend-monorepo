@@ -43,6 +43,7 @@ import {
   parseVercelDeploymentLookup,
   parseVercelDeploymentJson,
   PILOT_TARGET,
+  PREBUILT_TARGETS,
   prepareVercelPullStaging,
   queryVercelDeployments,
   smokeUiPreview,
@@ -96,20 +97,23 @@ function checkUiPreviewEnvironment(projectDirectory) {
   );
 }
 
-function uploadFixture() {
-  const repoRoot = mkdtempSync(join(tmpdir(), "vercel-upload-ui-"));
-  const vercelOrgId = "team_example";
-  const vercelProjectId = "prj_ui";
-  const projectState = join(
-    repoRoot,
-    PILOT_TARGET.expectedRootDirectory,
-    ".vercel",
+function uploadFixture(logicalTarget = "ui") {
+  const target = PREBUILT_TARGETS[logicalTarget];
+  const deploymentId =
+    logicalTarget === "ui"
+      ? DEPLOYMENT_ID
+      : `m-${logicalTarget}-${"0".repeat(32)}`.slice(0, 32);
+  const repoRoot = mkdtempSync(
+    join(tmpdir(), `vercel-upload-${logicalTarget}-`),
   );
+  const vercelOrgId = "team_example";
+  const vercelProjectId = `prj_${logicalTarget}`;
+  const projectState = join(repoRoot, target.expectedRootDirectory, ".vercel");
   const outputDirectory = join(projectState, "output");
   mkdirSync(outputDirectory, { recursive: true });
   materializeVercelRepoLink({
     repoRoot,
-    expectedRootDirectory: PILOT_TARGET.expectedRootDirectory,
+    expectedRootDirectory: target.expectedRootDirectory,
     vercelOrgId,
     vercelProjectId,
   });
@@ -118,12 +122,12 @@ function uploadFixture() {
     JSON.stringify({
       orgId: vercelOrgId,
       projectId: vercelProjectId,
-      settings: { rootDirectory: PILOT_TARGET.expectedRootDirectory },
+      settings: { rootDirectory: target.expectedRootDirectory },
     }),
   );
   writeFileSync(
     join(outputDirectory, "config.json"),
-    JSON.stringify({ version: 3, deploymentId: DEPLOYMENT_ID }),
+    JSON.stringify({ version: 3, deploymentId }),
   );
   writeFileSync(
     join(outputDirectory, "builds.json"),
@@ -142,11 +146,11 @@ function uploadFixture() {
     outputDirectory,
     options: {
       repoRoot,
-      logicalTarget: PILOT_TARGET.logicalTarget,
-      expectedRootDirectory: PILOT_TARGET.expectedRootDirectory,
+      logicalTarget,
+      expectedRootDirectory: target.expectedRootDirectory,
       vercelOrgId,
       vercelProjectId,
-      deploymentId: DEPLOYMENT_ID,
+      deploymentId,
       commitSha: SHA,
     },
     cleanup() {
@@ -244,6 +248,16 @@ function pulledStagingFixture() {
 
 test("pilot contract accepts only the UI preview mapping and exact SHA", () => {
   assert.deepEqual(validatePilotContract(pilotContract()), pilotContract());
+  assert.throws(
+    () =>
+      validatePilotContract(
+        pilotContract({
+          ...PREBUILT_TARGETS.app,
+          githubEnvironment: PILOT_TARGET.githubEnvironment,
+        }),
+      ),
+    /manual pilot is restricted to the UI target/,
+  );
   for (const overrides of [
     { logicalTarget: "app" },
     { deploymentMode: "staged-production" },
@@ -283,6 +297,54 @@ test("automatic preview contract binds PR, environment, provenance, and exact SH
     },
   ]) {
     assert.throws(() => validatePilotContract({ ...automatic, ...overrides }));
+  }
+});
+
+test("automatic preview contract accepts only the four literal target mappings", () => {
+  assert.deepEqual(Object.keys(PREBUILT_TARGETS), [
+    "app",
+    "governance",
+    "reserve",
+    "ui",
+  ]);
+  for (const target of Object.values(PREBUILT_TARGETS)) {
+    const automatic = pilotContract({
+      ...target,
+      githubEnvironment: `preview/${target.logicalTarget}/pr-519`,
+      idempotencyKey: `vercel-preview:v1:pr:519:target:${target.logicalTarget}:sha:${SHA}`,
+      pullRequestNumber: "519",
+      provenance: "preview-controller:v1",
+      githubWorkflowRef:
+        "mento-protocol/frontend-monorepo/.github/workflows/vercel-preview-worker.yml@refs/heads/main",
+    });
+    assert.deepEqual(validatePilotContract(automatic), automatic);
+
+    const wrongTarget =
+      target.logicalTarget === "ui"
+        ? PREBUILT_TARGETS.app
+        : PREBUILT_TARGETS.ui;
+    for (const mismatched of [
+      { workspacePackage: wrongTarget.workspacePackage },
+      { expectedRootDirectory: wrongTarget.expectedRootDirectory },
+      { githubEnvironment: `preview/${wrongTarget.logicalTarget}/pr-519` },
+      {
+        idempotencyKey: `vercel-preview:v1:pr:519:target:${wrongTarget.logicalTarget}:sha:${SHA}`,
+      },
+    ]) {
+      assert.throws(() =>
+        validatePilotContract({ ...automatic, ...mismatched }),
+      );
+    }
+  }
+  for (const logicalTarget of ["unknown", "__proto__", "constructor"]) {
+    assert.throws(() =>
+      validatePilotContract(
+        pilotContract({
+          logicalTarget,
+          provenance: "preview-controller:v1",
+        }),
+      ),
+    );
   }
 });
 
@@ -2474,7 +2536,7 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
     raw.indexOf("- name: Restore trusted controller after source installation"),
   );
   const buildBlock = raw.slice(
-    raw.indexOf("- name: Build the UI prebuilt output"),
+    raw.indexOf("- name: Build the literal target prebuilt output"),
     raw.indexOf("- name: Restore trusted controller after source build"),
   );
   const buildValidationBlock = buildBlock.slice(
@@ -2501,12 +2563,12 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   );
   const handoffBlock = raw.slice(
     raw.indexOf("- name: Create immutable runner-owned upload handoff"),
-    raw.indexOf("- name: Materialize runner-owned upload UI project mapping"),
+    raw.indexOf("- name: Materialize runner-owned upload project mapping"),
   );
   const candidateOutputValidationBlock = raw.slice(
-    raw.indexOf("- name: Assert the UI prebuilt output"),
+    raw.indexOf("- name: Assert the literal target prebuilt output"),
     raw.indexOf(
-      "- name: Revalidate runner-owned pulled UI settings after the build",
+      "- name: Revalidate runner-owned pulled settings after the build",
     ),
   );
   const uploadOutputValidationBlock = raw.slice(
@@ -2514,24 +2576,22 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
     raw.indexOf("- name: Upload the verified prebuilt output"),
   );
   const pullBlock = raw.slice(
-    raw.indexOf("- name: Pull branch-specific UI preview settings"),
+    raw.indexOf("- name: Pull branch-specific preview settings"),
     raw.indexOf("- name: Assert isolated runner-owned Vercel pull result"),
   );
   const stagePullBlock = raw.slice(
-    raw.indexOf(
-      "- name: Stage trusted UI project settings into candidate source",
-    ),
-    raw.indexOf("- name: Assert isolated UI project mapping"),
+    raw.indexOf("- name: Stage trusted project settings into candidate source"),
+    raw.indexOf("- name: Assert isolated project mapping"),
   );
   const validateCandidatePullBlock = raw.slice(
-    raw.indexOf("- name: Assert isolated UI project mapping"),
-    raw.indexOf("- name: Build the UI prebuilt output"),
+    raw.indexOf("- name: Assert isolated project mapping"),
+    raw.indexOf("- name: Build the literal target prebuilt output"),
   );
   const environmentValidationIndex = raw.indexOf(
-    "- name: Validate runner-owned UI preview build variables",
+    "- name: Validate runner-owned non-Governance preview build variables",
   );
   const stagePullIndex = raw.indexOf(
-    "- name: Stage trusted UI project settings into candidate source",
+    "- name: Stage trusted project settings into candidate source",
   );
   const environmentValidationBlock = raw.slice(
     environmentValidationIndex,
@@ -2642,14 +2702,24 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
       environmentValidationIndex,
   );
   assert.ok(environmentValidationIndex < stagePullIndex);
-  assert.equal(raw.match(/vercel-build-environment\.mjs/g)?.length, 1);
+  assert.equal(raw.match(/vercel-build-environment\.mjs/g)?.length, 2);
   assert.match(
     environmentValidationBlock,
     /PULL_STAGING_PATH: \$\{\{ env\.VERCEL_ISOLATION_ROOT \}\}\/mento-vercel-pull-staging/,
   );
   assert.match(
     environmentValidationBlock,
-    /--project-directory "\$PULL_STAGING_PATH\/apps\/ui\.mento\.org"/,
+    /check --target "\$LOGICAL_TARGET" --environment preview/,
+  );
+  assert.match(
+    environmentValidationBlock,
+    /--project-directory "\$PULL_STAGING_PATH\/\$EXPECTED_ROOT_DIRECTORY"/,
+  );
+  assert.doesNotMatch(environmentValidationBlock, /ETHERSCAN_API_KEY/);
+  assert.doesNotMatch(environmentValidationBlock, /SENTRY_AUTH_TOKEN/);
+  assert.match(
+    buildBlock,
+    /vercel-build-environment\.mjs" \\\n\s+check --target "\$LOGICAL_TARGET" --environment preview \\\n\s+--project-directory "\$PULL_STAGING_PATH\/\$EXPECTED_ROOT_DIRECTORY"/,
   );
   assert.doesNotMatch(environmentValidationBlock, /working-directory: source/);
   assert.doesNotMatch(
@@ -2816,7 +2886,39 @@ test("pulled project and prebuilt output bind the configured UI root and build I
   }
 });
 
-test("UI upload revalidates exact provenance and project mapping immediately", async () => {
+test("upload guard binds every target to its literal root and project identity", () => {
+  for (const logicalTarget of Object.keys(PREBUILT_TARGETS)) {
+    const fixture = uploadFixture(logicalTarget);
+    try {
+      assert.equal(
+        assertPrebuiltReadyForUpload(fixture.options),
+        fixture.outputDirectory,
+      );
+      const wrongTarget =
+        logicalTarget === "ui" ? PREBUILT_TARGETS.app : PREBUILT_TARGETS.ui;
+      assert.throws(
+        () =>
+          assertPrebuiltReadyForUpload({
+            ...fixture.options,
+            expectedRootDirectory: wrongTarget.expectedRootDirectory,
+          }),
+        /target mapping is invalid/,
+      );
+      assert.throws(
+        () =>
+          assertPrebuiltReadyForUpload({
+            ...fixture.options,
+            logicalTarget: wrongTarget.logicalTarget,
+          }),
+        /target mapping is invalid/,
+      );
+    } finally {
+      fixture.cleanup();
+    }
+  }
+});
+
+test("upload revalidates exact provenance and project mapping immediately", async () => {
   const mutations = [
     {
       name: "missing repo link",
@@ -2925,7 +3027,7 @@ test("UI upload revalidates exact provenance and project mapping immediately", a
   }
 });
 
-test("UI upload guard accepts contained relative Vercel function symlinks", () => {
+test("upload guard accepts contained relative Vercel function symlinks", () => {
   const fixture = uploadFixture();
   try {
     const functionsDirectory = join(fixture.outputDirectory, "functions");
@@ -2947,7 +3049,7 @@ test("UI upload guard accepts contained relative Vercel function symlinks", () =
   }
 });
 
-test("UI upload guard accepts contained standalone dependency symlinks", () => {
+test("upload guard accepts contained standalone dependency symlinks", () => {
   const fixture = uploadFixture();
   try {
     const functionDirectory = join(
@@ -2988,7 +3090,7 @@ test("UI upload guard accepts contained standalone dependency symlinks", () => {
   }
 });
 
-test("UI upload guard rejects unsafe links, special nodes, and runner-writable state", () => {
+test("upload guard rejects unsafe links, special nodes, and runner-writable state", () => {
   const mutateCases = [
     {
       name: "absolute symbolic link",

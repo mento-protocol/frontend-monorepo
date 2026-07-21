@@ -99,6 +99,7 @@ test("reusable workflow declares exact inputs, explicit secrets, and evidence ou
     );
   }
   assert.deepEqual(Object.keys(call.secrets), [
+    "etherscan_api_key",
     "vercel_token",
     "turbo_token",
     "turbo_remote_cache_signature_key",
@@ -117,6 +118,53 @@ test("reusable workflow declares exact inputs, explicit secrets, and evidence ou
     "total_duration_ms",
   ]);
   assert.doesNotMatch(read(pilotPath), /secrets:\s*inherit/);
+});
+
+test("preview credentials keep Governance explorer access target-local and never expose Sentry", () => {
+  const reusable = workflow(reusablePath);
+  const pilot = workflow(pilotPath);
+  const worker = workflow(".github/workflows/vercel-preview-worker.yml");
+  const steps = reusable.jobs.prebuilt.steps;
+  const nonGovernance = steps.find(
+    ({ name }) =>
+      name === "Validate runner-owned non-Governance preview build variables",
+  );
+  const build = steps.find(
+    ({ name }) => name === "Build the literal target prebuilt output",
+  );
+
+  assert.equal(nonGovernance.if, "inputs.logical_target != 'governance'");
+  assert.equal(Object.hasOwn(nonGovernance.env, "ETHERSCAN_API_KEY"), false);
+  assert.equal(
+    build.env.ETHERSCAN_API_KEY,
+    "${{ inputs.logical_target == 'governance' && secrets.etherscan_api_key || '' }}",
+  );
+  assert.match(build.run, /controller_secret_environment=\(\)/);
+  assert.match(build.run, /candidate_secret_environment=\(\)/);
+  assert.match(build.run, /if \[ "\$LOGICAL_TARGET" = "governance" \]; then/);
+  assert.match(
+    build.run,
+    /vercel-build-environment\.mjs" \\\n\s+check --target "\$LOGICAL_TARGET" --environment preview/,
+  );
+  assert.match(
+    build.run,
+    /candidate_secret_environment\+=\("ETHERSCAN_API_KEY=\$ETHERSCAN_API_KEY"\)/,
+  );
+  assert.doesNotMatch(
+    read(reusablePath),
+    /SENTRY_AUTH_TOKEN|secrets:\s*inherit/,
+  );
+  assert.deepEqual(Object.keys(pilot.jobs["deploy-ui-preview"].secrets), [
+    "turbo_remote_cache_signature_key",
+    "turbo_token",
+    "vercel_token",
+  ]);
+  assert.deepEqual(Object.keys(worker.jobs["deploy-ui-preview"].secrets), [
+    "turbo_remote_cache_signature_key",
+    "turbo_token",
+    "vercel_token",
+  ]);
+  assert.equal(worker.jobs["deploy-ui-preview"].with.logical_target, "ui");
 });
 
 test("pilot maps only preview credentials and never exposes a production path", () => {
@@ -142,18 +190,18 @@ test("exact source, build, and upload remain in one standard-runner job", () => 
   const names = job.steps.map((step) => step.name);
   assert.ok(
     names.indexOf("Check out exact deployment source and full history") <
-      names.indexOf("Build the UI prebuilt output"),
+      names.indexOf("Build the literal target prebuilt output"),
   );
   assert.ok(
     names.indexOf("Prepare fresh runner-owned Vercel pull staging") <
-      names.indexOf("Pull branch-specific UI preview settings"),
+      names.indexOf("Pull branch-specific preview settings"),
   );
   assert.ok(
-    names.indexOf("Build the UI prebuilt output") <
+    names.indexOf("Build the literal target prebuilt output") <
       names.indexOf("Upload the verified prebuilt output"),
   );
   assert.ok(
-    names.indexOf("Assert the UI prebuilt output") <
+    names.indexOf("Assert the literal target prebuilt output") <
       names.indexOf("Mark the durable upload-attempt boundary") &&
       names.indexOf("Mark the durable upload-attempt boundary") <
         names.indexOf("Upload the verified prebuilt output"),
@@ -534,7 +582,8 @@ test("main-only controller is restored after every candidate-code phase", () => 
   );
   const contract = steps.find(
     ({ name }) =>
-      name === "Validate pilot contract and prepare immutable build identity",
+      name ===
+      "Validate prebuilt contract and prepare immutable build identity",
   );
   assert.equal(contract.env.GITHUB_EVENT_REF, "${{ github.ref }}");
   assert.equal(
@@ -542,15 +591,15 @@ test("main-only controller is restored after every candidate-code phase", () => 
     "${{ github.workflow_ref }}",
   );
   assert.ok(
-    names.indexOf("Build the UI prebuilt output") <
+    names.indexOf("Build the literal target prebuilt output") <
       names.indexOf("Restore trusted controller after source build"),
   );
   assert.ok(
     names.indexOf("Restore trusted controller after source build") <
-      names.indexOf("Assert the UI prebuilt output"),
+      names.indexOf("Assert the literal target prebuilt output"),
   );
   assert.ok(
-    names.indexOf("Assert the UI prebuilt output") <
+    names.indexOf("Assert the literal target prebuilt output") <
       names.indexOf("Upload the verified prebuilt output"),
   );
 });
@@ -567,7 +616,11 @@ test("monorepo CLI and trusted env validation use their exact roots", () => {
     ({ name }) => name === "Verify pinned Vercel prerequisites",
   );
   const environmentValidation = steps.find(
-    ({ name }) => name === "Validate runner-owned UI preview build variables",
+    ({ name }) =>
+      name === "Validate runner-owned non-Governance preview build variables",
+  );
+  const build = steps.find(
+    ({ name }) => name === "Build the literal target prebuilt output",
   );
 
   assert.equal(
@@ -580,23 +633,36 @@ test("monorepo CLI and trusted env validation use their exact roots", () => {
     environmentValidation.env.PULL_STAGING_PATH,
     "${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pull-staging",
   );
-  assert.match(
-    environmentValidation.run,
-    /--project-directory "\$PULL_STAGING_PATH\/apps\/ui\.mento\.org"/,
-  );
+  for (const step of [environmentValidation, build]) {
+    assert.match(
+      step.run,
+      /check --target "\$LOGICAL_TARGET" --environment preview/,
+    );
+    assert.match(
+      step.run,
+      /--project-directory "\$PULL_STAGING_PATH\/\$EXPECTED_ROOT_DIRECTORY"/,
+    );
+    assert.doesNotMatch(
+      step.run,
+      /\$\{\{ inputs\.(?:logical_target|expected_root_directory) \}\}/,
+    );
+  }
   assert.deepEqual(
     steps.filter(({ run }) =>
       run?.includes("scripts/vercel-build-environment.mjs"),
     ),
-    [environmentValidation],
+    [environmentValidation, build],
   );
   assert.ok(
     names.indexOf("Assert isolated runner-owned Vercel pull result") <
-      names.indexOf("Validate runner-owned UI preview build variables"),
+      names.indexOf(
+        "Validate runner-owned non-Governance preview build variables",
+      ),
   );
   assert.ok(
-    names.indexOf("Validate runner-owned UI preview build variables") <
-      names.indexOf("Stage trusted UI project settings into candidate source"),
+    names.indexOf(
+      "Validate runner-owned non-Governance preview build variables",
+    ) < names.indexOf("Stage trusted project settings into candidate source"),
   );
 });
 
@@ -622,6 +688,7 @@ test("uncredentialed smoke gates the always-run trusted lifecycle finalizer", ()
   );
   const smokeStep = smoke.steps[1];
   assert.match(smokeStep.run, /vercel-prebuilt-workflow\.mjs" smoke/);
+  assert.equal(smokeStep.env.LOGICAL_TARGET, "${{ inputs.logical_target }}");
   const install = smoke.steps.find(
     ({ name }) => name === "Install trusted browser smoke dependencies",
   );
@@ -710,6 +777,8 @@ test("best-effort metrics cannot override verified lifecycle truth", () => {
   );
   assert.equal(total["continue-on-error"], true);
   assert.equal(evidence["continue-on-error"], true);
+  assert.equal(evidence.env.LOGICAL_TARGET, "${{ inputs.logical_target }}");
+  assert.match(evidence.run, /### GitHub \$LOGICAL_TARGET prebuilt preview/);
   assert.equal(Object.hasOwn(complete, "continue-on-error"), false);
   assert.match(
     evidence.if,
@@ -735,7 +804,7 @@ test("workflow restores signed Turbo cache and immutable Vercel build metadata",
     assert.match(raw, new RegExp(`${value}:`), `${value} must be explicit`);
   }
   const build = workflow(reusablePath).jobs.prebuilt.steps.find(
-    ({ name }) => name === "Build the UI prebuilt output",
+    ({ name }) => name === "Build the literal target prebuilt output",
   );
   assert.equal(build.env.VERCEL_BUILD_MONOREPO_SUPPORT, "1");
   assert.match(
