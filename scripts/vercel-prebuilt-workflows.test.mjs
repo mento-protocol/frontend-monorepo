@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { parse } from "yaml";
@@ -741,6 +741,43 @@ test("uncredentialed smoke gates the always-run trusted lifecycle finalizer", ()
     reusable.jobs.prebuilt.outputs.github_deployment_id,
     /steps\.create\.outputs\.github_deployment_id/,
   );
+});
+
+test("every direct prebuilt smoke invocation sets its validated logical target", () => {
+  const workflowDirectory = new URL("../.github/workflows/", import.meta.url);
+  const invocations = readdirSync(workflowDirectory)
+    .filter((fileName) => /\.ya?ml$/.test(fileName))
+    .sort()
+    .flatMap((fileName) => {
+      const document = workflow(`.github/workflows/${fileName}`);
+      return Object.entries(document.jobs ?? {}).flatMap(([jobName, job]) =>
+        (job.steps ?? [])
+          .filter(({ run }) =>
+            /vercel-prebuilt-workflow\.mjs["']?\s+smoke\b/.test(run ?? ""),
+          )
+          .map((step) => ({
+            path: `.github/workflows/${fileName}`,
+            job: jobName,
+            step: step.name,
+            logicalTarget: step.env?.LOGICAL_TARGET,
+          })),
+      );
+    });
+
+  assert.deepEqual(invocations, [
+    {
+      path: reusablePath,
+      job: "smoke",
+      step: "Smoke immutable UI preview without deployment credentials",
+      logicalTarget: "${{ inputs.logical_target }}",
+    },
+    {
+      path: ".github/workflows/vercel-preview-worker.yml",
+      job: "resume-ui-smoke",
+      step: "Re-run direct smoke without deployment credentials",
+      logicalTarget: "ui",
+    },
+  ]);
 });
 
 test("public deployment URL exists only after smoke-backed success", () => {

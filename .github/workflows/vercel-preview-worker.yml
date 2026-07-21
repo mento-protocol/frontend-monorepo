@@ -213,6 +213,7 @@ jobs:
         env:
           DEPLOY_SHA: ${{ inputs.commit_sha }}
           GITHUB_DEPLOYMENT_ID: ${{ needs.validate-controller-ownership.outputs.github_deployment_id }}
+          LOGICAL_TARGET: ui
           MENTO_NEXT_DEPLOYMENT_ID: ${{ needs.validate-controller-ownership.outputs.next_deployment_id }}
           VERCEL_DEPLOYMENT_ID: ${{ needs.validate-controller-ownership.outputs.vercel_deployment_id }}
           VERCEL_DEPLOYMENT_URL: ${{ needs.validate-controller-ownership.outputs.vercel_deployment_url }}
