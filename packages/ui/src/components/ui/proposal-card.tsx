@@ -5,7 +5,12 @@ import { cn } from "@/lib/utils.js";
 import { cva, type VariantProps } from "class-variance-authority";
 
 const proposalCardHeaderVariants = cva(
-  "flex w-full flex-col items-start justify-start px-6 py-5 gap-6 lg:flex-row lg:!justify-between",
+  // The card surface (--another-card-color) is always dark in both themes, so the
+  // header text must be light regardless of the app theme. primary-foreground is
+  // theme-independent (oklch 0.98 in :root and .dark); without it, plain-text header
+  // children inherit --foreground and render dark-on-dark in light mode. Consumers
+  // can still override (e.g. text-white/70).
+  "flex w-full flex-col items-start justify-start px-6 py-5 gap-6 lg:flex-row lg:!justify-between text-primary-foreground",
   {
     variants: {
       variant: {
