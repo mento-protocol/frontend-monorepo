@@ -1,13 +1,86 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 // Walletless + mock-wallet smoke against a REAL deployed preview (real forno
 // reads, no fork, no transactions). Run via
 // `PREVIEW_URL=<url> pnpm --filter app.mento.org test:preview`. See
-// docs/wallet-testing.md's "Preview smoke" section and
-// .github/workflows/preview-smoke.yml (triggers this on `deployment_status`
-// for team `-mentolabs.vercel.app` previews of app.mento.org/governance.mento.org).
+// docs/wallet-testing.md's "Preview smoke" section and the secretless reusable
+// .github/workflows/_vercel-preview-smoke.yml. The temporary native adapter and
+// GitHub-built workers both call that same target-bound implementation.
 
 const BLOCK_SCREEN_HEADINGS = ["Access Restricted", "Verification unavailable"];
+const MAXIMUM_BROWSER_FAILURES = 100;
+const browserFailures = new WeakMap<Page, string[]>();
+
+function concise(value: unknown) {
+  return String(value).replaceAll(/\s+/g, " ").trim().slice(0, 500);
+}
+
+function isExpectedNextNavigationAbort(
+  urlValue: string,
+  resourceType: string,
+  errorText: string,
+  expectedOrigin: string,
+) {
+  try {
+    const url = new URL(urlValue);
+    return (
+      url.origin === expectedOrigin &&
+      url.searchParams.has("_rsc") &&
+      errorText === "net::ERR_ABORTED" &&
+      (resourceType === "fetch" || resourceType === "xhr")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function attachBrowserFailureMonitor(page: Page, expectedOrigin: string) {
+  const failures: string[] = [];
+  browserFailures.set(page, failures);
+  const record = (failure: string) => {
+    if (failures.length < MAXIMUM_BROWSER_FAILURES) failures.push(failure);
+  };
+  const sameOrigin = (value: string) => {
+    try {
+      return new URL(value).origin === expectedOrigin;
+    } catch {
+      return false;
+    }
+  };
+
+  page.on("pageerror", (error) => {
+    record(`page error: ${concise(error.message)}`);
+  });
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      record(`console error: ${concise(message.text())}`);
+    }
+  });
+  page.on("requestfailed", (request) => {
+    const errorText = request.failure()?.errorText ?? "unknown error";
+    if (
+      !sameOrigin(request.url()) ||
+      isExpectedNextNavigationAbort(
+        request.url(),
+        request.resourceType(),
+        errorText,
+        expectedOrigin,
+      )
+    ) {
+      return;
+    }
+    record(
+      `same-origin request failed: ${request.method()} ${concise(request.url())} (${concise(errorText)})`,
+    );
+  });
+  page.on("response", (response) => {
+    if (sameOrigin(response.url()) && response.status() >= 400) {
+      record(
+        `same-origin response failed: HTTP ${response.status()} ${concise(response.url())}`,
+      );
+    }
+  });
+}
 
 // Preflight: playwright.preview.config.ts deliberately does NOT validate
 // PREVIEW_URL at config-load time (that would break knip's static config
@@ -19,6 +92,23 @@ test.beforeAll(() => {
       "PREVIEW_URL env var is required — e.g. PREVIEW_URL=https://appmento-<hash>-mentolabs.vercel.app pnpm --filter app.mento.org test:preview",
     );
   }
+});
+
+test.beforeEach(({ page }) => {
+  attachBrowserFailureMonitor(
+    page,
+    new URL(process.env.PREVIEW_URL as string).origin,
+  );
+});
+
+test.afterEach(async ({ page }) => {
+  // Capture failures emitted by hydration or wallet state updates immediately
+  // after the final visible assertion, not only during initial page load.
+  await page.waitForTimeout(250);
+  const failures = browserFailures.get(page) ?? [];
+  expect(failures, `Preview browser failures:\n${failures.join("\n")}`).toEqual(
+    [],
+  );
 });
 
 test("deployed bundle boots and lists real wallets", async ({ page }) => {

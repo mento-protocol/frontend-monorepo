@@ -711,12 +711,12 @@ reusable workflow published `deployment_url` only from the smoke-backed success
 step; it never fell back to the unverified upload output.
 
 A Deployment or status created with the repository `GITHUB_TOKEN` does not
-trigger another workflow run. Therefore `.github/workflows/preview-smoke.yml`
-did not recurse for the pilot. Direct smoke in the reusable worker was the
-required success gate. Do not add a PAT to force `deployment_status` recursion;
-the Phase A pilot did not need one. The dedicated worker-dispatch PAT was not
-an exception; its sole purpose was the automatic controller's worker
-`workflow_dispatch` POST described below.
+trigger another workflow run. Therefore workers call the secretless
+`.github/workflows/_vercel-preview-smoke.yml` directly before terminal success;
+they never depend on `deployment_status` recursion. Do not add a PAT to force
+that recursion. The dedicated worker-dispatch credential is not an exception;
+its sole purpose is the automatic controller's worker `workflow_dispatch` POST
+described below.
 
 ### Historical Phase A evidence and browser verification
 
@@ -738,6 +738,40 @@ after Phase B disables native UI branch previews; current validation uses the
 The cost go/no-go record in issue #518 and the Phase A live-canary evidence
 below were prerequisites for the final UI Git-ownership cutover. The current
 Phase B ownership model reflects that gate having completed.
+
+## Reusable secretless preview verification
+
+`.github/workflows/_vercel-preview-smoke.yml` is the one smoke implementation
+for App, Governance, Reserve, and UI. Its caller supplies an already verified,
+target-bound tuple: logical target, immutable team URL, exact SHA, canonical
+GitHub Deployment ID, mode-specific verification key, and trusted deployment
+metadata. Controller/manual-pilot mode additionally binds the literal Vercel
+project, Vercel Deployment ID, and target-specific Next.js deployment ID.
+Native-adapter mode is restricted to App/Governance and binds the exact native
+environment plus Vercel bot identity; it cannot fabricate a controller key.
+
+The reusable workflow declares no secrets and performs no authenticated Vercel
+or GitHub lookup. It validates the tuple before any request, checks the root
+response, security headers, representative JavaScript/CSS/font assets, browser
+console/page errors, and same-origin failures, then runs the target interaction:
+
+- App/Governance: real wallet list and team-host-only mock wallet connection;
+- Reserve: Overview data plus Supply tab and URL/state transition;
+- UI: exact build/asset identity, navigation, and hydrated control interaction.
+
+The temporary `.github/workflows/preview-smoke.yml` native adapter classifies
+only exact successful `Preview – app.mento.org` and
+`Preview – governance.mento.org` events created by Vercel's fixed bot identity
+on the exact project-slug team host. Production/v3, inactive/skipped, main,
+controller-payload, actor-lookalike, Reserve, and UI events do not call smoke.
+Every qualifying event runs the full reusable workflow. No historical status
+is listed or trusted for dedupe, and the adapter deliberately declares no
+workflow or job concurrency group: GitHub replaces an older pending run in a
+shared group even when `cancel-in-progress` is false, which would violate the
+one-full-smoke-per-event contract. The appended terminal status is bounded,
+run-specific evidence only. The adapter receives no PAT, Vercel token, Turbo
+token, or application secret and is deleted after all native consumers leave
+the observation window.
 
 ## Automatic trusted UI previews (current; introduced in Phase A)
 

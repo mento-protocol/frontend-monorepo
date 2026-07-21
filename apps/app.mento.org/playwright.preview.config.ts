@@ -11,8 +11,8 @@ import { defineConfig } from "@playwright/test";
 // no network blocking, no clock freezing — this exercises real deployed
 // infra (real forno reads) rather than a deterministic local snapshot. See
 // docs/wallet-testing.md's "Preview smoke" section and
-// .github/workflows/preview-smoke.yml, which sets PREVIEW_URL from the
-// triggering deployment_status event.
+// .github/workflows/_vercel-preview-smoke.yml, which sets PREVIEW_URL from a
+// trusted, target-bound deployment tuple.
 export default defineConfig({
   testDir: "./e2e/preview",
   fullyParallel: true,

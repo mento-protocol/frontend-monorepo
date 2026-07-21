@@ -130,8 +130,8 @@ jobs:
     # Render in the SAME pinned image used to generate baselines — the CI
     # render must equal the baseline render (font subpixel rendering is the #1
     # false-positive source). Tag must match @playwright/test in package.json.
-    # NOTE: deliberate divergence from the deployment_status smoke-tests, which
-    # run against the live Vercel preview; that render env is not byte-pinnable.
+    # NOTE: deliberate divergence from the reusable live-preview smoke, whose
+    # deployed Vercel render environment is not byte-pinnable.
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
 
@@ -177,8 +177,8 @@ jobs:
     # Render in the SAME pinned image used to generate baselines — the CI
     # render must equal the baseline render (font subpixel rendering is the #1
     # false-positive source). Tag must match @playwright/test in package.json.
-    # NOTE: deliberate divergence from the deployment_status smoke-tests, which
-    # run against the live Vercel preview; that render env is not byte-pinnable.
+    # NOTE: deliberate divergence from the reusable live-preview smoke, whose
+    # deployed Vercel render environment is not byte-pinnable.
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
 

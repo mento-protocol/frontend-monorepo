@@ -326,6 +326,20 @@ test("browser smoke renders, navigates through search, and changes a control", a
   );
 });
 
+test("browser smoke can use the bundled Playwright Chromium in the reusable smoke container", async () => {
+  const page = new FakePage();
+  const fake = fakeChromium(page);
+
+  await runBrowserSmoke({
+    chromium: fake.chromium,
+    input: INPUT,
+    browserChannel: "bundled",
+  });
+
+  assert.deepEqual(fake.state.launchOptions, { headless: true });
+  assert.equal(fake.state.closed, true);
+});
+
 test("browser smoke waits for route assets before testing hydration", async () => {
   const routeAsset = `${INPUT.deploymentUrl}/_next/static/form.js?dpl=${NEXT_DEPLOYMENT_ID}`;
   const page = new FakePage({
