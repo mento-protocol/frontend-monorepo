@@ -80,10 +80,16 @@ test("controller has only the three specified recovery-aware triggers", () => {
   assert.doesNotMatch(raw, /workflow_dispatch|\binputs\./);
 });
 
-test("controller mode is versioned and reaches every reconciliation call", () => {
-  assert.deepEqual(controller.env, {
-    VERCEL_PREVIEW_CONTROLLER_MODE: "active",
-  });
+test("controller mode is canonical and reaches every reconciliation call", () => {
+  assert.deepEqual(Object.keys(controller.env), [
+    "VERCEL_PREVIEW_CONTROLLER_MODE",
+  ]);
+  assert.ok(
+    ["active", "observe-only"].includes(
+      controller.env.VERCEL_PREVIEW_CONTROLLER_MODE,
+    ),
+    "controller mode must be active or observe-only",
+  );
   for (const [jobName, job] of Object.entries(controller.jobs)) {
     const step = job.steps?.find((candidate) =>
       String(candidate.with?.script ?? "").includes("reconcilePreview"),
@@ -712,6 +718,11 @@ test("runbook covers bootstrap, canaries, browser proof, separate cutover, and e
     '"**": false',
     '"main": true',
     '"dependabot/**": false',
+    "vercel-preview-controller.yml",
+    "vercel-preview-worker.yml",
+    "vercel-preview-intake.yml",
+    "queued requested waiting pending in_progress",
+    "gh api --paginate",
     "SHA",
   ]) {
     assert.match(
@@ -721,6 +732,6 @@ test("runbook covers bootstrap, canaries, browser proof, separate cutover, and e
   }
   assert.doesNotMatch(
     docs,
-    /gh workflow run vercel-preview-controller|operation=(?:bootstrap|reconcile)/,
+    /gh workflow run vercel-preview-controller|operation=(?:bootstrap|reconcile)|gh run list --workflow.*--limit/,
   );
 });

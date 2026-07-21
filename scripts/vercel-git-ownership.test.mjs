@@ -79,13 +79,8 @@ function assertSinglePreviewOwner(value, controllerMode) {
   );
 }
 
-test("Phase B gives GitHub Actions exact UI branch-preview ownership", () => {
+test("repository has exactly one canonical UI branch-preview owner", () => {
   const uiConfiguration = configuration("ui.mento.org");
-  assert.equal(
-    controller.env.VERCEL_PREVIEW_CONTROLLER_MODE,
-    ACTIVE_CONTROLLER_MODE,
-  );
-  assertExactOwnership(uiConfiguration, CUTOVER_CONFIGURATION);
   assertSinglePreviewOwner(
     uiConfiguration,
     controller.env.VERCEL_PREVIEW_CONTROLLER_MODE,
@@ -125,6 +120,10 @@ test("cutover and rollback pair controller and native ownership atomically", () 
         OBSERVE_ONLY_CONTROLLER_MODE,
       ),
     /Exactly one/,
+  );
+  assert.throws(
+    () => assertSinglePreviewOwner(CUTOVER_CONFIGURATION, "disabled"),
+    /Preview controller mode must match a reviewed exact state/,
   );
 });
 

@@ -1288,17 +1288,43 @@ Immediately before merging the rollback, establish a coordinated no-push window
 and drain or cancel every non-completed run of all three workflows:
 
 ```bash
-gh run list --workflow vercel-preview-controller.yml --limit 100 --json databaseId,status,url
-gh run list --workflow vercel-preview-worker.yml --limit 100 --json databaseId,status,url
-gh run list --workflow vercel-preview-intake.yml --limit 100 --json databaseId,status,url
-gh run cancel <run-id>
+list_nonterminal_preview_runs() {
+  local workflow status
+  local -a workflows=(
+    vercel-preview-controller.yml
+    vercel-preview-worker.yml
+    vercel-preview-intake.yml
+  )
+  local -a statuses=(queued requested waiting pending in_progress)
+
+  for workflow in "${workflows[@]}"; do
+    for status in "${statuses[@]}"; do
+      gh api --paginate --method GET \
+        "repos/mento-protocol/frontend-monorepo/actions/workflows/${workflow}/runs" \
+        -f status="$status" \
+        -f per_page=100 \
+        --jq '.workflow_runs[] | [.id, .status, .path, .html_url] | @tsv'
+    done
+  done | sort -u
+}
+
+list_nonterminal_preview_runs
+list_nonterminal_preview_runs |
+  cut -f1 |
+  sort -u |
+  while read -r run_id; do gh run cancel "$run_id"; done
 ```
 
-Repeat the inventory after cancellations settle because worker and intake
-completion can start a final controller callback. Do not merge until repeated
-sweeps show no queued, requested, waiting, pending, or in-progress controller,
-worker, or intake run. This quiescence proof prevents a run loaded from the old
-`active` workflow SHA from dispatching after native ownership is restored.
+`gh api --paginate` follows every response page separately for every workflow
+and every GitHub nonterminal status; do not replace it with a bounded
+`gh run list --limit ...` query. Repeat the inventory and cancellation pipeline
+until the inventory prints no rows. After that first empty result, wait for
+cancellations to settle because worker and intake completion can start a final
+controller callback, then require a second empty exhaustive sweep immediately
+before merge. Do not merge while any queued, requested, waiting, pending, or
+in-progress controller, worker, or intake run remains. This quiescence proof
+prevents a run loaded from the old `active` workflow SHA from dispatching after
+native ownership is restored.
 
 Before merging the rollback, inventory every active UI-runtime PR and branch
 that carries the Phase B `"**": false` rule. After the restored configuration
