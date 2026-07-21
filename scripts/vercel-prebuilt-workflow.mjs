@@ -41,29 +41,20 @@ import {
   assertPrebuiltDeploymentId,
   generateVercelDeploymentId,
 } from "./vercel-prebuilt.mjs";
+import { PREVIEW_TARGET_CONFIG } from "./vercel-preview-targets.mjs";
 
-export const PREBUILT_TARGETS = Object.freeze({
-  app: Object.freeze({
-    logicalTarget: "app",
-    workspacePackage: "app.mento.org",
-    expectedRootDirectory: "apps/app.mento.org",
-  }),
-  governance: Object.freeze({
-    logicalTarget: "governance",
-    workspacePackage: "governance.mento.org",
-    expectedRootDirectory: "apps/governance.mento.org",
-  }),
-  reserve: Object.freeze({
-    logicalTarget: "reserve",
-    workspacePackage: "reserve.mento.org",
-    expectedRootDirectory: "apps/reserve.mento.org",
-  }),
-  ui: Object.freeze({
-    logicalTarget: "ui",
-    workspacePackage: "ui.mento.org",
-    expectedRootDirectory: "apps/ui.mento.org",
-  }),
-});
+export const PREBUILT_TARGETS = Object.freeze(
+  Object.fromEntries(
+    Object.entries(PREVIEW_TARGET_CONFIG).map(([target, configuration]) => [
+      target,
+      Object.freeze({
+        logicalTarget: configuration.logicalTarget,
+        workspacePackage: configuration.workspacePackage,
+        expectedRootDirectory: configuration.expectedRootDirectory,
+      }),
+    ]),
+  ),
+);
 
 // Preserve the Phase A manual pilot contract while the reusable internals are
 // prepared for the four literal automatic-preview callers.
@@ -130,7 +121,7 @@ const UPLOAD_LOOKUP_WINDOW_MS = 45 * 60 * 1_000;
 const TRUSTED_CALLER_WORKFLOW = {
   "manual-pilot":
     "mento-protocol/frontend-monorepo/.github/workflows/vercel-prebuilt-pilot.yml@refs/heads/main",
-  "preview-controller:v1":
+  "preview-controller:v2":
     "mento-protocol/frontend-monorepo/.github/workflows/vercel-preview-worker.yml@refs/heads/main",
 };
 function requiredText(value, label, { maximum = 2_048 } = {}) {
@@ -232,7 +223,7 @@ function validateAutomaticPreviewIdentity(values) {
       "Automatic preview environment does not match the pull request",
     );
   }
-  if (values.provenance !== "preview-controller:v1") {
+  if (values.provenance !== "preview-controller:v2") {
     throw new Error("Automatic preview provenance is invalid");
   }
   if (

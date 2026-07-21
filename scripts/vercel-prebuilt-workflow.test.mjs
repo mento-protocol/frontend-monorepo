@@ -280,7 +280,7 @@ test("automatic preview contract binds PR, environment, provenance, and exact SH
     githubEnvironment: "preview/ui/pr-519",
     idempotencyKey: `vercel-preview:v1:pr:519:target:ui:sha:${SHA}`,
     pullRequestNumber: "519",
-    provenance: "preview-controller:v1",
+    provenance: "preview-controller:v2",
     githubWorkflowRef:
       "mento-protocol/frontend-monorepo/.github/workflows/vercel-preview-worker.yml@refs/heads/main",
   });
@@ -312,7 +312,7 @@ test("automatic preview contract accepts only the four literal target mappings",
       githubEnvironment: `preview/${target.logicalTarget}/pr-519`,
       idempotencyKey: `vercel-preview:v1:pr:519:target:${target.logicalTarget}:sha:${SHA}`,
       pullRequestNumber: "519",
-      provenance: "preview-controller:v1",
+      provenance: "preview-controller:v2",
       githubWorkflowRef:
         "mento-protocol/frontend-monorepo/.github/workflows/vercel-preview-worker.yml@refs/heads/main",
     });
@@ -340,7 +340,7 @@ test("automatic preview contract accepts only the four literal target mappings",
       validatePilotContract(
         pilotContract({
           logicalTarget,
-          provenance: "preview-controller:v1",
+          provenance: "preview-controller:v2",
         }),
       ),
     );

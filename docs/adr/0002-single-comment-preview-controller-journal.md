@@ -3,7 +3,7 @@ title: One canonical pull-request comment stores the preview controller journal
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-07-17
+last_verified: 2026-07-21
 scope: ci/deployment/preview-controller-state
 date: 2026-07
 ---
@@ -49,22 +49,25 @@ Every participating non-Dependabot pull request has exactly one canonical
 targets. The hidden marker and payload schema are:
 
 ```text
-<!-- vercel-preview-journal:v1 -->
-vercel-preview-journal:v1
+<!-- vercel-preview-journal:v2 -->
+vercel-preview-journal:v2
 ```
 
-The comment keeps the reviewer explanation outside one collapsed `<details>`
-block and stores one canonical JSON document inside it. That document contains
-the repository and pull-request identity, a monotonic revision, an optional
-deterministic checkpoint, logically immutable live
-event/selection/worker-evidence/result entries, and the bounded mutable
-controller state. The top-level `journal_digest` covers the checkpoint,
-canonical live receipt set, and mutable state; `state.receipts_digest`
-separately binds reconciliation to the checkpoint plus live receipt set. The
-canonical Markdown envelope includes an
-explicit closing `</details>` tag and permits no extra presentation text. The
-comment ID is stable for the life of the journal. Updates edit that comment;
-they never create another journal or a receipt-specific comment.
+The comment keeps the reviewer explanation and a compact, stable-order
+`app`/`governance`/`reserve`/`ui` outcome table outside one collapsed
+`<details>` block. Each row links the useful immutable deployment or worker run
+when one exists. The table is derived from the journal and is part of the exact
+canonical body; it is not a second state surface. One canonical JSON document
+inside the collapsed block contains the repository and pull-request identity,
+a monotonic revision, an optional deterministic checkpoint, logically
+immutable live event/selection/worker-evidence/result entries, and the bounded
+mutable four-target controller state. The top-level `journal_digest` covers the
+checkpoint, canonical live receipt set, and mutable state;
+`state.receipts_digest` separately binds reconciliation to the checkpoint plus
+live receipt set. The canonical Markdown envelope includes an explicit closing
+`</details>` tag and permits no extra presentation text. The comment ID is
+stable for the life of the journal. Updates edit that comment; they never
+create another journal or a receipt-specific comment.
 
 Receipt immutability is enforced by the journal protocol. A deterministic
 receipt identity may be inserted once. Replaying an identical receipt is a
@@ -77,16 +80,17 @@ receipt set.
 Before appending a later event, a terminal journal with no active or retired
 worker and no unfinished evidence deterministically checkpoints its completed
 prefix in place. The checkpoint retains the cumulative receipt digest and
-counts, the verified lifecycle tail event, and its terminal status. Open state
-uses the reconciled lineage tail; closed state uses the matching closure. The
-mutable state is rebased onto that verified tail and the completed live
-receipts are cleared. Semantic replays of the checkpoint tail are idempotent,
-while a conflicting receipt under the same run identity fails closed. A
-docs-only checkpoint tail carries forward the inherited runtime success URL or
-terminal failure/error meaning for subsequent docs-only pushes. This is one
-atomic revision of the same comment and schema, not rollover, archival, or a
-second persistence path. A 50-preview sequential-cycle fixture peaks at 7,772
-rendered UTF-8 bytes.
+counts, the verified lifecycle tail event, and independent status, runtime,
+and pending-owner evidence for every target. Open state uses the reconciled
+lineage tail; closed state uses the matching closure. The mutable state is
+rebased onto that verified tail and the completed live receipts are cleared.
+Semantic replays of the checkpoint tail are idempotent, while a conflicting
+receipt under the same run identity fails closed. A docs-only checkpoint tail
+carries each target's inherited runtime success URL or terminal failure/error
+meaning for subsequent docs-only pushes. This is one atomic revision of the
+same comment and schema, not rollover, archival, or a second persistence path.
+A four-target 50-preview sequential-cycle fixture remains below a strict
+16,000-byte rendered UTF-8 bound.
 
 The same checkpoint field protects an overlapping push burst before the hard
 body limit is reached. At a 40,000-byte soft threshold, the controller proves a
@@ -124,7 +128,7 @@ After acquiring that queue, a writer:
 3. updates the existing comment, or creates it for an explicit bootstrap, a
    first-attempt `opened`, or another first-attempt non-closed PR event only
    after proving that its `before` and head commits carry no matching
-   `Vercel Preview Journal / PR #<number>` initialization status;
+   `Vercel Preview Journal v2 / PR #<number>` initialization status;
 4. rereads the comment and proves its exact revision, canonical JSON, and
    journal digest before publishing statuses or dispatching work.
 
@@ -137,8 +141,8 @@ contents and current pull-request state continue to determine selection.
 A first-attempt non-closed event may win the queue before `opened`; it may
 create the journal only when no durable controller status for the same PR
 exists on its `before` or head commit. Every durably recorded event ensures a
-separate `Vercel Preview Journal / PR #<number>` success-status witness on its
-head before normal reconciliation. This advances deletion evidence across
+separate `Vercel Preview Journal v2 / PR #<number>` success-status witness on
+its head before normal reconciliation. This advances deletion evidence across
 pushes and lets a retry repair a status write that failed after the journal
 mutation committed. A witness from another PR on a reused or stacked commit is
 not initialization evidence for this PR. The witness never reuses the
@@ -168,52 +172,42 @@ transition can authorize work.
 
 Tokens, environment files, cookies, output directories, bypass values, raw
 provider responses, and credential values never enter the journal. The
-`Vercel Preview` commit status and canonical GitHub Deployment remain the
-reviewer and operator surfaces; the journal is internal coordination evidence,
-not a new required check or deployment.
+journal's compact target table, aggregate `Vercel Preview` commit status, and
+canonical GitHub Deployments are the reviewer and operator surfaces. The
+collapsed JSON remains internal coordination evidence, not a new required
+check or deployment.
 
 ### Clean cutover, cleanup, and rollback
 
-There is no dual-read period and no compatibility path for already-running
-legacy workers. Before merging the journal implementation, operators inventory
-all preview controller, worker, and intake runs and let them terminate or cancel
-them. The cutover must not proceed while a legacy run can still write a receipt
-comment, dispatch work, or act on legacy controller state. The implementation
-contains no legacy-comment reader, presentation upgrader, payload importer, or
-rematerialization path.
+There is no dual-read period and no compatibility path for v1 journals or
+already-running v1 workers. Before merging v2, operators establish a no-push
+window; drain or cancel every preview controller, worker, and intake run; and
+inventory the exact comment ID of every open participating PR's trusted
+`<!-- vercel-preview-journal:v1 -->` comment. The cutover must not proceed while
+a v1 run can still write a journal, dispatch work, or publish preview state.
+The v2 implementation contains no v1 reader, writer, presentation upgrader,
+payload importer, deleter, rematerializer, or compatibility worker.
 
 After the merge, every open participating pull request is bootstrapped from its
-current live PR metadata and a fresh fail-closed plan. The bootstrap creates a
-new journal epoch; it does not import, translate, trust, or reconcile legacy
-comment payloads. Previously created preview evidence is outside the new
-journal's ownership unless the fresh controller independently proves it through
-the normal GitHub Deployment and provider APIs.
+current live PR metadata and a fresh fail-closed four-target plan. Bootstrap
+creates an independent v2 journal epoch; it does not import, translate, trust,
+or reconcile the v1 payload. Operators must prove exactly one trusted
+`<!-- vercel-preview-journal:v2 -->` comment with a stable ID, all four target
+states/checkpoints, and an exact-head aggregate status consistent with worker,
+Deployment, native-owner, or no-runtime evidence.
 
-Only after each fresh journal is reread and its status/dispatch decision is
-valid may an operator delete legacy machine comments. Deletion is restricted
-to comments authored by `github-actions[bot]` whose complete body validates
-under one of the exact retired `vercel-preview-event-receipt:v1`,
-`vercel-preview-selection:v1`, `vercel-preview-worker-evidence:v1`,
-`vercel-preview-worker-result:v1`, or `vercel-preview-controller:v1`
-marker/schema pairs and one of the retired canonical Markdown envelopes.
-Unknown, malformed, human, review, third-party-bot, and journal comments are
-never deleted. Closed historical pull requests need no new journal; after the
-run inventory proves quiescence, their exact validated legacy machine comments
-may be removed as historical cleanup.
+Only after every open PR's v2 journal is proven may an operator manually delete
+the inventoried v1 comment IDs. Each deletion rereads and requires the exact
+recorded ID, exact `github-actions[bot]` author, and complete v1 journal marker.
+Unknown, malformed, human, review, and third-party-bot comments are never
+deleted. Cleanup is an operator step; it is deliberately absent from v2 runtime
+code.
 
-Cleanup failure is cosmetic and retryable because the new journal is the only
-authoritative source after cutover. Legacy comments that remain temporarily are
-ignored by the new controller. A journal write or verification failure is not
-cosmetic and blocks status progression and dispatch.
-
-Rollback is also a clean restart, not a data migration. Operators first drain
-or cancel journal-era controller and worker runs, merge the reviewed rollback,
-and bootstrap the restored controller afresh from live pull-request state. The
-rollback does not rematerialize legacy receipts from the journal and must not
-claim continuity with journal-owned epochs. Journal comments may be retained
-as inert audit evidence until the restored controller is proven; deletion, if
-desired, requires exact `github-actions[bot]` authorship and full validation of
-the journal marker, schema, and canonical body.
+Rollback is a v2 roll-forward restart, not a data migration. Operators first
+drain or cancel v2 controller and worker runs, merge the reviewed corrective
+change, and bootstrap v2 afresh from live pull-request state. Never restore the
+v1 controller, import a v1 payload, rematerialize a deleted v1 journal, or claim
+continuity with the discarded epoch.
 
 ## Alternatives considered
 
@@ -269,8 +263,9 @@ cost, retention policy, and operator dependency for preview deployment.
 
 ## Consequences
 
-- Reviewers see at most one explanatory, collapsed preview-controller journal
-  rather than one card per procedural receipt.
+- Reviewers see at most one explanatory preview-controller journal with four
+  visible target outcomes and collapsed machine state, rather than one card per
+  procedural receipt.
 - The journal comment is a single persistence object. Deletion, corruption,
   duplicate creation, or ambiguous ownership fails closed.
 - Receipt immutability becomes protocol-enforced inside a mutable envelope

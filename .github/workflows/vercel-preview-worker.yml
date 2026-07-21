@@ -121,12 +121,113 @@ jobs:
               },
             });
 
+  deploy-app-preview:
+    name: Run App prebuilt preview pipeline
+    needs: [validate-controller-ownership, validate-app-prerequisites]
+    if: >-
+      inputs.target == 'app' &&
+      needs.validate-controller-ownership.outputs.should_deploy == 'true' &&
+      needs.validate-app-prerequisites.result == 'success'
+    permissions:
+      contents: read
+      deployments: write
+    uses: ./.github/workflows/_vercel-prebuilt.yml
+    with:
+      commit_sha: ${{ inputs.commit_sha }}
+      deploy_permitted: true
+      deployment_idempotency_key: ${{ inputs.controller_key }}
+      deployment_mode: preview
+      expected_root_directory: apps/app.mento.org
+      git_branch: ${{ inputs.git_branch }}
+      github_environment: preview/app/pr-${{ inputs.pull_request_number }}
+      logical_target: app
+      provenance: preview-controller:v2
+      pull_request_number: ${{ inputs.pull_request_number }}
+      turbo_team: ${{ vars.TURBO_TEAM }}
+      vercel_environment: preview
+      vercel_org_id: ${{ vars.VERCEL_ORG_ID }}
+      vercel_project_id: ${{ vars.VERCEL_PROJECT_ID_APP }}
+      vercel_target: preview
+      workspace_package: app.mento.org
+    secrets:
+      turbo_remote_cache_signature_key: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+      turbo_token: ${{ secrets.TURBO_TOKEN }}
+      vercel_token: ${{ secrets.VERCEL_TOKEN_PREVIEW }}
+
+  deploy-governance-preview:
+    name: Run Governance prebuilt preview pipeline
+    needs: [validate-controller-ownership, validate-governance-prerequisites]
+    if: >-
+      inputs.target == 'governance' &&
+      needs.validate-controller-ownership.outputs.should_deploy == 'true' &&
+      needs.validate-governance-prerequisites.result == 'success'
+    permissions:
+      contents: read
+      deployments: write
+    uses: ./.github/workflows/_vercel-prebuilt.yml
+    with:
+      commit_sha: ${{ inputs.commit_sha }}
+      deploy_permitted: true
+      deployment_idempotency_key: ${{ inputs.controller_key }}
+      deployment_mode: preview
+      expected_root_directory: apps/governance.mento.org
+      git_branch: ${{ inputs.git_branch }}
+      github_environment: preview/governance/pr-${{ inputs.pull_request_number }}
+      logical_target: governance
+      provenance: preview-controller:v2
+      pull_request_number: ${{ inputs.pull_request_number }}
+      turbo_team: ${{ vars.TURBO_TEAM }}
+      vercel_environment: preview
+      vercel_org_id: ${{ vars.VERCEL_ORG_ID }}
+      vercel_project_id: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
+      vercel_target: preview
+      workspace_package: governance.mento.org
+    secrets:
+      etherscan_api_key: ${{ secrets.ETHERSCAN_API_KEY }}
+      turbo_remote_cache_signature_key: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+      turbo_token: ${{ secrets.TURBO_TOKEN }}
+      vercel_token: ${{ secrets.VERCEL_TOKEN_PREVIEW }}
+
+  deploy-reserve-preview:
+    name: Run Reserve prebuilt preview pipeline
+    needs: [validate-controller-ownership, validate-reserve-prerequisites]
+    if: >-
+      inputs.target == 'reserve' &&
+      needs.validate-controller-ownership.outputs.should_deploy == 'true' &&
+      needs.validate-reserve-prerequisites.result == 'success'
+    permissions:
+      contents: read
+      deployments: write
+    uses: ./.github/workflows/_vercel-prebuilt.yml
+    with:
+      commit_sha: ${{ inputs.commit_sha }}
+      deploy_permitted: true
+      deployment_idempotency_key: ${{ inputs.controller_key }}
+      deployment_mode: preview
+      expected_root_directory: apps/reserve.mento.org
+      git_branch: ${{ inputs.git_branch }}
+      github_environment: preview/reserve/pr-${{ inputs.pull_request_number }}
+      logical_target: reserve
+      provenance: preview-controller:v2
+      pull_request_number: ${{ inputs.pull_request_number }}
+      turbo_team: ${{ vars.TURBO_TEAM }}
+      vercel_environment: preview
+      vercel_org_id: ${{ vars.VERCEL_ORG_ID }}
+      vercel_project_id: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
+      vercel_target: preview
+      workspace_package: reserve.mento.org
+    secrets:
+      turbo_remote_cache_signature_key: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+      turbo_token: ${{ secrets.TURBO_TOKEN }}
+      vercel_token: ${{ secrets.VERCEL_TOKEN_PREVIEW }}
+
   deploy-ui-preview:
     name: Run UI prebuilt preview pipeline
-    needs: [validate-controller-ownership, validate-preview-prerequisites]
+    needs: [validate-controller-ownership, validate-ui-prerequisites]
     if: >-
+      inputs.target == 'ui' &&
       needs.validate-controller-ownership.outputs.should_deploy == 'true' &&
-      needs.validate-preview-prerequisites.result == 'success'
+      needs.validate-ui-prerequisites.result == 'success'
     permissions:
       contents: read
       deployments: write
@@ -140,7 +241,7 @@ jobs:
       git_branch: ${{ inputs.git_branch }}
       github_environment: preview/ui/pr-${{ inputs.pull_request_number }}
       logical_target: ui
-      provenance: preview-controller:v1
+      provenance: preview-controller:v2
       pull_request_number: ${{ inputs.pull_request_number }}
       turbo_team: ${{ vars.TURBO_TEAM }}
       vercel_environment: preview
@@ -153,10 +254,122 @@ jobs:
       turbo_token: ${{ secrets.TURBO_TOKEN }}
       vercel_token: ${{ secrets.VERCEL_TOKEN_PREVIEW }}
 
-  validate-preview-prerequisites:
-    name: Validate preview prerequisite names
+  validate-app-prerequisites:
+    name: Validate App preview prerequisite names
     needs: validate-controller-ownership
-    if: needs.validate-controller-ownership.outputs.should_deploy == 'true'
+    if: >-
+      inputs.target == 'app' &&
+      needs.validate-controller-ownership.outputs.should_deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    env:
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
+      VERCEL_TOKEN_PREVIEW: ${{ secrets.VERCEL_TOKEN_PREVIEW }}
+    steps:
+      - name: Fail before PR code when an App prerequisite is missing
+        shell: bash
+        run: |
+          missing=()
+          for name in \
+            VERCEL_ORG_ID \
+            VERCEL_PROJECT_ID_APP \
+            TURBO_TEAM \
+            VERCEL_TOKEN_PREVIEW \
+            TURBO_TOKEN \
+            TURBO_REMOTE_CACHE_SIGNATURE_KEY
+          do
+            if [[ -z "${!name}" ]]; then missing+=("$name"); fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing required repository names: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+  validate-governance-prerequisites:
+    name: Validate Governance preview prerequisite names
+    needs: validate-controller-ownership
+    if: >-
+      inputs.target == 'governance' &&
+      needs.validate-controller-ownership.outputs.should_deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    env:
+      ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID_GOVERNANCE: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
+      VERCEL_TOKEN_PREVIEW: ${{ secrets.VERCEL_TOKEN_PREVIEW }}
+    steps:
+      - name: Fail before PR code when a Governance prerequisite is missing
+        shell: bash
+        run: |
+          missing=()
+          for name in \
+            ETHERSCAN_API_KEY \
+            VERCEL_ORG_ID \
+            VERCEL_PROJECT_ID_GOVERNANCE \
+            TURBO_TEAM \
+            VERCEL_TOKEN_PREVIEW \
+            TURBO_TOKEN \
+            TURBO_REMOTE_CACHE_SIGNATURE_KEY
+          do
+            if [[ -z "${!name}" ]]; then missing+=("$name"); fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing required repository names: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+  validate-reserve-prerequisites:
+    name: Validate Reserve preview prerequisite names
+    needs: validate-controller-ownership
+    if: >-
+      inputs.target == 'reserve' &&
+      needs.validate-controller-ownership.outputs.should_deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    env:
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
+      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID_RESERVE: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
+      VERCEL_TOKEN_PREVIEW: ${{ secrets.VERCEL_TOKEN_PREVIEW }}
+    steps:
+      - name: Fail before PR code when a Reserve prerequisite is missing
+        shell: bash
+        run: |
+          missing=()
+          for name in \
+            VERCEL_ORG_ID \
+            VERCEL_PROJECT_ID_RESERVE \
+            TURBO_TEAM \
+            VERCEL_TOKEN_PREVIEW \
+            TURBO_TOKEN \
+            TURBO_REMOTE_CACHE_SIGNATURE_KEY
+          do
+            if [[ -z "${!name}" ]]; then missing+=("$name"); fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing required repository names: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+  validate-ui-prerequisites:
+    name: Validate UI preview prerequisite names
+    needs: validate-controller-ownership
+    if: >-
+      inputs.target == 'ui' &&
+      needs.validate-controller-ownership.outputs.should_deploy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions: {}
@@ -189,35 +402,126 @@ jobs:
             exit 1
           fi
 
-  resume-ui-smoke:
-    name: Resume smoke for an existing immutable upload
+  resume-app-smoke:
+    name: Resume App smoke for an existing immutable upload
     needs: validate-controller-ownership
-    if: needs.validate-controller-ownership.outputs.should_resume_smoke == 'true'
+    if: >-
+      inputs.target == 'app' &&
+      needs.validate-controller-ownership.outputs.should_resume_smoke == 'true'
     permissions:
       contents: read
     uses: ./.github/workflows/_vercel-preview-smoke.yml
     with:
-      logical_target: ui
       deployment_url: ${{ needs.validate-controller-ownership.outputs.vercel_deployment_url }}
+      expected_project_id: ${{ vars.VERCEL_PROJECT_ID_APP }}
       expected_sha: ${{ inputs.commit_sha }}
       github_deployment_id: ${{ needs.validate-controller-ownership.outputs.github_deployment_id }}
-      verification_mode: controller
-      verification_key: ${{ inputs.controller_key }}
-      metadata_logical_target: ui
-      metadata_target: preview
-      metadata_repository: ${{ github.repository }}
+      logical_target: app
+      metadata_logical_target: app
+      metadata_project_id: ${{ vars.VERCEL_PROJECT_ID_APP }}
       metadata_ref: ${{ inputs.git_branch }}
+      metadata_repository: mento-protocol/frontend-monorepo
       metadata_sha: ${{ inputs.commit_sha }}
+      metadata_target: preview
       metadata_url: ${{ needs.validate-controller-ownership.outputs.vercel_deployment_url }}
+      next_deployment_id: ${{ needs.validate-controller-ownership.outputs.next_deployment_id }}
       pull_request_number: ${{ inputs.pull_request_number }}
       vercel_deployment_id: ${{ needs.validate-controller-ownership.outputs.vercel_deployment_id }}
+      verification_key: ${{ inputs.controller_key }}
+      verification_mode: controller
+
+  resume-governance-smoke:
+    name: Resume Governance smoke for an existing immutable upload
+    needs: validate-controller-ownership
+    if: >-
+      inputs.target == 'governance' &&
+      needs.validate-controller-ownership.outputs.should_resume_smoke == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_vercel-preview-smoke.yml
+    with:
+      deployment_url: ${{ needs.validate-controller-ownership.outputs.vercel_deployment_url }}
+      expected_project_id: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
+      expected_sha: ${{ inputs.commit_sha }}
+      github_deployment_id: ${{ needs.validate-controller-ownership.outputs.github_deployment_id }}
+      logical_target: governance
+      metadata_logical_target: governance
+      metadata_project_id: ${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}
+      metadata_ref: ${{ inputs.git_branch }}
+      metadata_repository: mento-protocol/frontend-monorepo
+      metadata_sha: ${{ inputs.commit_sha }}
+      metadata_target: preview
+      metadata_url: ${{ needs.validate-controller-ownership.outputs.vercel_deployment_url }}
       next_deployment_id: ${{ needs.validate-controller-ownership.outputs.next_deployment_id }}
+      pull_request_number: ${{ inputs.pull_request_number }}
+      vercel_deployment_id: ${{ needs.validate-controller-ownership.outputs.vercel_deployment_id }}
+      verification_key: ${{ inputs.controller_key }}
+      verification_mode: controller
+
+  resume-reserve-smoke:
+    name: Resume Reserve smoke for an existing immutable upload
+    needs: validate-controller-ownership
+    if: >-
+      inputs.target == 'reserve' &&
+      needs.validate-controller-ownership.outputs.should_resume_smoke == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_vercel-preview-smoke.yml
+    with:
+      deployment_url: ${{ needs.validate-controller-ownership.outputs.vercel_deployment_url }}
+      expected_project_id: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
+      expected_sha: ${{ inputs.commit_sha }}
+      github_deployment_id: ${{ needs.validate-controller-ownership.outputs.github_deployment_id }}
+      logical_target: reserve
+      metadata_logical_target: reserve
+      metadata_project_id: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
+      metadata_ref: ${{ inputs.git_branch }}
+      metadata_repository: mento-protocol/frontend-monorepo
+      metadata_sha: ${{ inputs.commit_sha }}
+      metadata_target: preview
+      metadata_url: ${{ needs.validate-controller-ownership.outputs.vercel_deployment_url }}
+      next_deployment_id: ${{ needs.validate-controller-ownership.outputs.next_deployment_id }}
+      pull_request_number: ${{ inputs.pull_request_number }}
+      vercel_deployment_id: ${{ needs.validate-controller-ownership.outputs.vercel_deployment_id }}
+      verification_key: ${{ inputs.controller_key }}
+      verification_mode: controller
+
+  resume-ui-smoke:
+    name: Resume UI smoke for an existing immutable upload
+    needs: validate-controller-ownership
+    if: >-
+      inputs.target == 'ui' &&
+      needs.validate-controller-ownership.outputs.should_resume_smoke == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_vercel-preview-smoke.yml
+    with:
+      deployment_url: ${{ needs.validate-controller-ownership.outputs.vercel_deployment_url }}
       expected_project_id: ${{ vars.VERCEL_PROJECT_ID_UI }}
+      expected_sha: ${{ inputs.commit_sha }}
+      github_deployment_id: ${{ needs.validate-controller-ownership.outputs.github_deployment_id }}
+      logical_target: ui
+      metadata_logical_target: ui
       metadata_project_id: ${{ vars.VERCEL_PROJECT_ID_UI }}
+      metadata_ref: ${{ inputs.git_branch }}
+      metadata_repository: mento-protocol/frontend-monorepo
+      metadata_sha: ${{ inputs.commit_sha }}
+      metadata_target: preview
+      metadata_url: ${{ needs.validate-controller-ownership.outputs.vercel_deployment_url }}
+      next_deployment_id: ${{ needs.validate-controller-ownership.outputs.next_deployment_id }}
+      pull_request_number: ${{ inputs.pull_request_number }}
+      vercel_deployment_id: ${{ needs.validate-controller-ownership.outputs.vercel_deployment_id }}
+      verification_key: ${{ inputs.controller_key }}
+      verification_mode: controller
 
   finalize-resumed-smoke:
     name: Finalize resumed smoke lifecycle
-    needs: [validate-controller-ownership, resume-ui-smoke]
+    needs:
+      - validate-controller-ownership
+      - resume-app-smoke
+      - resume-governance-smoke
+      - resume-reserve-smoke
+      - resume-ui-smoke
     if: >-
       always() &&
       needs.validate-controller-ownership.outputs.should_resume_smoke == 'true'
@@ -240,8 +544,8 @@ jobs:
           GITHUB_DEPLOYMENT_ID: ${{ needs.validate-controller-ownership.outputs.github_deployment_id }}
           GITHUB_TOKEN: ${{ github.token }}
           PREBUILT_RESULT: success
-          SMOKE_RESULT: ${{ needs.resume-ui-smoke.result }}
-          VERCEL_DEPLOYMENT_URL: ${{ needs.resume-ui-smoke.outputs.deployment_url }}
+          SMOKE_RESULT: ${{ (inputs.target == 'app' && needs.resume-app-smoke.result) || (inputs.target == 'governance' && needs.resume-governance-smoke.result) || (inputs.target == 'reserve' && needs.resume-reserve-smoke.result) || needs.resume-ui-smoke.result }}
+          VERCEL_DEPLOYMENT_URL: ${{ needs.validate-controller-ownership.outputs.vercel_deployment_url }}
           WORKFLOW_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
         run: node "$GITHUB_WORKSPACE/controller/scripts/github-deployment.mjs" complete
 
@@ -249,8 +553,17 @@ jobs:
     name: Persist immutable pre-completion worker evidence
     needs:
       - validate-controller-ownership
-      - validate-preview-prerequisites
+      - validate-app-prerequisites
+      - validate-governance-prerequisites
+      - validate-reserve-prerequisites
+      - validate-ui-prerequisites
+      - deploy-app-preview
+      - deploy-governance-preview
+      - deploy-reserve-preview
       - deploy-ui-preview
+      - resume-app-smoke
+      - resume-governance-smoke
+      - resume-reserve-smoke
       - resume-ui-smoke
       - finalize-resumed-smoke
     if: >-
@@ -280,10 +593,10 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           ACTUAL_WORKFLOW_SHA: ${{ github.workflow_sha }}
-          BUILD_DURATION_MS: ${{ needs.deploy-ui-preview.outputs.build_duration_ms }}
-          BUILD_NEXT_DEPLOYMENT_ID: ${{ needs.deploy-ui-preview.outputs.next_deployment_id }}
-          BUILD_VERCEL_DEPLOYMENT_ID: ${{ needs.deploy-ui-preview.outputs.vercel_deployment_id }}
-          BUILD_VERIFIED_UPLOAD_URL: ${{ needs.deploy-ui-preview.outputs.verified_upload_url }}
+          BUILD_DURATION_MS: ${{ (inputs.target == 'app' && needs.deploy-app-preview.outputs.build_duration_ms) || (inputs.target == 'governance' && needs.deploy-governance-preview.outputs.build_duration_ms) || (inputs.target == 'reserve' && needs.deploy-reserve-preview.outputs.build_duration_ms) || needs.deploy-ui-preview.outputs.build_duration_ms }}
+          BUILD_NEXT_DEPLOYMENT_ID: ${{ (inputs.target == 'app' && needs.deploy-app-preview.outputs.next_deployment_id) || (inputs.target == 'governance' && needs.deploy-governance-preview.outputs.next_deployment_id) || (inputs.target == 'reserve' && needs.deploy-reserve-preview.outputs.next_deployment_id) || needs.deploy-ui-preview.outputs.next_deployment_id }}
+          BUILD_VERCEL_DEPLOYMENT_ID: ${{ (inputs.target == 'app' && needs.deploy-app-preview.outputs.vercel_deployment_id) || (inputs.target == 'governance' && needs.deploy-governance-preview.outputs.vercel_deployment_id) || (inputs.target == 'reserve' && needs.deploy-reserve-preview.outputs.vercel_deployment_id) || needs.deploy-ui-preview.outputs.vercel_deployment_id }}
+          BUILD_VERIFIED_UPLOAD_URL: ${{ (inputs.target == 'app' && needs.deploy-app-preview.outputs.verified_upload_url) || (inputs.target == 'governance' && needs.deploy-governance-preview.outputs.verified_upload_url) || (inputs.target == 'reserve' && needs.deploy-reserve-preview.outputs.verified_upload_url) || needs.deploy-ui-preview.outputs.verified_upload_url }}
           COMMIT_SHA: ${{ inputs.commit_sha }}
           CONTROLLER_KEY: ${{ inputs.controller_key }}
           CONTROLLER_KEY_DIGEST: ${{ inputs.controller_key_digest }}

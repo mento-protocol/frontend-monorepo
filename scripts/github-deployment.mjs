@@ -7,7 +7,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
-const CONTROLLER_SCHEMA = "mento-vercel-prebuilt/v1";
+const CONTROLLER_SCHEMA = "mento-vercel-prebuilt/v2";
 const DEPLOYMENT_STATES = [
   "queued",
   "in_progress",

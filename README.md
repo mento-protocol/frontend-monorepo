@@ -437,37 +437,45 @@ The repository is set up with GitHub Actions for CI:
   check enforces production-source coverage and gzip route limits. Its general
   CI failure notifier opens or updates one issue for an operational workflow
   failure and closes the issue after recovery.
-- **CD**: GitHub Actions automatically builds `ui.mento.org` previews for
-  trusted same-repository PRs with exact-SHA `Vercel Preview` statuses,
-  first-eligible-plus-latest batching, credential-free HTTP and browser smoke,
-  one canonical GitHub Deployment, and one canonical preview-controller journal
-  comment per participating PR. Dependabot events pass through a read-only
+- **CD**: GitHub Actions automatically builds `app.mento.org`,
+  `governance.mento.org`, `reserve.mento.org`, and `ui.mento.org` previews for
+  trusted same-repository PRs with exact-SHA aggregate `Vercel Preview`
+  statuses, independent first-eligible-plus-latest batching per target,
+  credential-free reusable HTTP and browser smoke, one canonical GitHub
+  Deployment per selected target, and one four-target v2 controller-journal
+  comment with a visible outcome table per participating PR. The canonical
+  target definitions, package
+  names, Vercel project variables, configuration paths, and ownership modes live
+  in `scripts/vercel-preview-targets.mjs`; workflow callers remain literal so
+  GitHub can resolve each target's secrets statically. Dependabot events pass
+  through a read-only
   metadata intake; trusted default-branch code re-queries the exact PR head
   before publishing the explicit preview-disabled status. Fork and Dependabot
   PRs remain credential-free. A dedicated repository-scoped GitHub credential
   performs only the worker-dispatch POST so terminal `workflow_run` callbacks
   are created; the normal job token still owns all state and recovery calls.
-  After the Phase A-canary-gated Phase B cutover, GitHub Actions owns UI branch
-  previews and native Vercel Git branch previews are disabled only for UI.
-  The version-controlled controller mode is `active` in that state; the
-  executable ownership test permits rollback only when the same PR switches it
-  to `observe-only` and restores native UI branch previews, preventing duplicate
-  automatic owners. The trusted controller also reads the candidate's bounded
-  exact-head UI Vercel configuration and rechecks it before dispatch: an exact
-  native rollback head suppresses GitHub dispatch even before merge, while an
-  unknown configuration or an `observe-only`/GitHub-owned head fails closed.
+  GitHub Actions is the sole automatic branch-preview owner for UI. App,
+  governance, and reserve initially run in shadow mode, where their existing
+  native Vercel branch previews remain enabled alongside GitHub-built canaries.
+  The version-controlled controller mode is `active`; per-target ownership and
+  exact expected Vercel configurations are executable invariants. The trusted
+  controller reads every selected target's bounded exact-head Vercel
+  configuration and rechecks it before dispatch. An exact native configuration
+  suppresses GitHub dispatch only for a target whose canonical ownership mode
+  is `github`; unknown or contradictory configuration fails closed.
   During rollback, `Vercel Preview` proves owner selection and journal drain
   only; native Vercel deployment status and browser evidence separately prove
   that the preview works.
-  Vercel Git still owns every main/production deployment and all non-UI apps. See
+  Vercel Git still owns every main/production deployment. See
   [ADR 0001](docs/adr/0001-github-actions-vercel-deployment-orchestration.md)
   for the accepted ownership boundary,
   [ADR 0002](docs/adr/0002-single-comment-preview-controller-journal.md) for
   the journal persistence and clean-cutover decision,
   [ADR 0003](docs/adr/0003-preview-worker-dispatch-authentication.md) for the
   worker-dispatch authentication boundary, and
-  [`docs/vercel-deployments.md`](docs/vercel-deployments.md) for the Phase B
-  UI-only cutover, bootstrap, canary, and rollback procedures.
+  [`docs/vercel-deployments.md`](docs/vercel-deployments.md) for the four-target
+  v2 bootstrap, activation canaries, per-target cutover, and rollback
+  procedures.
 
 Dependency-installing jobs use `.github/actions/pnpm-install`, which pins the
 Node/pnpm bootstrap, relies on `actions/setup-node` as the single pnpm-store

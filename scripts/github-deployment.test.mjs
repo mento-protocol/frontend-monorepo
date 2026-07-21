@@ -39,7 +39,7 @@ test("create request is exact-SHA, transient, non-production, and secretless", (
     production_environment: false,
     description: "Vercel prebuilt ui preview",
     payload: {
-      controller_schema: "mento-vercel-prebuilt/v1",
+      controller_schema: "mento-vercel-prebuilt/v2",
       idempotency_key: `vercel-pilot:v1:ui:sha:${SHA}:run:123:attempt:1`,
       logical_target: "ui",
       sha: SHA,
