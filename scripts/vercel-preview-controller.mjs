@@ -122,6 +122,14 @@ class WorkerWorkflowShaMismatchError extends Error {
   }
 }
 
+class CurrentEpochSelectionError extends Error {
+  constructor(candidateCount) {
+    super("Current PR epoch is missing or ambiguous");
+    this.name = "CurrentEpochSelectionError";
+    this.candidateCount = candidateCount;
+  }
+}
+
 function invariant(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -1164,6 +1172,20 @@ function samePullIdentity(event, pullOrAnchor) {
   );
 }
 
+function sameOperationalPullRequest(left, right) {
+  return (
+    left.number === right.number &&
+    left.state === right.state &&
+    left.baseSha === right.baseSha &&
+    left.headSha === right.headSha &&
+    left.headRef === right.headRef &&
+    left.headRepository === right.headRepository &&
+    left.author === right.author &&
+    left.trust === right.trust &&
+    left.closedAt === right.closedAt
+  );
+}
+
 function findLineagePaths(anchor, events, pull, epochClosedAt) {
   const lower = anchor.pr_updated_at;
   const upper = epochClosedAt ?? pull.updatedAt;
@@ -1279,11 +1301,37 @@ function selectCurrentEpoch(events, pull, checkpoint = null) {
       }
     }
   }
-  invariant(
-    candidates.length === 1,
-    "Current PR epoch is missing or ambiguous",
-  );
+  if (candidates.length !== 1)
+    throw new CurrentEpochSelectionError(candidates.length);
   return candidates[0];
+}
+
+function currentEpochReceiptIsBacklogged({
+  events: rawEvents,
+  results,
+  selections,
+  state,
+  checkpoint,
+  pull,
+}) {
+  const representedPull = representedPullRequest(rawEvents, checkpoint);
+  if (sameOperationalPullRequest(representedPull, pull)) return false;
+  const events = dedupeEvents(
+    rawEvents,
+    persistedEventRunIds(state, results, selections),
+  ).filter((event) => event.pr === pull.number);
+  try {
+    selectCurrentEpoch(events, pull, checkpoint);
+    return true;
+  } catch (error) {
+    if (
+      error instanceof CurrentEpochSelectionError &&
+      error.candidateCount === 0
+    ) {
+      return true;
+    }
+    throw error;
+  }
 }
 
 function resultForSelection(results, anchorRunId, event, selection, target) {
@@ -3242,7 +3290,10 @@ function assertCheckpointableReceipts(
   );
 }
 
-export function compactPreviewJournal(value, { pullRequest = null } = {}) {
+export function compactPreviewJournal(
+  value,
+  { expectedPullNumber = null } = {},
+) {
   const journal = validatePreviewJournal(value, value.pr);
   if (journal.state === null) return journal;
   const state = normalizeExistingState(journal.state, journal.pr);
@@ -3288,9 +3339,9 @@ export function compactPreviewJournal(value, { pullRequest = null } = {}) {
   ) {
     return journal;
   }
-  if (pullRequest !== null) {
+  if (expectedPullNumber !== null) {
     invariant(
-      normalizePullRequest(pullRequest).number === journal.pr,
+      pullRequestNumber(expectedPullNumber) === journal.pr,
       "Capacity checkpoint PR mismatch",
     );
   }
@@ -3639,7 +3690,7 @@ async function appendJournalReceipt({
   github,
   context,
   pr,
-  pullRequest = null,
+  expectedPullNumber = null,
   kind,
   value: rawValue,
   allowCreate = false,
@@ -3728,7 +3779,7 @@ async function appendJournalReceipt({
           journal.state,
           journal.checkpoint,
         );
-        compactPreviewJournal(journal, { pullRequest });
+        compactPreviewJournal(journal, { expectedPullNumber });
       }
     },
   });
@@ -4093,7 +4144,7 @@ export async function recordEventReceipt({
     github,
     context,
     pr: receipt.pr,
-    pullRequest: currentBefore,
+    expectedPullNumber: currentBefore.number,
     kind: "event",
     value: receipt,
     allowCreate: firstAttempt,
@@ -5221,6 +5272,23 @@ export async function reconcilePreview({
         );
       }
       const parsed = await loadPreviewJournal(github, context, pr);
+      if (
+        currentEpochReceiptIsBacklogged({
+          events: parsed.events,
+          results: parsed.results,
+          selections: parsed.selections,
+          state: parsed.state,
+          checkpoint: parsed.checkpoint,
+          pull: currentPull,
+        })
+      ) {
+        core.notice?.(
+          "Preview reconciliation deferred until the current PR event receipt is durable",
+        );
+        core.setOutput("reconcile_deferred", "true");
+        core.setOutput("pr_number", String(pr));
+        return parsed.state;
+      }
       const stateBeforeReconciliation =
         parsed.state === null ? null : canonicalJson(parsed.state);
       if (

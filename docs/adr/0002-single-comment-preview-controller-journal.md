@@ -3,7 +3,7 @@ title: One canonical pull-request comment stores the preview controller journal
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-07-21
+last_verified: 2026-07-22
 scope: ci/deployment/preview-controller-state
 date: 2026-07
 ---
@@ -138,6 +138,20 @@ ambiguous state and fails closed. The queue is not the first-plus-latest
 selection algorithm; it only prevents concurrent journal replacement. Receipt
 contents and current pull-request state continue to determine selection.
 
+Before completed-worker recovery, journal mutation, status publication, or
+dispatch, reconciliation compares the live pull request with the journal's
+latest uniquely represented operational snapshot: PR number, lifecycle state,
+trusted base SHA, head SHA/ref/repository, author/trust classification, and
+closed timestamp. GitHub's `updated_at` is deliberately excluded because
+title- or body-only edits advance it without creating a preview event receipt.
+When the operational fields differ because the matching event receipt is still
+waiting behind another serialized job, reconciliation may defer only if epoch
+selection has zero or one candidate. Deferral writes no journal state, status,
+dispatch, or ownership transition; the later receipt-owning run performs normal
+reconciliation. Matching operational fields never justify deferral: a missing
+epoch still fails closed. More than one epoch candidate is ambiguous and fails
+closed even when the live pull has advanced.
+
 A first-attempt non-closed event may win the queue before `opened`; it may
 create the journal only when no durable controller status for the same PR
 exists on its `before` or head commit. Every durably recorded event ensures a
@@ -157,10 +171,14 @@ closed and no journal or witness exists. Explicit bootstrap remains the only
 operator-authorized clean restart.
 
 GitHub currently bounds `queue: max` at 100 pending jobs. The controller must
-keep journal mutations short, expose queue pressure during canaries, and treat
-an admitted-event gap as ambiguous. It may recover current intent only by
-re-querying the live pull request and performing the existing conservative,
-fail-closed plan; it must not invent a missing historical receipt.
+keep journal mutations short and expose queue pressure during canaries. When
+only the live pull request's current operational snapshot is awaiting its
+serialized receipt, and epoch selection has at most one candidate, the
+controller may return the bounded, zero-write deferred result described above.
+A missing historical admitted-event receipt, or more than one epoch candidate,
+remains ambiguous and fails closed. The controller may recover current intent
+only by re-querying the live pull request and performing the existing
+conservative, fail-closed plan; it must not invent a missing historical receipt.
 
 ### Trust and public evidence
 

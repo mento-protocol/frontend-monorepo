@@ -1732,7 +1732,9 @@ test("capacity checkpoints keep a long overlapping push burst recoverable", () =
   let additionalDispatches = 0;
 
   for (let index = 1; index < 50; index += 1) {
-    journal = compactPreviewJournal(journal, { pullRequest: currentPull });
+    journal = compactPreviewJournal(journal, {
+      expectedPullNumber: currentPull.number,
+    });
     const head = (100 + index).toString(16).padStart(40, "0");
     const receipt = event({
       run: 1_700 + index,
@@ -1831,7 +1833,9 @@ test("capacity checkpoints preserve the newest queued runtime before reconciliat
   let priorHead = openedHead;
 
   for (let index = 1; index < 48; index += 1) {
-    journal = compactPreviewJournal(journal, { pullRequest: currentPull });
+    journal = compactPreviewJournal(journal, {
+      expectedPullNumber: currentPull.number,
+    });
     const head = (200 + index).toString(16).padStart(40, "0");
     const receipt = event({
       run: 1_800 + index,
@@ -1961,7 +1965,7 @@ test("capacity checkpointing uses the latest represented receipt when the live P
     updated: timestamp(index + 1),
   });
   const compacted = compactPreviewJournal(journal, {
-    pullRequest: liveAhead,
+    expectedPullNumber: liveAhead.number,
   });
   assert.equal(compacted.checkpoint.event.head_sha, representedHead);
   assert.equal(compacted.checkpoint.targets.ui.status.state, "pending");
@@ -2038,7 +2042,7 @@ test("terminal checkpoint folds quarantined retired ownership into bounded audit
   assert.ok(originalBytes < 60_000, `journal was ${originalBytes} bytes`);
 
   const compacted = compactPreviewJournal(journal, {
-    pullRequest: currentPull,
+    expectedPullNumber: currentPull.number,
   });
   assert.equal(compacted.checkpoint.targets.ui.pending_owner_key_digest, null);
   assert.equal(compacted.checkpoint.targets.ui.pending_owner_event, null);
@@ -2134,7 +2138,7 @@ test("a terminal pending owner resolves a docs-only capacity checkpoint", async 
     Buffer.byteLength(previewJournalBody(candidateJournal), "utf8") >= 41_000,
   );
   const compacted = compactPreviewJournal(candidateJournal, {
-    pullRequest: currentPull,
+    expectedPullNumber: currentPull.number,
   });
   assert.equal(compacted.checkpoint.targets.ui.status.state, "pending");
   assert.equal(
@@ -2310,7 +2314,7 @@ test("a capacity checkpoint carries the original attempt into the retry budget",
     Buffer.byteLength(previewJournalBody(candidateJournal), "utf8") >= 41_000,
   );
   const compacted = compactPreviewJournal(candidateJournal, {
-    pullRequest: currentPull,
+    expectedPullNumber: currentPull.number,
   });
   assert.equal(compacted.checkpoint.targets.ui.pending_owner_attempt_count, 1);
   const waiting = reconcile({
@@ -3427,8 +3431,13 @@ function fakeContext({
 
 function fakeCore() {
   const outputs = new Map();
+  const notices = [];
   return {
     outputs,
+    notices,
+    notice(message) {
+      notices.push(String(message));
+    },
     setOutput(name, value) {
       outputs.set(name, String(value));
     },
@@ -3465,6 +3474,268 @@ function nativeUiAggregateStatus(sha, runId) {
     },
   };
 }
+
+test("reconciliation defers without mutation while the live head receipt is queued", async () => {
+  const opened = event({
+    run: 10_100,
+    action: "opened",
+    head: SHA.A,
+    targets: PREVIEW_TARGETS,
+    updated: timestamp(1),
+  });
+  const appOnly = event({
+    run: 10_101,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    targets: ["app"],
+    updated: timestamp(2),
+  });
+  const sharedRuntime = event({
+    run: 10_102,
+    action: "synchronize",
+    before: SHA.B,
+    head: SHA.C,
+    targets: ["app", "governance", "reserve"],
+    updated: timestamp(3),
+  });
+  const docsOnly = event({
+    run: 10_103,
+    action: "synchronize",
+    before: SHA.C,
+    head: SHA.D,
+    runtime: false,
+    updated: timestamp(4),
+  });
+  const initial = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const stateAtOpened = persistAllIntents(initial);
+  const selections = PREVIEW_TARGETS.map((target) =>
+    selectionReceiptFromDispatch(stateAtOpened.targets[target].active),
+  );
+  const livePull = pull({ head: SHA.D, updated: timestamp(4) });
+  const fixture = fakeGitHub({
+    pullRequest: livePull,
+    comments: [
+      journalWithState([opened, appOnly, sharedRuntime], stateAtOpened, {
+        selections,
+      }),
+    ],
+  });
+  const core = fakeCore();
+
+  const deferred = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext(),
+    core,
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.deepEqual(deferred, stateAtOpened);
+  assert.equal(core.outputs.get("reconcile_deferred"), "true");
+  assert.equal(core.outputs.get("pr_number"), "519");
+  assert.deepEqual(core.notices, [
+    "Preview reconciliation deferred until the current PR event receipt is durable",
+  ]);
+  assert.equal(fixture.commentUpdates.length, 0);
+  assert.equal(fixture.commitStatuses.length, 0);
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+
+  const recovered = reconcile({
+    events: [opened, appOnly, sharedRuntime, docsOnly],
+    selections,
+    pullRequest: livePull,
+    existingState: stateAtOpened,
+  });
+  assert.deepEqual(
+    recovered.lineage.map(({ head_sha: headSha }) => headSha),
+    [SHA.A, SHA.B, SHA.C, SHA.D],
+  );
+  assert.equal(recovered.state.targets.app.latest_desired_sha, SHA.C);
+  assert.equal(recovered.state.targets.governance.latest_desired_sha, SHA.C);
+  assert.equal(recovered.state.targets.reserve.latest_desired_sha, SHA.C);
+  assert.equal(recovered.state.targets.ui.latest_desired_sha, SHA.A);
+  for (const target of PREVIEW_TARGETS) {
+    assert.equal(recovered.state.targets[target].active.sha, SHA.A);
+  }
+
+  const appCompleted = reconcile({
+    events: [opened, appOnly, sharedRuntime, docsOnly],
+    results: [
+      result(targetDispatch(initial, "app"), {
+        runId: 10_500,
+        state: "failure",
+        reason: "build-failed-final",
+      }),
+    ],
+    selections,
+    pullRequest: livePull,
+    existingState: recovered.state,
+  });
+  const nextApp = targetDispatch(appCompleted, "app");
+  assert.equal(nextApp.sha, SHA.C);
+  assert.deepEqual(nextApp.coalesced_receipt_run_ids, [appOnly.event_run_id]);
+});
+
+test("same-head base retarget waits for its edited receipt before using the old plan", async () => {
+  const opened = event({
+    run: 10_150,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const livePull = pull({
+    head: SHA.A,
+    base: SHA.D,
+    updated: timestamp(2),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: livePull,
+    comments: [journalComment({ events: [opened] })],
+  });
+  const core = fakeCore();
+
+  const deferred = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext(),
+    core,
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(deferred, null);
+  assert.equal(core.outputs.get("reconcile_deferred"), "true");
+  assert.equal(fixture.commentUpdates.length, 0);
+  assert.equal(fixture.commitStatuses.length, 0);
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+});
+
+test("metadata-only updated_at drift reconciles without waiting for a receipt", async () => {
+  const opened = event({
+    run: 10_175,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.A, updated: timestamp(2) }),
+    comments: [journalComment({ events: [opened] })],
+  });
+  const core = fakeCore();
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext(),
+    core,
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(core.outputs.has("reconcile_deferred"), false);
+  assert.equal(state.epoch.anchor_run_id, opened.event_run_id);
+  assert.equal(state.targets.ui.active.dispatch_state, "dispatched");
+  assert.equal(fixture.dispatches.length, 1);
+  assert.equal(fixture.workerDispatchRequests.length, 1);
+  assert.equal(fixture.commitStatuses.at(-1).sha, SHA.A);
+  assert.notEqual(fixture.commitStatuses.at(-1).state, "error");
+});
+
+test("an exact current-head receipt preserves fail-closed epoch ambiguity", async () => {
+  const opened = event({
+    run: 10_200,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const reopened = event({
+    run: 10_201,
+    action: "reopened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const exactHead = event({
+    run: 10_202,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.D,
+    runtime: false,
+    updated: timestamp(4),
+  });
+  const livePull = pull({ head: SHA.D, updated: timestamp(4) });
+  const fixture = fakeGitHub({
+    pullRequest: livePull,
+    comments: [journalComment({ events: [opened, reopened, exactHead] })],
+  });
+  const core = fakeCore();
+
+  await assert.rejects(
+    reconcilePreview({
+      github: fixture.github,
+      context: fakeContext(),
+      core,
+      prNumber: 519,
+      waitForRecovery: async () => {},
+    }),
+    /Current PR epoch is missing or ambiguous/,
+  );
+  assert.equal(core.outputs.has("reconcile_deferred"), false);
+  assert.equal(fixture.commentUpdates.length, 0);
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.commitStatuses.length, 1);
+  assert.equal(fixture.commitStatuses[0].sha, SHA.D);
+  assert.equal(fixture.commitStatuses[0].state, "error");
+});
+
+test("metadata-only updated_at drift does not hide candidate ambiguity", async () => {
+  const opened = event({
+    run: 10_250,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const reopened = event({
+    run: 10_251,
+    action: "reopened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const representedHead = event({
+    run: 10_252,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.D,
+    runtime: false,
+    updated: timestamp(3),
+  });
+  const livePull = pull({ head: SHA.D, updated: timestamp(4) });
+  const fixture = fakeGitHub({
+    pullRequest: livePull,
+    comments: [journalComment({ events: [opened, reopened, representedHead] })],
+  });
+  const core = fakeCore();
+
+  await assert.rejects(
+    reconcilePreview({
+      github: fixture.github,
+      context: fakeContext(),
+      core,
+      prNumber: 519,
+      waitForRecovery: async () => {},
+    }),
+    /Current PR epoch is missing or ambiguous/,
+  );
+  assert.equal(core.outputs.has("reconcile_deferred"), false);
+  assert.equal(fixture.commentUpdates.length, 0);
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.commitStatuses.length, 1);
+  assert.equal(fixture.commitStatuses[0].sha, SHA.D);
+  assert.equal(fixture.commitStatuses[0].state, "error");
+});
 
 test("journal comment visibly summarizes all target outcomes in canonical order", async () => {
   const opened = event({
@@ -4108,6 +4379,90 @@ test("closed event receipt keeps one stable idempotent journal and publishes no 
     }),
     /Preview journal JSON block is missing/,
   );
+});
+
+test("a large journal compacts a closed receipt without losing branch identity", async () => {
+  const headFor = (index) => (20_000 + index).toString(16).padStart(40, "0");
+  const opened = event({
+    run: 20_000,
+    action: "opened",
+    head: headFor(0),
+    updated: timestamp(1),
+  });
+  const events = [opened];
+  for (let index = 1; index < 28; index += 1) {
+    events.push(
+      event({
+        run: 20_000 + index,
+        action: "synchronize",
+        before: headFor(index - 1),
+        head: headFor(index),
+        updated: timestamp(index + 1),
+      }),
+    );
+  }
+  const tailHead = headFor(events.length - 1);
+  const openPull = pull({ head: tailHead, updated: timestamp(events.length) });
+  const selected = reconcile({ events, pullRequest: openPull });
+  const active = persistIntent(selected);
+  const selection = selectionReceiptFromDispatch(active.targets.ui.active);
+  const journal = createPreviewJournal({
+    pr: 519,
+    events,
+    selections: [selection],
+    state: active,
+  });
+  const journalBytes = Buffer.byteLength(previewJournalBody(journal), "utf8");
+  assert.ok(journalBytes >= 41_000, `journal was only ${journalBytes} bytes`);
+  assert.ok(journalBytes < 60_000, `journal was ${journalBytes} bytes`);
+
+  const closed = event({
+    run: 20_100,
+    action: "closed",
+    head: tailHead,
+    updated: timestamp(events.length + 1),
+  });
+  const closedPull = pull({
+    head: tailHead,
+    state: "closed",
+    updated: closed.pr_updated_at,
+    closed: closed.pr_closed_at,
+  });
+  const fixture = fakeGitHub({
+    pullRequest: closedPull,
+    comments: [journalWithState(events, active, { selections: [selection] })],
+  });
+  const core = fakeCore();
+
+  await recordEventReceipt({
+    github: fixture.github,
+    context: fakeContext({ runId: closed.event_run_id }),
+    core,
+    ...eventRecordInputs(closed),
+  });
+
+  const persisted = journalFromComment(fixture.comments[0]);
+  assert.equal(persisted.checkpoint.event.event_action, "closed");
+  assert.equal(persisted.checkpoint.event.head_sha, tailHead);
+  assert.equal(persisted.checkpoint.event.head_ref, opened.head_ref);
+  assert.equal(
+    persisted.checkpoint.event.head_repository,
+    opened.head_repository,
+  );
+  assert.equal(persisted.checkpoint.event.pr_author, opened.pr_author);
+  assert.equal(core.outputs.get("reconcile_required"), "true");
+
+  const closedState = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext({ runId: 20_101 }),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+  assert.equal(closedState.closed, true);
+  assert.equal(closedState.epoch.closed_at, closed.pr_closed_at);
+  assert.equal(closedState.epoch.anchor_head_ref, opened.head_ref);
+  assert.equal(fixture.dispatches.length, 0);
 });
 
 test("closed event without an initialized journal is inert", async () => {

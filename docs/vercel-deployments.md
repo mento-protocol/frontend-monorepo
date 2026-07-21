@@ -910,6 +910,20 @@ revision, canonical JSON, journal digest, and, when state exists,
 Duplicate journals, a writer outside that queue, a conflicting receipt, or an
 ambiguous reread fail closed.
 
+Before completed-worker recovery, journal mutation, status publication, or
+dispatch, reconciliation compares the live pull request with the journal's
+latest uniquely represented operational snapshot: PR number, lifecycle state,
+trusted base SHA, head SHA/ref/repository, author/trust classification, and
+closed timestamp. GitHub's `updated_at` is deliberately excluded because
+title- or body-only edits advance it without creating a preview event receipt.
+A difference in the operational snapshot proves that the matching event receipt
+can still be queued behind another serialized job. With zero or one epoch
+candidate the controller returns a deferred result and performs no journal,
+status, dispatch, or ownership write; the receipt-owning run later reconciles
+normally. If those operational fields match, a missing epoch remains an error
+rather than a backlog. More than one epoch candidate always fails closed,
+including when the latest represented snapshot differs from GitHub.
+
 A first-attempt non-closed event can therefore preserve an out-of-order receipt
 when it wins the queue before `opened`. Every durably recorded event ensures a
 `Vercel Preview Journal v2 / PR #<number>` success-status witness on its head before
