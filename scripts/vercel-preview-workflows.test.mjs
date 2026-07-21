@@ -108,16 +108,28 @@ test("controller mode is canonical and reaches every reconciliation call", () =>
   }
 });
 
-test("controller guards cross-ref preview ownership with the candidate exact-head configuration", () => {
+test("controller guards current, selected, and worker preview ownership with immutable configurations", () => {
   const implementation = read("scripts/vercel-preview-controller.mjs");
   assert.match(implementation, /repos\.getContent/);
   assert.match(
     implementation,
-    /path:\s*UI_VERCEL_CONFIGURATION_PATH,\s*ref:\s*normalized\.headSha/s,
+    /function uiPreviewOwnerAtSha[\s\S]+path:\s*UI_VERCEL_CONFIGURATION_PATH,\s*ref:\s*immutableSha/s,
   );
   assert.match(
     implementation,
-    /previewOwner === UI_PREVIEW_OWNER_NATIVE[\s\S]+continue reconcileAttempts/,
+    /candidateUiPreviewOwner[\s\S]+uiPreviewOwnerAtSha\(github, context, normalized\.headSha\)/,
+  );
+  assert.match(
+    implementation,
+    /shaIsStillAssociated[\s\S]+selected\.sha[\s\S]+uiPreviewOwnerAtSha\(github, context, selected\.sha\)/,
+  );
+  assert.match(
+    implementation,
+    /outcome === "selected-native"[\s\S]+reconcileNoDispatchIntents/,
+  );
+  assert.match(
+    implementation,
+    /validateWorkerDispatch[\s\S]+uiPreviewOwnerAtSha[\s\S]+normalizedPull\.headSha[\s\S]+uiPreviewOwnerAtSha\(github, context, sha\)/,
   );
   assert.match(
     implementation,
@@ -735,7 +747,8 @@ test("runbook covers bootstrap, canaries, browser proof, separate cutover, and e
     '"**": false',
     '"main": true',
     '"dependabot/**": false',
-    "exact 40-character head",
+    "immutable 40-character SHAs",
+    "event's own SHA",
     "dispatch-disabled-intent-without-worker",
     "Draining GitHub preview before native ownership",
     "proves only the controller's owner selection",

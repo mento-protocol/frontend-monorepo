@@ -20,7 +20,6 @@ export const metadata: Metadata = {
   description: "Mento UI Components",
 };
 
-// Phase B single-owner canary for #519: force one exact-SHA UI preview.
 export default function RootLayout({
   children,
 }: {

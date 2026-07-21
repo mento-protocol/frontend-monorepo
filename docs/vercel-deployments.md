@@ -713,18 +713,26 @@ write-token job checks out or executes PR code.
 The workflow-level `VERCEL_PREVIEW_CONTROLLER_MODE` is an executable ownership
 switch, not a secret or an operator-set repository variable. Every
 reconciliation passes it to the trusted controller implementation. For each
-open trusted PR, the controller also reads
-`apps/ui.mento.org/vercel.json` from the candidate's exact 40-character head
-SHA through the Contents API. It accepts only the bounded, valid UTF-8 JSON
-representation of the two exact reviewed ownership configurations in this
-runbook; missing, oversized, malformed, or unknown content fails closed before
-journal mutation or any worker-dispatch request.
+open trusted PR, the controller reads `apps/ui.mento.org/vercel.json` through
+the Contents API at immutable 40-character SHAs. The current PR head selects
+the controller's overall mode, but every historical event selected for dispatch
+is checked again at that event's own SHA after its PR-lineage association is
+proven. It accepts only the bounded, valid UTF-8 JSON representation of the two
+exact reviewed ownership configurations in this runbook; missing, oversized,
+malformed, or unknown content fails closed before any worker-dispatch request.
 
-`active` can create a worker only for the exact GitHub-owned configuration and
-rechecks that exact-head ownership immediately before the dispatch credential
-can make its only POST. The exact native configuration suppresses dispatch even
-when the default-branch workflow is still `active`, which protects a rollback
-PR before it merges. `observe-only` never creates a dispatch intent or worker.
+`active` can create a worker only while both the current head and the selected
+event SHA have the exact GitHub-owned configuration, and rechecks both immutable
+ownership inputs immediately before the dispatch credential can make its only
+POST. A selected native-owned receipt is persisted as an intent and routed
+through the same bounded no-dispatch recovery path: one already-created worker
+is attached and drained, while no matching worker produces the durable
+`dispatch-disabled-intent-without-worker` result and advances reconciliation to
+the next receipt. That terminal reason is ownership-success, not GitHub build
+evidence; it creates no GitHub Deployment. The exact native configuration also
+suppresses dispatch when the default-branch workflow is still `active`, which
+protects a rollback PR before it merges. `observe-only` never creates a new
+dispatch intent or worker.
 It does, however, reconcile every previously persisted `intended` entry in both
 the current and epoch-retired ownership slots: one unique existing worker is
 attached without the secondary credential, a completed worker is terminalized
@@ -975,6 +983,14 @@ when the workflow path, event, default ref, authorized SHA, attempt, and
 epoch-bound title identity also validate. Completion follow-ups route by the
 exact worker or intake workflow path rather than the presentation name, then
 repeat full source validation before any status or Deployment write.
+
+The worker independently repeats the immutable ownership check before emitting
+`should_deploy`, inspecting deployment state, or reaching any Vercel secret. It
+requires both the then-current PR head and its controller-authorized
+`commit_sha` to remain GitHub-owned. This is defense in depth for a worker that
+was queued while ownership changed; controller journal ownership alone cannot
+authorize code whose own `vercel.json` assigns preview deployment to native
+Vercel.
 
 Zero matches dispatches `.github/workflows/vercel-preview-worker.yml` on `main`
 using a secondary Octokit client authenticated only by repository secret
@@ -1323,10 +1339,14 @@ On the rollback PR, `Vercel Preview` reports `pending` with
 GitHub intent or worker remains. The controller attaches a uniquely matching
 crash-window worker without dispatching, including ownership retired by a close
 or reopen epoch; completion is recovered in that same reconciliation attempt,
-and an intent with no worker is durably retired after bounded observation. Only
-after no active or retired GitHub ownership remains does the context become
-`success` with `Native Vercel owns this UI preview`. Missing, malformed, or
-unknown candidate configuration, multiple matching workers, and an
+and an intent with no worker is durably retired after bounded observation. A
+native-owned historical receipt encountered after a later switch back to
+GitHub ownership follows that same durable retirement path instead of being
+dispatched by the later head's configuration. The synthetic no-dispatch result
+is reported as ownership-success and never claims a native build or smoke.
+Only after no active or retired GitHub ownership remains does the context
+become `success` with `Native Vercel owns this UI preview`. Missing, malformed,
+or unknown candidate configuration, multiple matching workers, and an
 `observe-only`/GitHub-owned combination remain `error`.
 
 That green context proves only the controller's owner selection and drained

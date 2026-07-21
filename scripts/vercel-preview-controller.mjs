@@ -1308,6 +1308,14 @@ function statusDecision({
   }
   const eligible = event.plan.targets.includes(PREVIEW_TARGET);
   const result = resultByRun.get(event.event_run_id);
+  if (eligible && result?.terminal_reason === NO_DISPATCH_ORPHAN_REASON) {
+    return {
+      sha: event.head_sha,
+      state: "success",
+      description: "Native Vercel owns this UI preview",
+      target_url: controllerUrl,
+    };
+  }
   if (eligible && result?.state === "success") {
     return {
       sha: event.head_sha,
@@ -2191,15 +2199,12 @@ function ownerRepo(context) {
   return context.repo;
 }
 
-async function candidateUiPreviewOwner(github, context, pull) {
-  const normalized = normalizePullRequest(pull);
-  if (normalized.state !== "open" || normalized.trust !== "trusted") {
-    return null;
-  }
+async function uiPreviewOwnerAtSha(github, context, sha) {
+  const immutableSha = exactSha(sha, "Candidate UI Vercel configuration SHA");
   const { data } = await github.rest.repos.getContent({
     ...ownerRepo(context),
     path: UI_VERCEL_CONFIGURATION_PATH,
-    ref: normalized.headSha,
+    ref: immutableSha,
   });
   const file = plainObject(data, "Candidate UI Vercel configuration");
   invariant(
@@ -2247,6 +2252,14 @@ async function candidateUiPreviewOwner(github, context, pull) {
     return UI_PREVIEW_OWNER_NATIVE;
   }
   throw new Error("Candidate UI Vercel configuration is not recognized");
+}
+
+async function candidateUiPreviewOwner(github, context, pull) {
+  const normalized = normalizePullRequest(pull);
+  if (normalized.state !== "open" || normalized.trust !== "trusted") {
+    return null;
+  }
+  return uiPreviewOwnerAtSha(github, context, normalized.headSha);
 }
 
 async function listComments(github, context, pr) {
@@ -4307,18 +4320,33 @@ async function refreshDispatchOwnership({
   if (normalizePullRequest(pull).state !== "open") {
     return { outcome: "closed" };
   }
-  assertDispatchTrust(pull, selected);
-  const previewOwner = await candidateUiPreviewOwner(github, context, pull);
-  if (previewOwner === UI_PREVIEW_OWNER_NATIVE) {
-    return { outcome: UI_PREVIEW_OWNER_NATIVE };
+  const normalized = assertDispatchTrust(pull, selected);
+  const currentPreviewOwner = await uiPreviewOwnerAtSha(
+    github,
+    context,
+    normalized.headSha,
+  );
+  if (currentPreviewOwner === UI_PREVIEW_OWNER_NATIVE) {
+    return { outcome: "current-head-native" };
   }
   invariant(
-    previewOwner === UI_PREVIEW_OWNER_GITHUB,
-    "GitHub preview dispatch does not own the candidate UI configuration",
+    currentPreviewOwner === UI_PREVIEW_OWNER_GITHUB,
+    "GitHub preview dispatch does not own the current UI configuration",
   );
   if (!(await shaIsStillAssociated(github, context, pull, selected.sha))) {
     return { outcome: "removed" };
   }
+  const selectedPreviewOwner =
+    selected.sha === normalized.headSha
+      ? currentPreviewOwner
+      : await uiPreviewOwnerAtSha(github, context, selected.sha);
+  if (selectedPreviewOwner === UI_PREVIEW_OWNER_NATIVE) {
+    return { outcome: "selected-native" };
+  }
+  invariant(
+    selectedPreviewOwner === UI_PREVIEW_OWNER_GITHUB,
+    "GitHub preview dispatch does not own the selected UI configuration",
+  );
   const comments = await loadPreviewJournal(github, context, pr);
   const ownershipCheck = reconcileState({
     events: comments.events,
@@ -4633,7 +4661,22 @@ export async function reconcilePreview({
           recordDeterministicProgress();
           continue reconcileAttempts;
         }
-        if (refreshedOwnership.outcome === UI_PREVIEW_OWNER_NATIVE) {
+        if (
+          refreshedOwnership.outcome === "current-head-native" ||
+          refreshedOwnership.outcome === "selected-native"
+        ) {
+          invariant(
+            await reconcileNoDispatchIntents({
+              github,
+              context,
+              core,
+              pr,
+              state,
+              stateComment,
+              waitForRecovery,
+            }),
+            "Native-owned selection did not retain its durable intent",
+          );
           recordDeterministicProgress();
           continue reconcileAttempts;
         }
@@ -4684,7 +4727,22 @@ export async function reconcilePreview({
           recordDeterministicProgress();
           continue reconcileAttempts;
         }
-        if (refreshedOwnership.outcome === UI_PREVIEW_OWNER_NATIVE) {
+        if (
+          refreshedOwnership.outcome === "current-head-native" ||
+          refreshedOwnership.outcome === "selected-native"
+        ) {
+          invariant(
+            await reconcileNoDispatchIntents({
+              github,
+              context,
+              core,
+              pr,
+              state,
+              stateComment,
+              waitForRecovery,
+            }),
+            "Native-owned selection did not retain its durable intent",
+          );
           recordDeterministicProgress();
           continue reconcileAttempts;
         }
@@ -5037,10 +5095,27 @@ export async function validateWorkerDispatch({
     "Worker controller key digest is invalid",
   );
   const pull = await pullFromApi(github, context, pr);
-  assertDispatchTrust(pull, { git_ref: gitRef });
+  const normalizedPull = assertDispatchTrust(pull, { git_ref: gitRef });
   invariant(
     await shaIsStillAssociated(github, context, pull, sha),
     "Selected SHA is no longer associated with the PR lineage",
+  );
+  const currentPreviewOwner = await uiPreviewOwnerAtSha(
+    github,
+    context,
+    normalizedPull.headSha,
+  );
+  invariant(
+    currentPreviewOwner === UI_PREVIEW_OWNER_GITHUB,
+    "GitHub preview worker does not own the current UI configuration",
+  );
+  const selectedPreviewOwner =
+    sha === normalizedPull.headSha
+      ? currentPreviewOwner
+      : await uiPreviewOwnerAtSha(github, context, sha);
+  invariant(
+    selectedPreviewOwner === UI_PREVIEW_OWNER_GITHUB,
+    "GitHub preview worker does not own the selected UI configuration",
   );
   const evidence = await loadControllerEvidence(github, context, pr);
   const state = evidence.state;
