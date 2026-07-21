@@ -938,10 +938,15 @@ Operator recovery queries the exact persisted worker attempt instead of the
 latest rerun. If a retired old-epoch attempt is missing or fails identity
 validation, the controller records a bounded recovery quarantine on that
 retired selection and continues current-epoch reconciliation without posting a
-current-head controller error. Transient retired-attempt API or journal-write
-failures remain unquarantined and retry on the next reconciliation, also
-without changing the current-head status. A recovery ambiguity for the current
-active selection still fails closed.
+current-head controller error. The quarantined selection remains in the journal
+as audit evidence, but it no longer counts as live GitHub deployment ownership
+and therefore cannot hold a native-Vercel ownership handoff pending forever.
+Transient retired-attempt API or journal-write failures remain unquarantined
+and retry on the next reconciliation, also without changing the current-head
+status. A recovery ambiguity for the current active selection still fails
+closed. Durable recovery, ownership-flip, and no-dispatch mutations may require
+multiple local reconciliation passes; those bounded progress passes are
+separate from the three-attempt budget reserved for serialized journal races.
 
 ### Durable dispatch and exact Deployment identity
 

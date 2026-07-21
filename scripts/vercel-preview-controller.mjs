@@ -70,6 +70,10 @@ const RETRIABLE_TERMINAL_REASONS = new Set([
 const MAX_COMMENTS = 500;
 const MAX_RECEIPTS = 200;
 const MAX_HISTORY = 40;
+// Recovery drains every retained slot in one pass, then ownership flips and
+// terminal receipts need a small fixed number of rereads before publication.
+const MAX_RECONCILIATION_PROGRESS_PASSES = MAX_HISTORY + 4;
+const MAX_SERIALIZED_UPDATE_ATTEMPTS = 3;
 const MAX_JOURNAL_BYTES = 60_000;
 const ACTIVE_CHECKPOINT_BYTES = 40_000;
 const WORKER_RUN_PAGE_SIZE = 100;
@@ -4415,6 +4419,15 @@ async function recoverCompletedOwnedRuns({
   return recovered;
 }
 
+function hasLiveGitHubPreviewOwnership(state) {
+  return (
+    state.ui.active !== null ||
+    state.ui.retired_active.some(
+      (selection) => selection.recovery_quarantine === undefined,
+    )
+  );
+}
+
 export async function reconcilePreview({
   github,
   workerDispatchGithub = null,
@@ -4430,7 +4443,25 @@ export async function reconcilePreview({
   const controllerMode = previewControllerMode(rawControllerMode);
   const workflowSha = exactSha(rawWorkflowSha, "Controller workflow SHA");
   const controllerUrl = `https://github.com/${PREVIEW_REPOSITORY}/actions/runs/${context.runId}`;
-  reconcileAttempts: for (let attempt = 0; attempt < 3; attempt += 1) {
+  let serializedUpdateAttempts = 1;
+  const failClosed = async (error) => {
+    const pull = await pullFromApi(github, context, pr);
+    const headSha = exactSha(pull.head.sha);
+    await github.rest.repos.createCommitStatus({
+      ...ownerRepo(context),
+      sha: headSha,
+      state: "error",
+      context: PREVIEW_STATUS_CONTEXT,
+      description: "Preview controller state is invalid or ambiguous",
+      target_url: controllerUrl,
+    });
+    throw error;
+  };
+  reconcileAttempts: for (
+    let progressPass = 0;
+    progressPass < MAX_RECONCILIATION_PROGRESS_PASSES;
+    progressPass += 1
+  ) {
     try {
       const pull = await pullFromApi(github, context, pr);
       const currentPull = normalizePullRequest(pull);
@@ -4496,8 +4527,7 @@ export async function reconcilePreview({
           stateComment,
         });
         if (currentPull.state === "open") {
-          const liveGitHubOwnership =
-            state.ui.active !== null || state.ui.retired_active.length > 0;
+          const liveGitHubOwnership = hasLiveGitHubPreviewOwnership(state);
           const nativeOwner = previewOwner === UI_PREVIEW_OWNER_NATIVE;
           await github.rest.repos.createCommitStatus({
             ...ownerRepo(context),
@@ -4749,27 +4779,18 @@ export async function reconcilePreview({
       return state;
     } catch (error) {
       if (
-        attempt < 2 &&
+        serializedUpdateAttempts < MAX_SERIALIZED_UPDATE_ATTEMPTS &&
         /serialized update|identity changed|basis changed|changed before status|receipt set changed|ownership changed/.test(
           error.message,
         )
       ) {
+        serializedUpdateAttempts += 1;
         continue;
       }
-      const pull = await pullFromApi(github, context, pr);
-      const headSha = exactSha(pull.head.sha);
-      await github.rest.repos.createCommitStatus({
-        ...ownerRepo(context),
-        sha: headSha,
-        state: "error",
-        context: PREVIEW_STATUS_CONTEXT,
-        description: "Preview controller state is invalid or ambiguous",
-        target_url: controllerUrl,
-      });
-      throw error;
+      return failClosed(error);
     }
   }
-  throw new Error("Controller state update did not converge");
+  return failClosed(new Error("Controller state update did not converge"));
 }
 
 async function loadControllerEvidence(github, context, pr) {

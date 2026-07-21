@@ -4903,6 +4903,86 @@ test("active controller settles a completed crash-window worker after a racing n
   );
 });
 
+test("native cutover converges after recovery and an exact-head ownership flip", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const runtimeB = event({
+    run: 122,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    updated: timestamp(2),
+  });
+  const pullRequest = pull({ head: SHA.B, updated: timestamp(2) });
+  const selectedA = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const pendingB = reconcile({
+    events: [opened, runtimeB],
+    pullRequest,
+    existingState: persistDispatch(selectedA, 8_000),
+  });
+  assert.equal(pendingB.state.ui.active.sha, SHA.A);
+  assert.equal(pendingB.state.ui.latest_desired_sha, SHA.B);
+  const completedA = workerRun(selectedA.nextDispatch, {
+    status: "completed",
+    conclusion: "cancelled",
+  });
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [
+      journalWithState([opened, runtimeB], pendingB.state, {
+        selections: [selectionReceiptFromDispatch(pendingB.state.ui.active)],
+      }),
+    ],
+    runs: [completedA],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+    uiVercelConfigurations: [
+      GITHUB_OWNED_UI_VERCEL_CONFIGURATION,
+      GITHUB_OWNED_UI_VERCEL_CONFIGURATION,
+      GITHUB_OWNED_UI_VERCEL_CONFIGURATION,
+      NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+    ],
+  });
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext({ runId: 7_001 }),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(state.ui.active, null);
+  assert.equal(state.ui.latest_desired_sha, SHA.B);
+  assert.ok(
+    state.ui.terminal_history.some(
+      ({ sha, terminal_reason: terminalReason }) =>
+        sha === SHA.B &&
+        terminalReason === "dispatch-disabled-intent-without-worker",
+    ),
+  );
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.deepEqual(
+    journal.receipts.results.map(
+      ({ worker_run_id: workerRunId }) => workerRunId,
+    ),
+    [8_000, 7_001],
+  );
+  assert.equal(fixture.commitStatuses.at(-1).state, "success");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Native Vercel owns this UI preview",
+  );
+});
+
 test("observe-only controller fails closed for a stale GitHub-owned Phase B head", async () => {
   const opened = event({
     run: 121,
@@ -6887,7 +6967,7 @@ test("terminal reopened same-SHA ownership survives a delayed old-epoch callback
   assert.equal(journal.receipts.results.length, 2);
 });
 
-test("retired attempt recovery errors are quarantined without poisoning the current epoch", async () => {
+test("quarantined retired recovery cannot block native preview ownership", async () => {
   const setup = sameShaReopenState();
   const currentResult = result(setup.current.nextDispatch, { runId: 8_001 });
   const terminalState = reconcile({
@@ -6919,6 +6999,7 @@ test("retired attempt recovery errors are quarantined without poisoning the curr
       }),
     ],
     runs: [oldLatestAttempt],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
   });
 
   const reconciled = await reconcilePreview({
@@ -6942,6 +7023,10 @@ test("retired attempt recovery errors are quarantined without poisoning the curr
     false,
   );
   assert.equal(fixture.commitStatuses.at(-1).state, "success");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Native Vercel owns this UI preview",
+  );
   assert.deepEqual(fixture.workflowRunAttemptRequests, [
     { run_id: 8_000, attempt_number: 1 },
   ]);
@@ -6957,6 +7042,11 @@ test("retired attempt recovery errors are quarantined without poisoning the curr
   assert.equal(
     fixture.commitStatuses.some(({ state }) => state === "error"),
     false,
+  );
+  assert.equal(fixture.commitStatuses.at(-1).state, "success");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Native Vercel owns this UI preview",
   );
 });
 
