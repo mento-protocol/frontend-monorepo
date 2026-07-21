@@ -452,7 +452,13 @@ The repository is set up with GitHub Actions for CI:
   The version-controlled controller mode is `active` in that state; the
   executable ownership test permits rollback only when the same PR switches it
   to `observe-only` and restores native UI branch previews, preventing duplicate
-  automatic owners.
+  automatic owners. The trusted controller also reads the candidate's bounded
+  exact-head UI Vercel configuration and rechecks it before dispatch: an exact
+  native rollback head suppresses GitHub dispatch even before merge, while an
+  unknown configuration or an `observe-only`/GitHub-owned head fails closed.
+  During rollback, `Vercel Preview` proves owner selection and journal drain
+  only; native Vercel deployment status and browser evidence separately prove
+  that the preview works.
   Vercel Git still owns every main/production deployment and all non-UI apps. See
   [ADR 0001](docs/adr/0001-github-actions-vercel-deployment-orchestration.md)
   for the accepted ownership boundary,

@@ -108,6 +108,23 @@ test("controller mode is canonical and reaches every reconciliation call", () =>
   }
 });
 
+test("controller guards cross-ref preview ownership with the candidate exact-head configuration", () => {
+  const implementation = read("scripts/vercel-preview-controller.mjs");
+  assert.match(implementation, /repos\.getContent/);
+  assert.match(
+    implementation,
+    /path:\s*UI_VERCEL_CONFIGURATION_PATH,\s*ref:\s*normalized\.headSha/s,
+  );
+  assert.match(
+    implementation,
+    /previewOwner === UI_PREVIEW_OWNER_NATIVE[\s\S]+continue reconcileAttempts/,
+  );
+  assert.match(
+    implementation,
+    /Observe-only controller leaves the candidate UI preview ownerless/,
+  );
+});
+
 test("Dependabot intake is credentialless and trusted follow-up alone can write status", () => {
   assert.equal(intake.name, "Vercel Preview Intake");
   assert.deepEqual(intake.on, {
@@ -718,6 +735,12 @@ test("runbook covers bootstrap, canaries, browser proof, separate cutover, and e
     '"**": false',
     '"main": true',
     '"dependabot/**": false',
+    "exact 40-character head",
+    "dispatch-disabled-intent-without-worker",
+    "Draining GitHub preview before native ownership",
+    "proves only the controller's owner selection",
+    "native Vercel deployment/status",
+    "stale Phase B branch",
     "vercel-preview-controller.yml",
     "vercel-preview-worker.yml",
     "vercel-preview-intake.yml",

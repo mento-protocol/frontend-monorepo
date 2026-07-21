@@ -14,11 +14,14 @@ owned by Vercel Git.
 
 The automatic controller's version-controlled
 `VERCEL_PREVIEW_CONTROLLER_MODE` is `active` in this ownership state. The only
-other accepted value is `observe-only`, which records receipts and publishes a
-truthful no-dispatch status but cannot create a worker. The executable ownership
-test requires `active` to be paired with disabled native UI branch previews and
-`observe-only` to be paired with restored native previews, so a reviewed change
-cannot leave both automatic owners enabled or leave the UI branch path ownerless.
+other accepted value is `observe-only`, which records receipts, recovers or
+retires already-persisted dispatch ownership, and publishes a truthful
+no-dispatch status but cannot create a worker. The executable ownership test
+requires `active` to be paired with disabled native UI branch previews and
+`observe-only` to be paired with restored native previews. The runtime
+controller separately validates the candidate's exact-head UI Vercel
+configuration, covering the pull-request window in which the trusted workflow
+still comes from `main` while Vercel already reads the candidate branch.
 
 ## Pinned prerequisites
 
@@ -708,13 +711,27 @@ one validated PR number. The controller has no Vercel/Turbo credential and no
 write-token job checks out or executes PR code.
 
 The workflow-level `VERCEL_PREVIEW_CONTROLLER_MODE` is an executable ownership
-switch, not a secret or an operator-set repository variable. Every reconciliation
-passes it to the trusted controller implementation. `active` permits the one
-worker-dispatch path; `observe-only` returns before intent selection, writes no
-new dispatch entry, and publishes `GitHub preview dispatch is observe-only` for
-the current open head. The dedicated dispatch secret is exposed to the step only
-when the version-controlled mode is `active`, and the dispatch implementation
-rechecks that mode immediately before its only worker-dispatch POST.
+switch, not a secret or an operator-set repository variable. Every
+reconciliation passes it to the trusted controller implementation. For each
+open trusted PR, the controller also reads
+`apps/ui.mento.org/vercel.json` from the candidate's exact 40-character head
+SHA through the Contents API. It accepts only the bounded, valid UTF-8 JSON
+representation of the two exact reviewed ownership configurations in this
+runbook; missing, oversized, malformed, or unknown content fails closed before
+journal mutation or any worker-dispatch request.
+
+`active` can create a worker only for the exact GitHub-owned configuration and
+rechecks that exact-head ownership immediately before the dispatch credential
+can make its only POST. The exact native configuration suppresses dispatch even
+when the default-branch workflow is still `active`, which protects a rollback
+PR before it merges. `observe-only` never creates a dispatch intent or worker.
+It does, however, reconcile a previously persisted `intended` entry: one unique
+existing worker is attached without the secondary credential, a completed
+worker is terminalized normally, an in-progress worker remains durably attached
+for its callback, and no match after bounded observation is retired as
+`dispatch-disabled-intent-without-worker`. Multiple matches fail closed. An
+`observe-only` controller paired with the GitHub-owned candidate configuration
+also fails closed because neither automatic preview path would own that head.
 
 Dependabot is intentionally split out before any write boundary.
 `.github/workflows/vercel-preview-intake.yml` receives the same PR activities
@@ -961,9 +978,13 @@ because a worker created by that token does not produce the terminal
 
 This dispatch description applies only while
 `VERCEL_PREVIEW_CONTROLLER_MODE: active`. In `observe-only` mode, event planning,
-journal receipts, completed-worker recovery, and the explicit no-dispatch status
-remain available, but the secondary client is not populated and the dispatch
-guard rejects the POST even if a caller reaches it unexpectedly.
+journal receipts, completed-worker recovery, crash-window intent discovery or
+retirement, and the explicit no-dispatch status remain available, but the
+secondary client is not populated and the dispatch guard rejects the POST even
+if a caller reaches it unexpectedly. Exact native candidate ownership also
+disables dispatch while an `active` default-branch controller handles the
+rollback PR; candidate configuration errors and ownership ambiguity never make
+a secondary-client request.
 
 The dispatch occurs only while the executing controller's own workflow SHA
 still equals the persisted intent. If the dedicated secret is missing, the
@@ -1279,10 +1300,33 @@ restore `apps/ui.mento.org/vercel.json` exactly to:
 ```
 
 Do not split those two edits across merges. A configuration-only rollback would
-restore native previews while the active controller could still dispatch a
-duplicate GitHub-built preview. A mode-only rollback would leave the UI branch
-path with no automatic preview owner. `pnpm vercel:preview:test` rejects both
-invalid ownership pairs.
+not be a supported steady state, and a mode-only rollback would leave every
+still-Phase-B UI branch without an automatic preview owner.
+`pnpm vercel:preview:test` rejects both invalid repository ownership pairs. The
+exact-head runtime guard is additional pre-merge protection: as soon as the
+rollback PR contains the exact native configuration, the still-`active`
+controller from `main` refuses to dispatch for it. This cross-ref safeguard does
+not make a split rollback acceptable.
+
+On the rollback PR, `Vercel Preview` reports `pending` with
+`Draining GitHub preview before native ownership` while any journal-owned
+GitHub intent or worker remains. The controller attaches a uniquely matching
+crash-window worker without dispatching; completion is recovered normally, and
+an intent with no worker is durably retired after bounded observation. Only
+after no active or retired GitHub ownership remains does the context become
+`success` with `Native Vercel owns this UI preview`. Missing, malformed, or
+unknown candidate configuration, multiple matching workers, and an
+`observe-only`/GitHub-owned combination remain `error`.
+
+That green context proves only the controller's owner selection and drained
+journal state. Its target is the controller run as audit evidence; it does not
+prove that native Vercel built, deployed, or smoke-tested the candidate. Before
+merging the rollback, separately require the native Vercel deployment/status
+for the rollback PR's exact head SHA, open its immutable preview URL, and run the
+repository browser protocol: verify rendering and primary navigation, inspect
+console errors and failed network requests, confirm assets and fonts, and check
+the expected security headers. Record the native deployment and browser
+evidence on the PR. Never treat the ownership-only status as this evidence.
 
 Immediately before merging the rollback, establish a coordinated no-push window
 and drain or cancel every non-completed run of all three workflows:
@@ -1333,7 +1377,10 @@ Before merging the rollback, inventory every active UI-runtime PR and branch
 that carries the Phase B `"**": false` rule. After the restored configuration
 reaches `main`, each inventoried branch must rebase or merge that `main`, or
 receive an explicitly reviewed equivalent branch update containing the exact
-rollback configuration, before native preview restoration can be claimed.
+rollback configuration, before native preview restoration can be claimed. A
+stale Phase B branch still carrying the GitHub-owned configuration is
+deliberately ownerless under the restored `observe-only` controller and receives
+an error status until it takes the rollback configuration.
 
 The rollback PR must update the current-state ownership text in `README.md` and
 this runbook. Do not weaken or remove the executable pairing assertion in
@@ -1342,8 +1389,9 @@ mode/configuration change mandatory.
 
 Use a fresh or restored-main-rebased UI canary to prove native previews return.
 A fresh canary proves only its own branch and is not evidence that every active
-Phase B branch was restored. Remove or leave non-required the `Vercel Preview`
-ruleset context until the controller is repaired. Do not change production
+Phase B branch was restored. The `Vercel Preview` context remains
+ownership-only in `observe-only`; require separate native Vercel and browser
+evidence anywhere preview readiness gates a merge. Do not change production
 domains, other apps, or recreate Governance QA.
 
 ### Historical Phase A pilot cleanup

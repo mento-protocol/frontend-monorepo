@@ -87,7 +87,7 @@ test("repository has exactly one canonical UI branch-preview owner", () => {
   );
 });
 
-test("cutover and rollback pair controller and native ownership atomically", () => {
+test("cutover and rollback permit only the two reviewed steady-state ownership pairs", () => {
   assert.notDeepEqual(CUTOVER_CONFIGURATION, ROLLBACK_CONFIGURATION);
   assertExactOwnership(
     structuredClone(CUTOVER_CONFIGURATION),

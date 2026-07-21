@@ -47,6 +47,15 @@ const SHA = Object.fromEntries(
     (index + 1).toString(16).repeat(40),
   ]),
 );
+const UI_VERCEL_CONFIGURATION_PATH = "apps/ui.mento.org/vercel.json";
+const GITHUB_OWNED_UI_VERCEL_CONFIGURATION = {
+  $schema: "https://openapi.vercel.sh/vercel.json",
+  git: { deploymentEnabled: { "**": false, main: true } },
+};
+const NATIVE_OWNED_UI_VERCEL_CONFIGURATION = {
+  $schema: "https://openapi.vercel.sh/vercel.json",
+  git: { deploymentEnabled: { "dependabot/**": false } },
+};
 const workerDispatchClients = new WeakMap();
 
 function reconcilePreview(options) {
@@ -2515,6 +2524,10 @@ function fakeGitHub({
   pullRequests = [],
   beforeListComments,
   beforeListCommitStatuses,
+  uiVercelConfiguration = GITHUB_OWNED_UI_VERCEL_CONFIGURATION,
+  uiVercelConfigurations = [],
+  uiVercelContentResponse,
+  uiVercelContentErrorStatus,
 } = {}) {
   const comments = structuredClone(initialComments);
   const runs = structuredClone(initialRuns);
@@ -2540,10 +2553,12 @@ function fakeGitHub({
   const workflowRunRequests = [];
   const primaryRequests = [];
   const workerDispatchRequests = [];
+  const contentRequests = [];
   const transientDisplayTitles = [...workflowRunDisplayTitles];
   const transientListDisplayTitles = [...workflowRunListDisplayTitles];
   const transientListRunIds = [...workflowRunListRunIds];
   const transientPullRequests = [...pullRequests];
+  const transientUiVercelConfigurations = [...uiVercelConfigurations];
   const attemptFailures = [...workflowRunAttemptFailures];
   const commentUpdateFailures = [...updateCommentFailures];
   const commitStatusListFailureQueue = [...commitStatusListFailures];
@@ -2662,6 +2677,33 @@ function fakeGitHub({
         },
       },
       repos: {
+        getContent: async (request) => {
+          contentRequests.push(structuredClone(request));
+          if (uiVercelContentErrorStatus) {
+            const error = new Error("fixture repository content read failed");
+            error.status = uiVercelContentErrorStatus;
+            throw error;
+          }
+          if (uiVercelContentResponse !== undefined) {
+            return { data: structuredClone(uiVercelContentResponse) };
+          }
+          const configuration =
+            transientUiVercelConfigurations.shift() ?? uiVercelConfiguration;
+          const text =
+            typeof configuration === "string"
+              ? configuration
+              : `${JSON.stringify(configuration, null, 2)}\n`;
+          const content = Buffer.from(text, "utf8");
+          return {
+            data: {
+              type: "file",
+              path: UI_VERCEL_CONFIGURATION_PATH,
+              encoding: "base64",
+              size: content.length,
+              content: content.toString("base64"),
+            },
+          };
+        },
         listDeployments,
         listCommitStatusesForRef,
         createCommitStatus: async (request) => {
@@ -2800,6 +2842,7 @@ function fakeGitHub({
     workflowRunRequests,
     primaryRequests,
     workerDispatchRequests,
+    contentRequests,
   };
 }
 
@@ -4658,7 +4701,191 @@ test("durable dispatch persists intent and waits for the exact run title to mate
   assert.deepEqual(journal.receipts.events, [opened]);
   assert.equal(journal.receipts.selections.length, 1);
   assert.equal(journal.state.ui.active.dispatch_state, "dispatched");
+  assert.ok(fixture.contentRequests.length >= 3);
+  assert.ok(
+    fixture.contentRequests.every(
+      ({ path, ref }) => path === UI_VERCEL_CONFIGURATION_PATH && ref === SHA.A,
+    ),
+  );
 });
+
+test("active controller defers an exact native-config rollback head without a dispatch credential", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+    comments: [journalComment({ events: [opened] })],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+  const core = fakeCore();
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    workerDispatchGithub: null,
+    context: fakeContext(),
+    core,
+    prNumber: 519,
+  });
+
+  assert.equal(state.ui.active, null);
+  assert.equal(state.ui.latest_desired_sha, SHA.A);
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.deepEqual(fixture.contentRequests, [
+    {
+      owner: "mento-protocol",
+      repo: "frontend-monorepo",
+      path: UI_VERCEL_CONFIGURATION_PATH,
+      ref: SHA.A,
+    },
+  ]);
+  assert.equal(fixture.commitStatuses.at(-1).state, "success");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Native Vercel owns this UI preview",
+  );
+  assert.equal(
+    fixture.commitStatuses.at(-1).target_url,
+    "https://github.com/mento-protocol/frontend-monorepo/actions/runs/7000",
+  );
+  assert.equal(core.outputs.get("preview_owner"), "native-vercel");
+  assert.equal(core.outputs.get("dispatch_skipped"), "true");
+});
+
+test("active controller rechecks exact-head ownership after recovery and blocks a racing native cutover", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+    comments: [journalComment({ events: [opened] })],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+    uiVercelConfigurations: [
+      GITHUB_OWNED_UI_VERCEL_CONFIGURATION,
+      GITHUB_OWNED_UI_VERCEL_CONFIGURATION,
+      NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+    ],
+  });
+  const waits = [];
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext(),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async (milliseconds) => waits.push(milliseconds),
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(state.ui.active, null);
+  assert.equal(
+    state.ui.terminal_history.at(-1).terminal_reason,
+    "dispatch-disabled-intent-without-worker",
+  );
+  assert.ok(fixture.contentRequests.length >= 5);
+  assert.ok(fixture.contentRequests.every(({ ref }) => ref === SHA.A));
+  assert.deepEqual(waits, [500, 500, 500, 500]);
+  assert.equal(fixture.commitStatuses.at(-1).state, "success");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Native Vercel owns this UI preview",
+  );
+});
+
+test("observe-only controller fails closed for a stale GitHub-owned Phase B head", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+    comments: [journalComment({ events: [opened] })],
+  });
+
+  await assert.rejects(
+    reconcilePreview({
+      github: fixture.github,
+      workerDispatchGithub: null,
+      controllerMode: "observe-only",
+      context: fakeContext(),
+      core: fakeCore(),
+      prNumber: 519,
+    }),
+    /leaves the candidate UI preview ownerless/,
+  );
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(fixture.commentUpdates.length, 0);
+  assert.equal(fixture.commitStatuses.at(-1).state, "error");
+});
+
+for (const [name, contentOptions, message] of [
+  [
+    "missing",
+    { uiVercelContentErrorStatus: 404 },
+    /fixture repository content read failed/,
+  ],
+  ["malformed", { uiVercelConfiguration: "{" }, /is malformed/],
+  [
+    "oversized",
+    {
+      uiVercelContentResponse: {
+        type: "file",
+        path: UI_VERCEL_CONFIGURATION_PATH,
+        encoding: "base64",
+        size: 2_049,
+        content: Buffer.alloc(2_049).toString("base64"),
+      },
+    },
+    /metadata is invalid/,
+  ],
+  [
+    "unknown",
+    { uiVercelConfiguration: { git: { deploymentEnabled: true } } },
+    /is not recognized/,
+  ],
+]) {
+  test(`candidate UI ownership ${name} fails closed before credentials or journal mutation`, async () => {
+    const opened = event({
+      run: 121,
+      action: "opened",
+      head: SHA.A,
+      updated: timestamp(1),
+    });
+    const fixture = fakeGitHub({
+      pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+      comments: [journalComment({ events: [opened] })],
+      ...contentOptions,
+    });
+
+    await assert.rejects(
+      reconcilePreview({
+        github: fixture.github,
+        workerDispatchGithub: null,
+        context: fakeContext(),
+        core: fakeCore(),
+        prNumber: 519,
+      }),
+      message,
+    );
+
+    assert.equal(fixture.dispatches.length, 0);
+    assert.equal(fixture.workerDispatchRequests.length, 0);
+    assert.equal(fixture.commentUpdates.length, 0);
+    assert.equal(fixture.commitStatuses.at(-1).state, "error");
+  });
+}
 
 test("observe-only controller mode records status without creating dispatch intent", async () => {
   const opened = event({
@@ -4670,6 +4897,7 @@ test("observe-only controller mode records status without creating dispatch inte
   const fixture = fakeGitHub({
     pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
     comments: [journalComment({ events: [opened] })],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
   });
   const core = fakeCore();
 
@@ -4703,7 +4931,7 @@ test("observe-only controller mode records status without creating dispatch inte
         sha: SHA.A,
         state: "success",
         context: "Vercel Preview",
-        description: "GitHub preview dispatch is observe-only",
+        description: "Native Vercel owns this UI preview",
       },
     ],
   );
@@ -4741,6 +4969,7 @@ test("observe-only mode recovers completed work and reconstructs state without d
     pullRequest,
     comments: [journalWithState([opened, runtimeB], dispatched)],
     runs: [completed],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
   });
   const core = fakeCore();
 
@@ -4776,12 +5005,226 @@ test("observe-only mode recovers completed work and reconstructs state without d
       {
         sha: SHA.B,
         state: "success",
-        description: "GitHub preview dispatch is observe-only",
+        description: "Native Vercel owns this UI preview",
       },
     ],
   );
   assert.equal(core.outputs.get("controller_mode"), "observe-only");
   assert.equal(core.outputs.get("dispatch_skipped"), "true");
+});
+
+test("observe-only mode attaches and terminalizes a completed crash-window worker", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const selected = reconcile({ events: [opened], pullRequest });
+  const intended = persistIntent(selected);
+  const completed = workerRun(selected.nextDispatch, {
+    status: "completed",
+    conclusion: "cancelled",
+  });
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [journalWithState([opened], intended)],
+    runs: [completed],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+  const core = fakeCore();
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    workerDispatchGithub: null,
+    controllerMode: "observe-only",
+    context: fakeContext({ runId: 7_001 }),
+    core,
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(core.outputs.get("recovered_intended_run_id"), "8000");
+  assert.equal(state.ui.active, null);
+  assert.equal(
+    state.ui.terminal_history.at(-1).terminal_reason,
+    "worker-cancelled",
+  );
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.results.length, 1);
+  assert.equal(journal.receipts.results[0].worker_run_id, 8_000);
+  assert.equal(journal.state.ui.active, null);
+  assert.equal(fixture.commitStatuses.at(-1).state, "success");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Native Vercel owns this UI preview",
+  );
+});
+
+test("observe-only mode durably attaches an in-progress crash-window worker and stays pending", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const selected = reconcile({ events: [opened], pullRequest });
+  const intended = persistIntent(selected);
+  const queued = workerRun(selected.nextDispatch, { status: "in_progress" });
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [journalWithState([opened], intended)],
+    runs: [queued],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+  const core = fakeCore();
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    workerDispatchGithub: null,
+    controllerMode: "observe-only",
+    context: fakeContext({ runId: 7_001 }),
+    core,
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(state.ui.active.dispatch_state, "dispatched");
+  assert.equal(state.ui.active.workflow_run_id, 8_000);
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.state.ui.active.workflow_run_id, 8_000);
+  assert.equal(journal.receipts.results.length, 0);
+  assert.equal(fixture.commitStatuses.at(-1).state, "pending");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Draining GitHub preview before native ownership",
+  );
+  assert.equal(
+    fixture.commitStatuses.at(-1).target_url,
+    "https://github.com/mento-protocol/frontend-monorepo/actions/runs/7001",
+  );
+  assert.equal(core.outputs.get("preview_ownership_draining"), "true");
+});
+
+test("observe-only mode durably retires a crash-window intent with no worker and does not rediscover it", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const selected = reconcile({ events: [opened], pullRequest });
+  const intended = persistIntent(selected);
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [journalWithState([opened], intended)],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+  const core = fakeCore();
+  const waits = [];
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    workerDispatchGithub: null,
+    controllerMode: "observe-only",
+    context: fakeContext({ runId: 7_001 }),
+    core,
+    prNumber: 519,
+    waitForRecovery: async (milliseconds) => waits.push(milliseconds),
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.deepEqual(waits, [500, 500]);
+  assert.equal(fixture.workflowRunListRequests.length, 3);
+  assert.equal(core.outputs.get("retired_undispatched_intent"), "true");
+  assert.equal(state.ui.active, null);
+  assert.equal(
+    state.ui.terminal_history.at(-1).terminal_reason,
+    "dispatch-disabled-intent-without-worker",
+  );
+  let journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.results.length, 1);
+  assert.equal(
+    journal.receipts.results[0].terminal_reason,
+    "dispatch-disabled-intent-without-worker",
+  );
+  assert.equal(journal.state.ui.active, null);
+  assert.equal(fixture.commitStatuses.at(-1).state, "success");
+
+  fixture.comments[0].body = journalWithState(
+    [opened],
+    intended,
+    {
+      revision: journal.revision + 1,
+      results: journal.receipts.results,
+    },
+    fixture.comments[0].id,
+  ).body;
+  const lookupCount = fixture.workflowRunListRequests.length;
+  await reconcilePreview({
+    github: fixture.github,
+    workerDispatchGithub: null,
+    controllerMode: "observe-only",
+    context: fakeContext({ runId: 7_002 }),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+  journal = journalFromComment(fixture.comments[0]);
+  assert.equal(fixture.workflowRunListRequests.length, lookupCount);
+  assert.equal(journal.receipts.results.length, 1);
+  assert.equal(journal.state.ui.active, null);
+});
+
+test("observe-only mode fails closed when multiple workers match one crash-window intent", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const selected = reconcile({ events: [opened], pullRequest });
+  const intended = persistIntent(selected);
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [journalWithState([opened], intended)],
+    runs: [
+      workerRun(selected.nextDispatch, { id: 8_000 }),
+      workerRun(selected.nextDispatch, { id: 8_001 }),
+    ],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+
+  await assert.rejects(
+    reconcilePreview({
+      github: fixture.github,
+      workerDispatchGithub: null,
+      controllerMode: "observe-only",
+      context: fakeContext({ runId: 7_001 }),
+      core: fakeCore(),
+      prNumber: 519,
+      waitForRecovery: async () => {},
+    }),
+    /Multiple worker runs match one intended controller key/,
+  );
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(fixture.commentUpdates.length, 0);
+  assert.equal(
+    journalFromComment(fixture.comments[0]).state.ui.active.dispatch_state,
+    "intended",
+  );
+  assert.equal(fixture.commitStatuses.at(-1).state, "error");
 });
 
 test("controller mode is explicit and rejects unknown values before API access", async () => {
