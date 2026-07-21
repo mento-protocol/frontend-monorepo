@@ -1,27 +1,27 @@
 # Vercel deployments from GitHub Actions
 
-This runbook documents the repository-owned planning, build, and automatic UI
-preview controller used by the GitHub Actions deployment migration tracked in
+This runbook documents the repository-owned planning, build, and automatic
+four-target preview controller used by the GitHub Actions deployment migration tracked in
 [issue #515](https://github.com/mento-protocol/frontend-monorepo/issues/515).
 The ownership boundary and its trade-offs are recorded in
 [ADR 0001](adr/0001-github-actions-vercel-deployment-orchestration.md).
-Phase A enabled GitHub-built previews for trusted same-repository UI pull
-requests while native Vercel Git UI previews remained enabled for canary
-comparison. After that evidence gate, Phase B transferred only UI branch-preview
-ownership to GitHub Actions. Native Vercel Git previews are now disabled for UI
-branches other than `main`; production/main and every non-UI application remain
-owned by Vercel Git.
+The v2 controller builds App, Governance, Reserve, and UI independently from one
+target-ordered plan. UI branch-preview ownership is GitHub-only. App,
+Governance, and Reserve are in shadow mode: GitHub builds run alongside their
+native Vercel Git previews until each target completes its own canary and a
+separate atomic ownership cutover. Vercel Git continues to own every main and
+production deployment.
 
 The automatic controller's version-controlled
 `VERCEL_PREVIEW_CONTROLLER_MODE` is `active` in this ownership state. The only
 other accepted value is `observe-only`, which records receipts, recovers or
 retires already-persisted dispatch ownership, and publishes a truthful
-no-dispatch status but cannot create a worker. The executable ownership test
-requires `active` to be paired with disabled native UI branch previews and
-`observe-only` to be paired with restored native previews. The runtime
-controller separately validates the candidate's exact-head UI Vercel
-configuration, covering the pull-request window in which the trusted workflow
-still comes from `main` while Vercel already reads the candidate branch.
+no-dispatch status but cannot create a worker. The canonical target order,
+workspace/root/project mapping, exact native/GitHub `vercel.json` shapes, and
+per-target `shadow` or `github` mode live together in
+`scripts/vercel-preview-targets.mjs`. The workflow topology, runtime ownership
+guards, and ownership tests import or structurally verify that source; do not
+copy a second ownership table into executable code.
 
 ## Pinned prerequisites
 
@@ -332,26 +332,26 @@ The workspace and Root Directory are not independent free-form selectors: each
 must match the selected target. All four identities are standard `preview`
 builds. Automatic identity is also target-bound to
 `preview/<target>/pr-<number>` and
-`vercel-preview:v1:pr:<number>:target:<target>:sha:<sha>`. Each future literal
-caller must still pass its own opaque `VERCEL_PROJECT_ID_*` value explicitly;
+`vercel-preview:v1:pr:<number>:target:<target>:sha:<sha>`. This external key
+intentionally retains `v1` so existing GitHub/Vercel Deployment identity stays
+stable across the internal controller migration. Each literal caller passes
+its own opaque `VERCEL_PROJECT_ID_*` value explicitly;
 the reusable workflow contains no matrix or dynamic project/secret lookup.
 
-This generic core does not itself activate the remaining applications. The
-current automatic worker continues to call only the UI target with
-`preview-controller:v1`. Both its initial upload path and its same-upload retry
-call the secretless four-target `_vercel-preview-smoke.yml` workflow with the
-complete verified tuple before canonical Deployment success. App, Governance,
-and Reserve already have target-specific smoke implementations, but their
-literal controller callers remain absent until the separate atomic activation
-change. No ownership configuration changes as part of this interface
-preparation.
+The automatic worker has four literal caller jobs in stable `app`,
+`governance`, `reserve`, `ui` order and writes internal
+`preview-controller:v2` provenance. There is no matrix, dynamic secret name,
+or `secrets: inherit`. Initial uploads and same-upload retries call the single
+secretless `_vercel-preview-smoke.yml` workflow with the complete verified
+target tuple before canonical Deployment success. The v2 activation does not
+change any target's `vercel.json`; App, Governance, and Reserve therefore remain
+dual-run shadow canaries while UI remains GitHub-owned.
 
 The reusable declaration has the three common secrets
 (`VERCEL_TOKEN_PREVIEW`, `TURBO_TOKEN`, and
 `TURBO_REMOTE_CACHE_SIGNATURE_KEY`) plus one optional Governance-only
-`ETHERSCAN_API_KEY` input. Current UI callers pass only the three common
-secrets. A future literal Governance caller must pass `ETHERSCAN_API_KEY`;
-App, Reserve, and UI must not. No preview caller declares or passes
+`ETHERSCAN_API_KEY` input. App, Reserve, and UI pass only the three common
+secrets; Governance alone also passes `ETHERSCAN_API_KEY`. No preview caller declares or passes
 `SENTRY_AUTH_TOKEN`, and the preflight rejects either Sensitive name if it
 appears in the Vercel-pulled file before candidate code can execute.
 
@@ -776,7 +776,7 @@ run-specific evidence only. The adapter receives no PAT, Vercel token, Turbo
 token, or application secret and is deleted after all native consumers leave
 the observation window.
 
-## Automatic trusted UI previews (current; introduced in Phase A)
+## Automatic trusted four-target previews (current v2 controller)
 
 `.github/workflows/vercel-preview-controller.yml` is the only automatic event
 controller. It runs trusted default-branch code for `pull_request_target`
@@ -787,21 +787,22 @@ completed `Vercel Preview Worker` callbacks; and accepts the default-branch-boun
 one validated PR number. The controller has no Vercel/Turbo credential and no
 write-token job checks out or executes PR code.
 
-The workflow-level `VERCEL_PREVIEW_CONTROLLER_MODE` is an executable ownership
+The workflow-level `VERCEL_PREVIEW_CONTROLLER_MODE` is an executable global
 switch, not a secret or an operator-set repository variable. Every
 reconciliation passes it to the trusted controller implementation. For each
-open trusted PR, the controller reads `apps/ui.mento.org/vercel.json` through
-the Contents API at immutable 40-character SHAs. The current PR head selects
-the controller's overall mode, but every historical event selected for dispatch
-is checked again at that event's own SHA after its PR-lineage association is
-proven. It accepts only the bounded, valid UTF-8 JSON representation of the two
-exact reviewed ownership configurations in this runbook; missing, oversized,
-malformed, or unknown content fails closed before any worker-dispatch request.
+open trusted PR, the controller reads all four canonical `vercel.json` paths
+through the Contents API at immutable 40-character SHAs. Each target is
+evaluated independently against its canonical mode in
+`scripts/vercel-preview-targets.mjs`: `shadow` always permits the GitHub canary
+alongside an exact native configuration, while `github` requires the exact
+GitHub-owned configuration. Every selected historical event is rechecked at its
+own SHA after PR-lineage proof. Missing, oversized, malformed, or unknown
+content fails closed before any worker-dispatch request.
 
-`active` can create a worker only while both the current head and the selected
-event SHA have the exact GitHub-owned configuration, and rechecks both immutable
-ownership inputs immediately before the dispatch credential can make its only
-POST. A selected native-owned receipt is persisted as an intent and routed
+`active` creates at most one independent worker per affected target and
+rechecks the current and selected immutable ownership inputs immediately before
+the dispatch credential can make its only POST. A selected native-owned receipt
+for a GitHub-mode target is persisted as an intent and routed
 through the same bounded no-dispatch recovery path: one already-created worker
 is attached and drained, while no matching worker produces the durable
 `native-owned-selection-without-github-worker` result and advances
@@ -809,9 +810,10 @@ reconciliation to the next receipt. That dedicated terminal reason is
 ownership-success, not GitHub build evidence; it creates no GitHub Deployment.
 The generic `dispatch-disabled-intent-without-worker` result remains an error
 for the SHA whose GitHub-owned intent was retired, so a later ownership flip
-cannot falsely relabel that historical SHA as native-owned. The exact native
-configuration also suppresses dispatch when the default-branch workflow is
-still `active`, which protects a rollback PR before it merges. `observe-only`
+cannot falsely relabel that historical SHA as native-owned. For a GitHub-mode
+target, the exact native configuration also suppresses dispatch when the
+default-branch workflow is still `active`, which protects a rollback PR before
+it merges. `observe-only`
 never creates a new dispatch intent or worker.
 It does, however, reconcile every previously persisted `intended` entry in both
 the current and epoch-retired ownership slots: one unique existing worker is
@@ -819,9 +821,9 @@ attached without the secondary credential, a completed worker is terminalized
 in the same reconciliation attempt, an in-progress worker remains durably
 attached in its original slot for its callback, and no match after bounded
 observation is retired as `dispatch-disabled-intent-without-worker`. Multiple
-matches fail closed. An `observe-only` controller paired with the GitHub-owned
-candidate configuration also fails closed because neither automatic preview
-path would own that head.
+matches fail closed. An `observe-only` controller fails closed when any target
+would otherwise require GitHub ownership, because that target would have no
+automatic preview owner.
 
 Dependabot is intentionally split out before any write boundary.
 `.github/workflows/vercel-preview-intake.yml` receives the same PR activities
@@ -873,14 +875,17 @@ separate credentialless intake contract above. The journal's hidden marker and
 payload schema are exactly:
 
 ```text
-<!-- vercel-preview-journal:v1 -->
-vercel-preview-journal:v1
+<!-- vercel-preview-journal:v2 -->
+vercel-preview-journal:v2
 ```
 
 The journal is an internal coordination record, not review feedback. Its
-reviewer explanation remains visible while one collapsed GitHub `<details>`
-block contains canonical JSON. That document holds the repository and PR
-identity, a monotonic revision, an optional deterministic checkpoint, a
+reviewer explanation and stable-order App/Governance/Reserve/UI outcome table
+remain visible; useful immutable deployment or worker URLs are linked from the
+matching outcome. One collapsed GitHub `<details>` block contains canonical
+JSON. The visible table is derived from that JSON and is part of the exact
+canonical body, not a second state surface. The document holds the repository
+and PR identity, a monotonic revision, an optional deterministic checkpoint, a
 top-level journal digest over that checkpoint, the canonical live receipt set,
 and mutable state, logically immutable live
 event/selection/worker-evidence/result entries, and bounded mutable controller
@@ -898,7 +903,7 @@ journal count and complete canonical body, applies one idempotent transition,
 updates the comment, or initially creates it for an explicit bootstrap, a
 first-attempt `opened`, or another first-attempt non-closed PR event whose
 `before` and head commits have no prior PR-scoped
-`Vercel Preview Journal / PR #<number>` initialization status,
+`Vercel Preview Journal v2 / PR #<number>` initialization status,
 then rereads and proves the expected
 revision, canonical JSON, journal digest, and, when state exists,
 `state.receipts_digest` before publishing a status or dispatching a worker.
@@ -907,7 +912,7 @@ ambiguous reread fail closed.
 
 A first-attempt non-closed event can therefore preserve an out-of-order receipt
 when it wins the queue before `opened`. Every durably recorded event ensures a
-`Vercel Preview Journal / PR #<number>` success-status witness on its head before
+`Vercel Preview Journal v2 / PR #<number>` success-status witness on its head before
 normal reconciliation. That lets a retry repair a witness write that failed
 after the journal mutation and carries deletion evidence across every push. The
 PR suffix prevents a status left on a reused or stacked commit by another PR
@@ -925,7 +930,8 @@ restart.
 Before a later event is appended, a terminal journal with no active or retired
 worker and no unfinished evidence folds its completed prefix into one
 deterministic in-place checkpoint. The checkpoint holds cumulative receipt
-counts and digest, the verified lifecycle tail event, and its terminal status.
+counts and digest, the verified lifecycle tail event, and independent status,
+runtime, and pending-owner evidence for all four targets.
 For an open PR the tail is the last reconciled lineage event; for a closed PR
 it is the closure whose timestamp matches current GitHub state. State is
 rebased onto that tail and completed live receipts are cleared in the same
@@ -935,10 +941,10 @@ with another workflow run ID is already represented and is therefore a no-op;
 the same run ID with conflicting content still fails closed. When a docs-only
 tail is checkpointed, its inherited terminal runtime state, immutable URL, and
 failure or cancellation meaning continue across later docs-only pushes rather
-than reverting to a fresh no-runtime success. A 50-preview sequential-cycle
-test peaks at 7,772 rendered UTF-8 bytes. This is still one comment, schema,
-and controller path: there is no archive, rollover, second comment, or
-compatibility reader.
+than reverting to a fresh no-runtime success. The four-target 50-preview
+sequential-cycle fixture remains below a strict 16,000-byte bound. This is still
+one comment, schema, and controller path: there is no archive, rollover, second
+comment, or compatibility reader.
 
 An overlapping push burst uses the same checkpoint field before the rendered
 body reaches capacity. At the 40,000-byte soft threshold, the controller proves
@@ -978,11 +984,13 @@ base-to-head transition. Title, body, label, and other unrelated edits create
 neither an entry nor a reconciliation.
 
 `Vercel Preview` is reserved for a Statuses API commit status, not a workflow
-job/check name. Every exact journal event SHA gets one truthful result: pending,
-verified, no runtime impact, runtime-equivalent to a prior preview, unsupported
-trust boundary, durably coalesced, failure, or controller error. Detailed
-PR/SHA/key/run/Deployment evidence remains in the canonical journal because
-status descriptions are bounded.
+job/check name. Every exact journal event SHA gets one aggregate result whose
+bounded description reports `app`, `governance`, `reserve`, and `ui` outcomes
+in that stable order. The aggregate fails on any target error/failure, remains
+pending while any target is pending, and otherwise succeeds. Each target's
+independent outcome and exact-SHA evidence remain in the v2 journal; the status
+target prefers the relevant immutable deployment or worker URL over a neutral
+controller link.
 
 Terminal status targets are durable evidence rather than the URL of whichever
 controller invocation happened to reconcile them. Verified uploads, including
@@ -1002,14 +1010,15 @@ reconciliation: the controller conservatively writes the canonical status
 again, so an externally deleted or altered status is repaired while a genuine
 pending-to-terminal or target transition remains visible.
 
-For each open/reopen/base-retarget/bootstrap epoch, the oldest journal event
-entry that actually affects the UI is `first_eligible_sha`. It always runs
-first. An identical bootstrap aliases an existing lifecycle anchor instead of
-creating a second epoch. While that worker is queued/running, later runtime
-pushes replace only `latest_desired_sha`; when the first worker terminates, only
-that latest SHA runs. Documentation/test-only pushes never replace the desired
-runtime SHA. After a verified runtime preview, a later non-runtime SHA succeeds
-by linking to that runtime-equivalent immutable preview without rebuilding.
+For each open/reopen/base-retarget/bootstrap epoch and each target, the oldest
+event that affects that target is its `first_eligible_sha` and runs first.
+Targets advance independently in canonical order. An identical bootstrap
+aliases an existing lifecycle anchor instead of creating a second epoch. While
+one target's worker is queued/running, later affected pushes replace only that
+target's `latest_desired_sha`; after the first worker terminates, only its latest
+SHA runs. A push may therefore deploy one target while another remains active,
+coalesced, runtime-equivalent, or unaffected. Documentation/test-only pushes do
+not replace any desired runtime SHA.
 
 Each selected transition is bound to its lifecycle epoch, canonical
 reconciliation-basis digest, immutable journal event entry, and the exact
@@ -1133,8 +1142,8 @@ Git-ownership cutover.
 The canonical Deployment key and environment are:
 
 ```text
-vercel-preview:v1:pr:<number>:target:ui:sha:<40-hex-sha>
-preview/ui/pr-<number>
+vercel-preview:v1:pr:<number>:target:<target>:sha:<40-hex-sha>
+preview/<target>/pr-<number>
 ```
 
 The explicit REST Deployment uses the exact SHA, `auto_merge: false`, empty
@@ -1149,11 +1158,12 @@ exact SHA ancestry, bot-owned active journal state, and canonical Deployment.
 The evidence writer repeats the immutable-SHA comparison and persists that SHA
 in non-terminal and terminal journal entries. A mismatch fails before any build
 or deployment credential is reachable. A separate trusted preflight prints
-only missing repository variable/secret names. The literal UI reusable caller
+only missing repository variable/secret names. Each literal reusable caller
 receives only `VERCEL_TOKEN_PREVIEW`, `TURBO_TOKEN`, and
-`TURBO_REMOTE_CACHE_SIGNATURE_KEY`, plus `VERCEL_ORG_ID`,
-`VERCEL_PROJECT_ID_UI`, and `TURBO_TEAM`. The direct smoke/resume jobs receive no
-deployment credential.
+`TURBO_REMOTE_CACHE_SIGNATURE_KEY`, its literal `VERCEL_PROJECT_ID_*`, plus
+`VERCEL_ORG_ID` and `TURBO_TEAM`. Governance alone additionally receives
+`ETHERSCAN_API_KEY`; no preview caller receives a Sentry token. Direct
+smoke/resume jobs receive no deployment credential.
 
 The worker is dispatched on `main`, and the reusable contract requires both
 `refs/heads/main` and the exact main-branch `vercel-preview-worker.yml` caller
@@ -1257,63 +1267,109 @@ repository names must be provisioned by a maintainer; automation may check
 presence but must never retrieve, export, reconstruct, or print credential
 values.
 
-### Clean journal cutover and legacy cleanup
+### Clean v1-to-v2 journal migration
 
-The journal rollout is a clean cutover. It has no dual-read window, legacy
-worker compatibility, payload import, or in-controller migration path.
+The four-target v2 controller is a clean replacement for the UI-only v1
+controller. Runtime code has no v1 reader, writer, importer, deleter,
+compatibility worker, or dual-read window. The migration deliberately abandons
+v1 lifecycle continuity and rebuilds authoritative state from current GitHub
+PR metadata.
 
-1. Before merging, inventory all runs of the preview controller, preview
-   worker, and preview intake workflows. Let every listed run terminate, or
-   cancel it, and verify that no legacy run can still write a comment or
-   dispatch work.
-2. Merge the journal implementation.
-3. Inventory every open participating PR from current GitHub state and dispatch
-   `vercel-preview-bootstrap` for each one using the command above. Bootstrap
-   plans from live PR metadata; it must not read, translate, trust, or reconcile
-   any retired comment payload.
-4. For each PR, prove that exactly one trusted-bot comment has the
-   `<!-- vercel-preview-journal:v1 -->` marker, record its comment ID, reread its
-   canonical JSON, and verify that the exact-head `Vercel Preview` status and
-   worker/Deployment decision agree with the fresh plan. Subsequent transitions
-   must edit that same comment ID.
-5. Only after step 4 succeeds, run the reviewed cleanup against the inventory.
-   Delete a comment only when its author is exactly `github-actions[bot]`, its
-   complete hidden marker validates, and its complete JSON body validates under
-   the matching retired schema: `vercel-preview-event-receipt:v1`,
-   `vercel-preview-selection:v1`, `vercel-preview-worker-evidence:v1`,
-   `vercel-preview-worker-result:v1`, or `vercel-preview-controller:v1`.
+1. Establish a coordinated no-push window. Inventory every non-completed run of
+   the preview controller, worker, and intake workflows. Let each run terminate
+   or cancel it, then verify that no v1 run can still edit a journal, dispatch a
+   worker, or publish preview state.
+2. Inventory every open participating PR and record the exact comment ID of
+   each `github-actions[bot]` comment whose complete marker is
+   `<!-- vercel-preview-journal:v1 -->`. Treat those comments only as retired
+   audit evidence; do not copy or translate their payloads.
+3. Merge the v2 controller without changing any Vercel project configuration.
+4. Dispatch `vercel-preview-bootstrap` once for every open participating PR by
+   using the command above. Bootstrap must plan from the live PR head and
+   current repository files, never from the v1 journal.
+5. For each PR, prove that exactly one trusted-bot comment has the
+   `<!-- vercel-preview-journal:v2 -->` marker and record its stable comment ID.
+   Verify its `vercel-preview-journal:v2` payload contains independent state and
+   checkpoint records for `app`, `governance`, `reserve`, and `ui`; its aggregate
+   exact-head `Vercel Preview` status must agree with the expected worker,
+   Deployment, native-owner, or no-runtime result for every target. A later
+   transition must edit that same v2 comment instead of creating another one.
+6. Only after every v2 bootstrap in step 5 is proven, manually delete the
+   inventoried v1 comments. Before each deletion, reread the comment and require
+   the exact recorded ID, `github-actions[bot]` author, and complete v1 journal
+   marker. Do not delete by substring, age, or author alone; leave malformed,
+   unknown, human, third-party-bot, and review comments untouched. This is an
+   operator cleanup step, not a code path in the v2 controller.
+7. Release the no-push window after all open participating PRs have a verified
+   v2 journal. Subsequent reconcile, worker callback, close, and reopen events
+   must continue using only v2 state.
 
-The retired marker shapes eligible for that full-body validator are:
+Rollback is a v2 roll-forward restart: drain or cancel all v2 controller and
+worker runs, merge the reviewed corrective change, and bootstrap fresh v2
+journals from live PR state. Never restore the v1 controller, import a v1
+payload, rematerialize a deleted v1 journal, or claim lifecycle continuity
+across the restart.
 
-| Retired schema                      | Exact marker shape                                                     |
-| ----------------------------------- | ---------------------------------------------------------------------- |
-| `vercel-preview-event-receipt:v1`   | `<!-- vercel-preview-event-receipt:v1:run:<run-id> -->`                |
-| `vercel-preview-selection:v1`       | `<!-- vercel-preview-selection:v1:key:<key-digest> -->`                |
-| `vercel-preview-worker-evidence:v1` | `<!-- vercel-preview-worker-evidence:v1:<key-digest>:run:<run-id> -->` |
-| `vercel-preview-worker-result:v1`   | `<!-- vercel-preview-worker-result:v1:<key-digest>:run:<run-id> -->`   |
-| `vercel-preview-controller:v1`      | `<!-- vercel-preview-controller:v1 -->`                                |
+### Four-target v2 activation canary and later ownership cutovers
 
-The validator must also accept only the two retired canonical Markdown
-envelopes: the original marker-plus-JSON-fence body and the later
-reviewer-explanation-plus-`<details>` body. A marker prefix or schema field by
-itself is never deletion evidence.
+Activating the v2 controller does not edit a Vercel project configuration. In
+the initial ownership map, GitHub Actions is the sole automatic branch-preview
+owner for `ui`; `app`, `governance`, and `reserve` remain in shadow mode so
+their native Vercel and GitHub-built previews run together. Main and production
+deployments remain native for every target.
 
-The cleanup must leave unknown or malformed comments, human and third-party-bot
-comments, review discussion, and every `vercel-preview-journal:v1` comment
-untouched. Do not delete by body substring, comment age, or author alone. Closed
-historical PRs do not receive a journal; after the run inventory proves
-quiescence, the same exact author-plus-marker-plus-schema validator may remove
-their retired comments. Cleanup failures are cosmetic and retryable because the
-journal controller ignores legacy comments after cutover. Journal creation,
-update, or reread failures remain blocking.
+After the v2 bootstrap, exercise one runtime-affecting PR per target before a
+single PR that affects multiple targets. For every canary, record the PR and
+exact SHA, controller and worker run URLs, canonical Deployment ID and
+environment, GitHub-built immutable URL, native immutable URL when the target
+is shadowed, v2 journal comment ID and revision, exact-head aggregate status,
+and browser evidence. Prove all of the following:
 
-Rollback is another clean restart. Drain or cancel journal-era controller and
-worker runs, merge the reviewed rollback, then bootstrap the restored
-controller afresh from live PR state. Do not rematerialize legacy comments from
-journal entries or claim lifecycle continuity across the rollback. Retain
-journal comments as inert audit evidence until the restored controller has been
-proven; if they are later removed, apply the same exact trusted-author and
-full-body schema validation.
+1. only the affected targets advance, while unaffected target checkpoints stay
+   stable;
+2. each selected target uses
+   `preview/<target>/pr-<number>` and the unchanged external key
+   `vercel-preview:v1:pr:<number>:target:<target>:sha:<sha>`;
+3. all selected targets use the single reusable smoke workflow for both the
+   initial upload and same-upload retry;
+4. `app`, `governance`, and `reserve` show both a native preview and one
+   canonical GitHub Deployment, while `ui` shows only the GitHub Deployment;
+5. the one v2 journal comment is edited in place and its four target outcomes
+   agree with the compact aggregate `Vercel Preview` status; and
+6. first-eligible-plus-latest batching and recovery operate independently per
+   target, including a multi-target PR with overlapping pushes.
+
+A later native-to-GitHub ownership cutover is a separate atomic change per
+target. In the same reviewed PR, change that target's exact `vercel.json` from
+the canonical native configuration to its canonical GitHub configuration and
+change only that target's `ownershipMode` in
+`scripts/vercel-preview-targets.mjs` from `shadow` to `github`. Update structural
+tests and this runbook in that PR. Do not flip a global ownership mode or
+hand-copy a configuration from another target; the app target intentionally has
+an additional `v2` branch exception in its canonical GitHub configuration.
+
+Perform those later cutovers strictly in the order **Reserve → Governance →
+App**, with one reviewed merge and completed live canary between targets. Stop
+after any failed target: keep every already-proven target in its accepted owner
+state, leave all later targets in shadow mode, and diagnose or roll back only
+the failed target. App may not cut over until Governance has completed its own
+cutover and browser-verified canary. This controller-expansion change ends at
+shadow activation and must not include any of those three configuration
+cutovers.
+
+Before each Reserve, Governance, or App cutover, inventory open branches and
+PRs that still contain that target's pre-cutover `vercel.json`. Every branch
+used to validate the cutover must merge or rebase the resulting current `main`
+before its canary is accepted. Record any intentionally deferred stale PR with
+its owner and follow-up action; do not claim repository-wide duplicate
+prevention while an unaccounted stale branch can still request a native
+preview.
+
+For rollback, first establish a coordinated no-push window and drain controller
+and worker ownership for the target. Atomically restore both its canonical
+native Vercel configuration and `shadow` ownership mode, then require an exact
+head native deployment plus browser proof before accepting the rollback. Never
+split the configuration and ownership edits across merges.
 
 ### Phase A canary evidence template
 

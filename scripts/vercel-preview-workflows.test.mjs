@@ -137,6 +137,25 @@ test("controller guards every target with the canonical immutable ownership map"
   );
 });
 
+test("automatic preview runtime has no v1 journal or worker compatibility path", () => {
+  const runtime = [
+    read("scripts/vercel-preview-controller.mjs"),
+    read("scripts/vercel-prebuilt-workflow.mjs"),
+    read("scripts/github-deployment.mjs"),
+    read(controllerPath),
+    read(workerPath),
+  ].join("\n");
+
+  assert.match(runtime, /vercel-preview-journal:v2/);
+  assert.match(runtime, /vercel-preview-controller:v2/);
+  assert.match(runtime, /mento-vercel-prebuilt\/v2/);
+  assert.match(runtime, /preview-controller:v2/);
+  assert.doesNotMatch(
+    runtime,
+    /vercel-preview-journal:v1|vercel-preview-controller:v1|mento-vercel-prebuilt\/v1|preview-controller:v1/,
+  );
+});
+
 test("Dependabot intake is credentialless and trusted follow-up alone can write status", () => {
   assert.equal(intake.name, "Vercel Preview Intake");
   assert.deepEqual(intake.on, {
@@ -786,12 +805,25 @@ test("automatic workflow creates no implicit or Vercel-owned Deployment", () => 
   }
 });
 
-test("runbook covers bootstrap, canaries, browser proof, separate cutover, and exact rollback", () => {
+test("runbook covers v2 migration, four-target canaries, cutover, and exact rollback", () => {
   const docs = read("docs/vercel-deployments.md");
   for (const expected of [
     "vercel-preview-bootstrap",
     "vercel-preview-reconcile",
     "/dispatches",
+    "Clean v1-to-v2 journal migration",
+    "no v1 reader, writer, importer, deleter",
+    "vercel-preview-journal:v2",
+    "app`, `governance`, `reserve`, and `ui",
+    "without changing any Vercel project configuration",
+    "Four-target v2 activation canary and later ownership cutovers",
+    "single PR that affects multiple targets",
+    "scripts/vercel-preview-targets.mjs",
+    "Perform those later cutovers strictly in the order",
+    "App may not cut over until Governance",
+    "leave all later targets in shadow mode",
+    "intentionally deferred stale PR",
+    "shadow activation",
     "Phase A canary evidence template",
     "repository browser protocol",
     "UI Vercel Git cutover (Phase B)",
@@ -799,7 +831,8 @@ test("runbook covers bootstrap, canaries, browser proof, separate cutover, and e
     '"main": true',
     '"dependabot/**": false',
     "immutable 40-character SHAs",
-    "event's own SHA",
+    "selected historical event is rechecked",
+    "own SHA after PR-lineage proof",
     "dispatch-disabled-intent-without-worker",
     "native-owned-selection-without-github-worker",
     "Draining GitHub preview before native ownership",
