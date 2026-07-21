@@ -7,6 +7,18 @@ export const PREVIEW_REPOSITORY = "mento-protocol/frontend-monorepo";
 const PREVIEW_TARGET = "ui";
 const PREVIEW_STATUS_CONTEXT = "Vercel Preview";
 const PREVIEW_INITIALIZATION_STATUS_CONTEXT = "Vercel Preview Journal";
+const UI_VERCEL_CONFIGURATION_PATH = "apps/ui.mento.org/vercel.json";
+const UI_VERCEL_CONFIGURATION_MAX_BYTES = 2_048;
+const UI_PREVIEW_OWNER_GITHUB = "github-actions";
+const UI_PREVIEW_OWNER_NATIVE = "native-vercel";
+const UI_VERCEL_GITHUB_CONFIGURATION = {
+  $schema: "https://openapi.vercel.sh/vercel.json",
+  git: { deploymentEnabled: { "**": false, main: true } },
+};
+const UI_VERCEL_NATIVE_CONFIGURATION = {
+  $schema: "https://openapi.vercel.sh/vercel.json",
+  git: { deploymentEnabled: { "dependabot/**": false } },
+};
 export const EVENT_RECEIPT_SCHEMA = "vercel-preview-event-receipt:v1";
 const WORKER_EVIDENCE_SCHEMA = "vercel-preview-worker-evidence:v1";
 export const RESULT_RECEIPT_SCHEMA = "vercel-preview-worker-result:v1";
@@ -49,6 +61,7 @@ const ALLOWED_PLAN_REASONS = new Set([
   "unsupported-trust-boundary",
   "closed",
 ]);
+const PREVIEW_CONTROLLER_MODES = new Set(["active", "observe-only"]);
 const TERMINAL_STATES = new Set(["success", "failure", "error"]);
 const RETRIABLE_TERMINAL_REASONS = new Set([
   "build-failed-retriable",
@@ -57,6 +70,10 @@ const RETRIABLE_TERMINAL_REASONS = new Set([
 const MAX_COMMENTS = 500;
 const MAX_RECEIPTS = 200;
 const MAX_HISTORY = 40;
+// Recovery drains every retained slot in one pass, then ownership flips and
+// terminal receipts need a small fixed number of rereads before publication.
+const MAX_RECONCILIATION_PROGRESS_PASSES = MAX_HISTORY + 4;
+const MAX_SERIALIZED_UPDATE_ATTEMPTS = 3;
 const MAX_JOURNAL_BYTES = 60_000;
 const ACTIVE_CHECKPOINT_BYTES = 40_000;
 const WORKER_RUN_PAGE_SIZE = 100;
@@ -72,6 +89,21 @@ const WORKER_RECOVERY_BEFORE_MS = 2 * 60 * 1_000;
 const WORKER_RECOVERY_AFTER_MS = 15 * 60 * 1_000;
 const UPLOAD_STARTED_DESCRIPTION = "Prebuilt preview upload starting";
 const RETIRED_RECOVERY_QUARANTINE = "persisted-attempt-invalid-or-unavailable";
+const NO_DISPATCH_ORPHAN_REASON = "dispatch-disabled-intent-without-worker";
+const NATIVE_OWNED_SELECTION_REASON =
+  "native-owned-selection-without-github-worker";
+const CHECKPOINTED_TERMINAL_REASON = "checkpointed-terminal-status";
+const NATIVE_OWNED_STATUS_DESCRIPTION = "Native Vercel owns this UI preview";
+const NATIVE_OWNERSHIP_DRAINING_STATUS_DESCRIPTION =
+  "Draining GitHub preview before native ownership";
+const OBSERVE_ONLY_STATUS_DESCRIPTION =
+  "GitHub preview dispatch is observe-only";
+const CONTROLLER_RUN_URL_PATTERN =
+  /^https:\/\/github\.com\/mento-protocol\/frontend-monorepo\/actions\/runs\/[1-9][0-9]*$/;
+const SELECTION_SCOPED_CONTROLLER_RESULT_REASONS = new Set([
+  NO_DISPATCH_ORPHAN_REASON,
+  NATIVE_OWNED_SELECTION_REASON,
+]);
 const COMMENT_EXPLANATION = [
   "**No reviewer action is required.**",
   "This repository builds pull request previews in GitHub Actions and deploys them to Vercel.",
@@ -127,6 +159,14 @@ function exactSha(value, label = "Commit SHA") {
   invariant(
     typeof value === "string" && SHA_PATTERN.test(value),
     `${label} must be an immutable lowercase 40-character SHA`,
+  );
+  return value;
+}
+
+function previewControllerMode(value) {
+  invariant(
+    PREVIEW_CONTROLLER_MODES.has(value),
+    "Preview controller mode must be active or observe-only",
   );
   return value;
 }
@@ -988,7 +1028,15 @@ function dedupeResults(results) {
   const byRun = new Map();
   for (const raw of results) {
     const result = validateWorkerResult(raw);
-    const key = `${result.controller_key}:${result.worker_run_id}`;
+    // One no-dispatch controller run may retire same-SHA selections from
+    // multiple epochs. Those synthetic receipts are selection-scoped; every
+    // other controller or real-worker result keeps the stricter run owner.
+    const runOwner = SELECTION_SCOPED_CONTROLLER_RESULT_REASONS.has(
+      result.terminal_reason,
+    )
+      ? result.key_digest
+      : result.controller_key;
+    const key = `${runOwner}:${result.worker_run_id}`;
     const previous = byRun.get(key);
     if (previous)
       invariant(
@@ -1217,6 +1265,14 @@ function statusFromCheckpointRuntime({
   checkpointStatus,
   controllerUrl,
 }) {
+  if (isNativeOwnedCheckpointStatus(checkpointStatus, runtimeEvent)) {
+    return {
+      sha: event.head_sha,
+      state: "success",
+      description: NATIVE_OWNED_STATUS_DESCRIPTION,
+      target_url: controllerUrl,
+    };
+  }
   if (checkpointStatus.state === "success") {
     return {
       sha: event.head_sha,
@@ -1252,6 +1308,42 @@ function statusFromCheckpointRuntime({
   };
 }
 
+function isControllerRunStatusDecision(status, state, description) {
+  return (
+    status?.state === state &&
+    status.description === description &&
+    CONTROLLER_RUN_URL_PATTERN.test(status.target_url ?? "")
+  );
+}
+
+function isNativeOwnedStatusDecision(status) {
+  return isControllerRunStatusDecision(
+    status,
+    "success",
+    NATIVE_OWNED_STATUS_DESCRIPTION,
+  );
+}
+
+function isNativeOwnedCheckpointStatus(status, event) {
+  return (
+    isNativeOwnedStatusDecision(status) &&
+    event.trust === "trusted" &&
+    event.pr_state === "open"
+  );
+}
+
+function isNativeOwnershipDrainingCheckpointStatus(status, event) {
+  return (
+    isControllerRunStatusDecision(
+      status,
+      "pending",
+      NATIVE_OWNERSHIP_DRAINING_STATUS_DESCRIPTION,
+    ) &&
+    event.trust === "trusted" &&
+    event.pr_state === "open"
+  );
+}
+
 function statusDecision({
   event,
   index,
@@ -1275,6 +1367,14 @@ function statusDecision({
   }
   const eligible = event.plan.targets.includes(PREVIEW_TARGET);
   const result = resultByRun.get(event.event_run_id);
+  if (eligible && result?.terminal_reason === NATIVE_OWNED_SELECTION_REASON) {
+    return {
+      sha: event.head_sha,
+      state: "success",
+      description: NATIVE_OWNED_STATUS_DESCRIPTION,
+      target_url: controllerUrl,
+    };
+  }
   if (eligible && result?.state === "success") {
     return {
       sha: event.head_sha,
@@ -1332,6 +1432,14 @@ function statusDecision({
       });
     }
     const priorResult = resultByRun.get(priorRuntime.event_run_id);
+    if (priorResult?.terminal_reason === NATIVE_OWNED_SELECTION_REASON) {
+      return {
+        sha: event.head_sha,
+        state: "success",
+        description: NATIVE_OWNED_STATUS_DESCRIPTION,
+        target_url: controllerUrl,
+      };
+    }
     if (priorResult?.state === "success") {
       return {
         sha: event.head_sha,
@@ -1795,7 +1903,12 @@ export function reconcileState({
       state: selectedCheckpoint.status.state,
       sha: selectedCheckpoint.event.head_sha,
       vercel_deployment_url: selectedCheckpoint.status.target_url,
-      terminal_reason: "checkpointed-terminal-status",
+      terminal_reason: isNativeOwnedCheckpointStatus(
+        selectedCheckpoint.status,
+        selectedCheckpoint.event,
+      )
+        ? NATIVE_OWNED_SELECTION_REASON
+        : CHECKPOINTED_TERMINAL_REASON,
     });
   }
   if (
@@ -2054,7 +2167,10 @@ export function reconcileState({
     ),
   );
   const successes = [...resultByRun.entries()]
-    .filter(([, result]) => result.state === "success")
+    .filter(
+      ([, result]) =>
+        result.state === "success" && result.schema === RESULT_RECEIPT_SCHEMA,
+    )
     .sort(([runA], [runB]) => {
       const indexA = lineage.findIndex((event) => event.event_run_id === runA);
       const indexB = lineage.findIndex((event) => event.event_run_id === runB);
@@ -2156,6 +2272,69 @@ function ownerRepo(context) {
     "Unexpected workflow repository",
   );
   return context.repo;
+}
+
+async function uiPreviewOwnerAtSha(github, context, sha) {
+  const immutableSha = exactSha(sha, "Candidate UI Vercel configuration SHA");
+  const { data } = await github.rest.repos.getContent({
+    ...ownerRepo(context),
+    path: UI_VERCEL_CONFIGURATION_PATH,
+    ref: immutableSha,
+  });
+  const file = plainObject(data, "Candidate UI Vercel configuration");
+  invariant(
+    file.type === "file" && file.path === UI_VERCEL_CONFIGURATION_PATH,
+    "Candidate UI Vercel configuration is not the expected file",
+  );
+  invariant(
+    file.encoding === "base64" &&
+      Number.isSafeInteger(file.size) &&
+      file.size > 0 &&
+      file.size <= UI_VERCEL_CONFIGURATION_MAX_BYTES,
+    "Candidate UI Vercel configuration metadata is invalid",
+  );
+  invariant(
+    typeof file.content === "string" &&
+      file.content.length > 0 &&
+      file.content.length <=
+        Math.ceil(UI_VERCEL_CONFIGURATION_MAX_BYTES / 3) * 4 + 128 &&
+      /^[A-Za-z0-9+/=\r\n]+$/.test(file.content),
+    "Candidate UI Vercel configuration encoding is invalid",
+  );
+  const encoded = file.content.replace(/[\r\n]/g, "");
+  const bytes = Buffer.from(encoded, "base64");
+  invariant(
+    bytes.length === file.size && bytes.toString("base64") === encoded,
+    "Candidate UI Vercel configuration encoding is invalid",
+  );
+  const text = bytes.toString("utf8");
+  invariant(
+    Buffer.from(text, "utf8").equals(bytes),
+    "Candidate UI Vercel configuration is not valid UTF-8",
+  );
+  let configuration;
+  try {
+    configuration = JSON.parse(text);
+  } catch {
+    throw new Error("Candidate UI Vercel configuration is malformed");
+  }
+  plainObject(configuration, "Candidate UI Vercel configuration");
+  const candidate = canonicalJson(configuration);
+  if (candidate === canonicalJson(UI_VERCEL_GITHUB_CONFIGURATION)) {
+    return UI_PREVIEW_OWNER_GITHUB;
+  }
+  if (candidate === canonicalJson(UI_VERCEL_NATIVE_CONFIGURATION)) {
+    return UI_PREVIEW_OWNER_NATIVE;
+  }
+  throw new Error("Candidate UI Vercel configuration is not recognized");
+}
+
+async function candidateUiPreviewOwner(github, context, pull) {
+  const normalized = normalizePullRequest(pull);
+  if (normalized.state !== "open" || normalized.trust !== "trusted") {
+    return null;
+  }
+  return uiPreviewOwnerAtSha(github, context, normalized.headSha);
 }
 
 async function listComments(github, context, pr) {
@@ -2323,6 +2502,18 @@ function validatePreviewCheckpoint(value, expectedPr) {
     "Preview checkpoint event identity mismatch",
   );
   const status = validateCheckpointStatus(checkpoint.status, event);
+  if (status.description === NATIVE_OWNED_STATUS_DESCRIPTION) {
+    invariant(
+      isNativeOwnedCheckpointStatus(status, event),
+      "Preview checkpoint native ownership status is invalid",
+    );
+  }
+  if (status.description === NATIVE_OWNERSHIP_DRAINING_STATUS_DESCRIPTION) {
+    invariant(
+      isNativeOwnershipDrainingCheckpointStatus(status, event),
+      "Preview checkpoint native ownership drain status is invalid",
+    );
+  }
   if (checkpoint.pending_owner_key_digest === null) {
     invariant(
       checkpoint.pending_owner_attempt_count === 0,
@@ -2635,9 +2826,12 @@ export function compactPreviewJournal(value, { pullRequest = null } = {}) {
     (total, receipts) => total + receipts.length,
     0,
   );
+  const liveRetiredOwnership = state.ui.retired_active.filter(
+    isLiveRetiredPreviewOwnership,
+  );
   if (receiptCount === 0) return journal;
   const hasInFlightOwnership =
-    state.ui.active !== null || state.ui.retired_active.length > 0;
+    state.ui.active !== null || liveRetiredOwnership.length > 0;
   if (hasInFlightOwnership) {
     if (
       Buffer.byteLength(journalBody(journal), "utf8") < ACTIVE_CHECKPOINT_BYTES
@@ -2663,7 +2857,7 @@ export function compactPreviewJournal(value, { pullRequest = null } = {}) {
     invariant(tailEvent, "Preview checkpoint tail event is missing");
     const pendingOwner =
       state.ui.active ??
-      state.ui.retired_active.find(
+      liveRetiredOwnership.find(
         (selection) =>
           selection.key_digest === journal.checkpoint?.pending_owner_key_digest,
       ) ??
@@ -2802,22 +2996,33 @@ export function compactPreviewJournal(value, { pullRequest = null } = {}) {
     );
     return validatePreviewJournal(journal, journal.pr);
   }
+  const quarantinedKeyDigests = new Set(
+    state.ui.retired_active
+      .filter((selection) => !isLiveRetiredPreviewOwnership(selection))
+      .map((selection) => selection.key_digest),
+  );
   const resultIdentities = new Set(
     journal.receipts.results.map(
       (result) => `${result.key_digest}:${result.worker_run_id}`,
     ),
   );
   invariant(
-    journal.receipts.worker_evidence.every((evidence) =>
-      resultIdentities.has(`${evidence.key_digest}:${evidence.worker_run_id}`),
+    journal.receipts.worker_evidence.every(
+      (evidence) =>
+        quarantinedKeyDigests.has(evidence.key_digest) ||
+        resultIdentities.has(
+          `${evidence.key_digest}:${evidence.worker_run_id}`,
+        ),
     ),
     "Preview journal cannot checkpoint unfinished worker evidence",
   );
   invariant(
-    journal.receipts.selections.every((selection) =>
-      journal.receipts.results.some(
-        (result) => result.key_digest === selection.key_digest,
-      ),
+    journal.receipts.selections.every(
+      (selection) =>
+        quarantinedKeyDigests.has(selection.key_digest) ||
+        journal.receipts.results.some(
+          (result) => result.key_digest === selection.key_digest,
+        ),
     ),
     "Preview journal cannot checkpoint unfinished selections",
   );
@@ -3925,8 +4130,12 @@ async function dispatchWorker(
   workerDispatchGithub,
   context,
   selected,
-  { waitForRunDetails = wait } = {},
+  { controllerMode, waitForRunDetails = wait } = {},
 ) {
+  invariant(
+    controllerMode === "active",
+    "Worker dispatch is disabled by preview controller mode",
+  );
   invariant(
     workerDispatchGithub !== null && workerDispatchGithub !== undefined,
     "Worker dispatch credential is unavailable",
@@ -3981,7 +4190,15 @@ async function shaIsStillAssociated(github, context, pull, sha) {
   return commits.some((commit) => commit.sha === sha);
 }
 
-async function recordRemovedSelection({ github, context, pr, selection }) {
+async function recordControllerTerminalResult({
+  github,
+  context,
+  pr,
+  selection,
+  state,
+  terminalReason,
+  runIdLabel,
+}) {
   const result = validateWorkerResult({
     schema: RESULT_RECEIPT_SCHEMA,
     repository: PREVIEW_REPOSITORY,
@@ -3994,15 +4211,15 @@ async function recordRemovedSelection({ github, context, pr, selection }) {
     reconciliation_basis_digest: selection.reconciliation_basis_digest,
     selection_receipt_run_id: selection.selection_receipt_run_id,
     expected_workflow_sha: selection.expected_workflow_sha,
-    worker_run_id: exactRunId(context.runId, "Controller abort run ID"),
+    worker_run_id: exactRunId(context.runId, runIdLabel),
     worker_run_attempt: exactRunAttempt(context.runAttempt ?? 1),
     github_deployment_id: null,
-    state: "failure",
+    state,
     vercel_deployment_id: null,
     next_deployment_id: null,
     vercel_deployment_url: null,
     smoke_result: "not-run",
-    terminal_reason: "selection-removed-from-pr",
+    terminal_reason: terminalReason,
   });
   await appendJournalReceipt({
     github,
@@ -4014,37 +4231,160 @@ async function recordRemovedSelection({ github, context, pr, selection }) {
   return result;
 }
 
-async function recordSupersededIntent({ github, context, pr, selection }) {
-  const result = validateWorkerResult({
-    schema: RESULT_RECEIPT_SCHEMA,
-    repository: PREVIEW_REPOSITORY,
-    pr,
-    target: PREVIEW_TARGET,
-    sha: selection.sha,
-    controller_key: selection.key,
-    key_digest: selection.key_digest,
-    epoch_anchor_run_id: selection.epoch_anchor_run_id,
-    reconciliation_basis_digest: selection.reconciliation_basis_digest,
-    selection_receipt_run_id: selection.selection_receipt_run_id,
-    expected_workflow_sha: selection.expected_workflow_sha,
-    worker_run_id: exactRunId(context.runId, "Controller upgrade run ID"),
-    worker_run_attempt: exactRunAttempt(context.runAttempt ?? 1),
-    github_deployment_id: null,
-    state: "error",
-    vercel_deployment_id: null,
-    next_deployment_id: null,
-    vercel_deployment_url: null,
-    smoke_result: "not-run",
-    terminal_reason: "controller-workflow-upgraded-before-dispatch",
-  });
-  await appendJournalReceipt({
+function recordRemovedSelection({ github, context, pr, selection }) {
+  return recordControllerTerminalResult({
     github,
     context,
     pr,
-    kind: "result",
-    value: result,
+    selection,
+    state: "failure",
+    terminalReason: "selection-removed-from-pr",
+    runIdLabel: "Controller abort run ID",
   });
-  return result;
+}
+
+function recordSupersededIntent({ github, context, pr, selection }) {
+  return recordControllerTerminalResult({
+    github,
+    context,
+    pr,
+    selection,
+    state: "error",
+    terminalReason: "controller-workflow-upgraded-before-dispatch",
+    runIdLabel: "Controller upgrade run ID",
+  });
+}
+
+function recordNoDispatchIntentWithoutWorker({
+  github,
+  context,
+  pr,
+  selection,
+  terminalReason = NO_DISPATCH_ORPHAN_REASON,
+}) {
+  return recordControllerTerminalResult({
+    github,
+    context,
+    pr,
+    selection,
+    state: "error",
+    terminalReason,
+    runIdLabel: "Controller retirement run ID",
+  });
+}
+
+async function reconcileNoDispatchIntents({
+  github,
+  context,
+  core,
+  pr,
+  state,
+  stateComment,
+  waitForRecovery,
+  nativeOwnedSelectionKeyDigest = null,
+}) {
+  const candidates = [];
+  if (
+    state.ui?.active?.dispatch_state === "intended" &&
+    state.ui.active.workflow_run_id === null
+  ) {
+    candidates.push({ slot: "active", selection: state.ui.active });
+  }
+  for (const selection of state.ui?.retired_active ?? []) {
+    if (
+      selection.dispatch_state === "intended" &&
+      selection.workflow_run_id === null
+    ) {
+      candidates.push({ slot: "retired", selection });
+    }
+  }
+  if (candidates.length === 0) return false;
+
+  const observations = [];
+  for (const candidate of candidates) {
+    observations.push({
+      ...candidate,
+      recoveredRun: await recoverMatchingWorkerRun(
+        github,
+        context,
+        candidate.selection,
+        { waitForRetry: waitForRecovery },
+      ),
+    });
+  }
+
+  const recoveredState = structuredClone(state);
+  const attached = [];
+  let retiredWithoutWorker = false;
+  for (const { slot, selection, recoveredRun } of observations) {
+    if (!recoveredRun) {
+      await recordNoDispatchIntentWithoutWorker({
+        github,
+        context,
+        pr,
+        selection,
+        terminalReason:
+          selection.key_digest === nativeOwnedSelectionKeyDigest
+            ? NATIVE_OWNED_SELECTION_REASON
+            : NO_DISPATCH_ORPHAN_REASON,
+      });
+      retiredWithoutWorker = true;
+      continue;
+    }
+    const recoveredSelection = {
+      ...selection,
+      dispatch_state: "dispatched",
+      ...recoveredRun,
+    };
+    if (slot === "active") {
+      invariant(
+        recoveredState.ui.active?.key_digest === selection.key_digest,
+        "Active no-dispatch intent changed before recovery",
+      );
+      recoveredState.ui.active = recoveredSelection;
+    } else {
+      const retiredIndex = recoveredState.ui.retired_active.findIndex(
+        (candidate) => candidate.key_digest === selection.key_digest,
+      );
+      invariant(retiredIndex >= 0, "Retired no-dispatch intent disappeared");
+      recoveredState.ui.retired_active[retiredIndex] = recoveredSelection;
+    }
+    attached.push({ recoveredRun, recoveredSelection });
+  }
+
+  if (retiredWithoutWorker) {
+    core.setOutput("retired_undispatched_intent", "true");
+  }
+  if (attached.length > 0) {
+    await writeControllerState({
+      github,
+      context,
+      pr,
+      state: recoveredState,
+      stateComment,
+    });
+    core.setOutput(
+      "recovered_intended_run_id",
+      String(attached.at(-1).recoveredRun.workflow_run_id),
+    );
+  }
+  for (const { recoveredRun, recoveredSelection } of attached) {
+    if (recoveredRun.status !== "completed") continue;
+    const workflowRun = await getWorkerRun(
+      github,
+      context,
+      recoveredRun.workflow_run_id,
+      recoveredSelection,
+    );
+    await recoverWorkerResult({
+      github,
+      context,
+      core,
+      workflowRun,
+      waitForRecovery,
+    });
+  }
+  return true;
 }
 
 function assertDispatchTrust(pull, selected) {
@@ -4073,10 +4413,33 @@ async function refreshDispatchOwnership({
   if (normalizePullRequest(pull).state !== "open") {
     return { outcome: "closed" };
   }
-  assertDispatchTrust(pull, selected);
+  const normalized = assertDispatchTrust(pull, selected);
+  const currentPreviewOwner = await uiPreviewOwnerAtSha(
+    github,
+    context,
+    normalized.headSha,
+  );
+  if (currentPreviewOwner === UI_PREVIEW_OWNER_NATIVE) {
+    return { outcome: "current-head-native" };
+  }
+  invariant(
+    currentPreviewOwner === UI_PREVIEW_OWNER_GITHUB,
+    "GitHub preview dispatch does not own the current UI configuration",
+  );
   if (!(await shaIsStillAssociated(github, context, pull, selected.sha))) {
     return { outcome: "removed" };
   }
+  const selectedPreviewOwner =
+    selected.sha === normalized.headSha
+      ? currentPreviewOwner
+      : await uiPreviewOwnerAtSha(github, context, selected.sha);
+  if (selectedPreviewOwner === UI_PREVIEW_OWNER_NATIVE) {
+    return { outcome: "selected-native" };
+  }
+  invariant(
+    selectedPreviewOwner === UI_PREVIEW_OWNER_GITHUB,
+    "GitHub preview dispatch does not own the selected UI configuration",
+  );
   const comments = await loadPreviewJournal(github, context, pr);
   const ownershipCheck = reconcileState({
     events: comments.events,
@@ -4191,22 +4554,126 @@ async function recoverCompletedOwnedRuns({
   return recovered;
 }
 
+function isLiveRetiredPreviewOwnership(selection) {
+  return selection.recovery_quarantine === undefined;
+}
+
+function hasLiveGitHubPreviewOwnership(state) {
+  return (
+    state.ui.active !== null ||
+    state.ui.retired_active.some(isLiveRetiredPreviewOwnership)
+  );
+}
+
+function persistNoDispatchHeadDecision({
+  state,
+  previousState,
+  pull,
+  previewOwner,
+  controllerMode,
+  controllerUrl,
+}) {
+  const index = state.status_decisions.findLastIndex(
+    (decision) => decision.sha === pull.headSha,
+  );
+  invariant(index >= 0, "Current-head no-dispatch status decision is missing");
+  let desired;
+  if (previewOwner === UI_PREVIEW_OWNER_NATIVE) {
+    const liveGitHubOwnership = hasLiveGitHubPreviewOwnership(state);
+    desired = {
+      sha: pull.headSha,
+      state: liveGitHubOwnership ? "pending" : "success",
+      description: liveGitHubOwnership
+        ? NATIVE_OWNERSHIP_DRAINING_STATUS_DESCRIPTION
+        : NATIVE_OWNED_STATUS_DESCRIPTION,
+      target_url: controllerUrl,
+    };
+  } else {
+    invariant(
+      controllerMode === "observe-only",
+      "Active no-dispatch reconciliation has no native preview owner",
+    );
+    desired = {
+      sha: pull.headSha,
+      state: "success",
+      description: OBSERVE_ONLY_STATUS_DESCRIPTION,
+      target_url: controllerUrl,
+    };
+  }
+  const previous = (previousState?.status_decisions ?? []).findLast(
+    (decision) => decision.sha === pull.headSha,
+  );
+  state.status_decisions[index] = isControllerRunStatusDecision(
+    previous,
+    desired.state,
+    desired.description,
+  )
+    ? { ...desired, target_url: previous.target_url }
+    : desired;
+  return structuredClone(state.status_decisions[index]);
+}
+
 export async function reconcilePreview({
   github,
   workerDispatchGithub = null,
   context,
   core,
+  controllerMode: rawControllerMode,
   prNumber: rawPr,
   workflowSha: rawWorkflowSha,
   waitForRecovery,
   now = () => new Date().toISOString(),
+  progressPassLimit: rawProgressPassLimit = MAX_RECONCILIATION_PROGRESS_PASSES,
 }) {
   const pr = pullRequestNumber(rawPr);
+  const controllerMode = previewControllerMode(rawControllerMode);
   const workflowSha = exactSha(rawWorkflowSha, "Controller workflow SHA");
+  invariant(
+    Number.isSafeInteger(rawProgressPassLimit) &&
+      rawProgressPassLimit >= 0 &&
+      rawProgressPassLimit <= MAX_RECONCILIATION_PROGRESS_PASSES,
+    "Controller progress pass limit is invalid",
+  );
   const controllerUrl = `https://github.com/${PREVIEW_REPOSITORY}/actions/runs/${context.runId}`;
-  reconcileAttempts: for (let attempt = 0; attempt < 3; attempt += 1) {
+  let serializedUpdateAttempts = 1;
+  let deterministicProgressPasses = 0;
+  const failClosed = async (error) => {
+    const pull = await pullFromApi(github, context, pr);
+    const headSha = exactSha(pull.head.sha);
+    await github.rest.repos.createCommitStatus({
+      ...ownerRepo(context),
+      sha: headSha,
+      state: "error",
+      context: PREVIEW_STATUS_CONTEXT,
+      description: "Preview controller state is invalid or ambiguous",
+      target_url: controllerUrl,
+    });
+    throw error;
+  };
+  const recordDeterministicProgress = () => {
+    deterministicProgressPasses += 1;
+    invariant(
+      deterministicProgressPasses <= rawProgressPassLimit,
+      "Controller state update did not converge",
+    );
+  };
+  reconcileAttempts: while (true) {
     try {
       const pull = await pullFromApi(github, context, pr);
+      const currentPull = normalizePullRequest(pull);
+      const previewOwner = await candidateUiPreviewOwner(github, context, pull);
+      invariant(
+        !(
+          currentPull.state === "open" &&
+          currentPull.trust === "trusted" &&
+          controllerMode === "observe-only" &&
+          previewOwner === UI_PREVIEW_OWNER_GITHUB
+        ),
+        "Observe-only controller leaves the candidate UI preview ownerless",
+      );
+      const noDispatch =
+        controllerMode === "observe-only" ||
+        previewOwner === UI_PREVIEW_OWNER_NATIVE;
       const parsed = await loadPreviewJournal(github, context, pr);
       const stateBeforeReconciliation =
         parsed.state === null ? null : canonicalJson(parsed.state);
@@ -4219,6 +4686,7 @@ export async function reconcilePreview({
           parsed,
         })
       ) {
+        recordDeterministicProgress();
         continue reconcileAttempts;
       }
       const reconciled = reconcileState({
@@ -4233,6 +4701,62 @@ export async function reconcilePreview({
       });
       let state = reconciled.state;
       let stateComment = parsed.stateComment;
+      if (
+        noDispatch &&
+        (await reconcileNoDispatchIntents({
+          github,
+          context,
+          core,
+          pr,
+          state,
+          stateComment,
+          waitForRecovery,
+        }))
+      ) {
+        recordDeterministicProgress();
+        continue reconcileAttempts;
+      }
+      if (noDispatch) {
+        let headDecision = null;
+        if (currentPull.state === "open") {
+          headDecision = persistNoDispatchHeadDecision({
+            state,
+            previousState: parsed.state,
+            pull: currentPull,
+            previewOwner,
+            controllerMode,
+            controllerUrl,
+          });
+        }
+        stateComment = await writeControllerState({
+          github,
+          context,
+          pr,
+          state,
+          stateComment,
+        });
+        if (headDecision) {
+          await github.rest.repos.createCommitStatus({
+            ...ownerRepo(context),
+            sha: headDecision.sha,
+            state: headDecision.state,
+            context: PREVIEW_STATUS_CONTEXT,
+            description: headDecision.description,
+            target_url: headDecision.target_url,
+          });
+          if (
+            previewOwner === UI_PREVIEW_OWNER_NATIVE &&
+            headDecision.state === "pending"
+          ) {
+            core.setOutput("preview_ownership_draining", "true");
+          }
+        }
+        core.setOutput("controller_mode", controllerMode);
+        if (previewOwner) core.setOutput("preview_owner", previewOwner);
+        core.setOutput("dispatch_skipped", "true");
+        core.setOutput("pr_number", String(pr));
+        return state;
+      }
       let selected = state.closed
         ? null
         : (reconciled.nextDispatch ??
@@ -4283,7 +4807,31 @@ export async function reconcilePreview({
             pr,
             selection: selected,
           });
-          continue;
+          recordDeterministicProgress();
+          continue reconcileAttempts;
+        }
+        if (
+          refreshedOwnership.outcome === "current-head-native" ||
+          refreshedOwnership.outcome === "selected-native"
+        ) {
+          invariant(
+            await reconcileNoDispatchIntents({
+              github,
+              context,
+              core,
+              pr,
+              state,
+              stateComment,
+              waitForRecovery,
+              nativeOwnedSelectionKeyDigest:
+                refreshedOwnership.outcome === "selected-native"
+                  ? selected.key_digest
+                  : null,
+            }),
+            "Native-owned selection did not retain its durable intent",
+          );
+          recordDeterministicProgress();
+          continue reconcileAttempts;
         }
         let ownershipCheck = refreshedOwnership.ownershipCheck;
 
@@ -4329,7 +4877,31 @@ export async function reconcilePreview({
             pr,
             selection: selected,
           });
-          continue;
+          recordDeterministicProgress();
+          continue reconcileAttempts;
+        }
+        if (
+          refreshedOwnership.outcome === "current-head-native" ||
+          refreshedOwnership.outcome === "selected-native"
+        ) {
+          invariant(
+            await reconcileNoDispatchIntents({
+              github,
+              context,
+              core,
+              pr,
+              state,
+              stateComment,
+              waitForRecovery,
+              nativeOwnedSelectionKeyDigest:
+                refreshedOwnership.outcome === "selected-native"
+                  ? selected.key_digest
+                  : null,
+            }),
+            "Native-owned selection did not retain its durable intent",
+          );
+          recordDeterministicProgress();
+          continue reconcileAttempts;
         }
         ownershipCheck = refreshedOwnership.ownershipCheck;
         if (!recoveredRun && selected.expected_workflow_sha !== workflowSha) {
@@ -4339,6 +4911,7 @@ export async function reconcilePreview({
             pr,
             selection: selected,
           });
+          recordDeterministicProgress();
           continue reconcileAttempts;
         }
         let runDetails = recoveredRun;
@@ -4349,7 +4922,10 @@ export async function reconcilePreview({
               workerDispatchGithub,
               context,
               selected,
-              { waitForRunDetails: waitForRecovery },
+              {
+                controllerMode,
+                waitForRunDetails: waitForRecovery,
+              },
             );
           } catch (error) {
             if (error instanceof WorkerWorkflowShaMismatchError) {
@@ -4452,27 +5028,17 @@ export async function reconcilePreview({
       return state;
     } catch (error) {
       if (
-        attempt < 2 &&
+        serializedUpdateAttempts < MAX_SERIALIZED_UPDATE_ATTEMPTS &&
         /serialized update|identity changed|basis changed|changed before status|receipt set changed|ownership changed/.test(
           error.message,
         )
       ) {
+        serializedUpdateAttempts += 1;
         continue;
       }
-      const pull = await pullFromApi(github, context, pr);
-      const headSha = exactSha(pull.head.sha);
-      await github.rest.repos.createCommitStatus({
-        ...ownerRepo(context),
-        sha: headSha,
-        state: "error",
-        context: PREVIEW_STATUS_CONTEXT,
-        description: "Preview controller state is invalid or ambiguous",
-        target_url: controllerUrl,
-      });
-      throw error;
+      return failClosed(error);
     }
   }
-  throw new Error("Controller state update did not converge");
 }
 
 async function loadControllerEvidence(github, context, pr) {
@@ -4686,10 +5252,27 @@ export async function validateWorkerDispatch({
     "Worker controller key digest is invalid",
   );
   const pull = await pullFromApi(github, context, pr);
-  assertDispatchTrust(pull, { git_ref: gitRef });
+  const normalizedPull = assertDispatchTrust(pull, { git_ref: gitRef });
   invariant(
     await shaIsStillAssociated(github, context, pull, sha),
     "Selected SHA is no longer associated with the PR lineage",
+  );
+  const currentPreviewOwner = await uiPreviewOwnerAtSha(
+    github,
+    context,
+    normalizedPull.headSha,
+  );
+  invariant(
+    currentPreviewOwner === UI_PREVIEW_OWNER_GITHUB,
+    "GitHub preview worker does not own the current UI configuration",
+  );
+  const selectedPreviewOwner =
+    sha === normalizedPull.headSha
+      ? currentPreviewOwner
+      : await uiPreviewOwnerAtSha(github, context, sha);
+  invariant(
+    selectedPreviewOwner === UI_PREVIEW_OWNER_GITHUB,
+    "GitHub preview worker does not own the selected UI configuration",
   );
   const evidence = await loadControllerEvidence(github, context, pr);
   const state = evidence.state;

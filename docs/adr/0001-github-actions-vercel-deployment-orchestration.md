@@ -3,7 +3,7 @@ title: GitHub Actions owns Vercel build and deployment orchestration; Vercel rem
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-07-15
+last_verified: 2026-07-21
 scope: ci/deployment
 date: 2026-07
 ---
@@ -211,9 +211,17 @@ before the final reviewed ownership change.
 `git.deploymentEnabled` branch rules disable only replaced native paths. The app
 configuration always retains `v2: true`. There is no permanent state in which
 native Vercel Git and GitHub Actions both automatically activate the same
-target/SHA. Recovery restores GitHub's controller to shadow mode and restores
+target/SHA. Recovery sets GitHub's controller to `observe-only` mode and restores
 the prior Vercel Git branch rules in the same reviewed change, then proves the
 native canary path before treating Vercel Git as owner again.
+
+For UI branch previews, that boundary is executable:
+`.github/workflows/vercel-preview-controller.yml` carries a
+version-controlled `active` or `observe-only` mode, and
+`scripts/vercel-git-ownership.test.mjs` accepts only `active` paired with native
+branch previews disabled or `observe-only` paired with native ownership
+restored. `observe-only` retains receipts, terminal recovery, and status
+evidence but cannot dispatch a new worker.
 
 Ordinary targets recover with exact captured deployment IDs and verify every
 domain after rollback. App `v3` recovers each reviewed alias independently to

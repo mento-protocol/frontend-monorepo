@@ -5,11 +5,23 @@ preview controller used by the GitHub Actions deployment migration tracked in
 [issue #515](https://github.com/mento-protocol/frontend-monorepo/issues/515).
 The ownership boundary and its trade-offs are recorded in
 [ADR 0001](adr/0001-github-actions-vercel-deployment-orchestration.md).
-Phase A enables GitHub-built previews for trusted same-repository UI pull
-requests while native Vercel Git UI previews remain enabled for canary
-comparison. Production/main and every non-UI application remain owned by Vercel
-Git. Phase B changes only UI branch-preview ownership after the live canaries in
-this runbook pass.
+Phase A enabled GitHub-built previews for trusted same-repository UI pull
+requests while native Vercel Git UI previews remained enabled for canary
+comparison. After that evidence gate, Phase B transferred only UI branch-preview
+ownership to GitHub Actions. Native Vercel Git previews are now disabled for UI
+branches other than `main`; production/main and every non-UI application remain
+owned by Vercel Git.
+
+The automatic controller's version-controlled
+`VERCEL_PREVIEW_CONTROLLER_MODE` is `active` in this ownership state. The only
+other accepted value is `observe-only`, which records receipts, recovers or
+retires already-persisted dispatch ownership, and publishes a truthful
+no-dispatch status but cannot create a worker. The executable ownership test
+requires `active` to be paired with disabled native UI branch previews and
+`observe-only` to be paired with restored native previews. The runtime
+controller separately validates the candidate's exact-head UI Vercel
+configuration, covering the pull-request window in which the trusted workflow
+still comes from `main` while Vercel already reads the candidate branch.
 
 ## Pinned prerequisites
 
@@ -300,53 +312,59 @@ build-minute observation are documented in
 tool does not start the observation window; collection begins only after the
 four-target cutover is complete.
 
-## Manual UI prebuilt pilot
+## Historical Phase A manual UI prebuilt pilot (audit record)
 
-`.github/workflows/vercel-prebuilt-pilot.yml` is the only entry point for the
-first prebuilt preview. It has only a manual `workflow_dispatch` trigger and
-accepts exactly three selectors: the fixed `ui` target, an immutable lowercase
-40-character commit SHA, and the same-repository branch that contains that SHA.
-It does not replace or disable the Vercel Git integration. Native Vercel Git
-previews remain the source of truth while this pilot gathers functional and
-timing evidence.
+> **Historical evidence only.** This section preserves the Phase A pilot's
+> controls and native-preview comparison procedure for audit. It is not a
+> current operator entry point: under Phase B, do not dispatch the manual pilot
+> or expect a same-SHA native UI branch preview. Current operators must use the
+> [Phase B canary and rollback procedures](#ui-vercel-git-cutover-phase-b).
+> The commands and implementation details below are retained only as audited
+> Phase A evidence and must not be treated as a supported Phase B procedure.
 
-The caller maps only the UI preview configuration:
+During Phase A, `.github/workflows/vercel-prebuilt-pilot.yml` was the only entry
+point for the first prebuilt preview. It had only a manual `workflow_dispatch`
+trigger and accepted exactly three selectors: the fixed `ui` target, an
+immutable lowercase 40-character commit SHA, and the same-repository branch
+that contained that SHA. It did not replace or disable the Vercel Git
+integration. Native Vercel Git previews remained the source of truth while the
+pilot gathered functional and timing evidence.
+
+The Phase A caller mapped only the UI preview configuration:
 
 - repository variables `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID_UI`, and
   `TURBO_TEAM`;
 - repository secrets `VERCEL_TOKEN_PREVIEW`, `TURBO_TOKEN`, and
   `TURBO_REMOTE_CACHE_SIGNATURE_KEY`.
 
-The reusable worker declares each secret separately. It never inherits all
-caller secrets, never receives a production Vercel token, never selects a
-production GitHub environment, and never passes a token on a command line. The
-separate smoke job receives no Vercel or Turbo credential and has only
-`contents: read` permission; the immutable preview must therefore be publicly
-reachable for this pilot.
+The reusable worker declared each secret separately. It never inherited all
+caller secrets, received a production Vercel token, selected a production
+GitHub environment, or passed a token on a command line. The separate smoke job
+received no Vercel or Turbo credential and had only `contents: read` permission;
+the immutable preview therefore had to be publicly reachable for the pilot.
 
-The reusable contract accepts only `refs/heads/main` and the exact main-branch
-pilot caller identity. A dispatch that selects another branch, tag, or caller is
-rejected before candidate dependency or build code executes.
+The reusable contract accepted only `refs/heads/main` and the exact main-branch
+pilot caller identity. A dispatch selecting another branch, tag, or caller was
+rejected before candidate dependency or build code executed.
 
-### Dispatch
+### Historical Phase A dispatch procedure
 
-This is a privileged maintainer action, not an automatic PR trigger. Dispatch
-only after reviewing the selected SHA and accepting its same-repository author
-as trusted: dependency installation and the UI build execute that source with
-the pulled UI preview variables and signed Turbo cache credentials. The
-candidate process never receives the Vercel token, but it can read its own
-build inputs and execute arbitrary build code. Fork sources cannot be selected,
-and the workflow rejects Dependabot branches. If the source is not trusted, do
-not dispatch the pilot.
+This was a privileged maintainer action, not an automatic PR trigger. Phase A
+maintainers dispatched only after reviewing the selected SHA and accepting its
+same-repository author as trusted: dependency installation and the UI build
+executed that source with the pulled UI preview variables and signed Turbo cache
+credentials. The candidate process never received the Vercel token, but it
+could read its own build inputs and execute arbitrary build code. Fork sources
+could not be selected, and the workflow rejected Dependabot branches.
 
-The dispatch is accepted only from `refs/heads/main`. The caller invokes the
-reusable worker from the same main commit, and the worker validates the caller
-workflow identity again before any candidate code or credentialed step runs. A
-dispatch that selects another branch or tag is rejected before the reusable
-job receives its preview credentials.
+The dispatch was accepted only from `refs/heads/main`. The caller invoked the
+reusable worker from the same main commit, and the worker validated the caller
+workflow identity again before any candidate code or credentialed step ran. A
+dispatch selecting another branch or tag was rejected before the reusable job
+received its preview credentials.
 
-Choose a SHA that already has a native Vercel Git UI preview and a branch that
-contains it. Verify both locally before dispatching:
+Phase A maintainers chose a SHA that already had a native Vercel Git UI preview
+and a branch that contained it. They verified both locally before dispatching:
 
 ```bash
 SHA="<lowercase-40-character-sha>"
@@ -361,22 +379,22 @@ gh workflow run vercel-prebuilt-pilot.yml \
   -f git_branch="$BRANCH"
 ```
 
-The workflow independently rejects malformed, option-like, newline-bearing,
-missing, or unreachable refs. It checks out the exact SHA with full history and
-uses the recorded `HEAD` for the custom Next deployment ID, Vercel metadata,
+The workflow independently rejected malformed, option-like, newline-bearing,
+missing, or unreachable refs. It checked out the exact SHA with full history
+and used the recorded `HEAD` for the custom Next deployment ID, Vercel metadata,
 GitHub Deployment ref, smoke evidence, and outputs.
 
-Do not dispatch from a pull-request ref. After the main-only guard, the workflow
-controller is checked out from the trusted `github.workflow_sha`; the requested
-source is checked out separately and is never executed automatically with
-preview credentials. Candidate dependency lifecycle scripts are disabled. The
-worker also restores the controller from its trusted workflow SHA after
-dependency installation and again after the candidate build, before output
-assertion, upload, and inspection.
+The Phase A pilot did not dispatch from a pull-request ref. After the main-only
+guard, the workflow controller was checked out from the trusted
+`github.workflow_sha`; the requested source was checked out separately and was
+never executed automatically with preview credentials. Candidate dependency
+lifecycle scripts were disabled. The worker also restored the controller from
+its trusted workflow SHA after dependency installation and again after the
+candidate build, before output assertion, upload, and inspection.
 
-The Vercel CLI is a separate trusted tool install. Pinned pnpm `10.34.4` reads
-the main controller's exact `package.json` and frozen `pnpm-lock.yaml`, disables
-lifecycle scripts, and copies packages into a runner-owned directory outside
+The Vercel CLI was a separate trusted tool install. Pinned pnpm `10.34.4` read
+the main controller's exact `package.json` and frozen `pnpm-lock.yaml`, disabled
+lifecycle scripts, and copied packages into a runner-owned directory outside
 the checkout. Its `--modules-dir` and `--virtual-store-dir` values are validated
 relative paths from the controller to that directory; pnpm treats an absolute
 `--modules-dir` as project-relative and would otherwise materialize the CLI at
@@ -439,12 +457,12 @@ Before staging, the controller requires the manifest to match its exact allowed
 fields and binds the complete one-importer lockfile bytes to
 `PINNED_PNPM_RUNTIME_LOCKFILE_SHA256`; this rejects extra dependency/config
 sections, custom tarballs, changed integrity, or extra importers/packages before
-the bootstrap install. A pnpm bump must update the bootstrap npm manifest and
-lockfile, reviewed registry SRI and Linux x64 executable digest, isolated
-JavaScript-runtime manifest and pnpm lockfile, `PINNED_PNPM_VERSION`, and both
-complete-lockfile digests together. On a non-Linux development host,
-`npm install --package-lock-only --force` may be used only to regenerate this
-Linux-specific lock; the CI installation must never use `--force`.
+the bootstrap install. Any Phase A pnpm bump had to update the bootstrap npm
+manifest and lockfile, reviewed registry SRI and Linux x64 executable digest,
+isolated JavaScript-runtime manifest and pnpm lockfile, `PINNED_PNPM_VERSION`,
+and both complete-lockfile digests together. On a non-Linux development host,
+`npm install --package-lock-only --force` could be used only to regenerate this
+Linux-specific lock; the CI installation was never allowed to use `--force`.
 The protected launcher always uses protected Node plus that runtime's
 `pnpm.cjs`; it disables pnpm's package-manager self-switch and strict patch
 version check so an older candidate `packageManager` field cannot silently
@@ -476,9 +494,10 @@ Its isolated `HOME` and XDG directories place that store under the disposable
 candidate home, which is deleted before upload. Sharing a runner store here
 would let selected source code mutate cache state that an Actions post-step
 could save from the trusted `main` run if an isolation boundary regressed.
-Treat candidate dependency installation as a cold, measured pilot cost; record
-its duration separately from `vercel build`. The signed Turbo remote build
-cache remains enabled and its hit/miss evidence remains part of the comparison.
+Phase A treated candidate dependency installation as a cold, measured pilot
+cost and recorded its duration separately from `vercel build`. The signed Turbo
+remote build cache remained enabled, and its hit/miss evidence remained part of
+the historical comparison.
 
 Before candidate installation, the worker proves the checked-out index tree is
 the exact selected commit tree. The candidate UID cannot write `/var/lib`, the
@@ -504,10 +523,10 @@ removes the empty work and outer directories, and proves the outer root is
 absent before deleting the recorded candidate user and group. Unexpected
 top-level state or a pre-existing/unmatched candidate identity is never deleted.
 
-### Root Directory and command sequence
+### Historical Phase A Root Directory and command sequence
 
-The pinned Vercel CLI commands execute from monorepo-shaped roots. Before
-`vercel pull`, the worker creates a fresh runner-owned staging tree at a fixed
+The pinned Vercel CLI commands executed from monorepo-shaped roots. Before
+`vercel pull`, the worker created a fresh runner-owned staging tree at a fixed
 path under `$VERCEL_ISOLATION_ROOT`. That tree contains only real
 `apps/ui.mento.org` directory components and an ephemeral repo-level link built
 from trusted repository variables; it contains no checked-out candidate file.
@@ -546,8 +565,7 @@ controller validates the ID variables but deliberately withholds them from the
 Vercel CLI child process: CLI `56.2.0` otherwise gives those variables
 precedence over `repo.json` and loses the monorepo Root Directory mapping.
 
-The credentialed worker runs this sequence in one standard `ubuntu-latest`
-job:
+The credentialed worker ran this sequence in one standard `ubuntu-latest` job:
 
 1. create the fresh runner-owned pull staging and exact repo-level UI link;
 2. run `vercel pull --yes --environment preview --git-branch
@@ -592,7 +610,7 @@ remain rejected. Before reading or copying the handoff, the validator also caps
 each `.vc-config.json` at 1 MiB, each regular file at 250 MiB, and the complete
 output at 1 GiB.
 
-Only after that job emits the verified immutable URL does a second trusted job
+Only after that job emitted the verified immutable URL did a second trusted job
 perform direct HTTP smoke of the URL, navigation, custom build identity,
 representative JS/CSS/font assets, and preview security headers. That smoke job
 checks out only `github.workflow_sha`; it never checks out or executes the
@@ -617,19 +635,19 @@ applying the same validation again immediately before upload.
 CLI `56.2.0` gates its local Root Directory monorepo defaults behind
 `VERCEL_BUILD_MONOREPO_SUPPORT=1`. The worker supplies that trusted constant to
 the clean candidate environment so the CLI activates its Turborepo default,
-`turbo run build`, for the Root Directory project. Turbo then includes upstream
+`turbo run build`, for the Root Directory project. Turbo then included upstream
 workspace packages such as `@mento-protocol/ui` before the selected Next.js
-app. Re-audit this internal, version-coupled flag whenever the pinned CLI
-changes. Do not replace it with a separate app dependency prebuild: that would
-duplicate work before the CLI's own build and could diverge from Vercel's
-project settings.
+app. The Phase A design required this internal, version-coupled flag to be
+re-audited whenever the pinned CLI changed and forbade replacing it with a
+separate app dependency prebuild, which would have duplicated work before the
+CLI's own build and could have diverged from Vercel's project settings.
 
-### Canonical GitHub Deployment
+### Historical Phase A canonical GitHub Deployment
 
-The worker owns one explicit REST Deployment for the exact SHA. It uses only
-`contents: read` and `deployments: write`; no job-level Actions environment is
-declared, so GitHub does not create an implicit event-SHA Deployment. The create
-request uses `auto_merge: false`, empty required contexts, the deterministic
+The worker owned one explicit REST Deployment for the exact SHA. It used only
+`contents: read` and `deployments: write`; no job-level Actions environment was
+declared, so GitHub did not create an implicit event-SHA Deployment. The create
+request used `auto_merge: false`, empty required contexts, the deterministic
 `vercel-preview-ui` environment, and transient/non-production flags.
 
 The run-scoped pilot key is:
@@ -638,45 +656,50 @@ The run-scoped pilot key is:
 vercel-pilot:v1:ui:sha:<sha>:run:<run_id>:attempt:<run_attempt>
 ```
 
-Retries with that exact key reuse the existing record. A deliberate workflow
-rerun has a different attempt key and creates a new pilot attempt. Only
-non-secret provenance is stored in the payload.
+Retries with that exact key reused the existing record. A deliberate workflow
+rerun had a different attempt key and created a new pilot attempt. Only
+non-secret provenance was stored in the payload.
 
-Statuses progress through `queued` and `in_progress`. `success` is posted with
-the immutable Vercel `environment_url` and Actions `log_url` only after direct
-smoke passes. Build, deploy, or smoke failures post `failure`; cancellation or
-controller/infrastructure failures post `error`. The `if: always()` lifecycle
-job closes any record that did not reach success. It is independent of
-best-effort timing and run-summary steps, so a metrics failure cannot overwrite
-a verified deployment's lifecycle truth. The reusable workflow publishes
-`deployment_url` only from the smoke-backed success step; it never falls back
-to the unverified upload output.
+Statuses progressed through `queued` and `in_progress`. `success` was posted
+with the immutable Vercel `environment_url` and Actions `log_url` only after
+direct smoke passed. Build, deploy, or smoke failures posted `failure`;
+cancellation or controller/infrastructure failures posted `error`. The
+`if: always()` lifecycle job closed any record that did not reach success. It
+was independent of best-effort timing and run-summary steps, so a metrics
+failure could not overwrite a verified deployment's lifecycle truth. The
+reusable workflow published `deployment_url` only from the smoke-backed success
+step; it never fell back to the unverified upload output.
 
 A Deployment or status created with the repository `GITHUB_TOKEN` does not
 trigger another workflow run. Therefore `.github/workflows/preview-smoke.yml`
-will not recurse for this pilot. Direct smoke in the reusable worker is the
-required success gate. Do not add a PAT to force `deployment_status` recursion.
-The dedicated worker-dispatch PAT is not an exception; its sole purpose is the
-automatic controller's worker `workflow_dispatch` POST described below.
+did not recurse for the pilot. Direct smoke in the reusable worker was the
+required success gate. Do not add a PAT to force `deployment_status` recursion;
+the Phase A pilot did not need one. The dedicated worker-dispatch PAT was not
+an exception; its sole purpose was the automatic controller's worker
+`workflow_dispatch` POST described below.
 
-### Evidence and browser verification
+### Historical Phase A evidence and browser verification
 
-The run summary records the exact SHA, immutable URL, Vercel Deployment ID,
-GitHub Deployment ID, build duration, upload duration, and total controller
-duration. Turbo prints remote-cache hit/miss evidence in the build log. Compare
-those values with the same-SHA native Vercel Git preview, but do not infer
-billing savings from elapsed time alone.
+The Phase A run summary recorded the exact SHA, immutable URL, Vercel Deployment
+ID, GitHub Deployment ID, build duration, upload duration, and total controller
+duration. Turbo printed remote-cache hit/miss evidence in the build log. Phase A
+reviewers compared those values with the same-SHA native Vercel Git preview but
+did not infer billing savings from elapsed time alone.
 
-Before treating the pilot as accepted, follow the repository browser protocol
-on the immutable GitHub-built URL: verify page rendering and primary
-navigation, inspect console errors and failed network requests, confirm static
-assets/fonts, and compare security headers plus the Vercel toolbar/CSP behavior
-with the native preview. Attach the URL and concise evidence to the PR or issue.
+Phase A acceptance also required the repository browser protocol on the
+immutable GitHub-built URL: reviewers verified page rendering and primary
+navigation, inspected console errors and failed network requests, confirmed
+static assets/fonts, and compared security headers plus Vercel toolbar/CSP
+behavior with the native preview. They attached the URL and concise evidence to
+the PR or issue. This same-SHA native comparison is intentionally unavailable
+after Phase B disables native UI branch previews; current validation uses the
+[Phase B canary and rollback procedures](#ui-vercel-git-cutover-phase-b).
 
-The final UI Git-ownership cutover remains blocked on the cost go/no-go evidence
-in issue #518 and the Phase A live canaries below.
+The cost go/no-go record in issue #518 and the Phase A live-canary evidence
+below were prerequisites for the final UI Git-ownership cutover. The current
+Phase B ownership model reflects that gate having completed.
 
-## Automatic trusted UI previews (Phase A)
+## Automatic trusted UI previews (current; introduced in Phase A)
 
 `.github/workflows/vercel-preview-controller.yml` is the only automatic event
 controller. It runs trusted default-branch code for `pull_request_target`
@@ -686,6 +709,42 @@ completed `Vercel Preview Worker` callbacks; and accepts the default-branch-boun
 `vercel-preview-bootstrap` and `vercel-preview-reconcile` repository events for
 one validated PR number. The controller has no Vercel/Turbo credential and no
 write-token job checks out or executes PR code.
+
+The workflow-level `VERCEL_PREVIEW_CONTROLLER_MODE` is an executable ownership
+switch, not a secret or an operator-set repository variable. Every
+reconciliation passes it to the trusted controller implementation. For each
+open trusted PR, the controller reads `apps/ui.mento.org/vercel.json` through
+the Contents API at immutable 40-character SHAs. The current PR head selects
+the controller's overall mode, but every historical event selected for dispatch
+is checked again at that event's own SHA after its PR-lineage association is
+proven. It accepts only the bounded, valid UTF-8 JSON representation of the two
+exact reviewed ownership configurations in this runbook; missing, oversized,
+malformed, or unknown content fails closed before any worker-dispatch request.
+
+`active` can create a worker only while both the current head and the selected
+event SHA have the exact GitHub-owned configuration, and rechecks both immutable
+ownership inputs immediately before the dispatch credential can make its only
+POST. A selected native-owned receipt is persisted as an intent and routed
+through the same bounded no-dispatch recovery path: one already-created worker
+is attached and drained, while no matching worker produces the durable
+`native-owned-selection-without-github-worker` result and advances
+reconciliation to the next receipt. That dedicated terminal reason is
+ownership-success, not GitHub build evidence; it creates no GitHub Deployment.
+The generic `dispatch-disabled-intent-without-worker` result remains an error
+for the SHA whose GitHub-owned intent was retired, so a later ownership flip
+cannot falsely relabel that historical SHA as native-owned. The exact native
+configuration also suppresses dispatch when the default-branch workflow is
+still `active`, which protects a rollback PR before it merges. `observe-only`
+never creates a new dispatch intent or worker.
+It does, however, reconcile every previously persisted `intended` entry in both
+the current and epoch-retired ownership slots: one unique existing worker is
+attached without the secondary credential, a completed worker is terminalized
+in the same reconciliation attempt, an in-progress worker remains durably
+attached in its original slot for its callback, and no match after bounded
+observation is retired as `dispatch-disabled-intent-without-worker`. Multiple
+matches fail closed. An `observe-only` controller paired with the GitHub-owned
+candidate configuration also fails closed because neither automatic preview
+path would own that head.
 
 Dependabot is intentionally split out before any write boundary.
 `.github/workflows/vercel-preview-intake.yml` receives the same PR activities
@@ -890,10 +949,18 @@ Operator recovery queries the exact persisted worker attempt instead of the
 latest rerun. If a retired old-epoch attempt is missing or fails identity
 validation, the controller records a bounded recovery quarantine on that
 retired selection and continues current-epoch reconciliation without posting a
-current-head controller error. Transient retired-attempt API or journal-write
-failures remain unquarantined and retry on the next reconciliation, also
-without changing the current-head status. A recovery ambiguity for the current
-active selection still fails closed.
+current-head controller error. The quarantined selection remains in the journal
+as audit evidence, but it no longer counts as live GitHub deployment ownership
+and therefore cannot hold a native-Vercel ownership handoff pending forever.
+When no live GitHub owner remains, terminal journal compaction folds the
+quarantine marker and its unfinished receipts into the checkpoint's cumulative
+digest and bounded receipt counts before dropping them from the baseline state.
+Transient retired-attempt API or journal-write failures remain unquarantined
+and retry on the next reconciliation, also without changing the current-head
+status. A recovery ambiguity for the current active selection still fails
+closed. Durable recovery, ownership-flip, and no-dispatch mutations may require
+multiple local reconciliation passes; those bounded progress passes are
+separate from the three-attempt budget reserved for serialized journal races.
 
 ### Durable dispatch and exact Deployment identity
 
@@ -920,6 +987,14 @@ epoch-bound title identity also validate. Completion follow-ups route by the
 exact worker or intake workflow path rather than the presentation name, then
 repeat full source validation before any status or Deployment write.
 
+The worker independently repeats the immutable ownership check before emitting
+`should_deploy`, inspecting deployment state, or reaching any Vercel secret. It
+requires both the then-current PR head and its controller-authorized
+`commit_sha` to remain GitHub-owned. This is defense in depth for a worker that
+was queued while ownership changed; controller journal ownership alone cannot
+authorize code whose own `vercel.json` assigns preview deployment to native
+Vercel.
+
 Zero matches dispatches `.github/workflows/vercel-preview-worker.yml` on `main`
 using a secondary Octokit client authenticated only by repository secret
 `GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN`. The fine-grained token is scoped to this
@@ -929,6 +1004,16 @@ all journal, status, Deployment, PR, run-listing, run-validation, and recovery
 operations. The controller never falls back to `GITHUB_TOKEN` for dispatch,
 because a worker created by that token does not produce the terminal
 `workflow_run` callback required by this protocol.
+
+This dispatch description applies only while
+`VERCEL_PREVIEW_CONTROLLER_MODE: active`. In `observe-only` mode, event planning,
+journal receipts, completed-worker recovery, crash-window intent discovery or
+retirement, and the explicit no-dispatch status remain available, but the
+secondary client is not populated and the dispatch guard rejects the POST even
+if a caller reaches it unexpectedly. Exact native candidate ownership also
+disables dispatch while an `active` default-branch controller handles the
+rollback PR; candidate configuration errors and ownership ambiguity never make
+a secondary-client request.
 
 The dispatch occurs only while the executing controller's own workflow SHA
 still equals the persisted intent. If the dedicated secret is missing, the
@@ -964,7 +1049,9 @@ terminal recovery succeeds, the same journal gains the result, active ownership
 clears, and `Vercel Preview` becomes terminal at the immutable URL. Repeat with
 a controlled failure and a cancelled worker before Deployment creation, then
 rerun a callback to prove journal, worker, Deployment, and result idempotency.
-Until that evidence exists after provisioning, Phase A remains blocked.
+That automatic-callback, failure, cancellation, and replay evidence was a Phase
+A acceptance gate after credential provisioning and had to pass before the UI
+Git-ownership cutover.
 
 The canonical Deployment key and environment are:
 
@@ -1054,8 +1141,9 @@ or exactly-once delivery across GitHub and Vercel.
 
 ### Bootstrap and operator recovery
 
-Before `Vercel Preview` becomes required, inventory every already-open PR and
-bootstrap each trusted same-repository PR that should participate. A lone
+Before `Vercel Preview` became required during Phase A, maintainers had to
+inventory every already-open PR and bootstrap each trusted same-repository PR
+that should participate. A lone
 synchronize journal entry deliberately waits for an
 opened/reopened/bootstrap anchor. Repeated semantically identical bootstrap
 requests are idempotent, and a bootstrap identical to an existing lifecycle
@@ -1149,13 +1237,14 @@ full-body schema validation.
 
 ### Phase A canary evidence template
 
-Keep native Vercel Git UI previews enabled. For every canary, record the PR,
-exact SHA(s), controller/worker run URLs, controller key/digest, canonical
+Phase A kept native Vercel Git UI previews enabled. For every canary, record the
+PR, exact SHA(s), controller/worker run URLs, controller key/digest, canonical
 GitHub Deployment ID, GitHub-built immutable URL, native Vercel immutable URL,
 canonical journal comment ID/revision/`journal_digest`/`state.receipts_digest`,
 terminal `Vercel Preview` status, and browser evidence.
 
-Verify all of these before changing the ruleset or starting Phase B:
+The Phase A gate required all of these before changing the ruleset or starting
+Phase B:
 
 1. trusted UI-affecting A produces both native and GitHub previews;
 2. rapid UI pushes A -> B -> C deploy A then C, with B durably coalesced;
@@ -1184,14 +1273,17 @@ network requests, confirm JS/CSS/font assets, and compare security headers plus
 Vercel toolbar/CSP behavior with the native preview. A canary is not accepted
 from workflow logs alone.
 
-Only after successful deploy, no-runtime, runtime-reuse, coalesced, after-idle,
-idempotent replay/reconcile, unsupported-trust, failure, cancellation, and
-old-epoch evidence is recent may the ruleset require the Statuses API
-`Vercel Preview` context.
+The Phase A ruleset change was gated on recent successful-deploy, no-runtime,
+runtime-reuse, coalesced, after-idle, idempotent replay/reconcile,
+unsupported-trust, failure, cancellation, and old-epoch evidence.
 
 ## UI Vercel Git cutover (Phase B)
 
-Phase B must be a separate merge after Phase A canaries pass. Change only
+Phase B is the current ownership model after this change merges. Its completed
+precondition was that every Phase A dual-path canary above passed and its
+GitHub-built/native-preview evidence was recorded. This separate merge pairs
+`VERCEL_PREVIEW_CONTROLLER_MODE: active` in
+`.github/workflows/vercel-preview-controller.yml` with the following exact
 `apps/ui.mento.org/vercel.json`, preserving its schema and unrelated keys:
 
 ```json
@@ -1206,14 +1298,24 @@ Phase B must be a separate merge after Phase A canaries pass. Change only
 }
 ```
 
-Vercel treats any matching `true` as enabled, so `main` remains native even
-though it also matches `**`. Use a fresh/main-rebased UI canary containing this
-configuration. Prove one canonical GitHub Deployment, one Vercel preview, no
-native branch preview, a truthful required status, and an unchanged native
-merge/main deployment. Inventory pre-cutover open branches and require them to
-rebase/merge `main` before using them as duplicate-prevention evidence.
+Vercel treats any matching `true` as enabled, so `main` remains natively
+deployed even though it also matches `**`. If this Phase B branch waited while
+Phase A changed, rebase it onto the final Phase A `main` before merge. Before
+the Phase B merge, inventory every active UI-runtime PR and branch. After the
+cutover reaches `main`, each active branch must rebase or merge that `main`, or
+receive an explicitly reviewed equivalent branch update containing this Phase B
+configuration, before repository-wide duplicate prevention can be claimed.
 
-Rollback changes that same file exactly to:
+Use a fresh UI canary or rebase an existing UI canary onto the resulting `main`
+so it contains this configuration. Prove one canonical GitHub Deployment, one
+Vercel preview, no native branch preview, a truthful required status, and an
+unchanged native merge/main deployment. A fresh canary proves only its own
+branch; stale pre-cutover branches still carry their old static `vercel.json`
+and are not valid repository-wide duplicate-prevention evidence.
+
+Rollback is mutually exclusive with the Phase B configuration. One reviewed PR
+must atomically change `VERCEL_PREVIEW_CONTROLLER_MODE` to `observe-only` and
+restore `apps/ui.mento.org/vercel.json` exactly to:
 
 ```json
 {
@@ -1226,15 +1328,118 @@ Rollback changes that same file exactly to:
 }
 ```
 
-Merge the rollback normally, use a fresh UI canary to prove native previews
-return, and remove/leave non-required the `Vercel Preview` ruleset context until
-the controller is repaired. Do not change production domains, other apps, or
-recreate Governance QA.
+Do not split those two edits across merges. A configuration-only rollback would
+not be a supported steady state, and a mode-only rollback would leave every
+still-Phase-B UI branch without an automatic preview owner.
+`pnpm vercel:preview:test` rejects both invalid repository ownership pairs. The
+exact-head runtime guard is additional pre-merge protection: as soon as the
+rollback PR contains the exact native configuration, the still-`active`
+controller from `main` refuses to dispatch for it. This cross-ref safeguard does
+not make a split rollback acceptable.
 
-### Cleanup
+On the rollback PR, `Vercel Preview` reports `pending` with
+`Draining GitHub preview before native ownership` while any journal-owned
+GitHub intent or worker remains. The controller attaches a uniquely matching
+crash-window worker without dispatching, including ownership retired by a close
+or reopen epoch; completion is recovered in that same reconciliation attempt,
+and an intent with no worker is durably retired after bounded observation. A
+native-owned historical receipt encountered after a later switch back to
+GitHub ownership follows that same durable retirement path instead of being
+dispatched by the later head's configuration. Its dedicated
+`native-owned-selection-without-github-worker` result is reported as
+ownership-success and never claims a native build or smoke. Generic retirement
+of a GitHub-owned intent keeps its error semantics. Only after no active or
+retired GitHub ownership remains does the current native-owned context become
+`success` with `Native Vercel owns this UI preview`. Missing, malformed, or
+unknown candidate configuration, multiple matching workers, and an
+`observe-only`/GitHub-owned combination remain `error`.
 
-After evidence is saved, a maintainer may remove only the pilot's immutable
-preview using the preview-scoped CLI credential:
+That green context proves only the controller's owner selection and drained
+journal state. Its target is the controller run as audit evidence; it does not
+prove that native Vercel built, deployed, or smoke-tested the candidate. The
+same current-head ownership decision is persisted in the
+journal and posted as the external status. A native-ownership checkpoint keeps
+that meaning across later docs-only pushes but never updates
+`last_successful_runtime_*`; only validated live worker evidence can replace
+that build-and-smoke provenance. Before
+merging the rollback, separately require the native Vercel deployment/status
+for the rollback PR's exact head SHA, open its immutable preview URL, and run the
+repository browser protocol: verify rendering and primary navigation, inspect
+console errors and failed network requests, confirm assets and fonts, and check
+the expected security headers. Record the native deployment and browser
+evidence on the PR. Never treat the ownership-only status as this evidence.
+
+Immediately before merging the rollback, establish a coordinated no-push window
+and drain or cancel every non-completed run of all three workflows:
+
+```bash
+set -euo pipefail
+
+list_nonterminal_preview_runs() {
+  local workflow status
+  local -a workflows=(
+    vercel-preview-controller.yml
+    vercel-preview-worker.yml
+    vercel-preview-intake.yml
+  )
+  local -a statuses=(queued requested waiting pending in_progress)
+
+  for workflow in "${workflows[@]}"; do
+    for status in "${statuses[@]}"; do
+      gh api --paginate --method GET \
+        "repos/mento-protocol/frontend-monorepo/actions/workflows/${workflow}/runs" \
+        -f status="$status" \
+        -f per_page=100 \
+        --jq '.workflow_runs[] | [.id, .status, .path, .html_url] | @tsv'
+    done
+  done | sort -u
+}
+
+list_nonterminal_preview_runs
+list_nonterminal_preview_runs |
+  cut -f1 |
+  sort -u |
+  while read -r run_id; do gh run cancel "$run_id"; done
+```
+
+`gh api --paginate` follows every response page separately for every workflow
+and every GitHub nonterminal status; do not replace it with a bounded
+`gh run list --limit ...` query. Any query or cancellation error aborts the
+shell; correct the cause and rerun the full inventory from the start. Repeat the
+inventory and cancellation pipeline until the inventory prints no rows. After
+that first empty result, wait for cancellations to settle because worker and
+intake completion can start a final controller callback, then require a second
+empty exhaustive sweep immediately before merge. Do not merge while any queued,
+requested, waiting, pending, or in-progress controller, worker, or intake run
+remains. This quiescence proof prevents a run loaded from the old `active`
+workflow SHA from dispatching after native ownership is restored.
+
+Before merging the rollback, inventory every active UI-runtime PR and branch
+that carries the Phase B `"**": false` rule. After the restored configuration
+reaches `main`, each inventoried branch must rebase or merge that `main`, or
+receive an explicitly reviewed equivalent branch update containing the exact
+rollback configuration, before native preview restoration can be claimed. A
+stale Phase B branch still carrying the GitHub-owned configuration is
+deliberately ownerless under the restored `observe-only` controller and receives
+an error status until it takes the rollback configuration.
+
+The rollback PR must update the current-state ownership text in `README.md` and
+this runbook. Do not weaken or remove the executable pairing assertion in
+`scripts/vercel-git-ownership.test.mjs`; it is the guard that makes the atomic
+mode/configuration change mandatory.
+
+Use a fresh or restored-main-rebased UI canary to prove native previews return.
+A fresh canary proves only its own branch and is not evidence that every active
+Phase B branch was restored. The `Vercel Preview` context remains
+ownership-only in `observe-only`; require separate native Vercel and browser
+evidence anywhere preview readiness gates a merge. Do not change production
+domains, other apps, or recreate Governance QA.
+
+### Historical Phase A pilot cleanup
+
+This is historical Phase A evidence, not a current Phase B operation. After the
+Phase A pilot evidence was saved, a maintainer could remove only that pilot's
+immutable preview using the preview-scoped CLI credential:
 
 ```bash
 export VERCEL_TOKEN="<preview-scoped-token>"
@@ -1243,6 +1448,8 @@ pnpm exec vercel remove "<immutable-vercel-deployment-url-or-id>" --yes
 
 Confirm the value is the unique pilot URL or `dpl_` ID from the run summary.
 Never pass a production domain or alias, and do not change Vercel Git settings.
+Do not use this retired pilot command to remove current controller-managed
+previews.
 
 The complete zero-network pilot and automatic-preview suites are:
 

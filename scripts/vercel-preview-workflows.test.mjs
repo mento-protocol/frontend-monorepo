@@ -80,6 +80,63 @@ test("controller has only the three specified recovery-aware triggers", () => {
   assert.doesNotMatch(raw, /workflow_dispatch|\binputs\./);
 });
 
+test("controller mode is canonical and reaches every reconciliation call", () => {
+  assert.deepEqual(Object.keys(controller.env), [
+    "VERCEL_PREVIEW_CONTROLLER_MODE",
+  ]);
+  assert.ok(
+    ["active", "observe-only"].includes(
+      controller.env.VERCEL_PREVIEW_CONTROLLER_MODE,
+    ),
+    "controller mode must be active or observe-only",
+  );
+  for (const [jobName, job] of Object.entries(controller.jobs)) {
+    const step = job.steps?.find((candidate) =>
+      String(candidate.with?.script ?? "").includes("reconcilePreview"),
+    );
+    if (!step) continue;
+    assert.equal(
+      step.env.CONTROLLER_MODE,
+      "${{ env.VERCEL_PREVIEW_CONTROLLER_MODE }}",
+      `${jobName} must receive the version-controlled controller mode`,
+    );
+    assert.match(
+      step.with.script,
+      /controllerMode:\s*process\.env\.CONTROLLER_MODE/,
+      `${jobName} must pass the controller mode to reconciliation`,
+    );
+  }
+});
+
+test("controller guards current, selected, and worker preview ownership with immutable configurations", () => {
+  const implementation = read("scripts/vercel-preview-controller.mjs");
+  assert.match(implementation, /repos\.getContent/);
+  assert.match(
+    implementation,
+    /function uiPreviewOwnerAtSha[\s\S]+path:\s*UI_VERCEL_CONFIGURATION_PATH,\s*ref:\s*immutableSha/s,
+  );
+  assert.match(
+    implementation,
+    /candidateUiPreviewOwner[\s\S]+uiPreviewOwnerAtSha\(github, context, normalized\.headSha\)/,
+  );
+  assert.match(
+    implementation,
+    /shaIsStillAssociated[\s\S]+selected\.sha[\s\S]+uiPreviewOwnerAtSha\(github, context, selected\.sha\)/,
+  );
+  assert.match(
+    implementation,
+    /outcome === "selected-native"[\s\S]+reconcileNoDispatchIntents/,
+  );
+  assert.match(
+    implementation,
+    /validateWorkerDispatch[\s\S]+uiPreviewOwnerAtSha[\s\S]+normalizedPull\.headSha[\s\S]+uiPreviewOwnerAtSha\(github, context, sha\)/,
+  );
+  assert.match(
+    implementation,
+    /Observe-only controller leaves the candidate UI preview ownerless/,
+  );
+});
+
 test("Dependabot intake is credentialless and trusted follow-up alone can write status", () => {
   assert.equal(intake.name, "Vercel Preview Intake");
   assert.deepEqual(intake.on, {
@@ -372,7 +429,8 @@ test("only reconciliation steps receive the dedicated worker dispatch credential
     "reconcile-request",
     "recover-worker-result",
   ];
-  const secretExpression = "${{ secrets.GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN }}";
+  const secretExpression =
+    "${{ env.VERCEL_PREVIEW_CONTROLLER_MODE == 'active' && secrets.GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN || '' }}";
   const raw = read(controllerPath);
   const secretNames = [...raw.matchAll(/secrets\.([A-Z0-9_]+)/g)].map(
     ([, name]) => name,
@@ -393,12 +451,20 @@ test("only reconciliation steps receive the dedicated worker dispatch credential
         `${jobName} must not receive the worker dispatch credential`,
       );
       assert.equal(step.env.WORKER_DISPATCH_TOKEN, secretExpression);
+      assert.equal(
+        step.env.CONTROLLER_MODE,
+        "${{ env.VERCEL_PREVIEW_CONTROLLER_MODE }}",
+      );
       assert.equal(Object.hasOwn(step.with ?? {}, "github-token"), false);
       assert.match(
         step.with.script,
         /getOctokit\(process\.env\.WORKER_DISPATCH_TOKEN\)/,
       );
       assert.match(step.with.script, /workerDispatchGithub,/);
+      assert.match(
+        step.with.script,
+        /controllerMode:\s*process\.env\.CONTROLLER_MODE/,
+      );
     }
   }
 
@@ -681,6 +747,20 @@ test("runbook covers bootstrap, canaries, browser proof, separate cutover, and e
     '"**": false',
     '"main": true',
     '"dependabot/**": false',
+    "immutable 40-character SHAs",
+    "event's own SHA",
+    "dispatch-disabled-intent-without-worker",
+    "native-owned-selection-without-github-worker",
+    "Draining GitHub preview before native ownership",
+    "proves only the controller's owner selection",
+    "native Vercel deployment/status",
+    "stale Phase B branch",
+    "vercel-preview-controller.yml",
+    "vercel-preview-worker.yml",
+    "vercel-preview-intake.yml",
+    "queued requested waiting pending in_progress",
+    "gh api --paginate",
+    "set -euo pipefail",
     "SHA",
   ]) {
     assert.match(
@@ -690,6 +770,6 @@ test("runbook covers bootstrap, canaries, browser proof, separate cutover, and e
   }
   assert.doesNotMatch(
     docs,
-    /gh workflow run vercel-preview-controller|operation=(?:bootstrap|reconcile)/,
+    /gh workflow run vercel-preview-controller|operation=(?:bootstrap|reconcile)|gh run list --workflow.*--limit/,
   );
 });

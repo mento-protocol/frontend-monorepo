@@ -47,6 +47,15 @@ const SHA = Object.fromEntries(
     (index + 1).toString(16).repeat(40),
   ]),
 );
+const UI_VERCEL_CONFIGURATION_PATH = "apps/ui.mento.org/vercel.json";
+const GITHUB_OWNED_UI_VERCEL_CONFIGURATION = {
+  $schema: "https://openapi.vercel.sh/vercel.json",
+  git: { deploymentEnabled: { "**": false, main: true } },
+};
+const NATIVE_OWNED_UI_VERCEL_CONFIGURATION = {
+  $schema: "https://openapi.vercel.sh/vercel.json",
+  git: { deploymentEnabled: { "dependabot/**": false } },
+};
 const workerDispatchClients = new WeakMap();
 
 function reconcilePreview(options) {
@@ -54,6 +63,7 @@ function reconcilePreview(options) {
     ? options.workerDispatchGithub
     : workerDispatchClients.get(options.github);
   return reconcilePreviewImplementation({
+    controllerMode: "active",
     workflowSha: SHA.E,
     now: () => timestamp(0),
     workerDispatchGithub,
@@ -237,6 +247,37 @@ function result(
     next_deployment_id: state === "success" ? `m-ui-${runId}` : null,
     vercel_deployment_url: vercelDeploymentUrl,
     smoke_result: state === "success" ? "passed" : "failed",
+    terminal_reason: reason,
+  });
+}
+
+function controllerResult(
+  dispatch,
+  {
+    runId = 7_000,
+    reason = "native-owned-selection-without-github-worker",
+  } = {},
+) {
+  return validateWorkerResult({
+    schema: RESULT_RECEIPT_SCHEMA,
+    repository: PREVIEW_REPOSITORY,
+    pr: dispatch.pr,
+    target: "ui",
+    sha: dispatch.sha,
+    controller_key: dispatch.key,
+    key_digest: dispatch.key_digest,
+    epoch_anchor_run_id: dispatch.epoch_anchor_run_id,
+    reconciliation_basis_digest: dispatch.reconciliation_basis_digest,
+    selection_receipt_run_id: dispatch.selection_receipt_run_id,
+    expected_workflow_sha: dispatch.expected_workflow_sha,
+    worker_run_id: runId,
+    worker_run_attempt: 1,
+    github_deployment_id: null,
+    state: "error",
+    vercel_deployment_id: null,
+    next_deployment_id: null,
+    vercel_deployment_url: null,
+    smoke_result: "not-run",
     terminal_reason: reason,
   });
 }
@@ -1669,6 +1710,100 @@ test("capacity checkpointing uses the latest represented receipt when the live P
   );
 });
 
+test("terminal checkpoint folds quarantined retired ownership into bounded audit evidence", () => {
+  const setup = sameShaReopenState();
+  const currentResult = result(setup.current.nextDispatch, { runId: 8_001 });
+  const selections = [
+    selectionReceiptFromDispatch(setup.currentState.ui.retired_active[0]),
+    selectionReceiptFromDispatch(setup.currentState.ui.active),
+  ];
+  const events = [...setup.events];
+  let priorHead = SHA.A;
+  let currentPull = setup.pullRequest;
+  let journal = null;
+
+  for (let index = 1; index <= 45; index += 1) {
+    const head = (900 + index).toString(16).padStart(40, "0");
+    events.push(
+      event({
+        run: 2_100 + index,
+        action: "synchronize",
+        before: priorHead,
+        head,
+        runtime: false,
+        updated: timestamp(index + 3),
+      }),
+    );
+    currentPull = pull({ head, updated: timestamp(index + 3) });
+    const terminal = reconcile({
+      events,
+      results: [currentResult],
+      selections,
+      pullRequest: currentPull,
+      existingState: setup.currentState,
+    });
+    assert.equal(terminal.state.ui.active, null);
+    assert.equal(terminal.state.ui.retired_active.length, 1);
+    const quarantinedState = structuredClone(terminal.state);
+    quarantinedState.ui.retired_active[0] = {
+      ...quarantinedState.ui.retired_active[0],
+      recovery_quarantine: "persisted-attempt-invalid-or-unavailable",
+    };
+    journal = createPreviewJournal({
+      pr: 519,
+      events,
+      selections,
+      results: [currentResult],
+      state: quarantinedState,
+    });
+    priorHead = head;
+    if (Buffer.byteLength(previewJournalBody(journal), "utf8") >= 41_000) {
+      break;
+    }
+  }
+
+  const originalBytes = Buffer.byteLength(previewJournalBody(journal), "utf8");
+  assert.ok(originalBytes >= 41_000, `journal was only ${originalBytes} bytes`);
+  assert.ok(originalBytes < 60_000, `journal was ${originalBytes} bytes`);
+
+  const compacted = compactPreviewJournal(journal, {
+    pullRequest: currentPull,
+  });
+  assert.equal(compacted.checkpoint.pending_owner_key_digest, null);
+  assert.equal(compacted.checkpoint.pending_runtime_event, null);
+  assert.equal(compacted.checkpoint.status.state, "success");
+  assert.match(
+    compacted.checkpoint.cumulative_receipts_digest,
+    /^[0-9a-f]{64}$/,
+  );
+  assert.deepEqual(compacted.checkpoint.pruned_receipt_counts, {
+    events: events.length,
+    selections: 2,
+    worker_evidence: 0,
+    results: 1,
+  });
+  assert.deepEqual(compacted.receipts, {
+    events: [],
+    selections: [],
+    worker_evidence: [],
+    results: [],
+  });
+  assert.equal(compacted.state.ui.retired_active.length, 0);
+  assert.ok(
+    Buffer.byteLength(previewJournalBody(compacted), "utf8") < originalBytes,
+  );
+  assert.doesNotThrow(() =>
+    reconcile({
+      events: compacted.receipts.events,
+      results: compacted.receipts.results,
+      selections: compacted.receipts.selections,
+      pullRequest: currentPull,
+      existingState: compacted.state,
+      checkpoint: compacted.checkpoint,
+    }),
+  );
+});
+
 test("a terminal pending owner resolves a docs-only capacity checkpoint", async () => {
   const openedHead = (300).toString(16).padStart(40, "0");
   const opened = event({
@@ -2098,6 +2233,23 @@ test("docs-only checkpoint tails preserve prior runtime terminal semantics", () 
       runtime: false,
       updated: timestamp(2),
     });
+    if (terminalCase.state === "success") {
+      const baselineWithoutBuildEvidence = structuredClone(journal.state);
+      baselineWithoutBuildEvidence.ui.last_successful_runtime_sha = null;
+      baselineWithoutBuildEvidence.ui.last_successful_runtime_url = null;
+      const syntheticReplay = reconcile({
+        events: [firstDocs],
+        pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
+        existingState: baselineWithoutBuildEvidence,
+        checkpoint: journal.checkpoint,
+      });
+      assert.match(
+        syntheticReplay.state.status_decisions.at(-1).description,
+        /^Runtime-equivalent to /,
+      );
+      assert.equal(syntheticReplay.state.ui.last_successful_runtime_sha, null);
+      assert.equal(syntheticReplay.state.ui.last_successful_runtime_url, null);
+    }
     const firstDocsState = reconcile({
       events: [firstDocs],
       pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
@@ -2493,6 +2645,56 @@ function sameShaReopenState() {
   };
 }
 
+function sameShaReopenIntentState() {
+  const opened = event({
+    run: 160,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const old = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const oldIntended = persistIntent(old);
+  const closed = event({
+    run: 161,
+    action: "closed",
+    head: SHA.A,
+    updated: timestamp(2),
+  });
+  const closedState = reconcile({
+    events: [opened, closed],
+    pullRequest: pull({
+      head: SHA.A,
+      state: "closed",
+      updated: timestamp(2),
+      closed: timestamp(2),
+    }),
+    existingState: oldIntended,
+  });
+  const reopened = event({
+    run: 162,
+    action: "reopened",
+    head: SHA.A,
+    updated: timestamp(3),
+  });
+  const current = reconcile({
+    events: [opened, closed, reopened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(3) }),
+    existingState: closedState.state,
+  });
+  assert.equal(current.state.ui.active, null);
+  assert.equal(current.state.ui.retired_active.length, 1);
+  assert.equal(current.state.ui.retired_active[0].dispatch_state, "intended");
+  return {
+    events: [opened, closed, reopened],
+    old,
+    current,
+    pullRequest: pull({ head: SHA.A, updated: timestamp(3) }),
+  };
+}
+
 function fakeGitHub({
   pullRequest,
   comments: initialComments,
@@ -2501,6 +2703,7 @@ function fakeGitHub({
   workerRunTotalCount,
   workflowRunAttemptFailures = [],
   updateCommentFailures = [],
+  lostSerializedUpdateFailures = 0,
   updateCommentFailureIds = [],
   pullCommits = [pullRequest.head.sha],
   deployments: initialDeployments = [],
@@ -2514,6 +2717,11 @@ function fakeGitHub({
   pullRequests = [],
   beforeListComments,
   beforeListCommitStatuses,
+  uiVercelConfiguration = GITHUB_OWNED_UI_VERCEL_CONFIGURATION,
+  uiVercelConfigurations = [],
+  uiVercelConfigurationsByRef = new Map(),
+  uiVercelContentResponse,
+  uiVercelContentErrorStatus,
 } = {}) {
   const comments = structuredClone(initialComments);
   const runs = structuredClone(initialRuns);
@@ -2532,6 +2740,7 @@ function fakeGitHub({
     ]),
   );
   const commentUpdates = [];
+  const lostSerializedUpdates = [];
   const dispatches = [];
   const createdDeploymentStatuses = [];
   const workflowRunAttemptRequests = [];
@@ -2539,12 +2748,16 @@ function fakeGitHub({
   const workflowRunRequests = [];
   const primaryRequests = [];
   const workerDispatchRequests = [];
+  const contentRequests = [];
   const transientDisplayTitles = [...workflowRunDisplayTitles];
   const transientListDisplayTitles = [...workflowRunListDisplayTitles];
   const transientListRunIds = [...workflowRunListRunIds];
   const transientPullRequests = [...pullRequests];
+  const transientUiVercelConfigurations = [...uiVercelConfigurations];
+  const configurationsByRef = new Map(uiVercelConfigurationsByRef);
   const attemptFailures = [...workflowRunAttemptFailures];
   const commentUpdateFailures = [...updateCommentFailures];
+  let lostSerializedUpdateFailureCount = lostSerializedUpdateFailures;
   const commitStatusListFailureQueue = [...commitStatusListFailures];
   const commitStatusFailureQueue = [...commitStatusFailures];
   const commentUpdateFailureIds = new Set(updateCommentFailureIds);
@@ -2552,6 +2765,7 @@ function fakeGitHub({
   let nextDeploymentId = 9_000;
   let listCommentRequests = 0;
   let listCommitStatusRequests = 0;
+  let deploymentLookupCallCount = 0;
   const listComments = async () => {};
   const listCommits = async () => {};
   const listDeployments = async () => {};
@@ -2600,8 +2814,14 @@ function fakeGitHub({
           }
           const comment = comments.find(({ id }) => id === comment_id);
           assert.ok(comment, "fixture update must target an existing comment");
+          const previousBody = comment.body;
           commentUpdates.push({ comment_id, body });
           comment.body = body;
+          if (lostSerializedUpdateFailureCount > 0) {
+            lostSerializedUpdateFailureCount -= 1;
+            lostSerializedUpdates.push(comment_id);
+            comment.body = previousBody;
+          }
           return { data: comment };
         },
       },
@@ -2661,6 +2881,35 @@ function fakeGitHub({
         },
       },
       repos: {
+        getContent: async (request) => {
+          contentRequests.push(structuredClone(request));
+          if (uiVercelContentErrorStatus) {
+            const error = new Error("fixture repository content read failed");
+            error.status = uiVercelContentErrorStatus;
+            throw error;
+          }
+          if (uiVercelContentResponse !== undefined) {
+            return { data: structuredClone(uiVercelContentResponse) };
+          }
+          const configuration =
+            (transientUiVercelConfigurations.length > 0
+              ? transientUiVercelConfigurations.shift()
+              : configurationsByRef.get(request.ref)) ?? uiVercelConfiguration;
+          const text =
+            typeof configuration === "string"
+              ? configuration
+              : `${JSON.stringify(configuration, null, 2)}\n`;
+          const content = Buffer.from(text, "utf8");
+          return {
+            data: {
+              type: "file",
+              path: UI_VERCEL_CONFIGURATION_PATH,
+              encoding: "base64",
+              size: content.length,
+              content: content.toString("base64"),
+            },
+          };
+        },
         listDeployments,
         listCommitStatusesForRef,
         createCommitStatus: async (request) => {
@@ -2712,7 +2961,10 @@ function fakeGitHub({
       if (method === listCommits) {
         return pullCommits.map((sha) => ({ sha }));
       }
-      if (method === listDeployments) return structuredClone(deployments);
+      if (method === listDeployments) {
+        deploymentLookupCallCount += 1;
+        return structuredClone(deployments);
+      }
       if (method === listCommitStatusesForRef) {
         return structuredClone(
           commitStatusHistory.get(String(request.ref)) ?? [],
@@ -2792,6 +3044,7 @@ function fakeGitHub({
     statuses,
     commitStatuses,
     commentUpdates,
+    lostSerializedUpdates,
     dispatches,
     createdDeploymentStatuses,
     workflowRunAttemptRequests,
@@ -2799,6 +3052,10 @@ function fakeGitHub({
     workflowRunRequests,
     primaryRequests,
     workerDispatchRequests,
+    contentRequests,
+    get deploymentLookupCallCount() {
+      return deploymentLookupCallCount;
+    },
   };
 }
 
@@ -4607,6 +4864,108 @@ test("worker preflight rejects expected A versus actual B before any API access"
   assert.equal(apiCalls, 0);
 });
 
+test("worker preflight rechecks the immutable selected SHA ownership before deployment work", async () => {
+  const opened = event({
+    run: 120,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const synchronized = event({
+    run: 121,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    updated: timestamp(2),
+  });
+  const pullRequest = pull({ head: SHA.B, updated: timestamp(2) });
+  const selected = reconcile({
+    events: [opened, synchronized],
+    pullRequest,
+  });
+  assert.equal(selected.nextDispatch.sha, SHA.A);
+  const intended = persistIntent(selected);
+  const fixture = fakeGitHub({
+    pullRequest,
+    pullCommits: [SHA.A, SHA.B],
+    comments: [journalWithState([opened, synchronized], intended)],
+    uiVercelConfigurationsByRef: new Map([
+      [SHA.A, NATIVE_OWNED_UI_VERCEL_CONFIGURATION],
+      [SHA.B, GITHUB_OWNED_UI_VERCEL_CONFIGURATION],
+    ]),
+  });
+  const core = fakeCore();
+
+  await assert.rejects(
+    validateWorkerDispatch({
+      github: fixture.github,
+      context: fakeContext({ runId: 8_000 }),
+      core,
+      inputs: workerInputs(selected.nextDispatch),
+    }),
+    /does not own the selected UI configuration/,
+  );
+
+  assert.deepEqual(
+    fixture.contentRequests.map(({ ref }) => ref),
+    [SHA.B, SHA.A],
+  );
+  assert.equal(fixture.deployments.length, 0);
+  assert.equal(core.outputs.has("should_deploy"), false);
+  assert.equal(fixture.deploymentLookupCallCount, 0);
+});
+
+test("worker preflight rejects native-owned current head before deployment lookup", async () => {
+  const opened = event({
+    run: 120,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const synchronized = event({
+    run: 121,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    updated: timestamp(2),
+  });
+  const pullRequest = pull({ head: SHA.B, updated: timestamp(2) });
+  const selected = reconcile({
+    events: [opened, synchronized],
+    pullRequest,
+  });
+  assert.equal(selected.nextDispatch.sha, SHA.A);
+  const intended = persistIntent(selected);
+  const fixture = fakeGitHub({
+    pullRequest,
+    pullCommits: [SHA.A, SHA.B],
+    comments: [journalWithState([opened, synchronized], intended)],
+    uiVercelConfigurationsByRef: new Map([
+      [SHA.A, GITHUB_OWNED_UI_VERCEL_CONFIGURATION],
+      [SHA.B, NATIVE_OWNED_UI_VERCEL_CONFIGURATION],
+    ]),
+  });
+  const core = fakeCore();
+
+  await assert.rejects(
+    validateWorkerDispatch({
+      github: fixture.github,
+      context: fakeContext({ runId: 8_000 }),
+      core,
+      inputs: workerInputs(selected.nextDispatch),
+    }),
+    /does not own the current UI configuration/,
+  );
+
+  assert.deepEqual(
+    fixture.contentRequests.map(({ ref }) => ref),
+    [SHA.B],
+  );
+  assert.equal(fixture.deploymentLookupCallCount, 0);
+  assert.equal(fixture.deployments.length, 0);
+  assert.equal(core.outputs.has("should_deploy"), false);
+});
+
 test("durable dispatch persists intent and waits for the exact run title to materialize", async () => {
   const opened = event({
     run: 121,
@@ -4657,6 +5016,1743 @@ test("durable dispatch persists intent and waits for the exact run title to mate
   assert.deepEqual(journal.receipts.events, [opened]);
   assert.equal(journal.receipts.selections.length, 1);
   assert.equal(journal.state.ui.active.dispatch_state, "dispatched");
+  assert.ok(fixture.contentRequests.length >= 3);
+  assert.ok(
+    fixture.contentRequests.every(
+      ({ path, ref }) => path === UI_VERCEL_CONFIGURATION_PATH && ref === SHA.A,
+    ),
+  );
+});
+
+test("a native-owned receipt followed by a GitHub-owned head retires A and dispatches only B", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const synchronized = event({
+    run: 122,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    updated: timestamp(2),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
+    pullCommits: [SHA.A, SHA.B],
+    comments: [journalComment({ events: [opened, synchronized] })],
+    uiVercelConfigurationsByRef: new Map([
+      [SHA.A, NATIVE_OWNED_UI_VERCEL_CONFIGURATION],
+      [SHA.B, GITHUB_OWNED_UI_VERCEL_CONFIGURATION],
+    ]),
+  });
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext(),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(fixture.dispatches.length, 1);
+  assert.equal(fixture.workerDispatchRequests.length, 1);
+  assert.equal(fixture.dispatches[0].inputs.commit_sha, SHA.B);
+  assert.equal(state.ui.active.sha, SHA.B);
+  assert.equal(state.ui.active.dispatch_state, "dispatched");
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.results.length, 1);
+  assert.equal(journal.receipts.results[0].sha, SHA.A);
+  assert.equal(
+    journal.receipts.results[0].terminal_reason,
+    "native-owned-selection-without-github-worker",
+  );
+  assert.equal(
+    state.status_decisions.find(({ sha }) => sha === SHA.A).state,
+    "success",
+  );
+  assert.ok(fixture.contentRequests.some(({ ref }) => ref === SHA.A));
+  assert.ok(fixture.contentRequests.some(({ ref }) => ref === SHA.B));
+});
+
+test("native A through docs-only C stays native until only GitHub-owned B dispatches", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const docsOnly = event({
+    run: 122,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.C,
+    runtime: false,
+    updated: timestamp(2),
+  });
+  const synchronized = event({
+    run: 123,
+    action: "synchronize",
+    before: SHA.C,
+    head: SHA.B,
+    updated: timestamp(3),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.B, updated: timestamp(3) }),
+    pullCommits: [SHA.A, SHA.C, SHA.B],
+    comments: [journalComment({ events: [opened, docsOnly, synchronized] })],
+    uiVercelConfigurationsByRef: new Map([
+      [SHA.A, NATIVE_OWNED_UI_VERCEL_CONFIGURATION],
+      [SHA.B, GITHUB_OWNED_UI_VERCEL_CONFIGURATION],
+    ]),
+  });
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext(),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(fixture.dispatches.length, 1);
+  assert.equal(fixture.workerDispatchRequests.length, 1);
+  assert.equal(fixture.dispatches[0].inputs.commit_sha, SHA.B);
+  assert.equal(state.ui.active.sha, SHA.B);
+  assert.equal(state.ui.active.dispatch_state, "dispatched");
+  assert.equal(state.ui.last_successful_runtime_sha, null);
+  assert.equal(state.ui.last_successful_runtime_url, null);
+  const statusBySha = new Map(
+    state.status_decisions.map((status) => [status.sha, status]),
+  );
+  for (const sha of [SHA.A, SHA.C]) {
+    assert.deepEqual(statusBySha.get(sha), {
+      sha,
+      state: "success",
+      description: "Native Vercel owns this UI preview",
+      target_url:
+        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/7000",
+    });
+  }
+  assert.equal(statusBySha.get(SHA.B).state, "pending");
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.results.length, 1);
+  assert.equal(journal.receipts.results[0].sha, SHA.A);
+  assert.equal(journal.receipts.results[0].state, "error");
+  assert.equal(
+    journal.receipts.results[0].terminal_reason,
+    "native-owned-selection-without-github-worker",
+  );
+});
+
+test("sequential native ownership checkpoints through docs-only C before only GitHub-owned B dispatches", async () => {
+  const opened = event({
+    run: 124,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const docsOnly = event({
+    run: 125,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.C,
+    runtime: false,
+    updated: timestamp(2),
+  });
+  const synchronized = event({
+    run: 126,
+    action: "synchronize",
+    before: SHA.C,
+    head: SHA.B,
+    updated: timestamp(3),
+  });
+  const pullA = pull({ head: SHA.A, updated: timestamp(1) });
+  const pullC = pull({ head: SHA.C, updated: timestamp(2) });
+  const fixture = fakeGitHub({
+    pullRequest: pullC,
+    pullRequests: [pullA],
+    pullCommits: [SHA.A, SHA.C],
+    comments: [journalComment({ events: [opened] })],
+    uiVercelConfigurationsByRef: new Map([
+      [SHA.A, NATIVE_OWNED_UI_VERCEL_CONFIGURATION],
+      [SHA.C, NATIVE_OWNED_UI_VERCEL_CONFIGURATION],
+    ]),
+  });
+
+  const nativeA = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext({ runId: 7_001 }),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.deployments.length, 0);
+  assert.equal(nativeA.ui.last_successful_runtime_sha, null);
+  assert.equal(nativeA.ui.last_successful_runtime_url, null);
+  assert.deepEqual(nativeA.status_decisions, [
+    {
+      sha: SHA.A,
+      state: "success",
+      description: "Native Vercel owns this UI preview",
+      target_url:
+        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/7001",
+    },
+  ]);
+  const externalNativeA = fixture.commitStatuses.at(-1);
+  assert.deepEqual(
+    {
+      sha: externalNativeA.sha,
+      state: externalNativeA.state,
+      description: externalNativeA.description,
+      target_url: externalNativeA.target_url,
+    },
+    nativeA.status_decisions[0],
+  );
+
+  await recordEventReceipt({
+    github: fixture.github,
+    context: fakeContext({ runId: docsOnly.event_run_id }),
+    core: fakeCore(),
+    ...eventRecordInputs(docsOnly),
+  });
+  let journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.checkpoint.event.head_sha, SHA.A);
+  assert.equal(journal.checkpoint.status.state, "success");
+  assert.equal(
+    journal.checkpoint.status.description,
+    "Native Vercel owns this UI preview",
+  );
+  assert.deepEqual(journal.receipts.events, [docsOnly]);
+  for (const status of [
+    { ...journal.checkpoint.status, state: "failure" },
+    {
+      ...journal.checkpoint.status,
+      target_url: "https://example.com/actions/runs/7001",
+    },
+  ]) {
+    assert.throws(
+      () =>
+        createPreviewJournal({
+          pr: 519,
+          revision: journal.revision,
+          checkpoint: { ...journal.checkpoint, status },
+          events: journal.receipts.events,
+          selections: journal.receipts.selections,
+          workerEvidence: journal.receipts.worker_evidence,
+          results: journal.receipts.results,
+          state: journal.state,
+        }),
+      /native ownership status is invalid/,
+    );
+  }
+  assert.throws(
+    () =>
+      createPreviewJournal({
+        pr: 519,
+        revision: journal.revision,
+        checkpoint: {
+          ...journal.checkpoint,
+          status: {
+            ...journal.checkpoint.status,
+            description: "Draining GitHub preview before native ownership",
+          },
+        },
+        events: journal.receipts.events,
+        selections: journal.receipts.selections,
+        workerEvidence: journal.receipts.worker_evidence,
+        results: journal.receipts.results,
+        state: journal.state,
+      }),
+    /native ownership drain status is invalid/,
+  );
+
+  const nativeC = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext({ runId: 7_002 }),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.deployments.length, 0);
+  assert.equal(nativeC.ui.last_successful_runtime_sha, null);
+  assert.equal(nativeC.ui.last_successful_runtime_url, null);
+  assert.deepEqual(nativeC.status_decisions.at(-1), {
+    sha: SHA.C,
+    state: "success",
+    description: "Native Vercel owns this UI preview",
+    target_url:
+      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/7002",
+  });
+
+  journal = journalFromComment(fixture.comments[0]);
+  const pullB = pull({ head: SHA.B, updated: timestamp(3) });
+  const githubFixture = fakeGitHub({
+    pullRequest: pullB,
+    pullCommits: [SHA.A, SHA.C, SHA.B],
+    comments: [
+      journalComment({
+        revision: journal.revision,
+        checkpoint: journal.checkpoint,
+        events: journal.receipts.events,
+        selections: journal.receipts.selections,
+        workerEvidence: journal.receipts.worker_evidence,
+        results: journal.receipts.results,
+        state: journal.state,
+      }),
+    ],
+    uiVercelConfigurationsByRef: new Map([
+      [SHA.B, GITHUB_OWNED_UI_VERCEL_CONFIGURATION],
+    ]),
+  });
+  await recordEventReceipt({
+    github: githubFixture.github,
+    context: fakeContext({ runId: synchronized.event_run_id }),
+    core: fakeCore(),
+    ...eventRecordInputs(synchronized),
+  });
+  const beforeGitHubReconcile = journalFromComment(githubFixture.comments[0]);
+  assert.equal(beforeGitHubReconcile.checkpoint.event.head_sha, SHA.C);
+  assert.equal(beforeGitHubReconcile.checkpoint.status.state, "success");
+  assert.equal(
+    beforeGitHubReconcile.checkpoint.status.description,
+    "Native Vercel owns this UI preview",
+  );
+  assert.deepEqual(beforeGitHubReconcile.receipts.events, [synchronized]);
+  assert.equal(
+    beforeGitHubReconcile.state.ui.last_successful_runtime_sha,
+    null,
+  );
+  assert.equal(
+    beforeGitHubReconcile.state.ui.last_successful_runtime_url,
+    null,
+  );
+  const githubB = await reconcilePreview({
+    github: githubFixture.github,
+    context: fakeContext({ runId: 7_003 }),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+  assert.equal(githubFixture.dispatches.length, 1);
+  assert.equal(githubFixture.workerDispatchRequests.length, 1);
+  assert.equal(githubFixture.dispatches[0].inputs.commit_sha, SHA.B);
+  assert.equal(githubFixture.deployments.length, 0);
+  assert.equal(githubB.ui.active.sha, SHA.B);
+  assert.equal(githubB.ui.last_successful_runtime_sha, null);
+  assert.equal(githubB.ui.last_successful_runtime_url, null);
+  assert.deepEqual(githubB.status_decisions, [
+    {
+      sha: SHA.C,
+      state: "success",
+      description: "Native Vercel owns this UI preview",
+      target_url:
+        "https://github.com/mento-protocol/frontend-monorepo/actions/runs/7002",
+    },
+    {
+      sha: SHA.B,
+      state: "pending",
+      description: "UI preview queued or running",
+      target_url: githubB.ui.active.html_url,
+    },
+  ]);
+  const finalJournal = journalFromComment(githubFixture.comments[0]);
+  assert.equal(finalJournal.receipts.results.length, 0);
+});
+
+test("native no-dispatch status selects the latest current-head decision after a force-reset SHA revisit", async () => {
+  const opened = event({
+    run: 127,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const synchronizedB = event({
+    run: 128,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    updated: timestamp(2),
+  });
+  const synchronizedA = event({
+    run: 129,
+    action: "synchronize",
+    before: SHA.B,
+    head: SHA.A,
+    updated: timestamp(3),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.A, updated: timestamp(3) }),
+    pullCommits: [SHA.A, SHA.B],
+    comments: [
+      journalComment({ events: [opened, synchronizedB, synchronizedA] }),
+    ],
+    uiVercelConfigurationsByRef: new Map([
+      [SHA.A, NATIVE_OWNED_UI_VERCEL_CONFIGURATION],
+    ]),
+  });
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext({ runId: 7_004 }),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.deployments.length, 0);
+  const repeatedHeadDecisions = state.status_decisions.filter(
+    ({ sha }) => sha === SHA.A,
+  );
+  assert.equal(repeatedHeadDecisions.length, 2);
+  assert.equal(repeatedHeadDecisions[0].state, "pending");
+  assert.deepEqual(repeatedHeadDecisions[1], {
+    sha: SHA.A,
+    state: "success",
+    description: "Native Vercel owns this UI preview",
+    target_url:
+      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/7004",
+  });
+  assert.deepEqual(
+    fixture.commitStatuses.at(-1).description,
+    repeatedHeadDecisions[1].description,
+  );
+});
+
+test("generic no-dispatch retirement does not claim native ownership of a GitHub-owned SHA", () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const synchronized = event({
+    run: 122,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    updated: timestamp(2),
+  });
+  const pullRequest = pull({ head: SHA.B, updated: timestamp(2) });
+  const selected = reconcile({ events: [opened, synchronized], pullRequest });
+  const intended = persistIntent(selected);
+  const retired = result(selected.nextDispatch, {
+    runId: 7_000,
+    state: "error",
+    reason: "dispatch-disabled-intent-without-worker",
+  });
+
+  const advanced = reconcile({
+    events: [opened, synchronized],
+    results: [retired],
+    selections: [selectionReceiptFromDispatch(intended.ui.active)],
+    pullRequest,
+    existingState: intended,
+  });
+
+  const statusA = advanced.state.status_decisions.find(
+    ({ sha }) => sha === SHA.A,
+  );
+  assert.equal(statusA.state, "error");
+  assert.equal(
+    statusA.description,
+    "UI preview controller or infrastructure error",
+  );
+  assert.doesNotMatch(statusA.description, /Native Vercel/);
+});
+
+test("selected-native retirement keeps unrelated retired GitHub ownership generic", async () => {
+  const oldOpened = event({
+    run: 110,
+    action: "opened",
+    head: SHA.C,
+    updated: timestamp(1),
+  });
+  const old = reconcile({
+    events: [oldOpened],
+    pullRequest: pull({ head: SHA.C, updated: timestamp(1) }),
+  });
+  const oldIntended = persistIntent(old);
+  const closed = event({
+    run: 111,
+    action: "closed",
+    head: SHA.C,
+    updated: timestamp(2),
+  });
+  const closedState = reconcile({
+    events: [oldOpened, closed],
+    pullRequest: pull({
+      head: SHA.C,
+      state: "closed",
+      updated: timestamp(2),
+      closed: timestamp(2),
+    }),
+    existingState: oldIntended,
+  });
+  const reopened = event({
+    run: 112,
+    action: "reopened",
+    head: SHA.A,
+    updated: timestamp(3),
+  });
+  const synchronized = event({
+    run: 113,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    updated: timestamp(4),
+  });
+  const events = [oldOpened, closed, reopened, synchronized];
+  const pullRequest = pull({ head: SHA.B, updated: timestamp(4) });
+  const selected = reconcile({
+    events,
+    pullRequest,
+    existingState: closedState.state,
+  });
+  assert.equal(selected.nextDispatch.sha, SHA.A);
+  assert.equal(selected.state.ui.retired_active[0].sha, SHA.C);
+  const intended = persistIntent(selected);
+  const fixture = fakeGitHub({
+    pullRequest,
+    pullCommits: [SHA.C, SHA.A, SHA.B],
+    comments: [
+      journalWithState(events, intended, {
+        selections: [
+          selectionReceiptFromDispatch(intended.ui.retired_active[0]),
+          selectionReceiptFromDispatch(intended.ui.active),
+        ],
+      }),
+    ],
+    uiVercelConfigurationsByRef: new Map([
+      [SHA.C, GITHUB_OWNED_UI_VERCEL_CONFIGURATION],
+      [SHA.A, NATIVE_OWNED_UI_VERCEL_CONFIGURATION],
+      [SHA.B, GITHUB_OWNED_UI_VERCEL_CONFIGURATION],
+    ]),
+  });
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext(),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(fixture.dispatches.length, 1);
+  assert.equal(fixture.dispatches[0].inputs.commit_sha, SHA.B);
+  assert.equal(state.ui.active.sha, SHA.B);
+  const resultsBySha = new Map(
+    journalFromComment(fixture.comments[0]).receipts.results.map((entry) => [
+      entry.sha,
+      entry.terminal_reason,
+    ]),
+  );
+  assert.equal(
+    resultsBySha.get(SHA.A),
+    "native-owned-selection-without-github-worker",
+  );
+  assert.equal(
+    resultsBySha.get(SHA.C),
+    "dispatch-disabled-intent-without-worker",
+  );
+});
+
+test("a native-owned historical receipt attaches its crash-window worker instead of dispatching a duplicate", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const synchronized = event({
+    run: 122,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    updated: timestamp(2),
+  });
+  const pullRequest = pull({ head: SHA.B, updated: timestamp(2) });
+  const selected = reconcile({ events: [opened, synchronized], pullRequest });
+  assert.equal(selected.nextDispatch.sha, SHA.A);
+  const fixture = fakeGitHub({
+    pullRequest,
+    pullCommits: [SHA.A, SHA.B],
+    comments: [journalComment({ events: [opened, synchronized] })],
+    runs: [workerRun(selected.nextDispatch, { status: "in_progress" })],
+    uiVercelConfigurationsByRef: new Map([
+      [SHA.A, NATIVE_OWNED_UI_VERCEL_CONFIGURATION],
+      [SHA.B, GITHUB_OWNED_UI_VERCEL_CONFIGURATION],
+    ]),
+  });
+  const core = fakeCore();
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext(),
+    core,
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(core.outputs.get("recovered_intended_run_id"), "8000");
+  assert.equal(state.ui.active.sha, SHA.A);
+  assert.equal(state.ui.active.dispatch_state, "dispatched");
+  assert.equal(state.ui.active.workflow_run_id, 8_000);
+  assert.equal(
+    journalFromComment(fixture.comments[0]).receipts.results.length,
+    0,
+  );
+});
+
+for (const [name, configuration, message] of [
+  ["malformed", "{\n", /configuration is malformed/],
+  [
+    "unknown",
+    { git: { deploymentEnabled: { "feature/**": false } } },
+    /configuration is not recognized/,
+  ],
+]) {
+  test(`${name} selected-SHA ownership fails closed before an A to B dispatch`, async () => {
+    const opened = event({
+      run: 121,
+      action: "opened",
+      head: SHA.A,
+      updated: timestamp(1),
+    });
+    const synchronized = event({
+      run: 122,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      updated: timestamp(2),
+    });
+    const fixture = fakeGitHub({
+      pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
+      pullCommits: [SHA.A, SHA.B],
+      comments: [journalComment({ events: [opened, synchronized] })],
+      uiVercelConfigurationsByRef: new Map([
+        [SHA.A, configuration],
+        [SHA.B, GITHUB_OWNED_UI_VERCEL_CONFIGURATION],
+      ]),
+    });
+
+    await assert.rejects(
+      reconcilePreview({
+        github: fixture.github,
+        context: fakeContext(),
+        core: fakeCore(),
+        prNumber: 519,
+        waitForRecovery: async () => {},
+      }),
+      message,
+    );
+
+    assert.equal(fixture.dispatches.length, 0);
+    assert.equal(fixture.workerDispatchRequests.length, 0);
+    assert.equal(fixture.commitStatuses.at(-1).state, "error");
+    assert.deepEqual(
+      new Set(fixture.contentRequests.map(({ ref }) => ref)),
+      new Set([SHA.A, SHA.B]),
+    );
+  });
+}
+
+test("a GitHub-owned receipt followed by a native-owned head never dispatches the stale receipt", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const synchronized = event({
+    run: 122,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    updated: timestamp(2),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
+    pullCommits: [SHA.A, SHA.B],
+    comments: [journalComment({ events: [opened, synchronized] })],
+    uiVercelConfigurationsByRef: new Map([
+      [SHA.A, GITHUB_OWNED_UI_VERCEL_CONFIGURATION],
+      [SHA.B, NATIVE_OWNED_UI_VERCEL_CONFIGURATION],
+    ]),
+  });
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    workerDispatchGithub: null,
+    context: fakeContext(),
+    core: fakeCore(),
+    prNumber: 519,
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(state.ui.active, null);
+  assert.deepEqual(
+    fixture.contentRequests.map(({ ref }) => ref),
+    [SHA.B],
+  );
+  assert.equal(fixture.commitStatuses.at(-1).state, "success");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Native Vercel owns this UI preview",
+  );
+});
+
+test("active controller defers an exact native-config rollback head without a dispatch credential", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+    comments: [journalComment({ events: [opened] })],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+  const core = fakeCore();
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    workerDispatchGithub: null,
+    context: fakeContext(),
+    core,
+    prNumber: 519,
+  });
+
+  assert.equal(state.ui.active, null);
+  assert.equal(state.ui.latest_desired_sha, SHA.A);
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.deepEqual(fixture.contentRequests, [
+    {
+      owner: "mento-protocol",
+      repo: "frontend-monorepo",
+      path: UI_VERCEL_CONFIGURATION_PATH,
+      ref: SHA.A,
+    },
+  ]);
+  assert.equal(fixture.commitStatuses.at(-1).state, "success");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Native Vercel owns this UI preview",
+  );
+  assert.equal(
+    fixture.commitStatuses.at(-1).target_url,
+    "https://github.com/mento-protocol/frontend-monorepo/actions/runs/7000",
+  );
+  assert.equal(core.outputs.get("preview_owner"), "native-vercel");
+  assert.equal(core.outputs.get("dispatch_skipped"), "true");
+});
+
+test("active controller rechecks exact-head ownership after recovery and blocks a racing native cutover", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+    comments: [journalComment({ events: [opened] })],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+    uiVercelConfigurations: [
+      GITHUB_OWNED_UI_VERCEL_CONFIGURATION,
+      GITHUB_OWNED_UI_VERCEL_CONFIGURATION,
+      NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+    ],
+  });
+  const waits = [];
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext(),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async (milliseconds) => waits.push(milliseconds),
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(state.ui.active, null);
+  assert.equal(
+    state.ui.terminal_history.at(-1).terminal_reason,
+    "dispatch-disabled-intent-without-worker",
+  );
+  assert.deepEqual(
+    fixture.contentRequests.map(({ ref }) => ref),
+    [SHA.A, SHA.A, SHA.A, SHA.A],
+  );
+  assert.deepEqual(waits, [500, 500, 500, 500]);
+  assert.equal(fixture.commitStatuses.at(-1).state, "success");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Native Vercel owns this UI preview",
+  );
+});
+
+test("active controller settles a completed crash-window worker after a racing native cutover", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const selected = reconcile({ events: [opened], pullRequest });
+  const completed = workerRun(selected.nextDispatch, {
+    status: "completed",
+    conclusion: "cancelled",
+  });
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [journalComment({ events: [opened] })],
+    runs: [completed],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+    uiVercelConfigurations: [
+      GITHUB_OWNED_UI_VERCEL_CONFIGURATION,
+      GITHUB_OWNED_UI_VERCEL_CONFIGURATION,
+      NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+    ],
+  });
+  const core = fakeCore();
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext({ runId: 7_001 }),
+    core,
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(core.outputs.get("recovered_intended_run_id"), "8000");
+  assert.equal(state.ui.active, null);
+  assert.equal(
+    state.ui.terminal_history.at(-1).terminal_reason,
+    "worker-cancelled",
+  );
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.results.length, 1);
+  assert.equal(journal.receipts.results[0].worker_run_id, 8_000);
+  assert.equal(journal.state.ui.active, null);
+  assert.equal(fixture.commitStatuses.at(-1).state, "success");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Native Vercel owns this UI preview",
+  );
+});
+
+test("native cutover progress converges independently from a serialized update retry", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const runtimeB = event({
+    run: 122,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    updated: timestamp(2),
+  });
+  const pullRequest = pull({ head: SHA.B, updated: timestamp(2) });
+  const selectedA = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const pendingB = reconcile({
+    events: [opened, runtimeB],
+    pullRequest,
+    existingState: persistDispatch(selectedA, 8_000),
+  });
+  assert.equal(pendingB.state.ui.active.sha, SHA.A);
+  assert.equal(pendingB.state.ui.latest_desired_sha, SHA.B);
+  const completedA = workerRun(selectedA.nextDispatch, {
+    status: "completed",
+    conclusion: "cancelled",
+  });
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [
+      journalWithState([opened, runtimeB], pendingB.state, {
+        selections: [selectionReceiptFromDispatch(pendingB.state.ui.active)],
+      }),
+    ],
+    runs: [completedA],
+    lostSerializedUpdateFailures: 1,
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+    uiVercelConfigurations: [
+      GITHUB_OWNED_UI_VERCEL_CONFIGURATION,
+      GITHUB_OWNED_UI_VERCEL_CONFIGURATION,
+      GITHUB_OWNED_UI_VERCEL_CONFIGURATION,
+      NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+    ],
+  });
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext({ runId: 7_001 }),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+    progressPassLimit: 3,
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.deepEqual(fixture.lostSerializedUpdates, [1]);
+  assert.equal(state.ui.active, null);
+  assert.equal(state.ui.latest_desired_sha, SHA.B);
+  assert.ok(
+    state.ui.terminal_history.some(
+      ({ sha, terminal_reason: terminalReason }) =>
+        sha === SHA.B &&
+        terminalReason === "dispatch-disabled-intent-without-worker",
+    ),
+  );
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.deepEqual(
+    journal.receipts.results.map(
+      ({ worker_run_id: workerRunId }) => workerRunId,
+    ),
+    [8_000, 7_001],
+  );
+  assert.equal(fixture.commitStatuses.at(-1).state, "success");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Native Vercel owns this UI preview",
+  );
+});
+
+test("exhausted deterministic progress posts a fail-closed preview status", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const selected = reconcile({ events: [opened], pullRequest });
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [journalWithState([opened], persistIntent(selected))],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+
+  await assert.rejects(
+    reconcilePreview({
+      github: fixture.github,
+      workerDispatchGithub: null,
+      context: fakeContext({ runId: 7_001 }),
+      core: fakeCore(),
+      prNumber: 519,
+      waitForRecovery: async () => {},
+      progressPassLimit: 0,
+    }),
+    /Controller state update did not converge/,
+  );
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(fixture.commitStatuses.at(-1).state, "error");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Preview controller state is invalid or ambiguous",
+  );
+  assert.equal(
+    journalFromComment(fixture.comments[0]).receipts.results.at(-1)
+      .terminal_reason,
+    "dispatch-disabled-intent-without-worker",
+  );
+});
+
+test("observe-only controller fails closed for a stale GitHub-owned Phase B head", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+    comments: [journalComment({ events: [opened] })],
+  });
+
+  await assert.rejects(
+    reconcilePreview({
+      github: fixture.github,
+      workerDispatchGithub: null,
+      controllerMode: "observe-only",
+      context: fakeContext(),
+      core: fakeCore(),
+      prNumber: 519,
+    }),
+    /leaves the candidate UI preview ownerless/,
+  );
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(fixture.commentUpdates.length, 0);
+  assert.equal(fixture.commitStatuses.at(-1).state, "error");
+});
+
+for (const [name, contentOptions, message] of [
+  [
+    "missing",
+    { uiVercelContentErrorStatus: 404 },
+    /fixture repository content read failed/,
+  ],
+  ["malformed", { uiVercelConfiguration: "{" }, /is malformed/],
+  [
+    "oversized",
+    {
+      uiVercelContentResponse: {
+        type: "file",
+        path: UI_VERCEL_CONFIGURATION_PATH,
+        encoding: "base64",
+        size: 2_049,
+        content: Buffer.alloc(2_049).toString("base64"),
+      },
+    },
+    /metadata is invalid/,
+  ],
+  [
+    "unknown",
+    { uiVercelConfiguration: { git: { deploymentEnabled: true } } },
+    /is not recognized/,
+  ],
+]) {
+  test(`candidate UI ownership ${name} fails closed before credentials or journal mutation`, async () => {
+    const opened = event({
+      run: 121,
+      action: "opened",
+      head: SHA.A,
+      updated: timestamp(1),
+    });
+    const fixture = fakeGitHub({
+      pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+      comments: [journalComment({ events: [opened] })],
+      ...contentOptions,
+    });
+
+    await assert.rejects(
+      reconcilePreview({
+        github: fixture.github,
+        workerDispatchGithub: null,
+        context: fakeContext(),
+        core: fakeCore(),
+        prNumber: 519,
+      }),
+      message,
+    );
+
+    assert.equal(fixture.dispatches.length, 0);
+    assert.equal(fixture.workerDispatchRequests.length, 0);
+    assert.equal(fixture.commentUpdates.length, 0);
+    assert.equal(fixture.commitStatuses.at(-1).state, "error");
+  });
+}
+
+test("observe-only controller mode records status without creating dispatch intent", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+    comments: [journalComment({ events: [opened] })],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+  const core = fakeCore();
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    controllerMode: "observe-only",
+    context: fakeContext(),
+    core,
+    prNumber: 519,
+  });
+
+  assert.equal(state.ui.active, null);
+  assert.equal(state.ui.latest_desired_sha, SHA.A);
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(fixture.commentUpdates.length, 1);
+  assert.equal(journalFromComment(fixture.comments[0]).state.ui.active, null);
+  assert.equal(
+    journalFromComment(fixture.comments[0]).state.ui.latest_desired_sha,
+    SHA.A,
+  );
+  assert.deepEqual(
+    fixture.commitStatuses.map(({ sha, state, context, description }) => ({
+      sha,
+      state,
+      context,
+      description,
+    })),
+    [
+      {
+        sha: SHA.A,
+        state: "success",
+        context: "Vercel Preview",
+        description: "Native Vercel owns this UI preview",
+      },
+    ],
+  );
+  assert.equal(core.outputs.get("controller_mode"), "observe-only");
+  assert.equal(core.outputs.get("dispatch_skipped"), "true");
+  assert.equal(core.outputs.get("pr_number"), "519");
+});
+
+test("observe-only mode recovers completed work and reconstructs state without dispatching the newest SHA", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const runtimeB = event({
+    run: 122,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    updated: timestamp(2),
+  });
+  const pullRequest = pull({ head: SHA.B, updated: timestamp(2) });
+  const selected = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const dispatched = persistDispatch(selected, 8_000);
+  const completed = workerRun(selected.nextDispatch, {
+    status: "completed",
+    conclusion: "cancelled",
+  });
+  completed.name = completed.display_title;
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [journalWithState([opened, runtimeB], dispatched)],
+    runs: [completed],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+  const core = fakeCore();
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    controllerMode: "observe-only",
+    context: fakeContext({ runId: 7_001 }),
+    core,
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(state.ui.active, null);
+  assert.equal(state.ui.latest_desired_sha, SHA.B);
+  assert.equal(
+    state.ui.terminal_history.at(-1).terminal_reason,
+    "worker-cancelled",
+  );
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.results.length, 1);
+  assert.equal(journal.state.ui.active, null);
+  assert.equal(journal.state.ui.latest_desired_sha, SHA.B);
+  assert.equal(fixture.createdDeploymentStatuses.at(-1).state, "error");
+  assert.deepEqual(
+    fixture.commitStatuses.map(({ sha, state: statusState, description }) => ({
+      sha,
+      state: statusState,
+      description,
+    })),
+    [
+      {
+        sha: SHA.B,
+        state: "success",
+        description: "Native Vercel owns this UI preview",
+      },
+    ],
+  );
+  assert.equal(core.outputs.get("controller_mode"), "observe-only");
+  assert.equal(core.outputs.get("dispatch_skipped"), "true");
+});
+
+test("observe-only mode attaches and terminalizes a completed crash-window worker", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const selected = reconcile({ events: [opened], pullRequest });
+  const intended = persistIntent(selected);
+  const completed = workerRun(selected.nextDispatch, {
+    status: "completed",
+    conclusion: "cancelled",
+  });
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [journalWithState([opened], intended)],
+    runs: [completed],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+  const core = fakeCore();
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    workerDispatchGithub: null,
+    controllerMode: "observe-only",
+    context: fakeContext({ runId: 7_001 }),
+    core,
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(core.outputs.get("recovered_intended_run_id"), "8000");
+  assert.equal(state.ui.active, null);
+  assert.equal(
+    state.ui.terminal_history.at(-1).terminal_reason,
+    "worker-cancelled",
+  );
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.results.length, 1);
+  assert.equal(journal.receipts.results[0].worker_run_id, 8_000);
+  assert.equal(journal.state.ui.active, null);
+  assert.equal(fixture.commitStatuses.at(-1).state, "success");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Native Vercel owns this UI preview",
+  );
+});
+
+test("observe-only mode durably attaches an in-progress crash-window worker and stays pending", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const selected = reconcile({ events: [opened], pullRequest });
+  const intended = persistIntent(selected);
+  const queued = workerRun(selected.nextDispatch, { status: "in_progress" });
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [journalWithState([opened], intended)],
+    runs: [queued],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+  const core = fakeCore();
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    workerDispatchGithub: null,
+    controllerMode: "observe-only",
+    context: fakeContext({ runId: 7_001 }),
+    core,
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(state.ui.active.dispatch_state, "dispatched");
+  assert.equal(state.ui.active.workflow_run_id, 8_000);
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.state.ui.active.workflow_run_id, 8_000);
+  assert.equal(journal.receipts.results.length, 0);
+  assert.deepEqual(journal.state.status_decisions.at(-1), {
+    sha: SHA.A,
+    state: "pending",
+    description: "Draining GitHub preview before native ownership",
+    target_url:
+      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/7001",
+  });
+  assert.equal(fixture.commitStatuses.at(-1).state, "pending");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Draining GitHub preview before native ownership",
+  );
+  assert.equal(
+    fixture.commitStatuses.at(-1).target_url,
+    "https://github.com/mento-protocol/frontend-monorepo/actions/runs/7001",
+  );
+  assert.equal(core.outputs.get("preview_ownership_draining"), "true");
+});
+
+test("observe-only mode durably retires a crash-window intent with no worker and does not rediscover it", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const selected = reconcile({ events: [opened], pullRequest });
+  const intended = persistIntent(selected);
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [journalWithState([opened], intended)],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+  const core = fakeCore();
+  const waits = [];
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    workerDispatchGithub: null,
+    controllerMode: "observe-only",
+    context: fakeContext({ runId: 7_001 }),
+    core,
+    prNumber: 519,
+    waitForRecovery: async (milliseconds) => waits.push(milliseconds),
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.deepEqual(waits, [500, 500]);
+  assert.equal(fixture.workflowRunListRequests.length, 3);
+  assert.equal(core.outputs.get("retired_undispatched_intent"), "true");
+  assert.equal(state.ui.active, null);
+  assert.equal(
+    state.ui.terminal_history.at(-1).terminal_reason,
+    "dispatch-disabled-intent-without-worker",
+  );
+  let journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.results.length, 1);
+  assert.equal(
+    journal.receipts.results[0].terminal_reason,
+    "dispatch-disabled-intent-without-worker",
+  );
+  assert.equal(journal.state.ui.active, null);
+  assert.equal(fixture.commitStatuses.at(-1).state, "success");
+
+  fixture.comments[0].body = journalWithState(
+    [opened],
+    intended,
+    {
+      revision: journal.revision + 1,
+      results: journal.receipts.results,
+    },
+    fixture.comments[0].id,
+  ).body;
+  const lookupCount = fixture.workflowRunListRequests.length;
+  await reconcilePreview({
+    github: fixture.github,
+    workerDispatchGithub: null,
+    controllerMode: "observe-only",
+    context: fakeContext({ runId: 7_002 }),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+  journal = journalFromComment(fixture.comments[0]);
+  assert.equal(fixture.workflowRunListRequests.length, lookupCount);
+  assert.equal(journal.receipts.results.length, 1);
+  assert.equal(journal.state.ui.active, null);
+});
+
+test("observe-only mode retires a reopened epoch's intended worker slot when no worker exists", async () => {
+  const setup = sameShaReopenIntentState();
+  const fixture = fakeGitHub({
+    pullRequest: setup.pullRequest,
+    comments: [
+      journalWithState(setup.events, setup.current.state, {
+        selections: [
+          selectionReceiptFromDispatch(
+            setup.current.state.ui.retired_active[0],
+          ),
+        ],
+      }),
+    ],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+  const core = fakeCore();
+  const waits = [];
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    workerDispatchGithub: null,
+    controllerMode: "observe-only",
+    context: fakeContext({ runId: 7_001 }),
+    core,
+    prNumber: 519,
+    waitForRecovery: async (milliseconds) => waits.push(milliseconds),
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.deepEqual(waits, [500, 500]);
+  assert.equal(fixture.workflowRunListRequests.length, 3);
+  assert.equal(core.outputs.get("retired_undispatched_intent"), "true");
+  assert.equal(state.ui.active, null);
+  assert.equal(state.ui.retired_active.length, 0);
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.results.length, 1);
+  assert.equal(
+    journal.receipts.results[0].key_digest,
+    setup.old.nextDispatch.key_digest,
+  );
+  assert.equal(journal.state.ui.retired_active.length, 0);
+  assert.equal(fixture.commitStatuses.at(-1).state, "success");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Native Vercel owns this UI preview",
+  );
+});
+
+test("observe-only mode retires same-SHA active and reopened-epoch intents without result collisions", async () => {
+  const setup = sameShaReopenIntentState();
+  const currentIntended = persistIntent(setup.current);
+  const retiredSelection = currentIntended.ui.retired_active[0];
+  const activeSelection = currentIntended.ui.active;
+  assert.equal(retiredSelection.key, activeSelection.key);
+  assert.notEqual(retiredSelection.key_digest, activeSelection.key_digest);
+  const fixture = fakeGitHub({
+    pullRequest: setup.pullRequest,
+    comments: [
+      journalWithState(setup.events, currentIntended, {
+        selections: [
+          selectionReceiptFromDispatch(retiredSelection),
+          selectionReceiptFromDispatch(activeSelection),
+        ],
+      }),
+    ],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+  const core = fakeCore();
+  const waits = [];
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    workerDispatchGithub: null,
+    controllerMode: "observe-only",
+    context: fakeContext({ runId: 7_001 }),
+    core,
+    prNumber: 519,
+    waitForRecovery: async (milliseconds) => waits.push(milliseconds),
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.deepEqual(waits, [500, 500, 500, 500]);
+  assert.equal(fixture.workflowRunListRequests.length, 6);
+  assert.equal(state.ui.active, null);
+  assert.equal(state.ui.retired_active.length, 0);
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.results.length, 2);
+  assert.ok(
+    journal.receipts.results.every(
+      ({ worker_run_id: workerRunId }) => workerRunId === 7_001,
+    ),
+  );
+  assert.equal(
+    new Set(journal.receipts.results.map(({ key_digest }) => key_digest)).size,
+    2,
+  );
+  assert.equal(journal.state.ui.active, null);
+  assert.equal(journal.state.ui.retired_active.length, 0);
+  assert.equal(fixture.commitStatuses.at(-1).state, "success");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Native Vercel owns this UI preview",
+  );
+});
+
+test("same-SHA native-owned receipts stay distinct across epoch selection digests", () => {
+  const setup = sameShaReopenIntentState();
+  const intended = persistIntent(setup.current);
+  const retiredSelection = intended.ui.retired_active[0];
+  const activeSelection = intended.ui.active;
+  assert.equal(retiredSelection.sha, activeSelection.sha);
+  assert.equal(retiredSelection.key, activeSelection.key);
+  assert.notEqual(
+    retiredSelection.epoch_anchor_run_id,
+    activeSelection.epoch_anchor_run_id,
+  );
+  assert.notEqual(
+    retiredSelection.reconciliation_basis_digest,
+    activeSelection.reconciliation_basis_digest,
+  );
+  assert.notEqual(retiredSelection.key_digest, activeSelection.key_digest);
+
+  const nativeResults = [retiredSelection, activeSelection].map((selection) =>
+    controllerResult(selection, { runId: 7_001 }),
+  );
+  const selections = [retiredSelection, activeSelection].map((selection) =>
+    selectionReceiptFromDispatch(selection),
+  );
+  const reconciled = reconcile({
+    events: setup.events,
+    results: nativeResults,
+    selections,
+    pullRequest: setup.pullRequest,
+    existingState: intended,
+  });
+
+  assert.equal(reconciled.nextDispatch, null);
+  assert.equal(reconciled.state.ui.active, null);
+  assert.deepEqual(reconciled.state.ui.retired_active, []);
+  assert.equal(reconciled.state.ui.last_successful_runtime_sha, null);
+  assert.equal(reconciled.state.ui.last_successful_runtime_url, null);
+  assert.deepEqual(reconciled.state.ui.terminal_result_key_digests, [
+    activeSelection.key_digest,
+  ]);
+  assert.equal(reconciled.state.status_decisions[0].state, "success");
+  assert.equal(
+    reconciled.state.status_decisions[0].description,
+    "Native Vercel owns this UI preview",
+  );
+
+  const journal = createPreviewJournal({
+    pr: 519,
+    events: setup.events,
+    selections,
+    results: nativeResults,
+    state: reconciled.state,
+  });
+  assert.equal(journal.receipts.results.length, 2);
+  assert.equal(
+    new Set(journal.receipts.results.map(({ key_digest }) => key_digest)).size,
+    2,
+  );
+  assert.deepEqual(
+    new Set(journal.receipts.results.map(({ worker_run_id }) => worker_run_id)),
+    new Set([7_001]),
+  );
+});
+
+test("no-dispatch retirement stays authoritative over an earlier real worker result on replay", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const first = reconcile({ events: [opened], pullRequest });
+  const firstDispatched = persistDispatch(first, 8_000);
+  const firstFailure = result(first.nextDispatch, {
+    runId: 8_000,
+    state: "failure",
+    reason: "build-failed-retriable",
+  });
+  const firstSelection = selectionReceiptFromDispatch(
+    firstDispatched.ui.active,
+  );
+  const retry = reconcile({
+    events: [opened],
+    results: [firstFailure],
+    pullRequest,
+    existingState: firstDispatched,
+    selections: [firstSelection],
+  });
+  const retryIntended = persistIntent(retry);
+  const retrySelection = selectionReceiptFromDispatch(retryIntended.ui.active);
+  assert.equal(
+    retrySelection.selection_receipt_run_id,
+    firstSelection.selection_receipt_run_id,
+  );
+  assert.notEqual(retrySelection.key_digest, firstSelection.key_digest);
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [
+      journalWithState([opened], retryIntended, {
+        selections: [firstSelection, retrySelection],
+        results: [firstFailure],
+      }),
+    ],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+
+  const retired = await reconcilePreview({
+    github: fixture.github,
+    workerDispatchGithub: null,
+    controllerMode: "observe-only",
+    context: fakeContext({ runId: 9_000 }),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(retired.ui.active, null);
+  assert.equal(
+    retired.ui.terminal_history.at(-1).terminal_reason,
+    "dispatch-disabled-intent-without-worker",
+  );
+  let journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.results.length, 2);
+  assert.equal(
+    journal.receipts.results.find(
+      ({ terminal_reason: terminalReason }) =>
+        terminalReason === "dispatch-disabled-intent-without-worker",
+    ).worker_run_id,
+    9_000,
+  );
+
+  const replayed = await reconcilePreview({
+    github: fixture.github,
+    workerDispatchGithub: null,
+    controllerMode: "observe-only",
+    context: fakeContext({ runId: 9_001 }),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(replayed.ui.active, null);
+  assert.equal(
+    replayed.ui.terminal_history.at(-1).terminal_reason,
+    "dispatch-disabled-intent-without-worker",
+  );
+  journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.results.length, 2);
+  assert.equal(
+    journal.state.ui.terminal_history.at(-1).terminal_reason,
+    "dispatch-disabled-intent-without-worker",
+  );
+  assert.equal(fixture.commitStatuses.at(-1).state, "success");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Native Vercel owns this UI preview",
+  );
+});
+
+test("observe-only mode attaches a reopened epoch's matching worker in its retired slot", async () => {
+  const setup = sameShaReopenIntentState();
+  const queued = workerRun(setup.current.state.ui.retired_active[0], {
+    status: "in_progress",
+  });
+  const fixture = fakeGitHub({
+    pullRequest: setup.pullRequest,
+    comments: [
+      journalWithState(setup.events, setup.current.state, {
+        selections: [
+          selectionReceiptFromDispatch(
+            setup.current.state.ui.retired_active[0],
+          ),
+        ],
+      }),
+    ],
+    runs: [queued],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+  const core = fakeCore();
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    workerDispatchGithub: null,
+    controllerMode: "observe-only",
+    context: fakeContext({ runId: 7_001 }),
+    core,
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(core.outputs.get("recovered_intended_run_id"), "8000");
+  assert.equal(state.ui.active, null);
+  assert.equal(state.ui.retired_active.length, 1);
+  assert.equal(state.ui.retired_active[0].dispatch_state, "dispatched");
+  assert.equal(state.ui.retired_active[0].workflow_run_id, 8_000);
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.results.length, 0);
+  assert.equal(journal.state.ui.active, null);
+  assert.equal(journal.state.ui.retired_active[0].workflow_run_id, 8_000);
+  assert.equal(fixture.commitStatuses.at(-1).state, "pending");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Draining GitHub preview before native ownership",
+  );
+});
+
+test("observe-only mode fails closed when multiple workers match one crash-window intent", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const selected = reconcile({ events: [opened], pullRequest });
+  const intended = persistIntent(selected);
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [journalWithState([opened], intended)],
+    runs: [
+      workerRun(selected.nextDispatch, { id: 8_000 }),
+      workerRun(selected.nextDispatch, { id: 8_001 }),
+    ],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
+  });
+
+  await assert.rejects(
+    reconcilePreview({
+      github: fixture.github,
+      workerDispatchGithub: null,
+      controllerMode: "observe-only",
+      context: fakeContext({ runId: 7_001 }),
+      core: fakeCore(),
+      prNumber: 519,
+      waitForRecovery: async () => {},
+    }),
+    /Multiple worker runs match one intended controller key/,
+  );
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(fixture.commentUpdates.length, 0);
+  assert.equal(
+    journalFromComment(fixture.comments[0]).state.ui.active.dispatch_state,
+    "intended",
+  );
+  assert.equal(fixture.commitStatuses.at(-1).state, "error");
+});
+
+test("controller mode is explicit and rejects unknown values before API access", async () => {
+  let apiCalls = 0;
+  const github = {
+    rest: {
+      pulls: {
+        get: async () => {
+          apiCalls += 1;
+          return { data: pull() };
+        },
+      },
+    },
+  };
+
+  await assert.rejects(
+    reconcilePreview({
+      github,
+      controllerMode: "shadow",
+      context: fakeContext(),
+      core: fakeCore(),
+      prNumber: 519,
+    }),
+    /Preview controller mode must be active or observe-only/,
+  );
+  assert.equal(apiCalls, 0);
 });
 
 test("a missing worker dispatch credential fails closed only when a new dispatch is required", async () => {
@@ -5938,7 +8034,7 @@ test("terminal reopened same-SHA ownership survives a delayed old-epoch callback
   assert.equal(journal.receipts.results.length, 2);
 });
 
-test("retired attempt recovery errors are quarantined without poisoning the current epoch", async () => {
+test("quarantined retired recovery cannot block native preview ownership", async () => {
   const setup = sameShaReopenState();
   const currentResult = result(setup.current.nextDispatch, { runId: 8_001 });
   const terminalState = reconcile({
@@ -5970,6 +8066,7 @@ test("retired attempt recovery errors are quarantined without poisoning the curr
       }),
     ],
     runs: [oldLatestAttempt],
+    uiVercelConfiguration: NATIVE_OWNED_UI_VERCEL_CONFIGURATION,
   });
 
   const reconciled = await reconcilePreview({
@@ -5993,6 +8090,10 @@ test("retired attempt recovery errors are quarantined without poisoning the curr
     false,
   );
   assert.equal(fixture.commitStatuses.at(-1).state, "success");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Native Vercel owns this UI preview",
+  );
   assert.deepEqual(fixture.workflowRunAttemptRequests, [
     { run_id: 8_000, attempt_number: 1 },
   ]);
@@ -6008,6 +8109,11 @@ test("retired attempt recovery errors are quarantined without poisoning the curr
   assert.equal(
     fixture.commitStatuses.some(({ state }) => state === "error"),
     false,
+  );
+  assert.equal(fixture.commitStatuses.at(-1).state, "success");
+  assert.equal(
+    fixture.commitStatuses.at(-1).description,
+    "Native Vercel owns this UI preview",
   );
 });
 
