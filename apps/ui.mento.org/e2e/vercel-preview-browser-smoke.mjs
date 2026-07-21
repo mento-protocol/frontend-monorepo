@@ -382,6 +382,7 @@ export async function runBrowserSmoke({ chromium, input, timeoutMs = 30_000 }) {
     await page
       .getByRole("heading", { name: "Form Components", exact: true })
       .waitFor({ state: "visible" });
+    await deploymentIdentityMonitor.waitForIdle(timeoutMs);
     const checkbox = page.getByRole("checkbox", {
       name: "Checkbox option",
       exact: true,

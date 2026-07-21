@@ -33,6 +33,7 @@ class FakePage extends EventEmitter {
       `${INPUT.deploymentUrl}/_next/static/app.css?dpl=${NEXT_DEPLOYMENT_ID}`,
     ],
     navigationAssetReferences = [],
+    navigationAssetDelayMs = null,
   } = {}) {
     super();
     this.afterInteraction = afterInteraction;
@@ -41,6 +42,8 @@ class FakePage extends EventEmitter {
     this.htmlDeploymentIdReads = 0;
     this.assetReferences = assetReferences;
     this.navigationAssetReferences = navigationAssetReferences;
+    this.navigationAssetDelayMs = navigationAssetDelayMs;
+    this.checkboxInteractive = navigationAssetDelayMs === null;
     this.currentUrl = INPUT.deploymentUrl;
     this.checkboxChecked = false;
     this.calls = [];
@@ -120,7 +123,16 @@ class FakePage extends EventEmitter {
         click: async () => {
           this.calls.push(["click", "Textarea"]);
           for (const reference of this.navigationAssetReferences) {
-            this.emitAssetRequest(reference);
+            if (this.navigationAssetDelayMs === null) {
+              this.emitAssetRequest(reference);
+              continue;
+            }
+            const request = this.startAssetRequest(reference);
+            setTimeout(() => {
+              this.calls.push(["navigation-asset-terminal", reference]);
+              this.checkboxInteractive = true;
+              this.emit("requestfinished", request);
+            }, this.navigationAssetDelayMs);
           }
           this.currentUrl = new URL(
             "/form-components",
@@ -133,7 +145,7 @@ class FakePage extends EventEmitter {
       return {
         click: async () => {
           this.calls.push(["click", "Checkbox option"]);
-          this.checkboxChecked = true;
+          if (this.checkboxInteractive) this.checkboxChecked = true;
         },
         isChecked: async () => this.checkboxChecked,
       };
@@ -312,6 +324,28 @@ test("browser smoke renders, navigates through search, and changes a control", a
       (call) => call[0] === "click" && call[1] === "Checkbox option",
     ),
   );
+});
+
+test("browser smoke waits for route assets before testing hydration", async () => {
+  const routeAsset = `${INPUT.deploymentUrl}/_next/static/form.js?dpl=${NEXT_DEPLOYMENT_ID}`;
+  const page = new FakePage({
+    navigationAssetReferences: [routeAsset],
+    navigationAssetDelayMs: 10,
+  });
+  const fake = fakeChromium(page);
+
+  await runBrowserSmoke({ chromium: fake.chromium, input: INPUT });
+
+  const routeReady = page.calls.findIndex(
+    (call) => call[0] === "navigation-asset-terminal",
+  );
+  const checkboxClick = page.calls.findIndex(
+    (call) => call[0] === "click" && call[1] === "Checkbox option",
+  );
+  assert.ok(routeReady >= 0);
+  assert.ok(checkboxClick > routeReady);
+  assert.equal(page.checkboxChecked, true);
+  assert.equal(fake.state.closed, true);
 });
 
 test("browser smoke rejects conflicting route-specific asset identity", async () => {
