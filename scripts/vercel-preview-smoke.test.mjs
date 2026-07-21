@@ -238,7 +238,7 @@ test("native classifier rejects production, inactive, main, controller, and acto
 
   const controller = nativeEvent("app");
   controller.deployment.payload = {
-    controller_schema: "mento-vercel-prebuilt/v1",
+    controller_schema: "mento-vercel-prebuilt/v2",
   };
   assert.equal(
     classifyNativePreviewEvent(controller, runtime()).eligible,

@@ -108,32 +108,32 @@ test("controller mode is canonical and reaches every reconciliation call", () =>
   }
 });
 
-test("controller guards current, selected, and worker preview ownership with immutable configurations", () => {
+test("controller guards every target with the canonical immutable ownership map", () => {
   const implementation = read("scripts/vercel-preview-controller.mjs");
   assert.match(implementation, /repos\.getContent/);
   assert.match(
     implementation,
-    /function uiPreviewOwnerAtSha[\s\S]+path:\s*UI_VERCEL_CONFIGURATION_PATH,\s*ref:\s*immutableSha/s,
+    /function previewOwnerAtSha[\s\S]+previewTargetConfig\(target\)[\s\S]+path:\s*targetConfiguration\.vercelConfigurationPath,\s*ref:\s*immutableSha/s,
   );
   assert.match(
     implementation,
-    /candidateUiPreviewOwner[\s\S]+uiPreviewOwnerAtSha\(github, context, normalized\.headSha\)/,
+    /function candidatePreviewOwners[\s\S]+PREVIEW_TARGETS[\s\S]+previewOwnerAtSha\(github, context, target, normalized\.headSha\)/,
   );
   assert.match(
     implementation,
-    /shaIsStillAssociated[\s\S]+selected\.sha[\s\S]+uiPreviewOwnerAtSha\(github, context, selected\.sha\)/,
+    /function assertWorkflowOwnershipMap[\s\S]+PREVIEW_TARGET_CONFIG\[target\]\.ownershipMode[\s\S]+previewOwnerAtSha\(github, context, target, workflowSha\)/,
   );
   assert.match(
     implementation,
-    /outcome === "selected-native"[\s\S]+reconcileNoDispatchIntents/,
+    /for \(const target of PREVIEW_TARGETS\)[\s\S]+reconcileNoDispatchIntents/,
   );
   assert.match(
     implementation,
-    /validateWorkerDispatch[\s\S]+uiPreviewOwnerAtSha[\s\S]+normalizedPull\.headSha[\s\S]+uiPreviewOwnerAtSha\(github, context, sha\)/,
+    /validateWorkerDispatch[\s\S]+previewOwnerAtSha[\s\S]+target,[\s\S]+normalizedPull\.headSha[\s\S]+previewOwnerAtSha\(github, context, target, sha\)/,
   );
-  assert.match(
+  assert.doesNotMatch(
     implementation,
-    /Observe-only controller leaves the candidate UI preview ownerless/,
+    /uiPreviewOwnerAtSha|UI_PREVIEW_OWNER|UI_VERCEL_CONFIGURATION_PATH/,
   );
 });
 
@@ -516,7 +516,7 @@ test("every controller reconciliation binds selections to its immutable workflow
   }
 });
 
-test("worker is dispatch-only with strict identity inputs and one literal UI caller", () => {
+test("worker is dispatch-only with strict identity inputs and four literal callers", () => {
   assert.deepEqual(Object.keys(worker.on), ["workflow_dispatch"]);
   assert.deepEqual(Object.keys(worker.on.workflow_dispatch.inputs), [
     "pull_request_number",
@@ -534,31 +534,55 @@ test("worker is dispatch-only with strict identity inputs and one literal UI cal
   assert.deepEqual(worker.permissions, {});
   assert.equal(worker.concurrency["cancel-in-progress"], false);
 
-  const callers = Object.values(worker.jobs).filter(
-    (job) => job.uses === "./.github/workflows/_vercel-prebuilt.yml",
+  const mappings = {
+    app: ["app.mento.org", "apps/app.mento.org", "APP"],
+    governance: [
+      "governance.mento.org",
+      "apps/governance.mento.org",
+      "GOVERNANCE",
+    ],
+    reserve: ["reserve.mento.org", "apps/reserve.mento.org", "RESERVE"],
+    ui: ["ui.mento.org", "apps/ui.mento.org", "UI"],
+  };
+  assert.deepEqual(
+    Object.keys(worker.jobs).filter((name) => name.startsWith("deploy-")),
+    [
+      "deploy-app-preview",
+      "deploy-governance-preview",
+      "deploy-reserve-preview",
+      "deploy-ui-preview",
+    ],
   );
-  assert.equal(callers.length, 1);
-  const caller = callers[0];
-  assert.equal(caller.uses, "./.github/workflows/_vercel-prebuilt.yml");
-  assert.equal(caller.with.logical_target, "ui");
-  assert.equal(caller.with.workspace_package, "ui.mento.org");
-  assert.equal(
-    caller.with.vercel_project_id,
-    "${{ vars.VERCEL_PROJECT_ID_UI }}",
-  );
-  assert.equal(
-    caller.with.github_environment,
-    "preview/ui/pr-${{ inputs.pull_request_number }}",
-  );
-  assert.deepEqual(Object.keys(caller.secrets), [
-    "turbo_remote_cache_signature_key",
-    "turbo_token",
-    "vercel_token",
-  ]);
-  assert.doesNotMatch(
-    JSON.stringify(caller),
-    /secrets:\s*inherit|VERCEL_PROJECT_ID_(?!UI)/,
-  );
+  for (const [
+    target,
+    [workspacePackage, root, projectSuffix],
+  ] of Object.entries(mappings)) {
+    const caller = worker.jobs[`deploy-${target}-preview`];
+    assert.equal(caller.uses, "./.github/workflows/_vercel-prebuilt.yml");
+    assert.equal(caller.with.logical_target, target);
+    assert.equal(caller.with.workspace_package, workspacePackage);
+    assert.equal(caller.with.expected_root_directory, root);
+    assert.equal(
+      caller.with.vercel_project_id,
+      `\${{ vars.VERCEL_PROJECT_ID_${projectSuffix} }}`,
+    );
+    assert.equal(
+      caller.with.github_environment,
+      `preview/${target}/pr-\${{ inputs.pull_request_number }}`,
+    );
+    assert.equal(caller.with.provenance, "preview-controller:v2");
+    assert.match(caller.if, new RegExp(`inputs\\.target == '${target}'`));
+    assert.deepEqual(Object.keys(caller.secrets), [
+      ...(target === "governance" ? ["etherscan_api_key"] : []),
+      "turbo_remote_cache_signature_key",
+      "turbo_token",
+      "vercel_token",
+    ]);
+    assert.doesNotMatch(JSON.stringify(caller), /secrets:\s*inherit|SENTRY/);
+  }
+  const raw = read(workerPath);
+  assert.doesNotMatch(raw, /\bmatrix\b|secrets:\s*inherit|SENTRY/);
+  assert.equal((raw.match(/secrets\.ETHERSCAN_API_KEY/g) ?? []).length, 2);
 });
 
 test("worker credentials are unreachable until trusted validation and named preflight pass", () => {
@@ -591,71 +615,86 @@ test("worker credentials are unreachable until trusted validation and named pref
     /expected_workflow_sha:\s*process\.env\.EXPECTED_WORKFLOW_SHA/,
   );
 
-  const preflight = worker.jobs["validate-preview-prerequisites"];
-  assert.deepEqual(preflight.permissions, {});
-  assert.equal(preflight.needs, "validate-controller-ownership");
-  assert.match(JSON.stringify(preflight), /Missing required repository names/);
-  assert.equal(Object.hasOwn(preflight, "uses"), false);
+  const projectSuffixByTarget = {
+    app: "APP",
+    governance: "GOVERNANCE",
+    reserve: "RESERVE",
+    ui: "UI",
+  };
+  for (const [target, projectSuffix] of Object.entries(projectSuffixByTarget)) {
+    const preflight = worker.jobs[`validate-${target}-prerequisites`];
+    assert.deepEqual(preflight.permissions, {});
+    assert.equal(preflight.needs, "validate-controller-ownership");
+    assert.match(
+      JSON.stringify(preflight),
+      /Missing required repository names/,
+    );
+    assert.match(preflight.if, new RegExp(`inputs\\.target == '${target}'`));
+    assert.equal(Object.hasOwn(preflight, "uses"), false);
+    const preflightRaw = JSON.stringify(preflight);
+    if (target === "governance") {
+      assert.match(preflightRaw, /ETHERSCAN_API_KEY/);
+    } else {
+      assert.doesNotMatch(preflightRaw, /ETHERSCAN_API_KEY/);
+    }
 
-  const caller = worker.jobs["deploy-ui-preview"];
-  assert.deepEqual(caller.needs, [
-    "validate-controller-ownership",
-    "validate-preview-prerequisites",
-  ]);
-  assert.deepEqual(caller.permissions, {
-    contents: "read",
-    deployments: "write",
-  });
-  assert.doesNotMatch(
-    JSON.stringify(caller.permissions),
-    /issues|actions|statuses|pull-requests/,
-  );
+    const caller = worker.jobs[`deploy-${target}-preview`];
+    assert.deepEqual(caller.needs, [
+      "validate-controller-ownership",
+      `validate-${target}-prerequisites`,
+    ]);
+    assert.deepEqual(caller.permissions, {
+      contents: "read",
+      deployments: "write",
+    });
+    assert.doesNotMatch(
+      JSON.stringify(caller.permissions),
+      /issues|actions|statuses|pull-requests/,
+    );
 
-  const resumedSmoke = worker.jobs["resume-ui-smoke"];
-  assert.deepEqual(resumedSmoke.permissions, { contents: "read" });
-  assert.equal(
-    resumedSmoke.uses,
-    "./.github/workflows/_vercel-preview-smoke.yml",
-  );
-  assert.equal(Object.hasOwn(resumedSmoke, "steps"), false);
-  assert.equal(Object.hasOwn(resumedSmoke, "secrets"), false);
-  assert.doesNotMatch(
-    JSON.stringify(resumedSmoke),
-    /secrets\.|VERCEL_TOKEN|TURBO_TOKEN|TURBO_REMOTE_CACHE_SIGNATURE_KEY/,
-  );
-  assert.equal(resumedSmoke.with.logical_target, "ui");
-  assert.equal(resumedSmoke.with.verification_mode, "controller");
-  assert.equal(
-    resumedSmoke.with.verification_key,
-    "${{ inputs.controller_key }}",
-  );
-  assert.equal(
-    resumedSmoke.with.deployment_url,
-    "${{ needs.validate-controller-ownership.outputs.vercel_deployment_url }}",
-  );
-  assert.equal(
-    resumedSmoke.with.github_deployment_id,
-    "${{ needs.validate-controller-ownership.outputs.github_deployment_id }}",
-  );
-  assert.equal(
-    resumedSmoke.with.vercel_deployment_id,
-    "${{ needs.validate-controller-ownership.outputs.vercel_deployment_id }}",
-  );
-  assert.equal(
-    resumedSmoke.with.next_deployment_id,
-    "${{ needs.validate-controller-ownership.outputs.next_deployment_id }}",
-  );
-  assert.equal(
-    resumedSmoke.with.expected_project_id,
-    "${{ vars.VERCEL_PROJECT_ID_UI }}",
-  );
-  assert.equal(
-    resumedSmoke.with.metadata_project_id,
-    "${{ vars.VERCEL_PROJECT_ID_UI }}",
-  );
-  assert.equal(caller.with.logical_target, "ui");
-  assert.equal(caller.with.workspace_package, "ui.mento.org");
-  assert.equal(caller.with.expected_root_directory, "apps/ui.mento.org");
+    const resumedSmoke = worker.jobs[`resume-${target}-smoke`];
+    assert.deepEqual(resumedSmoke.permissions, { contents: "read" });
+    assert.equal(
+      resumedSmoke.uses,
+      "./.github/workflows/_vercel-preview-smoke.yml",
+    );
+    assert.equal(Object.hasOwn(resumedSmoke, "steps"), false);
+    assert.equal(Object.hasOwn(resumedSmoke, "secrets"), false);
+    assert.doesNotMatch(
+      JSON.stringify(resumedSmoke),
+      /secrets\.|VERCEL_TOKEN|TURBO_TOKEN|TURBO_REMOTE_CACHE_SIGNATURE_KEY|ETHERSCAN_API_KEY|SENTRY/,
+    );
+    assert.equal(resumedSmoke.with.logical_target, target);
+    assert.equal(resumedSmoke.with.verification_mode, "controller");
+    assert.equal(
+      resumedSmoke.with.verification_key,
+      "${{ inputs.controller_key }}",
+    );
+    assert.equal(
+      resumedSmoke.with.deployment_url,
+      "${{ needs.validate-controller-ownership.outputs.vercel_deployment_url }}",
+    );
+    assert.equal(
+      resumedSmoke.with.github_deployment_id,
+      "${{ needs.validate-controller-ownership.outputs.github_deployment_id }}",
+    );
+    assert.equal(
+      resumedSmoke.with.vercel_deployment_id,
+      "${{ needs.validate-controller-ownership.outputs.vercel_deployment_id }}",
+    );
+    assert.equal(
+      resumedSmoke.with.next_deployment_id,
+      "${{ needs.validate-controller-ownership.outputs.next_deployment_id }}",
+    );
+    assert.equal(
+      resumedSmoke.with.expected_project_id,
+      `\${{ vars.VERCEL_PROJECT_ID_${projectSuffix} }}`,
+    );
+    assert.equal(
+      resumedSmoke.with.metadata_project_id,
+      `\${{ vars.VERCEL_PROJECT_ID_${projectSuffix} }}`,
+    );
+  }
 
   const evidence = worker.jobs["record-worker-evidence"];
   assert.match(JSON.stringify(evidence), /recordWorkerEvidence/);
@@ -739,10 +778,12 @@ test("automatic workflow creates no implicit or Vercel-owned Deployment", () => 
   for (const job of Object.values(worker.jobs)) {
     assert.equal(Object.hasOwn(job, "environment"), false);
   }
-  assert.match(
-    worker.jobs["deploy-ui-preview"].with.deployment_idempotency_key,
-    /inputs\.controller_key/,
-  );
+  for (const target of ["app", "governance", "reserve", "ui"]) {
+    assert.match(
+      worker.jobs[`deploy-${target}-preview`].with.deployment_idempotency_key,
+      /inputs\.controller_key/,
+    );
+  }
 });
 
 test("runbook covers bootstrap, canaries, browser proof, separate cutover, and exact rollback", () => {

@@ -89,7 +89,7 @@ jobs:
             });
 
   plan-event:
-    name: Plan UI runtime impact from trusted base
+    name: Plan preview runtime impact from trusted base
     needs: snapshot-event
     if: needs.snapshot-event.outputs.plan_required == 'true'
     runs-on: ubuntu-latest
@@ -225,7 +225,7 @@ jobs:
           persist-credentials: false
           ref: ${{ github.workflow_sha }}
 
-      - name: Persist intent, recover or dispatch one worker, and publish statuses
+      - name: Persist intents, recover or dispatch target workers, and publish statuses
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           CONTROLLER_MODE: ${{ env.VERCEL_PREVIEW_CONTROLLER_MODE }}
@@ -297,7 +297,7 @@ jobs:
             });
 
   plan-bootstrap:
-    name: Plan bootstrap UI runtime impact from trusted base
+    name: Plan bootstrap preview runtime impact from trusted base
     needs: snapshot-bootstrap
     if: needs.snapshot-bootstrap.outputs.plan_required == 'true'
     runs-on: ubuntu-latest

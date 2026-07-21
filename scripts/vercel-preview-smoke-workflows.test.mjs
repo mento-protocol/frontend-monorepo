@@ -112,12 +112,14 @@ test("reusable smoke validates metadata before common and target-specific browse
   assert.match(walletSpec, /test\.afterEach/);
 });
 
-test("automatic UI build and resume use the single reusable smoke without activating other targets", () => {
+test("all four automatic build and resume paths use the single reusable smoke", () => {
   const prebuilt = workflow(".github/workflows/_vercel-prebuilt.yml");
   const worker = workflow(".github/workflows/vercel-preview-worker.yml");
   const buildSmoke = prebuilt.jobs.smoke;
-  const resumeSmoke = worker.jobs["resume-ui-smoke"];
-  for (const smoke of [buildSmoke, resumeSmoke]) {
+  const resumeSmokes = ["app", "governance", "reserve", "ui"].map(
+    (target) => worker.jobs[`resume-${target}-smoke`],
+  );
+  for (const smoke of [buildSmoke, ...resumeSmokes]) {
     assert.equal(smoke.uses, "./.github/workflows/_vercel-preview-smoke.yml");
     assert.equal(Object.hasOwn(smoke, "steps"), false);
     assert.equal(Object.hasOwn(smoke, "secrets"), false);
@@ -147,15 +149,25 @@ test("automatic UI build and resume use the single reusable smoke without activa
     }
   }
   assert.equal(buildSmoke.with.logical_target, "${{ inputs.logical_target }}");
-  assert.equal(resumeSmoke.with.logical_target, "ui");
-  assert.equal(resumeSmoke.with.verification_mode, "controller");
+  assert.deepEqual(
+    resumeSmokes.map(({ with: inputs }) => inputs.logical_target),
+    ["app", "governance", "reserve", "ui"],
+  );
+  for (const resumeSmoke of resumeSmokes) {
+    assert.equal(resumeSmoke.with.verification_mode, "controller");
+  }
 
   const prebuiltCallers = Object.entries(worker.jobs).filter(
     ([, job]) => job.uses === "./.github/workflows/_vercel-prebuilt.yml",
   );
   assert.deepEqual(
     prebuiltCallers.map(([name, job]) => [name, job.with.logical_target]),
-    [["deploy-ui-preview", "ui"]],
+    [
+      ["deploy-app-preview", "app"],
+      ["deploy-governance-preview", "governance"],
+      ["deploy-reserve-preview", "reserve"],
+      ["deploy-ui-preview", "ui"],
+    ],
   );
   assert.doesNotMatch(
     `${read(".github/workflows/_vercel-prebuilt.yml")}\n${read(

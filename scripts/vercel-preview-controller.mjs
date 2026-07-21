@@ -3,30 +3,32 @@
 import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 
+import {
+  PREVIEW_OWNERSHIP_MODES,
+  PREVIEW_TARGET_CONFIG,
+  PREVIEW_TARGETS,
+  previewTarget,
+  previewTargetConfig,
+} from "./vercel-preview-targets.mjs";
+
+export { PREVIEW_TARGETS } from "./vercel-preview-targets.mjs";
+
 export const PREVIEW_REPOSITORY = "mento-protocol/frontend-monorepo";
-const PREVIEW_TARGET = "ui";
 const PREVIEW_STATUS_CONTEXT = "Vercel Preview";
-const PREVIEW_INITIALIZATION_STATUS_CONTEXT = "Vercel Preview Journal";
-const UI_VERCEL_CONFIGURATION_PATH = "apps/ui.mento.org/vercel.json";
-const UI_VERCEL_CONFIGURATION_MAX_BYTES = 2_048;
-const UI_PREVIEW_OWNER_GITHUB = "github-actions";
-const UI_PREVIEW_OWNER_NATIVE = "native-vercel";
-const UI_VERCEL_GITHUB_CONFIGURATION = {
-  $schema: "https://openapi.vercel.sh/vercel.json",
-  git: { deploymentEnabled: { "**": false, main: true } },
-};
-const UI_VERCEL_NATIVE_CONFIGURATION = {
-  $schema: "https://openapi.vercel.sh/vercel.json",
-  git: { deploymentEnabled: { "dependabot/**": false } },
-};
-export const EVENT_RECEIPT_SCHEMA = "vercel-preview-event-receipt:v1";
-const WORKER_EVIDENCE_SCHEMA = "vercel-preview-worker-evidence:v1";
-export const RESULT_RECEIPT_SCHEMA = "vercel-preview-worker-result:v1";
-export const SELECTION_RECEIPT_SCHEMA = "vercel-preview-selection:v1";
-export const CONTROLLER_SCHEMA = "vercel-preview-controller:v1";
-export const PREVIEW_JOURNAL_SCHEMA = "vercel-preview-journal:v1";
-export const PREVIEW_JOURNAL_MARKER = "<!-- vercel-preview-journal:v1 -->";
-const PREVIEW_CHECKPOINT_SCHEMA = "vercel-preview-checkpoint:v1";
+const PREVIEW_INITIALIZATION_STATUS_CONTEXT = "Vercel Preview Journal v2";
+const VERCEL_CONFIGURATION_MAX_BYTES = 2_048;
+const PREVIEW_OWNER_GITHUB = "github-actions";
+const PREVIEW_OWNER_NATIVE = "native-vercel";
+const PREBUILT_DEPLOYMENT_SCHEMA = "mento-vercel-prebuilt/v2";
+const PREVIEW_CONTROLLER_PROVENANCE = "preview-controller:v2";
+export const EVENT_RECEIPT_SCHEMA = "vercel-preview-event-receipt:v2";
+export const WORKER_EVIDENCE_SCHEMA = "vercel-preview-worker-evidence:v2";
+export const RESULT_RECEIPT_SCHEMA = "vercel-preview-worker-result:v2";
+export const SELECTION_RECEIPT_SCHEMA = "vercel-preview-selection:v2";
+export const CONTROLLER_SCHEMA = "vercel-preview-controller:v2";
+export const PREVIEW_JOURNAL_SCHEMA = "vercel-preview-journal:v2";
+export const PREVIEW_JOURNAL_MARKER = "<!-- vercel-preview-journal:v2 -->";
+const PREVIEW_CHECKPOINT_SCHEMA = "vercel-preview-checkpoint:v2";
 const WORKER_WORKFLOW = "vercel-preview-worker.yml";
 const WORKER_WORKFLOW_NAME = "Vercel Preview Worker";
 const INTAKE_WORKFLOW = "vercel-preview-intake.yml";
@@ -93,11 +95,10 @@ const NO_DISPATCH_ORPHAN_REASON = "dispatch-disabled-intent-without-worker";
 const NATIVE_OWNED_SELECTION_REASON =
   "native-owned-selection-without-github-worker";
 const CHECKPOINTED_TERMINAL_REASON = "checkpointed-terminal-status";
-const NATIVE_OWNED_STATUS_DESCRIPTION = "Native Vercel owns this UI preview";
-const NATIVE_OWNERSHIP_DRAINING_STATUS_DESCRIPTION =
-  "Draining GitHub preview before native ownership";
 const OBSERVE_ONLY_STATUS_DESCRIPTION =
   "GitHub preview dispatch is observe-only";
+const OWNERSHIP_DRAINING_STATUS_DESCRIPTION =
+  "Draining GitHub preview before native ownership";
 const CONTROLLER_RUN_URL_PATTERN =
   /^https:\/\/github\.com\/mento-protocol\/frontend-monorepo\/actions\/runs\/[1-9][0-9]*$/;
 const SELECTION_SCOPED_CONTROLLER_RESULT_REASONS = new Set([
@@ -498,7 +499,7 @@ export function normalizePlannerResult(
     raw === ""
   ) {
     return {
-      targets: [PREVIEW_TARGET],
+      targets: [...PREVIEW_TARGETS],
       reason: "planner-job-failed",
       base: event.change_base_sha,
       head: event.head_sha,
@@ -511,7 +512,7 @@ export function normalizePlannerResult(
     Array.isArray(parsed.deployments),
     "Planner deployments must be an array",
   );
-  const allowed = ["app", "governance", "reserve", "ui"];
+  const allowed = PREVIEW_TARGETS;
   invariant(
     parsed.deployments.length <= allowed.length,
     "Planner returned too many targets",
@@ -537,9 +538,7 @@ export function normalizePlannerResult(
     "Planner head SHA does not match event",
   );
   return {
-    targets: parsed.deployments.includes(PREVIEW_TARGET)
-      ? [PREVIEW_TARGET]
-      : [],
+    targets: [...parsed.deployments],
     reason,
     base: event.change_base_sha,
     head: event.head_sha,
@@ -550,12 +549,19 @@ export function normalizePlannerResult(
 function validatePlan(plan, event) {
   plainObject(plan, "Event plan");
   invariant(
-    Array.isArray(plan.targets) && plan.targets.length <= 1,
+    Array.isArray(plan.targets) &&
+      plan.targets.length <= PREVIEW_TARGETS.length,
     "Plan targets are invalid",
   );
   invariant(
-    plan.targets.every((target) => target === PREVIEW_TARGET),
-    "Plan may target only UI",
+    plan.targets.every(
+      (target, index) =>
+        PREVIEW_TARGETS.includes(target) &&
+        (index === 0 ||
+          PREVIEW_TARGETS.indexOf(target) >
+            PREVIEW_TARGETS.indexOf(plan.targets[index - 1])),
+    ),
+    "Plan targets are malformed or unordered",
   );
   invariant(
     ALLOWED_PLAN_REASONS.has(boundedText(plan.reason, "Plan reason", 64)),
@@ -685,8 +691,9 @@ function anchorAliasKey(event) {
   });
 }
 
-function controllerKey(prNumber, sha) {
-  return `vercel-preview:v1:pr:${pullRequestNumber(prNumber)}:target:${PREVIEW_TARGET}:sha:${exactSha(sha)}`;
+export function controllerKey(prNumber, sha, target) {
+  const logicalTarget = previewTarget(target);
+  return `vercel-preview:v1:pr:${pullRequestNumber(prNumber)}:target:${logicalTarget}:sha:${exactSha(sha)}`;
 }
 
 function controllerKeyDigest(
@@ -721,12 +728,9 @@ function validateSelectionReceipt(value) {
   );
   validatedRepository(selection.repository);
   const pr = pullRequestNumber(selection.pr);
-  invariant(
-    selection.target === PREVIEW_TARGET,
-    "Preview selection target mismatch",
-  );
+  const target = previewTarget(selection.target, "Preview selection target");
   const sha = exactSha(selection.sha);
-  const key = controllerKey(pr, sha);
+  const key = controllerKey(pr, sha, target);
   invariant(selection.key === key, "Preview selection key mismatch");
   const epochAnchorRunId = exactRunId(
     selection.epoch_anchor_run_id,
@@ -781,7 +785,7 @@ export function selectionReceiptFromDispatch(selection) {
     schema: SELECTION_RECEIPT_SCHEMA,
     repository: PREVIEW_REPOSITORY,
     pr: dispatch.pr,
-    target: PREVIEW_TARGET,
+    target: dispatch.target,
     sha: dispatch.sha,
     key: dispatch.key,
     key_digest: dispatch.key_digest,
@@ -793,8 +797,8 @@ export function selectionReceiptFromDispatch(selection) {
   });
 }
 
-export function workerRunName({ pr, sha, keyDigest }) {
-  return `Vercel preview worker | pr=${pullRequestNumber(pr)} | target=${PREVIEW_TARGET} | sha=${exactSha(sha)} | key=${boundedText(keyDigest, "Key digest", 24)}`;
+export function workerRunName({ pr, target, sha, keyDigest }) {
+  return `Vercel preview worker | pr=${pullRequestNumber(pr)} | target=${previewTarget(target)} | sha=${exactSha(sha)} | key=${boundedText(keyDigest, "Key digest", 24)}`;
 }
 
 export function dependabotIntakeRunName({ pr, sha, action }) {
@@ -826,14 +830,14 @@ function parseDependabotIntakeRunName(value) {
 
 export function parseWorkerRunName(value) {
   const match = String(value ?? "").match(
-    /^Vercel preview worker \| pr=([1-9][0-9]{0,9}) \| target=ui \| sha=([0-9a-f]{40}) \| key=([0-9a-f]{24})$/,
+    /^Vercel preview worker \| pr=([1-9][0-9]{0,9}) \| target=(app|governance|reserve|ui) \| sha=([0-9a-f]{40}) \| key=([0-9a-f]{24})$/,
   );
   invariant(match, WORKER_RUN_NAME_PARSE_ERROR);
   return {
     pr: pullRequestNumber(match[1]),
-    target: PREVIEW_TARGET,
-    sha: exactSha(match[2]),
-    keyDigest: match[3],
+    target: previewTarget(match[2], "Worker run target"),
+    sha: exactSha(match[3]),
+    keyDigest: match[4],
   };
 }
 
@@ -845,9 +849,9 @@ export function validateWorkerResult(value) {
   );
   validatedRepository(result.repository);
   pullRequestNumber(result.pr);
-  invariant(result.target === PREVIEW_TARGET, "Worker result target mismatch");
+  const target = previewTarget(result.target, "Worker result target");
   exactSha(result.sha);
-  const expectedKey = controllerKey(result.pr, result.sha);
+  const expectedKey = controllerKey(result.pr, result.sha, target);
   invariant(
     result.controller_key === expectedKey,
     "Worker result controller key mismatch",
@@ -908,12 +912,9 @@ function validateWorkerEvidence(value) {
   );
   validatedRepository(evidence.repository);
   pullRequestNumber(evidence.pr);
-  invariant(
-    evidence.target === PREVIEW_TARGET,
-    "Worker evidence target mismatch",
-  );
+  const target = previewTarget(evidence.target, "Worker evidence target");
   exactSha(evidence.sha);
-  const expectedKey = controllerKey(evidence.pr, evidence.sha);
+  const expectedKey = controllerKey(evidence.pr, evidence.sha, target);
   invariant(
     evidence.controller_key === expectedKey,
     "Worker evidence controller key mismatch",
@@ -1000,15 +1001,18 @@ function persistedEventRunIds(state, results, selections) {
   };
   if (state) {
     add(state.epoch.anchor_run_id);
-    add(state.ui?.idle_cursor_receipt_run_id);
-    add(state.ui?.latest_desired_receipt_run_id);
-    for (const selection of [
-      state.ui?.active,
-      ...(state.ui?.retired_active ?? []),
-      ...(state.ui?.terminal_history ?? []),
-    ].filter(Boolean)) {
-      add(selection.epoch_anchor_run_id);
-      add(selection.selection_receipt_run_id);
+    for (const target of PREVIEW_TARGETS) {
+      const targetState = state.targets[target];
+      add(targetState.idle_cursor_receipt_run_id);
+      add(targetState.latest_desired_receipt_run_id);
+      for (const selection of [
+        targetState.active,
+        ...targetState.retired_active,
+        ...targetState.terminal_history,
+      ].filter(Boolean)) {
+        add(selection.epoch_anchor_run_id);
+        add(selection.selection_receipt_run_id);
+      }
     }
   }
   for (const result of results) {
@@ -1236,14 +1240,17 @@ function selectCurrentEpoch(events, pull, checkpoint = null) {
   return candidates[0];
 }
 
-function resultForSelection(results, anchorRunId, event, selection) {
+function resultForSelection(results, anchorRunId, event, selection, target) {
+  const logicalTarget = previewTarget(target);
   return (
     results
       .filter(
         (result) =>
+          result.target === logicalTarget &&
           result.epoch_anchor_run_id === anchorRunId &&
           result.selection_receipt_run_id === event.event_run_id &&
-          result.controller_key === controllerKey(result.pr, event.head_sha) &&
+          result.controller_key ===
+            controllerKey(result.pr, event.head_sha, logicalTarget) &&
           (!selection ||
             (result.reconciliation_basis_digest ===
               selection.reconciliation_basis_digest &&
@@ -1259,51 +1266,55 @@ function resultForSelection(results, anchorRunId, event, selection) {
   );
 }
 
+function nativeOwnedStatusDescription(target) {
+  return `${previewTarget(target)}: native Vercel owns preview`;
+}
+
 function statusFromCheckpointRuntime({
-  event,
+  target,
   runtimeEvent,
   checkpointStatus,
   controllerUrl,
 }) {
-  if (isNativeOwnedCheckpointStatus(checkpointStatus, runtimeEvent)) {
+  if (isNativeOwnedCheckpointStatus(checkpointStatus, runtimeEvent, target)) {
     return {
-      sha: event.head_sha,
       state: "success",
-      description: NATIVE_OWNED_STATUS_DESCRIPTION,
+      outcome: "native-owned",
+      description: nativeOwnedStatusDescription(target),
       target_url: controllerUrl,
     };
   }
   if (checkpointStatus.state === "success") {
     return {
-      sha: event.head_sha,
       state: "success",
-      description: `Runtime-equivalent to ${runtimeEvent.head_sha.slice(0, 7)}`,
+      outcome: "runtime-equivalent",
+      description: `${target}: runtime-equivalent to ${runtimeEvent.head_sha.slice(0, 7)}`,
       target_url: checkpointStatus.target_url,
     };
   }
   if (checkpointStatus.state === "failure") {
     const cancelled = checkpointStatus.description.includes("cancelled");
     return {
-      sha: event.head_sha,
       state: "failure",
+      outcome: "failed",
       description: cancelled
-        ? `Runtime preview ${runtimeEvent.head_sha.slice(0, 7)} was cancelled`
-        : `Runtime preview ${runtimeEvent.head_sha.slice(0, 7)} failed`,
+        ? `${target}: runtime ${runtimeEvent.head_sha.slice(0, 7)} cancelled`
+        : `${target}: runtime ${runtimeEvent.head_sha.slice(0, 7)} failed`,
       target_url: checkpointStatus.target_url ?? controllerUrl,
     };
   }
   if (checkpointStatus.state === "pending") {
     return {
-      sha: event.head_sha,
       state: "pending",
-      description: `Waiting for runtime preview ${runtimeEvent.head_sha.slice(0, 7)}`,
+      outcome: "pending",
+      description: `${target}: waiting for ${runtimeEvent.head_sha.slice(0, 7)}`,
       target_url: checkpointStatus.target_url ?? controllerUrl,
     };
   }
   return {
-    sha: event.head_sha,
     state: "error",
-    description: `Runtime preview ${runtimeEvent.head_sha.slice(0, 7)} errored`,
+    outcome: "error",
+    description: `${target}: runtime ${runtimeEvent.head_sha.slice(0, 7)} errored`,
     target_url: checkpointStatus.target_url ?? controllerUrl,
   };
 }
@@ -1316,35 +1327,24 @@ function isControllerRunStatusDecision(status, state, description) {
   );
 }
 
-function isNativeOwnedStatusDecision(status) {
+function isNativeOwnedStatusDecision(status, target) {
   return isControllerRunStatusDecision(
     status,
     "success",
-    NATIVE_OWNED_STATUS_DESCRIPTION,
+    nativeOwnedStatusDescription(target),
   );
 }
 
-function isNativeOwnedCheckpointStatus(status, event) {
+function isNativeOwnedCheckpointStatus(status, event, target) {
   return (
-    isNativeOwnedStatusDecision(status) &&
+    isNativeOwnedStatusDecision(status, target) &&
     event.trust === "trusted" &&
     event.pr_state === "open"
   );
 }
 
-function isNativeOwnershipDrainingCheckpointStatus(status, event) {
-  return (
-    isControllerRunStatusDecision(
-      status,
-      "pending",
-      NATIVE_OWNERSHIP_DRAINING_STATUS_DESCRIPTION,
-    ) &&
-    event.trust === "trusted" &&
-    event.pr_state === "open"
-  );
-}
-
-function statusDecision({
+function targetStatusDecision({
+  target,
   event,
   index,
   lineage,
@@ -1354,78 +1354,80 @@ function statusDecision({
   controllerUrl,
   checkpointStatus,
   checkpointBaselineStatus,
-  checkpointBaselineEvent,
+  checkpointRuntimeEvent,
 }) {
   if (checkpointStatus) return structuredClone(checkpointStatus);
   if (event.trust !== "trusted") {
     return {
-      sha: event.head_sha,
       state: "success",
-      description: "Preview unsupported for this PR source",
+      outcome: "unsupported trust boundary",
+      description: `${target}: unsupported trust boundary`,
       target_url: controllerUrl,
     };
   }
-  const eligible = event.plan.targets.includes(PREVIEW_TARGET);
+  const eligible = event.plan.targets.includes(target);
   const result = resultByRun.get(event.event_run_id);
   if (eligible && result?.terminal_reason === NATIVE_OWNED_SELECTION_REASON) {
     return {
-      sha: event.head_sha,
       state: "success",
-      description: NATIVE_OWNED_STATUS_DESCRIPTION,
+      outcome: "native-owned",
+      description: nativeOwnedStatusDescription(target),
       target_url: controllerUrl,
     };
   }
   if (eligible && result?.state === "success") {
     return {
-      sha: event.head_sha,
       state: "success",
-      description: "UI preview verified for this exact SHA",
+      outcome: "deployed",
+      description: `${target}: deployed and smoke verified`,
       target_url: result.vercel_deployment_url,
     };
   }
   if (eligible && result?.state === "failure") {
     return {
-      sha: event.head_sha,
       state: "failure",
-      description: "UI preview build, deploy, or smoke failed",
+      outcome: "failed",
+      description: `${target}: build, deploy, or smoke failed`,
       target_url: terminalResultUrl(result, controllerUrl),
     };
   }
   if (eligible && result?.state === "error") {
     const cancelled = result.terminal_reason === "worker-cancelled";
     return {
-      sha: event.head_sha,
       state: cancelled ? "failure" : "error",
+      outcome: cancelled ? "failed" : "error",
       description: cancelled
-        ? "UI preview worker was cancelled"
-        : "UI preview controller or infrastructure error",
+        ? `${target}: worker cancelled`
+        : `${target}: controller or infrastructure error`,
       target_url: terminalResultUrl(result, controllerUrl),
     };
   }
   if (!eligible) {
     const priorRuntime = lineage
       .slice(0, index)
-      .findLast((candidate) => candidate.plan.targets.includes(PREVIEW_TARGET));
+      .findLast((candidate) => candidate.plan.targets.includes(target));
     if (!priorRuntime) {
-      if (checkpointBaselineStatus) {
-        return {
-          ...structuredClone(checkpointBaselineStatus),
-          sha: event.head_sha,
-        };
+      if (checkpointBaselineStatus && checkpointRuntimeEvent) {
+        return statusFromCheckpointRuntime({
+          target,
+          runtimeEvent: checkpointRuntimeEvent,
+          checkpointStatus: checkpointBaselineStatus,
+          controllerUrl,
+        });
       }
       return {
-        sha: event.head_sha,
         state: "success",
-        description: "No UI runtime impact",
+        outcome: "not affected",
+        description: `${target}: not affected`,
         target_url: controllerUrl,
       };
     }
     if (
       checkpointBaselineStatus &&
-      checkpointBaselineEvent?.event_run_id === priorRuntime.event_run_id
+      checkpointRuntimeEvent?.event_run_id === priorRuntime.event_run_id
     ) {
       return statusFromCheckpointRuntime({
-        event,
+        target,
         runtimeEvent: priorRuntime,
         checkpointStatus: checkpointBaselineStatus,
         controllerUrl,
@@ -1434,60 +1436,106 @@ function statusDecision({
     const priorResult = resultByRun.get(priorRuntime.event_run_id);
     if (priorResult?.terminal_reason === NATIVE_OWNED_SELECTION_REASON) {
       return {
-        sha: event.head_sha,
         state: "success",
-        description: NATIVE_OWNED_STATUS_DESCRIPTION,
+        outcome: "native-owned",
+        description: nativeOwnedStatusDescription(target),
         target_url: controllerUrl,
       };
     }
     if (priorResult?.state === "success") {
       return {
-        sha: event.head_sha,
         state: "success",
-        description: `Runtime-equivalent to ${priorRuntime.head_sha.slice(0, 7)}`,
+        outcome: "runtime-equivalent",
+        description: `${target}: runtime-equivalent to ${priorRuntime.head_sha.slice(0, 7)}`,
         target_url: priorResult.vercel_deployment_url,
       };
     }
     if (priorResult?.state === "failure") {
       return {
-        sha: event.head_sha,
         state: "failure",
-        description: `Runtime preview ${priorRuntime.head_sha.slice(0, 7)} failed`,
+        outcome: "failed",
+        description: `${target}: runtime ${priorRuntime.head_sha.slice(0, 7)} failed`,
         target_url: terminalResultUrl(priorResult, controllerUrl),
       };
     }
     if (priorResult?.state === "error") {
       const cancelled = priorResult.terminal_reason === "worker-cancelled";
       return {
-        sha: event.head_sha,
         state: cancelled ? "failure" : "error",
+        outcome: cancelled ? "failed" : "error",
         description: cancelled
-          ? `Runtime preview ${priorRuntime.head_sha.slice(0, 7)} was cancelled`
-          : `Runtime preview ${priorRuntime.head_sha.slice(0, 7)} errored`,
+          ? `${target}: runtime ${priorRuntime.head_sha.slice(0, 7)} cancelled`
+          : `${target}: runtime ${priorRuntime.head_sha.slice(0, 7)} errored`,
         target_url: terminalResultUrl(priorResult, controllerUrl),
       };
     }
     return {
-      sha: event.head_sha,
       state: "pending",
-      description: `Waiting for runtime preview ${priorRuntime.head_sha.slice(0, 7)}`,
+      outcome: "pending",
+      description: `${target}: waiting for ${priorRuntime.head_sha.slice(0, 7)}`,
       target_url: active?.html_url ?? controllerUrl,
     };
   }
   const coalescedTo = coalescedToByRun.get(event.event_run_id);
   if (coalescedTo) {
     return {
-      sha: event.head_sha,
       state: "success",
-      description: `Coalesced to ${coalescedTo.head_sha.slice(0, 7)}`,
+      outcome: "coalesced",
+      description: `${target}: coalesced to ${coalescedTo.head_sha.slice(0, 7)}`,
       target_url: controllerUrl,
     };
   }
   return {
-    sha: event.head_sha,
     state: "pending",
-    description: "UI preview queued or running",
+    outcome: "pending",
+    description: `${target}: queued or running`,
     target_url: active?.html_url ?? controllerUrl,
+  };
+}
+
+function aggregateStatusDecision(event, targetDecisions, controllerUrl) {
+  const decisions = PREVIEW_TARGETS.map((target) => targetDecisions[target]);
+  const state = decisions.some((decision) => decision.state === "error")
+    ? "error"
+    : decisions.some((decision) => decision.state === "failure")
+      ? "failure"
+      : decisions.some((decision) => decision.state === "pending")
+        ? "pending"
+        : "success";
+  const targets = Object.fromEntries(
+    PREVIEW_TARGETS.map((target) => [target, targetDecisions[target].outcome]),
+  );
+  const compactOutcome = (outcome) =>
+    ({
+      "runtime-equivalent": "equivalent",
+      "not affected": "none",
+      "native-owned": "native",
+      "unsupported trust boundary": "unsupported",
+    })[outcome] ?? outcome;
+  const description = PREVIEW_TARGETS.map(
+    (target) => `${target}=${compactOutcome(targets[target])}`,
+  ).join("; ");
+  invariant(description.length <= 140, "Aggregate status summary is too long");
+  const stateDecisions = decisions.filter(
+    (decision) => decision.state === state,
+  );
+  const priority =
+    stateDecisions.find(
+      (decision) =>
+        decision.target_url !== controllerUrl &&
+        ["deployed", "runtime-equivalent"].includes(decision.outcome),
+    ) ??
+    stateDecisions.find((decision) => decision.target_url !== controllerUrl) ??
+    stateDecisions.find((decision) =>
+      ["deployed", "runtime-equivalent"].includes(decision.outcome),
+    ) ??
+    stateDecisions[0];
+  return {
+    sha: event.head_sha,
+    state,
+    description,
+    target_url: priority?.target_url ?? controllerUrl,
+    targets,
   };
 }
 
@@ -1525,12 +1573,13 @@ function preserveSettledControllerTarget(
 }
 
 function statusFromPendingRuntimeResult({
-  checkpointEvent,
+  target,
   runtimeEvent,
   result,
   controllerUrl,
 }) {
-  const runtimeStatus = statusDecision({
+  return targetStatusDecision({
+    target,
     event: runtimeEvent,
     index: 0,
     lineage: [runtimeEvent],
@@ -1540,25 +1589,17 @@ function statusFromPendingRuntimeResult({
     controllerUrl,
     checkpointStatus: null,
     checkpointBaselineStatus: null,
-    checkpointBaselineEvent: null,
-  });
-  if (checkpointEvent.event_run_id === runtimeEvent.event_run_id) {
-    return { ...runtimeStatus, sha: checkpointEvent.head_sha };
-  }
-  return statusFromCheckpointRuntime({
-    event: checkpointEvent,
-    runtimeEvent,
-    checkpointStatus: runtimeStatus,
-    controllerUrl,
+    checkpointRuntimeEvent: null,
   });
 }
 
 function validatePersistedDispatch(value, pr, label) {
   const dispatch = plainObject(value, label);
+  const target = previewTarget(dispatch.target, `${label} target`);
   exactSha(dispatch.sha);
   exactSha(dispatch.expected_workflow_sha, `${label} expected workflow SHA`);
   invariant(
-    dispatch.key === controllerKey(pr, dispatch.sha),
+    dispatch.key === controllerKey(pr, dispatch.sha, target),
     `${label} key mismatch`,
   );
   exactRunId(dispatch.epoch_anchor_run_id, `${label} epoch anchor run ID`);
@@ -1643,7 +1684,10 @@ function normalizeExistingState(value, pr) {
   );
   validatedRepository(state.repository);
   invariant(pullRequestNumber(state.pr) === pr, "Controller state PR mismatch");
-  const ui = plainObject(state.ui, "Controller UI state");
+  invariant(
+    typeof state.closed === "boolean",
+    "Controller closed flag is invalid",
+  );
   invariant(
     /^[0-9a-f]{64}$/.test(state.receipts_digest),
     "Controller receipt digest is invalid",
@@ -1654,67 +1698,143 @@ function normalizeExistingState(value, pr) {
     /^[0-9a-f]{64}$/.test(state.epoch?.basis_digest),
     "State epoch basis digest is invalid",
   );
-  if (ui.idle_cursor_receipt_run_id !== null) {
-    exactRunId(
-      ui.idle_cursor_receipt_run_id,
-      "State idle cursor receipt run ID",
+  const targets = plainObject(state.targets, "Controller target states");
+  invariant(
+    Object.keys(targets).sort().join(",") ===
+      [...PREVIEW_TARGETS].sort().join(","),
+    "Controller target state keys are invalid",
+  );
+  for (const target of PREVIEW_TARGETS) {
+    const targetState = plainObject(
+      targets[target],
+      `${target} controller state`,
     );
-  }
-  if (ui.active !== null && ui.active !== undefined) {
-    const active = validateActiveDispatch(ui.active, pr, "Active dispatch");
-    invariant(
-      active.recovery_quarantine === undefined,
-      "Current active dispatch cannot be recovery-quarantined",
-    );
-  }
-  invariant(
-    Array.isArray(ui.retired_active ?? []),
-    "Retired active selections must be an array",
-  );
-  invariant(
-    (ui.retired_active ?? []).length <= MAX_HISTORY,
-    "Too many retired active selections",
-  );
-  for (const selection of ui.retired_active ?? []) {
-    validateActiveDispatch(selection, pr, "Retired active dispatch");
-  }
-  const terminalHistory = ui.terminal_history ?? [];
-  invariant(
-    Array.isArray(terminalHistory) && terminalHistory.length <= MAX_HISTORY,
-    "Terminal history is invalid",
-  );
-  for (const terminal of terminalHistory) {
-    validatePersistedDispatch(terminal, pr, "Terminal selection");
-    invariant(
-      TERMINAL_STATES.has(terminal.state),
-      "Terminal selection state is invalid",
-    );
-  }
-  const terminalResultKeyDigests = ui.terminal_result_key_digests;
-  invariant(
-    Array.isArray(terminalResultKeyDigests) &&
-      terminalResultKeyDigests.length <= MAX_RECEIPTS,
-    "Terminal result ownership is invalid",
-  );
-  const terminalResultKeys = new Set();
-  for (const keyDigest of terminalResultKeyDigests) {
-    invariant(
-      typeof keyDigest === "string" && /^[0-9a-f]{24}$/.test(keyDigest),
-      "Terminal result ownership key is invalid",
+    for (const [name, sha] of [
+      ["first eligible", targetState.first_eligible_sha],
+      ["latest desired", targetState.latest_desired_sha],
+      ["last successful runtime", targetState.last_successful_runtime_sha],
+    ]) {
+      if (sha !== null) exactSha(sha, `${target} ${name} SHA`);
+    }
+    if (targetState.latest_desired_receipt_run_id !== null) {
+      exactRunId(
+        targetState.latest_desired_receipt_run_id,
+        `${target} latest desired receipt run ID`,
+      );
+    }
+    if (targetState.idle_cursor_receipt_run_id !== null) {
+      exactRunId(
+        targetState.idle_cursor_receipt_run_id,
+        `${target} idle cursor receipt run ID`,
+      );
+    }
+    optionalHttpsUrl(
+      targetState.last_successful_runtime_url,
+      `${target} last successful runtime URL`,
     );
     invariant(
-      !terminalResultKeys.has(keyDigest),
-      "Terminal result ownership contains duplicates",
+      (targetState.last_successful_runtime_sha === null) ===
+        (targetState.last_successful_runtime_url === null),
+      `${target} last successful runtime is incomplete`,
     );
-    terminalResultKeys.add(keyDigest);
+    if (targetState.active !== null) {
+      const active = validateActiveDispatch(
+        targetState.active,
+        pr,
+        `${target} active dispatch`,
+      );
+      invariant(
+        active.target === target && active.recovery_quarantine === undefined,
+        `${target} current active dispatch is invalid`,
+      );
+    }
+    invariant(
+      Array.isArray(targetState.retired_active) &&
+        targetState.retired_active.length <= MAX_HISTORY,
+      `${target} retired active selections are invalid`,
+    );
+    for (const selection of targetState.retired_active) {
+      const retired = validateActiveDispatch(
+        selection,
+        pr,
+        `${target} retired active dispatch`,
+      );
+      invariant(retired.target === target, `${target} retired target mismatch`);
+    }
+    invariant(
+      Array.isArray(targetState.terminal_history) &&
+        targetState.terminal_history.length <= MAX_HISTORY,
+      `${target} terminal history is invalid`,
+    );
+    for (const terminal of targetState.terminal_history) {
+      const persisted = validatePersistedDispatch(
+        terminal,
+        pr,
+        `${target} terminal selection`,
+      );
+      invariant(
+        persisted.target === target && TERMINAL_STATES.has(terminal.state),
+        `${target} terminal selection is invalid`,
+      );
+    }
+    const terminalResultKeys = new Set();
+    invariant(
+      Array.isArray(targetState.terminal_result_key_digests) &&
+        targetState.terminal_result_key_digests.length <= MAX_RECEIPTS,
+      `${target} terminal result ownership is invalid`,
+    );
+    for (const keyDigest of targetState.terminal_result_key_digests) {
+      invariant(
+        typeof keyDigest === "string" && /^[0-9a-f]{24}$/.test(keyDigest),
+        `${target} terminal result ownership key is invalid`,
+      );
+      invariant(
+        !terminalResultKeys.has(keyDigest),
+        `${target} terminal result ownership contains duplicates`,
+      );
+      terminalResultKeys.add(keyDigest);
+    }
   }
-  return {
-    ...state,
-    ui: {
-      ...ui,
-      terminal_result_key_digests: terminalResultKeyDigests,
-    },
-  };
+  invariant(
+    Array.isArray(state.status_decisions) &&
+      state.status_decisions.length <= MAX_RECEIPTS,
+    "Controller status decisions are invalid",
+  );
+  for (const decision of state.status_decisions) {
+    exactSha(decision.sha, "Controller status SHA");
+    invariant(
+      ["pending", "success", "failure", "error"].includes(decision.state),
+      "Controller status state is invalid",
+    );
+    boundedText(decision.description, "Controller status description", 140);
+    optionalHttpsUrl(decision.target_url, "Controller status URL");
+    const outcomes = plainObject(
+      decision.targets,
+      "Controller target status outcomes",
+    );
+    invariant(
+      Object.keys(outcomes).sort().join(",") ===
+        [...PREVIEW_TARGETS].sort().join(","),
+      "Controller target status outcome keys are invalid",
+    );
+    for (const outcome of Object.values(outcomes)) {
+      invariant(
+        [
+          "deployed",
+          "runtime-equivalent",
+          "not affected",
+          "native-owned",
+          "coalesced",
+          "unsupported trust boundary",
+          "pending",
+          "failed",
+          "error",
+        ].includes(outcome),
+        "Controller target status outcome is invalid",
+      );
+    }
+  }
+  return state;
 }
 
 export function reconcileState({
@@ -1759,55 +1879,18 @@ export function reconcileState({
   const epochSelections = allSelections.filter(
     (selection) => selection.epoch_anchor_run_id === anchor.event_run_id,
   );
-  const pendingCheckpointOwnerKey =
-    selectedCheckpoint?.pending_owner_key_digest ?? null;
-  const priorOwners = [
-    previous?.ui?.active,
-    ...(previous?.ui?.retired_active ?? []),
-    ...(previous?.ui?.terminal_history ?? []),
-  ].filter(Boolean);
-  const pendingCheckpointSelection = pendingCheckpointOwnerKey
-    ? (allSelections.find(
-        (selection) => selection.key_digest === pendingCheckpointOwnerKey,
-      ) ?? null)
-    : null;
-  const pendingCheckpointOwner = pendingCheckpointOwnerKey
-    ? (priorOwners.find(
-        (owner) => owner.key_digest === pendingCheckpointOwnerKey,
-      ) ??
-      pendingCheckpointSelection ??
-      null)
-    : null;
-  invariant(
-    pendingCheckpointOwnerKey === null || pendingCheckpointOwner !== null,
-    "Preview checkpoint pending owner is not persisted",
-  );
-  const pendingCheckpointResult = pendingCheckpointOwner
-    ? ([...allResults]
-        .filter(
-          (result) =>
-            result.key_digest === pendingCheckpointOwner.key_digest &&
-            result.epoch_anchor_run_id ===
-              pendingCheckpointOwner.epoch_anchor_run_id &&
-            result.selection_receipt_run_id ===
-              pendingCheckpointOwner.selection_receipt_run_id,
-        )
-        .sort(
-          (a, b) =>
-            b.worker_run_id - a.worker_run_id ||
-            b.worker_run_attempt - a.worker_run_attempt,
-        )[0] ?? null)
-    : null;
   if (epochResults.length > 0) {
     invariant(
       previous?.epoch?.anchor_run_id === anchor.event_run_id,
       "Current-epoch result exists without persisted epoch ownership",
     );
-    const ownedKeyDigests = new Set([
-      previous.ui?.active?.key_digest,
-      ...previous.ui.terminal_result_key_digests,
-    ]);
     for (const result of epochResults) {
+      const targetState = previous.targets[result.target];
+      const ownedKeyDigests = new Set([
+        targetState.active?.key_digest,
+        ...targetState.retired_active.map((owner) => owner.key_digest),
+        ...targetState.terminal_result_key_digests,
+      ]);
       invariant(
         ownedKeyDigests.has(result.key_digest),
         "Worker result is not bound to a persisted epoch selection",
@@ -1820,334 +1903,388 @@ export function reconcileState({
     closure: closure ? semanticEventKey(closure) : null,
     lineage: lineage.map(semanticEventKey),
     results: epochResults.map(canonicalJson).sort(),
-    pending_checkpoint_result: pendingCheckpointResult
-      ? canonicalJson(pendingCheckpointResult)
-      : null,
   });
   const sameEpoch = previous?.epoch?.anchor_run_id === anchor.event_run_id;
-  const lineageCandidates = lineage.filter((event) =>
-    event.plan.targets.includes(PREVIEW_TARGET),
-  );
-  const pendingRuntimeEvent = selectedCheckpoint?.pending_runtime_event ?? null;
-  const candidates =
-    pendingRuntimeEvent &&
-    !lineageCandidates.some(
-      (event) => event.event_run_id === pendingRuntimeEvent.event_run_id,
-    )
-      ? [pendingRuntimeEvent, ...lineageCandidates]
-      : lineageCandidates;
-  const candidateByRun = new Map(
-    candidates.map((event) => [event.event_run_id, event]),
-  );
-  const persistedOwners = priorOwners;
-  const ownerByKeyDigest = new Map(
-    persistedOwners.map((owner) => [owner.key_digest, owner]),
-  );
-  for (const terminal of epochResults) {
-    if (!ownerByKeyDigest.has(terminal.key_digest)) {
-      ownerByKeyDigest.set(terminal.key_digest, {
-        pr: terminal.pr,
-        target: terminal.target,
-        sha: terminal.sha,
-        key: terminal.controller_key,
-        key_digest: terminal.key_digest,
-        epoch_anchor_run_id: terminal.epoch_anchor_run_id,
-        reconciliation_basis_digest: terminal.reconciliation_basis_digest,
-        selection_receipt_run_id: terminal.selection_receipt_run_id,
-        expected_workflow_sha: terminal.expected_workflow_sha,
+  const controllerTargetUrl = optionalHttpsUrl(controllerUrl, "Controller URL");
+  const targetStates = {};
+  const targetStatuses = {};
+  const nextDispatches = [];
+
+  for (const target of PREVIEW_TARGETS) {
+    const previousTarget = previous?.targets[target] ?? null;
+    const checkpointTarget = selectedCheckpoint?.targets[target] ?? null;
+    const targetResults = epochResults.filter(
+      (result) => result.target === target,
+    );
+    const targetSelections = epochSelections.filter(
+      (selection) => selection.target === target,
+    );
+    const priorOwners = [
+      previousTarget?.active,
+      ...(previousTarget?.retired_active ?? []),
+      ...(previousTarget?.terminal_history ?? []),
+    ].filter(Boolean);
+    const pendingOwnerKey = checkpointTarget?.pending_owner_key_digest ?? null;
+    const pendingOwnerSelection = pendingOwnerKey
+      ? (allSelections.find(
+          (selection) => selection.key_digest === pendingOwnerKey,
+        ) ?? null)
+      : null;
+    const pendingOwner = pendingOwnerKey
+      ? (priorOwners.find((owner) => owner.key_digest === pendingOwnerKey) ??
+        pendingOwnerSelection ??
+        null)
+      : null;
+    invariant(
+      pendingOwnerKey === null || pendingOwner?.target === target,
+      `${target} checkpoint pending owner is not persisted`,
+    );
+    const pendingOwnerResult = pendingOwner
+      ? ([...allResults]
+          .filter(
+            (result) =>
+              result.target === target &&
+              result.key_digest === pendingOwner.key_digest &&
+              result.epoch_anchor_run_id === pendingOwner.epoch_anchor_run_id &&
+              result.selection_receipt_run_id ===
+                pendingOwner.selection_receipt_run_id,
+          )
+          .sort(
+            (a, b) =>
+              b.worker_run_id - a.worker_run_id ||
+              b.worker_run_attempt - a.worker_run_attempt,
+          )[0] ?? null)
+      : null;
+    const liveCandidates = lineage.filter((event) =>
+      event.plan.targets.includes(target),
+    );
+    const checkpointRuntimeEvent =
+      checkpointTarget?.latest_runtime_event ?? null;
+    const checkpointOwnerEvent = checkpointTarget?.pending_owner_event ?? null;
+    const candidates = [
+      checkpointOwnerEvent,
+      checkpointRuntimeEvent,
+      ...liveCandidates,
+    ]
+      .filter(Boolean)
+      .filter(
+        (event, index, values) =>
+          values.findIndex(
+            (candidate) => candidate.event_run_id === event.event_run_id,
+          ) === index,
+      );
+    const candidateByRun = new Map(
+      candidates.map((event) => [event.event_run_id, event]),
+    );
+    const ownerByKeyDigest = new Map(
+      priorOwners.map((owner) => [owner.key_digest, owner]),
+    );
+    for (const result of targetResults) {
+      if (!ownerByKeyDigest.has(result.key_digest)) {
+        ownerByKeyDigest.set(result.key_digest, {
+          pr: result.pr,
+          target,
+          sha: result.sha,
+          key: result.controller_key,
+          key_digest: result.key_digest,
+          epoch_anchor_run_id: result.epoch_anchor_run_id,
+          reconciliation_basis_digest: result.reconciliation_basis_digest,
+          selection_receipt_run_id: result.selection_receipt_run_id,
+          expected_workflow_sha: result.expected_workflow_sha,
+        });
+      }
+    }
+    for (const selection of targetSelections) {
+      const selectedEvent = candidateByRun.get(
+        selection.selection_receipt_run_id,
+      );
+      invariant(
+        selectedEvent &&
+          selectedEvent.head_sha === selection.sha &&
+          selection.key === controllerKey(pull.number, selection.sha, target),
+        `${target} selection is outside current eligible lineage`,
+      );
+      const owner = ownerByKeyDigest.get(selection.key_digest);
+      invariant(
+        owner &&
+          owner.target === target &&
+          owner.sha === selection.sha &&
+          owner.key === selection.key &&
+          owner.epoch_anchor_run_id === selection.epoch_anchor_run_id &&
+          owner.reconciliation_basis_digest ===
+            selection.reconciliation_basis_digest &&
+          owner.selection_receipt_run_id ===
+            selection.selection_receipt_run_id &&
+          owner.expected_workflow_sha === selection.expected_workflow_sha,
+        `${target} selection is not bound to persisted ownership`,
+      );
+    }
+    const resultByRun = new Map();
+    for (const event of candidates) {
+      const result = resultForSelection(
+        targetResults,
+        anchor.event_run_id,
+        event,
+        sameEpoch &&
+          previousTarget?.active?.selection_receipt_run_id ===
+            event.event_run_id
+          ? previousTarget.active
+          : null,
+        target,
+      );
+      if (result) resultByRun.set(event.event_run_id, result);
+    }
+    if (
+      checkpointTarget &&
+      checkpointRuntimeEvent &&
+      TERMINAL_STATES.has(checkpointTarget.status.state)
+    ) {
+      resultByRun.set(checkpointRuntimeEvent.event_run_id, {
+        state: checkpointTarget.status.state,
+        sha: checkpointRuntimeEvent.head_sha,
+        vercel_deployment_url:
+          checkpointTarget.status.state === "success"
+            ? checkpointTarget.status.target_url
+            : null,
+        worker_run_id:
+          checkpointTarget.status.state === "success"
+            ? null
+            : workflowRunIdFromUrl(checkpointTarget.status.target_url),
+        terminal_reason: isNativeOwnedCheckpointStatus(
+          checkpointTarget.status,
+          selectedCheckpoint.event,
+          target,
+        )
+          ? NATIVE_OWNED_SELECTION_REASON
+          : CHECKPOINTED_TERMINAL_REASON,
       });
     }
-  }
-  for (const selection of epochSelections) {
-    const selectedEvent = candidateByRun.get(
-      selection.selection_receipt_run_id,
-    );
-    invariant(
-      selectedEvent &&
-        selectedEvent.head_sha === selection.sha &&
-        controllerKey(pull.number, selectedEvent.head_sha) === selection.key,
-      "Preview selection receipt is outside current eligible lineage",
-    );
-    const owner = ownerByKeyDigest.get(selection.key_digest);
-    invariant(
-      owner &&
-        owner.sha === selection.sha &&
-        owner.key === selection.key &&
-        owner.epoch_anchor_run_id === selection.epoch_anchor_run_id &&
-        owner.reconciliation_basis_digest ===
-          selection.reconciliation_basis_digest &&
-        owner.selection_receipt_run_id === selection.selection_receipt_run_id &&
-        owner.expected_workflow_sha === selection.expected_workflow_sha,
-      "Preview selection receipt is not bound to persisted ownership",
-    );
-  }
-  const resultByRun = new Map();
-  for (const event of candidates) {
-    const result = resultForSelection(
-      epochResults,
-      anchor.event_run_id,
-      event,
-      sameEpoch &&
-        previous?.ui?.active?.selection_receipt_run_id === event.event_run_id
-        ? previous.ui.active
-        : null,
-    );
-    if (result) resultByRun.set(event.event_run_id, result);
-  }
-  if (
-    selectedCheckpoint &&
-    TERMINAL_STATES.has(selectedCheckpoint.status.state) &&
-    selectedCheckpoint.event.plan.targets.includes(PREVIEW_TARGET)
-  ) {
-    resultByRun.set(selectedCheckpoint.event.event_run_id, {
-      state: selectedCheckpoint.status.state,
-      sha: selectedCheckpoint.event.head_sha,
-      vercel_deployment_url: selectedCheckpoint.status.target_url,
-      terminal_reason: isNativeOwnedCheckpointStatus(
-        selectedCheckpoint.status,
-        selectedCheckpoint.event,
-      )
-        ? NATIVE_OWNED_SELECTION_REASON
-        : CHECKPOINTED_TERMINAL_REASON,
-    });
-  }
-  if (
-    pendingRuntimeEvent &&
-    pendingCheckpointOwner &&
-    pendingCheckpointResult &&
-    pendingRuntimeEvent.head_sha === pendingCheckpointOwner.sha &&
-    (!RETRIABLE_TERMINAL_REASONS.has(pendingCheckpointResult.terminal_reason) ||
-      selectedCheckpoint.pending_owner_attempt_count >= 2) &&
-    !resultByRun.has(pendingRuntimeEvent.event_run_id)
-  ) {
-    resultByRun.set(pendingRuntimeEvent.event_run_id, pendingCheckpointResult);
-  }
-  const selectedReceiptRunIds = new Set(
-    epochSelections.map((selection) => selection.selection_receipt_run_id),
-  );
-  const coalescedToByRun = new Map();
-  for (const selection of epochSelections) {
-    const selectedEvent = candidateByRun.get(
-      selection.selection_receipt_run_id,
-    );
-    const selectedIndex = candidates.findIndex(
-      (event) => event.event_run_id === selectedEvent.event_run_id,
-    );
-    for (const coalescedRunId of selection.coalesced_receipt_run_ids) {
-      const coalescedIndex = candidates.findIndex(
-        (event) => event.event_run_id === coalescedRunId,
-      );
-      invariant(
-        coalescedIndex >= 0 &&
-          coalescedIndex < selectedIndex &&
-          !resultByRun.has(coalescedRunId) &&
-          !selectedReceiptRunIds.has(coalescedRunId),
-        "Preview coalescing evidence contradicts durable selection ownership",
-      );
-      const prior = coalescedToByRun.get(coalescedRunId);
-      invariant(
-        !prior || prior.event_run_id === selectedEvent.event_run_id,
-        "Preview event has conflicting coalescing evidence",
-      );
-      coalescedToByRun.set(coalescedRunId, selectedEvent);
+    if (
+      checkpointOwnerEvent &&
+      pendingOwner &&
+      pendingOwnerResult &&
+      checkpointOwnerEvent.head_sha === pendingOwner.sha &&
+      (!RETRIABLE_TERMINAL_REASONS.has(pendingOwnerResult.terminal_reason) ||
+        checkpointTarget.pending_owner_attempt_count >= 2) &&
+      !resultByRun.has(checkpointOwnerEvent.event_run_id)
+    ) {
+      resultByRun.set(checkpointOwnerEvent.event_run_id, pendingOwnerResult);
     }
-  }
-
-  let active = null;
-  let idleCursor = sameEpoch
-    ? (previous.ui?.idle_cursor_receipt_run_id ?? null)
-    : null;
-  let latestDesired = null;
-  let completedActive = null;
-  let completedResult = null;
-  if (sameEpoch && previous.ui?.active) {
-    const previousActive = previous.ui.active;
-    const selectedEvent = candidateByRun.get(
-      previousActive.selection_receipt_run_id,
+    const selectedRunIds = new Set(
+      targetSelections.map((selection) => selection.selection_receipt_run_id),
     );
-    invariant(
-      selectedEvent,
-      "Active selection receipt is outside current lineage",
-    );
-    const terminal = resultForSelection(
-      epochResults,
-      anchor.event_run_id,
-      selectedEvent,
-      previousActive,
-    );
-    if (terminal) {
-      completedActive = previousActive;
-      completedResult = terminal;
-      idleCursor = previousActive.selection_receipt_run_id;
-    } else {
-      active = { ...previousActive };
-      const activeIndex = candidates.findIndex(
-        (event) =>
-          event.event_run_id === previousActive.selection_receipt_run_id,
+    const coalescedToByRun = new Map();
+    for (const selection of targetSelections) {
+      const selectedEvent = candidateByRun.get(
+        selection.selection_receipt_run_id,
       );
-      latestDesired = candidates.slice(activeIndex).at(-1) ?? selectedEvent;
-    }
-  }
-
-  let selected = null;
-  if (!active && pull.state === "open" && pull.trust === "trusted") {
-    if (completedActive) {
-      const previousDesiredRun = previous.ui?.latest_desired_receipt_run_id;
-      const desired = candidateByRun.get(previousDesiredRun);
-      if (
-        desired &&
-        desired.event_run_id !== completedActive.selection_receipt_run_id &&
-        !resultByRun.has(desired.event_run_id)
-      ) {
-        selected = desired;
-      }
-      const inheritedAttempts =
-        pendingCheckpointOwner?.selection_receipt_run_id ===
-        completedActive.selection_receipt_run_id
-          ? selectedCheckpoint.pending_owner_attempt_count -
-            Number(
-              pendingCheckpointOwner.key_digest === completedActive.key_digest,
-            )
-          : 0;
-      const attemptsForReceipt =
-        inheritedAttempts +
-        epochResults.filter(
-          (result) =>
-            result.selection_receipt_run_id ===
-              completedActive.selection_receipt_run_id &&
-            result.terminal_reason !==
-              "controller-workflow-upgraded-before-dispatch",
-        ).length;
-      if (
-        !selected &&
-        RETRIABLE_TERMINAL_REASONS.has(completedResult?.terminal_reason) &&
-        attemptsForReceipt < 2
-      ) {
-        selected = candidateByRun.get(completedActive.selection_receipt_run_id);
-      }
-      if (
-        !selected &&
-        completedResult?.terminal_reason ===
-          "controller-workflow-upgraded-before-dispatch" &&
-        completedResult.expected_workflow_sha !== expectedWorkflowSha
-      ) {
-        selected = candidateByRun.get(completedActive.selection_receipt_run_id);
-      }
-    }
-    if (!selected) {
-      const cursorIndex = idleCursor
-        ? candidates.findIndex((event) => event.event_run_id === idleCursor)
-        : -1;
-      invariant(
-        idleCursor === null || cursorIndex >= 0,
-        "Idle cursor is outside current event lineage",
-      );
-      const unprocessed = candidates
-        .slice(cursorIndex + 1)
-        .filter((event) => !resultByRun.has(event.event_run_id));
-      selected = unprocessed[0] ?? null;
-      latestDesired = unprocessed.at(-1) ?? null;
-    } else {
       const selectedIndex = candidates.findIndex(
-        (event) => event.event_run_id === selected.event_run_id,
+        (event) => event.event_run_id === selectedEvent.event_run_id,
       );
-      latestDesired = candidates.slice(selectedIndex).at(-1) ?? selected;
+      for (const coalescedRunId of selection.coalesced_receipt_run_ids) {
+        const coalescedIndex = candidates.findIndex(
+          (event) => event.event_run_id === coalescedRunId,
+        );
+        invariant(
+          coalescedIndex >= 0 &&
+            coalescedIndex < selectedIndex &&
+            !resultByRun.has(coalescedRunId) &&
+            !selectedRunIds.has(coalescedRunId),
+          `${target} coalescing evidence contradicts durable ownership`,
+        );
+        const prior = coalescedToByRun.get(coalescedRunId);
+        invariant(
+          !prior || prior.event_run_id === selectedEvent.event_run_id,
+          `${target} event has conflicting coalescing evidence`,
+        );
+        coalescedToByRun.set(coalescedRunId, selectedEvent);
+      }
     }
-  }
-  if (pendingCheckpointResult && !active) {
-    const desired = candidates.at(-1) ?? null;
-    if (desired && !resultByRun.has(desired.event_run_id)) {
-      selected = desired;
-      latestDesired = desired;
-    }
-  }
-  if (pendingCheckpointOwner && !pendingCheckpointResult) selected = null;
 
-  const nextDispatch = selected
-    ? (() => {
-        const key = controllerKey(pull.number, selected.head_sha);
+    let active = null;
+    let idleCursor = sameEpoch
+      ? (previousTarget?.idle_cursor_receipt_run_id ?? null)
+      : null;
+    let latestDesired = null;
+    let completedActive = null;
+    let completedResult = null;
+    if (sameEpoch && previousTarget?.active) {
+      const previousActive = previousTarget.active;
+      const selectedEvent = candidateByRun.get(
+        previousActive.selection_receipt_run_id,
+      );
+      invariant(selectedEvent, `${target} active selection left the lineage`);
+      const terminal = resultForSelection(
+        targetResults,
+        anchor.event_run_id,
+        selectedEvent,
+        previousActive,
+        target,
+      );
+      if (terminal) {
+        completedActive = previousActive;
+        completedResult = terminal;
+        idleCursor = previousActive.selection_receipt_run_id;
+      } else {
+        active = { ...previousActive };
+        const activeIndex = candidates.findIndex(
+          (event) =>
+            event.event_run_id === previousActive.selection_receipt_run_id,
+        );
+        latestDesired = candidates.slice(activeIndex).at(-1) ?? selectedEvent;
+      }
+    }
+
+    let selected = null;
+    if (!active && pull.state === "open" && pull.trust === "trusted") {
+      if (completedActive) {
+        const desired = candidateByRun.get(
+          previousTarget?.latest_desired_receipt_run_id,
+        );
+        if (
+          desired &&
+          desired.event_run_id !== completedActive.selection_receipt_run_id &&
+          !resultByRun.has(desired.event_run_id)
+        ) {
+          selected = desired;
+        }
+        const inheritedAttempts =
+          pendingOwner?.selection_receipt_run_id ===
+          completedActive.selection_receipt_run_id
+            ? checkpointTarget.pending_owner_attempt_count -
+              Number(pendingOwner.key_digest === completedActive.key_digest)
+            : 0;
+        const attemptsForReceipt =
+          inheritedAttempts +
+          targetResults.filter(
+            (result) =>
+              result.selection_receipt_run_id ===
+                completedActive.selection_receipt_run_id &&
+              result.terminal_reason !==
+                "controller-workflow-upgraded-before-dispatch",
+          ).length;
+        if (
+          !selected &&
+          RETRIABLE_TERMINAL_REASONS.has(completedResult?.terminal_reason) &&
+          attemptsForReceipt < 2
+        ) {
+          selected = candidateByRun.get(
+            completedActive.selection_receipt_run_id,
+          );
+        }
+        if (
+          !selected &&
+          completedResult?.terminal_reason ===
+            "controller-workflow-upgraded-before-dispatch" &&
+          completedResult.expected_workflow_sha !== expectedWorkflowSha
+        ) {
+          selected = candidateByRun.get(
+            completedActive.selection_receipt_run_id,
+          );
+        }
+      }
+      if (!selected) {
+        const cursorIndex = idleCursor
+          ? candidates.findIndex((event) => event.event_run_id === idleCursor)
+          : -1;
+        invariant(
+          idleCursor === null || cursorIndex >= 0,
+          `${target} idle cursor is outside current lineage`,
+        );
+        const unprocessed = candidates
+          .slice(cursorIndex + 1)
+          .filter((event) => !resultByRun.has(event.event_run_id));
+        selected = unprocessed[0] ?? null;
+        latestDesired = unprocessed.at(-1) ?? null;
+      } else {
         const selectedIndex = candidates.findIndex(
           (event) => event.event_run_id === selected.event_run_id,
         );
-        const completedIndex = completedActive
-          ? candidates.findIndex(
-              (event) =>
-                event.event_run_id === completedActive.selection_receipt_run_id,
-            )
-          : -1;
-        const coalescingStartIndex = pendingCheckpointResult
-          ? 0
-          : completedIndex + 1;
-        const coalescedReceiptRunIds =
-          coalescingStartIndex >= 0 && selectedIndex > coalescingStartIndex
-            ? candidates
-                .slice(coalescingStartIndex, selectedIndex)
-                .filter(
-                  (event) =>
-                    !resultByRun.has(event.event_run_id) &&
-                    !selectedReceiptRunIds.has(event.event_run_id),
-                )
-                .map((event) => event.event_run_id)
-            : [];
-        return {
-          pr: pull.number,
-          target: PREVIEW_TARGET,
-          sha: selected.head_sha,
-          git_ref: selected.head_ref,
-          key,
-          epoch_anchor_run_id: anchor.event_run_id,
-          reconciliation_basis_digest: basisDigest,
-          selection_receipt_run_id: selected.event_run_id,
-          expected_workflow_sha: expectedWorkflowSha,
-          coalesced_receipt_run_ids: coalescedReceiptRunIds,
-          key_digest: controllerKeyDigest(key, {
-            epochAnchorRunId: anchor.event_run_id,
-            basisDigest,
-            selectionReceiptRunId: selected.event_run_id,
-            expectedWorkflowSha,
-          }),
-        };
-      })()
-    : null;
+        latestDesired = candidates.slice(selectedIndex).at(-1) ?? selected;
+      }
+    }
+    if (pendingOwnerResult && !active) {
+      const desired = candidates.at(-1) ?? null;
+      if (desired && !resultByRun.has(desired.event_run_id)) {
+        selected = desired;
+        latestDesired = desired;
+      }
+    }
+    if (pendingOwner && !pendingOwnerResult) selected = null;
 
-  const controllerTargetUrl = optionalHttpsUrl(controllerUrl, "Controller URL");
-  let effectiveCheckpointStatus = selectedCheckpoint?.status ?? null;
-  const pendingRuntimeResult = pendingRuntimeEvent
-    ? resultByRun.get(pendingRuntimeEvent.event_run_id)
-    : null;
-  if (selectedCheckpoint && pendingRuntimeEvent && pendingRuntimeResult) {
-    effectiveCheckpointStatus = statusFromPendingRuntimeResult({
-      checkpointEvent: selectedCheckpoint.event,
-      runtimeEvent: pendingRuntimeEvent,
-      result: pendingRuntimeResult,
-      controllerUrl: controllerTargetUrl,
-    });
-  } else if (
-    selectedCheckpoint &&
-    pendingCheckpointResult &&
-    pull.state === "closed"
-  ) {
-    effectiveCheckpointStatus = {
-      sha: selectedCheckpoint.event.head_sha,
-      state: "success",
-      description: "Preview no longer required for closed PR",
-      target_url: controllerTargetUrl,
-    };
-  } else if (effectiveCheckpointStatus?.state === "pending" && active) {
-    effectiveCheckpointStatus = {
-      ...effectiveCheckpointStatus,
-      target_url: active.html_url ?? controllerTargetUrl,
-    };
-  }
-  const previousStatusBySha = new Map(
-    (previous?.status_decisions ?? []).map((decision) => [
-      decision.sha,
-      decision,
-    ]),
-  );
-  const statuses = lineage.map((event, index) =>
-    preserveSettledControllerTarget(
-      statusDecision({
+    if (selected) {
+      const key = controllerKey(pull.number, selected.head_sha, target);
+      const selectedIndex = candidates.findIndex(
+        (event) => event.event_run_id === selected.event_run_id,
+      );
+      const completedIndex = completedActive
+        ? candidates.findIndex(
+            (event) =>
+              event.event_run_id === completedActive.selection_receipt_run_id,
+          )
+        : -1;
+      const coalescingStartIndex = pendingOwnerResult ? 0 : completedIndex + 1;
+      const coalescedReceiptRunIds = candidates
+        .slice(coalescingStartIndex, selectedIndex)
+        .filter(
+          (event) =>
+            !resultByRun.has(event.event_run_id) &&
+            !selectedRunIds.has(event.event_run_id),
+        )
+        .map((event) => event.event_run_id);
+      nextDispatches.push({
+        pr: pull.number,
+        target,
+        sha: selected.head_sha,
+        git_ref: selected.head_ref,
+        key,
+        epoch_anchor_run_id: anchor.event_run_id,
+        reconciliation_basis_digest: basisDigest,
+        selection_receipt_run_id: selected.event_run_id,
+        expected_workflow_sha: expectedWorkflowSha,
+        coalesced_receipt_run_ids: coalescedReceiptRunIds,
+        key_digest: controllerKeyDigest(key, {
+          epochAnchorRunId: anchor.event_run_id,
+          basisDigest,
+          selectionReceiptRunId: selected.event_run_id,
+          expectedWorkflowSha,
+        }),
+      });
+    }
+
+    let effectiveCheckpointStatus = checkpointTarget?.status ?? null;
+    const checkpointPendingEvent =
+      checkpointOwnerEvent ?? checkpointRuntimeEvent;
+    const pendingRuntimeResult = checkpointPendingEvent
+      ? resultByRun.get(checkpointPendingEvent.event_run_id)
+      : null;
+    if (checkpointTarget && checkpointPendingEvent && pendingRuntimeResult) {
+      effectiveCheckpointStatus = statusFromPendingRuntimeResult({
+        target,
+        runtimeEvent: checkpointPendingEvent,
+        result: pendingRuntimeResult,
+        controllerUrl: controllerTargetUrl,
+      });
+    } else if (
+      checkpointTarget &&
+      pendingOwnerResult &&
+      pull.state === "closed"
+    ) {
+      effectiveCheckpointStatus = {
+        state: "success",
+        outcome: "not affected",
+        description: `${target}: no preview required for closed PR`,
+        target_url: controllerTargetUrl,
+      };
+    } else if (effectiveCheckpointStatus?.state === "pending" && active) {
+      effectiveCheckpointStatus = {
+        ...effectiveCheckpointStatus,
+        target_url: active.html_url ?? controllerTargetUrl,
+      };
+    }
+    targetStatuses[target] = lineage.map((event, index) =>
+      targetStatusDecision({
+        target,
         event,
         index,
         lineage,
@@ -2160,65 +2297,114 @@ export function reconcileState({
             ? effectiveCheckpointStatus
             : null,
         checkpointBaselineStatus: effectiveCheckpointStatus,
-        checkpointBaselineEvent: selectedCheckpoint?.event ?? null,
+        checkpointRuntimeEvent,
       }),
+    );
+
+    const successes = [...resultByRun.entries()]
+      .filter(
+        ([, result]) =>
+          result.state === "success" && result.schema === RESULT_RECEIPT_SCHEMA,
+      )
+      .sort(([runA], [runB]) => {
+        const indexA = candidates.findIndex(
+          (event) => event.event_run_id === runA,
+        );
+        const indexB = candidates.findIndex(
+          (event) => event.event_run_id === runB,
+        );
+        return indexB - indexA;
+      });
+    const lastSuccess = successes[0]?.[1] ?? null;
+    const terminalHistory = targetResults
+      .sort((a, b) => a.worker_run_id - b.worker_run_id)
+      .slice(-MAX_HISTORY)
+      .map((result) => ({
+        target,
+        sha: result.sha,
+        key: result.controller_key,
+        key_digest: result.key_digest,
+        epoch_anchor_run_id: result.epoch_anchor_run_id,
+        reconciliation_basis_digest: result.reconciliation_basis_digest,
+        selection_receipt_run_id: result.selection_receipt_run_id,
+        expected_workflow_sha: result.expected_workflow_sha,
+        state: result.state,
+        worker_run_id: result.worker_run_id,
+        github_deployment_id: result.github_deployment_id,
+        vercel_deployment_url: result.vercel_deployment_url,
+        terminal_reason: result.terminal_reason,
+      }));
+    const allResultKeys = new Set(
+      allResults.map((result) => result.key_digest),
+    );
+    const retiredActive = [
+      ...(previousTarget?.retired_active ?? []),
+      ...(!sameEpoch && previousTarget?.active ? [previousTarget.active] : []),
+    ]
+      .filter(
+        (selection, index, values) =>
+          values.findIndex(
+            (candidate) => candidate.key_digest === selection.key_digest,
+          ) === index,
+      )
+      .filter((selection) => !allResultKeys.has(selection.key_digest));
+    invariant(
+      retiredActive.length <= MAX_HISTORY,
+      `${target} has too many unfinished retired workers`,
+    );
+    const latestDesiredEvent =
+      latestDesired ??
+      (sameEpoch
+        ? candidateByRun.get(previousTarget?.latest_desired_receipt_run_id)
+        : null) ??
+      candidates.at(-1) ??
+      null;
+    targetStates[target] = {
+      first_eligible_sha:
+        checkpointTarget?.first_eligible_sha ??
+        (sameEpoch ? previousTarget?.first_eligible_sha : null) ??
+        candidates[0]?.head_sha ??
+        null,
+      latest_desired_sha: latestDesiredEvent?.head_sha ?? null,
+      latest_desired_receipt_run_id: latestDesiredEvent?.event_run_id ?? null,
+      idle_cursor_receipt_run_id: idleCursor,
+      active,
+      retired_active: retiredActive,
+      last_successful_runtime_sha:
+        lastSuccess?.sha ?? previousTarget?.last_successful_runtime_sha ?? null,
+      last_successful_runtime_url:
+        lastSuccess?.vercel_deployment_url ??
+        previousTarget?.last_successful_runtime_url ??
+        null,
+      terminal_result_key_digests: [
+        ...new Set(targetResults.map((result) => result.key_digest)),
+      ],
+      terminal_history: terminalHistory,
+    };
+  }
+
+  const previousStatusBySha = new Map(
+    (previous?.status_decisions ?? []).map((decision) => [
+      decision.sha,
+      decision,
+    ]),
+  );
+  const statuses = lineage.map((event, index) =>
+    preserveSettledControllerTarget(
+      aggregateStatusDecision(
+        event,
+        Object.fromEntries(
+          PREVIEW_TARGETS.map((target) => [
+            target,
+            targetStatuses[target][index],
+          ]),
+        ),
+        controllerTargetUrl,
+      ),
       previousStatusBySha,
       controllerTargetUrl,
     ),
   );
-  const successes = [...resultByRun.entries()]
-    .filter(
-      ([, result]) =>
-        result.state === "success" && result.schema === RESULT_RECEIPT_SCHEMA,
-    )
-    .sort(([runA], [runB]) => {
-      const indexA = lineage.findIndex((event) => event.event_run_id === runA);
-      const indexB = lineage.findIndex((event) => event.event_run_id === runB);
-      return indexB - indexA;
-    });
-  const lastSuccess = successes[0]?.[1] ?? null;
-  const terminalHistory = epochResults
-    .sort((a, b) => a.worker_run_id - b.worker_run_id)
-    .slice(-MAX_HISTORY)
-    .map((result) => ({
-      sha: result.sha,
-      key: result.controller_key,
-      key_digest: result.key_digest,
-      epoch_anchor_run_id: result.epoch_anchor_run_id,
-      reconciliation_basis_digest: result.reconciliation_basis_digest,
-      selection_receipt_run_id: result.selection_receipt_run_id,
-      expected_workflow_sha: result.expected_workflow_sha,
-      state: result.state,
-      worker_run_id: result.worker_run_id,
-      github_deployment_id: result.github_deployment_id,
-      vercel_deployment_url: result.vercel_deployment_url,
-      terminal_reason: result.terminal_reason,
-    }));
-  const terminalResultKeyDigests = new Set(
-    allResults.map((result) => result.key_digest),
-  );
-  const retiredActive = [
-    ...(previous?.ui?.retired_active ?? []),
-    ...(!sameEpoch && previous?.ui?.active ? [previous.ui.active] : []),
-  ]
-    .filter(
-      (selection, index, values) =>
-        values.findIndex(
-          (candidate) => candidate.key_digest === selection.key_digest,
-        ) === index,
-    )
-    .filter((selection) => !terminalResultKeyDigests.has(selection.key_digest));
-  invariant(
-    retiredActive.length <= MAX_HISTORY,
-    `Preview controller cannot retain more than ${MAX_HISTORY} unfinished retired workers`,
-  );
-  const latestDesiredEvent =
-    latestDesired ??
-    (sameEpoch
-      ? candidateByRun.get(previous.ui?.latest_desired_receipt_run_id)
-      : null) ??
-    candidates.at(-1) ??
-    null;
   const state = {
     schema: CONTROLLER_SCHEMA,
     repository: PREVIEW_REPOSITORY,
@@ -2242,27 +2428,10 @@ export function reconcileState({
       pull.number,
       checkpoint,
     ),
-    ui: {
-      first_eligible_sha: candidates[0]?.head_sha ?? null,
-      latest_desired_sha: latestDesiredEvent?.head_sha ?? null,
-      latest_desired_receipt_run_id: latestDesiredEvent?.event_run_id ?? null,
-      idle_cursor_receipt_run_id: idleCursor,
-      active,
-      retired_active: retiredActive,
-      last_successful_runtime_sha:
-        lastSuccess?.sha ?? previous?.ui?.last_successful_runtime_sha ?? null,
-      last_successful_runtime_url:
-        lastSuccess?.vercel_deployment_url ??
-        previous?.ui?.last_successful_runtime_url ??
-        null,
-      terminal_result_key_digests: [
-        ...new Set(epochResults.map((result) => result.key_digest)),
-      ],
-      terminal_history: terminalHistory,
-    },
+    targets: targetStates,
     status_decisions: statuses,
   };
-  return { state, nextDispatch, lineage, basisDigest };
+  return { state, nextDispatches, lineage, basisDigest };
 }
 
 function ownerRepo(context) {
@@ -2274,67 +2443,111 @@ function ownerRepo(context) {
   return context.repo;
 }
 
-async function uiPreviewOwnerAtSha(github, context, sha) {
-  const immutableSha = exactSha(sha, "Candidate UI Vercel configuration SHA");
+async function previewOwnerAtSha(github, context, target, sha) {
+  const targetConfiguration = previewTargetConfig(target);
+  const immutableSha = exactSha(
+    sha,
+    `Candidate ${target} Vercel configuration SHA`,
+  );
   const { data } = await github.rest.repos.getContent({
     ...ownerRepo(context),
-    path: UI_VERCEL_CONFIGURATION_PATH,
+    path: targetConfiguration.vercelConfigurationPath,
     ref: immutableSha,
   });
-  const file = plainObject(data, "Candidate UI Vercel configuration");
+  const file = plainObject(data, `Candidate ${target} Vercel configuration`);
   invariant(
-    file.type === "file" && file.path === UI_VERCEL_CONFIGURATION_PATH,
-    "Candidate UI Vercel configuration is not the expected file",
+    file.type === "file" &&
+      file.path === targetConfiguration.vercelConfigurationPath,
+    `Candidate ${target} Vercel configuration is not the expected file`,
   );
   invariant(
     file.encoding === "base64" &&
       Number.isSafeInteger(file.size) &&
       file.size > 0 &&
-      file.size <= UI_VERCEL_CONFIGURATION_MAX_BYTES,
-    "Candidate UI Vercel configuration metadata is invalid",
+      file.size <= VERCEL_CONFIGURATION_MAX_BYTES,
+    `Candidate ${target} Vercel configuration metadata is invalid`,
   );
   invariant(
     typeof file.content === "string" &&
       file.content.length > 0 &&
       file.content.length <=
-        Math.ceil(UI_VERCEL_CONFIGURATION_MAX_BYTES / 3) * 4 + 128 &&
+        Math.ceil(VERCEL_CONFIGURATION_MAX_BYTES / 3) * 4 + 128 &&
       /^[A-Za-z0-9+/=\r\n]+$/.test(file.content),
-    "Candidate UI Vercel configuration encoding is invalid",
+    `Candidate ${target} Vercel configuration encoding is invalid`,
   );
   const encoded = file.content.replace(/[\r\n]/g, "");
   const bytes = Buffer.from(encoded, "base64");
   invariant(
     bytes.length === file.size && bytes.toString("base64") === encoded,
-    "Candidate UI Vercel configuration encoding is invalid",
+    `Candidate ${target} Vercel configuration encoding is invalid`,
   );
   const text = bytes.toString("utf8");
   invariant(
     Buffer.from(text, "utf8").equals(bytes),
-    "Candidate UI Vercel configuration is not valid UTF-8",
+    `Candidate ${target} Vercel configuration is not valid UTF-8`,
   );
   let configuration;
   try {
     configuration = JSON.parse(text);
   } catch {
-    throw new Error("Candidate UI Vercel configuration is malformed");
+    throw new Error(`Candidate ${target} Vercel configuration is malformed`);
   }
-  plainObject(configuration, "Candidate UI Vercel configuration");
+  plainObject(configuration, `Candidate ${target} Vercel configuration`);
   const candidate = canonicalJson(configuration);
-  if (candidate === canonicalJson(UI_VERCEL_GITHUB_CONFIGURATION)) {
-    return UI_PREVIEW_OWNER_GITHUB;
+  if (
+    candidate === canonicalJson(targetConfiguration.githubVercelConfiguration)
+  ) {
+    return PREVIEW_OWNER_GITHUB;
   }
-  if (candidate === canonicalJson(UI_VERCEL_NATIVE_CONFIGURATION)) {
-    return UI_PREVIEW_OWNER_NATIVE;
+  if (
+    candidate === canonicalJson(targetConfiguration.nativeVercelConfiguration)
+  ) {
+    return PREVIEW_OWNER_NATIVE;
   }
-  throw new Error("Candidate UI Vercel configuration is not recognized");
+  throw new Error(`Candidate ${target} Vercel configuration is not recognized`);
 }
 
-async function candidateUiPreviewOwner(github, context, pull) {
+async function candidatePreviewOwners(github, context, pull) {
   const normalized = normalizePullRequest(pull);
   if (normalized.state !== "open" || normalized.trust !== "trusted") {
-    return null;
+    return Object.fromEntries(PREVIEW_TARGETS.map((target) => [target, null]));
   }
-  return uiPreviewOwnerAtSha(github, context, normalized.headSha);
+  return Object.fromEntries(
+    await Promise.all(
+      PREVIEW_TARGETS.map(async (target) => [
+        target,
+        await previewOwnerAtSha(github, context, target, normalized.headSha),
+      ]),
+    ),
+  );
+}
+
+async function assertWorkflowOwnershipMap(github, context, workflowSha) {
+  for (const target of PREVIEW_TARGETS) {
+    const expected =
+      PREVIEW_TARGET_CONFIG[target].ownershipMode ===
+      PREVIEW_OWNERSHIP_MODES.GITHUB
+        ? PREVIEW_OWNER_GITHUB
+        : PREVIEW_OWNER_NATIVE;
+    invariant(
+      (await previewOwnerAtSha(github, context, target, workflowSha)) ===
+        expected,
+      `${target} workflow ownership map disagrees with its immutable Vercel configuration`,
+    );
+  }
+}
+
+function githubPreviewDispatchAllowed(target, previewOwner) {
+  const configuration = previewTargetConfig(target);
+  invariant(
+    previewOwner === PREVIEW_OWNER_GITHUB ||
+      previewOwner === PREVIEW_OWNER_NATIVE,
+    `${target} preview ownership is invalid`,
+  );
+  return (
+    configuration.ownershipMode === PREVIEW_OWNERSHIP_MODES.SHADOW ||
+    previewOwner === PREVIEW_OWNER_GITHUB
+  );
 }
 
 async function listComments(github, context, pr) {
@@ -2438,19 +2651,30 @@ function previewJournalDigest(receipts, state, checkpoint = null) {
   });
 }
 
-function validateCheckpointStatus(value, event) {
-  const status = plainObject(value, "Preview checkpoint status");
+function validateCheckpointStatus(value, target) {
+  const status = plainObject(value, `${target} checkpoint status`);
   invariant(
-    Object.keys(status).sort().join(",") === "description,sha,state,target_url",
+    Object.keys(status).sort().join(",") ===
+      "description,outcome,state,target_url",
     "Preview checkpoint status fields are invalid",
-  );
-  invariant(
-    exactSha(status.sha) === event.head_sha,
-    "Preview checkpoint status SHA mismatch",
   );
   invariant(
     ["pending", "success", "failure", "error"].includes(status.state),
     "Preview checkpoint status state is invalid",
+  );
+  invariant(
+    [
+      "deployed",
+      "runtime-equivalent",
+      "not affected",
+      "native-owned",
+      "coalesced",
+      "unsupported trust boundary",
+      "pending",
+      "failed",
+      "error",
+    ].includes(status.outcome),
+    "Preview checkpoint status outcome is invalid",
   );
   boundedText(status.description, "Preview checkpoint status description", 140);
   optionalHttpsUrl(status.target_url, "Preview checkpoint status URL");
@@ -2462,7 +2686,7 @@ function validatePreviewCheckpoint(value, expectedPr) {
   const checkpoint = plainObject(value, "Preview checkpoint");
   invariant(
     Object.keys(checkpoint).sort().join(",") ===
-      "cumulative_receipts_digest,event,pending_owner_attempt_count,pending_owner_key_digest,pending_runtime_event,pruned_receipt_counts,schema,sequence,status,through_event_run_id",
+      "cumulative_receipts_digest,event,pruned_receipt_counts,schema,sequence,targets,through_event_run_id",
     "Preview checkpoint fields are invalid",
   );
   invariant(
@@ -2501,54 +2725,90 @@ function validatePreviewCheckpoint(value, expectedPr) {
     checkpoint.through_event_run_id === event.event_run_id,
     "Preview checkpoint event identity mismatch",
   );
-  const status = validateCheckpointStatus(checkpoint.status, event);
-  if (status.description === NATIVE_OWNED_STATUS_DESCRIPTION) {
-    invariant(
-      isNativeOwnedCheckpointStatus(status, event),
-      "Preview checkpoint native ownership status is invalid",
-    );
-  }
-  if (status.description === NATIVE_OWNERSHIP_DRAINING_STATUS_DESCRIPTION) {
-    invariant(
-      isNativeOwnershipDrainingCheckpointStatus(status, event),
-      "Preview checkpoint native ownership drain status is invalid",
-    );
-  }
-  if (checkpoint.pending_owner_key_digest === null) {
-    invariant(
-      checkpoint.pending_owner_attempt_count === 0,
-      "Preview checkpoint has an attempt count without an owner",
+  const targets = plainObject(checkpoint.targets, "Preview checkpoint targets");
+  invariant(
+    Object.keys(targets).sort().join(",") ===
+      [...PREVIEW_TARGETS].sort().join(","),
+    "Preview checkpoint target keys are invalid",
+  );
+  for (const target of PREVIEW_TARGETS) {
+    const targetCheckpoint = plainObject(
+      targets[target],
+      `${target} preview checkpoint`,
     );
     invariant(
-      checkpoint.pending_runtime_event === null,
-      "Preview checkpoint has a runtime dependency without an owner",
+      Object.keys(targetCheckpoint).sort().join(",") ===
+        "first_eligible_sha,last_successful_runtime_sha,last_successful_runtime_url,latest_desired_sha,latest_runtime_event,pending_owner_attempt_count,pending_owner_event,pending_owner_key_digest,status",
+      `${target} preview checkpoint fields are invalid`,
+    );
+    for (const [name, sha] of [
+      ["first eligible", targetCheckpoint.first_eligible_sha],
+      ["latest desired", targetCheckpoint.latest_desired_sha],
+      ["last successful runtime", targetCheckpoint.last_successful_runtime_sha],
+    ]) {
+      if (sha !== null) exactSha(sha, `${target} checkpoint ${name} SHA`);
+    }
+    optionalHttpsUrl(
+      targetCheckpoint.last_successful_runtime_url,
+      `${target} checkpoint last successful runtime URL`,
     );
     invariant(
-      status.state !== "pending",
-      "Preview checkpoint pending status has no owner",
+      (targetCheckpoint.last_successful_runtime_sha === null) ===
+        (targetCheckpoint.last_successful_runtime_url === null),
+      `${target} checkpoint last successful runtime is incomplete`,
     );
-  } else {
+    const status = validateCheckpointStatus(targetCheckpoint.status, target);
+    if (status.outcome === "native-owned") {
+      invariant(
+        isNativeOwnedCheckpointStatus(status, event, target),
+        `${target} checkpoint native ownership status is invalid`,
+      );
+    }
+    const latestRuntimeEvent =
+      targetCheckpoint.latest_runtime_event === null
+        ? null
+        : validateEventReceipt(targetCheckpoint.latest_runtime_event);
     invariant(
-      /^[0-9a-f]{24}$/.test(checkpoint.pending_owner_key_digest),
-      "Preview checkpoint pending owner is invalid",
+      !latestRuntimeEvent ||
+        (latestRuntimeEvent.pr === event.pr &&
+          latestRuntimeEvent.plan.targets.includes(target)),
+      `${target} checkpoint latest runtime event is invalid`,
     );
+    const pendingOwnerEvent =
+      targetCheckpoint.pending_owner_event === null
+        ? null
+        : validateEventReceipt(targetCheckpoint.pending_owner_event);
     invariant(
-      Number.isSafeInteger(checkpoint.pending_owner_attempt_count) &&
-        checkpoint.pending_owner_attempt_count >= 1 &&
-        checkpoint.pending_owner_attempt_count <= 2,
-      "Preview checkpoint pending owner attempt count is invalid",
+      !pendingOwnerEvent ||
+        (pendingOwnerEvent.pr === event.pr &&
+          pendingOwnerEvent.plan.targets.includes(target)),
+      `${target} checkpoint pending owner event is invalid`,
     );
-    const pendingRuntime = validateEventReceipt(
-      checkpoint.pending_runtime_event,
-    );
+    if (targetCheckpoint.pending_owner_key_digest === null) {
+      invariant(
+        targetCheckpoint.pending_owner_attempt_count === 0 &&
+          pendingOwnerEvent === null,
+        `${target} checkpoint has attempt evidence without an owner`,
+      );
+    } else {
+      invariant(
+        /^[0-9a-f]{24}$/.test(targetCheckpoint.pending_owner_key_digest),
+        `${target} checkpoint pending owner is invalid`,
+      );
+      invariant(
+        Number.isSafeInteger(targetCheckpoint.pending_owner_attempt_count) &&
+          targetCheckpoint.pending_owner_attempt_count >= 1 &&
+          targetCheckpoint.pending_owner_attempt_count <= 2,
+        `${target} checkpoint pending owner attempt count is invalid`,
+      );
+      invariant(
+        pendingOwnerEvent && status.state === "pending",
+        `${target} checkpoint pending owner has no pending runtime`,
+      );
+    }
     invariant(
-      pendingRuntime.pr === event.pr &&
-        pendingRuntime.plan.targets.includes(PREVIEW_TARGET),
-      "Preview checkpoint pending runtime event is invalid",
-    );
-    invariant(
-      status.state === "pending",
-      "Preview checkpoint pending owner has a terminal status",
+      status.state !== "pending" || latestRuntimeEvent || pendingOwnerEvent,
+      `${target} checkpoint pending status has no runtime event`,
     );
   }
   return checkpoint;
@@ -2697,19 +2957,22 @@ function validatePreviewJournal(value, expectedPr) {
   }
   if (journal.state !== null) {
     const state = normalizeExistingState(journal.state, pr);
-    for (const dispatch of [
-      state.ui?.active,
-      ...(state.ui?.retired_active ?? []),
-    ].filter(Boolean)) {
-      invariant(
-        receipts.selections.some(
-          (selection) =>
-            selection.key_digest === dispatch.key_digest &&
-            selection.selection_receipt_run_id ===
-              dispatch.selection_receipt_run_id,
-        ),
-        "Journal state dispatch has no matching selection",
-      );
+    for (const target of PREVIEW_TARGETS) {
+      for (const dispatch of [
+        state.targets[target].active,
+        ...state.targets[target].retired_active,
+      ].filter(Boolean)) {
+        invariant(
+          receipts.selections.some(
+            (selection) =>
+              selection.target === target &&
+              selection.key_digest === dispatch.key_digest &&
+              selection.selection_receipt_run_id ===
+                dispatch.selection_receipt_run_id,
+          ),
+          "Journal state dispatch has no matching selection",
+        );
+      }
     }
   }
   invariant(
@@ -2761,7 +3024,12 @@ function emptyReceiptCounts() {
 
 function checkpointBaselineState(state, checkpoint) {
   const event = checkpoint.event;
-  const eligible = event.plan.targets.includes(PREVIEW_TARGET);
+  const targetStatuses = Object.fromEntries(
+    PREVIEW_TARGETS.map((target) => [
+      target,
+      checkpoint.targets[target].status,
+    ]),
+  );
   return {
     schema: CONTROLLER_SCHEMA,
     repository: PREVIEW_REPOSITORY,
@@ -2785,36 +3053,171 @@ function checkpointBaselineState(state, checkpoint) {
     },
     closed: state.closed,
     receipts_digest: controllerReceiptsDigest([], [], [], event.pr, checkpoint),
-    ui: {
-      first_eligible_sha: eligible ? event.head_sha : null,
-      latest_desired_sha: eligible ? event.head_sha : null,
-      latest_desired_receipt_run_id: eligible ? event.event_run_id : null,
-      idle_cursor_receipt_run_id: eligible ? event.event_run_id : null,
-      active: null,
-      retired_active: [],
-      last_successful_runtime_sha: state.ui.last_successful_runtime_sha,
-      last_successful_runtime_url: state.ui.last_successful_runtime_url,
-      terminal_result_key_digests: [],
-      terminal_history: [],
-    },
-    status_decisions: [structuredClone(checkpoint.status)],
+    targets: Object.fromEntries(
+      PREVIEW_TARGETS.map((target) => {
+        const targetCheckpoint = checkpoint.targets[target];
+        const runtimeEvent = targetCheckpoint.latest_runtime_event;
+        return [
+          target,
+          {
+            first_eligible_sha: targetCheckpoint.first_eligible_sha,
+            latest_desired_sha: targetCheckpoint.latest_desired_sha,
+            latest_desired_receipt_run_id: runtimeEvent?.event_run_id ?? null,
+            idle_cursor_receipt_run_id: runtimeEvent?.event_run_id ?? null,
+            active: null,
+            retired_active: [],
+            last_successful_runtime_sha:
+              targetCheckpoint.last_successful_runtime_sha,
+            last_successful_runtime_url:
+              targetCheckpoint.last_successful_runtime_url,
+            terminal_result_key_digests: [],
+            terminal_history: [],
+          },
+        ];
+      }),
+    ),
+    status_decisions: [aggregateStatusDecision(event, targetStatuses, null)],
   };
+}
+
+function outcomeState(outcome) {
+  if (outcome === "pending") return "pending";
+  if (outcome === "failed") return "failure";
+  if (outcome === "error") return "error";
+  return "success";
+}
+
+function checkpointTargetStatus({
+  target,
+  targetState,
+  aggregate,
+  pending,
+  priorStatus,
+}) {
+  const outcome = pending
+    ? "pending"
+    : (aggregate?.targets?.[target] ??
+      (targetState.last_successful_runtime_sha
+        ? "runtime-equivalent"
+        : "not affected"));
+  const state = outcomeState(outcome);
+  const terminal = [...targetState.terminal_history]
+    .reverse()
+    .find(
+      (candidate) =>
+        candidate.sha === targetState.latest_desired_sha &&
+        (state === "failure"
+          ? candidate.state === "failure" ||
+            (candidate.state === "error" &&
+              candidate.terminal_reason === "worker-cancelled")
+          : state === "error"
+            ? candidate.state === "error" &&
+              candidate.terminal_reason !== "worker-cancelled"
+            : false),
+    );
+  const nativeTerminal = [...targetState.terminal_history]
+    .reverse()
+    .find(
+      (candidate) =>
+        candidate.sha === targetState.latest_desired_sha &&
+        candidate.terminal_reason === NATIVE_OWNED_SELECTION_REASON,
+    );
+  const nativeControllerUrl =
+    (CONTROLLER_RUN_URL_PATTERN.test(aggregate?.target_url ?? "")
+      ? aggregate.target_url
+      : null) ??
+    terminalResultUrl(nativeTerminal, null) ??
+    (priorStatus?.outcome === "native-owned" &&
+    CONTROLLER_RUN_URL_PATTERN.test(priorStatus.target_url ?? "")
+      ? priorStatus.target_url
+      : null);
+  const targetUrl =
+    outcome === "native-owned"
+      ? nativeControllerUrl
+      : outcome === "deployed" || outcome === "runtime-equivalent"
+        ? targetState.last_successful_runtime_url
+        : state === "pending"
+          ? (targetState.active?.html_url ??
+            (priorStatus?.state === "pending" ? priorStatus.target_url : null))
+          : state === "failure" || state === "error"
+            ? (terminalResultUrl(terminal, null) ??
+              (priorStatus?.outcome === outcome
+                ? priorStatus.target_url
+                : null))
+            : priorStatus?.outcome === outcome
+              ? priorStatus.target_url
+              : null;
+  return {
+    state,
+    outcome,
+    description:
+      outcome === "native-owned"
+        ? nativeOwnedStatusDescription(target)
+        : `${target}: ${outcome}`,
+    target_url: targetUrl,
+  };
+}
+
+function runtimeEventForTarget(lineage, checkpoint, target) {
+  return (
+    [...lineage]
+      .reverse()
+      .find((event) => event.plan.targets.includes(target)) ??
+    checkpoint?.targets[target].latest_runtime_event ??
+    null
+  );
+}
+
+function assertCheckpointableReceipts(
+  receipts,
+  allResults,
+  exemptKeyDigests = new Set(),
+) {
+  const resultIdentities = new Set(
+    allResults.map((result) => `${result.key_digest}:${result.worker_run_id}`),
+  );
+  invariant(
+    receipts.worker_evidence.every(
+      (evidence) =>
+        exemptKeyDigests.has(evidence.key_digest) ||
+        resultIdentities.has(
+          `${evidence.key_digest}:${evidence.worker_run_id}`,
+        ),
+    ),
+    "Preview journal cannot checkpoint unfinished worker evidence",
+  );
+  invariant(
+    receipts.selections.every(
+      (selection) =>
+        exemptKeyDigests.has(selection.key_digest) ||
+        allResults.some((result) => result.key_digest === selection.key_digest),
+    ),
+    "Preview journal cannot checkpoint unfinished selections",
+  );
 }
 
 export function compactPreviewJournal(value, { pullRequest = null } = {}) {
   const journal = validatePreviewJournal(value, value.pr);
   if (journal.state === null) return journal;
   const state = normalizeExistingState(journal.state, journal.pr);
-  const terminalResultKeyDigests = new Set(
+  const terminalKeys = new Set(
     journal.receipts.results.map((result) => result.key_digest),
   );
-  const unresolvedRetired = state.ui.retired_active.filter(
-    (selection) =>
-      selection.key_digest === journal.checkpoint?.pending_owner_key_digest ||
-      !terminalResultKeyDigests.has(selection.key_digest),
-  );
-  if (unresolvedRetired.length !== state.ui.retired_active.length) {
-    state.ui.retired_active = unresolvedRetired;
+  let stateChanged = false;
+  for (const target of PREVIEW_TARGETS) {
+    const pendingKey =
+      journal.checkpoint?.targets[target].pending_owner_key_digest ?? null;
+    const unresolved = state.targets[target].retired_active.filter(
+      (selection) =>
+        selection.key_digest === pendingKey ||
+        !terminalKeys.has(selection.key_digest),
+    );
+    if (unresolved.length !== state.targets[target].retired_active.length) {
+      state.targets[target].retired_active = unresolved;
+      stateChanged = true;
+    }
+  }
+  if (stateChanged) {
     journal.state = structuredClone(state);
     journal.journal_digest = previewJournalDigest(
       journal.receipts,
@@ -2826,214 +3229,34 @@ export function compactPreviewJournal(value, { pullRequest = null } = {}) {
     (total, receipts) => total + receipts.length,
     0,
   );
-  const liveRetiredOwnership = state.ui.retired_active.filter(
-    isLiveRetiredPreviewOwnership,
-  );
   if (receiptCount === 0) return journal;
-  const hasInFlightOwnership =
-    state.ui.active !== null || liveRetiredOwnership.length > 0;
-  if (hasInFlightOwnership) {
-    if (
-      Buffer.byteLength(journalBody(journal), "utf8") < ACTIVE_CHECKPOINT_BYTES
-    ) {
-      return journal;
-    }
-    if (pullRequest !== null) {
-      invariant(
-        normalizePullRequest(pullRequest).number === journal.pr,
-        "Capacity checkpoint PR mismatch",
-      );
-    }
-    const pull = representedPullRequest(
-      journal.receipts.events,
-      journal.checkpoint,
-    );
-    const { closure, lineage } = selectCurrentEpoch(
-      journal.receipts.events,
-      pull,
-      journal.checkpoint,
-    );
-    const tailEvent = closure ?? lineage.at(-1) ?? null;
-    invariant(tailEvent, "Preview checkpoint tail event is missing");
-    const pendingOwner =
-      state.ui.active ??
-      liveRetiredOwnership.find(
-        (selection) =>
-          selection.key_digest === journal.checkpoint?.pending_owner_key_digest,
-      ) ??
-      null;
-    invariant(pendingOwner, "Capacity checkpoint pending owner is missing");
-    const samePendingReceipt =
-      journal.checkpoint?.pending_runtime_event?.event_run_id ===
-      pendingOwner.selection_receipt_run_id;
-    const pendingOwnerAttemptCount = samePendingReceipt
-      ? (journal.checkpoint.pending_owner_attempt_count ?? 0) +
-        Number(
-          journal.checkpoint.pending_owner_key_digest !==
-            pendingOwner.key_digest,
-        )
-      : 1 +
-        state.ui.terminal_history.filter(
-          (terminal) =>
-            terminal.selection_receipt_run_id ===
-              pendingOwner.selection_receipt_run_id &&
-            terminal.terminal_reason !==
-              "controller-workflow-upgraded-before-dispatch",
-        ).length;
-    invariant(
-      pendingOwnerAttemptCount <= 2,
-      "Preview runtime retry budget is already exhausted",
-    );
-    const pendingRuntimeEvent =
-      [...lineage]
-        .reverse()
-        .find((event) => event.plan.targets.includes(PREVIEW_TARGET)) ??
-      journal.checkpoint?.pending_runtime_event ??
-      null;
-    invariant(
-      pendingRuntimeEvent,
-      "Capacity checkpoint pending runtime event is missing",
-    );
-    const persistedStatus = [...state.status_decisions]
-      .reverse()
-      .find((decision) => decision.sha === tailEvent.head_sha);
-    const status = persistedStatus ?? {
-      sha: tailEvent.head_sha,
-      state: "pending",
-      description: "Preview reconciliation pending",
-      target_url: state.ui.active?.html_url ?? null,
-    };
-    const protectedKeyDigests = new Set(
-      [state.ui.active, ...state.ui.retired_active]
-        .filter(Boolean)
-        .map((selection) => selection.key_digest),
-    );
-    const retainedReceipts = {
-      events: [],
-      selections: journal.receipts.selections.filter((selection) =>
-        protectedKeyDigests.has(selection.key_digest),
-      ),
-      worker_evidence: journal.receipts.worker_evidence.filter((evidence) =>
-        protectedKeyDigests.has(evidence.key_digest),
-      ),
-      results: journal.receipts.results.filter((result) =>
-        protectedKeyDigests.has(result.key_digest),
-      ),
-    };
-    const prunedReceipts = {
-      events: journal.receipts.events,
-      selections: journal.receipts.selections.filter(
-        (selection) => !protectedKeyDigests.has(selection.key_digest),
-      ),
-      worker_evidence: journal.receipts.worker_evidence.filter(
-        (evidence) => !protectedKeyDigests.has(evidence.key_digest),
-      ),
-      results: journal.receipts.results.filter(
-        (result) => !protectedKeyDigests.has(result.key_digest),
-      ),
-    };
-    const resultIdentities = new Set(
-      journal.receipts.results.map(
-        (result) => `${result.key_digest}:${result.worker_run_id}`,
-      ),
-    );
-    invariant(
-      prunedReceipts.worker_evidence.every((evidence) =>
-        resultIdentities.has(
-          `${evidence.key_digest}:${evidence.worker_run_id}`,
-        ),
-      ),
-      "Preview journal cannot checkpoint unfinished worker evidence",
-    );
-    invariant(
-      prunedReceipts.selections.every((selection) =>
-        journal.receipts.results.some(
-          (result) => result.key_digest === selection.key_digest,
-        ),
-      ),
-      "Preview journal cannot checkpoint unfinished selections",
-    );
-    const prunedCount = Object.values(prunedReceipts).reduce(
-      (total, receipts) => total + receipts.length,
-      0,
-    );
-    if (prunedCount === 0) return journal;
-    const previousCounts =
-      journal.checkpoint?.pruned_receipt_counts ?? emptyReceiptCounts();
-    const prunedReceiptCounts = Object.fromEntries(
-      Object.entries(previousCounts).map(([name, count]) => [
-        name,
-        count + prunedReceipts[name].length,
-      ]),
-    );
-    const checkpoint = {
-      schema: PREVIEW_CHECKPOINT_SCHEMA,
-      sequence: (journal.checkpoint?.sequence ?? 0) + 1,
-      through_event_run_id: tailEvent.event_run_id,
-      cumulative_receipts_digest: digest({
-        previous: journal.checkpoint?.cumulative_receipts_digest ?? null,
-        receipts: receiptSetDigest(prunedReceipts),
-        state: digest(state),
-      }),
-      pruned_receipt_counts: prunedReceiptCounts,
-      event: structuredClone(tailEvent),
-      status: {
-        sha: status.sha,
-        state: status.state,
-        description: status.description,
-        target_url: status.target_url ?? null,
-      },
-      pending_owner_key_digest: pendingOwner.key_digest,
-      pending_owner_attempt_count: pendingOwnerAttemptCount,
-      pending_runtime_event: structuredClone(pendingRuntimeEvent),
-    };
-    journal.checkpoint = checkpoint;
-    journal.receipts = retainedReceipts;
-    journal.journal_digest = previewJournalDigest(
-      journal.receipts,
-      journal.state,
-      checkpoint,
-    );
-    return validatePreviewJournal(journal, journal.pr);
+  const hasInFlightOwnership = PREVIEW_TARGETS.some(
+    (target) =>
+      state.targets[target].active !== null ||
+      state.targets[target].retired_active.some(isLiveRetiredPreviewOwnership),
+  );
+  if (
+    hasInFlightOwnership &&
+    Buffer.byteLength(journalBody(journal), "utf8") < ACTIVE_CHECKPOINT_BYTES
+  ) {
+    return journal;
   }
-  const quarantinedKeyDigests = new Set(
-    state.ui.retired_active
-      .filter((selection) => !isLiveRetiredPreviewOwnership(selection))
-      .map((selection) => selection.key_digest),
+  if (pullRequest !== null) {
+    invariant(
+      normalizePullRequest(pullRequest).number === journal.pr,
+      "Capacity checkpoint PR mismatch",
+    );
+  }
+  const pull = representedPullRequest(
+    journal.receipts.events,
+    journal.checkpoint,
   );
-  const resultIdentities = new Set(
-    journal.receipts.results.map(
-      (result) => `${result.key_digest}:${result.worker_run_id}`,
-    ),
+  const { closure, lineage } = selectCurrentEpoch(
+    journal.receipts.events,
+    pull,
+    journal.checkpoint,
   );
-  invariant(
-    journal.receipts.worker_evidence.every(
-      (evidence) =>
-        quarantinedKeyDigests.has(evidence.key_digest) ||
-        resultIdentities.has(
-          `${evidence.key_digest}:${evidence.worker_run_id}`,
-        ),
-    ),
-    "Preview journal cannot checkpoint unfinished worker evidence",
-  );
-  invariant(
-    journal.receipts.selections.every(
-      (selection) =>
-        quarantinedKeyDigests.has(selection.key_digest) ||
-        journal.receipts.results.some(
-          (result) => result.key_digest === selection.key_digest,
-        ),
-    ),
-    "Preview journal cannot checkpoint unfinished selections",
-  );
-  const tailEvent =
-    journal.receipts.events.find(
-      (event) => event.event_run_id === state.epoch.tail_receipt_run_id,
-    ) ??
-    (journal.checkpoint?.through_event_run_id ===
-    state.epoch.tail_receipt_run_id
-      ? journal.checkpoint.event
-      : null);
+  const tailEvent = closure ?? lineage.at(-1) ?? null;
   invariant(tailEvent, "Preview checkpoint tail event is missing");
   invariant(
     !state.closed ||
@@ -3041,20 +3264,167 @@ export function compactPreviewJournal(value, { pullRequest = null } = {}) {
         tailEvent.pr_closed_at === state.epoch.closed_at),
     "Preview checkpoint closure does not match persisted lifecycle state",
   );
-  const status = [...state.status_decisions]
+  const aggregate = [...state.status_decisions]
     .reverse()
     .find((decision) => decision.sha === tailEvent.head_sha);
-  invariant(status, "Preview checkpoint tail status is missing");
-  invariant(
-    status.state !== "pending",
-    "Preview journal cannot checkpoint a pending tail status",
+  const quarantinedKeys = new Set(
+    PREVIEW_TARGETS.flatMap((target) =>
+      state.targets[target].retired_active
+        .filter((selection) => !isLiveRetiredPreviewOwnership(selection))
+        .map((selection) => selection.key_digest),
+    ),
   );
+  if (!hasInFlightOwnership) {
+    invariant(aggregate, "Preview checkpoint tail status is missing");
+    invariant(
+      aggregate.state !== "pending",
+      "Preview journal cannot checkpoint a pending tail status",
+    );
+    assertCheckpointableReceipts(
+      journal.receipts,
+      journal.receipts.results,
+      quarantinedKeys,
+    );
+  }
+
+  const checkpointTargets = {};
+  const protectedKeys = new Set();
+  for (const target of PREVIEW_TARGETS) {
+    const targetState = state.targets[target];
+    const priorTarget = journal.checkpoint?.targets[target] ?? null;
+    const liveRetired = targetState.retired_active.filter(
+      isLiveRetiredPreviewOwnership,
+    );
+    const pendingOwner =
+      targetState.active ??
+      liveRetired.find(
+        (selection) =>
+          selection.key_digest === priorTarget?.pending_owner_key_digest,
+      ) ??
+      liveRetired[0] ??
+      null;
+    for (const selection of [targetState.active, ...liveRetired].filter(
+      Boolean,
+    )) {
+      protectedKeys.add(selection.key_digest);
+    }
+    const latestRuntimeEvent = runtimeEventForTarget(
+      lineage,
+      journal.checkpoint,
+      target,
+    );
+    const pendingOwnerEvent = pendingOwner
+      ? (lineage.find(
+          (event) =>
+            event.event_run_id === pendingOwner.selection_receipt_run_id,
+        ) ??
+        [
+          priorTarget?.pending_owner_event,
+          priorTarget?.latest_runtime_event,
+        ].find(
+          (event) =>
+            event?.event_run_id === pendingOwner.selection_receipt_run_id,
+        ) ??
+        null)
+      : null;
+    invariant(
+      !pendingOwner || pendingOwnerEvent,
+      `${target} checkpoint pending owner event is missing`,
+    );
+    const samePendingReceipt =
+      pendingOwner &&
+      priorTarget?.pending_owner_event?.event_run_id ===
+        pendingOwner.selection_receipt_run_id;
+    const pendingOwnerAttemptCount = pendingOwner
+      ? samePendingReceipt
+        ? (priorTarget.pending_owner_attempt_count ?? 0) +
+          Number(
+            priorTarget.pending_owner_key_digest !== pendingOwner.key_digest,
+          )
+        : 1 +
+          targetState.terminal_history.filter(
+            (terminal) =>
+              terminal.selection_receipt_run_id ===
+                pendingOwner.selection_receipt_run_id &&
+              terminal.terminal_reason !==
+                "controller-workflow-upgraded-before-dispatch",
+          ).length
+      : 0;
+    invariant(
+      pendingOwnerAttemptCount <= 2,
+      `${target} runtime retry budget is already exhausted`,
+    );
+    const pending = Boolean(
+      pendingOwner ||
+      (!aggregate && latestRuntimeEvent) ||
+      aggregate?.targets?.[target] === "pending",
+    );
+    checkpointTargets[target] = {
+      first_eligible_sha:
+        targetState.first_eligible_sha ?? latestRuntimeEvent?.head_sha ?? null,
+      latest_desired_sha: targetState.latest_desired_sha,
+      last_successful_runtime_sha: targetState.last_successful_runtime_sha,
+      last_successful_runtime_url: targetState.last_successful_runtime_url,
+      status: checkpointTargetStatus({
+        target,
+        targetState,
+        aggregate,
+        pending,
+        priorStatus: priorTarget?.status ?? null,
+      }),
+      pending_owner_key_digest: pendingOwner?.key_digest ?? null,
+      pending_owner_attempt_count: pendingOwnerAttemptCount,
+      pending_owner_event:
+        pendingOwnerEvent === null ? null : structuredClone(pendingOwnerEvent),
+      latest_runtime_event:
+        latestRuntimeEvent === null
+          ? null
+          : structuredClone(latestRuntimeEvent),
+    };
+  }
+
+  const retainedReceipts = hasInFlightOwnership
+    ? {
+        events: [],
+        selections: journal.receipts.selections.filter((selection) =>
+          protectedKeys.has(selection.key_digest),
+        ),
+        worker_evidence: journal.receipts.worker_evidence.filter((evidence) =>
+          protectedKeys.has(evidence.key_digest),
+        ),
+        results: journal.receipts.results.filter((result) =>
+          protectedKeys.has(result.key_digest),
+        ),
+      }
+    : { events: [], selections: [], worker_evidence: [], results: [] };
+  const prunedReceipts = {
+    events: journal.receipts.events,
+    selections: journal.receipts.selections.filter(
+      (selection) => !protectedKeys.has(selection.key_digest),
+    ),
+    worker_evidence: journal.receipts.worker_evidence.filter(
+      (evidence) => !protectedKeys.has(evidence.key_digest),
+    ),
+    results: journal.receipts.results.filter(
+      (result) => !protectedKeys.has(result.key_digest),
+    ),
+  };
+  assertCheckpointableReceipts(
+    prunedReceipts,
+    journal.receipts.results,
+    quarantinedKeys,
+  );
+  const prunedCount = Object.values(prunedReceipts).reduce(
+    (total, receipts) => total + receipts.length,
+    0,
+  );
+  if (hasInFlightOwnership && prunedCount === 0) return journal;
   const previousCounts =
     journal.checkpoint?.pruned_receipt_counts ?? emptyReceiptCounts();
   const prunedReceiptCounts = Object.fromEntries(
     Object.entries(previousCounts).map(([name, count]) => [
       name,
-      count + journal.receipts[name].length,
+      count + prunedReceipts[name].length,
     ]),
   );
   const checkpoint = {
@@ -3063,29 +3433,18 @@ export function compactPreviewJournal(value, { pullRequest = null } = {}) {
     through_event_run_id: tailEvent.event_run_id,
     cumulative_receipts_digest: digest({
       previous: journal.checkpoint?.cumulative_receipts_digest ?? null,
-      receipts: receiptSetDigest(journal.receipts),
+      receipts: receiptSetDigest(prunedReceipts),
       state: digest(state),
     }),
     pruned_receipt_counts: prunedReceiptCounts,
     event: structuredClone(tailEvent),
-    status: {
-      sha: status.sha,
-      state: status.state,
-      description: status.description,
-      target_url: status.target_url ?? null,
-    },
-    pending_owner_key_digest: null,
-    pending_owner_attempt_count: 0,
-    pending_runtime_event: null,
+    targets: checkpointTargets,
   };
   journal.checkpoint = checkpoint;
-  journal.receipts = {
-    events: [],
-    selections: [],
-    worker_evidence: [],
-    results: [],
-  };
-  journal.state = checkpointBaselineState(state, checkpoint);
+  journal.receipts = retainedReceipts;
+  if (!hasInFlightOwnership) {
+    journal.state = checkpointBaselineState(state, checkpoint);
+  }
   journal.journal_digest = previewJournalDigest(
     journal.receipts,
     journal.state,
@@ -3274,14 +3633,20 @@ async function appendJournalReceipt({
         const terminalKeys = new Set(
           journal.receipts.results.map((result) => result.key_digest),
         );
-        const hasUnfinishedOwnership =
-          state.ui.active !== null ||
-          state.ui.retired_active.some(
-            (selection) =>
-              selection.key_digest ===
-                journal.checkpoint?.pending_owner_key_digest ||
-              !terminalKeys.has(selection.key_digest),
+        const hasUnfinishedOwnership = PREVIEW_TARGETS.some((target) => {
+          const targetState = state.targets[target];
+          const pendingKey =
+            journal.checkpoint?.targets[target].pending_owner_key_digest ??
+            null;
+          return (
+            targetState.active !== null ||
+            targetState.retired_active.some(
+              (selection) =>
+                selection.key_digest === pendingKey ||
+                !terminalKeys.has(selection.key_digest),
+            )
           );
+        });
         if (hasUnfinishedOwnership) {
           compactAfterAppend = true;
         } else if (liveReceiptsAreRepresented) {
@@ -3341,15 +3706,20 @@ async function writeControllerState({
   return updated.journalComment;
 }
 
-async function writeControllerIntent({
+async function writeControllerIntents({
   github,
   context,
   pr,
   state,
-  selection,
+  selections,
   stateComment,
 }) {
-  const receipt = validateSelectionReceipt(selection);
+  const receipts = selections.map(validateSelectionReceipt);
+  invariant(
+    new Set(receipts.map((receipt) => receipt.key_digest)).size ===
+      receipts.length,
+    "Controller intents contain duplicate selections",
+  );
   const updated = await mutatePreviewJournal({
     github,
     context,
@@ -3357,14 +3727,18 @@ async function writeControllerIntent({
     expectedComment: stateComment,
     mutate(journal) {
       journal.state = structuredClone(state);
-      const existing = journal.receipts.selections.find(
-        (candidate) => candidate.key_digest === receipt.key_digest,
-      );
-      invariant(
-        !existing || canonicalJson(existing) === canonicalJson(receipt),
-        "Conflicting selection receipt in preview journal",
-      );
-      if (!existing) journal.receipts.selections.push(structuredClone(receipt));
+      for (const receipt of receipts) {
+        const existing = journal.receipts.selections.find(
+          (candidate) => candidate.key_digest === receipt.key_digest,
+        );
+        invariant(
+          !existing || canonicalJson(existing) === canonicalJson(receipt),
+          "Conflicting selection receipt in preview journal",
+        );
+        if (!existing) {
+          journal.receipts.selections.push(structuredClone(receipt));
+        }
+      }
     },
   });
   return updated.journalComment;
@@ -3866,6 +4240,7 @@ function classifyWorkerRuns(
     }
     if (
       parsed.pr !== selected.pr ||
+      parsed.target !== selected.target ||
       parsed.sha !== selected.sha ||
       parsed.keyDigest !== selected.key_digest
     ) {
@@ -4071,6 +4446,7 @@ export function validateWorkerRunIdentity(run, selected) {
   const parsed = parseWorkerRunName(displayTitle);
   invariant(
     parsed.pr === selected.pr &&
+      parsed.target === selected.target &&
       parsed.sha === selected.sha &&
       parsed.keyDigest === selected.key_digest,
     "Worker run identity does not match selection",
@@ -4148,7 +4524,7 @@ async function dispatchWorker(
       ref: "main",
       inputs: {
         pull_request_number: String(selected.pr),
-        target: PREVIEW_TARGET,
+        target: selected.target,
         commit_sha: selected.sha,
         git_branch: selected.git_ref,
         controller_key: selected.key,
@@ -4203,7 +4579,7 @@ async function recordControllerTerminalResult({
     schema: RESULT_RECEIPT_SCHEMA,
     repository: PREVIEW_REPOSITORY,
     pr,
-    target: PREVIEW_TARGET,
+    target: selection.target,
     sha: selection.sha,
     controller_key: selection.key,
     key_digest: selection.key_digest,
@@ -4281,21 +4657,39 @@ async function reconcileNoDispatchIntents({
   state,
   stateComment,
   waitForRecovery,
-  nativeOwnedSelectionKeyDigest = null,
+  nativeOwnedSelectionKeyDigests = new Set(),
+  selectionKeyDigests = null,
 }) {
   const candidates = [];
-  if (
-    state.ui?.active?.dispatch_state === "intended" &&
-    state.ui.active.workflow_run_id === null
-  ) {
-    candidates.push({ slot: "active", selection: state.ui.active });
-  }
-  for (const selection of state.ui?.retired_active ?? []) {
+  for (const target of PREVIEW_TARGETS) {
+    const targetState = state.targets[target];
     if (
-      selection.dispatch_state === "intended" &&
-      selection.workflow_run_id === null
+      targetState.active?.dispatch_state === "intended" &&
+      targetState.active.workflow_run_id === null
     ) {
-      candidates.push({ slot: "retired", selection });
+      if (
+        selectionKeyDigests === null ||
+        selectionKeyDigests.has(targetState.active.key_digest)
+      ) {
+        candidates.push({
+          slot: "active",
+          target,
+          selection: targetState.active,
+        });
+      }
+    }
+    for (const selection of targetState.retired_active) {
+      if (
+        selection.dispatch_state === "intended" &&
+        selection.workflow_run_id === null
+      ) {
+        if (
+          selectionKeyDigests === null ||
+          selectionKeyDigests.has(selection.key_digest)
+        ) {
+          candidates.push({ slot: "retired", target, selection });
+        }
+      }
     }
   }
   if (candidates.length === 0) return false;
@@ -4316,17 +4710,16 @@ async function reconcileNoDispatchIntents({
   const recoveredState = structuredClone(state);
   const attached = [];
   let retiredWithoutWorker = false;
-  for (const { slot, selection, recoveredRun } of observations) {
+  for (const { slot, target, selection, recoveredRun } of observations) {
     if (!recoveredRun) {
       await recordNoDispatchIntentWithoutWorker({
         github,
         context,
         pr,
         selection,
-        terminalReason:
-          selection.key_digest === nativeOwnedSelectionKeyDigest
-            ? NATIVE_OWNED_SELECTION_REASON
-            : NO_DISPATCH_ORPHAN_REASON,
+        terminalReason: nativeOwnedSelectionKeyDigests.has(selection.key_digest)
+          ? NATIVE_OWNED_SELECTION_REASON
+          : NO_DISPATCH_ORPHAN_REASON,
       });
       retiredWithoutWorker = true;
       continue;
@@ -4338,16 +4731,20 @@ async function reconcileNoDispatchIntents({
     };
     if (slot === "active") {
       invariant(
-        recoveredState.ui.active?.key_digest === selection.key_digest,
+        recoveredState.targets[target].active?.key_digest ===
+          selection.key_digest,
         "Active no-dispatch intent changed before recovery",
       );
-      recoveredState.ui.active = recoveredSelection;
+      recoveredState.targets[target].active = recoveredSelection;
     } else {
-      const retiredIndex = recoveredState.ui.retired_active.findIndex(
+      const retiredIndex = recoveredState.targets[
+        target
+      ].retired_active.findIndex(
         (candidate) => candidate.key_digest === selection.key_digest,
       );
       invariant(retiredIndex >= 0, "Retired no-dispatch intent disappeared");
-      recoveredState.ui.retired_active[retiredIndex] = recoveredSelection;
+      recoveredState.targets[target].retired_active[retiredIndex] =
+        recoveredSelection;
     }
     attached.push({ recoveredRun, recoveredSelection });
   }
@@ -4414,32 +4811,26 @@ async function refreshDispatchOwnership({
     return { outcome: "closed" };
   }
   const normalized = assertDispatchTrust(pull, selected);
-  const currentPreviewOwner = await uiPreviewOwnerAtSha(
+  const target = previewTarget(selected.target, "Selected preview target");
+  const currentPreviewOwner = await previewOwnerAtSha(
     github,
     context,
+    target,
     normalized.headSha,
   );
-  if (currentPreviewOwner === UI_PREVIEW_OWNER_NATIVE) {
+  if (!githubPreviewDispatchAllowed(target, currentPreviewOwner)) {
     return { outcome: "current-head-native" };
   }
-  invariant(
-    currentPreviewOwner === UI_PREVIEW_OWNER_GITHUB,
-    "GitHub preview dispatch does not own the current UI configuration",
-  );
   if (!(await shaIsStillAssociated(github, context, pull, selected.sha))) {
     return { outcome: "removed" };
   }
   const selectedPreviewOwner =
     selected.sha === normalized.headSha
       ? currentPreviewOwner
-      : await uiPreviewOwnerAtSha(github, context, selected.sha);
-  if (selectedPreviewOwner === UI_PREVIEW_OWNER_NATIVE) {
+      : await previewOwnerAtSha(github, context, target, selected.sha);
+  if (!githubPreviewDispatchAllowed(target, selectedPreviewOwner)) {
     return { outcome: "selected-native" };
   }
-  invariant(
-    selectedPreviewOwner === UI_PREVIEW_OWNER_GITHUB,
-    "GitHub preview dispatch does not own the selected UI configuration",
-  );
   const comments = await loadPreviewJournal(github, context, pr);
   const ownershipCheck = reconcileState({
     events: comments.events,
@@ -4453,11 +4844,14 @@ async function refreshDispatchOwnership({
   });
   invariant(
     ownershipCheck.state.epoch.anchor_run_id === selected.epoch_anchor_run_id &&
-      ownershipCheck.state.ui.active?.key_digest === selected.key_digest &&
-      ownershipCheck.state.ui.active?.reconciliation_basis_digest ===
+      ownershipCheck.state.targets[target].active?.key_digest ===
+        selected.key_digest &&
+      ownershipCheck.state.targets[target].active
+        ?.reconciliation_basis_digest ===
         selected.reconciliation_basis_digest &&
-      ownershipCheck.state.ui.active?.dispatch_state === "intended" &&
-      ownershipCheck.state.ui.active?.workflow_run_id === null,
+      ownershipCheck.state.targets[target].active?.dispatch_state ===
+        "intended" &&
+      ownershipCheck.state.targets[target].active?.workflow_run_id === null,
     "Persisted dispatch ownership changed before credentials",
   );
   return { outcome: "owned", ownershipCheck };
@@ -4472,29 +4866,41 @@ async function recoverCompletedOwnedRuns({
 }) {
   if (!parsed.state) return false;
   const state = structuredClone(normalizeExistingState(parsed.state, pr));
-  const currentActive = state.ui?.active;
-  const selections = [
-    currentActive,
-    ...(state.ui?.retired_active ?? []),
-  ].filter(Boolean);
+  const selections = PREVIEW_TARGETS.flatMap((target) => [
+    ...(state.targets[target].active
+      ? [
+          {
+            target,
+            selection: state.targets[target].active,
+            isCurrentActive: true,
+          },
+        ]
+      : []),
+    ...state.targets[target].retired_active.map((selection) => ({
+      target,
+      selection,
+      isCurrentActive: false,
+    })),
+  ]);
   let recovered = false;
   let quarantined = false;
-  const quarantineRetiredSelection = (selection) => {
-    const retiredIndex = state.ui.retired_active.findIndex(
+  const quarantineRetiredSelection = (target, selection) => {
+    const retiredIndex = state.targets[target].retired_active.findIndex(
       (candidate) => candidate.key_digest === selection.key_digest,
     );
     invariant(retiredIndex >= 0, "Retired worker ownership disappeared");
-    state.ui.retired_active = [...state.ui.retired_active];
-    state.ui.retired_active[retiredIndex] = {
+    state.targets[target].retired_active = [
+      ...state.targets[target].retired_active,
+    ];
+    state.targets[target].retired_active[retiredIndex] = {
       ...selection,
       recovery_quarantine: RETIRED_RECOVERY_QUARANTINE,
     };
     core.setOutput("retired_recovery_quarantined", "true");
     quarantined = true;
   };
-  for (const selection of selections) {
+  for (const { target, selection, isCurrentActive } of selections) {
     if (selection.workflow_run_id === null) continue;
-    const isCurrentActive = selection === currentActive;
     if (!isCurrentActive && selection.recovery_quarantine) continue;
     const alreadyRecorded = parsed.results.some(
       (result) =>
@@ -4513,7 +4919,7 @@ async function recoverCompletedOwnedRuns({
     } catch (error) {
       if (isCurrentActive) throw error;
       if (error?.status === 404 || error?.response?.status === 404) {
-        quarantineRetiredSelection(selection);
+        quarantineRetiredSelection(target, selection);
       } else {
         core.setOutput("retired_recovery_retryable", "true");
       }
@@ -4524,7 +4930,7 @@ async function recoverCompletedOwnedRuns({
       queried = validateWorkerRunIdentity(workflowRun, selection);
     } catch (error) {
       if (isCurrentActive) throw error;
-      quarantineRetiredSelection(selection);
+      quarantineRetiredSelection(target, selection);
       continue;
     }
     if (queried.status !== "completed") continue;
@@ -4558,18 +4964,30 @@ function isLiveRetiredPreviewOwnership(selection) {
   return selection.recovery_quarantine === undefined;
 }
 
-function hasLiveGitHubPreviewOwnership(state) {
+function hasLiveGitHubPreviewOwnership(state, target) {
+  const targetState = state.targets[previewTarget(target)];
   return (
-    state.ui.active !== null ||
-    state.ui.retired_active.some(isLiveRetiredPreviewOwnership)
+    targetState.active !== null ||
+    targetState.retired_active.some(isLiveRetiredPreviewOwnership)
   );
 }
 
-function persistNoDispatchHeadDecision({
+function undispatchedIntentKeyDigests(state, target) {
+  const targetState = state.targets[previewTarget(target)];
+  return [targetState.active, ...targetState.retired_active]
+    .filter(
+      (selection) =>
+        selection?.dispatch_state === "intended" &&
+        selection.workflow_run_id === null,
+    )
+    .map((selection) => selection.key_digest);
+}
+
+function overrideNativeHeadOwnership({
   state,
   previousState,
   pull,
-  previewOwner,
+  previewOwners,
   controllerMode,
   controllerUrl,
 }) {
@@ -4577,29 +4995,80 @@ function persistNoDispatchHeadDecision({
     (decision) => decision.sha === pull.headSha,
   );
   invariant(index >= 0, "Current-head no-dispatch status decision is missing");
-  let desired;
-  if (previewOwner === UI_PREVIEW_OWNER_NATIVE) {
-    const liveGitHubOwnership = hasLiveGitHubPreviewOwnership(state);
-    desired = {
-      sha: pull.headSha,
-      state: liveGitHubOwnership ? "pending" : "success",
-      description: liveGitHubOwnership
-        ? NATIVE_OWNERSHIP_DRAINING_STATUS_DESCRIPTION
-        : NATIVE_OWNED_STATUS_DESCRIPTION,
-      target_url: controllerUrl,
-    };
-  } else {
-    invariant(
-      controllerMode === "observe-only",
-      "Active no-dispatch reconciliation has no native preview owner",
-    );
-    desired = {
-      sha: pull.headSha,
-      state: "success",
-      description: OBSERVE_ONLY_STATUS_DESCRIPTION,
-      target_url: controllerUrl,
-    };
+  const targets = {
+    ...state.status_decisions[index].targets,
+  };
+  let nativeOwnershipChanged = false;
+  let nativeOwnershipApplied = false;
+  for (const target of PREVIEW_TARGETS) {
+    if (
+      PREVIEW_TARGET_CONFIG[target].ownershipMode !==
+        PREVIEW_OWNERSHIP_MODES.GITHUB ||
+      previewOwners[target] !== PREVIEW_OWNER_NATIVE
+    ) {
+      continue;
+    }
+    nativeOwnershipApplied = true;
+    const nativeOutcome = hasLiveGitHubPreviewOwnership(state, target)
+      ? "pending"
+      : "native-owned";
+    nativeOwnershipChanged ||= targets[target] !== nativeOutcome;
+    targets[target] = nativeOutcome;
   }
+  if (controllerMode !== "observe-only" && !nativeOwnershipApplied) {
+    return structuredClone(state.status_decisions[index]);
+  }
+  const values = Object.values(targets);
+  const desiredState = values.includes("error")
+    ? "error"
+    : values.includes("failed")
+      ? "failure"
+      : values.includes("pending")
+        ? "pending"
+        : "success";
+  const compactOutcome = (outcome) =>
+    ({
+      "runtime-equivalent": "equivalent",
+      "not affected": "none",
+      "native-owned": "native",
+      "unsupported trust boundary": "unsupported",
+    })[outcome] ?? outcome;
+  let description = PREVIEW_TARGETS.map(
+    (target) => `${target}=${compactOutcome(targets[target])}`,
+  ).join("; ");
+  const ownershipDraining = PREVIEW_TARGETS.some(
+    (target) =>
+      PREVIEW_TARGET_CONFIG[target].ownershipMode ===
+        PREVIEW_OWNERSHIP_MODES.GITHUB &&
+      previewOwners[target] === PREVIEW_OWNER_NATIVE &&
+      hasLiveGitHubPreviewOwnership(state, target),
+  );
+  if (controllerMode === "observe-only") {
+    invariant(
+      PREVIEW_TARGETS.every(
+        (target) => previewOwners[target] !== PREVIEW_OWNER_GITHUB,
+      ),
+      "Observe-only controller leaves a candidate preview ownerless",
+    );
+    description = ownershipDraining
+      ? OWNERSHIP_DRAINING_STATUS_DESCRIPTION
+      : OBSERVE_ONLY_STATUS_DESCRIPTION;
+  }
+  const desired = {
+    sha: pull.headSha,
+    state:
+      controllerMode === "observe-only"
+        ? ownershipDraining
+          ? "pending"
+          : "success"
+        : desiredState,
+    description,
+    target_url:
+      controllerMode === "observe-only" || nativeOwnershipChanged
+        ? controllerUrl
+        : state.status_decisions[index].target_url,
+    targets,
+  };
   const previous = (previousState?.status_decisions ?? []).findLast(
     (decision) => decision.sha === pull.headSha,
   );
@@ -4635,8 +5104,10 @@ export async function reconcilePreview({
     "Controller progress pass limit is invalid",
   );
   const controllerUrl = `https://github.com/${PREVIEW_REPOSITORY}/actions/runs/${context.runId}`;
+  const dispatchedRunIds = [];
   let serializedUpdateAttempts = 1;
   let deterministicProgressPasses = 0;
+  let ownershipMapValidated = false;
   const failClosed = async (error) => {
     const pull = await pullFromApi(github, context, pr);
     const headSha = exactSha(pull.head.sha);
@@ -4657,23 +5128,24 @@ export async function reconcilePreview({
       "Controller state update did not converge",
     );
   };
+
   reconcileAttempts: while (true) {
     try {
+      if (!ownershipMapValidated) {
+        await assertWorkflowOwnershipMap(github, context, workflowSha);
+        ownershipMapValidated = true;
+      }
       const pull = await pullFromApi(github, context, pr);
       const currentPull = normalizePullRequest(pull);
-      const previewOwner = await candidateUiPreviewOwner(github, context, pull);
-      invariant(
-        !(
-          currentPull.state === "open" &&
-          currentPull.trust === "trusted" &&
-          controllerMode === "observe-only" &&
-          previewOwner === UI_PREVIEW_OWNER_GITHUB
-        ),
-        "Observe-only controller leaves the candidate UI preview ownerless",
-      );
-      const noDispatch =
-        controllerMode === "observe-only" ||
-        previewOwner === UI_PREVIEW_OWNER_NATIVE;
+      const previewOwners = await candidatePreviewOwners(github, context, pull);
+      if (controllerMode === "observe-only") {
+        invariant(
+          PREVIEW_TARGETS.every(
+            (target) => previewOwners[target] !== PREVIEW_OWNER_GITHUB,
+          ),
+          "Observe-only controller leaves a candidate preview ownerless",
+        );
+      }
       const parsed = await loadPreviewJournal(github, context, pr);
       const stateBeforeReconciliation =
         parsed.state === null ? null : canonicalJson(parsed.state);
@@ -4701,29 +5173,29 @@ export async function reconcilePreview({
       });
       let state = reconciled.state;
       let stateComment = parsed.stateComment;
-      if (
-        noDispatch &&
-        (await reconcileNoDispatchIntents({
-          github,
-          context,
-          core,
-          pr,
-          state,
-          stateComment,
-          waitForRecovery,
-        }))
-      ) {
-        recordDeterministicProgress();
-        continue reconcileAttempts;
-      }
-      if (noDispatch) {
+
+      if (controllerMode === "observe-only") {
+        if (
+          await reconcileNoDispatchIntents({
+            github,
+            context,
+            core,
+            pr,
+            state,
+            stateComment,
+            waitForRecovery,
+          })
+        ) {
+          recordDeterministicProgress();
+          continue reconcileAttempts;
+        }
         let headDecision = null;
         if (currentPull.state === "open") {
-          headDecision = persistNoDispatchHeadDecision({
+          headDecision = overrideNativeHeadOwnership({
             state,
             previousState: parsed.state,
             pull: currentPull,
-            previewOwner,
+            previewOwners,
             controllerMode,
             controllerUrl,
           });
@@ -4745,29 +5217,24 @@ export async function reconcilePreview({
             target_url: headDecision.target_url,
           });
           if (
-            previewOwner === UI_PREVIEW_OWNER_NATIVE &&
-            headDecision.state === "pending"
+            headDecision.state === "pending" &&
+            headDecision.description === OWNERSHIP_DRAINING_STATUS_DESCRIPTION
           ) {
             core.setOutput("preview_ownership_draining", "true");
           }
         }
         core.setOutput("controller_mode", controllerMode);
-        if (previewOwner) core.setOutput("preview_owner", previewOwner);
+        core.setOutput("preview_owners", JSON.stringify(previewOwners));
         core.setOutput("dispatch_skipped", "true");
         core.setOutput("pr_number", String(pr));
         return state;
       }
-      let selected = state.closed
-        ? null
-        : (reconciled.nextDispatch ??
-          (state.ui.active?.dispatch_state === "intended" &&
-          state.ui.active.workflow_run_id === null
-            ? state.ui.active
-            : null));
-      if (selected) {
-        if (reconciled.nextDispatch) {
-          selected = {
-            ...selected,
+
+      const selected = [];
+      if (!state.closed) {
+        for (const dispatch of reconciled.nextDispatches) {
+          const intended = {
+            ...dispatch,
             dispatch_started_at: exactTimestamp(now()),
             dispatch_state: "intended",
             workflow_run_id: null,
@@ -4776,188 +5243,31 @@ export async function reconcilePreview({
             run_url: null,
             html_url: null,
           };
-          state.ui.active = selected;
+          state.targets[dispatch.target].active = intended;
+          selected.push(intended);
         }
-        const selectionReceipt = selectionReceiptFromDispatch(selected);
-        stateComment = await writeControllerIntent({
+        for (const target of PREVIEW_TARGETS) {
+          const active = state.targets[target].active;
+          if (
+            active?.dispatch_state === "intended" &&
+            active.workflow_run_id === null &&
+            !selected.some(
+              (candidate) => candidate.key_digest === active.key_digest,
+            )
+          ) {
+            selected.push(active);
+          }
+        }
+      }
+      if (selected.length > 0) {
+        stateComment = await writeControllerIntents({
           github,
           context,
           pr,
           state,
-          selection: selectionReceipt,
+          selections: selected.map(selectionReceiptFromDispatch),
           stateComment,
         });
-
-        let refreshedOwnership = await refreshDispatchOwnership({
-          github,
-          context,
-          pr,
-          selected,
-          controllerUrl,
-          workflowSha,
-        });
-        if (refreshedOwnership.outcome === "closed") {
-          core.setOutput("dispatch_skipped_closed", "true");
-          return state;
-        }
-        if (refreshedOwnership.outcome === "removed") {
-          await recordRemovedSelection({
-            github,
-            context,
-            pr,
-            selection: selected,
-          });
-          recordDeterministicProgress();
-          continue reconcileAttempts;
-        }
-        if (
-          refreshedOwnership.outcome === "current-head-native" ||
-          refreshedOwnership.outcome === "selected-native"
-        ) {
-          invariant(
-            await reconcileNoDispatchIntents({
-              github,
-              context,
-              core,
-              pr,
-              state,
-              stateComment,
-              waitForRecovery,
-              nativeOwnedSelectionKeyDigest:
-                refreshedOwnership.outcome === "selected-native"
-                  ? selected.key_digest
-                  : null,
-            }),
-            "Native-owned selection did not retain its durable intent",
-          );
-          recordDeterministicProgress();
-          continue reconcileAttempts;
-        }
-        let ownershipCheck = refreshedOwnership.ownershipCheck;
-
-        let recoveredRun;
-        try {
-          recoveredRun = await recoverMatchingWorkerRun(
-            github,
-            context,
-            selected,
-            {
-              waitForRetry: waitForRecovery,
-              ignoreWorkflowShaMismatch:
-                selected.expected_workflow_sha !== workflowSha,
-            },
-          );
-        } catch (error) {
-          if (error instanceof WorkerWorkflowShaMismatchError) {
-            await recordSupersededIntent({
-              github,
-              context,
-              pr,
-              selection: selected,
-            });
-          }
-          throw error;
-        }
-        refreshedOwnership = await refreshDispatchOwnership({
-          github,
-          context,
-          pr,
-          selected,
-          controllerUrl,
-          workflowSha,
-        });
-        if (refreshedOwnership.outcome === "closed") {
-          core.setOutput("dispatch_skipped_closed", "true");
-          return state;
-        }
-        if (refreshedOwnership.outcome === "removed") {
-          await recordRemovedSelection({
-            github,
-            context,
-            pr,
-            selection: selected,
-          });
-          recordDeterministicProgress();
-          continue reconcileAttempts;
-        }
-        if (
-          refreshedOwnership.outcome === "current-head-native" ||
-          refreshedOwnership.outcome === "selected-native"
-        ) {
-          invariant(
-            await reconcileNoDispatchIntents({
-              github,
-              context,
-              core,
-              pr,
-              state,
-              stateComment,
-              waitForRecovery,
-              nativeOwnedSelectionKeyDigest:
-                refreshedOwnership.outcome === "selected-native"
-                  ? selected.key_digest
-                  : null,
-            }),
-            "Native-owned selection did not retain its durable intent",
-          );
-          recordDeterministicProgress();
-          continue reconcileAttempts;
-        }
-        ownershipCheck = refreshedOwnership.ownershipCheck;
-        if (!recoveredRun && selected.expected_workflow_sha !== workflowSha) {
-          await recordSupersededIntent({
-            github,
-            context,
-            pr,
-            selection: selected,
-          });
-          recordDeterministicProgress();
-          continue reconcileAttempts;
-        }
-        let runDetails = recoveredRun;
-        if (!runDetails) {
-          try {
-            runDetails = await dispatchWorker(
-              github,
-              workerDispatchGithub,
-              context,
-              selected,
-              {
-                controllerMode,
-                waitForRunDetails: waitForRecovery,
-              },
-            );
-          } catch (error) {
-            if (error instanceof WorkerWorkflowShaMismatchError) {
-              await recordSupersededIntent({
-                github,
-                context,
-                pr,
-                selection: selected,
-              });
-            }
-            throw error;
-          }
-        }
-        state = {
-          ...ownershipCheck.state,
-          ui: {
-            ...ownershipCheck.state.ui,
-            active: {
-              ...ownershipCheck.state.ui.active,
-              dispatch_state: "dispatched",
-              ...runDetails,
-            },
-          },
-        };
-        stateComment = await writeControllerState({
-          github,
-          context,
-          pr,
-          state,
-          stateComment,
-        });
-        core.setOutput("dispatched_run_id", String(runDetails.workflow_run_id));
       } else {
         stateComment = await writeControllerState({
           github,
@@ -4968,7 +5278,213 @@ export async function reconcilePreview({
         });
       }
 
+      const nativeSelectionKeys = new Set();
+      const noDispatchSelectionKeys = new Set();
+      for (const selection of selected) {
+        const refreshed = await refreshDispatchOwnership({
+          github,
+          context,
+          pr,
+          selected: selection,
+          controllerUrl,
+          workflowSha,
+        });
+        if (refreshed.outcome === "closed") {
+          core.setOutput("dispatch_skipped_closed", "true");
+          return state;
+        }
+        if (refreshed.outcome === "removed") {
+          await recordRemovedSelection({
+            github,
+            context,
+            pr,
+            selection,
+          });
+          recordDeterministicProgress();
+          continue reconcileAttempts;
+        }
+        if (
+          refreshed.outcome === "current-head-native" ||
+          refreshed.outcome === "selected-native"
+        ) {
+          for (const keyDigest of undispatchedIntentKeyDigests(
+            state,
+            selection.target,
+          )) {
+            noDispatchSelectionKeys.add(keyDigest);
+          }
+          if (
+            refreshed.outcome === "selected-native" ||
+            selection.sha === currentPull.headSha
+          ) {
+            nativeSelectionKeys.add(selection.key_digest);
+          }
+        }
+      }
+      if (noDispatchSelectionKeys.size > 0) {
+        invariant(
+          await reconcileNoDispatchIntents({
+            github,
+            context,
+            core,
+            pr,
+            state,
+            stateComment,
+            waitForRecovery,
+            nativeOwnedSelectionKeyDigests: nativeSelectionKeys,
+            selectionKeyDigests: noDispatchSelectionKeys,
+          }),
+          "Native-owned selection did not retain its durable intent",
+        );
+        recordDeterministicProgress();
+        continue reconcileAttempts;
+      }
+
+      let restartReconciliation = false;
+      for (const selection of selected) {
+        let recoveredRun;
+        try {
+          recoveredRun = await recoverMatchingWorkerRun(
+            github,
+            context,
+            selection,
+            {
+              waitForRetry: waitForRecovery,
+              ignoreWorkflowShaMismatch:
+                selection.expected_workflow_sha !== workflowSha,
+            },
+          );
+        } catch (error) {
+          if (error instanceof WorkerWorkflowShaMismatchError) {
+            await recordSupersededIntent({
+              github,
+              context,
+              pr,
+              selection,
+            });
+          }
+          throw error;
+        }
+        const refreshed = await refreshDispatchOwnership({
+          github,
+          context,
+          pr,
+          selected: selection,
+          controllerUrl,
+          workflowSha,
+        });
+        if (refreshed.outcome === "closed") {
+          core.setOutput("dispatch_skipped_closed", "true");
+          return state;
+        }
+        if (refreshed.outcome === "removed") {
+          await recordRemovedSelection({
+            github,
+            context,
+            pr,
+            selection,
+          });
+          restartReconciliation = true;
+          break;
+        }
+        if (
+          refreshed.outcome === "current-head-native" ||
+          refreshed.outcome === "selected-native"
+        ) {
+          const selectionKeys = new Set(
+            undispatchedIntentKeyDigests(state, selection.target),
+          );
+          const nativeSelectionKeys =
+            refreshed.outcome === "selected-native" ||
+            selection.sha === currentPull.headSha
+              ? new Set([selection.key_digest])
+              : new Set();
+          invariant(
+            await reconcileNoDispatchIntents({
+              github,
+              context,
+              core,
+              pr,
+              state,
+              stateComment,
+              waitForRecovery,
+              nativeOwnedSelectionKeyDigests: nativeSelectionKeys,
+              selectionKeyDigests: selectionKeys,
+            }),
+            "Racing native-owned selection lost durable intent",
+          );
+          restartReconciliation = true;
+          break;
+        }
+        if (!recoveredRun && selection.expected_workflow_sha !== workflowSha) {
+          await recordSupersededIntent({
+            github,
+            context,
+            pr,
+            selection,
+          });
+          restartReconciliation = true;
+          break;
+        }
+        let runDetails = recoveredRun;
+        if (!runDetails) {
+          try {
+            runDetails = await dispatchWorker(
+              github,
+              workerDispatchGithub,
+              context,
+              selection,
+              { controllerMode, waitForRunDetails: waitForRecovery },
+            );
+          } catch (error) {
+            if (error instanceof WorkerWorkflowShaMismatchError) {
+              await recordSupersededIntent({
+                github,
+                context,
+                pr,
+                selection,
+              });
+            }
+            throw error;
+          }
+        }
+        state = {
+          ...refreshed.ownershipCheck.state,
+          targets: {
+            ...refreshed.ownershipCheck.state.targets,
+            [selection.target]: {
+              ...refreshed.ownershipCheck.state.targets[selection.target],
+              active: {
+                ...refreshed.ownershipCheck.state.targets[selection.target]
+                  .active,
+                dispatch_state: "dispatched",
+                ...runDetails,
+              },
+            },
+          },
+        };
+        stateComment = await writeControllerState({
+          github,
+          context,
+          pr,
+          state,
+          stateComment,
+        });
+        dispatchedRunIds.push(runDetails.workflow_run_id);
+      }
+      if (restartReconciliation) {
+        recordDeterministicProgress();
+        continue reconcileAttempts;
+      }
+      core.setOutput("dispatched_run_ids", JSON.stringify(dispatchedRunIds));
+
       const finalPull = await pullFromApi(github, context, pr);
+      const finalCurrentPull = normalizePullRequest(finalPull);
+      const finalOwners = await candidatePreviewOwners(
+        github,
+        context,
+        finalPull,
+      );
       const finalComments = await loadPreviewJournal(github, context, pr);
       const finalReconciled = reconcileState({
         events: finalComments.events,
@@ -4987,6 +5503,16 @@ export async function reconcilePreview({
         "Reconciliation basis changed before status publication",
       );
       state = finalReconciled.state;
+      if (finalCurrentPull.state === "open") {
+        overrideNativeHeadOwnership({
+          state,
+          previousState: finalComments.state,
+          pull: finalCurrentPull,
+          previewOwners: finalOwners,
+          controllerMode,
+          controllerUrl,
+        });
+      }
       stateComment = await writeControllerState({
         github,
         context,
@@ -5024,6 +5550,7 @@ export async function reconcilePreview({
           stateBeforeReconciliation !== null &&
           stateBeforeReconciliation === canonicalJson(state),
       });
+      core.setOutput("preview_owners", JSON.stringify(finalOwners));
       core.setOutput("pr_number", String(pr));
       return state;
     } catch (error) {
@@ -5054,10 +5581,12 @@ function workerResultAffectsCurrentReconciliation({
   selection,
   currentSelection,
 }) {
+  const target = previewTarget(selection.target, "Worker result target");
   return (
     (selection === currentSelection &&
       selection.epoch_anchor_run_id === state.epoch.anchor_run_id) ||
-    evidence.checkpoint?.pending_owner_key_digest === selection.key_digest
+    evidence.checkpoint?.targets[target].pending_owner_key_digest ===
+      selection.key_digest
   );
 }
 
@@ -5068,17 +5597,20 @@ async function foldCompletedRetiredOwner({
   state,
   selection,
 }) {
+  const target = previewTarget(selection.target, "Completed worker target");
+  const targetState = state.targets[target];
   if (
-    evidence.checkpoint?.pending_owner_key_digest === selection.key_digest ||
-    state.ui.active?.key_digest === selection.key_digest
+    evidence.checkpoint?.targets[target].pending_owner_key_digest ===
+      selection.key_digest ||
+    targetState.active?.key_digest === selection.key_digest
   ) {
     return;
   }
-  const retained = state.ui.retired_active.filter(
+  const retained = targetState.retired_active.filter(
     (candidate) => candidate.key_digest !== selection.key_digest,
   );
-  if (retained.length === state.ui.retired_active.length) return;
-  state.ui.retired_active = retained;
+  if (retained.length === targetState.retired_active.length) return;
+  targetState.retired_active = retained;
   await writeControllerState({
     github,
     context,
@@ -5214,11 +5746,14 @@ export async function validateWorkerDispatch({
     "Actual worker workflow SHA does not match controller-authorized SHA",
   );
   const pr = pullRequestNumber(inputs.pull_request_number);
-  invariant(inputs.target === PREVIEW_TARGET, "Worker target must be UI");
+  const target = previewTarget(inputs.target, "Worker target");
   const sha = exactSha(inputs.commit_sha);
   const gitRef = validatedWorkerHeadRef(inputs.git_branch);
   const key = boundedText(inputs.controller_key, "Controller key", 255);
-  invariant(key === controllerKey(pr, sha), "Worker controller key is invalid");
+  invariant(
+    key === controllerKey(pr, sha, target),
+    "Worker controller key is invalid",
+  );
   const epochAnchorRunId = exactRunId(
     inputs.epoch_anchor_run_id,
     "Worker epoch anchor run ID",
@@ -5257,26 +5792,27 @@ export async function validateWorkerDispatch({
     await shaIsStillAssociated(github, context, pull, sha),
     "Selected SHA is no longer associated with the PR lineage",
   );
-  const currentPreviewOwner = await uiPreviewOwnerAtSha(
+  const currentPreviewOwner = await previewOwnerAtSha(
     github,
     context,
+    target,
     normalizedPull.headSha,
   );
   invariant(
-    currentPreviewOwner === UI_PREVIEW_OWNER_GITHUB,
-    "GitHub preview worker does not own the current UI configuration",
+    githubPreviewDispatchAllowed(target, currentPreviewOwner),
+    `GitHub preview worker is not allowed for the current ${target} configuration`,
   );
   const selectedPreviewOwner =
     sha === normalizedPull.headSha
       ? currentPreviewOwner
-      : await uiPreviewOwnerAtSha(github, context, sha);
+      : await previewOwnerAtSha(github, context, target, sha);
   invariant(
-    selectedPreviewOwner === UI_PREVIEW_OWNER_GITHUB,
-    "GitHub preview worker does not own the selected UI configuration",
+    githubPreviewDispatchAllowed(target, selectedPreviewOwner),
+    `GitHub preview worker is not allowed for the selected ${target} configuration`,
   );
   const evidence = await loadControllerEvidence(github, context, pr);
   const state = evidence.state;
-  const active = state.ui?.active;
+  const active = state.targets[target]?.active;
   const selectionReceipt = evidence.selections.find(
     (selection) => selection.key_digest === keyDigest,
   );
@@ -5292,6 +5828,7 @@ export async function validateWorkerDispatch({
   );
   invariant(
     selectionReceipt &&
+      selectionReceipt.target === target &&
       selectionReceipt.sha === sha &&
       selectionReceipt.epoch_anchor_run_id === epochAnchorRunId &&
       selectionReceipt.reconciliation_basis_digest === basisDigest &&
@@ -5323,6 +5860,7 @@ export async function validateWorkerDispatch({
     pr,
     sha,
     key,
+    target,
   });
   if (deployment) {
     const statuses = await deploymentStatusHistory(
@@ -5414,8 +5952,13 @@ function deploymentPayload(value) {
   }
 }
 
-async function findCanonicalDeployment(github, context, { pr, sha, key }) {
-  const environment = `preview/ui/pr-${pr}`;
+async function findCanonicalDeployment(
+  github,
+  context,
+  { pr, sha, key, target: rawTarget },
+) {
+  const target = previewTarget(rawTarget, "Deployment target");
+  const environment = `preview/${target}/pr-${pr}`;
   const deployments = await github.paginate(github.rest.repos.listDeployments, {
     ...ownerRepo(context),
     sha,
@@ -5427,9 +5970,11 @@ async function findCanonicalDeployment(github, context, { pr, sha, key }) {
     return (
       deployment.ref === sha &&
       deployment.environment === environment &&
+      payload?.controller_schema === PREBUILT_DEPLOYMENT_SCHEMA &&
       payload?.idempotency_key === key &&
       payload?.sha === sha &&
-      payload?.logical_target === PREVIEW_TARGET
+      payload?.logical_target === target &&
+      payload?.provenance === PREVIEW_CONTROLLER_PROVENANCE
     );
   });
   invariant(
@@ -5446,24 +5991,25 @@ async function createRecoveryDeployment(
   selection,
   run,
 ) {
+  const target = previewTarget(parsed.target, "Recovery deployment target");
   const { data } = await github.rest.repos.createDeployment({
     ...ownerRepo(context),
     ref: parsed.sha,
     auto_merge: false,
     required_contexts: [],
-    environment: `preview/ui/pr-${parsed.pr}`,
+    environment: `preview/${target}/pr-${parsed.pr}`,
     transient_environment: true,
     production_environment: false,
-    description: "Vercel prebuilt UI preview recovery",
+    description: `Vercel prebuilt ${target} preview recovery`,
     payload: {
-      controller_schema: "mento-vercel-prebuilt/v1",
+      controller_schema: PREBUILT_DEPLOYMENT_SCHEMA,
       idempotency_key: selection.key,
-      logical_target: PREVIEW_TARGET,
+      logical_target: target,
       sha: parsed.sha,
       git_ref: validatedWorkerHeadRef(selection.git_ref),
       workflow_run_url: optionalHttpsUrl(run.html_url, "Worker run URL"),
       pull_request_number: parsed.pr,
-      provenance: "preview-controller-recovery",
+      provenance: PREVIEW_CONTROLLER_PROVENANCE,
     },
   });
   return data;
@@ -5514,10 +6060,13 @@ function workerOutcomeSelection(inputs, rawWorkflowSha) {
     "Actual worker workflow SHA does not match controller-authorized SHA",
   );
   const pr = pullRequestNumber(inputs.pull_request_number);
-  invariant(inputs.target === PREVIEW_TARGET, "Worker target must be UI");
+  const target = previewTarget(inputs.target, "Worker target");
   const sha = exactSha(inputs.commit_sha);
   const key = boundedText(inputs.controller_key, "Controller key", 255);
-  invariant(key === controllerKey(pr, sha), "Worker controller key is invalid");
+  invariant(
+    key === controllerKey(pr, sha, target),
+    "Worker controller key is invalid",
+  );
   const epochAnchorRunId = exactRunId(inputs.epoch_anchor_run_id);
   const basisDigest = boundedText(
     inputs.reconciliation_basis_digest,
@@ -5546,6 +6095,7 @@ function workerOutcomeSelection(inputs, rawWorkflowSha) {
   );
   return {
     pr,
+    target,
     sha,
     key,
     keyDigest,
@@ -5565,9 +6115,10 @@ export async function recordWorkerEvidence({
 }) {
   const selection = workerOutcomeSelection(inputs, workflowSha);
   const evidence = await loadControllerEvidence(github, context, selection.pr);
+  const targetState = evidence.state.targets[selection.target];
   const ownedSelection = [
-    evidence.state.ui?.active,
-    ...(evidence.state.ui?.retired_active ?? []),
+    targetState.active,
+    ...targetState.retired_active,
   ].find(
     (candidate) =>
       candidate?.key === selection.key &&
@@ -5595,6 +6146,7 @@ export async function recordWorkerEvidence({
     pr: selection.pr,
     sha: selection.sha,
     key: selection.key,
+    target: selection.target,
   });
   if (!deployment) {
     core.setOutput("evidence_deferred_to_recovery", "true");
@@ -5626,7 +6178,7 @@ export async function recordWorkerEvidence({
     schema: WORKER_EVIDENCE_SCHEMA,
     repository: PREVIEW_REPOSITORY,
     pr: selection.pr,
-    target: PREVIEW_TARGET,
+    target: selection.target,
     sha: selection.sha,
     controller_key: selection.key,
     key_digest: selection.keyDigest,
@@ -5664,11 +6216,12 @@ export async function recoverWorkerResult({
   const { displayTitle, workflowRunId: runId } =
     validateWorkerRunSource(workflowRun);
   const parsed = parseWorkerRunName(displayTitle);
-  const key = controllerKey(parsed.pr, parsed.sha);
+  const key = controllerKey(parsed.pr, parsed.sha, parsed.target);
   const evidence = await loadControllerEvidence(github, context, parsed.pr);
   const state = evidence.state;
-  let currentSelection = state.ui?.active;
-  let selection = [currentSelection, ...(state.ui?.retired_active ?? [])].find(
+  const targetState = state.targets[parsed.target];
+  let currentSelection = targetState.active;
+  let selection = [currentSelection, ...targetState.retired_active].find(
     (candidate) =>
       candidate?.key === key && candidate?.key_digest === parsed.keyDigest,
   );
@@ -5682,7 +6235,7 @@ export async function recoverWorkerResult({
   }
   const currentEpochOwnsSameKey = [
     currentSelection,
-    ...(state.ui?.terminal_history ?? []),
+    ...targetState.terminal_history,
     ...evidence.results,
   ]
     .filter(Boolean)
@@ -5779,18 +6332,18 @@ export async function recoverWorkerResult({
       ...queriedRun,
     };
     if (selection === currentSelection) {
-      state.ui.active = recoveredSelection;
+      targetState.active = recoveredSelection;
       currentSelection = recoveredSelection;
     } else {
-      const retiredIndex = state.ui.retired_active.findIndex(
+      const retiredIndex = targetState.retired_active.findIndex(
         (candidate) => candidate.key_digest === selection.key_digest,
       );
       invariant(
         retiredIndex >= 0,
         "Intended retired worker ownership disappeared",
       );
-      state.ui.retired_active = [...state.ui.retired_active];
-      state.ui.retired_active[retiredIndex] = recoveredSelection;
+      targetState.retired_active = [...targetState.retired_active];
+      targetState.retired_active[retiredIndex] = recoveredSelection;
     }
     await writeControllerState({
       github,
@@ -5812,6 +6365,7 @@ export async function recoverWorkerResult({
     pr: parsed.pr,
     sha: parsed.sha,
     key,
+    target: parsed.target,
   });
   invariant(queriedRun.status === "completed", "Worker run is not completed");
   const conclusion = boundedText(
@@ -5996,7 +6550,7 @@ export async function recoverWorkerResult({
     schema: RESULT_RECEIPT_SCHEMA,
     repository: PREVIEW_REPOSITORY,
     pr: parsed.pr,
-    target: PREVIEW_TARGET,
+    target: parsed.target,
     sha: parsed.sha,
     controller_key: key,
     key_digest: parsed.keyDigest,
@@ -6064,7 +6618,7 @@ export async function postWorkerRecoveryError({
     return false;
   }
   const evidence = await loadControllerEvidence(github, context, parsed.pr);
-  const active = evidence.state.ui?.active;
+  const active = evidence.state.targets[parsed.target]?.active;
   if (
     active?.sha !== parsed.sha ||
     active?.key_digest !== parsed.keyDigest ||
