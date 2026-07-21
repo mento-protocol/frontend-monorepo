@@ -80,6 +80,28 @@ test("controller has only the three specified recovery-aware triggers", () => {
   assert.doesNotMatch(raw, /workflow_dispatch|\binputs\./);
 });
 
+test("controller mode is versioned and reaches every reconciliation call", () => {
+  assert.deepEqual(controller.env, {
+    VERCEL_PREVIEW_CONTROLLER_MODE: "active",
+  });
+  for (const [jobName, job] of Object.entries(controller.jobs)) {
+    const step = job.steps?.find((candidate) =>
+      String(candidate.with?.script ?? "").includes("reconcilePreview"),
+    );
+    if (!step) continue;
+    assert.equal(
+      step.env.CONTROLLER_MODE,
+      "${{ env.VERCEL_PREVIEW_CONTROLLER_MODE }}",
+      `${jobName} must receive the version-controlled controller mode`,
+    );
+    assert.match(
+      step.with.script,
+      /controllerMode:\s*process\.env\.CONTROLLER_MODE/,
+      `${jobName} must pass the controller mode to reconciliation`,
+    );
+  }
+});
+
 test("Dependabot intake is credentialless and trusted follow-up alone can write status", () => {
   assert.equal(intake.name, "Vercel Preview Intake");
   assert.deepEqual(intake.on, {
@@ -372,7 +394,8 @@ test("only reconciliation steps receive the dedicated worker dispatch credential
     "reconcile-request",
     "recover-worker-result",
   ];
-  const secretExpression = "${{ secrets.GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN }}";
+  const secretExpression =
+    "${{ env.VERCEL_PREVIEW_CONTROLLER_MODE == 'active' && secrets.GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN || '' }}";
   const raw = read(controllerPath);
   const secretNames = [...raw.matchAll(/secrets\.([A-Z0-9_]+)/g)].map(
     ([, name]) => name,
@@ -393,12 +416,20 @@ test("only reconciliation steps receive the dedicated worker dispatch credential
         `${jobName} must not receive the worker dispatch credential`,
       );
       assert.equal(step.env.WORKER_DISPATCH_TOKEN, secretExpression);
+      assert.equal(
+        step.env.CONTROLLER_MODE,
+        "${{ env.VERCEL_PREVIEW_CONTROLLER_MODE }}",
+      );
       assert.equal(Object.hasOwn(step.with ?? {}, "github-token"), false);
       assert.match(
         step.with.script,
         /getOctokit\(process\.env\.WORKER_DISPATCH_TOKEN\)/,
       );
       assert.match(step.with.script, /workerDispatchGithub,/);
+      assert.match(
+        step.with.script,
+        /controllerMode:\s*process\.env\.CONTROLLER_MODE/,
+      );
     }
   }
 

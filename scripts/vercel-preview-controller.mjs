@@ -49,6 +49,7 @@ const ALLOWED_PLAN_REASONS = new Set([
   "unsupported-trust-boundary",
   "closed",
 ]);
+const PREVIEW_CONTROLLER_MODES = new Set(["active", "observe-only"]);
 const TERMINAL_STATES = new Set(["success", "failure", "error"]);
 const RETRIABLE_TERMINAL_REASONS = new Set([
   "build-failed-retriable",
@@ -127,6 +128,14 @@ function exactSha(value, label = "Commit SHA") {
   invariant(
     typeof value === "string" && SHA_PATTERN.test(value),
     `${label} must be an immutable lowercase 40-character SHA`,
+  );
+  return value;
+}
+
+function previewControllerMode(value) {
+  invariant(
+    PREVIEW_CONTROLLER_MODES.has(value),
+    "Preview controller mode must be active or observe-only",
   );
   return value;
 }
@@ -3925,8 +3934,12 @@ async function dispatchWorker(
   workerDispatchGithub,
   context,
   selected,
-  { waitForRunDetails = wait } = {},
+  { controllerMode, waitForRunDetails = wait } = {},
 ) {
+  invariant(
+    controllerMode === "active",
+    "Worker dispatch is disabled by preview controller mode",
+  );
   invariant(
     workerDispatchGithub !== null && workerDispatchGithub !== undefined,
     "Worker dispatch credential is unavailable",
@@ -4196,12 +4209,14 @@ export async function reconcilePreview({
   workerDispatchGithub = null,
   context,
   core,
+  controllerMode: rawControllerMode,
   prNumber: rawPr,
   workflowSha: rawWorkflowSha,
   waitForRecovery,
   now = () => new Date().toISOString(),
 }) {
   const pr = pullRequestNumber(rawPr);
+  const controllerMode = previewControllerMode(rawControllerMode);
   const workflowSha = exactSha(rawWorkflowSha, "Controller workflow SHA");
   const controllerUrl = `https://github.com/${PREVIEW_REPOSITORY}/actions/runs/${context.runId}`;
   reconcileAttempts: for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -4220,6 +4235,23 @@ export async function reconcilePreview({
         })
       ) {
         continue reconcileAttempts;
+      }
+      if (controllerMode === "observe-only") {
+        const currentPull = normalizePullRequest(pull);
+        if (currentPull.state === "open") {
+          await github.rest.repos.createCommitStatus({
+            ...ownerRepo(context),
+            sha: currentPull.headSha,
+            state: "success",
+            context: PREVIEW_STATUS_CONTEXT,
+            description: "GitHub preview dispatch is observe-only",
+            target_url: controllerUrl,
+          });
+        }
+        core.setOutput("controller_mode", controllerMode);
+        core.setOutput("dispatch_skipped", "true");
+        core.setOutput("pr_number", String(pr));
+        return parsed.state;
       }
       const reconciled = reconcileState({
         events: parsed.events,
@@ -4349,7 +4381,10 @@ export async function reconcilePreview({
               workerDispatchGithub,
               context,
               selected,
-              { waitForRunDetails: waitForRecovery },
+              {
+                controllerMode,
+                waitForRunDetails: waitForRecovery,
+              },
             );
           } catch (error) {
             if (error instanceof WorkerWorkflowShaMismatchError) {

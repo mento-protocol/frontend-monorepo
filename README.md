@@ -449,6 +449,10 @@ The repository is set up with GitHub Actions for CI:
   are created; the normal job token still owns all state and recovery calls.
   After the Phase A-canary-gated Phase B cutover, GitHub Actions owns UI branch
   previews and native Vercel Git branch previews are disabled only for UI.
+  The version-controlled controller mode is `active` in that state; the
+  executable ownership test permits rollback only when the same PR switches it
+  to `observe-only` and restores native UI branch previews, preventing duplicate
+  automatic owners.
   Vercel Git still owns every main/production deployment and all non-UI apps. See
   [ADR 0001](docs/adr/0001-github-actions-vercel-deployment-orchestration.md)
   for the accepted ownership boundary,

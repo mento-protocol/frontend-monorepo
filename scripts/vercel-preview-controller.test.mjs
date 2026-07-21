@@ -54,6 +54,7 @@ function reconcilePreview(options) {
     ? options.workerDispatchGithub
     : workerDispatchClients.get(options.github);
   return reconcilePreviewImplementation({
+    controllerMode: "active",
     workflowSha: SHA.E,
     now: () => timestamp(0),
     workerDispatchGithub,
@@ -4657,6 +4658,78 @@ test("durable dispatch persists intent and waits for the exact run title to mate
   assert.deepEqual(journal.receipts.events, [opened]);
   assert.equal(journal.receipts.selections.length, 1);
   assert.equal(journal.state.ui.active.dispatch_state, "dispatched");
+});
+
+test("observe-only controller mode records status without creating dispatch intent", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+    comments: [journalComment({ events: [opened] })],
+  });
+  const core = fakeCore();
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    controllerMode: "observe-only",
+    context: fakeContext(),
+    core,
+    prNumber: 519,
+  });
+
+  assert.equal(state, null);
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(fixture.commentUpdates.length, 0);
+  assert.deepEqual(
+    fixture.commitStatuses.map(({ sha, state, context, description }) => ({
+      sha,
+      state,
+      context,
+      description,
+    })),
+    [
+      {
+        sha: SHA.A,
+        state: "success",
+        context: "Vercel Preview",
+        description: "GitHub preview dispatch is observe-only",
+      },
+    ],
+  );
+  assert.equal(core.outputs.get("controller_mode"), "observe-only");
+  assert.equal(core.outputs.get("dispatch_skipped"), "true");
+  assert.equal(core.outputs.get("pr_number"), "519");
+});
+
+test("controller mode is explicit and rejects unknown values before API access", async () => {
+  let apiCalls = 0;
+  const github = {
+    rest: {
+      pulls: {
+        get: async () => {
+          apiCalls += 1;
+          return { data: pull() };
+        },
+      },
+    },
+  };
+
+  await assert.rejects(
+    reconcilePreview({
+      github,
+      controllerMode: "shadow",
+      context: fakeContext(),
+      core: fakeCore(),
+      prNumber: 519,
+    }),
+    /Preview controller mode must be active or observe-only/,
+  );
+  assert.equal(apiCalls, 0);
 });
 
 test("a missing worker dispatch credential fails closed only when a new dispatch is required", async () => {

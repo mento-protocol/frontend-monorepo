@@ -11,6 +11,9 @@ on:
 
 permissions: {}
 
+env:
+  VERCEL_PREVIEW_CONTROLLER_MODE: active
+
 jobs:
   validate-request:
     name: Validate default-branch repository request
@@ -225,9 +228,10 @@ jobs:
       - name: Persist intent, recover or dispatch one worker, and publish statuses
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
+          CONTROLLER_MODE: ${{ env.VERCEL_PREVIEW_CONTROLLER_MODE }}
           PR_NUMBER: ${{ needs.receipt-event.outputs.pr_number }}
           WORKFLOW_SHA: ${{ github.workflow_sha }}
-          WORKER_DISPATCH_TOKEN: ${{ secrets.GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN }}
+          WORKER_DISPATCH_TOKEN: ${{ env.VERCEL_PREVIEW_CONTROLLER_MODE == 'active' && secrets.GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN || '' }}
         with:
           script: |
             const { pathToFileURL } = require("node:url");
@@ -243,6 +247,7 @@ jobs:
               workerDispatchGithub,
               context,
               core,
+              controllerMode: process.env.CONTROLLER_MODE,
               prNumber: process.env.PR_NUMBER,
               workflowSha: process.env.WORKFLOW_SHA,
             });
@@ -424,9 +429,10 @@ jobs:
       - name: Reconcile bootstrapped PR
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
+          CONTROLLER_MODE: ${{ env.VERCEL_PREVIEW_CONTROLLER_MODE }}
           PR_NUMBER: ${{ needs.receipt-bootstrap.outputs.pr_number }}
           WORKFLOW_SHA: ${{ github.workflow_sha }}
-          WORKER_DISPATCH_TOKEN: ${{ secrets.GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN }}
+          WORKER_DISPATCH_TOKEN: ${{ env.VERCEL_PREVIEW_CONTROLLER_MODE == 'active' && secrets.GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN || '' }}
         with:
           script: |
             const { pathToFileURL } = require("node:url");
@@ -442,6 +448,7 @@ jobs:
               workerDispatchGithub,
               context,
               core,
+              controllerMode: process.env.CONTROLLER_MODE,
               prNumber: process.env.PR_NUMBER,
               workflowSha: process.env.WORKFLOW_SHA,
             });
@@ -474,9 +481,10 @@ jobs:
       - name: Reconcile requested PR
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
+          CONTROLLER_MODE: ${{ env.VERCEL_PREVIEW_CONTROLLER_MODE }}
           PR_NUMBER: ${{ needs.validate-request.outputs.pr_number }}
           WORKFLOW_SHA: ${{ github.workflow_sha }}
-          WORKER_DISPATCH_TOKEN: ${{ secrets.GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN }}
+          WORKER_DISPATCH_TOKEN: ${{ env.VERCEL_PREVIEW_CONTROLLER_MODE == 'active' && secrets.GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN || '' }}
         with:
           script: |
             const { pathToFileURL } = require("node:url");
@@ -492,6 +500,7 @@ jobs:
               workerDispatchGithub,
               context,
               core,
+              controllerMode: process.env.CONTROLLER_MODE,
               prNumber: process.env.PR_NUMBER,
               workflowSha: process.env.WORKFLOW_SHA,
             });
@@ -631,8 +640,9 @@ jobs:
       - name: Terminalize or recover Deployment and persist immutable result
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
+          CONTROLLER_MODE: ${{ env.VERCEL_PREVIEW_CONTROLLER_MODE }}
           WORKFLOW_SHA: ${{ github.workflow_sha }}
-          WORKER_DISPATCH_TOKEN: ${{ secrets.GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN }}
+          WORKER_DISPATCH_TOKEN: ${{ env.VERCEL_PREVIEW_CONTROLLER_MODE == 'active' && secrets.GH_PREVIEW_WORKFLOW_DISPATCH_TOKEN || '' }}
         with:
           script: |
             const { pathToFileURL } = require("node:url");
@@ -655,6 +665,7 @@ jobs:
                   workerDispatchGithub,
                   context,
                   core,
+                  controllerMode: process.env.CONTROLLER_MODE,
                   prNumber: result.pr,
                   workflowSha: process.env.WORKFLOW_SHA,
                 });
