@@ -11,8 +11,6 @@ import {
   previewTargetConfig,
 } from "./vercel-preview-targets.mjs";
 
-export { PREVIEW_TARGETS } from "./vercel-preview-targets.mjs";
-
 export const PREVIEW_REPOSITORY = "mento-protocol/frontend-monorepo";
 const PREVIEW_STATUS_CONTEXT = "Vercel Preview";
 const PREVIEW_INITIALIZATION_STATUS_CONTEXT = "Vercel Preview Journal v2";
@@ -22,7 +20,7 @@ const PREVIEW_OWNER_NATIVE = "native-vercel";
 const PREBUILT_DEPLOYMENT_SCHEMA = "mento-vercel-prebuilt/v2";
 const PREVIEW_CONTROLLER_PROVENANCE = "preview-controller:v2";
 export const EVENT_RECEIPT_SCHEMA = "vercel-preview-event-receipt:v2";
-export const WORKER_EVIDENCE_SCHEMA = "vercel-preview-worker-evidence:v2";
+const WORKER_EVIDENCE_SCHEMA = "vercel-preview-worker-evidence:v2";
 export const RESULT_RECEIPT_SCHEMA = "vercel-preview-worker-result:v2";
 export const SELECTION_RECEIPT_SCHEMA = "vercel-preview-selection:v2";
 export const CONTROLLER_SCHEMA = "vercel-preview-controller:v2";
