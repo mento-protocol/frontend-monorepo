@@ -4236,7 +4236,26 @@ export async function reconcilePreview({
       ) {
         continue reconcileAttempts;
       }
+      const reconciled = reconcileState({
+        events: parsed.events,
+        results: parsed.results,
+        selections: parsed.selections,
+        pullRequest: pull,
+        existingState: parsed.state,
+        checkpoint: parsed.checkpoint,
+        controllerUrl,
+        expectedWorkflowSha: workflowSha,
+      });
+      let state = reconciled.state;
+      let stateComment = parsed.stateComment;
       if (controllerMode === "observe-only") {
+        stateComment = await writeControllerState({
+          github,
+          context,
+          pr,
+          state,
+          stateComment,
+        });
         const currentPull = normalizePullRequest(pull);
         if (currentPull.state === "open") {
           await github.rest.repos.createCommitStatus({
@@ -4251,20 +4270,8 @@ export async function reconcilePreview({
         core.setOutput("controller_mode", controllerMode);
         core.setOutput("dispatch_skipped", "true");
         core.setOutput("pr_number", String(pr));
-        return parsed.state;
+        return state;
       }
-      const reconciled = reconcileState({
-        events: parsed.events,
-        results: parsed.results,
-        selections: parsed.selections,
-        pullRequest: pull,
-        existingState: parsed.state,
-        checkpoint: parsed.checkpoint,
-        controllerUrl,
-        expectedWorkflowSha: workflowSha,
-      });
-      let state = reconciled.state;
-      let stateComment = parsed.stateComment;
       let selected = state.closed
         ? null
         : (reconciled.nextDispatch ??

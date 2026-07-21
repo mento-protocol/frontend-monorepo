@@ -696,7 +696,7 @@ The cost go/no-go record in issue #518 and the Phase A live-canary evidence
 below were prerequisites for the final UI Git-ownership cutover. The current
 Phase B ownership model reflects that gate having completed.
 
-## Automatic trusted UI previews (Phase A)
+## Automatic trusted UI previews (current; introduced in Phase A)
 
 `.github/workflows/vercel-preview-controller.yml` is the only automatic event
 controller. It runs trusted default-branch code for `pull_request_target`

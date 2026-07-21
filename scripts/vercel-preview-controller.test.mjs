@@ -4681,10 +4681,16 @@ test("observe-only controller mode records status without creating dispatch inte
     prNumber: 519,
   });
 
-  assert.equal(state, null);
+  assert.equal(state.ui.active, null);
+  assert.equal(state.ui.latest_desired_sha, SHA.A);
   assert.equal(fixture.dispatches.length, 0);
   assert.equal(fixture.workerDispatchRequests.length, 0);
-  assert.equal(fixture.commentUpdates.length, 0);
+  assert.equal(fixture.commentUpdates.length, 1);
+  assert.equal(journalFromComment(fixture.comments[0]).state.ui.active, null);
+  assert.equal(
+    journalFromComment(fixture.comments[0]).state.ui.latest_desired_sha,
+    SHA.A,
+  );
   assert.deepEqual(
     fixture.commitStatuses.map(({ sha, state, context, description }) => ({
       sha,
@@ -4704,6 +4710,78 @@ test("observe-only controller mode records status without creating dispatch inte
   assert.equal(core.outputs.get("controller_mode"), "observe-only");
   assert.equal(core.outputs.get("dispatch_skipped"), "true");
   assert.equal(core.outputs.get("pr_number"), "519");
+});
+
+test("observe-only mode recovers completed work and reconstructs state without dispatching the newest SHA", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const runtimeB = event({
+    run: 122,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    updated: timestamp(2),
+  });
+  const pullRequest = pull({ head: SHA.B, updated: timestamp(2) });
+  const selected = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const dispatched = persistDispatch(selected, 8_000);
+  const completed = workerRun(selected.nextDispatch, {
+    status: "completed",
+    conclusion: "cancelled",
+  });
+  completed.name = completed.display_title;
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [journalWithState([opened, runtimeB], dispatched)],
+    runs: [completed],
+  });
+  const core = fakeCore();
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    controllerMode: "observe-only",
+    context: fakeContext({ runId: 7_001 }),
+    core,
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(state.ui.active, null);
+  assert.equal(state.ui.latest_desired_sha, SHA.B);
+  assert.equal(
+    state.ui.terminal_history.at(-1).terminal_reason,
+    "worker-cancelled",
+  );
+  const journal = journalFromComment(fixture.comments[0]);
+  assert.equal(journal.receipts.results.length, 1);
+  assert.equal(journal.state.ui.active, null);
+  assert.equal(journal.state.ui.latest_desired_sha, SHA.B);
+  assert.equal(fixture.createdDeploymentStatuses.at(-1).state, "error");
+  assert.deepEqual(
+    fixture.commitStatuses.map(({ sha, state: statusState, description }) => ({
+      sha,
+      state: statusState,
+      description,
+    })),
+    [
+      {
+        sha: SHA.B,
+        state: "success",
+        description: "GitHub preview dispatch is observe-only",
+      },
+    ],
+  );
+  assert.equal(core.outputs.get("controller_mode"), "observe-only");
+  assert.equal(core.outputs.get("dispatch_skipped"), "true");
 });
 
 test("controller mode is explicit and rejects unknown values before API access", async () => {
