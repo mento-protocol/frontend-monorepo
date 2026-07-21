@@ -54,6 +54,14 @@ type JsonRpcResponse = {
   error?: unknown;
 };
 
+const releasePostApprovalInterceptionByPage = new WeakMap<Page, () => void>();
+
+function releaseInterceptionGates(page: Page) {
+  const release = releasePostApprovalInterceptionByPage.get(page);
+  releasePostApprovalInterceptionByPage.delete(page);
+  release?.();
+}
+
 function isPrimaryQuoteCalldata(data: string) {
   try {
     const decoded = decodeFunctionData({
@@ -293,6 +301,14 @@ async function interceptPostApprovalAllowanceReads(
     },
   );
 
+  releasePostApprovalInterceptionByPage.set(page, () => {
+    approvalReceiptReleased = true;
+    approvalReceiptWaitingForQuoteRefresh = false;
+    staleReadsReleased = true;
+    markPrimaryQuoteRefreshStarted?.();
+    releaseHeldPrimaryQuote?.();
+  });
+
   return {
     approvalTransactionCount: () => approvalTransactionHashes.size,
     heldPrimaryQuoteReadCount: () => heldPrimaryQuoteReadCount,
@@ -326,18 +342,28 @@ test.beforeAll(async () => {
 test.beforeEach(async () => {
   snapshotId = await snapshot();
 });
-test.afterEach(async () => {
-  // Guard against beforeEach failing before assignment (e.g. anvil not
-  // running) — reverting an unset snapshotId would throw a second, masking
-  // error on top of the real root cause.
-  if (snapshotId === undefined) return;
-  // Clear before awaiting so a later test never reverts this stale,
-  // already-consumed id.
-  const id = snapshotId;
-  snapshotId = undefined;
-  // anvil returns false (not an error) for an unknown/consumed snapshot id,
-  // so assert the result — a silent no-op here would break fork isolation.
-  expect(await revert(id)).toBe(true);
+test.afterEach(async ({ page }) => {
+  try {
+    // Release synthetic request gates before draining the page's route stack.
+    // Failed assertions can otherwise strand callbacks until Playwright tears
+    // down the Route/APIResponse objects used by route.fetch()/json().
+    releaseInterceptionGates(page);
+    await page.unrouteAll({ behavior: "wait" });
+  } finally {
+    // Guard against beforeEach failing before assignment (e.g. anvil not
+    // running) — reverting an unset snapshotId would throw a second, masking
+    // error on top of the real root cause.
+    if (snapshotId !== undefined) {
+      // Clear before awaiting so a later test never reverts this stale,
+      // already-consumed id.
+      const id = snapshotId;
+      snapshotId = undefined;
+      // anvil returns false (not an error) for an unknown/consumed snapshot
+      // id, so assert the result — a silent no-op here would break fork
+      // isolation.
+      expect(await revert(id)).toBe(true);
+    }
+  }
 });
 
 test("swaps 1 EURm (cEUR) for USDm (cUSD)", async ({ page }) => {
