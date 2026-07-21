@@ -107,9 +107,13 @@ reason = "uuid v3/v5/v6+buf advisory — unreachable (all 16 pre-14 consumers au
 # ---------------------------------------------------------------------------
 # Batch added 2026-05-15 alongside the Trove Activity panel PR.
 # Existing osv-scanner.toml entries cover older transitive-dep advisories
-# from the same wormhole/coinbase/wagmi chains. Re-running the scanner
-# surfaced ~40 newer GHSAs across the same upstream packages. All entries
-# below ignoreUntil 2026-12-01 so the next audit catches them.
+# from the same Wormhole dependency chain. Re-running the scanner surfaced
+# newer GHSAs across the same upstream packages. All entries in this batch use
+# ignoreUntil 2026-12-01 so the next audit catches them.
+#
+# The axios groups originally recorded in this batch were removed on
+# 2026-07-21 after the root override began enforcing >=1.18.0 and the lockfile
+# resolved 1.18.1, which clears every axios advisory without a suppression.
 #
 # REVISIT CHECKLIST — before the 2026-12-01 expiry:
 #
@@ -119,18 +123,11 @@ reason = "uuid v3/v5/v6+buf advisory — unreachable (all 16 pre-14 consumers au
 #      reachable and the ignore can be deleted.
 #   2. For each per-package group below, check the upstream chain for a
 #      patched release that resolves the GHSAs:
-#        - axios       → look for a bumped axios pin in @coinbase/cdp-sdk
-#                         (transitive: wagmi → @wagmi/connectors →
-#                         @base-org/account → @coinbase/cdp-sdk → axios).
 #        - protobufjs  → look for bumped protobufjs in wormhole-connect's
 #                         @cosmjs/* / @trezor/* sub-chains.
-#        - hono        → look for a bumped hono pin in porto
-#                         (wagmi → @wagmi/connectors → porto → hono).
-#        - turbo       → patched turbo release covering GHSA-3qcw-2rhx-2726
-#                         and GHSA-hcf7-66rw-9f5r.
-#        - basic-ftp / ip-address — both code paths confirmed unreachable
-#                         in this app. Delete the ignores when the upstream
-#                         chains finally bump to patched versions.
+#        - ip-address  → the HTML-emitting code path is confirmed unreachable
+#                         in this app. Delete the ignore when the upstream
+#                         chain finally bumps to a patched version.
 #   3. For any group where upstream has shipped a fix → drop the ignore and
 #      bump the dep (or wait for the catalog/lockfile refresh to pull it).
 #   4. For anything still genuinely unfixable, RENEW the ignoreUntil with a
@@ -138,73 +135,6 @@ reason = "uuid v3/v5/v6+buf advisory — unreachable (all 16 pre-14 consumers au
 #
 # Owner: TODO — pick this up during the November 2026 dependency review.
 # ---------------------------------------------------------------------------
-
-# --- axios: transitive via @rainbow-me/rainbowkit → wagmi → @wagmi/connectors → @base-org/account → @coinbase/cdp-sdk ---
-
-[[IgnoredVulns]]
-id = "GHSA-3w6x-2g7m-8v23"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "axios vulnerability is in transitive deps (wagmi → @coinbase/cdp-sdk); no direct fix available."
-
-[[IgnoredVulns]]
-id = "GHSA-445q-vr5w-6q77"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "axios CRLF Injection in multipart/form-data body; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
-
-[[IgnoredVulns]]
-id = "GHSA-5c9x-8gcm-mpgx"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "axios streamed-upload maxBodyLength bypass; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
-
-[[IgnoredVulns]]
-id = "GHSA-62hf-57xw-28j9"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "axios unbounded recursion DoS; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
-
-[[IgnoredVulns]]
-id = "GHSA-6chq-wfr3-2hj9"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "axios Header Injection via Prototype Pollution; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
-
-[[IgnoredVulns]]
-id = "GHSA-m7pr-hjqh-92cm"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "axios no_proxy IP-alias SSRF; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
-
-[[IgnoredVulns]]
-id = "GHSA-pf86-5x62-jrwf"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "axios Prototype Pollution Gadgets in parseReviver; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
-
-[[IgnoredVulns]]
-id = "GHSA-pmwg-cvhr-8vh7"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "axios incomplete fix for CVE-2025-62718 NO_PROXY; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
-
-[[IgnoredVulns]]
-id = "GHSA-q8qp-cvcw-x6jj"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "axios prototype-pollution read-side gadgets in HTTP adapter; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
-
-[[IgnoredVulns]]
-id = "GHSA-vf2m-468p-8v99"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "axios maxContentLength bypass in streamed responses; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
-
-[[IgnoredVulns]]
-id = "GHSA-w9j2-pvgh-6h63"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "axios Authentication Bypass via Prototype Pollution gadget; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
-
-[[IgnoredVulns]]
-id = "GHSA-xhjh-pmcv-23jw"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "axios Null Byte Injection via Reverse-Encoding (low severity); transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
-
-[[IgnoredVulns]]
-id = "GHSA-xx6v-rp6x-q39c"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "axios XSRF Token Cross-Origin Leakage via Prototype Pollution gadget; transitive via wagmi → @coinbase/cdp-sdk; no direct fix available."
 
 # --- protobufjs: transitive via @wormhole-foundation/wormhole-connect → cosmjs / trezor chains ---
 
@@ -255,58 +185,6 @@ reason = "ip-address XSS in Address6 HTML-emitting methods (Address6 HTML method
 id = "GHSA-jggg-4jg4-v7c6"
 ignoreUntil = 2026-12-01T00:00:00Z
 reason = "protobufjs DoS via unbounded recursive JSON descriptor expansion; transitive via wormhole-connect → @cosmjs/* / @trezor/* (affects both 6.11.4 and 7.5.5); no direct fix available."
-
-# ---------------------------------------------------------------------------
-# Batch added 2026-06-05 — surfaced after the 2026-06-01 expiry pass.
-# All entries follow the existing batch pattern (transitive chains, no direct
-# fix path) and ignoreUntil 2026-12-01 so they fold into the same audit window
-# as the 2026-05-15/05-19 batch above.
-# ---------------------------------------------------------------------------
-
-# --- axios 1.15.0 → 1.16.0: transitive via wagmi → @wagmi/connectors → @base-org/account → @coinbase/cdp-sdk ---
-# (Same chain as the existing 2026-05-15 axios batch. New CVEs surfaced after
-#  that batch was written. A 1.16.0 bump exists upstream but @coinbase/cdp-sdk
-#  hasn't pulled it in yet — same wait-for-upstream posture as before.)
-
-[[IgnoredVulns]]
-id = "GHSA-35jp-ww65-95wh"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "axios Full Man-in-the-Middle via Prototype Pollution Gadget in config.proxy; transitive via wagmi → @coinbase/cdp-sdk; fix available at 1.16.0 but upstream chain not yet bumped."
-
-[[IgnoredVulns]]
-id = "GHSA-3g43-6gmg-66jw"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "axios Credential Theft and Response Hijacking via Prototype Pollution Gadget in Config Merge; transitive via wagmi → @coinbase/cdp-sdk; fix at 1.15.2 but upstream chain not yet bumped."
-
-[[IgnoredVulns]]
-id = "GHSA-777c-7fjr-54vf"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "axios Allocation of Resources Without Limits or Throttling (DoS); transitive via wagmi → @coinbase/cdp-sdk; fix at 1.16.0 but upstream chain not yet bumped."
-
-[[IgnoredVulns]]
-id = "GHSA-898c-q2cr-xwhg"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "axios DoS & Header Injection via Prototype Pollution Read-Side Gadgets in merge functions; transitive via wagmi → @coinbase/cdp-sdk; fix at 1.16.0 but upstream chain not yet bumped."
-
-[[IgnoredVulns]]
-id = "GHSA-hfxv-24rg-xrqf"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "axios ReDoS via Cookie Name Injection; transitive via wagmi → @coinbase/cdp-sdk; fix at 1.16.0 but upstream chain not yet bumped."
-
-[[IgnoredVulns]]
-id = "GHSA-j5f8-grm9-p9fc"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "axios Proxy-Authorization header leaks to redirect target on proxy → direct fallback; transitive via wagmi → @coinbase/cdp-sdk; fix at 1.16.0 but upstream chain not yet bumped."
-
-[[IgnoredVulns]]
-id = "GHSA-p92q-9vqr-4j8v"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "axios Proxy-Authorization Credential Leak to Origin Server Across HTTP-to-HTTPS Redirect in Node.js HTTP Adapter; transitive via wagmi → @coinbase/cdp-sdk; fix at 1.16.0 but upstream chain not yet bumped."
-
-[[IgnoredVulns]]
-id = "GHSA-pjwm-pj3p-43mv"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "axios shouldBypassProxy does not recognize IPv4-mapped IPv6 addresses (incomplete fix for CVE-2025-62718); transitive via wagmi → @coinbase/cdp-sdk; fix at 1.16.0 but upstream chain not yet bumped."
 
 # --- Vercel Sandbox CLI package-name reuse ---
 # These advisories describe the legacy gf3/sandbox evaluator (last affected

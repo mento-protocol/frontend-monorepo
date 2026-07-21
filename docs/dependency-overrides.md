@@ -31,11 +31,13 @@ TSX, or app config imports of those packages in `apps/app.mento.org`. Do not
 remove them independently, and do not start using them directly in Mento UI
 code.
 
-As of the 2026-07-10 check for issue #418, `osv-scanner.toml` has 74 ignored
-vulnerability blocks, and 15 blocks mention the Wormhole Connect dependency
-chain in the reason or surrounding comments. That cluster is currently axios
-(3 blocks), protobufjs including `@protobufjs/utf8` (11 blocks), and uuid (1
-block). Do not attribute the elliptic or bn.js suppressions to Wormhole; their
+As of the 2026-07-21 remediation, `osv-scanner.toml` has 21 ignored
+vulnerability blocks, and 12 blocks mention the Wormhole Connect dependency
+chain in the reason or surrounding comments. That cluster is currently
+protobufjs including `@protobufjs/utf8` (11 blocks) and uuid (1 block). Axios
+is no longer suppressed: the root override enforces `>=1.18.0` and the lockfile
+resolves 1.18.1, so future axios findings fail the scanner instead of being
+masked. Do not attribute the elliptic or bn.js suppressions to Wormhole; their
 documented chains are separate.
 
 Removing Wormhole Connect is intentionally out of scope for this document. At
@@ -49,11 +51,11 @@ proposal before changing dependencies.
 Most entries in `pnpm.overrides` are range-scoped CVE floors, e.g.:
 
 ```json
-"axios@<1.15.0": ">=1.15.0"
+"axios@<1.18.0": ">=1.18.0"
 ```
 
-`brace-expansion` is also conditional: `"brace-expansion@<2.0.2": "2.0.3"`
-only rewrites vulnerable versions below `2.0.2`. Remove it once
+`brace-expansion` is also conditional: `"brace-expansion@<2.1.2": "2.1.2"`
+only rewrites vulnerable versions below `2.1.2`. Remove it once
 `pnpm why -r brace-expansion` shows that every consumer resolves a patched
 version without the override.
 
@@ -81,7 +83,7 @@ no longer applies.
 | `next`                  | Keeps every `next` consumer (including tooling with its own dependency graph) aligned with the catalog version — not a CVE patch.                                                                                                                                                     | `6032e90`, kept in step with the catalog through `6d93f3c`/`92facd3`                              | Not removable while the catalog also pins `next`; this override exists to catch drift, so keep its value textually identical to `pnpm-workspace.yaml`'s `next` entry.     |
 | `picomatch`             | CVE fix pin.                                                                                                                                                                                                                                                                          | `68218a2` (PR #301)                                                                               | Once transitive consumers resolve `>=4.0.4` by default.                                                                                                                   |
 | `preact`                | CVE fix, minimum patched version.                                                                                                                                                                                                                                                     | `a446eb6`                                                                                         | Once transitive consumers resolve `>=10.28.2` by default.                                                                                                                 |
-| `shell-quote`           | CVE fix ("override vulnerable shell quote").                                                                                                                                                                                                                                          | `92facd3` (PR #356)                                                                               | Once transitive consumers resolve `>=1.8.4` by default.                                                                                                                   |
+| `shell-quote`           | CVE fix ("override vulnerable shell quote").                                                                                                                                                                                                                                          | `92facd3` (PR #356)                                                                               | Once transitive consumers resolve `>=1.9.0` by default.                                                                                                                   |
 | `tmp`                   | CVE fix (arbitrary file write).                                                                                                                                                                                                                                                       | `fd7abd6`                                                                                         | Once transitive consumers resolve `>=0.2.4` by default.                                                                                                                   |
 | `wagmi`                 | Keeps every `wagmi` consumer aligned with the catalog version — not a CVE patch.                                                                                                                                                                                                      | `54e1ee6`, version bumped in `6032e90`                                                            | Not removable while the catalog also pins `wagmi`; keep its value textually identical to `pnpm-workspace.yaml`'s `wagmi` entry.                                           |
 | `zod`                   | Dedupe. Without this override, `pnpm install` resolves four separate zod majors (`3.22.4`, `3.25.76`, `4.3.5`, `4.4.3`) across the `viem`/`ox`/`abitype`/`@coinbase/cdp-sdk` peer trees, since those accept both zod 3 and zod 4. Forcing one copy avoids that split. See issue #409. | `d0f940c`, value reconciled to the catalog string (`^4.4.3`) in the #409 catalog/override cleanup | Once `pnpm why -r zod` shows every consumer converging on zod 4.x on its own (no dependency still requiring zod 3.x), drop the override and let the catalog alone govern. |
