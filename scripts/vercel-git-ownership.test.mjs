@@ -87,6 +87,27 @@ test("every target exposes reviewed, distinct native and GitHub ownership states
   );
 });
 
+test("ownership configurations keep only their reviewed branch exceptions", () => {
+  assert.deepEqual(
+    PREVIEW_TARGET_CONFIG.app.githubVercelConfiguration.git.deploymentEnabled,
+    { "**": false, main: true, v2: true },
+  );
+  for (const target of ["governance", "reserve", "ui"]) {
+    assert.deepEqual(
+      PREVIEW_TARGET_CONFIG[target].githubVercelConfiguration.git
+        .deploymentEnabled,
+      { "**": false, main: true },
+    );
+  }
+  for (const target of PREVIEW_TARGETS) {
+    assert.deepEqual(
+      PREVIEW_TARGET_CONFIG[target].nativeVercelConfiguration.git
+        .deploymentEnabled,
+      { "dependabot/**": false },
+    );
+  }
+});
+
 test("initial rollout shadows three native owners while UI remains GitHub-only", () => {
   assert.deepEqual(
     PREVIEW_TARGETS.filter(

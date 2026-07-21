@@ -296,8 +296,49 @@ function digest(value, length = 64) {
     .slice(0, length);
 }
 
-function journalBody(value) {
-  const body = `${PREVIEW_JOURNAL_MARKER}\n\n${COMMENT_EXPLANATION}\n\n<details>\n<summary>${COMMENT_DETAILS_SUMMARY}</summary>\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\`\n\n</details>\n`;
+function reviewerOutcomeUrl(value, target, outcome) {
+  const targetState = value.state?.targets?.[target];
+  if (!targetState) return null;
+  if (["deployed", "runtime-equivalent"].includes(outcome)) {
+    return targetState.last_successful_runtime_url ?? null;
+  }
+  if (outcome === "pending") return targetState.active?.html_url ?? null;
+  if (!["failed", "error"].includes(outcome)) return null;
+  const terminal = [...targetState.terminal_history]
+    .reverse()
+    .find(
+      (candidate) =>
+        candidate.sha === targetState.latest_desired_sha &&
+        (outcome === "failed"
+          ? candidate.state === "failure" ||
+            (candidate.state === "error" &&
+              candidate.terminal_reason === "worker-cancelled")
+          : candidate.state === "error" &&
+            candidate.terminal_reason !== "worker-cancelled"),
+    );
+  return terminalResultUrl(terminal, null);
+}
+
+function reviewerOutcomeSummary(value) {
+  const latestDecision = value.state?.status_decisions?.at(-1) ?? null;
+  const rows = PREVIEW_TARGETS.map((target) => {
+    const outcome =
+      latestDecision?.targets?.[target] ?? "awaiting reconciliation";
+    const url = reviewerOutcomeUrl(value, target, outcome);
+    return `| \`${target}\` | \`${outcome}\`${url ? ` ([open](${url}))` : ""} |`;
+  });
+  return [
+    "**Preview outcomes**",
+    "",
+    "| Target | Outcome |",
+    "| --- | --- |",
+    ...rows,
+  ].join("\n");
+}
+
+export function renderPreviewJournalBody(value) {
+  const reviewerSummary = reviewerOutcomeSummary(value);
+  const body = `${PREVIEW_JOURNAL_MARKER}\n\n${COMMENT_EXPLANATION}\n\n${reviewerSummary}\n\n<details>\n<summary>${COMMENT_DETAILS_SUMMARY}</summary>\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\`\n\n</details>\n`;
   invariant(
     Buffer.byteLength(body, "utf8") <= MAX_JOURNAL_BYTES,
     "Preview journal comment is too large",
@@ -311,13 +352,20 @@ function parseJournalBody(body) {
     Buffer.byteLength(body, "utf8") <= MAX_JOURNAL_BYTES,
     "Preview journal comment is too large",
   );
-  const prefix = `${PREVIEW_JOURNAL_MARKER}\n\n${COMMENT_EXPLANATION}\n\n<details>\n<summary>${COMMENT_DETAILS_SUMMARY}</summary>\n\n\`\`\`json\n`;
+  const prefix = `${PREVIEW_JOURNAL_MARKER}\n\n${COMMENT_EXPLANATION}\n\n`;
+  const jsonPrefix = `\n\n<details>\n<summary>${COMMENT_DETAILS_SUMMARY}</summary>\n\n\`\`\`json\n`;
   const suffix = "\n```\n\n</details>\n";
+  const jsonPrefixIndex = body.indexOf(jsonPrefix, prefix.length);
   invariant(
-    body.startsWith(prefix) && body.endsWith(suffix),
+    body.startsWith(prefix) &&
+      jsonPrefixIndex > prefix.length &&
+      body.indexOf(jsonPrefix, jsonPrefixIndex + 1) === -1 &&
+      body.endsWith(suffix),
     "Preview journal JSON block is missing",
   );
-  return JSON.parse(body.slice(prefix.length, -suffix.length));
+  return JSON.parse(
+    body.slice(jsonPrefixIndex + jsonPrefix.length, -suffix.length),
+  );
 }
 
 function isTrustedGitHubActionsBot(actor) {
@@ -2982,7 +3030,7 @@ function validatePreviewJournal(value, expectedPr) {
         previewJournalDigest(receipts, journal.state, checkpoint),
     "Preview journal digest mismatch",
   );
-  journalBody(journal);
+  renderPreviewJournalBody(journal);
   return journal;
 }
 
@@ -3237,7 +3285,8 @@ export function compactPreviewJournal(value, { pullRequest = null } = {}) {
   );
   if (
     hasInFlightOwnership &&
-    Buffer.byteLength(journalBody(journal), "utf8") < ACTIVE_CHECKPOINT_BYTES
+    Buffer.byteLength(renderPreviewJournalBody(journal), "utf8") <
+      ACTIVE_CHECKPOINT_BYTES
   ) {
     return journal;
   }
@@ -3485,7 +3534,7 @@ function parsePreviewJournalComments(
   }
   const journal = validatePreviewJournal(parseJournalBody(matches[0].body), pr);
   invariant(
-    matches[0].body === journalBody(journal),
+    matches[0].body === renderPreviewJournalBody(journal),
     "Preview journal body is not canonical",
   );
   return journalRecords(journal, matches[0]);
@@ -3538,7 +3587,7 @@ async function mutatePreviewJournal({
   if (!changed && loaded) return { ...loaded, created: false };
   candidate.revision = loaded ? current.revision + 1 : 1;
   const journal = validatePreviewJournal(candidate, pr);
-  const body = journalBody(journal);
+  const body = renderPreviewJournalBody(journal);
   let data;
   if (loaded) {
     ({ data } = await github.rest.issues.updateComment({
@@ -4819,7 +4868,12 @@ async function refreshDispatchOwnership({
     normalized.headSha,
   );
   if (!githubPreviewDispatchAllowed(target, currentPreviewOwner)) {
-    return { outcome: "current-head-native" };
+    return {
+      outcome: "current-head-native",
+      currentPull: normalized,
+      currentPreviewOwner,
+      selectedPreviewOwner: null,
+    };
   }
   if (!(await shaIsStillAssociated(github, context, pull, selected.sha))) {
     return { outcome: "removed" };
@@ -4829,7 +4883,12 @@ async function refreshDispatchOwnership({
       ? currentPreviewOwner
       : await previewOwnerAtSha(github, context, target, selected.sha);
   if (!githubPreviewDispatchAllowed(target, selectedPreviewOwner)) {
-    return { outcome: "selected-native" };
+    return {
+      outcome: "selected-native",
+      currentPull: normalized,
+      currentPreviewOwner,
+      selectedPreviewOwner,
+    };
   }
   const comments = await loadPreviewJournal(github, context, pr);
   const ownershipCheck = reconcileState({
@@ -4854,7 +4913,24 @@ async function refreshDispatchOwnership({
       ownershipCheck.state.targets[target].active?.workflow_run_id === null,
     "Persisted dispatch ownership changed before credentials",
   );
-  return { outcome: "owned", ownershipCheck };
+  return {
+    outcome: "owned",
+    currentPull: normalized,
+    currentPreviewOwner,
+    selectedPreviewOwner,
+    ownershipCheck,
+  };
+}
+
+function refreshedSelectionIsNativeOwned(selection, refreshed) {
+  if (refreshed.outcome === "selected-native") {
+    return refreshed.selectedPreviewOwner === PREVIEW_OWNER_NATIVE;
+  }
+  return (
+    refreshed.outcome === "current-head-native" &&
+    refreshed.currentPreviewOwner === PREVIEW_OWNER_NATIVE &&
+    selection.sha === refreshed.currentPull.headSha
+  );
 }
 
 async function recoverCompletedOwnedRuns({
@@ -5313,10 +5389,7 @@ export async function reconcilePreview({
           )) {
             noDispatchSelectionKeys.add(keyDigest);
           }
-          if (
-            refreshed.outcome === "selected-native" ||
-            selection.sha === currentPull.headSha
-          ) {
+          if (refreshedSelectionIsNativeOwned(selection, refreshed)) {
             nativeSelectionKeys.add(selection.key_digest);
           }
         }
@@ -5394,11 +5467,12 @@ export async function reconcilePreview({
           const selectionKeys = new Set(
             undispatchedIntentKeyDigests(state, selection.target),
           );
-          const nativeSelectionKeys =
-            refreshed.outcome === "selected-native" ||
-            selection.sha === currentPull.headSha
-              ? new Set([selection.key_digest])
-              : new Set();
+          const nativeSelectionKeys = refreshedSelectionIsNativeOwned(
+            selection,
+            refreshed,
+          )
+            ? new Set([selection.key_digest])
+            : new Set();
           invariant(
             await reconcileNoDispatchIntents({
               github,

@@ -23,6 +23,7 @@ import {
   prepareBootstrap,
   recordEventReceipt,
   recordWorkerEvidence as recordWorkerEvidenceImplementation,
+  renderPreviewJournalBody,
   reconcilePreview as reconcilePreviewImplementation,
   reconcileState,
   recoverWorkerResult,
@@ -183,20 +184,28 @@ function eventRecordInputs(receipt) {
   };
 }
 
-function persistDispatch(reconciled, runId = 8_000) {
-  assert.ok(reconciled.nextDispatch, "fixture must have a dispatch");
+function targetDispatch(reconciled, target) {
+  const dispatch = reconciled.nextDispatches.find(
+    (candidate) => candidate.target === target,
+  );
+  assert.ok(dispatch, `fixture must have a ${target} dispatch`);
+  return dispatch;
+}
+
+function persistTargetDispatch(reconciled, target, runId = 8_000) {
+  const dispatch = targetDispatch(reconciled, target);
   return {
     ...structuredClone(reconciled.state),
     targets: {
       ...structuredClone(reconciled.state.targets),
-      ui: {
-        ...structuredClone(reconciled.state.targets.ui),
+      [target]: {
+        ...structuredClone(reconciled.state.targets[target]),
         active: {
-          ...structuredClone(reconciled.nextDispatch),
+          ...structuredClone(dispatch),
           dispatch_started_at: timestamp(0),
           dispatch_state: "dispatched",
           workflow_run_id: runId,
-          workflow_sha: reconciled.nextDispatch.expected_workflow_sha,
+          workflow_sha: dispatch.expected_workflow_sha,
           workflow_run_attempt: 1,
           run_url: `https://api.github.com/repos/mento-protocol/frontend-monorepo/actions/runs/${runId}`,
           html_url: `https://github.com/mento-protocol/frontend-monorepo/actions/runs/${runId}`,
@@ -206,16 +215,20 @@ function persistDispatch(reconciled, runId = 8_000) {
   };
 }
 
-function persistIntent(reconciled) {
-  assert.ok(reconciled.nextDispatch, "fixture must have a dispatch");
+function persistDispatch(reconciled, runId = 8_000) {
+  return persistTargetDispatch(reconciled, "ui", runId);
+}
+
+function persistTargetIntent(reconciled, target) {
+  const dispatch = targetDispatch(reconciled, target);
   return {
     ...structuredClone(reconciled.state),
     targets: {
       ...structuredClone(reconciled.state.targets),
-      ui: {
-        ...structuredClone(reconciled.state.targets.ui),
+      [target]: {
+        ...structuredClone(reconciled.state.targets[target]),
         active: {
-          ...structuredClone(reconciled.nextDispatch),
+          ...structuredClone(dispatch),
           dispatch_started_at: timestamp(0),
           dispatch_state: "intended",
           workflow_run_id: null,
@@ -227,6 +240,10 @@ function persistIntent(reconciled) {
       },
     },
   };
+}
+
+function persistIntent(reconciled) {
+  return persistTargetIntent(reconciled, "ui");
 }
 
 function persistAllIntents(reconciled) {
@@ -934,6 +951,87 @@ test("docs-only states never dispatch and reuse the last verified runtime", () =
   assert.equal(cancelledDocsStatus.state, "failure");
   assert.equal(cancelledDocsStatus.targets.ui, "failed");
 });
+
+for (const [targetIndex, target] of PREVIEW_TARGETS.entries()) {
+  test(`${target} carries its verified runtime through a docs-only head without touching peers`, () => {
+    const runtime = event({
+      run: 50 + targetIndex * 2,
+      action: "opened",
+      head: SHA.A,
+      targets: [target],
+      updated: timestamp(1),
+    });
+    const runtimePull = pull({ head: SHA.A, updated: timestamp(1) });
+    const selected = reconcile({ events: [runtime], pullRequest: runtimePull });
+    const dispatch = targetDispatch(selected, target);
+    const workerRunId = 8_050 + targetIndex;
+    const active = persistTargetDispatch(selected, target, workerRunId);
+    const terminal = result(dispatch, { runId: workerRunId });
+    const settled = reconcile({
+      events: [runtime],
+      results: [terminal],
+      pullRequest: runtimePull,
+      existingState: active,
+    });
+    const immutableUrl = `https://${target}-${workerRunId}.vercel.app`;
+    assert.equal(settled.nextDispatches.length, 0);
+    assert.equal(settled.state.targets[target].first_eligible_sha, SHA.A);
+    assert.equal(settled.state.targets[target].latest_desired_sha, SHA.A);
+    assert.equal(
+      settled.state.targets[target].last_successful_runtime_url,
+      immutableUrl,
+    );
+
+    const docs = event({
+      run: 51 + targetIndex * 2,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      runtime: false,
+      updated: timestamp(2),
+    });
+    const carried = reconcile({
+      events: [runtime, docs],
+      results: [terminal],
+      pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
+      existingState: settled.state,
+    });
+
+    assert.equal(carried.nextDispatches.length, 0);
+    assert.equal(carried.state.targets[target].first_eligible_sha, SHA.A);
+    assert.equal(carried.state.targets[target].latest_desired_sha, SHA.A);
+    assert.equal(
+      carried.state.targets[target].last_successful_runtime_sha,
+      SHA.A,
+    );
+    assert.equal(
+      carried.state.targets[target].last_successful_runtime_url,
+      immutableUrl,
+    );
+    const docsStatus = carried.state.status_decisions.at(-1);
+    assert.equal(docsStatus.sha, SHA.B);
+    assert.equal(docsStatus.state, "success");
+    assert.equal(docsStatus.targets[target], "runtime-equivalent");
+    assert.equal(docsStatus.target_url, immutableUrl);
+    for (const otherTarget of PREVIEW_TARGETS.filter(
+      (candidate) => candidate !== target,
+    )) {
+      assert.deepEqual(carried.state.targets[otherTarget], {
+        first_eligible_sha: null,
+        latest_desired_sha: null,
+        latest_desired_receipt_run_id: null,
+        idle_cursor_receipt_run_id: null,
+        active: null,
+        retired_active: [],
+        last_successful_runtime_sha: null,
+        last_successful_runtime_url: null,
+        terminal_result_key_digests: [],
+        terminal_history: [],
+      });
+      assert.equal(docsStatus.targets[otherTarget], "not affected");
+    }
+  });
+}
 
 test("coalescing needs an immutable later selection receipt", () => {
   const events = [
@@ -2636,15 +2734,8 @@ test("closed checkpoints retain matching closure across late events and reopen",
   assert.equal(reopenedState.nextDispatch, null);
 });
 
-const expectedCommentExplanation = [
-  "**No reviewer action is required.**",
-  "This repository builds pull request previews in GitHub Actions and deploys them to Vercel.",
-  "This record lets the preview automation handle overlapping pushes and recover safely from retries.",
-  "[How previews work](https://github.com/mento-protocol/frontend-monorepo/blob/main/docs/vercel-deployments.md#event-status-and-batching-contract).",
-].join(" ");
-
 function previewJournalBody(value) {
-  return `${PREVIEW_JOURNAL_MARKER}\n\n${expectedCommentExplanation}\n\n<details>\n<summary>Show machine-readable preview automation record</summary>\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\`\n\n</details>\n`;
+  return renderPreviewJournalBody(value);
 }
 
 function journalFromComment(comment) {
@@ -3374,6 +3465,71 @@ function nativeUiAggregateStatus(sha, runId) {
     },
   };
 }
+
+test("journal comment visibly summarizes all target outcomes in canonical order", async () => {
+  const opened = event({
+    run: 118,
+    action: "opened",
+    head: SHA.A,
+    targets: ["ui"],
+    updated: timestamp(1),
+  });
+  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+  const selected = reconcile({ events: [opened], pullRequest });
+  const active = persistTargetDispatch(selected, "ui");
+  const selection = selectionReceiptFromDispatch(active.targets.ui.active);
+  const success = result(targetDispatch(selected, "ui"));
+  const settled = reconcile({
+    events: [opened],
+    results: [success],
+    selections: [selection],
+    pullRequest,
+    existingState: active,
+  });
+  const body = previewJournalBody(
+    createPreviewJournal({
+      pr: 519,
+      events: [opened],
+      selections: [selection],
+      results: [success],
+      state: settled.state,
+    }),
+  );
+  const expectedRows = [
+    "| `app` | `not affected` |",
+    "| `governance` | `not affected` |",
+    "| `reserve` | `not affected` |",
+    "| `ui` | `deployed` ([open](https://ui-8000.vercel.app)) |",
+  ];
+  let previousIndex = body.indexOf("**Preview outcomes**");
+  for (const row of expectedRows) {
+    const index = body.indexOf(row);
+    assert.ok(index > previousIndex, `${row} must follow the prior target row`);
+    previousIndex = index;
+  }
+  assert.ok(body.indexOf("<details>") > previousIndex);
+
+  const tampered = body.replace("| `ui` | `deployed`", "| `ui` | `error`");
+  const fixture = fakeGitHub({
+    pullRequest,
+    comments: [
+      {
+        id: 1,
+        user: { type: "Bot", login: "github-actions[bot]" },
+        body: tampered,
+      },
+    ],
+  });
+  await assert.rejects(
+    reconcilePreview({
+      github: fixture.github,
+      context: fakeContext(),
+      core: fakeCore(),
+      prNumber: 519,
+    }),
+    /Preview journal body is not canonical/,
+  );
+});
 
 async function assertSettledReplayIsIdempotent({
   events,
@@ -6030,6 +6186,54 @@ test("a GitHub-owned receipt followed by a native-owned head never dispatches th
   );
 });
 
+test("a refreshed native B head cannot relabel the stale A selection as native-owned", async () => {
+  const opened = event({
+    run: 121,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const headA = pull({ head: SHA.A, updated: timestamp(1) });
+  const headB = pull({ head: SHA.B, updated: timestamp(2) });
+  const fixture = fakeGitHub({
+    pullRequest: headA,
+    pullRequests: [headA, headB],
+    pullCommits: [SHA.A, SHA.B],
+    comments: [journalComment({ events: [opened] })],
+    uiVercelConfigurationsByRef: new Map([
+      [SHA.A, GITHUB_OWNED_UI_VERCEL_CONFIGURATION],
+      [SHA.B, NATIVE_OWNED_UI_VERCEL_CONFIGURATION],
+    ]),
+  });
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext(),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  const staleResult = journalFromComment(fixture.comments[0])
+    .receipts.results.filter(
+      (entry) => entry.target === "ui" && entry.sha === SHA.A,
+    )
+    .at(-1);
+  assert.equal(
+    staleResult.terminal_reason,
+    "dispatch-disabled-intent-without-worker",
+  );
+  assert.equal(state.targets.ui.active, null);
+  assert.equal(state.status_decisions.at(-1).targets.ui, "error");
+  assert.ok(
+    fixture.contentRequests.some(
+      ({ path, ref }) => path === UI_VERCEL_CONFIGURATION_PATH && ref === SHA.B,
+    ),
+  );
+});
+
 test("active controller defers an exact native-config rollback head without a dispatch credential", async () => {
   const opened = event({
     run: 121,
@@ -7926,83 +8130,176 @@ test("a force-pushed-away active selection is aborted before credentials and new
   );
 });
 
-test("cancelled worker before Deployment creation gets one canonical error Deployment and result receipt", async () => {
-  const opened = event({
-    run: 123,
-    action: "opened",
-    head: SHA.A,
-    updated: timestamp(1),
-  });
-  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
-  const selected = reconcile({ events: [opened], pullRequest });
-  const dispatched = persistDispatch(selected, 8_000);
-  const completed = workerRun(selected.nextDispatch, {
-    status: "completed",
-    conclusion: "cancelled",
-  });
-  const fixture = fakeGitHub({
-    pullRequest,
-    comments: [journalWithState([opened], dispatched)],
-    runs: [completed],
-  });
-  const result = await recoverWorkerResult({
-    github: fixture.github,
-    context: fakeContext({ workflowRun: completed }),
-    core: fakeCore(),
-  });
-  assert.equal(result.state, "error");
-  assert.equal(result.terminal_reason, "worker-cancelled");
-  assert.equal(fixture.deployments.length, 1);
-  assert.equal(fixture.deployments[0].ref, SHA.A);
-  assert.equal(fixture.deployments[0].environment, "preview/ui/pr-519");
-  assert.equal(fixture.createdDeploymentStatuses.length, 1);
-  assert.equal(fixture.createdDeploymentStatuses[0].state, "error");
-  assert.equal(fixture.comments.length, 1);
-  assert.equal(
-    journalFromComment(fixture.comments[0]).receipts.results.length,
-    1,
-  );
-});
+for (const target of PREVIEW_TARGETS) {
+  test(`${target} cancellation before Deployment creation binds the exact target tuple`, async () => {
+    const opened = event({
+      run: 123,
+      action: "opened",
+      head: SHA.A,
+      targets: [target],
+      updated: timestamp(1),
+    });
+    const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+    const selected = reconcile({ events: [opened], pullRequest });
+    const dispatch = targetDispatch(selected, target);
+    const dispatched = persistTargetDispatch(selected, target, 8_000);
+    const completed = workerRun(dispatch, {
+      status: "completed",
+      conclusion: "cancelled",
+    });
+    const fixture = fakeGitHub({
+      pullRequest,
+      comments: [journalWithState([opened], dispatched)],
+      runs: [completed],
+    });
+    const recovered = await recoverWorkerResult({
+      github: fixture.github,
+      context: fakeContext({ workflowRun: completed }),
+      core: fakeCore(),
+    });
 
-test("completed callback durably binds an intended dispatch after a controller crash", async () => {
-  const opened = event({
-    run: 123,
-    action: "opened",
-    head: SHA.A,
-    updated: timestamp(1),
+    assert.deepEqual(
+      {
+        pr: recovered.pr,
+        target: recovered.target,
+        sha: recovered.sha,
+        key: recovered.controller_key,
+        keyDigest: recovered.key_digest,
+        state: recovered.state,
+        terminalReason: recovered.terminal_reason,
+      },
+      {
+        pr: 519,
+        target,
+        sha: SHA.A,
+        key: dispatch.key,
+        keyDigest: dispatch.key_digest,
+        state: "error",
+        terminalReason: "worker-cancelled",
+      },
+    );
+    assert.equal(fixture.deployments.length, 1);
+    assert.deepEqual(
+      {
+        ref: fixture.deployments[0].ref,
+        environment: fixture.deployments[0].environment,
+        schema: fixture.deployments[0].payload.controller_schema,
+        provenance: fixture.deployments[0].payload.provenance,
+        key: fixture.deployments[0].payload.idempotency_key,
+        target: fixture.deployments[0].payload.logical_target,
+        sha: fixture.deployments[0].payload.sha,
+      },
+      {
+        ref: SHA.A,
+        environment: `preview/${target}/pr-519`,
+        schema: "mento-vercel-prebuilt/v2",
+        provenance: "preview-controller:v2",
+        key: dispatch.key,
+        target,
+        sha: SHA.A,
+      },
+    );
+    assert.deepEqual(
+      fixture.createdDeploymentStatuses.map(({ state }) => state),
+      ["error"],
+    );
+    const journal = journalFromComment(fixture.comments[0]);
+    assert.deepEqual(
+      journal.receipts.results.map((entry) => entry.target),
+      [target],
+    );
+    for (const otherTarget of PREVIEW_TARGETS.filter(
+      (candidate) => candidate !== target,
+    )) {
+      assert.equal(journal.state.targets[otherTarget].active, null);
+      assert.deepEqual(journal.state.targets[otherTarget].terminal_history, []);
+    }
   });
-  const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
-  const selected = reconcile({ events: [opened], pullRequest });
-  const intended = persistIntent(selected);
-  const completed = workerRun(selected.nextDispatch, {
-    status: "completed",
-    conclusion: "cancelled",
+
+  test(`${target} completed callback recovers an orphaned intent without cross-target mutation`, async () => {
+    const opened = event({
+      run: 124,
+      action: "opened",
+      head: SHA.A,
+      targets: [target],
+      updated: timestamp(1),
+    });
+    const pullRequest = pull({ head: SHA.A, updated: timestamp(1) });
+    const selected = reconcile({ events: [opened], pullRequest });
+    const dispatch = targetDispatch(selected, target);
+    const intended = persistTargetIntent(selected, target);
+    const completed = workerRun(dispatch, {
+      status: "completed",
+      conclusion: "cancelled",
+    });
+    const fixture = fakeGitHub({
+      pullRequest,
+      comments: [journalWithState([opened], intended)],
+      runs: [completed],
+      workflowRunDisplayTitles: ["Vercel Preview Worker"],
+    });
+    const core = fakeCore();
+    const waits = [];
+    const outcome = await recoverWorkerResult({
+      github: fixture.github,
+      context: fakeContext({ workflowRun: completed }),
+      core,
+      waitForRecovery: async (milliseconds) => waits.push(milliseconds),
+    });
+    assert.equal(outcome.target, target);
+    assert.equal(outcome.controller_key, dispatch.key);
+    assert.equal(outcome.key_digest, dispatch.key_digest);
+    assert.equal(outcome.terminal_reason, "worker-cancelled");
+    assert.equal(core.outputs.get("recovered_intended_run_id"), "8000");
+    assert.deepEqual(waits, [1_000]);
+    assert.deepEqual(fixture.workflowRunRequests, [8_000, 8_000]);
+    const attachedJournal = journalFromComment(fixture.comments[0]);
+    assert.equal(
+      attachedJournal.state.targets[target].active.workflow_run_id,
+      8_000,
+    );
+    assert.equal(
+      attachedJournal.state.targets[target].active.workflow_sha,
+      SHA.E,
+    );
+
+    const reconciled = await reconcilePreview({
+      github: fixture.github,
+      context: fakeContext({ runId: 7_001 }),
+      core: fakeCore(),
+      prNumber: 519,
+      waitForRecovery: async () => {},
+    });
+    assert.equal(reconciled.targets[target].active, null);
+    assert.equal(
+      reconciled.targets[target].terminal_history.at(-1).terminal_reason,
+      "worker-cancelled",
+    );
+    const expectedOutcomes = Object.fromEntries(
+      PREVIEW_TARGETS.map((candidate) => [
+        candidate,
+        candidate === target ? "failed" : "not affected",
+      ]),
+    );
+    assert.deepEqual(
+      reconciled.status_decisions.at(-1).targets,
+      expectedOutcomes,
+    );
+    assert.equal(fixture.commitStatuses.at(-1).sha, SHA.A);
+    assert.equal(fixture.commitStatuses.at(-1).state, "failure");
+    assert.equal(
+      fixture.commitStatuses.at(-1).target_url,
+      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/8000",
+    );
+    for (const otherTarget of PREVIEW_TARGETS.filter(
+      (candidate) => candidate !== target,
+    )) {
+      assert.equal(reconciled.targets[otherTarget].active, null);
+      assert.deepEqual(reconciled.targets[otherTarget].terminal_history, []);
+      assert.equal(reconciled.targets[otherTarget].latest_desired_sha, null);
+    }
   });
-  const fixture = fakeGitHub({
-    pullRequest,
-    comments: [journalWithState([opened], intended)],
-    runs: [completed],
-    workflowRunDisplayTitles: ["Vercel Preview Worker"],
-  });
-  const core = fakeCore();
-  const waits = [];
-  const outcome = await recoverWorkerResult({
-    github: fixture.github,
-    context: fakeContext({ workflowRun: completed }),
-    core,
-    waitForRecovery: async (milliseconds) => waits.push(milliseconds),
-  });
-  assert.equal(outcome.terminal_reason, "worker-cancelled");
-  assert.equal(core.outputs.get("recovered_intended_run_id"), "8000");
-  assert.deepEqual(waits, [1_000]);
-  assert.deepEqual(fixture.workflowRunRequests, [8_000, 8_000]);
-  const controllerState = fixture.comments.find(({ body }) =>
-    body.startsWith(PREVIEW_JOURNAL_MARKER),
-  );
-  assert.match(controllerState.body, /"dispatch_state": "dispatched"/);
-  assert.match(controllerState.body, /"workflow_run_id": 8000/);
-  assert.match(controllerState.body, new RegExp(`"workflow_sha": "${SHA.E}"`));
-});
+}
 
 test("completed intended callback fails closed unless its run is the unique recoverable owner", async () => {
   const opened = event({
