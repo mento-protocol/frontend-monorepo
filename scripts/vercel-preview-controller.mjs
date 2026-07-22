@@ -2706,6 +2706,15 @@ function targetStatusDecision({
         target_url: terminalResultUrl(priorResult, controllerUrl),
       };
     }
+    const priorCoalescedTo = coalescedToByRun.get(priorRuntime.event_run_id);
+    if (priorCoalescedTo) {
+      return {
+        state: "success",
+        outcome: "coalesced",
+        description: `${target}: coalesced to ${priorCoalescedTo.head_sha.slice(0, 7)}`,
+        target_url: controllerUrl,
+      };
+    }
     return {
       state: "pending",
       outcome: "pending",
