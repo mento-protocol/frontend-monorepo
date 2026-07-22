@@ -53,10 +53,6 @@ function isSameAddress(addressA: string, addressB: string): boolean {
   return addressA.toLowerCase() === addressB.toLowerCase();
 }
 
-function isAllowanceError(message: string): boolean {
-  return /allowance|insufficient allowance|exceeds allowance/i.test(message);
-}
-
 async function validateZapRouteLiquidity({
   publicClient,
   routerAddress,
@@ -202,6 +198,16 @@ export function useZapInTransaction(pool: PoolDisplay, chainId?: ChainId) {
           options: { slippageTolerance: slippage, deadline },
         });
 
+        // A zap that still needs approval cannot be simulated successfully:
+        // the router's transferFrom runs before the approval transaction has
+        // granted allowance. Preserve the build so callers can send approval,
+        // then use their existing fresh build to run this estimate fail-closed.
+        if (result.approval) {
+          setBuildResult(result);
+          setBuildError(null);
+          return result;
+        }
+
         try {
           await publicClient.estimateGas({
             account: recipient,
@@ -214,19 +220,6 @@ export function useZapInTransaction(pool: PoolDisplay, chainId?: ChainId) {
             estimateErr instanceof Error
               ? estimateErr.message
               : String(estimateErr);
-
-          // Pre-approval simulations legitimately fail with allowance errors
-          // because the wallet hasn't granted the allowance yet. That doesn't
-          // mean the zap is invalid — let the build through so the approval
-          // step can run; a fresh preflight after approval will catch any
-          // real issues. All other failures (bad route, ratio shift, etc.)
-          // still gate the build to avoid prompting an approval for a zap
-          // we already know will revert.
-          if (result.approval && isAllowanceError(estimateMessage)) {
-            setBuildResult(result);
-            setBuildError(null);
-            return result;
-          }
 
           let parsedError = getZapInBuildError(estimateMessage);
 
