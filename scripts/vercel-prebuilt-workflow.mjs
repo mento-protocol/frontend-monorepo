@@ -48,6 +48,10 @@ import {
   selectVercelPulledEnvironment,
   serializeVercelPulledEnvironment,
 } from "./vercel-build-environment.mjs";
+import {
+  sharpRuntimePlatform,
+  SHARP_RUNTIME_VERSION,
+} from "./next-sharp-output-tracing.mjs";
 import { PREVIEW_TARGET_CONFIG } from "./vercel-preview-targets.mjs";
 
 export const PREBUILT_TARGETS = Object.freeze(
@@ -78,6 +82,8 @@ const VERCEL_DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
 const MAX_PREBUILT_CONFIG_BYTES = 1024 * 1024;
 const MAX_PREBUILT_FILE_BYTES = 250 * 1024 * 1024;
 const MAX_PREBUILT_TOTAL_BYTES = 1024 * 1024 * 1024;
+const LIBVIPS_SHARED_LIBRARY_PATTERN =
+  /^libvips-cpp(?:\.[0-9.]+)?\.(?:dylib|so)(?:\.[0-9.]+)?$/;
 const VERCEL_CLI_BASE_ENVIRONMENT = [
   "CI",
   "FORCE_COLOR",
@@ -2925,6 +2931,104 @@ export function assertPulledProject({
   return project;
 }
 
+export function assertSharpPrebuiltArtifacts(
+  outputDirectory,
+  { runtimePlatform = sharpRuntimePlatform() } = {},
+) {
+  const functionsDirectory = join(outputDirectory, "functions");
+  const pending = [];
+  const artifactsByFunction = new Map();
+  const validatedFunctions = new Set();
+
+  try {
+    const functionsEntry = lstatSync(functionsDirectory);
+    if (!functionsEntry.isSymbolicLink() && functionsEntry.isDirectory()) {
+      pending.push(functionsDirectory);
+    }
+  } catch {
+    // A static-only or malformed output cannot satisfy the Sharp runtime guard.
+  }
+
+  while (pending.length > 0) {
+    const path = pending.pop();
+    const entry = lstatSync(path);
+    if (entry.isSymbolicLink()) continue;
+    if (entry.isDirectory()) {
+      for (const child of readdirSync(path)) {
+        pending.push(join(path, child));
+      }
+      continue;
+    }
+    if (!entry.isFile()) continue;
+
+    const sourceParts = relative(outputDirectory, path).split(sep);
+    const functionDirectory = findPhysicalFunctionDirectory(
+      outputDirectory,
+      sourceParts,
+    );
+    if (functionDirectory === undefined) continue;
+    if (!validatedFunctions.has(functionDirectory)) {
+      const configPath = join(functionDirectory, ".vc-config.json");
+      assertStandaloneVercelConfig(configPath, lstatSync(configPath));
+      validatedFunctions.add(functionDirectory);
+    }
+
+    let artifacts = artifactsByFunction.get(functionDirectory);
+    if (!artifacts) {
+      artifacts = {
+        nativeAddon: undefined,
+        sharedLibraries: [],
+        versionsManifests: [],
+      };
+      artifactsByFunction.set(functionDirectory, artifacts);
+    }
+
+    if (
+      basename(path) ===
+      `sharp-${runtimePlatform}-${SHARP_RUNTIME_VERSION}.node`
+    ) {
+      artifacts.nativeAddon = path;
+    }
+    if (LIBVIPS_SHARED_LIBRARY_PATTERN.test(basename(path))) {
+      artifacts.sharedLibraries.push(path);
+    }
+    if (basename(path) === "versions.json" && path.includes("sharp-libvips-")) {
+      try {
+        if (JSON.parse(readFileSync(path, "utf8")).vips === "8.18.3") {
+          artifacts.versionsManifests.push(path);
+        }
+      } catch {
+        // The exact artifact checks below fail closed.
+      }
+    }
+  }
+
+  for (const artifacts of artifactsByFunction.values()) {
+    if (!artifacts.nativeAddon) continue;
+    if (runtimePlatform.startsWith("win32-")) {
+      return { nativeAddon: artifacts.nativeAddon };
+    }
+    const packageSegment = `sharp-libvips-${runtimePlatform}`;
+    const sharedLibrary = artifacts.sharedLibraries.find((path) =>
+      path.includes(packageSegment),
+    );
+    const versionsManifest = artifacts.versionsManifests.find((path) =>
+      path.includes(packageSegment),
+    );
+    if (sharedLibrary && versionsManifest) {
+      return {
+        nativeAddon: artifacts.nativeAddon,
+        sharedLibrary,
+        versionsManifest,
+      };
+    }
+  }
+
+  throw new Error(
+    `Prebuilt output is missing sharp ${SHARP_RUNTIME_VERSION}'s ${runtimePlatform} native addon or its matching libvips 8.18.3 runtime`,
+  );
+}
+
 export function assertPrebuiltOutput({
   repoRoot,
   expectedRootDirectory,
@@ -2940,6 +3044,7 @@ export function assertPrebuiltOutput({
   );
   const configPath = join(outputDirectory, "config.json");
   assertSafeOutputTree(outputDirectory, { expectedUid, expectedGid });
+  assertSharpPrebuiltArtifacts(outputDirectory);
   const configEntry = lstatSync(configPath);
   if (configEntry.isSymbolicLink() || !configEntry.isFile()) {
     throw new Error("Prebuilt output config is not a regular file");

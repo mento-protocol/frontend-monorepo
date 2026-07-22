@@ -28,7 +28,7 @@ copy a second ownership table into executable code.
 - Vercel CLI: exactly `56.2.0` in the root `devDependencies`. The project owner
   approved the dependency as part of delivering the epic. The stable npm version
   was re-queried on 2026-07-14 before it was pinned.
-- Resolved Next.js: `16.2.10` in `pnpm-lock.yaml`.
+- Resolved Next.js: `16.2.11` in `pnpm-lock.yaml`.
 
 Both exceed Vercel's custom deployment-ID prerequisites: Next.js newer than
 `16.2.0-canary.15` and Vercel CLI newer than `50.3.3`. Verify this invariant
@@ -39,6 +39,31 @@ pnpm vercel:versions:check
 ```
 
 Do not replace the pinned CLI with `npx vercel@latest` in automation.
+
+## Temporary sharp 0.35 output-tracing guard
+
+The root conditional override forces vulnerable `sharp >=0.34.0 <0.35.0`
+consumers to `0.35.3`, which includes libvips 8.18.3. Stable Next.js 16.2.11
+does not yet recognize sharp 0.35's versioned native-addon filename during
+Turbopack output tracing. A build can otherwise succeed while omitting the
+native addon or matching libvips shared library from the deployed function.
+
+All four Next configs call `sharpOutputFileTracingConfig` from
+`scripts/next-sharp-output-tracing.mjs`. It adds only the build host's exact
+platform and architecture packages to `outputFileTracingIncludes`; it must not
+fall back to another optional platform package that happens to exist in the
+pnpm store. Each app's `postbuild` lifecycle then runs
+`scripts/assert-next-sharp-trace.mjs` and fails unless one output trace contains
+the exact sharp 0.35.3 manifest, host-native versioned addon, libvips shared
+library, and libvips 8.18.3 manifest.
+
+The trusted prebuilt workflow independently scans the final
+`.vercel/output` tree before upload. It rejects an output that lacks the exact
+Linux runtime pair, even if the earlier Next build succeeded. Keep both checks
+until [issue #587](https://github.com/mento-protocol/frontend-monorepo/issues/587)
+verifies that a stable Next.js release contains the upstream tracing and image
+optimizer fixes. Do not replace this with a canary Next.js release or a patched
+compiled `@next/swc-*` binary.
 
 ## Affected-deployment planner
 
