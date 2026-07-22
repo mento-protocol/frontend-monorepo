@@ -11,6 +11,9 @@ import {
   BUILD_VARIABLE_CLASSIFICATIONS,
   getVercelBuildRequirements,
   loadVercelPulledEnvironment,
+  parseVercelPulledEnvironment,
+  selectVercelPulledEnvironment,
+  serializeVercelPulledEnvironment,
   validateVercelBuildCredentialBoundary,
   validateVercelBuildEnvironment,
 } from "./vercel-build-environment.mjs";
@@ -180,6 +183,7 @@ test("Vercel-pulled files are loaded before explicit workflow values", () => {
       [
         "NEXT_PUBLIC_STORAGE_URL=https://pulled.example",
         "NEXT_PUBLIC_WALLET_CONNECT_ID=pulled-wallet",
+        "NEXT_PUBLIC_SENTRY_DSN_SWAP=",
         "VERCEL_ENV=pulled-wrong-value",
       ].join("\n"),
     );
@@ -193,12 +197,133 @@ test("Vercel-pulled files are loaded before explicit workflow values", () => {
       {
         NEXT_PUBLIC_STORAGE_URL: "https://pulled.example",
         NEXT_PUBLIC_WALLET_CONNECT_ID: "pulled-wallet",
+        NEXT_PUBLIC_SENTRY_DSN_SWAP: "",
         VERCEL_ENV: "preview",
       },
     );
   } finally {
     rmSync(directory, { force: true, recursive: true });
   }
+});
+
+test("materialization selects only declared vercel-pull values", () => {
+  const sensitiveSentinel = "sensitive-sentinel-must-not-cross";
+  const unknownSentinel = "unknown-sentinel-must-not-cross";
+  const selected = selectVercelPulledEnvironment({
+    target: "app",
+    environment: "preview",
+    pulledValues: {
+      NEXT_PUBLIC_STORAGE_URL: "https://storage.example/path?a=1#section",
+      NEXT_PUBLIC_WALLET_CONNECT_ID: "wallet id with spaces",
+      NEXT_PUBLIC_SENTRY_DSN_SWAP: "",
+      SENTRY_AUTH_TOKEN: sensitiveSentinel,
+      ETHERSCAN_API_KEY: sensitiveSentinel,
+      UNKNOWN_VARIABLE: unknownSentinel,
+    },
+  });
+  assert.deepEqual(selected, {
+    NEXT_PUBLIC_STORAGE_URL: "https://storage.example/path?a=1#section",
+    NEXT_PUBLIC_WALLET_CONNECT_ID: "wallet id with spaces",
+    NEXT_PUBLIC_SENTRY_DSN_SWAP: "",
+  });
+  const serialized = serializeVercelPulledEnvironment(selected);
+  assert.deepEqual(parseVercelPulledEnvironment(serialized), selected);
+  assert.doesNotMatch(serialized, new RegExp(sensitiveSentinel));
+  assert.doesNotMatch(serialized, new RegExp(unknownSentinel));
+});
+
+test("canonical materialization round-trips special characters or rejects safely by name", () => {
+  const values = {
+    BACKSLASH: String.raw`path\\with\\backslashes`,
+    DOUBLE_QUOTE: 'value with "double quotes" and # fragment',
+    EQUALS: "a=b=c",
+    SINGLE_QUOTE: "value with 'single quote' and spaces",
+  };
+  const serialized = serializeVercelPulledEnvironment(values);
+  assert.deepEqual(parseVercelPulledEnvironment(serialized), values);
+  assert.equal(serialized, serializeVercelPulledEnvironment({ ...values }));
+
+  for (const [name, value] of [
+    ["CONTROL_VALUE", "line one\nline two"],
+    ["ALL_DELIMITERS", "contains ' and \" and `"],
+    ["DOUBLE_QUOTED_ESCAPE", "contains ' and ` and \\n"],
+  ]) {
+    assert.throws(
+      () => serializeVercelPulledEnvironment({ [name]: value }),
+      (error) => {
+        assert.match(error.message, new RegExp(name));
+        assert.doesNotMatch(
+          error.message,
+          new RegExp(value.replaceAll("\\", "\\\\")),
+        );
+        return true;
+      },
+    );
+  }
+  assert.throws(
+    () => serializeVercelPulledEnvironment({ "BAD\nNAME": "sentinel" }),
+    (error) => {
+      assert.match(error.message, /name is invalid/);
+      assert.doesNotMatch(error.message, /BAD|sentinel/);
+      return true;
+    },
+  );
+});
+
+test("selection rejects missing, empty, oversized, and controlled required values by name only", () => {
+  const base = {
+    NEXT_PUBLIC_STORAGE_URL: "https://storage.example",
+    NEXT_PUBLIC_WALLET_CONNECT_ID: "wallet-id",
+    NEXT_PUBLIC_SENTRY_DSN_SWAP: "",
+  };
+  for (const [name, value] of [
+    ["NEXT_PUBLIC_STORAGE_URL", undefined],
+    ["NEXT_PUBLIC_STORAGE_URL", ""],
+    ["NEXT_PUBLIC_STORAGE_URL", "x".repeat(32 * 1_024 + 1)],
+    ["NEXT_PUBLIC_STORAGE_URL", "https://storage.example\u0000sentinel"],
+  ]) {
+    const pulledValues = { ...base };
+    if (value === undefined) delete pulledValues[name];
+    else pulledValues[name] = value;
+    assert.throws(
+      () =>
+        selectVercelPulledEnvironment({
+          target: "app",
+          environment: "preview",
+          pulledValues,
+        }),
+      (error) => {
+        assert.match(error.message, new RegExp(name));
+        if (typeof value === "string" && value.length > 0) {
+          assert.doesNotMatch(error.message, /storage\.example|xxxx/);
+        }
+        return true;
+      },
+    );
+  }
+});
+
+test("governance materialization omits pulled sensitive variables", () => {
+  const requirements = getVercelBuildRequirements(
+    "governance",
+    "preview",
+  ).filter((item) => item.ciClassification === "vercel-pull");
+  const pulledValues = Object.fromEntries(
+    requirements.map((item) => [
+      item.name,
+      item.allowEmpty ? "" : `${item.name}-value`,
+    ]),
+  );
+  pulledValues.ETHERSCAN_API_KEY = "pulled-explorer-secret";
+  pulledValues.SENTRY_AUTH_TOKEN = "pulled-sentry-secret";
+  const selected = selectVercelPulledEnvironment({
+    target: "governance",
+    environment: "preview",
+    pulledValues,
+  });
+  assert.equal(Object.hasOwn(selected, "ETHERSCAN_API_KEY"), false);
+  assert.equal(Object.hasOwn(selected, "SENTRY_AUTH_TOKEN"), false);
+  assert.equal(Object.keys(selected).length, requirements.length);
 });
 
 test("missing Vercel-pulled files fail closed without exposing values", () => {

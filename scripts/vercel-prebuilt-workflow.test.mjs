@@ -25,10 +25,16 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  getVercelBuildRequirements,
+  parseVercelPulledEnvironment,
+  serializeVercelPulledEnvironment,
+} from "./vercel-build-environment.mjs";
+import {
   assertPrebuiltOutput,
   assertPrebuiltReadyForUpload,
   assertPulledProject,
   assertSafeVercelArguments,
+  assertMaterializedVercelBuildEnvironment,
   assertVercelPullStaging,
   assertVercelInspection,
   buildVercelBuildArguments,
@@ -39,6 +45,7 @@ import {
   deployWithAmbiguityRecovery,
   environmentForVercelCli,
   materializeExactGitTree,
+  materializeVercelBuildEnvironment,
   materializeVercelRepoLink,
   parseVercelDeploymentLookup,
   parseVercelDeploymentJson,
@@ -195,15 +202,34 @@ function pilotContract(overrides = {}) {
   };
 }
 
-function pulledStagingFixture() {
+function defaultPulledEnvironment(logicalTarget) {
+  return Object.fromEntries(
+    getVercelBuildRequirements(logicalTarget, "preview")
+      .filter((item) => item.ciClassification === "vercel-pull")
+      .map((item) => [
+        item.name,
+        item.allowEmpty ? "" : `${item.name}-fixture`,
+      ]),
+  );
+}
+
+function pulledStagingFixture(
+  logicalTarget = "ui",
+  pulledEnvironment = defaultPulledEnvironment(logicalTarget),
+) {
   const isolationRoot = realpathSync(
     mkdtempSync(join(tmpdir(), "vercel-pull-runner-")),
   );
   const stagingRoot = join(isolationRoot, "mento-vercel-pull-staging");
+  const materializationRoot = join(
+    isolationRoot,
+    "mento-vercel-build-environment",
+  );
   const candidateRoot = join(isolationRoot, "mento-vercel-candidate-source");
   const vercelOrgId = "team_example";
-  const vercelProjectId = "prj_ui";
-  const expectedRootDirectory = PILOT_TARGET.expectedRootDirectory;
+  const vercelProjectId = `prj_${logicalTarget}`;
+  const expectedRootDirectory =
+    PREBUILT_TARGETS[logicalTarget].expectedRootDirectory;
   chmodSync(isolationRoot, 0o711);
   prepareVercelPullStaging({
     isolationRoot,
@@ -221,12 +247,15 @@ function pulledStagingFixture() {
   );
   writeFileSync(
     join(appState, ".env.preview.local"),
-    "NEXT_PUBLIC_STORAGE_URL=https://storage.example\n",
+    `${Object.entries(pulledEnvironment)
+      .map(([name, value]) => `${name}=${value}`)
+      .join("\n")}\n`,
     { mode: 0o600 },
   );
   return {
     isolationRoot,
     stagingRoot,
+    materializationRoot,
     candidateRoot,
     appState,
     expectedRootDirectory,
@@ -235,7 +264,9 @@ function pulledStagingFixture() {
     options: {
       isolationRoot,
       stagingRoot,
+      materializationRoot,
       expectedRootDirectory,
+      logicalTarget,
       vercelOrgId,
       vercelProjectId,
     },
@@ -243,6 +274,14 @@ function pulledStagingFixture() {
       rmSync(isolationRoot, { force: true, recursive: true });
     },
   };
+}
+
+function materializeFixture(fixture) {
+  return materializeVercelBuildEnvironment({
+    ...fixture.options,
+    expectedUid: process.getuid(),
+    expectedGid: process.getgid(),
+  });
 }
 
 test("pilot contract accepts only the UI preview mapping and exact SHA", () => {
@@ -1095,6 +1134,270 @@ test("Vercel pull staging is a fresh exact isolation-root tree", () => {
   }
 });
 
+test("one-way materialization preserves raw source and emits only the canonical exact allowlist", () => {
+  const sensitiveSentinel = "raw-sensitive-sentinel";
+  const unknownSentinel = "raw-unknown-sentinel";
+  const pulledEnvironment = {
+    NEXT_PUBLIC_SENTRY_DSN_SWAP: "",
+    NEXT_PUBLIC_STORAGE_URL:
+      "https://storage.example/path?a=b#fragment with spaces",
+    NEXT_PUBLIC_WALLET_CONNECT_ID: String.raw`wallet\\identifier`,
+    SENTRY_AUTH_TOKEN: sensitiveSentinel,
+    ETHERSCAN_API_KEY: sensitiveSentinel,
+    UNKNOWN_VARIABLE: unknownSentinel,
+  };
+  const fixture = pulledStagingFixture("app", pulledEnvironment);
+  const sourcePath = join(fixture.appState, ".env.preview.local");
+  const sourceRaw = serializeVercelPulledEnvironment(pulledEnvironment);
+  writeFileSync(sourcePath, sourceRaw, { mode: 0o600 });
+  const sourceBefore = lstatSync(sourcePath);
+  try {
+    const result = materializeFixture(fixture);
+    const sourceAfter = lstatSync(sourcePath);
+    assert.equal(readFileSync(sourcePath, "utf8"), sourceRaw);
+    for (const name of [
+      "dev",
+      "ino",
+      "mode",
+      "nlink",
+      "size",
+      "uid",
+      "gid",
+      "mtimeMs",
+      "ctimeMs",
+    ]) {
+      assert.equal(sourceAfter[name], sourceBefore[name], name);
+    }
+    assert.equal(lstatSync(fixture.materializationRoot).mode & 0o777, 0o700);
+    assert.equal(lstatSync(result.environmentPath).mode & 0o777, 0o600);
+    assert.equal(lstatSync(result.environmentPath).nlink, 1);
+    const materializedRaw = readFileSync(result.environmentPath, "utf8");
+    assert.deepEqual(parseVercelPulledEnvironment(materializedRaw), {
+      NEXT_PUBLIC_SENTRY_DSN_SWAP: "",
+      NEXT_PUBLIC_STORAGE_URL:
+        "https://storage.example/path?a=b#fragment with spaces",
+      NEXT_PUBLIC_WALLET_CONNECT_ID: String.raw`wallet\\identifier`,
+    });
+    assert.doesNotMatch(materializedRaw, new RegExp(sensitiveSentinel));
+    assert.doesNotMatch(materializedRaw, new RegExp(unknownSentinel));
+    assert.deepEqual(
+      assertMaterializedVercelBuildEnvironment({
+        ...fixture.options,
+        expectedUid: process.getuid(),
+        expectedGid: process.getgid(),
+      }),
+      result,
+    );
+    mkdirSync(join(fixture.candidateRoot, fixture.expectedRootDirectory), {
+      recursive: true,
+    });
+    stageVercelPullForCandidate({
+      ...fixture.options,
+      candidateRoot: fixture.candidateRoot,
+      buildUid: process.getuid(),
+      buildGid: process.getgid(),
+      runnerUid: process.getuid(),
+      runnerGid: process.getgid(),
+    });
+    const candidateEnvironment = readFileSync(
+      join(
+        fixture.candidateRoot,
+        fixture.expectedRootDirectory,
+        ".vercel",
+        ".env.preview.local",
+      ),
+      "utf8",
+    );
+    assert.equal(candidateEnvironment, materializedRaw);
+    assert.doesNotMatch(candidateEnvironment, new RegExp(sensitiveSentinel));
+    assert.doesNotMatch(candidateEnvironment, new RegExp(unknownSentinel));
+    const destinationBeforeRetry = readFileSync(result.environmentPath);
+    assert.throws(() => materializeFixture(fixture), /must be fresh/);
+    assert.deepEqual(
+      readFileSync(result.environmentPath),
+      destinationBeforeRetry,
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("Governance materialization never requires or carries pulled explorer credentials", () => {
+  const pulledEnvironment = defaultPulledEnvironment("governance");
+  pulledEnvironment.ETHERSCAN_API_KEY = "pulled-explorer-sentinel";
+  pulledEnvironment.SENTRY_AUTH_TOKEN = "pulled-sentry-sentinel";
+  const fixture = pulledStagingFixture("governance", pulledEnvironment);
+  try {
+    const { environmentPath } = materializeFixture(fixture);
+    const materialized = parseVercelPulledEnvironment(
+      readFileSync(environmentPath, "utf8"),
+    );
+    assert.equal(Object.hasOwn(materialized, "ETHERSCAN_API_KEY"), false);
+    assert.equal(Object.hasOwn(materialized, "SENTRY_AUTH_TOKEN"), false);
+    assert.deepEqual(
+      Object.keys(materialized).sort(),
+      Object.keys(defaultPulledEnvironment("governance")).sort(),
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("build-environment materialization rejects unsafe source and destination filesystem state", () => {
+  const sourceMutations = [
+    {
+      name: "source symlink swap",
+      mutate: (fixture) => {
+        const source = join(fixture.appState, ".env.preview.local");
+        const outside = join(fixture.isolationRoot, "outside-source");
+        writeFileSync(outside, readFileSync(source), { mode: 0o600 });
+        rmSync(source);
+        symlinkSync(outside, source);
+      },
+    },
+    {
+      name: "source hardlink swap",
+      mutate: (fixture) => {
+        const source = join(fixture.appState, ".env.preview.local");
+        const outside = join(fixture.isolationRoot, "outside-source");
+        writeFileSync(outside, readFileSync(source), { mode: 0o600 });
+        rmSync(source);
+        linkSync(outside, source);
+      },
+    },
+    {
+      name: "source mode",
+      mutate: (fixture) =>
+        chmodSync(join(fixture.appState, ".env.preview.local"), 0o640),
+    },
+    {
+      name: "source oversize",
+      mutate: (fixture) =>
+        truncateSync(
+          join(fixture.appState, ".env.preview.local"),
+          16 * 1_024 * 1_024 + 1,
+        ),
+    },
+    {
+      name: "source invalid UTF-8",
+      mutate: (fixture) =>
+        writeFileSync(
+          join(fixture.appState, ".env.preview.local"),
+          Buffer.from([0xff, 0xfe]),
+          { mode: 0o600 },
+        ),
+    },
+    {
+      name: "source empty",
+      mutate: (fixture) =>
+        writeFileSync(join(fixture.appState, ".env.preview.local"), "", {
+          mode: 0o600,
+        }),
+    },
+    {
+      name: "source controlled value",
+      mutate: (fixture) =>
+        writeFileSync(
+          join(fixture.appState, ".env.preview.local"),
+          "NEXT_PUBLIC_STORAGE_URL=value\u0000sentinel\n",
+          { mode: 0o600 },
+        ),
+    },
+  ];
+  for (const mutation of sourceMutations) {
+    const fixture = pulledStagingFixture();
+    try {
+      mutation.mutate(fixture);
+      assert.throws(
+        () => materializeFixture(fixture),
+        undefined,
+        mutation.name,
+      );
+      assert.equal(existsSync(fixture.materializationRoot), false);
+    } finally {
+      fixture.cleanup();
+    }
+  }
+
+  for (const destinationType of ["directory", "symlink"]) {
+    const fixture = pulledStagingFixture();
+    const outside = join(fixture.isolationRoot, "outside-destination");
+    try {
+      if (destinationType === "directory") {
+        mkdirSync(fixture.materializationRoot, { mode: 0o700 });
+        writeFileSync(
+          join(fixture.materializationRoot, "sentinel"),
+          "do-not-overwrite",
+          { mode: 0o600 },
+        );
+      } else {
+        mkdirSync(outside, { mode: 0o700 });
+        symlinkSync(outside, fixture.materializationRoot);
+      }
+      assert.throws(() => materializeFixture(fixture), /must be fresh/);
+      if (destinationType === "directory") {
+        assert.equal(
+          readFileSync(join(fixture.materializationRoot, "sentinel"), "utf8"),
+          "do-not-overwrite",
+        );
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  }
+
+  const containment = pulledStagingFixture();
+  try {
+    assert.throws(() =>
+      materializeVercelBuildEnvironment({
+        ...containment.options,
+        materializationRoot: join(
+          containment.isolationRoot,
+          "attacker-selected-environment",
+        ),
+      }),
+    );
+  } finally {
+    containment.cleanup();
+  }
+});
+
+test("materialized state is fail-closed after raw or derived tampering", () => {
+  for (const tamper of ["raw-value", "derived-symlink", "derived-hardlink"]) {
+    const fixture = pulledStagingFixture();
+    try {
+      const result = materializeFixture(fixture);
+      if (tamper === "raw-value") {
+        writeFileSync(
+          join(fixture.appState, ".env.preview.local"),
+          "NEXT_PUBLIC_STORAGE_URL=changed-after-materialization\n",
+          { mode: 0o600 },
+        );
+      } else {
+        const outside = join(fixture.isolationRoot, `outside-${tamper}`);
+        writeFileSync(outside, readFileSync(result.environmentPath), {
+          mode: 0o600,
+        });
+        rmSync(result.environmentPath);
+        if (tamper === "derived-symlink") {
+          symlinkSync(outside, result.environmentPath);
+        } else {
+          linkSync(outside, result.environmentPath);
+        }
+      }
+      assert.throws(() =>
+        assertMaterializedVercelBuildEnvironment({
+          ...fixture.options,
+          expectedUid: process.getuid(),
+          expectedGid: process.getgid(),
+        }),
+      );
+    } finally {
+      fixture.cleanup();
+    }
+  }
+});
+
 test("UI preview environment validation reads only trusted pull staging", () => {
   const fixture = pulledStagingFixture();
   try {
@@ -1126,6 +1429,7 @@ test("UI preview environment validation reads only trusted pull staging", () => 
       fixture.expectedRootDirectory,
     );
     mkdirSync(candidateProject, { recursive: true });
+    materializeFixture(fixture);
     stageVercelPullForCandidate({
       ...fixture.options,
       candidateRoot: fixture.candidateRoot,
@@ -1279,6 +1583,7 @@ test("candidate Vercel links cannot redirect trusted pulled-state copies", () =>
         outsideDirectory,
         sentinelPath,
       });
+      materializeFixture(fixture);
 
       assert.equal(
         stageVercelPullForCandidate({
@@ -1316,6 +1621,7 @@ test("candidate staging rejects a source root that escapes the isolation root", 
       recursive: true,
     });
     symlinkSync(outside, fixture.candidateRoot);
+    materializeFixture(fixture);
     assert.throws(() =>
       stageVercelPullForCandidate({
         ...fixture.options,
@@ -1338,6 +1644,7 @@ test("candidate staging rejects source components with the wrong owner", () => {
     mkdirSync(join(fixture.candidateRoot, fixture.expectedRootDirectory), {
       recursive: true,
     });
+    materializeFixture(fixture);
     assert.throws(() =>
       stageVercelPullForCandidate({
         ...fixture.options,
@@ -2566,9 +2873,7 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   );
   const candidateOutputValidationBlock = raw.slice(
     raw.indexOf("- name: Assert the literal target prebuilt output"),
-    raw.indexOf(
-      "- name: Revalidate runner-owned pulled settings after the build",
-    ),
+    raw.indexOf("- name: Revalidate runner-owned build inputs after the build"),
   );
   const uploadOutputValidationBlock = raw.slice(
     raw.indexOf("- name: Assert immutable runner-owned upload handoff"),
@@ -2579,18 +2884,24 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
     raw.indexOf("- name: Assert isolated runner-owned Vercel pull result"),
   );
   const stagePullBlock = raw.slice(
-    raw.indexOf("- name: Stage trusted project settings into candidate source"),
-    raw.indexOf("- name: Assert isolated project mapping"),
+    raw.indexOf(
+      "- name: Stage project settings and allowlisted environment into candidate source",
+    ),
+    raw.indexOf(
+      "- name: Assert isolated candidate project mapping and environment",
+    ),
   );
   const validateCandidatePullBlock = raw.slice(
-    raw.indexOf("- name: Assert isolated project mapping"),
+    raw.indexOf(
+      "- name: Assert isolated candidate project mapping and environment",
+    ),
     raw.indexOf("- name: Build the literal target prebuilt output"),
   );
   const environmentValidationIndex = raw.indexOf(
     "- name: Validate runner-owned non-Governance preview build variables",
   );
   const stagePullIndex = raw.indexOf(
-    "- name: Stage trusted project settings into candidate source",
+    "- name: Stage project settings and allowlisted environment into candidate source",
   );
   const environmentValidationBlock = raw.slice(
     environmentValidationIndex,
@@ -2700,11 +3011,23 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
     raw.indexOf("- name: Assert isolated runner-owned Vercel pull result") <
       environmentValidationIndex,
   );
+  const materializationIndex = raw.indexOf(
+    "- name: Materialize exact allowlisted preview build environment",
+  );
+  const materializedAssertionIndex = raw.indexOf(
+    "- name: Assert isolated allowlisted preview build environment",
+  );
+  assert.ok(
+    raw.indexOf("- name: Assert isolated runner-owned Vercel pull result") <
+      materializationIndex,
+  );
+  assert.ok(materializationIndex < materializedAssertionIndex);
+  assert.ok(materializedAssertionIndex < environmentValidationIndex);
   assert.ok(environmentValidationIndex < stagePullIndex);
   assert.equal(raw.match(/vercel-build-environment\.mjs/g)?.length, 2);
   assert.match(
     environmentValidationBlock,
-    /PULL_STAGING_PATH: \$\{\{ env\.VERCEL_ISOLATION_ROOT \}\}\/mento-vercel-pull-staging/,
+    /BUILD_ENVIRONMENT_PATH: \$\{\{ env\.VERCEL_ISOLATION_ROOT \}\}\/mento-vercel-build-environment/,
   );
   assert.match(
     environmentValidationBlock,
@@ -2712,19 +3035,30 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   );
   assert.match(
     environmentValidationBlock,
-    /--project-directory "\$PULL_STAGING_PATH\/\$EXPECTED_ROOT_DIRECTORY"/,
+    /--project-directory "\$BUILD_ENVIRONMENT_PATH"/,
   );
   assert.doesNotMatch(environmentValidationBlock, /ETHERSCAN_API_KEY/);
   assert.doesNotMatch(environmentValidationBlock, /SENTRY_AUTH_TOKEN/);
   assert.match(
     buildBlock,
-    /vercel-build-environment\.mjs" \\\n\s+check --target "\$LOGICAL_TARGET" --environment preview \\\n\s+--project-directory "\$PULL_STAGING_PATH\/\$EXPECTED_ROOT_DIRECTORY"/,
+    /vercel-build-environment\.mjs" \\\n\s+check --target "\$LOGICAL_TARGET" --environment preview \\\n\s+--project-directory "\$SOURCE_PATH\/\$EXPECTED_ROOT_DIRECTORY"/,
   );
   assert.doesNotMatch(environmentValidationBlock, /working-directory: source/);
   assert.doesNotMatch(
     environmentValidationBlock,
     /mento-vercel-candidate-source/,
   );
+  const materializationBlock = raw.slice(
+    materializationIndex,
+    materializedAssertionIndex,
+  );
+  assert.match(materializationBlock, /materialize-build-environment/);
+  assert.match(
+    materializationBlock,
+    /pgrep -u "\$BUILD_UID"[\s\S]*materialize-build-environment[\s\S]*pgrep -u "\$BUILD_UID"/,
+  );
+  assert.match(stagePullBlock, /BUILD_ENVIRONMENT_PATH=/);
+  assert.match(stagePullBlock, /LOGICAL_TARGET=/);
   assert.match(
     handoffBlock,
     /\/bin\/cp -R \\\n\s+--no-dereference \\\n\s+--preserve=mode,timestamps/,
@@ -2764,6 +3098,14 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   assert.doesNotMatch(buildBlock, /\n\s+VERCEL_TOKEN=/);
   assert.doesNotMatch(handoffBlock, /userdel|groupdel/);
   assert.match(handoffBlock, /--one-file-system/);
+  assert.match(
+    handoffBlock,
+    /BUILD_ENVIRONMENT_PATH[^\n]*mento-vercel-build-environment/,
+  );
+  assert.match(
+    handoffBlock,
+    /"\$BUILD_ENVIRONMENT_PATH" != "\$VERCEL_ISOLATION_ROOT\/mento-vercel-build-environment"/,
+  );
   const cleanupBlock = raw.slice(
     raw.indexOf("- name: Remove isolated build and upload state"),
     raw.indexOf("\n  smoke:"),
@@ -2774,6 +3116,14 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   assert.match(cleanupBlock, /CANDIDATE_IDENTITY_UID/);
   assert.match(cleanupBlock, /CANDIDATE_IDENTITY_GID/);
   assert.match(cleanupBlock, /assert_expected_path/g);
+  assert.match(
+    cleanupBlock,
+    /"\$BUILD_ENVIRONMENT_PATH" \\\n\s+"\$VERCEL_ISOLATION_ROOT\/mento-vercel-build-environment"/,
+  );
+  assert.match(
+    cleanupBlock,
+    /-- \\\n\s+"\$BUILD_ENVIRONMENT_PATH" \\\n\s+"\$CANDIDATE_HOME_PATH"/,
+  );
   assert.doesNotMatch(cleanupBlock, /mento-vercel-\*\)/);
   assert.match(cleanupBlock, /-rf \\\n\s+--one-file-system \\\n\s+--/);
   assert.match(

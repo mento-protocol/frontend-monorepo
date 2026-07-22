@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 
+import { Buffer } from "node:buffer";
 import process from "node:process";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseEnv } from "node:util";
 import { fileURLToPath } from "node:url";
+
+const MAX_MATERIALIZED_VALUE_BYTES = 32 * 1_024;
 
 export const BUILD_VARIABLE_CLASSIFICATIONS = [
   "system-injected",
@@ -234,6 +237,142 @@ export function validateVercelBuildCredentialBoundary({
   return { target, environment, checked: SENSITIVE_VARIABLE_NAMES.length };
 }
 
+function hasControlCharacters(value) {
+  return [...value].some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint <= 31 || codePoint === 127;
+  });
+}
+
+function validateMaterializedValue(name, value, { allowEmpty }) {
+  if (
+    typeof value !== "string" ||
+    (!allowEmpty && value.length === 0) ||
+    Buffer.byteLength(value, "utf8") > MAX_MATERIALIZED_VALUE_BYTES ||
+    hasControlCharacters(value)
+  ) {
+    throw new Error(`Invalid Vercel-pulled build variable: ${name}`);
+  }
+  return value;
+}
+
+export function selectVercelPulledEnvironment({
+  target,
+  environment,
+  pulledValues,
+}) {
+  if (
+    pulledValues === null ||
+    typeof pulledValues !== "object" ||
+    Array.isArray(pulledValues)
+  ) {
+    throw new Error("Vercel-pulled build variables are invalid");
+  }
+  const pullableRequirements = getVercelBuildRequirements(
+    target,
+    environment,
+  ).filter((requirement) => requirement.ciClassification === "vercel-pull");
+  const selected = {};
+  const missing = [];
+  for (const requirement of pullableRequirements) {
+    if (!Object.hasOwn(pulledValues, requirement.name)) {
+      missing.push(requirement.name);
+      continue;
+    }
+    selected[requirement.name] = validateMaterializedValue(
+      requirement.name,
+      pulledValues[requirement.name],
+      requirement,
+    );
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing Vercel-pulled build variables: ${missing.sort().join(", ")}`,
+    );
+  }
+  return selected;
+}
+
+function canonicalDelimiter(name, value) {
+  for (const delimiter of ["'", "`", '"']) {
+    if (!value.includes(delimiter)) return delimiter;
+  }
+  throw new Error(`Unrepresentable Vercel-pulled build variable: ${name}`);
+}
+
+function compareVariableNames([left], [right]) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+function validateMaterializedName(name) {
+  if (typeof name !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+    throw new Error("Materialized Vercel build variable name is invalid");
+  }
+  return name;
+}
+
+function hasExactEntries(actual, expected) {
+  const actualEntries = Object.entries(actual).sort(compareVariableNames);
+  const expectedEntries = Object.entries(expected).sort(compareVariableNames);
+  return (
+    actualEntries.length === expectedEntries.length &&
+    actualEntries.every(
+      ([name, value], index) =>
+        name === expectedEntries[index][0] &&
+        value === expectedEntries[index][1],
+    )
+  );
+}
+
+export function serializeVercelPulledEnvironment(values) {
+  if (values === null || typeof values !== "object" || Array.isArray(values)) {
+    throw new Error("Materialized Vercel build variables are invalid");
+  }
+  const lines = Object.entries(values)
+    .sort(compareVariableNames)
+    .map(([name, value]) => {
+      validateMaterializedName(name);
+      validateMaterializedValue(name, value, { allowEmpty: true });
+      const delimiter = canonicalDelimiter(name, value);
+      const line = `${name}=${delimiter}${value}${delimiter}`;
+      let parsedLine;
+      try {
+        parsedLine = parseEnv(`${line}\n`);
+      } catch {
+        throw new Error(
+          `Unrepresentable Vercel-pulled build variable: ${name}`,
+        );
+      }
+      if (!hasExactEntries(parsedLine, { [name]: value })) {
+        throw new Error(
+          `Unrepresentable Vercel-pulled build variable: ${name}`,
+        );
+      }
+      return line;
+    });
+  const serialized = `${lines.join("\n")}\n`;
+  let reparsed;
+  try {
+    reparsed = parseEnv(serialized);
+  } catch {
+    throw new Error("Materialized Vercel build variables cannot be parsed");
+  }
+  if (!hasExactEntries(reparsed, values)) {
+    throw new Error("Materialized Vercel build variables do not round-trip");
+  }
+  return serialized;
+}
+
+export function parseVercelPulledEnvironment(raw) {
+  try {
+    return parseEnv(raw);
+  } catch {
+    throw new Error("Vercel-pulled build variables are invalid");
+  }
+}
+
 export function loadVercelPulledEnvironment({
   target,
   projectDirectory,
@@ -248,14 +387,22 @@ export function loadVercelPulledEnvironment({
     ".vercel",
     `.env.${environment}.local`,
   );
-  let pulledValues;
+  let rawValues;
   try {
-    pulledValues = parseEnv(readFileSync(environmentPath, "utf8"));
+    rawValues = parseVercelPulledEnvironment(
+      readFileSync(environmentPath, "utf8"),
+    );
   } catch {
     throw new Error(
       `Missing or invalid Vercel-pulled environment file: ${environmentPath}`,
     );
   }
+
+  const pulledValues = selectVercelPulledEnvironment({
+    target,
+    environment,
+    pulledValues: rawValues,
+  });
 
   validateVercelBuildCredentialBoundary({
     target,

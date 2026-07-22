@@ -129,12 +129,26 @@ test("preview credentials keep Governance explorer access target-local and never
     ({ name }) =>
       name === "Validate runner-owned non-Governance preview build variables",
   );
+  const materialization = steps.find(
+    ({ name }) =>
+      name === "Materialize exact allowlisted preview build environment",
+  );
+  const staging = steps.find(
+    ({ name }) =>
+      name ===
+      "Stage project settings and allowlisted environment into candidate source",
+  );
   const build = steps.find(
     ({ name }) => name === "Build the literal target prebuilt output",
   );
 
   assert.equal(nonGovernance.if, "inputs.logical_target != 'governance'");
   assert.equal(Object.hasOwn(nonGovernance.env, "ETHERSCAN_API_KEY"), false);
+  for (const step of [materialization, staging]) {
+    assert.equal(Object.hasOwn(step.env, "ETHERSCAN_API_KEY"), false);
+    assert.equal(Object.hasOwn(step.env, "SENTRY_AUTH_TOKEN"), false);
+    assert.doesNotMatch(step.run, /ETHERSCAN_API_KEY|SENTRY_AUTH_TOKEN/);
+  }
   assert.equal(
     build.env.ETHERSCAN_API_KEY,
     "${{ inputs.logical_target == 'governance' && secrets.etherscan_api_key || '' }}",
@@ -619,6 +633,14 @@ test("monorepo CLI and trusted env validation use their exact roots", () => {
     ({ name }) =>
       name === "Validate runner-owned non-Governance preview build variables",
   );
+  const materialization = steps.find(
+    ({ name }) =>
+      name === "Materialize exact allowlisted preview build environment",
+  );
+  const materializedAssertion = steps.find(
+    ({ name }) =>
+      name === "Assert isolated allowlisted preview build environment",
+  );
   const build = steps.find(
     ({ name }) => name === "Build the literal target prebuilt output",
   );
@@ -630,23 +652,32 @@ test("monorepo CLI and trusted env validation use their exact roots", () => {
   assert.equal(prerequisites["working-directory"], "source");
   assert.equal(environmentValidation["working-directory"], undefined);
   assert.equal(
-    environmentValidation.env.PULL_STAGING_PATH,
-    "${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pull-staging",
+    environmentValidation.env.BUILD_ENVIRONMENT_PATH,
+    "${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-build-environment",
   );
   for (const step of [environmentValidation, build]) {
     assert.match(
       step.run,
       /check --target "\$LOGICAL_TARGET" --environment preview/,
     );
-    assert.match(
-      step.run,
-      /--project-directory "\$PULL_STAGING_PATH\/\$EXPECTED_ROOT_DIRECTORY"/,
-    );
     assert.doesNotMatch(
       step.run,
       /\$\{\{ inputs\.(?:logical_target|expected_root_directory) \}\}/,
     );
   }
+  assert.match(
+    environmentValidation.run,
+    /--project-directory "\$BUILD_ENVIRONMENT_PATH"/,
+  );
+  assert.match(
+    build.run,
+    /--project-directory "\$SOURCE_PATH\/\$EXPECTED_ROOT_DIRECTORY"/,
+  );
+  assert.match(materialization.run, /materialize-build-environment/);
+  assert.match(
+    materializedAssertion.run,
+    /validate-materialized-build-environment/,
+  );
   assert.deepEqual(
     steps.filter(({ run }) =>
       run?.includes("scripts/vercel-build-environment.mjs"),
@@ -655,6 +686,14 @@ test("monorepo CLI and trusted env validation use their exact roots", () => {
   );
   assert.ok(
     names.indexOf("Assert isolated runner-owned Vercel pull result") <
+      names.indexOf("Materialize exact allowlisted preview build environment"),
+  );
+  assert.ok(
+    names.indexOf("Materialize exact allowlisted preview build environment") <
+      names.indexOf("Assert isolated allowlisted preview build environment"),
+  );
+  assert.ok(
+    names.indexOf("Assert isolated allowlisted preview build environment") <
       names.indexOf(
         "Validate runner-owned non-Governance preview build variables",
       ),
@@ -662,7 +701,10 @@ test("monorepo CLI and trusted env validation use their exact roots", () => {
   assert.ok(
     names.indexOf(
       "Validate runner-owned non-Governance preview build variables",
-    ) < names.indexOf("Stage trusted project settings into candidate source"),
+    ) <
+      names.indexOf(
+        "Stage project settings and allowlisted environment into candidate source",
+      ),
   );
 });
 
