@@ -99,9 +99,7 @@ const MAX_CONTROLLER_ADMISSION_RAW_RUNS =
 const MAX_CONTROLLER_ADMISSION_TITLE_REQUESTS = 96;
 const CONTROLLER_RUN_TITLE_RETRY_DELAY_BUDGET_MS = 30_000;
 const CONTROLLER_RUN_TITLE_RETRY_MS = 1_000;
-const CONTROLLER_RUN_TITLE_OBSERVATIONS =
-  1 +
-  CONTROLLER_RUN_TITLE_RETRY_DELAY_BUDGET_MS / CONTROLLER_RUN_TITLE_RETRY_MS;
+const CONTROLLER_RUN_TITLE_MAX_CONCURRENCY = 8;
 const PENDING_WORKFLOW_RUN_STATUSES = new Set([
   "requested",
   "waiting",
@@ -1658,6 +1656,8 @@ function createControllerAdmissionBudget() {
     requests: 0,
     rawRuns: 0,
     titleRequests: 0,
+    titleHydrationStartedAt: null,
+    titleHydrationScheduledDelay: 0,
     rawRunIdsByNumber: new Map(),
   };
 }
@@ -1955,11 +1955,13 @@ async function hydrateControllerWorkflowRuns({
 }) {
   const values = envelopes.map((envelope) => ({ ...envelope }));
   const pause = waitForRetry ?? wait;
-  for (
-    let observation = 0;
-    observation < CONTROLLER_RUN_TITLE_OBSERVATIONS;
-    observation += 1
-  ) {
+  budget.titleHydrationStartedAt ??= Date.now();
+  const startedAt = budget.titleHydrationStartedAt;
+  const deadline = startedAt + CONTROLLER_RUN_TITLE_RETRY_DELAY_BUDGET_MS;
+  const effectiveNow = () =>
+    Math.max(Date.now(), startedAt + budget.titleHydrationScheduledDelay);
+  let firstObservation = true;
+  while (firstObservation || effectiveNow() <= deadline) {
     const unresolvedIndexes = values
       .map((envelope, index) => {
         if (envelope.displayTitle !== CONTROLLER_WORKFLOW_NAME) return null;
@@ -1967,30 +1969,72 @@ async function hydrateControllerWorkflowRuns({
       })
       .filter((index) => index !== null);
     if (unresolvedIndexes.length === 0) break;
-    if (observation > 0) await pause(CONTROLLER_RUN_TITLE_RETRY_MS);
-    consumeControllerAdmissionBudget(
-      budget,
-      "titleRequests",
-      unresolvedIndexes.length,
-      MAX_CONTROLLER_ADMISSION_TITLE_REQUESTS,
-    );
-    const hydrated = await Promise.all(
-      unresolvedIndexes.map((index) =>
-        getControllerWorkflowRun(github, context, budget, values[index].runId),
-      ),
-    );
-    for (const [offset, index] of unresolvedIndexes.entries()) {
-      const envelope = validateControllerWorkflowRunEnvelope(
-        hydrated[offset],
-        workflowId,
+
+    for (let offset = 0; offset < unresolvedIndexes.length; ) {
+      if (offset > 0 && effectiveNow() > deadline) return values;
+      const availableRequests = Math.min(
+        MAX_CONTROLLER_ADMISSION_TITLE_REQUESTS - budget.titleRequests,
+        MAX_CONTROLLER_ADMISSION_REQUESTS - budget.requests,
       );
-      invariant(
-        envelope.runId === values[index].runId &&
-          envelope.runNumber === values[index].runNumber,
-        "Hydrated controller workflow run identity changed",
+      if (availableRequests <= 0) return values;
+      const batchIndexes = unresolvedIndexes.slice(
+        offset,
+        offset +
+          Math.min(CONTROLLER_RUN_TITLE_MAX_CONCURRENCY, availableRequests),
       );
-      values[index] = envelope;
+      consumeControllerAdmissionBudget(
+        budget,
+        "titleRequests",
+        batchIndexes.length,
+        MAX_CONTROLLER_ADMISSION_TITLE_REQUESTS,
+      );
+      const settled = await Promise.allSettled(
+        batchIndexes.map((index) =>
+          getControllerWorkflowRun(
+            github,
+            context,
+            budget,
+            values[index].runId,
+          ),
+        ),
+      );
+      const rejected = settled.find((result) => result.status === "rejected");
+      if (rejected) throw rejected.reason;
+      const hydrated = settled.map((result) => result.value);
+      for (const [batchOffset, index] of batchIndexes.entries()) {
+        const envelope = validateControllerWorkflowRunEnvelope(
+          hydrated[batchOffset],
+          workflowId,
+        );
+        invariant(
+          envelope.runId === values[index].runId &&
+            envelope.runNumber === values[index].runNumber,
+          "Hydrated controller workflow run identity changed",
+        );
+        values[index] = envelope;
+      }
+      offset += batchIndexes.length;
     }
+
+    firstObservation = false;
+    if (
+      values.every(
+        (envelope) => envelope.displayTitle !== CONTROLLER_WORKFLOW_NAME,
+      )
+    ) {
+      break;
+    }
+    if (
+      budget.titleRequests >= MAX_CONTROLLER_ADMISSION_TITLE_REQUESTS ||
+      budget.requests >= MAX_CONTROLLER_ADMISSION_REQUESTS
+    ) {
+      return values;
+    }
+    const remainingDelay = deadline - effectiveNow();
+    if (remainingDelay <= 0) break;
+    const retryDelay = Math.min(CONTROLLER_RUN_TITLE_RETRY_MS, remainingDelay);
+    await pause(retryDelay);
+    budget.titleHydrationScheduledDelay += retryDelay;
   }
   return values;
 }

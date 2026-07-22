@@ -1013,19 +1013,25 @@ receipt defers without state, status, dispatch, or ownership mutation; a
 completed run without one fails closed. Strict foreign-PR runs are classified
 as part of the same global interval but never cause a foreign journal lookup.
 GitHub may temporarily expose the static workflow name before the dynamic
-title, so placeholder titles hydrate under one shared 30-second job budget. An
-unresolved pending title defers; a completed placeholder or malformed title
-fails closed. Closed PRs may have empty run-to-PR linkage; present linkage is
-validated, while the strict title and top-level envelope authenticate an
-empty-link historical run.
+title, so placeholder titles hydrate through one shared deadline-based queue.
+The queue permits at most eight concurrent run-detail requests and stops
+cleanly at the shared 30-second deadline, 96 title requests, or the job's 128
+total admission requests. It never fans every placeholder out concurrently or
+overshoots a request budget. A placeholder still pending at that boundary makes
+the proof incomplete and defers without mutation; a completed placeholder or
+malformed title fails closed. Closed PRs may have empty run-to-PR linkage;
+present linkage is validated, while the strict title and top-level envelope
+authenticate an empty-link historical run.
 
 A stable numeric gap, workflow-ID mismatch, unavailable cursor, traversal
-overflow, or exhausted proof budget fails closed and requires drain plus an
-explicit numbered bootstrap. The receipt-event and bootstrap-receipt jobs need
-least-privilege `actions: read`; reconciliation jobs already have Actions
-access for worker recovery. This global sequence proof catches consecutive
-pushes and same-head close/reopen cycles without trusting mutable
-`updated_at`, branch-name uniqueness, or fork-controlled branch names.
+overflow, or exhausted structural proof budget fails closed and requires drain
+plus an explicit numbered bootstrap. Title-hydration exhaustion follows the
+pending-versus-completed rule above instead of throwing a budget-overrun error.
+The receipt-event and bootstrap-receipt jobs need least-privilege
+`actions: read`; reconciliation jobs already have Actions access for worker
+recovery. This global sequence proof catches consecutive pushes and same-head
+close/reopen cycles without trusting mutable `updated_at`, branch-name
+uniqueness, or fork-controlled branch names.
 
 A first-attempt `opened`/`reopened` event can initialize only from its strict
 numbered run; synchronize, edited, and closed events never infer the missing
@@ -1453,11 +1459,13 @@ one ordered reset protocol:
    reconciliation job finish; if it failed after the receipt committed, rerun
    that job on the same run or dispatch one `vercel-preview-reconcile`, then
    verify terminal state again. Do not send a second distinct closed bootstrap.
-6. Inventory every other open v2 journal created before the global cursor.
-   Drain and bootstrap each immediately before its next synchronize, retarget,
-   reopen, or close event. No further event may race ahead of its bootstrap.
-   During this rollout, PR #535 is part of that explicit inventory; do not
-   rebase, push, or close it before its numbered bootstrap.
+6. Freeze further pull-request lifecycle mutations. Inventory every other open
+   canonical v2 journal without an admission cursor, including #535. Drain each
+   journal's unfinished ownership and bootstrap every inventoried journal
+   immediately. Verify every numbered bootstrap receipt, cursor, and terminal
+   reconciliation result before lifting the freeze. Do not resume pushes,
+   retargets, reopens, or closes until every bootstrap is proven; no lifecycle
+   event may race ahead of this migration.
 7. Treat any delayed controller event at or below the authenticated reset floor
    as an exact-run-authenticated, write-free no-op. A receipt above the floor is
    never silently ignored: an incomplete run defers without mutation and a

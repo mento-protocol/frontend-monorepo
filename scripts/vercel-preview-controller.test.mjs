@@ -3516,6 +3516,7 @@ function fakeGitHub({
   beforeListComments,
   beforeListCommitStatuses,
   beforeListWorkflowRuns,
+  beforeGetWorkflowRun,
   uiVercelConfiguration = GITHUB_OWNED_UI_VERCEL_CONFIGURATION,
   uiVercelConfigurations = [],
   uiVercelConfigurationsByRef = new Map(),
@@ -3575,6 +3576,8 @@ function fakeGitHub({
   let listCommitStatusRequests = 0;
   let deploymentLookupCallCount = 0;
   let listWorkflowRunRequests = 0;
+  let activeWorkflowRunRequests = 0;
+  let maxConcurrentWorkflowRunRequests = 0;
   const listComments = async () => {};
   const listCommits = async () => {};
   const listDeployments = async () => {};
@@ -3721,15 +3724,28 @@ function fakeGitHub({
           const data = runs.find(({ id }) => id === run_id);
           assert.ok(data, `fixture run ${run_id} must exist`);
           workflowRunRequests.push(run_id);
-          const displayTitle = transientDisplayTitles.shift();
-          return {
-            data: structuredClone({
-              ...data,
-              ...(displayTitle === undefined
-                ? {}
-                : { display_title: displayTitle }),
-            }),
-          };
+          activeWorkflowRunRequests += 1;
+          maxConcurrentWorkflowRunRequests = Math.max(
+            maxConcurrentWorkflowRunRequests,
+            activeWorkflowRunRequests,
+          );
+          try {
+            await beforeGetWorkflowRun?.({
+              runId: run_id,
+              activeRequests: activeWorkflowRunRequests,
+            });
+            const displayTitle = transientDisplayTitles.shift();
+            return {
+              data: structuredClone({
+                ...data,
+                ...(displayTitle === undefined
+                  ? {}
+                  : { display_title: displayTitle }),
+              }),
+            };
+          } finally {
+            activeWorkflowRunRequests -= 1;
+          }
         },
       },
       repos: {
@@ -3938,6 +3954,9 @@ function fakeGitHub({
     get deploymentLookupCallCount() {
       return deploymentLookupCallCount;
     },
+    get maxConcurrentWorkflowRunRequests() {
+      return maxConcurrentWorkflowRunRequests;
+    },
   };
 }
 
@@ -4002,14 +4021,18 @@ function nativeUiAggregateStatus(sha, runId) {
   };
 }
 
-async function reconcileControllerFixture(fixture, core = fakeCore()) {
+async function reconcileControllerFixture(
+  fixture,
+  core = fakeCore(),
+  { waitForRecovery = async () => {} } = {},
+) {
   return reconcilePreview({
     github: fixture.github,
     context: fakeContext(),
     core,
     prNumber: 519,
     workflowSha: SHA.E,
-    waitForRecovery: async () => {},
+    waitForRecovery,
   });
 }
 
@@ -5037,6 +5060,201 @@ for (const status of ["queued", "completed"]) {
     assert.ok(fixture.workflowRunRequests.length < 96);
   });
 }
+
+test("controller title hydration queues many placeholders within shared concurrency and request budgets", async () => {
+  const opened = event({
+    run: 70_001,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const placeholders = Array.from({ length: 12 }, (_, index) =>
+    controllerEventRun({
+      id: 70_002 + index,
+      runNumber: 2 + index,
+      action: "synchronize",
+      before: SHA.A,
+      sha: SHA.B,
+      status: "queued",
+      conclusion: null,
+      display_title: "Vercel Preview Controller",
+      createdAt: timestamp(2),
+    }),
+  );
+  let releaseFirstBatch;
+  const firstBatchGate = new Promise((resolve) => {
+    releaseFirstBatch = resolve;
+  });
+  let markFirstBatchReady;
+  const firstBatchReady = new Promise((resolve) => {
+    markFirstBatchReady = resolve;
+  });
+  let blockFirstBatch = true;
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
+    comments: [journalComment({ events: [opened] })],
+    runs: placeholders,
+    beforeGetWorkflowRun: async ({ activeRequests }) => {
+      if (!blockFirstBatch) return;
+      if (activeRequests === 8) markFirstBatchReady();
+      await firstBatchGate;
+    },
+  });
+  const core = fakeCore();
+
+  const reconciliation = reconcileControllerFixture(fixture, core);
+  await firstBatchReady;
+  const requestsBeforeRelease = fixture.workflowRunRequests.length;
+  const concurrencyBeforeRelease = fixture.maxConcurrentWorkflowRunRequests;
+  blockFirstBatch = false;
+  releaseFirstBatch();
+  const state = await reconciliation;
+
+  assert.equal(state, null);
+  assert.equal(core.outputs.get("reconcile_deferred"), "true");
+  assert.equal(requestsBeforeRelease, 8);
+  assert.equal(concurrencyBeforeRelease, 8);
+  assert.equal(fixture.workflowRunRequests.length, 96);
+  assert.equal(fixture.maxConcurrentWorkflowRunRequests, 8);
+  assert.ok(fixture.workflowRunRequests.length <= 96);
+  assert.ok(
+    1 +
+      fixture.controllerEventRunListRequests.length +
+      fixture.workflowRunRequests.length <=
+      128,
+  );
+  for (const placeholder of placeholders) {
+    assert.equal(
+      fixture.workflowRunRequests.filter((runId) => runId === placeholder.id)
+        .length,
+      8,
+    );
+  }
+  assert.equal(fixture.commentUpdates.length, 0);
+  assert.equal(fixture.commitStatuses.length, 0);
+  assert.equal(fixture.dispatches.length, 0);
+});
+
+test("controller title hydration reuses one deadline across sequential admission refreshes", async () => {
+  const opened = event({
+    run: 70_001,
+    action: "opened",
+    head: SHA.A,
+    runtime: false,
+    updated: timestamp(1),
+  });
+  const first = controllerInertRun({
+    id: 70_002,
+    runNumber: 2,
+    event: "workflow_run",
+    status: "queued",
+    conclusion: null,
+    display_title: "Vercel Preview Controller",
+  });
+  const firstStrictTitle = controllerInertRun({
+    id: first.id,
+    runNumber: first.run_number,
+    event: first.event,
+  }).display_title;
+  const second = controllerInertRun({
+    id: 70_003,
+    runNumber: 3,
+    event: "workflow_run",
+    status: "queued",
+    conclusion: null,
+    display_title: "Vercel Preview Controller",
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+    comments: [journalComment({ events: [opened] })],
+    runs: [first],
+    workflowRunDisplayTitles: [
+      ...Array(21).fill("Vercel Preview Controller"),
+      firstStrictTitle,
+    ],
+    beforeListWorkflowRuns: ({ requestCount, runs }) => {
+      if (requestCount === 3) runs.push(second);
+    },
+  });
+  const core = fakeCore();
+  let waits = 0;
+
+  const state = await reconcileControllerFixture(fixture, core, {
+    waitForRecovery: async () => {
+      waits += 1;
+    },
+  });
+
+  assert.equal(state, null);
+  assert.equal(core.outputs.get("reconcile_deferred"), "true");
+  assert.equal(waits, 30);
+  assert.equal(fixture.workflowRunRequests.length, 32);
+  assert.equal(
+    fixture.workflowRunRequests.filter((runId) => runId === first.id).length,
+    22,
+  );
+  assert.equal(
+    fixture.workflowRunRequests.filter((runId) => runId === second.id).length,
+    10,
+  );
+  assert.equal(fixture.commentUpdates.length, 1);
+  assert.equal(fixture.commitStatuses.length, 0);
+  assert.equal(fixture.dispatches.length, 0);
+});
+
+test("completed placeholder batches fail closed when the shared title budget is exhausted", async () => {
+  const opened = event({
+    run: 70_001,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const placeholders = Array.from({ length: 4 }, (_, index) =>
+    controllerEventRun({
+      id: 70_002 + index,
+      runNumber: 2 + index,
+      action: "synchronize",
+      before: SHA.A,
+      sha: SHA.B,
+      status: "completed",
+      conclusion: "success",
+      display_title: "Vercel Preview Controller",
+      createdAt: timestamp(2),
+    }),
+  );
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.B, updated: timestamp(2) }),
+    comments: [journalComment({ events: [opened] })],
+    runs: placeholders,
+  });
+  const before = fixture.comments[0].body;
+  const core = fakeCore();
+  let waits = 0;
+
+  await assert.rejects(
+    reconcileControllerFixture(fixture, core, {
+      waitForRecovery: async () => {
+        waits += 1;
+      },
+    }),
+    /Completed controller workflow run name did not materialize/,
+  );
+
+  assert.equal(fixture.workflowRunRequests.length, 96);
+  assert.equal(fixture.maxConcurrentWorkflowRunRequests, 4);
+  assert.equal(waits, 23);
+  assert.ok(
+    1 +
+      fixture.controllerEventRunListRequests.length +
+      fixture.workflowRunRequests.length <=
+      128,
+  );
+  assert.equal(fixture.comments[0].body, before);
+  assert.equal(fixture.commentUpdates.length, 0);
+  assert.equal(fixture.commitStatuses.length, 1);
+  assert.equal(fixture.commitStatuses[0].state, "error");
+  assert.equal(fixture.dispatches.length, 0);
+});
 
 for (const identity of [
   { author: "dependabot[bot]", ref: "feature/dependency-update" },

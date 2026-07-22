@@ -176,12 +176,15 @@ live receipt, and every numbered receipt above the cursor must map to one strict
 admission. A missing queued or in-progress receipt defers without state, status,
 dispatch, or ownership mutation; a completed run with no receipt fails closed.
 Foreign strict runs are classified inside the same interval without opening a
-foreign journal. Dynamic placeholder titles hydrate under one shared 30-second
-budget. A still-pending placeholder defers, while a completed placeholder or
-malformed strict run fails closed. Closed PR runs may have empty PR linkage;
-present linkage is validated, while the strict title and top-level envelope
-authenticate an empty-link run. Reruns reuse the same run ID and number, so
-attempts do not create sequence entries.
+foreign journal. Dynamic placeholder titles hydrate through one shared
+deadline-based queue capped at eight concurrent run-detail requests. The queue
+stops cleanly at 30 seconds, 96 title requests, or the job's 128 total admission
+requests instead of fanning out every placeholder or overshooting a budget. A
+still-pending placeholder then leaves the proof incomplete and defers, while a
+completed placeholder or malformed strict run fails closed. Closed PR runs may
+have empty PR linkage; present linkage is validated, while the strict title and
+top-level envelope authenticate an empty-link run. Reruns reuse the same run ID
+and number, so attempts do not create sequence entries.
 
 A stable run-number gap, numeric workflow-ID mismatch, unavailable floor,
 traversal overflow, or budget exhaustion fails closed and requires drain plus
@@ -236,15 +239,18 @@ authenticated write-free no-ops, while every later run remains part of the
 global admission interval. A subsequent valid `reopened` event starts a new
 epoch from the terminal anchor.
 
-As precursor evidence for stronger gap detection, every `pull_request_target`
-run uses a strict machine-readable title that binds run ID, workflow-monotonic
-run number, PR, action, head SHA, synchronize `before` SHA, and whether a receipt
-is required. Dependabot events and unrelated edits encode `receipt=false`,
+During the historical precursor phase, every `pull_request_target` run began
+using a strict machine-readable title that binds run ID, workflow-monotonic run
+number, PR, action, head SHA, synchronize `before` SHA, and whether a receipt is
+required. Dependabot events and unrelated edits encode `receipt=false`,
 matching the jobs that do not append a controller receipt. New event and
-bootstrap receipts persist the run number when it is available. This precursor
-does not query Actions, establish an admission frontier, or alter reconciliation
-behavior; existing v2 receipts without the optional field remain valid and keep
-their canonical digest.
+bootstrap receipts persist the run number when it is available. That precursor
+alone did not query Actions, establish an admission frontier, or alter
+reconciliation behavior. The active global-admission implementation now
+consumes those titles and numbered receipts through the bounded Actions proof
+and persists the resulting cursor. Existing v2 receipts without the optional
+field retain their canonical digest but cannot establish or advance that
+cursor.
 
 GitHub currently bounds `queue: max` at 100 pending jobs. The controller must
 keep journal mutations short and expose queue pressure during canaries. When
@@ -287,13 +293,14 @@ repository, receipt, cursor, and terminal closed state must agree, with no
 planner, worker, Deployment, or pending-status side effect. Finish or rerun the
 same run's reconciliation (or dispatch an explicit reconcile after a committed
 receipt) and recheck the terminal state. A second distinct closed bootstrap is
-forbidden. Every other open pre-cursor v2 journal, including the explicit #535
-inventory item, must be drained and bootstrapped immediately before another
-lifecycle event. Delayed pre-floor runs authenticate exactly and perform no
-writes; missing receipts above the floor defer while running and fail closed
-when completed. A corrective push before a planned open bootstrap invalidates
-that floor and therefore requires another drain/bootstrap cycle. No old branch
-proof, inferred synchronize floor, or dual admission reader remains.
+forbidden. Keep pull-request lifecycle mutations frozen, inventory every other
+open canonical v2 journal without an admission cursor, drain its unfinished
+ownership, and immediately bootstrap every inventoried journal before lifting
+the freeze. This inventory includes #535. Do not resume pushes, retargets,
+reopens, or closes until every numbered bootstrap and cursor is proven. Delayed
+pre-floor runs authenticate exactly and perform no writes; missing receipts
+above the floor defer while running and fail closed when completed. No old
+branch proof, inferred synchronize floor, or dual admission reader remains.
 
 There is no dual-read period and no compatibility path for v1 journals or
 already-running v1 workers. Before merging v2, operators establish a no-push
