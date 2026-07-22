@@ -510,6 +510,10 @@ jobs:
             "$build_user"
           build_uid="$(id -u "$build_user")"
           build_gid="$(id -g "$build_user")"
+          if [ "$build_uid" = "$(id -u)" ] || [ "$build_gid" = "$(id -g)" ]; then
+            echo "Dedicated candidate identity overlaps the runner identity" >&2
+            exit 1
+          fi
           if sudo --non-interactive /usr/bin/pgrep -u "$build_uid" >/dev/null 2>&1; then
             echo "Dedicated candidate identity unexpectedly owns a process" >&2
             exit 1
@@ -904,43 +908,78 @@ jobs:
           VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
         run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" validate-pull-staging
 
-      - name: Validate runner-owned non-Governance preview build variables
-        if: inputs.logical_target != 'governance'
+      - name: Materialize exact allowlisted preview build environment
         env:
-          CI: 1
+          BUILD_ENVIRONMENT_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-build-environment
+          BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
           EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
           LOGICAL_TARGET: ${{ inputs.logical_target }}
-          NEXT_PUBLIC_VERCEL_ENV: preview
-          PULL_STAGING_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pull-staging
-          VERCEL: 1
-          VERCEL_ENV: preview
-          VERCEL_TARGET_ENV: preview
-        run: >-
-          node "$GITHUB_WORKSPACE/controller/scripts/vercel-build-environment.mjs"
-          check --target "$LOGICAL_TARGET" --environment preview
-          --project-directory "$PULL_STAGING_PATH/$EXPECTED_ROOT_DIRECTORY"
-
-      - name: Stage trusted project settings into candidate source
-        env:
-          BUILD_GID: ${{ steps.isolation.outputs.build_gid }}
-          BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
-          CANDIDATE_SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-source
-          EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
           PULL_STAGING_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pull-staging
           VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
           VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
         run: |
           set -euo pipefail
           if sudo --non-interactive /usr/bin/pgrep -u "$BUILD_UID" >/dev/null 2>&1; then
-            echo "Candidate identity owns a process before project settings are staged" >&2
+            echo "Candidate identity owns a process before build environment materialization" >&2
+            exit 1
+          fi
+          umask 077
+          node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" materialize-build-environment
+          if sudo --non-interactive /usr/bin/pgrep -u "$BUILD_UID" >/dev/null 2>&1; then
+            echo "Candidate identity acquired a process while the build environment was materialized" >&2
+            exit 1
+          fi
+
+      - name: Assert isolated allowlisted preview build environment
+        env:
+          BUILD_ENVIRONMENT_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-build-environment
+          EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
+          LOGICAL_TARGET: ${{ inputs.logical_target }}
+          PULL_STAGING_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pull-staging
+          VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
+          VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
+        run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" validate-materialized-build-environment
+
+      - name: Validate runner-owned non-Governance preview build variables
+        if: inputs.logical_target != 'governance'
+        env:
+          BUILD_ENVIRONMENT_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-build-environment
+          CI: 1
+          LOGICAL_TARGET: ${{ inputs.logical_target }}
+          NEXT_PUBLIC_VERCEL_ENV: preview
+          VERCEL: 1
+          VERCEL_ENV: preview
+          VERCEL_TARGET_ENV: preview
+        run: >-
+          node "$GITHUB_WORKSPACE/controller/scripts/vercel-build-environment.mjs"
+          check --target "$LOGICAL_TARGET" --environment preview
+          --project-directory "$BUILD_ENVIRONMENT_PATH"
+
+      - name: Stage project settings and allowlisted environment into candidate source
+        env:
+          BUILD_ENVIRONMENT_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-build-environment
+          BUILD_GID: ${{ steps.isolation.outputs.build_gid }}
+          BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
+          CANDIDATE_SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-source
+          EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
+          LOGICAL_TARGET: ${{ inputs.logical_target }}
+          PULL_STAGING_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pull-staging
+          VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
+          VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
+        run: |
+          set -euo pipefail
+          if sudo --non-interactive /usr/bin/pgrep -u "$BUILD_UID" >/dev/null 2>&1; then
+            echo "Candidate identity owns a process before project settings and the build environment are staged" >&2
             exit 1
           fi
           node_bin="$(realpath "$(command -v node)")"
           sudo --non-interactive /usr/bin/env -i \
+            BUILD_ENVIRONMENT_PATH="$BUILD_ENVIRONMENT_PATH" \
             BUILD_GID="$BUILD_GID" \
             BUILD_UID="$BUILD_UID" \
             CANDIDATE_SOURCE_PATH="$CANDIDATE_SOURCE_PATH" \
             EXPECTED_ROOT_DIRECTORY="$EXPECTED_ROOT_DIRECTORY" \
+            LOGICAL_TARGET="$LOGICAL_TARGET" \
             PATH="$(dirname "$node_bin"):/usr/bin:/bin" \
             PULL_STAGING_GID="$(id -g)" \
             PULL_STAGING_PATH="$PULL_STAGING_PATH" \
@@ -952,22 +991,23 @@ jobs:
             "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" \
             stage-pull
           if sudo --non-interactive /usr/bin/pgrep -u "$BUILD_UID" >/dev/null 2>&1; then
-            echo "Candidate identity acquired a process while project settings were staged" >&2
+            echo "Candidate identity acquired a process while project settings and the build environment were staged" >&2
             exit 1
           fi
 
-      - name: Assert isolated project mapping
+      - name: Assert isolated candidate project mapping and environment
         env:
           BUILD_GID: ${{ steps.isolation.outputs.build_gid }}
           BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
           CANDIDATE_SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-source
           EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
+          LOGICAL_TARGET: ${{ inputs.logical_target }}
           VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
           VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
         run: |
           set -euo pipefail
           if sudo --non-interactive /usr/bin/pgrep -u "$BUILD_UID" >/dev/null 2>&1; then
-            echo "Candidate identity owns a process before project settings are validated" >&2
+            echo "Candidate identity owns a process before project settings and the build environment are validated" >&2
             exit 1
           fi
           node_bin="$(realpath "$(command -v node)")"
@@ -976,6 +1016,7 @@ jobs:
             BUILD_UID="$BUILD_UID" \
             CANDIDATE_SOURCE_PATH="$CANDIDATE_SOURCE_PATH" \
             EXPECTED_ROOT_DIRECTORY="$EXPECTED_ROOT_DIRECTORY" \
+            LOGICAL_TARGET="$LOGICAL_TARGET" \
             PATH="$(dirname "$node_bin"):/usr/bin:/bin" \
             PULL_STAGING_GID="$(id -g)" \
             PULL_STAGING_UID="$(id -u)" \
@@ -986,13 +1027,14 @@ jobs:
             "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" \
             validate-candidate-pull
           if sudo --non-interactive /usr/bin/pgrep -u "$BUILD_UID" >/dev/null 2>&1; then
-            echo "Candidate identity acquired a process while project settings were validated" >&2
+            echo "Candidate identity acquired a process while project settings and the build environment were validated" >&2
             exit 1
           fi
 
       - name: Build the literal target prebuilt output
         id: build
         env:
+          BUILD_ENVIRONMENT_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-build-environment
           BUILD_GID: ${{ steps.isolation.outputs.build_gid }}
           BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
           CANDIDATE_HOME_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-home
@@ -1004,7 +1046,6 @@ jobs:
           LOGICAL_TARGET: ${{ inputs.logical_target }}
           MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.prepare.outputs.next_deployment_id }}
           NEXT_PUBLIC_VERCEL_ENV: preview
-          PULL_STAGING_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pull-staging
           SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-source
           TRUSTED_VERCEL_TOOLS_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-trusted-tools
           TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.turbo_remote_cache_signature_key }}
@@ -1027,7 +1068,7 @@ jobs:
           if [ "$LOGICAL_TARGET" = "governance" ]; then
             node "$GITHUB_WORKSPACE/controller/scripts/vercel-build-environment.mjs" \
               check --target "$LOGICAL_TARGET" --environment preview \
-              --project-directory "$PULL_STAGING_PATH/$EXPECTED_ROOT_DIRECTORY"
+              --project-directory "$BUILD_ENVIRONMENT_PATH"
           fi
           terminate_candidate() {
             sudo --non-interactive /usr/bin/pkill -KILL -u "$BUILD_UID" >/dev/null 2>&1 || true
@@ -1193,17 +1234,20 @@ jobs:
             exit 1
           fi
 
-      - name: Revalidate runner-owned pulled settings after the build
+      - name: Revalidate runner-owned build inputs after the build
         env:
+          BUILD_ENVIRONMENT_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-build-environment
           EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
+          LOGICAL_TARGET: ${{ inputs.logical_target }}
           PULL_STAGING_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-pull-staging
           VERCEL_ORG_ID: ${{ inputs.vercel_org_id }}
           VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
-        run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" validate-pull-staging
+        run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" validate-materialized-build-environment
 
       - name: Create immutable runner-owned upload handoff
         id: handoff
         env:
+          BUILD_ENVIRONMENT_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-build-environment
           BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
           CANDIDATE_HOME_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-home
           CANDIDATE_SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-source
@@ -1247,6 +1291,7 @@ jobs:
           assert_candidate_stopped
           if [ "$CANDIDATE_SOURCE_PATH" != "$VERCEL_ISOLATION_ROOT/mento-vercel-candidate-source" ] ||
             [ "$CANDIDATE_HOME_PATH" != "$VERCEL_ISOLATION_ROOT/mento-vercel-candidate-home" ] ||
+            [ "$BUILD_ENVIRONMENT_PATH" != "$VERCEL_ISOLATION_ROOT/mento-vercel-build-environment" ] ||
             [ "$PULL_STAGING_PATH" != "$VERCEL_ISOLATION_ROOT/mento-vercel-pull-staging" ] ||
             [ "$UPLOAD_SOURCE_PATH" != "$VERCEL_ISOLATION_ROOT/mento-vercel-upload-source" ]; then
             echo "Refusing to remove an unexpected handoff path" >&2
@@ -1256,6 +1301,7 @@ jobs:
             -rf \
             --one-file-system \
             -- \
+            "$BUILD_ENVIRONMENT_PATH" \
             "$CANDIDATE_SOURCE_PATH" \
             "$CANDIDATE_HOME_PATH"
           /bin/rm -f -- "${CANDIDATE_SOURCE_PATH}.provenance.json"
@@ -1325,6 +1371,7 @@ jobs:
       - name: Remove isolated build and upload state
         if: always()
         env:
+          BUILD_ENVIRONMENT_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-build-environment
           CANDIDATE_HOME_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-home
           CANDIDATE_SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-source
           PNPM_BOOTSTRAP_CACHE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-npm-cache
@@ -1414,6 +1461,9 @@ jobs:
             fi
           }
           assert_expected_path \
+            "$BUILD_ENVIRONMENT_PATH" \
+            "$VERCEL_ISOLATION_ROOT/mento-vercel-build-environment"
+          assert_expected_path \
             "$CANDIDATE_HOME_PATH" \
             "$VERCEL_ISOLATION_ROOT/mento-vercel-candidate-home"
           assert_expected_path \
@@ -1482,6 +1532,7 @@ jobs:
             -rf \
             --one-file-system \
             -- \
+            "$BUILD_ENVIRONMENT_PATH" \
             "$CANDIDATE_HOME_PATH" \
             "$CANDIDATE_SOURCE_PATH" \
             "$PNPM_BOOTSTRAP_CACHE_PATH" \
