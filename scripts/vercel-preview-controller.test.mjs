@@ -315,6 +315,25 @@ function persistAllIntents(reconciled) {
   return state;
 }
 
+function persistTargetDispatches(reconciled, runIdsByTarget) {
+  const state = structuredClone(reconciled.state);
+  for (const dispatch of reconciled.nextDispatches) {
+    const runId = runIdsByTarget[dispatch.target];
+    if (runId === undefined) continue;
+    state.targets[dispatch.target].active = {
+      ...structuredClone(dispatch),
+      dispatch_started_at: timestamp(0),
+      dispatch_state: "dispatched",
+      workflow_run_id: runId,
+      workflow_sha: dispatch.expected_workflow_sha,
+      workflow_run_attempt: 1,
+      run_url: `https://api.github.com/repos/mento-protocol/frontend-monorepo/actions/runs/${runId}`,
+      html_url: `https://github.com/mento-protocol/frontend-monorepo/actions/runs/${runId}`,
+    };
+  }
+  return state;
+}
+
 function result(
   dispatch,
   {
@@ -4923,7 +4942,957 @@ test("closed bootstrap recovers one drained legacy journal and pre-floor reruns 
   assert.equal(fixture.comments[0].body, beforeDelayedRerun);
 });
 
-test("closed bootstrap never creates a missing journal or accepts unfinished ownership", async () => {
+function closedBootstrapTerminalRecoverySetup() {
+  const opened = event({
+    run: 70_001,
+    action: "opened",
+    head: SHA.A,
+    targets: ["app", "governance", "reserve"],
+    updated: timestamp(1),
+  });
+  const selected = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const runIdsByTarget = {
+    app: 80_001,
+    governance: 80_002,
+    reserve: 80_003,
+  };
+  const state = persistTargetDispatches(selected, runIdsByTarget);
+  const selections = Object.keys(runIdsByTarget).map((target) =>
+    selectionReceiptFromDispatch(state.targets[target].active),
+  );
+  const results = Object.entries(runIdsByTarget).map(([target, runId]) =>
+    result(state.targets[target].active, {
+      runId,
+      state: "failure",
+      reason: target === "reserve" ? "worker-failure" : "build-failed-final",
+    }),
+  );
+  const workerRuns = Object.entries(runIdsByTarget).map(([target, runId]) =>
+    workerRun(state.targets[target].active, {
+      id: runId,
+      status: "completed",
+      conclusion: "failure",
+    }),
+  );
+  const bootstrap = closedBootstrapEvent({
+    run: 70_010,
+    runNumber: 10,
+    head: SHA.A,
+    updated: timestamp(2),
+  });
+  const closedPull = pull({
+    head: SHA.A,
+    state: "closed",
+    updated: timestamp(2),
+    closed: timestamp(2),
+  });
+  const inputs = {
+    context: fakeContext({
+      runId: bootstrap.event_run_id,
+      runNumber: bootstrap.event_run_number,
+    }),
+    core: fakeCore(),
+    snapshotRaw: JSON.stringify(
+      Object.fromEntries(
+        Object.entries(bootstrap).filter(([key]) => key !== "plan"),
+      ),
+    ),
+    planRaw: "",
+    plannerOutcome: "skipped",
+    waitForAdmission: async () => {},
+  };
+  return {
+    bootstrap,
+    closedPull,
+    inputs,
+    opened,
+    results,
+    runIdsByTarget,
+    selections,
+    state,
+    workerRuns,
+  };
+}
+
+function assertClosedBootstrapRecoveryStayedWriteFree(fixture, before) {
+  assert.equal(fixture.comments[0].body, before);
+  assert.equal(fixture.commentUpdates.length, 0);
+  assert.equal(fixture.commitStatuses.length, 0);
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(fixture.deployments.length, 0);
+  assert.equal(fixture.createdDeploymentStatuses.length, 0);
+}
+
+test("closed bootstrap authenticates terminal stale owners before its one reconcile path drains them", async () => {
+  const setup = closedBootstrapTerminalRecoverySetup();
+  const fixture = fakeGitHub({
+    pullRequest: setup.closedPull,
+    comments: [
+      journalComment({
+        events: [setup.opened],
+        state: setup.state,
+        selections: setup.selections,
+        results: setup.results,
+        admission: null,
+      }),
+    ],
+    runs: [
+      controllerInertRun({
+        id: setup.bootstrap.event_run_id,
+        runNumber: setup.bootstrap.event_run_number,
+      }),
+      ...setup.workerRuns,
+    ],
+    includeDefaultControllerFloor: false,
+  });
+
+  await recordEventReceipt({ github: fixture.github, ...setup.inputs });
+
+  const admitted = journalFromComment(fixture.comments[0]);
+  assert.deepEqual(admitted.admission, {
+    schema: "vercel-preview-controller-admission:v1",
+    workflow_id: CONTROLLER_WORKFLOW_ID,
+    through_run_id: setup.bootstrap.event_run_id,
+    through_run_number: setup.bootstrap.event_run_number,
+  });
+  assert.equal(
+    setup.inputs.core.outputs.get("closed_bootstrap_terminal_recovery"),
+    "true",
+  );
+  assert.equal(
+    setup.inputs.core.outputs.get("closed_bootstrap_terminal_owner_count"),
+    "3",
+  );
+  assert.deepEqual(
+    fixture.workflowRunAttemptRequests.map(({ run_id: runId }) => runId),
+    Object.values(setup.runIdsByTarget),
+  );
+  assert.equal(fixture.workflowRunListRequests.length, 0);
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(fixture.deployments.length, 0);
+  assert.equal(fixture.createdDeploymentStatuses.length, 0);
+  assert.ok(fixture.commitStatuses.every(({ state }) => state !== "pending"));
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    context: setup.inputs.context,
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+  assert.equal(state.closed, true);
+  assert.equal(state.epoch.anchor_run_id, setup.bootstrap.event_run_id);
+  for (const target of PREVIEW_TARGETS) {
+    assert.equal(state.targets[target].active, null);
+    assert.deepEqual(state.targets[target].retired_active, []);
+  }
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(fixture.deployments.length, 0);
+  assert.equal(fixture.createdDeploymentStatuses.length, 0);
+  assert.ok(fixture.commitStatuses.every(({ state }) => state !== "pending"));
+});
+
+test("closed bootstrap accepts a successful worker with durable missing-success evidence", async () => {
+  const setup = closedBootstrapTerminalRecoverySetup();
+  const active = setup.state.targets.app.active;
+  const results = setup.results.map((candidate) =>
+    candidate.target === "app"
+      ? controllerResult(active, {
+          runId: active.workflow_run_id,
+          reason: "missing-success-evidence",
+        })
+      : candidate,
+  );
+  const workerRuns = setup.workerRuns.map((run) =>
+    run.id === active.workflow_run_id
+      ? workerRun(active, {
+          id: active.workflow_run_id,
+          status: "completed",
+          conclusion: "success",
+        })
+      : run,
+  );
+  const fixture = fakeGitHub({
+    pullRequest: setup.closedPull,
+    comments: [
+      journalComment({
+        events: [setup.opened],
+        state: setup.state,
+        selections: setup.selections,
+        results,
+        admission: null,
+      }),
+    ],
+    runs: [
+      controllerInertRun({
+        id: setup.bootstrap.event_run_id,
+        runNumber: setup.bootstrap.event_run_number,
+      }),
+      ...workerRuns,
+    ],
+    includeDefaultControllerFloor: false,
+  });
+
+  await recordEventReceipt({ github: fixture.github, ...setup.inputs });
+  const state = await reconcilePreview({
+    github: fixture.github,
+    context: setup.inputs.context,
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(state.closed, true);
+  assert.equal(state.targets.app.active, null);
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.deployments.length, 0);
+  assert.ok(fixture.commitStatuses.every(({ state }) => state !== "pending"));
+});
+
+test("closed bootstrap drains a near-capacity closed state with terminal active owners only in the same run", async () => {
+  const setup = closedBootstrapTerminalRecoverySetup();
+  const closed = event({
+    run: 70_005,
+    runNumber: 5,
+    action: "closed",
+    head: SHA.A,
+    updated: timestamp(2),
+  });
+  const closedBeforeTerminalFold = reconcile({
+    events: [setup.opened, closed],
+    pullRequest: setup.closedPull,
+    existingState: setup.state,
+  });
+  assert.equal(closedBeforeTerminalFold.state.closed, true);
+  for (const target of ["app", "governance", "reserve"]) {
+    assert.ok(closedBeforeTerminalFold.state.targets[target].active);
+  }
+  const events = [setup.opened, closed];
+  let comment = journalComment({
+    events,
+    state: closedBeforeTerminalFold.state,
+    selections: setup.selections,
+    results: setup.results,
+    admission: null,
+  });
+  for (
+    let index = 1;
+    Buffer.byteLength(comment.body, "utf8") <= 41_000;
+    index += 1
+  ) {
+    events.push(
+      event({
+        run: 72_000 + index,
+        action: "opened",
+        head: SHA.A,
+        targets: ["app", "governance", "reserve"],
+        updated: timestamp(1),
+      }),
+    );
+    comment = journalComment({
+      events,
+      state: closedBeforeTerminalFold.state,
+      selections: setup.selections,
+      results: setup.results,
+      admission: null,
+    });
+  }
+  assert.ok(Buffer.byteLength(comment.body, "utf8") > 40_000);
+  assert.ok(Buffer.byteLength(comment.body, "utf8") < 60_000);
+  const appSelection = setup.state.targets.app.active;
+  const appDeployment = {
+    id: 9_000,
+    ref: appSelection.sha,
+    sha: appSelection.sha,
+    environment: "preview/app/pr-519",
+    payload: {
+      ...canonicalDeploymentBinding(),
+      idempotency_key: appSelection.key,
+      sha: appSelection.sha,
+      logical_target: "app",
+    },
+  };
+  const fixture = fakeGitHub({
+    pullRequest: setup.closedPull,
+    comments: [comment],
+    runs: [
+      controllerInertRun({
+        id: setup.bootstrap.event_run_id,
+        runNumber: setup.bootstrap.event_run_number,
+      }),
+      ...setup.workerRuns,
+    ],
+    deployments: [appDeployment],
+    includeDefaultControllerFloor: false,
+  });
+
+  await recordEventReceipt({ github: fixture.github, ...setup.inputs });
+  const admitted = journalFromComment(fixture.comments[0]);
+  assert.equal(admitted.checkpoint, null);
+  assert.equal(admitted.state.closed, true);
+  for (const target of ["app", "governance", "reserve"]) {
+    assert.ok(admitted.state.targets[target].active);
+  }
+  assert.deepEqual(admitted.admission, {
+    schema: "vercel-preview-controller-admission:v1",
+    workflow_id: CONTROLLER_WORKFLOW_ID,
+    through_run_id: setup.bootstrap.event_run_id,
+    through_run_number: setup.bootstrap.event_run_number,
+  });
+  assert.ok(Buffer.byteLength(fixture.comments[0].body, "utf8") > 40_000);
+
+  const beforeBlockedWriters = fixture.comments[0].body;
+  const mutationCounts = () => ({
+    comments: fixture.commentUpdates.length,
+    statuses: fixture.commitStatuses.length,
+    dispatches: fixture.dispatches.length,
+    workerDispatches: fixture.workerDispatchRequests.length,
+    deployments: fixture.deployments.length,
+    deploymentStatuses: fixture.createdDeploymentStatuses.length,
+  });
+  const initialMutationCounts = mutationCounts();
+  await assert.rejects(
+    recordWorkerEvidence({
+      github: fixture.github,
+      context: fakeContext({ runId: appSelection.workflow_run_id }),
+      core: fakeCore(),
+      inputs: {
+        ...workerInputs(appSelection),
+        execution_mode: "build",
+        build_duration_ms: "1234",
+        verified_upload_url: "https://app-terminal-recovery.vercel.app",
+        vercel_deployment_id: "dpl_TerminalRecovery",
+        next_deployment_id: "m-app-terminal-recovery",
+      },
+    }),
+    /rejects journal writes outside its exact run/,
+  );
+  assert.equal(fixture.comments[0].body, beforeBlockedWriters);
+  assert.deepEqual(mutationCounts(), initialMutationCounts);
+
+  for (const [index, action] of ["reopened", "synchronize"].entries()) {
+    const laterReceipt = event({
+      run: 70_012 + index,
+      runNumber: 12 + index,
+      action,
+      before: action === "synchronize" ? SHA.A : null,
+      head: action === "synchronize" ? SHA.B : SHA.A,
+      targets: ["app"],
+      updated: timestamp(3 + index),
+    });
+    fixture.runs.push(
+      controllerEventRun({
+        id: laterReceipt.event_run_id,
+        runNumber: laterReceipt.event_run_number,
+        action,
+        before: laterReceipt.before_sha,
+        sha: laterReceipt.head_sha,
+        createdAt: timestamp(3 + index),
+      }),
+    );
+    const admissionScans = fixture.controllerEventRunListRequests.length;
+    await assert.rejects(
+      recordEventReceipt({
+        github: fixture.github,
+        context: fakeContext({
+          runId: laterReceipt.event_run_id,
+          runNumber: laterReceipt.event_run_number,
+        }),
+        core: fakeCore(),
+        ...eventRecordInputs(laterReceipt),
+      }),
+      /rejects later event receipts before same-run drain/,
+      action,
+    );
+    assert.equal(fixture.comments[0].body, beforeBlockedWriters);
+    assert.equal(
+      fixture.controllerEventRunListRequests.length,
+      admissionScans,
+      `${action} must fail before admission refresh`,
+    );
+    assert.deepEqual(mutationCounts(), initialMutationCounts);
+    fixture.runs.pop();
+  }
+
+  const beforeDistinctReconcile = fixture.comments[0].body;
+  await assert.rejects(
+    reconcilePreview({
+      github: fixture.github,
+      context: fakeContext({ runId: 70_011, runNumber: 11 }),
+      core: fakeCore(),
+      prNumber: 519,
+      waitForRecovery: async () => {},
+    }),
+    /requires its exact admitted run/,
+  );
+  assert.equal(fixture.comments[0].body, beforeDistinctReconcile);
+  const stillPending = journalFromComment(fixture.comments[0]);
+  assert.equal(stillPending.checkpoint, null);
+  assert.equal(stillPending.state.closed, true);
+  for (const target of ["app", "governance", "reserve"]) {
+    assert.ok(stillPending.state.targets[target].active);
+  }
+
+  fixture.runs.push(
+    controllerInertRun({
+      id: 70_011,
+      runNumber: 11,
+      event: "workflow_run",
+    }),
+  );
+  const beforeAdvancedFrontier = fixture.comments[0].body;
+  await assert.rejects(
+    reconcilePreview({
+      github: fixture.github,
+      context: setup.inputs.context,
+      core: fakeCore(),
+      prNumber: 519,
+      waitForRecovery: async () => {},
+    }),
+    /requires an exact quiescent admission floor/,
+  );
+  assert.equal(fixture.comments[0].body, beforeAdvancedFrontier);
+  const pinned = journalFromComment(fixture.comments[0]);
+  assert.deepEqual(pinned.admission, admitted.admission);
+  assert.equal(pinned.checkpoint, null);
+  assert.equal(pinned.state.closed, true);
+  fixture.runs.pop();
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    context: setup.inputs.context,
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+  const compacted = journalFromComment(fixture.comments[0]);
+  assert.equal(state.closed, true);
+  assert.ok(compacted.checkpoint);
+  assert.equal(compacted.state.closed, true);
+  assert.ok(Buffer.byteLength(fixture.comments[0].body, "utf8") < 40_000);
+  for (const target of PREVIEW_TARGETS) {
+    assert.equal(compacted.state.targets[target].active, null);
+    assert.deepEqual(compacted.state.targets[target].retired_active, []);
+  }
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.deepEqual(fixture.deployments, [appDeployment]);
+  assert.equal(fixture.createdDeploymentStatuses.length, 0);
+  assert.ok(fixture.commitStatuses.every(({ state }) => state !== "pending"));
+
+  fixture.runs.push(
+    controllerInertRun({
+      id: 70_011,
+      runNumber: 11,
+      event: "workflow_run",
+    }),
+  );
+  await recordEventReceipt({ github: fixture.github, ...setup.inputs });
+  assert.deepEqual(journalFromComment(fixture.comments[0]).admission, {
+    schema: "vercel-preview-controller-admission:v1",
+    workflow_id: CONTROLLER_WORKFLOW_ID,
+    through_run_id: 70_011,
+    through_run_number: 11,
+  });
+  assert.equal(fixture.dispatches.length, 0);
+  assert.deepEqual(fixture.deployments, [appDeployment]);
+  assert.equal(fixture.createdDeploymentStatuses.length, 0);
+});
+
+test("closed bootstrap terminal recovery resumes only the exact admitted run after a partial failure", async () => {
+  const setup = closedBootstrapTerminalRecoverySetup();
+  const fixture = fakeGitHub({
+    pullRequest: setup.closedPull,
+    comments: [
+      journalComment({
+        events: [setup.opened],
+        state: setup.state,
+        selections: setup.selections,
+        results: setup.results,
+        admission: null,
+      }),
+    ],
+    runs: [
+      controllerInertRun({
+        id: setup.bootstrap.event_run_id,
+        runNumber: setup.bootstrap.event_run_number,
+      }),
+      ...setup.workerRuns,
+    ],
+    includeDefaultControllerFloor: false,
+    commitStatusFailures: [503],
+  });
+
+  await assert.rejects(
+    recordEventReceipt({ github: fixture.github, ...setup.inputs }),
+    /fixture commit status write failed/,
+  );
+  const afterPartialFailure = journalFromComment(fixture.comments[0]);
+  assert.deepEqual(afterPartialFailure.admission, {
+    schema: "vercel-preview-controller-admission:v1",
+    workflow_id: CONTROLLER_WORKFLOW_ID,
+    through_run_id: setup.bootstrap.event_run_id,
+    through_run_number: setup.bootstrap.event_run_number,
+  });
+  assert.equal(
+    afterPartialFailure.receipts.events.some(
+      (candidate) => candidate.event_run_id === setup.bootstrap.event_run_id,
+    ) ||
+      afterPartialFailure.checkpoint?.event.event_run_id ===
+        setup.bootstrap.event_run_id,
+    true,
+  );
+  assert.equal(afterPartialFailure.state.closed, false);
+
+  const rerunCore = fakeCore();
+  await recordEventReceipt({
+    github: fixture.github,
+    ...setup.inputs,
+    context: fakeContext({
+      runId: setup.bootstrap.event_run_id,
+      runNumber: setup.bootstrap.event_run_number,
+      runAttempt: 2,
+    }),
+    core: rerunCore,
+  });
+  const afterRerun = journalFromComment(fixture.comments[0]);
+  assert.equal(afterRerun.revision, afterPartialFailure.revision);
+  assert.equal(
+    rerunCore.outputs.get("closed_bootstrap_terminal_recovery"),
+    "true",
+  );
+  assert.equal(rerunCore.outputs.get("reconcile_required"), "true");
+  assert.equal(fixture.commentUpdates.length, 1);
+  assert.equal(fixture.workflowRunListRequests.length, 0);
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(fixture.deployments.length, 0);
+  assert.equal(fixture.createdDeploymentStatuses.length, 0);
+  assert.ok(fixture.commitStatuses.every(({ state }) => state !== "pending"));
+
+  const state = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext({
+      runId: setup.bootstrap.event_run_id,
+      runNumber: setup.bootstrap.event_run_number,
+      runAttempt: 2,
+    }),
+    core: fakeCore(),
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+  assert.equal(state.closed, true);
+  for (const target of PREVIEW_TARGETS) {
+    assert.equal(state.targets[target].active, null);
+    assert.deepEqual(state.targets[target].retired_active, []);
+  }
+});
+
+test("closed bootstrap terminal recovery fails before mutation on missing, ambiguous, or mismatched results", async () => {
+  for (const scenario of ["missing", "ambiguous", "wrong-run"]) {
+    const setup = closedBootstrapTerminalRecoverySetup();
+    const active = setup.state.targets.app.active;
+    let results = setup.results;
+    if (scenario === "missing") {
+      results = results.filter((candidate) => candidate.target !== "app");
+    } else if (scenario === "ambiguous") {
+      results = [
+        ...results,
+        result(active, {
+          runId: 80_011,
+          state: "failure",
+          reason: "worker-failure",
+        }),
+      ];
+    } else {
+      results = results.map((candidate) =>
+        candidate.target === "app"
+          ? result(active, {
+              runId: 80_011,
+              state: "failure",
+              reason: "worker-failure",
+            })
+          : candidate,
+      );
+    }
+    const fixture = fakeGitHub({
+      pullRequest: setup.closedPull,
+      comments: [
+        journalComment({
+          events: [setup.opened],
+          state: setup.state,
+          selections: setup.selections,
+          results,
+          admission: null,
+        }),
+      ],
+      runs: [
+        controllerInertRun({
+          id: setup.bootstrap.event_run_id,
+          runNumber: setup.bootstrap.event_run_number,
+        }),
+        ...setup.workerRuns,
+        workerRun(active, {
+          id: 80_011,
+          status: "completed",
+          conclusion: "failure",
+        }),
+      ],
+      includeDefaultControllerFloor: false,
+    });
+    const before = fixture.comments[0].body;
+
+    await assert.rejects(
+      recordEventReceipt({ github: fixture.github, ...setup.inputs }),
+      scenario === "wrong-run"
+        ? /worker ownership is ambiguous/
+        : /result is missing or ambiguous/,
+      scenario,
+    );
+    assertClosedBootstrapRecoveryStayedWriteFree(fixture, before);
+  }
+});
+
+test("closed bootstrap terminal recovery rejects nonterminal or contradictory worker evidence", async () => {
+  for (const scenario of ["queued", "success-vs-failure", "wrong-workflow"]) {
+    const setup = closedBootstrapTerminalRecoverySetup();
+    const active = setup.state.targets.app.active;
+    const workerRuns = setup.workerRuns.map((run) => {
+      if (run.id !== active.workflow_run_id) return run;
+      if (scenario === "queued") {
+        return { ...run, status: "queued", conclusion: null };
+      }
+      if (scenario === "success-vs-failure") {
+        return { ...run, status: "completed", conclusion: "success" };
+      }
+      return { ...run, head_sha: SHA.D };
+    });
+    const fixture = fakeGitHub({
+      pullRequest: setup.closedPull,
+      comments: [
+        journalComment({
+          events: [setup.opened],
+          state: setup.state,
+          selections: setup.selections,
+          results: setup.results,
+          admission: null,
+        }),
+      ],
+      runs: [
+        controllerInertRun({
+          id: setup.bootstrap.event_run_id,
+          runNumber: setup.bootstrap.event_run_number,
+        }),
+        ...workerRuns,
+      ],
+      includeDefaultControllerFloor: false,
+    });
+    const before = fixture.comments[0].body;
+
+    await assert.rejects(
+      recordEventReceipt({ github: fixture.github, ...setup.inputs }),
+      scenario === "wrong-workflow"
+        ? /does not match controller-authorized SHA/
+        : /worker evidence is nonterminal or mismatched/,
+      scenario,
+    );
+    assertClosedBootstrapRecoveryStayedWriteFree(fixture, before);
+  }
+});
+
+test("closed bootstrap rejects terminal results with a contradictory conclusion reason", async () => {
+  for (const scenario of [
+    {
+      conclusion: "success",
+      reason: "worker-cancelled",
+    },
+    {
+      conclusion: "failure",
+      reason: "missing-success-evidence",
+    },
+    {
+      conclusion: "cancelled",
+      reason: "upload-ambiguous",
+    },
+  ]) {
+    const setup = closedBootstrapTerminalRecoverySetup();
+    const active = setup.state.targets.app.active;
+    const results = setup.results.map((candidate) =>
+      candidate.target === "app"
+        ? controllerResult(active, {
+            runId: active.workflow_run_id,
+            reason: scenario.reason,
+          })
+        : candidate,
+    );
+    const workerRuns = setup.workerRuns.map((run) =>
+      run.id === active.workflow_run_id
+        ? workerRun(active, {
+            id: active.workflow_run_id,
+            status: "completed",
+            conclusion: scenario.conclusion,
+          })
+        : run,
+    );
+    const fixture = fakeGitHub({
+      pullRequest: setup.closedPull,
+      comments: [
+        journalComment({
+          events: [setup.opened],
+          state: setup.state,
+          selections: setup.selections,
+          results,
+          admission: null,
+        }),
+      ],
+      runs: [
+        controllerInertRun({
+          id: setup.bootstrap.event_run_id,
+          runNumber: setup.bootstrap.event_run_number,
+        }),
+        ...workerRuns,
+      ],
+      includeDefaultControllerFloor: false,
+    });
+    const before = fixture.comments[0].body;
+
+    await assert.rejects(
+      recordEventReceipt({ github: fixture.github, ...setup.inputs }),
+      /worker evidence is nonterminal or mismatched/,
+      `${scenario.conclusion}:${scenario.reason}`,
+    );
+    assertClosedBootstrapRecoveryStayedWriteFree(fixture, before);
+  }
+});
+
+test("closed bootstrap terminal recovery cannot replace a cursor or race another controller run", async () => {
+  for (const scenario of ["cursor", "later-run"]) {
+    const setup = closedBootstrapTerminalRecoverySetup();
+    const admission =
+      scenario === "cursor" ? DEFAULT_CONTROLLER_ADMISSION : null;
+    const runs = [
+      controllerInertRun({
+        id: setup.bootstrap.event_run_id,
+        runNumber: setup.bootstrap.event_run_number,
+      }),
+      ...setup.workerRuns,
+    ];
+    if (scenario === "later-run") {
+      runs.push(
+        controllerInertRun({
+          id: 70_011,
+          runNumber: 11,
+          event: "workflow_run",
+        }),
+      );
+    }
+    const fixture = fakeGitHub({
+      pullRequest: setup.closedPull,
+      comments: [
+        journalComment({
+          events: [setup.opened],
+          state: setup.state,
+          selections: setup.selections,
+          results: setup.results,
+          admission,
+        }),
+      ],
+      runs,
+      includeDefaultControllerFloor: false,
+    });
+    const before = fixture.comments[0].body;
+
+    await assert.rejects(
+      recordEventReceipt({ github: fixture.github, ...setup.inputs }),
+      scenario === "cursor"
+        ? /requires a cursorless journal/
+        : /requires an exact quiescent admission floor/,
+      scenario,
+    );
+    assertClosedBootstrapRecoveryStayedWriteFree(fixture, before);
+  }
+});
+
+test("closed bootstrap terminal recovery rejects unfinished retired and checkpoint ownership", async () => {
+  for (const scenario of ["retired", "checkpoint"]) {
+    const setup = closedBootstrapTerminalRecoverySetup();
+    let comment;
+    if (scenario === "retired") {
+      const state = structuredClone(setup.state);
+      state.targets.app.retired_active = [state.targets.app.active];
+      state.targets.app.active = null;
+      comment = journalComment({
+        events: [setup.opened],
+        state,
+        selections: setup.selections,
+        results: setup.results.filter(
+          (candidate) => candidate.target !== "app",
+        ),
+        admission: null,
+      });
+    } else {
+      const events = [setup.opened];
+      let previousHead = setup.opened.head_sha;
+      let journal = createPreviewJournal({
+        pr: 519,
+        events,
+        selections: setup.selections,
+        results: setup.results,
+        state: setup.state,
+      });
+      for (
+        let index = 1;
+        Buffer.byteLength(previewJournalBody(journal), "utf8") < 41_000;
+        index += 1
+      ) {
+        const head = (1_000 + index).toString(16).padStart(40, "0");
+        events.push(
+          event({
+            run: 71_000 + index,
+            action: "synchronize",
+            before: previousHead,
+            head,
+            targets: ["app", "governance", "reserve"],
+            updated: new Date(
+              Date.UTC(2026, 6, 15, 10, 0, index + 2),
+            ).toISOString(),
+          }),
+        );
+        previousHead = head;
+        journal = createPreviewJournal({
+          pr: 519,
+          events,
+          selections: setup.selections,
+          results: setup.results,
+          state: setup.state,
+        });
+      }
+      const compacted = compactPreviewJournal(journal);
+      assert.ok(
+        PREVIEW_TARGETS.some(
+          (target) =>
+            compacted.checkpoint.targets[target].pending_owner_key_digest !==
+            null,
+        ),
+      );
+      comment = {
+        id: 1,
+        user: { type: "Bot", login: "github-actions[bot]" },
+        body: previewJournalBody(compacted),
+      };
+    }
+    const fixture = fakeGitHub({
+      pullRequest: setup.closedPull,
+      comments: [comment],
+      runs: [
+        controllerInertRun({
+          id: setup.bootstrap.event_run_id,
+          runNumber: setup.bootstrap.event_run_number,
+        }),
+        ...setup.workerRuns,
+      ],
+      includeDefaultControllerFloor: false,
+    });
+    const before = fixture.comments[0].body;
+
+    await assert.rejects(
+      recordEventReceipt({ github: fixture.github, ...setup.inputs }),
+      /rejects retired or checkpoint ownership/,
+      scenario,
+    );
+    assertClosedBootstrapRecoveryStayedWriteFree(fixture, before);
+  }
+});
+
+test("closed bootstrap preserves the drained contract for terminal non-pending retired history", async () => {
+  const setup = closedBootstrapTerminalRecoverySetup();
+  const state = structuredClone(setup.state);
+  state.targets.app.retired_active = [state.targets.app.active];
+  state.targets.app.active = null;
+  for (const target of ["governance", "reserve"]) {
+    state.targets[target].active = null;
+  }
+  const fixture = fakeGitHub({
+    pullRequest: setup.closedPull,
+    comments: [
+      journalComment({
+        events: [setup.opened],
+        state,
+        selections: setup.selections,
+        results: setup.results,
+        admission: null,
+      }),
+    ],
+    runs: [
+      controllerInertRun({
+        id: setup.bootstrap.event_run_id,
+        runNumber: setup.bootstrap.event_run_number,
+      }),
+    ],
+    includeDefaultControllerFloor: false,
+  });
+
+  await recordEventReceipt({ github: fixture.github, ...setup.inputs });
+
+  assert.equal(
+    journalFromComment(fixture.comments[0]).admission.through_run_id,
+    setup.bootstrap.event_run_id,
+  );
+  assert.equal(
+    setup.inputs.core.outputs.has("closed_bootstrap_terminal_recovery"),
+    false,
+  );
+  assert.equal(fixture.workflowRunAttemptRequests.length, 0);
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.deployments.length, 0);
+  assert.ok(fixture.commitStatuses.every(({ state }) => state !== "pending"));
+});
+
+test("closed bootstrap terminal recovery rechecks that the PR stayed closed before mutation", async () => {
+  const setup = closedBootstrapTerminalRecoverySetup();
+  const reopenedPull = pull({
+    head: SHA.A,
+    state: "open",
+    updated: timestamp(3),
+    closed: null,
+  });
+  const fixture = fakeGitHub({
+    pullRequest: setup.closedPull,
+    pullRequests: [setup.closedPull, reopenedPull],
+    comments: [
+      journalComment({
+        events: [setup.opened],
+        state: setup.state,
+        selections: setup.selections,
+        results: setup.results,
+        admission: null,
+      }),
+    ],
+    runs: [
+      controllerInertRun({
+        id: setup.bootstrap.event_run_id,
+        runNumber: setup.bootstrap.event_run_number,
+      }),
+      ...setup.workerRuns,
+    ],
+    includeDefaultControllerFloor: false,
+  });
+  const before = fixture.comments[0].body;
+
+  await assert.rejects(
+    recordEventReceipt({ github: fixture.github, ...setup.inputs }),
+    /PR state changed before mutation/,
+  );
+  assertClosedBootstrapRecoveryStayedWriteFree(fixture, before);
+});
+
+test("closed bootstrap never creates a missing journal or accepts an owner without a worker", async () => {
   const bootstrap = closedBootstrapEvent({
     run: 70_020,
     runNumber: 20,
@@ -5000,7 +5969,7 @@ test("closed bootstrap never creates a missing journal or accepts unfinished own
   const before = unfinished.comments[0].body;
   await assert.rejects(
     recordEventReceipt({ github: unfinished.github, ...inputs }),
-    /ownership to be drained/,
+    /owner is not an exact dispatched selection/,
   );
   assert.equal(unfinished.comments[0].body, before);
   assert.equal(unfinished.commitStatuses.length, 0);

@@ -471,6 +471,18 @@ test("closed bootstrap reconciliation survives an intentionally skipped planner"
     reconcile.if,
     "always() && needs.receipt-bootstrap.result == 'success'",
   );
+  assert.equal(Object.hasOwn(receipt.permissions, "deployments"), false);
+  assert.match(JSON.stringify(receipt), /recordEventReceipt/);
+  assert.doesNotMatch(
+    JSON.stringify(receipt),
+    /recoverWorkerResult|createDeployment|createDeploymentStatus/,
+  );
+  assert.match(JSON.stringify(reconcile), /reconcilePreview/);
+  assert.doesNotMatch(JSON.stringify(reconcile), /recoverWorkerResult/);
+  assert.deepEqual(controller.on.repository_dispatch.types, [
+    "vercel-preview-bootstrap",
+    "vercel-preview-reconcile",
+  ]);
 });
 
 test("every PR comment writer uses the pull-request resource permission", () => {
@@ -928,6 +940,18 @@ test("runbook covers v2 migration, four-target canaries, cutover, and exact roll
     "vercel-preview-worker.yml",
     "vercel-preview-intake.yml",
     "queued requested waiting pending in_progress",
+    "terminal-active legacy case",
+    "current `active` slots only",
+    "does not search for a worker",
+    "complete quiescent admission",
+    "defers active-capacity checkpointing",
+    "admission cursor remains pinned to the bootstrap",
+    "later controller run appears at the Actions frontier",
+    "centralized journal-write barrier",
+    "only a terminal closed-and-drained state clears it",
+    "later PR event fails before admission refresh",
+    "distinct reconciliation run is rejected",
+    "exactly two operator steps",
     "gh api --paginate",
     "set -euo pipefail",
     "SHA",
