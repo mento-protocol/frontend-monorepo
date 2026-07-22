@@ -1,8 +1,10 @@
 name: Native Vercel Preview Smoke Adapter
 
-# Temporary bridge while Vercel Git still owns App and Governance branch
-# previews. Every exact qualifying Vercel success runs the full secretless
-# reusable smoke; no prior status is queried or trusted as dedupe evidence.
+# Temporary bridge while Vercel Git owns App branch previews. Governance also
+# enters this adapter while its native previews remain shadowed before cutover,
+# and only through a bounded target-local rollback path afterward. Every exact
+# qualifying Vercel success runs the full secretless reusable smoke; no prior
+# status is trusted for dedupe.
 on:
   deployment_status:
 
