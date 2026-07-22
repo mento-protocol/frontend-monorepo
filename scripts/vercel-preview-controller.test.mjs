@@ -7799,8 +7799,8 @@ test("worker preflight rejects expected A versus actual B before any API access"
   assert.equal(apiCalls, 0);
 });
 
-test("worker preflight permits GitHub canaries for every native-owned shadow target", async () => {
-  for (const [index, target] of ["app", "governance"].entries()) {
+test("worker preflight permits a GitHub canary for the remaining native-owned App shadow target", async () => {
+  for (const [index, target] of ["app"].entries()) {
     const opened = event({
       run: 116 + index,
       action: "opened",
@@ -9363,7 +9363,7 @@ test("observe-only mode durably attaches an in-progress crash-window worker and 
       "https://github.com/mento-protocol/frontend-monorepo/actions/runs/7001",
     targets: {
       app: "not affected",
-      governance: "not affected",
+      governance: "native-owned",
       reserve: "native-owned",
       ui: "pending",
     },

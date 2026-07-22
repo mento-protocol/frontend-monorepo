@@ -40,7 +40,7 @@ export const PREVIEW_TARGET_CONFIG = Object.freeze({
     workspacePackage: "governance.mento.org",
     expectedRootDirectory: "apps/governance.mento.org",
     projectVariable: "VERCEL_PROJECT_ID_GOVERNANCE",
-    ownershipMode: PREVIEW_OWNERSHIP_MODES.SHADOW,
+    ownershipMode: PREVIEW_OWNERSHIP_MODES.GITHUB,
     vercelConfigurationPath: "apps/governance.mento.org/vercel.json",
     githubVercelConfiguration: GITHUB_VERCEL_CONFIGURATION,
     nativeVercelConfiguration: NATIVE_VERCEL_CONFIGURATION,
