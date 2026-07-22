@@ -133,12 +133,15 @@ All preview verification lives in the secretless reusable
 header, asset, console, and browser checks plus target-specific App/Governance
 wallet flow, Reserve tab/data interaction, or UI deployment-identity flow. The
 temporary `.github/workflows/preview-smoke.yml` adapter calls that reusable
-workflow for every exact native Vercel App/Governance success; it performs no
-status lookup or reuse and receives no deployment credential. GitHub-built
-workers call the reusable workflow directly because a `GITHUB_TOKEN` Deployment
-status is evidence, not a downstream trigger contract. The automatic exact-SHA
-controller, bootstrap, canary, cutover, and rollback contract is in
-`docs/vercel-deployments.md`.
+workflow only for exact native Vercel App/Governance successes created during
+a bounded target-local rollback; it performs no status lookup or reuse and
+receives no deployment credential. Ordinary previews for all four targets are
+GitHub-owned and do not use this adapter. The adapter remains temporarily for
+rollback proof and is removed only in #523 cleanup, after the #522 production
+cutover and required observation period. GitHub-built workers call the reusable
+workflow directly because a `GITHUB_TOKEN` Deployment status is evidence, not
+a downstream trigger contract. The automatic exact-SHA controller, bootstrap,
+canary, cutover, and rollback contract is in `docs/vercel-deployments.md`.
 
 ## Coding Conventions
 

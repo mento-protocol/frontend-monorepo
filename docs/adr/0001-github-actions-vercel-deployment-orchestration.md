@@ -138,7 +138,9 @@ Each worker creates or reuses one GitHub Deployment whose `ref` is the selected
 40-character SHA, then reports queued, in-progress, and a truthful terminal
 status. Every selected target runs direct smoke against its immutable URL before
 success. App and governance retain a rollback-only native `deployment_status`
-adapter for bounded target-local recovery; a status created with the repository
+adapter for bounded target-local recovery; it is not an ordinary native preview
+path. Its removal is deferred to #523 cleanup after the #522 production cutover
+and required observation period. A status created with the repository
 `GITHUB_TOKEN` is evidence, not a trigger contract.
 
 The direct smoke is one credential-free reusable workflow shared by all four
@@ -221,10 +223,12 @@ targets prove no-domain staging, and app `v3` proves its activation semantics,
 before the final reviewed ownership change.
 
 The current version-controlled preview map assigns App, Governance, Reserve,
-and UI to GitHub Actions. App's configuration change is accepted only after its
-exact-head and fresh post-merge canaries pass, and it may not be published until
-the earlier Governance post-merge canary has passed. App `main`, `v2`, and
-custom-`v3` semantics do not change in this step.
+and UI to GitHub Actions. App's configuration change was accepted after its
+exact-head PR #609 and fresh post-merge PR #610 canaries passed, following the
+earlier Governance post-merge canary. Ordinary native branch previews are now
+disabled for every target. Until #522, Vercel Git still owns App's `main -> v3`
+and legacy `v2 -> production` paths as well as every other main/production
+deployment; custom-`v3` semantics do not change in this preview step.
 
 `git.deploymentEnabled` branch rules disable only replaced native paths. The app
 configuration always retains `v2: true`. Outside a bounded shadow canary or
