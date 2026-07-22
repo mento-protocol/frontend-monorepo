@@ -411,7 +411,7 @@ jobs:
   reconcile-bootstrap:
     name: Reconcile bootstrapped preview state
     needs: receipt-bootstrap
-    if: needs.receipt-bootstrap.result == 'success'
+    if: always() && needs.receipt-bootstrap.result == 'success'
     concurrency:
       group: vercel-preview-state-pr-${{ needs.receipt-bootstrap.outputs.pr_number }}
       cancel-in-progress: false
