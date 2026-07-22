@@ -1891,8 +1891,8 @@ unsupported-trust, failure, cancellation, and old-epoch evidence.
 ## UI Vercel Git cutover (Phase B)
 
 Phase B established UI's GitHub-owned branch-preview state, which remains part
-of the current ownership map alongside Reserve. Its completed precondition was
-that every Phase A dual-path canary above passed and its
+of the current ownership map alongside Governance and Reserve. Its completed
+precondition was that every Phase A dual-path canary above passed and its
 GitHub-built/native-preview evidence was recorded. This separate merge paired
 `VERCEL_PREVIEW_CONTROLLER_MODE: active` in
 `.github/workflows/vercel-preview-controller.yml` with the following exact
