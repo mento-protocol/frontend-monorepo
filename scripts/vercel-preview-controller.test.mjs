@@ -3616,6 +3616,46 @@ test("anchorless synchronize backlog defers without mutation until opened is dur
   assert.equal(fixture.workerDispatchRequests.length, 0);
 });
 
+test("a historical receipt gap fails closed instead of masquerading as current backlog", async () => {
+  const opened = event({
+    run: 10_150,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const disconnected = event({
+    run: 10_151,
+    action: "synchronize",
+    before: SHA.B,
+    head: SHA.C,
+    targets: ["app"],
+    updated: timestamp(3),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.D, updated: timestamp(4) }),
+    comments: [journalComment({ events: [opened, disconnected] })],
+  });
+  const core = fakeCore();
+
+  await assert.rejects(
+    reconcilePreview({
+      github: fixture.github,
+      context: fakeContext(),
+      core,
+      prNumber: 519,
+      waitForRecovery: async () => {},
+    }),
+    /Current PR epoch is missing or ambiguous/,
+  );
+  assert.equal(core.outputs.has("reconcile_deferred"), false);
+  assert.equal(fixture.commentUpdates.length, 0);
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+  assert.equal(fixture.commitStatuses.length, 1);
+  assert.equal(fixture.commitStatuses[0].sha, SHA.D);
+  assert.equal(fixture.commitStatuses[0].state, "error");
+});
+
 test("same-head base retarget waits for its edited receipt before using the old plan", async () => {
   const opened = event({
     run: 10_150,

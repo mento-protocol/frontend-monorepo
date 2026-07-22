@@ -126,10 +126,12 @@ class CurrentEpochSelectionError extends Error {
   constructor(
     candidateCount,
     message = "Current PR epoch is missing or ambiguous",
+    reason = "candidate-count",
   ) {
     super(message);
     this.name = "CurrentEpochSelectionError";
     this.candidateCount = candidateCount;
+    this.reason = reason;
   }
 }
 
@@ -1253,6 +1255,7 @@ function selectCurrentEpoch(events, pull, checkpoint = null) {
     throw new CurrentEpochSelectionError(
       0,
       "No opened, edited, reopened, or bootstrap anchor receipt exists",
+      "no-anchor",
     );
   }
 
@@ -1333,6 +1336,9 @@ function currentEpochReceiptIsBacklogged({
       error instanceof CurrentEpochSelectionError &&
       error.candidateCount === 0
     ) {
+      if (error.reason !== "no-anchor") {
+        selectCurrentEpoch(events, representedPull, checkpoint);
+      }
       return true;
     }
     throw error;
