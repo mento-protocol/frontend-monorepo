@@ -373,6 +373,7 @@ export function AddLiquidityForm({
 
   const {
     buildTransaction: buildZapTransaction,
+    buildTransactionAttempt: buildZapTransactionAttempt,
     buildResult: zapBuildResult,
     buildError: zapBuildError,
     isBuilding: isZapBuilding,
@@ -607,15 +608,16 @@ export function AddLiquidityForm({
         if (!capturedZapAmount || capturedZapAmount <= 0n) {
           throw new Error("Invalid single-token amount");
         }
-        const capturedZapBuild = await buildZapTransaction(
+        const capturedZapAttempt = await buildZapTransactionAttempt(
           capturedZapTokenIn as Address,
           capturedZapAmount,
           address,
           capturedSlippage,
         );
+        const capturedZapBuild = capturedZapAttempt.build;
         if (!capturedZapBuild) {
           throw new Error(
-            singleTokenLiquidityError ||
+            capturedZapAttempt.error ||
               "No single-token route is available for this amount. Try a smaller amount or use balanced mode.",
           );
         }
@@ -646,18 +648,19 @@ export function AddLiquidityForm({
           id: "zap-in",
           label: "Add Liquidity",
           buildTx: async () => {
-            const freshBuild =
+            const freshBuildAttempt =
               hasApprovalStep || capturedZapBuild.approval
-                ? await buildZapTransaction(
+                ? await buildZapTransactionAttempt(
                     capturedZapTokenIn as Address,
                     capturedZapAmount,
                     address,
                     capturedSlippage,
                   )
-                : capturedZapBuild;
+                : { build: capturedZapBuild, error: null };
+            const freshBuild = freshBuildAttempt.build;
             if (!freshBuild) {
               throw new Error(
-                singleTokenLiquidityError ||
+                freshBuildAttempt.error ||
                   "No single-token route is available for this amount. Try a smaller amount or use balanced mode.",
               );
             }

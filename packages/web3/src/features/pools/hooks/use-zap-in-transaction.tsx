@@ -21,6 +21,11 @@ const FPMM_FACTORY_POOL_ABI = parseAbi([
 
 type ZapRoute = ZapInTransaction["zapIn"]["routesA"];
 
+export interface ZapInBuildAttempt {
+  build: ZapInTransaction | null;
+  error: string | null;
+}
+
 function getZapInBuildError(message: string): string | null {
   if (/no viable zap-in route|no single-token route/i.test(message)) {
     return "No route for this amount. Reduce amount or use balanced mode.";
@@ -47,6 +52,12 @@ function getZapInBuildError(message: string): string | null {
   }
 
   return null;
+}
+
+function isApprovalPreflightEstimateError(message: string): boolean {
+  return /erc20insufficientallowance|insufficient allowance|0xfb8f41b2|transfer failed/i.test(
+    message,
+  );
 }
 
 function isSameAddress(addressA: string, addressB: string): boolean {
@@ -172,13 +183,13 @@ export function useZapInTransaction(pool: PoolDisplay, chainId?: ChainId) {
       });
   }, [txHash, publicClient, pool, resolvedChainId, queryClient]);
 
-  const buildTransaction = useCallback(
+  const buildTransactionAttempt = useCallback(
     async (
       tokenIn: Address,
       amountIn: bigint,
       recipient: Address,
       slippage: SlippageOption,
-    ): Promise<ZapInTransaction | null> => {
+    ): Promise<ZapInBuildAttempt> => {
       setIsBuilding(true);
       setBuildError(null);
       try {
@@ -212,8 +223,12 @@ export function useZapInTransaction(pool: PoolDisplay, chainId?: ChainId) {
               : String(estimateErr);
 
           let parsedError = getZapInBuildError(estimateMessage);
+          const canBeMissingAllowance =
+            Boolean(result.approval) &&
+            !parsedError &&
+            isApprovalPreflightEstimateError(estimateMessage);
 
-          if (!parsedError) {
+          if (canBeMissingAllowance) {
             try {
               await Promise.all([
                 validateZapRouteLiquidity({
@@ -239,40 +254,52 @@ export function useZapInTransaction(pool: PoolDisplay, chainId?: ChainId) {
             }
           }
 
-          // A missing allowance can surface as a generic transfer failure on
-          // Monad. Only waive that generic estimate after the route itself has
-          // passed read-only liquidity validation.
-          if (result.approval && !parsedError) {
+          // Missing allowance can surface as a generic transfer failure on
+          // Monad. Waive only that recognized approval failure after the route
+          // itself has passed read-only liquidity validation.
+          if (canBeMissingAllowance && !parsedError) {
             setBuildResult(result);
             setBuildError(null);
-            return result;
+            return { build: result, error: null };
           }
 
-          setBuildError(
+          const error =
             parsedError ||
-              "This single-token amount cannot be simulated right now. Try a smaller amount, higher slippage, or balanced mode.",
-          );
+            "This single-token amount cannot be simulated right now. Try a smaller amount, higher slippage, or balanced mode.";
+          setBuildError(error);
           setBuildResult(null);
-          return null;
+          return { build: null, error };
         }
 
         setBuildResult(result);
         setBuildError(null);
-        return result;
+        return { build: result, error: null };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         const parsedError = getZapInBuildError(message);
-        setBuildError(
-          parsedError || "Unable to prepare single-token liquidity right now.",
-        );
+        const error =
+          parsedError || "Unable to prepare single-token liquidity right now.";
+        setBuildError(error);
         logger.error("Failed to build zap-in transaction:", err);
         setBuildResult(null);
-        return null;
+        return { build: null, error };
       } finally {
         setIsBuilding(false);
       }
     },
     [resolvedChainId, pool, publicClient],
+  );
+
+  const buildTransaction = useCallback(
+    async (
+      tokenIn: Address,
+      amountIn: bigint,
+      recipient: Address,
+      slippage: SlippageOption,
+    ): Promise<ZapInTransaction | null> =>
+      (await buildTransactionAttempt(tokenIn, amountIn, recipient, slippage))
+        .build,
+    [buildTransactionAttempt],
   );
 
   const sendZapIn = useCallback(
@@ -313,6 +340,7 @@ export function useZapInTransaction(pool: PoolDisplay, chainId?: ChainId) {
 
   return {
     buildTransaction,
+    buildTransactionAttempt,
     buildResult,
     buildError,
     isBuilding,

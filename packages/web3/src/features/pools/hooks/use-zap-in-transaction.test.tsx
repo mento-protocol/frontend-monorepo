@@ -191,4 +191,19 @@ describe("useZapInTransaction build preflight", () => {
       "Pool liquidity is insufficient for this single-token amount.",
     );
   });
+
+  it("blocks an unrelated estimate failure even when approval is required", async () => {
+    const approvalBuild = makeBuild({ approval: true });
+    mocks.buildZapInTransaction.mockResolvedValueOnce(approvalBuild);
+    mocks.estimateGas.mockRejectedValueOnce(
+      new Error("execution reverted: token paused"),
+    );
+    const hook = renderHook(() => useZapInTransaction(pool, 143));
+
+    expect(await buildTransaction(hook)).toBeNull();
+    expect(mocks.readContract).not.toHaveBeenCalled();
+    expect(hook.result.current.buildError).toBe(
+      "This single-token amount cannot be simulated right now. Try a smaller amount, higher slippage, or balanced mode.",
+    );
+  });
 });

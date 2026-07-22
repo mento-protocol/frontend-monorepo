@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   buildAddLiquidityTransaction: vi.fn(),
   useZapInTransaction: vi.fn(),
   buildZapInTransaction: vi.fn(),
+  buildZapInTransactionAttempt: vi.fn(),
   executeLiquidityFlow: vi.fn(),
   useReadContract: vi.fn(),
   toastError: vi.fn(),
@@ -43,9 +44,10 @@ vi.mock("@mento-protocol/ui", () => ({
     children,
     size: _size,
     ...props
-  }: React.ButtonHTMLAttributes<HTMLButtonElement> & { size?: string }) => (
-    <button {...props}>{children}</button>
-  ),
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & { size?: string }) => {
+    void _size;
+    return <button {...props}>{children}</button>;
+  },
   CoinInput: (props: React.InputHTMLAttributes<HTMLInputElement>) => (
     <input {...props} />
   ),
@@ -272,10 +274,17 @@ describe("AddLiquidityForm canonical transaction flows", () => {
     }));
     mocks.useZapInTransaction.mockImplementation(() => ({
       buildTransaction: mocks.buildZapInTransaction,
+      buildTransactionAttempt: mocks.buildZapInTransactionAttempt,
       buildResult: currentZapPreviewBuild,
       buildError: null,
       isBuilding: false,
     }));
+    mocks.buildZapInTransactionAttempt.mockImplementation(
+      async (...args: unknown[]) => ({
+        build: await mocks.buildZapInTransaction(...args),
+        error: null,
+      }),
+    );
     mocks.useReadContract.mockImplementation(
       ({
         address,
@@ -446,4 +455,43 @@ describe("AddLiquidityForm canonical transaction flows", () => {
       );
     },
   );
+
+  it("shows the exact fresh click-time liquidity failure", async () => {
+    const amount = parseUnits("1", 18);
+    mocks.balances.set(EURM, parseUnits("10", 18));
+    mocks.balances.set(USDM, parseUnits("10", 18));
+    currentZapPreviewBuild = makeZapBuild({
+      token: EURM,
+      zapData: "0xpreview-zap",
+    });
+    mocks.buildZapInTransaction.mockResolvedValue(currentZapPreviewBuild);
+    mocks.buildZapInTransactionAttempt.mockResolvedValue({
+      build: null,
+      error: "Pool liquidity is insufficient for this single-token amount.",
+    });
+
+    render(<AddLiquidityForm pool={pool} />);
+    fireEvent.click(screen.getByRole("button", { name: "Single token" }));
+    fireEvent.change(screen.getByLabelText("Deposit amount in EURm"), {
+      target: { value: "1" },
+    });
+    await waitFor(() =>
+      expect(mocks.buildZapInTransaction).toHaveBeenCalledTimes(1),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add Liquidity" }));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "This pool cannot convert enough EURm into the other token for this single-token amount. Try a smaller amount or use balanced mode.",
+      ),
+    );
+    expect(mocks.buildZapInTransactionAttempt).toHaveBeenCalledWith(
+      EURM,
+      amount,
+      OWNER,
+      0.3,
+    );
+    expect(mocks.executeLiquidityFlow).not.toHaveBeenCalled();
+  });
 });
