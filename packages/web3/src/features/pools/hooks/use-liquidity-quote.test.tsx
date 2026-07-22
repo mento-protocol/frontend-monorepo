@@ -54,10 +54,9 @@ const pool: PoolDisplay = {
   tvl: 0,
 };
 
+let queryClient: QueryClient;
+
 function wrapper({ children }: { children: React.ReactNode }) {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
   return (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
@@ -86,6 +85,9 @@ describe("useLiquidityQuote", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
     liveReserves = [2_000n, 1_000n, 0n];
 
     mocks.getBlockNumber.mockResolvedValue(777n);
@@ -113,7 +115,10 @@ describe("useLiquidityQuote", () => {
     });
   });
 
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    queryClient.clear();
+  });
 
   it("uses a current-block reserve read instead of the primed SDK details cache", async () => {
     const { result } = renderHook(
@@ -148,6 +153,48 @@ describe("useLiquidityQuote", () => {
       reserve1: 1_000n,
       surplus0: 0n,
       surplus1: 500n,
+    });
+  });
+
+  it("uses live reserves to derive the manual pair sent to the Router", async () => {
+    liveReserves = [2n * 10n ** 18n, 1n * 10n ** 18n, 0n] as const;
+
+    const { result } = renderHook(
+      () =>
+        useLiquidityQuote({
+          pool,
+          chainId: 143,
+          request: {
+            id: 4,
+            kind: "manual",
+            token: 0,
+            amount: "10",
+          },
+        }),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.data).toBeTruthy());
+
+    expect(mocks.getPoolDetails).not.toHaveBeenCalled();
+    expect(mocks.readContract).toHaveBeenCalledWith(
+      expect.objectContaining({
+        functionName: "getReserves",
+        blockNumber: 777n,
+      }),
+    );
+    expect(mocks.quoteAddLiquidity).toHaveBeenCalledWith(
+      pool.poolAddr,
+      pool.token0.address,
+      10n * 10n ** 18n,
+      pool.token1.address,
+      5n * 10n ** 18n,
+    );
+    expect(result.current.data).toMatchObject({
+      amountA: 10n * 10n ** 18n,
+      amountB: 5n * 10n ** 18n,
+      reserve0: 2n * 10n ** 18n,
+      reserve1: 1n * 10n ** 18n,
     });
   });
 
