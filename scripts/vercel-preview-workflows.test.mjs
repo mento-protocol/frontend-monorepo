@@ -452,6 +452,27 @@ test("event receipts explicitly gate whether reconciliation is required", () => 
   );
 });
 
+test("closed bootstrap reconciliation survives an intentionally skipped planner", () => {
+  const planner = controller.jobs["plan-bootstrap"];
+  const receipt = controller.jobs["receipt-bootstrap"];
+  const reconcile = controller.jobs["reconcile-bootstrap"];
+
+  assert.equal(
+    planner.if,
+    "needs.snapshot-bootstrap.outputs.plan_required == 'true'",
+  );
+  assert.deepEqual(receipt.needs, ["snapshot-bootstrap", "plan-bootstrap"]);
+  assert.equal(
+    receipt.if,
+    "always() && needs.snapshot-bootstrap.result == 'success'",
+  );
+  assert.equal(reconcile.needs, "receipt-bootstrap");
+  assert.equal(
+    reconcile.if,
+    "always() && needs.receipt-bootstrap.result == 'success'",
+  );
+});
+
 test("every PR comment writer uses the pull-request resource permission", () => {
   const controllerCommentWriters = [
     ["receipt-event", "recordEventReceipt"],
