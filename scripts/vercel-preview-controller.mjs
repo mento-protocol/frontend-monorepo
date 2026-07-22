@@ -123,8 +123,11 @@ class WorkerWorkflowShaMismatchError extends Error {
 }
 
 class CurrentEpochSelectionError extends Error {
-  constructor(candidateCount) {
-    super("Current PR epoch is missing or ambiguous");
+  constructor(
+    candidateCount,
+    message = "Current PR epoch is missing or ambiguous",
+  ) {
+    super(message);
     this.name = "CurrentEpochSelectionError";
     this.candidateCount = candidateCount;
   }
@@ -1246,10 +1249,12 @@ function selectCurrentEpoch(events, pull, checkpoint = null) {
         !nonBootstrapAnchorKeys.has(anchorAliasKey(event)),
     )
     .sort((a, b) => b.pr_updated_at.localeCompare(a.pr_updated_at));
-  invariant(
-    anchors.length > 0,
-    "No opened, edited, reopened, or bootstrap anchor receipt exists",
-  );
+  if (anchors.length === 0) {
+    throw new CurrentEpochSelectionError(
+      0,
+      "No opened, edited, reopened, or bootstrap anchor receipt exists",
+    );
+  }
 
   const candidates = [];
   for (const anchor of anchors) {

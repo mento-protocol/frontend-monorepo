@@ -3581,6 +3581,41 @@ test("reconciliation defers without mutation while the live head receipt is queu
   assert.deepEqual(nextApp.coalesced_receipt_run_ids, [appOnly.event_run_id]);
 });
 
+test("anchorless synchronize backlog defers without mutation until opened is durable", async () => {
+  const synchronized = event({
+    run: 10_149,
+    action: "synchronize",
+    before: SHA.A,
+    head: SHA.B,
+    targets: ["app"],
+    updated: timestamp(2),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.C, updated: timestamp(3) }),
+    comments: [journalComment({ events: [synchronized] })],
+  });
+  const core = fakeCore();
+
+  const deferred = await reconcilePreview({
+    github: fixture.github,
+    context: fakeContext(),
+    core,
+    prNumber: 519,
+    waitForRecovery: async () => {},
+  });
+
+  assert.equal(deferred, null);
+  assert.equal(core.outputs.get("reconcile_deferred"), "true");
+  assert.equal(core.outputs.get("pr_number"), "519");
+  assert.deepEqual(core.notices, [
+    "Preview reconciliation deferred until the current PR event receipt is durable",
+  ]);
+  assert.equal(fixture.commentUpdates.length, 0);
+  assert.equal(fixture.commitStatuses.length, 0);
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.workerDispatchRequests.length, 0);
+});
+
 test("same-head base retarget waits for its edited receipt before using the old plan", async () => {
   const opened = event({
     run: 10_150,
