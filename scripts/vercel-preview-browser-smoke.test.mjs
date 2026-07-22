@@ -5,6 +5,7 @@ import { test } from "node:test";
 import {
   createBrowserFailureMonitor,
   loadTrustedChromium,
+  reserveTabStateMatches,
   runBrowserSmoke,
 } from "./vercel-preview-browser-smoke.mjs";
 
@@ -39,11 +40,13 @@ function controllerTuple(target) {
 }
 
 class FakePage extends EventEmitter {
-  constructor(values, { afterInteraction } = {}) {
+  constructor(values, { afterInteraction, competingNavigation = false } = {}) {
     super();
     this.values = values;
     this.afterInteraction = afterInteraction;
+    this.competingNavigation = competingNavigation;
     this.currentUrl = values.deploymentUrl;
+    this.loadComplete = false;
     this.supplySelected = false;
     this.calls = [];
   }
@@ -118,11 +121,18 @@ class FakePage extends EventEmitter {
     if (options.name === "Supply") {
       return {
         click: async () => {
+          if (!this.loadComplete) {
+            this.calls.push(["supply-click-before-load"]);
+            return;
+          }
           this.supplySelected = true;
-          this.currentUrl = new URL(
+          this.pendingSupplyUrl = new URL(
             "/?tab=stablecoins",
             this.values.deploymentUrl,
           ).toString();
+          if (!this.competingNavigation) {
+            this.currentUrl = this.pendingSupplyUrl;
+          }
           this.calls.push(["supply-click"]);
         },
         getAttribute: async (attribute) => {
@@ -134,14 +144,44 @@ class FakePage extends EventEmitter {
     throw new Error(`Unexpected role ${options.name}`);
   }
 
-  async waitForURL(matcher, options) {
-    assert.equal(matcher(new URL(this.currentUrl)), true);
-    assert.deepEqual(options, { waitUntil: "commit" });
-    this.calls.push(["wait-for-url", this.currentUrl]);
+  async waitForFunction(predicate, argument) {
+    this.assertSupplyTabArgument(argument);
+    assert.equal(this.supplySelected, true);
+    const stateMatches = () => this.supplyTabStateMatches(predicate, argument);
+    if (this.competingNavigation) {
+      assert.equal(stateMatches(), false);
+      this.calls.push(["competing-navigation", this.currentUrl]);
+      this.currentUrl = this.pendingSupplyUrl;
+    }
+    assert.equal(stateMatches(), true);
+    this.calls.push(["wait-for-function", this.currentUrl]);
+  }
+
+  assertSupplyTabArgument(argument) {
+    assert.deepEqual(argument, {
+      expectedOrigin: new URL(this.values.deploymentUrl).origin,
+      expectedTabLabel: "Supply",
+      expectedTabValue: "stablecoins",
+    });
+  }
+
+  supplyTabStateMatches(predicate, argument) {
+    return predicate({
+      ...argument,
+      currentHref: this.currentUrl,
+      selectedTabLabel: this.supplySelected ? "Supply" : "Overview",
+    });
+  }
+
+  async evaluate(predicate, argument) {
+    this.assertSupplyTabArgument(argument);
+    this.calls.push(["evaluate-supply-state", this.currentUrl]);
+    return this.supplyTabStateMatches(predicate, argument);
   }
 
   async waitForLoadState(state) {
     assert.equal(state, "load");
+    this.loadComplete = true;
     this.calls.push(["load"]);
   }
 
@@ -184,6 +224,69 @@ test("Reserve browser smoke renders runtime data and changes the Supply tab stat
   assert.equal(result.interaction, "overview-data-and-supply-tab");
   assert.equal(page.supplySelected, true);
   assert.ok(page.calls.some(([name]) => name === "supply-data"));
+  assert.ok(
+    page.calls.findIndex(([name]) => name === "load") <
+      page.calls.findIndex(([name]) => name === "supply-click"),
+  );
+});
+
+test("Reserve browser smoke does not latch onto a competing root navigation", async () => {
+  const values = controllerTuple("reserve");
+  const page = new FakePage(values, { competingNavigation: true });
+  const result = await runBrowserSmoke({
+    chromium: fakeChromium(page).chromium,
+    values,
+  });
+
+  assert.equal(result.interaction, "overview-data-and-supply-tab");
+  assert.ok(page.calls.some(([name]) => name === "competing-navigation"));
+  assert.ok(page.calls.some(([name]) => name === "wait-for-function"));
+  assert.equal(new URL(page.url()).searchParams.get("tab"), "stablecoins");
+});
+
+test("Reserve browser smoke rejects a late same-origin return to Overview", async () => {
+  const values = controllerTuple("reserve");
+  const page = new FakePage(values, {
+    afterInteraction: (currentPage) => {
+      currentPage.currentUrl = values.deploymentUrl;
+      currentPage.supplySelected = false;
+      currentPage.calls.push(["late-overview-navigation"]);
+    },
+  });
+  const fake = fakeChromium(page);
+
+  await assert.rejects(
+    runBrowserSmoke({ chromium: fake.chromium, values }),
+    /Reserve Supply tab state did not persist after interaction settle/,
+  );
+  assert.equal(fake.state.closed, true);
+  assert.ok(page.calls.some(([name]) => name === "late-overview-navigation"));
+  assert.ok(page.calls.some(([name]) => name === "evaluate-supply-state"));
+});
+
+test("Reserve tab matcher binds the immutable origin, URL state, and selected tab", () => {
+  const expectedOrigin = "https://reservemento-abc123-mentolabs.vercel.app";
+  const validState = {
+    currentHref: `${expectedOrigin}/?tab=stablecoins`,
+    expectedOrigin,
+    expectedTabLabel: "Supply",
+    expectedTabValue: "stablecoins",
+    selectedTabLabel: "Supply",
+  };
+
+  assert.equal(reserveTabStateMatches(validState), true);
+  for (const invalidState of [
+    { currentHref: "https://example.com/?tab=stablecoins" },
+    { currentHref: `${expectedOrigin}/?tab=collateral` },
+    { currentHref: "not a URL" },
+    { selectedTabLabel: "Overview" },
+    { selectedTabLabel: null },
+  ]) {
+    assert.equal(
+      reserveTabStateMatches({ ...validState, ...invalidState }),
+      false,
+    );
+  }
 });
 
 test("App browser smoke uses system Chrome when explicitly requested", async () => {
@@ -284,6 +387,22 @@ test("browser smoke closes Chromium after an interaction-time failure", async ()
   await assert.rejects(
     runBrowserSmoke({ chromium: fake.chromium, values }),
     /late hydration failure/,
+  );
+  assert.equal(fake.state.closed, true);
+});
+
+test("browser smoke rejects a late cross-origin redirect after interaction", async () => {
+  const values = controllerTuple("reserve");
+  const page = new FakePage(values, {
+    afterInteraction(currentPage) {
+      currentPage.currentUrl = "https://example.com/?tab=stablecoins";
+    },
+  });
+  const fake = fakeChromium(page);
+
+  await assert.rejects(
+    runBrowserSmoke({ chromium: fake.chromium, values }),
+    /escaped the immutable preview origin after interaction/,
   );
   assert.equal(fake.state.closed, true);
 });

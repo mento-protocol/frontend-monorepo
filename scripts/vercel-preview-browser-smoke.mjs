@@ -111,6 +111,35 @@ function requireSecurityHeaders(response) {
   }
 }
 
+export function reserveTabStateMatches({
+  currentHref = window.location.href,
+  expectedOrigin,
+  expectedTabLabel,
+  expectedTabValue,
+  selectedTabLabel = document
+    .querySelector('[role="tab"][aria-selected="true"]')
+    ?.textContent?.trim(),
+}) {
+  try {
+    const currentUrl = new URL(currentHref);
+    return (
+      currentUrl.origin === expectedOrigin &&
+      currentUrl.searchParams.get("tab") === expectedTabValue &&
+      selectedTabLabel === expectedTabLabel
+    );
+  } catch {
+    return false;
+  }
+}
+
+function reserveSupplyTabState(expectedOrigin) {
+  return {
+    expectedOrigin,
+    expectedTabLabel: "Supply",
+    expectedTabValue: "stablecoins",
+  };
+}
+
 async function runTargetInteraction(page, target, deploymentUrl) {
   if (target === "reserve") {
     const overview = page.getByRole("tab", { name: "Overview", exact: true });
@@ -123,11 +152,9 @@ async function runTargetInteraction(page, target, deploymentUrl) {
       .waitFor({ state: "visible" });
     const supply = page.getByRole("tab", { name: "Supply", exact: true });
     await supply.click();
-    await page.waitForURL(
-      (currentUrl) =>
-        currentUrl.origin === deploymentUrl.origin &&
-        currentUrl.searchParams.get("tab") === "stablecoins",
-      { waitUntil: "commit" },
+    await page.waitForFunction(
+      reserveTabStateMatches,
+      reserveSupplyTabState(deploymentUrl.origin),
     );
     if (new URL(page.url()).searchParams.get("tab") !== "stablecoins") {
       throw new Error("Reserve Supply tab URL state did not persist");
@@ -177,13 +204,31 @@ export async function runBrowserSmoke({
       throw new Error("Browser smoke escaped the immutable preview origin");
     }
     requireSecurityHeaders(response);
+    // The tab shell is server rendered. Wait for all deferred client scripts
+    // before clicking so the first interaction cannot race React hydration.
+    await page.waitForLoadState("load");
     const interaction = await runTargetInteraction(
       page,
       tuple.logicalTarget,
       baseUrl,
     );
-    await page.waitForLoadState("load");
     await page.waitForTimeout(250);
+    if (new URL(page.url()).origin !== baseUrl.origin) {
+      throw new Error(
+        "Browser smoke escaped the immutable preview origin after interaction",
+      );
+    }
+    if (
+      tuple.logicalTarget === "reserve" &&
+      !(await page.evaluate(
+        reserveTabStateMatches,
+        reserveSupplyTabState(baseUrl.origin),
+      ))
+    ) {
+      throw new Error(
+        "Reserve Supply tab state did not persist after interaction settle",
+      );
+    }
     monitor.assertClean();
     return {
       logicalTarget: tuple.logicalTarget,

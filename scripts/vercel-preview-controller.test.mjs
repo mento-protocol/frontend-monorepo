@@ -1417,6 +1417,125 @@ test("coalescing needs an immutable later selection receipt", () => {
   assert.match(withProof.state.status_decisions[1].description, /ui=coalesced/);
 });
 
+test("an unaffected target inherits its prior runtime coalescing proof", () => {
+  const events = [
+    event({
+      run: 60,
+      action: "opened",
+      head: SHA.A,
+      targets: PREVIEW_TARGETS,
+      updated: timestamp(1),
+    }),
+    event({
+      run: 61,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      targets: PREVIEW_TARGETS,
+      updated: timestamp(2),
+    }),
+    event({
+      run: 62,
+      action: "synchronize",
+      before: SHA.B,
+      head: SHA.C,
+      targets: ["app", "governance", "reserve"],
+      updated: timestamp(3),
+    }),
+    event({
+      run: 63,
+      action: "synchronize",
+      before: SHA.C,
+      head: SHA.D,
+      targets: ["ui"],
+      updated: timestamp(4),
+    }),
+    event({
+      run: 64,
+      action: "synchronize",
+      before: SHA.D,
+      head: SHA.E,
+      runtime: false,
+      updated: timestamp(5),
+    }),
+  ];
+  const pullRequest = pull({ head: SHA.E, updated: timestamp(5) });
+  const selectedA = reconcile({ events, pullRequest });
+  const activeA = persistAllIntents(selectedA);
+  const resultsA = selectedA.nextDispatches.map((dispatch, index) =>
+    result(dispatch, { runId: 8_060 + index }),
+  );
+  const selectionsA = PREVIEW_TARGETS.map((target) =>
+    selectionReceiptFromDispatch(activeA.targets[target].active),
+  );
+
+  const selectedLatest = reconcile({
+    events,
+    results: resultsA,
+    selections: selectionsA,
+    pullRequest,
+    existingState: activeA,
+  });
+  assert.deepEqual(
+    selectedLatest.nextDispatches.map(({ target, sha }) => ({ target, sha })),
+    [
+      { target: "app", sha: SHA.C },
+      { target: "governance", sha: SHA.C },
+      { target: "reserve", sha: SHA.C },
+      { target: "ui", sha: SHA.D },
+    ],
+  );
+  const activeLatest = persistAllIntents(selectedLatest);
+  const selectionsLatest = PREVIEW_TARGETS.map((target) =>
+    selectionReceiptFromDispatch(activeLatest.targets[target].active),
+  );
+  const resultsLatest = selectedLatest.nextDispatches.map((dispatch, index) =>
+    result(dispatch, { runId: 8_070 + index }),
+  );
+
+  const terminal = reconcile({
+    events,
+    results: [...resultsA, ...resultsLatest],
+    selections: [...selectionsA, ...selectionsLatest],
+    pullRequest,
+    existingState: activeLatest,
+  });
+  const decisions = new Map(
+    terminal.state.status_decisions.map((decision) => [decision.sha, decision]),
+  );
+  assert.deepEqual(decisions.get(SHA.A).targets, {
+    app: "deployed",
+    governance: "deployed",
+    reserve: "deployed",
+    ui: "deployed",
+  });
+  assert.deepEqual(decisions.get(SHA.B).targets, {
+    app: "coalesced",
+    governance: "coalesced",
+    reserve: "coalesced",
+    ui: "coalesced",
+  });
+  assert.deepEqual(decisions.get(SHA.C).targets, {
+    app: "deployed",
+    governance: "deployed",
+    reserve: "deployed",
+    ui: "coalesced",
+  });
+  assert.equal(decisions.get(SHA.C).state, "success");
+  assert.deepEqual(decisions.get(SHA.D).targets, {
+    app: "runtime-equivalent",
+    governance: "runtime-equivalent",
+    reserve: "runtime-equivalent",
+    ui: "deployed",
+  });
+  assert.deepEqual(decisions.get(SHA.E).targets, {
+    app: "runtime-equivalent",
+    governance: "runtime-equivalent",
+    reserve: "runtime-equivalent",
+    ui: "runtime-equivalent",
+  });
+});
+
 test("more than 25 pushes converge from first preview to latest with compact proof", () => {
   const shas = Array.from({ length: 31 }, (_, index) =>
     (index + 16).toString(16).padStart(40, "0"),
