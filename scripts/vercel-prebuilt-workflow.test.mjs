@@ -29,6 +29,7 @@ import {
   assertPrebuiltReadyForUpload,
   assertPulledProject,
   assertSafeVercelArguments,
+  assertSharpPrebuiltArtifacts,
   assertVercelPullStaging,
   assertVercelInspection,
   buildVercelBuildArguments,
@@ -59,6 +60,7 @@ import {
   validateSourceCheckout,
   withValidatedPrebuiltUpload,
 } from "./vercel-prebuilt-workflow.mjs";
+import { sharpRuntimePlatform } from "./next-sharp-output-tracing.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const DEPLOYMENT_ID = "m-ui-0123456789abcdef012";
@@ -67,6 +69,48 @@ const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const BUILD_ENVIRONMENT_SCRIPT = fileURLToPath(
   new URL("./vercel-build-environment.mjs", import.meta.url),
 );
+
+function writeSharpRuntimeArtifacts(
+  outputDirectory,
+  platform = sharpRuntimePlatform(),
+  functionName = "api.func",
+) {
+  const functionDirectory = join(outputDirectory, "functions", functionName);
+  const nativeDirectory = join(
+    functionDirectory,
+    "node_modules",
+    ".pnpm",
+    `@img+sharp-${platform}@0.35.3`,
+    "node_modules",
+    "@img",
+    `sharp-${platform}`,
+    "lib",
+  );
+  const libvipsDirectory = join(
+    functionDirectory,
+    "node_modules",
+    ".pnpm",
+    `@img+sharp-libvips-${platform}@1.3.2`,
+    "node_modules",
+    "@img",
+    `sharp-libvips-${platform}`,
+  );
+  mkdirSync(nativeDirectory, { recursive: true });
+  mkdirSync(join(libvipsDirectory, "lib"), { recursive: true });
+  const nativeAddon = join(nativeDirectory, `sharp-${platform}-0.35.3.node`);
+  const sharedLibrary = join(
+    libvipsDirectory,
+    "lib",
+    platform.startsWith("darwin-")
+      ? "libvips-cpp.8.18.3.dylib"
+      : "libvips-cpp.so.8.18.3",
+  );
+  const versionsManifest = join(libvipsDirectory, "versions.json");
+  writeFileSync(nativeAddon, "native");
+  writeFileSync(sharedLibrary, "libvips");
+  writeFileSync(versionsManifest, JSON.stringify({ vips: "8.18.3" }));
+  return { nativeAddon, sharedLibrary, versionsManifest };
+}
 
 function checkUiPreviewEnvironment(projectDirectory) {
   return execFileSync(
@@ -132,6 +176,7 @@ function uploadFixture(logicalTarget = "ui") {
     join(outputDirectory, "builds.json"),
     JSON.stringify({ target: "preview", cliVersion: "56.2.0" }),
   );
+  writeSharpRuntimeArtifacts(outputDirectory);
   mkdirSync(join(outputDirectory, "static", "nested"), { recursive: true });
   writeFileSync(join(outputDirectory, "static", "nested", "asset.js"), "ok");
   writeFileSync(
@@ -2840,6 +2885,7 @@ test("pulled project and prebuilt output bind the configured UI root and build I
       join(outputDirectory, "builds.json"),
       JSON.stringify({ target: "preview", cliVersion: "56.2.0" }),
     );
+    writeSharpRuntimeArtifacts(outputDirectory);
     assert.equal(
       assertPulledProject({
         repoRoot: directory,
@@ -2879,6 +2925,60 @@ test("pulled project and prebuilt output bind the configured UI root and build I
           vercelProjectId: "prj_example",
         }),
       /does not match/,
+    );
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("prebuilt output requires matching sharp and libvips runtime artifacts", () => {
+  const directory = mkdtempSync(join(tmpdir(), "vercel-sharp-output-"));
+  try {
+    const artifacts = writeSharpRuntimeArtifacts(directory, "linux-x64");
+    writeSharpRuntimeArtifacts(directory, "win32-arm64");
+    assert.deepEqual(
+      assertSharpPrebuiltArtifacts(directory, {
+        runtimePlatform: "linux-x64",
+      }),
+      artifacts,
+    );
+    rmSync(artifacts.nativeAddon);
+    rmSync(artifacts.sharedLibrary);
+    assert.throws(
+      () =>
+        assertSharpPrebuiltArtifacts(directory, {
+          runtimePlatform: "linux-x64",
+        }),
+      /missing sharp 0\.35\.3.*libvips 8\.18\.3/,
+    );
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("prebuilt output rejects sharp artifacts split across functions", () => {
+  const directory = mkdtempSync(join(tmpdir(), "vercel-sharp-split-output-"));
+  try {
+    const nativeFunction = writeSharpRuntimeArtifacts(
+      directory,
+      "linux-x64",
+      "native.func",
+    );
+    const libvipsFunction = writeSharpRuntimeArtifacts(
+      directory,
+      "linux-x64",
+      "libvips.func",
+    );
+    rmSync(nativeFunction.sharedLibrary);
+    rmSync(nativeFunction.versionsManifest);
+    rmSync(libvipsFunction.nativeAddon);
+
+    assert.throws(
+      () =>
+        assertSharpPrebuiltArtifacts(directory, {
+          runtimePlatform: "linux-x64",
+        }),
+      /missing sharp 0\.35\.3.*libvips 8\.18\.3/,
     );
   } finally {
     rmSync(directory, { force: true, recursive: true });
@@ -3095,7 +3195,7 @@ test("upload guard rejects unsafe links, special nodes, and runner-writable stat
       name: "absolute symbolic link",
       mutate: ({ outputDirectory }) => {
         const functionsDirectory = join(outputDirectory, "functions");
-        mkdirSync(functionsDirectory);
+        mkdirSync(functionsDirectory, { recursive: true });
         symlinkSync(
           join(outputDirectory, "static", "nested", "asset.js"),
           join(functionsDirectory, "absolute.func"),
@@ -3114,7 +3214,7 @@ test("upload guard rejects unsafe links, special nodes, and runner-writable stat
       name: "function symbolic link outside functions",
       mutate: ({ outputDirectory }) => {
         const functionsDirectory = join(outputDirectory, "functions");
-        mkdirSync(functionsDirectory);
+        mkdirSync(functionsDirectory, { recursive: true });
         mkdirSync(join(outputDirectory, "static", "outside.func"));
         symlinkSync(
           "../static/outside.func",
@@ -3126,7 +3226,7 @@ test("upload guard rejects unsafe links, special nodes, and runner-writable stat
       name: "escaping relative symbolic link",
       mutate: ({ outputDirectory }) => {
         const functionsDirectory = join(outputDirectory, "functions");
-        mkdirSync(functionsDirectory);
+        mkdirSync(functionsDirectory, { recursive: true });
         const path = join(functionsDirectory, "escape.func");
         symlinkSync(relative(dirname(path), "/etc/passwd"), path);
       },
@@ -3135,7 +3235,7 @@ test("upload guard rejects unsafe links, special nodes, and runner-writable stat
       name: "broken symbolic link",
       mutate: ({ outputDirectory }) => {
         const functionsDirectory = join(outputDirectory, "functions");
-        mkdirSync(functionsDirectory);
+        mkdirSync(functionsDirectory, { recursive: true });
         symlinkSync("missing.func", join(functionsDirectory, "broken.func"));
       },
     },
@@ -3143,7 +3243,7 @@ test("upload guard rejects unsafe links, special nodes, and runner-writable stat
       name: "cyclic symbolic link",
       mutate: ({ outputDirectory }) => {
         const functionsDirectory = join(outputDirectory, "functions");
-        mkdirSync(functionsDirectory);
+        mkdirSync(functionsDirectory, { recursive: true });
         symlinkSync("cycle-b.func", join(functionsDirectory, "cycle-a.func"));
         symlinkSync("cycle-a.func", join(functionsDirectory, "cycle-b.func"));
       },
@@ -3152,7 +3252,7 @@ test("upload guard rejects unsafe links, special nodes, and runner-writable stat
       name: "function symbolic link to a file",
       mutate: ({ outputDirectory }) => {
         const functionsDirectory = join(outputDirectory, "functions");
-        mkdirSync(functionsDirectory);
+        mkdirSync(functionsDirectory, { recursive: true });
         writeFileSync(
           join(functionsDirectory, "target.func"),
           "not a directory",
@@ -3186,7 +3286,7 @@ test("upload guard rejects unsafe links, special nodes, and runner-writable stat
       name: "output-root symbolic link",
       mutate: ({ outputDirectory }) => {
         const functionsDirectory = join(outputDirectory, "functions");
-        mkdirSync(functionsDirectory);
+        mkdirSync(functionsDirectory, { recursive: true });
         symlinkSync("..", join(functionsDirectory, "root.func"));
       },
     },

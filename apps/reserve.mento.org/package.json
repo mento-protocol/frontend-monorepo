@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "next build --turbopack",
+    "postbuild": "node ../../scripts/assert-next-sharp-trace.mjs .next",
     "check-types": "NEXT_PUBLIC_STORAGE_URL=https://example.com NEXT_PUBLIC_SENTRY_DSN_RESERVE= SENTRY_AUTH_TOKEN= next typegen && tsc --noEmit",
     "clean": "rm -rf .next && rm -rf .turbo",
     "dev": "next dev --turbopack --port 3001",
