@@ -140,6 +140,9 @@ pnpm adr:check:test
 # Test the network-free Vercel planning and prebuilt-build primitives
 pnpm vercel:primitives:test
 
+# Test canonical read-only Vercel state and guarded alias-drift evidence
+pnpm vercel:deployment-state:test
+
 # Test the manual UI prebuilt workflow, GitHub Deployment lifecycle, and smoke controller
 pnpm vercel:workflow:test
 

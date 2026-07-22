@@ -1,0 +1,39 @@
+{
+  "aliasResponse": {
+    "alias": "governance.mento.org",
+    "deploymentId": "dpl_governance123",
+    "projectId": "prj_governance123"
+  },
+  "deploymentResponse": {
+    "id": "dpl_governance123",
+    "url": "governance-immutable.vercel.app",
+    "projectId": "prj_governance123",
+    "name": "governance.mento.org",
+    "readyState": "READY",
+    "target": "production",
+    "meta": {
+      "githubCommitOrg": "mento-protocol",
+      "githubCommitRepo": "frontend-monorepo",
+      "githubCommitRef": "main",
+      "githubCommitSha": "0123456789abcdef0123456789abcdef01234567"
+    }
+  },
+  "aliasesResponse": {
+    "aliases": [
+      { "alias": "governance.mento.org" },
+      { "alias": "governance-immutable.vercel.app" }
+    ]
+  },
+  "expected": {
+    "projectId": "prj_governance123",
+    "projectName": "governance.mento.org",
+    "target": "production",
+    "customEnvironmentSlug": null,
+    "git": {
+      "org": "mento-protocol",
+      "repo": "frontend-monorepo",
+      "ref": "main",
+      "sha": "0123456789abcdef0123456789abcdef01234567"
+    }
+  }
+}

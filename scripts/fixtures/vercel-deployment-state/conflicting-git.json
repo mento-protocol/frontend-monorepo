@@ -1,0 +1,9 @@
+{
+  "fixture": "valid-production.json",
+  "gitSource": {
+    "org": "mento-protocol",
+    "repo": "frontend-monorepo",
+    "ref": "main",
+    "sha": "ffffffffffffffffffffffffffffffffffffffff"
+  }
+}
