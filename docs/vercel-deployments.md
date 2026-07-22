@@ -1053,6 +1053,13 @@ legacy/unnumbered journal or a first strict `synchronize`, `edited`, or `closed`
 receipt requires bootstrap. There is no legacy admission reader or
 branch-scoped fallback.
 
+Event and bootstrap receipts persist the workflow-monotonic run number when
+GitHub supplies it. Already-persisted v2 receipts without `event_run_number`
+retain their existing canonical journal digests, but they cannot establish or
+advance the global admission cursor. A legacy cursorless journal therefore
+requires the explicit numbered bootstrap described below before another
+lifecycle event may mutate it.
+
 When a later event is appended, a terminal journal with no active or retired
 worker and no unfinished evidence may fold its completed prefix into one
 deterministic in-place checkpoint only after the Actions admission proof is

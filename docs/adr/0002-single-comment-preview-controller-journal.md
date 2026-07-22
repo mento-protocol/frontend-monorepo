@@ -236,6 +236,16 @@ authenticated write-free no-ops, while every later run remains part of the
 global admission interval. A subsequent valid `reopened` event starts a new
 epoch from the terminal anchor.
 
+As precursor evidence for stronger gap detection, every `pull_request_target`
+run uses a strict machine-readable title that binds run ID, workflow-monotonic
+run number, PR, action, head SHA, synchronize `before` SHA, and whether a receipt
+is required. Dependabot events and unrelated edits encode `receipt=false`,
+matching the jobs that do not append a controller receipt. New event and
+bootstrap receipts persist the run number when it is available. This precursor
+does not query Actions, establish an admission frontier, or alter reconciliation
+behavior; existing v2 receipts without the optional field remain valid and keep
+their canonical digest.
+
 GitHub currently bounds `queue: max` at 100 pending jobs. The controller must
 keep journal mutations short and expose queue pressure during canaries. When
 only the live pull request's current operational snapshot is awaiting its

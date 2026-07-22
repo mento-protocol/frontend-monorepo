@@ -422,9 +422,11 @@ test("trusted snapshot entrypoints emit bounded event and bootstrap outputs", as
       pull_request: openedPull,
     },
     runId: 1,
+    runNumber: 10,
     core,
   });
   assert.equal(eventSnapshot.event_action, "opened");
+  assert.equal(eventSnapshot.event_run_number, 10);
   assert.equal(outputs.get("pr_number"), "519");
   assert.equal(outputs.get("head_sha"), SHA.A);
   assert.equal(outputs.get("plan_required"), "true");
@@ -617,6 +619,31 @@ test("receipt schema distinguishes lifecycle fields and synchronize before -> he
   assert.equal(synchronized.plan.base, SHA.A);
   assert.equal(synchronized.plan.head, SHA.B);
   assert.equal(synchronized.plan.planner_source_sha, SHA.E);
+});
+
+test("event run numbers are optional without changing persisted v2 receipt digests", () => {
+  const legacy = event({
+    run: 101,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  delete legacy.base_ref;
+  assert.equal(Object.hasOwn(legacy, "event_run_number"), false);
+  assert.equal(
+    createPreviewJournal({ pr: 519, events: [legacy] }).journal_digest,
+    "5e900812f56fdb504f5188970a09c5d153a070b3212bc0889016f5883680f697",
+  );
+
+  const numbered = validateEventReceipt({
+    ...structuredClone(legacy),
+    event_run_number: 55,
+  });
+  assert.equal(numbered.event_run_number, 55);
+  assert.throws(
+    () => validateEventReceipt({ ...numbered, event_run_number: 0 }),
+    /Event run number/,
+  );
 });
 
 test("v2 is the only internal journal and controller schema while external keys stay v1", () => {
@@ -1755,7 +1782,7 @@ test("fork and Dependabot events succeed unsupported without dispatch", () => {
 test("controller and prebuilt worker agree that refs/* head names are unsupported", () => {
   assert.throws(() => validateGitBranch("refs/foo"), /option-like/);
   const unsupported = event({
-    run: 92,
+    run: 94,
     action: "opened",
     head: SHA.A,
     updated: timestamp(1),
