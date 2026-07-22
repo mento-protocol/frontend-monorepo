@@ -455,11 +455,15 @@ The repository is set up with GitHub Actions for CI:
   performs only the worker-dispatch POST so terminal `workflow_run` callbacks
   are created; the normal job token still owns all state and recovery calls.
   GitHub Actions is the sole automatic branch-preview owner for App,
-  Governance, Reserve, and UI. The App configuration change is not an accepted
-  live cutover until its exact-head and post-merge canary gates pass; publishing
-  this change also requires the prior Governance post-merge canary to pass.
-  Vercel Git still owns every `main`/production deployment and App `v2`; App's
-  custom `v3` deployment semantics are unchanged.
+  Governance, Reserve, and UI. App completed its final exact-head and fresh
+  post-merge canary gates in [PR #609](https://github.com/mento-protocol/frontend-monorepo/pull/609)
+  and [PR #610](https://github.com/mento-protocol/frontend-monorepo/pull/610),
+  respectively. Ordinary pull requests therefore have no native Vercel branch
+  preview path. Until the production cutover in
+  [issue #522](https://github.com/mento-protocol/frontend-monorepo/issues/522),
+  Vercel Git still owns every `main`/production deployment, including App's
+  `main -> v3` path, and the legacy App `v2 -> production` path remains native;
+  App's custom `v3` deployment semantics are unchanged.
   The version-controlled controller mode is `active`; per-target ownership and
   exact expected Vercel configurations are executable invariants. The trusted
   controller reads every selected target's bounded exact-head Vercel
@@ -468,8 +472,12 @@ The repository is set up with GitHub Actions for CI:
   is `github`; unknown or contradictory configuration fails closed.
   During rollback, `Vercel Preview` proves owner selection and journal drain
   only; native Vercel deployment status and browser evidence separately prove
-  that the preview works.
-  Vercel Git still owns every main/production deployment. See
+  that the preview works. The native `deployment_status` smoke adapter remains
+  solely for bounded App/Governance rollback verification and does not imply
+  that ordinary native branch previews remain enabled. Its removal is deferred
+  to the migration cleanup in
+  [issue #523](https://github.com/mento-protocol/frontend-monorepo/issues/523),
+  after the #522 production cutover and required observation period. See
   [ADR 0001](docs/adr/0001-github-actions-vercel-deployment-orchestration.md)
   for the accepted ownership boundary,
   [ADR 0002](docs/adr/0002-single-comment-preview-controller-journal.md) for

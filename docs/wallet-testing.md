@@ -234,15 +234,18 @@ deployed bundle lists the real wallet options and that the mock wallet can
 connect only on an allowlisted team preview host.
 
 GitHub-built workers call the reusable workflow directly before posting a
-successful canonical Deployment status. Before App cutover,
-`.github/workflows/preview-smoke.yml` handles App's still-native shadow-preview
-events; Governance enters it only during a bounded target-local rollback. After
-App cutover, both App and Governance enter only through those bounded rollback
-paths. The adapter accepts only the exact Vercel bot, exact
+successful canonical Deployment status. Ordinary previews for App, Governance,
+Reserve, and UI are now GitHub-owned. Before App cutover,
+`.github/workflows/preview-smoke.yml` handled App's native shadow-preview
+events; after cutover, both App and Governance enter it only during bounded
+target-local rollback. The adapter accepts only the exact Vercel bot, exact
 `Preview – <project>` environment, successful status, empty native Deployment
 payload, and exact project-slug team hostname. Every qualifying event runs the
 full smoke; the adapter does not query or reuse earlier statuses or use a lossy
-shared concurrency group, and has no PAT or Vercel credential.
+shared concurrency group, and has no PAT or Vercel credential. It is retained
+only for rollback proof and is removed during #523 cleanup after the #522
+production cutover and required observation period; its presence does not
+enable ordinary native branch previews.
 
 Run the wallet-specific portion locally against any live App or Governance
 preview URL:
